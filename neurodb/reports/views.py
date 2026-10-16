@@ -812,9 +812,17 @@ def database_dashboard(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 def _database_forecast_risk(database: Database) -> list[Any]:
+    """The database's indicators likely to fall short by December (its dashboard's card), as the Country
+    overview's card (:func:`_forecast_risk`): only while ActivityInfo is in use and for a database of this
+    year, with this year's forecasts. An archive's forecasts are no longer made (SPEC_HOME §8), and a past
+    year's December has passed: no card."""
+    from neurodb.indicators.services import activityinfo
     from neurodb.insights.services import at_risk
 
-    return at_risk(database_id=database.pk, limit=10)
+    this_year = years.this_year()
+    if not activityinfo.in_use() or years.number_of(database.reporting_year) != this_year:
+        return []
+    return at_risk(database_id=database.pk, limit=10, year=this_year)
 
 
 def _database_subtitle(database: Database) -> str:

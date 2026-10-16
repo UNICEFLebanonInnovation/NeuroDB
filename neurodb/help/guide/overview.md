@@ -140,7 +140,7 @@ pages in this guide, and not the Help assistant.
 | eTools Datamart | Partners, programme documents, funds reservations and grants, PD indicators and the partners' progress reports, HACT assurance (assessments, audits, spot checks), TPM visits, field monitoring (the findings of each visit, the checklist answers, the programme activities) and action points. |
 | eTools locations | The gazetteer: governorates, districts and cadasters with their P-codes. |
 | Compiler | Makani and Dirasa figures, youth programme figures and the Makani wellbeing flags (counts only, never a child). |
-| Country programme | The results framework and its progress, uploaded on the country programme page. |
+| Country programme | The results framework and its progress, added by an administrator in the administration (Country programme cycles) and shown on the country programme page. |
 | Knowledge base and library | Documents people add, library publications and country programme documents. |
 
 ## Why NeuroDB's figures may differ from Power BI

@@ -17,7 +17,9 @@ deliberate change of SPEC_HOME (§3.2 unless said), so a clean run still reports
 - the key figures' hints: each source with its months ("eTools 1,266,027 (Jan–Sep) · ActivityInfo 4,469,997
   (Jan–Aug): the larger of the two"), the long rules under "How it is counted" (``kpi__how``);
 - the build's new values ``impact.activityinfo_used``, ``etools_last_month``, ``activityinfo_first_month``,
-  ``activityinfo_last_month`` and ``not_yet``, and the context's ``year`` (a number, not the ReportingYear row);
+  ``activityinfo_last_month``, ``not_yet`` and ``not_started``, ``impact.monthly.etools_pds_to_date`` (the
+  programme documents adding a value from January to each month, the brief's coverage guard), and the
+  context's ``year`` (a number, not the ReportingYear row);
 - the governorate block's caption in ActivityInfo years ("eTools Jan–{M} · ActivityInfo Jan–{M2}: each governorate
   shows the larger of the two");
 - the ActivityInfo monthly series: None after its last month (September and October were 0), and no series at all

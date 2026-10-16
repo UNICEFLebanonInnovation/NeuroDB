@@ -307,7 +307,6 @@ def _compiler_rows(sources: dict[str, Any], setup: bool) -> list[dict[str, Any]]
 
 
 def _activityinfo_rows() -> list[dict[str, Any]]:
-    from neurodb.indicators.models import Database, MasterIndicator
     from neurodb.indicators.services import activityinfo, navigation
 
     state = activityinfo.state()
@@ -315,25 +314,17 @@ def _activityinfo_rows() -> list[dict[str, Any]]:
     # ActivityInfo year (never the bare address, which opens the reporting year ticked current)
     databases_url = navigation.archive(state)["databases_url"]
     if state.in_use and state.serving is not None:
-        pk = state.pks[state.serving]
-        shown = Database.objects.filter(reporting_year_id=pk, display=True)
-        last = shown.aggregate(last=Max("last_monthly_update_date"))["last"]
-        masters = MasterIndicator.objects.filter(database__in=shown, is_active=True).count()
-        return [
-            {
-                # no result tracked yet (no master indicator): the line says the records came in, never "0"
-                "kind": "activityinfo",
-                "year": state.serving,
-                "masters": masters,
-                "last": timezone.localtime(last).date() if last else None,
-                "url": databases_url,
-            }
-        ]
+        return [_activityinfo_row(state.serving, state.pks[state.serving], databases_url)]
     if state.in_use:
-        # set "In use" (or the import serving a year) while the year ticked current has no record yet: in use,
-        # as the menu says, never "archive"; nothing to link to without a reporting year ticked current
+        # set "In use" while the import serves no year of records (this year has none; last year only during
+        # January): in use, as the menu says, never "archive". The reporting year ticked current (what the
+        # import reads) is named: with its records, as any ActivityInfo year; without them, waiting for its
+        # first ones. Nothing to link to without a reporting year ticked current
         if not state.current_name:
             return []
+        current = next((year for year, name in state.names.items() if name == state.current_name), None)
+        if current is not None:  # the year ticked current has records (Rule 1)
+            return [_activityinfo_row(current, state.pks[current], _databases_url(state.current_name))]
         return [
             {
                 "kind": "activityinfo_waiting",
@@ -350,6 +341,24 @@ def _activityinfo_rows() -> list[dict[str, Any]]:
             }
         ]
     return []
+
+
+def _activityinfo_row(year: int, reporting_year_pk: int, url: str) -> dict[str, Any]:
+    """The in-use line of one ActivityInfo year (one with records): its results tracked against targets (the
+    active master indicators of its displayed databases) and its last import; no result tracked yet (no
+    master indicator): the line says the records came in, never "0"."""
+    from neurodb.indicators.models import Database, MasterIndicator
+
+    shown = Database.objects.filter(reporting_year_id=reporting_year_pk, display=True)
+    last = shown.aggregate(last=Max("last_monthly_update_date"))["last"]
+    masters = MasterIndicator.objects.filter(database__in=shown, is_active=True).count()
+    return {
+        "kind": "activityinfo",
+        "year": year,
+        "masters": masters,
+        "last": timezone.localtime(last).date() if last else None,
+        "url": url,
+    }
 
 
 def _databases_url(name: str) -> str:

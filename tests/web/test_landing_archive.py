@@ -167,6 +167,16 @@ def test_the_act_step_names_home_and_the_country_overview(client, history, setti
             assert '<span class="chip">Overview</span>' not in html
 
 
+def test_the_closing_band_names_home_as_the_page_signing_in_opens(client, history):
+    """Signed-in staff land on Home, so the closing band's invitation names it, in both states (R2
+    browser-N1: the "Act" step was fixed in round 1, this line was not)."""
+    for mode in (ActivityInfoSetting.Mode.ARCHIVED, ActivityInfoSetting.Mode.IN_USE):
+        _mode(mode)
+        html = _landing(client)
+        assert "Sign in to open Home and your section’s pages, or explore the resources" in html
+        assert "Sign in to open the country overview" not in html
+
+
 def test_no_activityinfo_tiles_when_archived_even_with_records_this_year(client, history, etools):
     """2026 has ActivityInfo records (its figures stay on the Country overview), but an archive shows no
     "…reporting in ActivityInfo this year" tile next to copy saying it is no longer updated."""

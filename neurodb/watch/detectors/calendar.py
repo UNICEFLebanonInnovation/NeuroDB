@@ -401,8 +401,11 @@ def rollovers(ctx: Context) -> Iterator[Candidate]:
         severity=severity,
         title=f"Population figures for {new}",
         detail=(
-            f"NeuroDB's pages move to {new} by themselves on 1 January. Add the newest population "
-            "estimates when they are published (step 5 of the yearly rollover in the operations guide)."
+            # Administrators have no shell and the admin only reloads bundled files, so the text says
+            # who adds a new year's file (step 5: a deploy; the start-up load picks it up).
+            f"NeuroDB's pages move to {new} by themselves on 1 January. When the newest population "
+            "estimates are published, ask the NeuroDB team to add the year's file; it loads by itself at "
+            "the next start (step 5 of the yearly rollover in the operations guide)."
         ),
         due_date=starts,
         scope=ADMINS,

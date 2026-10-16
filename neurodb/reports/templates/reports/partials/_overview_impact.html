@@ -1,6 +1,7 @@
 {% load i18n ui humanize %}
 {% comment %}ActivityInfo is named only where it counts (impact.activityinfo_used); January to April of this year with no
-children yet says so (impact.not_yet) in place of the governorate tiles and the coverage table.{% endcomment %}
+children yet says so (impact.not_yet) in place of the governorate tiles and the coverage table, as does a year that has
+not started (impact.not_started).{% endcomment %}
 {% with impact=data.impact ai=data.impact.activityinfo_used %}
 <div class="overview-row">
 <h2 class="section-heading">{% trans "Impact on children" %}</h2>
@@ -10,7 +11,7 @@ children yet says so (impact.not_yet) in place of the governorate tiles and the 
     <a class="panel__hint" href="{% url 'reports:pd_monitoring_map' %}?{{ keep_query }}">{% trans "Map" %} →</a>
   </div>
   {% if impact.not_yet %}
-  <p class="text-muted small mb-0">{% blocktrans with y=data.scope.year %}No partner report for {{ y }} yet: the first ones come after the first quarter.{% endblocktrans %} <a href="{% url 'reports:country_overview' %}?{{ previous_query }}">{% blocktrans with y=data.scope.year|add:"-1" %}See {{ y }}{% endblocktrans %} →</a></p>
+  <p class="text-muted small mb-0">{% if impact.not_started %}{% blocktrans with y=data.scope.year %}{{ y }} has not started.{% endblocktrans %}{% else %}{% blocktrans with y=data.scope.year %}No partner report for {{ y }} yet: the first ones come after the first quarter.{% endblocktrans %}{% endif %} <a href="{% url 'reports:country_overview' %}?{{ previous_query }}">{% blocktrans with y=data.scope.year|add:"-1" %}See {{ y }}{% endblocktrans %} →</a></p>
   {% elif impact.by_governorate %}
   <div class="gov-grid">
     {% for g in impact.by_governorate %}
@@ -56,7 +57,7 @@ children yet says so (impact.not_yet) in place of the governorate tiles and the 
     <span class="panel__hint">{% if ai %}{% trans "The larger of the two sources against the population of children; eTools adds each programme document's main indicator, and partners may reach the same children" %}{% else %}{% trans "Children reached against the population of children; eTools adds each programme document's main indicator, and partners may reach the same children" %}{% endif %}</span>
   </div>
   {% if impact.not_yet %}
-  <p class="text-muted small mb-0">{% blocktrans with y=data.scope.year %}No partner report for {{ y }} yet: the first ones come after the first quarter.{% endblocktrans %} <a href="{% url 'reports:country_overview' %}?{{ previous_query }}">{% blocktrans with y=data.scope.year|add:"-1" %}See {{ y }}{% endblocktrans %} →</a></p>
+  <p class="text-muted small mb-0">{% if impact.not_started %}{% blocktrans with y=data.scope.year %}{{ y }} has not started.{% endblocktrans %}{% else %}{% blocktrans with y=data.scope.year %}No partner report for {{ y }} yet: the first ones come after the first quarter.{% endblocktrans %}{% endif %} <a href="{% url 'reports:country_overview' %}?{{ previous_query }}">{% blocktrans with y=data.scope.year|add:"-1" %}See {{ y }}{% endblocktrans %} →</a></p>
   {% elif impact.by_governorate %}
   <div class="table-wrap"><table class="table table-sm table-hover" id="overview-coverage">
     <thead><tr>

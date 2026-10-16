@@ -127,9 +127,12 @@ def test_an_administrator_sees_decisions_tasks_and_setup_lines(client, admin_use
     page = _home(client, admin_user)
     words = _words(_main(page))
     assert "Needs a decision" in words
+    # R2 sweep-3: the Country programme page has no upload; the cycle is added in the administration
     assert (
-        "No country programme cycle yet: an administrator uploads it on the Country programme page." in words
+        "No country programme cycle yet: an administrator adds it in the administration; the Country programme "
+        "page says how." in words
     )
+    assert "uploads" not in words
     assert "Compiler is not connected" in words
     # a Viewer with staff status has nothing to set up: no muted line
     viewer = _user("staff-viewer", role="Viewer", staff=True)
@@ -316,8 +319,11 @@ def test_a_country_programme_cycle_out_of_today(client, admin_user, world, start
     CountryProgramme.objects.create(name="Cycle", start_year=start, end_year=end, current=True)
     words = _words(text(_home(client, admin_user).parts["programmes"]))
     assert expected in words
-    if end < 2026:
-        assert "An administrator uploads the next cycle on the Country programme page." in words
+    if end < 2026:  # R2 sweep-3: the cycle is added in the administration, not on the Country programme page
+        assert (
+            "An administrator adds the next cycle in the administration (Country programme cycles)." in words
+        )
+    assert "uploads" not in words
 
 
 def test_activityinfo_in_use_and_archived_lines(client, admin_user, world, activityinfo_in_use):
@@ -355,7 +361,7 @@ def test_a_management_member_sees_the_same_figures_on_home_and_the_overview(clie
     assert overview.context["selected"]["section"] == []
     # the build's key is the same: one stored build serves both pages
     scope = overview_service.Scope(year=2026, reporting_year=None, sections=[], governorate="")
-    assert overview_service._cache_key(scope, "stamp").startswith("overview:v14:2026:")
+    assert overview_service._cache_key(scope, "stamp").startswith("overview:v15:2026:")
 
 
 # ------------------------------------------------------------------------------------- ActivityInfo where it counts
@@ -567,26 +573,32 @@ def test_the_for_you_points_say_their_severity_in_words():
 
 @pytest.mark.parametrize("fmm", [True, False])
 def test_the_also_line_links_carry_homes_sections(client, admin_user, reviewed, settings, fmm):
-    """R1 browser-2: with a section chosen, the action points link carries it (the page then lists the same
-    open and overdue points); the field monitoring visits are said to be those to the scope's partners, the FMM
-    link carries the section, and the third-party pair, whose page has no section filter, is not a link."""
+    """R1 browser-2, changed for R2 browser-3 (the section's visits linked to Monitoring insights, which counts a
+    section's visits another way, and "these partners" named no one): with a section chosen, the action points link
+    carries it (the page then lists the same open and overdue points); the field monitoring visits say what they
+    count, the visits to partners with a programme document in the sections, and are not a link; nor is the
+    third-party pair, whose page has no section filter. With every section, each figure links to its page."""
     settings.FMM_ENABLED = fmm
     standing = text(_home(client, admin_user, "?section=Child+Protection").parts["standing"])
-    also = standing[standing.index("Also in 2026") :]
+    also = standing[standing.index("Also in 2026") : standing.index("</p>", standing.index("Also in 2026"))]
     points = reverse("reports:action_points")
     assert f'href="{points}?section=Child+Protection&amp;overdue=1&amp;priority=1"' in also
-    assert (
-        "field monitoring visit to these partners" in also
-        or "field monitoring visits to these partners" in also
-    )
+    words = _words(also)
+    assert re.search(
+        r"\d+ field monitoring visits? to partners with a programme document in Child Protection", words
+    ), words
+    assert "these partners" not in words
     monitoring = reverse("reports:monitoring")
     assert f'href="{monitoring}?' not in also  # the field monitoring page shows the whole country
-    if fmm:
-        assert f'href="{reverse("fmm:dashboard")}?section=Child+Protection&amp;year=2026"' in also
+    assert (
+        f'href="{reverse("fmm:dashboard")}' not in also
+    )  # Monitoring insights counts a section's visits otherwise
+    two = text(_home(client, admin_user, "?section=Child+Protection&section=Education").parts["standing"])
+    assert "to partners with a programme document in Child Protection, Education" in _words(two)
     country = text(_home(client, admin_user, "?section=").parts["standing"])
     also = country[country.index("Also in 2026") :]
     assert f'href="{points}?overdue=1&amp;priority=1"' in also
-    assert f'href="{monitoring}?year=2026"' in also and "to these partners" not in also
+    assert f'href="{monitoring}?year=2026"' in also and "partners" not in _words(also.split("</p>")[0])
     if fmm:
         assert f'href="{reverse("fmm:dashboard")}?section=&amp;year=2026"' in also
 
@@ -608,6 +620,39 @@ def test_activityinfo_in_use_without_this_years_records_is_never_called_an_archi
     assert "ActivityInfo archive" not in words
     assert "ActivityInfo 2026: in use, waiting for its first records" in words
     assert f'href="{reverse("reports:databases")}?year=2026"' in programmes
+
+
+def test_activityinfo_in_use_with_last_years_records_ticked_current_names_that_year(
+    client, admin_user, settings, activityinfo_in_use
+):
+    """R2 fixes-2: set "In use" while the reporting year ticked current is 2025, with a year of records, on 15
+    October 2026 (the import serves no year: 2026 has none). Home names 2025 as any ActivityInfo year, never "in
+    use, waiting for its first records" (the menu lists 2025 and its database)."""
+    from neurodb.facts.models import ActivityReportNew
+    from neurodb.indicators.models import Database, MasterIndicator, ReportingYear
+    from neurodb.indicators.services import activityinfo
+
+    settings.AI_ASSISTANT_ENABLED = False
+    make_overview_data()
+    ry25 = ReportingYear.objects.create(name="2025", year="2025", current=True)
+    db25 = Database.objects.create(
+        ai_id=202518, db_id="x2025", name="CP 2025", label="CP", username="", password="", reporting_year=ry25,
+        is_funded_by_unicef=False,
+    )  # fmt: skip
+    MasterIndicator.objects.create(database=db25, name="Children", awp_code="1", aggregation_method="SUM")
+    for month in range(1, 13):
+        ActivityReportNew.objects.create(
+            dbase=db25, database_ai_id="202518", indicator_id="i_a", indicator_value=5,
+            month_name=f"2025-{month:02d}-01", partner_label="P",
+        )  # fmt: skip
+    activityinfo.invalidate()
+    state = activityinfo.state()
+    assert state.in_use and state.serving is None and state.current_name == "2025" and 2025 in state.years
+    programmes = text(_home(client, admin_user).parts["programmes"])
+    words = _words(programmes)
+    assert "waiting for its first records" not in words and "ActivityInfo archive" not in words
+    assert "ActivityInfo 2025: 1 result tracked against targets" in words
+    assert f'href="{reverse("reports:databases")}?year=2025"' in programmes
 
 
 def test_activityinfo_in_use_with_records_and_no_result_has_no_zero(

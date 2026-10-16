@@ -326,3 +326,97 @@ def test_home_never_dates_the_end_of_activityinfo():
         "Partners reported their monthly results in ActivityInfo in past years and now report progress in "
         "eTools; the sidebar lists the years the archive holds."
     ) in text
+
+
+# ------------------------------------------------------------- the guide and OPERATIONS.md say what is drawn
+OPERATIONS = (guide.GUIDE_DIR.parents[2] / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
+OPERATIONS_WORDS = " ".join(OPERATIONS.split())
+
+
+def _operations_row(first_cell: str) -> str:
+    """The table row of docs/OPERATIONS.md whose first cell is ``first_cell``."""
+    rows = [line for line in OPERATIONS.splitlines() if line.startswith(f"| {first_cell} |")]
+    assert len(rows) == 1, first_cell
+    return rows[0]
+
+
+def test_the_guide_and_operations_describe_homes_also_line_as_it_is_drawn():
+    """With a section chosen, Home's visits are those to partners with a programme document in the
+    sections and are not a link (Monitoring insights counts a section's visits another way); the
+    third-party pair is not a link either, since the Field monitoring page shows the whole country. The
+    guide had the two pages the other way round, and the Help assistant answers from it (R2 fixes-3)."""
+    template = (
+        guide.GUIDE_DIR.parents[1] / "reports" / "templates" / "reports" / "partials" / "_home_also.html"
+    ).read_text(encoding="utf-8")
+    assert "to partners with a programme document in" in template  # what the two texts below describe
+    home = " ".join(GUIDE_TEXT["home"].split())
+    assert "the Monitoring insights page shows the whole country" not in home
+    assert "the Field monitoring page shows the whole country" in home
+    assert "the visits are those to partners with a programme document in that section" in home
+    assert "Monitoring insights counts a section's visits another way" in home
+    assert "the visits to that section's partners" not in home
+    row = _operations_row("*Where <who> stands in <year>*")
+    assert '"to these partners"' not in row and "which show the whole country, are then not links" not in row
+    assert "to partners with a programme document in <sections>" in row
+    assert "Monitoring insights counts a section's visits another way" in row
+    assert "the Field monitoring page shows the whole country" in row
+
+
+def test_operations_pages_in_parts_names_home_and_the_daily_review():
+    """The prose around the parts table still described the old site root: the overview's For you card,
+    three requests after the overview's frame, a brief without a reporting year (R2 sweep-2)."""
+    listed = OPERATIONS_WORDS[OPERATIONS_WORDS.index("These pages work this way:") :]
+    listed = listed[: listed.index(". ")]
+    assert "**Home**" in listed and "**daily review**" in listed and "**country overview**" in listed
+    assert "the overview's *For you* card" not in OPERATIONS_WORDS
+    assert OPERATIONS_WORDS.count("Home's *For you* card") == 2
+    assert "three small requests" not in OPERATIONS_WORDS
+    assert (
+        "the overview: the tiles and the charts come with the frame and What's new follows it, one small "
+        "request; Home: the key figures come with the frame, and *For you*, the decisions and the daily "
+        "review, *Since* and *Programmes and sources* follow, four small requests"
+    ) in OPERATIONS_WORDS
+    brief = _operations_row("Management brief, `/brief/`")
+    assert "without a reporting year" not in brief and "the empty state" not in brief.split("|")[2]
+
+
+def test_operations_says_the_database_forecast_card_follows_the_overviews():
+    """The database dashboard's forecast card shows only on this year's databases while ActivityInfo is in
+    use, as the overview's (R2 sweep-1)."""
+    assert "and on each database dashboard" not in OPERATIONS_WORDS
+    assert (
+        "card on the Country overview and on this year's database dashboards (this year only, while "
+        "ActivityInfo is in use; the overview's for the chosen sections)"
+    ) in OPERATIONS_WORDS
+    assert "the Country overview's and this year's database dashboards' forecast card (this year only)" in (
+        OPERATIONS_WORDS
+    )
+
+
+def test_the_guide_says_the_country_programme_is_added_in_the_administration():
+    """The Country programme page has no upload: an administrator adds the cycle in the administration
+    (its own empty state says so), and the Help assistant answers from this table (R2 sweep-3)."""
+    text = " ".join(GUIDE_TEXT["overview"].split())
+    assert "uploaded on the country programme page" not in text
+    assert (
+        "| Country programme | The results framework and its progress, added by an administrator in the "
+        "administration (Country programme cycles) and shown on the country programme page. |"
+    ) in text
+
+
+def test_operations_states_the_briefs_rules_as_they_now_are():
+    """The brief compares eTools over the same months of both years, guards the coverage both ways and
+    projects each source from its own last month, never holding a month not reported flat (R2 fixes-1,
+    brief-1, fixes-4: OPERATIONS.md is the docs group's, so it follows the brief's fixes here)."""
+    assert "flat (the total so far) to the current month" not in OPERATIONS_WORDS
+    for words in (
+        "eTools is compared over the same months of both years, from January to this year's last month "
+        "with a partner report",
+        "are still coming in (<n> programme documents so far, <m> in 2025)",
+        '"yet" only while the year runs',
+        'its period reads "2027 (not started)"',
+        "a month a source has not reported is never held at the total so far",
+    ):
+        assert words in OPERATIONS_WORDS, words
+    guide_text = " ".join(GUIDE_TEXT["briefs-and-overview"].split())
+    assert "while this year's partner reports for those months are still coming in" in guide_text

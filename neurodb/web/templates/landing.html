@@ -302,7 +302,7 @@
       <div class="lp-final lp-reveal">
         <img class="lp-final__mark" src="{% static 'img/logo-mark.png' %}" alt="" aria-hidden="true">
         <h2 class="lp-h2">{% trans "Ready to see the whole picture?" %}</h2>
-        <p>{% trans "Sign in to open the country overview and your section’s pages, or explore the resources that are available to everyone." %}</p>
+        <p>{% trans "Sign in to open Home and your section’s pages, or explore the resources that are available to everyone." %}</p>
         <div class="lp-cta justify-content-center">
           <a class="btn btn-light btn-lg" href="{% if user.is_authenticated %}{% url 'reports:overview' %}{% else %}{% url 'account_login' %}{% endif %}">{% if user.is_authenticated %}{% trans "Open NeuroDB" %}{% else %}{% trans "Sign in" %}{% endif %}</a>
           <a class="btn btn-outline-light btn-lg" href="#explore">{% trans "Quick links" %}</a>

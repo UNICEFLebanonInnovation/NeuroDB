@@ -75,11 +75,16 @@ def test_pace_bullets_carry_the_cp_target_and_the_projection_extends_the_pace(da
     )
     assert 490 <= bullet["expected"] <= 500 and pace["has_cp_targets"]
     projection = pace["projection"]
-    assert projection["actual_months"] == 7 and projection["target"] == 1000
+    assert projection["target"] == 1000
+    # R2 fixes-1 / brief-2 (changed): on 1 July the last eTools report is June's, so the solid line ends in June
+    # (July was drawn as reported, flat) and the pace is April to June's (200 / 3 a month), never July's empty
+    # month in it. ActivityInfo (records of January and February) is archived on the suite's day: not projected,
+    # its year ends at its total, and it does not pull the solid line back to February
+    assert projection["actual_months"] == 6 and projection["actual"] == {"eTools": 6, "ActivityInfo": 2}
     etools = projection["series"]["eTools"]
-    assert etools[:7] == [0, 0, 300, 300, 300, 500, 500]  # cumulative to July
-    assert etools[7] == 567 and etools[11] == 833  # + the average of May, June, July (67) per month
-    assert projection["series"]["ActivityInfo"][:2] == [150, 500]
+    assert etools[:6] == [0, 0, 300, 300, 300, 500]  # cumulative to June
+    assert etools[6] == 567 and etools[11] == 900  # + 67 a month from June
+    assert projection["series"]["ActivityInfo"] == [150, 500] + [500] * 10
 
 
 def test_confidence_per_section(data, reporting_year):
@@ -325,7 +330,9 @@ def test_page_renders_every_block(client_viewer, data, reporting_year):
     start = html.index('id="brief-sections-data"')  # every chart of the brief, in the sections part
     charts = json.loads(html[html.index(">", start) + 1 : html.index("</script>", start)])
     assert charts["bullets"][0]["cp_target"] == 2000
-    assert charts["projection"]["actual_months"] == datetime.date.today().month  # the page reads today
+    # the page reads today (R2 fixes-1: ``actual_months`` is now the sources' last reported month, so the current
+    # month is read from ``months_shown``)
+    assert charts["projection"]["months_shown"] == datetime.date.today().month
     assert (
         charts["quadrant"][0]["name"] == "Amel Association" and charts["flows"]["donors"][0]["name"] == "EU"
     )

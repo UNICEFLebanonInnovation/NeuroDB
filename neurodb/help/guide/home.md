@@ -38,12 +38,16 @@ Under the title: today's date and the sections the page shows (see
 - **Where your section stands** (or the country): the country overview's own five key figures for this
   year (children reached, programme documents, funds disbursed, cost per child, delivery status),
   exactly the figures the overview shows for the same sections, then a line *Also in* the year: field
-  monitoring visits (with a section chosen, the visits to that section's partners), third-party visits
-  done of those planned (left out when none is planned), and open action points with the high-priority
-  ones overdue. Their links open the field monitoring and action points pages on the same sections; the
-  Monitoring insights page shows the whole country, so with a section chosen its figures are not links.
-  *All the figures: Country overview* opens the overview on the same sections. Early in the year (January to April), until the first partner reports of the year come in,
-  the children reached tile says *Not yet* and links to last year.
+  monitoring visits, third-party visits done of those planned (left out when none is planned), and open
+  action points with the high-priority ones overdue. With a section chosen, the visits are those to
+  partners with a programme document in that section, and they are not a link (Monitoring insights
+  counts a section's visits another way); the third-party visits are not a link either, since the Field
+  monitoring page shows the whole country. The action points link opens that page on the same sections.
+  With every section, each figure links to its page: the visits to Monitoring insights (or to Field
+  monitoring, where Monitoring insights is not in the sidebar), the third-party visits to Field
+  monitoring. *All the figures: Country overview* opens the overview on the same sections. Early in the
+  year (January to April), until the first partner reports of the year come in, the children reached
+  tile says *Not yet* and links to last year.
 - **Programmes and sources**, for the whole country: the country programme cycle (which year of it, and
   how many of its indicators are on track), the Makani, Dirasa and youth figures from Compiler, and
   ActivityInfo (while it is in use, its year and last import; once it is an archive, a link to the

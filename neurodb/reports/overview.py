@@ -57,10 +57,11 @@ logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120  # a build, and the freshness strip
 OPTIONS_SECONDS = 600  # the filter bar's choices (they only change with a sync)
-CACHE_VERSION = 14  # 12: the sections and the governorate written as JSON in the build's key; 13: the data
+CACHE_VERSION = 15  # 12: the sections and the governorate written as JSON in the build's key; 13: the data
 # stamp as its fingerprint, which the parts' addresses carry (as_of); 14: the calendar year (the reporting
 # year of its ActivityInfo records, or none), the sources' months, January's "not yet", the freshness jobs in
-# its key
+# its key; 15: the programme documents adding a value from January to each month (the brief's coverage guard),
+# "not yet" and "not started" for a year that has not started
 FRESHNESS_JOBS = ("ai_data", "etools_datamart", "locations", "daily_review")
 NOT_YET_MONTHS = 4  # up to the end of April, a year with no eTools children yet says "Not yet", never 0
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -580,6 +581,7 @@ class _Builder:
         headline is the larger, never their sum."""
         etools_months = [0.0] * 12
         etools_to_date = [0.0] * 12
+        pds_to_date = [0] * 12  # the PDs whose main indicator has a value from January to each month
         etools_total = 0.0
         by_gov: dict[str, float] = defaultdict(float)
         gov_names: dict[str, str] = {}
@@ -598,7 +600,10 @@ class _Builder:
                 if month_value and 1 <= month <= 12:
                     etools_months[month - 1] += month_value
             for month in range(1, 13):
-                etools_to_date[month - 1] += self._to_month(row, month)
+                to_month = self._to_month(row, month)
+                etools_to_date[month - 1] += to_month
+                if to_month:
+                    pds_to_date[month - 1] += 1
             if not self._additive(row):
                 continue  # a max or an average across locations is not split by governorate
             for place in row.by_location.values():
@@ -664,10 +669,14 @@ class _Builder:
             "activityinfo_first_month": min(ai_months, default=0) if ai_used else 0,
             "activityinfo_last_month": max(ai_months, default=0) if ai_used else 0,
             # January to April of this year with no children yet: "Not yet", never a 0 (the first partner
-            # reports come after the first quarter); the key holds today, so it ends by itself
-            "not_yet": (
-                self.year == self.today.year and self.today.month <= NOT_YET_MONTHS and children == 0
+            # reports come after the first quarter); the key holds today, so it ends by itself. A year that
+            # has not started (a typed ``?year=`` of next year) is "Not yet" too, as on the brief
+            "not_yet": children == 0
+            and (
+                (self.year == self.today.year and self.today.month <= NOT_YET_MONTHS)
+                or self.year > self.today.year
             ),
+            "not_started": self.year > self.today.year,
             "children_rule": headline.TOTAL_RULE,
             # of children_etools, from Submitted reports not yet accepted (a send-back takes it off);
             # None with a governorate chosen (not split by place)
@@ -697,6 +706,9 @@ class _Builder:
                 # Reached from January to each month (what the months add up to for a summed indicator;
                 # a max or the latest is not added up)
                 "etools_to_date": [half_up(v) for v in etools_to_date],
+                # how many programme documents add a value from January to each month: the brief compares
+                # last year's coverage with this year's over the same months (its guard against a pilot year)
+                "etools_pds_to_date": pds_to_date,
                 "activityinfo": [half_up(v) for v in activityinfo["months"]],
             },
             "population_year": population_year,

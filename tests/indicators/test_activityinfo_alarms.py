@@ -470,9 +470,12 @@ ROLLOVER_DETAIL = (
     "jobs after 22 January; ActivityInfo then becomes an archive by itself (or set it to Archived in the "
     "admin: ActivityInfo: in use or archive)."
 )
+# Administrators have no shell and cannot add a year's population file in the app, so the text says who
+# takes that step (R2 sweep-4: text changed on purpose).
 POPULATION_DETAIL = (
-    "NeuroDB's pages move to 2027 by themselves on 1 January. Add the newest population estimates when they "
-    "are published (step 5 of the yearly rollover in the operations guide)."
+    "NeuroDB's pages move to 2027 by themselves on 1 January. When the newest population estimates are "
+    "published, ask the NeuroDB team to add the year's file; it loads by itself at the next start (step 5 "
+    "of the yearly rollover in the operations guide)."
 )
 
 

@@ -61,12 +61,14 @@ the selected year (calendar years) with the year before, in eight tabs:
   figures come from).
 - Values that cannot be right (above the child population of Lebanon, or more than 20 times their
   target) are left out, and the section's confidence is Low.
-- **Children reached** is compared like with like: the larger of the two sources in both years only
-  when ActivityInfo covered the same months in both (up to the last month its records of this year
-  reach); otherwise eTools alone ("eTools only"), and no comparison at all ("Not compared") against a
-  year with no eTools partner reports or with reports for too few programme documents, or for a year
-  that has not started. Early in the year, before the first partner reports come in, the tile reads
-  *Not yet*.
+- **Children reached** is compared like with like, over the same months of both years: eTools up to
+  this year's last month with a partner report (partners report every quarter), ActivityInfo up to the
+  last month its records of this year reach. The larger of the two sources is compared only when
+  ActivityInfo covered those months in both years; otherwise eTools alone ("eTools only"). There is no
+  comparison at all ("Not compared") against a year with no eTools partner reports or with reports for
+  too few programme documents, while this year's partner reports for those months are still coming in,
+  or for a year that has not started. Early in the year, before the first partner reports come in, the
+  tile reads *Not yet*.
 - **The page opens at once**: the filters, the *Figures as of* line, the tabs and the *Reference*
   block come first, with a grey box where the figures will go. The *Brief* tab's tiles, decisions and
   sections at a glance fill in first, then the six other tabs together, with their charts; you can
@@ -103,9 +105,10 @@ its own, [Daily review](/daily-review/), which says the time it runs; Home shows
 [Year-end forecasts](/insights/forecasts/) estimates, for each ActivityInfo master indicator of this year
 that adds up month by month, where it will likely stand in December, with a range: *On course*, *Likely
 to fall short* or *Uncertain*. Only months that ended more than 30 days ago count. Forecasts appear on
-the dashboards, the country overview and in Ask NeuroDB only once the method has proved itself on past
-years; they are always estimates with a range. They are worked out every Monday at 07:15.
+the dashboards of this year's databases, the country overview (this year) and in Ask NeuroDB only once
+the method has proved itself on past years; they are always estimates with a range. They are worked out every Monday at 07:15.
 
 Forecasts are made only while ActivityInfo is in use; once it is an archive the page keeps the last
-forecasts, marked as no longer updated ([ActivityInfo: in use or
+forecasts, marked as no longer updated, and the dashboards and the country overview show no forecast
+card ([ActivityInfo: in use or
 archive](/help/home/#activityinfo-in-use-or-archive)).

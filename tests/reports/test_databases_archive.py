@@ -14,6 +14,7 @@ from django.utils import timezone
 from neurodb.core.models import ScheduledJob
 from neurodb.indicators.models import Database
 from neurodb.indicators.services import activityinfo
+from tests.insights.test_forecast_archive import years_of_data  # noqa: F401 - the forecast fixture
 
 pytestmark = pytest.mark.django_db
 
@@ -73,3 +74,57 @@ def test_archived_no_database_is_stale_and_the_page_says_it_is_an_archive(
     assert "Stale" not in html and STALE_NOTE not in html and MONTHLY not in html
     assert (IMPORT_ON if import_on else IMPORT_OFF) in html
     assert (IMPORT_OFF if import_on else IMPORT_ON) not in html
+
+
+# ------------------------------------------------------------------------- the forecast card (R2 sweep-1)
+CARD = "Likely to fall short by December"
+
+
+@pytest.fixture
+def short_forecast(years_of_data):  # noqa: F811 - the fixture imported above
+    """The 2026 database (records to August: in use on the suite's day) with its year-end forecast shown and
+    likely short (the forecast fixture of ``tests/insights/test_forecast_archive.py``)."""
+    from neurodb.insights import services
+    from neurodb.insights.management.commands.forecast_indicators import run
+    from neurodb.insights.models import IndicatorForecast
+
+    run("test")
+    latest = services.latest_run()
+    latest.details["backtest"]["shown"] = True
+    latest.save()
+    IndicatorForecast.objects.update(status=IndicatorForecast.Status.SHORT, low=500, high=700)
+    return years_of_data
+
+
+def _dashboard(client, database) -> str:
+    response = client.get(reverse("reports:database_dashboard", args=[database.pk]))
+    assert response.status_code == 200
+    return response.content.decode()
+
+
+def test_the_database_forecast_card_only_while_in_use_and_for_this_year(client, admin_user, short_forecast):
+    """R2 sweep-1 (SPEC_HOME §8 rows 2, 3, 5 and 7): the database dashboard's "Likely to fall short by December"
+    card shows while ActivityInfo is in use, on this year's database, as the Country overview's card. Archived,
+    its forecasts are no longer made: no card."""
+    from neurodb.core.models import ActivityInfoSetting
+    from neurodb.insights.management.commands.forecast_indicators import run
+    from tests.insights.test_forecast_archive import _mode
+
+    client.force_login(admin_user)
+    assert activityinfo.in_use() and CARD in _dashboard(client, short_forecast)
+    _mode(ActivityInfoSetting.Mode.ARCHIVED)
+    run("test")  # skipped: the last forecasts are kept, for the forecasts page
+    assert CARD not in _dashboard(client, short_forecast)
+
+
+def test_a_past_years_database_has_no_forecast_card(client, admin_user, short_forecast, site_today):
+    """R2 sweep-1: on 5 January 2027, ActivityInfo set "In use" (the December import), the 2026 database's page no
+    longer says its indicators are likely to fall short by a December that has passed."""
+    from neurodb.core.models import ActivityInfoSetting
+    from tests.insights.test_forecast_archive import _mode
+
+    site_today.set(datetime.date(2027, 1, 5))
+    _mode(ActivityInfoSetting.Mode.IN_USE)
+    client.force_login(admin_user)
+    assert activityinfo.in_use()
+    assert CARD not in _dashboard(client, short_forecast)

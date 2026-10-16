@@ -40,6 +40,8 @@ def _colour(value: str, tokens: dict[str, str]) -> str:
         if not found:
             break
         value = tokens[found.group(1)]
+    if re.fullmatch(r"#[0-9a-fA-F]{3}", value):  # the short form, "#fff"
+        value = "#" + "".join(c * 2 for c in value[1:])
     assert re.fullmatch(r"#[0-9a-fA-F]{6}", value), value
     return value
 
@@ -94,6 +96,33 @@ def test_status_pills_are_readable(theme, state):
 def test_other_status_words_are_readable(theme, selector, fg_prop, bg_prop):
     fg, bg = _pair(selector, fg_prop, bg_prop, theme)
     assert _ratio(fg, bg) >= 4.5, (selector, theme, fg, bg, round(_ratio(fg, bg), 2))
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_year_menu_header_is_readable(theme):
+    """The year menu's header ("Year" / "ActivityInfo year", base.html) is the only text saying which years the menu
+    lists (SPEC_HOME §5). Bootstrap draws it in #6c757d in both themes, 3.94:1 on the dark menu (review R2
+    browser-1), so app.css gives it the muted token. The menu's background is Bootstrap's ``--bs-body-bg``: white in
+    the light theme (app.css leaves it), ``--nd-bg`` in the dark one."""
+    tokens = THEMES[theme]
+    fg = _colour(_declarations(_block(".dropdown-header"))["color"], tokens)
+    menu_bg = _colour(tokens.get("--bs-body-bg", "#ffffff"), tokens)
+    for bg in (menu_bg, _colour("var(--nd-surface)", tokens), _colour("var(--nd-bg)", tokens)):
+        assert _ratio(fg, bg) >= 4.5, (theme, fg, bg, round(_ratio(fg, bg), 2))
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_for_you_count_is_readable(theme):
+    """The count beside "For you" in the sidebar (watch/partials/_badge.html): white on the light red, and the page's
+    dark colour on the dark theme's lighter red (white there was 3.01:1, review R2 browser-2)."""
+    rules = _declarations(_block(".nav-count"))
+    if theme == "dark":
+        rules = {**rules, **_declarations(_block('[data-bs-theme="dark"] .nav-count'))}
+    tokens = THEMES[theme]
+    fg, bg = _colour(rules["color"], tokens), _colour(rules["background"], tokens)
+    assert _ratio(fg, bg) >= 4.5, (theme, fg, bg, round(_ratio(fg, bg), 2))
+    if theme == "light":  # the light theme keeps the pill as it was
+        assert (fg, bg) == ("#ffffff", "#c63b3b")
 
 
 def test_text_tokens_keep_fills_and_dots_as_they_were():

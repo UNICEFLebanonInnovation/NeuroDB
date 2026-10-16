@@ -803,15 +803,19 @@ export const BUILDERS = {
     return { traces, layout: { barmode: "overlay", bargap: 0.2, shapes, yaxis: { type: "category" }, xaxis: { rangemode: "tozero" }, margin: { t: 4, r: 16, b: 56, l: 8 }, height: rowsHeight(el, rows.length), ...legendFor(3) } };
   },
   projection(el, data) {
-    // {labels, series: {name: [12 cumulative values]}, actual_months, target, colors} -> solid to date, dashed projection, target line
+    // {labels, series: {name: [12 cumulative values]}, actual_months, actual?: {name: month}, months_shown?, target, colors}
+    // -> solid to date, dotted projection, target line. Every line is solid to actual_months (the earliest last month
+    // of the sources projected) and a source reported further (actual) to its own last month, so a month a partner
+    // reported is never drawn as "projected"; the shaded band is the months to come, from months_shown
     const { labels, series, colors } = seriesOf(data);
     const shown = Math.max(1, Number(data?.actual_months) || 0);
     const traces = [];
     series.forEach(([name, values], i) => {
       const color = seriesColor(name, i, colors);
       if (!values.some((v) => v)) return;
-      traces.push({ type: "scatter", mode: "lines", name, x: labels.slice(0, shown), y: values.slice(0, shown), line: { color, width: 2.5 }, hovertemplate: `%{x} · ${name}: %{y:,.0f}<extra></extra>` });
-      traces.push({ type: "scatter", mode: "lines", name: `${name} projected`, x: labels.slice(shown - 1), y: values.slice(shown - 1), line: { color, width: 2, dash: "dot" }, showlegend: false, hovertemplate: `%{x} · ${name} projected: %{y:,.0f}<extra></extra>` });
+      const own = Math.min(12, Math.max(shown, Number(data?.actual?.[name]) || 0));
+      traces.push({ type: "scatter", mode: "lines", name, x: labels.slice(0, own), y: values.slice(0, own), line: { color, width: 2.5 }, hovertemplate: `%{x} · ${name}: %{y:,.0f}<extra></extra>` });
+      traces.push({ type: "scatter", mode: "lines", name: `${name} projected`, x: labels.slice(own - 1), y: values.slice(own - 1), line: { color, width: 2, dash: "dot" }, showlegend: false, hovertemplate: `%{x} · ${name} projected: %{y:,.0f}<extra></extra>` });
     });
     const shapes = [];
     const annotations = [];
@@ -819,7 +823,8 @@ export const BUILDERS = {
       shapes.push({ type: "line", x0: 0, x1: 1, xref: "paper", y0: num(data.target), y1: num(data.target), yref: "y", line: { color: cssVar("--nd-muted"), width: 1, dash: "dash" } });
       annotations.push({ x: 1, xref: "paper", y: num(data.target), yref: "y", text: `PD targets ${Math.round(num(data.target)).toLocaleString()}`, showarrow: false, xanchor: "right", yanchor: "bottom", font: { size: 10, color: cssVar("--nd-muted") } });
     }
-    if (shown < 12) shapes.push({ type: "rect", x0: shown - 1, x1: 11, xref: "x", y0: 0, y1: 1, yref: "paper", fillcolor: withAlpha(cssVar("--nd-neutral"), 0.08), line: { width: 0 } });
+    const ahead = Math.max(1, Number(data?.months_shown) || shown);
+    if (ahead < 12) shapes.push({ type: "rect", x0: ahead - 1, x1: 11, xref: "x", y0: 0, y1: 1, yref: "paper", fillcolor: withAlpha(cssVar("--nd-neutral"), 0.08), line: { width: 0 } });
     return { traces, layout: { shapes, annotations, xaxis: { type: "category" }, yaxis: { rangemode: "tozero" }, margin: { t: 8, r: 8, b: 56, l: 48 }, ...legendFor(traces.filter((t) => t.showlegend !== false).length) } };
   },
   "stacked-series"(el, data) {

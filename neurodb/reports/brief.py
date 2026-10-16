@@ -55,9 +55,10 @@ from neurodb.web.templatetags.ui import money as money_text
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120
-CACHE_VERSION = 9  # 7: the sections written as JSON in the key (6: in the shared cache, compute.once); 8: the
-# calendar year, its ActivityInfo reporting year (or none), like with like, the lineage's jobs; 9: last year's
-# reporting year in the key, the children tile's "Not yet" and same ActivityInfo months
+CACHE_VERSION = 10  # 7: the sections written as JSON in the key (6: in the shared cache, compute.once); 8:
+# the calendar year, its ActivityInfo reporting year (or none), like with like, the lineage's jobs; 9: last
+# year's reporting year in the key, the children tile's "Not yet" and same ActivityInfo months; 10: the same
+# eTools months and coverage on both sides, each source projected from its own last month, "(not started)"
 RULES_VERSION = "v2"
 MONTH_LABELS = overview.MONTH_LABELS
 PROJECTION_MONTHS = 3  # the pace is the average of the last three reported months
@@ -254,15 +255,17 @@ def _cache_key(scope: Scope, stamp: str = "") -> str:
     on its scope only. The previous year's reporting year (the one whose ActivityInfo records count for
     it) is in the key by its pk, read from the ActivityInfo state without a query: hiding last year's only
     database ("Show on dashboard") changes it, and the build compared with its figures is not served again.
-    The sections come from the address as typed: written as JSON, two spellings never share a key (as the
+    So is whether ActivityInfo is in use (Rule 2: its children are projected to December only then). The
+    sections come from the address as typed: written as JSON, two spellings never share a key (as the
     overview's)."""
     from neurodb.indicators.services import activityinfo
 
     sections = json.dumps(sorted(scope.sections))
     ryear = getattr(scope.reporting_year, "pk", "")
-    before = activityinfo.state().pks.get(scope.year - 1, "")
+    state = activityinfo.state()
+    before = state.pks.get(scope.year - 1, "")
     return (
-        f"brief:v{CACHE_VERSION}:{scope.year}:{ryear}:{before}:{sections}:{scope.today}:"
+        f"brief:v{CACHE_VERSION}:{scope.year}:{ryear}:{before}:{int(state.in_use)}:{sections}:{scope.today}:"
         f"{stamp or fingerprint()}"
     )
 
@@ -571,20 +574,38 @@ class _Builder:
         return data
 
     # ------------------------------------------------------------------ 1 headline
-    def _month_to_date(self, block: dict[str, Any], *, with_ai: bool = True, ai_months: int = 0) -> int:
+    def _month_to_date(
+        self, block: dict[str, Any], *, with_ai: bool = True, ai_months: int = 0, etools_months: int = 0
+    ) -> int:
         """Children reached from January to the current month: the larger of the two sources, or eTools alone
         (``with_ai=False``). eTools: each programme document's main indicator from January to that month (its
-        months combined by its method: a sum adds them, a max or the latest does not), summed over the PDs.
-        ActivityInfo: its months to the current month, or to ``ai_months`` when given (the same months of
-        both years when its records end earlier)."""
+        months combined by its method: a sum adds them, a max or the latest does not), summed over the PDs;
+        to ``etools_months`` when given (the same months of both years when this year's partner reports end
+        earlier). ActivityInfo: its months to the current month, or to ``ai_months`` when given (the same
+        months of both years when its records end earlier)."""
         monthly = block.get("monthly") or {}
+        months = etools_months or self.months_shown
         to_date = monthly.get("etools_to_date") or []
-        if len(to_date) >= self.months_shown:
-            etools = to_date[self.months_shown - 1]
+        if len(to_date) >= months:
+            etools = to_date[months - 1]
         else:  # an overview cached before the to-date series existed
-            etools = sum((monthly.get("etools") or [])[: self.months_shown])
+            etools = sum((monthly.get("etools") or [])[:months])
         ai = sum((monthly.get("activityinfo") or [])[: ai_months or self.months_shown]) if with_ai else 0
         return half_up(max(etools, ai))
+
+    def _etools_months(self) -> int:
+        """The eTools months compared on the children tile, the same on both sides: from January to this
+        year's last month with a partner report (its reports come quarterly, about two weeks after each
+        quarter), never past the current month; the current month when it has none."""
+        last = int(self.now["impact"].get("etools_last_month") or 0)
+        return min(self.months_shown, last) if last > 0 else self.months_shown
+
+    @staticmethod
+    def _pds_to_date(block: dict[str, Any], months: int) -> int | None:
+        """How many programme documents of ``block`` (an overview build's impact) add a value from January to
+        the end of month ``months``; None from a build without the series."""
+        counts = (block.get("monthly") or {}).get("etools_pds_to_date") or []
+        return int(counts[months - 1] or 0) if len(counts) >= months else None
 
     def _not_used(self, year: int, reporting_year: Any) -> str:
         """Why ActivityInfo does not count in ``year`` for this scope: a year with ActivityInfo records
@@ -598,10 +619,13 @@ class _Builder:
         two sources only when ActivityInfo counted in both years over the same months (from the same first
         month: ActivityInfo resumed in July is not compared with a full ActivityInfo year; to this year's last
         ActivityInfo month on both sides, since its records arrive about two months late), else eTools against
-        eTools. No comparison before any partner report of the year ("Not yet", the overview's January rule),
-        for a year that has not started, or when either year has no eTools partner reports; an eTools-only
-        comparison is made only when last year's programme documents adding a value are at least half of this
-        year's (no "+900 %" against a pilot year). The hint says which comparison is made, or why none is."""
+        eTools. eTools is compared on both sides from January to this year's last month with a partner report
+        (its reports come quarterly, about two weeks after each quarter: October is never compared before its
+        third-quarter reports are in). No comparison before any partner report of the year ("Not yet", the
+        overview's January rule), for a year that has not started, or when either year has no eTools partner
+        reports; an eTools-only comparison is made only when the two years' programme documents adding a value
+        over those months are within half of each other: no "+900 %" against a pilot year, no "-90 %" while
+        this year's reports are still coming in. The hint says which comparison is made, or why none is."""
         impact, before = self.now["impact"], self.previous["impact"]
         if impact.get("not_yet") or (self.year > self.today.year and not impact.get("children_reached")):
             # before the first partner report of the year: "Not yet", never a 0 against last year's figure
@@ -622,6 +646,7 @@ class _Builder:
         ai_now = bool(impact.get("activityinfo_used"))
         ai_before = bool(before.get("activityinfo_used"))
         last_year = self.year - 1
+        running = self.year == self.today.year
         both = (
             ai_now
             and ai_before
@@ -633,9 +658,16 @@ class _Builder:
         ai_months = ai_last if both and 0 < ai_last < self.months_shown else 0
         if both and int(before.get("activityinfo_last_month") or 0) < (ai_months or self.months_shown):
             both = False
+        # eTools' months compared: to this year's last month with a partner report, the same on both sides
+        etools_months = self._etools_months()
+        period = MONTH_LABELS[0] + ("" if etools_months == 1 else f"–{MONTH_LABELS[etools_months - 1]}")
         value = self._month_to_date(impact, with_ai=ai_now)
-        compared_now = self._month_to_date(impact, with_ai=both, ai_months=ai_months)
-        compared_before = self._month_to_date(before, with_ai=both, ai_months=ai_months)
+        compared_now = self._month_to_date(
+            impact, with_ai=both, ai_months=ai_months, etools_months=etools_months
+        )
+        compared_before = self._month_to_date(
+            before, with_ai=both, ai_months=ai_months, etools_months=etools_months
+        )
         etools = (
             f"eTools {impact['children_etools']:,} ({main_indicators.TOTAL_RULE}"
             + (
@@ -656,6 +688,13 @@ class _Builder:
         counted_before = before.get("main_indicators") or {}
         pds = (counted.get("flagged") or 0) + (counted.get("largest") or 0)
         pds_before = (counted_before.get("flagged") or 0) + (counted_before.get("largest") or 0)
+        # the coverage guard compares the programme documents adding a value over the months compared; a build
+        # without that count (an overview stored before it existed) has only the whole year's
+        covered = self._pds_to_date(impact, etools_months)
+        covered_before = self._pds_to_date(before, etools_months)
+        over = f" over {period}"
+        if covered is None or covered_before is None:
+            covered, covered_before, over = pds, pds_before, ""
         delta = None
         if self.year > self.today.year:
             hint += f" Not compared: {self.year} has not started."
@@ -668,16 +707,27 @@ class _Builder:
                     f"({MONTH_LABELS[first - 1]}–{MONTH_LABELS[ai_months - 1]}): its {self.year} records end "
                     f"in {MONTH_LABELS[ai_months - 1]}."
                 )
-        elif not pds or not compared_now:
-            hint += f" Not compared: {self.year} has no eTools partner reports yet."
-        elif not pds_before or not compared_before:
+        elif not covered or not compared_now:
+            # "yet" only while the year runs: a year that is over simply has none
+            ending = " yet." if running else "."
+            hint += f" Not compared: {self.year} has no eTools partner reports{ending}"
+        elif not covered_before or not compared_before:
             hint += f" Not compared: {last_year} has no eTools partner reports" + (
                 "." if not pds_before else " for the same months."
             )
-        elif pds_before * 2 < pds:  # a pilot year: too few documents to compare with
+        elif covered_before * 2 < covered:  # a pilot year: too few documents to compare with
             hint += (
-                f" Not compared: {last_year} has eTools partner reports for only {pds_before} programme "
-                f"document{'' if pds_before == 1 else 's'}."
+                f" Not compared: {last_year} has eTools partner reports for only {covered_before} programme "
+                f"document{'' if covered_before == 1 else 's'}{over}."
+            )
+        elif covered * 2 < covered_before:  # this year's reports for those months are not all in
+            documents = f"{covered} programme document{'' if covered == 1 else 's'}"
+            hint += (
+                f" Not compared: {self.year}'s partner reports for {period} are still coming in ({documents} "
+                f"so far, {covered_before} in {last_year})."
+                if running
+                else f" Not compared: {self.year} has eTools partner reports for only {documents}{over}, "
+                f"against {covered_before} in {last_year}."
             )
         else:
             delta = _delta(compared_now, compared_before, "vs same period last year, eTools only")
@@ -687,6 +737,12 @@ class _Builder:
                     if ai_before
                     else self._not_used(last_year, self.scope.previous_reporting_year)
                 )
+        if delta is not None and etools_months < self.months_shown:
+            hint += f" eTools compared over {period} of both years: " + (
+                "the partner reports for later months are not in yet."
+                if running
+                else f"{self.year}'s partner reports for later months are not in."
+            )
         return {"value": value, "delta": delta, "hint": hint, "compared_before": compared_before}
 
     def _headline(self) -> dict[str, Any]:
@@ -804,10 +860,15 @@ class _Builder:
                 f"The overview's figures for {self.year}, which has not started: no change against "
                 f"{last_year}."
             )
-        elif has_last_year:
+        elif children["delta"] is not None:  # the line says what the children tile compares, and only then
             source = (
                 f"The overview's figures for this year, against the same months of {last_year} (same "
                 "programme documents rule, same children rule)."
+            )
+        elif has_last_year:  # last year has figures, but the tile says why it compares none ("Not yet", ...)
+            source = (
+                f"The overview's figures for this year; children reached is not compared with {last_year} "
+                "(see its tile)."
             )
         else:
             source = (
@@ -820,7 +881,9 @@ class _Builder:
             "tiles": tiles,
             "decide": self._decide(),
             "period": (
-                f"January {self.year}"
+                f"{self.year} (not started)"
+                if self.year > self.today.year
+                else f"January {self.year}"
                 if self.months_shown == 1
                 else f"January to {MONTH_LABELS[self.months_shown - 1]} {self.year}"
             ),
@@ -901,6 +964,8 @@ class _Builder:
         """Per section, the programme documents' main indicators (one per PD, the headline rule):
         Reached to date against their targets and what was expected by now, with the Country Programme
         target; and the children reached this year, projected to December."""
+        from neurodb.indicators.services import activityinfo
+
         plans = self._plans()
         medians = {s["section"]: s for s in self.now["impact"]["by_section"]}
         bullets = []
@@ -922,20 +987,55 @@ class _Builder:
         impact = self.now["impact"]
         monthly = impact["monthly"]
         target = sum(s["target"] for s in mains)
+        # Each source is reported to its own last month (eTools' partner reports come quarterly,
+        # ActivityInfo's records about two months late) and projected from it, at the pace of its own reported
+        # months. Only the year in progress is projected, and ActivityInfo only while it is in use (Rule 2, as
+        # its forecasts): an archive's records will not come, so its year ends at its total, as a year that is
+        # over (in the key: _cache_key)
+        running = self.year == self.today.year
+        lasts = {"eTools": int(impact.get("etools_last_month") or 0)}
+        projected = {"eTools": running}
         series = {
-            "eTools": _project_to_date(monthly.get("etools_to_date"), monthly["etools"], self.months_shown)
+            "eTools": _project_to_date(
+                monthly.get("etools_to_date"),
+                monthly["etools"],
+                self.months_shown,
+                last=lasts["eTools"] or None,
+                running=projected["eTools"],
+            )
         }
         colors = {"eTools": "--nd-primary"}
         if impact.get("activityinfo_used"):  # ActivityInfo counts this year: reported to its last month
-            last = int(impact.get("activityinfo_last_month") or self.months_shown)
-            series["ActivityInfo"] = _project(monthly["activityinfo"], self.months_shown, last)
+            lasts["ActivityInfo"] = int(impact.get("activityinfo_last_month") or 0)
+            projected["ActivityInfo"] = running and activityinfo.in_use()
+            series["ActivityInfo"] = _project(
+                monthly["activityinfo"],
+                self.months_shown,
+                lasts["ActivityInfo"] or None,
+                first=int(impact.get("activityinfo_first_month") or 1),
+                running=projected["ActivityInfo"],
+            )
             colors["ActivityInfo"] = "--nd-series-2"
+        # ``actual``: each source's own last month. The chart (charts.js ``projection``) draws every series as
+        # reported up to ``actual_months``, the earliest last month of the sources projected (the current
+        # month when none is), so no month a source has not reported is drawn as reported, and a source
+        # reported further up to its own month; dotted after that. The shaded months to come start at
+        # ``months_shown``
+        actual = {
+            name: min(lasts[name] or self.months_shown, self.months_shown)
+            for name, values in series.items()
+            if values
+        }
+        drawn = [month for name, month in actual.items() if projected[name]]
+        actual_months = min(drawn) if drawn else self.months_shown
         return {
             "bullets": bullets,
             "has_cp_targets": any(b["cp_target"] for b in bullets),
             "projection": {
                 "labels": list(MONTH_LABELS),
-                "actual_months": self.months_shown,
+                "actual_months": actual_months,
+                "actual": actual,
+                "months_shown": self.months_shown,  # the current month: the months to come start after it
                 "series": series,
                 "target": target,
                 "colors": colors,
@@ -945,8 +1045,9 @@ class _Builder:
                 "largest children indicator), summed over the section's PDs: Reached to date against the "
                 "sum of those indicators' targets; expected = target × share of the PD period elapsed; "
                 "Country Programme targets from the section plans entered in the admin; projection = the "
-                f"last {PROJECTION_MONTHS} reported months' average, to December. Partners may reach the "
-                "same children"
+                f"last {PROJECTION_MONTHS} reported months' average of each source, from its last reported "
+                "month to December (dotted from the first month a source has not reported). Partners may "
+                "reach the same children"
             ),
         }
 
@@ -1578,12 +1679,18 @@ def _delta(now: float | None, before: float | None, label: str, *, lower_is_good
     }
 
 
-def _project(monthly: list[float], shown: int, last: int | None = None) -> list[float | None]:
-    """Cumulative reach by month: reported months, then the last months' average to December. ``last``, the
-    source's last reported month when it comes before ``shown`` (ActivityInfo's records arrive about two
-    months late): the months after it, to ``shown``, hold the total to date (they are drawn as reported, so
-    never a projected value), the projection starts after ``shown``, and its pace is that of the months up
-    to ``last``, never of the empty ones after it."""
+def _project(
+    monthly: list[float], shown: int, last: int | None = None, *, first: int = 1, running: bool = True
+) -> list[float | None]:
+    """Cumulative reach by month for "Where the year ends at this pace": the reported months, then the
+    projection to December. ``last``: the source's last reported month (``shown`` when not given; eTools'
+    partner reports come quarterly, ActivityInfo's records about two months late); ``first``: its first
+    (ActivityInfo resumed in July). The pace is the average of its last :data:`PROJECTION_MONTHS` reported
+    months from ``first`` to ``last``, never of a month it did not report, and each month after ``last`` is
+    the total to ``last`` plus that pace for each month since: a month not reported yet is projected, never
+    held at the total to date (a flat line says no child was reached) and never left out of the pace (the
+    year-end would come too low). A year that is over (``running`` false) draws no projection: its months
+    after ``last`` hold its final total."""
     values = [float(v or 0) for v in (monthly or [])[:12]] + [0.0] * (12 - len(monthly or []))
     reported = shown if last is None else max(min(last, shown), 0)
     if shown <= 0 or not any(values[:reported]):
@@ -1593,23 +1700,32 @@ def _project(monthly: list[float], shown: int, last: int | None = None) -> list[
     for v in values[:reported]:
         total += v
         out.append(half_up(total))
-    out.extend(half_up(total) for _ in range(reported, shown))  # not reported yet: the total to date
-    recent = values[max(reported - PROJECTION_MONTHS, 0) : reported]
+    if not running:  # a year that is over: its final total
+        out.extend(half_up(total) for _ in range(reported, 12))
+        return out
+    recent = values[max(reported - PROJECTION_MONTHS, first - 1, 0) : reported]
     pace = sum(recent) / len(recent) if recent else 0.0
-    for _ in range(shown, 12):
-        total += pace
-        out.append(half_up(total))
+    out.extend(half_up(total + pace * (month - reported)) for month in range(reported + 1, 13))
     return out
 
 
-def _project_to_date(to_date: list[float] | None, monthly: list[float], shown: int) -> list[float | None]:
+def _project_to_date(
+    to_date: list[float] | None,
+    monthly: list[float],
+    shown: int,
+    *,
+    last: int | None = None,
+    running: bool = True,
+) -> list[float | None]:
     """:func:`_project` from Reached from January to each month (what a max or the latest does not
-    add up month by month); the monthly values when the series is missing."""
+    add up month by month); the monthly values when the series is missing. No ``first``: partner reports are
+    quarterly, so the months before the first quarter's end count in the pace (a quarter is spread over its
+    three months, never taken as one month's)."""
     if not to_date:
-        return _project(monthly, shown)
+        return _project(monthly, shown, last, running=running)
     values = [float(v or 0) for v in to_date[:12]]
     steps = [values[0]] + [values[i] - values[i - 1] for i in range(1, len(values))]
-    return _project(steps, shown)
+    return _project(steps, shown, last, running=running)
 
 
 def _quadrant(disbursed: float | None, achieved: float | None) -> str:

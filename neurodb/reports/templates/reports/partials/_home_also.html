@@ -1,14 +1,17 @@
 {% load i18n humanize %}{% comment %}Home's "Also in {Y}" line under the key figures (delivery.assurance of the overview build), and, for
-Section editors and Administrators, the programme documents still counted by their largest indicator. Every link
-carries Home's sections, so its page shows the same figure: the action points (points_query); FMM (fmm_query), whose
-visits of a section are counted otherwise, so with a section chosen the line says it counts the visits to the scope's
-partners. The field monitoring page has no section filter: with a section chosen its figures are not links. No
-third-party visit planned: no "0 of 0". Context: data, year, selected, is_editor, programmes_query, points_query,
-fmm_query, fmm_enabled.{% endcomment %}
+Section editors and Administrators, the programme documents still counted by their largest indicator. A figure links
+to a page only where that page shows the same figure. With every section: the visits link to Monitoring insights
+(fmm_query) when FMM is on, else to Field monitoring, and the third-party pair to Field monitoring. With a section
+chosen, the visits counted are those to the partners with a programme document in the sections (Monitoring insights
+counts a section's visits another way), so the line says so and is not a link; the third-party pair is not a link
+either (the Field monitoring page shows the whole country). The action points link carries the sections
+(points_query): that page lists the same open and overdue points. No third-party visit planned: no "0 of 0".
+Context: data, year, selected, is_editor, programmes_query, points_query, fmm_query, fmm_enabled.{% endcomment %}
 {% with a=data.delivery.assurance impact=data.impact chosen=selected.section %}
 <p class="home-also">{% blocktrans with y=year %}Also in {{ y }}:{% endblocktrans %}
-  {% if chosen %}{% blocktrans count counter=a.field_monitoring_visits|default:0 with shown=a.field_monitoring_visits|default:0|intcomma asvar visits %}{{ shown }} field monitoring visit to these partners{% plural %}{{ shown }} field monitoring visits to these partners{% endblocktrans %}{% else %}{% blocktrans count counter=a.field_monitoring_visits|default:0 with shown=a.field_monitoring_visits|default:0|intcomma asvar visits %}{{ shown }} field monitoring visit{% plural %}{{ shown }} field monitoring visits{% endblocktrans %}{% endif %}
-  {% if fmm_enabled %}<a href="{% url 'fmm:dashboard' %}?{{ fmm_query }}">{{ visits }}</a>{% elif not chosen %}<a href="{% url 'reports:monitoring' %}?year={{ year }}">{{ visits }}</a>{% else %}{{ visits }}{% endif %}
+  {% if chosen %}{% blocktrans count counter=a.field_monitoring_visits|default:0 with shown=a.field_monitoring_visits|default:0|intcomma sections=chosen|join:", " %}{{ shown }} field monitoring visit to partners with a programme document in {{ sections }}{% plural %}{{ shown }} field monitoring visits to partners with a programme document in {{ sections }}{% endblocktrans %}
+  {% else %}{% blocktrans count counter=a.field_monitoring_visits|default:0 with shown=a.field_monitoring_visits|default:0|intcomma asvar visits %}{{ shown }} field monitoring visit{% plural %}{{ shown }} field monitoring visits{% endblocktrans %}
+  {% if fmm_enabled %}<a href="{% url 'fmm:dashboard' %}?{{ fmm_query }}">{{ visits }}</a>{% else %}<a href="{% url 'reports:monitoring' %}?year={{ year }}">{{ visits }}</a>{% endif %}{% endif %}
   {% if a.tpm_visits_planned %}{% blocktrans with c=a.tpm_visits_completed|default:0|intcomma p=a.tpm_visits_planned|intcomma asvar tpm %}{{ c }} of {{ p }} third-party visits done{% endblocktrans %}
   · {% if chosen %}{{ tpm }}{% else %}<a href="{% url 'reports:monitoring' %}?year={{ year }}">{{ tpm }}</a>{% endif %}{% endif %}
   · {% with n=a.open_action_points|default:0 %}<a href="{% url 'reports:action_points' %}?{{ points_query }}">{% blocktrans count counter=n with shown=n|intcomma h=a.overdue_high_priority|default:0|intcomma %}{{ shown }} open action point ({{ h }} high priority overdue){% plural %}{{ shown }} open action points ({{ h }} high priority overdue){% endblocktrans %}</a>{% endwith %}
