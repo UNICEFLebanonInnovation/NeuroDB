@@ -62,13 +62,18 @@ the selected year (calendar years) with the year before, in eight tabs:
 - Values that cannot be right (above the child population of Lebanon, or more than 20 times their
   target) are left out, and the section's confidence is Low.
 - **Children reached** is compared like with like, over the same months of both years: eTools up to
-  this year's last month with a partner report (partners report every quarter), ActivityInfo up to the
-  last month its records of this year reach. The larger of the two sources is compared only when
+  the last month whose partner reports are all in (partners report every quarter, over several weeks:
+  a quarter with only some of its reports in is left out until nine in ten have come), ActivityInfo up
+  to the last month its records of this year reach. The larger of the two sources is compared only when
   ActivityInfo covered those months in both years; otherwise eTools alone ("eTools only"). There is no
   comparison at all ("Not compared") against a year with no eTools partner reports or with reports for
-  too few programme documents, while this year's partner reports for those months are still coming in,
-  or for a year that has not started. Early in the year, before the first partner reports come in, the
-  tile reads *Not yet*.
+  too few programme documents, while not even the first quarter's partner reports are all in, or for a
+  year that has not started. Early in the year, before the first partner reports come in, the tile reads
+  *Not yet*.
+- **Where the year ends at this pace** draws each source as reported (solid) to its own last month and
+  at this pace (dotted) to December, for the year in progress; a key under the chart says what the
+  solid line, the dotted line and the shaded months to come are. A year that is over, or ActivityInfo
+  once it is an archive, is not projected: its line ends at its last reported month.
 - **The page opens at once**: the filters, the *Figures as of* line, the tabs and the *Reference*
   block come first, with a grey box where the figures will go. The *Brief* tab's tiles, decisions and
   sections at a glance fill in first, then the six other tabs together, with their charts; you can

@@ -169,25 +169,30 @@ def test_quarterly_etools_reports_are_projected_from_their_last_quarter():
 
 
 def test_a_year_that_is_over_draws_no_projection(activityinfo_in_use):
-    """``?year=2025`` on 15 October 2026, ActivityInfo records to April: the year is over, so every month is drawn
-    as reported and its months after April hold its final total (ActivityInfo stopped), never a projected
-    value."""
+    """``?year=2025`` on 15 October 2026, ActivityInfo records to April: the year is over, so nothing is projected.
+    R3 code-2 (changed): each line ends at its own last reported month (eTools March, ActivityInfo April), with no
+    value after it, never held at its total to December (drawn as reported, it said no child was reached in those
+    months)."""
     to_april = (150,) * 4 + (0,) * 8
     now = _impact(fake_data(), ai=True, etools=(0, 0, 300) + (0,) * 9, activityinfo=to_april)
     projection = _builder(now, _impact(fake_data(), ai=False), OCTOBER, year=2025)._pace()["projection"]
-    assert projection["actual_months"] == 12
-    assert projection["series"]["ActivityInfo"] == [150, 300, 450] + [600] * 9
-    assert projection["series"]["eTools"] == [0, 0] + [300] * 10
+    assert projection["actual"] == {"eTools": 3, "ActivityInfo": 4} and projection["actual_months"] == 3
+    assert projection["projected"] == []
+    assert projection["series"]["ActivityInfo"] == [150, 300, 450, 600] + [None] * 8
+    assert projection["series"]["eTools"] == [0, 0, 300] + [None] * 9
 
 
 def test_an_archived_activityinfo_is_not_projected(activityinfo_archived):
-    """ActivityInfo archived, its 2026 records to August (Rule 1: history): its records will not come, so its
-    year ends at its total, as its forecasts are no longer made (SPEC_HOME §8), and it never pulls the solid line
-    of eTools back to August."""
+    """ActivityInfo archived, its 2026 records to August (Rule 1: history): its records will not come, so it is
+    not projected, as its forecasts are no longer made (SPEC_HOME §8). R3 browser-1 (changed): its line ends at
+    August (no value after it), never held at its total to December, which the chart drew as reported to
+    September and then "projected"; ``actual_months`` is the months every source has reported (August), the
+    chart's fallback only: eTools is drawn to its own October (``actual``)."""
     now = _impact(fake_data(), ai=True, etools=(50,) * 12, activityinfo=TO_AUGUST)
     projection = _builder(now, _impact(fake_data(), ai=False), OCTOBER)._pace()["projection"]
-    assert projection["series"]["ActivityInfo"] == [150 * month for month in range(1, 9)] + [1200] * 4
-    assert projection["actual_months"] == 10
+    assert projection["series"]["ActivityInfo"] == [150 * month for month in range(1, 9)] + [None] * 4
+    assert projection["actual"] == {"eTools": 10, "ActivityInfo": 8} and projection["actual_months"] == 8
+    assert projection["projected"] == ["eTools"]
 
 
 # charts.js's projection builder, run in node on the projection the brief sends: each trace's first and last month
@@ -198,8 +203,16 @@ globalThis.getComputedStyle = () => ({ getPropertyValue: (name) => (name.startsW
 const charts = await import(process.argv[1]);
 const drawn = charts.BUILDERS.projection({ dataset: {}, clientWidth: 600 }, JSON.parse(process.argv[2]));
 const band = drawn.layout.shapes.find((s) => s.type === "rect");
+// what each point hovers as: the trace's template with its month, its customdata and its value
+const hover = (t, j) =>
+  t.hovertemplate
+    .replace("%{x}", t.x[j])
+    .replace("%{customdata}", t.customdata ? t.customdata[j] : "")
+    .replace(/%[{]y[^}]*[}]/, String(t.y[j]))
+    .replace("<extra></extra>", "");
 console.log(JSON.stringify({
   traces: drawn.traces.map((t) => [t.name, t.x[0], t.x[t.x.length - 1], t.line.dash || "solid"]),
+  hovers: drawn.traces.map((t) => t.x.map((_, j) => hover(t, j))),
   band: band ? band.x0 : null,
 }));
 """
@@ -233,6 +246,11 @@ def test_the_chart_draws_each_source_as_reported_to_its_own_last_month(activityi
         ["ActivityInfo projected", "Aug", "Dec", "dot"],
     ]
     assert drawn["band"] == 9  # October, the current month
+    # R3 browser-2: each line's last reported month hovers as reported, never as "projected", though the dotted
+    # line starts there to join the solid one (eTools' October, ActivityInfo's August); the months after it do
+    assert drawn["hovers"][1][:2] == ["Oct · eTools: 500", "Nov · eTools projected: 550"]
+    assert drawn["hovers"][3][:2] == ["Aug · ActivityInfo: 1200", "Sep · ActivityInfo projected: 1350"]
+    assert not any("projected" in h for h in drawn["hovers"][0] + drawn["hovers"][2])
     # eTools before its third quarter's reports (to June), ActivityInfo to August: eTools is solid to June only
     quarterly = (0, 0, 300, 0, 0, 300) + (0,) * 6
     now = _impact(fake_data(), ai=True, etools=quarterly, activityinfo=TO_AUGUST)
@@ -240,15 +258,29 @@ def test_the_chart_draws_each_source_as_reported_to_its_own_last_month(activityi
     assert drawn["traces"][0] == ["eTools", "Jan", "Jun", "solid"]
     assert drawn["traces"][2] == ["ActivityInfo", "Jan", "Aug", "solid"]
     assert drawn["band"] == 9
-    # a year that is over: every line solid to December, and no months to come
+    # a year that is over (R3 code-2, changed: no line solid to December): each line solid to its own last month
+    # and no further, nothing dotted, and no months to come
     to_april = (150,) * 4 + (0,) * 8
     now = _impact(fake_data(), ai=True, etools=(0, 0, 300) + (0,) * 9, activityinfo=to_april)
     drawn = _drawn(_builder(now, _impact(fake_data(), ai=False), OCTOBER, year=2025)._pace()["projection"])
-    assert [t for t in drawn["traces"] if t[3] == "solid"] == [
-        ["eTools", "Jan", "Dec", "solid"],
-        ["ActivityInfo", "Jan", "Dec", "solid"],
-    ]
+    assert drawn["traces"] == [["eTools", "Jan", "Mar", "solid"], ["ActivityInfo", "Jan", "Apr", "solid"]]
     assert drawn["band"] is None
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_the_chart_ends_a_line_not_projected_at_its_last_month(activityinfo_archived):
+    """R3 browser-1: ActivityInfo archived, its records to August, eTools reported to October. Its line is solid to
+    August and ends there: never solid to the other source's month, nor dotted and hovered as "ActivityInfo
+    projected" for a source that is not projected. eTools is still drawn to October and projected."""
+    now = _impact(fake_data(), ai=True, etools=(50,) * 12, activityinfo=TO_AUGUST)
+    drawn = _drawn(_builder(now, _impact(fake_data(), ai=False), OCTOBER)._pace()["projection"])
+    assert drawn["traces"] == [
+        ["eTools", "Jan", "Oct", "solid"],
+        ["eTools projected", "Oct", "Dec", "dot"],
+        ["ActivityInfo", "Jan", "Aug", "solid"],
+    ]
+    assert not any("ActivityInfo projected" in h for hovers in drawn["hovers"] for h in hovers)
+    assert drawn["band"] == 9
 
 
 def test_a_last_year_without_etools_reports_is_not_compared_with():
@@ -564,12 +596,15 @@ def world(settings, db):
     return brief_world.World()
 
 
-def _brief(scope_year: int = 2026, today: datetime.date = OCTOBER) -> dict:
+def _brief(scope_year: int = 2026, today: datetime.date = OCTOBER, sections: tuple[str, ...] = ()) -> dict:
     from neurodb.core import compute
 
     compute.reset_memo()
     scope = brief.Scope(
-        year=scope_year, reporting_year=activityinfo.reporting_year_for(scope_year), today=today
+        year=scope_year,
+        reporting_year=activityinfo.reporting_year_for(scope_year),
+        sections=list(sections),
+        today=today,
     )
     return brief.build(scope, cache=False)
 
@@ -669,3 +704,146 @@ def test_a_year_that_has_not_started_reads_not_yet_on_the_overview_as_on_the_bri
     brief_page = client.get(reverse("reports:brief") + "?year=2027")
     data = brief_page.context["data"]
     assert _children(data)["value"] is None and data["headline"]["period"] == "2027 (not started)"
+
+
+# --------------------------------------------- R3 code-1: a quarter whose partner reports are only partly in
+def test_one_early_third_quarter_report_of_ten_is_not_a_drop(world):
+    """R3 code-1 (world l1): 15 October 2026, ten programme documents report 300 a quarter in 2025 and 2026; one has
+    sent its third-quarter report early, the nine others are due on 15 October. The overview says "eTools 6,300
+    (Jan–Sep)", but September's reports are not all in (1 of 10): both years are compared from January to June
+    (6,000 against 6,000: 0 %, never -30 % against 2025's 9,000 to September), and the hint says from which month
+    the reports are not all in. The projection starts from June at April to June's pace: December 12,000, the
+    programme's pace, never 6,600 from one report in ten."""
+    world.section("Child Protection", "CP")
+    world.pd("Child Protection", {**quarters(2025, (1, 2, 3, 4), 300), **quarters(2026, (1, 2, 3), 300)})
+    for _ in range(9):
+        world.pd("Child Protection", {**quarters(2025, (1, 2, 3, 4), 300), **quarters(2026, (1, 2), 300)})
+    data = _brief()
+    tile = _children(data)
+    assert tile["value"] == 6300 and tile["delta"]["value"] == 0
+    assert tile["hint"].endswith(
+        "eTools compared over Jan–Jun of both years: the partner reports from Jul are not all in yet."
+    )
+    projection = data["pace"]["projection"]
+    assert projection["actual"] == {"eTools": 6} and projection["projected"] == ["eTools"]
+    assert projection["series"]["eTools"][5:] == [6000, 7000, 8000, 9000, 10000, 11000, 12000]
+
+
+def test_the_country_agrees_with_its_sections_while_a_quarter_comes_in(world):
+    """R3 code-1 (world m): 15 October 2026, Child Protection reports 100 a month (to September), Education 300 a
+    quarter (its third-quarter report is due on 15 October). Each section alone shows 0 %, and so does the country,
+    compared from January to June (1,200 against 1,200), never -16.7 % from Education's quarter not in."""
+    world.section("Child Protection", "CP")
+    world.section("Education", "EDU")
+    world.pd("Child Protection", {**months(2025, 12, 100), **months(2026, 9, 100)})
+    world.pd("Education", {**quarters(2025, (1, 2, 3, 4), 300), **quarters(2026, (1, 2), 300)})
+    country = _children(_brief())
+    assert country["value"] == 1500 and country["delta"]["value"] == 0
+    assert (
+        "eTools compared over Jan–Jun of both years: the partner reports from Jul are not all in yet."
+        in (country["hint"])
+    )
+    for section, months_compared in (("Education", "Jan–Jun"), ("Child Protection", "Jan–Sep")):
+        tile = _children(_brief(sections=(section,)))
+        assert tile["delta"]["value"] == 0, section
+        assert f"eTools compared over {months_compared} of both years" in tile["hint"], section
+
+
+def test_a_late_report_before_a_later_one_is_still_waited_for(world):
+    """R3 code-1 (world l2): 15 October 2026, one programme document reports 300 a quarter; its second-quarter report
+    of 2026 is late, though its third is in. Its second quarter is not all in (a later report came, so that one is
+    missing): compared from January to March, 300 against 300 (0 %), never -33 % (600 against 900)."""
+    world.section("Child Protection", "CP")
+    world.pd("Child Protection", {**quarters(2025, (1, 2, 3, 4), 300), **quarters(2026, (1, 3), 300)})
+    tile = _children(_brief())
+    assert tile["value"] == 600 and tile["delta"]["value"] == 0
+    assert tile["hint"].endswith(
+        "eTools compared over Jan–Mar of both years: the partner reports from Apr are not all in yet."
+    )
+
+
+@pytest.mark.parametrize("sent,change", [(5, None), (6, None), (9, -10.0)])
+def test_april_with_part_of_the_first_quarters_reports(world, site_today, sent, change):
+    """R3 code-1 (world k2): 10 April 2027, ten programme documents reported 300 a quarter in 2026; ``sent`` of them
+    have sent their first report of 2027 (the others are due on 15 April). With 5 or 6 in, the first quarter's
+    reports are still coming in: no comparison and no projection, never "-50 %" or "-40 %" (the old guard let half
+    of last year's documents through). Nine in ten is enough (REPORTS_IN_SHARE): -10 %."""
+    world.section("Child Protection", "CP")
+    for n in range(10):
+        world.pd(
+            "Child Protection",
+            {**quarters(2026, (1, 2, 3, 4), 300), **quarters(2027, (1,) if n < sent else (), 300)},
+        )
+    site_today.set(datetime.date(2027, 4, 10))
+    activityinfo.invalidate()
+    data = _brief(2027, datetime.date(2027, 4, 10))
+    tile = _children(data)
+    assert tile["value"] == 300 * sent and (tile["delta"] or {}).get("value") == change
+    if change is None:
+        assert tile["hint"].endswith(
+            f"Not compared: 2027's partner reports for Jan–Mar are still coming in ({sent} programme documents so "
+            "far, 10 in 2026)."
+        )
+        assert data["pace"]["projection"]["series"]["eTools"] == []
+
+
+def test_reports_that_stopped_are_no_longer_waited_for_two_months_after_the_quarter(world):
+    """15 October 2026: one programme document reports every quarter; another reported 2025 in full and only the
+    first quarter of 2026. Its second quarter is no longer waited for (two months after June: from 1 September),
+    its third still is (until 1 December): compared from January to June, its drop shows (900 against 1,200),
+    never "still coming in" all year for a document whose reports stopped."""
+    world.section("Child Protection", "CP")
+    world.pd("Child Protection", {**quarters(2025, (1, 2, 3, 4), 300), **quarters(2026, (1, 2, 3), 300)})
+    world.pd("Child Protection", {**quarters(2025, (1, 2, 3, 4), 300), **quarters(2026, (1,), 300)})
+    tile = _children(_brief())
+    assert tile["value"] == 1200 and tile["delta"]["value"] == -25.0
+    assert tile["hint"].endswith(
+        "eTools compared over Jan–Jun of both years: the partner reports from Jul are not all in yet."
+    )
+
+
+def test_a_programme_document_that_ended_is_not_waited_for(world):
+    """The same two programme documents, the second one ended on 31 March 2026 (its last report): after March it
+    is not expected, so the months to September are all in and compared (1,200 against 1,800: -33.3 %, the
+    programme document that ended)."""
+    world.section("Child Protection", "CP")
+    world.pd("Child Protection", {**quarters(2025, (1, 2, 3, 4), 300), **quarters(2026, (1, 2, 3), 300)})
+    ended = world.pd("Child Protection", {**quarters(2025, (1, 2, 3, 4), 300), **quarters(2026, (1,), 300)})
+    PCA.objects.filter(pk=ended.pk).update(end=datetime.date(2026, 3, 31))
+    tile = _children(_brief())
+    assert tile["value"] == 1200 and tile["delta"]["value"] == -33.3
+    assert tile["hint"].endswith(
+        "eTools compared over Jan–Sep of both years: the partner reports for later months are not in yet."
+    )
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_last_years_brief_in_january_draws_no_month_not_reported(world, client, admin_user, site_today):
+    """R3 code-2 (world o): 5 January 2027, ``?year=2026``, one programme document's fourth-quarter report is due on
+    15 January. The tile compares January to September; the chart draws eTools as reported to September and ends
+    there, never solid and flat to December ("no child reached in the fourth quarter"). The key under the chart
+    names only what is drawn: a year that is over has no dotted line and no months to come."""
+    world.section("Child Protection", "CP")
+    world.pd("Child Protection", {**quarters(2025, (1, 2, 3, 4), 300), **quarters(2026, (1, 2, 3), 300)})
+    site_today.set(datetime.date(2027, 1, 5))
+    activityinfo.invalidate()
+    data = _brief(2026, datetime.date(2027, 1, 5))
+    projection = data["pace"]["projection"]
+    assert projection["series"]["eTools"][8:] == [900, None, None, None]
+    assert _drawn(projection)["traces"] == [["eTools", "Jan", "Sep", "solid"]]
+    client.force_login(admin_user)
+    words = _words(client.get(reverse("reports:brief") + "?year=2026").text)
+    assert "Solid line: reported." in words
+    assert "Dotted line" not in words and "Shaded: the months to come" not in words
+
+
+def test_the_chart_key_names_the_dotted_lines_and_the_months_to_come(world, client, admin_user):
+    """R3 browser-N1: the brief's chart says what its marks mean on the page itself: solid, dotted and the shaded
+    months to come (15 October 2026, the year in progress)."""
+    world.section("Child Protection", "CP")
+    world.pd("Child Protection", {**months(2025, 12, 100), **months(2026, 9, 100)})
+    client.force_login(admin_user)
+    words = _words(client.get(reverse("reports:brief")).text)
+    assert (
+        "Solid line: reported. Dotted line: at this pace, to December. Shaded: the months to come." in words
+    )

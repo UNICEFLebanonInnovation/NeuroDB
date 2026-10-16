@@ -359,9 +359,9 @@ def test_a_management_member_sees_the_same_figures_on_home_and_the_overview(clie
     overview = client.get(reverse("reports:country_overview") + "?year=2026")
     assert overview.context["data"]["impact"]["children_reached"] == home_children
     assert overview.context["selected"]["section"] == []
-    # the build's key is the same: one stored build serves both pages
+    # the build's key is the same: one stored build serves both pages (v16: R3 code-1 bumped the overview's version)
     scope = overview_service.Scope(year=2026, reporting_year=None, sections=[], governorate="")
-    assert overview_service._cache_key(scope, "stamp").startswith("overview:v15:2026:")
+    assert overview_service._cache_key(scope, "stamp").startswith("overview:v16:2026:")
 
 
 # ------------------------------------------------------------------------------------- ActivityInfo where it counts

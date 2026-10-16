@@ -18,6 +18,7 @@
       <span class="panel__hint">{% trans "Children reached this year (each programme document's main indicator), from January, projected to December" %}</span>
     </div>
     <div class="chart chart--sm" data-module="charts" data-chart="projection" data-source="brief-sections-data" data-key="projection" data-height="260" data-empty-title="{% trans 'No monthly values yet' %}" aria-label="{% trans 'Cumulative children reached and projection' %}"></div>
+    {% with projection=pace.projection %}{% if projection.actual %}<p class="caveat mt-2" data-chart-key>{% trans "Solid line: reported." %}{% if projection.projected %} {% trans "Dotted line: at this pace, to December." %}{% endif %}{% if projection.months_shown < 12 %} {% trans "Shaded: the months to come." %}{% endif %}</p>{% endif %}{% endwith %}
     <p class="source-line">{{ pace.source }}</p>
   </section>
 </div>

@@ -78,13 +78,16 @@ def test_pace_bullets_carry_the_cp_target_and_the_projection_extends_the_pace(da
     assert projection["target"] == 1000
     # R2 fixes-1 / brief-2 (changed): on 1 July the last eTools report is June's, so the solid line ends in June
     # (July was drawn as reported, flat) and the pace is April to June's (200 / 3 a month), never July's empty
-    # month in it. ActivityInfo (records of January and February) is archived on the suite's day: not projected,
-    # its year ends at its total, and it does not pull the solid line back to February
-    assert projection["actual_months"] == 6 and projection["actual"] == {"eTools": 6, "ActivityInfo": 2}
+    # month in it. ActivityInfo (records of January and February) is archived on the suite's day: not projected.
+    # R3 code-2 / browser-1 (changed): its line ends at February (no value after it), never held flat at its total
+    # (drawn as reported, then "projected"); ``actual_months`` is the months every source has reported (February),
+    # the chart's fallback only: each line is drawn to its own ``actual`` month
+    assert projection["actual_months"] == 2 and projection["actual"] == {"eTools": 6, "ActivityInfo": 2}
+    assert projection["projected"] == ["eTools"]
     etools = projection["series"]["eTools"]
     assert etools[:6] == [0, 0, 300, 300, 300, 500]  # cumulative to June
     assert etools[6] == 567 and etools[11] == 900  # + 67 a month from June
-    assert projection["series"]["ActivityInfo"] == [150, 500] + [500] * 10
+    assert projection["series"]["ActivityInfo"] == [150, 500] + [None] * 10
 
 
 def test_confidence_per_section(data, reporting_year):

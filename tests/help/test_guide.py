@@ -407,16 +407,24 @@ def test_the_guide_says_the_country_programme_is_added_in_the_administration():
 def test_operations_states_the_briefs_rules_as_they_now_are():
     """The brief compares eTools over the same months of both years, guards the coverage both ways and
     projects each source from its own last month, never holding a month not reported flat (R2 fixes-1,
-    brief-1, fixes-4: OPERATIONS.md is the docs group's, so it follows the brief's fixes here)."""
+    brief-1, fixes-4: OPERATIONS.md is the docs group's, so it follows the brief's fixes here). R3 code-1,
+    code-2 (changed): eTools is compared to the last month whose partner reports are all in, and a line not
+    projected ends at its last reported month; the docs say so."""
     assert "flat (the total so far) to the current month" not in OPERATIONS_WORDS
+    assert "this year's last month with a partner report" not in OPERATIONS_WORDS
     for words in (
-        "eTools is compared over the same months of both years, from January to this year's last month "
-        "with a partner report",
-        "are still coming in (<n> programme documents so far, <m> in 2025)",
+        "eTools is compared over the same months of both years, from January to the last month whose "
+        "partner reports are all in",
+        "at least 90 % of the programme documents expected for it have sent theirs",
+        "one whose reports stopped is no longer waited for two months after the quarter's end",
+        "are still coming in (<n> programme documents so far, <m> in 2026)",
         '"yet" only while the year runs',
         'its period reads "2027 (not started)"',
         "a month a source has not reported is never held at the total so far",
+        "a line ends at its last reported month, never drawn flat to December",
+        "a key under the chart says what the solid line, the dotted line and the band are",
     ):
         assert words in OPERATIONS_WORDS, words
     guide_text = " ".join(GUIDE_TEXT["briefs-and-overview"].split())
-    assert "while this year's partner reports for those months are still coming in" in guide_text
+    assert "while not even the first quarter's partner reports are all in" in guide_text
+    assert "its line ends at its last reported month" in guide_text

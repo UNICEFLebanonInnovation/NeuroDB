@@ -803,19 +803,25 @@ export const BUILDERS = {
     return { traces, layout: { barmode: "overlay", bargap: 0.2, shapes, yaxis: { type: "category" }, xaxis: { rangemode: "tozero" }, margin: { t: 4, r: 16, b: 56, l: 8 }, height: rowsHeight(el, rows.length), ...legendFor(3) } };
   },
   projection(el, data) {
-    // {labels, series: {name: [12 cumulative values]}, actual_months, actual?: {name: month}, months_shown?, target, colors}
-    // -> solid to date, dotted projection, target line. Every line is solid to actual_months (the earliest last month
-    // of the sources projected) and a source reported further (actual) to its own last month, so a month a partner
-    // reported is never drawn as "projected"; the shaded band is the months to come, from months_shown
-    const { labels, series, colors } = seriesOf(data);
-    const shown = Math.max(1, Number(data?.actual_months) || 0);
+    // {labels, series: {name: [12 cumulative values, null after the last month of a series not projected]},
+    // actual: {name: its last reported month}, actual_months (the fallback), months_shown?, target, colors}
+    // -> each line solid to its own last reported month, dotted after it where it is projected (a series not
+    // projected ends there), so no month a source has not reported is drawn as reported nor hovered as
+    // "projected" (the dotted line's first point, where it joins the solid one, hovers as reported); a target
+    // line; the shaded band is the months to come, from months_shown
+    const labels = Array.isArray(data?.labels) ? data.labels.map(String) : [];
+    const colors = data?.colors || {};
+    const fallback = Math.max(1, Number(data?.actual_months) || 0);
     const traces = [];
-    series.forEach(([name, values], i) => {
+    Object.entries(data?.series || {}).forEach(([name, raw], i) => {
+      const values = (raw || []).map((v) => (v === null || v === undefined || v === "" ? null : Number(v)));
       const color = seriesColor(name, i, colors);
       if (!values.some((v) => v)) return;
-      const own = Math.min(12, Math.max(shown, Number(data?.actual?.[name]) || 0));
+      const own = Math.min(12, Math.max(1, Number(data?.actual?.[name]) || fallback));
       traces.push({ type: "scatter", mode: "lines", name, x: labels.slice(0, own), y: values.slice(0, own), line: { color, width: 2.5 }, hovertemplate: `%{x} · ${name}: %{y:,.0f}<extra></extra>` });
-      traces.push({ type: "scatter", mode: "lines", name: `${name} projected`, x: labels.slice(own - 1), y: values.slice(own - 1), line: { color, width: 2, dash: "dot" }, showlegend: false, hovertemplate: `%{x} · ${name} projected: %{y:,.0f}<extra></extra>` });
+      const after = values.slice(own - 1);
+      if (!after.slice(1).some((v) => v !== null)) return; // not projected: the line ends at its last month
+      traces.push({ type: "scatter", mode: "lines", name: `${name} projected`, x: labels.slice(own - 1), y: after, customdata: after.map((_, j) => (j ? " projected" : "")), line: { color, width: 2, dash: "dot" }, showlegend: false, hovertemplate: `%{x} · ${name}%{customdata}: %{y:,.0f}<extra></extra>` });
     });
     const shapes = [];
     const annotations = [];
@@ -823,7 +829,7 @@ export const BUILDERS = {
       shapes.push({ type: "line", x0: 0, x1: 1, xref: "paper", y0: num(data.target), y1: num(data.target), yref: "y", line: { color: cssVar("--nd-muted"), width: 1, dash: "dash" } });
       annotations.push({ x: 1, xref: "paper", y: num(data.target), yref: "y", text: `PD targets ${Math.round(num(data.target)).toLocaleString()}`, showarrow: false, xanchor: "right", yanchor: "bottom", font: { size: 10, color: cssVar("--nd-muted") } });
     }
-    const ahead = Math.max(1, Number(data?.months_shown) || shown);
+    const ahead = Math.max(1, Number(data?.months_shown) || fallback);
     if (ahead < 12) shapes.push({ type: "rect", x0: ahead - 1, x1: 11, xref: "x", y0: 0, y1: 1, yref: "paper", fillcolor: withAlpha(cssVar("--nd-neutral"), 0.08), line: { width: 0 } });
     return { traces, layout: { shapes, annotations, xaxis: { type: "category" }, yaxis: { rangemode: "tozero" }, margin: { t: 8, r: 8, b: 56, l: 48 }, ...legendFor(traces.filter((t) => t.showlegend !== false).length) } };
   },

@@ -57,11 +57,12 @@ logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120  # a build, and the freshness strip
 OPTIONS_SECONDS = 600  # the filter bar's choices (they only change with a sync)
-CACHE_VERSION = 15  # 12: the sections and the governorate written as JSON in the build's key; 13: the data
+CACHE_VERSION = 16  # 12: the sections and the governorate written as JSON in the build's key; 13: the data
 # stamp as its fingerprint, which the parts' addresses carry (as_of); 14: the calendar year (the reporting
 # year of its ActivityInfo records, or none), the sources' months, January's "not yet", the freshness jobs in
 # its key; 15: the programme documents adding a value from January to each month (the brief's coverage guard),
-# "not yet" and "not started" for a year that has not started
+# "not yet" and "not started" for a year that has not started; 16: each programme document's reported months
+# (the brief's last month with its partner reports all in)
 FRESHNESS_JOBS = ("ai_data", "etools_datamart", "locations", "daily_review")
 NOT_YET_MONTHS = 4  # up to the end of April, a year with no eTools children yet says "Not yet", never 0
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -582,13 +583,16 @@ class _Builder:
         etools_months = [0.0] * 12
         etools_to_date = [0.0] * 12
         pds_to_date = [0] * 12  # the PDs whose main indicator has a value from January to each month
+        # each PD's months with a counted report of its main indicator (of zero too): the brief finds the last
+        # month whose partner reports are all in from them, against last year's (its like-with-like cut)
+        months_by_pd: dict[str, list[int]] = {}
         etools_total = 0.0
         by_gov: dict[str, float] = defaultdict(float)
         gov_names: dict[str, str] = {}
         by_district: dict[tuple[str, str], float] = defaultdict(float)
         rules: Counter[str] = Counter()
         awaiting = 0.0  # of the eTools figure, from reports awaiting acceptance (the whole country only)
-        for main in self.scope_mains.values():
+        for pd_id, main in self.scope_mains.items():
             row = main.row
             value = self._year_value(row)
             etools_total += value
@@ -596,7 +600,11 @@ class _Builder:
                 rules[main.rule] += 1
                 if not self.gov_key and row.result is not None:
                     awaiting += row.result.awaiting_in(self.year) or 0.0
-            for month, month_value in self._months(row).items():
+            reported = self._months(row)
+            months_by_pd[str(pd_id)] = sorted(
+                m for m, v in reported.items() if v is not None and 1 <= m <= 12
+            )
+            for month, month_value in reported.items():
                 if month_value and 1 <= month <= 12:
                     etools_months[month - 1] += month_value
             for month in range(1, 13):
@@ -711,6 +719,9 @@ class _Builder:
                 "etools_pds_to_date": pds_to_date,
                 "activityinfo": [half_up(v) for v in activityinfo["months"]],
             },
+            # {PD id: the months (1-12) with a counted report of its main indicator}, for every PD of the
+            # scope with a main indicator (an empty list when none is reported yet)
+            "etools_months_by_pd": months_by_pd,
             "population_year": population_year,
             "implausible": self.implausible,
             # plain English, never translated: the build is the same in every language (lang_neutral)

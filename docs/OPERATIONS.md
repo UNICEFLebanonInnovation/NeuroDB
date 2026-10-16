@@ -2271,7 +2271,8 @@ sources), the elapsed PD period for achievement, the daily
 review of 30 days ago for the on-track share (the same formula and the PDs running in the year, only
 when that review is of the selected year). The projection is, for each source, the average of its last
 three reported months, extended from its own last reported month to December (eTools' partner reports come
-quarterly, ActivityInfo's records about two months late); it is a pace, not a forecast.
+quarterly, its last month being the last one whose reports are all in; ActivityInfo's records about two
+months late); it is a pace, not a forecast.
 
 **Years and ActivityInfo.** The year is a calendar year (`?year=`, this year by default; the Year select
 lists this year down to the first year with data, at most ten), and each year's ActivityInfo figures
@@ -2285,28 +2286,37 @@ compared over the same months of both years (Jan–Aug): its 2026 records end in
 against eTools, labelled "vs same period last year, eTools only", with a hint saying why ("ActivityInfo was
 not used in 2025", "ActivityInfo's 2025 records count no children for this scope", or "did not cover the
 same months"); "Compared on eTools only" appears only when such a change is shown. eTools is compared over
-the same months of both years, from January to this year's last month with a partner report (they come
-about two weeks after each quarter), never past the current month; when a change is shown over fewer months
-than the current one, the hint says so ("eTools compared over Jan–Jun of both years: the partner reports
-for later months are not in yet."). An eTools-only comparison is shown only when the two years' programme
-documents adding a value over those months are within half of each other; otherwise there is no comparison
-and the hint says why: "Not compared: 2025 has eTools partner reports for only <n> programme documents over
-Jan–Jun." (no "+900 %" against a pilot year), or, while the year runs, "Not compared: 2026's partner reports
-for Jan–Jun are still coming in (<n> programme documents so far, <m> in 2025)." (no "−90 %" while a
-quarter's reports come in). Nor is there one when either year has no eTools partner reports ("Not
-compared: 2025 has no eTools partner reports.", or "2026 has no eTools partner reports yet.", "yet" only
-while the year runs), or for a year that has not started (its period reads "2027 (not started)"). Before
+the same months of both years, from January to the last month whose partner reports are all in, never past
+the current month. Partners report about two weeks after each quarter, over several weeks, so a quarter with
+some of its reports in is never compared with last year's whole quarter (no "−30 %" from one report in ten):
+a month's reports are all in when at least 90 % of the programme documents expected for it have sent theirs.
+A programme document is expected for a month when it runs then (its start and end dates) and its reports
+covered that month last year, or the same month of the quarter before (a quarterly report covers its
+quarter's three months, a monthly one its month); one with a later report but none for that month holds the
+comparison back (that report is late), one whose reports stopped is no longer waited for two months after
+the quarter's end. When a change is shown over fewer months than the current one, the hint says so ("eTools
+compared over Jan–Jun of both years: the partner reports from Jul are not all in yet.", or "…: the partner
+reports for later months are not in yet." when none has come). An eTools-only comparison is shown only when
+the two years' programme documents adding a value over those months are within half of each other;
+otherwise there is no comparison and the hint says why: "Not compared: 2025 has eTools partner reports for
+only <n> programme documents over Jan–Jun." (no "+900 %" against a pilot year). Nor is there one while not
+even the first quarter's reports are all in ("Not compared: 2027's partner reports for Jan–Mar are still
+coming in (<n> programme documents so far, <m> in 2026)."; no "−50 %" with half of them in), when either
+year has no eTools partner reports ("Not compared: 2025 has no eTools partner reports.", or "2026 has no
+eTools partner reports yet.", "yet" only while the year runs), or for a year that has not started (its
+period reads "2027 (not started)"). Before
 the first partner report of the year (January to April) the tile reads "Not yet", with no change, and the
 brief as text says "Children reached: not yet." The line under the tiles says children reached is compared
 "against the same months of 2025" only when its tile shows a change, and otherwise that it "is not
 compared with 2025 (see its tile)". The chart *Where the year ends at this pace* draws each source as
-reported to its own last month, then projected from there at the pace of its own reported months
-(ActivityInfo's from its first month, so a year resumed in July is not averaged with empty months): a
-month a source has not reported is never held at the total so far. Each line is solid to its own last
-reported month (never before the earliest last month of the sources projected) and dotted after it, so a
-month a partner reported is never drawn as projected; the shaded band marks the months to come, from the
-current month. Only the year in progress is projected, and ActivityInfo only while it is in use; otherwise
-a line ends at its total. The
+reported to its own last month (eTools to the last month whose partner reports are all in, as on the tile),
+then projected from there at the pace of its own reported months (ActivityInfo's from its first month, so a
+year resumed in July is not averaged with empty months): a month a source has not reported is never held
+at the total so far. Each line is solid to its own last reported month and dotted after it; that month
+hovers as reported, the dotted months as "projected". Only the year in progress is projected, and
+ActivityInfo only while it is in use: otherwise (a year that is over, an archive) a line ends at its last
+reported month, never drawn flat to December. The shaded band marks the months to come, from the current
+month, and a key under the chart says what the solid line, the dotted line and the band are. The
 *partners linked across sources* criterion of *How sure* counts only in a year with ActivityInfo figures,
 and the lineage lists the ActivityInfo import only in such a year.
 Confidence thresholds: reported ≥ 80 %, verified ≥ 30 %, linked ≥ 90 %, sync at most 2 days old;
