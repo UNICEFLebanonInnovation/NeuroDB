@@ -817,20 +817,37 @@ def _key_check(key_check: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def _related(related: dict[str, Any]) -> list[dict[str, Any]]:
+def _related(related: dict[str, Any], round_names: dict[Any, str] | None = None) -> list[dict[str, Any]]:
+    """The related views' profiles for Data health. ``round_names``: the rounds' names by id (the view's
+    rounds, ``periods``), so that a profile grouped by ``round_id`` names each round next to its id
+    (``cells``): from payload format 4 a year holds several rounds, which an id alone does not tell apart."""
     out = []
+    names = round_names or {}
     for name, profile in sorted((related or {}).items()):
         if not isinstance(profile, dict):
             continue
+        by = list(profile.get("by") or [])
+        rows = [r for r in profile.get("rows") or [] if isinstance(r, list)][:50]
+        at = by.index("round_id") if "round_id" in by else None
+        cells = [
+            [
+                f"{value} ({names[value]})"
+                if i == at and isinstance(value, int | str) and value in names
+                else value
+                for i, value in enumerate(row)
+            ]
+            for row in rows
+        ]
         out.append(
             {
                 "name": name,
                 # one Compiler could not describe or read ({"exists": null, "error": ...}) is not "missing"
                 "exists": bool(profile.get("exists")) or bool(profile.get("error")),
                 "error": str(profile.get("error") or ""),
-                "by": list(profile.get("by") or []),
+                "by": by,
                 "measures": list(profile.get("measures") or []),
-                "rows": [r for r in profile.get("rows") or [] if isinstance(r, list)][:50],
+                "rows": rows,
+                "cells": cells,  # the rows as shown: a round's id with its name
                 # Compiler keeps 50 groups at most: a cut list is not the view's total (its versions: unknown)
                 "truncated": bool(profile.get("truncated")),
                 # counted for the period's rounds only (Compiler from fixer R3: Dirasa's teachers)
@@ -876,11 +893,13 @@ def stored_periods(programmes: Iterable[str]) -> StoredPeriods:
     of its first round and the fetch time are read in the database, not the payload). Makani lists its years.
     Dirasa lists the periods of the kind of the row fetched last (ties: "year"): its years from payload format
     4 (Compiler counts the rounds of a year), its rounds before; the other kind stays stored, hidden, so a
-    rollback of Compiler to format 3 lists rounds again once its first rounds are fetched. Years are ordered
-    newest first by their number; rounds (and Makani's years) by the start of the payload's first round, then
-    by name, latest first: a Dirasa round's name is free text in Compiler, shared by every CLM programme
-    ("Round 10 2026-2027", "Bridging Round 2 2025-2026"), so its text order need not be its date order. Youth
-    (whose page lists its years by name) is never read here."""
+    rollback of Compiler to format 3 lists rounds again once its first rounds are fetched. Years (Makani's
+    and Dirasa's) are ordered newest first by their number, whatever their rounds' start dates (a round's
+    start date may be empty in Compiler, and with the setting ``current_rounds`` a year may hold a round that
+    started the year before); Dirasa's rounds by the start of the payload's first round, then by name, latest
+    first: a Dirasa round's name is free text in Compiler, shared by every CLM programme ("Round 10
+    2026-2027", "Bridging Round 2 2025-2026"), so its text order need not be its date order. Youth (whose
+    page lists its years by name) is never read here."""
     wanted = [p for p in dict.fromkeys(programmes) if p in EDUCATION]
     listed: dict[str, list[str]] = {p: [] for p in wanted}
     hidden: dict[str, set[str]] = {p: set() for p in wanted}
@@ -901,7 +920,7 @@ def stored_periods(programmes: Iterable[str]) -> StoredPeriods:
         kind = kinds[programme]
         shown = [r for r in mine if kind_of[(r[0], r[1])] == kind]
         hidden[programme] = {r[1] for r in mine if kind_of[(r[0], r[1])] != kind}
-        if programme == "bridging" and kind == "year":
+        if kind == "year":  # Makani's years and Dirasa's from format 4: whatever their rounds' start dates
             ordered = sorted(shown, key=lambda r: (_year_number(r[1]), r[1]), reverse=True)
         else:
             ordered = sorted(shown, key=lambda r: (str(r[2] or ""), r[1]), reverse=True)
@@ -1079,7 +1098,14 @@ def _row(
         "periods": [p for p in the_check.periods or [] if isinstance(p, dict)],
         "key_check": _key_check(the_check.key_check or {}),
         "key_facts": {k: (the_check.key_check or {}).get(k) for k in KEY_FACTS},
-        "related": _related(the_check.related or {}),
+        "related": _related(
+            the_check.related or {},
+            {
+                p["id"]: str(p["name"])
+                for p in the_check.periods or []
+                if isinstance(p, dict) and isinstance(p.get("id"), int | str) and p.get("name")
+            },
+        ),
         "cards": _cards(the_check.programme, the_check, typed, latest),
         "checked_at": the_check.checked_at,
         "counted_at": the_check.counted_at,

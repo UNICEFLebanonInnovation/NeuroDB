@@ -1,5 +1,7 @@
 {% load i18n ui %}
 {% if not inline %}{% include "education/_tabs.html" with oob=True %}{% endif %}
 {% if not_applied %}<p class="caveat" role="note">{% blocktrans with names=not_applied|join:", " %}Not applied on this tab (kept for the other tabs): {{ names }}.{% endblocktrans %}</p>{% endif %}
+{# Dirasa by year: the round asked for (an old link, a round of another year, a round without figures) is not shown #}
+{% if round_note %}<p class="caveat" role="note" data-round-note>{{ round_note }}</p>{% endif %}
 {% if data.errors %}<div class="alert alert-warning small" role="status">{% trans "Compiler could not count some parts this time (they show as empty):" %} {{ data.errors|join:", " }}.</div>{% endif %}
 {% include tab_template %}

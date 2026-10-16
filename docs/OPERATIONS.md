@@ -4449,7 +4449,9 @@ is listed as *pending*. The API is limited to the "NeuroDB API" group and rate-l
   governorate, sex, nationality, CWD type, level, learning result, main attendance barrier),
   `teachers` and `trainings` (teachers per training topic), plus `outreach` (Compiler's Kobo outreach,
   shared by every programme, every year: interview year, partner and governorate as typed, and the
-  answer to education status, referral, dropout reason, ID type). The payload also lists the centers
+  answer to education status, referral, dropout reason, ID type). From payload format 4 each Bridging cube
+  also has the round (the registration's or the teacher's), which the Round slicer and the line under the
+  title read. The payload also lists the centers
   and schools (type, emergency status, GPS point; schools with the children numbers they report).
 
 **Compared with Power BI.** Power BI's Makani, Dirasa and Youth dashboards read three views of Compiler's
@@ -4514,7 +4516,7 @@ raw text).
   (TLS, without a round, of another year, without a year...), Compiler's count time; and per period the
   reasons table, the view's rows per round (or year), the key check as percentages, the related views'
   rows (`vw_teacher_data` counted for the period's rounds only, since it holds the teachers of every CLM
-  round; a list Compiler cut at 50 groups says so, and the version counted from it is then not available)
+  round, each round's id followed by its name; a list Compiler cut at 50 groups says so, and the version counted from it is then not available)
   and the cards: every version's value at the period total, the number typed from Power BI, the
   version(s) equal to it ("No version equals Power BI's number" otherwise) and the version in use. A
   comparison of an older count than the figures kept (a later payload had none: Compiler gone back to an
@@ -4601,7 +4603,14 @@ Dirasa select mixes the old rounds and the years, labelled "Round" (each year's 
 migration on either side. The first run counts again every year NeuroDB reads (`COMPILER_EDUCATION_YEARS`).
 The older per-round figures are kept and hidden as soon as a per-year count is the latest read (they come
 back if Compiler goes back to format 3); an old link naming a round (`?round=Bridging 2025-2026`) opens the
-year holding it with that round chosen. Power BI numbers typed for a round must be typed again for the year
+year holding it with that round chosen. A round the page cannot show (no stored year lists it, it has no
+registration nor teacher in the year, or it is a round of another year kept from the year chosen before)
+opens the whole year and the page says so; Ask answers such a round with an error, never with the year's
+figures. The line under the title adds "other rounds or no round (N registrations)" when Compiler counted
+Power BI's view and the view gives the year registrations whose own round is of another year or missing
+(CONTRACT_PBI §9.3), and gives no count when Compiler could not count the registrations. Makani's and
+Dirasa's years are listed newest first by their number, whatever their rounds' start dates (a round's start
+date may be empty). Power BI numbers typed for a round must be typed again for the year
 (the card admin says "no such period: choose one"). Country-programme links to a round keep their value;
 new links name a year ("Dirasa 2026 — children enrolled").
 

@@ -456,3 +456,209 @@ def test_the_teachers_profile_counts_the_years_rounds_only():
         "round_at_schools_with_children": 5,
         "view_rows": 5,
     }
+
+
+# ------------------------------------------------------------------------------------- fixes from review round 2
+def _caveats(response) -> list[str]:
+    found = re.findall(r'<p class="caveat" role="note"[^>]*>(.*?)</p>', response.content.decode(), re.S)
+    return [" ".join(html_lib.unescape(c).split()) for c in found]
+
+
+def test_the_rounds_line_names_registrations_of_other_rounds_or_none(client_viewer):
+    """In view mode Compiler counts the view's rows of the year, whose registration may be of a round of another
+    year (``other_year``) or of none (``no_round``, CONTRACT_PBI §9.3): the enrolment cube keeps the
+    registration's own round, so the line adds them after the year's rounds and its counts add up to the
+    registrations shown."""
+    other = {"child": 17, "school": 300, "partner": 7, "governorate": 20, "sex": "Male", "nationality": 1,
+             "disability": 1, "round": 9}  # fmt: skip
+    regs = [*YEAR_REGISTRATIONS, other, dict(other, child=18, round=None)]
+    store(dirasa_year_payload(regs, YEAR_TEACHERS, OUTREACH))
+    response = page(client_viewer)
+    assert response.context["data"]["cards"]["children"]["registrations"] == 9
+    assert rounds_text(response) == (
+        "Rounds: Bridging Round 1 2026 (from 12 Jan 2026, 5 registrations), "
+        "Bridging Round 2 2026 (from 1 Sep 2026, 2 registrations), other rounds or no round (2 registrations)."
+    )
+    cache.clear()
+    EducationFigures.objects.all().delete()
+    store(dirasa_year_payload([*YEAR_REGISTRATIONS, other], YEAR_TEACHERS, OUTREACH))
+    assert rounds_text(page(client_viewer)).endswith(", other rounds or no round (1 registration).")
+
+
+def test_the_rounds_line_gives_no_count_when_compiler_could_not_count_the_registrations(client_viewer):
+    payload = year_payload()
+    payload["cubes"]["enrolment"] = {"error": "QueryCanceled: canceling statement due to statement timeout"}
+    store(payload)
+    response = page(client_viewer)
+    assert "Compiler could not count some parts this time" in response.content.decode()
+    # names and start dates only: never "no registration yet"
+    assert rounds_text(response) == (
+        "Rounds: Bridging Round 1 2026 (from 12 Jan 2026), Bridging Round 2 2026 (from 1 Sep 2026)."
+    )
+    # no round can be chosen: the page and Ask say why, never "no registrations or teachers"
+    assert _caveats(page(client_viewer, round=str(R2))) == [
+        "Compiler could not count the registrations this time, so no round of 2026 can be shown on its own."
+    ]
+    from neurodb.assistant.hub_tools import education_figures
+
+    with pytest.raises(
+        ToolInputError, match="Compiler could not count Dirasa 2026's registrations this time"
+    ):
+        education_figures("dirasa", round="Bridging Round 2 2026")
+    from neurodb.education import dirasa
+
+    rounds = [dict(ROUNDS_2026[0], id=33, name="Round 3 2026", start_date=None, year_from="name"),
+              dict(ROUNDS_2026[0], id=34, name="Summer catch-up", start_date=None, year=None, year_from=None)]  # fmt: skip
+    payload = dirasa_year_payload(YEAR_REGISTRATIONS, rounds=rounds)
+    payload["cubes"]["enrolment"] = {"error": "QueryCanceled"}
+    line = dirasa.rounds_line(Figures(payload))
+    assert [r["registrations"] for r in line["rounds"]] == [None, None]
+    text = " ".join(render_to_string("education/_rounds_line.html", {"line": line}).split())
+    assert html_lib.unescape(text) == (
+        '<p class="page-subtitle small" data-rounds>Rounds: Round 3 2026 (year taken from its name), '
+        "Summer catch-up (no Bridging start date).</p>"
+    )
+
+
+ROUND_4 = {"id": 34, "name": "Round 4 2026", "start_date": "2026-11-02", "end_date": None, "current": False,
+           "current_year": True, "year": 2026, "year_from": "start_date"}  # fmt: skip
+
+
+def test_ask_says_a_round_of_the_year_without_figures_has_none():
+    from neurodb.assistant.hub_tools import education_figures
+
+    store(year_payload(rounds=[*ROUNDS_2026, ROUND_4]))
+    with pytest.raises(ToolInputError, match="Round 4 2026 has no registrations or teachers in Dirasa 2026"):
+        education_figures("dirasa", round="Round 4 2026")
+    with pytest.raises(ToolInputError, match="Round 4 2026 has no registrations or teachers in Dirasa 2026"):
+        education_figures("dirasa", period="Round 4 2026")  # a round's name as the period: the same
+    # a round with figures is still answered; on Outreach (Compiler's Kobo outreach) no round applies
+    assert education_figures("dirasa", round="Bridging Round 2 2026")["round"] == "Bridging Round 2 2026"
+    outreach = education_figures("dirasa", tab="outreach", round="Round 4 2026")
+    assert (outreach["tab"], outreach["round"]) == ("outreach", None)
+
+
+def test_the_page_says_when_the_round_asked_for_cannot_be_shown(client_viewer):
+    store(year_payload("2025"), fetched_at=EARLY)
+    store(year_payload(rounds=[*ROUNDS_2026, ROUND_4]), fetched_at=LATER)
+    # a round of the year without registrations or teachers (an old link naming it)
+    response = page(client_viewer, round="Round 4 2026")
+    assert response.context["period"] == "2026" and response.context["filters"] == {}
+    assert _caveats(response) == [
+        "Round 4 2026 has no registrations or teachers in 2026: the figures are those of every round of the year."
+    ]
+    # the same round chosen by its id
+    assert _caveats(page(client_viewer, round="34")) == _caveats(response)
+    # an old link naming a round no stored year lists: the newest year, and the page says so
+    response = page(client_viewer, round="Bridging 2019-2020")
+    assert response.context["period"] == "2026"
+    assert _caveats(response) == [
+        "No year shown here lists the round “Bridging 2019-2020”: the figures are those of every round of 2026."
+    ]
+    # a round of another year kept from the year chosen before
+    response = page(client_viewer, year="2026", round="9")
+    assert _caveats(response) == [
+        "The round chosen is not a round of 2026: the figures are those of every round of the year."
+    ]
+    # a round shown, or no round asked for: nothing to say
+    assert _caveats(page(client_viewer, round=str(R2))) == [] and _caveats(page(client_viewer)) == []
+    assert _caveats(page(client_viewer, year="2025", round="9")) == []
+    # Outreach has no round: only the Round filter's own "not applied" line
+    assert _caveats(page(client_viewer, tab="outreach", round="34")) == []
+
+
+def test_makani_opens_on_its_newest_year_whatever_its_rounds_start_dates(client_viewer):
+    from .payloads import makani_payload
+    from .test_dashboards import REGISTRATIONS, STAFF
+
+    newest = makani_payload(REGISTRATIONS, STAFF, year="2026")
+    newest["rounds"] = [{"id": 2, "name": "Round 1 2026", "start_date": None, "current": True}]  # nullable
+    store(newest, compare=False)
+    store(makani_payload(REGISTRATIONS[:1], STAFF, year="2025"), compare=False)  # its round from 15 Jan 2025
+    assert power_bi.page_periods(["mscc"]) == {"mscc": ["2026", "2025"]}
+    assert page_of(client_viewer, "education:makani").context["period"] == "2026"
+    assert power_bi.latest_first("mscc", ["2025", "2026"]) == ["2026", "2025"]
+
+
+def page_of(client, name, **params):
+    response = client.get(reverse(name), params)
+    assert response.status_code == 200
+    return response
+
+
+def test_dirasa_years_are_ordered_by_number_not_by_their_first_rounds_start():
+    # Compiler set to count the rounds marked current: 2026 holds a round that started in Sep 2025, before the
+    # first round of 2025 (Oct 2025)
+    started_before = {"id": 40, "name": "Bridging 2025-2026 B", "start_date": "2025-09-01", "end_date": None,
+                      "current": False, "current_year": True, "year": 2025, "year_from": "start_date"}  # fmt: skip
+    store(year_payload(rounds=[started_before, *ROUNDS_2026], period_rule="current_rounds"))
+    store(year_payload("2025"))
+    assert power_bi.page_periods(["bridging"]) == {"bridging": ["2026", "2025"]}
+
+
+def test_a_round_with_teachers_only_is_a_round_to_choose(client_viewer):
+    round_3 = {"id": 33, "name": "Round 3 2026", "start_date": "2026-10-05", "end_date": None, "current": False,
+               "current_year": True, "year": 2026, "year_from": "start_date"}  # fmt: skip
+    teachers = [*YEAR_TEACHERS, {"school": 301, "sex": "Male", "trainings": [1], "round": 33}]
+    store(dirasa_year_payload(YEAR_REGISTRATIONS, teachers, OUTREACH, rounds=[*ROUNDS_2026, round_3]))
+    response = page(client_viewer)
+    assert slicers(response)["round"]["options"] == [
+        (str(R1), "Bridging Round 1 2026"),
+        (str(R2), "Bridging Round 2 2026"),
+        ("33", "Round 3 2026"),
+    ]
+    data = page(client_viewer, round="33").context["data"]
+    assert (data["kpis"]["teachers"], data["cards"]["children"]["registrations"]) == (1, 0)
+    assert rounds_text(response).endswith("Round 3 2026 (from 5 Oct 2026, no registration yet).")
+
+
+def test_the_rounds_line_says_when_a_round_has_no_bridging_start_date_nor_a_year_in_its_name():
+    from neurodb.education import dirasa
+
+    # Compiler set to count the rounds marked current: a round flagged current, without a start date, whose name
+    # holds no year
+    rounds = [
+        {"id": 35, "name": "Summer catch-up", "start_date": None, "end_date": None, "current": False,
+         "current_year": True, "year": None, "year_from": None},
+        {"id": 36, "name": "Autumn catch-up", "start_date": None, "end_date": None, "current": False,
+         "current_year": True, "year": None, "year_from": None},
+    ]  # fmt: skip
+    regs = [dict(r, round=35) for r in BRIDGING[:2]]
+    line = dirasa.rounds_line(Figures(dirasa_year_payload(regs, rounds=rounds, period_rule="current_rounds")))
+    text = " ".join(render_to_string("education/_rounds_line.html", {"line": line}).split())
+    assert html_lib.unescape(text) == (
+        '<p class="page-subtitle small" data-rounds>Rounds marked current in Compiler: Summer catch-up (no Bridging '
+        "start date, 2 registrations), Autumn catch-up (no Bridging start date, no registration yet).</p>"
+    )
+
+
+def test_the_country_programme_offers_only_the_periods_the_page_lists(framework):  # noqa: F811
+    def offered():
+        groups = dict(cpd_sources.choices(framework.reached))
+        return dict(groups.get("Compiler education (children enrolled)", []))
+
+    # an old round whose name begins with a year of the programme: hidden once Dirasa is counted by year
+    early = "2026-2027 Bridging"
+    store(old_round(round_name=early, start_date="2026-10-01"), fetched_at=EARLY)
+    store(year_payload(), fetched_at=LATER)
+    options = offered()
+    assert "edu:bridging:2026" in options and f"edu:bridging:{early}" not in options
+    # a rollback of Compiler to format 3: the round is fetched again and offered, the years are hidden
+    EducationFigures.objects.filter(year=early).update(fetched_at=ROLLBACK)
+    options = offered()
+    assert f"edu:bridging:{early}" in options and "edu:bridging:2026" not in options
+
+
+def test_data_health_names_the_rounds_of_a_related_view(client, admin_user):
+    payload = year_payload()
+    payload["power_bi"]["related"] = {
+        "vw_teacher_data": {"exists": True, "by": ["round_id"], "measures": ["rows", "ids"],
+                            "rows": [[R2, 1, 1], [R1, 4, 4], [77, 2, 2]], "truncated": False, "rounds": [R1, R2]},
+    }  # fmt: skip
+    store(payload)
+    client.force_login(admin_user)
+    html = " ".join(html_lib.unescape(_health(client)).split())
+    assert (
+        "vw_teacher_data</span>: 32 (Bridging Round 2 2026) / 1 / 1 · 31 (Bridging Round 1 2026) / 4 / 4 · 77 / 2 / 2 "
+        '<span class="text-muted">(round_id / rows, ids; this period\'s rounds only)' in html
+    )

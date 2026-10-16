@@ -316,6 +316,19 @@ def education_figures(
     tab = page.tab(tab)
     result = services.page_data(stored, page, tab, params)
     applied = (result.get("filters") or {}).get("round")
+    if params.get("round") and applied is None and any(s.name == "round" for s in page.slicers_for(tab)):
+        # a round of the year with no registration nor teacher is no option of the Round filter: the figures
+        # would be the whole year's, never to be presented as the round's
+        name = next(str(r.get("name")) for r in rounds if str(r["id"]) == params["round"])
+        if "enrolment" in ((result.get("data") or {}).get("errors") or []):
+            raise ToolInputError(
+                f"Compiler could not count Dirasa {stored.year}'s registrations this time: {name} cannot be "
+                "shown on its own (leave the round out for the whole year)."
+            )
+        raise ToolInputError(
+            f"{name} has no registrations or teachers in Dirasa {stored.year}: there are no figures for it "
+            "(leave the round out for the whole year)."
+        )
     return _clean(
         _trim(
             {

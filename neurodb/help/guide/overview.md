@@ -176,9 +176,12 @@ registrations saved before September 2025 without a year.
 
 **Dirasa by year.** Like Power BI's page "Dirasa Programme Dashboard 2026", the Dirasa page shows a year:
 the Compiler rounds whose Bridging start date is in that year (a round without one counts in the year
-its name gives). The line under the title lists those rounds and their registrations; the **Round**
-filter shows one of them. A child registered in two rounds of the year counts once in *Children
-enrolled* and twice in the registrations.
+its name gives), or, if Compiler is set to count the rounds marked current, those rounds (the line under
+the title says which). That line lists the rounds and their registrations (when Compiler counted Power
+BI's view, it may add "other rounds or no round": registrations the view gives the year whose own round is
+another, or none); the **Round** filter shows one of the rounds that have registrations or teachers (a
+link to any other round shows the whole year and says so). A child registered in two rounds of the year
+counts once in *Children enrolled* and twice in the registrations.
 
 **Choosing a card's version** (administrators): open Administration → **Power BI cards**, open the card,
 type the number Power BI shows for it, choose its period in the list (the periods Data health compares: for

@@ -416,24 +416,29 @@ def _date(text: Any) -> datetime.date | None:
 def rounds_line(figures: Figures) -> dict[str, Any] | None:
     """The rounds of the year, for the line under the title (payload format 4; None before): whether they are
     the rounds Compiler marks current (setting ``current_rounds``) and, per round in the payload's order, its
-    name, Bridging start date, whether its year comes from its name, and its registrations."""
+    name, Bridging start date, whether its year comes from its name, and its registrations (None when Compiler
+    could not count the enrolment cube: the line then gives no count). ``other``: the registrations counted
+    whose own round is not one of the year's, or that have none (view mode: the view's rows of the year may
+    hold them, CONTRACT_PBI §9.3), so that the line adds up to the registrations shown."""
     if (figures.payload.get("format") or 0) < power_bi.YEARLY_FORMAT:
         return None
     base = ((figures.payload.get("power_bi") or {}).get("base")) or {}
-    counts = figures.cube("enrolment").by("round", "registrations")
-    rounds = []
-    for entry in figures.payload.get("rounds") or []:
-        if not isinstance(entry, dict):
-            continue
-        rounds.append(
-            {
-                "name": str(entry.get("name") or f"#{entry.get('id')}"),
-                "start": _date(entry.get("start_date")),
-                "from_name": entry.get("year_from") == "name",
-                "registrations": counts.get(entry.get("id"), 0),
-            }
-        )
-    return {"current": base.get("period_rule") == "current_rounds", "rounds": rounds}
+    enrolment = figures.cube("enrolment")
+    counted = not enrolment.error
+    counts = enrolment.by("round", "registrations")
+    entries = [entry for entry in figures.payload.get("rounds") or [] if isinstance(entry, dict)]
+    rounds = [
+        {
+            "name": str(entry.get("name") or f"#{entry.get('id')}"),
+            "start": _date(entry.get("start_date")),
+            "from_name": entry.get("year_from") == "name",
+            "registrations": counts.get(entry.get("id"), 0) if counted else None,
+        }
+        for entry in entries
+    ]
+    listed = {entry.get("id") for entry in entries}
+    other = sum(n for round_id, n in counts.items() if round_id not in listed) if counted else 0
+    return {"current": base.get("period_rule") == "current_rounds", "rounds": rounds, "other": other}
 
 
 PAGE = Page(
