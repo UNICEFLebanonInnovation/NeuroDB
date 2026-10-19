@@ -41,6 +41,7 @@ from neurodb.core import compute, years
 from neurodb.core.models import PopulationFigure, SyncRun
 from neurodb.datamart import headline as main_indicators
 from neurodb.datamart import models as dm
+from neurodb.datamart import reporting
 from neurodb.datamart.children import overrides as children_overrides
 from neurodb.datamart.monitoring import is_submitted
 from neurodb.facts import queries as fact_queries
@@ -527,6 +528,7 @@ class _Builder:
             dm.ReportedIndicator.objects.filter(
                 partner_id__in=self._partner_ids(), period_end__year=self.year, report_type="QPR"
             )
+            .exclude(reporting.NO_PD)  # a report naming no PD: never counted (reporting.NO_PD)
             .values(
                 "partner_id", "progress_report", "due_date", "submission_date", "report_status", "period_end"
             )

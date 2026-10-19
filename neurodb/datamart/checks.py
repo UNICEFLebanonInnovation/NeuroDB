@@ -10,14 +10,26 @@ answers: a check left out says so.
 
 from __future__ import annotations
 
+import datetime
 import logging
 import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import DatabaseError, connection, transaction
+from django.db.models import Case, Count, Max, Min, Q, TextField, Value, When
+from django.db.models.fields.json import KT
+from django.db.models.functions import Coalesce, NullIf, Trim
 
+from neurodb.partnerships import statuses as pd_statuses
+
+from . import models as dm
+from . import reached as rc
+from . import reporting
 from .disaggregation import ids_in, parse_key
 
 logger = logging.getLogger(__name__)
@@ -60,11 +72,25 @@ class _Timed:
         self.cursor.execute(f"SET LOCAL statement_timeout = {left}")
         self.cursor.execute(sql, params)
 
+    def bound(self, statements: int = 1) -> None:
+        """Set the statement timeout for queries run outside :meth:`execute` (the ORM, on the same
+        transaction): the next ``statements`` of them share the time left, ``TIMEOUT_MS`` at most each."""
+        left = min(TIMEOUT_MS, int(self.remaining() * 1000 / max(statements, 1)))
+        if left <= 0:
+            raise OutOfTime
+        self.cursor.execute(f"SET LOCAL statement_timeout = {left}")
+
     def fetchone(self) -> tuple:
         return self.cursor.fetchone()
 
     def fetchall(self) -> list[tuple]:
         return self.cursor.fetchall()
+
+
+def _bound(cursor, statements: int = 1) -> None:
+    """:meth:`_Timed.bound` on the page's cursor (a plain cursor, in a test, has no deadline)."""
+    if hasattr(cursor, "bound"):
+        cursor.bound(statements)
 
 
 def _one(cursor, sql: str, params: list[Any] | None = None) -> tuple:
@@ -273,9 +299,9 @@ def _cumulative(cursor) -> dict[str, Any]:
             f"{same:,} of {several:,} indicators with several reports carry the same cumulative on every "
             f"report ({_share(same, several)}); "
             + (
-                "NeuroDB's Reached was not compared with PRP's cumulative (the checks before it used up "
-                "most of the page's time); the Data quality tab of Partner monitoring lists the indicators "
-                "where they differ."
+                "NeuroDB's Reached was not compared with PRP's cumulative (the checks run before it, "
+                "checks 10 and 11 first, used up most of the page's time); the Data quality tab of Partner "
+                "monitoring lists the indicators where they differ."
                 if skipped
                 else f"NeuroDB's Reached differs from PRP's cumulative on {differ:,} of {compared:,} "
                 "indicators of the running programme documents."
@@ -436,6 +462,252 @@ def _financial(cursor) -> dict[str, Any]:
     }
 
 
+# how a report row belongs to a programme document (check 10)
+NO_COUNTRY = "(none)"
+LINK_RUNNING = "running"
+LINK_OTHER_STATUS = "another status"
+LINK_NOT_HELD = "not in NeuroDB"
+LINK_NONE = "names none"
+
+
+def _country_and_link(cursor) -> dict[str, Any]:
+    from neurodb.integrations.etools.datamart_sync import other_country
+
+    _bound(cursor)
+    country = settings.ETOOLS_DATAMART_COUNTRY
+    link = Case(
+        When(reporting.NO_PD, then=Value(LINK_NONE)),
+        When(intervention__isnull=True, then=Value(LINK_NOT_HELD)),
+        When(intervention__status__in=pd_statuses.RUNNING, then=Value(LINK_RUNNING)),
+        default=Value(LINK_OTHER_STATUS),
+    )
+    groups = list(
+        dm.ReportedIndicator.objects.order_by()
+        .annotate(
+            _country=Coalesce(
+                NullIf(Trim(KT("data__country_name")), Value("", output_field=TextField())),
+                Value(NO_COUNTRY, output_field=TextField()),
+            )
+        )
+        .annotate(_link=link)
+        .values("_country", "_link")
+        .annotate(
+            rows=Count("pk"),
+            reports=Count(reporting.INDICATOR_REPORT_KEY, distinct=True),
+            first=Min("period_end"),
+            last=Max("period_end"),
+            sections=ArrayAgg(NullIf(Trim("section"), Value("")), distinct=True, filter=~Q(section="")),
+            numbers=ArrayAgg("pd_reference_number", distinct=True, filter=Q(intervention__isnull=True)),
+        )
+        .order_by("_country", "_link")
+    )
+    if not groups:
+        return {"tone": INFO, "verdict": "No partner report rows are held yet.", "figures": []}
+    # the sync's own rule (case and spaces aside; nothing is another country's while none is set)
+    other = sum(
+        g["rows"]
+        for g in groups
+        if g["_country"] != NO_COUNTRY and other_country({"country_name": g["_country"]}, country)
+    )
+    not_held = sum(g["reports"] for g in groups if g["_link"] == LINK_NOT_HELD)
+    no_pd = sum(g["reports"] for g in groups if g["_link"] == LINK_NONE)
+    parts = []
+    if other:
+        parts.append(
+            f"{other:,} {'row names' if other == 1 else 'rows name'} another country than {country}: "
+            f"the next partner reports sync that returns {country}'s reports removes "
+            f"{'it' if other == 1 else 'them'}"
+        )
+    if not_held:
+        parts.append(f"{not_held:,} indicator reports belong to programme documents NeuroDB does not hold")
+    if no_pd:
+        parts.append(f"{no_pd:,} indicator reports name no programme document")
+    rows = [
+        (
+            g["_country"],
+            g["_link"],
+            g["rows"],
+            g["reports"],
+            g["first"],
+            g["last"],
+            ", ".join(sorted(x for x in g["sections"] or [] if x)[:5]) or None,
+            ", ".join(sorted(x for x in g["numbers"] or [] if x)[:3]) or None,
+        )
+        for g in groups
+    ]
+    return {
+        "tone": WARN if other or not_held else (INFO if no_pd else OK),
+        "verdict": (
+            "; ".join(parts) + "."
+            if parts
+            else "Every row is of this country and belongs to a programme document NeuroDB holds."
+        ),
+        "figures": [
+            ("Rows naming another country", other),
+            ("Indicator reports of programme documents not held", not_held),
+            ("Indicator reports naming no programme document", no_pd),
+        ],
+        "table": {
+            "columns": (
+                "Country in the row",
+                "Programme document",
+                "Rows",
+                "Indicator reports",
+                "First period end",
+                "Last period end",
+                "Sections (first 5)",
+                "PD numbers not held (first 3)",
+            ),
+            "rows": rows,
+        },
+    }
+
+
+def _two_feeds(cursor) -> dict[str, Any]:
+    today = datetime.date.today()
+    zero = dict.fromkeys(rc.STATUS_LABELS, 0)
+    _bound(cursor, statements=2)  # the two queries of progress_reports share the time left
+    filters = reporting.ReportFilters(year=today.year)  # the running PDs, as the page by default
+    ours: dict[Any, dict[str, int]] = {}
+    for r in reporting.progress_reports(filters.queryset(today), today):
+        counts = ours.setdefault(r["period_end"].month if r["period_end"] else None, dict(zero))
+        counts[r["status"]] += r["indicators"]
+    # PRP's records of the year by the period end they are counted by (their progress report's, else
+    # their own: prp_document_status), read from the records whose own end is within a year of it
+    near = dm.DatamartDocument.objects.filter(
+        dataset="prp_indicator_reports", date__year__in=(today.year - 1, today.year, today.year + 1)
+    )
+    _bound(cursor)
+    found = (
+        near.order_by()
+        .annotate(
+            _link=Case(
+                When(intervention__isnull=True, then=Value(LINK_NOT_HELD)),
+                When(intervention__status__in=pd_statuses.RUNNING, then=Value(LINK_RUNNING)),
+                default=Value(LINK_OTHER_STATUS),
+            ),
+            _pr_status=KT("data__pr_status"),
+            _status=KT("data__report_status"),
+            _pr_end=KT("data__pr_end_date"),
+            _pr_due=KT("data__pr_due_date"),
+            _due=KT("data__due_date"),
+            _pr_sub=KT("data__pr_submission_date"),
+            _sub=KT("data__submission_date"),
+        )
+        .values("_link", "date", "_pr_status", "_status", "_pr_end", "_pr_due", "_due", "_pr_sub", "_sub")
+        .annotate(n=Count("pk"))
+    )
+    theirs: dict[Any, dict[str, int]] = {}
+    held: Counter[str] = Counter()  # the records of the year, by their programme document link
+    for g in found:
+        # the rule of the Funds page for these records: the progress report's own fields first
+        status, end = rc.prp_document_status(
+            pr_status=g["_pr_status"],
+            status=g["_status"],
+            pr_end=g["_pr_end"],
+            end=g["date"],
+            pr_due=g["_pr_due"],
+            due=g["_due"],
+            pr_sub=g["_pr_sub"],
+            sub=g["_sub"],
+            today=today,
+        )
+        if end is None or end.year != today.year:
+            continue
+        held[g["_link"]] += g["n"]
+        if g["_link"] == LINK_RUNNING:
+            counts = theirs.setdefault(end.month, dict(zero))
+            counts[status] += g["n"]
+    unlinked, other = held[LINK_NOT_HELD], held[LINK_OTHER_STATUS]
+    figures = [
+        ("Due or overdue in the partner reports", 0),
+        ("Due or overdue in PRP's indicator reports", 0),
+        ("PRP indicator reports of the year linked to a programme document", held[LINK_RUNNING] + other),
+        ("… not linked to one", unlinked),
+    ]
+    if not ours and not theirs:
+        return {
+            "tone": INFO,
+            "verdict": _no_prp(today.year, other, unlinked, ours=False),
+            "figures": figures,
+        }
+    owed = (rc.DUE, rc.OVERDUE)
+
+    def owing(table: dict[Any, dict[str, int]], month: Any) -> int:
+        return sum((table.get(month) or zero)[k] for k in owed)
+
+    months = sorted({*ours, *theirs}, key=lambda m: (m is None, m or 0))
+    label = {m: datetime.date(today.year, m, 1).strftime("%b %Y") if m else "No period end" for m in months}
+    rows = [
+        (label[m], feed, *((table.get(m) or zero)[k] for k in rc.STATUS_LABELS))
+        for m in months
+        for feed, table in (("Partner reports", ours), ("PRP indicator reports", theirs))
+    ]
+    ours_owed, theirs_owed = sum(owing(ours, m) for m in months), sum(owing(theirs, m) for m in months)
+    figures[0], figures[1] = (figures[0][0], ours_owed), (figures[1][0], theirs_owed)
+    table = {"columns": ("Period end", "Feed", *rc.STATUS_LABELS.values()), "rows": rows}
+    if not theirs:
+        return {
+            "tone": INFO,
+            "verdict": _no_prp(today.year, other, unlinked, ours=True),
+            "figures": figures,
+            "table": table,
+        }
+    more = [label[m] for m in months if owing(theirs, m) > owing(ours, m)]
+    fewer = [label[m] for m in months if owing(theirs, m) < owing(ours, m)]
+    other = [
+        label[m]
+        for m in months
+        if (ours.get(m) or zero) != (theirs.get(m) or zero) and label[m] not in (*more, *fewer)
+    ]
+    verdict = (
+        f"For {today.year}, the partner reports (what Progress reports counts) list {ours_owed:,} due or "
+        f"overdue indicator reports of the running programme documents; PRP's indicator reports list "
+        f"{theirs_owed:,}."
+    )
+    if more:
+        verdict += (
+            f" PRP lists more reports still owed in {', '.join(more)}: the partner reports feed does not "
+            "carry every report still owed."
+        )
+    if fewer:
+        verdict += f" The partner reports list more reports still owed in {', '.join(fewer)}."
+    if other:
+        verdict += f" The two feeds give other statuses in {', '.join(other)}."
+    if not (more or fewer or other):
+        verdict += " Every month has the same indicator reports per status in both feeds."
+    return {
+        "tone": WARN if more or fewer or other else OK,
+        "verdict": verdict,
+        "figures": figures,
+        "table": table,
+    }
+
+
+def _no_prp(year: int, other: int, unlinked: int, *, ours: bool) -> str:
+    """Check 11's verdict when PRP's indicator reports of the year hold none of a running programme
+    document: why (``other`` of the year link to a PD of another status, ``unlinked`` to none), and what
+    to do."""
+    start = (
+        f"PRP's indicator reports hold nothing of the running programme documents for {year}"
+        if ours
+        else f"Neither feed holds an indicator report of a running programme document for {year}"
+    )
+    if unlinked and not other:
+        return (
+            f"{start}: {unlinked:,} of the year are held, but none links to a programme document NeuroDB "
+            "holds (their PD reference numbers match none). A sync helps only if the programme documents "
+            "were synced after them."
+        )
+    if other:
+        return (
+            f"{start}: the {other:,} of the year that link to a programme document are of PDs that are not "
+            f"running{f', and {unlinked:,} link to none' if unlinked else ''}."
+        )
+    return f"{start}: run the eTools Datamart sync (prp_indicator_reports) to compare."
+
+
+RUN_FIRST = ("10", "11")
 CHECKS: tuple[Check, ...] = (
     Check(
         "1",
@@ -511,6 +783,26 @@ CHECKS: tuple[Check, ...] = (
         "indicators (Funds → Partner contributions).",
         _financial,
     ),
+    Check(
+        "10",
+        "Country and programme document of the rows",
+        "Which country does each report row name, and does it belong to a programme document NeuroDB holds?",
+        "A record naming another country is never written (the sync counts it in other_country_skipped). "
+        "Progress reports counts the running programme documents by default; a report of a programme "
+        "document NeuroDB does not hold only when every PD status is chosen, and a report that names no "
+        "programme document never. The page says how many the PD status filter leaves out.",
+        _country_and_link,
+    ),
+    Check(
+        "11",
+        "Reports owed, in PRP's two feeds",
+        "This year, do the partner reports and PRP's indicator reports list the same reports per status, for "
+        "the running programme documents?",
+        "Progress reports and Partner monitoring read the partner reports (prp/datareport); PRP's indicator "
+        "reports (prp/indicator-report-v2) are kept whole for Ask NeuroDB. Both are read with the same "
+        "status rule (PRP's word, then the dates).",
+        _two_feeds,
+    ),
 )
 
 
@@ -519,19 +811,22 @@ def run_all(budget: float = PAGE_BUDGET_S) -> list[dict[str, Any]]:
     a check that fails or runs too long says so and the others still run. The checks share ``budget``
     seconds: once it is used up, the checks left say they were not run (the page always answers before
     the web server's limit)."""
-    out = []
+    done: dict[str, dict[str, Any]] = {}
+    ran: list[str] = []  # the checks run so far, in their order
     deadline = time.monotonic() + budget
-    for check in CHECKS:
+    # the checks of RUN_FIRST run first (they answer whether the report rows are this country's and the
+    # reports owed, whatever the time the others take); the page lists every check in its order
+    for check in sorted(CHECKS, key=lambda c: c.key not in RUN_FIRST):
         entry = {"key": check.key, "title": check.title, "question": check.question, "neurodb": check.neurodb}
+        done[check.key] = entry
         if deadline - time.monotonic() < 1:
-            entry.update(_not_run())
-            out.append(entry)
+            entry.update(_not_run(ran))
             continue
         try:
             with transaction.atomic(), connection.cursor() as cursor:
                 entry.update(check.run(_Timed(cursor, deadline)))
         except OutOfTime:
-            entry.update(_not_run())
+            entry.update(_not_run(ran, started=True))
         except DatabaseError as exc:
             logger.warning("eTools reporting check %s failed: %s", check.key, exc)
             entry.update(
@@ -543,16 +838,28 @@ def run_all(budget: float = PAGE_BUDGET_S) -> list[dict[str, Any]]:
                     "figures": [],
                 }
             )
-        out.append(entry)
-    return out
+        ran.append(check.key)
+    return [done[c.key] for c in CHECKS]
 
 
-def _not_run() -> dict[str, Any]:
+def _not_run(ran: list[str], *, started: bool = False) -> dict[str, Any]:
+    """The verdict of a check the page's time left out: ``ran``, the checks run before it (checks 10 and
+    11 run first, so they are not the ones listed above it); ``started``, it ran out partway through."""
+    seconds = int(PAGE_BUDGET_S)
+    if started:
+        why = f"this check ran out of the page's {seconds} seconds partway through"
+    elif ran:
+        named = ", ".join(ran[:-1]) + f" and {ran[-1]}" if len(ran) > 1 else ran[0]
+        kind = "checks" if len(ran) > 1 else "check"
+        why = f"{kind} {named}, run before it, used up the page's {seconds} seconds"
+    else:
+        why = f"the page's {seconds} seconds for its checks were used up"
+    first = " and ".join(RUN_FIRST)
     return {
         "tone": INFO,
         "verdict": (
-            f"Not run: the checks before it used up the page's {int(PAGE_BUDGET_S)} seconds (the page "
-            "stops there so that it always answers). The data is large or the database is busy."
+            f"Not run: {why} (checks {first} run first, then the others in order; the page stops there so "
+            "that it always answers). The data is large or the database is busy."
         ),
         "figures": [],
     }

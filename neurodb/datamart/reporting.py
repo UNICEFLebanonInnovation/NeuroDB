@@ -27,9 +27,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from django.conf import settings
-from django.db.models import CharField, Count, Max, Q, QuerySet, Value
+from django.db.models import CharField, Count, Max, Q, QuerySet, TextField, Value
 from django.db.models.fields.json import KeyTransform
-from django.db.models.functions import Coalesce, Concat, ExtractYear, NullIf
+from django.db.models.functions import Cast, Coalesce, Concat, ExtractYear, NullIf
 
 from neurodb.core import compute
 from neurodb.partnerships import statuses as pd_statuses
@@ -83,6 +83,29 @@ INDICATOR_REPORT = Coalesce(
     NullIf("indicator_report", Value("")),
     Concat(Value("t|"), "etools_indicator_id", Value("|"), "indicator", output_field=CharField()),
     output_field=CharField(),
+)
+# one indicator report among all: its progress report (PRP's id, else all the report's fields, as
+# report_key groups the rows) and the indicator in it, as progress_reports counts them
+INDICATOR_REPORT_KEY = Concat(
+    Coalesce(
+        NullIf("progress_report", Value("")),
+        Concat(
+            *[part for name in REPORT_FIELDS for part in (Value("|"), Cast(name, TextField()))],
+            output_field=TextField(),
+        ),
+        output_field=TextField(),
+    ),
+    Value("#"),
+    INDICATOR_REPORT,
+    output_field=TextField(),
+)
+# report rows that name no programme document at all (no link, no PD reference number, no eTools PD id):
+# PRP reports outside programme documents, which no PD status filter keeps: Progress reports, the partner
+# page, the home page and the management brief never count them
+NO_PD = Q(intervention__isnull=True, pd_reference_number="") & (
+    Q(data__etools_intervention_id__isnull=True)
+    | Q(data__etools_intervention_id=None)
+    | Q(data__etools_intervention_id="")
 )
 
 
@@ -168,9 +191,10 @@ class ReportFilters:
         ``pd_status=`` alone (every status) keeps its own."""
         return _json_key(dataclasses.replace(self, pd_statuses=sorted(set(self.status_choice))))
 
-    def queryset(self, today: datetime.date) -> QuerySet[dm.ReportedIndicator]:
+    def queryset(self, today: datetime.date, *, by_pd_status: bool = True) -> QuerySet[dm.ReportedIndicator]:
         """The report rows (one per indicator, report and location) every filter but the status keeps
-        (a report's status is read from all its rows, in :func:`progress_reports`)."""
+        (a report's status is read from all its rows, in :func:`progress_reports`); with
+        ``by_pd_status=False``, also those the PD status filter leaves out (:func:`left_out`)."""
         from .monitoring import pending_q
 
         rows = dm.ReportedIndicator.objects.all()
@@ -198,11 +222,13 @@ class ReportFilters:
             rows = rows.filter(
                 Q(partner__partner_type__in=self.partner_types) | Q(partner__cso_type__in=self.partner_types)
             )
-        # never draft or cancelled PDs (not, or no longer, a partnership); a report without a PD link is
-        # read only when every status is chosen
+        # never draft or cancelled PDs (not, or no longer, a partnership); a report of a PD NeuroDB does
+        # not hold is read only when every status is chosen, and a report that names no PD never
         rows = rows.exclude(intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP)
-        if self.status_choice:
+        if by_pd_status and self.status_choice:
             rows = rows.filter(intervention__status__in=self.status_choice)
+        elif by_pd_status:
+            rows = rows.exclude(NO_PD)
         if self.emergency:
             rows = rows.filter(high_frequency=self.emergency == "yes")
         for name, value in (
@@ -216,6 +242,29 @@ class ReportFilters:
         if self.overdue:
             rows = rows.filter(pending_q(), due_date__lt=today)
         return rows
+
+
+def left_out(filters: ReportFilters, today: datetime.date) -> dict[str, int]:
+    """The indicator reports every other filter keeps and the page does not count, of any report status
+    (a report's status is not read here), by why: ``other_status``, of a programme document whose status
+    the PD status filter leaves out; ``not_held``, of a programme document NeuroDB does not hold (read
+    only when every PD status is chosen); ``no_pd``, naming no programme document (never read). One
+    query, over the left-out rows only."""
+    chosen = filters.status_choice
+    rows = filters.queryset(today, by_pd_status=False)
+    if chosen:
+        rows = rows.filter(Q(intervention__isnull=True) | ~Q(intervention__status__in=chosen))
+    else:
+        rows = rows.filter(NO_PD)
+    key = INDICATOR_REPORT_KEY
+    found = rows.aggregate(
+        other_status=Count(key, distinct=True, filter=Q(intervention__isnull=False)),
+        not_held=Count(key, distinct=True, filter=Q(intervention__isnull=True) & ~NO_PD),
+        no_pd=Count(key, distinct=True, filter=NO_PD),
+    )
+    out = {name: int(found[name] or 0) for name in ("other_status", "not_held", "no_pd")}
+    out["by_pd_status"] = out["other_status"] + out["not_held"]
+    return out
 
 
 # --------------------------------------------------------------------------------- progress reports

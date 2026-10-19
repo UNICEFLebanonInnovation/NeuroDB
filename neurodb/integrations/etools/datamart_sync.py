@@ -14,7 +14,8 @@ Two kinds of targets:
 
 Each record is written in its own savepoint (``runs.process_items``): one bad record is logged and
 counted, the rest are written and the run ends PARTIAL. Every request is limited to one country
-(``settings.ETOOLS_DATAMART_COUNTRY``).
+(``settings.ETOOLS_DATAMART_COUNTRY``), and a record naming another country is never written
+(``details.other_country_skipped``).
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import connection, models, transaction
+from django.db.models.fields.json import KT
 from django.utils import timezone
 
 from neurodb.core.models import SyncRun
@@ -1177,6 +1179,61 @@ def _label(item: dict[str, Any]) -> str:
     return str(item.get("source_id") or item.get("id") or "?")
 
 
+def country_name(value: Any) -> str:
+    """A country name as compared: case and spaces aside."""
+    return " ".join(str(value or "").split()).lower()
+
+
+def other_country(item: dict[str, Any], country: str) -> bool:
+    """Whether a record names a country other than ``country``. A record that names none is kept: the
+    request's ``country_name`` filter chose it; and with no country set, nothing is another's."""
+    wanted, named = country_name(country), country_name(item.get("country_name"))
+    return bool(wanted and named and named != wanted)
+
+
+def remove_other_country(model: type[dm.DatamartRecord], country: str, keep: set[int]) -> int:
+    """Delete the rows of a ``datamart`` table whose record names another country than ``country``,
+    whatever their date (an earlier run wrote them before the guard, or before the reading window moved),
+    never one of ``keep`` (the records this read wrote). The names are compared by :func:`other_country`
+    itself, over the few names the table holds. Run after a read that returned this country's records, so
+    a wrong country name never empties a table."""
+    if not country_name(country):
+        return 0
+    names = model.objects.order_by().annotate(_c=KT("data__country_name")).values_list("_c", flat=True)
+    foreign = [n for n in names.distinct() if n and other_country({"country_name": n}, country)]
+    if not foreign:
+        return 0
+    rows = (
+        model.objects.annotate(_c=KT("data__country_name"))
+        .filter(_c__in=foreign)
+        .exclude(datamart_id__in=keep)
+    )
+    _, deleted = model.objects.filter(pk__in=rows.values("pk")).delete()
+    return deleted.get(model._meta.label, 0)
+
+
+class OfCountry:
+    """The records of a ``country_name``-filtered request that belong to the client's country: a filter
+    the API ignored must never let another country's records in (``CountryScope.keeps`` does the same
+    for the records kept whole). ``skipped`` counts the records left out; they are never written.
+    Rows an earlier run wrote are removed from the ``datamart`` tables (:func:`remove_other_country`) and
+    from the records kept whole; the partner, programme document, location and site tables keep them."""
+
+    def __init__(self, client: DatamartClient, items: Iterable[dict[str, Any]]) -> None:
+        self.country = getattr(client, "country", settings.ETOOLS_DATAMART_COUNTRY)
+        self.items, self.skipped = items, 0
+
+    def __iter__(self):
+        for item in self.items:
+            if other_country(item, self.country):
+                self.skipped += 1
+            else:
+                yield item
+
+    def details(self) -> dict[str, int]:
+        return {"other_country_skipped": self.skipped} if self.skipped else {}
+
+
 # ------------------------------------------------------------------------ whole records (documents)
 scrub = catalogue.scrub  # contact details are never stored in documents
 
@@ -1302,7 +1359,8 @@ def sync_locations(run: SyncRun, *, client: DatamartClient, links: Links) -> Syn
 
     def body() -> dict[str, Any]:
         links.missing.clear()
-        items = list(client.list("locations"))
+        found = OfCountry(client, client.list("locations"))
+        items = list(found)
         types: dict[int, int] = {}
         by_datamart_id: dict[str, int] = {}
         parents: dict[int, Any] = {}
@@ -1329,6 +1387,7 @@ def sync_locations(run: SyncRun, *, client: DatamartClient, links: Links) -> Syn
             "location_types": len(types),
             "relinked": relink_locations(),
             **links.details(),
+            **found.details(),
         }
         links.missing.clear()
         return {**details, **_write_documents("locations", items, links)}
@@ -1409,10 +1468,11 @@ def upsert_site(item: dict[str, Any], links: Links) -> None:
 def sync_sites(run: SyncRun, *, client: DatamartClient, links: Links) -> SyncRun:
     def body() -> dict[str, Any]:
         links.missing.clear()
-        items = list(client.list("location-sites"))
+        found = OfCountry(client, client.list("location-sites"))
+        items = list(found)
         process_items(run, items, lambda item: upsert_site(item, links), _label)
         links.refresh()
-        details = links.details()
+        details = {**links.details(), **found.details()}
         links.missing.clear()
         return {**details, **_write_documents("location_sites", items, links)}
 
@@ -1426,10 +1486,11 @@ def sync_legacy(
         def body() -> dict[str, Any]:
             links.missing.clear()
             aligned = align_sequences()
-            items = list(client.list(dataset))
+            found = OfCountry(client, client.list(dataset))
+            items = list(found)
             process_items(run, items, lambda item: handler(item, links), _label)
             links.refresh()  # new partners and programme documents are linkable from here on
-            details = links.details()
+            details = {**links.details(), **found.details()}
             links.missing.clear()
             if aligned:
                 details["sequences_aligned"] = aligned
@@ -1450,15 +1511,20 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
             seen: set[int] = set()
             linked_before = _funded_pcas() if spec.model is dm.FundsReservation else set()
             params = spec.params() if spec.params else None
-            process_items(
-                run, client.list(dataset, params), lambda item: upsert_record(spec, item, links, seen), _label
-            )
+            found = OfCountry(client, client.list(dataset, params))
+            process_items(run, found, lambda item: upsert_record(spec, item, links, seen), _label)
             if seen:
+                # another country's rows first (every one, whatever its date), then the rest of the scope
+                # the Datamart no longer returns
+                other = remove_other_country(spec.model, found.country, seen)
                 replaced = spec.scope(spec.model.objects.all()) if spec.scope else spec.model.objects.all()
                 _, deleted = replaced.exclude(datamart_id__in=seen).delete()
                 details = {"removed": deleted.get(spec.model._meta.label, 0), **links.details()}
+                if other:
+                    details["other_country_removed"] = other
             else:  # an empty answer (a wrong country name?) never empties the table
                 details = {"removed": 0, "empty_response": True, **links.details()}
+            details.update(found.details())
             if spec.model is dm.FundsReservation:
                 details["donor_sets"] = _refresh_donor_sets(linked_before)
             if spec.model is dm.ReportedIndicator:
@@ -1539,9 +1605,10 @@ def sync_enrichment(name: str) -> Callable[..., SyncRun]:
         def body() -> dict[str, Any]:
             links.missing.clear()
             links.refresh()  # the engagements were just synced
-            items = list(client.list(dataset))
+            found = OfCountry(client, client.list(dataset))
+            items = list(found)
             process_items(run, items, lambda item: enrich_engagement(name, fields, item, links), _label)
-            details = links.details()
+            details = {**links.details(), **found.details()}
             links.missing.clear()
             return {**details, **_write_documents(name, items, links)}
 

@@ -141,3 +141,22 @@ def test_a_report_with_neither_date_nor_status_is_overdue_everywhere_once(data, 
 def test_an_empty_status_without_a_date_is_overdue_too(data, reporting_year):
     dm.ReportedIndicator.objects.filter(progress_report="PR-2").update(report_status="")
     assert set(overdue_everywhere(reporting_year).values()) == {1}
+
+
+def test_a_report_of_no_programme_document_is_overdue_nowhere(data, reporting_year):
+    """A PRP report outside any programme document (no link, no PD reference, no eTools PD id) is on no
+    page: not in the brief either, though it carries the partner's vendor number."""
+    pr2 = dm.ReportedIndicator.objects.filter(progress_report="PR-2").first()
+    dm.ReportedIndicator.objects.create(
+        datamart_id=500,
+        partner=pr2.partner,
+        progress_report="NO-PD-1",
+        report_type="QPR",
+        report_status="Due",
+        period_start=datetime.date(2026, 1, 1),
+        period_end=datetime.date(2026, 3, 31),
+        due_date=TODAY - datetime.timedelta(days=20),
+        indicator="Cluster children reached",
+    )
+    assert set(overdue_everywhere(reporting_year).values()) == {0}
+    assert _scorecard(reporting_year)["reports_on_time_percent"] == 100.0

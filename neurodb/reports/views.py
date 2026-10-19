@@ -1917,6 +1917,8 @@ def partner_reporting(request: HttpRequest) -> HttpResponse:
         "disaggregations": None,
         "downloads": _reporting_downloads(params, tab),
         "chart_data": {"by_month": data["by_month"]},
+        # the same filters with every PD status chosen ("pd_status=" alone)
+        "every_pd_status_url": request.path + "?" + _query_with(params, ("export",), pd_status=""),
     }
     template = "reports/partials/reporting_table.html" if request.htmx else "reports/partner_reporting.html"
     return render(request, template, context)

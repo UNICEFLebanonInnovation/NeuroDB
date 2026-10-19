@@ -527,6 +527,103 @@ def test_partner_reports_are_read_for_a_window_and_only_that_window_is_replaced(
 
 
 @responses.activate
+def test_partner_reports_of_another_country_are_never_written_and_old_ones_go(linked, settings):
+    """A ``country_name`` filter the Datamart ignored must not let another country's report rows in: they
+    are counted and never written, and those an earlier run wrote are removed by the complete read."""
+    settings.ETOOLS_DATAMART_REPORTING_YEARS = 2
+    start = f"{__import__('datetime').date.today().year - 1}-01-01"
+    earlier = dm.ReportedIndicator.objects.create(
+        datamart_id=93, period_start=start, indicator="written before"
+    )
+    common = {
+        "partner_vendor_number": "V1",
+        "etools_intervention_id": "11",
+        "intervention_reference_number": "LEB/PD1",
+        "report_status": "Accepted",
+        "reporting_period_start_date": start,
+        "performance_indicator": "Children reached",
+    }
+    responses.get(
+        f"{BASE}/api/latest/prp/datareport/",
+        json={
+            "results": [
+                {**common, "id": 1, "country_name": "Lebanon"},
+                {**common, "id": 2, "country_name": " LEBANON "},
+                {**common, "id": 3},  # no country named: the filter chose it
+                {**common, "id": 93, "country_name": "Syria"},
+                {**common, "id": 94, "country_name": "Jordan"},
+            ],
+            "next": None,
+        },
+    )
+    # before the window: kept as ever when it is this country's, removed when it names another
+    old_ours = dm.ReportedIndicator.objects.create(
+        datamart_id=97, period_start="2001-01-01", data={"country_name": "lebanon"}
+    )
+    old_other = dm.ReportedIndicator.objects.create(
+        datamart_id=98, period_start="2001-01-01", data={"country_name": "Syria"}
+    )
+    (run,) = run_all("partner_reports")
+    assert run.status == SyncRun.Status.SUCCEEDED
+    assert run.details["other_country_skipped"] == 2 and run.details["removed"] == 1
+    assert run.details["other_country_removed"] == 1
+    assert run.rows_in == 3
+    assert set(dm.ReportedIndicator.objects.values_list("datamart_id", flat=True)) == {1, 2, 3, 97}
+    assert not dm.ReportedIndicator.objects.filter(pk__in=[earlier.pk, old_other.pk]).exists()
+    assert dm.ReportedIndicator.objects.filter(pk=old_ours.pk).exists()
+
+
+@responses.activate
+def test_this_countrys_name_with_odd_spaces_or_case_is_never_another_country(linked, settings):
+    """The sync compares names one way (case and every kind of space aside): a row it writes is never
+    deleted as another country's in the same run."""
+    settings.ETOOLS_DATAMART_REPORTING_YEARS = 2
+    start = f"{__import__('datetime').date.today().year - 1}-01-01"
+    common = {"report_status": "Accepted", "reporting_period_start_date": start, "performance_indicator": "X"}
+    old_other = dm.ReportedIndicator.objects.create(datamart_id=60, data={"country_name": "Syria"})
+    responses.get(
+        f"{BASE}/api/latest/prp/datareport/",
+        json={
+            "results": [
+                {**common, "id": 61, "country_name": "Lebanon\u00a0"},
+                {**common, "id": 62, "country_name": "\u00a0"},
+                {**common, "id": 63, "country_name": "LEBANON"},
+            ],
+            "next": None,
+        },
+    )
+    (run,) = run_all("partner_reports")
+    assert set(dm.ReportedIndicator.objects.values_list("datamart_id", flat=True)) == {61, 62, 63}
+    assert run.details["other_country_removed"] == 1 and "other_country_skipped" not in run.details
+    assert not dm.ReportedIndicator.objects.filter(pk=old_other.pk).exists()
+
+
+@responses.activate
+def test_partners_and_programme_documents_of_another_country_are_never_written():
+    page("partners", [partner(1, country_name="Lebanon"), partner(2, country_name="Syria")])
+    page("interventions", [intervention(11), intervention(12, country_name="Syria")])
+    runs = run_all("partners,interventions")
+    assert [r.details.get("other_country_skipped") for r in runs] == [1, 1]
+    assert set(PartnerOrganization.objects.values_list("etl_id", flat=True)) == {"1"}
+    assert set(PCA.objects.values_list("etl_id", flat=True)) == {"11"}
+    assert not dm.DatamartDocument.objects.filter(dataset="partners", record_key="902").exists()
+
+
+@responses.activate
+def test_an_answer_of_another_country_only_never_empties_the_table(linked):
+    kept = dm.ReportedIndicator.objects.create(datamart_id=95, indicator="kept")
+    responses.get(
+        f"{BASE}/api/latest/prp/datareport/",
+        json={"results": [{"id": 96, "country_name": "Syria", "report_status": "Accepted"}], "next": None},
+    )
+    old_other = dm.ReportedIndicator.objects.create(datamart_id=99, data={"country_name": "Syria"})
+    (run,) = run_all("partner_reports")
+    assert run.details["empty_response"] and run.details["other_country_skipped"] == 1
+    assert "other_country_removed" not in run.details  # a wrong country name never empties a table
+    assert dm.ReportedIndicator.objects.filter(pk__in=[kept.pk, old_other.pk]).count() == 2
+
+
+@responses.activate
 def test_partner_reports_of_running_pds_are_read_from_their_start_with_their_cp_output(linked, settings):
     """Reached adds up every counted report of a PD: the window reaches back to the start of every
     running programme document; the indicator report id and the CP output get columns, and each PD

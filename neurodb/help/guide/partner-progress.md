@@ -83,8 +83,10 @@ the same way: the page first, then its locations.
 [Progress reports](/partner-reporting/) has four tabs on one filter (search, report status, report
 type, reporting year, section, report number, partner, partner type, PD status, emergency indicator, and
 the period start and end). Like Partner monitoring, it opens on the running programme documents
-(active, signed or suspended); clear the PD status choice to see every status. Draft and cancelled
-programme documents are never listed.
+(active, signed or suspended); clear the PD status choice to see every status. Under the tiles, a
+note says how many more indicator reports the PD status filter leaves out (of programme documents with
+another status, or not in NeuroDB), with a link that shows every status. Draft and cancelled
+programme documents are never listed, nor reports that name no programme document.
 
 - **Reporting progress**: the tiles count *indicator reports* (one indicator in one progress report, as
   Power BI counts them) per status, with the number of progress reports under each; then by section and
@@ -157,8 +159,9 @@ withholds any e-mail address written in a text.
 
 ## Checking the data
 
-Administrators find **eTools reporting checks** in the administration (linked from Data health): nine
+Administrators find **eTools reporting checks** in the administration (linked from Data health): eleven
 read-only checks of what the partner report data looks like (rows per location, repeated values,
 disaggregation keys, what reports that do not count carry, PRP's cumulative, the calculation methods,
-indicator ids, PRP's report totals and the financial contribution), each with a verdict and what NeuroDB
-does whatever the answer. Nothing needs to be run: the page reads what the nightly sync stored.
+indicator ids, PRP's report totals, the financial contribution, the country and programme document of
+the rows, and the reports still owed in PRP's two feeds), each with a verdict and what NeuroDB
+does whatever the answer. Checks 10 and 11 run first, so they answer even on a large database. Nothing needs to be run: the page reads what the nightly sync stored.

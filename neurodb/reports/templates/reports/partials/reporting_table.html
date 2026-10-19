@@ -27,6 +27,12 @@ parity world (an administrator's and a viewer's are the same): height at 1366 px
 </div>
 <p class="small text-muted mb-3">{% blocktrans with late=data.summary.late|intcomma %}Each tile counts indicator reports: one indicator in one progress report, as the eTools Power BI report counts them; the number of progress reports is under it. Every report has one status, so the tiles add up to the total. Submitted means awaiting acceptance; Not yet due, that the reporting period is still running. {{ late }} progress reports were submitted after their due date.{% endblocktrans %}</p>
 {% endwith %}
+{% with lo=data.left_out %}{% if lo.by_pd_status or lo.no_pd %}
+<p class="small text-muted mb-3" id="reporting-left-out">
+  {% if lo.by_pd_status %}{% blocktrans with other=lo.other_status|intcomma not_held=lo.not_held|intcomma n=lo.by_pd_status|intcomma count counter=lo.by_pd_status %}The PD status filter leaves out {{ n }} more indicator report of these filters, whatever its report status: {{ other }} of programme documents with another status, {{ not_held }} of programme documents NeuroDB does not hold.{% plural %}The PD status filter leaves out {{ n }} more indicator reports of these filters, whatever their report status: {{ other }} of programme documents with another status, {{ not_held }} of programme documents NeuroDB does not hold.{% endblocktrans %} <a href="{{ every_pd_status_url }}">{% trans "Show every PD status" %}</a>.{% endif %}
+  {% if lo.no_pd %}{% blocktrans with n=lo.no_pd|intcomma count counter=lo.no_pd %}{{ n }} indicator report of these filters names no programme document (a PRP report outside programme documents): Progress reports never counts it, nor the partner page, the home page or the management brief.{% plural %}{{ n }} indicator reports of these filters name no programme document (PRP reports outside programme documents): Progress reports never counts them, nor the partner page, the home page or the management brief.{% endblocktrans %}{% endif %}
+</p>
+{% endif %}{% endwith %}
 <section class="panel p-0 mb-3">
     {% include "components/table_toolbar.html" with title=_("Indicator reports by section") count=None table_id="reporting-sections" filename="indicator-reports-by-section" downloads=None %}
     {% if data.by_section.rows %}

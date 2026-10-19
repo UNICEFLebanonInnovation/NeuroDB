@@ -1,5 +1,7 @@
 """Every recorded Datamart sample (tests/fixtures/datamart/*.json) goes through its sync cleanly."""
 
+from collections import Counter
+
 import pytest
 import responses
 
@@ -25,7 +27,11 @@ def _client(country: str) -> DatamartClient:
 @responses.activate
 def test_recorded_sample_syncs_without_failed_rows(sample, settings):
     results = sample["results"]
-    country = next((str(r["country_name"]) for r in results if r.get("country_name")), "Lebanon")
+    # the country most records name (a recording can hold another country's records when the Datamart
+    # ignored the filter: the sync skips those, and counts them)
+    named = Counter(str(r["country_name"]) for r in results if r.get("country_name"))
+    country = named.most_common(1)[0][0] if named else "Lebanon"
+    settings.ETOOLS_DATAMART_COUNTRY = country
     if "business_area" in sample["params"]:
         settings.ETOOLS_DATAMART_BUSINESS_AREA = sample["params"]["business_area"]
     if "business_area_code" in sample["params"]:
@@ -34,7 +40,7 @@ def test_recorded_sample_syncs_without_failed_rows(sample, settings):
     (run,) = sync.sync_all(only=[sample["dataset"]], triggered_by="test", client=_client(country))
     assert run.status != SyncRun.Status.FAILED, run.error
     assert run.rows_failed == 0, run.details.get("errors")
-    assert run.rows_in == len(results)
+    assert run.rows_in + run.details.get("other_country_skipped", 0) == len(results)
 
 
 def test_every_sync_dataset_has_an_endpoint_to_record(settings):

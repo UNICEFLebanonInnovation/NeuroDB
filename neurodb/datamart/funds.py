@@ -79,15 +79,6 @@ def amount(value: Any) -> Decimal | None:
     return found if found.is_finite() else None
 
 
-def _date(value: Any) -> datetime.date | None:
-    if isinstance(value, datetime.date):
-        return value
-    try:
-        return datetime.date.fromisoformat(str(value or "").strip()[:10])
-    except ValueError:
-        return None
-
-
 # ------------------------------------------------------------------------------------------ filters
 @dataclass
 class FundFilters:
@@ -242,7 +233,17 @@ def financial_contributions(pd_ids: set[int], today: datetime.date) -> dict[int,
             value,
             currency,
         ) in docs:
-            end_date = _date(pr_end) or _date(end)
+            report_status, end_date = rc.prp_document_status(
+                pr_status=pr_status,
+                status=status,
+                pr_end=pr_end,
+                end=end,
+                pr_due=pr_due,
+                due=due,
+                pr_sub=pr_sub,
+                sub=sub,
+                today=today,
+            )
             key = (pd_id, (kind or "").upper(), str(number or ""), end_date.isoformat() if end_date else "")
             report = reports.setdefault(
                 key,
@@ -250,13 +251,7 @@ def financial_contributions(pd_ids: set[int], today: datetime.date) -> dict[int,
                     "report_type": (kind or "").upper(),
                     "report_number": str(number or ""),
                     "period_end": end_date,
-                    "status": rc.status_of(
-                        pr_status or status,
-                        period_end=end_date,
-                        due_date=_date(pr_due) or _date(due),
-                        submission_date=_date(pr_sub) or _date(sub),
-                        today=today,
-                    ),
+                    "status": report_status,
                     "values": set(),
                     "currency": "",
                 },

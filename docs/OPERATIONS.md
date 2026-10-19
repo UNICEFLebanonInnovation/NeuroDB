@@ -1334,9 +1334,17 @@ pages. The PRP endpoints other than `prp/datareport/` carry no country field, so
 
 Rows link to programme documents by eTools id or reference number and to partners by eTools id or
 vendor number; `details.not_linked` of a run counts the records whose PD or partner is not in
-NeuroDB. The partner and programme tables are updated, never emptied. Each `datamart` table is
+NeuroDB. A record that names another country than `ETOOLS_DATAMART_COUNTRY` (a `country_name`
+filter the Datamart ignored; names compared with case and spaces aside) is never written, in these
+tables, the partner and programme tables and the locations alike: `details.other_country_skipped`
+counts them. In a `datamart` table, a read that returns this country's records also deletes every row
+an earlier run wrote for another country, whatever its date (`details.other_country_removed`); the
+partner, programme document, location and site tables keep such rows (only their raw copies kept for
+Ask NeuroDB are replaced). The partner and programme tables are updated, never emptied. Each `datamart` table is
 replaced by a complete read (rows the Datamart no longer returns are deleted), except when the
-Datamart returns nothing at all (`details.empty_response`), which usually means a wrong country name.
+Datamart returns nothing at all, or only records of another country (`details.empty_response`, with
+`details.other_country_skipped` in the second case; rows an earlier run wrote then stay until a read
+returns this country's records), which usually means a wrong country name.
 The admin shows these tables read-only under *eTools Datamart*.
 
 ### HACT visit plan (Field monitoring page)
@@ -1716,13 +1724,29 @@ it. Per-location targets are not in any country-filterable Datamart endpoint, so
 locations are compared on reported values only.
 
 **eTools reporting checks** (admin → *eTools reporting checks*, Administrators only; linked from
-*Data health*): nine read-only checks of the partner report data the rule depends on (rows per
+*Data health*): eleven read-only checks of the partner report data the rule depends on (rows per
 location, whether the value in the period is the report total repeated, disaggregation keys and the
 `"()"` total, what reports that do not count carry, PRP's cumulative against Reached, the
 calculation methods in use, whether report rows carry the PD indicator's id, PRP's report totals,
-and whether the financial contribution repeats on every indicator of a report), each with a verdict
-and what NeuroDB does whatever the answer. Every query is aggregate and stopped after 20 seconds,
-and the nine checks together after 75 seconds (below the web server's 120-second limit, so the page
+whether the financial contribution repeats on every indicator of a report, the country and
+programme document of the rows, and the reports owed in PRP's two feeds), each with a verdict
+and what NeuroDB does whatever the answer. Check 10 counts the rows per country named in the record
+and per programme document link (running, another status, not in NeuroDB, names none), with their
+indicator reports (counted as Progress reports counts them), their first and last period end, their
+sections and the first PD numbers NeuroDB does not hold; a row of another country is one the sync
+would skip (the same comparison). Check 11 sets, month by month for this year and the running
+programme documents, the indicator reports per status of the partner reports (`prp/datareport`, what
+Progress reports and Partner monitoring count) beside those of PRP's indicator reports
+(`prp/indicator-report-v2`, kept whole for Ask NeuroDB), both read with the same status rule (for PRP's
+records, their progress report's own status and dates first, as the Funds page reads them, and the
+year and month by that same period end): it names
+the months where PRP lists more reports still owed (the partner reports feed does not carry them, and
+Power BI's Reporting Progress can then show overdue reports NeuroDB does not), those where the partner
+reports list more, and those where the statuses differ otherwise; with nothing to compare, it says why
+(no record of the year held, none linked to a programme document NeuroDB holds, or none of a running
+one). Checks 10 and 11 run first, so they answer whatever time the others take; the page lists the
+checks in their order. Every query is aggregate and stopped after 20 seconds,
+and the checks together after 75 seconds (below the web server's 120-second limit, so the page
 always answers): a check left out by that limit says so, and the comparison of Reached with PRP's
 cumulative (check 5) runs only with 30 seconds left. Nothing needs running: the page reads what the nightly eTools Datamart sync stored (Run a job →
 *Sync eTools (Datamart)* refreshes it).
@@ -1764,8 +1788,14 @@ figures as everywhere else (they read the rule above; nothing is added across in
 * **Progress reports** has four tabs on one filter (search, report status, report type, reporting
   year, section, report #, partner, partner type, PD status, emergency indicator, period start and
   period end between). The PD status filter opens on the running programme documents (active, signed,
-  suspended), as Partner monitoring does; with every status chosen, reports without a PD link are
-  listed too. Draft and cancelled programme documents are never read:
+  suspended), as Partner monitoring does; with every status chosen, the reports of programme
+  documents NeuroDB does not hold are listed too. A report row that names no programme document (no
+  link, no PD reference number, no eTools PD id: PRP's reports outside programme documents) is never
+  read, whatever the filter, nor by the partner page, the home page or the management brief. Under the tiles, a note says how many indicator reports of the same
+  filters (whatever their report status) the PD status filter leaves out, of programme documents with
+  another status and of programme documents NeuroDB does not hold, with a link that chooses every PD
+  status, and how many name no programme document (`reporting.left_out`, one query over the rows left
+  out). Draft and cancelled programme documents are never read:
   * *Reporting progress*: tiles of **indicator reports** (one indicator in one progress report, as
     Power BI counts them) per status, with the number of progress reports under each; indicator
     reports by section and status with a total row (a report counts under its rows' section, else its

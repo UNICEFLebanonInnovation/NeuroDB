@@ -9,7 +9,7 @@ from django.db.models import Max
 
 from neurodb.core import years
 from neurodb.core.models import SyncRun
-from neurodb.datamart import monitoring
+from neurodb.datamart import monitoring, reporting
 from neurodb.datamart.models import ReportedIndicator
 from neurodb.facts.models import ActivityReportNew
 from neurodb.indicators.models import Database, MasterIndicator, ReportingYear
@@ -95,6 +95,7 @@ def _etools_counts(year: int | None = None) -> dict[str, Any]:
         "pd_indicators": len(rows),
         "progress_reports": ReportedIndicator.objects.filter(period_end__year=calendar_year)
         .exclude(progress_report="")
+        .exclude(reporting.NO_PD)  # a report naming no PD: never counted (reporting.NO_PD)
         .values("progress_report")
         .distinct()
         .count(),

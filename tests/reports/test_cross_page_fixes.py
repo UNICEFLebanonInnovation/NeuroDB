@@ -420,7 +420,7 @@ def test_csv_exports_keep_a_formula_a_text(pd, client_viewer):
 def test_the_checks_page_stops_within_its_time(db, monkeypatch):
     """Every check shares one time budget: once used up, the checks left say they did not run."""
     found = checks.run_all(budget=0)
-    assert len(found) == 9 and all(c["verdict"].startswith("Not run") for c in found)
+    assert len(found) == len(checks.CHECKS) == 11 and all(c["verdict"].startswith("Not run") for c in found)
 
     now = [0.0]
     monkeypatch.setattr(checks.time, "monotonic", lambda: now[0])

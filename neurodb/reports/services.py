@@ -551,6 +551,9 @@ def datamart_quality() -> list[dict[str, Any]]:
                 "not_linked_total": sum(int(v) for v in not_linked.values()),
                 "removed": details.get("removed"),
                 "empty_response": bool(details.get("empty_response")),
+                # records of another country the sync left out, and rows of another country it deleted
+                "other_country_skipped": details.get("other_country_skipped"),
+                "other_country_removed": details.get("other_country_removed"),
                 "errors": (details.get("errors") or [])[:3],
                 "relinked": details.get("relinked"),
             }

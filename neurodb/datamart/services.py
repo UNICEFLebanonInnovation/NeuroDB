@@ -342,8 +342,11 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
         visits[day.year] += 1
     # the partner's progress reports as the Progress reports page reads them for the partner (its
     # "All reports" link: ``?partner=<id>&pd_status=``): by the partner link, every PD status but
-    # draft and cancelled; read once for the summary, the list and the chart
-    reported = partner.reported_indicators.exclude(intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP)
+    # draft and cancelled, never a report that names no PD; read once for the summary, the list and
+    # the chart
+    reported = partner.reported_indicators.exclude(
+        intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP
+    ).exclude(reporting.NO_PD)
     reports = progress_reports(reported)
     return {
         "assessments": list(
@@ -1292,7 +1295,9 @@ def partner_reporting(params, today: datetime.date | None = None, *, options: bo
     by month of the reporting period's end, and Partner Performance. ``statuses``: the status of every
     progress report of the filter, read before the status filter (Report/Location reads each report's
     status there, so a report left out by the status filter is never let back in by one of its rows);
-    ``by_status``: the progress reports per status, by name (as ``summary`` counts them). ``options``:
+    ``by_status``: the progress reports per status, by name (as ``summary`` counts them); ``left_out``: the
+    indicator reports the PD status filter leaves out, and those naming no PD (:func:`neurodb.datamart.
+    reporting.left_out`; only with ``options``, as the page draws it). ``options``:
     the filter bar's choices (:func:`neurodb.datamart.reporting.stored_options`); ``options=False`` leaves
     them out, for a caller that draws no filter bar (the stored tables of :func:`reporting_table`)."""
     today = today or datetime.date.today()
@@ -1316,6 +1321,7 @@ def partner_reporting(params, today: datetime.date | None = None, *, options: bo
         "by_section": reporting.by_section(reports),
         "by_month": reporting.by_month(reports),
         "partners": reporting.partner_performance(reports),
+        "left_out": reporting.left_out(filters, today) if options else {},
         "today": today,
         **({"options": reporting.stored_options()} if options else {}),
     }

@@ -103,6 +103,45 @@ def status_of(
     return DUE
 
 
+def iso_day(value: Any) -> datetime.date | None:
+    """A record's date: a date, or ISO text (a time after it allowed), else None."""
+    if isinstance(value, datetime.date):
+        return value
+    try:
+        return datetime.date.fromisoformat(str(value or "").strip()[:10])
+    except ValueError:
+        return None
+
+
+def prp_document_status(
+    *,
+    pr_status: Any = None,
+    status: Any = None,
+    pr_end: Any = None,
+    end: Any = None,
+    pr_due: Any = None,
+    due: Any = None,
+    pr_sub: Any = None,
+    sub: Any = None,
+    today: datetime.date,
+) -> tuple[str, datetime.date | None]:
+    """The status and period end of one record of PRP's indicator reports (``prp_indicator_reports``):
+    its progress report's own fields (``pr_status``, ``pr_end_date``, ``pr_due_date``,
+    ``pr_submission_date``) first, else the indicator report's, read by :func:`status_of`: the rule of
+    the Funds page and of the eTools reporting checks for these records."""
+    period_end = iso_day(pr_end) or iso_day(end)
+    return (
+        status_of(
+            pr_status or status,
+            period_end=period_end,
+            due_date=iso_day(pr_due) or iso_day(due),
+            submission_date=iso_day(pr_sub) or iso_day(sub),
+            today=today,
+        ),
+        period_end,
+    )
+
+
 # ------------------------------------------------------------------------------------------ numbers
 NUMBER = re.compile(r"[-+]?\d+(?:\.\d+)?")
 
