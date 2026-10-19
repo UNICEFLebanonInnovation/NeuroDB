@@ -337,3 +337,30 @@ def test_data_health_tells_an_answer_of_another_country_from_an_empty_one():
     )
     assert "the Datamart returned only records of another country (3): check the country name" in html
     assert html.count("the Datamart returned nothing: check the country name") == 1
+
+
+def test_administrators_find_the_reporting_checks_from_the_menu_and_the_pages(
+    rows, client, admin_user, viewer
+):
+    checks_url = reverse("admin:datamart_reporting_checks")
+    client.force_login(admin_user)
+    admin_home = client.get(reverse("admin:index")).text
+    assert admin_home.count(f'href="{checks_url}"') >= 2  # the admin menu and the quick actions
+    assert f'href="{checks_url}"' in client.get(reverse("reports:data_health")).text
+    page = client.get(reverse("reports:partner_reporting")).text
+    assert 'id="reporting-checks-link"' in page and f'href="{checks_url}"' in page
+    client.force_login(viewer)
+    assert checks_url not in client.get(reverse("reports:partner_reporting")).text
+    assert checks_url not in client.get(reverse("reports:data_health")).text
+
+
+def test_the_admin_menu_lists_the_reporting_checks_for_administrators_only(rf, admin_user, viewer):
+    from neurodb.web import admin_site
+
+    request = rf.get("/admin/")
+    request.user = admin_user
+    assert [p["link"] for p in admin_site._datamart_pages(request)] == [
+        reverse("admin:datamart_reporting_checks")
+    ]
+    request.user = viewer
+    assert admin_site._datamart_pages(request) == []

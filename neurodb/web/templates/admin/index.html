@@ -54,6 +54,7 @@
             {% if perms.pivoting.add_neuroreport %}<li><a href="{% url 'admin:pivoting_neuroreport_add' %}"><span class="material-symbols-outlined">summarize</span>{% trans "Create a Neuro report" %}</a></li>{% endif %}
             {% if perms.pivoting.add_resource %}<li><a href="{% url 'admin:pivoting_resource_add' %}"><span class="material-symbols-outlined">menu_book</span>{% trans "Publish a library resource" %}</a></li>{% endif %}
             <li><a href="{% url 'reports:data_health' %}"><span class="material-symbols-outlined">monitor_heart</span>{% trans "Open the data health page" %}</a></li>
+            {% if user_role == "Administrator" %}<li><a href="{% url 'admin:datamart_reporting_checks' %}"><span class="material-symbols-outlined">fact_check</span>{% trans "eTools reporting checks (partner reports, Power BI differences)" %}</a></li>{% endif %}
             {% if user.is_superuser %}<li><a href="{% url 'admin:admin_logentry_changelist' %}"><span class="material-symbols-outlined">history</span>{% trans "Audit trail" %}</a></li>{% endif %}
           </ul>
         {% endcomponent %}

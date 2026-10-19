@@ -367,6 +367,14 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .ts-control { border-color: var(--nd-border) !important; background: var(--nd-surface) !important; min-height: 31px; font-size: 0.875rem; }
 .ts-dropdown { background: var(--nd-surface); color: var(--nd-text); border-color: var(--nd-border); }
 .htmx-request .htmx-hide-on-request { opacity: 0.45; transition: opacity 0.2s; }
+/* a filter being applied (app.js initFilterBar): the results it replaces dim, Apply turns a spinner */
+.is-updating { opacity: 0.5; transition: opacity 0.2s 0.15s; }
+.btn.is-busy { position: relative; color: transparent !important; }
+.btn.is-busy::after {
+  content: ""; position: absolute; inset: 0; margin: auto; width: 1em; height: 1em; border-radius: 50%;
+  border: 2px solid #fff; border-right-color: transparent; animation: nd-spin 0.7s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .btn.is-busy::after { animation-duration: 2s; } }
 [aria-busy="true"] { cursor: progress; }
 
 /* ------------------------------------------------------------------ states */

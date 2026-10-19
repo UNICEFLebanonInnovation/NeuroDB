@@ -1538,6 +1538,177 @@ def test_filter_bars_abort_on_their_form_never_on_body_and_modules_start_indepen
     assert "pendingParts()" in autoprint and "await loadAll({ timeout: 60000 })" in autoprint
 
 
+FILTER_BAR = r"""
+const source = process.argv[1];
+const classes = () => {
+  const set = new Set();
+  return { toggle: (name, on) => (on ? set.add(name) : set.delete(name)), contains: (name) => set.has(name) };
+};
+const listeners = (thing) => {
+  thing.on = {};
+  thing.addEventListener = (type, fn) => (thing.on[type] ||= []).push(fn);
+  thing.fire = (type, event = {}) => (thing.on[type] || []).forEach((fn) => fn({ target: thing, ...event }));
+  return thing;
+};
+const make = ({ results = true } = {}) => {
+  const log = { requests: [], aborts: 0, assigned: [], replaced: [] };
+  const button = { classList: classes(), attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } };
+  const area = { classList: classes() };
+  const form = listeners({ dataset: { hxTarget: "#results" }, fields: [["year", "2026"]], getAttribute: () => "/funds/" });
+  const win = listeners({
+    location: { pathname: "/funds/", assign: (url) => log.assigned.push(url) },
+    history: { replaceState: (state, title, url) => log.replaced.push(url) },
+    htmx: {
+      trigger: (elt, name) => {
+        if (name !== "htmx:abort") return;
+        log.aborts += 1;
+        const open = log.requests.filter((r) => !r.done);
+        open.forEach((r) => { r.done = true; form.fire("htmx:afterRequest", { detail: { xhr: { status: 0 } } }); r.reject(new Error("abort")); });
+      },
+      ajax: (verb, url, options) => new Promise((resolve, reject) => {
+        const request = { url, options, reject, done: false };
+        // the answer, as htmx 2.0.10 gives it: htmx:afterRequest on the source, then the promise settles
+        request.answer = (status) => { request.done = true; form.fire("htmx:afterRequest", { detail: { xhr: { status } } }); resolve(); };
+        request.fail = () => { request.done = true; form.fire("htmx:afterRequest", { detail: { xhr: { status: 0 } } }); reject(new Error("timeout")); };
+        log.requests.push(request);
+      }),
+    },
+  });
+  const doc = { querySelector: (sel) => (results && sel === "#results" ? area : null) };
+  const $ = (sel) => (sel === 'button[type="submit"]' ? button : null);
+  const $$ = () => [];
+  const debounce = (fn) => fn; // at once: the test is about what is sent, not when
+  class FormData { constructor(f) { return f.fields; } }
+  const body = source.split("function initFilterBar(form)", 2)[1].split("\n}\n", 1)[0];
+  const init = new Function("$", "$$", "debounce", "offsetState", "window", "document", "FormData",
+    `return function initFilterBar(form)${body}\n}`)($, $$, debounce, () => ({}), win, doc, FormData);
+  init(form);
+  const state = () => ({
+    busy: button.classList.contains("is-busy"),
+    ariaBusy: button.attrs["aria-busy"] || null,
+    dimmed: area.classList.contains("is-updating"),
+    requests: log.requests.map((r) => r.url),
+    aborts: log.aborts,
+    assigned: [...log.assigned],
+    replaced: [...log.replaced],
+  });
+  const apply = () => form.fire("submit", { preventDefault() {} });
+  return { form, win, log, state, apply };
+};
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const out = {};
+
+// Apply pressed three times while the answer is slow: one request, the button busy, the results dimmed
+let bar = make();
+bar.apply(); bar.apply(); bar.apply();
+out.slow = bar.state();
+bar.log.requests[0].answer(200);
+await tick();
+out.slowDone = bar.state();
+bar.apply(); // the same filter, asked again on purpose: sent again
+out.again = bar.state().requests.length;
+bar.log.requests[1].answer(200);
+await tick();
+bar.form.fire("change", { target: {} }); // a change that comes back to the filter shown: nothing sent
+out.unchanged = bar.state().requests.length;
+
+// No answer (a network error, a 502, a timeout): the page itself is loaded with the filter
+for (const [name, how] of [["network", (r) => r.answer(0)], ["502", (r) => r.answer(502)], ["timeout", (r) => r.fail()]]) {
+  bar = make();
+  bar.apply();
+  how(bar.log.requests[0]);
+  await tick();
+  out[name] = bar.state();
+}
+
+// A 4xx is the page's own answer (it says what is wrong): shown, not loaded again nor kept in the address
+bar = make();
+bar.apply();
+bar.log.requests[0].answer(403);
+await tick();
+out.forbidden = bar.state();
+
+// A newer filter while one runs: the old one is aborted and never loads the page; the newer one settles
+bar = make();
+bar.apply();
+bar.form.fields = [["year", "2025"]];
+bar.apply();
+await tick();
+out.newer = bar.state();
+bar.log.requests[1].answer(200);
+await tick();
+out.newerDone = bar.state();
+
+// Values picked while a list of several stays open: one request once it closes
+bar = make();
+bar.form.fields = [["donor", "A"]];
+bar.form.fire("change", { target: { multiple: true, tomselect: { isOpen: true } } });
+bar.form.fields = [["donor", "A"], ["donor", "B"]];
+bar.form.fire("change", { target: { multiple: true, tomselect: { isOpen: true } } });
+out.listOpen = bar.state().requests.length;
+bar.form.fire("nd:listclose");
+out.listClosed = bar.state().requests;
+bar.form.fire("nd:listclose"); // closed again with nothing picked: nothing sent
+out.closedAgain = bar.state().requests.length;
+
+// A request the browser cuts short because the page is being left: never loaded as a page
+bar = make();
+bar.apply();
+bar.win.fire("pagehide");
+bar.log.requests[0].fail();
+await tick();
+out.leaving = bar.state();
+
+// Without its results area, the filter loads the page
+bar = make({ results: false });
+bar.apply();
+out.noResults = bar.state();
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_apply_sends_one_request_says_it_is_working_and_loads_the_page_when_no_answer_comes():
+    result = subprocess.run(
+        [NODE, "--input-type=module", "-e", FILTER_BAR, _app()], capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    url = "/funds/?year=2026"
+    assert out["slow"] == {
+        "busy": True,
+        "ariaBusy": "true",
+        "dimmed": True,
+        "requests": [url],
+        "aborts": 1,
+        "assigned": [],
+        "replaced": [],
+    }
+    assert out["slowDone"]["busy"] is False and out["slowDone"]["ariaBusy"] is None
+    assert out["slowDone"]["dimmed"] is False and out["slowDone"]["replaced"] == [url]
+    assert out["again"] == 2 and out["unchanged"] == 2
+    for name in ("network", "502", "timeout"):
+        assert out[name]["assigned"] == [url] and out[name]["replaced"] == [], name
+        assert out[name]["busy"] is False, name
+    assert out["forbidden"]["assigned"] == [] and out["forbidden"]["replaced"] == []
+    assert out["newer"]["requests"] == [url, "/funds/?year=2025"] and out["newer"]["aborts"] == 2
+    assert out["newer"]["assigned"] == [] and out["newer"]["busy"] is True
+    assert out["newerDone"]["busy"] is False and out["newerDone"]["replaced"] == ["/funds/?year=2025"]
+    assert out["newerDone"]["assigned"] == []
+    assert out["listOpen"] == 0 and out["listClosed"] == ["/funds/?donor=A&donor=B"]
+    assert out["closedAgain"] == 1
+    assert out["leaving"]["assigned"] == [] and out["leaving"]["busy"] is False
+    assert out["noResults"]["assigned"] == [url] and out["noResults"]["requests"] == []
+
+
+def test_a_list_of_several_values_says_when_it_closes():
+    selects = _app().split("new window.TomSelect(el, {", 1)[1].split("});", 1)[0]
+    assert 'onDropdownClose: () => el.dispatchEvent(new Event("nd:listclose", { bubbles: true }))' in selects
+    css = (STATIC / "css" / "app.css").read_text()
+    assert ".is-updating {" in css and ".btn.is-busy::after {" in css
+    assert "@keyframes nd-spin" in css
+
+
 def test_base_html_reloads_on_history_and_has_the_cap_and_the_live_region():
     base = (TEMPLATES / "base.html").read_text()
     raw = re.search(r"<meta name=\"htmx-config\" content='([^']*)'>", base).group(1)

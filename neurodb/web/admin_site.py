@@ -99,7 +99,7 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         ],
     ),
     (
-        _("Data and sync"),
+        DATA_AND_SYNC := _("Data and sync"),
         _(
             "Import history, scheduled jobs, the daily review, NeuroDB Watch (For you), population "
             "figures, saved views, AI questions, help questions and AI use, audit trail."
@@ -476,18 +476,31 @@ def sidebar_navigation(request) -> list[dict[str, Any]]:
         }
     ]
     for app in admin.site.get_app_list(request):
-        groups.append(
-            {
-                "title": app["name"],
-                "collapsible": True,
-                "items": [
-                    {"title": m["name"], "icon": m["icon"], "link": m["admin_url"]}
-                    for m in app["models"]
-                    if m.get("admin_url")
-                ],
-            }
-        )
+        items = [
+            {"title": m["name"], "icon": m["icon"], "link": m["admin_url"]}
+            for m in app["models"]
+            if m.get("admin_url")
+        ]
+        if str(app["name"]) == str(DATA_AND_SYNC):
+            items[:0] = _datamart_pages(request)
+        groups.append({"title": app["name"], "collapsible": True, "items": items})
     return groups
+
+
+def _datamart_pages(request) -> list[dict[str, Any]]:
+    """The eTools pages that are not a table, first in Data and sync (Administrators only; the eTools
+    Datamart tables themselves are for developers): the reporting checks."""
+    from neurodb.accounts.roles import ADMIN, role_of
+
+    if role_of(request.user) != ADMIN:
+        return []
+    return [
+        {
+            "title": _("eTools reporting checks"),
+            "icon": "fact_check",
+            "link": reverse("admin:datamart_reporting_checks"),
+        }
+    ]
 
 
 def environment_badge(request) -> list[str] | None:

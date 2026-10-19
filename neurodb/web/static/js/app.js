@@ -201,7 +201,24 @@ function initFilterBar(form) {
     e.detail.parameters = {};
     e.detail.errors = [];
   });
-  const submit = () => {
+  const button = $('button[type="submit"]', form);
+  let running = null; // the address on its way: asked again (Apply pressed twice), it is never sent twice
+  let shown = null; // the address last shown: a change that comes back to it sends nothing
+  let status = 0; // the HTTP status of the answer to the running address (0: none, a network error)
+  // Apply says it is working, and the results it will replace are dimmed, until the answer is in
+  const busy = (on) => {
+    button?.classList.toggle("is-busy", on);
+    if (on) button?.setAttribute("aria-busy", "true");
+    else button?.removeAttribute("aria-busy");
+    document.querySelector(target)?.classList.toggle("is-updating", on);
+  };
+  form.addEventListener("htmx:afterRequest", (e) => {
+    if (e.target === form) status = e.detail.xhr?.status || 0;
+  });
+  let leaving = false; // the page is being left: a request the browser cuts short is not loaded as a page
+  window.addEventListener("pagehide", () => (leaving = true));
+  window.addEventListener("pageshow", () => (leaving = false));
+  const submit = (asked) => {
     const params = new URLSearchParams(new FormData(form));
     // A field marked data-keep-empty keeps its key when nothing is chosen ("section=": every section,
     // which is not the same as no section key at all, where a page applies the user's default)
@@ -214,22 +231,56 @@ function initFilterBar(form) {
       else params.append(name, "");
     }
     const url = `${form.getAttribute("action") || window.location.pathname}${params.size ? `?${params}` : ""}`;
+    if (url === running || (!asked && url === shown)) return;
+    // Without its results area (a page changed under it) the filter is applied by loading the page
+    if (!document.querySelector(target)) {
+      window.location.assign(url);
+      return;
+    }
     // The previous filter request, if still running (never on body). htmx 2.0.10 logs each abort as two errors
     // in the browser console ("htmx:afterRequest" and "htmx:sendAbort"): they are this abort, intended, and
     // staff see nothing of them. Dropping the stale answer in htmx:beforeSwap instead would keep the console
     // quiet but leave the stale request running in the browser.
     window.htmx.trigger(form, "htmx:abort");
+    running = url;
+    status = 0;
+    busy(true);
+    const settle = (ok) => {
+      if (running !== url) return; // a newer filter took over: it settles the busy state
+      running = null;
+      busy(false);
+      if (leaving) return;
+      if (ok && status && status < 500) {
+        shown = url;
+        if (status < 400) window.history.replaceState(offsetState(), "", url); // the offset Back returns to
+        return;
+      }
+      // The answer did not come (a network error, a timeout, a server error): the page itself is loaded
+      // with the filter, so Apply always applies it
+      window.location.assign(url);
+    };
     window.htmx.ajax("GET", url, { source: form, target, swap: "innerHTML" }).then(
-      () => window.history.replaceState(offsetState(), "", url), // nothing of htmx's; the offset Back returns to
-      () => {}, // aborted by a newer filter, or failed (the toast says so)
+      () => settle(true),
+      () => settle(false), // aborted by a newer filter (ignored), or no answer at all
     );
   };
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    submit();
+    submit(true);
   });
-  const auto = debounce(submit, 350);
-  form.addEventListener("change", auto);
+  const auto = debounce(() => submit(false), 350);
+  // A list of several values applies once it closes: one request for all the values picked there, not
+  // one per value (each would run in full on the server, even once the browser has dropped it)
+  let held = false;
+  form.addEventListener("change", (e) => {
+    if (e.target.multiple && e.target.tomselect?.isOpen) held = true;
+    else auto();
+  });
+  form.addEventListener("nd:listclose", () => {
+    if (!held) return;
+    held = false;
+    auto();
+  });
   $$('input[type="search"]', form).forEach((el) => el.addEventListener("input", auto));
 }
 
@@ -370,6 +421,8 @@ async function initSelects(root) {
       maxOptions: 500,
       hidePlaceholder: true,
       onChange: () => el.dispatchEvent(new Event("change", { bubbles: true })),
+      // a filter bar waits for this to apply the values picked while the list was open (initFilterBar)
+      onDropdownClose: () => el.dispatchEvent(new Event("nd:listclose", { bubbles: true })),
     });
   });
 }

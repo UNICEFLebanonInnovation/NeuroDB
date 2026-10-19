@@ -33,6 +33,7 @@ parity world (an administrator's and a viewer's are the same): height at 1366 px
   {% if lo.no_pd %}{% blocktrans with n=lo.no_pd|intcomma count counter=lo.no_pd %}{{ n }} indicator report of these filters names no programme document (a PRP report outside programme documents): Progress reports never counts it, nor the partner page, the home page or the management brief.{% plural %}{{ n }} indicator reports of these filters name no programme document (PRP reports outside programme documents): Progress reports never counts them, nor the partner page, the home page or the management brief.{% endblocktrans %}{% endif %}
 </p>
 {% endif %}{% endwith %}
+{% if user_role == "Administrator" %}<p class="small text-muted mb-3" id="reporting-checks-link">{% url 'admin:datamart_reporting_checks' as checks_url %}{% blocktrans %}Administrators: <a href="{{ checks_url }}">eTools reporting checks</a> 10 and 11 show which country and programme document the report rows name, and the reports still owed in eTools' two feeds (why Power BI can count reports this page does not).{% endblocktrans %}</p>{% endif %}
 <section class="panel p-0 mb-3">
     {% include "components/table_toolbar.html" with title=_("Indicator reports by section") count=None table_id="reporting-sections" filename="indicator-reports-by-section" downloads=None %}
     {% if data.by_section.rows %}
