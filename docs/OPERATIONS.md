@@ -117,7 +117,10 @@ come from.
   HACT visit plan lookup (`hact_visit_plan`) sends counts, section names and the remarks' labels
   only: never a partner, a programme document reference, a section comment or a focal point. The
   lookups that return eTools records as eTools holds them (`etools_query`, `etools_record`,
-  `etools_datasets` and the examples of `etools_search`) treat the field monitoring datasets
+  `etools_datasets` and the examples of `etools_search`) read only the standard, rating, partner and
+  date of the PSEA assessment answers (`psea_answers`): their comments can describe a case of sexual
+  exploitation or abuse, so every other key is left out, and those records are never searched by text
+  nor filtered, grouped, summed, sorted or picked on another key. They treat the field monitoring datasets
   (findings, questions and answers, answer options, programme activities) apart: the keys that hold
   a person (visit lead, team members, monitors, focal points, assignees, user names, contacts,
   comments, any key named like a person, an e-mail or a phone, also inside a nested value) are

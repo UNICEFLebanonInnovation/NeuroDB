@@ -442,6 +442,22 @@ PERSON_TOKENS = frozenset(
     }
 )
 FM_TEXT_MAX = 80  # longer strings in FM_PRIVATE datasets are withheld
+
+# ---- safeguarding: the answers of PSEA assessments. Their comments can describe a case of sexual
+# exploitation or abuse, which must never reach the AI: Ask NeuroDB reads only these keys of a record
+# (the standard, its rating, the partner, the date); every other value is left out, and the records are
+# never searched by text nor queried on another key (``query.public``, ``query._refuse_personal``).
+SAFEGUARDING = frozenset({"psea_answers"})
+SAFEGUARDING_KEYS = frozenset(
+    {
+        "id",
+        "indicator_subject",
+        "rating",
+        "assessment_partner_name",
+        "assessment_vendor_number",
+        "assessment_date",
+    }
+)
 FM_TEXT_WITHHELD = "(text withheld: read it in Monitoring insights)"
 _CAMEL = re.compile(r"(?<=[a-z])(?=[A-Z])")
 _NOT_LETTERS = re.compile(r"[^a-z]+")

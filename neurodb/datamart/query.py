@@ -6,6 +6,10 @@ full-text search, date range, partner and programme document (through the links 
 grouping with counts and sums, and a field selection. Contact details are removed from every
 output and long values are shortened.
 
+The answers of PSEA assessments (``catalogue.SAFEGUARDING``) may describe a case of sexual exploitation
+or abuse: only the keys of ``catalogue.SAFEGUARDING_KEYS`` are sent (the standard, its rating, the
+partner, the date), and those records are never searched by text nor queried on another key.
+
 The field monitoring datasets (``catalogue.FM_PRIVATE``) name the visit lead and team and hold long
 free texts. For them the keys that hold a person are dropped (and cannot be filtered, grouped, summed,
 sorted or selected on), texts longer than ``catalogue.FM_TEXT_MAX`` are withheld, the shorter ones
@@ -134,6 +138,8 @@ def _no_addresses(value: Any) -> Any:
 
 def public(data: dict[str, Any], fields: list[str] | None = None, dataset: str = "") -> dict[str, Any]:
     data = catalogue.scrub(data or {})
+    if dataset in catalogue.SAFEGUARDING:  # never a comment: only the keys that hold no text of a case
+        data = {k: v for k, v in data.items() if k in catalogue.SAFEGUARDING_KEYS}
     data = _fm_safe(data) if dataset in catalogue.FM_PRIVATE else _no_addresses(data)
     if fields:
         return {f: shorten(data.get(f)) for f in fields}
@@ -189,7 +195,20 @@ def _fm_label(value: Any, names: frozenset[str]) -> Any:
 
 def _refuse_personal(ds: Dataset, keys: list[str], texts: list[Any]) -> None:
     """A field monitoring query may not filter, group, sum, sort or select on a key that holds a
-    person, nor look for a person's name (or an e-mail address) in the records."""
+    person, nor look for a person's name (or an e-mail address) in the records. A PSEA answers query
+    may use only ``catalogue.SAFEGUARDING_KEYS`` (and the partner, PD, year and month groups), and never
+    a text search: a search would tell which records' comments hold a word."""
+    if ds.name in catalogue.SAFEGUARDING:
+        for key in keys:
+            field = str(key or "").lstrip("-").partition("__")[0]
+            if field and field not in catalogue.SAFEGUARDING_KEYS | GROUPS | {"date"}:
+                raise QueryError(
+                    f"'{field}' is not read for PSEA answers: only "
+                    f"{', '.join(sorted(catalogue.SAFEGUARDING_KEYS))} can be queried."
+                )
+        if any(isinstance(t, str) and t.strip() for t in texts[:1]):
+            raise QueryError("PSEA answers cannot be searched by text: filter on their standard or rating.")
+        return
     if ds.name not in catalogue.FM_PRIVATE:
         return
     for key in keys:
@@ -251,6 +270,8 @@ def describe(name: str | None = None) -> dict[str, Any]:
     for data in ds.base.order_by("-pk").values_list("data", flat=True)[:25]:
         for key, value in catalogue.scrub(data or {}).items():
             if key in NOISE or key in fields and fields[key] not in (None, "", [], {}):
+                continue
+            if name in catalogue.SAFEGUARDING and key not in catalogue.SAFEGUARDING_KEYS:
                 continue
             if private:  # no person's key at all; example values as public() sends them
                 if not _fm_person(key):
@@ -507,6 +528,8 @@ def search_all(text: str) -> dict[str, Any]:
     # a person's name (or an e-mail address) finds no field monitoring record at all
     person = bool(people.mentions(text, names))
     for name in catalogue.dataset_names():
+        if name in catalogue.SAFEGUARDING:  # a hit would tell which comments hold the word
+            continue
         private = name in catalogue.FM_PRIVATE
         if private and person:
             continue
