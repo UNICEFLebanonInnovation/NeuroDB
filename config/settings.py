@@ -375,7 +375,9 @@ ETOOLS_TOKEN = env("ETOOLS_TOKEN", default="").strip()
 # and it is read as-is: django-environ would treat a value starting with "$" as another variable's name.
 ETOOLS_DATAMART_URL = env("ETOOLS_DATAMART_URL", default="https://datamart.unicef.io")
 ETOOLS_DATAMART_API_VERSION = env("ETOOLS_DATAMART_API_VERSION", default="latest")
-ETOOLS_DATAMART_COUNTRY = env("ETOOLS_DATAMART_COUNTRY", default="Lebanon")  # the country_name filter
+# The country_name filter of every Datamart read and the per-record country check. A blank value would
+# switch both off (every country's records), so it falls back to Lebanon, as FMM_COUNTRY_NAME does.
+ETOOLS_DATAMART_COUNTRY = env("ETOOLS_DATAMART_COUNTRY", default="Lebanon").strip() or "Lebanon"
 ETOOLS_DATAMART_PAGE_SIZE = env.int("ETOOLS_DATAMART_PAGE_SIZE", default=500)
 ETOOLS_DATAMART_REPORTING_YEARS = env.int(
     "ETOOLS_DATAMART_REPORTING_YEARS", default=3

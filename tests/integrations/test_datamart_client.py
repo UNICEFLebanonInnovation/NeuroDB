@@ -103,3 +103,17 @@ def test_credentials_from_settings(settings):
     client = DatamartClient(BASE)
     request = requests.Request("GET", f"{BASE}/api/latest/datamart/x/").prepare()
     assert client.session.auth(request).headers["Authorization"] == expected_auth()
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_a_blank_country_setting_falls_back_to_lebanon_never_to_every_country(monkeypatch, value):
+    import importlib
+
+    import config.settings as conf
+
+    monkeypatch.setenv("ETOOLS_DATAMART_COUNTRY", value)
+    try:
+        assert importlib.reload(conf).ETOOLS_DATAMART_COUNTRY == "Lebanon"
+    finally:
+        monkeypatch.delenv("ETOOLS_DATAMART_COUNTRY")
+        importlib.reload(conf)

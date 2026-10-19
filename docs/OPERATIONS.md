@@ -1298,7 +1298,7 @@ APIs) with HTTP basic authentication: `ETOOLS_USERNAME` / `ETOOLS_PASSWORD`, fro
 secrets `etools-username` / `etools-password`. Nothing else holds the credentials: they are not in
 the image, the repository, the logs or the `SyncRun` errors, and the client only sends them to the
 Datamart host (a pagination link to any other host is refused). Every request is limited to
-`ETOOLS_DATAMART_COUNTRY` (default `Lebanon`).
+`ETOOLS_DATAMART_COUNTRY` (default `Lebanon`; a blank value also means `Lebanon`, never every country).
 
 `manage sync_etools_datamart [--only a,b]` runs these datasets in order, one `SyncRun` each (job
 `etools_datamart`):
