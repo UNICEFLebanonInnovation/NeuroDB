@@ -59,10 +59,16 @@ def tick(now=None) -> list[str]:
                 job.plan_next(now)
                 job.save(update_fields=["next_run_at"])
                 continue
-            if job.next_run_at > now:
+            # a schedule the previous release did not know (during a deployment its scheduler saw the
+            # new row first and planned it for its next time) starts as soon as a release that knows
+            # its command sees it, not a whole period later
+            missed = (job.last_outcome or "").startswith(
+                jobs.UNKNOWN_COMMAND
+            ) and job.command in jobs.COMMANDS
+            if job.next_run_at > now and not missed:
                 continue
             if job.command not in jobs.COMMANDS:
-                job.last_outcome = f"not started: unknown command {job.command}"
+                job.last_outcome = f"{jobs.UNKNOWN_COMMAND} {job.command}"
             else:
                 outcome = jobs.start(job.command, triggered_by="schedule")
                 skipped = "skipped: the previous run is still going"

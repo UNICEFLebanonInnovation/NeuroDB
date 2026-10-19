@@ -225,8 +225,9 @@ def _users_without_role() -> list[Warning]:
 def _jobs() -> list[Warning]:
     """A job whose last run failed or lost rows. A Compiler job counts only while a switched-on
     schedule runs it; the ActivityInfo imports only while their import is followed (an archive's
-    import is nobody's alarm: their ``system:`` items close)."""
-    from neurodb.core.jobs import COMMANDS
+    import is nobody's alarm: their ``system:`` items close); a run of the eTools reporting checks only
+    when it failed (a check that could not finish is said on their page)."""
+    from neurodb.core.jobs import COMMANDS, PARTIAL_IS_NOT_AN_ALARM
     from neurodb.core.models import ScheduledJob, SyncRun
     from neurodb.indicators.services import activityinfo
 
@@ -248,7 +249,7 @@ def _jobs() -> list[Warning]:
         if last and last.status == SyncRun.Status.FAILED:
             key = f"job_failed:{job}"
             text = _("The last %(job)s failed.") % {"job": label}
-        elif last and last.status == SyncRun.Status.PARTIAL:
+        elif last and last.status == SyncRun.Status.PARTIAL and job not in PARTIAL_IS_NOT_AN_ALARM:
             key = f"job_partial:{job}"
             text = ngettext(
                 "The last %(job)s succeeded with errors: %(n)s row failed.",

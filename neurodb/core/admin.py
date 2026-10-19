@@ -498,6 +498,16 @@ class ScheduledJobForm(forms.ModelForm):
         return schedule
 
 
+def _forget_unknown_command(job: ScheduledJob) -> None:
+    """A person switched the job on or edited it: it runs at its next time. A note left by a release
+    that did not know its command would otherwise make the scheduler start it at once (its catch-up
+    after a deployment, ``neurodb.core.scheduler.tick``)."""
+    from .jobs import UNKNOWN_COMMAND
+
+    if job.last_outcome.startswith(UNKNOWN_COMMAND):
+        job.last_outcome = ""
+
+
 class RunScheduledJobForm(BaseDialogForm):
     """The confirmation step of "Run now" on a scheduled job, and of "Run due jobs now"."""
 
@@ -581,6 +591,7 @@ class ScheduledJobAdmin(ModelAdmin):
     def save_model(self, request, obj, form, change):
         obj.updated_by = request.user.get_username()
         obj.plan_next()  # a new or edited schedule counts from now
+        _forget_unknown_command(obj)
         super().save_model(request, obj, form, change)
 
     def changelist_view(self, request, extra_context=None):
@@ -600,6 +611,7 @@ class ScheduledJobAdmin(ModelAdmin):
         for job in queryset:
             job.enabled = True
             job.plan_next()
+            _forget_unknown_command(job)
             job.updated_by = request.user.get_username()
             job.save()
         self.message_user(request, _("Switched on."), messages.SUCCESS)

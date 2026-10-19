@@ -4,17 +4,63 @@
 {% comment %}
   eTools reporting checks (context: datamart.admin.reporting_checks_view, Administrators only): how the
   partner report data NeuroDB holds answers the questions the "Reached" rule depends on, each with a
-  plain verdict and what NeuroDB does whatever the answer. Read-only; reloading runs the checks again.
+  plain verdict and what NeuroDB does whatever the answer. Read-only. The cards are the result the last
+  run of the job stored (stored: every night, or "Run the checks now", which posts here); with none
+  stored and none running, the page ran them itself (stored is None, checked_at now).
 {% endcomment %}
 
 {% block content %}
 <div id="content-main" class="nd-found">
   <p class="nd-list-note">
     <span class="material-symbols-outlined" aria-hidden="true">info</span>
-    <span>{% blocktrans trimmed with when=checked_at|date:"j M Y, H:i" rows_url=rows_url health_url=health_url %}
-      Partner monitoring's "Reached" adds up the Accepted and Submitted reports of each indicator without ever adding a value the reports repeat. These checks show how the eTools partner reports NeuroDB holds look, so the rule can be confirmed on real data. They only read counts; reload the page to run them again (checked {{ when }}). Checks 10 and 11 run first, so they answer even when the page's time runs short; the cards are listed in their order. Back to <a class="nd-link" href="{{ health_url }}">Data health</a> · <a class="nd-link" href="{{ rows_url }}">Reported indicators</a>.
+    <span>{% blocktrans trimmed with rows_url=rows_url health_url=health_url %}
+      Partner monitoring's "Reached" adds up the Accepted and Submitted reports of each indicator without ever adding a value the reports repeat. These checks show how the eTools partner reports NeuroDB holds look, so the rule can be confirmed on real data, and why Power BI's Reporting Progress may differ. They only read counts. Checks 10 and 11 run first; the cards are listed in their order. Back to <a class="nd-link" href="{{ health_url }}">Data health</a> · <a class="nd-link" href="{{ rows_url }}">Reported indicators</a>.
     {% endblocktrans %}</span>
   </p>
+
+  <div class="nd-found__actions mb-4" id="reporting-checks-run">
+    {% if running %}
+      <p class="nd-scheduler" role="status">
+        <span class="material-symbols-outlined" aria-hidden="true">hourglass_top</span>
+        <span>{% blocktrans trimmed with when=running.started_at|date:"j M Y, H:i" %}
+          The checks are running in the background (started {{ when }}). Reload this page in a few minutes to see their result.
+        {% endblocktrans %}</span>
+      </p>
+    {% elif starting %}
+      <p class="nd-scheduler" role="status">
+        <span class="material-symbols-outlined" aria-hidden="true">hourglass_top</span>
+        <span>{% trans "The checks are starting in the background. Reload this page in a few minutes to see their result." %}</span>
+      </p>
+    {% else %}
+      <form method="post" action="{{ run_url }}" class="inline">
+        {% csrf_token %}
+        <button type="submit" class="nd-found__button">{% trans "Run the checks now" %}</button>
+      </form>
+    {% endif %}
+    <span class="nd-found__hint">
+      {% if stored %}
+        {% blocktrans trimmed with when=checked_at|date:"j M Y, H:i" minutes=job_minutes %}
+          Checked on {{ when }} by the reporting checks job, with up to {{ minutes }} minutes for all the checks.
+        {% endblocktrans %}
+        {% if nightly %}{% trans "It runs every night (Scheduled jobs, reporting-checks)." %}{% else %}{% trans "Its nightly schedule is switched off (Scheduled jobs, reporting-checks)." %}{% endif %}
+        {% if not running and not starting %}{% trans "The button runs it again now, in the background." %}{% endif %}
+      {% elif checked_at %}
+        {% blocktrans trimmed with when=checked_at|date:"j M Y, H:i" seconds=page_seconds minutes=job_minutes %}
+          Checked on this page just now ({{ when }}), with {{ seconds }} seconds for all the checks: on a large database some may not finish. The button runs them in the background with up to {{ minutes }} minutes, and this page then shows that result at once.
+        {% endblocktrans %}
+      {% else %}
+        {% trans "No result is stored yet: a run of the checks is under way." %}
+      {% endif %}
+    </span>
+  </div>
+  {% if failed %}
+    <p class="mb-4 nd-found__warn">
+      {% blocktrans trimmed with when=failed.finished_at|date:"j M Y, H:i" url=failed_url %}
+        The run of the checks of {{ when }} failed (<a class="nd-link" href="{{ url }}">open the run</a>).
+      {% endblocktrans %}
+      {% if stored %}{% blocktrans trimmed with when=checked_at|date:"j M Y, H:i" %}The cards below are those of the last run that stored a result ({{ when }}).{% endblocktrans %}{% endif %}
+    </p>
+  {% endif %}
 
   {% for check in checks %}
     {% blocktrans asvar card_title with n=check.key title=check.title %}Check {{ n }} · {{ title }}{% endblocktrans %}

@@ -257,6 +257,7 @@ QUICK_MIGRATIONS = {
     ("core", "0023_fmm_ap_review", "create"),
     ("core", "0024_doc_review", "create"),
     ("core", "0025_etools_update_cleanup", "schedule"),
+    ("core", "0029_reporting_checks_job", "create"),
     # rules, prompts and topics shipped with the code
     ("fmm", "0004_rule_defaults", "seed"),
     ("fmm", "0006_prompt_defaults", "seed"),

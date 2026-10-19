@@ -188,6 +188,21 @@ BACKGROUND_JOBS = [
         "query_stats",
     ),
     BackgroundJob(
+        "run_reporting_checks",
+        ("reporting_checks",),
+        SyncRun.Job.REPORTING_CHECKS,
+        _("eTools reporting checks"),
+        _("Run the eTools reporting checks"),
+        _(
+            "Runs the eTools reporting checks (what the partner report data looks like, and why Power BI's "
+            "Reporting Progress may differ) in the background, with up to ten minutes for each query and "
+            "an hour for them all, and stores the result: the eTools reporting checks page shows it at "
+            "once. A schedule also runs them every night while it is switched on (Scheduled jobs, "
+            "reporting-checks). Counts only."
+        ),
+        "fact_check",
+    ),
+    BackgroundJob(
         "run_whats_new_digest",
         ("whats_new_digest",),
         SyncRun.Job.WHATS_NEW,

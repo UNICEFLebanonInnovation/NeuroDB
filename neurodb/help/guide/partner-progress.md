@@ -159,9 +159,12 @@ withholds any e-mail address written in a text.
 
 ## Checking the data
 
-Administrators find **eTools reporting checks** in the administration (linked from Data health): eleven
-read-only checks of what the partner report data looks like (rows per location, repeated values,
-disaggregation keys, what reports that do not count carry, PRP's cumulative, the calculation methods,
-indicator ids, PRP's report totals, the financial contribution, the country and programme document of
-the rows, and the reports still owed in PRP's two feeds), each with a verdict and what NeuroDB
-does whatever the answer. Checks 10 and 11 run first, so they answer even on a large database. Nothing needs to be run: the page reads what the nightly sync stored.
+Administrators find **eTools reporting checks** in the administration, under Data and sync (also linked
+from Data health and Progress reports): eleven read-only checks of what the partner report data looks
+like (rows per location, repeated values, disaggregation keys, what reports that do not count carry,
+PRP's cumulative, the calculation methods, indicator ids, PRP's report totals, the financial
+contribution, the country and programme document of the rows, and the reports still owed in PRP's two
+feeds), each with a verdict and what NeuroDB does whatever the answer. Checks 10 and 11 run first. The
+checks run every night as a job and the page shows their latest result at once, with when they were
+checked; **Run the checks now** runs them again in the background (they can take several minutes on the
+full data), and the page shows the new result once you reload it.

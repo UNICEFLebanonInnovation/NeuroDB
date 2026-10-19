@@ -89,6 +89,49 @@ def test_a_pass_plans_then_starts_due_jobs_once(started):
 
 
 @pytest.mark.django_db
+def test_a_schedule_the_previous_release_did_not_know_starts_at_once(started):
+    # during a deployment the previous container's scheduler saw the new row first: it did not know the
+    # command and planned it for its next time (tomorrow 02:15); this release knows it and starts it now
+    ScheduledJob.objects.exclude(key="reporting-checks").delete()
+    ScheduledJob.objects.filter(key="reporting-checks").update(
+        next_run_at=at(2026, 9, 29, 2, 15), last_outcome="not started: unknown command reporting_checks"
+    )
+    assert scheduler.tick(at(2026, 9, 28, 11, 0)) == ["reporting-checks"]
+    assert started == [("reporting_checks", "--triggered-by", "schedule")]
+    job = ScheduledJob.objects.get(key="reporting-checks")
+    assert job.last_outcome == "started" and job.next_run_at == at(2026, 9, 29, 2, 15)
+    assert scheduler.tick(at(2026, 9, 28, 11, 1)) == []  # once
+    # a command this release does not know either waits for its time, as before
+    ScheduledJob.objects.filter(key="reporting-checks").update(
+        command="gone", last_outcome="not started: unknown command gone"
+    )
+    assert scheduler.tick(at(2026, 9, 28, 11, 2)) == [] and len(started) == 1
+
+
+@pytest.mark.django_db
+def test_switching_on_a_job_clears_a_note_from_a_release_that_did_not_know_it(superadmin, started):
+    # a person switching it on, or editing it, means it runs at its time: no start at once
+    ScheduledJob.objects.exclude(key="reporting-checks").delete()
+    job = ScheduledJob.objects.get(key="reporting-checks")
+    note = "not started: unknown command reporting_checks"
+    ScheduledJob.objects.filter(pk=job.pk).update(enabled=False, next_run_at=None, last_outcome=note)
+    superadmin.post(
+        reverse("admin:core_scheduledjob_changelist"), {"action": "enable_jobs", "_selected_action": [job.pk]}
+    )
+    job.refresh_from_db()
+    assert job.enabled and job.last_outcome == "" and job.next_run_at > timezone.now()
+    assert scheduler.tick() == [] and started == []
+    ScheduledJob.objects.filter(pk=job.pk).update(last_outcome=note)
+    superadmin.post(
+        reverse("admin:core_scheduledjob_change", args=[job.pk]),
+        {"key": job.key, "command": job.command, "schedule": "20 2 * * *", "enabled": "on"},
+    )
+    job.refresh_from_db()
+    assert job.schedule == "20 2 * * *" and job.last_outcome == ""
+    assert scheduler.tick() == [] and started == []
+
+
+@pytest.mark.django_db
 def test_a_job_still_running_is_skipped(started, monkeypatch):
     monkeypatch.setattr(background, "lock_is_held", lambda lock_id: None)
     ScheduledJob.objects.exclude(key="locations").delete()

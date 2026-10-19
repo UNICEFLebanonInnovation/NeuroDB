@@ -90,10 +90,21 @@ COMMANDS: dict[str, JobCommand] = {
         ("datamart_backfill",),
         SyncRun.Job.DATAMART_BACKFILL,
     ),
+    "reporting_checks": JobCommand(
+        _("Run the eTools reporting checks"), ("reporting_checks",), SyncRun.Job.REPORTING_CHECKS
+    ),
     "freshness": JobCommand(_("Check data freshness"), ("check_sync_freshness",), None, triggered_by=False),
 }
 
 COMMAND_CHOICES = [(key, cmd.label) for key, cmd in COMMANDS.items()]
+
+# Jobs whose run "succeeded with errors" is said on their own page, not raised as an alarm (the daily
+# review's sync failures, the admin home's Needs attention): a reporting check that could not finish.
+# A run of theirs that failed still counts.
+PARTIAL_IS_NOT_AN_ALARM = frozenset({SyncRun.Job.REPORTING_CHECKS})
+
+# What the scheduler writes on a schedule whose command the running release does not know
+UNKNOWN_COMMAND = "not started: unknown command"
 
 
 def start(key: str, triggered_by: str) -> str:

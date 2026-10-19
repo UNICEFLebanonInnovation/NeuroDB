@@ -111,6 +111,7 @@ def on_run_finished(sender, instance, update_fields=None, **kwargs) -> None:
         SyncRun.Job.FMM_AI_CHECKS,  # the AI checks: their rescore is a refresh run of its own
         SyncRun.Job.FMM_AP_REVIEW,  # the AI review of action points: nothing the hub reads
         SyncRun.Job.DOC_REVIEW,  # the document review: findings the hub does not read
+        SyncRun.Job.REPORTING_CHECKS,  # the eTools reporting checks: counts, read by their page only
     ):
         return  # they bring no new data
     if instance.job == SyncRun.Job.DATAMART_BACKFILL and not instance.rows_written:

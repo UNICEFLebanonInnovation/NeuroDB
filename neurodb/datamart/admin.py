@@ -1,10 +1,12 @@
 """Read-only admin over the eTools Datamart tables (refreshed by ``sync_etools_datamart``), and the
 eTools reporting checks page (admin/datamart/reporting-checks/, Administrators only)."""
 
+import time
+
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.http import Http404
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -189,17 +191,75 @@ class ReportedIndicatorAdmin(DatamartAdmin):
         ]
 
 
+STARTING_S = 120  # how long a run started counts as starting while its process has written no row yet
+
+
 def reporting_checks_view(request):
     """eTools reporting checks (Administrators only): how the partner report data answers the questions
-    the "Reached" rule depends on, with a verdict and what NeuroDB does in each case. Read-only."""
+    the "Reached" rule depends on, with a verdict and what NeuroDB does in each case. Read-only.
+
+    The page shows the result the last run of the job stored (``checks.run_job``: every night, or *Run
+    the checks now*, which posts here and starts it in the background). Only while no run has stored one,
+    and none is running, does the page run the checks itself, within its own time. A run started a moment
+    ago (the button, Run a job or the schedule: ``background.started_at``) counts as starting until its
+    process has written its row (it needs a few seconds), so no page runs the checks itself beside it."""
+    from neurodb.core.models import ScheduledJob, SyncRun
+    from neurodb.integrations import background
+
     if role_of(request.user) != ADMIN:
         raise Http404
+    job = SyncRun.Job.REPORTING_CHECKS
+    here = reverse("admin:datamart_reporting_checks")
+    if request.method == "POST":
+        if background.is_running(job):
+            messages.warning(request, _("The eTools reporting checks are already running."))
+        else:
+            background.start_command("reporting_checks", "--triggered-by", request.user.get_username())
+            messages.success(
+                request,
+                _(
+                    "The eTools reporting checks started in the background. Reload this page in a few "
+                    "minutes to see their result."
+                ),
+            )
+        return redirect(here)
+    running = None
+    if background.is_running(job):  # a row left running by a stopped process is closed there
+        running = SyncRun.objects.filter(job=job, status=SyncRun.Status.RUNNING).order_by("-started_at")
+        running = running.first()
+    stored = checks.latest_run()
+    last = SyncRun.objects.filter(job=job).exclude(finished_at=None).order_by("-finished_at", "-id").first()
+    failed = last if last and last.status == SyncRun.Status.FAILED and last != stored else None
+    asked = background.started_at("reporting_checks")
+    if asked is not None and (
+        running  # its row is there: the page follows the run itself
+        or time.time() - asked > STARTING_S
+        or (last and last.started_at.timestamp() >= asked)  # it already ended
+    ):
+        background.forget_started("reporting_checks")
+        asked = None
+    starting = asked is not None and not running
+    if stored:
+        found, checked_at = stored.details["checks"], stored.finished_at
+    elif running or starting:
+        found, checked_at = [], None
+    else:
+        found, checked_at = checks.run_all(), timezone.now()
     context = {
         **admin.site.each_context(request),
         "title": _("eTools reporting checks"),
         "subtitle": None,
-        "checks": checks.run_all(),
-        "checked_at": timezone.now(),
+        "checks": found,
+        "checked_at": checked_at,
+        "stored": stored,
+        "running": running,
+        "starting": starting,
+        "nightly": ScheduledJob.objects.filter(command="reporting_checks", enabled=True).exists(),
+        "failed": failed,
+        "failed_url": reverse("admin:core_syncrun_change", args=[failed.pk]) if failed else None,
+        "run_url": here,
+        "page_seconds": int(checks.PAGE_BUDGET_S),
+        "job_minutes": int(checks.JOB_BUDGET_S // 60),
         "rows_url": reverse("admin:datamart_reportedindicator_changelist"),
         "health_url": reverse("reports:data_health"),
         "opts": dm.ReportedIndicator._meta,

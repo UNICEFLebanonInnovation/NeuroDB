@@ -24,6 +24,7 @@ from django.db.models import Sum
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
+from neurodb.core.jobs import PARTIAL_IS_NOT_AN_ALARM
 from neurodb.core.models import SyncRun
 from neurodb.datamart import children, headline, monitoring
 from neurodb.datamart import models as dm
@@ -666,7 +667,8 @@ def check_findings_off_track(ctx: Context) -> list[Draft]:
 def check_sync_failures(ctx: Context) -> list[Draft]:
     """Sync runs that failed or wrote with errors in the last 24 hours, per job. The ActivityInfo imports
     count only while their import is followed (:func:`neurodb.indicators.services.activityinfo.watched`):
-    an archive's import is nobody's alarm."""
+    an archive's import is nobody's alarm; a run of the eTools reporting checks only when it failed (a
+    check that could not finish is said on their page)."""
     from neurodb.indicators.services import activityinfo
 
     since = timezone.now() - datetime.timedelta(hours=SYNC_WINDOW_HOURS)
@@ -675,6 +677,8 @@ def check_sync_failures(ctx: Context) -> list[Draft]:
             status__in=(SyncRun.Status.FAILED, SyncRun.Status.PARTIAL), started_at__gte=since
         )
         .exclude(job=SyncRun.Job.DAILY_REVIEW)
+        # a reporting check that could not finish is said on its page; the run's own failure still counts
+        .exclude(job__in=PARTIAL_IS_NOT_AN_ALARM, status=SyncRun.Status.PARTIAL)
         .order_by("-started_at")
     )
     if not activityinfo.watched():

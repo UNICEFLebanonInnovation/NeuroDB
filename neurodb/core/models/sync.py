@@ -34,6 +34,7 @@ class SyncRun(models.Model):
         FMM_AP_REVIEW = "fmm_ap_review", "Monitoring insights (action point review)"
         DOC_REVIEW = "doc_review", "Document review"
         DATAMART_BACKFILL = "datamart_backfill", "eTools update clean-up"
+        REPORTING_CHECKS = "reporting_checks", "eTools reporting checks"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

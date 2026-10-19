@@ -759,6 +759,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `watch` | `run_watch --daily` | `45 7 * * *`, daily 07:45: NeuroDB Watch's morning pass, the *For you* pages (see NeuroDB Watch); a quick pass also follows new data |
 | `ml-readiness` | `ml_readiness` | `45 6 * * 1`, Mondays 06:45: is the data ready for machine learning (Data health) |
 | `forecast` | `forecast_indicators` | `15 7 * * 1`, Mondays 07:15: year-end forecasts of the indicators, back-tested |
+| `reporting-checks` | `reporting_checks` | `15 2 * * *`, daily 02:15, after the eTools Datamart sync, and due at once after the deployment that adds it (when the previous container's scheduler, which does not know the command, sees it first, the new release's scheduler starts it as soon as it takes over): the eTools reporting checks, stored for their page (see eTools reporting checks); also *Run the checks now* on the page and *Run a job → eTools reporting checks* |
 | `etools-update-cleanup` | `datamart_backfill` | `*/15 * * * *`, every 15 minutes, due at once after the deployment that adds it (the scheduler starts it usually within a minute of the site starting, at most 15 minutes when the previous container's scheduler sees it first) and until one run has gone through everything; the job then switches it off ("finished: nothing left to do"). A run that finds the eTools Datamart sync going switches it back on to try again ("waiting: the eTools Datamart sync is running"). It fills the new columns of the partner reports already synced and removes the contact details older syncs stored (see eTools Datamart, *Finish the eTools update*) |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
 | (inside `etools-datamart`) | `fmm_refresh` | at the end of the sync, when it synced a dataset Monitoring insights reads (`FMM_REFRESH_AFTER_SYNC`); its failure never fails the sync |
@@ -779,7 +780,8 @@ and on which host. While it does not, **Run due jobs now** (top right) does one 
 the browser: it starts every switched-on job whose time has passed; the banner names
 `SUPPORT_EMAIL`, when set, as the contact for a restart. The admin home's *Needs attention* lists a
 silent scheduler, overdue or never-run jobs, runs that failed or succeeded with errors (a Compiler
-job only while its schedule is switched on), and a missing daily review. NeuroDB Watch tells the
+job only while its schedule is switched on; the eTools reporting checks only a run that failed, since a
+check that could not finish is said on their page), and a missing daily review. NeuroDB Watch tells the
 administrators the same lines on their *For you* page, and closes each one once it is no longer
 listed (`neurodb/web/health.py` builds the list for both). A due job starts within a minute, in the
 background, as the admin buttons do, and appears in *Import and sync runs* with *schedule* as its
@@ -957,6 +959,7 @@ admin home page, *Quick actions*):
 | Run a job → *Review documents (full)* | `review_documents --full` | background |
 | Run a job → *Locate document findings* | `review_documents --locate` | background |
 | Run a job → *Finish the eTools update* | `datamart_backfill` | background |
+| Run a job → *eTools reporting checks* (also *Run the checks now* on the eTools reporting checks page) | `reporting_checks` | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
@@ -1723,8 +1726,8 @@ and PD indicator targets (`pd_indicators`, one row per location and disaggregati
 it. Per-location targets are not in any country-filterable Datamart endpoint, so
 locations are compared on reported values only.
 
-**eTools reporting checks** (admin → *eTools reporting checks*, Administrators only; linked from
-*Data health*): eleven read-only checks of the partner report data the rule depends on (rows per
+**eTools reporting checks** (admin → *Data and sync* → *eTools reporting checks*, Administrators only;
+also in the admin home's quick actions, on *Data health* and on *Progress reports*): eleven read-only checks of the partner report data the rule depends on (rows per
 location, whether the value in the period is the report total repeated, disaggregation keys and the
 `"()"` total, what reports that do not count carry, PRP's cumulative against Reached, the
 calculation methods in use, whether report rows carry the PD indicator's id, PRP's report totals,
@@ -1745,11 +1748,28 @@ Power BI's Reporting Progress can then show overdue reports NeuroDB does not), t
 reports list more, and those where the statuses differ otherwise; with nothing to compare, it says why
 (no record of the year held, none linked to a programme document NeuroDB holds, or none of a running
 one). Checks 10 and 11 run first, so they answer whatever time the others take; the page lists the
-checks in their order. Every query is aggregate and stopped after 20 seconds,
-and the checks together after 75 seconds (below the web server's 120-second limit, so the page
-always answers): a check left out by that limit says so, and the comparison of Reached with PRP's
-cumulative (check 5) runs only with 30 seconds left. Nothing needs running: the page reads what the nightly eTools Datamart sync stored (Run a job →
-*Sync eTools (Datamart)* refreshes it).
+checks in their order. Every query is aggregate.
+
+The checks run as a job, `reporting_checks` (`neurodb/datamart/checks.py`, `run_job`): every night at
+02:15 (the schedule `reporting-checks`, after the 20:30 eTools Datamart sync; due at once after the
+deployment that adds it, so the page has a result soon after; when the previous container's scheduler
+sees it first, the new release's scheduler starts it as soon as it takes over), with **Run the checks
+now** on the page, or *Run a job → eTools reporting checks*. The job gives each query 10 minutes and
+the checks together an hour, and stores the result in its run's details (*Import and sync runs*, job
+*eTools reporting checks*); the page shows the latest stored result at once, with when it was checked.
+A check that could not finish (a query over its 10 minutes, or the data could not be read) or that the
+hour left out says so, and the run ends *Succeeded with errors*, which raises no alarm (neither the
+daily review's sync failures nor the admin home's *Needs attention*: the page says it); a run that
+failed is named on the page, which keeps the last result, and counts as any failed job. One run at a
+time (an advisory lock, checked again before each check: a run whose database connection was lost stops
+and stores nothing, since another may have started): the button says when one is already going, and the
+page says the checks are running (or starting, for the few seconds a run's process needs after any
+start: the button, Run a job or the schedule) instead of offering it. Only while no run has stored a
+result yet, and none is running or starting, does the page run the checks itself, within the web
+request: each query stopped after 20 seconds and the checks together after 75 seconds (below the web
+server's 120-second limit, so the page always answers), a check left out by that limit saying so; the
+comparison of Reached with PRP's cumulative (check 5) runs only with 30 seconds left. The checks read
+what the eTools Datamart sync stored (Run a job → *Sync eTools (Datamart)* refreshes it).
 
 **The Power BI views.** The eTools Power BI report's pages live on NeuroDB's own pages, with the same
 figures as everywhere else (they read the rule above; nothing is added across indicators):
@@ -2423,7 +2443,7 @@ Data health page.
 | `tpm_reports_late` | TPM visits ended more than 14 days ago whose report has not come in | warning |
 | `action_points_overdue` | Open high-priority action points past their due date, per partner and section | critical |
 | `findings_off_track` | Field monitoring findings rated off track in the last 30 days, per partner | warning |
-| `sync_failures` | Failed or partial sync runs in the last 24 hours (the ActivityInfo jobs only while the import is followed, see *ActivityInfo: in use or archive*) | warning |
+| `sync_failures` | Failed or partial sync runs in the last 24 hours (the ActivityInfo jobs only while the import is followed, see *ActivityInfo: in use or archive*; the eTools reporting checks only a run that failed, not one where a check could not finish) | warning |
 | `data_quality` | Datasets whose last run failed rows; ActivityInfo partner names not linked to eTools (only while ActivityInfo is in use) | info |
 | `locations_unplaced` | PD indicators whose location is not in the gazetteer | info |
 | `stale_sources` | Sources older than `SYNC_STALENESS_HOURS` (the ActivityInfo import only while it is followed, and not after the 22nd, when it does not run) | info |

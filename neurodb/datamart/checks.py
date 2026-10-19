@@ -3,14 +3,20 @@
 ``neurodb.datamart.reached`` is built to be right whichever way these questions come out; this page
 (admin → eTools reporting checks, Administrators only, linked from Data health) shows how they do
 come out on the data NeuroDB holds, with a plain verdict and what NeuroDB does in each case. Every
-query is read-only, aggregate (no person's data), and stopped after ``TIMEOUT_MS``; the whole page
-stops its checks after ``PAGE_BUDGET_S`` (well below the web server's 120-second limit), so it always
-answers: a check left out says so.
+query is read-only and aggregate (no person's data).
+
+The checks run as a job (:func:`run_job`: the ``reporting-checks`` schedule every night, or *Run the
+checks now* on the page and *Run a job*), with ``JOB_TIMEOUT_MS`` for each statement and
+``JOB_BUDGET_S`` for them all, and the result is stored in its run's details: the page shows the latest
+one at once. Only when no run has stored a result yet does the page run them itself, with
+``TIMEOUT_MS`` per statement and ``PAGE_BUDGET_S`` for them all (well below the web server's 120-second
+limit), so it always answers: a check left out says so.
 """
 
 from __future__ import annotations
 
 import datetime
+import json
 import logging
 import time
 from collections import Counter
@@ -20,6 +26,7 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Case, Count, Max, Min, Q, TextField, Value, When
 from django.db.models.fields.json import KT
@@ -34,9 +41,13 @@ from .disaggregation import ids_in, parse_key
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT_MS = 20_000  # one statement
+TIMEOUT_MS = 20_000  # one statement, on the page
 PAGE_BUDGET_S = 75.0  # every check of the page together
+JOB_TIMEOUT_MS = 600_000  # one statement, in the job (no web request waits for it)
+JOB_BUDGET_S = 3600.0  # every check of the job together
+LOCK_ID = 7140438  # one run of the checks at a time; neurodb.integrations.background.REPORTING_CHECKS_LOCK_ID
 PRP_COMPARE_MIN_S = 30.0  # the comparison with PRP (check 5) computes Reached: only with this much left
+QUERY_CANCELED = "57014"  # PostgreSQL's code for a statement its statement_timeout stopped
 NUM = r"^\s*-?[0-9]+(\.[0-9]+)?\s*$"
 OK, WARN, INFO = "ok", "warning", "info"
 
@@ -51,33 +62,36 @@ class Check:
 
 
 class OutOfTime(Exception):
-    """The page's time for its checks is used up."""
+    """The time for the checks (the page's or the job's) is used up."""
 
 
 class _Timed:
-    """A cursor whose every statement stops after ``TIMEOUT_MS`` and at the page's deadline, whichever
-    comes first (a check runs several statements: the deadline bounds them all)."""
+    """A cursor whose every statement stops after ``timeout_ms`` (``TIMEOUT_MS`` on the page) and at the
+    deadline, whichever comes first (a check runs several statements: the deadline bounds them all)."""
 
-    def __init__(self, cursor, deadline: float) -> None:
-        self.cursor, self.deadline = cursor, deadline
+    def __init__(self, cursor, deadline: float, timeout_ms: int = TIMEOUT_MS) -> None:
+        self.cursor, self.deadline, self.timeout_ms = cursor, deadline, timeout_ms
+        self.last_ms = timeout_ms  # the statement timeout set last: below timeout_ms, the deadline set it
 
     def remaining(self) -> float:
         """Seconds left before the deadline."""
         return self.deadline - time.monotonic()
 
     def execute(self, sql: str, params: list[Any] | None = None) -> None:
-        left = min(TIMEOUT_MS, int(self.remaining() * 1000))
+        left = min(self.timeout_ms, int(self.remaining() * 1000))
         if left <= 0:
             raise OutOfTime
+        self.last_ms = left
         self.cursor.execute(f"SET LOCAL statement_timeout = {left}")
         self.cursor.execute(sql, params)
 
     def bound(self, statements: int = 1) -> None:
         """Set the statement timeout for queries run outside :meth:`execute` (the ORM, on the same
-        transaction): the next ``statements`` of them share the time left, ``TIMEOUT_MS`` at most each."""
-        left = min(TIMEOUT_MS, int(self.remaining() * 1000 / max(statements, 1)))
+        transaction): the next ``statements`` of them share the time left, ``timeout_ms`` at most each."""
+        left = min(self.timeout_ms, int(self.remaining() * 1000 / max(statements, 1)))
         if left <= 0:
             raise OutOfTime
+        self.last_ms = left
         self.cursor.execute(f"SET LOCAL statement_timeout = {left}")
 
     def fetchone(self) -> tuple:
@@ -88,7 +102,8 @@ class _Timed:
 
 
 def _bound(cursor, statements: int = 1) -> None:
-    """:meth:`_Timed.bound` on the page's cursor (a plain cursor, in a test, has no deadline)."""
+    """:meth:`_Timed.bound` on the checks' timed cursor, on the page or in the job (a plain cursor, in a
+    test, has no deadline)."""
     if hasattr(cursor, "bound"):
         cursor.bound(statements)
 
@@ -101,6 +116,22 @@ def _one(cursor, sql: str, params: list[Any] | None = None) -> tuple:
 def _all(cursor, sql: str, params: list[Any] | None = None) -> list[tuple]:
     cursor.execute(sql, params)
     return cursor.fetchall()
+
+
+def _day(day: datetime.date | None) -> str | None:
+    """A date in a check's table, as text ("31 Mar 2026", in English whatever the language, as check
+    11's months): the page shows the same whether it ran the checks itself or reads what the job
+    stored."""
+    return f"{day.day} {day:%b %Y}" if day else None
+
+
+def _duration(ms: int) -> str:
+    """A time limit in words: "10 minutes", "20 seconds", "1 second"."""
+    if ms >= 60_000 and ms % 60_000 == 0:
+        n, unit = ms // 60_000, "minute"
+    else:
+        n, unit = max(ms // 1000, 1), "second"
+    return f"{n} {unit}{'' if n == 1 else 's'}"
 
 
 def _share(part: int, whole: int) -> str:
@@ -287,8 +318,9 @@ def _cumulative(cursor) -> dict[str, Any]:
         "FROM datamart_reportedindicator WHERE total_cumulative_progress <> '' GROUP BY 1, 2, 3 "
         "HAVING count(DISTINCT progress_report) > 1) g",
     )
-    # NeuroDB's Reached for every indicator of the running PDs (Python, no statement timeout): only when
-    # the page has the time left for it
+    # NeuroDB's Reached for every indicator of the running PDs (Python; its queries keep the statement
+    # timeout the query above set, within the same transaction): only with PRP_COMPARE_MIN_S of the
+    # checks' time left
     left = cursor.remaining() if hasattr(cursor, "remaining") else PAGE_BUDGET_S
     differ, compared = _reached_against_prp() if left >= PRP_COMPARE_MIN_S else (0, 0)
     skipped = left < PRP_COMPARE_MIN_S
@@ -300,8 +332,8 @@ def _cumulative(cursor) -> dict[str, Any]:
             f"report ({_share(same, several)}); "
             + (
                 "NeuroDB's Reached was not compared with PRP's cumulative (the checks run before it, "
-                "checks 10 and 11 first, used up most of the page's time); the Data quality tab of Partner "
-                "monitoring lists the indicators where they differ."
+                "checks 10 and 11 first, used up most of the time for the checks); the Data quality tab of "
+                "Partner monitoring lists the indicators where they differ."
                 if skipped
                 else f"NeuroDB's Reached differs from PRP's cumulative on {differ:,} of {compared:,} "
                 "indicators of the running programme documents."
@@ -528,8 +560,8 @@ def _country_and_link(cursor) -> dict[str, Any]:
             g["_link"],
             g["rows"],
             g["reports"],
-            g["first"],
-            g["last"],
+            _day(g["first"]),
+            _day(g["last"]),
             ", ".join(sorted(x for x in g["sections"] or [] if x)[:5]) or None,
             ", ".join(sorted(x for x in g["numbers"] or [] if x)[:3]) or None,
         )
@@ -806,11 +838,19 @@ CHECKS: tuple[Check, ...] = (
 )
 
 
-def run_all(budget: float = PAGE_BUDGET_S) -> list[dict[str, Any]]:
-    """Every check, each in its own read-only transaction whose statements stop after ``TIMEOUT_MS``;
-    a check that fails or runs too long says so and the others still run. The checks share ``budget``
-    seconds: once it is used up, the checks left say they were not run (the page always answers before
-    the web server's limit)."""
+def run_all(
+    budget: float = PAGE_BUDGET_S,
+    *,
+    timeout_ms: int = TIMEOUT_MS,
+    by: str = "page",
+    before: Callable[[], None] | None = None,
+) -> list[dict[str, Any]]:
+    """Every check, each in its own read-only transaction whose statements stop after ``timeout_ms``;
+    a check that fails or runs too long says so (``unfinished``) and the others still run. The checks
+    share ``budget`` seconds: once it is used up, the checks left say they were not run (the page always
+    answers before the web server's limit). ``by``: "page" or "job", for the words of a check left out.
+    ``before``, called before each check, stops them all by raising (the job: its lock is lost)."""
+    limit = f"the page's {int(budget)} seconds" if by == "page" else f"the job's {int(budget // 60)} minutes"
     done: dict[str, dict[str, Any]] = {}
     ran: list[str] = []  # the checks run so far, in their order
     deadline = time.monotonic() + budget
@@ -819,47 +859,164 @@ def run_all(budget: float = PAGE_BUDGET_S) -> list[dict[str, Any]]:
     for check in sorted(CHECKS, key=lambda c: c.key not in RUN_FIRST):
         entry = {"key": check.key, "title": check.title, "question": check.question, "neurodb": check.neurodb}
         done[check.key] = entry
+        if before:
+            before()
         if deadline - time.monotonic() < 1:
-            entry.update(_not_run(ran))
+            entry.update(_not_run(ran, limit=limit, by=by))
             continue
+        timed = None
         try:
             with transaction.atomic(), connection.cursor() as cursor:
-                entry.update(check.run(_Timed(cursor, deadline)))
+                timed = _Timed(cursor, deadline, timeout_ms)
+                entry.update(check.run(timed))
         except OutOfTime:
-            entry.update(_not_run(ran, started=True))
+            entry.update(_not_run(ran, started=True, limit=limit, by=by))
         except DatabaseError as exc:
             logger.warning("eTools reporting check %s failed: %s", check.key, exc)
-            entry.update(
-                {
-                    "tone": WARN,
-                    "verdict": (
-                        "This check could not finish (it took too long or the data could not be read)."
-                    ),
-                    "figures": [],
-                }
-            )
+            cause = exc.__cause__
+            cancelled = (getattr(cause, "sqlstate", None) or getattr(cause, "pgcode", None)) == QUERY_CANCELED
+            if cancelled and timed and timed.last_ms < timeout_ms:
+                # the time left for the checks, shorter than a query's own limit, stopped it
+                entry.update(_not_run(ran, started=True, limit=limit, by=by))
+            else:
+                why = (
+                    f"a query took longer than its {_duration(timeout_ms)}"
+                    if cancelled
+                    else "the data could not be read"
+                )
+                entry.update(
+                    {
+                        "tone": WARN,
+                        "verdict": f"This check could not finish ({why}).",
+                        "figures": [],
+                        "unfinished": True,
+                    }
+                )
         ran.append(check.key)
     return [done[c.key] for c in CHECKS]
 
 
-def _not_run(ran: list[str], *, started: bool = False) -> dict[str, Any]:
-    """The verdict of a check the page's time left out: ``ran``, the checks run before it (checks 10 and
-    11 run first, so they are not the ones listed above it); ``started``, it ran out partway through."""
-    seconds = int(PAGE_BUDGET_S)
+def _not_run(
+    ran: list[str],
+    *,
+    started: bool = False,
+    limit: str = f"the page's {int(PAGE_BUDGET_S)} seconds",
+    by: str = "page",
+) -> dict[str, Any]:
+    """The verdict of a check the time for the checks left out: ``ran``, the checks run before it (checks
+    10 and 11 run first, so they are not the ones listed above it); ``started``, it ran out partway
+    through; ``limit``, that time in words ("the page's 75 seconds")."""
     if started:
-        why = f"this check ran out of the page's {seconds} seconds partway through"
+        why = f"this check ran out of {limit} partway through"
     elif ran:
         named = ", ".join(ran[:-1]) + f" and {ran[-1]}" if len(ran) > 1 else ran[0]
         kind = "checks" if len(ran) > 1 else "check"
-        why = f"{kind} {named}, run before it, used up the page's {seconds} seconds"
+        why = f"{kind} {named}, run before it, used up {limit}"
     else:
-        why = f"the page's {seconds} seconds for its checks were used up"
+        why = f"{limit} for the checks were used up"
     first = " and ".join(RUN_FIRST)
+    stops = "; the page stops there so that it always answers" if by == "page" else ""
     return {
         "tone": INFO,
         "verdict": (
-            f"Not run: {why} (checks {first} run first, then the others in order; the page stops there so "
-            "that it always answers). The data is large or the database is busy."
+            f"Not run: {why} (checks {first} run first, then the others in order{stops}). The data is large "
+            "or the database is busy."
         ),
         "figures": [],
+        "unfinished": True,
     }
+
+
+# ------------------------------------------------------------------------------------------- the job
+def _lock() -> bool:
+    if connection.vendor != "postgresql":
+        return True
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", [LOCK_ID])
+        return bool(cursor.fetchone()[0])
+
+
+def _unlock() -> None:
+    if connection.vendor != "postgresql":
+        return
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", [LOCK_ID])
+    except DatabaseError:  # the session is gone, and its lock with it
+        logger.warning("eTools reporting checks: the lock could not be released", exc_info=True)
+
+
+class LostLock(RuntimeError):
+    """The run's database session no longer holds the checks' lock: the connection was lost (the lock
+    went with it) and another run may have started."""
+
+
+def _still_locked() -> None:
+    """Raise :class:`LostLock` unless this session still holds the lock. After a lost connection Django
+    opens a new session at the next query, which holds no lock: the run would go on unseen, and
+    ``background.is_running`` would close its row and let a second run start."""
+    if connection.vendor != "postgresql":
+        return
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND classid = 0 AND objid = %s "
+            "AND objsubid = 1 AND pid = pg_backend_pid() AND granted",
+            [LOCK_ID],
+        )
+        if cursor.fetchone() is None:
+            raise LostLock(
+                "The database connection was lost during the checks (another run may have started): "
+                "nothing was stored."
+            )
+
+
+BUSY = "The eTools reporting checks are already running."
+
+
+def run_job(triggered_by: str = "command"):
+    """Run every check with the job's time (``JOB_TIMEOUT_MS`` per statement, ``JOB_BUDGET_S`` in all)
+    and store the result in the run's details (``checks``), which the page shows. SUCCEEDED when every
+    check finished, PARTIAL when one did not. Returns the run, or :data:`BUSY` when another run holds the
+    lock (nothing is recorded)."""
+    from neurodb.core.models import SyncRun
+    from neurodb.integrations.runs import fail, new_run
+
+    if not _lock():
+        return BUSY
+    try:
+        run = new_run(SyncRun.Job.REPORTING_CHECKS, "", triggered_by)
+        try:
+            found = run_all(JOB_BUDGET_S, timeout_ms=JOB_TIMEOUT_MS, by="job", before=_still_locked)
+            _still_locked()
+        except Exception as exc:  # recorded as a failed run; the page keeps the result before it
+            return fail(run, exc)
+        # stored as JSON: the checks return plain data (check 10 its dates as text already); anything else
+        # (a decimal) is stored as text
+        found = json.loads(json.dumps(found, cls=DjangoJSONEncoder))
+        unfinished = [c["key"] for c in found if c.get("unfinished")]
+        run.rows_written = len(found) - len(unfinished)
+        run.rows_failed = len(unfinished)
+        # Import and sync runs shows these under "Why rows failed"
+        run.details["errors"] = [
+            {"error": c["verdict"], "count": 1, "examples": [f"check {c['key']}"]}
+            for c in found
+            if c.get("unfinished")
+        ]
+        status = SyncRun.Status.PARTIAL if unfinished else SyncRun.Status.SUCCEEDED
+        run.finish(status, checks=found, unfinished=unfinished)
+        return run
+    finally:
+        _unlock()
+
+
+def latest_run():
+    """The last finished run of the job that stored the checks, or None (a run that failed before the
+    checks ended stored none; one stopped from the admin keeps what it stored)."""
+    from neurodb.core.models import SyncRun
+
+    return (
+        SyncRun.objects.filter(job=SyncRun.Job.REPORTING_CHECKS, details__has_key="checks")
+        .exclude(finished_at=None)
+        .order_by("-finished_at", "-id")
+        .first()
+    )

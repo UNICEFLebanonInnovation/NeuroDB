@@ -13,6 +13,7 @@ import datetime
 import logging
 import subprocess
 import sys
+import time
 
 from django.conf import settings
 from django.db import connection
@@ -37,6 +38,7 @@ DOC_REVIEW_LOCK_ID = 7140436  # the document review of the knowledge base
 # the eTools update clean-up (neurodb.datamart.backfill): taken first, then held with the Datamart
 # sync's lock for the whole run, so a sync that finds the Datamart lock taken knows who has it
 DATAMART_BACKFILL_LOCK_ID = 7140437
+REPORTING_CHECKS_LOCK_ID = 7140438  # neurodb.datamart.checks.LOCK_ID: one run of the checks at a time
 LOCK_IDS = {
     SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID,
     SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID,
@@ -47,6 +49,7 @@ LOCK_IDS = {
     SyncRun.Job.FMM_AP_REVIEW: FMM_AP_REVIEW_LOCK_ID,
     SyncRun.Job.DOC_REVIEW: DOC_REVIEW_LOCK_ID,
     SyncRun.Job.DATAMART_BACKFILL: DATAMART_BACKFILL_LOCK_ID,
+    SyncRun.Job.REPORTING_CHECKS: REPORTING_CHECKS_LOCK_ID,
 }
 
 
@@ -112,7 +115,8 @@ def is_running(job: str) -> bool:
 
 
 def start_command(*args: str) -> int:
-    """Start ``manage.py <args>`` in the background and return its process id."""
+    """Start ``manage.py <args>`` in the background and return its process id. The start is noted in the
+    shared cache (:func:`started_at`): the process needs a few seconds before it writes its run."""
     process = subprocess.Popen(  # noqa: S603 - fixed interpreter and script; arguments come from code
         [sys.executable, str(settings.BASE_DIR / "manage.py"), *args],
         cwd=settings.BASE_DIR,
@@ -120,4 +124,45 @@ def start_command(*args: str) -> int:
         start_new_session=True,  # not stopped with the web worker that started it
     )
     logger.info("started manage.py %s in the background (pid %s)", " ".join(args), process.pid)
+    _note_started(args[0])
     return process.pid
+
+
+STARTED_KEY = "background-started:{}"  # the shared cache: when a command was last started from here
+STARTED_TTL = 300  # seconds: long enough for any command to write its first row
+
+
+def _note_started(command: str) -> None:
+    from django.core.cache import caches
+
+    from neurodb.core import compute
+
+    try:
+        caches[compute.CACHE].set(STARTED_KEY.format(command), time.time(), STARTED_TTL)
+    except Exception:  # noqa: BLE001 - the note is a courtesy: the start itself went through
+        logger.warning("could not note the start of %s", command, exc_info=True)
+
+
+def started_at(command: str) -> float | None:
+    """When ``command`` was last started in the background (any worker, the scheduler included), as a
+    Unix time, if within ``STARTED_TTL`` seconds; None otherwise."""
+    from django.core.cache import caches
+
+    from neurodb.core import compute
+
+    try:
+        return caches[compute.CACHE].get(STARTED_KEY.format(command))
+    except Exception:  # noqa: BLE001 - unknown: treated as not started
+        return None
+
+
+def forget_started(command: str) -> None:
+    """Drop the note of :func:`started_at` (its run is there, or it ended)."""
+    from django.core.cache import caches
+
+    from neurodb.core import compute
+
+    try:
+        caches[compute.CACHE].delete(STARTED_KEY.format(command))
+    except Exception:  # noqa: BLE001
+        logger.warning("could not forget the start of %s", command, exc_info=True)

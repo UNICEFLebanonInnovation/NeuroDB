@@ -341,6 +341,7 @@ HEALTH_SKIPPED_JOBS = (
     SyncRun.Job.FMM_AP_REVIEW,
     SyncRun.Job.DOC_REVIEW,
     SyncRun.Job.DATAMART_BACKFILL,  # once after a deployment: it never goes stale
+    SyncRun.Job.REPORTING_CHECKS,  # the eTools reporting checks: their own page says when they ran
 )
 
 
