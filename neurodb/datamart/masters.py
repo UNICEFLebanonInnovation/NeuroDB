@@ -355,22 +355,26 @@ def not_active(master: EtoolsMaster) -> str:
 
 
 def check_link(link: EtoolsMasterLink) -> None:
-    """:meth:`EtoolsMasterLink.clean`: the indicator is one of its PD's (read again, as the indicator flags
-    check theirs), in the master's section when the link is new, and of a type its role and the master's
-    method take; a new confirmed link only in an active master (:func:`not_active`). Fills the title, PD
-    number and type it was linked with when they are empty."""
+    """:meth:`EtoolsMasterLink.clean`: a new link's indicator is one of its PD's (read again, as the indicator
+    flags check theirs) and in the master's section, and a new confirmed link is only in an active master
+    (:func:`not_active`); every link is of a type its role and the master's method take. A saved link's PD and
+    indicator are read-only on its forms: one gone from eTools (:data:`GONE`) is checked by the type it was
+    linked with, so staff can make it shown only. Fills the title, PD number and type it was linked with when
+    they are empty."""
     errors: dict[str, str] = {}
     if not link.master_id:
         raise ValidationError({"master": "Choose the master indicator."})
     master = link.master
-    if link._state.adding and link.status == Status.CONFIRMED and not_active(master):
+    adding = link._state.adding
+    if adding and link.status == Status.CONFIRMED and not_active(master):
         errors["master"] = not_active(master)
     row = None
     if not link.pd_id:
-        errors["pd"] = "Choose the programme document."
+        if adding:
+            errors["pd"] = "Choose the programme document."
     elif link.ident:
         row = pd_indicator(link.pd_id, link.ident)
-        if row is None:
+        if row is None and adding:
             errors["ident"] = (
                 "This is not one of the programme document's indicators. Choosing the indicator on the "
                 "master indicators tab or with Add PD indicators avoids this."
@@ -379,7 +383,7 @@ def check_link(link: EtoolsMasterLink) -> None:
         link.title = link.title or row.title[:1024]
         link.pd_number = link.pd_number or (row.pd.number or "")[:64]
         link.unit_class = link.unit_class or unit_class(row)
-        if link._state.adding and norm(row.section) != norm(master.section):
+        if adding and norm(row.section) != norm(master.section):
             errors["ident"] = (
                 f"This indicator is in section {row.section or 'none'}, not in this master's section "
                 f"({master.section})."

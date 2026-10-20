@@ -579,7 +579,7 @@ def read(
     active = [m for m in chosen if m.status == MASTER.ACTIVE]
     shown = [m for m in active if masters.appears(m, year, running)]
     whole = _figures(shown, every, running, base, today)
-    partners = {int(p) for p in filters.partners if p.isdigit()}
+    partners = {int(p) for p in filters.partners if p.isdecimal() and len(p) <= 18}  # "²" is no number
     tab = Tab(year=year, report_type=base.report_type, partner=bool(partners), listed=len(shown))
     if partners:
         mine = [row for row in every if row.pd.partner_id in partners]

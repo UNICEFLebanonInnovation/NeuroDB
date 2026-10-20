@@ -78,9 +78,28 @@ def parse_key(value: str) -> tuple[int, str] | None:
     a title's sha1, :func:`neurodb.datamart.masters.key_of`), taken as it is: coding it again would hash the
     hash, and the indicator would never be found."""
     pd_id, _sep, ident = str(value or "").partition("|")
-    if not pd_id.isdigit() or len(pd_id) > 18 or not IDENT.fullmatch(ident):
+    if not pd_id.isdecimal() or len(pd_id) > 18 or not IDENT.fullmatch(ident):  # "²" is a digit, no number
         return None
     return int(pd_id), ident
+
+
+def _rows_of(section: str, year: int) -> list[Row]:
+    """The PD indicators of ``section`` (as eTools spells it, whatever the case) in the programme documents
+    running in ``year`` (:func:`neurodb.datamart.monitoring.collect`: no Reached is computed)."""
+    section = norm(section)
+    if not section:
+        return []
+    return [
+        row
+        for row in monitoring.collect(monitoring.Filters(year=year, scope="year")).values()
+        if norm(row.section) == section
+    ]
+
+
+def section_named(section: str, year: int) -> bool:
+    """Whether a PD indicator of a programme document running in ``year`` names ``section``: a master whose
+    section none names (mistyped by hand, or kept after eTools renamed it) is offered nothing."""
+    return bool(_rows_of(section, year))
 
 
 def offered(master: EtoolsMaster, year: int) -> list[Offer]:
@@ -91,13 +110,8 @@ def offered(master: EtoolsMaster, year: int) -> list[Offer]:
     mind on) and that no master counts in a confirmed total. A percentage or a ratio master also offers the
     numbers another master counts in its total, as a numerator or a denominator only. Sorted by PD number,
     then title."""
-    section = norm(master.section)
-    rows = [
-        row
-        for row in monitoring.collect(monitoring.Filters(year=year, scope="year")).values()
-        if norm(row.section) == section
-    ]
-    if not rows or not section:
+    rows = _rows_of(master.section, year)
+    if not rows:
         return []
     held = {(link.pd_id, link.ident): link.status for link in master.links.all()}
     homes = {
@@ -370,6 +384,11 @@ def merge_problem(chosen: Sequence[EtoolsMaster]) -> str:
     if any(m.status == MASTER.DISMISSED for m in chosen):
         return "A dismissed proposal cannot be merged."
     if not any(m.status == MASTER.ACTIVE for m in chosen):
+        if any(m.status == MASTER.ARCHIVED for m in chosen):
+            return (
+                "None of these is active. To keep the archived one, make it active again first (its Status "
+                "on its page); to keep a proposal, accept it first. Then merge the others into it."
+            )
         return "None of these is active: accept the proposal to keep first, then merge the others into it."
     if chosen[0].method in masters.ONE_CLASS:
         found = set(

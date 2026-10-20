@@ -2287,7 +2287,9 @@ quick):
    *Dismiss* keeps it as dismissed, so the same family is never proposed again. *Merge the selected master
    indicators* with an active master accepts the proposal there: its PD indicators are confirmed in the
    master kept, each read again as *Accept* does, and one that cannot count there stays a suggestion, said
-   why. A proposal keeps what people decided (its name, a year's code or target, a link rejected there, a
+   why. A proposal named as a master of its section is not accepted: rename it, or merge it into that
+   master (an archived one is made active again first, with its *Status*: the master kept is an active
+   one). A proposal keeps what people decided (its name, a year's code or target, a link rejected there, a
    role given to a suggestion) when a report names its family's CP output: it is the same proposal under
    its new key.
 2. **Made from ActivityInfo**: *Reporting setup* → *Master indicators* (ActivityInfo), action *Create eTools
@@ -2298,7 +2300,9 @@ quick):
    never an ActivityInfo row; a master that exists already by section and name is skipped.
 3. **By hand** in the admin, with the **Add PD indicators** wizard on a master's page: tick the section's PD
    indicators of this year that are in no confirmed total yet and of a type the method takes; one role for
-   all, and they are confirmed at once.
+   all, and they are confirmed at once. When no PD indicator of this year names the master's section (a
+   section typed by hand differently from eTools, or one eTools renamed since), the wizard says so: correct
+   the section, or use *Change section (after an eTools rename)*.
 
 **How PD indicators are attached.** The job suggests each PD indicator for at most one master of its own
 section, by the first rule that finds one: (a) it **replaces** a confirmed link of the same programme
@@ -2324,7 +2328,8 @@ the one with the largest target in the total.
 
 After each eTools sync nothing is rewritten. A confirmed link stops counting, and says why, when its
 programme document runs in the year but the indicator is gone (*No longer in eTools*: it cannot be confirmed
-again, and its replacement is suggested the next night), or when its type changed in eTools (*Type changed
+again, and its replacement is suggested the next night; it can still be made *Shown only* on its page or in
+its master's list, checked by the type it was linked with), or when its type changed in eTools (*Type changed
 in eTools*, until someone clicks *Confirm again*); an indicator now in another section is still read and says
 *Now in section X*. A new PD
 indicator, an amendment's included, is suggested the next night.
@@ -2396,8 +2401,8 @@ unattached).
 
 **Before switching it on, and to follow it**: reporting check 12, *Indicator grouping* (with the other eTools
 reporting checks, above), counts what the job would do without writing anything; *Needs attention* on the
-admin home lists the masters of this year without a target (`etools_masters_without_target`, linked to the masters' admin list filtered on *No
-target*).
+admin home lists the masters of this year without a target (`etools_masters_without_target`, linked to the
+masters' admin list filtered on *Listed this year, no target*: exactly the masters it counts).
 
 ### One programme implementation ecosystem: how the eTools records are linked
 

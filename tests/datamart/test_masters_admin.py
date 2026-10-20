@@ -253,6 +253,7 @@ def test_parse_key_takes_a_links_ident_as_it_is_and_refuses_anything_else():
     assert curation.parse_key("7|s101") == (7, "s101")
     for wrong in ("7|t# of children enrolled", "7|r55", "x|s101", "7|", "|s101", "7|s", f"7|{code}0"):
         assert curation.parse_key(wrong) is None, wrong
+    assert curation.parse_key("²|s101") is None  # a digit to str.isdigit(), which int() cannot read
 
 
 def test_add_leaves_out_what_cannot_join_and_says_why(education):
@@ -287,6 +288,28 @@ def test_a_viewer_cannot_open_the_wizard_and_its_page_says_what_it_does(admin_cl
     client.force_login(staff(VIEWER))
     assert wizard(client, m, role="total", indicators=[f"{education['a'].id}|s101"]).status_code == 403
     assert not dm.EtoolsMasterLink.objects.filter(master=m).exists()
+
+
+def test_the_wizard_says_when_no_pd_indicator_of_the_year_names_the_masters_section(admin_client, education):
+    """A master's section mistyped by hand, or kept after eTools renamed it, finds no PD indicator: the wizard
+    says so and how to put it right, never that each one is taken. The old reason stays where the section has
+    PD indicators and none can join."""
+    typo = w.master("Children enrolled in NFE", section="Educaton")
+    response = wizard(admin_client, typo)
+    assert offered(response) == {}
+    assert response.context["form"].fields["indicators"].help_text == (
+        "No PD indicator of a programme document running in 2026 names the section Educaton. Check the "
+        "master's section as eTools spells it on the PD indicators (after an eTools rename, use Change section "
+        "on the master indicators list)."
+    )
+    held = w.master("Children reached with PSS", section=w.CP)
+    w.link(held, education["a"], 103, title="# of children reached with PSS")
+    response = wizard(admin_client, held)
+    assert offered(response) == {}
+    assert response.context["form"].fields["indicators"].help_text == (
+        "No PD indicator of this section can be added: each one counts in a master already, is held by this "
+        "one, or is of a type it cannot combine."
+    )
 
 
 # ---------------------------------------------------------------------------------------- the masters' actions
@@ -413,6 +436,37 @@ def test_merge_is_refused_across_sections_or_methods_and_changes_nothing(admin_c
     assert act(admin_client, "merge_selected", [m]).status_code == 302
     assert {x.status for x in dm.EtoolsMaster.objects.all()} == {"active"}
     assert links_of(m) == {("PD/2026/001", "s101"): ("total", "confirmed")}
+
+
+def test_a_proposal_named_as_an_archived_master_says_how_to_merge_it_there(admin_client, education):
+    """Accept refuses a proposal whose name a master of its section has. Merge keeps an active master only, so
+    when that master is archived the refusals say to make it active again first, never to merge it into an
+    archived one."""
+    a = education["a"]
+    archived = w.master(ENROLLED, status="archived")
+    proposal = w.master(ENROLLED, status="proposed", origin="proposed", proposal_key="k")
+    w.link(proposal, a, 101, title=ENROLLED, status="suggested", unit_class="")
+    response = act(admin_client, "accept_proposals", [proposal])
+    assert (
+        f"1 not accepted: {ENROLLED}: Education already has an archived master indicator named {ENROLLED}: "
+        "rename the proposal first, or make that master indicator active again in the administration (its "
+        "Status) and merge the proposal into it." in said(response)
+    )
+    assert curation.merge_problem([archived, proposal]) == (
+        "None of these is active. To keep the archived one, make it active again first (its Status on its "
+        "page); to keep a proposal, accept it first. Then merge the others into it."
+    )
+    dm.EtoolsMaster.objects.filter(pk=archived.pk).update(status="active")
+    (refused,) = master_links.accept([proposal], "staff").refused
+    assert refused[1] == (
+        f"Education already has a master indicator named {ENROLLED}: rename the proposal first, or merge it into "
+        "that one."
+    )
+    archived.refresh_from_db()
+    assert curation.merge_problem([archived, proposal]) == ""
+    assert curation.merge_problem([w.master("Another proposal", status="proposed"), proposal]) == (
+        "None of these is active: accept the proposal to keep first, then merge the others into it."
+    )
 
 
 def test_change_section_moves_masters_to_the_renamed_section_unless_it_has_their_name(
@@ -583,6 +637,49 @@ def test_the_link_page_refuses_a_second_total_with_a_form_error(admin_client, ed
     shown.refresh_from_db()
     assert shown.role == "shown"
     assert admin_client.post(url, {"role": "numerator", "sequence": 0, "_save": "Save"}).status_code == 200
+
+
+@pytest.mark.parametrize("lost", ["indicator", "programme document"])
+def test_a_link_no_longer_in_etools_is_saved_on_its_page_and_on_its_masters(admin_client, education, lost):
+    """A confirmed link whose indicator eTools dropped (or whose programme document is gone) is what the tab
+    calls No longer in eTools, and staff are told to make it Shown only: saving it, changed or not, on its own
+    page or in its master's list, is never a server error. Only a new link must be one of its PD's indicators;
+    a saved one is checked by the type it was linked with."""
+    m = w.master("Children enrolled in NFE")
+    gone = w.link(m, education["a"], 999, title="# of children enrolled in a closed class")
+    if lost == "programme document":
+        dm.EtoolsMasterLink.objects.filter(pk=gone.pk).update(ident="s101", pd=None)
+    url = reverse("admin:datamart_etoolsmasterlink_change", args=[gone.pk])
+    assert admin_client.post(url, {"role": "total", "sequence": 0, "_save": "Save"}).status_code == 302
+    assert admin_client.post(url, {"role": "shown", "sequence": 0, "_save": "Save"}).status_code == 302
+    gone.refresh_from_db()
+    assert (gone.role, gone.status) == ("shown", "confirmed")
+    assert MasterLinkForm({"role": "total", "sequence": 3}, instance=gone).is_valid()
+    page = {
+        "section": m.section,
+        "name": m.name,
+        "method": "sum",
+        "status": "active",
+        "sequence": 0,
+        "years-TOTAL_FORMS": "0",
+        "years-INITIAL_FORMS": "0",
+        "links-TOTAL_FORMS": "1",
+        "links-INITIAL_FORMS": "1",
+        "links-0-id": gone.pk,
+        "links-0-master": m.pk,
+        "links-0-role": "shown",
+        "links-0-sequence": "4",
+        "_save": "Save",
+    }
+    response = admin_client.post(reverse("admin:datamart_etoolsmaster_change", args=[m.pk]), page)
+    assert response.status_code == 302
+    gone.refresh_from_db()
+    assert (gone.role, gone.sequence) == ("shown", 4)
+    # a percentage total is still refused for a sum, by the type the link was linked with
+    dm.EtoolsMasterLink.objects.filter(pk=gone.pk).update(unit_class="percentage")
+    gone.refresh_from_db()
+    form = MasterLinkForm({"role": "total", "sequence": 4}, instance=gone)
+    assert not form.is_valid() and form.errors["role"][0].startswith("A sum adds numbers only")
 
 
 def test_a_link_added_by_hand_starts_confirmed_and_the_night_keeps_it(admin_client, education):

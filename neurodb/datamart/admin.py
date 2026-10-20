@@ -648,12 +648,13 @@ class MasterLinkInline(TabularInline):
 
 class AddPDIndicatorsForm(forms.Form):
     """The *Add PD indicators* wizard: the section's PD indicators of this year that can join the master
-    (:func:`neurodb.datamart.curation.offered`), and the one role they all take."""
+    (:func:`neurodb.datamart.curation.offered`), and the one role they all take. ``named``: whether a PD
+    indicator of this year names the master's section at all (when none does, the wizard says to check it)."""
 
     role = forms.ChoiceField(label=_("Counts as"), widget=UnfoldAdminSelectWidget)
     indicators = forms.MultipleChoiceField(widget=UnfoldAdminCheckboxSelectMultipleWidget)
 
-    def __init__(self, master, offers, year, *args, **kwargs):
+    def __init__(self, master, offers, year, *args, named=True, **kwargs):
         super().__init__(*args, **kwargs)
         roles = [Role.TOTAL, Role.SHOWN]
         if master.method in masters.WITH_PARTS:
@@ -666,17 +667,23 @@ class AddPDIndicatorsForm(forms.Form):
             "PD indicators of %(section)s in the programme documents running in %(year)s"
         ) % {"section": master.section, "year": year}
         self.fields["indicators"].choices = [(offer.value, _offer_label(offer)) for offer in offers]
-        self.fields["indicators"].help_text = (
-            _(
+        if offers:
+            help_text = _(
                 "Indicators that already count in another master's total, of a type this master cannot "
                 "combine, or that it holds already are not listed."
             )
-            if offers
-            else _(
+        elif not named:
+            help_text = _(
+                "No PD indicator of a programme document running in %(year)s names the section %(section)s. "
+                "Check the master's section as eTools spells it on the PD indicators (after an eTools "
+                "rename, use Change section on the master indicators list)."
+            ) % {"year": year, "section": master.section}
+        else:
+            help_text = _(
                 "No PD indicator of this section can be added: each one counts in a master already, is held "
                 "by this one, or is of a type it cannot combine."
             )
-        )
+        self.fields["indicators"].help_text = help_text
 
 
 def _offer_label(offer) -> str:
@@ -880,7 +887,9 @@ class EtoolsMasterAdmin(ModelAdmin):
             raise PermissionDenied
         year = years.this_year()
         offers = curation.offered(master, year)
-        form = AddPDIndicatorsForm(master, offers, year, request.POST or None)
+        # read again only when nothing is offered: to say whether the section is named at all
+        named = bool(offers) or curation.section_named(master.section, year)
+        form = AddPDIndicatorsForm(master, offers, year, request.POST or None, named=named)
         if request.method == "POST" and form.is_valid():
             keys = [key for key in map(curation.parse_key, form.cleaned_data["indicators"]) if key]
             done = curation.add(master, keys, form.cleaned_data["role"], request.user.get_username())

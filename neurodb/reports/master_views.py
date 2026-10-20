@@ -57,8 +57,9 @@ def _back(request: HttpRequest, master: EtoolsMaster | None = None) -> str:
 
 
 def _number(value: Any) -> int | None:
+    # isdecimal, not isdigit: "²" is a digit int() cannot read
     text = str(value or "").strip()
-    return int(text) if text.isdigit() and len(text) <= 18 else None
+    return int(text) if text.isdecimal() and len(text) <= 18 else None
 
 
 def _numbers(values: list[str]) -> list[int]:

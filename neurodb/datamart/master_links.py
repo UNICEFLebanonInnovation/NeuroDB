@@ -953,23 +953,38 @@ class Accepted:
 def accept(proposals: Iterable[EtoolsMaster], by: str, only: Collection[int] | None = None) -> Accepted:
     """Accept proposed masters, in one click each: the master becomes active and its suggested links are
     confirmed (:func:`confirm`). One whose name an active or archived master of its section has already is
-    refused: rename it first, or merge it into that one. ``only``: the ids of the links the page showed (the
-    tab's Accept); a suggestion the night added since is left a suggestion of the master, now active, and
-    counted in :attr:`Accepted.unseen`."""
+    refused: rename it first, or merge it into that one (an archived one is made active again first: a merge
+    keeps an active master only). ``only``: the ids of the links the page showed (the tab's Accept); a
+    suggestion the night added since is left a suggestion of the master, now active, and counted in
+    :attr:`Accepted.unseen`."""
     out = Accepted()
     for master in proposals:
         if master.status != MASTER.PROPOSED:
             out.refused.append((master, NOT_PROPOSED))
             continue
-        same = EtoolsMaster.objects.filter(
-            section=master.section, name=master.name, status__in=[MASTER.ACTIVE, MASTER.ARCHIVED]
-        ).exclude(pk=master.pk)
-        if same.exists():
+        same = set(
+            EtoolsMaster.objects.filter(
+                section=master.section, name=master.name, status__in=[MASTER.ACTIVE, MASTER.ARCHIVED]
+            )
+            .exclude(pk=master.pk)
+            .values_list("status", flat=True)
+        )
+        if MASTER.ACTIVE in same:
             out.refused.append(
                 (
                     master,
                     f"{master.section} already has a master indicator named {master.name}: rename the "
                     "proposal first, or merge it into that one.",
+                )
+            )
+            continue
+        if same:
+            out.refused.append(
+                (
+                    master,
+                    f"{master.section} already has an archived master indicator named {master.name}: rename "
+                    "the proposal first, or make that master indicator active again in the administration "
+                    "(its Status) and merge the proposal into it.",
                 )
             )
             continue

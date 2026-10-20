@@ -18,12 +18,13 @@ from urllib.parse import parse_qs, urlsplit
 import openpyxl
 import pytest
 from django.contrib.auth.models import Group
+from django.contrib.messages import get_messages
 from django.test import Client
 from django.urls import reverse
 
 from neurodb.accounts.models import Section, User
 from neurodb.accounts.roles import SECTION_EDITOR
-from neurodb.datamart import master_links, masters, masters_tab, monitoring
+from neurodb.datamart import curation, master_links, masters, masters_tab, monitoring
 from neurodb.datamart import models as dm
 from neurodb.donors.models import DonorAccount
 from neurodb.watch.models import SectionMatch
@@ -690,6 +691,43 @@ def test_an_indicator_rejected_for_a_master_is_attached_to_it_again(world, admin
     link.refresh_from_db()
     assert (link.status, link.role) == ("confirmed", "total")  # the same link, a person's choice now
     assert _lines(_tab(client))[SUM_NAME].figure.value == 770.0
+
+
+def test_a_digit_that_is_no_number_gets_the_pages_own_message_never_a_server_error(world, admin_user):
+    """The character "²" is a digit to str.isdigit() and no number to int(): a hand-edited form that sends it
+    in a number's field gets the message any wrong value gets, and the tab's partner filter reads it as no
+    partner."""
+    client = _signed_in(admin_user)
+    enrolled, proposal = world["enrolled"], world["proposal"]
+    b = world["pds"][1]
+    edit = reverse("reports:etools_master_edit", args=[enrolled.pk])
+    attach = reverse("reports:etools_master_attach")
+    sent = [
+        (edit, {"action": "confirm", "link": "²"}, "Choose one of this master indicator's PD indicators."),
+        (edit, {"action": "settings", "year": "²", "name": enrolled.name}, "Choose the year these settings"),
+        (edit, {"action": "confirm_all", "link": "²"}, "None of the suggestions shown is waiting any more."),
+        (
+            reverse("reports:etools_master_edit", args=[proposal.pk]),
+            {"action": "accept", "link": "²"},
+            "None of the PD indicators shown is in the proposal any more",
+        ),
+        (attach, {"master": "²", "role": "total", "key": [f"{b.pk}|s202"]}, "Choose the master indicator"),
+        (attach, {"master": enrolled.pk, "role": "total", "key": ["²|s202"]}, "Tick the PD indicators"),
+        (
+            reverse("reports:etools_masters_confirm"),
+            {"section": w.EDUCATION, "link": "²"},
+            "None of the strong matches shown is waiting any more.",
+        ),
+    ]
+    for url, data, message in sent:
+        response = client.post(url, data)
+        assert response.status_code == 302, data
+        assert any(message in str(m) for m in get_messages(response.wsgi_request)), data
+    proposal.refresh_from_db()
+    assert proposal.status == "proposed" and enrolled.links.filter(status="suggested").count() == 1
+    assert curation.parse_key("²|s202") is None
+    tab = _tab(client, partner="²")
+    assert tab.status_code == 200 and not tab.context["tab"].partner
 
 
 @pytest.mark.parametrize(
