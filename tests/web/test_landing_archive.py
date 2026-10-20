@@ -1,14 +1,16 @@
 """The public landing page once ActivityInfo is an archive (SPEC_HOME §7): the archived copy names the years
-partners reported there, the rows marked "always" change in both states, no "…in ActivityInfo this year"
-figure stands next to "no longer updated" copy (even when this year has records), nothing about an archive
-is said when no year has ActivityInfo records, and the figures' key holds this year, its ActivityInfo
-reporting year and whether ActivityInfo is in use, so a change of state shows at once."""
+partners reported there ("ActivityInfo archive 2019–2026"), while it is in use it is a current source and the
+word "archive" is not used, the rows marked "always" change in both states, no "…in ActivityInfo this year"
+figure stands next to archive copy (even when this year has records), nothing about ActivityInfo is said
+when no year has its records, and the figures' key holds this year, its ActivityInfo reporting year and
+whether ActivityInfo is in use, so a change of state shows at once."""
 
 import datetime
 import itertools
 
 import pytest
 from django.core.cache import cache
+from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
@@ -81,59 +83,21 @@ def _landing(client) -> str:
 def test_archived_copy_names_the_years_of_the_archive(client, history):
     assert not activityinfo.in_use() and activityinfo.state().span == "2019–2026"
     html = _landing(client)
+    # the three places the design names ActivityInfo: the sources of the data scene, the coverage card and
+    # the sources belt
     assert (
-        "built from eTools data, with the ActivityInfo results of 2019–2026 kept as an archive." in html
-    )  # meta description
-    assert "built from eTools and ActivityInfo data" not in html
-    # lead
-    assert "funds, assurance, field monitoring, the country programme and population figures" in html
-    assert "The ActivityInfo results of 2019–2026 stay available as an archive." in html
-    assert "results from ActivityInfo," not in html
-    # l.130, 160, 165
-    assert "research and the ActivityInfo archive in one place" in html
-    assert "Interactive maps by governorate and district show coverage and gaps" in html
-    assert "the ActivityInfo archive keeps its site-level maps." in html
-    assert "down to cadaster and site level" not in html
-    assert (
-        "Exports of every table, and the humanitarian performance and programme reports of the ActivityInfo "
-        "years, kept in the archive." in html
+        "<b>Historical results — ActivityInfo</b><span>Past-year evidence for comparison, 2019–2026</span>"
+        in html
     )
-    # l.187-188 with the chip, l.192
-    assert "Budgets, funds and assurance are managed in eTools. The monthly activity results partners" in html
-    assert "reported in ActivityInfo until 2026 stay in the archive." in html
-    assert '<span class="chip">ActivityInfo archive</span>' in html
-    assert '<span class="chip">ActivityInfo</span>' not in html
-    assert "Every night NeuroDB synchronises the eTools Datamart. Results roll up into indicators" in html
-    assert "1st to the 22nd" not in html  # the import's schedule is no promise of an archive
-    # l.214, l.222
-    assert "Follow your section’s programme documents and progress reports" in html
-    assert "Exports of every table instead of rebuilt spreadsheets" in html
-    assert "monthly HPM" not in html and "Saved pivot views" not in html
-    # FAQ l.289, 290, 291
-    assert "the monthly activity results of 2019–2026 from ActivityInfo, kept as an archive;" in html
-    assert "The ActivityInfo archive is no longer updated." in html
-    assert "(and the share of the year for the ActivityInfo indicators of the archive)" in html
-    assert "the share of the year for ActivityInfo ones" not in html
-    # quick link
-    assert "Where partners reported their monthly results until 2026." in html
-    assert "Where partners report their monthly results." not in html
-
-
-def test_whats_new_presents_home_and_the_archive(client, history):
-    html = _landing(client)
-    new = html.split('id="new"', 1)[1].split('id="explore"', 1)[0]
-    assert new.index("<strong>Home</strong>") < new.index("<strong>Country overview</strong>")  # Home first
-    assert "What needs you today, what changed and where your section stands." in new
-    assert "Children reached, funds, delivery and assurance on one page." in new
+    assert "<b>Historical results</b><span>ActivityInfo archive 2019–2026 and year comparisons</span>" in html
+    assert "<span>ActivityInfo archive 2019–2026</span>" in html
+    assert "Monthly results — ActivityInfo" not in html and "ActivityInfo results of the year" not in html
+    # the meta description is the design's, the same in every state
     assert (
-        "Fourteen checks every morning, on a page of their own; findings get an owner and a due date." in new
+        '<meta name="description" content="See how UNICEF Lebanon’s NeuroDB connects programme evidence, flags '
+        'what needs attention and supports decisions for children.">' in html
     )
-    assert "<strong>ActivityInfo archive</strong>" in new
-    assert "Every database and report from 2019–2026, kept as it was." in new
-    assert "<strong>ActivityInfo databases</strong>" not in new
-    assert "Saved and shared views" not in new  # pivot layouts are an ActivityInfo page's feature
-    assert "Governorate and district maps, filtered in the browser." in new
-    assert "Governorate to site level" not in new
+    assert "ActivityInfo imported" not in html  # no ActivityInfo figure
 
 
 def test_rows_marked_always_change_in_both_states(client, client_viewer, history, etools, settings):
@@ -141,40 +105,23 @@ def test_rows_marked_always_change_in_both_states(client, client_viewer, history
     for mode in (ActivityInfoSetting.Mode.ARCHIVED, ActivityInfoSetting.Mode.IN_USE):
         _mode(mode)
         html = _landing(client)
-        assert "Home for your day, eTools partner reporting and the daily review" in html  # the pill
-        assert "Management brief, daily review and eTools partner reporting" not in html
-        assert "Illustration of NeuroDB, not real figures." in html  # l.102
-        assert "Illustration of the overview" not in html
-        assert "Figures for 2026" in html and "Reporting year" not in html  # l.113
+        assert "Figures for 2026" in html and "Reporting year" not in html  # the live highlights' note
+        assert "SIMULATED DATA · NOT LIVE" in html and "Illustrative UI · no actual internal data" in html
         signed_in = _landing(client_viewer)
-        assert "Open Home" in signed_in and "Open your overview" not in signed_in  # l.65
+        assert "Open Home" in signed_in and "Open your overview" not in signed_in  # the hero's second button
         assert f'href="{reverse("reports:overview")}"' in signed_in
 
 
-def test_the_act_step_names_home_and_the_country_overview(client, history, settings):
-    """The signed-in entry is Home and the overview is the Country overview: the "Act" step names both, in
-    both states and with Ask on or off (R1 a11y_words-W-5)."""
-    for enabled in (False, True):
-        settings.AI_ASSISTANT_ENABLED = enabled
-        settings.OPENAI_API_KEY = "test-not-a-key" if enabled else ""
-        for mode in (ActivityInfoSetting.Mode.ARCHIVED, ActivityInfoSetting.Mode.IN_USE):
-            _mode(mode)
-            html = _landing(client)
-            assert "Teams open Home, the country overview, the brief, dashboards and maps, " in html
-            assert ("ask questions in plain language" in html) is enabled
-            assert "open the overview" not in html
-            assert '<span class="chip">Country overview</span>' in html
-            assert '<span class="chip">Overview</span>' not in html
-
-
-def test_the_closing_band_names_home_as_the_page_signing_in_opens(client, history):
-    """Signed-in staff land on Home, so the closing band's invitation names it, in both states (R2
-    browser-N1: the "Act" step was fixed in round 1, this line was not)."""
+def test_the_closing_band_opens_sign_in_or_neurodb(client_viewer, history):
+    """Visitors enter through NeuroDB's own sign-in; signed in, the closing band opens NeuroDB (Home), in
+    both states."""
+    visitor = Client()  # ``client_viewer`` signs ``client`` in
     for mode in (ActivityInfoSetting.Mode.ARCHIVED, ActivityInfoSetting.Mode.IN_USE):
         _mode(mode)
-        html = _landing(client)
-        assert "Sign in to open Home and your section’s pages, or explore the resources" in html
-        assert "Sign in to open the country overview" not in html
+        band = _landing(visitor).split('<section class="ending">', 1)[1].split("</section>", 1)[0]
+        assert f'<a class="endingbtn" href="{reverse("account_login")}"><span>Enter NeuroDB' in band
+        signed_in = _landing(client_viewer).split('<section class="ending">', 1)[1].split("</section>", 1)[0]
+        assert f'<a class="endingbtn" href="{reverse("reports:overview")}"><span>Open NeuroDB' in signed_in
 
 
 def test_no_activityinfo_tiles_when_archived_even_with_records_this_year(client, history, etools):
@@ -205,12 +152,11 @@ def test_in_use_keeps_todays_copy_and_its_figures(client, history):
     )
     _mode(ActivityInfoSetting.Mode.IN_USE)
     html = _landing(client)
-    assert "built from eTools and ActivityInfo data." in html
-    assert "results from ActivityInfo, funds, assurance and population figures" in html
-    assert "ActivityInfo imports run from the 1st to the 22nd of each month" in html
-    assert '<span class="chip">ActivityInfo</span>' in html and "Saved and shared views" in html
-    assert "<strong>ActivityInfo databases</strong>" in html and "ActivityInfo archive" not in html
-    assert "Where partners report their monthly results." in html
+    # a current source, in the same three places, and never called an archive
+    assert "<b>Monthly results — ActivityInfo</b>" in html
+    assert "<b>Monthly results</b><span>ActivityInfo results of the year and year comparisons</span>" in html
+    assert "<span>ActivityInfo</span>" in html
+    assert "ActivityInfo archive" not in html and "Historical results" not in html and "2019–2026" not in html
     # this year's ActivityInfo figures (hierarchy: 4 records, 2 partners, 2 governorates, 2 masters)
     assert "partners reporting in ActivityInfo this year" in html
     assert "governorates in ActivityInfo reports this year" in html
@@ -223,11 +169,9 @@ def test_nothing_about_an_archive_without_activityinfo_years(client, db):
     to ActivityInfo."""
     assert activityinfo.state().span == "" and not activityinfo.in_use()
     html = _landing(client)
-    assert "ActivityInfo" not in html
-    assert "built from eTools data." in html
-    assert "population estimates and research in one place" in html
-    assert "Exports of every table, and a printable snapshot of every dashboard." in html
+    assert "ActivityInfo" not in html and "Historical results" not in html and "Monthly results" not in html
     assert "activityinfo.org" not in html
+    assert "<span>Knowledge & evidence</span></div>" in html  # the sources belt ends with the other three
 
 
 def test_the_figures_are_this_years_and_the_ai_counts_come_from_its_reporting_year(client, etools):
@@ -259,7 +203,7 @@ def test_a_change_of_state_shows_at_once_without_clearing_the_cache(client, hier
     assert cache.get(services.cache_key()) is None  # a key of its own
     html = _landing(client)
     assert "partners reporting in ActivityInfo this year" not in html
-    assert "Where partners reported their monthly results until 2026." in html
+    assert "<span>ActivityInfo archive 2026</span>" in html  # hierarchy's records: 2026 only
 
 
 def test_a_year_getting_its_first_records_starts_new_figures(client, db):

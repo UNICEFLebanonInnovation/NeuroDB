@@ -1,330 +1,252 @@
 {% load i18n static humanize %}<!DOCTYPE html>
-<html lang="{{ LANGUAGE_CODE|default:'en' }}" data-bs-theme="light">
+<html lang="{{ LANGUAGE_CODE|default:'en' }}">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  <title>{{ SITE_NAME }} · {% trans "Results for children in Lebanon, in one place" %}</title>
-  <meta name="description" content="{% if ai.in_use %}{% trans 'NeuroDB is UNICEF Lebanon’s programme monitoring platform: children reached, progress against targets, partner reporting, funds, assurance and maps, built from eTools and ActivityInfo data.' %}{% elif ai.span %}{% blocktrans with span=ai.span %}NeuroDB is UNICEF Lebanon’s programme monitoring platform: children reached, progress against targets, partner reporting, funds, assurance and maps, built from eTools data, with the ActivityInfo results of {{ span }} kept as an archive.{% endblocktrans %}{% else %}{% trans 'NeuroDB is UNICEF Lebanon’s programme monitoring platform: children reached, progress against targets, partner reporting, funds, assurance and maps, built from eTools data.' %}{% endif %}">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NEURO-DB | {% trans "UNICEF Lebanon" %}</title>
+  <meta name="description" content="{% trans "See how UNICEF Lebanon’s NeuroDB connects programme evidence, flags what needs attention and supports decisions for children." %}">
   <meta property="og:title" content="{{ SITE_NAME }} · UNICEF Lebanon">
-  <meta property="og:description" content="{% trans 'Progress against targets, where support reaches, and what needs attention — in one place.' %}">
+  <meta property="og:description" content="{% trans "See how UNICEF Lebanon’s NeuroDB connects programme evidence, flags what needs attention and supports decisions for children." %}">
   <meta property="og:type" content="website">
   {% include "components/favicons.html" %}
   <meta property="og:image" content="{{ request.scheme }}://{{ request.get_host }}{% static 'img/og-image.png' %}">
-  <link rel="stylesheet" href="{% static 'vendor/bootstrap/bootstrap.min.css' %}">
-  <link rel="stylesheet" href="{% static 'css/app.css' %}">
   <link rel="stylesheet" href="{% static 'css/landing.css' %}">
-  <script nonce="{{ request.csp_nonce }}">
-    (function () {
-      var d = document.documentElement;
-      try {
-        var t = localStorage.getItem("neurodb-theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-        d.setAttribute("data-bs-theme", t);
-      } catch (e) {}
-      d.classList.add("lp-js");
-    })();
-  </script>
 </head>
-<body class="lp">
-<a class="skip-link" href="#main">{% trans "Skip to main content" %}</a>
-{% include "components/icons.html" %}
-
-<header class="lp-nav" id="lp-nav">
-  <div class="lp-container lp-nav__inner">
-    <a class="brand" href="{% url 'landing' %}">{% include "components/logo.html" with height=34 %}</a>
-    <nav class="lp-nav__links" aria-label="{% trans 'Page sections' %}">
-      <a href="#why">{% trans "Why NeuroDB" %}</a>
-      <a href="#how">{% trans "How it works" %}</a>
-      <a href="#new">{% trans "What’s new" %}</a>
-      <a href="#explore">{% trans "Resources" %}</a>
-      <a href="#faq">{% trans "FAQ" %}</a>
-    </nav>
-    <div class="lp-nav__spacer"></div>
-    <button class="btn btn-icon" type="button" id="theme-toggle" aria-pressed="false" aria-label="{% trans 'Toggle dark mode' %}">
-      <span class="theme-toggle__light">{% include "components/icon.html" with name="sun" %}</span>
-      <span class="theme-toggle__dark">{% include "components/icon.html" with name="moon" %}</span>
-    </button>
-    {% if user.is_authenticated %}
-    <a class="btn btn-primary btn-sm" href="{% url 'reports:overview' %}">{% trans "Open NeuroDB" %}{% include "components/icon.html" with name="arrow" %}</a>
-    {% else %}
-    <a class="btn btn-primary btn-sm" href="{% url 'account_login' %}">{% trans "Sign in" %}</a>
-    {% endif %}
-  </div>
-</header>
-
+<body>
+<a class="skip" href="#main">{% trans "Skip to content" %}</a><div class="topline"></div>
+<header class="nav"><div class="wrap navinner">
+<a aria-label="{% trans 'NeuroDB home' %}" class="wordmark" href="#top"><img alt="NEURO-DB" class="brandlogo" decoding="async" height="120" src="{% static 'img/logo.png' %}" width="506"><span class="brandcontext">{% trans "UNICEF LEBANON" %}</span></a>
+<nav aria-label="{% trans 'Primary navigation' %}" class="navlinks" id="navLinks"><a href="#meaning">{% trans "The purpose" %}</a><a href="#data">{% trans "Explore the data" %}</a><a href="#insights">{% trans "AI insights" %}</a><a href="#journey">{% trans "Follow the story" %}</a><a href="#realworld">{% trans "Real-life context" %}</a><a href="#access">{% trans "Your perspective" %}</a></nav>
+<button aria-controls="navLinks" aria-expanded="false" aria-label="{% trans 'Toggle navigation' %}" class="menu" id="mobileMenu" type="button">☰</button>
+{% if user.is_authenticated %}<a class="navcta" href="{% url 'reports:overview' %}">{% trans "Open NeuroDB" %} <span aria-hidden="true">↗</span></a>{% else %}<a class="navcta" href="{% url 'account_login' %}">{% trans "Sign in" %} <span aria-hidden="true">↗</span></a>{% endif %}
+</div></header>
 <main id="main">
-  <!-- ------------------------------------------------------------ hero -->
-  <section class="lp-hero" aria-labelledby="hero-title">
-    <div class="lp-container lp-hero__grid">
-      <div>
-        <span class="lp-pill"><b>{% trans "New" %}</b>{% trans "Home for your day, eTools partner reporting and the daily review" %}</span>
-        <h1 id="hero-title">{% blocktrans %}Every result for children in Lebanon, <span class="lp-grad">in one place.</span>{% endblocktrans %}</h1>
-        <p class="lp-lead">{% if ai.in_use %}{% blocktrans %}NeuroDB brings together programme documents and partner progress reports from eTools, results from ActivityInfo, funds, assurance and population figures, so teams see how many children are reached, what is on track, where support goes and what needs a decision — synchronised every night, reviewed every morning.{% endblocktrans %}{% else %}{% blocktrans %}NeuroDB brings together programme documents and partner progress reports from eTools, funds, assurance, field monitoring, the country programme and population figures, so teams see how many children are reached, what is on track, where support goes and what needs a decision — synchronised every night, reviewed every morning.{% endblocktrans %}{% if ai.span %} {% blocktrans with span=ai.span %}The ActivityInfo results of {{ span }} stay available as an archive.{% endblocktrans %}{% endif %}{% endif %}</p>
-        <div class="lp-cta">
-          {% if user.is_authenticated %}
-          <a class="btn btn-primary btn-lg" href="{% url 'reports:overview' %}">{% trans "Open Home" %}{% include "components/icon.html" with name="arrow" %}</a>
-          {% else %}
-          <a class="btn btn-primary btn-lg" href="{% url 'account_login' %}">{% if SSO_ENABLED %}{% trans "Sign in with your UNICEF account" %}{% else %}{% trans "Sign in" %}{% endif %}{% include "components/icon.html" with name="arrow" %}</a>
-          {% endif %}
-          <a class="btn btn-outline-secondary btn-lg" href="#explore">{% trans "Explore resources" %}</a>
-        </div>
-        <div class="lp-trust">
-          <span>{% include "components/icon.html" with name="check" %}{% trans "Official UNICEF Lebanon data" %}</span>
-          <span>{% include "components/icon.html" with name="check" %}{% trans "Synchronised every night" %}</span>
-          <span>{% include "components/icon.html" with name="check" %}{% trans "Single sign-on and role-based access" %}</span>
-        </div>
-      </div>
-
-      <figure class="position-relative lp-mock-figure">
-        <div class="lp-mock" aria-hidden="true">
-          <div class="lp-mock__bar"><i></i><i></i><i></i></div>
-          <div class="lp-mock__kpis">
-            <div class="lp-mock__kpi"><small>{% trans "Children reached" %}</small><strong>412k</strong> <em>▲ 8%</em></div>
-            <div class="lp-mock__kpi"><small>{% trans "On track" %}</small><strong>68%</strong> <em>▲ 6</em></div>
-            <div class="lp-mock__kpi"><small>{% trans "Funds used" %}</small><strong>74%</strong></div>
-          </div>
-          <div class="lp-mock__row">
-            <div class="lp-mock__card"><div class="lp-mock__donut"></div></div>
-            <div class="lp-mock__card">
-              <div class="lp-mock__bars">
-                {% for h in "4657687989"|make_list %}<span style="height: {{ h }}0%; animation-delay: {{ forloop.counter0 }}00ms"></span>{% endfor %}
-              </div>
-            </div>
-          </div>
-          <div class="lp-mock__card lp-mock__list">
-            {% for w in "8,6,9,4"|cut:","|make_list %}
-            <div class="lp-mock__item"><span class="lp-line" style="width: {{ w }}0%"></span><div class="meter__track"><span class="meter__fill {% cycle 'meter__fill--on_track' 'meter__fill--over_target' 'meter__fill--on_track' 'meter__fill--off_track' %}" style="width: {{ w }}0%"></span></div><span class="lp-line"></span></div>
-            {% endfor %}
-          </div>
-        </div>
-        <div class="lp-float lp-float--a" aria-hidden="true">{% include "components/icon.html" with name="sparkle" %}{% trans "Daily review: findings to look at" %}</div>
-        {% if etools_synced %}<div class="lp-float lp-float--b">{% include "components/icon.html" with name="refresh" %}{% blocktrans with when=etools_synced|naturaltime %}eTools synced {{ when }}{% endblocktrans %}</div>{% endif %}
-        <figcaption class="lp-mock-caption">{% trans "Illustration of NeuroDB, not real figures." %}{% if stats and stat_items %} {% trans "The real counts are below." %}{% endif %}</figcaption>
-      </figure>
-    </div>
-
-    {% if stats and stat_items %}
-    <div class="lp-container mt-5 lp-reveal">
-      <div class="lp-stats" role="list" aria-label="{% blocktrans with year=stats.year %}NeuroDB in {{ year }}{% endblocktrans %}">
-        {% for value, label in stat_items %}
-        <div class="lp-stat" role="listitem"><strong data-count="{{ value }}">{{ value|intcomma }}</strong><span>{{ label }}</span></div>
-        {% endfor %}
-      </div>
-      <p class="lp-stats-note">{% include "components/icon.html" with name="clock" %}{% if stats.year %}{% blocktrans with year=stats.year %}Figures for {{ year }}{% endblocktrans %} · {% endif %}{% if stats.etools_update %}{% blocktrans with when=stats.etools_update|naturaltime %}eTools synced {{ when }}{% endblocktrans %} · {% endif %}{% if ai.in_use and stats.last_update %}{% blocktrans with when=stats.last_update|naturaltime %}ActivityInfo imported {{ when }}{% endblocktrans %} · {% endif %}{% trans "aggregate counts only" %}</p>
-    </div>
-    {% endif %}
-  </section>
-
-  <!-- ------------------------------------------------------------ why -->
-  <section class="lp-section lp-section--alt" id="why" aria-labelledby="why-title">
-    <div class="lp-container">
-      <div class="lp-head lp-head--center lp-reveal">
-        <span class="lp-eyebrow">{% include "components/icon.html" with name="sparkle" %}{% trans "Why NeuroDB" %}</span>
-        <h2 class="lp-h2" id="why-title">{% trans "From scattered spreadsheets to decisions you can defend" %}</h2>
-        <p class="lp-lead">{% trans "Monitoring data used to live in exports, e-mails and one-off files. NeuroDB turns it into one trusted, always-current picture of the country programme." %}</p>
-      </div>
-      <div class="lp-features">
-        <article class="lp-card lp-reveal">
-          <span class="lp-icon">{% include "components/icon.html" with name="layers" %}</span>
-          <h3>{% trans "One source of truth" %}</h3>
-          <p>{% if ai.in_use %}{% trans "eTools programme documents, partner progress reports, funds and assurance, ActivityInfo results, population estimates and research in one place — the same numbers for every team and every meeting." %}{% elif ai.span %}{% trans "eTools programme documents, partner progress reports, funds and assurance, population estimates, research and the ActivityInfo archive in one place — the same numbers for every team and every meeting." %}{% else %}{% trans "eTools programme documents, partner progress reports, funds and assurance, population estimates and research in one place — the same numbers for every team and every meeting." %}{% endif %}</p>
-        </article>
-        <article class="lp-card lp-reveal">
-          <span class="lp-icon lp-tint-green">{% include "components/icon.html" with name="users" %}</span>
-          <h3>{% trans "Impact for children" %}</h3>
-          <p>{% trans "Children reached against targets and the child population, by section, governorate, sex and age, with the funds behind them and the cost per child." %}</p>
-        </article>
-        <article class="lp-card lp-reveal">
-          <span class="lp-icon lp-tint-green">{% include "components/icon.html" with name="target" %}</span>
-          <h3>{% trans "Progress you can trust" %}</h3>
-          <p>{% trans "Every indicator is compared with its target and with how much of its period has passed, so on-track and off-track results stand out at a glance — with the partner reports behind each figure." %}</p>
-        </article>
-        <article class="lp-card lp-reveal">
-          <span class="lp-icon lp-tint-amber">{% include "components/icon.html" with name="chart" %}</span>
-          <h3>{% trans "Read for decisions" %}</h3>
-          <p>{% trans "The management brief compares this year with the last, says how far each figure can be trusted, scores partners, follows the money and lists the findings to act on, with their owners." %}</p>
-        </article>
-        <article class="lp-card lp-reveal">
-          <span class="lp-icon lp-tint-amber">{% include "components/icon.html" with name="sparkle" %}</span>
-          <h3>{% trans "A second pair of eyes" %}</h3>
-          <p>{% if AI_ASSISTANT_ENABLED %}{% trans "Every morning a review runs fourteen checks — new off-track indicators, late reports, spending ahead of results, overdue action points — and Ask NeuroDB answers questions in plain language." %}{% else %}{% trans "Every morning a review runs fourteen checks — new off-track indicators, late reports, spending ahead of results, overdue action points — and lists what needs a person." %}{% endif %}</p>
-        </article>
-        <article class="lp-card lp-reveal">
-          <span class="lp-icon lp-tint-red">{% include "components/icon.html" with name="eye" %}</span>
-          <h3>{% trans "Assurance in view" %}</h3>
-          <p>{% trans "Third-party monitoring visits, field monitoring findings, action points, audits and HACT risk ratings next to each partner and programme document." %}</p>
-        </article>
-        <article class="lp-card lp-reveal">
-          <span class="lp-icon lp-tint-blue">{% include "components/icon.html" with name="map" %}</span>
-          <h3>{% trans "See where support reaches" %}</h3>
-          <p>{% if ai.in_use %}{% trans "Interactive maps down to cadaster and site level show coverage and gaps, filtered by partner, programme document or month." %}{% elif ai.span %}{% trans "Interactive maps by governorate and district show coverage and gaps, filtered by partner, programme document or month; the ActivityInfo archive keeps its site-level maps." %}{% else %}{% trans "Interactive maps by governorate and district show coverage and gaps, filtered by partner, programme document or month." %}{% endif %}</p>
-        </article>
-        <article class="lp-card lp-reveal">
-          <span class="lp-icon lp-tint-blue">{% include "components/icon.html" with name="file" %}</span>
-          <h3>{% trans "Reports in seconds" %}</h3>
-          <p>{% if ai.in_use %}{% trans "Humanitarian performance and programme reports for any month or quarter; slice any result by area, partner, sex, age or nationality, save the view and export it." %}{% elif ai.span %}{% trans "Exports of every table, and the humanitarian performance and programme reports of the ActivityInfo years, kept in the archive." %}{% else %}{% trans "Exports of every table, and a printable snapshot of every dashboard." %}{% endif %}</p>
-        </article>
-        <article class="lp-card lp-reveal">
-          <span class="lp-icon">{% include "components/icon.html" with name="shield" %}</span>
-          <h3>{% trans "Secure by design" %}</h3>
-          <p>{% trans "UNICEF single sign-on, roles per section, no public access to partner-level data, and modern web security on every page." %}</p>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------------------ how -->
-  <section class="lp-section" id="how" aria-labelledby="how-title">
-    <div class="lp-container">
-      <div class="lp-head lp-reveal">
-        <span class="lp-eyebrow">{% include "components/icon.html" with name="database" %}{% trans "How it works" %}</span>
-        <h2 class="lp-h2" id="how-title">{% trans "Partners report once. Everyone benefits." %}</h2>
-        <p class="lp-lead">{% trans "No double entry: NeuroDB reads the systems partners and staff already use, applies the agreed indicator rules, and tells you when anything is out of date." %}</p>
-      </div>
-      <div class="lp-steps lp-steps--4">
-        <div class="lp-step lp-reveal">
-          <h3>{% trans "Collect" %}</h3>
-          <p>{% if ai.in_use %}{% trans "Partners report progress on their programme documents in the eTools Partner Reporting Portal. Budgets, funds and assurance are managed in eTools; monthly activity results come from ActivityInfo." %}{% else %}{% trans "Partners report progress on their programme documents in the eTools Partner Reporting Portal. Budgets, funds and assurance are managed in eTools." %}{% if ai.last %} {% blocktrans with last=ai.last %}The monthly activity results partners reported in ActivityInfo until {{ last }} stay in the archive.{% endblocktrans %}{% endif %}{% endif %}</p>
-          <div class="chips"><span class="chip">eTools</span><span class="chip">{% trans "Partner reporting" %}</span>{% if ai.in_use %}<span class="chip">ActivityInfo</span>{% elif ai.span %}<span class="chip">{% trans "ActivityInfo archive" %}</span>{% endif %}</div>
-        </div>
-        <div class="lp-step lp-reveal">
-          <h3>{% trans "Consolidate" %}</h3>
-          <p>{% if ai.in_use %}{% trans "Every night NeuroDB synchronises the eTools Datamart; ActivityInfo imports run from the 1st to the 22nd of each month. Results roll up into indicators, and every sync is recorded." %}{% else %}{% trans "Every night NeuroDB synchronises the eTools Datamart. Results roll up into indicators, and every sync is recorded." %}{% endif %}</p>
-          <div class="chips"><span class="chip">{% trans "Indicator rules" %}</span><span class="chip">{% trans "Freshness checks" %}</span></div>
-        </div>
-        <div class="lp-step lp-reveal">
-          <h3>{% trans "Review" %}</h3>
-          <p>{% trans "At 06:00 Beirut time the daily review flags what changed overnight and what looks wrong. Each finding can be given an owner and a due date." %}</p>
-          <div class="chips"><span class="chip">{% trans "Daily review" %}</span><span class="chip">{% trans "Findings" %}</span></div>
-        </div>
-        <div class="lp-step lp-reveal">
-          <h3>{% trans "Act" %}</h3>
-          <p>{% if AI_ASSISTANT_ENABLED %}{% trans "Teams open Home, the country overview, the brief, dashboards and maps, ask questions in plain language, and share exports with management, partners and donors." %}{% else %}{% trans "Teams open Home, the country overview, the brief, dashboards and maps, and share exports with management, partners and donors." %}{% endif %}</p>
-          <div class="chips"><span class="chip">{% trans "Country overview" %}</span><span class="chip">{% trans "Brief" %}</span><span class="chip">{% trans "Maps" %}</span></div>
-        </div>
-      </div>
-
-      <div class="lp-features mt-5">
-        <article class="lp-card lp-reveal">
-          <span class="lp-icon">{% include "components/icon.html" with name="users" %}</span>
-          <h3>{% trans "For programme sections" %}</h3>
-          <ul>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "Your section’s programme documents, indicators and results on one page" %}</li>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "Drill from a figure to the partner reports and locations behind it" %}</li>
-            <li>{% include "components/icon.html" with name="check" %}{% if ai.in_use %}{% trans "Comment on your indicators in the monthly HPM" %}{% else %}{% trans "Follow your section’s programme documents and progress reports" %}{% endif %}</li>
-          </ul>
-        </article>
-        <article class="lp-card lp-reveal">
-          <span class="lp-icon lp-tint-green">{% include "components/icon.html" with name="chart" %}</span>
-          <h3>{% trans "For planning, monitoring and reporting" %}</h3>
-          <ul>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "Consistent aggregation rules for every report" %}</li>
-            <li>{% include "components/icon.html" with name="check" %}{% if ai.in_use %}{% trans "Saved pivot views instead of rebuilt spreadsheets" %}{% else %}{% trans "Exports of every table instead of rebuilt spreadsheets" %}{% endif %}</li>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "A data health page with failed or late syncs and data-quality checks" %}</li>
-          </ul>
-        </article>
-        <article class="lp-card lp-reveal">
-          <span class="lp-icon lp-tint-amber">{% include "components/icon.html" with name="gift" %}</span>
-          <h3>{% trans "For management and partnerships" %}</h3>
-          <ul>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "The country programme on one overview, and a brief for decisions" %}</li>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "Funds by donor, reserved against disbursed, value per child" %}</li>
-            <li>{% include "components/icon.html" with name="check" %}{% trans "Partner scorecards with reporting, assurance and risk ratings" %}</li>
-          </ul>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------------------ new -->
-  <section class="lp-section lp-section--alt" id="new" aria-labelledby="new-title">
-    <div class="lp-container">
-      <div class="lp-head lp-reveal">
-        <span class="lp-eyebrow">{% include "components/icon.html" with name="sparkle" %}{% trans "What’s new in NeuroDB 3" %}</span>
-        <h2 class="lp-h2" id="new-title">{% trans "Same trusted data. A much better experience." %}</h2>
-        <p class="lp-lead">{% trans "NeuroDB 3 keeps every year of history from the previous version, adds eTools partner reporting from 2026, and the tools teams asked for." %}</p>
-      </div>
-      <div class="lp-new">
-        {% for icon, tint, title, text in whats_new %}
-        <div class="lp-new__item lp-reveal"><span class="lp-icon {{ tint }}">{% include "components/icon.html" with name=icon %}</span><div><strong>{{ title }}</strong><span>{{ text }}</span></div></div>
-        {% endfor %}
-      </div>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------------------ quick links -->
-  <section class="lp-section" id="explore" aria-labelledby="explore-title">
-    <div class="lp-container">
-      <div class="lp-head lp-reveal">
-        <span class="lp-eyebrow">{% include "components/icon.html" with name="book" %}{% trans "Helpful information" %}</span>
-        <h2 class="lp-h2" id="explore-title">{% trans "Quick links" %}</h2>
-        <p class="lp-lead">{% if public_pages %}{% trans "Some resources are open to everyone; the others open after you sign in." %}{% else %}{% trans "Resources marked with a lock open after you sign in." %}{% endif %}</p>
-      </div>
-      <div class="lp-links">
-        {% for link in quick_links %}
-        <a class="lp-link lp-reveal" href="{{ link.url }}"{% if link.external %} target="_blank" rel="noopener noreferrer"{% endif %}>
-          <div class="lp-link__top">
-            <span class="lp-icon">{% include "components/icon.html" with name=link.icon %}</span>
-            {% if link.locked %}<span class="lp-lock">{% include "components/icon.html" with name="lock" %}{% trans "Sign-in" %}</span>{% endif %}
-          </div>
-          <strong>{{ link.title }}</strong>
-          <p>{{ link.text }}</p>
-          <span class="lp-link__go">{% if link.external %}{% trans "Visit" %}{% elif link.locked %}{% trans "Sign in to open" %}{% else %}{% trans "Open" %}{% endif %}{% include "components/icon.html" with name="arrow" %}</span>
-        </a>
-        {% endfor %}
-      </div>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------------------ faq -->
-  <section class="lp-section lp-section--alt" id="faq" aria-labelledby="faq-title">
-    <div class="lp-container">
-      <div class="lp-head lp-head--center lp-reveal">
-        <span class="lp-eyebrow">{% include "components/icon.html" with name="info" %}{% trans "FAQ" %}</span>
-        <h2 class="lp-h2" id="faq-title">{% trans "Questions we hear often" %}</h2>
-      </div>
-      <div class="lp-faq">
-        <details><summary>{% trans "Who can use NeuroDB?" %}</summary><p>{% trans "UNICEF Lebanon staff with a registered account. Viewers see all dashboards and reports, section editors can also comment on their section’s indicators, and administrators manage configuration. Selected resources can be opened to the public by the NeuroDB team." %}</p></details>
-        <details><summary>{% trans "How do I get access?" %}</summary><p>{% if SUPPORT_EMAIL %}{% blocktrans %}Write to <a href="mailto:{{ SUPPORT_EMAIL }}">{{ SUPPORT_EMAIL }}</a> with your section and the role you need. Once registered, sign in with your UNICEF Microsoft account — no extra password.{% endblocktrans %}{% else %}{% trans "Ask the NeuroDB administrators in the Planning, Monitoring and Evaluation section. Once registered, sign in with your UNICEF Microsoft account — no extra password." %}{% endif %}</p></details>
-        <details><summary>{% trans "Where does the data come from?" %}</summary><p>{% if ai.in_use %}{% trans "Programme documents, partner progress reports, funds, donors and assurance (monitoring visits, audits, action points, HACT) come from eTools through the eTools Datamart; monthly activity results from ActivityInfo; population estimates from the official planning figures loaded each year. NeuroDB never asks partners to report twice." %}{% elif ai.span %}{% blocktrans with span=ai.span %}Programme documents, partner progress reports, funds, donors and assurance (monitoring visits, audits, action points, HACT) come from eTools through the eTools Datamart; the monthly activity results of {{ span }} from ActivityInfo, kept as an archive; population estimates from the official planning figures loaded each year. NeuroDB never asks partners to report twice.{% endblocktrans %}{% else %}{% trans "Programme documents, partner progress reports, funds, donors and assurance (monitoring visits, audits, action points, HACT) come from eTools through the eTools Datamart; population estimates from the official planning figures loaded each year. NeuroDB never asks partners to report twice." %}{% endif %}</p></details>
-        <details><summary>{% trans "How current is it?" %}</summary><p>{% if ai.in_use %}{% trans "eTools data synchronises every night, ActivityInfo imports run from the 1st to the 22nd of each month, and the daily review runs each morning after the syncs. The data health page shows when each source was last updated, and pages warn you when data is out of date." %}{% elif ai.span %}{% trans "eTools data synchronises every night and the daily review runs each morning after the syncs. The ActivityInfo archive is no longer updated. The data health page shows when each source was last updated, and pages warn you when data is out of date." %}{% else %}{% trans "eTools data synchronises every night and the daily review runs each morning after the syncs. The data health page shows when each source was last updated, and pages warn you when data is out of date." %}{% endif %}</p></details>
-        <details><summary>{% trans "What does “on track” mean?" %}</summary><p>{% if ai.in_use %}{% trans "An indicator is on track when its achievement is within ten percentage points of the time that has passed: the share of the programme document’s period for eTools indicators, the share of the year for ActivityInfo ones. Well above is “ahead of schedule” (“over target” once it has passed its target), well below is “off track”, and indicators without a target are shown separately." %}{% elif ai.span %}{% trans "An indicator is on track when its achievement is within ten percentage points of the time that has passed: the share of the programme document’s period for eTools indicators (and the share of the year for the ActivityInfo indicators of the archive). Well above is “ahead of schedule” (“over target” once it has passed its target), well below is “off track”, and indicators without a target are shown separately." %}{% else %}{% trans "An indicator is on track when its achievement is within ten percentage points of the time that has passed: the share of the programme document’s period for eTools indicators. Well above is “ahead of schedule” (“over target” once it has passed its target), well below is “off track”, and indicators without a target are shown separately." %}{% endif %}</p></details>
-        {% if AI_ASSISTANT_ENABLED %}<details><summary>{% trans "What does the AI do, and what does it see?" %}</summary><p>{% trans "Ask NeuroDB answers questions about the data and links to the pages its figures come from; the daily review’s checks are fixed rules, with a short written summary on top. Both only read data. They use the OpenAI API: a question, the recent turns of its conversation and the figures looked up to answer it leave UNICEF’s Azure environment for that purpose. Treat findings as prompts to look, never as verdicts." %}</p></details>{% endif %}
-        <details><summary>{% trans "Can I export the data?" %}</summary><p>{% trans "Yes. Every table can be copied or downloaded as CSV, raw data is available in Excel, and dashboards have a printable snapshot you can save as PDF." %}</p></details>
-        <details><summary>{% trans "Is the data secure?" %}</summary><p>{% trans "Access requires UNICEF single sign-on and a registered account. Partner-level data, dashboards and reports are never public; the only public figures are the aggregate counts on this page." %}</p></details>
-      </div>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------------------ final call to action -->
-  <section class="lp-section">
-    <div class="lp-container">
-      <div class="lp-final lp-reveal">
-        <img class="lp-final__mark" src="{% static 'img/logo-mark.png' %}" alt="" aria-hidden="true">
-        <h2 class="lp-h2">{% trans "Ready to see the whole picture?" %}</h2>
-        <p>{% trans "Sign in to open Home and your section’s pages, or explore the resources that are available to everyone." %}</p>
-        <div class="lp-cta justify-content-center">
-          <a class="btn btn-light btn-lg" href="{% if user.is_authenticated %}{% url 'reports:overview' %}{% else %}{% url 'account_login' %}{% endif %}">{% if user.is_authenticated %}{% trans "Open NeuroDB" %}{% else %}{% trans "Sign in" %}{% endif %}</a>
-          <a class="btn btn-outline-light btn-lg" href="#explore">{% trans "Quick links" %}</a>
-        </div>
-      </div>
-    </div>
-  </section>
+<section class="hero" id="top"><div class="heroglow"></div><div class="wrap">
+<div class="hero-copy"><div class="eyebrow hero-kicker"><span class="line"></span> {% trans "UNICEF LEBANON · PROGRAMME INTELLIGENCE" %}</div>
+<h1>{% blocktrans %}A child is<br>never <em>just<br>a number.</em>{% endblocktrans %}</h1>
+<p class="herolede">{% trans "Behind every programme result is a life being shaped." %} <strong>{% trans "NeuroDB connects evidence to the decisions that help UNICEF and partners act sooner, and act better." %}</strong></p>
+<div class="buttons"><a class="btn btn-yellow" href="#data">{% trans "Explore the data" %} <span aria-hidden="true">↘</span></a>{% if user.is_authenticated %}<a class="btn btn-ghost" href="{% url 'reports:overview' %}"><span>{% trans "Open Home" %} <span aria-hidden="true">↗</span></span></a>{% else %}<a class="btn btn-ghost" href="{% url 'account_login' %}"><span>{% trans "Enter NeuroDB" %} <span aria-hidden="true">↗</span></span></a>{% endif %}</div>
+<div class="herofoot"><svg aria-hidden="true" fill="none" height="17" stroke="#79dfe5" stroke-width="2" viewBox="0 0 24 24" width="17"><path d="M12 2l8 4v6c0 5-3 8-8 10-5-2-8-5-8-10V6z"></path><path d="m8 12 3 3 5-6"></path></svg><span>{% trans "Privacy by design: this public experience contains no child-level or private programme records." %}</span></div>
+</div>
+<div aria-label="{% trans 'Photograph of children learning; programme data illustrations are examples' %}" class="hero-art" id="heroArt"><div class="halo1"></div><div class="halo2"></div><div class="orbit"></div><div aria-hidden="true" class="artglyph">✳</div><img alt="{% trans 'Children participating in a hands-on learning activity in a classroom' %}" class="hero-photo" decoding="async" fetchpriority="high" height="960" id="heroPhoto" src="{% static 'img/landing/learning-activities.jpg' %}" width="1440"><span class="photo-credit">{% trans "Project-supplied photo · confirm attribution before publishing" %}</span>
+<svg aria-hidden="true" class="scene" viewBox="0 0 700 620"><defs><linearGradient id="bldg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#ebf7ff"></stop><stop offset="1" stop-color="#b8e5ef"></stop></linearGradient><linearGradient id="shirts" x1="0" x2="0" y1="0" y2="1"><stop stop-color="#ffdf68"></stop><stop offset="1" stop-color="#ea9b3e"></stop></linearGradient><linearGradient id="shirtb" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#0a5b84"></stop><stop offset="1" stop-color="#052f52"></stop></linearGradient></defs>
+<ellipse cx="370" cy="573" fill="#002337" opacity=".25" rx="226" ry="25"></ellipse>
+<g transform="translate(91 0)"><path d="M65 328Q75 173 240 167L424 235L453 565H68Z" fill="#e6f8fd" opacity=".96"></path><path d="M103 260L239 167L405 238" fill="none" stroke="#7fd6ee" stroke-linecap="round" stroke-width="16"></path><rect fill="#5fc6e7" height="108" rx="6" width="87" x="140" y="250"></rect><rect fill="#5fc6e7" height="108" rx="6" width="87" x="259" y="250"></rect><path d="M184 251V358M303 250V358M140 304H227M259 304H346" stroke="#eaf9fc" stroke-width="7"></path><path d="M237 446v-80h94v80" fill="#b3e8f7"></path><path d="M281 368v78" stroke="#5bb7d2" stroke-width="6"></path></g>
+<g transform="translate(86 59)"><ellipse cx="268" cy="501" fill="#00354a" opacity=".32" rx="162" ry="20"></ellipse>
+<path d="M157 490Q145 385 177 337Q214 303 256 337Q294 388 292 494Z" fill="url(#shirts)"></path><path d="M248 390Q274 438 300 449" stroke="#d7a15a" stroke-linecap="round" stroke-width="25"></path>
+<circle cx="225" cy="296" fill="#edb989" r="64"></circle><path d="M165 288Q153 220 220 220Q299 219 288 286Q264 264 248 262Q221 245 193 272Q179 283 165 288Z" fill="#112d49"></path><path d="M174 282Q168 328 184 344" fill="none" stroke="#112d49" stroke-width="14"></path>
+<circle cx="203" cy="299" fill="#5e3c3a" r="3.1"></circle><circle cx="249" cy="299" fill="#5e3c3a" r="3.1"></circle><path d="M213 318q15 14 28 0" fill="none" stroke="#925b4d" stroke-linecap="round" stroke-width="3"></path>
+<path d="M178 385Q162 440 197 451" fill="none" stroke="#edb989" stroke-linecap="round" stroke-width="27"></path></g>
+<g transform="translate(118 28)"><path d="M349 558Q341 399 378 351Q416 323 458 350Q501 414 505 558Z" fill="url(#shirtb)"></path><circle cx="424" cy="311" fill="#eab996" r="62"></circle><path d="M365 293Q363 232 424 237Q481 240 479 298Q443 271 416 266Q403 282 365 293Z" fill="#0b2a42"></path><circle cx="404" cy="312" fill="#664b45" r="3"></circle><circle cx="446" cy="312" fill="#664b45" r="3"></circle><path d="M410 336q15 10 28-2" fill="none" stroke="#8c5b4d" stroke-linecap="round" stroke-width="3"></path></g>
+<g><path d="M204 502Q269 458 348 489Q427 457 501 501L487 575Q418 541 348 575Q283 539 215 576Z" fill="#fffdfa" stroke="#71aec5" stroke-width="5"></path><path d="M348 490v84" stroke="#71aec5" stroke-width="4"></path><path d="M232 517Q269 499 325 524M232 537Q269 519 325 543M367 523Q418 499 469 520M367 542Q418 518 469 538" fill="none" stroke="#a2c5d1" stroke-width="4"></path></g>
+<g fill="#d9fcff" opacity=".95"><circle cx="154" cy="156" r="8"></circle><circle cx="528" cy="136" r="7"></circle><circle cx="570" cy="360" r="9"></circle><circle cx="117" cy="372" r="5"></circle></g><path d="M154 156Q272 46 528 136L570 360" fill="none" opacity=".55" stroke="#b4edfb" stroke-dasharray="7 11" stroke-width="2"></path>
+<g transform="translate(510 410)"><circle cx="0" cy="0" fill="#ffde59" r="31"></circle><path d="m-12 0 9 9 16-19" fill="none" stroke="#082c45" stroke-linecap="round" stroke-linejoin="round" stroke-width="5"></path></g></svg>
+<div class="narrative-chip chiptop"><small>{% trans "A REAL UNICEF STORY" %}</small><strong>{% trans "Learning creates opportunities for children." %}</strong></div><div class="narrative-chip chipbottom"><small><span class="dot"></span> {% trans "THE ROLE OF NEURODB" %}</small><strong>{% trans "Connecting evidence for better follow-up." %}</strong></div>
+</div><div class="scrollcue">{% trans "SCROLL TO SEE HOW" %} <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" stroke-width="2" viewBox="0 0 12 18" width="12"><path d="M6 0v15m-5-5 5 5 5-5"></path></svg></div>
+</div></section>
+<div class="ribbon"><div class="wrap"><strong>{% trans "Data doesn't change lives. People do." %}</strong><span>{% trans "But connected, timely evidence can help the right people act before an issue is overlooked." %}</span></div></div>
+<section class="premise" id="meaning"><div class="wrap premisegrid data-reveal"><div><div class="eyebrow" style="color:#168ab6">{% trans "WHY NEURODB EXISTS" %}</div><h2 class="stagger">{% blocktrans %}The impact is real.<br><span>The information is scattered.</span>{% endblocktrans %}</h2><p class="bodybig">{% trans "A programme may deliver learning, protection or support. But results, reports, funding and follow-up often live in different systems. NeuroDB brings the evidence together—so UNICEF teams can see what's working, what needs attention and why." %}</p></div><div class="prelude"><div class="pbox"><em>01</em><strong>{% trans "Children and communities need services." %}</strong></div><div class="pbox"><em>02</em><strong>{% trans "Partners deliver and report on programmes." %}</strong></div><div class="pbox"><em>03</em><strong>{% trans "Disconnected information can hide gaps." %}</strong></div><div class="pbox"><em>04</em><strong>{% trans "Teams connect evidence and follow up." %}</strong></div></div></div></section>
+<section aria-labelledby="field-stories-title" class="field-stories" id="impact">
+<div class="wrap">
+<div class="field-stories-intro data-reveal">
+<div><div class="eyebrow" style="color:#1288bb">{% trans "REAL PEOPLE. REAL PROGRAMMES." %}</div>
+<h2 id="field-stories-title">{% blocktrans %}Before the data,<br><em>there is a story.</em>{% endblocktrans %}</h2></div>
+<p>{% trans "These photographs were provided for this NeuroDB design prototype. They show the human reality behind programme monitoring—not outcomes caused by NeuroDB." %}</p>
+</div>
+<div class="field-photo-grid">
+<article class="field-photo-card data-reveal">
+<a aria-label="{% trans 'Explore related UNICEF Lebanon content' %}" class="field-photo-image" href="https://www.unicef.org/lebanon/stories/restoring-safety-and-learning-displaced-children-through-early-childhood-education" rel="noopener noreferrer" target="_blank">
+<img alt="{% trans 'Children making artwork in a learning space' %}" decoding="async" height="960" loading="lazy" src="{% static 'img/landing/learning-activities.jpg' %}" width="1440">
+<span aria-hidden="true" class="field-photo-numeral">01</span>
+<span class="field-photo-credit">{% trans "Photo provided for NeuroDB design preview" %}</span>
+</a>
+<div class="field-photo-meta"><span>{% trans "Learning & care" %}</span><h3>{% trans "The space to learn" %}</h3><p>{% trans "Children take part in hands-on learning activities and creative play." %}</p><a href="https://www.unicef.org/lebanon/stories/restoring-safety-and-learning-displaced-children-through-early-childhood-education" rel="noopener noreferrer" target="_blank">{% trans "Explore related UNICEF content" %} <span aria-hidden="true">↗</span></a></div>
+</article>
+<article class="field-photo-card data-reveal">
+<a aria-label="{% trans 'Explore related UNICEF Lebanon content' %}" class="field-photo-image" href="https://www.unicef.org/lebanon/stories/vaccines-continue-reaching-children-across-lebanon" rel="noopener noreferrer" target="_blank">
+<img alt="{% trans 'A health worker checking a young child' %}" decoding="async" height="762" loading="lazy" src="{% static 'img/landing/child-health-care.jpg' %}" width="1140">
+<span aria-hidden="true" class="field-photo-numeral">02</span>
+<span class="field-photo-credit">{% trans "Photo provided for NeuroDB design preview" %}</span>
+</a>
+<div class="field-photo-meta"><span>{% trans "Health & protection" %}</span><h3>{% trans "Care that reaches children" %}</h3><p>{% trans "Frontline care and child health services support children and families." %}</p><a href="https://www.unicef.org/lebanon/stories/vaccines-continue-reaching-children-across-lebanon" rel="noopener noreferrer" target="_blank">{% trans "Explore related UNICEF content" %} <span aria-hidden="true">↗</span></a></div>
+</article>
+<article class="field-photo-card data-reveal">
+<a aria-label="{% trans 'Explore related UNICEF Lebanon content' %}" class="field-photo-image" href="https://www.unicef.org/lebanon/stories/transforming-education-lebanons-stem-science-technology-engineering-and-mathematics-program" rel="noopener noreferrer" target="_blank">
+<img alt="{% trans 'Children learning with laptop computers with support from an educator' %}" decoding="async" height="1069" loading="lazy" src="{% static 'img/landing/digital-skills-classroom.jpg' %}" width="1600">
+<span aria-hidden="true" class="field-photo-numeral">03</span>
+<span class="field-photo-credit">{% trans "Photo provided for NeuroDB design preview" %}</span>
+</a>
+<div class="field-photo-meta"><span>{% trans "Learning & digital skills" %}</span><h3>{% trans "Building skills for tomorrow" %}</h3><p>{% trans "Children develop digital skills with guided learning and technology." %}</p><a href="https://www.unicef.org/lebanon/stories/transforming-education-lebanons-stem-science-technology-engineering-and-mathematics-program" rel="noopener noreferrer" target="_blank">{% trans "Explore related UNICEF content" %} <span aria-hidden="true">↗</span></a></div>
+</article>
+<article class="field-photo-card data-reveal">
+<a aria-label="{% trans 'Explore related UNICEF Lebanon content' %}" class="field-photo-image" href="https://www.unicef.org/lebanon/" rel="noopener noreferrer" target="_blank">
+<img alt="{% trans 'Educator helping a student use a laptop in a classroom' %}" decoding="async" height="705" loading="lazy" src="{% static 'img/landing/digital-learning-access.jpg' %}" width="960">
+<span aria-hidden="true" class="field-photo-numeral">04</span>
+<span class="field-photo-credit">{% trans "Photo provided for NeuroDB design preview" %}</span>
+</a>
+<div class="field-photo-meta"><span>{% trans "Learning access" %}</span><h3>{% trans "Opening pathways to learning" %}</h3><p>{% trans "Digital learning opportunities can help children explore new skills and knowledge." %}</p><a href="https://www.unicef.org/lebanon/" rel="noopener noreferrer" target="_blank">{% trans "Explore related UNICEF content" %} <span aria-hidden="true">↗</span></a></div>
+</article>
+</div>
+<p class="field-photo-disclaimer data-reveal">{% trans "Related UNICEF Lebanon programme links are provided for context; photography permissions and exact credits should be verified before publication. Public reuse requires clearance under UNICEF's image and branding requirements." %}</p>
+</div>
+</section>
+<section aria-labelledby="data-head" class="data-universe" id="data">
+<div class="wrap">
+<div class="data-hero data-reveal">
+<div><div class="eyebrow">{% trans "AN INTELLIGENCE LAYER FOR PROGRAMMES" %}</div><h2 id="data-head">{% blocktrans %}One mission.<br><em>Connected knowledge.</em>{% endblocktrans %}</h2></div>
+<p class="data-intro">{% trans "Funding, reported results, field evidence and institutional knowledge are connected to reveal more than any one report can show. Rules identify issues; AI can help interpret them; UNICEF staff make the decisions." %}</p>
+</div>
+<div aria-label="{% trans 'Platform scope, from NeuroDB’s rules and its concept note' %}" class="data-statgrid">
+<div class="data-stat data-reveal"><strong data-tally="{{ figures.morning_checks }}">{{ figures.morning_checks }}</strong><span>{% trans "morning checks" %}</span><small>{% trans "Rules flag issues that need review" %}</small></div>
+<div class="data-stat data-reveal"><strong data-tally="{{ figures.ai_areas }}">{{ figures.ai_areas }}</strong><span>{% blocktrans with areas=figures.analysis_areas %}of {{ areas }} analysis areas where AI can help{% endblocktrans %}</span><small>{% trans "Runs only where AI is switched on" %}</small></div>
+{% if figures.quality_rules %}<div class="data-stat data-reveal"><strong data-tally="{{ figures.quality_rules }}">{{ figures.quality_rules }}</strong><span>{% trans "field-visit quality checks" %}</span><small>{% blocktrans with fixed=figures.quality_fixed ai=figures.quality_ai %}{{ fixed }} rules-based; {{ ai }} AI-assisted if approved{% endblocktrans %}</small></div>{% endif %}
+<div class="data-stat data-reveal"><strong data-tally="{{ figures.lead.grant }}">{{ figures.lead.grant }}</strong><span>{% trans "days of early grant warning" %}</span><small>{% trans "For grants meeting the risk threshold" %}</small></div>
+</div>
+<div aria-label="{% trans 'Programme data linked into NeuroDB, interpreted with optional AI support, and reviewed by people' %}" class="source-scene data-reveal">
+<div class="scene-top"><h3>{% trans "Different kinds of evidence. One clearer picture." %}</h3><small>{% trans "DATA → INSIGHT → HUMAN ACTION" %}</small></div>
+<div class="intelligence-flow">
+<div aria-label="{% trans 'Information categories' %}" class="sources-col">
+<div class="flow-label">{% trans "01 / INFORMATION" %}</div>
+<div class="source-item"><span aria-hidden="true" class="source-icon">▦</span><div><b>{% trans "Partnerships & programme delivery" %}</b><span>{% trans "Partners, agreements, reports, financing and assurance" %}</span></div></div>
+<div class="source-item"><span aria-hidden="true" class="source-icon">◈</span><div><b>{% trans "Programme activities & reach" %}</b><span>{% trans "Service delivery and participation totals, not personal records" %}</span></div></div>
+<div class="source-item"><span aria-hidden="true" class="source-icon">▤</span><div><b>{% trans "Knowledge & evidence" %}</b><span>{% trans "Programme frameworks, evaluations and contextual estimates" %}</span></div></div>
+{% if ai.in_use %}<div class="source-item"><span aria-hidden="true" class="source-icon">◷</span><div><b>{% trans "Monthly results — ActivityInfo" %}</b><span>{% trans "Partners' monthly activity results, with past years for comparison" %}</span></div></div>
+{% elif ai.span %}<div class="source-item"><span aria-hidden="true" class="source-icon">◷</span><div><b>{% trans "Historical results — ActivityInfo" %}</b><span>{% blocktrans with span=ai.span %}Past-year evidence for comparison, {{ span }}{% endblocktrans %}</span></div></div>
+{% endif %}</div>
+<div aria-label="{% trans 'NeuroDB rule-based processing' %}" class="core-column">
+<div class="flow-label">{% trans "02 / CONNECT & CHECK" %}</div>
+<div class="corewrap"><div class="core-rings"></div><div class="corenode"><i aria-hidden="true">✳</i><b>NeuroDB</b><small>{% trans "Connect records, calculate trusted figures, run fixed checks" %}</small><em>{% trans "RULE-BASED" %}</em></div></div>
+<div class="core-caption">{% trans "Source traceability built in" %}</div>
+</div>
+<div aria-label="{% trans 'AI-supported insight layer, subject to approval' %}" class="ai-column">
+<div class="flow-label">{% trans "03 / INTERPRET" %}</div>
+<div aria-hidden="true" class="ai-halo">✦</div>
+<div class="ai-node"><span class="ai-eyebrow"><span class="ai-led"></span> {% trans "OPTIONAL AI LAYER" %}</span><h4>{% blocktrans %}Find the story<br>between the numbers.{% endblocktrans %}</h4><p>{% trans "Bring together linked signals, explain potential patterns and suggest where to look next." %}</p><div class="ai-verb"><span>{% trans "Summarise" %}</span><span>{% trans "Connect" %}</span><span>{% trans "Suggest" %}</span></div></div>
+<div class="ai-condition">{% trans "Subject to data protection clearance and feature approval" %}</div>
+</div>
+<div aria-label="{% trans 'Human review and outcomes' %}" class="results-col">
+<div class="flow-label">{% trans "04 / HUMAN RESPONSE" %}</div>
+<div class="flow-result"><i>{% trans "SEE THE CONTEXT" %}</i><b>{% trans "A fuller picture" %}</b><span>{% trans "Results, funds and monitoring records together" %}</span></div>
+<div class="flow-result"><i>{% trans "REVIEW THE SIGNAL" %}</i><b>{% trans "What deserves attention?" %}</b><span>{% trans "Possible issues with links back to sources" %}</span></div>
+<div class="flow-result"><i>{% trans "TAKE ACTION" %}</i><b>{% trans "People decide" %}</b><span>{% trans "Staff verify and own every decision" %}</span></div>
+</div>
+</div>
+<p class="scene-note"><strong>{% trans "What is real here:" %}</strong> {% trans "NeuroDB calculates official figures through fixed rules. When authorized, AI can draft interpretations and suggestions from linked records. This illustration contains no live programme data or personal records." %}</p>
+</div>
+<section aria-labelledby="insightTitle" class="insight-lab data-reveal" id="insights">
+<div class="insight-top"><div><div class="eyebrow">{% trans "THE INTELLIGENCE DIFFERENCE · INTERACTIVE DEMO" %}</div><h3 id="insightTitle">{% trans "What might you have missed?" %}</h3><p>{% trans "Three separate records might look ordinary. Connected together, they can reveal a question worth asking." %}</p></div><span class="demo-stamp">{% trans "SIMULATED DATA · NOT LIVE" %}</span></div>
+<div aria-label="{% trans 'Choose an illustrative AI insight' %}" class="insight-tabs" role="group">
+<button aria-pressed="true" class="insight-tab" data-insight="delivery" type="button">{% trans "Delivery vs spending" %}</button>
+<button aria-pressed="false" class="insight-tab" data-insight="assurance" type="button">{% trans "Overlapping risks" %}</button>
+<button aria-pressed="false" class="insight-tab" data-insight="reach" type="button">{% trans "Unexpected change" %}</button>
+</div>
+<div class="insight-grid">
+<div class="insight-evidence">
+<div class="mini-label">{% trans "CONNECTED EVIDENCE" %} <span>{% trans "FICTIONAL EXAMPLE" %}</span></div>
+<h4 data-f="title" id="insightEvidenceTitle">{% trans "Programme A · Quarter 3" %}</h4>
+<div class="mini-bars" data-f="bars" id="insightBars"><div class="mini-row"><span>{% trans "Budget used" %}</span><strong>78%</strong><div class="mini-track"><i style="width:78%"></i></div></div><div class="mini-row"><span>{% trans "Reported results" %}</span><strong>43%</strong><div class="mini-track"><i style="width:43%"></i></div></div></div>
+<div class="evidence-tags" data-f="tags" id="insightTags"><span>{% trans "Funding" %}</span><span>{% trans "Programme results" %}</span><span>{% trans "Latest report" %}</span></div>
+<button aria-controls="insightEvidenceDetail" aria-expanded="false" class="insight-explain" id="evidenceToggle" type="button">{% trans "See how the evidence connects" %} <span aria-hidden="true">↗</span></button>
+<p class="insight-detail" data-f="detail" hidden id="insightEvidenceDetail">{% trans "These example figures represent separate programme and financial records linked by a common programme document. Figures are supplied by rules, not invented by AI." %}</p>
+</div>
+<div aria-live="polite" class="insight-discovery">
+<div class="discovery-top"><span aria-hidden="true" class="pulse-spark">✦</span><div><b>{% trans "NEURODB AI / ILLUSTRATIVE INSIGHT" %}</b><small>{% trans "Example of a possible generated interpretation after approval" %}</small></div></div>
+<div class="discovery-body"><div class="insight-eyeline">{% trans "CONNECTION WORTH REVIEWING" %}</div><h4 data-f="headline" id="insightHeadline">{% trans "Spending is advancing faster than reported delivery." %}</h4><p data-f="narrative" id="insightNarrative">{% trans "Two independently reported measures are moving at different rates. This may reflect delayed reporting, different timelines or an implementation issue. The numbers alone do not establish the reason." %}</p><div class="ai-suggestion"><span>✳ {% trans "SUGGESTED NEXT STEP" %}</span><p data-f="next" id="insightNext">{% trans "Review the latest partner report and programme milestones before drawing conclusions." %}</p></div></div>
+<div class="discovery-foot">{% trans "AI interprets; official numbers are rule-based; a person checks the source and decides." %}</div>
+</div>
+</div>
+</section>
+<div class="data-bottom">
+<div class="data-panel data-reveal" id="deadline-visual">
+<div class="eyebrow">{% trans "EARLY-WARNING INTELLIGENCE" %}</div>
+<h3>{% trans "See the issue before it becomes urgent." %}</h3>
+<p>{% trans "Configured reminders can create a window for teams to review and act before deadlines." %}</p>
+<div aria-label="{% blocktrans with grant=figures.lead.grant pd=figures.lead.pd report=figures.lead.report %}Illustration of reminder lead times: grant expiry {{ grant }} days; programme document ending {{ pd }} days; partner report due {{ report }} days{% endblocktrans %}" class="deadline-chart" role="img">
+<div class="deadline-row"><label>{% trans "Grant expiry" %}</label><div class="track"><span style="--barw:{{ figures.bars.grant }}"></span></div><b>{% blocktrans with days=figures.lead.grant %}{{ days }} days{% endblocktrans %}</b></div>
+<div class="deadline-row"><label>{% trans "Programme document" %}</label><div class="track"><span style="--barw:{{ figures.bars.pd }}"></span></div><b>{% blocktrans with days=figures.lead.pd %}{{ days }} days{% endblocktrans %}</b></div>
+<div class="deadline-row"><label>{% trans "Partner report" %}</label><div class="track"><span style="--barw:{{ figures.bars.report }}"></span></div><b>{% blocktrans with days=figures.lead.report %}{{ days }} days{% endblocktrans %}</b></div>
+</div>
+<div class="chart-foot">{% blocktrans with amount=figures.grant_min_unspent|intcomma hact=figures.hact_from|date:"j F" %}The grant alert applies to USD {{ amount }} or more unspent; HACT gaps are flagged from {{ hact }}. These are rules, not live counts.{% endblocktrans %}</div>
+</div>
+<div class="data-panel data-reveal">
+<div class="eyebrow">{% trans "EVIDENCE QUALITY" %}</div>
+<h3>{% trans "Checks before conclusions." %}</h3>
+{% if figures.quality_rules %}<p>{% blocktrans count n=figures.quality_rules %}Visit-report quality is assessed against {{ n }} rule, with human verification and AI safeguards.{% plural %}Visit-report quality is assessed against {{ n }} rules, with human verification and AI safeguards.{% endblocktrans %}</p>
+<div class="quality-layout">
+<div class="quality-wheel" style="--split:{{ figures.quality_split }}"><div class="wheelcenter"><strong>{{ figures.quality_rules }}</strong><small>{% trans "quality rules" %}</small></div></div>
+<div class="quality-key">
+<div><b><i></i>{% blocktrans count n=figures.quality_fixed %}{{ n }} fixed check{% plural %}{{ n }} fixed checks{% endblocktrans %}</b>{% trans "Rule-based, independent of AI" %}</div>
+<div><b><i></i>{% blocktrans count n=figures.quality_ai %}{{ n }} AI check{% plural %}{{ n }} AI checks{% endblocktrans %}</b>{% trans "Only after required approval and enablement" %}</div>
+</div>
+</div>{% else %}<p>{% trans "Visit-report quality is assessed against the rules administrators switch on, with human verification and AI safeguards." %}</p>{% endif %}
+<p class="quality-hint">{% trans "Official figures follow fixed rules. Data health compares aggregated programme totals with their reference reporting views and shows differences; staff verify findings before action." %}</p>
+</div>
+</div>
+<div aria-label="{% trans 'Categories of programme information covered by NeuroDB' %}" class="data-coverage">
+<div class="coverage-top data-reveal"><div><div class="eyebrow">{% trans "THE BREADTH OF INFORMATION" %}</div><h3>{% blocktrans %}Not one dataset.<br>Connected programme knowledge.{% endblocktrans %}</h3></div><p>{% trans "The platform links different dimensions of programme delivery, from results and resources to assurance and institutional memory." %}</p></div>
+<div class="coverage-grid">
+<div class="coverage-card data-reveal"><i aria-hidden="true">◈</i><b>{% trans "Programme results" %}</b><span>{% trans "Children reached, indicators and targets" %}</span></div>
+<div class="coverage-card data-reveal"><i aria-hidden="true">◉</i><b>{% trans "Partners & agreements" %}</b><span>{% trans "Programme documents, partner reporting" %}</span></div>
+<div class="coverage-card data-reveal"><i aria-hidden="true">▥</i><b>{% trans "Funding & grants" %}</b><span>{% trans "Funds, disbursements and expiry risks" %}</span></div>
+<div class="coverage-card data-reveal"><i aria-hidden="true">⌁</i><b>{% trans "Assurance & HACT" %}</b><span>{% trans "Audits, spot checks and visit planning" %}</span></div>
+<div class="coverage-card data-reveal"><i aria-hidden="true">◎</i><b>{% trans "Field monitoring" %}</b><span>{% trans "Field visits, quality review and findings" %}</span></div>
+<div class="coverage-card data-reveal"><i aria-hidden="true">✦</i><b>{% trans "Learning & youth outcomes" %}</b><span>{% trans "Aggregated participation and delivery results" %}</span></div>
+<div class="coverage-card data-reveal"><i aria-hidden="true">▤</i><b>{% trans "Evidence library" %}</b><span>{% trans "Evaluations and supporting documents" %}</span></div>
+{% if ai.in_use %}<div class="coverage-card data-reveal"><i aria-hidden="true">◷</i><b>{% trans "Monthly results" %}</b><span>{% trans "ActivityInfo results of the year and year comparisons" %}</span></div>
+{% elif ai.span %}<div class="coverage-card data-reveal"><i aria-hidden="true">◷</i><b>{% trans "Historical results" %}</b><span>{% blocktrans with span=ai.span %}ActivityInfo archive {{ span }} and year comparisons{% endblocktrans %}</span></div>
+{% endif %}</div>
+{% if stats and stat_items %}<div aria-labelledby="live-title" class="live-highlights data-reveal" role="group">
+<div class="eyebrow">{% trans "LIVE PUBLIC HIGHLIGHTS" %}</div>
+<h4 id="live-title">{% blocktrans with year=stats.year %}NeuroDB in {{ year }}{% endblocktrans %}</h4>
+<div class="live-grid" role="list">{% for value, label in stat_items %}<div class="live-stat" role="listitem"><strong data-count="{{ value }}">{{ value|intcomma }}</strong><span>{{ label }}</span></div>{% endfor %}</div>
+<p class="live-note">{% if stats.year %}{% blocktrans with year=stats.year %}Figures for {{ year }}{% endblocktrans %} · {% endif %}{% if stats.etools_update %}{% blocktrans with when=stats.etools_update|naturaltime %}eTools synced {{ when }}{% endblocktrans %} · {% elif etools_synced %}{% blocktrans with when=etools_synced|naturaltime %}eTools synced {{ when }}{% endblocktrans %} · {% endif %}{% if ai.in_use and stats.last_update %}{% blocktrans with when=stats.last_update|naturaltime %}ActivityInfo imported {{ when }}{% endblocktrans %} · {% endif %}{% trans "aggregate counts only" %}</p>
+</div>{% else %}<p class="data-caveat"><strong>{% trans "About data volume:" %}</strong> {% trans "The concept note specifies source systems, data types and automated checks, but not verified counts of records, partners or children. Actual totals should be connected to approved aggregated APIs before they are displayed publicly. All visuals here are explanatory, not live dashboards." %}</p>
+{% if etools_synced %}<p class="data-freshness">{% blocktrans with when=etools_synced|naturaltime %}eTools synced {{ when }}{% endblocktrans %}</p>{% endif %}{% endif %}
+</div>
+</div>
+</section>
+<section class="journey" id="journey"><div class="wrap"><div class="journeyhead data-reveal"><div><div class="eyebrow" style="color:#7fd8f2">{% trans "THE EXPERIENCE · INTERACTIVE" %}</div><h2>{% blocktrans %}Follow the story.<br><span>See the difference.</span>{% endblocktrans %}</h2></div><p>{% trans "Select a programme scenario, then move through its journey to see how NeuroDB can turn scattered information into a clear action." %}</p></div><div aria-label="{% trans 'Choose a programme story' %}" class="scenario-select" role="group"><button aria-pressed="true" data-name="{% trans 'Learning continuity' %}" data-overline="{% trans 'LEARNING · A REAL PHOTOGRAPH / ILLUSTRATIVE WORKFLOW' %}" data-scenario="learning" type="button"><span aria-hidden="true">✦</span> {% trans "Learning continuity" %}</button><button aria-pressed="false" data-name="{% trans 'Grant expiry' %}" data-overline="{% trans 'FUNDING · AN ILLUSTRATIVE STORY' %}" data-scenario="grant" type="button"><span aria-hidden="true">◉</span> {% trans "Grant expiry" %}</button><button aria-pressed="false" data-name="{% trans 'Monitoring follow-up' %}" data-overline="{% trans 'ASSURANCE · AN ILLUSTRATIVE STORY' %}" data-scenario="assurance" type="button"><span aria-hidden="true">⌁</span> {% trans "Monitoring follow-up" %}</button></div>
+<div class="storyboard data-reveal" id="storyboard"><div class="storyvisual"><div class="stage-number" id="stageTop">{% trans "STORY" %} <span data-stage-no>01</span> / 04</div><div aria-label="{% trans 'Photograph or illustration for the current story stage' %}" class="visualcanvas" data-scenario="learning" id="visualCanvas" role="img"></div><div class="stage-overline" id="stageBottom">{% trans "A PROGRAMME STORY / ILLUSTRATION" %}</div></div><div class="storyinfo"><div aria-label="{% trans 'Story stages' %}" class="journeysteps" role="group"><button aria-current="step" aria-label="{% trans 'Stage 1' %}" class="stepbtn active" data-step="0" type="button"></button><button aria-label="{% trans 'Stage 2' %}" class="stepbtn" data-step="1" type="button"></button><button aria-label="{% trans 'Stage 3' %}" class="stepbtn" data-step="2" type="button"></button><button aria-label="{% trans 'Stage 4' %}" class="stepbtn" data-step="3" type="button"></button></div><div class="storyeyebrow" data-f="eyebrow" id="storyEyebrow">{% trans "01 · A REAL NEED" %}</div><h3 data-f="title" id="storyTitle">{% trans "A child enters a learning programme." %}</h3><p data-f="copy" id="storyCopy">{% trans "For a child, the important thing is not a dashboard. It is access to safe learning, support and the opportunity to keep progressing." %}</p><div class="storyinfobox"><small data-f="label" id="evidenceLabel">{% trans "WHAT MATTERS" %}</small><div data-f="evidence" id="evidenceCopy">{% trans "Continuity of support—not just a number in a report." %}</div></div><div class="storycontrols"><button class="roundbtn" disabled id="prev" type="button">← {% trans "Back" %}</button><button class="roundbtn primary" data-next="{% trans 'Next chapter' %} →" data-restart="{% trans 'Restart story' %} ↻" id="next" type="button">{% trans "Next chapter" %} →</button><span class="position" id="stageCount"><span data-stage-no>01</span> / 04</span></div></div></div><p class="disclaimer">{% trans "Illustrative workflow, not an actual child record or evidence of measured impact." %} {% trans "NeuroDB’s programme figures come from aggregated totals, not from children’s registration records." %}</p></div></section>
+<section class="realworld" id="realworld"><div class="wrap realworldinner data-reveal"><div aria-label="{% trans 'Photograph of digital learning in a classroom' %}" class="quoteart story-portrait">
+<img alt="{% trans 'Educator and children learning together using laptops' %}" class="story-portrait-photo" data-hide-on-error decoding="async" height="705" loading="lazy" src="{% static 'img/landing/digital-learning-access.jpg' %}" width="960">
+<div class="story-portrait-copy"><span class="story-quote-label">{% trans "IN THEIR OWN WORDS · UNICEF LEBANON" %}</span><blockquote>“{% trans "Makani helped boost my confidence." %}”</blockquote><small>{% trans "A young participant" %} · <a href="https://www.unicef.org/lebanon/stories/makani-safe-space-learning-and-hope" rel="noopener noreferrer" target="_blank">{% trans "UNICEF Lebanon story" %} <span aria-hidden="true">↗</span></a><br>© UNICEF2025/Fouad-Choufany/Lebanon</small></div>
+</div><div><div class="eyebrow" style="color:#119bc7">{% trans "BEHIND THE DATA · REAL LIFE" %}</div><h2>{% trans "What impact really looks like." %}</h2><p>{% trans "In a UNICEF Lebanon story published in August 2025, a young participant in a learning programme described greater confidence in learning and the opportunity to help others with schoolwork. This is the kind of programme experience that results data represents." %} <strong>{% trans "NeuroDB does not deliver programme services;" %}</strong> {% trans "it helps UNICEF staff understand results and identify follow-up needs across their programmes." %}</p><a class="linkmore" href="https://www.unicef.org/lebanon/stories/makani-safe-space-learning-and-hope" rel="noopener noreferrer" target="_blank"><span>{% trans "Read UNICEF's learning story" %} <span aria-hidden="true">↗</span></span></a><p class="realcaveat">{% trans "The programme impact described in the linked story is independently reported by UNICEF and must not be presented as an outcome caused or measured by NeuroDB." %}</p></div></div></section>
+<section class="whylogin" id="access"><div class="wrap"><div class="eyebrow" style="color:#168bb7">{% trans "YOUR REASON TO ENTER" %}</div><h2>{% blocktrans %}What will you<br>discover inside?{% endblocktrans %}</h2><p class="intro">{% trans "NeuroDB is designed around the questions different people need answered—not around another long list of data tables. Choose your perspective." %}</p><div class="rolegrid data-reveal"><button aria-pressed="true" class="rolecard" data-role="staff" type="button"><span class="roleno">{% trans "01 / UNICEF STAFF" %}</span><strong>{% trans "What needs my attention?" %}</strong><span>{% trans "Start with today's priorities and follow-up." %}</span></button><button aria-pressed="false" class="rolecard" data-role="donor" type="button"><span class="roleno">{% trans "02 / DONORS" %}</span><strong>{% trans "Where is support going?" %}</strong><span>{% trans "Understand funding and results where access is approved." %}</span></button><button aria-pressed="false" class="rolecard" data-role="partner" type="button"><span class="roleno">{% trans "03 / PARTNERS" %}</span><strong>{% trans "How does our work connect?" %}</strong><span>{% trans "Understand how reporting supports programme oversight." %}</span></button></div><div class="rolepanel data-reveal" id="rolePanel"><div><div class="eyebrow" data-f="eyebrow" id="roleEyebrow" style="color:#1ca1cb">{% trans "STAFF PERSPECTIVE" %}</div><h3 data-f="title" id="roleTitle">{% trans "Start the day knowing what matters." %}</h3><p data-f="desc" id="roleDesc">{% trans "One morning view helps you find late reports, programme progress, visits to review and action points needing follow-up—linked to their underlying records." %}</p><div class="rolebullets" data-f="bullets" id="roleBullets"><span class="rolebullet">{% trans "See your section's priorities" %}</span><span class="rolebullet">{% trans "Trace each figure to a source" %}</span><span class="rolebullet">{% trans "Move from an alert to a next step" %}</span></div>{% if user.is_authenticated %}<a class="btn btn-blue" data-f="action" href="{% url 'reports:overview' %}" id="roleAction"><span>{% trans "Open NeuroDB" %} <span aria-hidden="true">↗</span></span></a>{% else %}<a class="btn btn-blue" data-f="action" href="{% url 'account_login' %}" id="roleAction"><span>{% trans "Sign in to your workspace" %} <span aria-hidden="true">↗</span></span></a>{% endif %}</div><div class="screenmock" data-f="mock" id="roleMock"><div class="screenbar"><span>{% trans "NeuroDB / For you" %}</span><span>● {% trans "DEMO" %}</span></div><div class="screenbody"><div class="mocktitle">{% trans "NEEDS YOU TODAY" %}</div><div class="mockitem"><i class="bullet"></i><span><b>{% trans "Programme report approaching deadline" %}</b><small>{% trans "Open partner page · Example only" %}</small></span><span class="right">{% trans "Review" %} ↗</span></div><div class="mockitem"><i class="bullet blue"></i><span><b>{% trans "Indicator requires attention" %}</b><small>{% trans "Progress vs planned target" %}</small></span><span class="right">{% trans "View" %} ↗</span></div><div class="mockitem"><i class="bullet green"></i><span><b>{% trans "New monitoring visit received" %}</b><small>{% trans "Linked to programme document" %}</small></span><span class="right">{% trans "Open" %} ↗</span></div><div class="mutednote">{% trans "Illustrative UI · no actual internal data" %}</div></div></div></div></div></section>
+<section class="trust" id="trust"><div class="wrap"><div class="trusthead data-reveal"><div><div class="eyebrow" style="color:#118db8">{% trans "THE PROMISE" %}</div><h2>{% blocktrans %}Smart insight.<br>Human decisions.{% endblocktrans %}</h2></div><p>{% trans "NeuroDB is not a replacement for UNICEF systems or judgement. It connects what those systems know, makes gaps visible, and supports accountability across programmes." %}</p></div><div class="trustcols data-reveal"><article class="trustbox"><div class="ico">01</div><h3>{% trans "One connected picture" %}</h3><p>{% trans "Partnerships, funding, monitoring, programme results and documents can be explored together instead of in separate places." %}</p></article><article class="trustbox"><div class="ico">02</div><h3>{% trans "Earlier signals" %}</h3><p>{% trans "Defined checks flag late reports, grant expiry risks, HACT gaps and overdue follow-up, so teams can review them sooner." %}</p></article><article class="trustbox"><div class="ico">03</div><h3>{% trans "Evidence you can trust" %}</h3><p>{% trans "Official figures follow fixed counting rules; AI assistance never changes source data, is source-linked and subject to clearance. People make decisions." %}</p></article></div><div class="sourcebelt data-reveal"><strong>{% trans "CONNECTED SOURCES" %}</strong><span>{% trans "Programme delivery" %}</span><span>{% trans "Activities & reach" %}</span><span>{% trans "Knowledge & evidence" %}</span>{% if ai.in_use %}<span>ActivityInfo</span>{% elif ai.span %}<span>{% blocktrans with span=ai.span %}ActivityInfo archive {{ span }}{% endblocktrans %}</span>{% endif %}</div></div></section>
+<section class="ending"><div class="wrap endinginner"><div><div class="eyebrow">{% trans "UNICEF LEBANON · NEURODB" %}</div><h2>{% blocktrans %}Behind the data,<br>there is a decision<br>worth getting right.{% endblocktrans %}</h2><p>{% trans "For staff, that begins with a clearer picture of what needs action today. Authorized users can enter the secure workspace to see programme evidence and follow-up." %}</p></div>{% if user.is_authenticated %}<a class="endingbtn" href="{% url 'reports:overview' %}"><span>{% trans "Open NeuroDB" %} <span aria-hidden="true">↗</span></span></a>{% else %}<a class="endingbtn" href="{% url 'account_login' %}"><span>{% trans "Enter NeuroDB" %} <span aria-hidden="true">↗</span></span></a>{% endif %}</div></section>
 </main>
+<footer class="footer"><div class="wrap footerinner"><div class="footerbrand"><img alt="NEURO-DB" class="footerlogo" decoding="async" height="120" loading="lazy" src="{% static 'img/logo.png' %}" width="506"><p>{% trans "UNICEF Lebanon · Concept landing page. All simulated scenarios are illustrative and contain no personal data. Photographs © UNICEF Lebanon and credited photographers; obtain clearance before publication." %}</p></div><nav aria-label="{% trans 'Footer' %}" class="footerlinks"><a href="#journey">{% trans "Experience" %}</a><a href="#trust">{% trans "Data & trust" %}</a>{% if "library" in public_pages %}<a href="{% url 'reports:library' %}">{% trans "Library" %}</a>{% endif %}{% if "maps" in public_pages %}<a href="{% url 'reports:maps' %}">{% trans "Map products" %}</a>{% endif %}{% if "population" in public_pages %}<a href="{% url 'reports:population' %}">{% trans "Population figures" %}</a>{% endif %}{% if USER_GUIDE_URL %}<a href="{{ USER_GUIDE_URL }}" rel="noopener noreferrer" target="_blank">{% trans "User guide" %} <span aria-hidden="true">↗</span></a>{% endif %}{% if SUPPORT_EMAIL %}<a href="mailto:{{ SUPPORT_EMAIL }}?subject=NeuroDB%20access">{% trans "Request access" %}</a>{% endif %}<a href="https://www.unicef.org/lebanon/" rel="noopener noreferrer" target="_blank">{% trans "UNICEF Lebanon" %} <span aria-hidden="true">↗</span></a></nav></div></footer>
 
-<footer class="lp-footer">
-  <div class="lp-container lp-footer__inner">
-    <div class="d-flex align-items-center gap-3">{% include "components/logo.html" with height=26 %}<span>{% now "Y" as this_year %}© {{ this_year }} UNICEF Lebanon · {{ SITE_NAME }} 3</span></div>
-    <nav aria-label="{% trans 'Footer' %}">
-      <a href="#why">{% trans "Why NeuroDB" %}</a>
-      <a href="#explore">{% trans "Resources" %}</a>
-      <a href="#faq">{% trans "FAQ" %}</a>
-      {% if SUPPORT_EMAIL %}<a href="mailto:{{ SUPPORT_EMAIL }}">{% trans "Contact" %}</a>{% endif %}
-      <a href="https://www.unicef.org/lebanon" target="_blank" rel="noopener noreferrer">unicef.org/lebanon</a>
-    </nav>
-  </div>
-</footer>
-
+{% comment %}
+The interactive parts' other states, read by landing.js (it shows no word of its own). Each [data-f] field
+of a state replaces the field of the same name in its region: the story's text (#storyboard), a role
+(#rolePanel) and a sample insight (#insights). The first state of each is drawn on load, as the design
+does; the markup above is what shows without JavaScript.
+{% endcomment %}
+<template data-story-state="learning" data-story-stage="0"><span data-f="eyebrow">{% trans "01 · A CHILD'S OPPORTUNITY" %}</span><span data-f="title">{% trans "A child joins a learning programme." %}</span><span data-f="copy">{% trans "The real story begins in a community—not in a database. Children gain a place to learn and receive support through community learning activities." %}</span><span data-f="label">{% trans "HUMAN PURPOSE" %}</span><span data-f="evidence">{% trans "Protecting continuity of learning and opportunity." %}</span></template>
+<template data-story-state="learning" data-story-stage="1"><span data-f="eyebrow">{% trans "02 · THE EVIDENCE CONNECTS" %}</span><span data-f="title">{% trans "Programme results arrive as trusted totals." %}</span><span data-f="copy">{% trans "Programme systems supply aggregated activity and reach figures. Partnership reporting brings programme context. NeuroDB connects these totals; its programme figures are not built from children’s registration records." %}</span><span data-f="label">{% trans "WHAT THE PLATFORM KNOWS" %}</span><span data-f="evidence">{% trans "Aggregate counts, programme links and reporting context: the figures are totals, not children’s individual records." %}</span></template>
+<template data-story-state="learning" data-story-stage="2"><span data-f="eyebrow">{% trans "03 · A SIGNAL APPEARS" %}</span><span data-f="title">{% trans "A progress report needs follow-up." %}</span><span data-f="copy">{% trans "A rules-based check can highlight an approaching report deadline or an off-track result. Rather than waiting until quarter-end, the responsible team gets a clear signal." %}</span><span data-f="label">{% trans "WHAT NEURODB DOES" %}</span><span data-f="evidence">{% trans "Flags the issue and links it to the source information." %}</span></template>
+<template data-story-state="learning" data-story-stage="3"><span data-f="eyebrow">{% trans "04 · A HUMAN DECIDES" %}</span><span data-f="title">{% trans "A team can take the next step sooner." %}</span><span data-f="copy">{% trans "A programme officer reviews the partner page, checks the evidence and decides whether a follow-up is needed. The platform improves visibility; the team remains accountable for action." %}</span><span data-f="label">{% trans "POTENTIAL VALUE" %}</span><span data-f="evidence">{% trans "Better-informed follow-up helps teams protect programme continuity." %}</span></template>
+<template data-story-state="grant" data-story-stage="0"><span data-f="eyebrow">{% trans "01 · A PROGRAMME PROMISE" %}</span><span data-f="title">{% trans "A grant is meant to fund meaningful support." %}</span><span data-f="copy">{% trans "Resources are committed to programme activities that can support children, families and communities." %}</span><span data-f="label">{% trans "HUMAN PURPOSE" %}</span><span data-f="evidence">{% trans "Timely use of resources matters for continuity of planned activities." %}</span></template>
+<template data-story-state="grant" data-story-stage="1"><span data-f="eyebrow">{% trans "02 · FUNDING AND RESULTS" %}</span><span data-f="title">{% trans "Finance and programme data come together." %}</span><span data-f="copy">{% trans "Partnership and finance systems provide funding and spending alongside delivery results. NeuroDB links them to relevant programmes." %}</span><span data-f="label">{% trans "WHAT THE PLATFORM KNOWS" %}</span><span data-f="evidence">{% trans "Grant timing, spending, programme context and partner links." %}</span></template>
+<template data-story-state="grant" data-story-stage="2"><span data-f="eyebrow">{% trans "03 · EARLY WARNING" %}</span><span data-f="title">{% trans "A grant may expire with funds unspent." %}</span><span data-f="copy">{% blocktrans with days=figures.lead.grant amount=figures.grant_min_unspent|intcomma %}The defined rule flags a grant {{ days }} days before expiry when at least USD {{ amount }} remains unspent. It is a prompt for review—not a verdict about performance.{% endblocktrans %}</span><span data-f="label">{% trans "WHAT NEURODB DOES" %}</span><span data-f="evidence">{% trans "The source-linked alert is sent to the sections it concerns." %}</span></template>
+<template data-story-state="grant" data-story-stage="3"><span data-f="eyebrow">{% trans "04 · AN INFORMED DECISION" %}</span><span data-f="title">{% trans "Teams can review options while time remains." %}</span><span data-f="copy">{% trans "Staff check the grant details, understand the reason and determine the appropriate next action in line with programme and financial rules." %}</span><span data-f="label">{% trans "POTENTIAL VALUE" %}</span><span data-f="evidence">{% trans "Earlier visibility can reduce last-minute surprises." %}</span></template>
+<template data-story-state="assurance" data-story-stage="0"><span data-f="eyebrow">{% trans "01 · ACCOUNTABILITY" %}</span><span data-f="title">{% trans "Programme quality requires more than reporting." %}</span><span data-f="copy">{% trans "Field visits, spot checks and follow-up actions help teams verify that programme support is being delivered as intended." %}</span><span data-f="label">{% trans "HUMAN PURPOSE" %}</span><span data-f="evidence">{% trans "Responsible programme oversight and quality assurance." %}</span></template>
+<template data-story-state="assurance" data-story-stage="1"><span data-f="eyebrow">{% trans "02 · ASSURANCE CONNECTS" %}</span><span data-f="title">{% trans "Visits and findings are linked to programmes." %}</span><span data-f="copy">{% trans "NeuroDB connects visit plans, assurance records and action points to partners and programme documents." %}</span><span data-f="label">{% trans "WHAT THE PLATFORM KNOWS" %}</span><span data-f="evidence">{% trans "Expected checks, visits completed, findings and outstanding action points." %}</span></template>
+<template data-story-state="assurance" data-story-stage="2"><span data-f="eyebrow">{% trans "03 · A GAP IS VISIBLE" %}</span><span data-f="title">{% trans "A planned HACT visit is still missing." %}</span><span data-f="copy">{% trans "Rule-based checks identify gaps in planned assurance visits early enough for teams to review them against requirements." %}</span><span data-f="label">{% trans "WHAT NEURODB DOES" %}</span><span data-f="evidence">{% trans "Turns a missing assurance step into a visible follow-up need." %}</span></template>
+<template data-story-state="assurance" data-story-stage="3"><span data-f="eyebrow">{% trans "04 · FOLLOW-THROUGH" %}</span><span data-f="title">{% trans "Monitoring teams can plan and verify the response." %}</span><span data-f="copy">{% trans "Staff review the HACT plan, check programme context and decide on the appropriate visit or other follow-up." %}</span><span data-f="label">{% trans "POTENTIAL VALUE" %}</span><span data-f="evidence">{% trans "A stronger evidence trail supports programme accountability." %}</span></template>
+<template data-story-photo="learning"><div class="story-photo-scene"><img alt="{% trans 'Children creating artwork together in a classroom' %}" decoding="async" height="960" loading="eager" src="{% static 'img/landing/learning-activities.jpg' %}" width="1440"><div class="story-photo-attribution">{% trans "Photo provided for NeuroDB design preview" %}</div><div class="story-photo-caption"><small>{% trans "Real UNICEF Lebanon photography · Illustrative NeuroDB journey" %}</small>{% trans "Every result begins with a child and an opportunity to learn." %}</div></div></template>
+<template data-story-photo="grant"><div class="story-photo-scene"><img alt="{% trans 'Educator supporting children learning with laptops' %}" decoding="async" height="705" loading="eager" src="{% static 'img/landing/digital-learning-access.jpg' %}" width="960"><div class="story-photo-attribution">{% trans "Photo provided for NeuroDB design preview" %}</div><div class="story-photo-caption"><small>{% trans "Real UNICEF Lebanon photography · Illustrative NeuroDB journey" %}</small>{% trans "Behind every grant is a service that families rely on." %}</div></div></template>
+<template data-story-photo="assurance"><div class="story-photo-scene"><img alt="{% trans 'Health worker caring for a young child' %}" decoding="async" height="762" loading="eager" src="{% static 'img/landing/child-health-care.jpg' %}" width="1140"><div class="story-photo-attribution">{% trans "Photo provided for NeuroDB design preview" %}</div><div class="story-photo-caption"><small>{% trans "Real UNICEF Lebanon photography · Illustrative NeuroDB journey" %}</small>{% trans "Monitoring supports timely follow-up on essential services." %}</div></div></template>
+<template data-story-art="1"><svg aria-hidden="true" viewBox="0 0 450 340"><defs><linearGradient id="sheet" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#d7f4f8"/></linearGradient></defs><circle cx="228" cy="170" r="137" fill="#42adcf" opacity=".15"/><g fill="none" stroke="#74cbdf" stroke-width="3"><path d="M115 95 225 162 337 95M114 95 113 242 225 270 338 242 337 95M225 162v108" stroke-dasharray="7 8"/></g><g><rect x="38" y="56" width="135" height="92" rx="15" fill="url(#sheet)"/><rect x="48" y="72" width="55" height="9" rx="4" fill="#71d2ef"/><path d="M50 97h88M50 115h69" stroke="#a3c4d0" stroke-width="8" stroke-linecap="round"/><rect x="274" y="56" width="135" height="92" rx="15" fill="url(#sheet)"/><rect x="289" y="74" width="65" height="9" rx="4" fill="#8cdab2"/><path d="M290 99h94M290 118h68" stroke="#a3c4d0" stroke-width="8" stroke-linecap="round"/><rect x="157" y="211" width="140" height="93" rx="15" fill="url(#sheet)"/><rect x="172" y="229" width="83" height="9" rx="4" fill="#ffc969"/><path d="M172 254h99M172 276h65" stroke="#9cbecb" stroke-width="8" stroke-linecap="round"/></g><circle cx="226" cy="167" r="44" fill="currentColor" stroke="#c7faff" stroke-width="7"/><path d="M207 168h39m-20-19v38" stroke="#0e536b" stroke-width="8" stroke-linecap="round"/></svg></template>
+<template data-story-art="2"><svg aria-hidden="true" viewBox="0 0 450 340"><defs><linearGradient id="sheet" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#d7f4f8"/></linearGradient></defs><circle cx="225" cy="172" r="130" fill="#42adcf" opacity=".16"/><rect x="69" y="55" width="310" height="247" rx="24" fill="#e7f7fc"/><rect x="69" y="55" width="310" height="58" rx="24" fill="#c8eaf5"/><path d="M69 94h310" stroke="#95cee0"/><circle cx="96" cy="84" r="7" fill="#ffa07a"/><circle cx="117" cy="84" r="7" fill="#ffdf59"/><circle cx="138" cy="84" r="7" fill="#5bc6b3"/><rect x="97" y="144" width="180" height="11" rx="5" fill="#79b4cc"/><rect x="97" y="169" width="135" height="11" rx="5" fill="#bbdbe7"/><rect x="97" y="194" width="151" height="11" rx="5" fill="#bbdbe7"/><rect x="97" y="228" width="124" height="40" rx="12" fill="#d3eaf2"/><rect x="262" y="144" width="87" height="87" rx="20" fill="currentColor"/><path d="M305 163v35m0 14v2" stroke="#163549" stroke-linecap="round" stroke-width="9"/></svg></template>
+<template data-story-art="3"><svg aria-hidden="true" viewBox="0 0 450 340"><defs><linearGradient id="sheet" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#d7f4f8"/></linearGradient></defs><circle cx="227" cy="168" r="142" fill="#1ca7d9" opacity=".15"/><path d="M86 260Q114 246 142 237" stroke="#91deed" stroke-width="4" stroke-dasharray="6 8"/><g><rect x="74" y="67" width="292" height="228" rx="24" fill="url(#sheet)"/><rect x="99" y="100" width="173" height="13" rx="7" fill="#7dc9e0"/><rect x="99" y="134" width="214" height="10" rx="5" fill="#b8d8e3"/><rect x="99" y="155" width="192" height="10" rx="5" fill="#b8d8e3"/><rect x="99" y="178" width="151" height="10" rx="5" fill="#b8d8e3"/><rect x="99" y="219" width="187" height="47" rx="13" fill="#bdeecf"/><path d="m126 243 15 15 25-30" fill="none" stroke="#0b8c55" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></g><circle cx="336" cy="102" r="40" fill="currentColor" stroke="#fff" stroke-width="6"/><path d="m318 102 12 12 24-26" fill="none" stroke="#153448" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg></template>
+<template data-role-state="staff"><span data-f="eyebrow">{% trans "UNICEF STAFF · AUTHORISED" %}</span><span data-f="title">{% trans "Start the day knowing what matters." %}</span><span data-f="desc">{% trans "A morning view helps you find programme results that need follow-up, partner reporting deadlines, field visits and open action points—each linked to its source." %}</span><div data-f="bullets"><span class="rolebullet">{% trans "See your section’s priorities" %}</span><span class="rolebullet">{% trans "Trace figures to their sources" %}</span><span class="rolebullet">{% trans "Move from a warning to a next step" %}</span></div>{% if user.is_authenticated %}<a data-f="action" href="{% url 'reports:overview' %}"><span>{% trans "Open NeuroDB" %} <span aria-hidden="true">↗</span></span></a>{% else %}<a data-f="action" href="{% url 'account_login' %}"><span>{% trans "Sign in to your workspace" %} <span aria-hidden="true">↗</span></span></a>{% endif %}<div data-f="mock"><div class="screenbar"><span>{% trans "NeuroDB / For you" %}</span><span>● {% trans "DEMO" %}</span></div><div class="screenbody"><div class="mocktitle">{% trans "NEEDS YOU TODAY" %}</div><div class="mockitem"><i class="bullet"></i><span><b>{% trans "Programme report approaching deadline" %}</b><small>{% trans "Open partner page · Example only" %}</small></span><span class="right">{% trans "Review" %} ↗</span></div><div class="mockitem"><i class="bullet blue"></i><span><b>{% trans "Indicator requires attention" %}</b><small>{% trans "Progress against plan" %}</small></span><span class="right">{% trans "Explore" %} ↗</span></div><div class="mockitem"><i class="bullet green"></i><span><b>{% trans "Field visit received" %}</b><small>{% trans "Linked to programme document" %}</small></span><span class="right">{% trans "Open" %} ↗</span></div><div class="mutednote">{% trans "Illustrative interface · no live private data" %}</div></div></div></template>
+<template data-role-state="donor"><span data-f="eyebrow">{% trans "DONOR PERSPECTIVE · SUBJECT TO APPROVAL" %}</span><span data-f="title">{% trans "Follow where support goes—and what it achieves." %}</span><span data-f="desc">{% trans "If UNICEF management authorizes donor access, a donor can see their own funding, spending and results in a restricted view. Access is not public or automatic." %}</span><div data-f="bullets"><span class="rolebullet">{% trans "Understand approved funding and delivery figures" %}</span><span class="rolebullet">{% trans "See results linked to support" %}</span><span class="rolebullet">{% trans "Access only your organization’s authorized page" %}</span></div><a data-f="action" href="#trust"><span>{% trans "Understand how the platform works" %} <span aria-hidden="true">↓</span></span></a><div data-f="mock"><div class="screenbar"><span>{% trans "NeuroDB / Donor view" %}</span><span>● {% trans "DEMO" %}</span></div><div class="screenbody"><div class="mocktitle">{% trans "YOUR FUNDING · ILLUSTRATION" %}</div><div class="mockitem"><i class="bullet"></i><span><b>{% trans "Funding committed" %}</b><small>{% trans "Linked to your grants" %}</small></span><span class="right">{% trans "View" %} ↗</span></div><div class="mockitem"><i class="bullet blue"></i><span><b>{% trans "Expenditure overview" %}</b><small>{% trans "Compared with planned delivery" %}</small></span><span class="right">{% trans "Details" %} ↗</span></div><div class="mockitem"><i class="bullet green"></i><span><b>{% trans "Programme results" %}</b><small>{% trans "Reported aggregate indicators" %}</small></span><span class="right">{% trans "Explore" %} ↗</span></div><div class="mutednote">{% trans "Illustrative interface · no live private data" %}</div></div></div></template>
+<template data-role-state="partner"><span data-f="eyebrow">{% trans "IMPLEMENTING PARTNER PERSPECTIVE" %}</span><span data-f="title">{% trans "Your reporting contributes to a clearer programme picture." %}</span><span data-f="desc">{% trans "Partners continue using established UNICEF reporting channels. NeuroDB connects partner reporting with assurance, funding and programme results for UNICEF oversight; it is not a replacement reporting portal." %}</span><div data-f="bullets"><span class="rolebullet">{% trans "No duplicate reporting workflow promised" %}</span><span class="rolebullet">{% trans "Reports connected to programmes" %}</span><span class="rolebullet">{% trans "Clearer follow-up by UNICEF teams" %}</span></div><a data-f="action" href="#journey"><span>{% trans "See the story of connected evidence" %} <span aria-hidden="true">↑</span></span></a><div data-f="mock"><div class="screenbar"><span>{% trans "Programme reporting / Illustration" %}</span><span>● {% trans "DEMO" %}</span></div><div class="screenbody"><div class="mocktitle">{% trans "FROM REPORTING TO INSIGHT" %}</div><div class="mockitem"><i class="bullet"></i><span><b>{% trans "Partner reporting submitted" %}</b><small>{% trans "Through existing UNICEF systems" %}</small></span><span class="right">{% trans "Source" %} ↗</span></div><div class="mockitem"><i class="bullet blue"></i><span><b>{% trans "Programme results linked" %}</b><small>{% trans "Matched to programme documents" %}</small></span><span class="right">{% trans "Context" %} ↗</span></div><div class="mockitem"><i class="bullet green"></i><span><b>{% trans "Follow-up identified" %}</b><small>{% trans "Reviewed by UNICEF team" %}</small></span><span class="right">{% trans "Action" %} ↗</span></div><div class="mutednote">{% trans "Illustrative interface · no live private data" %}</div></div></div></template>
+<template data-insight-state="delivery"><span data-f="title">{% trans "Programme A · Quarter 3" %}</span><div data-f="bars"><div class="mini-row"><span>{% trans "Budget used" %}</span><strong>78%</strong><div class="mini-track"><i style="width:78%"></i></div></div><div class="mini-row"><span>{% trans "Reported results" %}</span><strong>43%</strong><div class="mini-track"><i style="width:43%"></i></div></div></div><div data-f="tags"><span>{% trans "Funding" %}</span><span>{% trans "Programme results" %}</span><span>{% trans "Latest report" %}</span></div><span data-f="headline">{% trans "Spending is advancing faster than reported delivery." %}</span><span data-f="narrative">{% trans "Two independently reported measures are moving at different rates. This may reflect delayed reporting, different timelines or an implementation issue. The numbers alone do not establish the reason." %}</span><span data-f="next">{% trans "Review the latest partner report and programme milestones before drawing conclusions." %}</span><span data-f="detail">{% trans "Two example measurements, one from financial reporting and one from programme results, are connected through a common programme document. Figures are rules-based; the AI narrative is a simulated draft." %}</span></template>
+<template data-insight-state="assurance"><span data-f="title">{% trans "Programme B · Follow-up review" %}</span><div data-f="bars"><div class="mini-row"><span>{% trans "Grant timeline elapsed" %}</span><strong>68%</strong><div class="mini-track"><i style="width:68%"></i></div></div><div class="mini-row"><span>{% trans "Assurance visits complete" %}</span><strong>33%</strong><div class="mini-track"><i style="width:33%"></i></div></div></div><div data-f="tags"><span>{% trans "Grant records" %}</span><span>{% trans "Visit plan" %}</span><span>{% trans "Action points" %}</span></div><span data-f="headline">{% trans "Several follow-up signals converge on the same programme." %}</span><span data-f="narrative">{% trans "An approaching grant expiry and outstanding assurance work relate to the same programme document. Look at both before treating either as an isolated issue." %}</span><span data-f="next">{% trans "Ask the programme and monitoring teams to verify the grant and planned visits, then agree whether follow-up is necessary." %}</span><span data-f="detail">{% trans "The illustrative scenario combines a grant approaching expiry with a monitoring gap. Separate rules would identify time-bound risks; the optional AI layer can draft a combined interpretation and cite both source records." %}</span></template>
+<template data-insight-state="reach"><span data-f="title">{% trans "Programme C · Participation overview" %}</span><div data-f="bars"><div class="mini-row"><span>{% trans "Previous period index" %}</span><strong>85%</strong><div class="mini-track"><i style="width:85%"></i></div></div><div class="mini-row"><span>{% trans "Current period index" %}</span><strong>60%</strong><div class="mini-track"><i style="width:60%"></i></div></div></div><div data-f="tags"><span>{% trans "Aggregated reach" %}</span><span>{% trans "Reporting periods" %}</span><span>{% trans "Data freshness" %}</span></div><span data-f="headline">{% trans "A change in reported reach deserves a closer look." %}</span><span data-f="narrative">{% trans "Participation totals appear lower between reporting periods. This could be a real change or a reporting-coverage issue. Check the date and completeness of the sources first." %}</span><span data-f="next">{% trans "Compare matched reporting periods and data-refresh status before communicating a trend." %}</span><span data-f="detail">{% trans "Only illustrative aggregated counts and period metadata are compared here; no individual registration records or children’s identities are used. AI may articulate the question, not certify a decline." %}</span></template>
 <script type="module" src="{% static 'js/landing.js' %}" nonce="{{ request.csp_nonce }}"></script>
 </body>
 </html>

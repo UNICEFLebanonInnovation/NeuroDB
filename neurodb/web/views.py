@@ -1,16 +1,20 @@
+import datetime
+
 from django.conf import settings
 from django.contrib.auth.decorators import login_not_required
 from django.db import connection
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.templatetags.static import static
-from django.urls import reverse
 from django.utils import timezone
-from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy as _lazy
 
 from neurodb.core.models import SyncRun
+from neurodb.fmm.models import RuleSetting
 from neurodb.indicators.services import activityinfo
+from neurodb.review import checks
+from neurodb.watch.detectors import deadlines, money
 
 from .services import public_highlights
 
@@ -42,110 +46,6 @@ def healthz(request):
     return JsonResponse(status)
 
 
-HOME_ITEM = (
-    "home",
-    "",
-    _lazy("Home"),
-    _lazy("What needs you today, what changed and where your section stands."),
-)
-ASK_ITEM = (
-    "sparkle",
-    "lp-tint-amber",
-    _lazy("Ask NeuroDB"),
-    _lazy("Questions in plain language, answered with links to the figures."),
-)
-SAVED_VIEWS_ITEM = (  # pivot layouts: an ActivityInfo page's feature, so not promoted once it is an archive
-    "save",
-    "lp-tint-green",
-    _lazy("Saved and shared views"),
-    _lazy("Keep pivot layouts and share them with your team."),
-)
-
-
-def whats_new_items(ai) -> list[tuple]:
-    """The "What's new" grid, for the ActivityInfo state ``ai``: while ActivityInfo is in use it presents
-    its databases of the year; once it is an archive, the archive of its years (nothing about it when no
-    year has ActivityInfo records). Ask NeuroDB only where it is switched on."""
-    if ai.in_use:
-        ai_item = (
-            "database",
-            "",
-            _lazy("ActivityInfo databases"),
-            _lazy("Every database of the year, its status and its latest import."),
-        )
-        maps = _lazy("Governorate to site level, filtered in the browser.")
-    else:
-        ai_item = (
-            (
-                "database",
-                "",
-                _("ActivityInfo archive"),
-                _("Every database and report from %(span)s, kept as it was.") % {"span": ai.span},
-            )
-            if ai.span
-            else None
-        )
-        maps = _lazy("Governorate and district maps, filtered in the browser.")
-    items = [
-        HOME_ITEM,
-        (
-            "grid",
-            "",
-            _lazy("Country overview"),
-            _lazy("Children reached, funds, delivery and assurance on one page."),
-        ),
-        (
-            "target",
-            "lp-tint-green",
-            _lazy("Management brief"),
-            _lazy("Comparisons, confidence, partners, money and action, read for decisions."),
-        ),
-        (
-            "users",
-            "lp-tint-blue",
-            _lazy("eTools partner reporting"),
-            _lazy("Progress reports on every programme document indicator, tracked against its period."),
-        ),
-        (
-            "clock",
-            "lp-tint-amber",
-            _lazy("Daily review"),
-            _lazy(
-                "Fourteen checks every morning, on a page of their own; findings get an owner and a due date."
-            ),
-        ),
-        ASK_ITEM if settings.AI_ASSISTANT_ENABLED else None,
-        (
-            "eye",
-            "lp-tint-red",
-            _lazy("Assurance and funds"),
-            _lazy("Monitoring visits, action points, audits, HACT and funds by donor."),
-        ),
-        ai_item,
-        SAVED_VIEWS_ITEM if ai.in_use else None,
-        (
-            "search",
-            "lp-tint-blue",
-            _lazy("Search everything"),
-            _lazy("Ctrl K finds any page, partner, programme document or indicator."),
-        ),
-        (
-            "pulse",
-            "lp-tint-amber",
-            _lazy("Data health"),
-            _lazy("When each source last synchronised, what failed, and data-quality checks."),
-        ),
-        ("map", "lp-tint-blue", _lazy("Interactive maps"), maps),
-        (
-            "shield",
-            "lp-tint-green",
-            _lazy("Single sign-on, dark mode, mobile"),
-            _lazy("Your UNICEF account, at a desk, at night or on a phone in the field."),
-        ),
-    ]
-    return [item for item in items if item is not None]
-
-
 # Public figures, in order of preference; the first six that are not zero are shown. The eTools
 # ones are counted as the country overview counts them (programme documents running in the year); the
 # ActivityInfo ones exist only while ActivityInfo is in use (services.public_highlights).
@@ -168,113 +68,55 @@ def _stat_items(stats: dict | None) -> list[tuple[int, str]]:
     return [(stats[key], label) for key, label in LANDING_STATS if stats.get(key)][:6]
 
 
-def _quick_links(user, ai=None) -> list[dict]:
-    """Helpful destinations; internal pages show a lock and route through sign-in when not public. The
-    ActivityInfo link follows the ActivityInfo state ``ai``: where partners report while it is in use,
-    where they reported until its last year once it is an archive, and no link when no year has
-    ActivityInfo records."""
-    ai = ai or activityinfo.state()
-    login = reverse("account_login")
+# The concept note's table "AI in each area of analysis" (concept-note.pdf pp. 7-8): AI takes part in 13 of
+# its 14 areas, all but the donor page. Not a code constant: the twelve AI features of the usage ledger
+# (neurodb/assistant/usage.py) cover those 13 areas, and each runs only where AI is switched on.
+AI_AREAS = 13
+ANALYSIS_AREAS = 14
 
-    def page(name: str, title: str, text: str, icon: str) -> dict:
-        url = reverse(f"reports:{name}")
-        open_ = user.is_authenticated or f"reports:{name}" in settings.PUBLIC_PAGES
-        return {
-            "title": title,
-            "text": text,
-            "icon": icon,
-            "url": url if open_ else f"{login}?next={url}",
-            "locked": not open_,
-        }
 
-    links = [
-        page(
-            "library", _("Library"), _("Studies, evaluations and assessments on children in Lebanon."), "book"
-        ),
-        page("maps", _("Map products"), _("Ready-made maps of services, schools and water networks."), "map"),
-        page(
-            "population",
-            _("Population figures"),
-            _("Estimates by nationality, governorate, district and age."),
-            "chart",
-        ),
-        page(
-            "data_health",
-            _("Data health"),
-            _("When each source was last synchronised, and what failed."),
-            "pulse",
-        ),
-    ]
-    if settings.USER_GUIDE_URL:
-        links.append(
-            {
-                "title": _("User guide"),
-                "text": _("Step-by-step help for every page."),
-                "icon": "info",
-                "url": settings.USER_GUIDE_URL,
-                "external": True,
-            }
-        )
-    if ai.in_use:
-        activityinfo_text = _("Where partners report their monthly results.")
-    elif ai.last:
-        activityinfo_text = _("Where partners reported their monthly results until %(year)s.") % {
-            "year": ai.last
-        }
-    else:
-        activityinfo_text = ""
-    if activityinfo_text:
-        links.append(
-            {
-                "title": "ActivityInfo",
-                "text": activityinfo_text,
-                "icon": "external",
-                "url": "https://www.activityinfo.org",
-                "external": True,
-            }
-        )
-    links += [
-        {
-            "title": "eTools",
-            "text": _("Programme documents, partner reporting and assurance."),
-            "icon": "external",
-            "url": "https://etools.unicef.org",
-            "external": True,
-        },
-        {
-            "title": "UNICEF Lebanon",
-            "text": _("Programmes, news and publications."),
-            "icon": "external",
-            "url": "https://www.unicef.org/lebanon",
-            "external": True,
-        },
-    ]
-    if settings.SUPPORT_EMAIL:
-        links.append(
-            {
-                "title": _("Request access"),
-                "text": _("Ask the NeuroDB team for an account or a new role."),
-                "icon": "users",
-                "url": f"mailto:{settings.SUPPORT_EMAIL}?subject=NeuroDB%20access",
-                "external": True,
-            }
-        )
-    return links
+def platform_figures() -> dict:
+    """The rules the landing page quotes, read from the code and the settings that apply them, so the page
+    never drifts from what NeuroDB does: the daily review's checks (``review.checks.CHECKS``), the field
+    visit quality rules switched on (``fmm.RuleSetting``, the AI checks apart), the Watch lead times of
+    grants, programme documents and partner reports (``watch.detectors.money`` and ``deadlines``), the
+    unspent amount a grant alert needs (``WATCH_GRANT_MIN_UNSPENT``) and the day HACT gaps start to be
+    raised. One small query (the rules switched on); counts only."""
+    rules = RuleSetting.objects.filter(enabled=True).aggregate(
+        total=Count("pk"), ai=Count("pk", filter=Q(type=RuleSetting.Type.NARRATIVE))
+    )
+    total, ai = rules["total"], rules["ai"]
+    lead = {"grant": money.GRANT_DAYS, "pd": deadlines.PD_ENDING_DAYS, "report": deadlines.REPORT_DAYS}
+    longest = max(lead.values())
+    month, day = money.HACT_FROM
+    return {
+        "morning_checks": len(checks.CHECKS),
+        "ai_areas": AI_AREAS,
+        "analysis_areas": ANALYSIS_AREAS,
+        "quality_rules": total,
+        "quality_ai": ai,
+        "quality_fixed": total - ai,
+        "quality_split": f"{(total - ai) / total * 360:.1f}deg" if total else "180deg",
+        "lead": lead,
+        "bars": {name: f"{days / longest * 100:.3f}%" for name, days in lead.items()},
+        "grant_min_unspent": settings.WATCH_GRANT_MIN_UNSPENT,
+        "hact_from": datetime.date(2000, month, day),  # shown as a day and a month ("1 October")
+    }
 
 
 @login_not_required
 def landing(request):
-    """Public landing page: what NeuroDB is, why it matters, and where to go next."""
-    ai = activityinfo.state()  # in use: today's copy; an archive: "the ActivityInfo results of {span}"
+    """Public landing page: why NeuroDB exists, the data and the rules behind it, a story to follow and the
+    way in. Its live figures are aggregate counts only (``PUBLIC_LANDING_STATS``)."""
+    ai = activityinfo.state()  # in use: a current source; an archive: "ActivityInfo archive {span}"
     stats = public_highlights() if settings.PUBLIC_LANDING_STATS else None
     last_sync = SyncRun.last_success(SyncRun.Job.ETOOLS_DATAMART)
     context = {
         "ai": ai,
         "stats": stats,
         "stat_items": _stat_items(stats),
-        "quick_links": _quick_links(request.user, ai),
         "public_pages": [p.split(":", 1)[1] for p in settings.PUBLIC_PAGES],
-        "whats_new": whats_new_items(ai),
         "etools_synced": last_sync.finished_at if last_sync else None,
+        "figures": platform_figures(),
     }
     return render(request, "landing.html", context)

@@ -6,6 +6,26 @@ from django.urls import reverse
 
 pytestmark = pytest.mark.django_db
 
+LANDING_MARK = "A child is<br>never <em>just<br>a number.</em>"  # the landing page's heading
+SECTIONS = ("top", "meaning", "impact", "data", "insights", "journey", "realworld", "access", "trust")
+HONESTY_LABELS = (
+    "SIMULATED DATA · NOT LIVE",
+    "FICTIONAL EXAMPLE",
+    "Illustrative UI · no actual internal data",
+    "Illustrative interface · no live private data",
+    "● DEMO",
+    "Privacy by design: this public experience contains no child-level or private programme records.",
+    "These are rules, not live counts.",
+    "This illustration contains no live programme data or personal records.",
+    "Illustrative workflow, not an actual child record or evidence of measured impact.",
+    "Project-supplied photo · confirm attribution before publishing",
+    "Photo provided for NeuroDB design preview",
+    "photography permissions and exact credits should be verified before publication.",
+    "Photographs © UNICEF Lebanon and credited photographers; obtain clearance before publication.",
+    "must not be presented as an outcome caused or measured by NeuroDB.",
+    "© UNICEF2025/Fouad-Choufany/Lebanon",
+)
+
 
 @pytest.fixture(autouse=True)
 def _fresh_cache():
@@ -20,8 +40,9 @@ def test_root_shows_landing_to_visitors(client, hierarchy, activityinfo_in_use):
     response = client.get("/")
     assert response.status_code == 200
     html = response.content.decode()
-    assert "in one place." in html
-    assert 'id="why"' in html and 'id="faq"' in html
+    assert LANDING_MARK in html
+    for section in SECTIONS:
+        assert f'id="{section}"' in html, section
     # Aggregate counts only: 2 master indicators, 4 records, 2 partners, 2 governorates.
     assert 'data-count="4"' in html and 'data-count="2"' in html
     assert "partners reporting in ActivityInfo this year" in html
@@ -62,7 +83,7 @@ def test_root_shows_a_staff_page_once_signed_in(client_viewer, hierarchy):
     """Signed in, the root is the staff Home (its own tests are tests/reports/test_home_page.py), never the
     landing page; the landing's button to it says "Open Home"."""
     html = client_viewer.get("/").content.decode()
-    assert "in one place." not in html and 'id="help-panel"' in html  # the staff shell, not the landing
+    assert LANDING_MARK not in html and 'id="help-panel"' in html  # the staff shell, not the landing
     landing = client_viewer.get(reverse("landing")).content.decode()
     assert "Open Home" in landing and "Open your overview" not in landing
 
@@ -78,18 +99,23 @@ def test_stats_can_be_switched_off(client, hierarchy, settings):
     assert "data-count" not in html
 
 
-def test_quick_links_lock_internal_pages(client, hierarchy):
-    html = client.get(reverse("landing")).content.decode()
-    assert f"{reverse('account_login')}?next={reverse('reports:library')}" in html
-    assert "Sign in to open" in html
-    # ActivityInfo is an archive on the suite's day (hierarchy's records stop in February 2026)
-    assert "Where partners reported their monthly results until 2026." in html
-
-
 def test_support_email_adds_request_access(client, hierarchy, settings):
+    """A footer link to the team's mailbox (an opt-in setting); the address is in the link only, never shown
+    as text."""
+    html = client.get(reverse("landing")).content.decode()
+    assert "mailto:" not in html and "Request access" not in html
     settings.SUPPORT_EMAIL = "neurodb-support@example.org"
     html = client.get(reverse("landing")).content.decode()
-    assert "mailto:neurodb-support@example.org" in html
+    assert '<a href="mailto:neurodb-support@example.org?subject=NeuroDB%20access">Request access</a>' in html
+    assert html.count("neurodb-support@example.org") == 1
+
+
+def test_user_guide_adds_a_footer_link(client, hierarchy, settings):
+    assert "User guide" not in client.get(reverse("landing")).text
+    settings.USER_GUIDE_URL = "https://example.org/guide"
+    html = client.get(reverse("landing")).text
+    assert 'href="https://example.org/guide" rel="noopener noreferrer" target="_blank">' in html
+    assert "User guide" in html
 
 
 def test_public_pages_open_only_what_is_listed(client, hierarchy, settings):
@@ -109,6 +135,7 @@ def test_public_pages_open_only_what_is_listed(client, hierarchy, settings):
     assert client.post(reverse("reports:library")).status_code == 302
     html = client.get(reverse("landing")).content.decode()
     assert f'href="{reverse("reports:library")}"' in html
+    assert f'href="{reverse("reports:population")}"' not in html  # only what is listed
 
 
 def test_logo_and_favicon_are_the_neurodb_brand(client, hierarchy):
@@ -147,14 +174,16 @@ def test_readiness_is_503_when_the_database_is_down(client, db, monkeypatch):
     assert client.get("/healthz/live/").status_code == 200
 
 
-def test_the_mock_up_is_marked_and_ask_is_promoted_only_when_on(client, hierarchy, settings):
-    settings.AI_ASSISTANT_ENABLED = False
-    html = client.get(reverse("landing")).text
-    assert "Illustration of NeuroDB, not real figures." in html  # was "…of the overview…": Home is the root
-    assert "eTools synced last night" not in html  # no fixed claim: the real date, or nothing
-    assert "Ask NeuroDB" not in html and "What does the AI do" not in html
-    settings.AI_ASSISTANT_ENABLED = True
-    assert "Ask NeuroDB" in client.get(reverse("landing")).text
+def test_the_honesty_labels_stay_with_the_ai_on_or_off(client, hierarchy, settings):
+    """The design's labels saying what is simulated, illustrative or a preview stay as they are, with the AI
+    assistant switched on or off; no fixed claim about a sync, no address of another site's sign-in."""
+    for enabled in (False, True):
+        settings.AI_ASSISTANT_ENABLED = enabled
+        html = client.get(reverse("landing")).text
+        for label in HONESTY_LABELS:
+            assert label in html, (enabled, label)
+        assert "eTools synced last night" not in html
+        assert "azurewebsites" not in html
 
 
 def test_the_floating_sync_label_shows_the_real_last_sync(client, hierarchy):

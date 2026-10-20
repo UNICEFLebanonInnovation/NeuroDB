@@ -352,7 +352,7 @@ def test_a_donor_is_refused_every_part(client, world, name):
 
 def test_a_visitor_asking_for_a_part_of_the_site_root_is_sent_to_sign_in(client, world):
     response = client.get(f"{PAGE}?section=&year=2026&_part=kpis", **HX)
-    assert response.status_code == 200 and "in one place." not in text(response)  # never the landing page
+    assert response.status_code == 200 and "never <em>just" not in text(response)  # never the landing page
     assert response["HX-Redirect"] == reverse("account_login") + "?next=/"
 
 

@@ -67,18 +67,24 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 
 ## Public landing page and public access
 
-Visitors who are not signed in see a public landing page at `/` (also at `/welcome/` for everyone):
-the value of the platform, how it works, what is new in v3, quick links and an FAQ. Its copy follows
+Visitors who are not signed in see a public landing page at `/` (also at `/welcome/` for everyone): why
+NeuroDB exists, four project photographs, the data and the rules behind it (with a sample AI insight to
+explore), a programme story to follow, a real-life story, what staff, donors and partners find inside, and
+the way in through NeuroDB's own sign-in ("Open NeuroDB" once signed in). The figures it quotes about the
+platform (the morning checks, the field visit quality rules switched on, the Watch lead times, the unspent
+amount of a grant alert and the start of the HACT season) are read from the code and settings that apply
+them. Its examples are labelled simulated or illustrative, and its photos come with the credit notes of the
+design package: confirm the photo rights and attribution before the page is public. Its copy follows
 ActivityInfo's state: while ActivityInfo is in use it is presented as a current source; once it is an
-archive the page names the years it holds ("the ActivityInfo results of 2019–2026, kept as an archive")
-and shows no ActivityInfo figure. Signed-in users land on Home.
+archive the page names the years it holds ("ActivityInfo archive 2019–2026") and shows no ActivityInfo
+figure; with no year of ActivityInfo records it does not mention ActivityInfo. Signed-in users land on Home.
 
 | Setting | Default | Effect |
 |---|---|---|
-| `PUBLIC_LANDING_STATS` | `on` | Shows aggregate counts for this calendar year: eTools programme documents, partners, indicators and progress reports, and, only while ActivityInfo is in use, its results, governorates, records, partners and sections. No names or values. |
-| `PUBLIC_PAGES` | empty | Comma-separated pages opened without sign-in, read-only. Allowed: `library`, `maps`, `population`. Any other value stops the app at startup. |
-| `SUPPORT_EMAIL` | empty | Adds a "Request access" link and a contact address. |
-| `USER_GUIDE_URL` | empty | Adds a "User guide" quick link. |
+| `PUBLIC_LANDING_STATS` | `on` | Shows aggregate counts for this calendar year, in place of the page's "About data volume" note: eTools programme documents, partners, indicators and progress reports, and, only while ActivityInfo is in use, its results, governorates, records, partners and sections. No names or values. |
+| `PUBLIC_PAGES` | empty | Comma-separated pages opened without sign-in, read-only. Allowed: `library`, `maps`, `population`. Any other value stops the app at startup. Each one listed gets a footer link on the landing page. |
+| `SUPPORT_EMAIL` | empty | Adds a "Request access" footer link that writes to this address (the address is in the link only). |
+| `USER_GUIDE_URL` | empty | Adds a "User guide" footer link. |
 
 Dashboards, reports, partnerships, data health and the internal API always require sign-in.
 
