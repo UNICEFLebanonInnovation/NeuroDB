@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from django.core.exceptions import ValidationError
+from django.db.models import Prefetch
 
 from neurodb.cpd.services import _norm as output_norm
 from neurodb.indicators.services.tracking import NO_TARGET, label_for, tracking
@@ -521,6 +522,49 @@ def appears(master: EtoolsMaster, year: int, running: Iterable[int]) -> bool:
         return year_row.is_active
     running = set(running)
     return any(link.status == Status.CONFIRMED and link.pd_id in running for link in master.links.all())
+
+
+def has_target(master: EtoolsMaster, year: int) -> bool:
+    """Whether staff typed ``year``'s target, which its status is measured against (a target of 0 or less is
+    none: the status reads "No target", as :func:`_status` reads it)."""
+    year_row = next((y for y in master.years.all() if y.year == year), None)
+    return year_row is not None and year_row.target is not None and year_row.target > 0
+
+
+def listed(year: int) -> list[EtoolsMaster]:
+    """The masters listed in ``year`` (:func:`appears`), with their years and confirmed links: four reads
+    (the masters, their years, their confirmed links, and which of the linked programme documents run in
+    the year, as the Master indicators tab reads them). Data health and reporting check 12 count them."""
+    found = list(
+        EtoolsMaster.objects.filter(status=EtoolsMaster.Status.ACTIVE)
+        .order_by("section", "sequence", "name", "pk")
+        .prefetch_related(
+            "years",
+            Prefetch(
+                "links",
+                queryset=EtoolsMasterLink.objects.filter(status=Status.CONFIRMED).only(
+                    "pk", "master_id", "pd_id", "status"
+                ),
+            ),
+        )
+    )
+    pd_ids = sorted({link.pd_id for m in found for link in m.links.all() if link.pd_id})
+    running = (
+        set(
+            monitoring._pd_queryset(monitoring.Filters(year=year, scope="year", pd_ids=pd_ids)).values_list(
+                "id", flat=True
+            )
+        )
+        if pd_ids
+        else set()
+    )
+    return [m for m in found if appears(m, year, running)]
+
+
+def without_target(year: int) -> list[EtoolsMaster]:
+    """The masters listed in ``year`` whose target for it is not typed: their status reads "No target" until
+    it is (Data health's warning, reporting check 12)."""
+    return [m for m in listed(year) if not has_target(m, year)]
 
 
 def figures(

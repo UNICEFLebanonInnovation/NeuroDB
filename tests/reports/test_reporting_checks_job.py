@@ -66,8 +66,8 @@ def test_the_job_runs_every_check_and_stores_the_result(db):
     run = checks.run_job("test")
     assert run.status == SyncRun.Status.SUCCEEDED and run.triggered_by == "test" and run.finished_at
     stored = run.details["checks"]
-    assert [c["key"] for c in stored] == [str(n) for n in range(1, 12)]
-    assert run.rows_written == 11 and run.rows_failed == 0 and run.details["unfinished"] == []
+    assert [c["key"] for c in stored] == [str(n) for n in range(1, 13)]
+    assert run.rows_written == 12 and run.rows_failed == 0 and run.details["unfinished"] == []
     assert all(c["verdict"] and c["question"] and c["neurodb"] for c in stored)
     assert checks.latest_run() == run
     assert background.lock_is_held(checks.LOCK_ID) is False  # released
@@ -180,8 +180,8 @@ def test_the_command_prints_each_check_and_the_run(db):
     out = StringIO()
     call_command("reporting_checks", "--triggered-by", "test", stdout=out)
     text = out.getvalue()
-    assert "eTools reporting checks [] succeeded: in=0 written=11 failed=0" in text
-    assert " 11 " in text and SyncRun.objects.get(job=JOB).triggered_by == "test"
+    assert "eTools reporting checks [] succeeded: in=0 written=12 failed=0" in text
+    assert " 12 " in text and SyncRun.objects.get(job=JOB).triggered_by == "test"
 
 
 def test_the_page_shows_the_stored_result_without_running_the_checks(client, admin_user, monkeypatch):

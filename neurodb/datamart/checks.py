@@ -42,7 +42,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Case, Count, Max, Min, Q, TextField, Value, When
 from django.db.models.fields.json import KT, KeyTransform
-from django.db.models.functions import Coalesce, NullIf, Trim
+from django.db.models.functions import Coalesce, Lower, NullIf, Trim
 from django.utils import timezone
 
 from neurodb.partnerships import statuses as pd_statuses
@@ -52,6 +52,7 @@ from . import models as dm
 from . import reached as rc
 from . import reporting
 from .disaggregation import ids_in, parse_key
+from .reached import norm
 
 logger = logging.getLogger(__name__)
 
@@ -1977,6 +1978,254 @@ def _no_prp(
     return f"{start}. {text}", tone
 
 
+# check 12: what the eTools master indicators can group, and where the grouping stands. Counts only: never a
+# title, a partner's or a master indicator's name (the sections and the records' keys are named)
+NO_SECTION_LABEL = "No section in eTools"
+GROUPING_STATEMENTS = 4  # the nightly job's reading (two years of PD indicators) shares the time left
+RECORD_KEYS_SQL = (
+    "SELECT k, count(*), count(*) FILTER (WHERE nullif(trim(p.data ->> k), '') IS NOT NULL "
+    "AND p.data ->> k NOT IN ('[]', '{}')) "
+    "FROM datamart_pdindicator p, jsonb_object_keys(p.data) k WHERE jsonb_typeof(p.data) = 'object' "
+    "GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 100"
+)
+
+
+def _across(key: str) -> bool:
+    """A key of the PD indicator records that may name one indicator across programme documents: a blueprint,
+    or a cluster indicator's id (a cluster's name names no indicator)."""
+    low = key.lower()
+    return "blueprint" in low or ("cluster" in low and re.search(r"ids?$", low) is not None)
+
+
+def _ratio_parts(cursor) -> tuple[int, int]:
+    """The percentage and ratio report rows with a value, and those whose value carries its numerator and
+    denominator, read as Reached reads a location's value: the "()" total, else the value in the period. A row
+    is a percentage or a ratio by its methods, or by the type of the PD indicator Partner monitoring places it
+    under (monitoring._Idents, as check 7 counts the rows: its eTools id, else a title one indicator of the PD
+    has, else its PD output and a title several share); a row placed under none counts by its methods alone. A
+    master's percentage leaves a PD indicator reported without them out (and says so)."""
+    from . import monitoring
+
+    typed = dm.PDIndicator.objects.filter(
+        Q(display_type__iexact="percentage") | Q(display_type__iexact="ratio") | Q(unit__iexact="percentage")
+    )
+    _bound(cursor)
+    ratios = {
+        monitoring.ident_of(pd, source_id, title)
+        for pd, source_id, title in typed.values_list("intervention_id", "source_id", "title")
+    }
+    pd_ids = sorted({pd for pd, _ident in ratios})
+    _bound(cursor)
+    idents = monitoring._Idents(pd_ids)
+    rows = dm.ReportedIndicator.objects.annotate(
+        _total=KeyTransform("()", "disaggregation"),
+        _locations=Lower(Trim("calculation_across_locations")),
+        _periods=Lower(Trim("calculation_across_periods")),
+    ).filter(Q(_locations="ratio") | Q(_periods="ratio") | Q(intervention_id__in=pd_ids))
+    valued = with_parts = 0
+    for pd, eid, title, output, locations, periods, total, achieved in _each(
+        cursor,
+        rows,
+        "intervention_id",
+        "etools_indicator_id",
+        "indicator",
+        "pd_output",
+        "_locations",
+        "_periods",
+        "_total",
+        "achievement_in_period",
+    ):
+        if "ratio" not in (locations, periods) and idents.of(pd, eid, title, output) not in ratios:
+            continue
+        found = rc.parts(total)
+        if found is None or found.value(ratio=True) is None:
+            found = rc.parts(achieved)
+        if found is None or found.value(ratio=True) is None:
+            continue
+        valued += 1
+        with_parts += found.v is not None and found.d is not None
+    return valued, with_parts
+
+
+def _grouping(cursor) -> dict[str, Any]:
+    from neurodb.core import years
+
+    from . import master_links, masters, monitoring
+
+    year = years.this_year()
+    keys = _all(cursor, RECORD_KEYS_SQL)
+    across = [key for key, _records, filled in keys if filled and _across(key)]
+    valued, with_parts = _ratio_parts(cursor)
+    # the nightly job's own reading and plan (Python; its queries keep the statement timeout set here, within
+    # the same transaction): what a run would write, written nowhere
+    _bound(cursor, statements=GROUPING_STATEMENTS)
+    of_year: dict[tuple[int, str], Any] = {}
+    rows = master_links.pool(year, of_year)
+    found = master_links.plan(rows, year)
+    totals = found.totals()
+    active = dm.EtoolsMaster.objects.filter(status=dm.EtoolsMaster.Status.ACTIVE).count()
+    homes = set(
+        dm.EtoolsMasterLink.objects.filter(
+            status=dm.EtoolsMasterLink.Status.CONFIRMED, master__status=dm.EtoolsMaster.Status.ACTIVE
+        ).values_list("pd_id", "ident")
+    )
+    listed = masters.listed(year) if active else []
+    no_target = sum(1 for m in listed if not masters.has_target(m, year))
+
+    names: dict[str, str] = {}
+    sections: dict[str, Counter[str]] = {}
+
+    def counts(section: str) -> Counter[str]:
+        name = (section or "").strip()
+        key = norm(name) if name and name != monitoring.NO_SECTION else ""
+        names.setdefault(key, name if key else NO_SECTION_LABEL)
+        return sections.setdefault(key, Counter())
+
+    for key, row in rows.items():
+        mine = counts(row.section)
+        mine["indicators"] += 1
+        mine["no_id"] += not row.source_id
+        mine["cp_output"] += masters.cp_output_key(row) != masters.NO_CP_OUTPUT
+        mine["ratios"] += masters.unit_class(row) in (masters.PERCENTAGE, masters.RATIO)
+        mine["in_master"] += key in homes
+    for s in found.suggestions:
+        counts(s.row.section)["suggested"] += 1
+    for key in found.ambiguous:
+        counts(rows[key].section)["ambiguous"] += 1
+    for p in found.proposals:
+        counts(p.section)["proposed"] += 1
+        counts(p.section)["in_proposals"] += len(p.links)
+    for row in found.unattached:
+        counts(row.section)["alone"] += 1
+    every: Counter[str] = sum(sections.values(), Counter())
+    n, no_id, known = every["indicators"], every["no_id"], every["cp_output"]
+    proposed, in_proposals, alone = totals["proposed"], totals["in_proposals"], totals["unattached"]
+    gone, changed = totals["no_longer_in_etools"], totals["type_changed"]
+    span = f"{year - 1} or {year}"
+
+    indicators = _plural(n, "PD indicator", "PD indicators")
+    valued_rows = _plural(valued, "percentage and ratio report row", "percentage and ratio report rows")
+    would = (
+        f"{_plural(proposed, 'master indicator', 'master indicators')} from "
+        f"{_plural(in_proposals, 'PD indicator', 'PD indicators')}"
+    )
+    if not n:
+        verdict = f"No PD indicator of a programme document running in {span} is held yet."
+    else:
+        verdict = (
+            f"{indicators} of the programme documents running in {span} (what the nightly job reads): "
+            f"{no_id:,} without an eTools id ({_share(no_id, n)}), grouped by their title alone; "
+            f"{known:,} with a CP output ({_share(known, n)})."
+        )
+    if valued:
+        verdict += (
+            f" {with_parts:,} of {valued_rows} with a value ({_share(with_parts, valued)}) carry their "
+            "numerator and denominator; a master indicator's percentage leaves the others out and says so."
+        )
+    else:
+        verdict += " No percentage or ratio report row carries a value yet."
+    if across:
+        verdict += (
+            f" The PD indicator records carry {', '.join(across)}, which may name one indicator across "
+            "programme documents."
+        )
+    else:
+        verdict += (
+            " No key of the PD indicator records names a cluster indicator or a blueprint: PD indicators are "
+            "grouped by their section, CP output, type and title."
+        )
+    if not active:
+        verdict += (
+            f" No master indicator is active yet: the nightly job would propose {would}; "
+            f"{alone:,} would be left on their own."
+        )
+        tone = INFO
+    else:
+        verdict += (
+            f" {_plural(every['in_master'], 'PD indicator', 'PD indicators')} in an active master indicator, "
+            f"{totals['suggested']:,} suggested for one and {totals['ambiguous']:,} that two fit as well; "
+            f"{alone:,} in none and suggested for none. The next run would propose {would}. "
+            f"{no_target:,} of the {_plural(len(listed), 'master indicator', 'master indicators')} listed in "
+            f"{year} {'has' if no_target == 1 else 'have'} no target for {year}; "
+            f"{_plural(gone, 'confirmed link', 'confirmed links')} no longer in eTools, {changed:,} of "
+            "another type now."
+        )
+        tone = WARN if no_target or gone or changed else OK
+    if not n and not active:
+        tone = INFO
+    order = sorted(sections, key=lambda key: (key == "", names[key].lower()))
+    return {
+        "tone": tone,
+        "verdict": verdict,
+        "figures": [
+            (f"PD indicators the nightly job reads (programme documents running in {span})", n),
+            (f"… of programme documents running in {year}", len(of_year)),
+            ("… without an eTools id (grouped by their title)", no_id),
+            ("… with a CP output (from their reports, or their PD's only one)", known),
+            ("… percentages or ratios", every["ratios"]),
+            ("Keys of the PD indicator records", len(keys)),
+            ("… that may name one indicator across programme documents", len(across)),
+            ("Percentage and ratio report rows with a value", valued),
+            ("… with their numerator and denominator", with_parts),
+            ("Master indicators the next run would propose", proposed),
+            ("… from PD indicators", in_proposals),
+            ("PD indicators left on their own", alone),
+            ("Active master indicators", active),
+            (f"… listed in {year}", len(listed)),
+            (f"… without a target for {year}", no_target),
+            ("PD indicators in an active master indicator", every["in_master"]),
+            ("… suggested for one", totals["suggested"]),
+            ("… that two master indicators fit as well (ambiguous)", totals["ambiguous"]),
+            ("Confirmed links no longer in eTools", gone),
+            ("Confirmed links whose type changed in eTools", changed),
+        ],
+        "table": {
+            "title": "By section",
+            "columns": (
+                "Section",
+                "PD indicators",
+                "Without an eTools id",
+                "With a CP output",
+                "In a master indicator",
+                "Suggested",
+                "Ambiguous",
+                "Proposed master indicators",
+                "PD indicators in them",
+                "On their own",
+            ),
+            "rows": [
+                (
+                    names[key],
+                    *(
+                        sections[key][what]
+                        for what in (
+                            "indicators",
+                            "no_id",
+                            "cp_output",
+                            "in_master",
+                            "suggested",
+                            "ambiguous",
+                            "proposed",
+                            "in_proposals",
+                            "alone",
+                        )
+                    ),
+                )
+                for key in order
+            ],
+        },
+        "tables": [
+            {
+                "title": "Keys of the PD indicator records",
+                "columns": ("Key", "Records", "With a value", "May name one indicator across PDs"),
+                "rows": [
+                    (key, records, filled, "yes" if _across(key) else "") for key, records, filled in keys
+                ],
+            }
+        ],
+    }
+
+
 RUN_FIRST = ("10", "11")
 CHECKS: tuple[Check, ...] = (
     Check(
@@ -2098,6 +2347,21 @@ CHECKS: tuple[Check, ...] = (
         "reports with progress reports. A report the partner reports feed does not carry is counted nowhere "
         "else: the number gaps (a QPR2 missing between QPR1 and QPR3) are estimated here only.",
         _two_feeds,
+    ),
+    Check(
+        "12",
+        "Indicator grouping",
+        "How many PD indicators can be grouped into eTools master indicators, and do they carry what the "
+        "grouping and a master indicator's figure need: an eTools id, a CP output, numerators and "
+        "denominators?",
+        "A master indicator counts only the PD indicators a section confirmed, each by its own Reached in "
+        "the year: numbers are added up (up to their sum, at least the largest programme document's figure), "
+        "percentages and ratios are the numerators added up over the denominators added up, and one "
+        "reported without them is left out and said so (counted 4 of 6 PDs), never averaged. The status is "
+        "measured against the yearly target staff type alone. Every night NeuroDB suggests PD indicators and "
+        "proposes master indicators by section, CP output, type and title, with no AI; this check counts "
+        "what that run would do and writes nothing.",
+        _grouping,
     ),
 )
 

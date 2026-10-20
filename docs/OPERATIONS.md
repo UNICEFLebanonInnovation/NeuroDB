@@ -865,6 +865,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `ml-readiness` | `ml_readiness` | `45 6 * * 1`, Mondays 06:45: is the data ready for machine learning (Data health) |
 | `forecast` | `forecast_indicators` | `15 7 * * 1`, Mondays 07:15: year-end forecasts of the indicators, back-tested |
 | `reporting-checks` | `reporting_checks` | `15 2 * * *`, daily 02:15, after the eTools Datamart sync, and due at once after the deployment that adds it (when the previous container's scheduler, which does not know the command, sees it first, the new release's scheduler starts it as soon as it takes over): the eTools reporting checks, stored for their page (see eTools reporting checks); also *Run the checks now* on the page and *Run a job → eTools reporting checks* |
+| `etools-masters` | `suggest_master_indicators` | `40 2 * * *`, daily 02:40, after the 20:30 eTools Datamart sync and the 02:15 reporting checks, and due at once after the deployment that adds it: suggests the partners' PD indicators for the eTools master indicators and proposes new ones (see *eTools master indicators*); nothing counts until someone confirms it; also *Suggest now* on the masters' admin list and *Run a job → eTools master indicators* |
 | `etools-update-cleanup` | `datamart_backfill` | `*/15 * * * *`, every 15 minutes, due at once after the deployment that adds it (the scheduler starts it usually within a minute of the site starting, at most 15 minutes when the previous container's scheduler sees it first) and until one run has gone through everything; the job then switches it off ("finished: nothing left to do"). A run that finds the eTools Datamart sync going switches it back on to try again ("waiting: the eTools Datamart sync is running"). It fills the new columns of the partner reports already synced and removes the contact details older syncs stored (see eTools Datamart, *Finish the eTools update*) |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
 | (inside `etools-datamart`) | `fmm_refresh` | at the end of the sync, when it synced a dataset Monitoring insights reads (`FMM_REFRESH_AFTER_SYNC`); its failure never fails the sync |
@@ -887,7 +888,8 @@ the browser: it starts every switched-on job whose time has passed; the banner n
 silent scheduler, overdue or never-run jobs, runs that failed or succeeded with errors (a Compiler
 job only while its schedule is switched on; the eTools reporting checks only a run that failed, since a
 check that could not finish is said on their page; the eTools Datamart sync dataset by dataset, see
-eTools Datamart, *One failed dataset is not the whole sync*), and a missing daily review. NeuroDB Watch tells the
+eTools Datamart, *One failed dataset is not the whole sync*), a missing daily review, and the eTools master
+indicators of this year without a target (see *eTools master indicators*). NeuroDB Watch tells the
 administrators the same lines on their *For you* page, and closes each one once it is no longer
 listed (`neurodb/web/health.py` builds the list for both). A due job starts within a minute, in the
 background, as the admin buttons do, and appears in *Import and sync runs* with *schedule* as its
@@ -1067,6 +1069,9 @@ admin home page, *Quick actions*):
 | Run a job → *Finish the eTools update* | `datamart_backfill` | background |
 | Run a job → *eTools reporting checks* (also *Run the checks now* on the eTools reporting checks page) | `reporting_checks` | background |
 | Run a job → *Probe a Datamart dataset* (the dataset chosen in the dialog) | `probe_datamart --dataset <name>` | background (seconds); writes nothing but its run |
+| Run a job → *eTools master indicators* (also *Suggest now* on *Reporting setup* → *Master indicators (eTools)*) | `suggest_master_indicators` | background |
+| *Reporting setup* → *Master indicators (eTools)*: actions *Accept* / *Dismiss the proposed master indicators*, *Confirm all suggestions*, *Confirm suggestions scoring 0.9 or more*, *Merge the selected master indicators*, *Change section (after an eTools rename)*, and *Add PD indicators* on a master's page; *Master indicator links (eTools)*: *Confirm*, *Reject*, *Make "Shown only"*; the same decisions on Partner monitoring's *Master indicators* tab | (no command: they change the master indicators and their links) | in the request |
+| *Reporting setup* → *Master indicators* (ActivityInfo): action *Create eTools master indicators from these* | (no command: writes eTools master indicators only, never an ActivityInfo row) | in the request |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
@@ -1920,13 +1925,14 @@ it. Per-location targets are not in any country-filterable Datamart endpoint, so
 locations are compared on reported values only.
 
 **eTools reporting checks** (admin → *Data and sync* → *eTools reporting checks*, Administrators only;
-also in the admin home's quick actions, on *Data health* and on *Progress reports*): eleven read-only checks
+also in the admin home's quick actions, on *Data health* and on *Progress reports*): twelve read-only checks
 of the partner report data the rule depends on (rows per location, whether the value in the period is the
 report total repeated, disaggregation keys and the `"()"` total, what reports that do not count carry,
 PRP's cumulative against Reached, the calculation methods in use, which PD indicator each report row
 belongs to, PRP's report totals, whether the financial contribution repeats on every indicator of a
-report, the country and programme document of the rows, and the reports owed in PRP's feeds), each
-with a verdict and what NeuroDB does whatever the answer. Each check measures what NeuroDB reads: PRP's
+report, the country and programme document of the rows, the reports owed in PRP's feeds, and how the PD
+indicators can be grouped into eTools master indicators), each with a verdict and what NeuroDB does
+whatever the answer. Each check measures what NeuroDB reads: PRP's
 values are parsed as Reached parses them (`c`, else v over d, else v, given as a number, its text or PRP's
 `{v, d, c}`), and a progress report is told apart by its programme document, type, number and period,
 whatever PRP's own ids hold; one indicator in it (an indicator report) by PRP's indicator report id, else
@@ -2013,6 +2019,21 @@ and business area codes at most).
   yet); with none to compare, it says why (never synced,
   running, failed, none returned, none linked to a programme document NeuroDB holds, with the link's
   counts, or none of the year).
+* **Check 12**, *Indicator grouping*, counts for the eTools master indicators (counts only, never a title
+  or a partner's or master indicator's name): the PD indicators the nightly `suggest_master_indicators` job
+  reads (those of the programme documents running this year or last, per section), with and without an
+  eTools id (without one, an indicator is grouped by its title alone) and with a CP output (from its
+  reports, or its PD's only one); the keys of the PD indicator records, marking any that may name one
+  indicator across programme documents (a cluster indicator's id, a blueprint); the share of percentage and
+  ratio report rows with a value that carry their numerator and denominator, read as Reached reads a
+  location's value (a row is a percentage or a ratio by its methods, or by the type of the PD indicator it
+  is placed under as check 7 places it; a master's percentage leaves the others out); and the job's **dry
+  run**, "would propose M master indicators from N PD indicators; K would be left on their own", worked
+  out by the job's own code and written nowhere (the job then records the same counts). Once a master is
+  active it also counts the PD indicators in a master, suggested, ambiguous and in none, the masters of
+  this year without a target, and the confirmed links no longer in eTools or of another type now (a
+  warning while any is above 0). Read it before accepting the first proposals: it says how far titles and
+  CP outputs carry them, and how many percentages would be left out for lack of their parts.
 
 Checks 10 and 11 run first, so they answer whatever time the others take; the page lists the checks in
 their order. Every query is aggregate; the rows a check parses in Python are read 2,000 at a time and stop
@@ -2219,6 +2240,126 @@ frees its map if the page ever swaps it out, as `edumap.js` does; nothing on the
 view tabs and the map's filter bar load whole pages). **Funds**: the *Partner contributions* and *By PD and grant* tabs no longer compute the
 whole reservations summary just to fill the filter bar (6 queries instead of 13); the page is otherwise
 drawn whole, as before.
+
+### eTools master indicators (Partner monitoring → *Master indicators*)
+
+An **eTools master indicator** is a section's indicator over the partners' own PD indicators, as an
+ActivityInfo master indicator was over its partners' indicators: one figure a year, worked out from its
+**sub-indicators** (one PD indicator of one programme document each) by its method. It is read on the fifth
+tab of Partner monitoring, *Master indicators* (`/partner-monitoring/?view=masters`), and set up in the
+admin (*Reporting setup* → *Master indicators (eTools)* and *Master indicator links (eTools)*). No figure is
+stored: each page works it out from the partner monitoring rows (`neurodb/datamart/masters.py`). No AI is
+used anywhere in it: the proposals and suggestions come from structure keys and word scores.
+
+**What is kept** (`datamart.EtoolsMaster`, `EtoolsMasterYear`, `EtoolsMasterLink`; both migrations are
+quick):
+
+* a **master**: its eTools section (as the PD indicators name it), name, unit (a label only), CP output,
+  keywords that help the suggestions, method (sum, percentage, ratio, average, maximum or minimum), *parts of
+  one PD add up*, status (proposed, active, dismissed, archived) and where it came from (by hand, proposed by
+  NeuroDB, or from an ActivityInfo master indicator). One active or archived name per section;
+* its **years**: each year's AWP/RWP code and the **target staff type** for that year, and whether it is
+  shown that year. A master has no year of its own, so nothing is copied at the yearly rollover and the links
+  of a programme document running several years carry on by themselves;
+* its **links**: one PD indicator each, named by its programme document and its identity there (`s` and its
+  eTools id, else `t` and a hash of its title; never the page's key, which changes when the sync rewrites
+  the rows), with what it **counts as** (in the total, a numerator, a denominator, or shown only), its status
+  (suggested, confirmed, rejected), and its title, PD number and type when it was confirmed. A PD indicator
+  counts in one total at most. *Updated by* and *confirmed by* are shown in the admin only: never on a page,
+  in an export or to the AI.
+
+**How masters come to exist**, every step a click:
+
+1. **Proposed every night** (the job below): PD indicators in no master that share a section, a CP output, a
+   type (number, percentage or ratio) and a title once its counting words, gender, nationality, disability
+   and age range are set aside, across two programme documents or more, become one *proposed* master (a sum
+   of numbers, a percentage or a ratio), named after the shortest such title. An indicator whose CP output is
+   not known joins the one family of its title in its section, when there is exactly one. *Accept* (on the
+   tab or in the admin) makes it active with its PD indicators confirmed in one click; *Dismiss* keeps it as
+   dismissed, so the same family is never proposed again.
+2. **Made from ActivityInfo**: *Reporting setup* → *Master indicators* (ActivityInfo), action *Create eTools
+   master indicators from these*: name and unit copied, the method mapped (Sum, Sum over sum as a percentage,
+   Average, Maximum, Minimum; Count is skipped and said), the AWP code put on the current year with the
+   target left blank, in the eTools section of the database's confirmed *eTools section names* (the one with
+   the most PD indicators when there are several; refused when there is none). It writes the new tables only,
+   never an ActivityInfo row; a master that exists already by section and name is skipped.
+3. **By hand** in the admin, with the **Add PD indicators** wizard on a master's page: tick the section's PD
+   indicators of this year that are in no confirmed total yet and of a type the method takes; one role for
+   all, and they are confirmed at once.
+
+**How PD indicators are attached.** The job suggests each PD indicator for at most one master of its own
+section, by the first rule that finds one: (a) it **replaces** a confirmed link of the same programme
+document that is no longer in eTools and reads the same (1.0; a suggestion only, a link is never moved); (b)
+the **same structure** (section, CP output, type and title) as one of the master's confirmed indicators
+(0.95); (c) a **similar title** (0.6 to 0.89, 0.1 more for the same CP output, never another age group).
+When two masters fit within 0.05 of each other it gets no suggestion and the tab says "Ambiguous: A or B".
+**Only confirmed links count**: a suggestion is listed under its master, never added. Confirming is one click
+for a master (*Confirm all suggestions*) or for a section (*Confirm the strong matches*, 0.9 or more), on the
+tab or in the admin; *Reject* keeps the indicator from being suggested for that master again. Several
+indicators of one programme document in one master start with sensible roles: a total and its girls and
+boys (or other) breakdowns, the breakdowns *shown only*; girls and boys alone, both in the total; otherwise
+the one with the largest target in the total.
+
+After each eTools sync nothing is rewritten. A confirmed link stops counting, and says why, when its
+programme document runs in the year but the indicator is gone (*No longer in eTools*, with the replacement
+suggested the next night), or when its type changed in eTools (*Type changed in eTools*, until someone
+confirms it again); an indicator now in another section is still read and says *Now in section X*. A new PD
+indicator, an amendment's included, is suggested the next night.
+
+**How a master's figure is worked out** (the same on the tab, its detail, its export):
+
+* **Each sub brings its own Reached in the year**, read exactly as Program Performance reads it (its own
+  location and period methods, each value once, quarterly reports first and monthly ones only for an
+  indicator with no quarterly report). A master never adds report rows again.
+* **A sum** adds up its subs' Reached in the year. Partners may reach the same people, so it reads **up to**
+  the sum, **at least** the largest programme document's figure. Two subs of one programme document are added
+  only when they cannot count the same people (girls and boys, two nationalities) or the master says *parts of
+  one PD add up*; otherwise only that programme document's largest one counts ("may count the same people;
+  not added"). A value too large to be true (above 20 times its own target, or above the country's children
+  for a children indicator) is set aside and said so.
+* **A percentage or a ratio** is the numerators added up over the denominators added up (× 100 for a
+  percentage only); numerator and denominator links of one programme document are paired. **A sub reported
+  without its numerator and denominator is left out of the figure** (PRP sent the % alone, or its period
+  method is an average or a maximum): its row says "Reported without numerator and denominator" and the
+  master says "counted 4 of 6 PDs". It is never averaged in.
+* **An average, a maximum or a minimum** is taken over the subs' figures, all of one type.
+* **Shown only** subs are listed and never counted. Masters are never added together, nor to the children
+  headline, the overview, the country programme or the forecasts.
+* **Q1, to Q2, to Q3, Year** are Reached from 1 January to the end of each quarter, a report counting in the
+  quarter its period ends in, by the same rule.
+* **Status**: against the **year's target staff typed** alone, as of the latest counted report (its period
+  end, at most 31 December and today, so a quarter's lag does not read off track). A sum of subs that add up
+  over the year expects the year's share of the target; a percentage, a ratio or a level the whole target.
+  Without a typed target it reads **No target** (*Needs attention* then lists it, below). The programme
+  documents' own targets are shown in the detail for reference only, never used for the status.
+
+**On the tab**: it shows one year (this year by default; there is no *All years*) and opens on the user's own
+section. The section, year, report type and location filters apply; the status, the search and the CP output
+choose master rows only (a master's figure never changes with them); a partner filter shows that partner's
+contribution, with its share of a sum only. The tiles count the masters by status, the PD indicators in a
+master, the suggestions waiting and the proposals; under them come the masters by section and CP output
+(each opens on its subs, with *Details* for the detail), the **Proposed master indicators** (Accept,
+Dismiss) and **Not in a master**: every PD indicator of the year with no confirmed place in an active master,
+with NeuroDB's word on it (its suggestion, its proposal, "Ambiguous", or why it cannot join one) and *Attach
+to…*. The buttons that change anything show to an Administrator and to a Section editor of the master's
+section only; a viewer, an editor of another section and a donor are refused. *Excel of the filter* and *CSV
+of the filter* give one row per master and one per sub (`level`), never who changed or confirmed what. The
+tab loads in parts (`masters-summary`, `masters-table`) from the stored partner monitoring rows: one read of
+them per request, plus one by programme document for linked indicators now in another section.
+
+**The job**: `suggest_master_indicators` (`neurodb/datamart/master_links.py`), every night at 02:40 (the
+`etools-masters` schedule, after the 20:30 eTools Datamart sync and the 02:15 reporting checks; due at once
+after the deployment that adds it), *Suggest now* on the masters' admin list, or *Run a job → eTools master
+indicators*. It reads the PD indicators of the programme documents running this year or last, writes
+suggestions and proposals in one transaction (confirmed and rejected links and dismissed masters are never
+touched; a run again changes nothing more), one run at a time, and records a run with counts only for each
+section (proposed, in proposals, suggested, replacements, ambiguous, no longer in eTools, type changed,
+unattached).
+
+**Before switching it on, and to follow it**: reporting check 12, *Indicator grouping* (with the other eTools
+reporting checks, above), counts what the job would do without writing anything; *Needs attention* on the
+admin home lists the masters of this year without a target (`etools_masters_without_target`, linked to the masters' admin list filtered on *No
+target*).
 
 ### One programme implementation ecosystem: how the eTools records are linked
 
@@ -5225,7 +5366,7 @@ them. The rules, thresholds and the BMA side are described in BMA's
 
 ## Yearly rollover (January)
 NeuroDB's pages move to the new year by themselves on 1 January. Steps 1–4, 6 and 7 are needed only while
-ActivityInfo is in use; step 5 (population figures) every year. NeuroDB Watch reminds the administrators
+ActivityInfo is in use; step 5 (population figures) and step 9 (the eTools master indicators) every year. NeuroDB Watch reminds the administrators
 from 15 December (see *ActivityInfo: in use or archive*, *The yearly reminder*).
 
 1. Admin → Reporting years: create the new year and tick *current* (only one can be current). While
@@ -5253,6 +5394,11 @@ from 15 December (see *ActivityInfo: in use or archive*, *The yearly reminder*).
    switch off *activityinfo-data* in Scheduled jobs. On *Automatic*, ActivityInfo then becomes an archive
    by itself within 30 seconds (or set *Archived* on Admin → Reporting setup → *ActivityInfo: in use or
    archive*); its alarms stop, and every ActivityInfo page of past years stays open.
+9. eTools master indicators: set each one's code and target for the new year, in its admin page's year rows
+   (*Reporting setup* → *Master indicators (eTools)*) or on Partner monitoring's *Master indicators* tab (open
+   the master, *Code* and *Target*, *Save*). Nothing needs copying: the masters have no year and their PD
+   indicators carry on with their programme documents; until a target is typed the master reads *No target*
+   and *Needs attention* lists it. Untick *shown this year* for a master that does not go on.
 
 ## Backups
 Azure Database for PostgreSQL point-in-time restore (set retention to at least 14 days) covers the

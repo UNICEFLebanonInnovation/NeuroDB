@@ -445,7 +445,7 @@ def test_reporting_checks_page_is_for_administrators(client, admin_user, viewer,
     client.force_login(admin_user)
     page = client.get(reverse("admin:datamart_reporting_checks"))
     assert page.status_code == 200
-    for n in range(1, 12):
+    for n in range(1, 13):
         assert f"Check {n} ·" in page.text
     assert "What NeuroDB does" in page.text and "could not finish" not in page.text
     health = client.get(reverse("reports:data_health"))
@@ -463,7 +463,7 @@ def test_reporting_checks_page_is_for_administrators(client, admin_user, viewer,
 
 def test_reporting_checks_run_on_an_empty_database(db):
     found = checks.run_all()
-    assert [c["key"] for c in found] == [str(n) for n in range(1, 12)]
+    assert [c["key"] for c in found] == [str(n) for n in range(1, 13)]
     assert all(c["tone"] in ("ok", "info", "warning") and c["verdict"] for c in found)
 
 

@@ -1,0 +1,14 @@
+{% comment %}
+  One table of an eTools reporting check's card (reporting_checks.html): the card's table (``check.table``)
+  and each of its further tables (``check.tables``) alike, as ``table``: its columns, its rows and its title
+  when it has one (the table's caption). Nothing is shown without a row.
+{% endcomment %}
+{% if table.rows %}
+  <div class="nd-scroll mt-3">
+    <table class="nd-jobs">
+      {% if table.title %}<caption class="text-left mb-1"><strong>{{ table.title }}</strong></caption>{% endif %}
+      <thead><tr>{% for c in table.columns %}<th scope="col">{{ c }}</th>{% endfor %}</tr></thead>
+      <tbody>{% for row in table.rows %}<tr>{% for cell in row %}<td>{{ cell|default_if_none:"—" }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+    </table>
+  </div>
+{% endif %}

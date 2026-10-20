@@ -211,13 +211,16 @@ class _Match:
     role: str = Role.TOTAL
 
 
-def pool(year: int) -> dict[tuple[int, str], Row]:
+def pool(year: int, of_year: dict[tuple[int, str], Row] | None = None) -> dict[tuple[int, str], Row]:
     """The PD indicators of the programme documents running in ``year`` or the year before, each once, by
-    ``(PD id, ident)`` (:func:`neurodb.datamart.masters.key_of`), with no Reached computed."""
+    ``(PD id, ident)`` (:func:`neurodb.datamart.masters.key_of`), with no Reached computed. ``of_year``, when
+    given, is filled with those of the programme documents running in ``year`` itself (reporting check 12)."""
     found: dict[tuple[int, str], Row] = {}
     for each in (year, year - 1):
         for row in monitoring.collect(monitoring.Filters(year=each, scope="year")).values():
             found.setdefault(key_of(row), row)
+            if each == year and of_year is not None:
+                of_year[key_of(row)] = row
     return found
 
 
