@@ -16,6 +16,7 @@ from PIL import Image
 from neurodb.fmm.models import RuleSetting
 from neurodb.review import checks
 from neurodb.watch.detectors import deadlines, money
+from neurodb.watch.models import DetectorSetting
 from neurodb.web import views
 
 pytestmark = pytest.mark.django_db
@@ -198,7 +199,7 @@ def test_the_design_copy_that_was_not_true_is_corrected(client, db):
         "Activated only after required clearance",
         "never child-level registration records",  # NeuroDB keeps Makani wellbeing flags per child
         "without receiving child-level registration records",
-        "assigned to a responsible team",  # Watch tells the sections the grant's PDs belong to
+        "assigned to a responsible team",  # Watch tells sections, not a team (and only once switched on)
         "AI assistance is read-only",  # AI check verdicts lower quality scores
         "Moustafa",  # no child's name on the page
     ):
@@ -207,7 +208,9 @@ def test_the_design_copy_that_was_not_true_is_corrected(client, db):
         "NeuroDB’s programme figures come from aggregated totals, not from children’s registration records."
         in html
     )
-    assert "The source-linked alert is sent to the sections it concerns." in html
+    # a fresh install: the grant check is in trial, seen by the whole-country view only
+    assert "The source-linked alert is raised in Watch for review." in html
+    assert "sent to the sections it concerns" not in html
     assert "AI assistance never changes source data" in html
     assert "A young participant · " in html
 
@@ -225,6 +228,70 @@ def test_the_rule_counts_follow_what_administrators_switch_on(client, db, settin
     _, html = _landing(client)
     assert "field-visit quality checks" not in html and "quality rules" not in html
     assert "the rules administrators switch on" in html
+
+
+GRANT_STAT = '<strong data-tally="90">90</strong><span>days of early grant warning</span>'
+GRANT_SAYS = {
+    # on: told to the sections of the PDs the grant funds and to the whole-country view (money.py)
+    DetectorSetting.Mode.ON: "The source-linked alert is sent to the sections it concerns.",
+    # trial, the mode every check starts in: only the whole-country view sees it
+    DetectorSetting.Mode.TRIAL: "The source-linked alert is raised in Watch for review.",
+    # off: nothing runs
+    DetectorSetting.Mode.OFF: "When this check is switched on, the source-linked alert is raised in Watch for review.",
+}
+
+
+@pytest.mark.parametrize("mode", [None, *DetectorSetting.Mode.values])
+def test_the_grant_alert_says_what_watch_does_in_the_checks_mode(client, db, mode):
+    """The grant story's alert and the 90-day figure follow the grant check's mode (``DetectorSetting``, its
+    starting mode before its first run): sections are told only when it is on; in trial only the whole-country
+    view sees it; switched off, the page does not claim a warning that does not run."""
+    assert money.GRANT_EXPIRING.default_mode == DetectorSetting.Mode.TRIAL
+    if mode is not None:
+        DetectorSetting.objects.create(detector=money.GRANT_EXPIRING.id, mode=mode)
+    shown = mode or money.GRANT_EXPIRING.default_mode
+    _, html = _landing(client)
+    stage = html.split('data-story-state="grant" data-story-stage="2"', 1)[1].split("</template>", 1)[0]
+    assert f'<span data-f="evidence">{GRANT_SAYS[shown]}</span>' in stage
+    for other, words in GRANT_SAYS.items():
+        if other != shown:
+            assert words not in html, (shown, other)
+    assert (GRANT_STAT in html) is (shown != DetectorSetting.Mode.OFF)
+    # the rule itself (its lead time and amount) is still what the story and the reminder chart describe
+    assert "flags a grant 90 days before expiry when at least USD 10,000 remains unspent" in stage
+
+
+def test_the_browser_bar_takes_the_designs_light_tint(client, db):
+    """One theme-color, the design's (#F1FAFE, the tint of its header and hero); the app's pages keep NeuroDB's."""
+    _, html = _landing(client)
+    colours = [m["content"] for m in tags(html, "meta") if m.get("name") == "theme-color"]
+    assert colours == ["#F1FAFE"]
+    login = client.get(reverse("account_login")).text
+    assert [m["content"] for m in tags(login, "meta") if m.get("name") == "theme-color"] == ["#446ab3"]
+
+
+def test_a_card_left_out_leaves_no_hole_in_its_grid(client, db):
+    """The coverage card of ActivityInfo's years (none here: no year has its records) and the stat cards of
+    the field-visit rules (none switched on) and of the grant warning (its check off) can be left out; the
+    grids then close up (landing.css: the last card of an odd row spans two columns, three or two stat
+    cards share the row) instead of leaving an empty cell."""
+    RuleSetting.objects.update(enabled=False)
+    DetectorSetting.objects.create(detector=money.GRANT_EXPIRING.id, mode=DetectorSetting.Mode.OFF)
+    _, html = _landing(client)
+    grid = html.split('class="coverage-grid"', 1)[1].split('class="live-highlights', 1)[0]
+    assert grid.count('class="coverage-card') == 7
+    stats = html.split('class="data-statgrid"', 1)[1].split('class="source-scene', 1)[0]
+    assert stats.count('class="data-stat ') == 2
+    css = (STATIC / "css" / "landing.css").read_text()
+    for rule in (
+        ".coverage-grid>.coverage-card:last-child:nth-child(4n+3){grid-column:span 2}",
+        "@media(max-width:1100px){.coverage-grid>.coverage-card:last-child:nth-child(odd){grid-column:span 2}}",
+        ".data-statgrid:has(>.data-stat:nth-child(3):last-child){grid-template-columns:repeat(3,1fr)}",
+        ".data-statgrid:has(>.data-stat:nth-child(2):last-child){grid-template-columns:repeat(2,1fr)}",
+        ".data-statgrid>.data-stat:last-child:nth-child(odd){grid-column:span 2}",
+        "grid-column:auto}",  # one column under 400px: no span
+    ):
+        assert rule in css, rule
 
 
 def _seed_rules():

@@ -30,16 +30,26 @@ if (heroArt && heroPhoto) {
   heroPhoto.addEventListener("error", () => heroArt.classList.remove("photo-loaded"));
   if (heroPhoto.complete && heroPhoto.naturalWidth) loaded();
 }
-// a photo that cannot load leaves its panel's colour, as the design's inline handler did
+// a photo that cannot load leaves its panel's colour, as the design's inline handler did; one that failed
+// before this module ran (complete, with no width) is hidden at once. A lazy photo not yet asked for is not
+// complete, so it waits for its own error.
 for (const img of $$("img[data-hide-on-error]")) {
-  img.addEventListener("error", () => {
+  const hide = () => {
     img.style.display = "none";
-  });
+  };
+  if (img.complete && img.naturalWidth === 0 && img.currentSrc) hide();
+  else img.addEventListener("error", hide);
 }
+
+/** Once the first state is drawn, ``region`` says its later changes to screen readers (politely): drawing
+ * the first one is not announced. */
+const speak = (region) => region?.setAttribute("aria-live", "polite");
 
 // ------------------------------------------------------------------------------------------ the story
 const board = $("#storyboard");
 if (board) {
+  // The picture is the photo (its alt, caption and credit are read) or an illustration (aria-hidden); the
+  // story's text (#storyText) says each stage.
   const canvas = $("#visualCanvas");
   const scenarios = $$("button[data-scenario]");
   const steps = $$(".stepbtn[data-step]", board);
@@ -57,10 +67,9 @@ if (board) {
     canvas.replaceChildren(...(visual ? [visual.cloneNode(true)] : []));
     canvas.dataset.scenario = active;
     const button = scenarios.find((b) => b.dataset.scenario === active);
-    const title = $('[data-f="title"]', board)?.textContent ?? "";
-    const stage = steps[step]?.getAttribute("aria-label") ?? "";
-    canvas.setAttribute("aria-label", `${button?.dataset.name ?? ""}, ${stage}: ${title}`);
     for (const number of $$("[data-stage-no]", board)) number.textContent = String(step + 1).padStart(2, "0");
+    // Back, pressed back to the first stage, is disabled: keyboard focus moves to Next first, not to the page
+    if (step === 0 && document.activeElement === prev) next.focus();
     prev.disabled = step === 0;
     next.textContent = step === steps.length - 1 ? next.dataset.restart : next.dataset.next;
     steps.forEach((el, i) => {
@@ -94,6 +103,7 @@ if (board) {
     render();
   });
   render();
+  speak($("#storyText"));
 }
 
 // ------------------------------------------------------------------------------------------ the roles
@@ -107,6 +117,7 @@ if (rolePanel) {
   };
   for (const card of cards) card.addEventListener("click", () => show(card.dataset.role));
   show("staff");
+  speak($("#roleText"));
 }
 
 // ------------------------------------------------------------------------------------------ sample insights
@@ -144,6 +155,13 @@ if (menu && navLinks) {
     menu.setAttribute("aria-expanded", String(open));
   });
   for (const link of $$("a", navLinks)) link.addEventListener("click", close);
+  // Tab past the last link (or Shift+Tab before the button) closes it; a click on nothing focusable does not
+  const leave = (event) => {
+    const to = event.relatedTarget;
+    if (to && to !== menu && !navLinks.contains(to)) close();
+  };
+  menu.addEventListener("focusout", leave);
+  navLinks.addEventListener("focusout", leave);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && navLinks.classList.contains("open")) {
       close();

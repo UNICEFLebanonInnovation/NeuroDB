@@ -176,7 +176,8 @@ def test_readiness_is_503_when_the_database_is_down(client, db, monkeypatch):
 
 def test_the_honesty_labels_stay_with_the_ai_on_or_off(client, hierarchy, settings):
     """The design's labels saying what is simulated, illustrative or a preview stay as they are, with the AI
-    assistant switched on or off; no fixed claim about a sync, no address of another site's sign-in."""
+    assistant switched on or off; no fixed claim about a sync, no address of another site's sign-in. With the
+    assistant off, the public page never offers it (the old page's guard: it promoted Ask only when on)."""
     for enabled in (False, True):
         settings.AI_ASSISTANT_ENABLED = enabled
         html = client.get(reverse("landing")).text
@@ -184,6 +185,9 @@ def test_the_honesty_labels_stay_with_the_ai_on_or_off(client, hierarchy, settin
             assert label in html, (enabled, label)
         assert "eTools synced last night" not in html
         assert "azurewebsites" not in html
+        if not enabled:
+            for offer in ("Ask NeuroDB", "What does the AI do", "Ask a question", "/ask/"):
+                assert offer not in html, offer
 
 
 def test_the_floating_sync_label_shows_the_real_last_sync(client, hierarchy):

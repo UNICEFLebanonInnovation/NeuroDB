@@ -15,6 +15,7 @@ from neurodb.fmm.models import RuleSetting
 from neurodb.indicators.services import activityinfo
 from neurodb.review import checks
 from neurodb.watch.detectors import deadlines, money
+from neurodb.watch.models import DetectorSetting
 
 from .services import public_highlights
 
@@ -75,13 +76,23 @@ AI_AREAS = 13
 ANALYSIS_AREAS = 14
 
 
+def _check_mode(detector) -> str:
+    """A Watch check's mode (``DetectorSetting``): on (told to staff), trial (seen only by the
+    whole-country view) or off; before its first run, the mode it starts in."""
+    mode = DetectorSetting.objects.filter(detector=detector.id).values_list("mode", flat=True).first()
+    return mode or detector.default_mode
+
+
 def platform_figures() -> dict:
     """The rules the landing page quotes, read from the code and the settings that apply them, so the page
     never drifts from what NeuroDB does: the daily review's checks (``review.checks.CHECKS``), the field
     visit quality rules switched on (``fmm.RuleSetting``, the AI checks apart), the Watch lead times of
     grants, programme documents and partner reports (``watch.detectors.money`` and ``deadlines``), the
-    unspent amount a grant alert needs (``WATCH_GRANT_MIN_UNSPENT``) and the day HACT gaps start to be
-    raised. One small query (the rules switched on); counts only."""
+    unspent amount a grant alert needs (``WATCH_GRANT_MIN_UNSPENT``), the day HACT gaps start to be
+    raised, and the mode of the grant check (``grant_alert``): only when it is on are the sections of the
+    grant's programme documents told; in trial only the whole-country view sees it (the mode every check
+    starts in); off, nothing runs. Two small queries (the rules switched on, the grant check's mode);
+    counts only."""
     rules = RuleSetting.objects.filter(enabled=True).aggregate(
         total=Count("pk"), ai=Count("pk", filter=Q(type=RuleSetting.Type.NARRATIVE))
     )
@@ -101,6 +112,7 @@ def platform_figures() -> dict:
         "bars": {name: f"{days / longest * 100:.3f}%" for name, days in lead.items()},
         "grant_min_unspent": settings.WATCH_GRANT_MIN_UNSPENT,
         "hact_from": datetime.date(2000, month, day),  # shown as a day and a month ("1 October")
+        "grant_alert": _check_mode(money.GRANT_EXPIRING),
     }
 
 
