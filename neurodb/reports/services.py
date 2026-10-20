@@ -7,6 +7,7 @@ combines them for the reports pages and the internal JSON API.
 from __future__ import annotations
 
 import datetime
+from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
@@ -15,6 +16,7 @@ from django.db.models import Count, F, Q, QuerySet, Window
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import ngettext
 
 from neurodb.accounts.roles import ADMIN, role_of
 from neurodb.core.models import SavedView, SyncRun
@@ -349,7 +351,9 @@ def health_jobs(now: datetime.datetime | None = None, archived: bool | None = No
     """Per sync job: its last success, its latest run, and whether it is fresh, stale or never
     succeeded (stale after ``SYNC_STALENESS_HOURS``). While ActivityInfo's import is not followed
     (``archived``, default: :func:`neurodb.indicators.services.activityinfo.watched` is false), its jobs are
-    "Not in use (archive)", never stale nor failing: nobody runs them for a year partners report in."""
+    "Not in use (archive)", never stale nor failing: nobody runs them for a year partners report in. The
+    eTools Datamart sync also has ``datasets`` (:func:`datamart_sync_state`): it writes one run per dataset,
+    so its latest run is only the last dataset of the order."""
     from neurodb.indicators.services import activityinfo
 
     now = now or timezone.now()
@@ -371,17 +375,18 @@ def health_jobs(now: datetime.datetime | None = None, archived: bool | None = No
             state, state_label = "stale", _("Stale")
         else:
             state, state_label = "fresh", _("Fresh")
-        jobs.append(
-            {
-                "job": job,
-                "label": label,
-                "last_success": last_ok,
-                "last_run": last_run,
-                "age_hours": round(age.total_seconds() / 3600, 1) if age else None,
-                "state": state,
-                "state_label": state_label,
-            }
-        )
+        entry = {
+            "job": job,
+            "label": label,
+            "last_success": last_ok,
+            "last_run": last_run,
+            "age_hours": round(age.total_seconds() / 3600, 1) if age else None,
+            "state": state,
+            "state_label": state_label,
+        }
+        if job == SyncRun.Job.ETOOLS_DATAMART:
+            entry["datasets"] = datamart_sync_state()
+        jobs.append(entry)
     return jobs
 
 
@@ -458,18 +463,72 @@ DATASET_ROWS_JOBS = (
 DATASET_ROWS_LIVE = ("locations",)
 
 
-def latest_datamart_runs(names) -> dict[str, SyncRun]:
+def latest_datamart_runs(names, *, finished: bool = False) -> dict[str, SyncRun]:
     """The latest eTools Datamart run of each dataset in ``names`` (by start, then id), in one query: for
     each name, its first run on the index ``core_syncrun_job_target`` (job, target, newest start first). A
-    ``DISTINCT ON (target)`` would read and sort every Datamart run (on a year of runs: 30 ms, not 1)."""
+    ``DISTINCT ON (target)`` would read and sort every Datamart run (on a year of runs: 30 ms, not 1).
+    ``finished``: the latest run that is not running (a dataset being synced keeps its last state)."""
     table = connection.ops.quote_name(SyncRun._meta.db_table)
+    params = [list(names), SyncRun.Job.ETOOLS_DATAMART.value]
+    not_running = ""
+    if finished:
+        not_running = "AND s.status <> %s "
+        params.append(SyncRun.Status.RUNNING.value)
     latest = (
         "SELECT r.* FROM unnest(%s::text[]) AS t(target) CROSS JOIN LATERAL ("  # noqa: S608 - the model's table
-        f"SELECT s.* FROM {table} s WHERE s.job = %s AND s.target = t.target "
+        f"SELECT s.* FROM {table} s WHERE s.job = %s AND s.target = t.target {not_running}"
         "ORDER BY s.started_at DESC, s.id DESC LIMIT 1) r"
     )
-    runs = SyncRun.objects.raw(latest, [list(names), SyncRun.Job.ETOOLS_DATAMART.value])
+    runs = SyncRun.objects.raw(latest, params)
     return {run.target: run for run in runs}
+
+
+@dataclass(frozen=True)
+class DatamartSyncState:
+    """The eTools Datamart sync dataset by dataset: ``sync_all`` writes one run per dataset and goes on after
+    a failed one, so the job's latest run is only the last dataset of the order (``datamart_etl_status``).
+    Every reader of the job as a whole (Needs attention and NeuroDB Watch, the admin home's Data jobs, the
+    Scheduled jobs list, the help chat, Data health's job card) reads this instead."""
+
+    runs: dict[str, SyncRun]  # each dataset of ENTITY_SYNCS -> its latest finished run, in sync order
+    failed: tuple[str, ...] = ()  # datasets whose latest finished run failed, the diagnostic ones left out
+    diagnostic_failed: tuple[str, ...] = ()  # the same for the diagnostic ones (catalogue.DIAGNOSTIC)
+    counted: int = 0  # the datasets with a finished run, the diagnostic ones left out
+
+    @property
+    def status(self) -> str:
+        """Succeeded, partial (some datasets failed) or failed (every one counted failed); "" without runs."""
+        if not self.runs:
+            return ""
+        if not self.failed:
+            return SyncRun.Status.SUCCEEDED
+        return SyncRun.Status.FAILED if len(self.failed) == self.counted else SyncRun.Status.PARTIAL
+
+    @property
+    def label(self) -> str:
+        """The status in words: Succeeded, "2 datasets failed" or Failed."""
+        if self.status == SyncRun.Status.PARTIAL:
+            n = len(self.failed)
+            return ngettext("%(n)s dataset failed", "%(n)s datasets failed", n) % {"n": n}
+        return str(SyncRun.Status(self.status).label) if self.status else ""
+
+
+def datamart_sync_state() -> DatamartSyncState:
+    """The eTools Datamart sync as its datasets: the latest finished run of each (one query), which failed,
+    and which of those are diagnostic. A dataset not synced again keeps its last state; a dataset dropped
+    from the sync is left out."""
+    from neurodb.datamart.catalogue import DIAGNOSTIC
+    from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
+
+    latest = latest_datamart_runs(ENTITY_SYNCS, finished=True)
+    runs = {name: latest[name] for name in ENTITY_SYNCS if name in latest}
+    failed = [name for name, run in runs.items() if run.status == SyncRun.Status.FAILED]
+    return DatamartSyncState(
+        runs=runs,
+        failed=tuple(name for name in failed if name not in DIAGNOSTIC),
+        diagnostic_failed=tuple(name for name in failed if name in DIAGNOSTIC),
+        counted=sum(1 for name in runs if name not in DIAGNOSTIC),
+    )
 
 
 def _dataset_rows(name: str) -> int | None:
@@ -532,7 +591,10 @@ def dataset_row_counts() -> dict[str, int | None]:
 
 def datamart_quality() -> list[dict[str, Any]]:
     """Per eTools Datamart dataset: the last run, what it read, wrote, failed to link, and how many
-    rows NeuroDB holds — the table to read before believing a number on an eTools page."""
+    rows NeuroDB holds — the table to read before believing a number on an eTools page. A failed run's
+    error is shown when it lists no row errors, and a diagnostic dataset (``catalogue.DIAGNOSTIC``, read by
+    nothing in NeuroDB) is marked as such."""
+    from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
 
     last_by_target = latest_datamart_runs(ENTITY_SYNCS)
@@ -542,6 +604,7 @@ def datamart_quality() -> list[dict[str, Any]]:
         run = last_by_target.get(name)
         details = (run.details or {}) if run else {}
         count = counts[name]
+        failed = run is not None and run.status == SyncRun.Status.FAILED
         not_linked = {NOT_LINKED_LABELS.get(k, k): v for k, v in (details.get("not_linked") or {}).items()}
         rows.append(
             {
@@ -557,9 +620,19 @@ def datamart_quality() -> list[dict[str, Any]]:
                 "other_country_removed": details.get("other_country_removed"),
                 "errors": (details.get("errors") or [])[:3],
                 "relinked": details.get("relinked"),
+                # the run's own error, when it stopped before listing row errors (an HTTP 500 of the Datamart)
+                "error": run.error if failed and not details.get("errors") else "",
+                "diagnostic": name in DIAGNOSTIC,  # nothing in NeuroDB reads it: never an alarm
             }
         )
     return rows
+
+
+def _last_status(job: dict[str, Any]) -> str | None:
+    """The job's latest status; the eTools Datamart sync's read from every dataset's latest finished run."""
+    if job.get("datasets") and job["datasets"].runs:
+        return str(job["datasets"].status)
+    return job["last_run"].status if job["last_run"] else None
 
 
 def health_as_dict(health: dict[str, Any]) -> dict[str, Any]:
@@ -570,7 +643,9 @@ def health_as_dict(health: dict[str, Any]) -> dict[str, Any]:
                 "label": j["label"],
                 "state": j["state"],
                 "last_success": j["last_success"].finished_at.isoformat() if j["last_success"] else None,
-                "last_status": j["last_run"].status if j["last_run"] else None,
+                "last_status": _last_status(j),
+                # the eTools Datamart datasets whose latest finished run failed, the diagnostic ones left out
+                "failed_datasets": list(j["datasets"].failed) if j.get("datasets") else [],
                 "age_hours": j["age_hours"],
             }
             for j in health["jobs"]

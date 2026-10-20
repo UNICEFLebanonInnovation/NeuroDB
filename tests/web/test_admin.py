@@ -251,13 +251,15 @@ def test_needs_attention_shows_the_lines_shared_with_neurodb_watch(client_super)
         started_at=long_ago,
         finished_at=long_ago,
     )
-    SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, status=SyncRun.Status.FAILED, error="boom")
+    SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART, target="partners", status=SyncRun.Status.FAILED, error="boom"
+    )
 
     html = client_super.get(reverse("admin:index")).content.decode()
 
     box = html.split("Needs attention")[1].split("Quick actions")[0]
     assert "NeuroDB Watch has not run for more than 26 hours" in box
-    assert "The last eTools Datamart sync failed." in box
+    assert "eTools Datamart sync: partners failed at its last run (1 of 1 datasets)." in box
     for line in health.warnings():  # the admin home lists exactly the shared lines
         assert escape(line.text) in box
     assert box.count("nd-warnings__icon") == len(health.warnings())

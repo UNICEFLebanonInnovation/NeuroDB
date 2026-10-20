@@ -7,7 +7,8 @@ longer listed the problem was fixed, and its item closes at once: resolved. The 
 about the ActivityInfo import (its set-up lines, its failed or partial runs:
 :func:`neurodb.web.health.about_activityinfo`) gone because the import is no longer followed (ActivityInfo
 is an archive): its item closes as changed, "no longer followed", never as fixed, since the problem may
-well still be there.
+well still be there. Likewise the eTools Datamart line gone while only a diagnostic dataset still fails
+(``catalogue.DIAGNOSTIC``, shown on Data health, never an alarm): its item closes as changed, not fixed.
 
 "NeuroDB Watch has not run for 26 hours" is not raised by the morning pass: that pass is the run it
 asks for (a quick pass still raises it, as the morning run is still missing). Nor does the morning pass
@@ -50,6 +51,10 @@ DETAIL = (
 )
 FIXED = "fixed: no longer listed under Needs attention"
 NOT_FOLLOWED = "ActivityInfo is an archive: its import is no longer followed"
+ONLY_DIAGNOSTIC = (
+    "only a diagnostic eTools Datamart dataset still fails: shown on Data health, no longer an alarm"
+)
+DATAMART_LINE = "job_failed:etools_datamart"
 FIXED_BY_THE_MORNING_PASS = frozenset({"watch_not_run"})
 
 
@@ -108,8 +113,11 @@ def run(ctx: Context) -> list[Candidate]:
 
 def resolved(ctx: Context, open_items) -> dict[str, Close]:
     """The items whose line is gone, closed at once: fixed; or, for a line about the ActivityInfo import
-    while it is no longer followed, no longer followed (it may still fail: nobody is told any more)."""
+    while it is no longer followed, no longer followed (it may still fail: nobody is told any more); or, for
+    the eTools Datamart line while only a diagnostic dataset still fails, changed (it is no longer an alarm,
+    but it was not fixed)."""
     from neurodb.indicators.services import activityinfo
+    from neurodb.reports.services import datamart_sync_state
 
     current = lines(ctx)
     closes: dict[str, Close] = {}
@@ -119,6 +127,8 @@ def resolved(ctx: Context, open_items) -> dict[str, Close]:
         line_key = item.key.removeprefix(PREFIX)
         if health.about_activityinfo(line_key) and not ctx.memo("activityinfo_watched", activityinfo.watched):
             closes[item.key] = Close(NOT_FOLLOWED, kind=CHANGED)
+        elif line_key == DATAMART_LINE and ctx.memo("datamart_state", datamart_sync_state).diagnostic_failed:
+            closes[item.key] = Close(ONLY_DIAGNOSTIC, kind=CHANGED)  # the line is gone: nothing else fails
         else:
             closes[item.key] = Close(FIXED, kind=RESOLVED)
     return closes

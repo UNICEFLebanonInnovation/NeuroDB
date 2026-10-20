@@ -307,6 +307,13 @@ DOCUMENTS: dict[str, Source] = {
     ),
 }
 
+# ---- diagnostic datasets: the Datamart's own monitoring, read by no page, figure, check or other sync (only
+# Ask NeuroDB's generic eTools tools and the read-only lists). One that fails is shown where each dataset is
+# shown (Data health's datasets table, the run list and its run page), never raised as an alarm (Needs
+# attention and NeuroDB Watch: neurodb.web.health; the daily review's sync failures: review.checks).
+# workspaces stays out: its endpoint is also the live business-area lookup of the PRP datasets.
+DIAGNOSTIC = frozenset({"datamart_etl_status", "etools_usage"})
+
 # Datasets in their own tables (datamart.models): description for the assistant, model name, main date.
 TYPED: dict[str, tuple[str, str, str]] = {
     "funds_reservations": (

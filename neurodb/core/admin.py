@@ -65,25 +65,77 @@ SOURCES = {
     SyncRun.Job.LOCATIONS: "eTools",
     SyncRun.Job.PARTNER_LINKS: "eTools",
 }
-UNAVAILABLE = re.compile(r"\b(?:HTTP|returned) (?:5\d\d|429)\b")
-REFUSED = re.compile(r"\b(?:HTTP|returned) (?:401|403)\b")
+# The HTTP status the saved error names ("... HTTP 500 Internal Server Error", "... returned 503"): a run
+# keeps only its error's text, so the status is read back from it.
+HTTP_STATUS = re.compile(r"\b(?:HTTP|returned) (\d{3})\b")
 UNREACHABLE = re.compile(r"Timeout|ConnectionError|SSLError|timed out", re.IGNORECASE)
 
 
 def error_hint(run: SyncRun) -> str:
-    """What a known error means for the administrator, or "" when the raw error is all we know."""
+    """What a known error means for the administrator, or "" when the raw error is all we know. A 502, 503
+    or 504 is the service being unavailable; any other 5xx is an error inside the service for this one
+    request (NeuroDB asks again on 429 and 5xx before it gives up); a 429 is too many requests."""
     error = run.error or ""
     source = SOURCES.get(run.job) or _("The data source")
-    if UNAVAILABLE.search(error):
+    found = HTTP_STATUS.search(error)
+    status = int(found.group(1)) if found else None
+    if status in (502, 503, 504):
         return _("%(source)s was unavailable: try again later.") % {"source": source}
+    if status == 429:
+        return _("%(source)s refused more requests for now (too many in a short time): try again later.") % {
+            "source": source
+        }
+    if status and 500 <= status < 600:
+        return _(
+            "%(source)s answered with a server error (HTTP %(status)s), even after NeuroDB asked again: the "
+            "fault is on its side, and it usually passes by the next run."
+        ) % {"source": source, "status": status}
     if UNREACHABLE.search(error):
         return _("%(source)s did not answer in time: try again later.") % {"source": source}
-    if REFUSED.search(error):
+    if status in (401, 403):
         return _(
             "%(source)s refused NeuroDB's credentials: they may have expired. Ask the team that runs "
             "NeuroDB's hosting to renew them."
         ) % {"source": source}
     return ""
+
+
+def dataset_note(run: SyncRun) -> str:
+    """The run page only (too long for the list): a failed eTools Datamart dataset is its own run. Says that
+    only this dataset stopped, whether anything in NeuroDB reads it, and how to sync it alone; "" for any
+    other run, and for a run cut off by a restart (the whole sync stopped then)."""
+    from neurodb.datamart.catalogue import DIAGNOSTIC
+    from neurodb.integrations.background import CUT_OFF
+    from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
+
+    if (
+        run.job != SyncRun.Job.ETOOLS_DATAMART
+        or run.status != SyncRun.Status.FAILED
+        or run.target not in ENTITY_SYNCS
+        or run.error == CUT_OFF
+    ):
+        return ""
+    values = {"dataset": run.target}
+    parts = [
+        _(
+            "Only this dataset (%(dataset)s) stopped: each eTools Datamart dataset is its own run, and the "
+            "sync went on with the next one."
+        )
+        % values
+    ]
+    if run.target in DIAGNOSTIC:
+        parts.append(
+            _("Nothing in NeuroDB reads this dataset: no page or figure is affected, and it raises no alarm.")
+        )
+    parts.append(
+        _(
+            "The next sync tries it again. To sync it alone now: Sync this dataset again above, or Sync "
+            "eTools Datamart now on the list of runs, then “Only the datasets ticked below”, and tick "
+            "%(dataset)s."
+        )
+        % values
+    )
+    return " ".join(str(part) for part in parts)
 
 
 class ReloadPopulationForm(BaseDialogForm):
@@ -145,7 +197,7 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
     # "Sync eTools Datamart now" (the nightly sync) stays a button of its own; every other command
     # an operator may need is in the "Run a job" menu (admin_jobs.py).
     actions_list = ["sync_etools_datamart", JobActionsMixin.JOB_MENU]
-    actions_detail = ["stop_run"]
+    actions_detail = ["stop_run", "sync_dataset_again"]
     list_before_template = "admin/core/syncrun/etools_syncs.html"
 
     list_display = (
@@ -176,7 +228,7 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
 
     @admin.display(description=_("What the error means"))
     def error_meaning(self, obj):
-        return error_hint(obj) or "—"
+        return " ".join(filter(None, (str(error_hint(obj)), dataset_note(obj)))) or "—"
 
     @admin.display(description=_("Status"), ordering="status")
     def status_badge(self, obj):
@@ -228,6 +280,23 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
     def has_stop_run_permission(self, request, object_id=None):
         return self.has_run_sync_permission(request)
 
+    def has_sync_dataset_again_permission(self, request, object_id=None):
+        """An administrator, on the page of a finished eTools Datamart run of a dataset the sync still has
+        (Unfold asks both when it draws the button and when it is posted)."""
+        if not self.has_run_sync_permission(request):
+            return False
+        if object_id is None:
+            return True
+        from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
+
+        run = SyncRun.objects.filter(pk=object_id).first()
+        return bool(
+            run
+            and run.job == SyncRun.Job.ETOOLS_DATAMART
+            and run.target in ENTITY_SYNCS
+            and run.status != SyncRun.Status.RUNNING
+        )
+
     @action(
         description=_("Stop"),
         url_path="stop",
@@ -274,41 +343,65 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
         },
     )
     def sync_etools_datamart(self, request, form):
-        from neurodb.integrations import background
-        from neurodb.integrations.etools.datamart import configured
+        return _start_datamart(request, form.only())
 
-        if not configured():
-            messages.error(
+    @action(
+        description=_("Sync this dataset again"),
+        url_path="sync-dataset-again",
+        permissions=["sync_dataset_again"],
+        icon="sync",
+        dialog={
+            "title": _("Sync this dataset again"),
+            "description": _(
+                "Runs the eTools Datamart sync of this dataset alone, now, in the background; the other "
+                "datasets are left as they are. Its new run appears in the list of runs."
+            ),
+            "form_class": StopRunForm,
+            "form_submit_text": _("Start"),
+        },
+    )
+    def sync_dataset_again(self, request, form, object_id):
+        run = SyncRun.objects.get(pk=object_id)  # the permission check found it
+        return _start_datamart(request, [run.target])
+
+
+def _start_datamart(request, only: list[str] | None):
+    """Start the eTools Datamart sync of ``only`` (``None``: every dataset) in the background, unless its
+    credentials are missing or a sync is running, and go back to the list of runs."""
+    from neurodb.integrations import background
+    from neurodb.integrations.etools.datamart import configured
+
+    if not configured():
+        messages.error(
+            request,
+            _(
+                "The eTools Datamart credentials are not set: add ETOOLS_USERNAME and ETOOLS_PASSWORD "
+                "to the application settings (Key Vault secrets etools-username and etools-password)."
+            ),
+        )
+    elif background.is_running(SyncRun.Job.ETOOLS_DATAMART):
+        messages.warning(request, _("An eTools Datamart sync is already running."))
+    else:
+        args = ["sync_etools_datamart", "--triggered-by", request.user.get_username()]
+        if only is not None:
+            args += ["--only", ",".join(only)]
+        background.start_command(*args)
+        if background.datamart_cleanup_is_running():  # the sync waits for it (same lock)
+            messages.info(
                 request,
                 _(
-                    "The eTools Datamart credentials are not set: add ETOOLS_USERNAME and ETOOLS_PASSWORD "
-                    "to the application settings (Key Vault secrets etools-username and etools-password)."
+                    "The eTools update clean-up is running: the sync starts as soon as it has "
+                    "finished. Refresh this page to follow it."
                 ),
             )
-        elif background.is_running(SyncRun.Job.ETOOLS_DATAMART):
-            messages.warning(request, _("An eTools Datamart sync is already running."))
         else:
-            args = ["sync_etools_datamart", "--triggered-by", request.user.get_username()]
-            only = form.only()
-            if only is not None:
-                args += ["--only", ",".join(only)]
-            background.start_command(*args)
-            if background.datamart_cleanup_is_running():  # the sync waits for it (same lock)
-                messages.info(
-                    request,
-                    _(
-                        "The eTools update clean-up is running: the sync starts as soon as it has "
-                        "finished. Refresh this page to follow it."
-                    ),
-                )
-            else:
-                messages.success(request, _("eTools Datamart sync started. Refresh this page to follow it."))
-        url = reverse("admin:core_syncrun_changelist")
-        if request.headers.get("HX-Request"):  # the dialog posts with HTMX: redirect the whole page
-            response = HttpResponse(status=204)
-            response["HX-Redirect"] = url
-            return response
-        return redirect(url)
+            messages.success(request, _("eTools Datamart sync started. Refresh this page to follow it."))
+    url = reverse("admin:core_syncrun_changelist")
+    if request.headers.get("HX-Request"):  # the dialog posts with HTMX: redirect the whole page
+        response = HttpResponse(status=204)
+        response["HX-Redirect"] = url
+        return response
+    return redirect(url)
 
 
 @admin.register(ActivityInfoSetting)
@@ -574,12 +667,19 @@ class ScheduledJobAdmin(ModelAdmin):
             text = None
             if run:
                 url = reverse("admin:core_syncrun_change", args=[run.pk])
-                text = format_html(
-                    '<a href="{}">{}</a> {}',
-                    url,
-                    badge(run.get_status_display()),
-                    naturaltime(run.started_at),
-                )
+                label = badge(run.get_status_display())
+                if run.job == SyncRun.Job.ETOOLS_DATAMART and run.status != SyncRun.Status.RUNNING:
+                    # one run per dataset: the latest is only the last dataset of the order; read them all
+                    from neurodb.reports.services import datamart_sync_state
+
+                    state = datamart_sync_state()
+                    if state.runs:
+                        tone = {"succeeded": "ok", "partial": "warn", "failed": "bad"}[state.status]
+                        label = badge(state.label, tone)
+                        url = reverse("admin:core_syncrun_changelist") + "?job__exact=etools_datamart"
+                        if state.failed:
+                            url += "&status__exact=failed"
+                text = format_html('<a href="{}">{}</a> {}', url, label, naturaltime(run.started_at))
         if text is None:
             text = badge(_("Never run"), "muted")
         # The scheduler's own note, only when it could not start the job (it says "started" otherwise).

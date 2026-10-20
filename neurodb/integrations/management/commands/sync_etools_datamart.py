@@ -2,7 +2,8 @@
 
 After the sync (and its lock) is done, the partners are linked to ActivityInfo, and Monitoring insights
 rebuilds its visits when a dataset it reads was synced (``FMM_REFRESH_AFTER_SYNC``). That refresh is
-its own run: its failure never fails this command.
+its own run: its failure never fails this command, and neither does a failed diagnostic dataset
+(``catalogue.DIAGNOSTIC``, read by nothing in NeuroDB: its run says it failed).
 
 One sync runs at a time (the Datamart lock): a second one does nothing. The eTools update clean-up
 (``datamart_backfill``, after a deployment) holds the same lock; a sync started meanwhile waits for it
@@ -18,6 +19,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
+from neurodb.datamart.catalogue import DIAGNOSTIC
 from neurodb.integrations import background
 from neurodb.integrations.background import DATAMART_LOCK_ID as LOCK_ID
 from neurodb.integrations.etools.datamart import DatamartNotConfigured
@@ -72,7 +74,8 @@ class Command(BaseCommand):
             runs.append(link_activityinfo_partners(triggered_by=options["triggered_by"]))
         fmm_run = self._monitoring_insights(runs, options["triggered_by"])
         write_summary(self, runs + ([fmm_run] if fmm_run else []))
-        exit_on_failure(runs)  # not the Monitoring insights run: its failure never fails the sync
+        # not the Monitoring insights run (its failure never fails the sync), nor a diagnostic dataset's
+        exit_on_failure([run for run in runs if run.target not in DIAGNOSTIC])
 
     def _monitoring_insights(self, runs, triggered_by: str):
         """Rebuild the Monitoring insights visits when a dataset they read was synced (the Datamart lock

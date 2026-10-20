@@ -12,7 +12,9 @@ the watch follows it as the item ``system:<key>`` and closes it once the line go
   users without a role;
 - **jobs**: the last run of a job failed or lost rows. A Compiler job counts only while a switched-on
   schedule runs it: the Compiler reads are off by default, and a trial run that failed should not
-  stay listed. The ActivityInfo imports count only while their import is followed;
+  stay listed. The ActivityInfo imports count only while their import is followed. The eTools Datamart
+  sync writes one run per dataset, so it is read dataset by dataset: the line names the datasets whose
+  own latest finished run failed, the diagnostic ones (``catalogue.DIAGNOSTIC``) left out;
 - **the schedule**: the scheduler not checking in, a switched-on job overdue or never run, no daily
   review since yesterday;
 - **NeuroDB Watch**: no successful morning run for 26 hours, its AI paused, eTools section names
@@ -226,7 +228,8 @@ def _jobs() -> list[Warning]:
     """A job whose last run failed or lost rows. A Compiler job counts only while a switched-on
     schedule runs it; the ActivityInfo imports only while their import is followed (an archive's
     import is nobody's alarm: their ``system:`` items close); a run of the eTools reporting checks only
-    when it failed (a check that could not finish is said on their page)."""
+    when it failed (a check that could not finish is said on their page); the eTools Datamart sync
+    dataset by dataset (:func:`_datamart`)."""
     from neurodb.core.jobs import COMMANDS, PARTIAL_IS_NOT_AN_ALARM
     from neurodb.core.models import ScheduledJob, SyncRun
     from neurodb.indicators.services import activityinfo
@@ -237,6 +240,9 @@ def _jobs() -> list[Warning]:
     lines = []
     for job, label in SyncRun.Job.choices:
         if (job in SCHEDULED_ONLY and job not in scheduled) or job in skipped:
+            continue
+        if job == SyncRun.Job.ETOOLS_DATAMART:
+            lines.extend(_datamart(label))  # one run per dataset: read dataset by dataset
             continue
         # the latest finished run: a run still going (NeuroDB Watch's own, while it checks this) says
         # nothing yet
@@ -270,6 +276,47 @@ def _jobs() -> list[Warning]:
             )
         )
     return lines
+
+
+def _datamart(label) -> list[Warning]:
+    """The eTools Datamart datasets whose own latest finished run failed, by name: one failed dataset is
+    never the whole sync, a failure stays listed while later datasets succeed, and it goes only once that
+    dataset itself succeeds. The diagnostic datasets (``catalogue.DIAGNOSTIC``) are left out: shown on Data
+    health and the run list, never an alarm. No line for rows that failed: the daily review's data quality
+    check and Data health's datasets table name them per dataset."""
+    from neurodb.reports.services import datamart_sync_state
+
+    state = datamart_sync_state()
+    if not state.failed:
+        return []
+    runs = [state.runs[name] for name in state.failed]
+    newest, n = max(runs, key=lambda run: (run.started_at, run.pk)), len(runs)
+    if n == state.counted and n > 1:
+        text = _("eTools Datamart sync: every dataset failed at its last run (%(n)s datasets).") % {"n": n}
+    else:
+        names = ", ".join(state.failed[:NAMES_SHOWN])
+        if n > NAMES_SHOWN:
+            names += " " + _("and %(n)s more") % {"n": n - NAMES_SHOWN}
+        text = ngettext(
+            "eTools Datamart sync: %(names)s failed at its last run (%(n)s of %(total)s datasets).",
+            "eTools Datamart sync: %(names)s failed at their last run (%(n)s of %(total)s datasets).",
+            n,
+        ) % {"names": names, "n": n, "total": state.counted}
+    if n == 1:
+        url = reverse("admin:core_syncrun_change", args=[newest.pk])
+    else:
+        url = _admin_url("core_syncrun") + "?job__exact=etools_datamart&status__exact=failed"
+    return [
+        Warning(
+            key="job_failed:etools_datamart",
+            text=text,
+            url=url,
+            read=_("Latest run of each dataset of the %(job)s") % {"job": label},
+            on=timezone.localdate(newest.started_at),
+            value=n,
+            numbers={"run": newest.pk, "datasets_failed": n},
+        )
+    ]
 
 
 # ---------------------------------------------------------------------------- the schedule

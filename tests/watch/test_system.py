@@ -68,7 +68,7 @@ def test_all_well_means_no_line_and_no_item_and_the_check_is_on_from_the_start(h
 
 
 def test_a_failed_datamart_run_is_one_item_with_the_same_key_across_two_runs(healthy):
-    run = ran(DATAMART, FAILED, NOW - 3 * HOUR, error="boom")
+    run = ran(DATAMART, FAILED, NOW - 3 * HOUR, target="partners", error="boom")
 
     first = check()
     second = check(minutes=2)
@@ -77,24 +77,42 @@ def test_a_failed_datamart_run_is_one_item_with_the_same_key_across_two_runs(hea
     (item,) = items().values()
     assert item.key == "system:job_failed:etools_datamart"
     assert (item.kind, item.severity, item.scope, item.state) == (SYSTEM, WARNING, ADMINS, "open")
-    assert item.title == "The last eTools Datamart sync failed."
+    assert item.title == "eTools Datamart sync: partners failed at its last run (1 of 1 datasets)."
     assert item.url.endswith(f"/core/syncrun/{run.pk}/change/")
     (found,) = item.evidence["records"]
-    assert found["label"] == "Last run of the eTools Datamart sync" and found["value"] == "Failed"
+    assert found["label"] == "Latest run of each dataset of the eTools Datamart sync" and found["value"] == 1
     assert found["date"] == "2026-10-05" and item.evidence["numbers"]["run"] == run.pk
     assert [line["text"] for line in item.story] == ["First noticed"]
 
 
 def test_the_item_closes_at_once_when_the_line_is_gone(healthy):
-    ran(DATAMART, FAILED, NOW - 3 * HOUR)
+    ran(DATAMART, FAILED, NOW - 3 * HOUR, target="partners")
     check()
-    ran(DATAMART, SUCCEEDED, NOW - HOUR)
+    ran(DATAMART, SUCCEEDED, NOW - HOUR, target="partners")
 
     outcome = check(minutes=2, mode=QUICK)  # positive evidence: even a quick pass closes it
 
     item = items()["system:job_failed:etools_datamart"]
     assert outcome.closed == [item.key] and item.state == "closed"
     assert item.close_reason == system.FIXED
+
+
+def test_the_datamart_item_closes_as_changed_while_only_a_diagnostic_dataset_still_fails(healthy):
+    """The Datamart's table-refresh log (catalogue.DIAGNOSTIC) failing is no alarm, but it was not fixed: the item
+    opened for a real dataset closes as changed when that dataset succeeds while the log still fails."""
+    ran(DATAMART, FAILED, NOW - 3 * HOUR, target="partners")
+    check()
+    ran(DATAMART, SUCCEEDED, NOW - 2 * HOUR, target="partners")
+    ran(DATAMART, FAILED, NOW - HOUR, target="datamart_etl_status", error="HTTP 500 Internal Server Error")
+
+    outcome = check(minutes=2, mode=QUICK)
+
+    item = items()["system:job_failed:etools_datamart"]
+    assert outcome.closed == [item.key] and item.state == "closed"
+    assert (item.close_reason, item.close_kind) == (system.ONLY_DIAGNOSTIC, WatchItem.CloseKind.CHANGED)
+    assert system.ONLY_DIAGNOSTIC == (
+        "only a diagnostic eTools Datamart dataset still fails: shown on Data health, no longer an alarm"
+    )
 
 
 def test_a_partial_run_has_its_own_key(healthy):
@@ -264,7 +282,7 @@ def test_lines_without_a_watch_state_create_none(healthy):
 
 def test_the_keys_are_stable_and_unique(db, settings, activityinfo_in_use):
     settings.SCHEDULER_ENABLED = True
-    ran(DATAMART, FAILED, NOW - HOUR)
+    ran(DATAMART, FAILED, NOW - HOUR, target="partners")
     ran(SyncRun.Job.ETOOLS, SyncRun.Status.PARTIAL, NOW - HOUR, rows_failed=3)
     first = [line.key for line in health.warnings(NOW)]
     second = [line.key for line in health.warnings(NOW + datetime.timedelta(minutes=10))]

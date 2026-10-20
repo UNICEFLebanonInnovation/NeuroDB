@@ -784,7 +784,8 @@ the browser: it starts every switched-on job whose time has passed; the banner n
 `SUPPORT_EMAIL`, when set, as the contact for a restart. The admin home's *Needs attention* lists a
 silent scheduler, overdue or never-run jobs, runs that failed or succeeded with errors (a Compiler
 job only while its schedule is switched on; the eTools reporting checks only a run that failed, since a
-check that could not finish is said on their page), and a missing daily review. NeuroDB Watch tells the
+check that could not finish is said on their page; the eTools Datamart sync dataset by dataset, see
+eTools Datamart, *One failed dataset is not the whole sync*), and a missing daily review. NeuroDB Watch tells the
 administrators the same lines on their *For you* page, and closes each one once it is no longer
 listed (`neurodb/web/health.py` builds the list for both). A due job starts within a minute, in the
 background, as the admin buttons do, and appears in *Import and sync runs* with *schedule* as its
@@ -1277,6 +1278,30 @@ restarts the container and kills a sync in progress: its run stays *Running* unt
 **Sync eTools Datamart now**, which sees that nobody holds the lock, closes the run as *Failed* ("Cut off")
 and starts. The scheduled job `etools-datamart` (admin → Scheduled jobs) runs it every night.
 From a shell with the same settings: `python manage.py sync_etools_datamart [--only a,b]`.
+
+**One failed dataset is not the whole sync.** Each dataset is its own run in *Import and sync runs*, and
+a dataset that fails does not stop the next one: its last good rows stay as they were. NeuroDB therefore
+reads the sync dataset by dataset, from the latest finished run of each. *Needs attention* and NeuroDB
+Watch name the datasets whose own latest run failed ("eTools Datamart sync: partners failed at its last
+run (1 of 50 datasets)."; past three names, "… and 2 more"; "every dataset failed at its last run" only
+when all of them did), and the line goes, and the Watch point closes, only once that dataset itself
+succeeds again: another dataset succeeding later does not clear it. The admin home's *Data jobs*, the
+*Last run* column of *Scheduled jobs*, the help chat and the Data health job card read the same:
+*Succeeded*, *2 datasets failed* or *Failed* (every dataset). `datamart_etl_status` (the Datamart's own
+table-refresh log) and `etools_usage` (eTools users and logins per month) are **diagnostic**: nothing in
+NeuroDB reads them, only Ask NeuroDB's general eTools look-ups. One that fails is shown on Data health
+(its row in the datasets table, marked "diagnostic: nothing in NeuroDB reads it", with its error; a line
+on the job card) and in the list of runs, but it is never a *Needs attention* line, a Watch point or a
+daily review finding; a Watch point still open for the sync closes as changed ("only a diagnostic eTools
+Datamart dataset still fails"), not as fixed. To sync one dataset again, open its run and press **Sync
+this dataset again**, or press **Sync eTools Datamart now**, choose *Only the datasets ticked below* and
+tick it. The failed run's page says, under *What the error means*, that only this dataset stopped and
+whether anything reads it. The error itself reads: for HTTP 502, 503 or 504, "eTools Datamart was
+unavailable: try again later."; for any other 5xx (a 500 above all), "eTools Datamart answered with a
+server error (HTTP 500), even after NeuroDB asked again: the fault is on its side, and it usually passes
+by the next run." (NeuroDB asks again on 429 and every 5xx before it gives up); for 429, "eTools Datamart
+refused more requests for now (too many in a short time): try again later."; for 401 or 403, that the
+credentials were refused.
 
 **Finish the eTools update.** The work an update leaves for after the site has started runs as the
 job *Finish the eTools update* (`datamart_backfill`, recorded as *eTools update clean-up* in this

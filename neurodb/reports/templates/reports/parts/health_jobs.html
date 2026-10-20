@@ -1,11 +1,14 @@
 {% load i18n ui humanize %}{% comment %}Data health's sync jobs (part "jobs", reports.views.data_health): one card per job, fresh, stale or never
-succeeded, with its last success and, when it differs, its latest run. Context: jobs = services.health_jobs().{% endcomment %}
+succeeded, with its last success and, when it differs, its latest run. The eTools Datamart sync writes one run per
+dataset: its card names the datasets whose latest finished run failed instead (j.datasets, services.datamart_sync_state),
+the diagnostic ones on a line of their own (and its latest run while one is going). Context: jobs = services.health_jobs().{% endcomment %}
 <div class="grid grid--cards">
   {% for j in jobs %}
   <div class="panel">
     <div class="d-flex justify-content-between align-items-start gap-2"><h3 class="panel__title">{{ j.label }}</h3>{% status_pill j.state j.state_label "sm" %}</div>
     <p class="small text-muted mb-1 mt-2">{% if j.last_success %}{% blocktrans with when=j.last_success.finished_at|naturaltime %}Last success {{ when }}{% endblocktrans %}{% else %}{% trans "No successful run recorded." %}{% endif %}</p>
-    {% if j.last_run and j.last_run != j.last_success %}<p class="small mb-0">{% trans "Latest run" %}: {% status_pill j.last_run.status j.last_run.get_status_display "sm" %} {{ j.last_run.started_at|naturaltime }}</p>{% endif %}
+    {% if j.datasets.runs %}{% if j.last_run.status == "running" %}<p class="small mb-0">{% trans "Latest run" %}: {% status_pill j.last_run.status j.last_run.get_status_display "sm" %} {{ j.last_run.started_at|naturaltime }}</p>{% endif %}{% if j.datasets.failed %}<p class="small mb-0">{% status_pill j.datasets.status j.datasets.label "sm" %} {{ j.datasets.failed|join:", " }}</p>{% endif %}{% if j.datasets.diagnostic_failed %}<p class="small text-muted mb-0">{% blocktrans with names=j.datasets.diagnostic_failed|join:", " %}Failing, but nothing in NeuroDB reads it: {{ names }}{% endblocktrans %}</p>{% endif %}
+    {% elif j.last_run and j.last_run != j.last_success %}<p class="small mb-0">{% trans "Latest run" %}: {% status_pill j.last_run.status j.last_run.get_status_display "sm" %} {{ j.last_run.started_at|naturaltime }}</p>{% endif %}
   </div>
   {% endfor %}
 </div>

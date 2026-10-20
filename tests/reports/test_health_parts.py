@@ -438,7 +438,10 @@ def test_without_javascript_the_page_drawn_at_once_is_complete(client_viewer, wo
 # ------------------------------------------------------------------------------------- the eTools Datamart table
 def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
     """``datamart_quality`` as it was before this page loaded in parts (63d9646): every Datamart run read, newest
-    first, and every dataset counted at each call."""
+    first, and every dataset counted at each call; with the two keys added since, a failed run's own error and the
+    diagnostic mark."""
+    from neurodb.datamart.catalogue import DIAGNOSTIC
+
     last_by_target: dict[str, SyncRun] = {}
     for run in SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_DATAMART).order_by("-started_at"):
         last_by_target.setdefault(run.target, run)
@@ -469,6 +472,8 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
                 "other_country_removed": details.get("other_country_removed"),
                 "errors": (details.get("errors") or [])[:3],
                 "relinked": details.get("relinked"),
+                "error": run.error if run and run.status == "failed" and not details.get("errors") else "",
+                "diagnostic": name in DIAGNOSTIC,
             }
         )
     return rows
@@ -639,10 +644,13 @@ def _syncrun_rows_read(sql: str) -> int:
     return read
 
 
-@pytest.mark.parametrize("reader", ["latest_datamart_runs", "_dataset_rows_key"])
+@pytest.mark.parametrize(
+    "reader", ["latest_datamart_runs", "latest_finished_datamart_runs", "_dataset_rows_key"]
+)
 def test_the_latest_runs_are_read_from_the_index_however_many_runs_there_are(world, reader):
     """Both reads run at every visit of the datasets part: each takes the newest run from an index, never reading
-    and sorting every run (a year of Datamart runs is about 19,000)."""
+    and sorting every run (a year of Datamart runs is about 19,000). The latest finished run of each dataset (the
+    sync read dataset by dataset, ``datamart_sync_state``) is read the same way."""
     started = timezone.now() - datetime.timedelta(days=2)
     SyncRun.objects.bulk_create(
         SyncRun(
@@ -657,6 +665,8 @@ def test_the_latest_runs_are_read_from_the_index_however_many_runs_there_are(wor
     with CaptureQueriesContext(connection) as queries:
         if reader == "latest_datamart_runs":
             services.latest_datamart_runs(ENTITY_SYNCS)
+        elif reader == "latest_finished_datamart_runs":
+            services.latest_datamart_runs(ENTITY_SYNCS, finished=True)
         else:
             services._dataset_rows_key()
     [query] = queries.captured_queries
@@ -672,6 +682,63 @@ def test_runs_started_at_the_same_moment_are_told_apart_by_their_id(world):
     assert running.pk > finished.pk
     assert services.latest_datamart_runs(["grants"])["grants"] == running
     assert f"etools_datamart={running.pk}.running.-" in services._dataset_rows_key()
+
+
+def test_finished_runs_skip_a_running_one(world):
+    """A dataset being synced keeps its last finished state (the sync read dataset by dataset)."""
+    moment = timezone.now() + datetime.timedelta(minutes=1)  # after every run of the world
+    finished = SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART, target="grants", started_at=moment, status=SyncRun.Status.FAILED
+    )
+    running = SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART, target="grants", started_at=moment + datetime.timedelta(minutes=1)
+    )
+    assert services.latest_datamart_runs(["grants"])["grants"] == running
+    assert services.latest_datamart_runs(["grants"], finished=True)["grants"] == finished
+    assert services.datamart_sync_state().failed == ("grants",)
+
+
+SERVER_ERROR = (
+    "IntegrationError: GET /api/latest/system/monitor/: HTTP 500 Internal Server Error <!DOCTYPE HTML"
+)
+
+
+def _card(html: str, label: str) -> str:
+    """One job's card in the jobs part."""
+    start = html.index(f'<h3 class="panel__title">{label}</h3>')
+    end = html.find('<div class="panel">', start)
+    return html[start : end if end > 0 else None]
+
+
+def test_a_failed_diagnostic_dataset_is_shown_and_never_called_the_whole_sync(client_viewer, world):
+    """The night's case: the Datamart's own table-refresh log, the last dataset of the order, answered HTTP 500.
+    Its row says why and that nothing reads it; the job card says it apart, with no "Latest run: Failed"; the
+    internal API reads the sync as succeeded. A real dataset failing makes the sync partial, by name."""
+    _run(SyncRun.Job.ETOOLS_DATAMART, "datamart_etl_status", status=SyncRun.Status.FAILED, error=SERVER_ERROR)
+
+    datasets = text(get_part(client_viewer, PAGE, "datasets"))
+    row = _dataset(datasets, "datamart_etl_status")
+    assert "HTTP 500 Internal Server Error" in row and "diagnostic: nothing in NeuroDB reads it" in row
+    assert "diagnostic" not in _dataset(datasets, "partners") and "HTTP 500" not in _dataset(
+        datasets, "grants"
+    )
+    card = _card(text(get_part(client_viewer, PAGE, "jobs")), "eTools Datamart sync")
+    assert "Failing, but nothing in NeuroDB reads it: datamart_etl_status" in card
+    assert "Latest run" not in card and "Failed" not in card
+    datamart = next(
+        j for j in services.health_as_dict(services.data_health())["jobs"] if j["job"] == "etools_datamart"
+    )
+    assert (datamart["last_status"], datamart["failed_datasets"]) == ("succeeded", [])
+
+    _run(SyncRun.Job.ETOOLS_DATAMART, "partners", status=SyncRun.Status.FAILED, error="boom")
+    card = _card(text(get_part(client_viewer, PAGE, "jobs")), "eTools Datamart sync")
+    assert "1 dataset failed" in card and "partners" in card
+    datamart = next(
+        j for j in services.health_as_dict(services.data_health())["jobs"] if j["job"] == "etools_datamart"
+    )
+    assert (datamart["last_status"], datamart["failed_datasets"]) == ("partial", ["partners"])
+    rest = next(j for j in services.health_as_dict(services.data_health())["jobs"] if j["job"] == "etools")
+    assert (rest["last_status"], rest["failed_datasets"]) == ("failed", [])  # other jobs as before
 
 
 # ------------------------------------------------------------------------------------------- fresh after edit

@@ -364,6 +364,38 @@ def test_the_jobs_look_up_names_no_one_and_no_error(viewer):
     assert "someone.named" not in blob and "db-host" not in blob and out["admin_page"] is None
 
 
+def test_the_jobs_look_up_reads_the_datamart_sync_dataset_by_dataset(viewer):
+    """The eTools Datamart sync writes one run per dataset: its last run is only the last dataset of the order
+    (the Datamart's own table-refresh log, which nothing in NeuroDB reads), never the whole sync."""
+    started = timezone.now() - datetime.timedelta(hours=1)
+    night = [("partners", SyncRun.Status.SUCCEEDED), ("grants", SyncRun.Status.SUCCEEDED)]
+    night.append(("datamart_etl_status", SyncRun.Status.FAILED))  # the last dataset of the order
+    for n, (target, status) in enumerate(night):
+        at = started + datetime.timedelta(minutes=n)
+        SyncRun.objects.create(
+            job=SyncRun.Job.ETOOLS_DATAMART,
+            target=target,
+            status=status,
+            started_at=at,
+            finished_at=at,
+            error="HTTP 500 Internal Server Error" if status == SyncRun.Status.FAILED else "",
+        )
+
+    def datamart_last_run():
+        with tools.bind(viewer):
+            out = assistant_tools.run("list_jobs", {}, registry=assistant.REGISTRY)
+        return next(j for j in out["jobs"] if j["job"] == "etools-datamart")["last_run"]
+
+    last = datamart_last_run()
+    assert last["status"] == "Succeeded" and last["datasets_failed"] == []
+    assert last["diagnostic_datasets_failed"] == ["datamart_etl_status"]
+    assert "One run per dataset" in last["note"]
+
+    SyncRun.objects.filter(target="partners").update(status=SyncRun.Status.FAILED)
+    last = datamart_last_run()
+    assert last["status"] == "1 dataset failed" and last["datasets_failed"] == ["partners"]
+
+
 def test_the_guide_look_ups_cite_sections(viewer):
     with tools.bind(viewer):
         found = assistant_tools.run("search_help", {"query": "urgency recency"}, registry=assistant.REGISTRY)

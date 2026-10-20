@@ -531,6 +531,7 @@ def _dashboard(request) -> dict[str, Any]:
     from neurodb.indicators.services import activityinfo
     from neurodb.indicators.services.navigation import current_year
     from neurodb.library.models import Resource
+    from neurodb.reports.services import datamart_sync_state
     from neurodb.web import health
 
     user_model = get_user_model()
@@ -540,11 +541,23 @@ def _dashboard(request) -> dict[str, Any]:
     shown = databases.filter(display=True)
     masters = MasterIndicator.objects.filter(database__in=shown, is_active=True)
 
+    datamart = datamart_sync_state()  # the eTools Datamart sync writes one run per dataset: read them all
     jobs = []
     for job, label in SyncRun.Job.choices:
         last = SyncRun.objects.filter(job=job).order_by("-started_at").first()
         ok = SyncRun.last_success(job)
-        jobs.append({"job": job, "label": label, "last": last, "last_success": ok})
+        entry = {
+            "job": job,
+            "label": label,
+            "last": last,
+            "last_success": ok,
+            "status": last.status if last else "",
+            "status_label": last.get_status_display() if last else "",
+        }
+        finished = last is not None and last.status != SyncRun.Status.RUNNING
+        if job == SyncRun.Job.ETOOLS_DATAMART and finished and datamart.runs:
+            entry.update(status=datamart.status, status_label=datamart.label, datasets=datamart)
+        jobs.append(entry)
 
     # The same lines NeuroDB Watch tells the administrators (web/health.py)
     warnings = health.warnings(now)

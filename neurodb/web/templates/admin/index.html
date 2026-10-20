@@ -82,10 +82,12 @@
                   <td>{% if j.last %}{% blocktrans with since=j.last.started_at|timesince %}{{ since }} ago{% endblocktrans %}{% else %}—{% endif %}</td>
                   <td>
                     {% if j.last %}
-                      {% if j.last.status == "succeeded" %}{% include "unfold/helpers/label.html" with text=j.last.get_status_display variant="success" size="md" class="nd-badge" %}
-                      {% elif j.last.status == "partial" %}{% include "unfold/helpers/label.html" with text=j.last.get_status_display variant="warning" size="md" class="nd-badge" %}
-                      {% elif j.last.status == "failed" %}{% include "unfold/helpers/label.html" with text=j.last.get_status_display variant="danger" size="md" class="nd-badge" %}
-                      {% else %}{% include "unfold/helpers/label.html" with text=j.last.get_status_display variant="info" size="md" class="nd-badge" %}{% endif %}
+                      {% if j.status == "succeeded" %}{% include "unfold/helpers/label.html" with text=j.status_label variant="success" size="md" class="nd-badge" %}
+                      {% elif j.status == "partial" %}{% include "unfold/helpers/label.html" with text=j.status_label variant="warning" size="md" class="nd-badge" %}
+                      {% elif j.status == "failed" %}{% include "unfold/helpers/label.html" with text=j.status_label variant="danger" size="md" class="nd-badge" %}
+                      {% else %}{% include "unfold/helpers/label.html" with text=j.status_label variant="info" size="md" class="nd-badge" %}{% endif %}
+                      {% if j.datasets.failed %}<br><small class="text-subtle">{{ j.datasets.failed|join:", "|truncatechars:80 }}</small>{% endif %}
+                      {% if j.datasets.diagnostic_failed %}<br><small class="text-subtle">{% blocktrans with names=j.datasets.diagnostic_failed|join:", " %}Also failing, nothing in NeuroDB reads it: {{ names }}{% endblocktrans %}</small>{% endif %}
                     {% else %}
                       {% trans "Never run" as never_run %}{% include "unfold/helpers/label.html" with text=never_run size="md" class="nd-badge" %}
                     {% endif %}

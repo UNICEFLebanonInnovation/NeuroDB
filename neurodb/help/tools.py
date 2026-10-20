@@ -452,6 +452,19 @@ def list_jobs() -> dict[str, Any]:
                     "started": run.started_at.isoformat(timespec="minutes"),
                     "finished": run.finished_at.isoformat(timespec="minutes") if run.finished_at else None,
                 }
+                if run.job == SyncRun.Job.ETOOLS_DATAMART and run.status != SyncRun.Status.RUNNING:
+                    # one run per dataset: the latest is only the last dataset of the order; read them all
+                    from neurodb.reports.services import datamart_sync_state
+
+                    state = datamart_sync_state()
+                    last["status"] = str(state.label) or last["status"]
+                    last["datasets_failed"] = list(state.failed)
+                    last["diagnostic_datasets_failed"] = list(state.diagnostic_failed)
+                    last["note"] = (
+                        "One run per dataset: started and finished are those of the last dataset synced. "
+                        "The status reads every dataset's latest run; a diagnostic dataset (nothing in "
+                        "NeuroDB reads it) is never counted as a failure."
+                    )
         jobs.append(
             {
                 "job": job.key,
