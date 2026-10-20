@@ -258,6 +258,7 @@ QUICK_MIGRATIONS = {
     ("core", "0024_doc_review", "create"),
     ("core", "0025_etools_update_cleanup", "schedule"),
     ("core", "0029_reporting_checks_job", "create"),
+    ("core", "0031_etools_masters_job", "create"),
     # rules, prompts and topics shipped with the code
     ("fmm", "0004_rule_defaults", "seed"),
     ("fmm", "0006_prompt_defaults", "seed"),
@@ -282,6 +283,9 @@ QUICK_MIGRATIONS = {
     # the sections' comments on the HACT visit plan: a new, empty table (CreateModel only, no code runs;
     # listed so that every migration of the HACT visit plan is accounted for here)
     ("datamart", "0014_visit_plan_comment", "CreateModel"),
+    # the eTools master indicators, their years and their PD indicators: three new, empty tables (CreateModel
+    # only, no code runs; listed so that the migration is accounted for here)
+    ("datamart", "0016_etools_masters", "CreateModel"),
     # whether ActivityInfo is in use or an archive: a new, empty table of one row (CreateModel only, no code
     # runs; listed so that the migration is accounted for here)
     ("core", "0028_activityinfo_setting", "CreateModel"),

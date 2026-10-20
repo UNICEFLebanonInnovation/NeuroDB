@@ -849,3 +849,215 @@ class RecordPeople(models.Model):
 
     def __str__(self):
         return f"{len(self.names)} names, read {self.read_at:%Y-%m-%d %H:%M}"
+
+
+class EtoolsMaster(models.Model):
+    """A section's master indicator over the partners' eTools PD indicators, like an ActivityInfo master
+    indicator: one figure a year, combined from its sub-indicators (:class:`EtoolsMasterLink`, one PD
+    indicator each) by its method, by :func:`neurodb.datamart.masters.figures` when a page is read (no
+    figure is stored).
+
+    Only confirmed links count: a link NeuroDB suggests is listed, never added. The master has no year: each
+    year's code and target are an :class:`EtoolsMasterYear`, so links of a PD that runs several years carry on
+    by themselves. Kept across syncs, as the indicator flags: links name a PD indicator by its PD and its
+    identity, never by a Datamart row.
+
+    ``updated_by`` is for the admin only: never shown on a page, exported or sent to the AI."""
+
+    class Method(models.TextChoices):
+        SUM = "sum", "Sum"
+        PERCENT = "percent", "Percentage (numerators over denominators)"
+        RATIO = "ratio", "Ratio (numerators over denominators)"
+        AVERAGE = "average", "Average"
+        MAXIMUM = "maximum", "Maximum"
+        MINIMUM = "minimum", "Minimum"
+
+    class Status(models.TextChoices):
+        PROPOSED = "proposed", "Proposed"
+        ACTIVE = "active", "Active"
+        DISMISSED = "dismissed", "Dismissed"
+        ARCHIVED = "archived", "Archived"
+
+    class Origin(models.TextChoices):
+        MANUAL = "manual", "Made by hand"
+        PROPOSED = "proposed", "Proposed by NeuroDB"
+        ACTIVITYINFO = "activityinfo", "From an ActivityInfo master indicator"
+
+    section = models.CharField(max_length=128, help_text="the eTools section name, as on the PD indicators")
+    name = models.CharField(max_length=500)
+    unit = models.CharField(max_length=64, blank=True, help_text="shown next to the figures (a label only)")
+    cp_output = models.CharField(
+        "CP output", max_length=500, blank=True, help_text="the country programme output it is listed under"
+    )
+    keywords = models.CharField(
+        max_length=500, blank=True, help_text="more words that help NeuroDB suggest PD indicators for it"
+    )
+    method = models.CharField(max_length=16, choices=Method.choices, default=Method.SUM)
+    pd_parts_add_up = models.BooleanField(
+        "parts of one PD add up",
+        default=False,
+        help_text=(
+            "several indicators of one programme document count different people, so their figures are "
+            "added; otherwise only the programme document's largest one counts"
+        ),
+    )
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE, db_index=True)
+    origin = models.CharField(max_length=16, choices=Origin.choices, default=Origin.MANUAL)
+    proposal_key = models.CharField(
+        max_length=40,
+        blank=True,
+        db_index=True,
+        help_text="the structure key it was proposed from (a key any master holds is never proposed again)",
+    )
+    # the ActivityInfo master indicator it was made from (no foreign key: the archive is read-only)
+    activityinfo_master_id = models.PositiveIntegerField(
+        "ActivityInfo master indicator", null=True, blank=True
+    )
+    sequence = models.PositiveSmallIntegerField(default=0, help_text="its place in its section")
+    note = models.CharField(max_length=500, blank=True)
+    updated_by = models.CharField(max_length=150, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["section", "name"],
+                condition=models.Q(status__in=["active", "archived"]),
+                name="datamart_etoolsmaster_section_name",
+                violation_error_message="This section already has a master indicator with this name.",
+            )
+        ]
+        ordering = ("section", "sequence", "name")
+        verbose_name = "master indicator (eTools)"
+        verbose_name_plural = "master indicators (eTools)"
+
+    def __str__(self):
+        return f"{self.section}: {self.name}"
+
+    def clean(self):
+        from . import masters
+
+        masters.check_master(self)
+
+
+class EtoolsMasterYear(models.Model):
+    """A master indicator's settings for one calendar year: its AWP/RWP code and the yearly target staff type.
+    The status is measured against this target alone ("No target" until it is typed); the programme documents'
+    own targets are shown for reference only. ``updated_by`` is for the admin only."""
+
+    master = models.ForeignKey(EtoolsMaster, on_delete=models.CASCADE, related_name="years")
+    year = models.PositiveSmallIntegerField(help_text="the calendar year")
+    code = models.CharField(max_length=32, blank=True, help_text="the AWP/RWP code")
+    target = models.FloatField(
+        null=True, blank=True, help_text="the year's target (AWP/RWP figure) the status is measured against"
+    )
+    is_active = models.BooleanField(
+        "shown this year", default=True, help_text="untick to leave the master out of this year"
+    )
+    note = models.CharField(max_length=500, blank=True)
+    updated_by = models.CharField(max_length=150, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["master", "year"], name="datamart_etoolsmasteryear_master_year")
+        ]
+        ordering = ("master", "year")
+        verbose_name = "master indicator year (eTools)"
+        verbose_name_plural = "master indicator years (eTools)"
+
+    def __str__(self):
+        return f"{self.year}: {self.code or 'no code'}"
+
+
+class EtoolsMasterLink(models.Model):
+    """One partner's PD indicator in a master indicator (a sub-indicator), and what it counts as there, the
+    ActivityInfo way: in the total, a numerator, a denominator, or shown only (never counted).
+
+    The indicator is named by its programme document and its identity there (``ident``,
+    :func:`neurodb.datamart.masters.ident_code`: its eTools id, else a hash of its title), never by the page's
+    key, so the Datamart sync, which rewrites the indicator rows, never loses it. ``title``, ``pd_number``
+    and ``unit_class`` are what the indicator was when linked: an indicator no longer in eTools, or of
+    another type since, is labelled and not counted until someone confirms it again.
+
+    A PD indicator counts in one total at most (``one_total_home``); it may still be shown, or be a numerator
+    or a denominator, in another master. ``confirmed_by`` is for the admin only: never shown on a page,
+    exported or sent to the AI."""
+
+    class Role(models.TextChoices):
+        TOTAL = "total", "In the total"
+        NUMERATOR = "numerator", "Numerator"
+        DENOMINATOR = "denominator", "Denominator"
+        SHOWN = "shown", "Shown only"
+
+    class Status(models.TextChoices):
+        SUGGESTED = "suggested", "Suggested"
+        CONFIRMED = "confirmed", "Confirmed"
+        REJECTED = "rejected", "Rejected"
+
+    class UnitClass(models.TextChoices):
+        NUMBER = "number", "Number"
+        PERCENTAGE = "percentage", "Percentage"
+        RATIO = "ratio", "Ratio"
+        OTHER = "other", "Other"
+
+    master = models.ForeignKey(EtoolsMaster, on_delete=models.CASCADE, related_name="links")
+    # PCA rows are updated, never deleted, by the syncs
+    pd = models.ForeignKey(
+        "etools.PCA",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        db_constraint=False,
+        related_name="+",
+        verbose_name="programme document",
+    )
+    ident = models.CharField(
+        max_length=48, help_text="the indicator in its PD: s and its eTools id, else t and its title's hash"
+    )
+    title = models.CharField(max_length=1024, blank=True, help_text="the indicator's title when linked")
+    pd_number = models.CharField("PD number", max_length=64, blank=True)
+    unit_class = models.CharField(
+        "type",
+        max_length=12,
+        choices=UnitClass.choices,
+        blank=True,
+        help_text=(
+            "the indicator's type when confirmed: another type in eTools stops it counting until it is "
+            "confirmed again"
+        ),
+    )
+    role = models.CharField("counts as", max_length=16, choices=Role.choices, default=Role.TOTAL)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.SUGGESTED, db_index=True)
+    score = models.FloatField(null=True, blank=True, help_text="how close the suggestion is (at most 1)")
+    reason = models.CharField(max_length=200, blank=True, help_text="why NeuroDB suggested it")
+    sequence = models.PositiveSmallIntegerField(default=0)
+    confirmed_by = models.CharField(max_length=150, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["master", "pd", "ident"], name="datamart_etoolsmasterlink_key"),
+            models.UniqueConstraint(
+                fields=["pd", "ident"],
+                condition=models.Q(role="total", status__in=["suggested", "confirmed"]),
+                name="datamart_etoolsmasterlink_one_total_home",
+                violation_error_message=(
+                    "This PD indicator already counts in the total of another master indicator: it can be "
+                    "in one total only (it may be shown, or be a numerator or a denominator, elsewhere)."
+                ),
+            ),
+        ]
+        indexes = [models.Index(fields=["pd", "ident"], name="datamart_etoolsmasterlink_pd")]
+        ordering = ("master", "sequence", "id")
+        verbose_name = "master indicator link (eTools)"
+        verbose_name_plural = "master indicator links (eTools)"
+
+    def __str__(self):
+        pd = self.pd_number or f"PD {self.pd_id}"
+        return f"{pd} {self.ident}: {self.get_role_display()} ({self.get_status_display()})"
+
+    def clean(self):
+        from . import masters
+
+        masters.check_link(self)

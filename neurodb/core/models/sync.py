@@ -36,6 +36,7 @@ class SyncRun(models.Model):
         DATAMART_BACKFILL = "datamart_backfill", "eTools update clean-up"
         REPORTING_CHECKS = "reporting_checks", "eTools reporting checks"
         DATAMART_PROBE = "datamart_probe", "eTools Datamart probe"
+        ETOOLS_MASTERS = "etools_masters", "eTools master indicators"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

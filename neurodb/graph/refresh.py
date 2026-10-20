@@ -113,6 +113,7 @@ def on_run_finished(sender, instance, update_fields=None, **kwargs) -> None:
         SyncRun.Job.DOC_REVIEW,  # the document review: findings the hub does not read
         SyncRun.Job.REPORTING_CHECKS,  # the eTools reporting checks: counts, read by their page only
         SyncRun.Job.DATAMART_PROBE,  # a probe of the eTools Datamart: it writes nothing but its run
+        SyncRun.Job.ETOOLS_MASTERS,  # the master indicators' suggestions: nothing the hub reads
     ):
         return  # they bring no new data
     if instance.job == SyncRun.Job.DATAMART_BACKFILL and not instance.rows_written:
