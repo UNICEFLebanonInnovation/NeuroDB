@@ -9,7 +9,8 @@ the watch follows it as the item ``system:<key>`` and closes it once the line go
 - **set-up**: no reporting year marked as current; displayed ActivityInfo databases never imported or
   not imported for more than 40 days; active master indicators without a target (these four only while
   the ActivityInfo import is followed: once ActivityInfo is an archive they are nobody's task); eTools
-  master indicators listed this year without a target for it; active users without a role;
+  master indicators listed this year without a target for it; active users without a role; the
+  Anthropic account refusing the refusal fallbacks of AI settings;
 - **jobs**: the last run of a job failed or lost rows. A Compiler job counts only while a switched-on
   schedule runs it: the Compiler reads are off by default, and a trial run that failed should not
   stay listed. The ActivityInfo imports count only while their import is followed. The eTools Datamart
@@ -96,8 +97,13 @@ def warnings(now: datetime.datetime | None = None) -> list[Warning]:
 # ---------------------------------------------------------------------------- set-up
 def _setup(now: datetime.datetime) -> list[Warning]:
     """The reporting year, the ActivityInfo imports and master indicator targets (while the ActivityInfo
-    import is followed), the eTools master indicators' targets, and users' roles."""
-    return [*_activityinfo_setup(now), *_etools_masters_without_target(), *_users_without_role()]
+    import is followed), the eTools master indicators' targets, users' roles, and the AI settings."""
+    return [
+        *_activityinfo_setup(now),
+        *_etools_masters_without_target(),
+        *_users_without_role(),
+        *_ai_setup(now),
+    ]
 
 
 def _etools_masters_without_target() -> list[Warning]:
@@ -250,6 +256,27 @@ def _users_without_role() -> list[Warning]:
             )
         )
     return lines
+
+
+def _ai_setup(now: datetime.datetime) -> list[Warning]:
+    """The Anthropic account refused the header of the refusal fallbacks (AI settings) in the last 24
+    hours: the calls go without them meanwhile. One cache read, no query."""
+    from neurodb.assistant.llm import claude_backend
+
+    if not claude_backend.fallbacks_refused():
+        return []
+    return [
+        Warning(
+            key="ai_fallbacks_refused",
+            text=_(
+                "This Anthropic account does not accept refusal fallbacks: an answer Claude declines is not "
+                "retried on another model. Untick the option in AI settings to stop this check."
+            ),
+            url=_admin_url("assistant_aisettings"),
+            read=_("Refusal fallbacks accepted by the Anthropic account"),
+            value=_("no"),
+        )
+    ]
 
 
 # ---------------------------------------------------------------------------- jobs

@@ -77,6 +77,7 @@ from typing import Any
 from django.conf import settings
 from django.core.exceptions import ValidationError
 
+from neurodb.assistant import llm
 from neurodb.datamart.fm import RATING_ORDER, STATUSES
 
 from . import parse, rules
@@ -146,7 +147,7 @@ class Rulebook:
             ScoreSetting.load(),
             prompts,
             staff,
-            bool(settings.FMM_ENABLED and settings.FMM_AI and settings.AI_ASSISTANT_ENABLED),
+            bool(settings.FMM_ENABLED and settings.FMM_AI and llm.enabled()),
         )
 
     def with_changes(self, rule_changes: Mapping[str, Mapping], score_changes: Mapping) -> Rulebook:

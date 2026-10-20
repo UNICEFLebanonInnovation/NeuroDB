@@ -43,7 +43,7 @@ from django.db import connection
 from django.db.models import F
 from django.utils import timezone
 
-from neurodb.assistant import usage
+from neurodb.assistant import llm, usage
 from neurodb.integrations.background import FMM_AP_REVIEW_LOCK_ID
 from neurodb.watch.budget import SOFT_SHARE
 
@@ -195,7 +195,7 @@ def locked():
 
 def switched_on() -> tuple[bool, str]:
     """Whether the review may run, and why not."""
-    if not (settings.FMM_ENABLED and settings.FMM_AI and settings.AI_ASSISTANT_ENABLED):
+    if not (settings.FMM_ENABLED and settings.FMM_AI and llm.enabled()):
         return False, "AI is switched off"
     if not ActionPointSetting.load().ai_review:
         return False, "the AI review of action points is switched off (Action point settings)"

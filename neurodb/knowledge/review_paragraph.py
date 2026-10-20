@@ -26,7 +26,7 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
-from neurodb.assistant import usage
+from neurodb.assistant import llm, usage
 
 from . import review, review_data
 from .models import DocumentReviewSettings, ReviewParagraph, Topic
@@ -90,7 +90,7 @@ def quota(user) -> tuple[int, int]:
 
 
 def available() -> bool:
-    return bool(settings.AI_ASSISTANT_ENABLED)
+    return bool(llm.enabled())
 
 
 def payload(found, names: frozenset[str]) -> tuple[str, dict[int, Any]]:

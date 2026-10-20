@@ -22,6 +22,7 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
 from neurodb.accounts.models import Section
+from neurodb.assistant import llm
 from neurodb.indicators.models import Database, NeuroReport, ReportingYear
 
 # a reporting year's id, or CURRENT: the year ticked current (the pages without a year)
@@ -367,7 +368,7 @@ def _flags(user) -> dict[str, bool]:
     live = sources()
     return {
         "": True,
-        "ask": bool(settings.AI_ASSISTANT_ENABLED or getattr(user, "is_staff", False)),
+        "ask": bool(llm.enabled() or getattr(user, "is_staff", False)),
         "fmm": bool(getattr(settings, "FMM_ENABLED", False)),
         "cpd": bool(live["cpd_cycle"]),  # any cycle, an ended one too: it is history
         "compiler": bool(live["compiler"]),

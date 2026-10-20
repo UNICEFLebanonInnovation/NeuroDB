@@ -32,7 +32,7 @@ from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
-from neurodb.assistant import usage
+from neurodb.assistant import llm, usage
 from neurodb.watch.budget import SOFT_SHARE, is_quota
 
 from ..models import AIState, Insight, PromptVersion
@@ -54,7 +54,7 @@ REASONS = {
 def switched_on(version: PromptVersion | None = None) -> bool:
     """Monitoring insights, its AI and the assistant are switched on, and a prompt version is published
     (``version``: the published one, when the caller has already read it)."""
-    if not (settings.FMM_ENABLED and settings.FMM_AI and settings.AI_ASSISTANT_ENABLED):
+    if not (settings.FMM_ENABLED and settings.FMM_AI and llm.enabled()):
         return False
     return version is not None or profiles.published() is not None
 

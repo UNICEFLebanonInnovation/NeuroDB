@@ -8,6 +8,7 @@ database's own clock (``now()``, ``current_date`` in SQL) is not moved.
 """
 
 import datetime
+import os
 import zoneinfo
 
 import pytest
@@ -84,6 +85,88 @@ def site_today(request):
         yield SiteClock(traveller)
     finally:
         travel.stop()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _no_anthropic_key():
+    """No Anthropic key, token or address from the environment reaches a test (one exported for a live check
+    included): the SDK would read them, and settings, computed before any fixture runs, would count the key
+    in AI_ASSISTANT_ENABLED. The tests run on OpenAI unless a test chooses Claude (``claude``). The AI
+    settings snapshot is pinned for the run (no 10-second expiry): a page never reads the row at a random
+    test, whose query counts or lack of a database would then fail."""
+    from django.conf import settings
+    from django.test import override_settings
+
+    from neurodb.assistant import llm
+
+    for var in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
+        os.environ.pop(var, None)
+    overrides = override_settings(
+        ANTHROPIC_API_KEY="",
+        AI_PROVIDER="auto",
+        AI_ASSISTANT_ENABLED=bool(settings.AI_ASSISTANT_SWITCH and settings.OPENAI_API_KEY),
+    )
+    overrides.enable()
+    llm._pinned = True
+    yield
+    llm._pinned = False
+    overrides.disable()
+
+
+@pytest.fixture(autouse=True)
+def _ai_settings_defaults():
+    """Every test starts from AI settings with nothing entered (no row), held in memory: the test database
+    has none, and a test that wrote one rolled it back without a signal."""
+    from neurodb.assistant import llm
+
+    llm._memo = (0.0, llm.Snapshot())
+    yield
+
+
+@pytest.fixture
+def ai_settings(db):
+    """The AI settings row, for a test that writes it: the snapshot is read afresh from the row (its saves
+    clear it), and the next test starts from the defaults again."""
+    from neurodb.assistant import llm
+    from neurodb.assistant.models import AISettings
+
+    llm.forget()
+    yield AISettings.load()
+    llm.forget()
+    llm._memo = (0.0, llm.Snapshot())
+
+
+@pytest.fixture
+def claude(monkeypatch):
+    """The AI on Claude, through a local stand-in for the Messages API: ``claude(*replies)`` starts one
+    (``tests.assistant.anthropic_mock``) and points the SDK at it (ANTHROPIC_BASE_URL). The key is not real
+    and no request leaves the machine."""
+    from django.test import override_settings
+
+    from tests.assistant.anthropic_mock import MockMessagesServer
+
+    for var in ("NO_PROXY", "no_proxy"):  # reach the local stand-in directly even behind a proxy
+        monkeypatch.setenv(var, "127.0.0.1,localhost")
+    overrides = override_settings(
+        AI_ASSISTANT_ENABLED=True,
+        ANTHROPIC_API_KEY="test-key-not-real",
+        AI_PROVIDER="claude",
+        CLAUDE_MODEL="claude-opus-5-5",
+        CLAUDE_EFFORT="medium",
+    )
+    overrides.enable()
+    servers = []
+
+    def install(*replies):
+        server = MockMessagesServer(list(replies)).start()
+        servers.append(server)
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", server.base_url)
+        return server
+
+    yield install
+    overrides.disable()
+    for server in servers:
+        server.stop()
 
 
 @pytest.fixture(autouse=True)

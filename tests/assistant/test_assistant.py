@@ -1086,7 +1086,10 @@ SETTINGS_FILE = Path(__file__).resolve().parents[2] / "config" / "settings.py"
 def _settings(monkeypatch, **env):
     """Run the settings module afresh with these environment variables (and not a local .env)."""
     monkeypatch.setattr(environ.Env, "read_env", classmethod(lambda cls, *args, **kwargs: None))
-    for var in ("OPENAI_API_KEY", "AI_ASSISTANT_ENABLED", "AI_ASSISTANT_MODEL", "AI_ASSISTANT_EFFORT"):
+    for var in (
+        "OPENAI_API_KEY", "AI_ASSISTANT_ENABLED", "AI_ASSISTANT_MODEL", "AI_ASSISTANT_EFFORT",
+        "ANTHROPIC_API_KEY", "AI_PROVIDER", "CLAUDE_MODEL", "CLAUDE_EFFORT",
+    ):  # fmt: skip
         monkeypatch.delenv(var, raising=False)
     for var, value in env.items():
         monkeypatch.setenv(var, value)
@@ -1121,6 +1124,54 @@ def test_settings_check_the_reasoning_effort(monkeypatch):
         _settings(monkeypatch, AI_ASSISTANT_EFFORT="extreme")
 
 
+def test_settings_read_the_anthropic_key_and_the_claude_defaults(monkeypatch):
+    loaded = _settings(monkeypatch, ANTHROPIC_API_KEY=" test-key-not-real\n")  # e.g. saved from a file
+    assert loaded["ANTHROPIC_API_KEY"] == "test-key-not-real" and loaded["AI_ASSISTANT_ENABLED"] is True
+    assert loaded["AI_PROVIDER"] == "auto" and loaded["CLAUDE_MODEL"] == "claude-opus-5-5"
+    assert loaded["CLAUDE_EFFORT"] == "medium" and loaded["HELP_ENABLED"] is True
+    # the SDK writes whole request bodies at DEBUG: its logger never goes below INFO
+    assert loaded["LOGGING"]["loggers"]["anthropic"]["level"] == "INFO"
+    assert not [name for name in loaded if "env_key" in name.lower()]  # no key copied into another setting
+
+    unresolved = _settings(
+        monkeypatch, ANTHROPIC_API_KEY="@Microsoft.KeyVault(VaultName=kv;SecretName=anthropic-api-key)"
+    )
+    assert unresolved["ANTHROPIC_API_KEY"] == "" and unresolved["AI_ASSISTANT_ENABLED"] is False
+    # the key that counts is the one of the provider the hosting team set
+    pinned = _settings(monkeypatch, ANTHROPIC_API_KEY="test-key-not-real", AI_PROVIDER=" OpenAI ")
+    assert pinned["AI_PROVIDER"] == "openai" and pinned["AI_ASSISTANT_ENABLED"] is False
+    assert (
+        _settings(monkeypatch, OPENAI_API_KEY="test-key-not-real", AI_PROVIDER="claude")[
+            "AI_ASSISTANT_ENABLED"
+        ]
+        is False
+    )
+    switched_off = _settings(monkeypatch, ANTHROPIC_API_KEY="test-key-not-real", AI_ASSISTANT_ENABLED="false")
+    assert switched_off["AI_ASSISTANT_ENABLED"] is False and switched_off["AI_ASSISTANT_SWITCH"] is False
+    assert _settings(monkeypatch)["AI_ASSISTANT_SWITCH"] is True  # on: a key entered in AI settings counts
+
+
+def test_settings_check_the_provider_and_the_claude_model_and_effort(monkeypatch):
+    with pytest.raises(ImproperlyConfigured, match="AI_PROVIDER"):
+        _settings(monkeypatch, AI_PROVIDER="gemini")
+    with pytest.raises(ImproperlyConfigured, match="CLAUDE_MODEL"):
+        _settings(monkeypatch, CLAUDE_MODEL="gpt-5.5")
+    assert _settings(monkeypatch, CLAUDE_MODEL=" claude-sonnet-5-5 ")["CLAUDE_MODEL"] == "claude-sonnet-5-5"
+    for effort in ("low", "medium", "high", "xhigh", "max"):
+        assert _settings(monkeypatch, CLAUDE_EFFORT=effort)["CLAUDE_EFFORT"] == effort
+    with pytest.raises(ImproperlyConfigured, match="CLAUDE_EFFORT"):
+        _settings(monkeypatch, CLAUDE_EFFORT="minimal")  # an OpenAI effort Claude does not have
+
+
+def test_the_claude_effort_values_are_the_sdks():
+    """Settings list Claude's effort values instead of importing the anthropic SDK: they must stay its own."""
+    from anthropic.types.beta import BetaOutputConfigParam
+
+    effort = typing.get_type_hints(BetaOutputConfigParam)["effort"]
+    sdk = tuple(v for arg in typing.get_args(effort) for v in typing.get_args(arg) if v is not None)
+    assert settings.CLAUDE_EFFORTS == sdk
+
+
 def test_the_effort_values_are_the_sdks():
     """Settings list the values instead of importing the SDK at start-up: they must stay the same."""
     sdk = tuple(v for arg in typing.get_args(ReasoningEffort) for v in typing.get_args(arg) if v is not None)
@@ -1140,19 +1191,41 @@ def test_the_example_env_file_works_as_a_env_file(monkeypatch):
     loaded = _settings(monkeypatch)
     assert loaded["AI_ASSISTANT_EFFORT"] == "medium" and loaded["AI_ASSISTANT_HOURLY_LIMIT"] == 30
     assert loaded["LOG_FORMAT"] == "plain" and loaded["AI_ASSISTANT_ENABLED"] is False
+    assert loaded["AI_PROVIDER"] == "auto" and loaded["ANTHROPIC_API_KEY"] == ""
+    assert loaded["CLAUDE_MODEL"] == "claude-opus-5-5" and loaded["CLAUDE_EFFORT"] == "medium"
 
 
-def test_the_app_no_longer_imports_the_anthropic_sdk():
+def _imports(path):
+    """The top-level packages a Python file imports."""
+    found = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            found |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            found.add((node.module or "").split(".")[0])
+    return found
+
+
+# The modules that still read the openai SDK's errors themselves; each moves onto the provider layer (llm),
+# so this set only shrinks.
+OPENAI_ERRORS_READ_IN = {
+    "neurodb/fmm/ai/chat.py",
+    "neurodb/fmm/ai/insights.py",
+    "neurodb/fmm/ai/sampling.py",
+    "neurodb/watch/budget.py",
+}
+
+
+def test_only_the_provider_modules_import_the_sdks():
+    """openai only in llm/openai_backend.py and anthropic only in llm/claude_backend.py: every other module
+    goes through the provider layer, and settings import neither SDK."""
     root = Path(agent.__file__).resolve().parents[2]
+    importers = {"openai": set(), "anthropic": set()}
     for path in [*(root / "neurodb").rglob("*.py"), *(root / "config").rglob("*.py")]:
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Import):
-                modules = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                modules = [node.module or ""]
-            else:
-                continue
-            assert all(m.split(".")[0] != "anthropic" for m in modules), path
-    assert not hasattr(settings, "ANTHROPIC_API_KEY")
-    for path in (root / "neurodb" / "assistant" / "templates").rglob("*.html"):
-        assert "anthropic" not in path.read_text(encoding="utf-8").lower(), path
+        for sdk in importers.keys() & _imports(path):
+            importers[sdk].add(path.relative_to(root).as_posix())
+    assert importers["anthropic"] == {"neurodb/assistant/llm/claude_backend.py"}
+    assert importers["openai"] == {"neurodb/assistant/llm/openai_backend.py", *OPENAI_ERRORS_READ_IN}
+    assert not {"openai", "anthropic"} & _imports(SETTINGS_FILE)
+    assert not {"openai", "anthropic"} & _imports(root / "neurodb" / "assistant" / "agent.py")
+    assert not {"openai", "anthropic"} & _imports(root / "neurodb" / "assistant" / "views.py")

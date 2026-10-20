@@ -307,6 +307,11 @@ QUICK_MIGRATIONS = {
     # the person names the eTools records hold, kept out of what Ask sends: a new, empty table of one row
     # (CreateModel only, no code runs; the next eTools Datamart sync fills it)
     ("datamart", "0015_record_people", "CreateModel"),
+    # AI settings (provider, sealed keys, models): a new, empty table of one row; and the AI use's tokens
+    # written to the cache, a column with a database default (metadata only on PostgreSQL over a table of one
+    # row per day, feature and model), and two help texts (CreateModel, AddField and AlterField only, no code
+    # runs; listed so that the migration is accounted for here)
+    ("assistant", "0004_ai_settings", "CreateModel"),
 }
 
 

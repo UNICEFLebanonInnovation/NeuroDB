@@ -56,6 +56,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from neurodb.accounts.models import Section
+from neurodb.assistant import llm
 from neurodb.core.models import SyncRun
 
 from . import connect, detectors, investigate, routing
@@ -644,7 +645,7 @@ def point(
         "memory": _memory(item, receipt, today),
         "connected": _connected(item, today),
         "looked_up": looked,
-        "ask_url": ask_url(item) if settings.AI_ASSISTANT_ENABLED else "",
+        "ask_url": ask_url(item) if llm.enabled() else "",
         "receipt": receipt if actions else None,
         "reaction": receipt.reaction if receipt is not None else "",
         "snoozes": _snoozes(item, today) if receipt is not None and actions else [],

@@ -23,6 +23,7 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 from django.utils.translation import ngettext
 
+from neurodb.assistant import llm
 from neurodb.core.models import SyncRun
 from neurodb.datamart.monitoring import norm
 
@@ -349,7 +350,7 @@ def narrate(review: DailyReview, findings: list[ReviewFinding]) -> str:
     """The narrative: written by the assistant when it is configured, else from the template.
     Records who wrote it and the tokens used on ``review`` (not saved here)."""
     stats = review.stats or {}
-    if not settings.AI_ASSISTANT_ENABLED:
+    if not llm.enabled():
         review.narrated_by = DailyReview.TEMPLATE
         return template_summary(findings, stats)
     try:
@@ -505,7 +506,7 @@ def decide(review: DailyReview, findings: list[ReviewFinding]) -> list[dict[str,
     Empty (and ``decided_by`` "rules") without the assistant, with nothing to decide, or when the call
     fails: the brief then ranks the findings itself. Tokens are added to the review's."""
     candidates = decision_candidates(findings)
-    if not settings.AI_ASSISTANT_ENABLED or not candidates:
+    if not llm.enabled() or not candidates:
         review.decided_by = RULES
         return []
     try:

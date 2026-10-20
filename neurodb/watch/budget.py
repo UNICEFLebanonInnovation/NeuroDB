@@ -43,7 +43,7 @@ from django.db.models import F
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
-from neurodb.assistant import usage
+from neurodb.assistant import llm, usage
 
 from .memory import fingerprint
 from .models import DetectorSetting, WatchItem, WatchNote, WatchState
@@ -82,7 +82,7 @@ QUOTA_CLOSED = "the AI answered again"
 # ---------------------------------------------------------------------------- may the AI be used
 def switched_on() -> bool:
     """The watch, its AI and the assistant are all switched on."""
-    return bool(settings.WATCH_ENABLED and settings.WATCH_AI and settings.AI_ASSISTANT_ENABLED)
+    return bool(settings.WATCH_ENABLED and settings.WATCH_AI and llm.enabled())
 
 
 def paused_until(now: datetime.datetime | None = None) -> datetime.datetime | None:

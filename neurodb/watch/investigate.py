@@ -50,7 +50,7 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
-from neurodb.assistant import agent, usage
+from neurodb.assistant import agent, llm, usage
 
 from . import budget, grounding, people, redact
 from .models import DetectorSetting, WatchItem
@@ -168,7 +168,7 @@ def enabled() -> bool:
         settings.WATCH_ENABLED
         and settings.WATCH_AI
         and settings.WATCH_INVESTIGATE_ENABLED
-        and settings.AI_ASSISTANT_ENABLED
+        and llm.enabled()
         and settings.WATCH_INVESTIGATE_PER_DAY > 0
     )
 

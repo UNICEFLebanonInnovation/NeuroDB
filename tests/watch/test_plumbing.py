@@ -209,7 +209,7 @@ def _load(monkeypatch, environ_dict=None, **env):
     if environ_dict is not None:
         monkeypatch.setattr(environ.Env, "ENVIRON", environ_dict)
     for var in list(os.environ):
-        if NEW_SETTINGS.match(f"{var} = "):
+        if NEW_SETTINGS.match(f"{var} = ") or var in ("ANTHROPIC_API_KEY", "AI_PROVIDER"):
             monkeypatch.delenv(var)
     for var, value in env.items():
         monkeypatch.setenv(var, value)

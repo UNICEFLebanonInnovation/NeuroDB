@@ -411,18 +411,37 @@ SYNC_STALENESS_HOURS = env.int("SYNC_STALENESS_HOURS", default=30)
 # The in-app scheduler (admin → Scheduled jobs), run by the web workers. Off: nothing runs on a schedule.
 SCHEDULER_ENABLED = env.bool("SCHEDULER_ENABLED", default=True)
 
-# ---------------------------------------------------------------------------- AI assistant (OpenAI API)
-# Natural-language questions answered by an OpenAI GPT model (ChatGPT) over NeuroDB's own data through
-# read-only tools, using the OpenAI Responses API (platform.openai.com). The key comes from the
-# environment or Key Vault only. Surrounding whitespace (a secret saved from a file with a trailing
-# newline) is removed: the key would otherwise make every request fail. An App Service Key Vault
-# reference that did not resolve arrives as the literal "@Microsoft.KeyVault(...)" text: treat that
-# as unset.
+# ---------------------------------------------------------------------------- AI (Claude or OpenAI)
+# The AI features (Ask NeuroDB, the Help assistant, Monitoring insights, NeuroDB Watch, the daily review,
+# the document summaries and review...) run on Claude, Anthropic's model, through the Messages API
+# (platform.claude.com; the preferred one), or on ChatGPT, OpenAI's GPT model, through the Responses API
+# (platform.openai.com). The provider, the keys, the models and the default effort are chosen in the
+# admin's AI settings (Data and sync); a provider or key set here comes first (neurodb.assistant.llm).
+# Surrounding whitespace in a key (a secret saved from a file with a trailing newline) is removed: the
+# key would otherwise make every request fail. An App Service Key Vault reference that did not resolve
+# arrives as the literal "@Microsoft.KeyVault(...)" text: treat that as unset.
+AI_PROVIDERS = ("auto", "claude", "openai")
+AI_PROVIDER = env("AI_PROVIDER", default="auto").strip().lower()  # auto: the choice in AI settings
+if AI_PROVIDER not in AI_PROVIDERS:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(f"AI_PROVIDER must be one of {AI_PROVIDERS}; got {AI_PROVIDER!r}")
+ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", default="").strip()
+if ANTHROPIC_API_KEY.startswith("@Microsoft.KeyVault("):
+    ANTHROPIC_API_KEY = ""
 OPENAI_API_KEY = env("OPENAI_API_KEY", default="").strip()
 if OPENAI_API_KEY.startswith("@Microsoft.KeyVault("):
     OPENAI_API_KEY = ""
-AI_ASSISTANT_ENABLED = env.bool("AI_ASSISTANT_ENABLED", default=True) and bool(OPENAI_API_KEY)
-AI_ASSISTANT_MODEL = env("AI_ASSISTANT_MODEL", default="gpt-5.5")
+# The hosting team's switch: off, no AI runs whatever is entered in AI settings. AI_ASSISTANT_ENABLED is
+# the switch and a key here, for the provider set here (or either); llm.enabled() adds the keys entered in
+# AI settings, so no restart is needed when one is.
+AI_ASSISTANT_SWITCH = env.bool("AI_ASSISTANT_ENABLED", default=True)
+_env_key = {"claude": ANTHROPIC_API_KEY, "openai": OPENAI_API_KEY}.get(
+    AI_PROVIDER, ANTHROPIC_API_KEY or OPENAI_API_KEY
+)
+AI_ASSISTANT_ENABLED = AI_ASSISTANT_SWITCH and bool(_env_key)
+del _env_key
+AI_ASSISTANT_MODEL = env("AI_ASSISTANT_MODEL", default="gpt-5.5")  # the OpenAI model
 # Reasoning effort; which values a model accepts depends on the model (gpt-5.5 takes none, low,
 # medium, high and xhigh). The list is the openai SDK's ReasoningEffort values, written out so that
 # settings do not import the SDK (a test checks the two agree); a wrong value stops the start-up.
@@ -439,6 +458,21 @@ if AI_ASSISTANT_EFFORT not in AI_ASSISTANT_EFFORTS:
     raise ImproperlyConfigured(
         f"AI_ASSISTANT_EFFORT must be one of {AI_ASSISTANT_EFFORTS}; got {AI_ASSISTANT_EFFORT!r}"
     )
+# The Claude model, when AI settings chooses none; a model id of Anthropic's, else the start-up stops.
+CLAUDE_MODEL = env("CLAUDE_MODEL", default="claude-opus-5-5").strip()
+if not CLAUDE_MODEL.startswith("claude-"):
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(f"CLAUDE_MODEL must be a Claude model id (claude-...); got {CLAUDE_MODEL!r}")
+# Claude's effort, how much it thinks (its thinking is always on): the anthropic SDK's OutputConfig effort
+# values, written out so that settings do not import the SDK (a test checks the two agree). A feature's
+# none or minimal runs as low.
+CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+CLAUDE_EFFORT = env("CLAUDE_EFFORT", default="medium")
+if CLAUDE_EFFORT not in CLAUDE_EFFORTS:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(f"CLAUDE_EFFORT must be one of {CLAUDE_EFFORTS}; got {CLAUDE_EFFORT!r}")
 
 
 def _optional_float(name: str) -> float | None:
@@ -447,10 +481,11 @@ def _optional_float(name: str) -> float | None:
     return float(value) if value else None
 
 
-# Every AI feature shares the one OpenAI key; the AI use ledger (admin → AI use) counts their tokens per
-# day. The background features stop using AI first when all of them together pass 80% of this daily
-# total, so Ask NeuroDB keeps working. Prices in USD per million tokens are optional: when set, the
-# ledger shows the cost too (check the current OpenAI price list).
+# Every AI feature shares the one key of the provider in use; the AI use ledger (admin → AI use) counts
+# their tokens per day. The background features stop using AI first when all of them together pass 80% of
+# this daily total, so Ask NeuroDB keeps working. Prices in USD per million tokens are optional and are
+# OpenAI's (check the current OpenAI price list): when set, the ledger shows the cost of the OpenAI rows
+# too. Claude's prices are built in (neurodb.assistant.usage).
 AI_DAILY_TOKEN_SOFT_CAP = env.int("AI_DAILY_TOKEN_SOFT_CAP", default=3_000_000)
 AI_PRICE_INPUT_PER_MTOK = _optional_float("AI_PRICE_INPUT_PER_MTOK")
 AI_PRICE_CACHED_PER_MTOK = _optional_float("AI_PRICE_CACHED_PER_MTOK")
@@ -458,11 +493,10 @@ AI_PRICE_OUTPUT_PER_MTOK = _optional_float("AI_PRICE_OUTPUT_PER_MTOK")
 
 # ---------------------------------------------------------------------------- Help assistant
 # The in-app help chat (Ctrl+Shift+H on every page, and /help/): answers how NeuroDB works from the help
-# guide (neurodb/help/guide) and the live settings of Monitoring insights, never programme data. On by
-# default when an OpenAI key is set (it also needs AI_ASSISTANT_ENABLED); the help pages work without it.
-# Questions per person per day (a declined question does not count); the shared AI_DAILY_TOKEN_SOFT_CAP
-# and the OpenAI credit pause apply.
-HELP_ENABLED = env.bool("HELP_ENABLED", default=bool(OPENAI_API_KEY))
+# guide (neurodb/help/guide) and the live settings of Monitoring insights, never programme data. On
+# whenever the AI is on (false: off); the help pages work without it. Questions per person per day (a
+# declined question does not count); the shared AI_DAILY_TOKEN_SOFT_CAP and the credit pause apply.
+HELP_ENABLED = env.bool("HELP_ENABLED", default=True)
 HELP_PER_USER_PER_DAY = env.int("HELP_PER_USER_PER_DAY", default=20)
 
 # ---------------------------------------------------------------------------- Document review
@@ -597,6 +631,9 @@ LOGGING = {
     "loggers": {
         "django.request": {"level": "WARNING"},
         "neurodb": {"level": env("LOG_LEVEL", default="INFO")},
+        # the anthropic SDK logs whole request bodies (the prompts) at DEBUG: never written, whatever
+        # LOG_LEVEL says
+        "anthropic": {"level": "INFO"},
     },
 }
 

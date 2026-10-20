@@ -35,24 +35,22 @@ from typing import Any
 
 import markdown
 import nh3
-import openai
 from django.conf import settings
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 from markdown.extensions.tables import TableExtension
 
 from . import charts, tools
+from .llm import CONNECT_TIMEOUT, READ_TIMEOUT, ServiceError, openai_backend
+from .llm import AssistantUnavailable as AssistantUnavailable  # the features catch agent.AssistantUnavailable
+from .llm.openai_backend import client  # agent.client: the tests replace it with a scripted client
 
 logger = logging.getLogger(__name__)
 
 MAX_OUTPUT_TOKENS = 25000  # per model call; reasoning tokens count too, so leave room for them
 HISTORY_TURNS = 6  # earlier question/answer pairs sent back for follow-up questions
 PROMPT_CACHE_KEY = "neurodb-assistant"  # every request shares the same tools + instructions prefix
-CONNECT_TIMEOUT = 10.0  # seconds to reach the API: an unreachable API fails fast
-READ_TIMEOUT = 120.0  # longest silence in a stream (the model may reason for a while before it writes)
 MIN_WAIT = 60.0  # the SDK only retries a call while each attempt can still wait this long
-# Error codes of OpenAI's safety checks: the question is declined, and asking again will not help.
-POLICY_BLOCKS = frozenset({"invalid_prompt", "bio_policy", "cyber_policy", "misalignment_policy_violation"})
 
 SYSTEM_PROMPT = """\
 You are the NeuroDB assistant for UNICEF Lebanon. NeuroDB holds the country office's programme \
@@ -151,20 +149,6 @@ Markdown links, e.g. [Child Protection dashboard](/databases/3/). Never invent U
 REFUSED = "The assistant could not answer this question. Try rephrasing it."
 
 
-class AssistantUnavailable(Exception):
-    """The assistant is switched off or has no API key."""
-
-
-class ServiceError(Exception):
-    """The model service ended a response with an error: a failed response, an error event in the
-    stream, or a stream that stopped before the response was complete."""
-
-    def __init__(self, code: str | None, message: str = "") -> None:
-        self.code = code or "error"
-        self.message = message
-        super().__init__(f"{self.code}: {message}" if message else self.code)
-
-
 @dataclass
 class Outcome:
     """What happened, for the question log."""
@@ -240,26 +224,15 @@ class RunOptions:
     registry: Mapping[str, tuple] | None = None
 
 
-def client() -> openai.OpenAI:
-    if not settings.AI_ASSISTANT_ENABLED:
-        raise AssistantUnavailable("The AI assistant is not configured.")
-    # A plain number would also be the connect timeout: an unreachable API would then hold the
-    # request for 3 x 120 s. Each model call is further held to the time left (_within).
-    return openai.OpenAI(
-        api_key=settings.OPENAI_API_KEY,
-        timeout=openai.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT),
-        max_retries=2,
-    )
-
-
-def _within(api: openai.OpenAI, remaining: float) -> openai.OpenAI:
+def _within(api: Any, remaining: float, timeout_type: type = openai_backend.Timeout) -> Any:
     """The client for one model call, held to the time left so that a hanging API cannot keep the
     question (and its worker thread) far past the time limit: every attempt may wait at most its
     share of the time left, and the SDK retries only while each attempt can still wait MIN_WAIT
-    seconds (so near the end there is no retry, nor a Retry-After sleep)."""
+    seconds (so near the end there is no retry, nor a Retry-After sleep). ``timeout_type`` is the
+    SDK's Timeout (a scripted client has none of its own)."""
     retries = max(0, min(api.max_retries, int(remaining // MIN_WAIT) - 1))
     wait = min(READ_TIMEOUT, max(remaining / (retries + 1), CONNECT_TIMEOUT))
-    return api.with_options(timeout=openai.Timeout(wait, connect=CONNECT_TIMEOUT), max_retries=retries)
+    return api.with_options(timeout=timeout_type(wait, connect=CONNECT_TIMEOUT), max_retries=retries)
 
 
 def _month(latest_month: str) -> str:
@@ -462,7 +435,7 @@ def render(text: str) -> str:
     )  # fmt: skip
 
 
-def _stream_round(api: openai.OpenAI, request: dict[str, Any], round_no: int):
+def _stream_round(api: Any, request: dict[str, Any], round_no: int):
     """One model call. Yields text events while streaming; returns the finished response, which is
     completed, incomplete or failed (the SDK only builds a final response for a completed one)."""
     try:
@@ -664,8 +637,8 @@ def answer(
             if response.status == "failed":
                 error = response.error
                 raise ServiceError(error.code if error else "failed", error.message if error else "")
-        except (ServiceError, openai.APIError) as exc:
-            if exc.code not in POLICY_BLOCKS:
+        except Exception as exc:
+            if not openai_backend.policy_block(exc):
                 raise
             # Blocked by OpenAI's safety checks (in the stream or as an HTTP error): declined.
             outcome.status, outcome.error = "refused", ": ".join(filter(None, (exc.code, exc.message)))[:2000]

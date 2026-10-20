@@ -33,6 +33,7 @@ from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from neurodb.accounts.roles import SECTION_EDITOR, can_edit_section, can_set_up, role_of
+from neurodb.assistant import llm
 from neurodb.core import years
 from neurodb.core.models import PopulationFigure, SavedView, SyncRun
 from neurodb.core.services import population as population_service
@@ -3382,7 +3383,7 @@ def search(request: HttpRequest) -> HttpResponse:
         "year_name": year.name if year else "",
         "groups": groups,
         "total": sum(len(g["items"]) for g in groups),
-        "ai_enabled": settings.AI_ASSISTANT_ENABLED,
+        "ai_enabled": llm.enabled(),
         "ask_first": _looks_like_question(q),
     }
     template = "reports/partials/search_results.html" if request.htmx else "reports/search.html"

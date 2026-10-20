@@ -3,6 +3,7 @@ from django.urls import reverse
 from django.utils.functional import SimpleLazyObject
 
 from neurodb.accounts.roles import role_of
+from neurodb.assistant import llm
 
 
 def site(request):
@@ -15,7 +16,10 @@ def site(request):
         "PUBLIC_PAGES": settings.PUBLIC_PAGES,
         "SUPPORT_EMAIL": settings.SUPPORT_EMAIL,
         "USER_GUIDE_URL": settings.USER_GUIDE_URL,
-        "AI_ASSISTANT_ENABLED": settings.AI_ASSISTANT_ENABLED,
+        # whether the AI is on, and how to name its provider (AI_PROVIDER.label...): read when a template
+        # uses them, from the AI settings kept in memory (no query)
+        "AI_ASSISTANT_ENABLED": SimpleLazyObject(llm.enabled),
+        "AI_PROVIDER": SimpleLazyObject(llm.names),
         # Monitoring insights (/fmm/): its menu item shows only while the page is on, its "AI" badge only
         # while its AI is on
         "fmm_enabled": getattr(settings, "FMM_ENABLED", False),

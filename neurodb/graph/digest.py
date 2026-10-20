@@ -20,6 +20,8 @@ from django.core.mail import send_mail
 from django.urls import reverse
 from django.utils import timezone
 
+from neurodb.assistant import llm
+
 from .models import Change, Digest, DigestSubscription
 from .news import sentence
 
@@ -45,7 +47,7 @@ def _template(lines: list[str]) -> str:
 
 def narrate(audience: str, lines: list[str]) -> tuple[str, str]:
     """(text, written by): the assistant's note, else the template list."""
-    if not getattr(settings, "AI_ASSISTANT_ENABLED", False):
+    if not llm.enabled():
         return _template(lines), TEMPLATE
     try:
         from neurodb.assistant import agent, usage

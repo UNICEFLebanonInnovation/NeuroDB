@@ -10,7 +10,6 @@ import time
 import uuid
 from collections.abc import Iterator
 
-import openai
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -22,7 +21,8 @@ from django.views.decorators.http import require_GET, require_POST
 
 from neurodb.knowledge.access import can_add as can_add_knowledge
 
-from . import agent, usage
+from . import agent, llm, usage
+from .llm import openai_backend
 from .models import AssistantQuestion
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ def ask(request: HttpRequest) -> HttpResponse:
         "page_title": _("Ask NeuroDB"),
         "page_subtitle": _("Questions in plain language, answered from NeuroDB's data by ChatGPT (OpenAI)"),
         "breadcrumbs": [{"label": _("Ask NeuroDB"), "url": None}],
-        "enabled": settings.AI_ASSISTANT_ENABLED,
+        "enabled": llm.enabled(),
         "initial_question": request.GET.get("q", "")[:MAX_QUESTION_CHARS],
         "examples": EXAMPLES,
         "recent": recent_unique[:6],
@@ -117,40 +117,13 @@ def _storable(value):
     return value
 
 
-BUSY = "The AI service is busy right now. Please try again in a minute."
-NO_CREDIT = "The AI service's credit for this application has run out. Ask an administrator."
-API_ERRORS = (
-    # most specific first (APITimeoutError is an APIConnectionError; status errors are APIErrors)
-    (agent.AssistantUnavailable, "The AI assistant is not set up. Ask an administrator to add the API key."),
-    (openai.AuthenticationError, "The AI assistant's API key was rejected. Ask an administrator."),
-    (openai.PermissionDeniedError, "The AI assistant's API key is not allowed to use this model."),
-    (openai.NotFoundError, "The AI assistant's model is not available. Ask an administrator."),
-    (openai.RateLimitError, BUSY),
-    (openai.BadRequestError, "The AI service could not process this question."),
-    (openai.APITimeoutError, "The AI service did not answer in time. Please try again."),
-    (openai.APIConnectionError, "The AI service could not be reached. Please try again."),
-    (openai.APIStatusError, "The AI service is temporarily unavailable. Please try again."),
-    (agent.ServiceError, "The AI service could not finish this answer. Please try again."),
-    (openai.APIError, "The AI service is temporarily unavailable. Please try again."),  # error mid-stream
-)  # fmt: skip
-
-
-# The same conditions as the HTTP errors above, when they end a response inside the stream.
-STREAM_ERRORS = {
-    "insufficient_quota": NO_CREDIT,
-    "rate_limit_exceeded": BUSY,
-    "slow_down": BUSY,
-    "server_is_overloaded": BUSY,
-}
-
-
-def _friendly(exc: Exception) -> str | None:
-    """The message shown for a known failure, or None for an unexpected one."""
-    if isinstance(exc, openai.RateLimitError) and exc.code == "insufficient_quota":
-        return NO_CREDIT  # a 429 that retrying will not fix: the account needs credit
-    if isinstance(exc, agent.ServiceError) and exc.code in STREAM_ERRORS:
-        return STREAM_ERRORS[exc.code]
-    return next((m for cls, m in API_ERRORS if isinstance(exc, cls)), None)
+# The messages for a failure of either provider (llm.friendly: the message shown for a known failure, or
+# None for an unexpected one). The names stay: Monitoring insights' chat and the Help assistant import them.
+BUSY = llm.BUSY
+NO_CREDIT = llm.NO_CREDIT
+API_ERRORS = openai_backend.ERRORS
+STREAM_ERRORS = openai_backend.STREAM_ERRORS
+_friendly = llm.friendly
 
 
 def _stream(request: HttpRequest, row: AssistantQuestion) -> Iterator[str]:
@@ -198,7 +171,7 @@ def ask_stream(request: HttpRequest) -> HttpResponse:
         return JsonResponse({"error": _("Type a question first.")}, status=400)
     if len(question) > MAX_QUESTION_CHARS:
         return JsonResponse({"error": _("Please keep questions under 1,000 characters.")}, status=400)
-    if not settings.AI_ASSISTANT_ENABLED:
+    if not llm.enabled():
         return JsonResponse({"error": _("The AI assistant is not set up yet.")}, status=503)
     try:
         conversation = uuid.UUID(request.POST.get("conversation", ""))

@@ -36,7 +36,7 @@ from django.conf import settings
 from django.urls import Resolver404, resolve
 from django.utils import timezone
 
-from neurodb.assistant import agent, usage
+from neurodb.assistant import agent, llm, usage
 from neurodb.assistant.tools import _schema
 
 from . import guide, tools
@@ -151,7 +151,7 @@ _SCREEN = (
 
 # ------------------------------------------------------------------------------------------ switches
 def switched_on() -> bool:
-    return bool(getattr(settings, "HELP_ENABLED", False) and settings.AI_ASSISTANT_ENABLED)
+    return bool(getattr(settings, "HELP_ENABLED", False) and llm.enabled())
 
 
 def _today_start() -> datetime.datetime:

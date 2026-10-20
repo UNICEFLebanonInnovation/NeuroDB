@@ -59,7 +59,7 @@ from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from neurodb.assistant import usage
+from neurodb.assistant import llm, usage
 from neurodb.integrations.background import DOC_REVIEW_LOCK_ID
 from neurodb.watch.budget import SOFT_SHARE
 
@@ -193,7 +193,7 @@ def switched_on(setting: DocumentReviewSettings | None = None) -> tuple[bool, st
     setting = setting or DocumentReviewSettings.load()
     if not setting.enabled:
         return False, OFF
-    if not settings.AI_ASSISTANT_ENABLED:
+    if not llm.enabled():
         return False, AI_OFF
     return True, ""
 

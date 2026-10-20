@@ -29,7 +29,21 @@ from .models import AIUsage
 logger = logging.getLogger(__name__)
 
 # The features on the shared key, with the name the admin shows.
-ASK, REVIEW, DIGEST, KNOWLEDGE, PERIODIC, CPD, WATCH, FMM, FMM_RULES, FMM_AP_REVIEW, HELP, DOC_REVIEW = (
+(
+    ASK,
+    REVIEW,
+    DIGEST,
+    KNOWLEDGE,
+    PERIODIC,
+    CPD,
+    WATCH,
+    FMM,
+    FMM_RULES,
+    FMM_AP_REVIEW,
+    HELP,
+    DOC_REVIEW,
+    TEST,
+) = (
     "ask",
     "review",
     "digest",
@@ -42,6 +56,7 @@ ASK, REVIEW, DIGEST, KNOWLEDGE, PERIODIC, CPD, WATCH, FMM, FMM_RULES, FMM_AP_REV
     "fmm_ap_review",
     "help",
     "doc_review",
+    "test",
 )
 FEATURES = {
     ASK: "Ask NeuroDB",
@@ -56,9 +71,54 @@ FEATURES = {
     FMM_AP_REVIEW: "Action points (AI review and summaries)",
     HELP: "Help assistant",
     DOC_REVIEW: "Document review",
+    TEST: "Connection test",
 }
 MILLION = Decimal(1_000_000)
 CENT = Decimal("0.01")
+
+
+def _claude(
+    input_: str, cached: str, output: str, *, name: str, fallbacks: bool, choice: bool
+) -> dict[str, Any]:
+    price = Decimal(input_)
+    return {
+        "input": price,
+        "cached": Decimal(cached),
+        "write": price * Decimal("1.25"),  # a 5-minute cache write
+        "output": Decimal(output),
+        "name": name,
+        "fallbacks": fallbacks,
+        "choice": choice,
+    }
+
+
+# Claude's prices in US dollars per million tokens (input, cache read, 5-minute cache write at 1.25 times
+# the input, output), from Anthropic's model list of October 2026: check Anthropic's pricing page. Two more
+# columns, so that no other code lists model ids: ``fallbacks``, the model takes the server-side refusal
+# fallback (Claude Haiku 5.5 has none; older models are not documented); ``choice``, AI settings offers it
+# (the models whose request NeuroDB sends: effort from low to max, structured outputs, no sampling).
+CLAUDE_PRICES = {
+    "claude-opus-5-5": _claude(
+        "4.00", "0.20", "20.00", name="Claude Opus 5.5 (recommended)", fallbacks=True, choice=True
+    ),
+    "claude-opus-5": _claude("5.00", "0.50", "25.00", name="Claude Opus 5", fallbacks=True, choice=True),
+    "claude-opus-4-8": _claude(
+        "5.00", "0.50", "25.00", name="Claude Opus 4.8", fallbacks=False, choice=False
+    ),
+    "claude-sonnet-5-5": _claude(
+        "2.00", "0.20", "10.00", name="Claude Sonnet 5.5", fallbacks=True, choice=True
+    ),
+    "claude-sonnet-5": _claude(
+        "2.00", "0.20", "10.00", name="Claude Sonnet 5", fallbacks=False, choice=False
+    ),
+    # prompts of 100,000 tokens or fewer ($0.50 and $2.50 above)
+    "claude-haiku-5-5": _claude(
+        "0.10", "0.01", "0.50", name="Claude Haiku 5.5", fallbacks=False, choice=True
+    ),
+    "claude-fable-5-1": _claude(
+        "10.00", "0.25", "50.00", name="Claude Fable 5.1", fallbacks=False, choice=False
+    ),
+}
 
 
 def _count(value: Any) -> int:

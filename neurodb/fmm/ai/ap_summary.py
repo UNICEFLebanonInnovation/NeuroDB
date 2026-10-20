@@ -34,7 +34,7 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
-from neurodb.assistant import usage
+from neurodb.assistant import llm, usage
 
 from .. import lebanon, privacy
 from ..models import ActionPointSetting, ActionPointSummary, ScoreSetting
@@ -125,9 +125,7 @@ def quota(user) -> tuple[int, int]:
 
 def available() -> bool:
     """The button shows: the AI is on and instructions are published."""
-    return bool(settings.FMM_ENABLED and settings.FMM_AI and settings.AI_ASSISTANT_ENABLED) and bool(
-        instructions()
-    )
+    return bool(settings.FMM_ENABLED and settings.FMM_AI and llm.enabled()) and bool(instructions())
 
 
 def collect(points, limit: int, names_: frozenset[str]) -> tuple[list[dict[str, str]], int]:
@@ -208,7 +206,7 @@ def summarise(points, user) -> Summary:
     ``user`` (see the module's notes)."""
     from neurodb.assistant import agent
 
-    if not (settings.FMM_ENABLED and settings.FMM_AI and settings.AI_ASSISTANT_ENABLED):
+    if not (settings.FMM_ENABLED and settings.FMM_AI and llm.enabled()):
         return Summary(False, OFF)
     prompt = instructions()
     if prompt is None:
