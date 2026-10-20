@@ -408,6 +408,9 @@ ROW_FIELDS = (
     "narrative_assessment",
     "last_modify_date",
     "synced_at",
+    # what tells two indicators of one title and output apart (neurodb.datamart.identity)
+    "high_frequency",
+    "target",
 )
 # a fixed reading order: "the first non-empty field" never depends on the query plan
 ROW_ORDER = ("period_end", "progress_report", "location", "p_code", "datamart_id")
@@ -547,6 +550,12 @@ def _cell(row: dict[str, Any], ratio: bool, percentage: bool) -> Cell:
         cell.value, cell.v, cell.d = achieved.value(ratio, percentage), achieved.v, achieved.d
         cell.source = "achievement"
     return cell
+
+
+def location_value(row: dict[str, Any]) -> float | None:
+    """A row's value at its location, as :func:`_cell` reads it (two rows of one location with different
+    values may be two indicators' rows: ``identity`` never places them by a tie-breaker)."""
+    return _cell(row, False, False).value
 
 
 def _first(current: Any, new: Any) -> Any:

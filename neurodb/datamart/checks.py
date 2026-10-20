@@ -918,10 +918,43 @@ CENSUS_SQL = (
 )
 
 
+# check 7's tables: the keys that differ inside a shared group (Table C) and between the rows of one
+# location (Table D) are listed by name only, never a value; a value of a fixed vocabulary (Table B) is shown
+# when it is a short word
+TABLE_KEYS = 30  # the keys Tables C and D list at most
+PAIRS_LISTED = 60  # the value pairs Table B lists at most
+VOCABULARY = re.compile(r"[A-Za-z0-9_ .-]{1,20}")
+# Table D: in each cell of two or more rows of one title and output at one place of one report (the running
+# PDs' rows), the record keys whose values differ, with the number of cells
+CELL_KEYS_SQL = (
+    "WITH r AS MATERIALIZED (SELECT "  # noqa: S608
+    f"{REPORT_SQL} AS report, "
+    "lower(btrim(regexp_replace(coalesce(indicator, ''), '\\s+', ' ', 'g'))) AS title, "
+    "lower(btrim(regexp_replace(coalesce(pd_output, ''), '\\s+', ' ', 'g'))) AS output, "
+    "coalesce(nullif(upper(btrim(p_code)), ''), "
+    "'name:' || lower(btrim(regexp_replace(coalesce(location, ''), '\\s+', ' ', 'g')))) AS place, data "
+    "FROM datamart_reportedindicator WHERE intervention_id = ANY(%s) AND jsonb_typeof(data) = 'object'), "
+    "cell AS (SELECT report, title, output, place FROM r GROUP BY 1, 2, 3, 4 HAVING count(*) > 1) "
+    "SELECT key, count(*) FROM (SELECT e.key FROM r JOIN cell USING (report, title, output, place), "
+    "jsonb_each(r.data) e GROUP BY e.key, r.report, r.title, r.output, r.place "
+    "HAVING count(DISTINCT e.value) > 1) x GROUP BY key ORDER BY 2 DESC, 1 LIMIT %s"
+)
+
+
+def _vocabulary(text: Any) -> str:
+    """A value of a fixed vocabulary as check 7's Table B shows it (true or false, a type): a longer one, or
+    any other text, is "(other text)", so no record's text is shown."""
+    word = "" if text is None else str(text).strip()
+    if not word:
+        return "(empty)"
+    return word if VOCABULARY.fullmatch(word) else "(other text)"
+
+
 def _identity(cursor) -> dict[str, Any]:
+    from neurodb.core.models import SyncRun
     from neurodb.integrations.etools.datamart_sync import DATASETS
 
-    from . import monitoring
+    from . import identity
 
     with_id, matched, other_title = _one(
         cursor,
@@ -949,46 +982,196 @@ def _identity(cursor) -> dict[str, Any]:
         "(SELECT count(*) FROM (SELECT 1 FROM r WHERE indicator_report <> '' GROUP BY indicator_report "
         "HAVING count(DISTINCT report) > 1) x)",
     )
-    # the rows of the running PDs, read by Partner monitoring's own rule (monitoring._Idents): by the eTools
-    # id, else by a title one indicator of the PD has, else by the PD output and a title several share; the
-    # others are left out (the title and the output shared, an output that matches none, or an unknown title)
+    # the rows of the running PDs, placed as Partner monitoring places them (identity.Idents, with the proof
+    # the sync stored): by the eTools id, else by a title one indicator of the PD has, else by the PD output
+    # and a title several share, else by the tie-breakers in use; the others are left out (the title and the
+    # output shared, an output that matches none, or an unknown title)
     running = dm.ReportedIndicator.objects.filter(intervention__status__in=pd_statuses.RUNNING)
     _bound(cursor)
     pd_ids = sorted(set(running.order_by().values_list("intervention_id", flat=True).distinct()))
-    _bound(cursor)
-    idents = monitoring._Idents(pd_ids)
-    how: Counter[str] = Counter()
+    _bound(cursor, 3)
+    pages = identity.Idents(pd_ids)
+    fields = (*identity.PLACE_FIELDS, "indicator_report", "_cluster", "_type", "_means")
+    signed = identity.with_signature(running).annotate(_means=KT("data__means_of_verification"))
+    found = [dict(zip(fields, values, strict=True)) for values in _each(cursor, signed, *fields)]
+    _bound(cursor, 3)
+    placed = pages.place(found)
+    ways = [
+        pages.how(r["intervention_id"], r["etools_indicator_id"], r["indicator"], r["pd_output"])
+        for r in found
+    ]
+    how = Counter(ways)
     left: set[tuple] = set()  # the indicator reports left out
     types: dict[tuple, set[str]] = defaultdict(set)  # each PD indicator's report types
-    for pd, eid, title, output, kind, ir, number, start, end in _each(
-        cursor,
-        running,
-        "intervention_id",
-        "etools_indicator_id",
-        "indicator",
-        "pd_output",
-        "report_type",
-        "indicator_report",
-        "report_number",
-        "period_start",
-        "period_end",
-    ):
-        way = idents.how(pd, eid, title, output)
-        how[way] += 1
-        if way in ("id", "title", "output"):
-            types[idents.of(pd, eid, title, output)].add((kind or "").strip().upper())
+    for row, spot in zip(found, placed, strict=True):
+        kind = (row["report_type"] or "").strip().upper()
+        if spot.ident is not None:
+            types[spot.ident].add(kind)
         else:
-            left.add((_report(pd, "", kind, number, start, end), _indicator(ir, eid, title, output)))
+            report = _report(
+                row["intervention_id"], "", kind, row["report_number"], row["period_start"], row["period_end"]
+            )
+            left.add(
+                (
+                    report,
+                    _indicator(
+                        row["indicator_report"],
+                        row["etools_indicator_id"],
+                        row["indicator"],
+                        row["pd_output"],
+                    ),
+                )
+            )
     humanitarian = sum(1 for kinds in types.values() if "HR" in kinds)
     both = sum(1 for kinds in types.values() if {"HR", "QPR"} <= kinds)
+    # the rows of a title and an output two or more indicators share: alone at their place in their report
+    # (PRP sends one of the copies) or not, monthly, and what the tie-breakers in use did with them
+    shared = [n for n, way in enumerate(ways) if way == "shared_output"]
+
+    def cell(row: dict[str, Any]) -> tuple:
+        return (
+            rc.report_key(row),
+            rc.norm(row["indicator"]),
+            rc.norm(row["pd_output"]),
+            _place(row["p_code"], row["location"]),
+        )
+
+    cells = Counter(cell(found[n]) for n in shared)
+    alone = sum(1 for n in shared if cells[cell(found[n])] == 1)
+    monthly = sum(1 for n in shared if (found[n]["report_type"] or "").strip().upper() == "HR")
+    outcome = Counter(placed[n].way for n in shared)
+    by_breakers = sum(outcome[name] for name in identity.BREAKERS)
+    kept_out = outcome["keys_disagree"] + outcome["two_for_one"] + outcome["side_by_side"]
+    # Table A: each tie-breaker's own answer, proved afresh on every row held (what the next sync stores)
+    _bound(cursor, 3)
+    proof = identity.Calibration.of(identity.calibrate())
+    diagnose = identity.Idents(pd_ids, proof)
+    _bound(cursor, 2)
+    groups = list(diagnose.groups(found, shared).values())
+    labels = identity.group_labels(groups)
+    answers = [(group, diagnose.try_each(group, labels)) for group in groups]
+    sharing = [[pages.candidate(i) for i in idents] for idents in pages.shared_output.values()]
+
+    def differ(name: str, cands: list[Any]) -> bool:
+        return len({c.value(name) for c in cands} - {None}) > 1
+
+    table_a = []
+    for name in (*identity.BREAKERS, *identity.DIAGNOSTIC_ONLY):
+        stats = proof.stats.get(name, {})
+        would = several = none = 0
+        for group, answer in answers:
+            if answer[name] is None:
+                continue
+            if answer[name][1]:
+                would += group.count
+            elif answer[name][0]:
+                several += group.count
+            else:
+                none += group.count
+        used = name in pages.calibration.enabled and (name != "locations" or pages.read_whole)
+        table_a.append(
+            (
+                identity.LABELS[name],
+                *(key or None for key in identity.KEYS[name]),
+                "yes" if used else "no",
+                stats.get("same", 0),
+                stats.get("differ", 0),
+                stats.get("not_given", 0),
+                sum(1 for cands in sharing if differ(name, cands)),
+                would,
+                several,
+                none,
+            )
+        )
+    table_a.append(
+        (
+            "All, in this order (on the pages)",
+            None,
+            None,
+            "yes" if pages.calibration.enabled else "no",
+            None,
+            None,
+            None,
+            None,
+            by_breakers,
+            outcome["shared_output"],
+            kept_out,
+        )
+    )
+    # Table B: what the rows already placed (by id, title or output) and their indicators say
+    pairs: Counter[tuple] = Counter()
+    for row, spot, way in zip(found, placed, ways, strict=True):
+        if way not in identity.PLACED_BY_KEY:
+            continue
+        cand = pages.candidate(spot.ident)
+        flag = {True: "yes", False: "no", None: "mixed"}[cand.high_frequency]
+        pairs[
+            ("high_frequency", "true" if row["high_frequency"] else "false", f"is_high_frequency {flag}")
+        ] += 1
+        cluster = "cluster named" if cand.cluster else "no cluster"
+        pairs[("cluster_indicator", _vocabulary(row["_cluster"]), cluster)] += 1
+        kind = " / ".join(_vocabulary(x) for x in cand.kind) if cand.kind else "mixed"
+        pairs[("indicator_type", _vocabulary(row["_type"]), kind)] += 1
+        named = "high frequency" if cand.high_frequency else ("cluster" if cand.cluster else "neither")
+        pairs[("report_type", _vocabulary(row["report_type"]), named)] += 1
+        if cand.active is False:
+            pairs[("is_active", None, "inactive")] += 1
+    table_b = sorted(
+        ((*key, n) for key, n in pairs.items()), key=lambda line: (line[0], -line[3], str(line[1]))
+    )
+    # Table C: the PD indicator keys whose values two identities of a shared title and output have none of in
+    # common
+    _bound(cursor)
+    held: dict[tuple, dict[tuple, dict[str, set[str]]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(set))
+    )
+    indicators = dm.PDIndicator.objects.filter(
+        intervention_id__in=sorted({key[0] for key in pages.shared_output})
+    )
+    for pd_id, source_id, title, output, data in _each(
+        cursor, indicators, "intervention_id", "source_id", "title", "lower_result_name", "data"
+    ):
+        key = (pd_id, rc.norm(output), rc.norm(title))
+        if key in pages.shared_output and isinstance(data, dict):
+            mine = held[key][identity.ident_of(pd_id, source_id, title)]
+            for name, value in data.items():
+                mine[str(name)[:60]].add(json.dumps(value, sort_keys=True, default=str))
+    apart: Counter[str] = Counter()
+    for per in held.values():
+        for name in set().union(*(values.keys() for values in per.values())):
+            if any(
+                not (a.get(name, set()) & b.get(name, set()))
+                for a, b in itertools.combinations(per.values(), 2)
+            ):
+                apart[name] += 1
+    table_c = sorted(apart.items(), key=lambda line: (-line[1], line[0]))[:TABLE_KEYS]
+    # Table D: the record keys that differ between the rows of one title and output at one place of one report
+    table_d = [tuple(line) for line in _all(cursor, CELL_KEYS_SQL, [pd_ids, TABLE_KEYS])] if pd_ids else []
+    # the latest PD indicators sync: what it did not return, what it announced and read, whether it removed
+    _bound(cursor, 2)
+    last = (
+        SyncRun.objects.filter(
+            job=SyncRun.Job.ETOOLS_DATAMART,
+            target="pd_indicators",
+            status__in=(SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL),
+        )
+        .order_by("-started_at", "-pk")
+        .first()
+    )
+    details = last.details if last is not None and isinstance(last.details, dict) else {}
+    stale = dm.PDIndicator.objects.filter(synced_at__lt=last.started_at).count() if last is not None else 0
     # the keys the records send (names and counts only, never a value): those the sync reads first
     read = {*DATASETS["partner_reports"][1].fields.values(), *LINK_KEYS}
-    found = {key: counts for key, *counts in _all(cursor, CENSUS_SQL)}
+    census_found = {key: counts for key, *counts in _all(cursor, CENSUS_SQL)}
     census = sorted(
-        ((key[:60], "yes" if key in read else "no", *found.get(key, (0,) * 7)) for key in {*found, *read}),
+        (
+            (key[:60], "yes" if key in read else "no", *census_found.get(key, (0,) * 7))
+            for key in {*census_found, *read}
+        ),
         key=lambda line: (line[1] != "yes", line[0]),
     )[:KEYS_LISTED]
     out_rows = how["shared_output"] + how["output_unmatched"] + how["unknown"]
+    still = sum(1 for spot in placed if spot.ident is None)
     parts = []
     if not with_id:
         parts.append(
@@ -1022,6 +1205,16 @@ def _identity(cursor) -> dict[str, Any]:
                 "get none of their rows; a title PRP spells otherwise than eTools is corrected in PRP or "
                 "eTools."
             )
+        if how["shared_output"]:
+            parts.append(
+                f"Of the {_plural(how['shared_output'], 'row', 'rows')} left out because two or more "
+                f"indicators share the title and the output, {alone:,} {'is' if alone == 1 else 'are'} at a "
+                "location where the report has one row of them (PRP sends one of the copies) and "
+                f"{monthly:,} in monthly reports; tie-breakers place {by_breakers:,} of them on the pages "
+                f"and {how['shared_output'] - by_breakers:,} stay left out (Table A says why). A tie-breaker "
+                "is used on the pages only once, on the rows placed by id, title or output, it never "
+                "disagrees with the indicator they were placed under."
+            )
     if rows:
         if pr_empty == rows:
             parts.append(
@@ -1039,7 +1232,41 @@ def _identity(cursor) -> dict[str, Any]:
                 f"{_plural(ir_many, 'indicator report id', 'indicator report ids')} of PRP "
                 f"{'stands' if ir_many == 1 else 'stand'} for more than one report."
             )
-    problems = out_rows or ir_many or (with_id and (matched != with_id or other_title))
+    problems = still or ir_many or (with_id and (matched != with_id or other_title))
+    tables = [
+        {
+            "title": "What tells apart indicators that share a title and an output",
+            "columns": (
+                "Tie-breaker",
+                "Report row key",
+                "PD indicator field",
+                "Used on the pages",
+                "Placed indicator reports: same",
+                "… differ",
+                "… not given",
+                "Shared groups whose indicators differ on it",
+                "Left-out rows it alone would place",
+                "… leaves two or more",
+                "… matches none",
+            ),
+            "rows": table_a if sharing else [],
+        },
+        {
+            "title": "Value pairs on the rows already placed",
+            "columns": ("Report row key", "Its value", "The PD indicator", "Rows"),
+            "rows": table_b[:PAIRS_LISTED],
+        },
+        {
+            "title": "PD indicator keys that differ inside a shared group",
+            "columns": ("PD indicator key", "Titles and outputs shared where it differs"),
+            "rows": table_c,
+        },
+        {
+            "title": "Report row keys that differ between the rows of one location",
+            "columns": ("Report row key", "Locations of one report, title and output where it differs"),
+            "rows": table_d,
+        },
+    ]
     return {
         "tone": WARN if problems else (OK if rows else INFO),
         "verdict": " ".join(parts),
@@ -1055,12 +1282,45 @@ def _identity(cursor) -> dict[str, Any]:
                 "… left out: two or more indicators of the PD have the title and the output",
                 how["shared_output"],
             ),
+            ("… at a location where the report has one row of that title and output", alone),
+            ("… where it has two or more", len(shared) - alone),
+            ("… in monthly (HR) reports", monthly),
+            ("… placed on the pages by a tie-breaker", by_breakers),
+            ("… still left out", len(shared) - by_breakers),
+            ("… left out: two keys name different indicators", outcome["keys_disagree"]),
+            ("… left out: two indicator reports would go to one indicator", outcome["two_for_one"]),
+            (
+                "… left out: two rows of the report at one location carry different values (both indicators "
+                "may be in it)",
+                outcome["side_by_side"],
+            ),
             (
                 "… left out: a title several indicators of the PD share, and a PD output none of them has",
                 how["output_unmatched"],
             ),
             ("… left out: no indicator of the PD has the title", how["unknown"]),
             ("Indicator reports left out", len(left)),
+            ("Titles and outputs two or more indicators of a running PD share", len(sharing)),
+            ("… PD indicators in them", sum(len(cands) for cands in sharing)),
+            (
+                "… with exactly one active indicator",
+                sum(1 for cands in sharing if [c.active for c in cands].count(True) == 1),
+            ),
+            (
+                "… whose indicators agree on every field compared",
+                sum(
+                    1
+                    for cands in sharing
+                    if not any(len({c.value(n) for c in cands}) > 1 for n in identity.BREAKERS)
+                ),
+            ),
+            ("PD indicators the latest pd-indicators sync did not return", stale),
+            (
+                "Last pd-indicators sync: records announced",
+                details["datamart_count"] if isinstance(details.get("datamart_count"), int) else "—",
+            ),
+            ("… read", _count(details.get("read")) or (last.rows_in if last is not None else 0)),
+            ("… removal skipped (1 yes, 0 no)", 1 if details.get("removal_skipped") else 0),
             ("PD indicators in monthly (HR) reports", humanitarian),
             ("… also in quarterly (QPR) reports", both),
             ("Rows with no PRP progress report id", pr_empty),
@@ -1086,6 +1346,7 @@ def _identity(cursor) -> dict[str, Any]:
             ),
             "rows": census,
         },
+        "tables": tables,
     }
 
 
@@ -2125,9 +2386,12 @@ CHECKS: tuple[Check, ...] = (
         "A row belongs to the PD indicator whose eTools id it carries (the key "
         "etools_cp_output_indicators_id, empty so far), else to the one indicator of its PD that has its "
         "title (case and spaces aside), else, for a title two or more indicators of the PD share, to the one "
-        "that also has the row's PD output; a row none of these places is left out. A report is its "
-        "programme document, type, number and period, whatever PRP's ids hold. Monthly reports are used only "
-        "for an indicator with no quarterly report, and never added to quarterly ones.",
+        "that also has the row's PD output, else, for a title and an output two or more share, to the one "
+        "the tie-breakers name (high frequency, cluster, target, type, disaggregations, planned places, "
+        "active), per report and never per row, each used only once the rows already placed prove it never "
+        "disagrees; a row none of these places is left out. A report is its programme document, type, "
+        "number and period, whatever PRP's ids hold. Monthly reports are used only for an indicator with no "
+        "quarterly report, and never added to quarterly ones.",
         _identity,
     ),
     Check(

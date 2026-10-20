@@ -61,9 +61,12 @@ were given last is the report's on every page:
   lists to fix (missing targets, no or zero Reached, Reached differing from PRP, the same title twice in
   one programme document, partial history). The partner reports carry no PD indicator id, so a report is
   matched to its indicator by title; where two indicators of a programme document share a title, by
-  their PD output too. Indicators that share both stay without Reached until their title or output is
-  told apart in eTools, and so do those whose rows name a PD output that matches none of theirs (correct
-  the output name in PRP or eTools): the same-title list counts them.
+  their PD output too; where two indicators of a programme document share a title and an output, NeuroDB
+  tells them apart by what the partner reports and eTools both say of them (high frequency, cluster,
+  target, type, disaggregations, planned places, active), once the data shows each of these agrees.
+  Indicators still alike stay without Reached until told apart in eTools, and so do those whose rows name
+  a PD output that matches none of theirs (correct the output name in PRP or eTools): the same-title list
+  counts them.
 - **Map**: the implementation locations, coloured by the worst status there.
 
 Switching views keeps the year shown; the year menu at the top offers *All years* on these pages. The

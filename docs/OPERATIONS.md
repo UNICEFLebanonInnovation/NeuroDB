@@ -1806,10 +1806,49 @@ the PD indicator with that id when it gives one; else to the one indicator of it
 (case and spaces aside); else, for a title two or more indicators of the PD share, to the one that also
 has the row's PD output (`pd_output`, compared with the indicator's output, `lower_result_name`). A row
 none of these places is left out (two indicators are never merged): Data quality's *Same title twice in
-one PD* says how many indicators get none of their rows (they share their output too, or the rows' PD
-output is empty or matches none of theirs: PRP's output name is not confirmed to be spelled as eTools'),
-and how many rows were left out for an output that matches none. The eTools reporting checks (check 7)
-count the rows matched by id, by title, by output and title, and left out, by cause.
+one PD* says how many indicators get none of their rows while rows of their title were left out (their
+output is shared too and no tie-breaker tells them apart, or the rows' PD output is empty or matches none
+of theirs: PRP's output name is not confirmed to be spelled as eTools'), and how many rows were left out
+for an output that matches none. The eTools reporting checks (check 7) count the rows matched by id, by
+title, by output and title, placed by a tie-breaker, and left out, by cause.
+
+**Indicators that share a title and an output are told apart by tie-breakers** (`neurodb/datamart/identity.py`,
+the one place every page, export, check and Ask NeuroDB tool reads it from). Their rows are placed per
+*placement group*, never per row: the rows of one progress report with one title, one PD output and one
+signature (the row's `high_frequency`, and PRP's `cluster_indicator` and `indicator_type`, read from the
+record kept in `data` for these rows only), so a report is never half placed. The tie-breakers, in this
+order: **high frequency** (`high_frequency` and `is_high_frequency`; a monthly report also never goes to an
+indicator neither high frequency nor a cluster's), **cluster** (`cluster_indicator`, where "none", "null",
+"n/a" or a dash say nothing, and whether `cluster_name` is given), **target** (`target`, the same on every
+row of the group, and `target_numerator`/`target_denominator`), **indicator type** (`indicator_type` and
+the display type and unit the proof learned for it), **disaggregations** (the disaggregations the group's
+value ids belong to, when every row names the same ones, and `disaggregation_name`), **planned locations**
+(the rows' P-codes and `location_pcode`: only when the latest PD indicators sync read them whole, that is
+succeeded, removed what the Datamart no longer holds and announced no round count) and **active**
+(`is_active`: exactly one of them is). A tie-breaker decides when exactly one indicator matches. The group
+goes to it only when every other tie-breaker in use that can say something matches the same one (one that
+matches none finds the group unlike every placed one: an amended target, or two indicators in one group),
+when no two rows of the group at one location carry different values (both indicators may be in it), when
+no row is at a P-code another indicator plans and the chosen one does not (once the PD indicators were read
+whole), and when the chosen indicator gets no other group or row of that progress report (Reached would
+take the larger of two). Otherwise the group stays out, and check 7 says why. An indicator placed by
+*active* carries the note "Its programme document also holds an inactive indicator with this title and
+output: the partner reports are read as this one's." Means of verification and the section are shown by
+check 7 only (free text, and the section may be the PD's). The CP output a PD indicator takes from its
+partner reports (`_CP_OUTPUT_BY_TITLE`) is no tie-breaker: every copy of a title takes the same one.
+
+**A tie-breaker is used on the pages only once the data proves it.** After each `partner_reports` and
+`pd_indicators` sync, `identity.calibrate()` compares each tie-breaker, on the groups of every partner
+report row NeuroDB holds that were placed by id, title or output, with the indicator they were placed
+under: it is used when it was compared on 20 groups or more (`CALIBRATION_MIN`) and never differed (the
+indicator type when, besides, each type goes with one display type and unit, and no pair with two types).
+The proof is stored in the run's details, `details.identity` (`version`, `enabled`, `types`, and per
+tie-breaker `compared`, `same`, `differ` and `not_given`: counts and fixed words only); a failure is
+`details.identity_error` and never fails the run. Every page reads the proof of the newest finished
+`partner_reports` or `pd_indicators` run, once per request, and ignores one stored under another
+`identity.CALIBRATION_VERSION` (bumped whenever a rule changes). With no proof (a new install, a run before
+this release) no tie-breaker is used, exactly as before. To see what each tie-breaker says and why it is or
+is not used, read check 7's Table A (or the run's `details.identity` in Admin → Import and sync runs).
 
 **A progress report is its programme document, report type, number and period** (`reached.report_key`,
 `reporting.REPORT_KEY` in the database): every page groups a report's rows, counts it and reads its status
@@ -1839,6 +1878,31 @@ where reports were read as one that are not, or values were left out:
 * the home page's progress reports this year, the brief's quarterly reports, the daily review's
   overdue reports and Partner monitoring's overdue reports count each report (with no PRP id they
   counted none, or one per partner or PD), and every report's pop-up opens from the lists.
+
+What the tie-breakers change, once a sync has stored a proof that enables one, and only for the indicators
+a tie-breaker places (each a correction: those rows were left out):
+
+* Partner monitoring's grid and Program Performance (and their CSV and Excel, which mirror Power BI):
+  Reached, Reached in the year, % Reached, awaiting acceptance, status, *Reported*, PRP's cumulative and
+  *Differs from PRP* of the placed copies (Not reported becomes a value); an indicator that now has
+  quarterly rows stops reading its monthly ones (*Read from*); the status tiles and the summary move away
+  from Not reported. So does every reader of the same figures: the overview, the brief, the country
+  programme, the home page, the daily review, the Monitoring insights panels, youth linking and Ask
+  NeuroDB's partner monitoring tool;
+* Data quality: fewer indicators without Reached (perhaps more with zero Reached), fewer rows left out;
+  checks 5 and 7;
+* Report/Location, Report/Disaggregation and the report pop-up: the type, unit and target of a shared copy
+  are its placed indicator's;
+* unchanged: Progress reports' counts and tiles and check 1 (an indicator report is still told apart by
+  PRP's indicator report id, else its eTools id, title and PD output), and the PD/SPD Indicators export.
+
+Two changes apply with no proof at all: Data quality's same-title list counts an indicator as left out only
+when it gets none of its rows while rows of its title were left out (two copies sharing a title and an
+output that no partner report row names were counted before; they are simply not reported, and *Without
+Reached* still counts them); and Report/Location, Report/Disaggregation and the pop-up read an indicator
+report under a shared title and output with the type, unit and target its copies have in common, and as a
+number when the copies differ (they took whichever copy the database returned first), while one whose
+output matches none of its title's indicators reads the first of them in Partner monitoring's order.
 
 To see what is still left out, read Partner monitoring → Data quality → *Same title twice in one PD*
 (with every PD status and no filter) and the eTools reporting checks, check 7.
@@ -1971,7 +2035,25 @@ and business area codes at most).
   title, by PD output and title (a title several indicators of the PD share), and left out by cause: a
   title and an output two or more indicators share (told apart in eTools), a title several share with a PD
   output that is empty or matches none of theirs (the output name corrected in PRP or eTools), or a title
-  none has, with the indicator reports left out (each its title and PD output); PRP's
+  none has, with the indicator reports left out (each its title and PD output). Of the rows of a shared
+  title and output it counts those alone at their place in their report (PRP sends one of the copies),
+  those with two or more, the monthly ones, those the tie-breakers place on the pages and those still left
+  out (two keys name different indicators, two indicator reports would go to one indicator, two rows at one
+  location carry different values); the titles and outputs shared, their indicators, those with exactly one
+  active and those whose indicators agree on every field compared; the PD indicators the latest
+  `pd_indicators` sync did not return (records it did not touch), what it announced and read, and whether
+  it skipped its removal. Table A, *What tells apart indicators that share a title and an output*, gives
+  each tie-breaker (and the means of verification and the section, shown only) with its report row key and
+  PD indicator field, whether the pages use it, the placed indicator reports where it was the same, differed
+  or was not given (a proof made afresh on every row held: what the next sync stores), the shared groups
+  whose indicators differ on it, and the left-out rows it alone would place, leaves to two or more, or
+  matches none; then all of them in their order, as the pages place them. Table B lists the value pairs
+  on the rows already placed (high frequency, cluster, indicator type and report type against the indicator's
+  fields, and the rows placed under an inactive indicator; a value longer than 20 characters or not a plain
+  word shows "(other text)"); Table C the PD indicator keys that differ inside a shared group (the key and
+  the number of groups, never a value); Table D the record keys that differ between the rows of one title
+  and output at one location of one report. The verdict says how many of the rows of a shared title and
+  output are alone at their place, monthly, placed and still left out. PRP's
   progress report and indicator report ids (empty, how many, how many stand for more than one report, and
   the reports with more than one progress report id: counted, never a problem for the pages, which tell
   reports apart by programme document, type, number and period); and lists the keys the records send
@@ -2085,8 +2167,9 @@ figures as everywhere else (they read the rule above; nothing is added across in
   year), with and without a target (a target of zero is missing). Lists: indicators without a
   target; without Reached or with zero Reached; and NeuroDB's own checks: Reached differs from PRP's
   cumulative, the same title twice in one PD (kept apart, never merged: the rows are placed by their PD
-  output, and the list counts the indicators that get none of their rows, as they share their output too
-  or the rows' PD output matches none of theirs, and the rows left out for such an output),
+  output, and where the output is shared too by the tie-breakers the data proves; the list counts the
+  indicators that get none of their rows while rows of their title were left out, and the rows left out for
+  an output that matches none),
   partial history. Each list shows its first 500 rows; the counts are complete.
 * **Progress reports** has four tabs on one filter (search, report status, report type, reporting
   year, section, report #, partner, partner type, PD status, emergency indicator, period start and

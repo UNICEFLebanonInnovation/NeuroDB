@@ -38,7 +38,7 @@ from django.db.models.fields.json import KT
 from django.utils import timezone
 
 from neurodb.core.models import DatamartSetting, SyncRun
-from neurodb.datamart import catalogue, tags
+from neurodb.datamart import catalogue, identity, tags
 from neurodb.datamart import models as dm
 from neurodb.datamart.fm import PDResolver, entity_kind
 from neurodb.geo.models import Location, LocationType
@@ -1610,6 +1610,15 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
                     logger.warning("etools datamart: disaggregation labels not read: %s", exc)
                     details["disaggregation_labels"] = {"error": str(exc)[:300]}
                     details["partial"] = True
+            if spec.model in (dm.ReportedIndicator, dm.PDIndicator):
+                # the proof of the tie-breakers that tell apart indicators sharing a title and an output,
+                # read by every page from this run (identity.calibration); it never fails the run
+                try:
+                    with transaction.atomic():
+                        details["identity"] = identity.calibrate()
+                except Exception as exc:
+                    logger.warning("etools datamart: indicator identity not calibrated: %s", exc)
+                    details["identity_error"] = str(exc)[:300]
             return details
 
         return _run(run, body)

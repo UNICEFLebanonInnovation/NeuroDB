@@ -4,10 +4,11 @@ the target set in the programme document.
 
 An indicator is identified by its programme document and its eTools id (``PDIndicator.source_id``;
 the title only when there is no id): the Datamart lists PD indicators once per location and
-disaggregation (``PDIndicator``), and the PRP data reports carry the id (``ReportedIndicator``, one
-row per report and location). Quarterly (QPR) and monthly humanitarian (HR) reports describe the
-same achievements, so one report type is read at a time and their values are never added together;
-an indicator with no quarterly report at all is read from its humanitarian reports.
+disaggregation (``PDIndicator``), and the PRP data reports (``ReportedIndicator``, one row per report and
+location) are placed on them by :mod:`neurodb.datamart.identity` (the id, else the title, else the PD
+output and title, else the tie-breakers the data proves). Quarterly (QPR) and monthly humanitarian (HR)
+reports describe the same achievements, so one report type is read at a time and their values are never
+added together; an indicator with no quarterly report at all is read from its humanitarian reports.
 
 Every figure comes from :mod:`neurodb.datamart.reached` (the one rule for "Reached": counted
 reports, location and period methods, nothing added twice); this module only selects the indicators
@@ -42,7 +43,7 @@ from neurodb.indicators.services.tracking import NO_TARGET, tracking_between
 from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
-from . import disaggregation, keys
+from . import disaggregation, identity, keys
 from . import models as dm
 from . import reached as rc
 from .reached import location_key, norm, number  # noqa: F401 (the names other modules import from here)
@@ -69,7 +70,9 @@ NO_SECTION = "—"  # the section of an indicator that names none (a section til
 # filter and the map's places two minutes, the filter options ten (they only change with a sync)
 STORED_SECONDS = 120
 OPTIONS_SECONDS = 600
-CACHE_VERSION = 2  # 2: a stored row carries the rows placed under it and its title's rows left out
+# 2: a stored row carries the rows placed under it and its title's rows left out; 3: a stored row carries the
+# tie-breaker that placed its rows (neurodb.datamart.identity)
+CACHE_VERSION = 3
 
 
 def today() -> datetime.date:
@@ -331,6 +334,7 @@ class Indicator:
     # (Data quality's same-title list), and of them those whose PD output is empty or matches none of theirs
     title_rows_left_out: int = 0
     title_rows_unmatched: int = 0
+    placed_by: str = ""  # the tie-breakers that placed its rows ("" for its id, title or output)
 
     @property
     def cumulative(self) -> float | None:
@@ -416,14 +420,7 @@ class Indicator:
         return out
 
 
-def _target(row: dict[str, Any]) -> float | None:
-    numerator = number(row["target_numerator"])
-    denominator = number(row["target_denominator"])
-    if row["display_type"] in ("percentage", "ratio") and numerator is not None and denominator:
-        return (
-            numerator / denominator * 100 if row["display_type"] == "percentage" else numerator / denominator
-        )
-    return numerator
+_target = identity.target_of  # the name reporting and services read
 
 
 def pd_cp_outputs(pd: PCA) -> str:
@@ -436,9 +433,7 @@ def _key(source_id: int | None, datamart_id: int) -> str:
     return str(source_id) if source_id else f"r{datamart_id}"
 
 
-def ident_of(pd_id: int, source_id: int | None, title: str | None) -> tuple[int, str]:
-    """An indicator's identity in its PD: its eTools id, else its title (when it has no id)."""
-    return (pd_id, f"s{source_id}") if source_id else (pd_id, f"t{norm(title)}")
+ident_of = identity.ident_of  # an indicator's identity in its PD (reporting and the detail read it here)
 
 
 def indicators(
@@ -562,76 +557,6 @@ def location_filter(filters: Filters) -> set[str] | None:
     return names | keys
 
 
-class _Idents:
-    """Which PD indicator a report row belongs to: by its eTools indicator id, else by its title when
-    one indicator of the PD has it, else, for a title two or more indicators of the PD share, by its PD
-    output and title when one of them has both (the row's ``pd_output`` and the indicator's output, case
-    and spaces aside). Two indicators are never merged: a row these do not place is left out. The
-    partner reports send no PD indicator id so far (the key read, ``etools_cp_output_indicators_id``, is
-    empty on every row), so production rows are matched by title and output.
-
-    Built over every indicator of the PDs, not only those the filters keep: a report row of a
-    filtered-out indicator is then skipped instead of falling back to another indicator's title."""
-
-    def __init__(self, pd_ids: list[int]) -> None:
-        self.by_source: dict[tuple[int, str], tuple[int, str]] = {}
-        titles: dict[tuple[int, str], set[tuple[int, str]]] = defaultdict(set)
-        outputs: dict[tuple[int, str, str], set[tuple[int, str]]] = defaultdict(set)
-        rows = dm.PDIndicator.objects.filter(intervention_id__in=pd_ids)
-        for pd_id, source_id, title, output in rows.values_list(
-            "intervention_id", "source_id", "title", "lower_result_name"
-        ):
-            ident = ident_of(pd_id, source_id, title)
-            if source_id:
-                self.by_source.setdefault((pd_id, str(source_id)), ident)
-            titles[(pd_id, norm(title))].add(ident)
-            outputs[(pd_id, norm(output), norm(title))].add(ident)
-        self.by_title = {key: next(iter(found)) for key, found in titles.items() if len(found) == 1}
-        # the titles two or more indicators of a PD share: a row is then placed by its output and title,
-        # when one of them has both, else left out
-        self.shared = {key for key, found in titles.items() if len(found) > 1}
-        self.by_output = {
-            key: next(iter(found))
-            for key, found in outputs.items()
-            if len(found) == 1 and (key[0], key[2]) in self.shared
-        }
-        # an output and a title two or more indicators of a PD share (no row can tell them apart)
-        self.shared_output = {
-            key for key, found in outputs.items() if len(found) > 1 and (key[0], key[2]) in self.shared
-        }
-
-    def of(
-        self, pd_id: int, etools_id: Any, title: str | None, output: str | None = None
-    ) -> tuple[int, str] | None:
-        source = str(etools_id or "").strip()
-        if source and (pd_id, source) in self.by_source:
-            return self.by_source[(pd_id, source)]
-        found = self.by_title.get((pd_id, norm(title)))
-        if found is None and output:
-            found = self.by_output.get((pd_id, norm(output), norm(title)))
-        return found
-
-    def how(self, pd_id: int, etools_id: Any, title: str | None, output: str | None = None) -> str:
-        """How :meth:`of` reads a row (the eTools reporting checks and Data quality count them): ``"id"``,
-        ``"title"``, ``"output"`` (a title several indicators share, told apart by the output), and the rows
-        left out: ``"shared_output"`` (two or more indicators of the PD share the title and the row's
-        output), ``"output_unmatched"`` (the title is several indicators', and the row's PD output is empty
-        or matches none of their outputs in eTools) or ``"unknown"`` (no indicator of the PD has the
-        title)."""
-        source = str(etools_id or "").strip()
-        if source and (pd_id, source) in self.by_source:
-            return "id"
-        key = (pd_id, norm(title))
-        if key in self.by_title:
-            return "title"
-        if key not in self.shared:
-            return "unknown"
-        place = (pd_id, norm(output), norm(title))
-        if output and place in self.by_output:
-            return "output"
-        return "shared_output" if place in self.shared_output else "output_unmatched"
-
-
 def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, today: datetime.date) -> None:
     """Reached for every indicator (:func:`neurodb.datamart.reached.compute`), from the selected report
     type; an indicator with no quarterly report at all is read from its humanitarian reports. An
@@ -639,8 +564,10 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
     if not found:
         return
     pd_ids = sorted({ident[0] for ident in found})
-    idents = _Idents(pd_ids)
+    idents = identity.Idents(pd_ids)
     per: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
+    # the tie-breakers that placed each indicator's rows (identity.BREAKERS), of the report type read
+    ways: dict[tuple[int, str], set[str]] = defaultdict(set)
     # each progress report's status, read from every row of the report (all its indicators), so each
     # indicator of a report whose rows disagree (a partial re-sync) has the status the reports' list shows
     words: dict[str, dict[str, rc.Stamp]] = defaultdict(dict)
@@ -653,34 +580,34 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
         text, mine = row["report_status"] or "", words[rc.report_key(row)]
         mine[text] = rc.stamp(mine.get(text), rc.row_stamp(row))
 
-    def place(row: dict[str, Any]) -> tuple[int, str] | None:
-        pd, eid, title, output = (
-            row["intervention_id"],
-            row["etools_indicator_id"],
-            row["indicator"],
-            row["pd_output"],
-        )
-        ident = idents.of(pd, eid, title, output)
-        if ident is None and (pd, norm(title)) in idents.shared:
-            unplaced[(pd, norm(title))] += 1
-            unmatched[(pd, norm(title))] += idents.how(pd, eid, title, output) == "output_unmatched"
-        return ident
+    def place(rows: Any) -> list[tuple[dict[str, Any], identity.Placed]]:
+        """The rows of one report type and where each goes (identity.Idents.place: per placement group)."""
+        rows = list(rows)
+        out = []
+        for row, spot in zip(rows, idents.place(rows), strict=True):
+            note(row)
+            pd, title = row["intervention_id"], row["indicator"]
+            if spot.ident is None and (pd, norm(title)) in idents.shared:
+                unplaced[(pd, norm(title))] += 1
+                unmatched[(pd, norm(title))] += spot.way == "output_unmatched"
+            out.append((row, spot))
+        return out
 
-    for row in rc.report_rows(pd_ids, [filters.report_type]):
-        note(row)
-        ident = place(row)
-        if ident in found:
-            per[ident].append(row)
+    for row, spot in place(rc.report_rows(pd_ids, [filters.report_type])):
+        if spot.ident in found:
+            per[spot.ident].append(row)
+            if spot.way in identity.BREAKERS:
+                ways[spot.ident].add(spot.way)
     read_from = dict.fromkeys(per, filters.report_type)
     missing = [ident for ident in found if ident not in per]
     if filters.report_type == "QPR" and missing:
         humanitarian: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
         wanted = set(missing)
-        for row in rc.report_rows(sorted({ident[0] for ident in missing}), ["HR"]):
-            note(row)
-            ident = place(row)
-            if ident in wanted:
-                humanitarian[ident].append(row)
+        for row, spot in place(rc.report_rows(sorted({ident[0] for ident in missing}), ["HR"])):
+            if spot.ident in wanted:
+                humanitarian[spot.ident].append(row)
+                if spot.way in identity.BREAKERS:
+                    ways[spot.ident].add(spot.way)
         for ident, rows in humanitarian.items():
             per[ident], read_from[ident] = rows, "HR"
     statuses = {key: rc.newest_status(texts) for key, texts in words.items()}
@@ -691,6 +618,7 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
         entry.rows_placed = len(per.get(ident, []))
         entry.title_rows_left_out = unplaced[(entry.pd.id, norm(entry.title))]
         entry.title_rows_unmatched = unmatched[(entry.pd.id, norm(entry.title))]
+        entry.placed_by = ", ".join(name for name in identity.BREAKERS if name in ways.get(ident, ()))
         result = rc.compute(
             per.get(ident, []),
             display_type=entry.display_type,
@@ -703,6 +631,8 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
             report_status=statuses,
             output=entry.output,
         )
+        if "active" in ways.get(ident, ()):
+            result.notes.append(identity.ACTIVE_NOTE)
         _apply(entry, result, read_from.get(ident, filters.report_type))
         if result.reached is None:
             entry.tracking, entry.achieved = NOT_REPORTED, None
@@ -807,6 +737,7 @@ class Row:
     rows_placed: int = 0
     title_rows_left_out: int = 0
     title_rows_unmatched: int = 0
+    placed_by: str = ""
 
     @property
     def partner(self) -> StoredPartner | None:
@@ -882,6 +813,7 @@ def as_rows(found: list[Indicator]) -> list[Row]:
                 rows_placed=i.rows_placed,
                 title_rows_left_out=i.title_rows_left_out,
                 title_rows_unmatched=i.title_rows_unmatched,
+                placed_by=i.placed_by,
             )
         )
     return out
@@ -1333,14 +1265,12 @@ def data_quality(
     for r in rows:
         titles[(r.pd.id, norm(r.title))].append(r)
 
-    # a title two or more indicators of a PD share: the partner reports' rows are placed by their PD output
-    # (monitoring._Idents). An indicator is left out when it shares the output too, or when it gets no row
-    # while rows of the title were left out (their PD output is empty, or matches none of the indicators')
+    # a title two or more indicators of a PD share: the partner reports' rows are placed by their PD output,
+    # and where they share the output too by the tie-breakers the data proves (neurodb.datamart.identity). An
+    # indicator is left out when it gets none of its rows while rows of its title were left out; sharing an
+    # output alone is not enough (a tie-breaker may have placed it, or PRP may report only its twin)
     def left_out(group: list[Indicator]) -> int:
-        shared = {key for key, n in Counter(norm(r.output) for r in group).items() if n > 1}
-        return sum(
-            1 for r in group if norm(r.output) in shared or (not r.rows_placed and r.title_rows_left_out)
-        )
+        return sum(1 for r in group if not r.rows_placed and r.title_rows_left_out)
 
     same_title = [
         {
