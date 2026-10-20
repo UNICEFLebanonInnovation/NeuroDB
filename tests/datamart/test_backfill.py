@@ -285,6 +285,9 @@ QUICK_MIGRATIONS = {
     # whether ActivityInfo is in use or an archive: a new, empty table of one row (CreateModel only, no code
     # runs; listed so that the migration is accounted for here)
     ("core", "0028_activityinfo_setting", "CreateModel"),
+    # the eTools Datamart's PRP business area code (a new, empty table of one row) and the probe's job choice
+    # (CreateModel and AlterField only, no code runs; listed so that the migration is accounted for here)
+    ("core", "0030_datamart_prp_setting", "CreateModel"),
     # SET LOCAL lock_timeout before the knowledge search's rank column, added empty (no default: the table's
     # description only, whatever the number of passages); the knowledge hub job fills it after start-up
     ("knowledge", "0007_chunk_rank_vector", "RunSQL"),

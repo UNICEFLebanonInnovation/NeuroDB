@@ -344,6 +344,7 @@ HEALTH_SKIPPED_JOBS = (
     SyncRun.Job.DOC_REVIEW,
     SyncRun.Job.DATAMART_BACKFILL,  # once after a deployment: it never goes stale
     SyncRun.Job.REPORTING_CHECKS,  # the eTools reporting checks: their own page says when they ran
+    SyncRun.Job.DATAMART_PROBE,  # a probe of one Datamart dataset, started by hand: never stale
 )
 
 
@@ -450,6 +451,12 @@ LEGACY_TABLES = {
 }
 # What a sync could not link, as the data health table names it (other codes are shown as written)
 NOT_LINKED_LABELS = {"programme_document_fm": "programme document (field monitoring)"}
+# Where the business area code of a PRP dataset's run came from (details.business_area_from), in words
+BUSINESS_AREA_FROM = {
+    "environment": _("set by the hosting team"),
+    "admin": _("entered in the admin"),
+    "workspaces": _("found in the Datamart's workspaces"),
+}
 # The rows each dataset holds are counted once an hour at most, and again as soon as one of the jobs that
 # write those tables starts or ends a run (the eTools Datamart sync above all). The gazetteer is the one
 # table staff also change by hand (Admin → Locations), outside any job: it is counted at each visit.
@@ -610,7 +617,9 @@ def datamart_quality() -> list[dict[str, Any]]:
     """Per eTools Datamart dataset: the last run, what it read, wrote, failed to link, and how many
     rows NeuroDB holds — the table to read before believing a number on an eTools page. A failed run's
     error is shown when it lists no row errors, and a diagnostic dataset (``catalogue.DIAGNOSTIC``, used by
-    no page, figure or check) is marked as such."""
+    no page, figure or check) is marked as such. A PRP dataset's run names the business area code it read
+    with and where the code came from; a run that read fewer records than the Datamart announced says that
+    it removed nothing."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
 
@@ -640,6 +649,14 @@ def datamart_quality() -> list[dict[str, Any]]:
                 # the run's own error, when it stopped before listing row errors (an HTTP 500 of the Datamart)
                 "error": run.error if failed and not details.get("errors") else "",
                 "diagnostic": name in DIAGNOSTIC,  # no page, figure or check uses it: never an alarm
+                # a PRP dataset's code and its source, in words (it carries no country name)
+                "business_area": details.get("business_area") or "",
+                "business_area_from": BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""),
+                # the records read (kept and skipped) and the count the Datamart announced; fewer read than
+                # announced: nothing was removed
+                "read": details.get("read"),
+                "datamart_count": details.get("datamart_count"),
+                "removal_skipped": bool(details.get("removal_skipped")),
             }
         )
     return rows

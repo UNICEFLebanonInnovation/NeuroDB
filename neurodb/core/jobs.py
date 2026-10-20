@@ -103,6 +103,10 @@ COMMAND_CHOICES = [(key, cmd.label) for key, cmd in COMMANDS.items()]
 # A run of theirs that failed still counts.
 PARTIAL_IS_NOT_AN_ALARM = frozenset({SyncRun.Job.REPORTING_CHECKS})
 
+# Jobs whose runs are never an alarm, whatever their status: a probe of the eTools Datamart, started by hand
+# from Run a job, whose run says what it found (a refusal of the Datamart included); nothing runs it again.
+NEVER_AN_ALARM = frozenset({SyncRun.Job.DATAMART_PROBE})
+
 # What the scheduler writes on a schedule whose command the running release does not know
 UNKNOWN_COMMAND = "not started: unknown command"
 

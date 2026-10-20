@@ -25,7 +25,7 @@ import hashlib
 import json
 import logging
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -36,7 +36,7 @@ from django.db import connection, models, transaction
 from django.db.models.fields.json import KT
 from django.utils import timezone
 
-from neurodb.core.models import SyncRun
+from neurodb.core.models import DatamartSetting, SyncRun
 from neurodb.datamart import catalogue, tags
 from neurodb.datamart import models as dm
 from neurodb.datamart.fm import PDResolver, entity_kind
@@ -1220,6 +1220,7 @@ class OfCountry:
     from the records kept whole; the partner, programme document, location and site tables keep them."""
 
     def __init__(self, client: DatamartClient, items: Iterable[dict[str, Any]]) -> None:
+        self.client = client  # its ``last_count`` once the items are read: what the Datamart announced
         self.country = getattr(client, "country", settings.ETOOLS_DATAMART_COUNTRY)
         self.items, self.skipped = items, 0
 
@@ -1275,11 +1276,12 @@ class DocumentWriter:
         if partner_id is None and intervention_id is not None:
             partner_id = PCA.objects.filter(pk=intervention_id).values_list("partner_id", flat=True).first()
         title = " · ".join(str(item[k]) for k in spec.title if item.get(k) not in (None, ""))
+        source_id = item.get("id") if spec.id_is_source and "source_id" not in item else item.get("source_id")
         dm.DatamartDocument.objects.update_or_create(
             dataset=self.name,
             record_key=key,
             defaults={
-                "source_id": _int(item.get("source_id")),
+                "source_id": _int(source_id),
                 "partner_id": partner_id,
                 "intervention_id": intervention_id,
                 "title": title[:500],
@@ -1288,16 +1290,24 @@ class DocumentWriter:
             },
         )
 
-    def finish(self) -> dict[str, Any]:
+    def finish(self, *, whole: bool = True) -> dict[str, Any]:
+        """Remove the records the Datamart no longer returns, after a ``whole`` read that returned some: an
+        empty answer, or fewer records than the Datamart announced, removes nothing."""
         if not self.seen:  # an empty answer never empties the dataset
             return {"documents": 0}
+        if not whole:
+            return {"documents": len(self.seen), "documents_removed": 0}
         stale = dm.DatamartDocument.objects.filter(dataset=self.name).exclude(record_key__in=self.seen)
         removed, _ = stale.delete()
         return {"documents": len(self.seen), "documents_removed": removed}
 
 
-def _write_documents(name: str, items: list[dict[str, Any]], links: Links) -> dict[str, Any]:
-    """Raw copies of a dataset whose records were just applied elsewhere (one failure never stops them)."""
+def _write_documents(
+    name: str, items: list[dict[str, Any]], links: Links, found: OfCountry | None = None
+) -> dict[str, Any]:
+    """Raw copies of a dataset whose records were just applied elsewhere (one failure never stops them).
+    ``found``, the read they come from: when it got fewer records than the Datamart announced, no copy it
+    did not return is removed (:func:`read_whole`) and the run ends PARTIAL."""
     writer, failed = DocumentWriter(name, links), 0
     for item in items:
         try:
@@ -1306,7 +1316,11 @@ def _write_documents(name: str, items: list[dict[str, Any]], links: Links) -> di
         except Exception as exc:
             failed += 1
             logger.warning("etools datamart %s: document %s failed: %s", name, _label(item), exc)
-    details = writer.finish()
+    read = len(items) + (found.skipped if found else 0)
+    whole = found is None or read_whole(getattr(found.client, "last_count", None), read)
+    details = writer.finish(whole=whole)
+    if writer.seen and not whole:
+        details.update(_removal_skipped(read))
     return {**details, "documents_failed": failed} if failed else details
 
 
@@ -1390,7 +1404,7 @@ def sync_locations(run: SyncRun, *, client: DatamartClient, links: Links) -> Syn
             **found.details(),
         }
         links.missing.clear()
-        return {**details, **_write_documents("locations", items, links)}
+        return {**details, **_write_documents("locations", items, links, found)}
 
     return _run(run, body)
 
@@ -1474,7 +1488,7 @@ def sync_sites(run: SyncRun, *, client: DatamartClient, links: Links) -> SyncRun
         links.refresh()
         details = {**links.details(), **found.details()}
         links.missing.clear()
-        return {**details, **_write_documents("location_sites", items, links)}
+        return {**details, **_write_documents("location_sites", items, links, found)}
 
     return _run(run, body)
 
@@ -1494,12 +1508,26 @@ def sync_legacy(
             links.missing.clear()
             if aligned:
                 details["sequences_aligned"] = aligned
-            return {**details, **_write_documents(name, items, links)}
+            return {**details, **_write_documents(name, items, links, found)}
 
         return _run(run, body)
 
     sync.__name__ = f"sync_{name}"
     return sync
+
+
+def read_whole(announced: int | None, read: int) -> bool:
+    """Whether a read got every record the Datamart announced (the ``count`` of its first page): with fewer
+    (a page cut short, rows moving on the Datamart while its pages were read), the rows it did not return
+    are kept, not removed. A list without a count is taken as whole."""
+    return announced is None or read >= announced
+
+
+def _removal_skipped(read: int) -> dict[str, Any]:
+    """The details of a read that got fewer records than the Datamart announced: nothing it did not return
+    is removed, and the run ends PARTIAL (``finish_by_counts``), so Data health says so; the next whole
+    read removes them."""
+    return {"removal_skipped": True, "read": read, "partial": True}
 
 
 def sync_dataset(name: str) -> Callable[..., SyncRun]:
@@ -1511,20 +1539,28 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
             seen: set[int] = set()
             linked_before = _funded_pcas() if spec.model is dm.FundsReservation else set()
             params = spec.params() if spec.params else None
+            # the rows this read replaces, counted before it writes (a large "removed" reads against it)
+            held_before = (spec.scope(spec.model.objects.all()) if spec.scope else spec.model.objects).count()
             found = OfCountry(client, client.list(dataset, params))
             process_items(run, found, lambda item: upsert_record(spec, item, links, seen), _label)
+            announced, read = getattr(client, "last_count", None), run.rows_in + found.skipped
             if seen:
                 # another country's rows first (every one, whatever its date), then the rest of the scope
                 # the Datamart no longer returns
                 other = remove_other_country(spec.model, found.country, seen)
-                replaced = spec.scope(spec.model.objects.all()) if spec.scope else spec.model.objects.all()
-                _, deleted = replaced.exclude(datamart_id__in=seen).delete()
-                details = {"removed": deleted.get(spec.model._meta.label, 0), **links.details()}
+                if read_whole(announced, read):
+                    replaced = spec.scope(spec.model.objects.all()) if spec.scope else spec.model.objects
+                    _, deleted = replaced.exclude(datamart_id__in=seen).delete()
+                    details = {"removed": deleted.get(spec.model._meta.label, 0), **links.details()}
+                else:  # fewer records than the Datamart announced: the rows it did not return are kept
+                    details = {"removed": 0, **_removal_skipped(read), **links.details()}
                 if other:
                     details["other_country_removed"] = other
             else:  # an empty answer (a wrong country name?) never empties the table
                 details = {"removed": 0, "empty_response": True, **links.details()}
-            details.update(found.details())
+            details.update(found.details(), held_before=held_before)
+            if announced is not None:
+                details["datamart_count"] = announced
             if spec.model is dm.FundsReservation:
                 details["donor_sets"] = _refresh_donor_sets(linked_before)
             if spec.model is dm.ReportedIndicator:
@@ -1610,7 +1646,7 @@ def sync_enrichment(name: str) -> Callable[..., SyncRun]:
             process_items(run, items, lambda item: enrich_engagement(name, fields, item, links), _label)
             details = {**links.details(), **found.details()}
             links.missing.clear()
-            return {**details, **_write_documents(name, items, links)}
+            return {**details, **_write_documents(name, items, links, found)}
 
         return _run(run, body)
 
@@ -1799,31 +1835,66 @@ def _refresh_donor_sets(linked_before: set[int]) -> int:
 # Dependency order: partners before programme documents, programme documents before everything
 # that links to them.
 # ------------------------------------------------------------------ catalogue datasets (documents)
+# Where a run's business area code came from (``details.business_area_from``)
+FROM_ENVIRONMENT, FROM_ADMIN, FROM_WORKSPACES = "environment", "admin", "workspaces"
+CODES_SEEN = 10  # the business area codes a run lists, the most frequent first (counts only)
+NO_CODE = "(none)"  # how a record that names no business area is counted among them
+
+
+def area_code(value: Any) -> str:
+    """A business area code as compared: ``"2490"``, ``2490``, ``" 2490 "``, ``2490.0``, ``"2490.0"`` and
+    ``{"code": "2490"}`` all read ``"2490"``; a missing or empty value reads ``""``."""
+    if isinstance(value, dict):
+        value = next((value[k] for k in ("code", "business_area_code") if value.get(k) not in (None, "")), "")
+    if value is None or isinstance(value, bool):
+        return ""
+    text = str(value).strip()
+    return text[:-2] if text.endswith(".0") and text[:-2].isdigit() else text
+
+
+def business_area_setting() -> tuple[str, str]:
+    """The business area code set for the PRP datasets, and where: ``ETOOLS_DATAMART_BUSINESS_AREA`` (the
+    hosting team's) first, then the admin's "eTools Datamart: PRP business area code". ``("", "")`` when
+    neither is set: the code is then looked up in the Datamart's workspaces."""
+    code = area_code(settings.ETOOLS_DATAMART_BUSINESS_AREA)
+    if code:
+        return code, FROM_ENVIRONMENT
+    stored = DatamartSetting.objects.filter(pk=1).values_list("prp_business_area", flat=True).first()
+    code = area_code(stored)
+    return (code, FROM_ADMIN) if code else ("", "")
+
+
 class CountryScope:
     """The country filter of the non-``country_name`` datasets, resolved once per run."""
 
     def __init__(self, client: DatamartClient) -> None:
         self.client = client
         self._business_area: str | None = None
+        self.business_area_from = ""  # FROM_ENVIRONMENT, FROM_ADMIN or FROM_WORKSPACES, once resolved
 
     @property
     def country(self) -> str:
         return (settings.ETOOLS_DATAMART_COUNTRY or "").strip()
 
     def business_area(self) -> str:
-        """The country's business area code: the setting, else the Datamart workspace of that name."""
+        """The country's business area code: the environment's, else the admin's
+        (:func:`business_area_setting`), else that of the first Datamart workspace of the country's name that
+        has one (names compared with case and spaces aside)."""
         if self._business_area is None:
-            code = settings.ETOOLS_DATAMART_BUSINESS_AREA
+            code, source = business_area_setting()
             if not code:
+                wanted = country_name(self.country)
                 for workspace in self.client.list("workspaces", country=False):
-                    if str(workspace.get("name", "")).strip().lower() == self.country.lower():
-                        code = str(workspace.get("business_area_code") or "")
+                    found = area_code(workspace.get("business_area_code"))
+                    if found and country_name(workspace.get("name")) == wanted:
+                        code, source = found, FROM_WORKSPACES
                         break
             if not code:
                 raise IntegrationError(
-                    f"no business area code for {self.country!r}; set ETOOLS_DATAMART_BUSINESS_AREA"
+                    f"no business area code for {self.country!r}: enter it in the admin (eTools Datamart: "
+                    "PRP business area code), or ask the hosting team to set ETOOLS_DATAMART_BUSINESS_AREA"
                 )
-            self._business_area = code
+            self._business_area, self.business_area_from = code, source
         return self._business_area
 
     def request(self, spec: catalogue.Source) -> tuple[dict[str, Any], bool]:
@@ -1834,16 +1905,61 @@ class CountryScope:
             return {}, False
         return {}, True
 
-    def keeps(self, spec: catalogue.Source, item: dict[str, Any]) -> bool:
+    def keeps(self, spec: catalogue.Source, item: dict[str, Any]) -> bool | None:
         """Whether a record belongs to the country: a filter the API ignored must never let another
-        country's records in."""
+        country's records in. A business-area record is compared by its code (:func:`area_code`), else by
+        its country name when it carries one; one that names neither gives None: it is kept (the request's
+        filter chose it, as :func:`other_country` keeps a record that names no country) and counted apart."""
         if spec.scope == "business_area":
-            value = item.get(spec.filter_key)
-            return value in (None, "") or str(value) == self.business_area()
+            code = area_code(item.get(spec.filter_key))
+            if code:
+                return code == self.business_area()
+            if country_name(item.get("country_name")):
+                return not other_country(item, self.country)
+            return None
         if spec.scope == "lookup":
             return not spec.keep or str(item.get(spec.keep, "")).strip().lower() == self.country.lower()
         value = item.get("country_name")
         return value in (None, "") or str(value).strip().lower() == self.country.lower()
+
+
+class Census:
+    """What a read of a business-area dataset saw, as counts only (never a record's values, but for the
+    business area codes): the records read, the codes they name (the most frequent), how many carry each
+    key the sync and its readers use (``keys_seen``: a key the Datamart does not send reads 0), and the
+    years of the records kept (``dated``: check 11 reads the records of the year and the years beside it)."""
+
+    def __init__(self, spec: catalogue.Source, today: dt.date | None = None) -> None:
+        self.spec, self.year = spec, (today or timezone.localdate()).year
+        self.read = 0
+        self.codes: Counter[str] = Counter()
+        keys = ("id", "source_id", "country_name", spec.filter_key, spec.date, *spec.partner)
+        keys += (*spec.intervention, *spec.title, *spec.reads)
+        self.watched = tuple(dict.fromkeys(k for k in keys if k))
+        self.keys: Counter[str] = Counter()
+        self.years: Counter[str] = Counter()
+
+    def saw(self, item: dict[str, Any]) -> None:
+        self.read += 1
+        self.codes[area_code(item.get(self.spec.filter_key))[:20] or NO_CODE] += 1
+        self.keys.update(k for k in self.watched if item.get(k) not in (None, "", [], {}))
+
+    def kept(self, item: dict[str, Any]) -> None:
+        try:
+            day = parse_iso_date(item.get(self.spec.date)) if self.spec.date else None
+        except ValueError:  # an impossible date: the write fails and says so
+            day = None
+        year = getattr(day, "year", None)
+        near = year is not None and abs(year - self.year) <= 1
+        self.years[str(year) if near else ("none" if year is None else "other")] += 1
+
+    def details(self) -> dict[str, Any]:
+        return {
+            "read": self.read,
+            "business_areas_seen": dict(self.codes.most_common(CODES_SEEN)),
+            "keys_seen": {k: self.keys[k] for k in self.watched},
+            "dated": dict(sorted(self.years.items())),
+        }
 
 
 def sync_documents(name: str) -> Callable[..., SyncRun]:
@@ -1855,19 +1971,44 @@ def sync_documents(name: str) -> Callable[..., SyncRun]:
             scope = links.scope or CountryScope(client)
             links.scope = scope
             params, by_country = scope.request(spec)
-            writer, other = DocumentWriter(name, links), 0
+            writer, other, unnamed = DocumentWriter(name, links), 0, 0
+            census = Census(spec) if spec.scope == "business_area" else None
 
             def items():
-                nonlocal other
+                nonlocal other, unnamed
                 for item in client.list(spec.path, params, country=by_country):
-                    if scope.keeps(spec, item):
-                        yield item
-                    else:
+                    if census:
+                        census.saw(item)
+                    kept = scope.keeps(spec, item)
+                    if kept is False:
                         other += 1
+                        continue
+                    unnamed += kept is None
+                    if census:
+                        census.kept(item)
+                    yield item
 
             process_items(run, items(), writer.write, _label)
-            details = {**links.details(), **writer.finish()}
-            return {**details, "other_country_skipped": other} if other else details
+            announced, read = getattr(client, "last_count", None), run.rows_in + other
+            whole = read_whole(announced, read)
+            details = {**links.details(), **writer.finish(whole=whole)}
+            if other:
+                details["other_country_skipped"] = other
+            if announced is not None:
+                details["datamart_count"] = announced
+            if writer.seen and not whole:
+                details.update(_removal_skipped(read))
+            if census:  # what was asked, from where, and what came back: counts and codes only
+                details.update(
+                    business_area=scope.business_area(),
+                    business_area_from=scope.business_area_from,
+                    **census.details(),
+                )
+                if unnamed:
+                    details["country_unnamed"] = unnamed
+                if not writer.seen:  # nothing kept: Data health warns, naming the code
+                    details["empty_response"] = True
+            return details
 
         return _run(run, body)
 

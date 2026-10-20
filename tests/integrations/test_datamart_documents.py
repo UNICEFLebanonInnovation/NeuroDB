@@ -1,7 +1,9 @@
+import json
+
 import pytest
 import responses
 
-from neurodb.core.models import SyncRun
+from neurodb.core.models import DatamartSetting, SyncRun
 from neurodb.datamart import catalogue
 from neurodb.datamart.models import DatamartDocument
 from neurodb.integrations.etools import datamart_sync as sync
@@ -227,3 +229,227 @@ def test_a_full_run_reads_every_dataset_once(settings):
     assert len(runs) == len(sync.ENTITY_SYNCS)
     assert len(seen) == len(set(seen)) == len(sync.ENTITY_SYNCS)
     assert "prp/indicator-report-v2" in seen and "datamart/audit/financial-findings-all" in seen
+
+
+# ------------------------------------------------------------------- PRP's indicator reports: the business area
+def prp(pk: int, area="2490", **extra) -> dict:
+    """One record of PRP's indicator reports (``prp/indicator-report-v2``) as the sync tests assume it."""
+    record = {
+        "id": pk,
+        "business_area": area,
+        "pd_reference_number": "LEB/PD1",
+        "performance_indicator": "Children reached",
+        "time_period_end": "2026-03-31",
+        "partner": "V1",
+    }
+    return {k: v for k, v in {**record, **extra}.items() if v is not ...}
+
+
+def v2(results: list[dict], count: int | None = None, **match) -> None:
+    payload = {"results": results, "next": None, **({"count": count} if count is not None else {})}
+    kwargs = {"match": [responses.matchers.query_param_matcher(match)]} if match else {}
+    responses.get(f"{API}/prp/indicator-report-v2/", json=payload, **kwargs)
+
+
+@pytest.mark.parametrize("value", ["2490", 2490, " 2490 ", "2490.0", 2490.0, {"code": "2490"}])
+@responses.activate
+def test_a_business_area_code_is_compared_whatever_its_form(linked, settings, value):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    v2([prp(5, value)])
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED and result.details["documents"] == 1
+    assert "other_country_skipped" not in result.details and "empty_response" not in result.details
+    assert result.details["business_areas_seen"] == {"2490": 1}
+
+
+@responses.activate
+def test_a_read_naming_only_another_business_area_says_so_and_keeps_what_is_held(settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    DatamartDocument.objects.create(dataset="prp_indicator_reports", record_key="held")
+    v2([prp(5, "2340"), prp(6, " 2340")], count=2)
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED and result.rows_in == 0
+    details = result.details
+    assert details["other_country_skipped"] == 2 and details["empty_response"] is True
+    assert (details["read"], details["documents"], details["business_areas_seen"]) == (2, 0, {"2340": 2})
+    assert list(DatamartDocument.objects.values_list("record_key", flat=True)) == ["held"]
+
+
+@responses.activate
+def test_a_record_naming_no_business_area_is_kept_unless_it_names_another_country(linked, settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    v2([prp(5, None), prp(6, "", country_name="Syria"), prp(7, ..., country_name=" lebanon ")])
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED
+    assert sorted(DatamartDocument.objects.values_list("record_key", flat=True)) == ["5", "7"]
+    details = result.details
+    assert (details["other_country_skipped"], details["country_unnamed"]) == (1, 1)
+    assert details["business_areas_seen"] == {"(none)": 3}
+
+
+@responses.activate
+def test_an_empty_prp_read_says_so_with_the_code_and_where_it_came_from(settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    DatamartDocument.objects.create(dataset="prp_indicator_reports", record_key="held")
+    v2([], count=0, business_area="2490", page_size="500")
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED and (result.rows_in, result.rows_written) == (0, 0)
+    details = result.details
+    assert details["empty_response"] is True and details["datamart_count"] == 0 and details["read"] == 0
+    assert (details["business_area"], details["business_area_from"]) == ("2490", "environment")
+    assert (
+        details["documents"] == 0 and DatamartDocument.objects.count() == 1
+    )  # an empty read removes nothing
+
+
+@responses.activate
+def test_a_prp_read_records_what_it_saw_as_counts_only(linked, settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    v2([prp(5), prp(6, time_period_end=...), prp(7, "2340"), prp(8, time_period_end="2019-12-31")], count=4)
+    (result,) = run("prp_indicator_reports")
+    details = result.details
+    assert (details["read"], result.rows_in, details["datamart_count"]) == (4, 3, 4)
+    assert details["business_areas_seen"] == {"2490": 3, "2340": 1}
+    keys = details["keys_seen"]
+    assert (keys["time_period_end"], keys["pd_reference_number"], keys["id"]) == (3, 4, 4)
+    assert keys["source_id"] == 0 and keys["progress_value"] == 0 and keys["country_name"] == 0
+    assert details["dated"] == {
+        "2026": 1,
+        "none": 1,
+        "other": 1,
+    }  # the records kept, by the year of their end
+    assert DatamartDocument.objects.get(record_key="6").date is None
+    # counts, key names and business area codes only: no value of a record
+    stored = json.dumps(details)
+    assert "Children reached" not in stored and "LEB/PD1" not in stored and "V1" not in stored
+
+
+@responses.activate
+def test_the_code_entered_in_the_admin_comes_after_the_environment_and_before_the_workspaces(settings):
+    DatamartSetting.objects.create(pk=1, prp_business_area="2490")
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = ""
+    # only the indicator reports answer: a request to the workspaces would fail the run
+    v2([prp(5)], business_area="2490", page_size="500")
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED, result.error
+    assert (result.details["business_area"], result.details["business_area_from"]) == ("2490", "admin")
+    assert [call.request.url.split("/api/latest/")[1].split("?")[0] for call in responses.calls] == [
+        "prp/indicator-report-v2/"
+    ]
+
+    responses.reset()
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2491"  # the hosting team's code comes first
+    v2([], business_area="2491", page_size="500")
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED, result.error
+    assert (result.details["business_area"], result.details["business_area_from"]) == ("2491", "environment")
+
+
+@responses.activate
+def test_the_workspaces_give_the_code_of_the_first_workspace_of_that_name_that_has_one(settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = ""
+    page(
+        "datamart/workspaces",
+        [
+            {"id": 1, "name": "Lebanon", "business_area_code": None},
+            {"id": 2, "name": " LEBANON ", "business_area_code": 2490.0},
+        ],
+    )
+    v2([], business_area="2490", page_size="500")
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED, result.error
+    assert (result.details["business_area"], result.details["business_area_from"]) == ("2490", "workspaces")
+
+
+@responses.activate
+def test_a_refused_prp_read_fails_with_its_http_status(settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    responses.get(f"{API}/prp/indicator-report-v2/", status=403)
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.FAILED and "HTTP 403" in result.error
+
+
+def test_the_missing_code_error_says_where_to_enter_it(settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = ""
+    scope = sync.CountryScope(type("Client", (), {"list": lambda self, *a, **k: iter(())})())
+    with pytest.raises(sync.IntegrationError, match="Admin|admin") as raised:
+        scope.business_area()
+    assert "eTools Datamart: PRP business area code" in str(raised.value)
+
+
+# --------------------------------------------------------------------------- the source id of a v2 record
+@responses.activate
+def test_a_v2_record_without_a_source_id_key_takes_its_id_and_no_other_dataset_does(linked, settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    v2([prp(5), prp(6, source_id=None), prp(7, source_id=70)])
+    page("datamart/interventions-epd", [{"id": 1, "pd_number": "LEB/PD1", "country_name": "Lebanon"}])
+    run("prp_indicator_reports,intervention_epd")
+    by_key = dict(
+        DatamartDocument.objects.filter(dataset="prp_indicator_reports").values_list(
+            "record_key", "source_id"
+        )
+    )
+    # a source_id key, even empty, is the record's own word; only a record without one takes its id
+    assert by_key == {"5": 5, "6": None, "7": 70}
+    assert DatamartDocument.objects.get(dataset="intervention_epd").source_id is None
+
+
+# ------------------------------------------------------------- what the clean-ups of other datasets never touch
+@responses.activate
+def test_the_partner_reports_sync_never_removes_a_prp_record_and_an_empty_v2_read_keeps_them(
+    linked, settings
+):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    kept = DatamartDocument.objects.create(
+        dataset="prp_indicator_reports", record_key="9", data={"country_name": "Syria"}
+    )
+    report = {
+        "id": 1,
+        "partner_vendor_number": "V1",
+        "intervention_reference_number": "LEB/PD1",
+        "report_type": "QPR",
+        "reporting_period_start_date": "2026-01-01",
+        "performance_indicator": "Children reached",
+        "country_name": "Lebanon",
+    }
+    responses.get(
+        __import__("re").compile(rf"{API}/prp/datareport/.*"), json={"results": [report], "next": None}
+    )
+    (reports,) = run("partner_reports")
+    assert reports.status != SyncRun.Status.FAILED, reports.error
+    assert DatamartDocument.objects.filter(pk=kept.pk).exists()  # the typed tables' clean-up only
+
+    v2([])
+    (result,) = run("prp_indicator_reports")
+    assert result.details["documents"] == 0 and "documents_removed" not in result.details
+    assert DatamartDocument.objects.filter(pk=kept.pk).exists()
+
+
+@responses.activate
+def test_a_document_read_shorter_than_announced_removes_nothing_and_says_so(linked, settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    DatamartDocument.objects.create(dataset="prp_indicator_reports", record_key="old")
+    v2([prp(5), prp(6)], count=4)
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.PARTIAL and result.rows_failed == 0
+    details = result.details
+    assert details["removal_skipped"] is True and (details["read"], details["datamart_count"]) == (2, 4)
+    assert details["documents_removed"] == 0
+    assert sorted(DatamartDocument.objects.values_list("record_key", flat=True)) == ["5", "6", "old"]
+
+    v2([prp(5), prp(6)], count=2)  # a whole read removes it
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED and result.details["documents_removed"] == 1
+
+
+@responses.activate
+def test_raw_copies_from_a_read_shorter_than_announced_are_not_removed():
+    DatamartDocument.objects.create(dataset="partners", record_key="old")
+    responses.get(
+        f"{API}/datamart/partners/",
+        json={"count": 3, "next": None, "results": [{"id": 9, "source_id": 1, "name": "Partner 1"}]},
+    )
+    (result,) = run("partners")
+    assert result.status == SyncRun.Status.PARTIAL and result.rows_failed == 0
+    assert result.details["removal_skipped"] is True and result.details["documents_removed"] == 0
+    assert sorted(DatamartDocument.objects.values_list("record_key", flat=True)) == ["9", "old"]

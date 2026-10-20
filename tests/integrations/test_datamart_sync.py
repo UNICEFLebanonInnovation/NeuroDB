@@ -228,8 +228,60 @@ def test_an_empty_answer_never_empties_a_table():
     dm.Grant.objects.create(datamart_id=1, name="SC1", donor="EU")
     page("funds/grants", [])
     (run,) = run_all("grants")
-    assert run.details == {"removed": 0, "empty_response": True}
+    # the rows held before the read and the count the Datamart announced are recorded on every run
+    assert run.details == {"removed": 0, "empty_response": True, "held_before": 1, "datamart_count": 0}
     assert dm.Grant.objects.count() == 1
+
+
+def grant(pk: int, **extra) -> dict:
+    return {"id": pk, "name": f"SC{pk}", "donor": "EU", **extra}
+
+
+@responses.activate
+def test_a_read_shorter_than_the_datamart_announced_removes_nothing():
+    """The first page announces 4 grants, the answer ends after 2 (a page cut short, rows moving while the
+    pages were read): the grant it did not return stays, and the run says so as PARTIAL."""
+    for pk in (1, 2, 3):
+        dm.Grant.objects.create(datamart_id=pk, name=f"SC{pk}", donor="EU")
+    responses.get(f"{API}/funds/grants/", json={"count": 4, "next": None, "results": [grant(1), grant(2)]})
+    (run,) = run_all("grants")
+    assert run.status == SyncRun.Status.PARTIAL and run.rows_failed == 0
+    assert run.details["removal_skipped"] is True and run.details["removed"] == 0
+    assert (run.details["read"], run.details["datamart_count"], run.details["held_before"]) == (2, 4, 3)
+    assert sorted(dm.Grant.objects.values_list("datamart_id", flat=True)) == [1, 2, 3]
+
+
+@responses.activate
+def test_a_whole_read_with_another_country_s_record_still_removes_what_is_gone():
+    """The count includes another country's record the Datamart let through (and the sync left out): read and
+    skipped together make the whole answer, so the grant no longer returned is removed."""
+    for pk in (1, 3):
+        dm.Grant.objects.create(datamart_id=pk, name=f"SC{pk}", donor="EU")
+    results = [grant(1, country_name="Lebanon"), grant(9, country_name="Syria")]
+    responses.get(f"{API}/funds/grants/", json={"count": 2, "next": None, "results": results})
+    (run,) = run_all("grants")
+    assert run.status == SyncRun.Status.SUCCEEDED
+    assert run.details["removed"] == 1 and run.details["other_country_skipped"] == 1
+    assert "removal_skipped" not in run.details
+    assert list(dm.Grant.objects.values_list("datamart_id", flat=True)) == [1]
+
+
+@responses.activate
+def test_a_server_error_on_a_later_page_fails_the_run_and_removes_nothing():
+    """Today's behaviour, pinned: a page that fails ends the read before anything is removed."""
+    for pk in (1, 2, 3):
+        dm.Grant.objects.create(datamart_id=pk, name=f"SC{pk}", donor="EU")
+    responses.get(
+        f"{API}/funds/grants/",
+        match=[responses.matchers.query_param_matcher({"page_size": "500", "country_name": "Lebanon"})],
+        json={"count": 4, "next": f"{API}/funds/grants/?page=2", "results": [grant(1), grant(2)]},
+    )
+    responses.get(
+        f"{API}/funds/grants/", match=[responses.matchers.query_param_matcher({"page": "2"})], status=500
+    )
+    (run,) = run_all("grants")
+    assert run.status == SyncRun.Status.FAILED and "HTTP 500" in run.error
+    assert dm.Grant.objects.count() == 3
 
 
 @responses.activate

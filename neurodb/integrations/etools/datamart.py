@@ -63,6 +63,9 @@ class DatamartClient:
         self.origin = (parts.scheme, parts.netloc)
         self.session = session or make_session("")
         self.session.auth = _HostBoundBasicAuth(username, password, self.origin)
+        # the ``count`` the first page of the latest :meth:`list` announced (None: not read yet, or an
+        # unpaginated list): a sync compares it with what it read before it removes anything
+        self.last_count: int | None = None
 
     # API roots beside ``datamart/``: the Partner Reporting Portal views, its source tables, the ETL log.
     OTHER_ROOTS = ("prp/", "sources/", "system/", "rapidpro/")
@@ -94,11 +97,14 @@ class DatamartClient:
         self, dataset: str, params: dict[str, Any] | None = None, *, country: bool = True
     ) -> Iterator[dict[str, Any]]:
         """Yield every record of a dataset across all pages, for the configured country unless
-        ``country`` is False (datasets without a ``country_name`` field get their own filter)."""
+        ``country`` is False (datasets without a ``country_name`` field get their own filter). The first
+        page's ``count`` is kept in :attr:`last_count` (read it once the records are read)."""
         query: dict[str, Any] = {"page_size": self.page_size, **(params or {})}
         if self.country and country:
             query.setdefault("country_name", self.country)
         url = self.url(dataset)
+        self.last_count = None
+        first = True
         while True:
             payload = get_json(self.session, url, **query)
             if isinstance(payload, list):  # an unpaginated list
@@ -106,8 +112,35 @@ class DatamartClient:
                 return
             if not isinstance(payload, dict) or "results" not in payload:
                 raise IntegrationError(f"unrecognised list payload from datamart/{dataset}")
+            if first:
+                self.last_count, first = _count(payload.get("count")), False
             yield from payload["results"] or []
             next_url = payload.get("next")
             if not next_url:
                 return
             url, query = self._same_origin(next_url), {}
+
+    def first_page(
+        self, dataset: str, params: dict[str, Any] | None = None, *, country: bool = True
+    ) -> tuple[int | None, list[dict[str, Any]]]:
+        """One request: the ``count`` the Datamart announces for this query (None when it says none) and
+        the records of its first page (``page_size`` in ``params`` sets how many)."""
+        query: dict[str, Any] = {"page_size": self.page_size, **(params or {})}
+        if self.country and country:
+            query.setdefault("country_name", self.country)
+        payload = get_json(self.session, self.url(dataset), **query)
+        if isinstance(payload, list):  # an unpaginated list
+            return None, [item for item in payload if isinstance(item, dict)]
+        if not isinstance(payload, dict) or "results" not in payload:
+            raise IntegrationError(f"unrecognised list payload from datamart/{dataset}")
+        return _count(payload.get("count")), [
+            item for item in payload["results"] or [] if isinstance(item, dict)
+        ]
+
+
+def _count(value: Any) -> int | None:
+    """The ``count`` of a DRF page as a number; None when it is missing or not one."""
+    try:
+        return int(value) if value not in (None, "") and not isinstance(value, bool) else None
+    except (TypeError, ValueError):
+        return None

@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import StringIO
 
+from django import forms
 from django.contrib import messages
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -25,12 +26,34 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from unfold.decorators import action
 from unfold.forms import BaseDialogForm
+from unfold.widgets import UnfoldAdminSelectWidget
 
 from .models import SyncRun
 
 
 class ConfirmJobForm(BaseDialogForm):
     """The confirmation step of a job button."""
+
+
+class ProbeDatamartForm(BaseDialogForm):
+    """The dataset of "Probe a Datamart dataset"."""
+
+    dataset = forms.ChoiceField(
+        label=_("Dataset"),
+        choices=(),  # filled in __init__: the sync registry is not imported at module load
+        widget=UnfoldAdminSelectWidget,
+        help_text=_(
+            "PRP's indicator reports (prp_indicator_reports) are the usual one: the partner reports' totals "
+            "and the Funds page's financial contributions come from them."
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from neurodb.integrations.etools import probe
+
+        self.fields["dataset"].choices = [(name, name) for name in probe.datasets()]
+        self.fields["dataset"].initial = probe.DEFAULT
 
 
 @dataclass(frozen=True)
@@ -389,6 +412,51 @@ def _background_action(spec: BackgroundJob):
 
 
 @action(
+    description=_("Probe a Datamart dataset"),
+    url_path="run-probe-datamart",
+    permissions=["run_sync"],
+    icon="troubleshoot",
+    dialog={
+        "title": _("Probe a Datamart dataset"),
+        "description": _(
+            "Asks the eTools Datamart what it holds for one dataset, in the background: with no filter, with "
+            "the business area code (PRP's datasets) and with the country name, at most three requests of 50 "
+            "records each. The run (in this list, as eTools Datamart probe) keeps only counts, key names, "
+            "business area codes and country names, and says in plain words what the answers mean and what "
+            "to do. It writes nothing else and takes a few seconds."
+        ),
+        "form_class": ProbeDatamartForm,
+        "form_submit_text": _("Probe"),
+    },
+)
+def run_probe_datamart(self, request, form):
+    from neurodb.integrations import background
+    from neurodb.integrations.etools.datamart import configured
+
+    if not configured():
+        messages.error(
+            request,
+            _(
+                "The eTools Datamart credentials are not set: add ETOOLS_USERNAME and ETOOLS_PASSWORD to the "
+                "application settings (Key Vault secrets etools-username and etools-password)."
+            ),
+        )
+    elif background.is_running(SyncRun.Job.DATAMART_PROBE):
+        messages.warning(request, _("A probe of the eTools Datamart is already running."))
+    else:
+        dataset = form.cleaned_data["dataset"]
+        background.start_command(
+            "probe_datamart", "--dataset", dataset, "--triggered-by", request.user.get_username()
+        )
+        messages.success(
+            request,
+            _("The probe of %(dataset)s started. Refresh this page in a few seconds to read it.")
+            % {"dataset": dataset},
+        )
+    return _done(request)
+
+
+@action(
     description=_("Population figures"),
     url_path="run-reload-population",
     permissions=["run_sync"],
@@ -502,6 +570,7 @@ class JobActionsMixin:
         "icon": "play_arrow",
         "items": [
             *(spec.name for spec in BACKGROUND_JOBS),
+            "run_probe_datamart",
             "run_reload_population",
             "run_check_freshness",
             "run_bootstrap_roles",
@@ -509,6 +578,7 @@ class JobActionsMixin:
         ],
     }
 
+    run_probe_datamart = run_probe_datamart
     run_reload_population = run_reload_population
     run_check_freshness = run_check_freshness
     run_bootstrap_roles = run_bootstrap_roles

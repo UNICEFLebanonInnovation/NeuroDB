@@ -228,9 +228,9 @@ def _jobs() -> list[Warning]:
     """A job whose last run failed or lost rows. A Compiler job counts only while a switched-on
     schedule runs it; the ActivityInfo imports only while their import is followed (an archive's
     import is nobody's alarm: their ``system:`` items close); a run of the eTools reporting checks only
-    when it failed (a check that could not finish is said on their page); the eTools Datamart sync
-    dataset by dataset (:func:`_datamart`)."""
-    from neurodb.core.jobs import COMMANDS, PARTIAL_IS_NOT_AN_ALARM
+    when it failed (a check that could not finish is said on their page); never a probe of the eTools
+    Datamart (``NEVER_AN_ALARM``); the eTools Datamart sync dataset by dataset (:func:`_datamart`)."""
+    from neurodb.core.jobs import COMMANDS, NEVER_AN_ALARM, PARTIAL_IS_NOT_AN_ALARM
     from neurodb.core.models import ScheduledJob, SyncRun
     from neurodb.indicators.services import activityinfo
 
@@ -239,7 +239,7 @@ def _jobs() -> list[Warning]:
     skipped = set() if activityinfo.watched() else set(activityinfo.AI_JOBS)
     lines = []
     for job, label in SyncRun.Job.choices:
-        if (job in SCHEDULED_ONLY and job not in scheduled) or job in skipped:
+        if (job in SCHEDULED_ONLY and job not in scheduled) or job in skipped or job in NEVER_AN_ALARM:
             continue
         if job == SyncRun.Job.ETOOLS_DATAMART:
             lines.extend(_datamart(label))  # one run per dataset: read dataset by dataset

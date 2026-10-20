@@ -101,12 +101,14 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     (
         DATA_AND_SYNC := _("Data and sync"),
         _(
-            "Import history, scheduled jobs, the daily review, NeuroDB Watch (For you), population "
-            "figures, saved views, AI questions, help questions and AI use, audit trail."
+            "Import history, scheduled jobs, the eTools Datamart's PRP business area code, the daily review, "
+            "NeuroDB Watch (For you), population figures, saved views, AI questions, help questions and AI "
+            "use, audit trail."
         ),
         [
             "core.SyncRun",
             "core.ScheduledJob",
+            "core.DatamartSetting",
             "review.DailyReview",
             "review.ReviewFinding",
             "review.FindingAssignment",
@@ -290,6 +292,7 @@ ICONS = {
     "sites.Site": "language",
     "core.SyncRun": "sync",
     "core.ScheduledJob": "schedule",
+    "core.DatamartSetting": "tune",
     "core.PopulationFigure": "groups",
     "core.SavedView": "bookmark",
     "admin.LogEntry": "history",

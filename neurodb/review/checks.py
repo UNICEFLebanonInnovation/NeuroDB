@@ -24,7 +24,7 @@ from django.db.models import Sum
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
-from neurodb.core.jobs import PARTIAL_IS_NOT_AN_ALARM
+from neurodb.core.jobs import NEVER_AN_ALARM, PARTIAL_IS_NOT_AN_ALARM
 from neurodb.core.models import SyncRun
 from neurodb.datamart import children, headline, monitoring
 from neurodb.datamart import models as dm
@@ -669,8 +669,9 @@ def check_sync_failures(ctx: Context) -> list[Draft]:
     """Sync runs that failed or wrote with errors in the last 24 hours, per job. The ActivityInfo imports
     count only while their import is followed (:func:`neurodb.indicators.services.activityinfo.watched`):
     an archive's import is nobody's alarm; a run of the eTools reporting checks only when it failed (a
-    check that could not finish is said on their page). The diagnostic eTools Datamart datasets
-    (``catalogue.DIAGNOSTIC``, used by no page, figure or check) are left out: Data health shows them."""
+    check that could not finish is said on their page); never a probe of the eTools Datamart. The diagnostic
+    eTools Datamart datasets (``catalogue.DIAGNOSTIC``, used by no page, figure or check) are left out: Data
+    health shows them."""
     from neurodb.indicators.services import activityinfo
 
     since = timezone.now() - datetime.timedelta(hours=SYNC_WINDOW_HOURS)
@@ -681,6 +682,8 @@ def check_sync_failures(ctx: Context) -> list[Draft]:
         .exclude(job=SyncRun.Job.DAILY_REVIEW)
         # a reporting check that could not finish is said on its page; the run's own failure still counts
         .exclude(job__in=PARTIAL_IS_NOT_AN_ALARM, status=SyncRun.Status.PARTIAL)
+        # a probe of the eTools Datamart started by hand: its run says what it found, never an alarm
+        .exclude(job__in=NEVER_AN_ALARM)
         # a diagnostic eTools Datamart dataset (no page or check uses it): on Data health, never an alarm
         .exclude(job=SyncRun.Job.ETOOLS_DATAMART, target__in=DIAGNOSTIC)
         .order_by("-started_at")

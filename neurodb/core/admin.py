@@ -22,7 +22,7 @@ from neurodb.integrations.http import RETRY_STATUSES
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
 from .admin_jobs import JobActionsMixin
-from .models import ActivityInfoSetting, PopulationFigure, SavedView, ScheduledJob, SyncRun
+from .models import ActivityInfoSetting, DatamartSetting, PopulationFigure, SavedView, ScheduledJob, SyncRun
 
 # The scheduler checks in every 30 seconds: silent for longer than this, it has stopped.
 SCHEDULER_STALLED_AFTER = datetime.timedelta(minutes=3)
@@ -474,6 +474,88 @@ class ActivityInfoSettingAdmin(ModelAdmin):
     @admin.display(description=_("ActivityInfo import"))
     def import_state(self, obj):
         return format_html_join(" ", "{}", ((line,) for line in self._explained()[2:]))
+
+
+@admin.register(DatamartSetting)
+class DatamartSettingAdmin(ModelAdmin):
+    """Admin → Data and sync → "eTools Datamart: PRP business area code": one row, empty until an
+    administrator enters the code. The page says which code the next sync of the PRP datasets takes, and what
+    their latest runs used and found (counts only)."""
+
+    fields = ("prp_business_area", "next_sync", "latest_runs", "updated_by", "updated_at")
+    readonly_fields = ("next_sync", "latest_runs", "updated_by", "updated_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_or_change_permission(request):
+            raise PermissionDenied
+        setting = DatamartSetting.load()  # the one row: open it
+        return redirect(reverse("admin:core_datamartsetting_change", args=[setting.pk]))
+
+    def save_model(self, request, obj, form, change):
+        obj.updated_by = request.user
+        super().save_model(request, obj, form, change)
+
+    @admin.display(description=_("The next sync takes"))
+    def next_sync(self, obj):
+        from neurodb.integrations.etools.datamart_sync import FROM_ENVIRONMENT, business_area_setting
+
+        code, source = business_area_setting()
+        if source == FROM_ENVIRONMENT:
+            return _(
+                "%(code)s, set by the hosting team (ETOOLS_DATAMART_BUSINESS_AREA): it comes before the code "
+                "entered here. Ask them to remove it for the code entered here to apply."
+            ) % {"code": code}
+        if code:
+            return _("%(code)s, the code entered here.") % {"code": code}
+        return _(
+            "The business area code of the Datamart workspace named %(country)s, as nothing is entered here "
+            "(the sync of a PRP dataset fails, saying so, when there is none)."
+        ) % {"country": settings.ETOOLS_DATAMART_COUNTRY}
+
+    @admin.display(description=_("Latest runs of the PRP datasets"))
+    def latest_runs(self, obj):
+        from neurodb.datamart.catalogue import DOCUMENTS
+        from neurodb.reports.services import BUSINESS_AREA_FROM, latest_datamart_runs
+
+        names = [name for name, spec in DOCUMENTS.items() if spec.scope == "business_area"]
+        runs = latest_datamart_runs(names, finished=True)
+        items = []
+        for name in names:
+            run = runs.get(name)
+            if run is None:
+                items.append(format_html('<li><span class="mono">{}</span>: {}</li>', name, _("not synced")))
+                continue
+            details = run.details or {}
+            if run.status == SyncRun.Status.FAILED:
+                said = run.error[:200]
+            elif details.get("business_area"):
+                said = _("business area %(code)s (%(source)s): %(kept)s kept of %(read)s read") % {
+                    "code": details["business_area"],
+                    "source": BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""),
+                    "kept": run.rows_in,
+                    "read": details.get("read", run.rows_in),
+                }
+            else:  # a run made before the code was recorded
+                said = _("%(kept)s kept") % {"kept": run.rows_in}
+            when = formats.date_format(timezone.localtime(run.started_at), "DATETIME_FORMAT")
+            items.append(
+                format_html(
+                    '<li><span class="mono">{}</span>: <a href="{}">{}, {}</a> · {}</li>',
+                    name,
+                    reverse("admin:core_syncrun_change", args=[run.pk]),
+                    run.get_status_display(),
+                    when,
+                    said,
+                )
+            )
+        listed = format_html_join("", "{}", ((item,) for item in items))
+        return format_html('<ul class="nd-error-list">{}</ul>', listed)
 
 
 @admin.register(SavedView)

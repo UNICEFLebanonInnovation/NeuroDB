@@ -330,6 +330,46 @@ def test_the_tables_draw_their_figures(client_viewer, world):
     assert re.search(r'<td class="small" data-value="[^"]+">3(?:\s|&nbsp;|\xa0)days ago</td>', row), row
 
 
+def test_a_prp_dataset_names_its_business_area_and_an_empty_read_points_to_the_code(client_viewer, world):
+    """The PRP datasets carry no country name: an empty read names the business area code it was read with
+    and where to check it, never the country name; one that found only another business area says so; a
+    failed one shows its error; a read shorter than the Datamart announced says nothing was removed."""
+    from html import unescape
+
+    datamart = SyncRun.Job.ETOOLS_DATAMART
+    prp = {"business_area": "2490", "business_area_from": "admin", "read": 0, "documents": 0}
+    _run(datamart, "prp_indicator_reports", details={**prp, "empty_response": True})
+    _run(
+        datamart,
+        "prp_programme_documents",
+        details={**prp, "read": 2, "empty_response": True, "other_country_skipped": 2},
+    )
+    error = "IntegrationError: no business area code for 'Lebanon': enter it in the admin"
+    _run(datamart, "prp_progress_reports", status=SyncRun.Status.FAILED, error=error)
+    _run(
+        datamart,
+        "grants",
+        status=SyncRun.Status.PARTIAL,
+        rows_in=2,
+        rows_written=2,
+        details={"removed": 0, "removal_skipped": True, "read": 2, "datamart_count": 4},
+    )
+    datasets = unescape(text(get_part(client_viewer, PAGE, "datasets")))
+    row = _dataset(datasets, "prp_indicator_reports")
+    assert "the Datamart returned nothing for business area 2490" in row
+    assert "Admin → eTools Datamart: PRP business area code" in row and "Probe a Datamart dataset" in row
+    assert "business area 2490, entered in the admin" in row and "country name" not in row
+    row = _dataset(datasets, "prp_programme_documents")
+    assert "every record the Datamart returned names another business area than 2490 (2)" in row
+    assert "of another country skipped" not in row and "2 read" in row
+    assert error in _dataset(datasets, "prp_progress_reports")
+    row = _dataset(datasets, "grants")
+    assert "read 2 records of the 4 the Datamart announced: none was removed" in row
+    assert "business area" not in row  # a dataset read by country names none
+    # the typed datasets keep their country-name wording
+    assert "the Datamart returned nothing: check the country name" in _dataset(datasets, "partners")
+
+
 @pytest.mark.parametrize("name", PARTS)
 def test_each_part_stays_within_its_query_ceiling(client_viewer, world, name, django_assert_max_num_queries):
     raw_get(client_viewer, PAGE)  # the navigation stored, as after the frame
@@ -438,8 +478,9 @@ def test_without_javascript_the_page_drawn_at_once_is_complete(client_viewer, wo
 # ------------------------------------------------------------------------------------- the eTools Datamart table
 def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
     """``datamart_quality`` as it was before this page loaded in parts (63d9646): every Datamart run read, newest
-    first, and every dataset counted at each call; with the two keys added since, a failed run's own error and the
-    diagnostic mark."""
+    first, and every dataset counted at each call; with the keys added since: a failed run's own error, the
+    diagnostic mark, a PRP dataset's business area code and its source, and what a read got against the count
+    the Datamart announced."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
 
     last_by_target: dict[str, SyncRun] = {}
@@ -474,6 +515,11 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
                 "relinked": details.get("relinked"),
                 "error": run.error if run and run.status == "failed" and not details.get("errors") else "",
                 "diagnostic": name in DIAGNOSTIC,
+                "business_area": details.get("business_area") or "",
+                "business_area_from": services.BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""),
+                "read": details.get("read"),
+                "datamart_count": details.get("datamart_count"),
+                "removal_skipped": bool(details.get("removal_skipped")),
             }
         )
     return rows

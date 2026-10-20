@@ -35,6 +35,13 @@ class Source:
     intervention: tuple[str, str] = ("", "")  # (eTools PD id key, PD reference number key)
     date: str = ""
     title: tuple[str, ...] = ()
+    # A record without a ``source_id`` key takes its ``id`` as its source id: only where every reader of the
+    # source id checks the match (the programme document and indicator it names), as for PRP's indicator
+    # reports, whose ids are not confirmed to be the partner reports' ``indicator_report``.
+    id_is_source: bool = False
+    # Keys a page, figure or check reads besides those above: each run counts how many records carry them
+    # (``details.keys_seen``, business-area datasets), so a key the Datamart does not send shows at once.
+    reads: tuple[str, ...] = ()
 
 
 DOCUMENTS: dict[str, Source] = {
@@ -247,6 +254,20 @@ DOCUMENTS: dict[str, Source] = {
         intervention=("", "pd_reference_number"),
         date="time_period_end",
         title=("pd_reference_number", "performance_indicator"),
+        id_is_source=True,
+        reads=(
+            "progress_value",
+            "financial_contribution_to_date",
+            "report_type",
+            "report_number",
+            "report_status",
+            "pr_status",
+            "pr_end_date",
+            "pr_due_date",
+            "due_date",
+            "pr_submission_date",
+            "submission_date",
+        ),
     ),
     "prp_programme_documents": Source(
         "sources/prp/unicefprogrammedocument",

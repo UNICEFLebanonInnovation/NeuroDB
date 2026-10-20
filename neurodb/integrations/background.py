@@ -39,6 +39,7 @@ DOC_REVIEW_LOCK_ID = 7140436  # the document review of the knowledge base
 # sync's lock for the whole run, so a sync that finds the Datamart lock taken knows who has it
 DATAMART_BACKFILL_LOCK_ID = 7140437
 REPORTING_CHECKS_LOCK_ID = 7140438  # neurodb.datamart.checks.LOCK_ID: one run of the checks at a time
+DATAMART_PROBE_LOCK_ID = 7140439  # neurodb.integrations.etools.probe.LOCK_ID: one probe at a time
 LOCK_IDS = {
     SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID,
     SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID,
@@ -50,6 +51,7 @@ LOCK_IDS = {
     SyncRun.Job.DOC_REVIEW: DOC_REVIEW_LOCK_ID,
     SyncRun.Job.DATAMART_BACKFILL: DATAMART_BACKFILL_LOCK_ID,
     SyncRun.Job.REPORTING_CHECKS: REPORTING_CHECKS_LOCK_ID,
+    SyncRun.Job.DATAMART_PROBE: DATAMART_PROBE_LOCK_ID,
 }
 
 

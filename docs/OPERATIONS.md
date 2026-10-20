@@ -964,6 +964,7 @@ admin home page, *Quick actions*):
 | Run a job → *Locate document findings* | `review_documents --locate` | background |
 | Run a job → *Finish the eTools update* | `datamart_backfill` | background |
 | Run a job → *eTools reporting checks* (also *Run the checks now* on the eTools reporting checks page) | `reporting_checks` | background |
+| Run a job → *Probe a Datamart dataset* (the dataset chosen in the dialog) | `probe_datamart --dataset <name>` | background (seconds); writes nothing but its run |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
@@ -1381,6 +1382,16 @@ replaced by a complete read (rows the Datamart no longer returns are deleted), e
 Datamart returns nothing at all, or only records of another country (`details.empty_response`, with
 `details.other_country_skipped` in the second case; rows an earlier run wrote then stay until a read
 returns this country's records), which usually means a wrong country name.
+A read that returns fewer records than the Datamart announced on its first page (the `count` of the
+paginated list, kept as `details.datamart_count`; records left out as another country's count as read)
+removes nothing either: a page cut short, or rows moving on the Datamart while its pages were read,
+would otherwise delete history until the next complete read. The run then ends *Succeeded with
+errors* with `details.removal_skipped` and `details.read`, Data health says "read N records of the M
+the Datamart announced: none was removed", and the next complete read removes what the Datamart no
+longer returns. A failed page fails the run before anything is removed. Every run also records
+`details.held_before`, the rows of its scope NeuroDB held before the read: a large `removed` reads
+against it. The records kept whole (below), the raw copies of the partner, programme document, location
+and audit records among them, follow the same rule.
 The admin shows these tables read-only under *eTools Datamart*.
 
 ### HACT visit plan (Field monitoring page)
@@ -2084,9 +2095,36 @@ partner, programme document, budget, agreement and audit-detail tables are kept 
 assistant sees every field. The FM questions, options and programme activities, the offices and the
 sections also feed Monitoring insights, which reads their keys first (see Monitoring insights).
 
-The PRP views have no `country_name`: they are filtered by the country office's business area code,
-found from `datamart/workspaces` (or set `ETOOLS_DATAMART_BUSINESS_AREA`). A record from another
-country that an API filter let through is dropped (`details.other_country_skipped`). Keys naming
+The PRP views have no `country_name`: `prp_indicator_reports`, `prp_programme_documents` and
+`prp_progress_reports` are filtered by the country office's business area code, taken from
+`ETOOLS_DATAMART_BUSINESS_AREA` when the hosting team set it, else from Admin → *Data and sync* →
+*eTools Datamart: PRP business area code* (one row, set by an administrator; the page says which code
+the next sync takes and what the latest runs of the three datasets used and found), else from the
+first `datamart/workspaces` record of the country's name that has one. Codes are compared after
+normalising (spaces, `2490.0`, `{"code": "2490"}` all read `2490`). A record naming another business
+area, or no business area but another country, is dropped (`details.other_country_skipped`); one that
+names neither is kept, as with `country_name`, and counted (`details.country_unnamed`). Each run of the
+three records, counts only: `business_area` and `business_area_from` (`environment`, `admin` or
+`workspaces`), `read` (kept and skipped), `datamart_count`, `business_areas_seen` (the ten most frequent
+codes, `(none)` for none), `keys_seen` (how many records carry each key the sync and its readers use:
+a key the Datamart does not send reads 0) and `dated` (the records kept by the year of their date, this
+year and the years beside it, `other` and `none`); a read that kept nothing sets `empty_response`, and
+Data health then says "the Datamart returned nothing for business area N" (or that every record named
+another business area) and points to the code, never to the country name. A record of PRP's indicator
+reports without a `source_id` key takes its `id` as its source id (a record with a `source_id` key, even
+empty, keeps its own): that the two ids match the partner reports' `indicator_report` is not confirmed,
+so the partner reports' totals (`reached.progress_values`) use such a record only when it names the same
+programme document and indicator, and check 8 counts those that name another programme document.
+
+To see what the Datamart holds when such a read keeps nothing, an administrator presses Run a job →
+*Probe a Datamart dataset* (`probe_datamart --dataset <name>`, `prp_indicator_reports` by default). It
+makes at most three requests of 50 records each: no filter, the business area code (the code as above,
+else the workspace NeuroDB holds; the PRP datasets only), and the country name, and writes nothing but
+its run (job *eTools Datamart probe*, target the dataset): per request the filter sent, the count
+announced, the records on the page, how many carry each key, and the business area codes and country
+names named (counts). Its `verdict` says in plain words what the answers mean and what to do (enter
+another code, tell the Datamart team the data is not loaded, ask the hosting team for access). A probe
+is never an alarm and never stale; one runs at a time. Keys naming
 an e-mail address, a phone or a mobile are removed from the records kept whole here, from the records
 of the typed eTools tables, and from every assistant answer, which also withholds any e-mail address
 left in a text; the field monitoring records reach the assistant without people and without long texts
