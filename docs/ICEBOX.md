@@ -48,3 +48,55 @@ separate **Add a document or text** form.
 confirmation card in `ask.js` posting to a new endpoint that creates the `Document` and starts
 `index_knowledge`; file attachment in the chat form; tests; a paragraph in the knowledge base
 section of `OPERATIONS.md`.
+
+## Accountability to affected populations (AAP) page
+
+*Parked on 20 October 2026, until the data is confirmed. Estimate: half a day for the check page,
+about 1.5 weeks for the page.*
+
+A staff page on accountability to affected populations, built from what NeuroDB already holds. It is
+not a CFM (complaints and feedback mechanism) dashboard: NeuroDB holds no complaints register, no
+hotline or helpline log, no U-Report results, no case numbers and no closing times.
+
+**What NeuroDB holds today**
+
+- **Field monitoring checklist answers** (eTools, refreshed nightly): if the Lebanon checklist asks
+  whether a feedback and complaints mechanism is in place, or about satisfaction, visits can be
+  counted by governorate, section, partner and quarter. The strongest source, but **not confirmed**:
+  the real Lebanon checklist questions have not been seen.
+- **Checklist categories per visit**: whether a community engagement or accountability category was
+  covered on a visit (that AAP was checked, not what was found). Not confirmed either.
+- **ActivityInfo archive**: indicator 7.2.1.b, UNICEF-supported AAP initiatives in place, by
+  governorate (history only), and the participation indicators 7.2.1.a and 7.2.2.c.
+- **Emergency snapshot reports** (knowledge base): people with safe and accessible channels to report
+  sexual exploitation and abuse, as a share of the target, and an SBC/AAP engagement figure.
+- **PSEA assessments of partners** (eTools): which partners with active programme documents have a
+  final assessment and how recent it is, and the rating per standard, "Reporting" included.
+- **Document review findings** tagged "Accountability to affected populations" or "Feedback and
+  complaints", once documents have been reviewed.
+- Action points, PD indicators and report narratives by keyword only: many false positives, a last
+  resort.
+
+**How it would work**
+
+1. **A check page first** (administrators only, counts only, no text): the checklist questions and
+   categories Lebanon really uses, any PD indicator about feedback, the PSEA answer subjects and the
+   snapshot figures. It runs from the admin, as a button, never from a command line. Every part of
+   the page below depends on what it shows.
+2. **Then the Accountability (AAP) page** for staff, in four sections: *On the ground* (the feedback
+   mechanism as seen on monitoring visits), *Results* (AAP initiatives and access to reporting
+   channels), *Partner readiness* (PSEA assessments) and *Evidence* (document review counts).
+3. **A real CFM dashboard needs data to come in**: a monthly CFM figures feed (feedback received by
+   channel and type, share closed, days to close, satisfaction), a few standard AAP questions on the
+   Lebanon field monitoring checklist, or aggregate hotline or U-Report results.
+
+**Decisions to keep**
+
+- **Counts only**, never the text of a complaint, a comment or a PSEA answer; groups of fewer than 5
+  are hidden; no PSEA "flagged" figures; never an allegation of sexual exploitation or abuse.
+- **Staff only**: not on the donor page, not in exports with names, and nothing of it is sent to the
+  AI beyond the counts (Ask NeuroDB already reads only the standard, rating, partner and date of a
+  PSEA answer, `catalogue.SAFEGUARDING_KEYS`).
+
+**To restart**: confirm which checklist questions and categories Lebanon uses (or whether a CFM feed
+can be shared), then build the check page and decide the page's sections from what it shows.
