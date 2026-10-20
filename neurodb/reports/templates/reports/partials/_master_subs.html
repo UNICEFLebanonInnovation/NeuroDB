@@ -1,0 +1,48 @@
+{% load i18n ui %}{% comment %}The sub rows of one eTools master indicator (masters_tab.Line.subs): in the Master indicators tab's expanded
+rows (with the buttons that change them when ``edit``) and in its detail. Each PD indicator's partner and PD, its
+title with its tags (its detail opens in the modal), what it counts as, its own method, the PD's target, Reached
+from 1 January to each quarter's end and in the year (with its own status over its PD period), the numerator and
+denominator of a percentage or a ratio, the PD's status, and whether it counts or why not. Context: line, year,
+report_type, edit, roles, next.{% endcomment %}
+<div class="table-wrap"><table class="table table-sm mb-0 masters-subs" id="master-{{ line.master.pk }}-subs-table">
+  <thead><tr>
+    <th scope="col">{% trans "Partner · PD" %}</th>
+    <th scope="col">{% trans "PD indicator" %}</th>
+    <th scope="col">{% trans "Counts as" %}</th>
+    <th scope="col">{% trans "Method" %}</th>
+    <th scope="col" class="num">{% trans "PD target" %}</th>
+    <th scope="col" class="num">{% trans "Q1" %}</th>
+    <th scope="col" class="num">{% trans "to Q2" %}</th>
+    <th scope="col" class="num">{% trans "to Q3" %}</th>
+    <th scope="col" class="num">{% blocktrans %}Reached in {{ year }}{% endblocktrans %}</th>
+    <th scope="col" class="num">{% trans "Numerator / denominator" %}</th>
+    <th scope="col">{% trans "PD status" %}</th>
+    <th scope="col">{% trans "Counted" %}</th>
+    {% if edit %}<th scope="col"><span class="visually-hidden">{% trans "Change" %}</span></th>{% endif %}
+  </tr></thead>
+  <tbody>
+  {% for s in line.subs %}
+    <tr{% if not s.sub.counted %} class="masters-subs__left"{% endif %}>
+      <td class="small">{% if s.partner_id %}<a href="{% url 'reports:partner_profile' s.partner_id %}">{{ s.partner }}</a>{% else %}{{ s.partner|default:"—" }}{% endif %}<span class="cell-sub">{% if s.pd_id %}<a href="{% url 'reports:programme_detail' s.pd_id %}">{{ s.pd_number|default:"—" }}</a>{% else %}{{ s.pd_number|default:"—" }}{% endif %}</span></td>
+      <td class="cell-wrap">{% if s.url %}<a href="{{ s.url }}?report_type={{ report_type }}&amp;year={{ year }}" hx-get="{{ s.url }}?report_type={{ report_type }}&amp;year={{ year }}" hx-target="#modal-content" hx-push-url="false">{{ s.title }}</a>{% else %}{{ s.title|default:"—" }}{% endif %}{% if s.tags or s.flags %}<span class="cell-sub"><span class="chips">{% for k, v in s.tags.items %}<span class="chip">{% if k == "disability" %}{% trans "Disability" %}{% else %}{{ v }}{% endif %}</span>{% endfor %}{% for f in s.flags %}<span class="chip">{{ f }}</span>{% endfor %}</span></span>{% endif %}</td>
+      <td><span class="chip">{{ s.sub.counts_as }}</span>{% if s.suggested %}<span class="cell-sub">{% trans "Suggested" %}{% if s.link.score is not None %} · {{ s.link.score|floatformat:2 }}{% endif %}</span>{% endif %}</td>
+      <td class="small">{{ s.method_label|default:"—" }}</td>
+      <td class="num">{{ s.target|number:0 }}{% if s.percentage and s.target is not None %}%{% endif %}</td>
+      {% for v in s.quarters|slice:":3" %}<td class="num">{{ v|number }}{% if s.percentage and v is not None %}%{% endif %}</td>{% endfor %}
+      <td class="num">{{ s.sub.value|number }}{% if s.percentage and s.sub.value is not None %}%{% endif %}{% if s.tracking %}<span class="cell-sub" title="{% trans 'Its own status, over its PD period, as Program Performance shows it' %}">{% status_pill s.tracking s.tracking_label "sm" %}</span>{% endif %}</td>
+      <td class="num small">{% if s.parts %}{% if s.sub.numerator is not None and s.sub.denominator is not None %}{{ s.sub.numerator|number }} / {{ s.sub.denominator|number }}{% else %}<span class="text-muted">{% trans "not reported" %}</span>{% endif %}{% else %}<span class="text-muted">·</span>{% endif %}</td>
+      <td class="small">{{ s.pd_status|default:"—" }}</td>
+      <td class="small">{% if s.sub.counted %}{% trans "Counted" %}{% else %}<span class="text-muted">{{ s.sub.reason }}</span>{% endif %}</td>
+      {% if edit %}<td class="small masters-subs__change">
+        {% if s.reconfirm %}<form method="post" action="{% url 'reports:etools_master_edit' line.master.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="link" value="{{ s.link.pk }}"><input type="hidden" name="next" value="{{ next }}"><button type="submit" name="action" value="confirm" class="btn btn-outline-primary btn-sm">{% if s.suggested %}{% trans "Confirm" %}{% else %}{% trans "Confirm again" %}{% endif %}</button>{% if s.suggested %} <button type="submit" name="action" value="reject" class="btn btn-link btn-sm">{% trans "Reject" %}</button>{% endif %}</form>{% endif %}
+        <form method="post" action="{% url 'reports:etools_master_edit' line.master.pk %}" class="masters-subs__role">{% csrf_token %}<input type="hidden" name="action" value="role"><input type="hidden" name="link" value="{{ s.link.pk }}"><input type="hidden" name="next" value="{{ next }}">
+          <select name="role" class="form-select form-select-sm" aria-label="{% blocktrans with title=s.title %}What {{ title }} counts as{% endblocktrans %}">{% for value, label in roles %}<option value="{{ value }}"{% if value == s.sub.role %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+          <button type="submit" class="btn btn-outline-secondary btn-sm">{% trans "Save" %}</button>
+        </form>
+        {% if not s.suggested %}<form method="post" action="{% url 'reports:etools_master_edit' line.master.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="link" value="{{ s.link.pk }}"><input type="hidden" name="next" value="{{ next }}"><button type="submit" name="action" value="remove" class="btn btn-link btn-sm text-danger">{% trans "Remove" %}</button></form>{% endif %}
+      </td>{% endif %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+<p class="status-ref border-0">{% trans "“Counts as” says what a PD indicator does to the master indicator: those “In the total” are combined by the master's method; for a percentage or a ratio, numerators are added up over denominators. “Shown only” is listed for reference and never counted, nor is a suggestion until someone confirms it." %}</p>

@@ -5,6 +5,7 @@
     <a href="{{ tab_urls.grid }}" data-current-query="view=grid" {% if view == "grid" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="table" %} {% trans "Grid" %}</a>
     <a href="{{ tab_urls.table }}" data-current-query="view=table" {% if view == "table" %}aria-current="page"{% endif %} title="{% trans 'One row per indicator, sorted by % Reached (Program Performance)' %}">{% include "components/icon.html" with name="list" %} {% trans "Program Performance" %}</a>
     <a href="{{ tab_urls.quality }}" data-current-query="view=quality" {% if view == "quality" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="check" %} {% trans "Data quality" %}</a>
+    <a href="{{ tab_urls.masters }}" data-current-query="view=masters" {% if view == "masters" %}aria-current="page"{% endif %} title="{% trans 'Each section’s master indicators: the partners’ PD indicators combined by each type’s rule, against the year’s target' %}">{% include "components/icon.html" with name="layers" %} {% trans "Master indicators" %}</a>
     <a href="{{ tab_urls.map }}" data-current-query="" {% if view == "map" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="map" %} {% trans "Map" %}</a>
   </div>
   {% if own_section %}<span class="small text-muted">{% blocktrans with section=own_section|join:", " %}Your section, {{ section }}, by default{% endblocktrans %} · <a href="?section={% if view != 'grid' and view != 'map' %}&amp;view={{ view }}{% endif %}" data-current-query="section=">{% trans "every section" %}</a></span>{% endif %}
@@ -13,14 +14,15 @@
   {% if view != "map" and view != "grid" %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
   {% if filters.scope == "year" %}<input type="hidden" name="scope" value="year">{% endif %}
   <div class="filter-bar__field">
-    <label class="form-label" for="f-q">{% trans "Indicator" %}</label>
-    <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ filters.q }}" placeholder="{% trans 'Indicator or output' %}">
+    <label class="form-label" for="f-q">{% if view == "masters" %}{% trans "Master indicator" %}{% else %}{% trans "Indicator" %}{% endif %}</label>
+    <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ filters.q }}" placeholder="{% if view == "masters" %}{% trans 'Name or code' %}{% else %}{% trans 'Indicator or output' %}{% endif %}">
   </div>
   <div class="filter-bar__field">
     <label class="form-label" for="f-cp-output">{% trans "CP output" %}</label>
     <input class="form-control form-control-sm" type="search" id="f-cp-output" name="cp_output" value="{{ filters.cp_output }}" placeholder="{% trans 'Country programme output' %}">
   </div>
   {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=options.sections values=selected.section %}
+  {% if view != "masters" %}{# the master indicators count every PD running in the year: these filters do not apply there #}
   <div class="filter-bar__field">
     <label class="form-label" for="f-pd-status"><span class="has-tip" title="{% trans 'The programme document status in eTools. By default the running ones: active, signed or suspended. Clear the choice for every status.' %}">{% trans "PD status" %}</span></label>
     <input type="hidden" name="pd_status" value="" data-keep-empty>
@@ -28,12 +30,14 @@
       {% for s in options.pd_statuses %}<option value="{{ s }}" {% if s in filters.status_choice %}selected{% endif %}>{{ s|code_label }}</option>{% endfor %}
     </select>
   </div>
+  {% endif %}
   <div class="filter-bar__field">
     <label class="form-label" for="f-partner">{% trans "Partner" %}</label>
     <select class="form-select form-select-sm" id="f-partner" name="partner" multiple data-tom placeholder="{% trans 'All' %}">
       {% for p in options.partners %}<option value="{{ p.value }}" {% if p.value in selected.partner %}selected{% endif %}>{{ p.label }}</option>{% endfor %}
     </select>
   </div>
+  {% if view != "masters" %}
   {% trans "Partner type" as l %}{% include "reports/_multiselect.html" with name="partner_type" label=l options=options.partner_types values=selected.partner_type %}
   {% trans "Programme document" as l %}{% include "reports/_multiselect.html" with name="pd" label=l options=options.pds values=selected.pd %}
   {% trans "Document type" as l %}{% include "reports/_multiselect.html" with name="document_type" label=l options=options.document_types values=selected.document_type %}
@@ -46,11 +50,14 @@
       <option value="no" {% if filters.emergency == "no" %}selected{% endif %}>{% trans "No" %}</option>
     </select>
   </div>
+  {% endif %}
   {% trans "Location" as l %}{% include "reports/_multiselect.html" with name="location" label=l options=options.locations values=selected.location %}
+  {% if view != "masters" %}
   {% trans "Gender" as l %}{% include "reports/_multiselect.html" with name="gender" label=l options=options.gender values=selected.gender %}
   {% trans "Age group" as l %}{% include "reports/_multiselect.html" with name="age_group" label=l options=options.age_group values=selected.age_group %}
   {% trans "Nationality" as l %}{% include "reports/_multiselect.html" with name="nationality" label=l options=options.nationality values=selected.nationality %}
   {% trans "Disability" as l %}{% include "reports/_multiselect.html" with name="disability" label=l options=options.disability values=selected.disability %}
+  {% endif %}
   <div class="filter-bar__field">
     <label class="form-label" for="f-report-type">{% trans "Reports" %}</label>
     <select class="form-select form-select-sm" id="f-report-type" name="report_type">
@@ -60,7 +67,7 @@
   <div class="filter-bar__field">
     <label class="form-label" for="f-year">{% trans "Reporting year" %}</label>
     <select class="form-select form-select-sm" id="f-year" name="year">
-      <option value="all" {% if filters.all_years %}selected{% endif %}>{% trans "All years" %}</option>
+      {% if view != "masters" %}<option value="all" {% if filters.all_years %}selected{% endif %}>{% trans "All years" %}</option>{% endif %}
       {% for y in options.years %}<option value="{{ y }}" {% if y == filters.year %}selected{% endif %}>{{ y }}</option>{% endfor %}
       {% if filters.year and filters.year not in options.years %}<option value="{{ filters.year }}" selected>{{ filters.year }}</option>{% endif %}
     </select>

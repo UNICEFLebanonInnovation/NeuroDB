@@ -14,6 +14,10 @@ blocks take the shape of each part (app.css, stage B).{% endcomment %}
 {% part_url "quality-tiles" as_of=as_of as tiles_url %}{% part_url "quality-lists" as_of=as_of as lists_url %}
 {% part "quality-tiles" kind="tiles" tiles=8 priority="high" group="pm" url=tiles_url height="292px" height_sm="517px" %}
 {% part "quality-lists" kind="table" group="pm" url=lists_url rows=20 height="1286px" height_md="1506px" height_sm="2058px" %}
+{% elif view == "masters" %}{# heights estimated from the grid's (not measured on the parity world yet) #}
+{% part_url "masters-summary" as_of=as_of as summary_url %}{% part_url "masters-table" as_of=as_of as table_url %}
+{% part "masters-summary" kind="tiles" tiles=7 priority="high" group="pm" url=summary_url height="584px" height_md="882px" height_sm="1212px" %}
+{% part "masters-table" kind="table" priority="high" group="pm" url=table_url rows=20 height="876px" height_md="896px" height_sm="1153px" %}
 {% else %}
 {% part_url "summary" as_of=as_of as summary_url %}{% part_url "grid" as_of=as_of as grid_url %}
 {% part "summary" kind="tiles" tiles=7 priority="high" group="pm" url=summary_url height="584px" height_md="882px" height_sm="1212px" %}

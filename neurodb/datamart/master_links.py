@@ -265,14 +265,9 @@ def plan(rows: dict[tuple[int, str], Row], year: int) -> Plan:
         if not found:
             continue
         taken.add(key)
-        found.sort(
-            key=lambda m: (-m.score, m.target.master.sequence, m.target.master.name, m.target.master.pk)
-        )
-        best = found[0]
-        if len(found) > 1 and round(best.score - found[1].score, 3) <= AMBIGUITY:
-            out.ambiguous[key] = [
-                m.target.master for m in found if round(best.score - m.score, 3) <= AMBIGUITY
-            ]
+        best, close = _best(found)
+        if close:
+            out.ambiguous[key] = close
             continue
         out.suggestions.append(
             Suggestion(
@@ -388,6 +383,53 @@ def _matches(row: Row, targets: list[_Target], structure: str) -> list[_Match]:
         if value >= TITLE_SCORE:
             found.append(_Match(target, value, SIMILAR_TITLE, "title"))
     return found
+
+
+def _best(found: list[_Match]) -> tuple[_Match, list[EtoolsMaster]]:
+    """The best of an indicator's matches, and the masters that fit it as well as each other (within
+    :data:`AMBIGUITY` of the best, the best among them) when there are two or more: the indicator is then
+    "ambiguous" and gets no suggestion."""
+    found.sort(key=lambda m: (-m.score, m.target.master.sequence, m.target.master.name, m.target.master.pk))
+    best = found[0]
+    if len(found) > 1 and round(best.score - found[1].score, 3) <= AMBIGUITY:
+        return best, [m.target.master for m in found if round(best.score - m.score, 3) <= AMBIGUITY]
+    return best, []
+
+
+def ambiguous(
+    rows: dict[tuple[int, str], Row],
+    active: Sequence[EtoolsMaster],
+    links: Sequence[EtoolsMasterLink],
+    keys: Iterable[tuple[int, str]],
+) -> dict[tuple[int, str], list[EtoolsMaster]]:
+    """For the Master indicators tab: the indicators ``keys`` of ``rows`` (the tab's PD indicators of the
+    year) that two or more ``active`` masters fit as well as each other by the rules of :func:`plan`, with
+    those masters. The job leaves them without a suggestion; the tab says "Ambiguous: A or B"
+    (:func:`ambiguous_note`) rather than nothing. ``links``: the masters' links (a master that holds the
+    indicator, confirmed or rejected, is never one of them). Reads nothing from the database, writes
+    nothing."""
+    decided = [link for link in links if link.status != Status.SUGGESTED]
+    running = {pd_id for pd_id, _ident in rows}
+    structure = {key_of(row): key for key, found in masters.clusters(rows.values()).items() for row in found}
+    targets = _targets(list(active), decided, rows, structure, running, Plan(year=0))
+    by_section: dict[str, list[_Target]] = defaultdict(list)
+    for target in targets:
+        by_section[norm(target.master.section)].append(target)
+    blocked: dict[tuple[int, str], set[int]] = defaultdict(set)
+    for link in decided:
+        blocked[(link.pd_id, link.ident)].add(link.master_id)
+    out = {}
+    for key in keys:
+        row = rows.get(key)
+        if row is None:
+            continue
+        mine = [t for t in by_section.get(norm(row.section), []) if t.master.pk not in blocked.get(key, ())]
+        found = _matches(row, mine, structure.get(key, ""))
+        if len(found) > 1:
+            _best_match, close = _best(found)
+            if close:
+                out[key] = close
+    return out
 
 
 def _title_score(target: _Target, row: Row) -> float:

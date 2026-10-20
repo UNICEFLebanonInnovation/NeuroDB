@@ -1,0 +1,25 @@
+{% load i18n ui %}{% comment %}One eTools master indicator in a year (reports.master_views.etools_master), in its modal and on its own page:
+its tiles, how it is worked out (a sum's "up to / at least"), the PDs' own targets for reference, its quarters, its PD
+indicators with what each counts as, and what to know before reading the figure. Context: line, figure, master, year,
+report_type, labels, quarter_labels.{% endcomment %}
+{% with f=figure %}
+<div class="kpi-grid">
+  {% trans "Value" as l1 %}{% if line.percentage and f.value is not None %}{% include "components/kpi_tile.html" with label=l1 value=f.value|percent unit=master.unit %}{% else %}{% include "components/kpi_tile.html" with label=l1 value=f.value|number unit=master.unit %}{% endif %}
+  {% blocktrans asvar l2 %}Target {{ year }}{% endblocktrans %}{% if f.target %}{% include "components/kpi_tile.html" with label=l2 value=f.target|number %}{% else %}{% include "components/kpi_tile.html" with label=l2 value=_("No target") hint=_("typed by staff, not yet") %}{% endif %}
+  {% trans "Of target" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=f.achieved|percent:0 %}
+  {% if f.as_of and f.target %}{% blocktrans asvar h4 with d=f.as_of|date:"j M Y" %}as of {{ d }}{% endblocktrans %}{% endif %}
+  {% trans "Status" as l4 %}{% include "components/kpi_tile.html" with label=l4 value="" status=f.status status_label=f.status_label hint=h4 %}
+</div>
+<p class="small mb-1"><strong>{% trans "How it is worked out" %}:</strong> {{ f.how }}</p>
+<p class="small text-muted mb-2">{% blocktrans with method=f.method_label %}Method: {{ method }}.{% endblocktrans %} {% if f.pds %}{% blocktrans with c=f.coverage %}Programme documents: {{ c }}.{% endblocktrans %} {% endif %}{% if f.pd_target is not None %}{% blocktrans with t=f.pd_target|number %}The programme documents' own targets add up to {{ t }} over their whole periods: for reference only, the status uses the year's target.{% endblocktrans %}{% endif %}</p>
+<section class="panel p-0 mb-3">
+  <div class="table-wrap"><table class="table table-sm mb-0" id="master-quarters">
+    <thead><tr>{% for label in quarter_labels %}<th scope="col" class="num">{{ label }}</th>{% endfor %}</tr></thead>
+    <tbody><tr>{% for v in line.quarters %}<td class="num">{{ v|number }}{% if line.percentage and v is not None %}%{% endif %}</td>{% endfor %}</tr></tbody>
+  </table></div>
+  <p class="status-ref border-0">{% trans "Reached from 1 January to the end of each quarter: a report counts in the quarter its period ends in, so the last column is the year." %}</p>
+</section>
+{% if line.hints %}<ul class="small mb-3">{% for hint in line.hints %}<li>{{ hint }}</li>{% endfor %}</ul>{% endif %}
+<h3 class="h6">{% trans "PD indicators" %}</h3>
+<div class="panel p-0">{% if line.subs %}{% include "reports/partials/_master_subs.html" with edit=False %}{% else %}{% include "components/empty_state.html" with icon="list" title=_("No PD indicator linked") message=_("Attach PD indicators on the Master indicators tab, or in the administration.") %}{% endif %}</div>
+{% endwith %}

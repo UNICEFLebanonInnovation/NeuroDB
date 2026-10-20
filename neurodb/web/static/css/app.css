@@ -542,6 +542,24 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .monitoring-grid__section th { background: var(--nd-surface-2); font-size: 0.82rem; text-transform: none; letter-spacing: 0; position: static; }
 .monitoring-grid__pd th { background: var(--nd-surface); font-weight: 600; font-size: 0.82rem; text-transform: none; letter-spacing: 0; position: static; border-top: 2px solid var(--nd-border); }
 .monitoring-grid__output td { padding-top: 0.15rem; padding-bottom: 0.15rem; }
+/* Partner monitoring's Master indicators (reports/parts/pm_masters_table.html): each master row opens on its PD
+   indicators (a collapse on its own tbody, at once: a tbody has no height to animate) */
+.masters-table__section th { background: var(--nd-surface-2); font-size: 0.82rem; text-transform: none; letter-spacing: 0; position: static; }
+.masters-table__output td { padding-top: 0.15rem; padding-bottom: 0.15rem; }
+.masters-table__name { min-width: 16rem; }
+.masters-table__toggle { display: inline; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.masters-table__toggle::before { content: "▸"; display: inline-block; width: 1em; color: var(--nd-muted); transition: transform 0.15s; }
+.masters-table__toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+.masters-table__subs.collapsing { transition: none; }
+.masters-table__subs > tr > td { background: var(--nd-surface-2); }
+.masters-subs th { position: static; }
+.masters-subs__left td { color: var(--nd-muted); }
+.masters-subs__change { min-width: 14rem; }
+.masters-subs__role { display: inline-flex; gap: 0.25rem; align-items: center; margin: 0.15rem 0; }
+.masters-subs__role .form-select { width: auto; }
+.masters-settings { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: flex-end; padding: 0.5rem 0.75rem; }
+.masters-settings__form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-end; }
+@media print { .masters-table__subs.collapse { display: table-row-group; } }
 /* total rows (Bootstrap's light row is white in the dark theme: it follows the theme's tokens instead) */
 .table .table-light { --bs-table-color: var(--nd-text); --bs-table-bg: var(--nd-surface-2); --bs-table-border-color: var(--nd-border); --bs-table-hover-bg: var(--nd-surface-2); --bs-table-hover-color: var(--nd-text); }
 /* eTools Reached: reports that do not count (Sent back, Due, Overdue) are greyed and outside every total */

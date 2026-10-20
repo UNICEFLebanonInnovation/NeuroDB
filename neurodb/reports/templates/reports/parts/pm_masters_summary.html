@@ -1,0 +1,35 @@
+{% load i18n ui humanize %}{% comment %}Partner monitoring's Master indicators, their figures (part "masters-summary", reports.views.pd_monitoring):
+the tiles and the status donut of the eTools master indicators the filter shows in its year, with their chart JSON
+(pm-masters-data), and how a master indicator is worked out. Context: tab = masters_tab.read of the filter (its PD
+indicators stored for every worker), chart_data, and labels and filters (the page's scope).{% endcomment %}
+<div class="kpi-grid">
+  {% blocktrans asvar h1 with year=tab.year %}in {{ year }}, in the sections chosen{% endblocktrans %}
+  {% trans "Master indicators" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=tab.lines|length hint=h1 %}
+  {% blocktrans asvar h2 with n=tab.status_counts.over_target %}and {{ n }} ahead of schedule{% endblocktrans %}
+  {% trans "On track" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=tab.status_counts.on_track status="on_track" hint=h2 %}
+  {% trans "Off track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=tab.status_counts.off_track status="off_track" %}
+  {% blocktrans asvar h4 with year=tab.year %}the target of {{ year }} is not typed yet{% endblocktrans %}
+  {% trans "No target" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=tab.status_counts.no_target hint=h4 %}
+  {% blocktrans asvar v5 with x=tab.in_master|intcomma y=tab.indicators|intcomma %}{{ x }} of {{ y }}{% endblocktrans %}
+  {% trans "PD indicators in a master" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=v5 hint=_("confirmed in an active master indicator") %}
+  {% trans "Suggestions waiting" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=tab.suggested hint=_("they count only once confirmed") %}
+  {% blocktrans asvar h7 count counter=tab.proposed_links %}{{ counter }} PD indicator in them{% plural %}{{ counter }} PD indicators in them{% endblocktrans %}
+  {% trans "Proposed masters" as l7 %}{% include "components/kpi_tile.html" with label=l7 value=tab.proposals|length hint=h7 %}
+</div>
+<div class="grid grid--2 mb-3">
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "Master indicator status" %}</h2><span class="panel__hint">{% blocktrans with year=tab.year %}Against the target of {{ year }} typed by staff{% endblocktrans %}</span></div>
+    <div class="chart chart--sm" data-module="charts" data-chart="status-donut" data-source="pm-masters-data" data-key="status_counts" data-height="220" aria-label="{% trans 'Master indicator status distribution' %}"></div>
+    <div class="legend">{% for key, label in labels.items %}<span class="legend__item">{% status_pill key label "sm" %} {{ tab.status_counts|get_item:key }}</span>{% endfor %}</div>
+  </section>
+  <section class="panel">
+    <div class="panel__header"><h2 class="panel__title">{% trans "How a master indicator is worked out" %}</h2></div>
+    <ul class="small mb-0 ps-3">
+      <li>{% trans "Only the PD indicators a section confirmed count. NeuroDB's suggestions are listed under each master indicator and never added until someone confirms them." %}</li>
+      <li>{% trans "A sum adds up the programme documents' Reached in the year. Partners may reach the same people, so it reads “up to”, with “at least” the largest programme document's figure." %}</li>
+      <li>{% trans "A percentage or a ratio is the numerators added up over the denominators added up. A programme document reported without them is left out and said so (“counted 4 of 6 PDs”), never averaged." %}</li>
+      <li>{% trans "The status compares the figure with the year's target typed by staff, as of the latest counted report. Without that target it reads “No target”; the programme documents' own targets are shown for reference only." %}</li>
+    </ul>
+  </section>
+</div>
+{{ chart_data|json_script:"pm-masters-data" }}

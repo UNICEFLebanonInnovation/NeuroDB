@@ -1,0 +1,12 @@
+{% load i18n ui %}
+<div class="modal-header">
+  <div>
+    <h2 class="modal-title h5" id="modal-title">{{ master.name }}</h2>
+    <div class="small text-muted">{{ page_subtitle }}</div>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+</div>
+<div class="modal-body">{% include "reports/partials/_etools_master_body.html" %}</div>
+<div class="modal-footer">
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'reports:etools_master' master.pk %}?{{ request.GET.urlencode }}">{% include "components/icon.html" with name="external" %}<span>{% trans "Open as page" %}</span></a>
+</div>

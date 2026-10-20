@@ -1,7 +1,9 @@
-"""Curating the eTools master indicators by hand, in the administration: adding PD indicators to a master
-(*Add PD indicators*), merging masters, moving masters to a renamed eTools section, and making masters from
-the ActivityInfo archive's master indicators. Accepting or dismissing a proposal and confirming or rejecting
-a link are :mod:`neurodb.datamart.master_links`'s.
+"""Curating the eTools master indicators by hand, in the administration and on the Master indicators tab of
+Partner monitoring: adding PD indicators to a master (*Add PD indicators*, *Attach to…*), changing what a link
+counts as, taking one out, renaming a master and setting its year's code and target, merging masters, moving
+masters to a renamed eTools section, and making masters from the ActivityInfo archive's master indicators.
+Accepting or dismissing a proposal and confirming or rejecting a link are
+:mod:`neurodb.datamart.master_links`'s.
 
 Each of these is a person's decision: a PD indicator added here is confirmed at once (it counts), saved as
 eTools has it now (its title, PD number and type, read with its Reached as the pages read it). Nothing is
@@ -12,6 +14,7 @@ moved automatically, no figure is stored and no AI is used. The ActivityInfo arc
 from __future__ import annotations
 
 import itertools
+import math
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -212,6 +215,101 @@ def add(master: EtoolsMaster, keys: Iterable[tuple[int, str]], role: str, by: st
             )
             out.added += 1
     return out
+
+
+# ------------------------------------------------------------------------------------------------- one link
+def set_role(link: EtoolsMasterLink, role: str, by: str) -> str:
+    """Change what a link counts as; "" when done, else why not. The role must fit the master's method and the
+    indicator's type (as it was confirmed); in the total, the indicator may count in no other master's
+    confirmed total (another master's suggestion to count it gives way), and an average, a maximum or a
+    minimum keeps one type. A confirmed link stays confirmed, a suggestion a suggestion (it counts only once
+    confirmed)."""
+    if role not in Role.values:
+        return "Choose what it counts as."
+    if role == link.role:
+        return ""
+    master, unit = link.master, link.unit_class
+    problem = masters.misfit(master.method, role, unit) if unit else ""
+    if not problem and role == Role.TOTAL and unit:
+        problem = masters._one_class(master, unit, exclude=link.pk)
+    if not problem and role == Role.TOTAL:
+        home = (
+            EtoolsMasterLink.objects.filter(
+                pd_id=link.pd_id, ident=link.ident, role=Role.TOTAL, status=Status.CONFIRMED
+            )
+            .exclude(pk=link.pk)
+            .select_related("master")
+            .first()
+        )
+        if home is not None:
+            problem = f"It already counts in the total of {home.master.name}."
+    if problem:
+        return problem
+    with transaction.atomic():
+        if role == Role.TOTAL:
+            EtoolsMasterLink.objects.filter(
+                pd_id=link.pd_id, ident=link.ident, role=Role.TOTAL, status=Status.SUGGESTED
+            ).exclude(pk=link.pk).delete()
+        link.role = role
+        fields = ["role", "updated_at"]
+        if link.status == Status.CONFIRMED:
+            link.confirmed_by = (by or "")[:150]
+            fields.append("confirmed_by")
+        link.save(update_fields=fields)
+    return ""
+
+
+def remove(link: EtoolsMasterLink) -> None:
+    """Take a PD indicator out of its master: the link is deleted. NeuroDB may suggest it again (it never
+    counts until confirmed); rejecting a suggestion is what stops that."""
+    link.delete()
+
+
+def save_settings(
+    master: EtoolsMaster, year: int, *, name: str, code: str, target: str, by: str
+) -> dict[str, str]:
+    """Rename a master and set its settings for ``year``: the AWP/RWP code and the target its status is
+    measured against (blank: no target, and the status reads "No target"). Returns the problems by field
+    ({} when saved); nothing is saved while there is one."""
+    errors: dict[str, str] = {}
+    name = " ".join(str(name or "").split())
+    if not name:
+        errors["name"] = "Give the master indicator a name."
+    elif len(name) > 500:
+        errors["name"] = "The name is at most 500 characters."
+    elif (
+        name != master.name
+        and EtoolsMaster.objects.filter(section=master.section, name=name, status__in=HOLDS_NAME)
+        .exclude(pk=master.pk)
+        .exists()
+    ):
+        errors["name"] = f"{master.section} already has a master indicator named {name}."
+    code = str(code or "").strip()
+    if len(code) > 32:
+        errors["code"] = "The code is at most 32 characters."
+    value = None
+    text = str(target or "").strip().replace(",", "")
+    if text:
+        try:
+            value = float(text)
+        except ValueError:
+            value = None
+        if value is None or not math.isfinite(value) or value <= 0:
+            errors["target"] = "The target is a number above 0 (leave it blank for no target)."
+    if errors:
+        return errors
+    by = (by or "")[:150]
+    with transaction.atomic():
+        if name != master.name:
+            master.name, master.updated_by = name, by
+            master.save(update_fields=["name", "updated_by", "updated_at"])
+        settings, created = EtoolsMasterYear.objects.get_or_create(
+            master=master, year=year, defaults={"code": code, "target": value, "updated_by": by}
+        )
+        if not created and (settings.code, settings.target) != (code, value):
+            settings.code, settings.target, settings.updated_by = code, value, by
+            settings.save(update_fields=["code", "target", "updated_by", "updated_at"])
+    return {}
 
 
 # ------------------------------------------------------------------------------------------------- merging

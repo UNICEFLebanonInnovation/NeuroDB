@@ -1,0 +1,130 @@
+{% load i18n ui humanize %}{% comment %}Partner monitoring's Master indicators, their lists (part "masters-table", reports.views.pd_monitoring): the
+eTools master indicators of the filter in its year by section and CP output, each row opening on its PD indicators
+(_master_subs.html) with its detail in the modal; the masters NeuroDB proposes (Accept, Dismiss); and the PD
+indicators of the year in no master, each with NeuroDB's word on it (Attach to…). The buttons that change them show
+to an Administrator or a Section editor of the section only; each is a POST of reports.master_views that comes back
+here (next). Context: tab = masters_tab.read of the filter, roles, not_applied, detail_query, downloads, and filters,
+labels and report_types (the page's scope).{% endcomment %}
+{% with next=request.get_full_path year=tab.year report_type=tab.report_type %}
+<section class="panel p-0" aria-labelledby="masters-title">
+  <div class="table-toolbar">
+    <div class="table-toolbar__title"><h2 class="h6 mb-0" id="masters-title">{% trans "Master indicators" %}</h2><span class="text-muted small">{% blocktrans count counter=tab.lines|length %}{{ counter }} master indicator in {{ year }}{% plural %}{{ counter }} master indicators in {{ year }}{% endblocktrans %}</span></div>
+    <div class="table-toolbar__actions">{% for d in downloads %}<a class="btn btn-outline-secondary btn-sm" href="{{ d.url }}">{% include "components/icon.html" with name="download" %}<span>{{ d.label }}</span></a>{% endfor %}</div>
+  </div>
+  <p class="small text-muted px-3 mb-2">{% blocktrans %}This tab counts every programme document running in {{ year }} in the sections chosen: the PD status, document type, office, partner type, emergency, programme document and title tag filters do not apply here. The status, the search and the CP output choose master indicators, never their PD indicators.{% endblocktrans %}{% if not_applied %} <strong>{% blocktrans with names=not_applied|join:", " %}Not applied here: {{ names }}.{% endblocktrans %}</strong>{% endif %}</p>
+  {% if tab.partner %}<p class="small text-muted px-3 mb-2">{% trans "Each master indicator shows the chosen partner's contribution, with its share of a sum (a share of a percentage or an average means nothing). The target, % of target and status are the master indicator's, every partner together." %}</p>{% endif %}
+  {% if tab.lines %}
+  <div class="table-wrap table-wrap--tall"><table class="table table-sm masters-table" id="etools-masters">
+    <thead><tr>
+      <th scope="col" class="masters-table__name">{% trans "Master indicator" %}</th>
+      <th scope="col">{% trans "Method" %}</th>
+      <th scope="col" class="num">{% blocktrans %}Target {{ year }}{% endblocktrans %}</th>
+      <th scope="col" class="num">{% trans "Q1" %}</th>
+      <th scope="col" class="num">{% trans "to Q2" %}</th>
+      <th scope="col" class="num">{% trans "to Q3" %}</th>
+      <th scope="col" class="num">{% trans "Year" %}</th>
+      <th scope="col">{% trans "% of target" %}</th>
+      <th scope="col">{% trans "Status" %}</th>
+      <th scope="col" class="num">{% trans "Partners" %}</th>
+      <th scope="col">{% trans "Reporting" %}</th>
+      <th scope="col"><span class="visually-hidden">{% trans "Details" %}</span></th>
+    </tr></thead>
+    {% for group in tab.groups %}
+    <tbody><tr class="masters-table__section"><th colspan="12" scope="rowgroup">{{ group.section }} <span class="text-muted fw-normal">· {% blocktrans count counter=group.count %}{{ counter }} master indicator{% plural %}{{ counter }} master indicators{% endblocktrans %}</span>{% if group.curate and group.strong %} <form method="post" action="{% url 'reports:etools_masters_confirm' %}" class="d-inline">{% csrf_token %}<input type="hidden" name="section" value="{{ group.section }}"><input type="hidden" name="next" value="{{ next }}"><button type="submit" class="btn btn-outline-primary btn-sm ms-2">{% blocktrans count counter=group.strong %}Confirm the {{ counter }} strong match (0.9 or more){% plural %}Confirm all {{ counter }} strong matches (0.9 or more){% endblocktrans %}</button></form>{% endif %}</th></tr></tbody>
+    {% for output in group.outputs %}
+    <tbody><tr class="masters-table__output"><td colspan="12" class="small text-muted">{% if output.cp_output %}{{ output.cp_output }}{% else %}{% trans "No CP output given" %}{% endif %}</td></tr></tbody>
+    {% for line in output.lines %}{% with f=line.figure w=line.whole m=line.master %}
+    <tbody class="masters-table__master">
+      <tr id="master-{{ m.pk }}">
+        <td><button type="button" class="masters-table__toggle" data-bs-toggle="collapse" data-bs-target="#master-{{ m.pk }}-subs" aria-expanded="false" aria-controls="master-{{ m.pk }}-subs"><span class="cell-title">{{ m.name }}</span></button><span class="cell-sub mono">{{ w.code|default:"" }}{% if w.code and m.unit %} · {% endif %}{{ m.unit }}</span></td>
+        <td><span class="chip" title="{{ f.method_help }}">{{ f.method_label }}</span></td>
+        <td class="num">{% if w.target %}{{ w.target|number }}{% if line.percentage %}%{% endif %}{% else %}<span class="text-muted small">{% trans "No target" %}</span>{% endif %}</td>
+        {% for v in line.quarters|slice:":3" %}<td class="num">{{ v|number }}{% if line.percentage and v is not None %}%{% endif %}</td>{% endfor %}
+        <td class="num"><strong>{{ f.value|number }}{% if line.percentage and f.value is not None %}%{% endif %}</strong>{% if f.method == "sum" and f.at_least is not None %}<span class="cell-sub" title="{{ f.how }}">{% blocktrans with n=f.at_least|number %}at least {{ n }}{% endblocktrans %}</span>{% endif %}{% if line.share is not None %}<span class="cell-sub">{% blocktrans with p=line.share|percent:0 total=w.value|number %}{{ p }} of {{ total }}{% endblocktrans %}</span>{% endif %}</td>
+        <td data-value="{{ w.achieved|default:'' }}">{% if w.achieved is not None %}<div class="meter"><div class="meter__track"><span class="meter__fill meter__fill--{{ w.status }}" style="width: {% if w.achieved > 100 %}100{% else %}{{ w.achieved|floatformat:0 }}{% endif %}%"></span></div><span class="meter__value">{{ w.achieved|percent:0 }}</span></div>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
+        <td>{% status_pill w.status w.status_label "sm" %}{% if w.as_of and w.target %}<span class="cell-sub">{% blocktrans with d=w.as_of|date:"j M" %}as of {{ d }}{% endblocktrans %}</span>{% endif %}</td>
+        <td class="num">{{ f.partners }}</td>
+        <td class="small">{% blocktrans with n=f.reporting total=f.eligible %}Reporting {{ n }} of {{ total }}{% endblocktrans %}{% if f.pds and f.counted_pds < f.pds %}<span class="cell-sub">{{ f.coverage }}</span>{% endif %}{% if line.suggested %}<span class="cell-sub">{% blocktrans count counter=line.suggested %}{{ counter }} suggestion{% plural %}{{ counter }} suggestions{% endblocktrans %}</span>{% endif %}</td>
+        <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'reports:etools_master' m.pk %}?{{ detail_query }}" hx-get="{% url 'reports:etools_master' m.pk %}?{{ detail_query }}" hx-target="#modal-content" hx-push-url="false" aria-label="{% blocktrans with name=m.name %}Details of {{ name }}{% endblocktrans %}">{% trans "Details" %}</a></td>
+      </tr>
+    </tbody>
+    <tbody class="collapse masters-table__subs" id="master-{{ m.pk }}-subs">
+      <tr><td colspan="12" class="p-0">
+        {% if line.curate %}<div class="masters-settings">
+          <form method="post" action="{% url 'reports:etools_master_edit' m.pk %}" class="masters-settings__form">{% csrf_token %}<input type="hidden" name="action" value="settings"><input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="next" value="{{ next }}">
+            <label class="small">{% trans "Name" %} <input class="form-control form-control-sm" type="text" name="name" value="{{ m.name }}" maxlength="500" required></label>
+            <label class="small">{% blocktrans %}Code {{ year }}{% endblocktrans %} <input class="form-control form-control-sm" type="text" name="code" value="{{ w.code }}" maxlength="32"></label>
+            <label class="small">{% blocktrans %}Target {{ year }}{% endblocktrans %} <input class="form-control form-control-sm" type="text" inputmode="decimal" name="target" value="{% if w.target is not None %}{{ w.target|stringformat:'g' }}{% endif %}" placeholder="{% trans 'No target' %}"></label>
+            <button type="submit" class="btn btn-outline-secondary btn-sm">{% trans "Save" %}</button>
+          </form>
+          {% if line.suggested %}<form method="post" action="{% url 'reports:etools_master_edit' m.pk %}">{% csrf_token %}<input type="hidden" name="action" value="confirm_all"><input type="hidden" name="next" value="{{ next }}"><button type="submit" class="btn btn-primary btn-sm">{% blocktrans count counter=line.suggested %}Confirm the suggestion{% plural %}Confirm all {{ counter }} suggestions{% endblocktrans %}</button></form>{% endif %}
+        </div>{% endif %}
+        {% if line.subs %}{% include "reports/partials/_master_subs.html" with edit=line.curate %}{% else %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}No PD indicator of a programme document running in {{ year }} is linked yet.{% endblocktrans %}</p>{% endif %}
+      </td></tr>
+    </tbody>
+    {% endwith %}{% endfor %}
+    {% endfor %}
+    {% endfor %}
+  </table></div>
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}Open a master indicator to see its PD indicators. Q1, to Q2 and to Q3 are Reached from 1 January to the end of each quarter, a report counting in the quarter its period ends in; Year is the whole of {{ year }}. Each PD indicator brings its own Reached in the year, read as Program Performance reads it: no report is added twice. Reporting counts the PD indicators with a value in the year among those that count.{% endblocktrans %}</p>
+  {% else %}
+  {% if tab.curates %}{% include "components/empty_state.html" with icon="layers" title=_("No master indicator in this year") message=_("Accept a proposed master indicator below, or make one in the administration (Reporting setup).") %}{% else %}{% include "components/empty_state.html" with icon="layers" title=_("No master indicator in this year") message=_("Change the filters, or ask your section's editor to set up its master indicators.") %}{% endif %}
+  {% endif %}
+</section>
+
+<section class="panel p-0 mt-3" aria-labelledby="proposed-title">
+  <div class="table-toolbar"><div class="table-toolbar__title"><h2 class="h6 mb-0" id="proposed-title">{% trans "Proposed master indicators" %}</h2><span class="text-muted small">{% blocktrans count counter=tab.proposals|length %}{{ counter }} waiting{% plural %}{{ counter }} waiting{% endblocktrans %}</span></div></div>
+  <p class="small text-muted px-3 mb-2">{% trans "Every night NeuroDB proposes a master indicator where two programme documents or more share a CP output, a type and a title. Accept it to make it active with its PD indicators confirmed: they count from then on. Dismiss it and NeuroDB never proposes it again." %}</p>
+  {% if tab.proposals %}
+  <div class="table-wrap"><table class="table table-sm mb-0" id="masters-proposed">
+    <thead><tr><th scope="col">{% trans "Proposed master indicator" %}</th><th scope="col">{% trans "Method" %}</th><th scope="col">{% trans "PD indicators" %}</th><th scope="col"><span class="visually-hidden">{% trans "Decide" %}</span></th></tr></thead>
+    <tbody>
+    {% for p in tab.proposals %}
+      <tr>
+        <td><span class="cell-title">{{ p.master.name }}</span><span class="cell-sub">{{ p.master.section }}{% if p.master.cp_output %} · {{ p.master.cp_output }}{% endif %}</span></td>
+        <td><span class="chip">{{ p.method_label }}</span></td>
+        <td class="small">{% blocktrans count counter=p.links|length with pds=p.pds %}{{ counter }} PD indicator in {{ pds }} programme documents{% plural %}{{ counter }} PD indicators in {{ pds }} programme documents{% endblocktrans %}<ul class="list-unstyled mb-0">{% for x in p.shown %}<li class="text-muted">{{ x.pd_number|default:"—" }}: {{ x.title }}</li>{% endfor %}{% if p.more %}<li class="text-muted">{% blocktrans count counter=p.more %}and {{ counter }} more{% plural %}and {{ counter }} more{% endblocktrans %}</li>{% endif %}</ul></td>
+        <td class="text-end text-nowrap">{% if p.curate %}<form method="post" action="{% url 'reports:etools_master_edit' p.master.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}"><button type="submit" name="action" value="accept" class="btn btn-primary btn-sm">{% trans "Accept" %}</button> <button type="submit" name="action" value="dismiss" class="btn btn-outline-secondary btn-sm">{% trans "Dismiss" %}</button></form>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="small text-muted px-3 py-2 mb-0">{% trans "No proposal is waiting." %}</p>
+  {% endif %}
+</section>
+
+<section class="panel p-0 mt-3" aria-labelledby="unattached-title">
+  <div class="table-toolbar"><div class="table-toolbar__title"><h2 class="h6 mb-0" id="unattached-title">{% trans "Not in a master" %}</h2><span class="text-muted small">{% blocktrans with n=tab.unattached_count|intcomma total=tab.indicators|intcomma %}{{ n }} of the {{ total }} PD indicators of the year{% endblocktrans %}</span></div></div>
+  <p class="small text-muted px-3 mb-2">{% trans "The PD indicators of the year with no confirmed place in an active master indicator, each with what NeuroDB says of it: its suggestion, the proposal it is in, or “ambiguous” when two master indicators fit it as well. Nothing is left out without being listed here." %}</p>
+  {% if tab.unattached %}
+  {% if tab.attach %}<form method="post" action="{% url 'reports:etools_master_attach' %}" id="masters-attach">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+  <div class="table-wrap table-wrap--tall"><table class="table table-sm table-hover mb-0" id="masters-unattached">
+    <thead><tr>{% if tab.attach %}<th scope="col"><span class="visually-hidden">{% trans "Choose" %}</span></th>{% endif %}<th scope="col">{% trans "Partner · PD" %}</th><th scope="col">{% trans "PD indicator" %}</th><th scope="col">{% trans "Type" %}</th><th scope="col">{% trans "CP output" %}</th><th scope="col">{% trans "NeuroDB" %}</th></tr></thead>
+    <tbody>
+    {% for u in tab.unattached %}{% with r=u.row %}
+      <tr>
+        {% if tab.attach %}<td><input class="form-check-input" type="checkbox" name="key" value="{{ u.key }}" aria-label="{% blocktrans with title=r.title %}Attach {{ title }}{% endblocktrans %}"></td>{% endif %}
+        <td class="small">{% if u.partner_id %}<a href="{% url 'reports:partner_profile' u.partner_id %}">{{ u.partner }}</a>{% else %}{{ u.partner|default:"—" }}{% endif %}<span class="cell-sub"><a href="{% url 'reports:programme_detail' r.pd.id %}">{{ r.pd.number|default:"—" }}</a></span></td>
+        <td class="cell-wrap"><a href="{{ r.url }}?report_type={{ report_type }}&amp;year={{ year }}" hx-get="{{ r.url }}?report_type={{ report_type }}&amp;year={{ year }}" hx-target="#modal-content" hx-push-url="false">{{ r.title }}</a><span class="cell-sub">{{ r.section|default:"—" }}</span></td>
+        <td class="small">{{ u.unit|capfirst }}</td>
+        <td class="small cell-wrap">{{ r.cp_output|default:"—" }}</td>
+        <td class="small">{{ u.note }}</td>
+      </tr>
+    {% endwith %}{% endfor %}
+    </tbody>
+  </table></div>
+  {% if tab.unattached_count > tab.unattached|length %}<p class="small text-warning px-3 mb-0">{% blocktrans with n=tab.unattached|length|intcomma %}Only the first {{ n }} are listed: narrow the filters.{% endblocktrans %}</p>{% endif %}
+  {% if tab.attach %}
+  <div class="masters-settings">
+    <label class="small">{% trans "Attach the ticked ones to" %} <select class="form-select form-select-sm" name="master" required>{% for m in tab.attach %}<option value="{{ m.pk }}">{{ m.section }} · {{ m.name }}</option>{% endfor %}</select></label>
+    <label class="small">{% trans "as" %} <select class="form-select form-select-sm" name="role">{% for value, label in roles %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Attach to…" %}</button>
+    <span class="small text-muted">{% trans "They are confirmed at once and count from then on; one of another section, of a type the master cannot combine, or already in another total is left out and said why." %}</span>
+  </div>
+  </form>{% endif %}
+  {% else %}
+  <p class="small text-muted px-3 py-2 mb-0">{% trans "Every PD indicator of the year the filter reads is in a master indicator." %}</p>
+  {% endif %}
+</section>
+{% endwith %}
