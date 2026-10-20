@@ -18,9 +18,9 @@ progress report and location, and repeat report-level fields on each of them. Th
   locations cannot say; one that differs from them (beyond rounding: half a person, half a point) is
   noted, and the locations are used.
 * **Reached** combines the counted reports with ``calculation_across_periods`` (sum, max, avg,
-  latest; percentages and ratios Σv/Σd): to date, in a year, per month, per location and per
-  disaggregation key. For an indicator summed across locations and periods, the months of every year
-  add up to Reached, and so do the locations.
+  latest; percentages and ratios Σv/Σd): to date, in a year (and to the end of each of its quarters),
+  per month, per location and per disaggregation key. For an indicator summed across locations and
+  periods, the months of every year add up to Reached, and so do the locations.
 * Different indicators, quarterly and humanitarian reports, and percentages are never added.
 
 A programme document that started before the partner reports NeuroDB holds were read from
@@ -705,6 +705,13 @@ class Reached:
     reached: float | None = None  # to date
     reached_accepted: float | None = None  # to date, Accepted reports only
     reached_in_year: float | None = None
+    # Reached in ``year`` with the numerator and denominator it was combined from, as :func:`combine_items`
+    # keeps them (sum: Σv and Σd; latest, or a percentage or ratio missing one: the latest report's; max and
+    # avg: none)
+    in_year_item: Item = (None, None, None)
+    # quarter (1 to 4) -> Reached from 1 January of ``year`` to the end of that quarter, as ``in_year_item``:
+    # a report counts in the quarter its period ends in (as ``months``), so the fourth is the year
+    to_quarter: dict[int, Item] = field(default_factory=dict)
     year: int | None = None
     awaiting: float | None = None  # of Reached, what Submitted reports add (awaiting acceptance)
     awaiting_reports: int = 0
@@ -941,7 +948,11 @@ def compute(
     out.years = {y: over([values[r.key] for r in reps])[0] for y, reps in sorted(by_year.items())}
     if year is not None:
         in_year = by_year.get(year, [])
-        out.reached_in_year = over([values[r.key] for r in in_year])[0] if in_year else None
+        out.in_year_item = over([values[r.key] for r in in_year])
+        out.reached_in_year = out.in_year_item[0]
+        out.to_quarter = {
+            q: over([values[r.key] for r in in_year if r.period_end.month <= 3 * q]) for q in (1, 2, 3, 4)
+        }
         by_month: dict[int, list[Report]] = defaultdict(list)
         for r in in_year:
             by_month[r.period_end.month].append(r)

@@ -69,7 +69,10 @@ NO_SECTION = "—"  # the section of an indicator that names none (a section til
 # filter and the map's places two minutes, the filter options ten (they only change with a sync)
 STORED_SECONDS = 120
 OPTIONS_SECONDS = 600
-CACHE_VERSION = 2  # 2: a stored row carries the rows placed under it and its title's rows left out
+# 2 (two lines of work): a stored row carries the rows placed under it and its title's rows left out; or
+# Reached in the year with its parts, the quarters and the target's parts. 3: a Row carries both, so a row
+# stored by either version 2 is never read
+CACHE_VERSION = 3
 
 
 def today() -> datetime.date:
@@ -310,6 +313,10 @@ class Indicator:
     reports: int = 0  # counted reports (Accepted or Submitted) with a value
     reached: float | None = None  # to date
     reached_in_year: float | None = None
+    # Reached in the year with its numerator and denominator (when the period method keeps them), and from
+    # 1 January to the end of each quarter (1 to 4): :attr:`neurodb.datamart.reached.Reached.to_quarter`
+    in_year_item: rc.Item = (None, None, None)
+    to_quarter: dict[int, rc.Item] = field(default_factory=dict)
     year: int | None = None
     awaiting: float | None = None  # of Reached, from reports awaiting acceptance
     awaiting_reports: int = 0
@@ -325,6 +332,10 @@ class Indicator:
     achieved: float | None = None  # % of the target reached
     method: str = ""  # how PRP combines the locations of a period: sum (or empty), max, avg, ratio
     period_method: str = ""  # and the periods: sum (or empty), max, avg, latest, ratio
+    ratio: bool = False  # Reached is numerators over denominators: a percentage or a ratio (set with Reached)
+    percentage: bool = False  # and × 100
+    # the target's numerator and denominator, as eTools gives them (``target`` is read from them)
+    target_parts: tuple[float | None, float | None] = (None, None)
     result: rc.Reached | None = None
     rows_placed: int = 0  # the partner report rows placed under it (of the report type read)
     # the rows of its PD with its title, a title several indicators of the PD share, that no indicator got
@@ -455,9 +466,28 @@ def indicators(
     the counts and the exports read them all, and a page that lists them cuts the list itself
     (:data:`MAX_INDICATORS`)."""
     today = today or datetime.date.today()
+    found = collect(filters)
+    # the chosen sections: NO_SECTION (the tile of the indicators that name none) keeps those
+    sections = {s.strip() for s in filters.sections if s.strip()}
+    if section_counts is None and sections:  # only the chosen sections' Reached is computed
+        found = {k: e for k, e in found.items() if (e.section or NO_SECTION) in sections}
+    _attach_reached(found, filters, today)
+    result = [e for e in found.values() if not filters.status or e.tracking == filters.status]
+    if section_counts is not None:
+        section_counts.update(e.section or NO_SECTION for e in result)
+        if sections:
+            result = [e for e in result if (e.section or NO_SECTION) in sections]
+    return result
+
+
+def collect(filters: Filters) -> dict[tuple[int, str], Indicator]:
+    """The PD indicators the filters keep, by identity (:func:`ident_of`), without their Reached: the
+    programme documents, the indicator filters, the CP output (the PD's own when no report names one yet)
+    and the locations. The sections, the status and Reached are left to :func:`indicators`
+    (:func:`_attach_reached`), so a reader that needs only which indicators there are computes nothing."""
     pds = {pd.id: pd for pd in _pd_queryset(filters)}
     if not pds:
-        return []
+        return {}
     rows = _indicator_rows(filters, list(pds)).values(
         "datamart_id",
         "source_id",
@@ -493,6 +523,7 @@ def indicators(
                 display_type=row["display_type"],
                 baseline=number(row["baseline_numerator"]),
                 target=_target(row),
+                target_parts=(number(row["target_numerator"]), number(row["target_denominator"])),
                 high_frequency=row["is_high_frequency"],
                 cluster=row["cluster_name"],
                 tags={t: row[f"tag_{t}"] for t in TAG_FIELDS},
@@ -527,17 +558,7 @@ def indicators(
             if any(key in only or norm(p["name"]) in only for key, p in e.planned.items())
             or any(norm(loc) in only for loc in e.locations)
         }
-    # the chosen sections: NO_SECTION (the tile of the indicators that name none) keeps those
-    sections = {s.strip() for s in filters.sections if s.strip()}
-    if section_counts is None and sections:  # only the chosen sections' Reached is computed
-        found = {k: e for k, e in found.items() if (e.section or NO_SECTION) in sections}
-    _attach_reached(found, filters, today)
-    result = [e for e in found.values() if not filters.status or e.tracking == filters.status]
-    if section_counts is not None:
-        section_counts.update(e.section or NO_SECTION for e in result)
-        if sections:
-            result = [e for e in result if (e.section or NO_SECTION) in sections]
-    return result
+    return found
 
 
 def location_filter(filters: Filters) -> set[str] | None:
@@ -715,6 +736,7 @@ def _apply(entry: Indicator, result: rc.Reached, report_type: str) -> None:
     entry.result = result
     entry.report_type = report_type
     entry.reached, entry.reached_in_year, entry.year = result.reached, result.reached_in_year, result.year
+    entry.in_year_item, entry.to_quarter = result.in_year_item, result.to_quarter
     entry.awaiting, entry.awaiting_reports = result.awaiting, result.awaiting_reports
     entry.months, entry.years = result.months, result.years
     entry.reports = len(result.counted)
@@ -722,6 +744,7 @@ def _apply(entry: Indicator, result: rc.Reached, report_type: str) -> None:
     entry.prp_cumulative, entry.mismatch = result.prp_cumulative, result.mismatch
     entry.value_status, entry.partial = result.value_status, result.partial
     entry.method, entry.period_method = result.method, result.period_method
+    entry.ratio, entry.percentage = result.ratio, result.percentage
     latest = result.latest
     entry.as_of = latest.period_end if latest else None
     entry.report_status = latest.status_label if latest else ""
@@ -774,6 +797,7 @@ class Row:
     display_type: str
     baseline: float | None
     target: float | None
+    target_parts: tuple[float | None, float | None]
     high_frequency: bool
     cluster: str
     tags: dict[str, str]
@@ -783,6 +807,8 @@ class Row:
     reports: int
     reached: float | None
     reached_in_year: float | None
+    in_year_item: rc.Item
+    to_quarter: dict[int, rc.Item]
     year: int | None
     awaiting: float | None
     awaiting_reports: int
@@ -798,6 +824,8 @@ class Row:
     achieved: float | None
     method: str
     period_method: str
+    ratio: bool
+    percentage: bool
     tracking_label: str
     achieved_in_year: float | None
     additive: bool
@@ -849,6 +877,7 @@ def as_rows(found: list[Indicator]) -> list[Row]:
                 display_type=i.display_type,
                 baseline=i.baseline,
                 target=i.target,
+                target_parts=i.target_parts,
                 high_frequency=i.high_frequency,
                 cluster=i.cluster,
                 tags=dict(i.tags),
@@ -858,6 +887,8 @@ def as_rows(found: list[Indicator]) -> list[Row]:
                 reports=i.reports,
                 reached=i.reached,
                 reached_in_year=i.reached_in_year,
+                in_year_item=i.in_year_item,
+                to_quarter=dict(i.to_quarter),
                 year=i.year,
                 awaiting=i.awaiting,
                 awaiting_reports=i.awaiting_reports,
@@ -873,6 +904,8 @@ def as_rows(found: list[Indicator]) -> list[Row]:
                 achieved=i.achieved,
                 method=i.method,
                 period_method=i.period_method,
+                ratio=i.ratio,
+                percentage=i.percentage,
                 tracking_label=i.tracking_label,
                 achieved_in_year=i.achieved_in_year,
                 additive=i.additive,

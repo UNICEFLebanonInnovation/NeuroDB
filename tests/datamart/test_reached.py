@@ -409,6 +409,168 @@ def test_a_max_across_periods_is_not_three_times_the_children():
     assert out.reached == 1000.0 and out.method_label == "sum of locations, max of periods"
 
 
+# ------------------------------------------------ the year with its numerator and denominator, the quarters
+NONE = (None, None, None)
+QUARTER_ENDS = {1: datetime.date(2026, 3, 31), 2: datetime.date(2026, 6, 30), 3: datetime.date(2026, 9, 30)}
+
+
+def pct_row(report, end, location, v, d, **extra):
+    """A percentage or ratio row: numerator ``v`` over denominator ``d`` in the "()" total."""
+    return row(report, end, location, None, disaggregation={"()": {"v": v, "d": d, "c": v / d}}, **extra)
+
+
+def in_year_items(out, year=2026):
+    """The value of each counted report of ``year``, oldest first: what Reached in the year combines."""
+    return [out.items[r.key] for r in out.counted if r.period_end.year == year]
+
+
+def percentage_rows(**extra):
+    return [
+        pct_row("QPR0", datetime.date(2025, 12, 31), "Akkar", 99, 100, **extra),  # last year: not in 2026
+        pct_row("QPR1", datetime.date(2026, 3, 31), "Akkar", 40, 100, **extra),
+        pct_row("QPR1", datetime.date(2026, 3, 31), "Bekaa", 10, 50, **extra),
+        pct_row("QPR2", datetime.date(2026, 6, 30), "Akkar", 30, 50, **extra),
+    ]
+
+
+def test_the_worked_example_by_quarter():
+    out = compute(worked_example_rows())
+    # the figures every page reads, unchanged
+    assert (out.reached, out.reached_in_year, out.years, out.months) == (
+        500.0,
+        150.0,
+        {2025: 350.0, 2026: 150.0},
+        {3: 50.0, 6: 100.0},
+    )
+    # Reached in 2026 with PRP's v and d of each location added (d is 1 for a count: only a percentage or a
+    # ratio reads them), and from 1 January to the end of each quarter
+    assert out.in_year_item == (150.0, 150.0, 4.0)
+    assert {q: value for q, (value, _v, _d) in out.to_quarter.items()} == {
+        1: 50.0,
+        2: 150.0,
+        3: 150.0,
+        4: 150.0,
+    }
+
+
+def test_the_year_keeps_the_numerators_and_denominators_of_a_sum_over_periods():
+    out = compute(percentage_rows(), display_type="percentage")
+    assert out.in_year_item == pytest.approx((40.0, 80.0, 200.0))  # (40 + 10 + 30) / (100 + 50 + 50)
+    assert out.in_year_item[0] == out.reached_in_year
+    assert out.in_year_item == reached.combine_items(
+        in_year_items(out), "sum", ratio=True, percentage=True, fallback="latest"
+    )
+    out = compute(percentage_rows(), display_type="ratio")  # a ratio: the same parts, never × 100
+    assert out.in_year_item == pytest.approx((0.4, 80.0, 200.0))
+
+
+def test_the_year_of_latest_is_the_latest_reports_numerator_and_denominator():
+    out = compute(percentage_rows(calculation_across_periods="latest"), display_type="percentage")
+    assert out.in_year_item == pytest.approx((60.0, 30.0, 50.0)) and out.in_year_item == out.counted[-1].item
+    assert out.in_year_item[0] == out.reached_in_year
+
+
+@pytest.mark.parametrize(("method", "expected"), [("max", 60.0), ("avg", (50 / 150 * 100 + 60) / 2)])
+def test_the_year_of_an_average_or_maximum_has_no_numerator_or_denominator(method, expected):
+    out = compute(percentage_rows(calculation_across_periods=method), display_type="percentage")
+    assert out.in_year_item[1:] == (None, None)
+    assert out.in_year_item[0] == out.reached_in_year == pytest.approx(expected)
+
+
+def test_the_quarters_are_cumulative_and_a_report_counts_in_the_quarter_its_period_ends():
+    rows = [
+        row("R0", datetime.date(2025, 12, 31), "Akkar", 999),  # last year
+        row("R1", datetime.date(2026, 1, 31), "Akkar", 10),
+        row("R2", datetime.date(2026, 3, 31), "Akkar", 20),
+        # began in March, ended in April: the second quarter
+        row("R3", datetime.date(2026, 4, 30), "Akkar", 40, period_start=datetime.date(2026, 3, 1)),
+        row("R4", datetime.date(2026, 9, 30), "Akkar", 80, status="Submitted"),
+        row("R5", datetime.date(2026, 12, 31), "Akkar", 1000, status="Due", submitted=False),  # not yet due
+    ]
+    out = compute(rows)
+    assert {q: item[0] for q, item in out.to_quarter.items()} == {1: 30.0, 2: 70.0, 3: 150.0, 4: 150.0}
+    assert out.to_quarter[4] == out.in_year_item and out.reached_in_year == 150.0
+    for q, (value, _v, _d) in out.to_quarter.items():  # a sum: the months of the quarters so far add up to it
+        assert value == sum(v for m, v in out.months.items() if m <= 3 * q)
+    # no year chosen: neither; a year without a counted report: four empty quarters
+    every = compute(rows, year=None)
+    assert (every.in_year_item, every.to_quarter, every.reached) == (NONE, {}, 1149.0)
+    assert compute(rows, year=2027).to_quarter == dict.fromkeys((1, 2, 3, 4), NONE)
+
+
+@pytest.mark.parametrize("display_type", ["number", "percentage", "ratio"])
+@pytest.mark.parametrize("period_method", ["", "sum", "max", "avg", "latest"])
+def test_each_quarter_is_the_year_cut_at_its_end_for_every_method(display_type, period_method):
+    later = datetime.date(2027, 1, 15)  # the fourth quarter's report is in
+    rows = []
+    for report, end, places in (
+        ("R0", datetime.date(2025, 12, 31), {"Akkar": (5, 10)}),
+        ("R1", datetime.date(2026, 2, 28), {"Akkar": (30, 60), "Bekaa": (10, 40)}),
+        ("R2", datetime.date(2026, 5, 31), {"Akkar": (45, 50)}),
+        ("R3", datetime.date(2026, 6, 30), {"Bekaa": (8, 40)}),
+        ("R4", datetime.date(2026, 11, 30), {"Akkar": (20, 25), "Bekaa": (1, 4)}),
+    ):
+        for place, (v, d) in places.items():
+            if display_type == "number":
+                rows.append(row(report, end, place, v, calculation_across_periods=period_method))
+            else:
+                rows.append(pct_row(report, end, place, v, d, calculation_across_periods=period_method))
+    out = compute(rows, display_type=display_type, today=later)
+    ratio, percentage = display_type != "number", display_type == "percentage"
+    assert out.in_year_item == reached.combine_items(
+        in_year_items(out), period_method or "sum", ratio=ratio, percentage=percentage, fallback="latest"
+    )
+    assert out.in_year_item[0] == out.reached_in_year and out.to_quarter[4] == out.in_year_item
+    for q, end in QUARTER_ENDS.items():  # Reached in the year of the reports that ended by then
+        cut = [r for r in rows if r["period_end"] <= end]
+        assert out.to_quarter[q] == compute(cut, display_type=display_type, today=later).in_year_item, q
+    assert out.to_quarter[3] == out.to_quarter[2]  # no report ends in the third quarter
+    if period_method in ("max", "avg"):
+        assert all(item[1:] == (None, None) for item in out.to_quarter.values())
+    # under a location filter, the location's own
+    only = compute(rows, display_type=display_type, today=later, only={"bekaa"})
+    assert only.to_quarter[4] == only.in_year_item and only.in_year_item[0] == only.reached_in_year
+    assert (
+        only.to_quarter[1][0] == compute(rows[:3], display_type=display_type, only={"bekaa"}).reached_in_year
+    )
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_the_quarters_of_a_sum_add_up_to_its_months(seed):
+    rows = _random_case(seed)
+    for year in sorted({r["period_end"].year for r in rows}):
+        out = compute(rows, year=year)
+        assert out.in_year_item[0] == out.reached_in_year == out.years.get(year)
+        assert out.to_quarter[4] == out.in_year_item
+        for q, (value, _v, _d) in out.to_quarter.items():
+            months = [v for m, v in out.months.items() if m <= 3 * q]
+            assert value == (sum(months) if months else None)
+
+
+def test_the_year_and_quarters_keep_only_the_indicators_own_output_of_two_indicator_reports():
+    """Two PRP indicators of one title under two PD outputs in QPR1 (March) and QPR2 (June): the year's
+    parts and the quarters, which the master indicators combine, are those of the rows under the indicator's
+    own output (what Reached keeps, reached.one_indicator); an output that tells neither apart leaves both
+    reports out of the year and every quarter, never the largest nor the sum."""
+    rows = []
+    for number, end, a, b in (
+        ("QPR1", datetime.date(2026, 3, 31), 40, 7),
+        ("QPR2", datetime.date(2026, 6, 30), 30, 9),
+    ):
+        rows.append(row(number, end, "Akkar", a, pd_output="Output A", indicator_report=f"a-{number}"))
+        rows.append(row(number, end, "Akkar", b, pd_output="Output B", indicator_report=f"b-{number}"))
+    for output, year, quarters in (
+        ("Output A", (70.0, 70.0, 2.0), {1: 40.0, 2: 70.0, 3: 70.0, 4: 70.0}),
+        ("output b ", (16.0, 16.0, 2.0), {1: 7.0, 2: 16.0, 3: 16.0, 4: 16.0}),
+    ):
+        out = compute(rows, output=output)
+        assert (out.reached_in_year, out.in_year_item) == (year[0], year), output
+        assert {q: value for q, (value, _v, _d) in out.to_quarter.items()} == quarters, output
+    neither = compute(rows, output="Output C")
+    assert neither.reached_in_year is None and neither.in_year_item == NONE
+    assert all(item == NONE for item in neither.to_quarter.values())
+
+
 # ----------------------------------------------------------------- PRP's own totals and history
 def test_prp_report_total_stands_in_when_the_locations_cannot_say():
     rows = [row("QPR1", datetime.date(2026, 3, 31), p, None, achievement_in_period="50") for p in ("A", "B")]
