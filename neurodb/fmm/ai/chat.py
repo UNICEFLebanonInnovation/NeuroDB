@@ -12,7 +12,8 @@ The view (``fmm.views.chat_stream``) checks the question and the limits, writes 
 - re-sends the last turns of the same conversation and filter (:func:`history`): the questions (cleaned
   when asked) and the checked answers, cleaned again and cut; the visits those answers cited and the
   figures their look-ups returned count as looked up, so a follow-up may cite them;
-- restarts once per sampling parameter the model refuses before it writes anything (``fmm.ai.sampling``);
+- restarts once per sampling parameter the model refuses before it writes anything (``fmm.ai.sampling``;
+  OpenAI only: no sampling parameter is sent to Claude);
 - checks the answer (:mod:`.citations`) before it is shown and kept, and records the call in the AI use
   ledger (feature ``fmm``).
 
@@ -29,10 +30,9 @@ from collections.abc import Iterator
 from dataclasses import replace
 from typing import Any
 
-import openai
 from django.conf import settings
 
-from neurodb.assistant import agent, usage
+from neurodb.assistant import agent, llm, usage
 from neurodb.assistant.views import _friendly, _sse, _storable
 
 from .. import privacy
@@ -147,7 +147,7 @@ def stream(
     row at the end (see the module's notes). ``turns``: the earlier turns (:func:`history`), read here
     when not given."""
     started = time.monotonic()
-    model = profiles.model_of(version)
+    model = llm.model_for(profiles.model_of(version))  # the model the chat runs on, of the provider in use
     plan = sampling.plan(version, model, version.effort)
     params = dict(plan.params)
     states = dict(plan.states)
@@ -180,8 +180,8 @@ def stream(
                         )
                         continue
                     yield _sse(event)
-            except openai.BadRequestError as exc:
-                parameter = sampling.unsupported_param(exc)
+            except Exception as exc:
+                parameter = sampling.unsupported_param(exc)  # None for anything but a refused parameter
                 if wrote or parameter is None or parameter not in params or retries >= sampling.MAX_RETRIES:
                     raise
                 # the model refused a sampling parameter before writing: record it, start again without it
@@ -234,4 +234,4 @@ def stream(
         except Exception:  # the answer has been sent: a failed log write must not break the stream
             logger.exception("Monitoring insights: could not log chat question %s", row.pk)
         # the answer's model calls in the day's AI use of the shared key (never raises)
-        usage.record(usage.FMM, model, outcome, calls=outcome.calls)
+        llm.record(usage.FMM, model, outcome)

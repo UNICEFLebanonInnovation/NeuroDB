@@ -20,11 +20,23 @@ from django.conf import settings
 from django.core.cache import caches
 from django.db import connection
 from django.test import override_settings
+from django.urls import reverse
 
 from neurodb.assistant import agent, llm, usage
 from neurodb.assistant.llm import claude_backend, keys, openai_backend
-from neurodb.assistant.models import AISettings, AIUsage
-from tests.assistant.anthropic_mock import error_body, http_error, message_json, text, turn
+from neurodb.assistant.models import AISettings, AIUsage, AssistantQuestion
+from tests.assistant import anthropic_mock
+from tests.assistant.anthropic_mock import (
+    MODEL,
+    error_body,
+    fallback,
+    http_error,
+    iteration,
+    message_json,
+    text,
+    tool_use,
+    turn,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 KEY = "kx-test-" + "7" * 32  # a key entered in AI settings (not a real one, and in no real key's form)
@@ -663,6 +675,77 @@ def test_no_key_entered_leaves_in_a_log_a_row_or_the_cache(claude, ai_settings, 
     assert not [row for row in AIUsage.objects.values_list() if KEY in str(row)]
     kept = caches["shared"]._cache  # LocMem: the pickled values
     assert not [k for k, value in kept.items() if KEY.encode() in value or KEY in str(pickle.loads(value))]
+
+
+def test_an_answer_on_a_key_entered_in_ai_settings_shows_it_nowhere(
+    claude, ai_settings, client_viewer, caplog
+):
+    caplog.set_level(logging.DEBUG)
+    _enter(ai_settings, provider="claude", anthropic_key=KEY)
+    server = claude(
+        turn([tool_use("toolu_1", "data_freshness", "{}")], stop_reason="tool_use"),
+        http_error(401, error_body("authentication_error", "invalid x-api-key")),
+    )
+    with override_settings(**OFF, ANTHROPIC_API_KEY=""):
+        response = client_viewer.post(reverse("assistant:stream"), {"question": "Is the data up to date?"})
+        events = b"".join(response.streaming_content).decode()
+    assert [r["headers"]["x-api-key"] for r in server.requests] == [KEY] * 2  # the key entered was used
+    assert llm.KEY_REJECTED in events and KEY not in events  # no event the browser reads holds it
+    assert KEY not in caplog.text and KEY not in "".join(str(r.args) for r in caplog.records)
+    assert not [row for row in AssistantQuestion.objects.values_list() if KEY in str(row)]
+    assert not [row for row in AIUsage.objects.values_list() if KEY in str(row)]
+
+
+# ---------------------------------------------------------------------------------- the ledger per model
+def test_each_model_books_the_tokens_it_ran(claude, client_viewer):
+    """A refusal fallback in round 2 of 3: the model asked for books rounds 1 and 3 and the declined attempt,
+    at its prices; the fallback's model books its own attempt. Each call counts on the model that wrote its
+    message, and the two rows add up to the answer's tokens."""
+    attempts = [iteration("message", 40, 8), iteration("fallback_message", 70, 30, model="claude-opus-5")]
+    claude(
+        turn(
+            [text("Checking."), tool_use("toolu_1", "data_freshness", "{}")],
+            stop_reason="tool_use",
+            usage=anthropic_mock.usage(100, 20, write=500),
+        ),
+        turn(
+            [fallback(MODEL, "claude-opus-5"), tool_use("toolu_2", "data_freshness", "{}")],
+            stop_reason="tool_use",
+            usage=anthropic_mock.usage(70, 30, iterations=attempts),
+        ),
+        turn([text("Fresh.")], usage=anthropic_mock.usage(150, 10, read=500)),
+    )
+    response = client_viewer.post(reverse("assistant:stream"), {"question": "Is the data up to date?"})
+    assert b'"type": "done"' in b"".join(response.streaming_content)
+
+    rows = {row.model: row for row in AIUsage.objects.filter(feature=usage.ASK)}
+    assert sorted(rows) == ["claude-opus-5", MODEL]
+    asked, rescued = rows[MODEL], rows["claude-opus-5"]
+    assert (asked.calls, asked.input_tokens, asked.cached_tokens, asked.output_tokens) == (2, 790, 500, 38)
+    assert (rescued.calls, rescued.input_tokens, rescued.cached_tokens, rescued.output_tokens) == (
+        1,
+        70,
+        0,
+        30,
+    )
+    question = AssistantQuestion.objects.get()
+    assert asked.input_tokens + rescued.input_tokens == question.input_tokens == 860
+    assert asked.cached_tokens + rescued.cached_tokens == question.cache_read_tokens == 500
+    assert asked.output_tokens + rescued.output_tokens == question.output_tokens == 68
+    assert question.model == MODEL  # the last round was the model asked for's again
+
+
+def test_an_answer_without_tokens_per_model_is_one_row_of_the_model_asked_for(db):
+    outcome = agent.Outcome(input_tokens=90, cache_read_tokens=230, output_tokens=42, calls=2)  # OpenAI's
+    llm.record(usage.ASK, "gpt-5.5", outcome)
+    row = AIUsage.objects.get()
+    assert (row.model, row.calls, row.input_tokens, row.cached_tokens, row.output_tokens) == (
+        "gpt-5.5",
+        2,
+        90,
+        230,
+        42,
+    )
 
 
 def test_the_sdk_traces_keep_to_metadata_whatever_the_environment_says(claude, monkeypatch):

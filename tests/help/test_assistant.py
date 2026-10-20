@@ -19,6 +19,8 @@ from neurodb.assistant.models import AIUsage
 from neurodb.core.models import ScheduledJob, SyncRun
 from neurodb.help import assistant, tools
 from neurodb.help.models import HelpQuestion
+from tests.assistant import anthropic_mock as am
+from tests.assistant.claude_params import assert_claude_params
 from tests.assistant.test_assistant import FakeClient, call, reply, say
 
 pytestmark = pytest.mark.django_db
@@ -96,6 +98,49 @@ def test_an_answer_uses_its_own_prompt_and_look_ups_and_is_logged(on, model, cli
     assert [t["tool"] for t in row.tools] == ["search_help"]
     assert usage.today_calls(usage.HELP) == 2 and usage.today_calls(usage.ASK) == 0
     assert usage.FEATURES[usage.HELP] == "Help assistant"
+
+
+def test_an_answer_on_claude_uses_its_own_prompt_and_look_ups(claude, client_viewer, viewer):
+    server = claude(
+        am.turn(
+            [am.thinking("sig"), am.tool_use("toolu_1", "search_help", '{"query": "quality score"}')],
+            stop_reason="tool_use",
+        ),
+        am.turn(
+            [
+                am.text(
+                    "The score is 100 less the deductions. [The quality score](/help/monitoring-insights/#the-quality-score)"
+                )
+            ]
+        ),
+    )
+    with override_settings(HELP_ENABLED=True, HELP_PER_USER_PER_DAY=20):
+        events = _events(_ask(client_viewer, "How is the quality score calculated?"))
+    done = _done(events)
+    assert 'href="/help/monitoring-insights/#the-quality-score"' in done["html"]
+    assert done["quota"] == "1 of 20 today"
+
+    first = server.requests[0]["body"]
+    assert_claude_params(first, server.requests[0]["headers"])
+    # its own prompt is the cached part, the page it is asked from comes after the date
+    assert first["system"][0] == {
+        "type": "text",
+        "text": assistant.BASE_PROMPT,
+        "cache_control": {"type": "ephemeral"},
+    }
+    assert agent.SYSTEM_PROMPT not in "".join(block["text"] for block in first["system"])
+    assert 'The person is on the page "Monitoring insights · NeuroDB" (/fmm/).' in first["system"][1]["text"]
+    # its own look-ups, decline_question among them, never Ask's
+    assert first["tools"] == assistant_tools.claude_definitions(tuple(assistant.REGISTRY), assistant.REGISTRY)
+    assert [t["name"] for t in first["tools"]] == list(assistant.REGISTRY)
+    assert first["output_config"] == {"effort": "low"} and first["max_tokens"] == assistant.MAX_OUTPUT_TOKENS
+    assert first["metadata"] == {"user_id": agent.safety_identifier(viewer)}
+    (result,) = server.requests[1]["body"]["messages"][2]["content"]
+    assert json.loads(result["content"])["sections"][0]["url"].startswith("/help/")
+
+    row = HelpQuestion.objects.get()
+    assert (row.status, row.refused, row.model) == ("answered", False, am.MODEL) and row.input_tokens > 0
+    assert AIUsage.objects.get(feature=usage.HELP).model == am.MODEL
 
 
 def test_ask_neurodb_never_sees_the_help_look_ups():

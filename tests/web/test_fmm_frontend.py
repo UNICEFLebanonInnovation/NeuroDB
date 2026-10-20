@@ -289,6 +289,56 @@ console.log(typeof mod.init);
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_a_declined_answer_takes_the_text_shown_away():
+    """ask.js's answer card (Ask, the Help panel and the chat share it): an error event that says
+    ``discard`` (Claude declined the answer) clears the text streamed so far before showing the message;
+    any other error leaves it above the message, as before."""
+    script = """
+globalThis.window = {};
+const element = () => ({
+  className: "", children: [], own: "",
+  get textContent() { return this.own + this.children.map((c) => c.textContent).join(""); },
+  set textContent(value) { this.own = value; this.children = []; },
+  set innerHTML(value) { this.own = value; this.children = []; },
+  append(...nodes) { this.children.push(...nodes); },
+  querySelector(selector) {
+    const find = (node) => {
+      for (const child of node.children) {
+        if (child.className.split(" ").includes(selector.slice(1))) return child;
+        const found = find(child);
+        if (found) return found;
+      }
+      return null;
+    };
+    return find(this);
+  },
+  querySelectorAll: () => [],
+});
+globalThis.document = { querySelector: () => null, createElement: element };
+const mod = await import(process.argv[1]);
+const shown = (error) => {
+  const parts = {};
+  const card = mod.turnUI({ querySelector: (selector) => (parts[selector] ??= element()) });
+  card.handle({ type: "text", text: "Here is a partial", round: 1 });
+  card.handle(error);
+  return parts[".ask-turn__body"].textContent;
+};
+console.log(JSON.stringify([
+  shown({ type: "error", message: "Declined.", discard: true }),
+  shown({ type: "error", message: "Busy." }),
+]));
+"""
+    out = subprocess.run(
+        [NODE, "--input-type=module", "-e", script, (STATIC / "js" / "ask.js").as_uri()],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout) == ["Declined.", "Here is a partialBusy."]
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
 def test_a_chat_inside_a_page_does_not_take_the_focus_on_load():
     """The chat sits under the brief: starting it must not focus its box (the page would jump to it);
     the Ask page's own box still gets the focus."""

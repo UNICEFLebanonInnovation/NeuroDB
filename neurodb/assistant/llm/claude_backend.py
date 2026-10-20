@@ -12,6 +12,15 @@ the reason. It never carries ``thinking`` (always on), ``temperature``, ``top_p`
 An account that does not accept the fallback's beta header refuses the request with a 400 before anything
 is streamed: the call is made again without the fallback, and every call goes without it for 24 hours
 (Needs attention says so).
+
+Ask NeuroDB's answers with tools (``agent``) stream each round through :func:`stream_round` and send the
+conversation back append-only: each round adds the assistant's whole content as Claude wrote it
+(:func:`assistant_turn`, thinking blocks and their signatures unchanged) and then one user message with
+every tool result (:func:`tool_result`).
+
+A network failure while an answer streams is not wrapped by the SDK: it is raised here as a ServiceError
+(``timeout`` for an answer that went silent, ``stream_cut`` for a dropped connection), so the person reads
+"did not answer in time" or "could not finish this answer", never "Something went wrong".
 """
 
 from __future__ import annotations
@@ -20,9 +29,12 @@ import base64
 import copy
 import json
 import logging
+from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import anthropic
+import httpx2
 from django.core.cache import caches
 
 from neurodb.assistant import llm
@@ -225,27 +237,42 @@ def _count(value: Any) -> int:
         return 0
 
 
-def usage(message: Any) -> llm.Usage:
-    """A message's tokens. With refusal fallbacks the attempts are in ``usage.iterations``: a declined
-    attempt's (``message``) and the fallback's (``fallback_message``) are added up. Anthropic's
-    ``input_tokens`` counts neither cache reads nor writes, so the writes are added to it (they are prompt
-    tokens not read from the cache) and also kept apart."""
+def _tokens(entry: Any) -> llm.Usage:
+    # Anthropic's input_tokens counts neither cache reads nor writes: the writes are prompt tokens not read
+    # from the cache, so they are added to it (and kept apart too)
+    created = _count(getattr(entry, "cache_creation_input_tokens", 0))
+    return llm.Usage(
+        input_tokens=_count(getattr(entry, "input_tokens", 0)) + created,
+        cache_read_tokens=_count(getattr(entry, "cache_read_input_tokens", 0)),
+        cache_write_tokens=created,
+        output_tokens=_count(getattr(entry, "output_tokens", 0)),
+    )
+
+
+def by_model(message: Any, asked: str) -> dict[str, llm.Usage]:
+    """A message's tokens per model that ran them. With refusal fallbacks the attempts are in
+    ``usage.iterations``: a declined attempt (``message``) under its model, or ``asked`` when it names
+    none, and the fallback's attempt (``fallback_message``) under the fallback's model, each at its own
+    model's prices. Without them the message's usage, under the model that wrote it."""
     top = getattr(message, "usage", None)
     attempts = [
         entry
         for entry in (getattr(top, "iterations", None) or [])
         if getattr(entry, "type", "") in ("message", "fallback_message")
     ]
-    prompt = read = write = output = 0
-    for entry in attempts or ([top] if top is not None else []):
-        created = _count(getattr(entry, "cache_creation_input_tokens", 0))
-        prompt += _count(getattr(entry, "input_tokens", 0)) + created
-        read += _count(getattr(entry, "cache_read_input_tokens", 0))
-        write += created
-        output += _count(getattr(entry, "output_tokens", 0))
-    return llm.Usage(
-        input_tokens=prompt, cache_read_tokens=read, cache_write_tokens=write, output_tokens=output
-    )
+    out: dict[str, llm.Usage] = {}
+    if attempts:
+        for entry in attempts:
+            model = getattr(entry, "model", None) or asked
+            out[model] = out.get(model, llm.Usage()) + _tokens(entry)
+    elif top is not None:
+        out[getattr(message, "model", None) or asked] = _tokens(top)
+    return out
+
+
+def usage(message: Any) -> llm.Usage:
+    """A message's tokens, every attempt added up (a declined one too: see :func:`by_model`)."""
+    return sum(by_model(message, "").values(), llm.Usage())
 
 
 def fell_back(message: Any) -> bool:
@@ -258,13 +285,14 @@ def fell_back(message: Any) -> bool:
 
 def answer_text(message: Any) -> str:
     """The text blocks in order, apart by a blank line, except across a fallback block: after a fallback
-    in the middle of the answer, the continuation goes on from the partial text."""
+    in the middle of the answer, the continuation goes on from the partial text. An empty block counts as
+    none."""
     text, wrote, joined = "", False, False
     for block in getattr(message, "content", None) or []:
         kind = getattr(block, "type", "")
         if kind == "fallback":
             joined = True
-        elif kind == "text":
+        elif kind == "text" and block.text:
             if wrote and not joined:
                 text += "\n\n"
             text += block.text
@@ -316,6 +344,10 @@ def _final(api: anthropic.Anthropic, params: dict[str, Any]) -> Any:
         raise llm.ServiceError("stream_ended", str(exc)) from exc
     except RuntimeError as exc:  # the stream helper could not follow the events
         raise llm.ServiceError("stream_error", str(exc)) from exc
+    except httpx2.TimeoutException as exc:  # silent past the read timeout while it streamed
+        raise llm.ServiceError("timeout", type(exc).__name__) from exc
+    except httpx2.TransportError as exc:  # the connection dropped while it streamed
+        raise llm.ServiceError("stream_cut", type(exc).__name__) from exc
 
 
 def send(api: anthropic.Anthropic, params: dict[str, Any]) -> Any:
@@ -329,6 +361,114 @@ def send(api: anthropic.Anthropic, params: dict[str, Any]) -> Any:
         logger.warning("Claude: this account does not accept refusal fallbacks; calls go without them")
         _refuse_fallbacks()
         return _final(api, {k: v for k, v in params.items() if k not in ("betas", "fallbacks")})
+
+
+# ---------------------------------------------------------------------- an answer with tools (agent)
+def _round(api: anthropic.Anthropic, params: dict[str, Any], round_no: int) -> Iterator[dict[str, Any]]:
+    try:
+        with api.beta.messages.stream(**params) as stream:
+            wrote = joined = separate = False
+            for event in stream:
+                if event.type == "content_block_start":
+                    kind = event.content_block.type
+                    if kind == "fallback":
+                        joined = True  # the continuation goes on from the partial text
+                    elif kind == "text":
+                        separate = wrote and not joined
+                elif event.type == "content_block_delta" and event.delta.type == "text_delta":
+                    if not event.delta.text:
+                        continue
+                    if separate:  # another text block (the answer after a note): keep the two apart
+                        yield {"type": "text", "text": "\n\n", "round": round_no}
+                    wrote, joined, separate = True, False, False
+                    yield {"type": "text", "text": event.delta.text, "round": round_no}
+            message = stream.get_final_message()
+    except ValueError as exc:
+        # A tool's input streamed as JSON the SDK cannot read at all: no tool call to answer (the caller
+        # sends the round again once). The SDK's API errors are not ValueErrors and pass through.
+        raise llm.ServiceError("tool_input", str(exc)[:300]) from exc
+    except AssertionError as exc:  # the stream ended before the message started
+        raise llm.ServiceError("stream_ended", str(exc)) from exc
+    except RuntimeError as exc:  # the stream helper could not follow the events
+        raise llm.ServiceError("stream_error", str(exc)) from exc
+    except httpx2.TimeoutException as exc:  # silent past the read timeout while it streamed
+        raise llm.ServiceError("timeout", type(exc).__name__) from exc
+    except httpx2.TransportError as exc:  # the connection dropped while it streamed
+        raise llm.ServiceError("stream_cut", type(exc).__name__) from exc
+    if message.stop_reason is None:  # the stream stopped before its end
+        raise llm.ServiceError("stream_ended", "the answer stopped before its end")
+    return message
+
+
+def stream_round(api: anthropic.Anthropic, params: dict[str, Any], round_no: int):
+    """One round of an answer with tools: yields the text events as Claude writes them (a blank line
+    between two text blocks, none across a fallback block) and returns the final message. A 400 naming the
+    fallback's header comes before any event: the round is sent again without the fallback, which is taken
+    out of ``params`` for the answer's next rounds too (and of every call for 24 hours). When the browser
+    goes away the stream is closed, and with it the HTTP response."""
+    try:
+        return (yield from _round(api, params, round_no))
+    except anthropic.BadRequestError as exc:
+        if "betas" not in params or not beta_refused(exc):
+            raise
+        logger.warning("Claude: this account does not accept refusal fallbacks; calls go without them")
+        _refuse_fallbacks()
+        params.pop("betas", None)
+        params.pop("fallbacks", None)
+        return (yield from _round(api, params, round_no))
+
+
+def _after_fallback(message: Any) -> list[tuple[bool, Any]]:
+    """The message's blocks, each with whether it comes after the last fallback block (all of them when
+    there is none)."""
+    content = list(getattr(message, "content", None) or [])
+    last = max((i for i, block in enumerate(content) if block.type == "fallback"), default=-1)
+    return [(i > last, block) for i, block in enumerate(content)]
+
+
+def tool_calls(message: Any) -> list[SimpleNamespace]:
+    """The tool calls to run: the ``tool_use`` blocks after the last fallback block (a declined attempt's
+    calls are never run), each as ``name``, ``arguments`` (its input as JSON text, read and checked like
+    OpenAI's) and ``call_id``."""
+    return [
+        SimpleNamespace(name=block.name, arguments=json.dumps(block.input), call_id=block.id)
+        for after, block in _after_fallback(message)
+        if after and block.type == "tool_use"
+    ]
+
+
+def assistant_turn(message: Any) -> dict[str, Any]:
+    """The assistant's message to send back, rebuilt field by field from what Claude wrote, in order (the
+    SDK's own fields, such as ``parsed_output``, never go back). Thinking blocks keep their signature
+    unchanged. A fallback block is an audit marker and is left out, and so are the thinking and tool
+    calls of a declined attempt, before the last fallback block; a text block with no text is left out too
+    (the API refuses one). No other block type is expected: no server tool is offered."""
+    content: list[dict[str, Any]] = []
+    for after, block in _after_fallback(message):
+        kind = block.type
+        if kind == "text":
+            if block.text.strip():
+                content.append({"type": "text", "text": block.text})
+        elif not after:
+            continue
+        elif kind == "thinking":
+            content.append({"type": "thinking", "thinking": block.thinking, "signature": block.signature})
+        elif kind == "redacted_thinking":
+            content.append({"type": "redacted_thinking", "data": block.data})
+        elif kind == "tool_use":
+            content.append({"type": "tool_use", "id": block.id, "name": block.name, "input": block.input})
+    return {"role": "assistant", "content": content}
+
+
+def tool_result(call_id: str, output: str, ok: bool) -> dict[str, Any]:
+    """One tool's result (JSON text) for the user message that follows the round; an error is marked as
+    one, so Claude can correct its call."""
+    return {
+        "type": "tool_result",
+        "tool_use_id": call_id,
+        "content": output,
+        **({} if ok else {"is_error": True}),
+    }
 
 
 class Connection:

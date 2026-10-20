@@ -150,7 +150,7 @@ def _stream(request: HttpRequest, row: AssistantQuestion) -> Iterator[str]:
         row.answer = _storable(outcome.answer)
         row.status = outcome.status
         row.tools = _storable(outcome.tools)
-        row.model = outcome.model or settings.AI_ASSISTANT_MODEL
+        row.model = outcome.model or llm.model_for("")
         row.input_tokens = outcome.input_tokens
         row.cache_read_tokens = outcome.cache_read_tokens
         row.output_tokens = outcome.output_tokens
@@ -161,7 +161,7 @@ def _stream(request: HttpRequest, row: AssistantQuestion) -> Iterator[str]:
         except Exception:  # the answer has been sent: a failed log write must not break the stream
             logger.exception("AI assistant: could not log question %s", row.pk)
         # the answer's model calls in the day's AI use of the shared key (never raises)
-        usage.record(usage.ASK, settings.AI_ASSISTANT_MODEL, outcome, calls=outcome.calls)
+        llm.record(usage.ASK, llm.model_for(""), outcome)
 
 
 @require_POST
@@ -203,7 +203,7 @@ def ask_stream(request: HttpRequest) -> HttpResponse:
             question=question,
             status=AssistantQuestion.Status.FAILED,  # not ANSWERED: kept out of history and recent
             error=IN_PROGRESS,
-            model=settings.AI_ASSISTANT_MODEL,
+            model=llm.model_for(""),  # the model of the provider in use
         )
     response = StreamingHttpResponse(_stream(request, row), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"

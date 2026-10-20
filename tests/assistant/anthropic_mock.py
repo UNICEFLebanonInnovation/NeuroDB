@@ -256,7 +256,8 @@ class json_reply:  # noqa: N801 - reads like a marker in reply lists
 
 @dataclass
 class stall:  # noqa: N801 - reads like a marker in reply lists
-    """Stream these events, then wait ``seconds`` before the rest (or before closing, ``drop``)."""
+    """Stream these events, then wait ``seconds`` before the rest; or, with ``drop``, close the connection
+    then, before the length the response declared (the client reads a body cut short: a network error)."""
 
     events: list[dict]
     seconds: float = 0.0
@@ -345,9 +346,10 @@ class MockMessagesServer:
                 self.end_headers()
 
             def _stall(self, reply: stall) -> None:
-                self._stream_head(None)
+                sent = sse(reply.events)
+                self._stream_head(len(sent) + 1000 if reply.drop else None)
                 try:
-                    self.wfile.write(sse(reply.events))
+                    self.wfile.write(sent)
                     self.wfile.flush()
                     time.sleep(reply.seconds)
                     if not reply.drop:

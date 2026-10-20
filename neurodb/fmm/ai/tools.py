@@ -903,8 +903,11 @@ FMM_TOOLS: dict[str, tuple[Any, str, dict, str]] = {
 
 
 def definitions() -> list[dict[str, Any]]:
-    """The four look-ups exactly as the chat offers them to the model (the admin's Preview shows these);
-    empty when they are not registered (Monitoring insights switched off)."""
+    """The four look-ups exactly as the chat offers them to the model of the provider in use (the admin's
+    Preview shows these); empty when they are not registered (Monitoring insights switched off)."""
+    from neurodb.assistant import llm
     from neurodb.assistant import tools as assistant_tools
 
+    if llm.provider() == llm.CLAUDE:
+        return assistant_tools.claude_definitions(tuple(FMM_TOOLS))
     return assistant_tools.definitions(tuple(FMM_TOOLS))

@@ -337,7 +337,7 @@ def look_into(
         for _event in agent.answer(message, [], outcome, options=run_options(returned, names)):
             pass  # nobody watches: only the outcome counts
     finally:
-        usage.record(usage.WATCH, settings.WATCH_MODEL, outcome, calls=outcome.calls)
+        llm.record(usage.WATCH, llm.model_for(settings.WATCH_MODEL), outcome)
     if outcome.status != "answered":  # declined, or stopped by a limit (time, rounds, length)
         text, numbers = "", []
         reason = ": ".join(filter(None, (outcome.status, outcome.error)))[:120] or ERROR

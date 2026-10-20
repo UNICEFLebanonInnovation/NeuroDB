@@ -1,24 +1,30 @@
-"""The AI assistant: an OpenAI GPT model (ChatGPT, through the OpenAI Responses API) answering
-questions with NeuroDB's read-only tools.
+"""The AI assistant: the AI provider in use (``llm.provider()``: Claude, Anthropic's model, through the
+Messages API; or ChatGPT, OpenAI's GPT model, through the Responses API) answering questions with
+NeuroDB's read-only tools.
 
-``answer()`` runs the function-calling loop and yields small event dicts as they happen, so the view
-can stream them to the browser:
+``answer()`` runs the tool-calling loop and yields small event dicts as they happen, so the view can
+stream them to the browser, whichever provider answers:
 
     {"type": "text", "text": "...", "round": n}   answer text as the model writes it
     {"type": "tool", "label": "...", "round": n}   a data lookup is starting
     {"type": "chart", "spec": {...}}               a chart to draw under the answer (see charts.py)
     {"type": "done", "html": "...", "answer": "..."}
-    {"type": "error", "message": "..."}
+    {"type": "error", "message": "..."}            (on Claude a declined answer adds "discard": true: the
+                                                    text shown so far is taken away)
 
-Requests are stateless (``store=False``, nothing is kept on OpenAI's side for later retrieval): every
-round sends the conversation so far, replaying the previous rounds' output items (reasoning items
-with their encrypted content, messages and function calls) followed by the tool results.
+Requests are stateless: every round sends the conversation so far. On OpenAI (``store=False``, nothing
+is kept on OpenAI's side for later retrieval) it replays the previous rounds' output items (reasoning
+items with their encrypted content, messages and function calls) followed by the tool results. On Claude
+(the Messages API keeps nothing either) each round appends the assistant's whole content, thinking
+blocks and their signatures unchanged, then one user message with every tool result; the instructions
+and tools are marked for caching, and the conversation is cached as it grows.
 
 A run other than an Ask NeuroDB question (NeuroDB Watch's look-up, Monitoring insights' chat) passes
 ``RunOptions``: fewer tools, extra instructions after the date (or its own whole prompt in place of
-Ask's), its own limits and cache key, sampling parameters, a filter on every tool result, a context
-entered around each tool call, and tools run read-only. Without options the request is exactly the one
-Ask NeuroDB sends.
+Ask's), its own limits and cache key, sampling parameters (OpenAI only), a filter on every tool result,
+a context entered around each tool call, and tools run read-only. Without options the request is exactly
+the one Ask NeuroDB sends. The tools, their filters and checks run the same way on both providers
+(``_run_calls``).
 """
 
 from __future__ import annotations
@@ -40,8 +46,8 @@ from django.utils import timezone
 from django.utils.crypto import salted_hmac
 from markdown.extensions.tables import TableExtension
 
-from . import charts, tools
-from .llm import CONNECT_TIMEOUT, READ_TIMEOUT, ServiceError, openai_backend
+from . import charts, llm, tools
+from .llm import CONNECT_TIMEOUT, READ_TIMEOUT, ServiceError, claude_backend, openai_backend
 from .llm import AssistantUnavailable as AssistantUnavailable  # the features catch agent.AssistantUnavailable
 from .llm.openai_backend import client  # agent.client: the tests replace it with a scripted client
 
@@ -147,6 +153,11 @@ Markdown links, e.g. [Child Protection dashboard](/databases/3/). Never invent U
 """
 
 REFUSED = "The assistant could not answer this question. Try rephrasing it."
+TIME_UP = "This question took too long. Try asking something narrower."
+TOO_LONG = "The answer was too long. Try a narrower question."
+NOT_COMPLETED = "The answer could not be completed. Please try again."
+TOO_MANY = "This question needed too many lookups. Try splitting it up."
+NO_ANSWER = "The assistant did not write an answer. Try rephrasing it."
 
 
 @dataclass
@@ -159,22 +170,42 @@ class Outcome:
     model: str = ""
     input_tokens: int = 0
     cache_read_tokens: int = 0
+    cache_write_tokens: int = 0  # of input_tokens, those written to the cache (Claude only)
     output_tokens: int = 0
     error: str = ""
     charts: list[dict[str, Any]] = field(default_factory=list)
     numbers: set[float] = field(default_factory=set)  # every number the lookups returned (charts)
     calls: int = 0  # model calls that returned a response (for the AI use ledger)
+    served_by: str = ""  # Claude: the model that answered after a refusal fallback, else ""
+    # Claude: the tokens per model that ran them, and the calls per model that wrote their message (the
+    # AI use ledger's rows: llm.record); empty on OpenAI, whose answer is one row of the model asked for
+    by_model: dict[str, llm.Usage] = field(default_factory=dict)
+    model_calls: dict[str, int] = field(default_factory=dict)
 
     def add_usage(self, usage: Any) -> None:
         """Add one model call and its tokens. OpenAI counts cached prompt tokens inside input_tokens;
-        they are logged apart, so input_tokens + cache_read_tokens is the whole prompt."""
+        they are logged apart, so input_tokens + cache_read_tokens is the whole prompt. A Claude call's
+        tokens come as an ``llm.Usage``, counted that way already."""
         self.calls += 1
         if not usage:
+            return
+        if isinstance(usage, llm.Usage):
+            self.input_tokens += usage.input_tokens
+            self.cache_read_tokens += usage.cache_read_tokens
+            self.cache_write_tokens += usage.cache_write_tokens
+            self.output_tokens += usage.output_tokens
             return
         cached = getattr(getattr(usage, "input_tokens_details", None), "cached_tokens", 0) or 0
         self.input_tokens += (usage.input_tokens or 0) - cached
         self.cache_read_tokens += cached
         self.output_tokens += usage.output_tokens or 0  # includes the reasoning tokens
+
+    def add_models(self, tokens: Mapping[str, llm.Usage], model: str) -> None:
+        """Keep one Claude call's tokens per model that ran them (``claude_backend.by_model``), and the
+        call under ``model``, the model that wrote its message."""
+        for name, used in tokens.items():
+            self.by_model[name] = self.by_model.get(name, llm.Usage()) + used
+        self.model_calls[model] = self.model_calls.get(model, 0) + 1
 
 
 @dataclass(frozen=True)
@@ -186,15 +217,18 @@ class RunOptions:
       the model as an input error, as a tool that does not exist does. Empty: no tools;
     - ``instructions``: added after the date, so the instructions still start as Ask's do;
     - ``max_rounds``, ``time_limit`` (seconds), ``effort`` and ``max_output_tokens`` (per call): in
-      place of the AI_ASSISTANT_* settings and MAX_OUTPUT_TOKENS;
-    - ``cache_key``: its own prompt cache key, since its tools and instructions differ from Ask's;
-    - ``model``: empty for AI_ASSISTANT_MODEL;
+      place of the AI_ASSISTANT_* settings and MAX_OUTPUT_TOKENS (on Claude the effort is mapped, and a
+      call takes at least 2,000 tokens: its thinking counts too);
+    - ``cache_key``: its own prompt cache key (OpenAI), since its tools and instructions differ from Ask's;
+    - ``model``: empty for the default model; a model of the other provider is not used, the default
+      model of the provider in use runs instead (``llm.model_for``);
     - ``text_format``: the format of the answer, e.g. a strict JSON schema;
     - ``tool_filter``: ``(tool name, result) -> result``, through which every tool result passes before
       the model reads it (and before its numbers count as looked up);
     - ``read_only``: each tool runs inside a read-only database transaction, so a write fails;
     - ``sampling``: (name, value) pairs such as ``("temperature", 0.3)`` added to every model call, for a
-      run whose model has accepted them (Monitoring insights' chat); empty: none is sent;
+      run whose model has accepted them (Monitoring insights' chat); empty: none is sent. Never sent to
+      Claude (Claude Opus 5.5 refuses them);
     - ``base_prompt``: the run's own whole prompt in place of Ask NeuroDB's (``SYSTEM_PROMPT``), followed
       by the date and then ``instructions``; None keeps Ask's (see ``effective_instructions``);
     - ``tool_context``: a callable returning a context manager entered around **each** tool call (the
@@ -320,17 +354,25 @@ def year_line() -> str:
     return f"This year is {year}. NeuroDB holds no ActivityInfo data."
 
 
+def _instruction_parts(extra: str = "", base: str | None = None) -> tuple[str, str]:
+    """The instructions in two parts: the stable prompt (Ask's, or a run's own ``base``) and the rest,
+    the date (and for Ask the year line) then a background run's own instructions. Claude caches the
+    first part with the tools; together they are the instructions OpenAI is sent."""
+    today = timezone.localdate()
+    if base is not None:
+        rest = f"\nToday is {today:%A %d %B %Y}."
+        return base, f"{rest}\n\n{extra.strip()}" if extra.strip() else rest
+    rest = f"\nToday is {today:%A %d %B %Y}. {year_line()}"
+    return SYSTEM_PROMPT, f"{rest}\n\n{extra.strip()}" if extra.strip() else rest
+
+
 def _instructions(extra: str = "", base: str | None = None) -> str:
     # Stable text first and the date last, so the cached prompt prefix (the tools and these
     # instructions) only changes when the day does. A background run's own instructions come after
     # the date. A run with its own prompt (``base``) sends it in place of Ask's, without the year line
     # (about ActivityInfo).
-    today = timezone.localdate()
-    if base is not None:
-        text = f"{base}\nToday is {today:%A %d %B %Y}."
-        return f"{text}\n\n{extra.strip()}" if extra.strip() else text
-    text = f"{SYSTEM_PROMPT}\nToday is {today:%A %d %B %Y}. {year_line()}"
-    return f"{text}\n\n{extra.strip()}" if extra.strip() else text
+    stable, rest = _instruction_parts(extra, base)
+    return stable + rest
 
 
 def effective_instructions(options: RunOptions) -> str:
@@ -339,7 +381,8 @@ def effective_instructions(options: RunOptions) -> str:
 
 
 def safety_identifier(user: Any) -> str | None:
-    """A stable per-user id for OpenAI's abuse monitoring: a keyed hash, never the id or email."""
+    """A stable per-user id for the provider's abuse monitoring (OpenAI's ``safety_identifier``, Claude's
+    ``metadata.user_id``): a keyed hash, never the id or email."""
     if user is None or not getattr(user, "pk", None):
         return None
     digest = salted_hmac("neurodb.assistant.safety_identifier", str(user.pk), algorithm="sha256")
@@ -353,10 +396,10 @@ def _request(user: Any, options: RunOptions | None = None) -> dict[str, Any]:
         params = _background_request(options)
     else:
         params = {
-            "model": settings.AI_ASSISTANT_MODEL,
+            "model": llm.model_for("", llm.OPENAI),  # AI_ASSISTANT_MODEL unless AI settings chose another
             "instructions": _instructions(),
             "tools": tools.definitions(),
-            "reasoning": {"effort": settings.AI_ASSISTANT_EFFORT},
+            "reasoning": {"effort": llm.default_effort(llm.OPENAI)},
             "max_output_tokens": MAX_OUTPUT_TOKENS,
             "parallel_tool_calls": True,
             "store": False,
@@ -373,7 +416,7 @@ def _background_request(options: RunOptions) -> dict[str, Any]:
     output limit, cache key, answer format, prompt and sampling parameters."""
     offered = tools.definitions(options.tools, options.registry)
     params: dict[str, Any] = {
-        "model": options.model or settings.AI_ASSISTANT_MODEL,
+        "model": llm.model_for(options.model, llm.OPENAI),
         "instructions": effective_instructions(options),
         "tools": offered,
         "reasoning": {"effort": options.effort},
@@ -390,6 +433,65 @@ def _background_request(options: RunOptions) -> dict[str, Any]:
     if options.sampling:
         params.update({name: float(value) for name, value in options.sampling})
     return params
+
+
+def _claude_request(user: Any, options: RunOptions | None = None) -> dict[str, Any]:
+    """The parameters shared by every Claude call of one answer (``messages`` is set per round), with
+    ``options`` a background run's. The tools come first in the prompt, then the stable instructions,
+    marked for caching (across people: the person's hash is not part of the prompt), then the date and
+    the run's own instructions; the conversation is cached as it grows (the top-level ``cache_control``).
+    Never sent: sampling parameters (Claude Opus 5.5 refuses them), ``thinking`` (always on) and
+    ``tool_choice`` (Claude decides, several tools at once if it wants)."""
+    offered = (
+        tools.claude_definitions(None)
+        if options is None
+        else tools.claude_definitions(options.tools, options.registry)
+    )
+    stable, rest = _instruction_parts(
+        options.instructions if options else "", options.base_prompt if options else None
+    )
+    model = llm.model_for(options.model if options else "", llm.CLAUDE)
+    effort = llm.default_effort(llm.CLAUDE) if options is None else options.effort
+    limit = MAX_OUTPUT_TOKENS if options is None else options.max_output_tokens
+    if stable.strip():
+        system = [
+            {"type": "text", "text": stable, "cache_control": claude_backend.EPHEMERAL},
+            {"type": "text", "text": rest},
+        ]
+    else:  # a run whose own prompt is empty: one block (an empty one is refused)
+        system = [{"type": "text", "text": rest, "cache_control": claude_backend.EPHEMERAL}]
+    params: dict[str, Any] = {
+        "model": model,
+        "max_tokens": max(limit, claude_backend.MIN_OUTPUT_TOKENS),
+        "system": system,
+        "tools": offered,
+        "output_config": {"effort": llm.effort_for(effort, llm.CLAUDE)},
+        "cache_control": claude_backend.EPHEMERAL,
+        **claude_backend.fallback_params(model),
+    }
+    if not offered:
+        del params["tools"]
+    if options is not None and options.text_format:  # OpenAI's shape: {"type", "name", "strict", "schema"}
+        params["output_config"]["format"] = {
+            "type": "json_schema",
+            "schema": claude_backend.schema(options.text_format["schema"]),
+        }
+    if identifier := safety_identifier(user):
+        params["metadata"] = {"user_id": identifier}
+    return params
+
+
+def _claude_history(history: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """Earlier turns as plain text for Claude: the same turns as ``history_messages`` (the last
+    HISTORY_TURNS, then those with a question and an answer; one that is only blank is left out too, as
+    Claude refuses an empty text), with no phase."""
+    messages: list[dict[str, Any]] = []
+    for turn in history[-HISTORY_TURNS:]:
+        question, answer = turn.get("question") or "", turn.get("answer") or ""
+        if question.strip() and answer.strip():
+            messages.append({"role": "user", "content": question})
+            messages.append({"role": "assistant", "content": answer})
+    return messages
 
 
 def history_messages(history: list[dict[str, str]]) -> list[dict[str, Any]]:
@@ -555,8 +657,13 @@ def _lookup(name: str, args: Any, options: RunOptions | None) -> Any:
         return options.tool_filter(name, result) if options.tool_filter else result
 
 
-def _run_tools(calls: list[Any], outcome: Outcome, options: RunOptions | None = None) -> list[dict[str, Any]]:
-    """Run the model's function calls; each result or error goes back as a function_call_output."""
+def _run_calls(
+    calls: list[Any], outcome: Outcome, options: RunOptions | None = None
+) -> list[tuple[str, str, bool]]:
+    """Run the model's tool calls (each with ``name``, ``arguments``, its JSON text, and ``call_id``), in
+    order, whichever provider asked: each result or error as (call id, JSON text, ok). The same checks
+    and filters run on both: the arguments against the tool's schema, a background run's own tools,
+    read-only transaction, filter and context, and the chart checks."""
     results = []
     only = options.tools if options is not None else None
     registry = options.registry if options is not None else None
@@ -597,8 +704,16 @@ def _run_tools(calls: list[Any], outcome: Outcome, options: RunOptions | None = 
                 "ms": int((time.monotonic() - started) * 1000),
             }
         )
-        results.append({"type": "function_call_output", "call_id": call.call_id, "output": output})
+        results.append((call.call_id, output, ok))
     return results
+
+
+def _run_tools(calls: list[Any], outcome: Outcome, options: RunOptions | None = None) -> list[dict[str, Any]]:
+    """Run the model's function calls; each result or error goes back as a function_call_output."""
+    return [
+        {"type": "function_call_output", "call_id": call_id, "output": output}
+        for call_id, output, _ in _run_calls(calls, outcome, options)
+    ]
 
 
 def answer(
@@ -608,11 +723,15 @@ def answer(
     user: Any = None,
     options: RunOptions | None = None,
 ) -> Iterator[dict[str, Any]]:
-    """Run the conversation to a final answer, yielding progress events. Fills ``outcome``.
+    """Run the conversation to a final answer on the provider in use, yielding progress events. Fills
+    ``outcome``.
 
-    ``user`` (the person asking) is only used for the hashed safety identifier sent to OpenAI.
+    ``user`` (the person asking) is only used for the hashed identifier sent to the provider.
     ``options`` is for a run no person asks for (see RunOptions); None is Ask NeuroDB's request.
     """
+    if llm.provider() == llm.CLAUDE:
+        yield from _answer_claude(question, history, outcome, user, options)
+        return
     api = client()
     time_limit = settings.AI_ASSISTANT_TIME_LIMIT_SECONDS if options is None else options.time_limit
     max_rounds = settings.AI_ASSISTANT_MAX_TOOL_ROUNDS if options is None else options.max_rounds
@@ -625,7 +744,7 @@ def answer(
         remaining = deadline - time.monotonic()
         if remaining < 0:
             outcome.status, outcome.error = "failed", "time limit"
-            yield {"type": "error", "message": "This question took too long. Try asking something narrower."}
+            yield {"type": "error", "message": TIME_UP}
             return
         round_no += 1
         try:
@@ -656,10 +775,10 @@ def answer(
             # Cut off: never run a function call from this response, its arguments may be partial.
             if reason == "max_output_tokens":
                 outcome.status, outcome.error = "failed", "max_output_tokens"
-                yield {"type": "error", "message": "The answer was too long. Try a narrower question."}
+                yield {"type": "error", "message": TOO_LONG}
             else:
                 outcome.status, outcome.error = "failed", f"incomplete: {reason}"
-                yield {"type": "error", "message": "The answer could not be completed. Please try again."}
+                yield {"type": "error", "message": NOT_COMPLETED}
             return
         final_text = _answer_text(output)
         calls = [item for item in output if item.type == "function_call"]
@@ -678,12 +797,103 @@ def answer(
             yield {"type": "chart", "spec": spec}
     else:
         outcome.status, outcome.error = "failed", "too many lookups"
-        yield {"type": "error", "message": "This question needed too many lookups. Try splitting it up."}
+        yield {"type": "error", "message": TOO_MANY}
         return
+    yield from _finish(outcome, final_text)
 
+
+def _finish(outcome: Outcome, final_text: str) -> Iterator[dict[str, Any]]:
     outcome.answer = final_text.strip()
     if not outcome.answer:  # e.g. only reasoning came back
         outcome.status, outcome.error = "failed", "empty answer"
-        yield {"type": "error", "message": "The assistant did not write an answer. Try rephrasing it."}
+        yield {"type": "error", "message": NO_ANSWER}
         return
     yield {"type": "done", "answer": outcome.answer, "html": render(outcome.answer)}
+
+
+def _answer_claude(
+    question: str,
+    history: list[dict[str, str]],
+    outcome: Outcome,
+    user: Any = None,
+    options: RunOptions | None = None,
+) -> Iterator[dict[str, Any]]:
+    """``answer()`` on Claude: the same limits, tools, events and outcome as on OpenAI.
+
+    A round that stops on a refusal or at its token limit never runs its tool calls (their input may be
+    partial). A declined answer's text is never kept: its error event says to take away what was shown.
+    A round whose tool input could not be read at all (no call to answer) is sent once more as a new
+    round, so the page shows its text afresh; a second one in a row ends the answer.
+    """
+    api = claude_backend.client()
+    time_limit = settings.AI_ASSISTANT_TIME_LIMIT_SECONDS if options is None else options.time_limit
+    max_rounds = settings.AI_ASSISTANT_MAX_TOOL_ROUNDS if options is None else options.max_rounds
+    deadline = time.monotonic() + time_limit
+    request = _claude_request(user, options)
+    asked = request["model"]
+    messages: list[dict[str, Any]] = [*_claude_history(history), {"role": "user", "content": question}]
+    final_text = ""
+    round_no = 0
+    unreadable = False  # the previous round's tool input could not be read
+    while round_no < max_rounds:
+        remaining = deadline - time.monotonic()
+        if remaining < 0:
+            outcome.status, outcome.error = "failed", "time limit"
+            yield {"type": "error", "message": TIME_UP}
+            return
+        round_no += 1
+        request["messages"] = list(messages)  # append-only: earlier turns go back exactly as sent
+        try:
+            message = yield from claude_backend.stream_round(
+                _within(api, remaining, claude_backend.Timeout), request, round_no
+            )
+        except ServiceError as exc:
+            if exc.code != "tool_input" or unreadable:
+                raise
+            unreadable = True
+            logger.warning("Claude: a tool input could not be read; the round is sent again")
+            continue
+        unreadable = False
+        outcome.add_usage(claude_backend.usage(message))
+        outcome.add_models(claude_backend.by_model(message, asked), message.model or asked)
+        outcome.model = message.model or outcome.model
+        if claude_backend.fell_back(message):
+            outcome.served_by = message.model
+        stop = message.stop_reason
+        if stop == "refusal":  # declined (by the whole chain of fallbacks too): nothing written is kept
+            category = getattr(message.stop_details, "category", None)
+            outcome.status = "refused"
+            outcome.error = (f"refusal: {category}" if category else "refusal")[:2000]
+            yield {"type": "error", "message": REFUSED, "discard": True}
+            return
+        if stop == "max_tokens":  # cut off: a tool call of this round may be partial, never run it
+            outcome.status, outcome.error = "failed", "max_output_tokens"
+            yield {"type": "error", "message": TOO_LONG}
+            return
+        if stop not in ("end_turn", "tool_use", "stop_sequence"):  # e.g. model_context_window_exceeded
+            outcome.status, outcome.error = "failed", f"incomplete: {stop}"
+            yield {"type": "error", "message": NOT_COMPLETED}
+            return
+        final_text = claude_backend.answer_text(message)
+        calls = claude_backend.tool_calls(message)
+        if not calls:
+            break
+        for call in calls:
+            yield {
+                "type": "tool",
+                "label": tools.label(call.name, options and options.registry),
+                "round": round_no,
+            }
+        messages.append(claude_backend.assistant_turn(message))
+        drawn = len(outcome.charts)
+        results = _run_calls(calls, outcome, options)
+        messages.append(
+            {"role": "user", "content": [claude_backend.tool_result(*result) for result in results]}
+        )
+        for spec in outcome.charts[drawn:]:
+            yield {"type": "chart", "spec": spec}
+    else:
+        outcome.status, outcome.error = "failed", "too many lookups"
+        yield {"type": "error", "message": TOO_MANY}
+        return
+    yield from _finish(outcome, final_text)

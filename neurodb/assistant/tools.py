@@ -1656,6 +1656,20 @@ def definitions(
     ]
 
 
+def claude_definitions(
+    names: Collection[str] | None = None, registry: Mapping[str, tuple] | None = None
+) -> list[dict[str, Any]]:
+    """The same tools for Claude's Messages API, in the same fixed order (they come first in the cached
+    prompt prefix), with ``names`` and ``registry`` as in :func:`definitions`. Not strict, for the same
+    reasons. Each tool's input streams as Claude writes it (``eager_input_streaming``): the API then does
+    not check it, and validate() does, before anything runs."""
+    return [
+        {"name": name, "description": description, "input_schema": schema, "eager_input_streaming": True}
+        for name, (_, description, schema, _) in (TOOLS if registry is None else registry).items()
+        if names is None or name in names
+    ]
+
+
 _TYPES = {"string": str, "integer": int, "boolean": bool, "object": dict, "array": list}
 _SCALARS = (str, int, float, bool)
 

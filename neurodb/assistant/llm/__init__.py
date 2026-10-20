@@ -129,6 +129,14 @@ class Usage:
     cache_write_tokens: int = 0  # of input_tokens, those written to the cache (Claude only; 0 on OpenAI)
     output_tokens: int = 0  # the reasoning (OpenAI) or thinking (Claude) included
 
+    def __add__(self, other: Usage) -> Usage:
+        return Usage(
+            input_tokens=self.input_tokens + other.input_tokens,
+            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
+            cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+        )
+
 
 @dataclass
 class Result:
@@ -510,6 +518,16 @@ def is_quota(exc: BaseException) -> bool:
     return openai_backend.is_quota(exc)
 
 
+def unsupported_param(exc: BaseException) -> str | None:
+    """``"temperature"`` or ``"top_p"`` when ``exc`` is OpenAI refusing that sampling parameter; None for
+    anything else (Claude is never sent either, so none of its errors names one)."""
+    if _sdk(exc) != "openai":
+        return None
+    from . import openai_backend
+
+    return openai_backend.unsupported_param(exc)
+
+
 def effort_refused(exc: BaseException) -> bool:
     """The API refused the effort sent (the model does not take it)."""
     if _sdk(exc) == "anthropic":
@@ -531,6 +549,24 @@ def api_message(exc: BaseException) -> str:
         if isinstance(error, dict) and isinstance(error.get("message"), str):
             return error["message"]
     return str(getattr(exc, "message", "") or exc)
+
+
+# ------------------------------------------------------------------------------------- AI use ledger
+def record(feature: str, model: str, outcome: Any) -> None:
+    """Book an answer's model calls in the AI use ledger (``usage.record``, which never fails its caller).
+    An answer whose tokens are kept per model (``by_model``, on Claude) gets one row per model that ran
+    them, at that model's prices: the model asked for, and after a refusal fallback the fallback's model
+    for its own attempt, each call counted on the model that wrote its message (``model_calls``). Any
+    other answer (OpenAI's) is one row of ``model``, the model asked for, as always."""
+    from neurodb.assistant import usage
+
+    per_model = getattr(outcome, "by_model", None) or {}
+    calls = getattr(outcome, "model_calls", None) or {}
+    if not per_model and not calls:
+        usage.record(feature, model, outcome, calls=getattr(outcome, "calls", 1))
+        return
+    for name in dict.fromkeys([*per_model, *calls]):
+        usage.record(feature, name, per_model.get(name), calls=calls.get(name, 0))
 
 
 # ----------------------------------------------------------------------------- test the connection

@@ -12,9 +12,10 @@ import pytest
 from django.test import override_settings
 from django.utils import timezone
 
-from neurodb.assistant import agent
+from neurodb.assistant import agent, llm
 from neurodb.fmm.ai import sampling
 from neurodb.fmm.models import ModelCapability
+from tests.assistant import anthropic_mock as am
 
 pytestmark = pytest.mark.django_db
 
@@ -213,3 +214,45 @@ def test_the_chat_never_restarts_for_another_400(client_viewer, monkeypatch):
     events = _chat_events(client_viewer)
     assert events[-1]["type"] == "error" and len(client.requests) == 1
     assert ChatQuestion.objects.get().status == "failed" and not ModelCapability.objects.exists()
+
+
+# ------------------------------------------------------------------------------------------ on Claude
+def test_a_claude_model_is_sent_neither_and_nothing_is_looked_up(django_assert_num_queries):
+    with django_assert_num_queries(0):  # no refusal to look up: nothing is ever sent to Claude
+        plan = sampling.plan(_version(temperature=0.3), am.MODEL, EFFORT)
+    assert plan.params == {} and plan.states == {"temperature": "not_sent", "top_p": "not_set"}
+    assert sampling.why("temperature", "not_sent", am.MODEL, EFFORT) == (
+        "Claude chooses its own sampling: temperature is not sent to it."
+    )
+    summary = sampling.summary(_version(temperature=0.3), plan.states, am.MODEL, EFFORT)
+    assert summary["temperature"]["asked"] == 0.3 and summary["temperature"]["state"] == "not_sent"
+
+
+def test_complete_on_openai_is_the_guarded_call(monkeypatch):
+    """The plan's parameters are added once (the request carries none of its own), and a refused one is
+    dropped and the call made again, as ``call`` does."""
+    client = FakeInsightsClient(refusal("temperature"), SimpleNamespace(output_text='{"ok": true}'))
+    client.with_options = lambda **options: client
+    with override_settings(AI_ASSISTANT_ENABLED=True, OPENAI_API_KEY="x"):
+        monkeypatch.setattr(agent, "client", lambda: client)
+        conn = llm.connect(timeout=60, retries=1)
+        request = llm.Request(system="Check.", user="{}", schema={"type": "object"}, schema_name="check")
+        plan = sampling.plan(_version(temperature=0.3, top_p=0.9), MODEL, EFFORT)
+        result, states = sampling.complete(conn, request, plan, MODEL, EFFORT)
+    first, second = client.requests
+    assert first["temperature"] == 0.3 and first["top_p"] == 0.9
+    assert "temperature" not in second and second["top_p"] == 0.9
+    assert {k: v for k, v in second.items() if k != "top_p"} == conn.render(request)
+    assert states == {"temperature": "not_applied", "top_p": "applied"} and result.parsed == {"ok": True}
+
+
+def test_complete_on_claude_sends_the_request_as_it_is(claude):
+    server = claude(am.turn([am.text('{"ok": true}')]))
+    conn = llm.connect(timeout=60, retries=1)
+    plan = sampling.plan(_version(temperature=0.3), am.MODEL, EFFORT)
+    request = llm.Request(system="Check.", user="{}", schema={"type": "object", "properties": {}})
+    result, states = sampling.complete(conn, request, plan, am.MODEL, EFFORT)
+    body = server.requests[0]["body"]
+    assert "temperature" not in body and "top_p" not in body
+    assert states == {"temperature": "not_sent", "top_p": "not_set"} and result.parsed == {"ok": True}
+    assert not ModelCapability.objects.exists()

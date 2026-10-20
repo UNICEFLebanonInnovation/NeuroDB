@@ -3,7 +3,9 @@
 These check what the SDK actually puts on the wire for one call described for either provider (the path,
 the key, the beta header and the body, checked against the SDK's own request types by
 ``assert_claude_params``) and how the final message it builds from the stream is read back: the text,
-a refusal, a refusal fallback, a cut stream, the errors and the connection test. No network access and no
+a refusal, a refusal fallback, a cut stream, the errors and the connection test. Then Ask NeuroDB's answers
+with tools on Claude: the request, the conversation sent back round after round, the events, refusals and
+fallbacks, the limits, every way a stream can fail, and NeuroDB Watch's look-up. No network access and no
 real API key.
 """
 
@@ -11,12 +13,15 @@ import base64
 import json
 
 import pytest
+from anthropic.lib.streaming._beta_messages import BetaMessageStream
 from django.conf import settings
 from django.core.cache import caches
+from django.urls import reverse
 
-from neurodb.assistant import llm, usage
+from neurodb.assistant import agent, llm, tools, usage, views
 from neurodb.assistant.llm import claude_backend
-from neurodb.assistant.models import AIUsage
+from neurodb.assistant.models import AIUsage, AssistantQuestion
+from neurodb.watch import investigate
 from neurodb.web import health
 from tests.assistant import anthropic_mock
 from tests.assistant.anthropic_mock import (
@@ -28,9 +33,11 @@ from tests.assistant.anthropic_mock import (
     iteration,
     message_json,
     refusal,
+    stall,
     stream_error,
     text,
     thinking,
+    tool_use,
     turn,
 )
 from tests.assistant.claude_params import assert_claude_params
@@ -357,3 +364,409 @@ def test_a_refused_fallback_header_shows_in_the_connection_test(claude, db):
         f"{llm.NOT_PROCESSED} The API said: {refused} Untick Retry a declined answer on another Claude model "
         "and test again."
     )
+
+
+# ------------------------------------------------------------------------------ Ask NeuroDB on Claude
+QUESTION = "Is the data up to date?"
+BETA_REFUSED = error_body(
+    "invalid_request_error",
+    f"Unexpected value(s) `{claude_backend.FALLBACK_BETA}` for the `anthropic-beta` header.",
+)
+
+
+def _answer(question=QUESTION, history=(), user=None, options=None):
+    outcome = agent.Outcome()
+    events = list(agent.answer(question, list(history), outcome, user=user, options=options))
+    return outcome, events
+
+
+def _ask(client, question=QUESTION):
+    """Ask NeuroDB's page streams the answer: its events, as the browser reads them."""
+    response = client.post(reverse("assistant:stream"), {"question": question})
+    body = b"".join(response.streaming_content).decode()
+    return [json.loads(chunk[6:]) for chunk in body.split("\n\n") if chunk.startswith("data: ")]
+
+
+def test_ask_with_one_tool_round(claude, viewer):
+    server = claude(
+        turn(
+            [thinking("sig-1"), text("Checking."), tool_use("toolu_1", "data_freshness", ["{", "}"])],
+            stop_reason="tool_use",
+            usage=anthropic_mock.usage(120, 30, write=900),
+        ),
+        turn(
+            [thinking("sig-2"), text(["The data is ", "**fresh**."])],
+            usage=anthropic_mock.usage(200, 12, read=900),
+        ),
+    )
+
+    outcome, events = _answer(user=viewer)
+
+    assert events[:2] == [
+        {"type": "text", "text": "Checking.", "round": 1},
+        {"type": "tool", "label": "Checking data freshness", "round": 1},
+    ]
+    assert [e["type"] for e in events] == ["text", "tool", "text", "text", "done"]
+    assert events[-1]["answer"] == "The data is **fresh**." and "<strong>fresh</strong>" in events[-1]["html"]
+    assert outcome.status == "answered" and outcome.model == MODEL and outcome.calls == 2
+    assert outcome.tools[0]["tool"] == "data_freshness" and outcome.tools[0]["ok"]
+    # input_tokens + cache_read_tokens is the whole prompt: 120 + 900 written, then 200 + 900 read
+    assert (outcome.input_tokens, outcome.cache_read_tokens, outcome.cache_write_tokens) == (1220, 900, 900)
+    assert outcome.output_tokens == 42
+
+    first, second = server.requests
+    body = first["body"]
+    assert_claude_params(body, first["headers"])
+    assert body["model"] == MODEL and body["max_tokens"] == agent.MAX_OUTPUT_TOKENS
+    # the tools, then Ask's instructions, cached across people; the date after them
+    assert body["system"][0] == {
+        "type": "text",
+        "text": agent.SYSTEM_PROMPT,
+        "cache_control": {"type": "ephemeral"},
+    }
+    assert "cache_control" not in body["system"][1]
+    assert "".join(block["text"] for block in body["system"]) == agent._instructions()
+    assert body["tools"] == tools.claude_definitions()
+    assert body["cache_control"] == {"type": "ephemeral"}  # the conversation is cached as it grows
+    assert body["output_config"] == {"effort": "medium"}
+    assert body["metadata"] == {"user_id": agent.safety_identifier(viewer)}
+    assert body["messages"] == [{"role": "user", "content": QUESTION}]
+    assert body["fallbacks"] == "default"
+
+    # round 2: the same prefix, Claude's whole turn as it wrote it, then one message with the results
+    again = second["body"]
+    assert_claude_params(again, second["headers"])
+    assert again["system"] == body["system"] and again["tools"] == body["tools"]
+    question, said, results = again["messages"]
+    assert question == {"role": "user", "content": QUESTION}
+    assert said == {
+        "role": "assistant",
+        "content": [
+            {"type": "thinking", "thinking": "", "signature": "sig-1"},
+            {"type": "text", "text": "Checking."},
+            {"type": "tool_use", "id": "toolu_1", "name": "data_freshness", "input": {}},
+        ],
+    }
+    (result,) = results["content"]
+    assert (
+        results["role"] == "user" and result["type"] == "tool_result" and result["tool_use_id"] == "toolu_1"
+    )
+    assert "is_error" not in result and json.loads(result["content"])["url"] == "/data/health/"
+
+
+def test_parallel_lookups_get_one_message_of_results_and_the_text_keeps_its_breaks(claude, db):
+    server = claude(
+        turn(
+            [
+                text("Let me check."),
+                text("Two lookups."),
+                tool_use("toolu_a", "data_freshness", "{}"),
+                tool_use("toolu_b", "no_such_tool", "{}"),
+            ],
+            stop_reason="tool_use",
+        ),
+        turn([text("First part."), thinking("sig"), text(["Second ", "part."])]),
+    )
+
+    outcome, events = _answer()
+
+    assert events == [
+        {"type": "text", "text": "Let me check.", "round": 1},
+        {"type": "text", "text": "\n\n", "round": 1},
+        {"type": "text", "text": "Two lookups.", "round": 1},
+        {"type": "tool", "label": "Checking data freshness", "round": 1},
+        {"type": "tool", "label": "Looking up data", "round": 1},
+        {"type": "text", "text": "First part.", "round": 2},
+        {"type": "text", "text": "\n\n", "round": 2},
+        {"type": "text", "text": "Second ", "round": 2},
+        {"type": "text", "text": "part.", "round": 2},
+        {
+            "type": "done",
+            "answer": "First part.\n\nSecond part.",
+            "html": agent.render("First part.\n\nSecond part."),
+        },
+    ]
+    body = server.requests[1]["body"]
+    assert_claude_params(body, server.requests[1]["headers"])
+    assert [m["role"] for m in body["messages"]] == ["user", "assistant", "user"]
+    found, unknown = body["messages"][2]["content"]  # every result in one message, in the calls' order
+    assert found["tool_use_id"] == "toolu_a" and "is_error" not in found
+    assert unknown["tool_use_id"] == "toolu_b" and unknown["is_error"] is True
+    assert json.loads(unknown["content"])["error"] == "Unknown tool no_such_tool."
+    assert [(t["tool"], t["ok"]) for t in outcome.tools] == [
+        ("data_freshness", True),
+        ("no_such_tool", False),
+    ]
+
+
+def test_a_refusal_before_any_output(claude, db):
+    server = claude(refusal("cyber"))
+    outcome, events = _answer()
+    assert events == [{"type": "error", "message": agent.REFUSED, "discard": True}]
+    assert outcome.status == "refused" and outcome.error == "refusal: cyber"
+    assert outcome.tools == [] and outcome.calls == 1 and len(server.requests) == 1
+
+
+def test_a_refusal_after_streamed_text_takes_it_back_and_runs_nothing(claude, db):
+    claude(refusal("bio", blocks=[text("Here is a partial "), tool_use("toolu_1", "data_freshness", "{}")]))
+    outcome, events = _answer()
+    assert events == [
+        {"type": "text", "text": "Here is a partial ", "round": 1},
+        {"type": "error", "message": agent.REFUSED, "discard": True},  # the page takes the partial away
+    ]
+    assert outcome.status == "refused" and outcome.error == "refusal: bio"
+    assert outcome.tools == [] and outcome.answer == ""
+
+
+def test_a_fallback_in_the_middle_of_a_round(claude, db):
+    attempts = [iteration("message", 50, 10), iteration("fallback_message", 60, 40, model="claude-opus-5")]
+    server = claude(
+        turn(
+            [
+                thinking("sig-declined"),
+                text("The first half, "),
+                tool_use("toolu_x", "data_freshness", "{}"),
+                fallback(MODEL, "claude-opus-5", "cyber"),
+                thinking("sig-fallback"),
+                text("and the rest."),
+                tool_use("toolu_2", "data_freshness", "{}"),
+            ],
+            stop_reason="tool_use",
+            usage=anthropic_mock.usage(60, 40, iterations=attempts),
+        ),
+        turn([text("Fresh.")], usage=anthropic_mock.usage(300, 5)),
+    )
+
+    outcome, events = _answer()
+
+    # the streamed partial and the continuation make the text, with no break between them
+    assert [e["text"] for e in events if e["type"] == "text"] == [
+        "The first half, ",
+        "and the rest.",
+        "Fresh.",
+    ]
+    assert [e["type"] for e in events].count("tool") == 1  # the declined attempt's call never runs
+    assert outcome.status == "answered" and outcome.served_by == "claude-opus-5"
+    # each attempt's tokens count, under the model that ran them; each call under the model that wrote it
+    assert outcome.by_model == {
+        MODEL: llm.Usage(input_tokens=350, output_tokens=15),
+        "claude-opus-5": llm.Usage(input_tokens=60, output_tokens=40),
+    }
+    assert outcome.model_calls == {"claude-opus-5": 1, MODEL: 1}
+    assert (outcome.input_tokens, outcome.output_tokens) == (410, 55)
+    # the replay leaves out the declined attempt's thinking and tool call, and the fallback marker
+    body = server.requests[1]["body"]
+    assert_claude_params(body, server.requests[1]["headers"])
+    assert body["messages"][1]["content"] == [
+        {"type": "text", "text": "The first half, "},
+        {"type": "thinking", "thinking": "", "signature": "sig-fallback"},
+        {"type": "text", "text": "and the rest."},
+        {"type": "tool_use", "id": "toolu_2", "name": "data_freshness", "input": {}},
+    ]
+    assert [r["tool_use_id"] for r in body["messages"][2]["content"]] == ["toolu_2"]
+
+
+def test_an_answer_cut_at_its_token_limit_runs_no_tool(claude, db):
+    claude(
+        turn([text("Let me "), tool_use("toolu_1", "data_freshness", '{"x": 1')], stop_reason="max_tokens")
+    )
+    outcome, events = _answer()
+    assert events[-1] == {"type": "error", "message": agent.TOO_LONG}
+    assert outcome.status == "failed" and outcome.error == "max_output_tokens" and outcome.tools == []
+
+
+def test_an_answer_past_the_context_window(claude, db):
+    claude(turn([text("Partial")], stop_reason="model_context_window_exceeded"))
+    outcome, events = _answer()
+    assert events[-1] == {"type": "error", "message": agent.NOT_COMPLETED}
+    assert outcome.error == "incomplete: model_context_window_exceeded"
+
+
+@pytest.mark.parametrize(
+    "reply, message, logged",
+    [
+        (
+            stream_error("overloaded_error", "Overloaded", blocks=[text("Partial")]),
+            llm.BUSY,
+            "APIStatusError",
+        ),
+        (stream_error("billing_error", "Your credit balance is too low."), llm.NO_CREDIT, "APIStatusError"),
+        (
+            http_error(401, error_body("authentication_error", "invalid x-api-key")),
+            llm.KEY_REJECTED,
+            "AuthenticationError",
+        ),
+        (
+            http_error(402, error_body("billing_error", "Your credit balance is too low.")),
+            llm.NO_CREDIT,
+            "APIStatusError",
+        ),
+        (
+            http_error(403, error_body("permission_error", "Not allowed.")),
+            llm.NOT_ALLOWED,
+            "PermissionDeniedError",
+        ),
+        (http_error(404, error_body("not_found_error", "model: claude-x")), llm.NO_MODEL, "NotFoundError"),
+        (
+            http_error(413, error_body("request_too_large", "Request exceeds the maximum size")),
+            llm.NOT_PROCESSED,
+            "RequestTooLargeError",
+        ),
+        (anthropic_mock.cut(), llm.UNFINISHED, "ServiceError: stream_ended"),
+        (cut_before_start(), llm.UNFINISHED, "ServiceError: stream_ended"),
+        # a network failure while the answer streams, which the SDK does not wrap
+        (
+            stall(turn([text("Half an answer")], end="cut"), seconds=0.2, drop=True),
+            llm.UNFINISHED,
+            "ServiceError: stream_cut",
+        ),
+    ],
+    ids=["overloaded", "billing", "401", "402", "403", "404", "413", "cut", "cut-before-start", "dropped"],
+)
+def test_a_failed_answer_shows_what_went_wrong(claude, client_viewer, reply, message, logged):
+    claude(reply)
+    events = _ask(client_viewer)
+    assert events[-1] == {"type": "error", "message": message}
+    assert not any("Something went wrong" in json.dumps(event) for event in events)
+    row = AssistantQuestion.objects.get()
+    assert row.status == "failed" and row.model == MODEL and row.error.startswith(logged)
+    assert "test-key-not-real" not in row.error
+
+
+def test_an_answer_that_goes_silent_did_not_answer_in_time(claude, client_viewer, monkeypatch):
+    monkeypatch.setattr(agent, "READ_TIMEOUT", 0.5)  # the longest silence a call waits for
+    monkeypatch.setattr(agent, "CONNECT_TIMEOUT", 0.5)
+    claude(stall(turn([text("Thinking about it")], end="cut"), seconds=3))
+    events = _ask(client_viewer)
+    assert events[-1] == {"type": "error", "message": llm.LATE}
+    assert AssistantQuestion.objects.get().error.startswith("ServiceError: timeout")
+
+
+BROKEN = ['{"a": ', "]]"]  # tool input the SDK cannot read at all (it raises from the stream)
+
+
+def test_unreadable_tool_input_is_sent_again_once_as_a_new_round(claude, db):
+    server = claude(
+        turn([text("Checking."), tool_use("toolu_1", "data_freshness", BROKEN)], stop_reason="tool_use"),
+        turn([text("Fresh.")]),
+    )
+    outcome, events = _answer()
+    # the page starts the text afresh: the second attempt is round 2
+    assert [e for e in events if e["type"] == "text"] == [
+        {"type": "text", "text": "Checking.", "round": 1},
+        {"type": "text", "text": "Fresh.", "round": 2},
+    ]
+    assert events[-1]["type"] == "done" and outcome.answer == "Fresh." and outcome.tools == []
+    assert server.requests[1]["body"]["messages"] == [{"role": "user", "content": QUESTION}]
+    assert outcome.calls == 1  # the broken attempt left no message, nor tokens to count
+
+
+def test_unreadable_tool_input_twice_could_not_finish(claude, client_viewer):
+    broken = tool_use("toolu_1", "data_freshness", BROKEN)
+    server = claude(turn([broken], stop_reason="tool_use"), turn([broken], stop_reason="tool_use"))
+    events = _ask(client_viewer)
+    assert events[-1] == {"type": "error", "message": llm.UNFINISHED} and len(server.requests) == 2
+    assert AssistantQuestion.objects.get().error.startswith("ServiceError: tool_input")
+
+
+def test_a_text_block_with_no_text_is_not_sent_back(claude, db):
+    server = claude(
+        turn(
+            [thinking("sig-1"), text(""), tool_use("toolu_1", "data_freshness", "{}")], stop_reason="tool_use"
+        ),
+        turn([text("Fresh.")]),
+    )
+    _outcome, events = _answer()
+    assert [e for e in events if e["type"] == "text"] == [{"type": "text", "text": "Fresh.", "round": 2}]
+    body = server.requests[1]["body"]
+    assert_claude_params(body, server.requests[1]["headers"])  # an empty text block would be a 400
+    assert body["messages"][1]["content"] == [
+        {"type": "thinking", "thinking": "", "signature": "sig-1"},
+        {"type": "tool_use", "id": "toolu_1", "name": "data_freshness", "input": {}},
+    ]
+
+
+def test_an_account_that_refuses_the_fallback_header_gets_its_answer_without_it(claude, db):
+    server = claude(
+        http_error(400, BETA_REFUSED),
+        turn([tool_use("toolu_1", "data_freshness", "{}")], stop_reason="tool_use"),
+        turn([text("Fresh.")]),
+    )
+    outcome, events = _answer()
+    assert events[-1]["type"] == "done" and len(server.requests) == 3
+    first, *rest = server.requests
+    assert first["body"]["fallbacks"] == "default"
+    for request in rest:  # the round sent again, and the next round too, without the pair
+        assert "fallbacks" not in request["body"]
+        assert claude_backend.FALLBACK_BETA not in request["headers"].get("anthropic-beta", "")
+        assert_claude_params(request["body"], request["headers"])
+    assert claude_backend.fallbacks_refused()
+    caches["shared"].delete(claude_backend.REFUSED_KEY)
+
+
+def test_a_stopped_answer_closes_claudes_stream(claude, rf, viewer, monkeypatch):
+    closed = []
+    close = BetaMessageStream.close
+
+    def closing(stream):
+        close(stream)
+        closed.append(stream.response.is_closed)
+
+    monkeypatch.setattr(BetaMessageStream, "close", closing)
+    claude(stall(turn([text("A long answer that the user stops.")], end="cut"), seconds=5))
+    request = rf.post("/ask/stream/")
+    request.user = viewer
+    row = AssistantQuestion.objects.create(
+        user=viewer, question="Something long", status="failed", error=views.IN_PROGRESS
+    )
+    stream = views._stream(request, row)
+    next(stream)  # the first words arrive, then the browser goes away and the server closes the stream
+    stream.close()
+    logged = AssistantQuestion.objects.get()
+    assert logged.status == "failed" and logged.error == "stopped"
+    assert closed == [True]  # Claude's stream, and its HTTP response, were closed too
+
+
+def test_the_watch_look_up_on_claude(claude, db):
+    returned = []
+    options = investigate.run_options(returned, frozenset())
+    server = claude(turn([text('{"what_i_found": "Nothing new.", "numbers": []}')]))
+
+    outcome, events = _answer("The point, as JSON", options=options)
+
+    assert events[-1]["type"] == "done" and outcome.status == "answered"
+    body, headers = _sent(server)
+    assert_claude_params(body, headers)
+    assert body["tools"] == tools.claude_definitions(investigate.TOOLS)
+    assert body["output_config"] == {
+        "effort": "low",
+        "format": {"type": "json_schema", "schema": claude_backend.schema(investigate.FORMAT["schema"])},
+    }
+    assert "metadata" not in body  # no person asked
+    assert body["max_tokens"] == investigate.MAX_OUTPUT_TOKENS
+    assert "".join(block["text"] for block in body["system"]) == agent.effective_instructions(options)
+    assert body["system"][1]["text"].endswith(investigate.INSTRUCTIONS.strip())
+    assert body["model"] == settings.CLAUDE_MODEL  # WATCH_MODEL names an OpenAI model: Claude's default runs
+
+
+def test_blank_earlier_turns_are_never_sent_to_claude(claude):
+    history = [
+        {"question": "Question 1?", "answer": "Answer 1."},
+        {"question": "  ", "answer": "An answer to nothing."},  # an empty text is refused
+        {"question": "Question 3?", "answer": "\n"},
+        {"question": "Question 4?", "answer": "Answer 4."},
+    ]
+    assert agent._claude_history(history) == [
+        {"role": "user", "content": "Question 1?"},
+        {"role": "assistant", "content": "Answer 1."},
+        {"role": "user", "content": "Question 4?"},
+        {"role": "assistant", "content": "Answer 4."},
+    ]
+
+
+def test_a_run_with_an_empty_prompt_of_its_own_sends_one_system_block(claude, db):
+    params = agent._claude_request(None, agent.RunOptions(base_prompt="", instructions="Look."))
+    (block,) = params["system"]
+    assert block["text"].startswith("\nToday is ") and block["text"].endswith("\n\nLook.")
+    assert block["cache_control"] == {"type": "ephemeral"}
+    assert "tools" not in params and "metadata" not in params  # no tools offered, no person asked

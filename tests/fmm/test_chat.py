@@ -14,13 +14,15 @@ from django.http import QueryDict
 from django.test import override_settings
 from django.urls import reverse
 
-from neurodb.assistant import agent, usage
+from neurodb.assistant import agent, llm, usage
 from neurodb.assistant import tools as assistant_tools
-from neurodb.assistant.models import AssistantQuestion
+from neurodb.assistant.models import AIUsage, AssistantQuestion
 from neurodb.fmm import privacy, views
 from neurodb.fmm.ai import chat, citations, profiles, sampling, tools
 from neurodb.fmm.models import ChatQuestion, ModelCapability
 from neurodb.fmm.scope import Scope
+from tests.assistant import anthropic_mock as am
+from tests.assistant.claude_params import assert_claude_params
 from tests.assistant.test_assistant import FakeClient, call, reply, say
 from tests.fmm.test_sampling import refusal
 
@@ -94,12 +96,44 @@ def test_the_chat_offers_the_four_look_ups_under_its_own_prompt(built, ai_on, mo
     assert request["safety_identifier"]
 
 
+def test_the_chat_on_claude_sends_no_sampling_and_says_so(built, claude, ai_on, client_viewer):
+    server = claude(am.turn([am.text("Eight visits are in this filter.")]))
+    assert _done(_events(_ask(client_viewer, "How many visits?")))["html"]
+
+    body = server.requests[0]["body"]
+    assert_claude_params(body, server.requests[0]["headers"])
+    assert "temperature" not in body and "top_p" not in body  # Claude Opus 5.5 refuses them
+    assert [t["name"] for t in body["tools"]] == FM_TOOLS
+    assert "".join(block["text"] for block in body["system"]) == profiles.chat_instructions(ai_on, _scope())
+    assert body["output_config"]["effort"] == llm.effort_for(ai_on.effort, llm.CLAUDE)
+    assert body["max_tokens"] == max(ai_on.chat_max_output_tokens, 2000)
+    assert body["model"] == am.MODEL  # the version names an OpenAI model: Claude's default runs
+    assert body["metadata"]["user_id"]
+
+    row = ChatQuestion.objects.get()
+    assert row.status == "answered" and row.model == am.MODEL
+    why = "Claude chooses its own sampling: temperature is not sent to it."
+    assert row.sampling["temperature"] == {"asked": 0.3, "state": "not_sent", "why": why}
+    assert row.sampling["top_p"]["state"] == "not_set"
+    assert not ModelCapability.objects.filter(model=am.MODEL).exists()  # nothing sent: nothing learnt
+    temperature, _top_p = views._sampling_chips(row)
+    assert temperature == {"text": "temp 0.30 · not sent", "title": why, "warn": False}
+    assert AIUsage.objects.get(feature=usage.FMM).model == am.MODEL
+
+
 def test_the_preview_shows_the_chat_instructions_and_the_look_ups(built, ai_on, client, admin_user):
     client.force_login(admin_user)
     html = client.get(reverse("admin:fmm_promptversion_preview", args=[ai_on.pk])).content.decode()
     for name in FM_TOOLS:
         assert f"&quot;name&quot;: &quot;{name}&quot;" in html
     assert "own prompt is not sent to this chat" in html
+
+
+def test_the_preview_shows_the_look_ups_as_claude_is_sent_them(built, claude, ai_on, client, admin_user):
+    client.force_login(admin_user)
+    html = client.get(reverse("admin:fmm_promptversion_preview", args=[ai_on.pk])).content.decode()
+    assert "&quot;input_schema&quot;" in html and "&quot;eager_input_streaming&quot;: true" in html
+    assert tools.definitions() == assistant_tools.claude_definitions(tuple(tools.FMM_TOOLS))
 
 
 def test_asks_and_watchs_requests_are_unchanged_by_the_chat():

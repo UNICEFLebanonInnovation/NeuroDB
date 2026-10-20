@@ -188,6 +188,6 @@ def stream(request: HttpRequest) -> HttpResponse:
 
 
 def _model() -> str:
-    from django.conf import settings
+    from neurodb.assistant import llm
 
-    return settings.AI_ASSISTANT_MODEL
+    return llm.model_for("")  # the default model of the provider in use

@@ -5,8 +5,8 @@ settings, streamed to the panel opened with Ctrl+Shift+H (``help.views.stream``)
 - **Its own run** (``agent.RunOptions``): its own prompt in place of Ask NeuroDB's (``BASE_PROMPT``), the
   page the question was asked from after the date, only its own look-ups (``tools.HELP_TOOLS`` and
   ``decline_question``, through ``registry``: Ask never sees them), each run read-only with the person
-  asking bound (what an Administrator may see), ``store=False``, the model ``AI_ASSISTANT_MODEL`` at low
-  effort.
+  asking bound (what an Administrator may see), nothing kept by the provider, the default model of the
+  provider in use at low effort.
 - **What it refuses**: passwords, keys, secrets and settings' values, ways around sign-in or access
   rules, and questions about the programme data (those go to Ask NeuroDB). The obvious ones are refused
   before any call (:func:`screen`); the model declines the others with ``decline_question``. Either way
@@ -311,7 +311,7 @@ def options(user, line: str) -> agent.RunOptions:
         effort=EFFORT,
         max_output_tokens=MAX_OUTPUT_TOKENS,
         cache_key=CACHE_KEY,
-        model="",  # AI_ASSISTANT_MODEL
+        model="",  # the default model of the provider in use
         read_only=True,
         tool_context=lambda: tools.bind(user),
     )
@@ -388,7 +388,7 @@ def stream(request, row: HelpQuestion, turns: list[dict[str, str]], line: str) -
         row.answer = _storable(outcome.answer)
         row.status = outcome.status if outcome.status in HelpQuestion.Status.values else "failed"
         row.tools = _storable(outcome.tools)
-        row.model = outcome.model or settings.AI_ASSISTANT_MODEL
+        row.model = outcome.model or llm.model_for("")
         row.input_tokens = outcome.input_tokens
         row.cache_read_tokens = outcome.cache_read_tokens
         row.output_tokens = outcome.output_tokens
@@ -399,7 +399,7 @@ def stream(request, row: HelpQuestion, turns: list[dict[str, str]], line: str) -
         except Exception:  # the answer has been sent: a failed log write must not break the stream
             logger.exception("Help assistant: could not log question %s", row.pk)
         # the answer's model calls in the day's AI use of the shared key (never raises)
-        usage.record(usage.HELP, settings.AI_ASSISTANT_MODEL, outcome, calls=outcome.calls)
+        llm.record(usage.HELP, llm.model_for(""), outcome)
 
 
 def prune(today: datetime.date | None = None) -> int:

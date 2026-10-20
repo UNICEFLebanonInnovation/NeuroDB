@@ -2323,6 +2323,7 @@ def _sampling_chips(row) -> list[dict[str, str]]:
                 "applied": _("applied"),
                 "not_applied": _("not applied"),
                 "known_rejected": _("not applied"),
+                "not_sent": _("not sent"),  # Claude: no sampling parameter is sent to it
             }
             text = f"{name} {asked:.2f} · {words.get(state, _('sent'))}"
         out.append(

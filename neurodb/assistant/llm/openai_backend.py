@@ -78,6 +78,39 @@ def is_quota(exc: BaseException) -> bool:
     return too_many and "quota" in str(exc).lower()
 
 
+SAMPLING = ("temperature", "top_p")  # the sampling parameters Monitoring insights may send
+_REFUSAL_CODES = ("unsupported_parameter", "unsupported_value")
+_REFUSAL_WORDS = ("not supported", "unsupported")
+
+
+def _named(text: str) -> str | None:
+    """The sampling parameter a message names first ("top_p", "top-p", "temperature")."""
+    lowered = text.lower()
+    found = [
+        (lowered.find(form), parameter)
+        for parameter, forms in (("temperature", ("temperature",)), ("top_p", ("top_p", "top-p")))
+        for form in forms
+        if form in lowered
+    ]
+    return min(found)[1] if found else None
+
+
+def unsupported_param(exc: BaseException) -> str | None:
+    """``"temperature"`` or ``"top_p"`` when ``exc`` is the API refusing that parameter (a 400 whose
+    ``param`` is it, or whose code or message says the parameter is not supported and names it); None
+    for anything else. A parameter is never taken as refused unless the API named it."""
+    if not isinstance(exc, openai.BadRequestError):
+        return None
+    param = str(getattr(exc, "param", "") or "").strip()
+    if param in SAMPLING:
+        return param
+    code = str(getattr(exc, "code", "") or "")
+    message = str(getattr(exc, "message", "") or exc)
+    if code in _REFUSAL_CODES or any(word in message.lower() for word in _REFUSAL_WORDS):
+        return _named(f"{param} {message}")
+    return None
+
+
 def effort_refused(exc: BaseException) -> bool:
     """A 400 about the reasoning effort: the model does not take the one sent."""
     if not isinstance(exc, openai.BadRequestError):

@@ -5,7 +5,8 @@ Reasoning models may refuse sampling parameters with a 400. A refusal is kept in
 it, and the parameter is tried again after ``FMM_SAMPLING_RECHECK_DAYS``.
 
 - :func:`plan` says what will be sent: per parameter ``not_set`` (the version leaves it empty), ``off``
-  (``FMM_SAMPLING="off"``), ``known_rejected`` (refused recently) or ``sent``;
+  (``FMM_SAMPLING="off"``), ``known_rejected`` (refused recently), ``not_sent`` (a Claude model: Claude
+  Opus 5.5 refuses both, so neither is ever sent to Claude) or ``sent``;
 - :func:`call` makes the call. When the API refuses a parameter **it names**, that parameter alone is
   recorded as refused and dropped, and the call is made again with the other one still sent (at most two
   retries, one per parameter); its state becomes ``not_applied``. When the call succeeds, every parameter
@@ -14,6 +15,7 @@ it, and the parameter is tried again after ``FMM_SAMPLING_RECHECK_DAYS``.
 
 The chips of a brief and of a chat answer show these states ("temp 0.30 · not applied"), with
 :func:`why` as their hover text. Ask NeuroDB and NeuroDB Watch never send either parameter.
+:func:`complete` is the guard for a call made through the provider layer (``neurodb.assistant.llm``).
 """
 
 from __future__ import annotations
@@ -23,11 +25,12 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
-import openai
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.formats import date_format
+
+from neurodb.assistant import llm
 
 from ..models import ModelCapability
 
@@ -35,12 +38,11 @@ PARAMETERS = ("temperature", "top_p")
 LABELS = {"temperature": "temperature", "top_p": "top-p"}
 MAX_RETRIES = 2
 DETAIL_CHARS = 300
-_REFUSAL_CODES = ("unsupported_parameter", "unsupported_value")
-_REFUSAL_WORDS = ("not supported", "unsupported")
 
 # The state of one parameter
 NOT_SET, OFF, KNOWN_REJECTED, SENT = "not_set", "off", "known_rejected", "sent"
 APPLIED, NOT_APPLIED = "applied", "not_applied"
+NOT_SENT = "not_sent"  # a Claude model: no sampling parameter is ever sent to it
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,8 @@ def plan(version, model: str, effort: str, now: datetime.datetime | None = None)
     params: dict[str, float] = {}
     states: dict[str, str] = {}
     wanted = [p for p in PARAMETERS if getattr(version, p, None) is not None]
+    if llm.provider_of(model) == llm.CLAUDE:  # Claude chooses its own sampling: nothing to look up
+        return Plan(params={}, states={p: NOT_SENT if p in wanted else NOT_SET for p in PARAMETERS})
     rejected: set[str] = set()
     if wanted and settings.FMM_SAMPLING != "off":  # the refusals that still hold, in one query
         now = now or timezone.now()
@@ -90,32 +94,9 @@ def plan(version, model: str, effort: str, now: datetime.datetime | None = None)
     return Plan(params=params, states=states)
 
 
-def _named(text: str) -> str | None:
-    """The sampling parameter a message names first ("top_p", "top-p", "temperature")."""
-    lowered = text.lower()
-    found = [
-        (lowered.find(form), parameter)
-        for parameter, forms in (("temperature", ("temperature",)), ("top_p", ("top_p", "top-p")))
-        for form in forms
-        if form in lowered
-    ]
-    return min(found)[1] if found else None
-
-
-def unsupported_param(exc: BaseException) -> str | None:
-    """``"temperature"`` or ``"top_p"`` when ``exc`` is the API refusing that parameter (a 400 whose
-    ``param`` is it, or whose code or message says the parameter is not supported and names it); None
-    for anything else. A parameter is never taken as refused unless the API named it."""
-    if not isinstance(exc, openai.BadRequestError):
-        return None
-    param = str(getattr(exc, "param", "") or "").strip()
-    if param in PARAMETERS:
-        return param
-    code = str(getattr(exc, "code", "") or "")
-    message = str(getattr(exc, "message", "") or exc)
-    if code in _REFUSAL_CODES or any(word in message.lower() for word in _REFUSAL_WORDS):
-        return _named(f"{param} {message}")
-    return None
+# ``"temperature"`` or ``"top_p"`` when an error is the API refusing that parameter, else None (the rule
+# lives with OpenAI's other errors: Claude is never sent either)
+unsupported_param = llm.unsupported_param
 
 
 def record(model: str, effort: str, parameter: str, accepted: bool, detail: str = "") -> None:
@@ -141,7 +122,7 @@ def call(api, request: dict[str, Any], plan: Plan, model: str, effort: str) -> t
     while True:
         try:
             response = api.responses.create(**request, **params)
-        except openai.BadRequestError as exc:
+        except Exception as exc:
             parameter = unsupported_param(exc)
             if parameter is None or parameter not in params or retries >= MAX_RETRIES:
                 raise
@@ -156,9 +137,23 @@ def call(api, request: dict[str, Any], plan: Plan, model: str, effort: str) -> t
         return response, states
 
 
+def complete(
+    conn, request: llm.Request, plan: Plan, model: str, effort: str
+) -> tuple[llm.Result, dict[str, str]]:
+    """One call through the provider layer with the sampling guard: on OpenAI, :func:`call` (a refused
+    parameter is dropped and the call made again); Claude takes no sampling parameter, so the request goes
+    as it is. Returns the result and each parameter's final state."""
+    if conn.provider != llm.OPENAI:
+        return conn.complete(request), dict(plan.states)
+    response, states = call(conn.api, conn.render(request), plan, model, effort)
+    return conn.read(response, request), states
+
+
 def why(parameter: str, state: str, model: str, effort: str) -> str:
     """The hover text of a parameter's chip."""
     label = LABELS.get(parameter, parameter)
+    if state == NOT_SENT:
+        return f"Claude chooses its own sampling: {label} is not sent to it."
     if state in (NOT_APPLIED, KNOWN_REJECTED):
         row = ModelCapability.objects.filter(model=model, effort=effort, parameter=parameter).first()
         day = date_format(timezone.localtime(row.checked_at), "j M Y") if row else ""

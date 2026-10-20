@@ -211,7 +211,8 @@ async function readEvents(stream, handle) {
 }
 
 // One question/answer card: live text while streaming, a list of lookups, then the final HTML.
-function turnUI(turn) {
+// Exported for its tests.
+export function turnUI(turn) {
   const steps = turn.querySelector(".ask-turn__steps");
   const bodyEl = turn.querySelector(".ask-turn__body");
   const footer = turn.querySelector(".ask-turn__footer");
@@ -272,6 +273,8 @@ function turnUI(turn) {
     } else if (event.type === "chart") {
       chart(event.spec);
     } else if (event.type === "error") {
+      // A declined answer (Claude): what was shown of it is taken away, never left above the message.
+      if (event.discard) live = "";
       error(event.message);
     }
   }

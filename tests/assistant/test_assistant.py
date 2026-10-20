@@ -1209,9 +1209,7 @@ def _imports(path):
 # The modules that still read the openai SDK's errors themselves; each moves onto the provider layer (llm),
 # so this set only shrinks.
 OPENAI_ERRORS_READ_IN = {
-    "neurodb/fmm/ai/chat.py",
     "neurodb/fmm/ai/insights.py",
-    "neurodb/fmm/ai/sampling.py",
     "neurodb/watch/budget.py",
 }
 
