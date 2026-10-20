@@ -1,5 +1,7 @@
 """Every operator command has a button in the admin ("Run a job" on Import and sync runs)."""
 
+from html import unescape
+
 import pytest
 from django.urls import reverse
 
@@ -102,8 +104,16 @@ SERVER_ERROR = (
         (
             "etools_datamart",
             SERVER_ERROR,
-            "eTools Datamart answered with a server error (HTTP 500), even after NeuroDB asked again",
+            "eTools Datamart answered with a server error (HTTP 500), even after NeuroDB asked again. If the "
+            "next run fails the same way, tell the team that runs eTools Datamart.",
         ),
+        (  # not a status NeuroDB asks again for (integrations.http.RETRY_STATUSES)
+            "etools_datamart",
+            "GET /x: HTTP 501 Not Implemented",
+            "eTools Datamart answered with a server error (HTTP 501). If the next run fails the same way, tell "
+            "the team that runs eTools Datamart.",
+        ),
+        ("compiler_youth", "GET /x: HTTP 505 HTTP Version Not Supported", "tell the team that runs the data"),
         ("etools_datamart", "GET /api/latest/datamart/grants/: HTTP 429 Too Many Requests", "too many"),
         ("ai_data", "POST /resources/query: ReadTimeout", "ActivityInfo did not answer in time"),
         (
@@ -119,8 +129,11 @@ def test_known_errors_get_a_plain_hint(job, error, hint):
 
     result = str(error_hint(SyncRun(job=job, error=error)))
     assert (hint in result) if hint else result == ""
-    if "HTTP 500" in error:  # a server error for this one request, not the service down
-        assert "unavailable" not in result
+    if any(f"HTTP {n}" in error for n in (500, 501, 505)):
+        # a server error for this one request, not the service down; no blame and no promise it passes
+        assert "unavailable" not in result and "its side" not in result and "passes" not in result
+    if any(f"HTTP {n}" in error for n in (501, 505)):  # NeuroDB did not ask again for these
+        assert "asked again" not in result
 
 
 def test_triggered_by_reads_as_scheduler_manual_or_command():
@@ -144,7 +157,7 @@ def test_the_run_list_explains_the_two_etools_syncs_and_its_errors(superadmin):
 
 def _meaning(client, run: SyncRun) -> str:
     """The run page's "What the error means", as text."""
-    html = client.get(reverse("admin:core_syncrun_change", args=[run.pk])).content.decode()
+    html = unescape(client.get(reverse("admin:core_syncrun_change", args=[run.pk])).content.decode())
     return html[html.index("What the error means") :][:2500]
 
 
@@ -157,8 +170,18 @@ def test_the_run_page_says_only_this_dataset_stopped(superadmin):
     meaning = _meaning(superadmin, etl)
     assert "server error (HTTP 500)" in meaning and "was unavailable" not in meaning
     assert "Only this dataset (datamart_etl_status) stopped" in meaning
-    assert "Nothing in NeuroDB reads this dataset" in meaning
-    assert "“Only the datasets ticked below”, and tick datamart_etl_status" in meaning
+    # the last dataset of the order, and often synced alone: no "next one" is promised
+    assert "a failed dataset does not stop the others" in meaning and "next one" not in meaning
+    assert (
+        "No page, figure or check uses this dataset (only Ask NeuroDB's general eTools look-ups can read it): "
+        "it raises no alarm." in meaning
+    )
+    assert "Nothing in NeuroDB reads" not in meaning
+    assert (
+        "To sync it alone now, press “Sync this dataset again” above, or “Sync eTools Datamart now” on Import "
+        "and sync runs, choose “Only the datasets ticked below, in their usual order” and tick "
+        "datamart_etl_status." in meaning
+    )
 
     partners = SyncRun.objects.create(
         job="etools_datamart",
@@ -167,7 +190,7 @@ def test_the_run_page_says_only_this_dataset_stopped(superadmin):
         error="GET /x: HTTP 503 Service Unavailable",
     )
     meaning = _meaning(superadmin, partners)
-    assert "Only this dataset (partners) stopped" in meaning and "Nothing in NeuroDB reads" not in meaning
+    assert "Only this dataset (partners) stopped" in meaning and "No page, figure or check" not in meaning
 
     cut_off = SyncRun.objects.create(job="etools_datamart", target="partners", status="failed", error=CUT_OFF)
     rest = SyncRun.objects.create(job="etools", target="partners", status="failed", error=SERVER_ERROR)
@@ -209,6 +232,13 @@ def test_only_a_finished_datamart_dataset_is_synced_again_and_only_by_an_adminis
         assert "Sync this dataset again" not in page, run.target
         url = reverse("admin:core_syncrun_sync_dataset_again", args=[run.pk])
         assert superadmin.post(url, {"_form_submitted": "on"}).status_code == 403
+    assert started == []
+
+    # an id that is no run's: the page says it does not exist (no error from the button's permission check)
+    response = superadmin.get(reverse("admin:core_syncrun_change", args=["abc"]))
+    assert response.status_code == 302 and response["Location"] == reverse("admin:index")
+    url = reverse("admin:core_syncrun_sync_dataset_again", args=["abc"])
+    assert superadmin.post(url, {"_form_submitted": "on"}).status_code == 403
     assert started == []
 
     failed = SyncRun.objects.create(job="etools_datamart", target="partners", status="failed", error="boom")

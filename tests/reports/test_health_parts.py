@@ -712,33 +712,41 @@ def _card(html: str, label: str) -> str:
 
 def test_a_failed_diagnostic_dataset_is_shown_and_never_called_the_whole_sync(client_viewer, world):
     """The night's case: the Datamart's own table-refresh log, the last dataset of the order, answered HTTP 500.
-    Its row says why and that nothing reads it; the job card says it apart, with no "Latest run: Failed"; the
-    internal API reads the sync as succeeded. A real dataset failing makes the sync partial, by name."""
+    Its row says why and that no page uses it; the job card says it apart, with no "Latest run: Failed"; the
+    internal API reads the sync by its datasets (the world's pd_indicators wrote with errors: partial). A real
+    dataset failing makes the sync partial, by name."""
     _run(SyncRun.Job.ETOOLS_DATAMART, "datamart_etl_status", status=SyncRun.Status.FAILED, error=SERVER_ERROR)
 
     datasets = text(get_part(client_viewer, PAGE, "datasets"))
     row = _dataset(datasets, "datamart_etl_status")
-    assert "HTTP 500 Internal Server Error" in row and "diagnostic: nothing in NeuroDB reads it" in row
+    assert "HTTP 500 Internal Server Error" in row and "diagnostic: no page or check uses it" in row
     assert "diagnostic" not in _dataset(datasets, "partners") and "HTTP 500" not in _dataset(
         datasets, "grants"
     )
     card = _card(text(get_part(client_viewer, PAGE, "jobs")), "eTools Datamart sync")
-    assert "Failing, but nothing in NeuroDB reads it: datamart_etl_status" in card
+    assert "Failing, but no page or check uses it: datamart_etl_status" in card
+    assert "Succeeded with errors" in card and "pd_indicators" in card
     assert "Latest run" not in card and "Failed" not in card
     datamart = next(
         j for j in services.health_as_dict(services.data_health())["jobs"] if j["job"] == "etools_datamart"
     )
-    assert (datamart["last_status"], datamart["failed_datasets"]) == ("succeeded", [])
+    assert (datamart["last_status"], datamart["failed_datasets"]) == ("partial", [])
 
     _run(SyncRun.Job.ETOOLS_DATAMART, "partners", status=SyncRun.Status.FAILED, error="boom")
     card = _card(text(get_part(client_viewer, PAGE, "jobs")), "eTools Datamart sync")
-    assert "1 dataset failed" in card and "partners" in card
+    assert "1 dataset failed" in card and "partners" in card and "pd_indicators" not in card
     datamart = next(
         j for j in services.health_as_dict(services.data_health())["jobs"] if j["job"] == "etools_datamart"
     )
     assert (datamart["last_status"], datamart["failed_datasets"]) == ("partial", ["partners"])
     rest = next(j for j in services.health_as_dict(services.data_health())["jobs"] if j["job"] == "etools")
     assert (rest["last_status"], rest["failed_datasets"]) == ("failed", [])  # other jobs as before
+
+    # every dataset failing (expired credentials): said so, not every name
+    SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_DATAMART).update(status=SyncRun.Status.FAILED)
+    caches["shared"].clear()
+    card = _card(text(get_part(client_viewer, PAGE, "jobs")), "eTools Datamart sync")
+    assert "Failed" in card and "every dataset" in card and "partners" not in card
 
 
 # ------------------------------------------------------------------------------------------- fresh after edit

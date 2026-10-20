@@ -493,40 +493,57 @@ class DatamartSyncState:
     runs: dict[str, SyncRun]  # each dataset of ENTITY_SYNCS -> its latest finished run, in sync order
     failed: tuple[str, ...] = ()  # datasets whose latest finished run failed, the diagnostic ones left out
     diagnostic_failed: tuple[str, ...] = ()  # the same for the diagnostic ones (catalogue.DIAGNOSTIC)
+    partial: tuple[str, ...] = ()  # like failed, for a latest finished run that wrote with errors
     counted: int = 0  # the datasets with a finished run, the diagnostic ones left out
 
     @property
     def status(self) -> str:
-        """Succeeded, partial (some datasets failed) or failed (every one counted failed); "" without runs."""
-        if not self.runs:
+        """Failed (every dataset counted failed), partial (some failed, or none failed and some wrote with
+        errors) or succeeded; "" while no dataset counted has a finished run (only a diagnostic one, or none):
+        a reader then shows the job's latest run as it is."""
+        if not self.counted:
             return ""
-        if not self.failed:
-            return SyncRun.Status.SUCCEEDED
-        return SyncRun.Status.FAILED if len(self.failed) == self.counted else SyncRun.Status.PARTIAL
+        if self.failed:
+            return SyncRun.Status.FAILED if len(self.failed) == self.counted else SyncRun.Status.PARTIAL
+        return SyncRun.Status.PARTIAL if self.partial else SyncRun.Status.SUCCEEDED
 
     @property
     def label(self) -> str:
-        """The status in words: Succeeded, "2 datasets failed" or Failed."""
-        if self.status == SyncRun.Status.PARTIAL:
+        """The status in words: Succeeded, Succeeded with errors, "2 datasets failed" or Failed."""
+        if self.status == SyncRun.Status.PARTIAL and self.failed:
             n = len(self.failed)
             return ngettext("%(n)s dataset failed", "%(n)s datasets failed", n) % {"n": n}
         return str(SyncRun.Status(self.status).label) if self.status else ""
 
+    @property
+    def named(self) -> tuple[str, ...]:
+        """The datasets the status is about: those that failed, else those that wrote with errors."""
+        return self.failed or self.partial
+
+    def runs_url(self) -> str:
+        """The list of eTools Datamart runs, of the datasets the status names only when it names some (each
+        one's latest run on top): never every failed run of the job, most of them long since followed by a
+        success."""
+        url = reverse("admin:core_syncrun_changelist") + "?job__exact=etools_datamart"
+        return url + "&target__in=" + ",".join(self.named) if self.named else url
+
 
 def datamart_sync_state() -> DatamartSyncState:
-    """The eTools Datamart sync as its datasets: the latest finished run of each (one query), which failed,
-    and which of those are diagnostic. A dataset not synced again keeps its last state; a dataset dropped
-    from the sync is left out."""
+    """The eTools Datamart sync as its datasets: the latest finished run of each (one query), which failed or
+    wrote with errors, and which of the failed ones are diagnostic. A dataset not synced again keeps its last
+    state; a dataset dropped from the sync is left out."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
 
     latest = latest_datamart_runs(ENTITY_SYNCS, finished=True)
     runs = {name: latest[name] for name in ENTITY_SYNCS if name in latest}
     failed = [name for name, run in runs.items() if run.status == SyncRun.Status.FAILED]
+    partial = [name for name, run in runs.items() if run.status == SyncRun.Status.PARTIAL]
     return DatamartSyncState(
         runs=runs,
         failed=tuple(name for name in failed if name not in DIAGNOSTIC),
         diagnostic_failed=tuple(name for name in failed if name in DIAGNOSTIC),
+        partial=tuple(name for name in partial if name not in DIAGNOSTIC),
         counted=sum(1 for name in runs if name not in DIAGNOSTIC),
     )
 
@@ -592,8 +609,8 @@ def dataset_row_counts() -> dict[str, int | None]:
 def datamart_quality() -> list[dict[str, Any]]:
     """Per eTools Datamart dataset: the last run, what it read, wrote, failed to link, and how many
     rows NeuroDB holds — the table to read before believing a number on an eTools page. A failed run's
-    error is shown when it lists no row errors, and a diagnostic dataset (``catalogue.DIAGNOSTIC``, read by
-    nothing in NeuroDB) is marked as such."""
+    error is shown when it lists no row errors, and a diagnostic dataset (``catalogue.DIAGNOSTIC``, used by
+    no page, figure or check) is marked as such."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
 
@@ -622,7 +639,7 @@ def datamart_quality() -> list[dict[str, Any]]:
                 "relinked": details.get("relinked"),
                 # the run's own error, when it stopped before listing row errors (an HTTP 500 of the Datamart)
                 "error": run.error if failed and not details.get("errors") else "",
-                "diagnostic": name in DIAGNOSTIC,  # nothing in NeuroDB reads it: never an alarm
+                "diagnostic": name in DIAGNOSTIC,  # no page, figure or check uses it: never an alarm
             }
         )
     return rows
@@ -630,7 +647,7 @@ def datamart_quality() -> list[dict[str, Any]]:
 
 def _last_status(job: dict[str, Any]) -> str | None:
     """The job's latest status; the eTools Datamart sync's read from every dataset's latest finished run."""
-    if job.get("datasets") and job["datasets"].runs:
+    if job.get("datasets") and job["datasets"].status:
         return str(job["datasets"].status)
     return job["last_run"].status if job["last_run"] else None
 

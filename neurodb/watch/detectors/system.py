@@ -7,8 +7,11 @@ longer listed the problem was fixed, and its item closes at once: resolved. The 
 about the ActivityInfo import (its set-up lines, its failed or partial runs:
 :func:`neurodb.web.health.about_activityinfo`) gone because the import is no longer followed (ActivityInfo
 is an archive): its item closes as changed, "no longer followed", never as fixed, since the problem may
-well still be there. Likewise the eTools Datamart line gone while only a diagnostic dataset still fails
-(``catalogue.DIAGNOSTIC``, shown on Data health, never an alarm): its item closes as changed, not fixed.
+well still be there. Likewise an eTools Datamart item opened for a diagnostic dataset
+(``catalogue.DIAGNOSTIC``, shown on Data health, never an alarm), which only the job-level line NeuroDB
+had before could do (it read the job's latest run: the last dataset of the order, the Datamart's
+table-refresh log), while that dataset still fails: it closes as changed, not fixed. An item opened for
+the datasets the line names closes as fixed once they succeed, whatever a diagnostic dataset does.
 
 "NeuroDB Watch has not run for 26 hours" is not raised by the morning pass: that pass is the run it
 asks for (a quick pass still raises it, as the morning run is still missing). Nor does the morning pass
@@ -111,13 +114,27 @@ def run(ctx: Context) -> list[Candidate]:
     return [candidate(ctx, line) for line in lines(ctx).values()]
 
 
+def _diagnostic_still_failing(ctx: Context, item) -> bool:
+    """The eTools Datamart item was opened for a diagnostic dataset's run, and that dataset still fails. Only
+    the job-level line NeuroDB had before could open one (its evidence has no ``datasets_failed``: it named
+    the job's latest run, the last dataset of the order); an item opened for the datasets the line names
+    never is."""
+    from neurodb.core.models import SyncRun
+    from neurodb.reports.services import datamart_sync_state
+
+    numbers = (item.evidence or {}).get("numbers") or {}
+    if "datasets_failed" in numbers or not numbers.get("run"):
+        return False
+    target = SyncRun.objects.filter(pk=numbers["run"]).values_list("target", flat=True).first()
+    return target in ctx.memo("datamart_state", datamart_sync_state).diagnostic_failed
+
+
 def resolved(ctx: Context, open_items) -> dict[str, Close]:
     """The items whose line is gone, closed at once: fixed; or, for a line about the ActivityInfo import
     while it is no longer followed, no longer followed (it may still fail: nobody is told any more); or, for
-    the eTools Datamart line while only a diagnostic dataset still fails, changed (it is no longer an alarm,
-    but it was not fixed)."""
+    an eTools Datamart item opened for a diagnostic dataset that still fails, changed (it is no longer an
+    alarm, but it was not fixed)."""
     from neurodb.indicators.services import activityinfo
-    from neurodb.reports.services import datamart_sync_state
 
     current = lines(ctx)
     closes: dict[str, Close] = {}
@@ -127,8 +144,8 @@ def resolved(ctx: Context, open_items) -> dict[str, Close]:
         line_key = item.key.removeprefix(PREFIX)
         if health.about_activityinfo(line_key) and not ctx.memo("activityinfo_watched", activityinfo.watched):
             closes[item.key] = Close(NOT_FOLLOWED, kind=CHANGED)
-        elif line_key == DATAMART_LINE and ctx.memo("datamart_state", datamart_sync_state).diagnostic_failed:
-            closes[item.key] = Close(ONLY_DIAGNOSTIC, kind=CHANGED)  # the line is gone: nothing else fails
+        elif line_key == DATAMART_LINE and _diagnostic_still_failing(ctx, item):
+            closes[item.key] = Close(ONLY_DIAGNOSTIC, kind=CHANGED)
         else:
             closes[item.key] = Close(FIXED, kind=RESOLVED)
     return closes

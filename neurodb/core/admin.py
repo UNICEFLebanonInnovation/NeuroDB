@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.admin.models import ADDITION, CHANGE, DELETION, LogEntry
 from django.contrib.humanize.templatetags.humanize import naturaltime
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import NoReverseMatch, reverse
@@ -18,6 +18,7 @@ from unfold.decorators import action
 from unfold.forms import BaseDialogForm
 from unfold.widgets import UnfoldAdminCheckboxSelectMultipleWidget, UnfoldAdminRadioSelectWidget
 
+from neurodb.integrations.http import RETRY_STATUSES
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
 from .admin_jobs import JobActionsMixin
@@ -74,35 +75,45 @@ UNREACHABLE = re.compile(r"Timeout|ConnectionError|SSLError|timed out", re.IGNOR
 def error_hint(run: SyncRun) -> str:
     """What a known error means for the administrator, or "" when the raw error is all we know. A 502, 503
     or 504 is the service being unavailable; any other 5xx is an error inside the service for this one
-    request (NeuroDB asks again on 429 and 5xx before it gives up); a 429 is too many requests."""
+    request, said to have been asked again only for the statuses NeuroDB retries (``RETRY_STATUSES``: 429,
+    500, 502, 503 and 504); a 429 is too many requests."""
     error = run.error or ""
-    source = SOURCES.get(run.job) or _("The data source")
+    name = SOURCES.get(run.job)
     found = HTTP_STATUS.search(error)
     status = int(found.group(1)) if found else None
     if status in (502, 503, 504):
-        return _("%(source)s was unavailable: try again later.") % {"source": source}
-    if status == 429:
-        return _("%(source)s refused more requests for now (too many in a short time): try again later.") % {
-            "source": source
-        }
-    if status and 500 <= status < 600:
-        return _(
-            "%(source)s answered with a server error (HTTP %(status)s), even after NeuroDB asked again: the "
-            "fault is on its side, and it usually passes by the next run."
-        ) % {"source": source, "status": status}
-    if UNREACHABLE.search(error):
-        return _("%(source)s did not answer in time: try again later.") % {"source": source}
-    if status in (401, 403):
-        return _(
+        hint = _("%(source)s was unavailable: try again later.")
+    elif status == 429:
+        hint = _("%(source)s refused more requests for now (too many in a short time): try again later.")
+    elif status and 500 <= status < 600 and status in RETRY_STATUSES:
+        hint = _(
+            "%(source)s answered with a server error (HTTP %(status)s), even after NeuroDB asked again. "
+            "If the next run fails the same way, tell the team that runs %(team)s."
+        )
+    elif status and 500 <= status < 600:
+        hint = _(
+            "%(source)s answered with a server error (HTTP %(status)s). If the next run fails the same way, "
+            "tell the team that runs %(team)s."
+        )
+    elif UNREACHABLE.search(error):
+        hint = _("%(source)s did not answer in time: try again later.")
+    elif status in (401, 403):
+        hint = _(
             "%(source)s refused NeuroDB's credentials: they may have expired. Ask the team that runs "
             "NeuroDB's hosting to renew them."
-        ) % {"source": source}
-    return ""
+        )
+    else:
+        return ""
+    return hint % {
+        "source": name or _("The data source"),
+        "team": name or _("the data source"),
+        "status": status,
+    }
 
 
 def dataset_note(run: SyncRun) -> str:
     """The run page only (too long for the list): a failed eTools Datamart dataset is its own run. Says that
-    only this dataset stopped, whether anything in NeuroDB reads it, and how to sync it alone; "" for any
+    only this dataset stopped, whether a page, figure or check uses it, and how to sync it alone; "" for any
     other run, and for a run cut off by a restart (the whole sync stopped then)."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.background import CUT_OFF
@@ -118,20 +129,23 @@ def dataset_note(run: SyncRun) -> str:
     values = {"dataset": run.target}
     parts = [
         _(
-            "Only this dataset (%(dataset)s) stopped: each eTools Datamart dataset is its own run, and the "
-            "sync went on with the next one."
+            "Only this dataset (%(dataset)s) stopped: each eTools Datamart dataset is its own run, and a "
+            "failed dataset does not stop the others."
         )
         % values
     ]
     if run.target in DIAGNOSTIC:
         parts.append(
-            _("Nothing in NeuroDB reads this dataset: no page or figure is affected, and it raises no alarm.")
+            _(
+                "No page, figure or check uses this dataset (only Ask NeuroDB's general eTools look-ups can "
+                "read it): it raises no alarm."
+            )
         )
     parts.append(
         _(
-            "The next sync tries it again. To sync it alone now: Sync this dataset again above, or Sync "
-            "eTools Datamart now on the list of runs, then “Only the datasets ticked below”, and tick "
-            "%(dataset)s."
+            "The next sync tries it again. To sync it alone now, press “Sync this dataset again” above, or "
+            "“Sync eTools Datamart now” on Import and sync runs, choose “Only the datasets ticked below, in "
+            "their usual order” and tick %(dataset)s."
         )
         % values
     )
@@ -289,7 +303,10 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
             return True
         from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
 
-        run = SyncRun.objects.filter(pk=object_id).first()
+        try:
+            run = SyncRun.objects.filter(pk=object_id).first()
+        except (ValueError, ValidationError):  # not a run's id: the change page says it does not exist
+            return False
         return bool(
             run
             and run.job == SyncRun.Job.ETOOLS_DATAMART
@@ -673,12 +690,10 @@ class ScheduledJobAdmin(ModelAdmin):
                     from neurodb.reports.services import datamart_sync_state
 
                     state = datamart_sync_state()
-                    if state.runs:
+                    if state.status:  # else no dataset counted has finished: the run as it is
                         tone = {"succeeded": "ok", "partial": "warn", "failed": "bad"}[state.status]
                         label = badge(state.label, tone)
-                        url = reverse("admin:core_syncrun_changelist") + "?job__exact=etools_datamart"
-                        if state.failed:
-                            url += "&status__exact=failed"
+                        url = state.runs_url()
                 text = format_html('<a href="{}">{}</a> {}', url, label, naturaltime(run.started_at))
         if text is None:
             text = badge(_("Never run"), "muted")

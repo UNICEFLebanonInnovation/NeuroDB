@@ -4,7 +4,7 @@
 last dataset of the order (``datamart_etl_status``). Every reader of the job as a whole (Needs attention and
 NeuroDB Watch, the daily review, the admin home's Data jobs, the Scheduled jobs list, the sync command's exit)
 reads it dataset by dataset, from the latest finished run of each, and leaves the diagnostic datasets
-(``catalogue.DIAGNOSTIC``, read by nothing in NeuroDB) out of its alarms.
+(``catalogue.DIAGNOSTIC``, used by no page, figure or check) out of its alarms.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ pytestmark = pytest.mark.django_db
 
 DATAMART = SyncRun.Job.ETOOLS_DATAMART
 SUCCEEDED, FAILED, RUNNING = SyncRun.Status.SUCCEEDED, SyncRun.Status.FAILED, SyncRun.Status.RUNNING
+PARTIAL = SyncRun.Status.PARTIAL
 NAMES = list(ENTITY_SYNCS)
 COUNTED = len([name for name in NAMES if name not in catalogue.DIAGNOSTIC])  # 50
 MINUTE = datetime.timedelta(minutes=1)
@@ -94,7 +95,7 @@ def superadmin(client, admin_user):
 
 
 # ------------------------------------------------------------------------------------- the diagnostic datasets
-def test_the_diagnostic_datasets_are_documents_nothing_reads():
+def test_the_diagnostic_datasets_are_documents_no_page_reads():
     """Kept whole for Ask NeuroDB and the read-only lists, in no table of their own a page reads, and not among
     the datasets Monitoring insights rebuilds from: a page or refresh that starts reading one fails here, and it
     must then come out of DIAGNOSTIC."""
@@ -133,6 +134,39 @@ def test_every_dataset_failing_reads_failed():
     assert (state.status, state.label) == (FAILED, "Failed") and len(state.failed) == COUNTED
 
 
+def test_only_a_diagnostic_dataset_run_has_no_status_of_its_own():
+    """No dataset counted has a finished run, only the table-refresh log's (its first "Sync this dataset again" on
+    an empty database): the state says nothing, never Succeeded, and the readers show that run as it is."""
+    SyncRun.objects.create(
+        job=DATAMART,
+        target="datamart_etl_status",
+        status=FAILED,
+        error=SERVER_ERROR,
+        finished_at=timezone.now(),
+    )
+    state = datamart_sync_state()
+    assert (state.counted, state.failed, state.diagnostic_failed) == (0, (), ("datamart_etl_status",))
+    assert (state.status, state.label) == ("", "")
+
+
+def test_a_dataset_that_wrote_with_errors_reads_succeeded_with_errors():
+    """Its latest run partial (rows that could not be written) and none failed: the job is not plain Succeeded.
+    A diagnostic dataset's errors are left out, as its failure is; a failed dataset comes first."""
+    runs = sync_night()
+    SyncRun.objects.filter(pk__in=[runs["partners"].pk, runs["etools_usage"].pk]).update(
+        status=PARTIAL, rows_failed=3
+    )
+    state = datamart_sync_state()
+    assert (state.failed, state.partial, state.named) == ((), ("partners",), ("partners",))
+    assert (state.status, state.label) == (PARTIAL, "Succeeded with errors")
+    assert state.runs_url().endswith("?job__exact=etools_datamart&target__in=partners")
+    assert line() is None  # no Needs attention line for rows: Data health and the daily review name them
+
+    again("grants", FAILED, error="boom")
+    state = datamart_sync_state()
+    assert (state.status, state.label, state.named) == (PARTIAL, "1 dataset failed", ("grants",))
+
+
 # ------------------------------------------------------------------------- Needs attention and NeuroDB Watch
 def test_a_failed_last_dataset_is_not_the_whole_sync():
     """The night's case: the last dataset of the order, the Datamart's own table-refresh log, answered HTTP 500
@@ -151,7 +185,7 @@ def test_a_failed_dataset_is_named_even_when_later_ones_succeeded():
     found = line()
     assert found.text == "eTools Datamart sync: partners failed at its last run (1 of 50 datasets)."
     assert found.url == reverse("admin:core_syncrun_change", args=[runs["partners"].pk])
-    assert found.read == "Latest run of each dataset of the eTools Datamart sync"
+    assert found.read == "Datasets of the eTools Datamart sync whose latest run failed"
     assert (found.value, found.numbers) == (1, {"run": runs["partners"].pk, "datasets_failed": 1})
     assert found.on == timezone.localdate(runs["partners"].started_at)
 
@@ -160,8 +194,9 @@ def test_every_dataset_failed():
     sync_night(*NAMES)
     found = line()
     assert found.text == "eTools Datamart sync: every dataset failed at its last run (50 datasets)."
+    counted = ",".join(name for name in NAMES if name not in catalogue.DIAGNOSTIC)
     assert found.url == (
-        reverse("admin:core_syncrun_changelist") + "?job__exact=etools_datamart&status__exact=failed"
+        reverse("admin:core_syncrun_changelist") + f"?job__exact=etools_datamart&target__in={counted}"
     )
 
 
@@ -173,6 +208,22 @@ def test_more_than_three_are_counted():
         "(4 of 50 datasets)."
     )
     assert found.numbers == {"run": runs["grants"].pk, "datasets_failed": 4}  # the newest of the four
+
+
+def test_several_failed_datasets_link_to_their_own_runs_alone(superadmin):
+    """Not to every failed run of the job: the table-refresh log fails every night, and an old failure since
+    followed by a success is no longer the point."""
+    old = timezone.now() - datetime.timedelta(days=3)
+    SyncRun.objects.create(job=DATAMART, target="agreements", status=FAILED, started_at=old, finished_at=old)
+    runs = sync_night("partners", "grants", "datamart_etl_status")
+    found = line()
+    assert found.url == (
+        reverse("admin:core_syncrun_changelist") + "?job__exact=etools_datamart&target__in=partners,grants"
+    )
+    listed = superadmin.get(found.url)
+    assert listed.status_code == 200
+    assert {run.target for run in listed.context["cl"].queryset} == {"partners", "grants"}
+    assert {run.pk for run in listed.context["cl"].queryset} == {runs["partners"].pk, runs["grants"].pk}
 
 
 def test_a_dataset_synced_again_alone_clears_its_line():
@@ -243,7 +294,7 @@ def test_the_admin_home_reads_the_job_as_its_datasets(superadmin):
     assert "The last eTools Datamart sync failed" not in box and "eTools Datamart sync: " not in box
     row = _jobs_row(html)
     assert "Succeeded" in row and "Failed" not in row
-    assert "Also failing, nothing in NeuroDB reads it: datamart_etl_status" in row
+    assert "Failing, but no page or check uses it: datamart_etl_status" in row and "Also" not in row
 
     again("partners", FAILED, error="boom")
     html = superadmin.get(reverse("admin:index")).content.decode()
@@ -251,6 +302,68 @@ def test_the_admin_home_reads_the_job_as_its_datasets(superadmin):
     assert "1 dataset failed" in row and "partners" in row
     box = html.split("Needs attention")[1].split("Quick actions")[0]
     assert "eTools Datamart sync: partners failed at its last run (1 of 50 datasets)." in box
+
+
+def test_the_admin_home_says_each_note_plainly(superadmin):
+    """Both diagnostic datasets failing: "them", not "it"; every dataset failing: "every dataset", not fifty names;
+    a dataset that wrote with errors: named under "Succeeded with errors"."""
+    runs = sync_night("datamart_etl_status", "etools_usage")
+    row = _jobs_row(superadmin.get(reverse("admin:index")).content.decode())
+    assert "Failing, but no page or check uses them: etools_usage, datamart_etl_status" in row
+
+    SyncRun.objects.filter(pk=runs["partners"].pk).update(status=PARTIAL, rows_failed=3)
+    row = _jobs_row(superadmin.get(reverse("admin:index")).content.decode())
+    assert "Succeeded with errors" in row and "partners" in row
+
+    SyncRun.objects.filter(job=DATAMART).update(status=FAILED)
+    row = _jobs_row(superadmin.get(reverse("admin:index")).content.decode())
+    assert "Failed" in row and "every dataset" in row and "partners" not in row
+
+
+def test_only_a_diagnostic_dataset_run_shows_as_it_is(superadmin):
+    """Never Succeeded when no dataset counted has run: the admin home, Scheduled jobs, the internal API and the
+    help chat show the table-refresh log's run as it is."""
+    from neurodb.help.tools import list_jobs
+    from neurodb.reports import services
+
+    SyncRun.objects.create(
+        job=DATAMART,
+        target="datamart_etl_status",
+        status=FAILED,
+        error=SERVER_ERROR,
+        finished_at=timezone.now(),
+    )
+    row = _jobs_row(superadmin.get(reverse("admin:index")).content.decode())
+    assert "Failed" in row and "Succeeded" not in row
+    row = _scheduled_row(superadmin.get(reverse("admin:core_scheduledjob_changelist")).content.decode())
+    assert "Failed" in row and "Succeeded" not in row
+    jobs = services.health_as_dict(services.data_health())["jobs"]
+    assert next(j for j in jobs if j["job"] == "etools_datamart")["last_status"] == "failed"
+    last = next(job for job in list_jobs()["jobs"] if job["job"] == "etools-datamart")["last_run"]
+    assert last["status"] == "Failed" and "datasets_failed" not in last
+
+
+def test_while_a_dataset_is_being_synced_the_job_reads_running_and_keeps_the_failure(superadmin):
+    """The sync's latest run is still going: Data health's card says so above the datasets that failed; the admin
+    home, Scheduled jobs and the help chat show that run as it is, Running."""
+    from neurodb.help.tools import list_jobs
+    from tests.web.parts import get_part, text
+
+    sync_night("partners")
+    again("grants", RUNNING)
+
+    html = text(get_part(superadmin, "/data/health/", "jobs"))
+    card = html[html.index('<h3 class="panel__title">eTools Datamart sync</h3>') :].split(
+        '<div class="panel">'
+    )[0]
+    card = " ".join(re.sub(r"<[^>]+>", " ", card).split()).replace(" :", ":")
+    assert "Latest run: Running" in card and "1 dataset failed partners" in card
+    row = _jobs_row(superadmin.get(reverse("admin:index")).content.decode())
+    assert "Running" in row and "1 dataset failed" not in row
+    row = _scheduled_row(superadmin.get(reverse("admin:core_scheduledjob_changelist")).content.decode())
+    assert "Running" in row and "1 dataset failed" not in row
+    last = next(job for job in list_jobs()["jobs"] if job["job"] == "etools-datamart")["last_run"]
+    assert last["status"] == "Running" and "datasets_failed" not in last
 
 
 def _scheduled_row(html: str) -> str:
@@ -268,7 +381,7 @@ def test_the_scheduled_jobs_page_reads_the_datamart_job_as_its_datasets(superadm
     again("partners", FAILED, error="boom")
     row = _scheduled_row(superadmin.get(reverse("admin:core_scheduledjob_changelist")).content.decode())
     assert "1 dataset failed" in row and "Failed" not in row
-    assert "?job__exact=etools_datamart&amp;status__exact=failed" in row
+    assert "?job__exact=etools_datamart&amp;target__in=partners" in row and "status__exact" not in row
 
 
 # ------------------------------------------------------------------------------------------- the command

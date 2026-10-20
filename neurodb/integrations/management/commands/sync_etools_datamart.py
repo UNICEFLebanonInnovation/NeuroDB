@@ -3,7 +3,7 @@
 After the sync (and its lock) is done, the partners are linked to ActivityInfo, and Monitoring insights
 rebuilds its visits when a dataset it reads was synced (``FMM_REFRESH_AFTER_SYNC``). That refresh is
 its own run: its failure never fails this command, and neither does a failed diagnostic dataset
-(``catalogue.DIAGNOSTIC``, read by nothing in NeuroDB: its run says it failed).
+(``catalogue.DIAGNOSTIC``, used by no page, figure or check: its run says it failed).
 
 One sync runs at a time (the Datamart lock): a second one does nothing. The eTools update clean-up
 (``datamart_backfill``, after a deployment) holds the same lock; a sync started meanwhile waits for it

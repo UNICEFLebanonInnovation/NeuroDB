@@ -457,14 +457,16 @@ def list_jobs() -> dict[str, Any]:
                     from neurodb.reports.services import datamart_sync_state
 
                     state = datamart_sync_state()
-                    last["status"] = str(state.label) or last["status"]
-                    last["datasets_failed"] = list(state.failed)
-                    last["diagnostic_datasets_failed"] = list(state.diagnostic_failed)
-                    last["note"] = (
-                        "One run per dataset: started and finished are those of the last dataset synced. "
-                        "The status reads every dataset's latest run; a diagnostic dataset (nothing in "
-                        "NeuroDB reads it) is never counted as a failure."
-                    )
+                    if state.status:  # else no dataset counted has finished: the run as it is
+                        last["status"] = str(state.label)
+                        last["datasets_failed"] = list(state.failed)
+                        last["datasets_with_errors"] = list(state.partial)
+                        last["diagnostic_datasets_failed"] = list(state.diagnostic_failed)
+                        last["note"] = (
+                            "One run per dataset: started and finished are those of the last dataset synced. "
+                            "The status reads every dataset's latest run; a diagnostic dataset (no page, "
+                            "figure or check uses it) is never counted as a failure."
+                        )
         jobs.append(
             {
                 "job": job.key,

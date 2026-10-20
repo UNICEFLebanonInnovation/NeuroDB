@@ -555,7 +555,7 @@ def _dashboard(request) -> dict[str, Any]:
             "status_label": last.get_status_display() if last else "",
         }
         finished = last is not None and last.status != SyncRun.Status.RUNNING
-        if job == SyncRun.Job.ETOOLS_DATAMART and finished and datamart.runs:
+        if job == SyncRun.Job.ETOOLS_DATAMART and finished and datamart.status:
             entry.update(status=datamart.status, status_label=datamart.label, datasets=datamart)
         jobs.append(entry)
 

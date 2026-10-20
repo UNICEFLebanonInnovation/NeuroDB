@@ -366,7 +366,7 @@ def test_the_jobs_look_up_names_no_one_and_no_error(viewer):
 
 def test_the_jobs_look_up_reads_the_datamart_sync_dataset_by_dataset(viewer):
     """The eTools Datamart sync writes one run per dataset: its last run is only the last dataset of the order
-    (the Datamart's own table-refresh log, which nothing in NeuroDB reads), never the whole sync."""
+    (the Datamart's own table-refresh log, which no page, figure or check uses), never the whole sync."""
     started = timezone.now() - datetime.timedelta(hours=1)
     night = [("partners", SyncRun.Status.SUCCEEDED), ("grants", SyncRun.Status.SUCCEEDED)]
     night.append(("datamart_etl_status", SyncRun.Status.FAILED))  # the last dataset of the order
@@ -389,7 +389,11 @@ def test_the_jobs_look_up_reads_the_datamart_sync_dataset_by_dataset(viewer):
     last = datamart_last_run()
     assert last["status"] == "Succeeded" and last["datasets_failed"] == []
     assert last["diagnostic_datasets_failed"] == ["datamart_etl_status"]
-    assert "One run per dataset" in last["note"]
+    assert "One run per dataset" in last["note"] and "no page, figure or check uses it" in last["note"]
+
+    SyncRun.objects.filter(target="grants").update(status=SyncRun.Status.PARTIAL, rows_failed=2)
+    last = datamart_last_run()
+    assert last["status"] == "Succeeded with errors" and last["datasets_with_errors"] == ["grants"]
 
     SyncRun.objects.filter(target="partners").update(status=SyncRun.Status.FAILED)
     last = datamart_last_run()

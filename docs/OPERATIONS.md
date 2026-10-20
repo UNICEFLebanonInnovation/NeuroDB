@@ -1280,26 +1280,31 @@ and starts. The scheduled job `etools-datamart` (admin → Scheduled jobs) runs 
 From a shell with the same settings: `python manage.py sync_etools_datamart [--only a,b]`.
 
 **One failed dataset is not the whole sync.** Each dataset is its own run in *Import and sync runs*, and
-a dataset that fails does not stop the next one: its last good rows stay as they were. NeuroDB therefore
+a dataset that fails does not stop the others: its last good rows stay as they were. NeuroDB therefore
 reads the sync dataset by dataset, from the latest finished run of each. *Needs attention* and NeuroDB
 Watch name the datasets whose own latest run failed ("eTools Datamart sync: partners failed at its last
 run (1 of 50 datasets)."; past three names, "… and 2 more"; "every dataset failed at its last run" only
-when all of them did), and the line goes, and the Watch point closes, only once that dataset itself
-succeeds again: another dataset succeeding later does not clear it. The admin home's *Data jobs*, the
-*Last run* column of *Scheduled jobs*, the help chat and the Data health job card read the same:
-*Succeeded*, *2 datasets failed* or *Failed* (every dataset). `datamart_etl_status` (the Datamart's own
-table-refresh log) and `etools_usage` (eTools users and logins per month) are **diagnostic**: nothing in
-NeuroDB reads them, only Ask NeuroDB's general eTools look-ups. One that fails is shown on Data health
-(its row in the datasets table, marked "diagnostic: nothing in NeuroDB reads it", with its error; a line
-on the job card) and in the list of runs, but it is never a *Needs attention* line, a Watch point or a
-daily review finding; a Watch point still open for the sync closes as changed ("only a diagnostic eTools
-Datamart dataset still fails"), not as fixed. To sync one dataset again, open its run and press **Sync
-this dataset again**, or press **Sync eTools Datamart now**, choose *Only the datasets ticked below* and
-tick it. The failed run's page says, under *What the error means*, that only this dataset stopped and
-whether anything reads it. The error itself reads: for HTTP 502, 503 or 504, "eTools Datamart was
-unavailable: try again later."; for any other 5xx (a 500 above all), "eTools Datamart answered with a
-server error (HTTP 500), even after NeuroDB asked again: the fault is on its side, and it usually passes
-by the next run." (NeuroDB asks again on 429 and every 5xx before it gives up); for 429, "eTools Datamart
+when all of them did; the line links to the failed run, or to the runs of the datasets it names), and
+the line goes, and the Watch point closes as fixed, only once that dataset itself succeeds again:
+another dataset succeeding later does not clear it. The admin home's *Data jobs*, the *Last run* column
+of *Scheduled jobs*, the help chat and the Data health job card read the same: *Succeeded*,
+*Succeeded with errors* (no dataset failed, but one wrote with row errors; it is named), *2 datasets
+failed* or *Failed* (every dataset); while only a diagnostic dataset has run, they show that run as it
+is. `datamart_etl_status` (the Datamart's own table-refresh log) and `etools_usage` (eTools users and
+logins per month) are **diagnostic**: no page, figure or check uses them, only Ask NeuroDB's general
+eTools look-ups can read them. One that fails is shown on Data health (its row in the datasets table,
+marked "diagnostic: no page or check uses it", with its error; a line on the job card) and in the list
+of runs, but it is never a *Needs attention* line, a Watch point or a daily review finding. A Watch
+point opened for the table-refresh log before NeuroDB read the sync dataset by dataset closes as changed
+("only a diagnostic eTools Datamart dataset still fails") while the log still fails, not as fixed. To
+sync one dataset again, open its run and press **Sync this dataset again**, or press **Sync eTools
+Datamart now**, choose *Only the datasets ticked below, in their usual order* and tick it. The failed
+run's page says, under *What the error means*, that only this dataset stopped and whether a page uses
+it. *What the error means* (also in the list's *Error* column) reads: for HTTP 502, 503 or 504,
+"eTools Datamart was unavailable: try again later."; for HTTP 500, "eTools Datamart answered with a
+server error (HTTP 500), even after NeuroDB asked again. If the next run fails the same way, tell the
+team that runs eTools Datamart." (NeuroDB asks again on 429, 500, 502, 503 and 504 before it gives up;
+any other 5xx reads the same without "even after NeuroDB asked again"); for 429, "eTools Datamart
 refused more requests for now (too many in a short time): try again later."; for 401 or 403, that the
 credentials were refused.
 
@@ -2471,7 +2476,7 @@ Data health page.
 | `tpm_reports_late` | TPM visits ended more than 14 days ago whose report has not come in | warning |
 | `action_points_overdue` | Open high-priority action points past their due date, per partner and section | critical |
 | `findings_off_track` | Field monitoring findings rated off track in the last 30 days, per partner | warning |
-| `sync_failures` | Failed or partial sync runs in the last 24 hours (the ActivityInfo jobs only while the import is followed, see *ActivityInfo: in use or archive*; the eTools reporting checks only a run that failed, not one where a check could not finish) | warning |
+| `sync_failures` | Failed or partial sync runs in the last 24 hours (the ActivityInfo jobs only while the import is followed, see *ActivityInfo: in use or archive*; the eTools reporting checks only a run that failed, not one where a check could not finish; the diagnostic eTools Datamart datasets (`datamart_etl_status`, `etools_usage`) never, see *One failed dataset is not the whole sync*) | warning |
 | `data_quality` | Datasets whose last run failed rows; ActivityInfo partner names not linked to eTools (only while ActivityInfo is in use) | info |
 | `locations_unplaced` | PD indicators whose location is not in the gazetteer | info |
 | `stale_sources` | Sources older than `SYNC_STALENESS_HOURS` (the ActivityInfo import only while it is followed, and not after the 22nd, when it does not run) | info |

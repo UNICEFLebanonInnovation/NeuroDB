@@ -302,16 +302,14 @@ def _datamart(label) -> list[Warning]:
             "eTools Datamart sync: %(names)s failed at their last run (%(n)s of %(total)s datasets).",
             n,
         ) % {"names": names, "n": n, "total": state.counted}
-    if n == 1:
-        url = reverse("admin:core_syncrun_change", args=[newest.pk])
-    else:
-        url = _admin_url("core_syncrun") + "?job__exact=etools_datamart&status__exact=failed"
+    # one dataset: its failed run; several: the runs of those datasets alone, each one's latest on top
+    url = reverse("admin:core_syncrun_change", args=[newest.pk]) if n == 1 else state.runs_url()
     return [
         Warning(
             key="job_failed:etools_datamart",
             text=text,
             url=url,
-            read=_("Latest run of each dataset of the %(job)s") % {"job": label},
+            read=_("Datasets of the %(job)s whose latest run failed") % {"job": label},
             on=timezone.localdate(newest.started_at),
             value=n,
             numbers={"run": newest.pk, "datasets_failed": n},

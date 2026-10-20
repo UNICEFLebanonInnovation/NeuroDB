@@ -80,7 +80,10 @@ def test_a_failed_datamart_run_is_one_item_with_the_same_key_across_two_runs(hea
     assert item.title == "eTools Datamart sync: partners failed at its last run (1 of 1 datasets)."
     assert item.url.endswith(f"/core/syncrun/{run.pk}/change/")
     (found,) = item.evidence["records"]
-    assert found["label"] == "Latest run of each dataset of the eTools Datamart sync" and found["value"] == 1
+    assert (
+        found["label"] == "Datasets of the eTools Datamart sync whose latest run failed"
+        and found["value"] == 1
+    )
     assert found["date"] == "2026-10-05" and item.evidence["numbers"]["run"] == run.pk
     assert [line["text"] for line in item.story] == ["First noticed"]
 
@@ -97,9 +100,9 @@ def test_the_item_closes_at_once_when_the_line_is_gone(healthy):
     assert item.close_reason == system.FIXED
 
 
-def test_the_datamart_item_closes_as_changed_while_only_a_diagnostic_dataset_still_fails(healthy):
-    """The Datamart's table-refresh log (catalogue.DIAGNOSTIC) failing is no alarm, but it was not fixed: the item
-    opened for a real dataset closes as changed when that dataset succeeds while the log still fails."""
+def test_a_datamart_item_closes_as_fixed_when_its_dataset_succeeds_while_a_diagnostic_one_fails(healthy):
+    """The Datamart's table-refresh log (catalogue.DIAGNOSTIC) fails every night while its endpoint answers 500:
+    an item opened for a real dataset is fixed once that dataset succeeds, whatever the log does."""
     ran(DATAMART, FAILED, NOW - 3 * HOUR, target="partners")
     check()
     ran(DATAMART, SUCCEEDED, NOW - 2 * HOUR, target="partners")
@@ -109,10 +112,49 @@ def test_the_datamart_item_closes_as_changed_while_only_a_diagnostic_dataset_sti
 
     item = items()["system:job_failed:etools_datamart"]
     assert outcome.closed == [item.key] and item.state == "closed"
+    assert (item.close_reason, item.close_kind) == (system.FIXED, WatchItem.CloseKind.RESOLVED)
+
+
+def test_an_item_opened_for_the_table_refresh_log_closes_as_changed_while_it_still_fails(healthy):
+    """Before the sync was read dataset by dataset, the line took the job's latest run, the last dataset of the
+    order: the Datamart's table-refresh log. Such an item (its evidence has no datasets_failed) closes as changed
+    while the log still fails, since it is no longer an alarm but was not fixed; as fixed once the log succeeds."""
+    etl = ran(
+        DATAMART, FAILED, NOW - 3 * HOUR, target="datamart_etl_status", error="HTTP 500 Internal Server"
+    )
+    ran(DATAMART, FAILED, NOW - 3 * HOUR, target="partners")
+    check()  # opens the item, then made as the job-level line of before left it
+    WatchItem.objects.filter(key="system:job_failed:etools_datamart").update(
+        evidence={"records": [], "numbers": {"run": etl.pk, "rows_failed": 0}}
+    )
+    ran(DATAMART, SUCCEEDED, NOW - 2 * HOUR, target="partners")
+
+    outcome = check(minutes=2, mode=QUICK)
+
+    item = items()["system:job_failed:etools_datamart"]
+    assert outcome.closed == [item.key] and item.state == "closed"
     assert (item.close_reason, item.close_kind) == (system.ONLY_DIAGNOSTIC, WatchItem.CloseKind.CHANGED)
     assert system.ONLY_DIAGNOSTIC == (
         "only a diagnostic eTools Datamart dataset still fails: shown on Data health, no longer an alarm"
     )
+
+
+def test_an_item_of_before_closes_as_fixed_once_its_diagnostic_dataset_succeeds(healthy):
+    etl = ran(
+        DATAMART, FAILED, NOW - 3 * HOUR, target="datamart_etl_status", error="HTTP 500 Internal Server"
+    )
+    ran(DATAMART, FAILED, NOW - 3 * HOUR, target="partners")
+    check()
+    WatchItem.objects.filter(key="system:job_failed:etools_datamart").update(
+        evidence={"records": [], "numbers": {"run": etl.pk, "rows_failed": 0}}
+    )
+    ran(DATAMART, SUCCEEDED, NOW - 2 * HOUR, target="partners")
+    ran(DATAMART, SUCCEEDED, NOW - HOUR, target="datamart_etl_status")
+
+    check(minutes=2, mode=QUICK)
+
+    item = items()["system:job_failed:etools_datamart"]
+    assert (item.close_reason, item.close_kind) == (system.FIXED, WatchItem.CloseKind.RESOLVED)
 
 
 def test_a_partial_run_has_its_own_key(healthy):
