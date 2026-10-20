@@ -226,6 +226,23 @@ BACKGROUND_JOBS = [
         "fact_check",
     ),
     BackgroundJob(
+        "run_suggest_master_indicators",
+        ("suggest_master_indicators",),
+        SyncRun.Job.ETOOLS_MASTERS,
+        _("eTools master indicators"),
+        _("Suggest PD indicators for the master indicators"),
+        _(
+            "Suggests, for each eTools master indicator, the partners' PD indicators of this year and last "
+            "year that belong in it (same section, CP output, type and title, or a similar title), and "
+            "proposes new master indicators where programme documents share an indicator no master holds, in "
+            "the background. Nothing counts until someone confirms it, on the Master indicators tab or in "
+            "the administration; confirmed and rejected links and dismissed proposals are kept. A schedule "
+            "also runs it every night while it is switched on (Scheduled jobs, etools-masters). No AI is "
+            "used."
+        ),
+        "category",
+    ),
+    BackgroundJob(
         "run_whats_new_digest",
         ("whats_new_digest",),
         SyncRun.Job.WHATS_NEW,

@@ -40,6 +40,8 @@ DOC_REVIEW_LOCK_ID = 7140436  # the document review of the knowledge base
 DATAMART_BACKFILL_LOCK_ID = 7140437
 REPORTING_CHECKS_LOCK_ID = 7140438  # neurodb.datamart.checks.LOCK_ID: one run of the checks at a time
 DATAMART_PROBE_LOCK_ID = 7140439  # neurodb.integrations.etools.probe.LOCK_ID: one probe at a time
+# neurodb.datamart.master_links.LOCK_ID: one run of the master indicators' suggestions at a time
+ETOOLS_MASTERS_LOCK_ID = 7140440
 LOCK_IDS = {
     SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID,
     SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID,
@@ -52,6 +54,7 @@ LOCK_IDS = {
     SyncRun.Job.DATAMART_BACKFILL: DATAMART_BACKFILL_LOCK_ID,
     SyncRun.Job.REPORTING_CHECKS: REPORTING_CHECKS_LOCK_ID,
     SyncRun.Job.DATAMART_PROBE: DATAMART_PROBE_LOCK_ID,
+    SyncRun.Job.ETOOLS_MASTERS: ETOOLS_MASTERS_LOCK_ID,
 }
 
 
