@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from neurodb.datamart import masters, monitoring
+from neurodb.datamart import models as dm
 from neurodb.indicators.services.tracking import tracking
 
 from . import masters_world as w
@@ -532,6 +533,27 @@ def test_a_report_total_repeated_on_every_location_row_is_read_once(pds):
     w.link(m, c, 391)
     fig = w.figure(m)
     assert fig.value == fig.subs[0].row.reached_in_year == 120.0  # never 360
+
+
+def test_a_sub_whose_reports_carry_two_indicator_reports_of_its_title_counts_its_own_outputs(pds):
+    """PRP sends two indicator reports of the sub's title in each report, under its own PD output and another
+    one (the partner reports' rule, reached.one_indicator): the sub's year, its quarters and the master's figure
+    are those under its own output (70), as Program Performance reads them; never the largest of the two at
+    each place (150) nor their sum (220). An output that tells neither apart leaves the reports out."""
+    a = pds["A"]
+    w.indicator(a, 101, ENROLLED, target=(1000, 1))
+    dm.PDIndicator.objects.filter(source_id=101).update(lower_result_name="1.1 Access to learning")
+    for quarter, end, own, other in ((1, day(3, 31), 40, 90), (2, day(6, 30), 30, 60)):
+        w.report(a, 101, ENROLLED, f"QPR{quarter}", end, {"Akkar": own}, pd_output="1.1 Access to learning")
+        w.report(a, 101, ENROLLED, f"QPR{quarter}", end, {"Akkar": other}, pd_output="1.2 Learning quality")
+    m = w.master("Children enrolled in non-formal education")
+    w.link(m, a, 101)
+    fig = w.figure(m)
+    assert fig.value == fig.subs[0].row.reached_in_year == fig.subs[0].row.in_year_item[0] == 70.0
+    assert fig.quarters == {1: 40.0, 2: 70.0, 3: 70.0, 4: 70.0}
+    dm.PDIndicator.objects.filter(source_id=101).update(lower_result_name="2.1 Another output")
+    fig = w.figure(m)
+    assert fig.value is None and fig.subs[0].row.reached_in_year is None and not fig.subs[0].counted
 
 
 # ---------------------------------------------------------------------------------------------- the status
