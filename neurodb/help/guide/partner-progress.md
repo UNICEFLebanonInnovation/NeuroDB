@@ -132,7 +132,10 @@ Program Performance reads it, so no report is ever added twice.
   reference only.
 
 A PD indicator that is no longer in eTools stops counting and says so; its replacement is suggested the next
-night. One whose type changed in eTools stops counting until someone clicks **Confirm again**. *Excel of the filter* and *CSV of the filter* give one row per master indicator and
+night. One whose type changed in eTools stops counting until someone clicks **Confirm again**. With
+*Humanitarian reports (monthly)* or a location chosen, a PD indicator the filter does not read (one neither
+high-frequency nor a cluster indicator, or one not planned at the place) is simply not listed: it is still in
+eTools. *Excel of the filter* and *CSV of the filter* give one row per master indicator and
 one per PD indicator. In the administration, under Reporting setup, master indicators can also be made by
 hand (with *Add PD indicators*), from an ActivityInfo master indicator, merged, or moved after eTools renames
 a section.

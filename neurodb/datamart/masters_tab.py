@@ -162,9 +162,12 @@ def _figures(
     base: monitoring.Filters,
     today: datetime.date,
 ) -> list[Figure]:
-    """:func:`neurodb.datamart.masters.figures` of the masters, with the children guard of a sum. With a
-    location filter, a link whose indicator is not planned at the chosen places is not listed (it is not "no
-    longer in eTools")."""
+    """:func:`neurodb.datamart.masters.figures` of the masters, with the children guard of a sum. A filter
+    that reads only some indicators of a running programme document leaves out links that are still in eTools:
+    with a location filter, those whose indicator is not planned at the chosen places; with the humanitarian
+    reports (``HR``), those whose indicator is neither high-frequency nor a cluster indicator
+    (:func:`neurodb.datamart.monitoring._indicator_rows`). They are not listed: they are not "no longer in
+    eTools", which stays true only of an indicator that has left eTools."""
     year = base.year
     sums = any(m.method == Method.SUM for m in chosen)
     out = masters.figures(
@@ -176,7 +179,7 @@ def _figures(
         national=headline.national_children(year) if sums else None,
         is_children=headline.children_rule() if sums else None,
     )
-    if base.locations:
+    if base.locations or base.report_type == "HR":
         gone = {(s.link.pd_id, s.link.ident) for f in out for s in f.subs if s.reason == masters.GONE}
         if gone:
             existing = _existing({pd_id for pd_id, _ident in gone})

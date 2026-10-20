@@ -2548,3 +2548,59 @@ def latest_run():
         .order_by("-finished_at", "-id")
         .first()
     )
+
+
+NOT_RUN_YET = (
+    "Not run yet: the stored result is from before this check existed; the next run of the checks adds it."
+)
+
+
+@dataclass
+class Stored:
+    """A stored result read against this release's checks (:func:`read_stored`)."""
+
+    cards: list[dict[str, Any]]  # this release's checks, in their order
+    missing: list[str] = field(default_factory=list)  # checks it does not hold: stored before they existed
+    changed: list[str] = field(default_factory=list)  # checks whose title, question or rule changed since
+    dropped: list[str] = field(default_factory=list)  # checks it holds that this release no longer runs
+
+    @property
+    def outdated(self) -> bool:
+        """Stored by checks other than this release's (an earlier release's run): not their result."""
+        return bool(self.missing or self.changed or self.dropped)
+
+
+def read_stored(found: list[dict[str, Any]]) -> Stored:
+    """A stored result (a run's ``details["checks"]``) as the page shows it beside this release's checks. A
+    result an earlier release stored is never shown as theirs: a check it does not hold (one added since)
+    is a card that says it has not run yet; a check whose title, question or rule (what NeuroDB does) changed
+    since keeps its stored card, the earlier check's verdict, and is listed in ``changed``; a check this
+    release no longer runs is left out. The page names them above the cards until the next run replaces the
+    result (the nightly schedule, or *Run the checks now*)."""
+    held = {str(entry.get("key")): entry for entry in found}
+    out = Stored(cards=[])
+    for check in CHECKS:
+        entry = held.pop(check.key, None)
+        if entry is None:
+            out.missing.append(check.key)
+            out.cards.append(
+                {
+                    "key": check.key,
+                    "title": check.title,
+                    "question": check.question,
+                    "neurodb": check.neurodb,
+                    "tone": INFO,
+                    "verdict": NOT_RUN_YET,
+                    "figures": [],
+                }
+            )
+            continue
+        if (entry.get("title"), entry.get("question"), entry.get("neurodb")) != (
+            check.title,
+            check.question,
+            check.neurodb,
+        ):
+            out.changed.append(check.key)
+        out.cards.append(entry)
+    out.dropped = list(held)
+    return out

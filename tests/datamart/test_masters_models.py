@@ -3,9 +3,11 @@ keep one counted home per PD indicator, what clean() refuses, and the nightly sc
 
 from __future__ import annotations
 
+import datetime
 import importlib
 
 import pytest
+from django.apps import apps as django_apps
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -63,6 +65,32 @@ def test_the_schedule_runs_every_night_after_the_checks_and_is_due_at_once():
     assert job.next_run_at is not None  # due now: not left for the scheduler to plan later
     checks = ScheduledJob.objects.get(key="reporting-checks")
     assert checks.schedule == "15 2 * * *"  # the suggestions come after the night's checks
+
+
+def test_the_release_runs_its_reporting_checks_soon_after_its_deployment():
+    """The release rewrites checks 1 to 11 and adds check 12: the stored result of the previous release is not
+    theirs. Its migration makes the nightly checks due a quarter of an hour later (not at once: the previous
+    container's scheduler, still running during the deployment, would run its own earlier checks), never later
+    than they already were, and leaves a switched-off schedule alone."""
+    migration = importlib.import_module("neurodb.core.migrations.0031_etools_masters_job")
+    checks = ScheduledJob.objects.get(key="reporting-checks")
+    tonight = timezone.now() + datetime.timedelta(hours=14)
+    ScheduledJob.objects.filter(pk=checks.pk).update(next_run_at=tonight)  # what the previous release planned
+    before = timezone.now()
+    migration.create(django_apps, None)
+    checks.refresh_from_db()
+    assert before + migration.AFTER_RELEASE <= checks.next_run_at <= timezone.now() + migration.AFTER_RELEASE
+    assert migration.AFTER_RELEASE == datetime.timedelta(minutes=15)
+    sooner = timezone.now() + datetime.timedelta(minutes=5)  # already due sooner: kept
+    ScheduledJob.objects.filter(pk=checks.pk).update(next_run_at=sooner)
+    migration.create(django_apps, None)
+    checks.refresh_from_db()
+    assert checks.next_run_at == sooner
+    ScheduledJob.objects.filter(pk=checks.pk).update(enabled=False, next_run_at=tonight)
+    migration.create(django_apps, None)
+    checks.refresh_from_db()
+    assert not checks.enabled and checks.next_run_at == tonight
+    assert ScheduledJob.objects.filter(key="etools-masters").count() == 1  # run again, it adds nothing
 
 
 def test_a_run_of_the_job_rebuilds_no_knowledge_hub(monkeypatch):

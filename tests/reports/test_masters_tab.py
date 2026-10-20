@@ -287,6 +287,51 @@ def test_a_location_filter_reads_reacheds_own_and_never_calls_an_indicator_gone(
     assert all(s.sub.reason != masters.GONE for line in lines.values() for s in line.subs)
 
 
+def test_the_humanitarian_reports_never_call_an_indicator_without_them_gone(client_viewer, world):
+    """Reports = humanitarian reads high-frequency and cluster PD indicators only. A confirmed PD indicator that
+    is neither, in a programme document that has one, is still in eTools: like a location filter, it is not
+    listed (on the tab, in the detail and in the export); one that has left eTools still reads so."""
+    a, b, _c = world["pds"]
+    enrolled = world["enrolled"]
+    outreach = "# of children reached with emergency learning kits"
+    w.indicator(a, 161, outreach, is_high_frequency=True)
+    w.report(a, 161, outreach, "HR1", day(1, 31), {"Akkar": 40}, kind="HR")
+    w.link(enrolled, a, 161)
+    clustered = "# of children enrolled in cluster NFE classes"
+    w.indicator(b, 261, clustered, cluster_name="Education")
+    w.report(b, 261, clustered, "HR1", day(1, 31), {"Akkar": 25}, kind="HR")
+    w.link(enrolled, b, 261)
+    w.link(enrolled, a, 199)  # its indicator is no longer in eTools
+    gone = "No longer in eTools"
+
+    lines = _lines(_tab(client_viewer, report_type="HR"))
+    total = lines[SUM_NAME]
+    assert {s.link.ident: s.sub.reason for s in total.subs} == {"s161": "", "s261": "", "s199": masters.GONE}
+    assert total.figure.value == 65.0
+    # PD/2026/001's quarterly percentage and its indicator moved to Child Protection are not humanitarian
+    assert not lines[PERCENT_NAME].subs and not lines[MOVED_NAME].subs
+    reasons = [s.sub.reason for line in lines.values() for s in line.subs]
+    assert reasons.count(masters.GONE) == 1
+
+    url = reverse("reports:etools_master", args=[enrolled.pk])
+    modal = text(client_viewer.get(url, {"year": "2026", "report_type": "HR"}, **HX))
+    assert modal.count(gone) == 1 and "PD/2026/002" in modal
+
+    response = client_viewer.get(
+        PAGE, {"view": "masters", "section": w.EDUCATION, "report_type": "HR", "export": "csv"}
+    )
+    rows = list(csv.DictReader(io.StringIO(b"".join(response.streaming_content).decode("utf-8-sig"))))
+    subs = [r for r in rows if r["level"] == "sub"]
+    assert [r["counted"] for r in subs].count(gone) == 1
+    assert {r["indicator"] for r in subs} >= {outreach, clustered}
+    assert not {ENROLLED, PASSING, KITS} & {r["indicator"] for r in subs}
+
+    # the quarterly reports read the same links: the others count again
+    quarterly_lines = _lines(_tab(client_viewer, report_type="QPR"))
+    assert {"s101", "s201"} <= {s.link.ident for s in quarterly_lines[SUM_NAME].subs}
+    assert quarterly_lines[PERCENT_NAME].subs and quarterly_lines[MOVED_NAME].subs
+
+
 def test_subs_in_another_section_are_read_with_one_more_read_by_programme_document(
     client_viewer, world, monkeypatch
 ):

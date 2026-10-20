@@ -6,8 +6,9 @@
   partner report data NeuroDB holds answers the questions the "Reached" rule depends on, each with a
   plain verdict and what NeuroDB does whatever the answer. Read-only. The cards are the result the last
   run of the job stored (stored: every night, or "Run the checks now", which posts here); with none
-  stored and none running, the page ran them itself (stored is None, checked_at now). A card shows its
-  figures, its table and its further tables (check 11's business area codes and progress reports, check 12's
+  stored and none running, the page ran them itself (stored is None, checked_at now). A result an earlier
+  release stored (outdated: checks.read_stored) says so, and a check added since reads "Not run yet". A
+  card shows its figures, its table and its further tables (check 11's business area codes and progress reports, check 12's
   record keys), each the same way (_check_table.html: with its title as its caption, when it has one).
 {% endcomment %}
 
@@ -61,6 +62,14 @@
         The run of the checks of {{ when }} failed (<a class="nd-link" href="{{ url }}">open the run</a>).
       {% endblocktrans %}
       {% if stored %}{% blocktrans trimmed with when=checked_at|date:"j M Y, H:i" %}The cards below are those of the last run that stored a result ({{ when }}).{% endblocktrans %}{% endif %}
+    </p>
+  {% endif %}
+  {% if outdated %}
+    <p class="mb-4 nd-found__warn" id="reporting-checks-outdated">
+      {% trans "This result was stored by an earlier release of NeuroDB, before the current checks: it is not their result." %}
+      {% if outdated.missing %}{% blocktrans trimmed count n=outdated.missing|length with keys=outdated_missing %}Check {{ keys }} has not run yet.{% plural %}Checks {{ keys }} have not run yet.{% endblocktrans %}{% endif %}
+      {% if outdated.changed %}{% blocktrans trimmed count n=outdated.changed|length with keys=outdated_changed %}Check {{ keys }} changed since: its card shows the verdict of the check as it was then.{% plural %}Checks {{ keys }} changed since: their cards show the verdicts of the checks as they were then.{% endblocktrans %}{% endif %}
+      {% if running or starting %}{% trans "The run under way replaces it." %}{% else %}{% trans "Run the checks now to see the current result; the nightly run also replaces it." %}{% endif %}
     </p>
   {% endif %}
 

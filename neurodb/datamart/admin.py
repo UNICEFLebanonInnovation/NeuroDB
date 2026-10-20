@@ -14,7 +14,7 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 from django.utils import timezone
-from django.utils.text import Truncator
+from django.utils.text import Truncator, get_text_list
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action
@@ -216,7 +216,9 @@ def reporting_checks_view(request):
     the checks now*, which posts here and starts it in the background). Only while no run has stored one,
     and none is running, does the page run the checks itself, within its own time. A run started a moment
     ago (the button, Run a job or the schedule: ``background.started_at``) counts as starting until its
-    process has written its row (it needs a few seconds), so no page runs the checks itself beside it."""
+    process has written its row (it needs a few seconds), so no page runs the checks itself beside it.
+    A result an earlier release stored is read against this release's checks (``checks.read_stored``): the
+    page says so above the cards, and a check added since reads "Not run yet", until a run replaces it."""
     from neurodb.core.models import ScheduledJob, SyncRun
     from neurodb.integrations import background
 
@@ -253,8 +255,11 @@ def reporting_checks_view(request):
         background.forget_started("reporting_checks")
         asked = None
     starting = asked is not None and not running
+    outdated = None
     if stored:
-        found, checked_at = stored.details["checks"], stored.finished_at
+        read = checks.read_stored(stored.details["checks"])
+        found, checked_at = read.cards, stored.finished_at
+        outdated = read if read.outdated else None
     elif running or starting:
         found, checked_at = [], None
     else:
@@ -270,6 +275,9 @@ def reporting_checks_view(request):
         "starting": starting,
         "nightly": ScheduledJob.objects.filter(command="reporting_checks", enabled=True).exists(),
         "failed": failed,
+        "outdated": outdated,
+        "outdated_missing": get_text_list(outdated.missing, _("and")) if outdated else "",
+        "outdated_changed": get_text_list(outdated.changed, _("and")) if outdated else "",
         "failed_url": reverse("admin:core_syncrun_change", args=[failed.pk]) if failed else None,
         "run_url": here,
         "page_seconds": int(checks.PAGE_BUDGET_S),

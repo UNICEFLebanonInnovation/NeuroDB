@@ -195,6 +195,70 @@ def test_the_page_shows_the_stored_result_without_running_the_checks(client, adm
     assert "by the reporting checks job, with up to 60 minutes" in page
     assert "Run the checks now" in page and 'name="csrfmiddlewaretoken"' in page
     assert "The button runs it again now, in the background." in page
+    assert "earlier release" not in page and "Not run yet" not in page  # this release's own result
+
+
+def _earlier_result() -> SyncRun:
+    """A result the release before check 12 stored: checks 1 to 11, check 11 worded as it was then."""
+    cards = [
+        {
+            **_card(c.key),
+            "title": c.title,
+            "question": c.question,
+            "neurodb": c.neurodb,
+            "verdict": f"Then {c.key}.",
+        }
+        for c in checks.CHECKS
+        if c.key != "12"
+    ]
+    cards[-1]["neurodb"] = "What NeuroDB did then."
+    return SyncRun.objects.create(
+        job=JOB, status=SyncRun.Status.SUCCEEDED, finished_at=timezone.now(), details={"checks": cards}
+    )
+
+
+def test_a_result_an_earlier_release_stored_is_never_shown_as_the_current_checks(
+    client, admin_user, monkeypatch
+):
+    _earlier_result()
+    monkeypatch.setattr(checks, "run_all", _never)
+    client.force_login(admin_user)
+    page = client.get(reverse(URL)).text
+    assert "This result was stored by an earlier release of NeuroDB" in page
+    assert "Check 12 has not run yet." in page and "Check 11 changed since" in page
+    assert (
+        "Check 12 · Indicator grouping" in page
+        and "Not run yet: the stored result is from before this check" in page
+    )
+    assert page.index("Check 11 ·") < page.index("Check 12 ·")
+    assert "Then 1." in page and "Then 11." in page  # the stored cards, said to be the earlier ones
+    assert "Run the checks now" in page and 'name="csrfmiddlewaretoken"' in page
+    # the current checks' result replaces it, and the page then has nothing more to say
+    monkeypatch.undo()
+    checks.run_job("test")
+    page = client.get(reverse(URL)).text
+    assert "earlier release" not in page and "Not run yet" not in page and "Check 12 ·" in page
+
+
+def test_while_a_run_goes_an_earlier_result_says_the_run_replaces_it(client, admin_user, monkeypatch):
+    _earlier_result()
+    SyncRun.objects.create(job=JOB, triggered_by="schedule")  # running
+    monkeypatch.setattr(background, "lock_is_held", lambda lock_id: True)
+    monkeypatch.setattr(checks, "run_all", _never)
+    client.force_login(admin_user)
+    page = client.get(reverse(URL)).text
+    assert "earlier release" in page and "The run under way replaces it." in page
+    assert "Run the checks now" not in page and "Check 12 ·" in page
+
+
+def test_a_stored_result_is_read_against_this_releases_checks(db):
+    current = checks.read_stored(checks.run_all())
+    assert not current.outdated and [c["key"] for c in current.cards] == [c.key for c in checks.CHECKS]
+    stored = [*_earlier_result().details["checks"], {**_card("99"), "title": "A check no longer run"}]
+    read = checks.read_stored(stored)
+    assert read.outdated and (read.missing, read.changed, read.dropped) == (["12"], ["11"], ["99"])
+    assert [c["key"] for c in read.cards] == [c.key for c in checks.CHECKS]
+    assert read.cards[-1]["tone"] == checks.INFO and read.cards[-1]["title"] == "Indicator grouping"
 
 
 def test_with_nothing_stored_the_page_runs_the_checks_itself_and_says_so(client, admin_user):

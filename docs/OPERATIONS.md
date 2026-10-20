@@ -864,7 +864,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `watch` | `run_watch --daily` | `45 7 * * *`, daily 07:45: NeuroDB Watch's morning pass, the *For you* pages (see NeuroDB Watch); a quick pass also follows new data |
 | `ml-readiness` | `ml_readiness` | `45 6 * * 1`, Mondays 06:45: is the data ready for machine learning (Data health) |
 | `forecast` | `forecast_indicators` | `15 7 * * 1`, Mondays 07:15: year-end forecasts of the indicators, back-tested |
-| `reporting-checks` | `reporting_checks` | `15 2 * * *`, daily 02:15, after the eTools Datamart sync, and due at once after the deployment that adds it (when the previous container's scheduler, which does not know the command, sees it first, the new release's scheduler starts it as soon as it takes over): the eTools reporting checks, stored for their page (see eTools reporting checks); also *Run the checks now* on the page and *Run a job → eTools reporting checks* |
+| `reporting-checks` | `reporting_checks` | `15 2 * * *`, daily 02:15, after the eTools Datamart sync, and due at once after the deployment that adds it (when the previous container's scheduler, which does not know the command, sees it first, the new release's scheduler starts it as soon as it takes over): the eTools reporting checks, stored for their page (see eTools reporting checks); the release that adds check 12 makes it due a quarter of an hour after its migration, so its checks replace the previous release's result soon; also *Run the checks now* on the page and *Run a job → eTools reporting checks* |
 | `etools-masters` | `suggest_master_indicators` | `40 2 * * *`, daily 02:40, after the 20:30 eTools Datamart sync and the 02:15 reporting checks, and due at once after the deployment that adds it: suggests the partners' PD indicators for the eTools master indicators and proposes new ones (see *eTools master indicators*); nothing counts until someone confirms it; also *Suggest now* on the masters' admin list and *Run a job → eTools master indicators* |
 | `etools-update-cleanup` | `datamart_backfill` | `*/15 * * * *`, every 15 minutes, due at once after the deployment that adds it (the scheduler starts it usually within a minute of the site starting, at most 15 minutes when the previous container's scheduler sees it first) and until one run has gone through everything; the job then switches it off ("finished: nothing left to do"). A run that finds the eTools Datamart sync going switches it back on to try again ("waiting: the eTools Datamart sync is running"). It fills the new columns of the partner reports already synced and removes the contact details older syncs stored (see eTools Datamart, *Finish the eTools update*) |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
@@ -2046,6 +2046,12 @@ sees it first, the new release's scheduler starts it as soon as it takes over), 
 now** on the page, or *Run a job → eTools reporting checks*. The job gives each query 10 minutes and
 the checks together an hour, and stores the result in its run's details (*Import and sync runs*, job
 *eTools reporting checks*); the page shows the latest stored result at once, with when it was checked.
+A result an earlier release stored is never shown as the current checks' result: the page says so above the
+cards, names the checks changed since, and shows a check added since as *Not run yet*, until a run of the new
+release replaces it (*Run the checks now*, or the schedule). The release that adds check 12 (core
+`0031_etools_masters_job`) makes the schedule due a quarter of an hour after its migration rather than at the
+next 02:15: not at once, since the previous container's scheduler, still running during the deployment, would
+run its own earlier checks.
 A check that could not finish (a query over its 10 minutes, or the data could not be read) or that the
 hour left out says so, and the run ends *Succeeded with errors*, which raises no alarm (neither the
 daily review's sync failures nor the admin home's *Needs attention*: the page says it); a run that
@@ -2345,7 +2351,9 @@ indicator, an amendment's included, is suggested the next night.
   documents' own targets are shown in the detail for reference only, never used for the status.
 
 **On the tab**: it shows one year (this year by default; there is no *All years*) and opens on the user's own
-section. The section, year, report type and location filters apply; the status, the search and the CP output
+section. The section, year, report type and location filters apply (a sub whose indicator the filter does not
+read, not planned at the chosen places or, with *humanitarian reports*, neither high-frequency nor a cluster
+indicator, is not listed: it is never called *No longer in eTools*); the status, the search and the CP output
 choose master rows only (a master's figure never changes with them); a partner filter shows that partner's
 contribution, with its share of a sum only. The tiles count the masters by status, the PD indicators in a
 master, the suggestions waiting and the proposals; under them come the masters by section and CP output
