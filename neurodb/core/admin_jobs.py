@@ -450,7 +450,10 @@ def run_probe_datamart(self, request, form):
         )
         messages.success(
             request,
-            _("The probe of %(dataset)s started. Refresh this page in a few seconds to read it.")
+            _(
+                "The probe of %(dataset)s started. In a few seconds, refresh this page: the run eTools "
+                "Datamart probe in this list says what it found, and its page has the details."
+            )
             % {"dataset": dataset},
         )
     return _done(request)

@@ -39,6 +39,7 @@ DEFAULT = "prp_indicator_reports"
 # where the business area code of the probe came from: the setting's sources, or the workspaces dataset held
 FROM_HELD_WORKSPACES = "workspaces (held)"
 NO_FILTER, BY_BUSINESS_AREA, BY_COUNTRY = "no filter", "business area", "country"
+CODE_SETTING = "Admin → Data and sync → eTools Datamart: PRP business area code"  # as checks.CODE_SETTING
 
 
 def datasets() -> list[str]:
@@ -114,10 +115,34 @@ def _n(answer: dict[str, Any] | None) -> int | None:
     return answer["count"] if answer.get("count") is not None else answer["page"]
 
 
+def _refused(answer: dict[str, Any], filter_key: str, code: str, name: str) -> str:
+    """The verdict when the business area request was refused: the sync asks with that same filter."""
+    status = answer.get("status")
+    said = f" (HTTP {status})" if status else ""
+    start = (
+        f"The eTools Datamart refused the business area request ({filter_key}={code}){said}, and the sync of "
+        f"{name} asks with that same filter, so it fails the same way"
+    )
+    if status in (401, 403):
+        return (
+            f"{start}: ask the team that runs NeuroDB's hosting to have the eTools Datamart team give "
+            "NeuroDB's account access to it."
+        )
+    if status and 400 <= status < 500:
+        return (
+            f"{start}: check the code in {CODE_SETTING} against the codes the records name with no filter "
+            "(listed below); if it is right, tell the eTools Datamart team that this dataset refuses it."
+        )
+    return f"{start}: probe it again later; if it is refused again, tell the eTools Datamart team."
+
+
 def verdict(name: str, path: str, filter_key: str, code: str, answers: dict[str, dict[str, Any]]) -> str:
-    """What the answers mean, in plain words, and what to do from the admin."""
+    """What the answers mean, in plain words, and what to do from the admin. For a dataset the sync reads by
+    business area, the business area answer is judged first: refused, ignored (its page names other codes,
+    or it finds as many as no filter while that page names other codes) or kept to the code."""
     country = (settings.ETOOLS_DATAMART_COUNTRY or "").strip()
     everything = _n(answers.get(NO_FILTER))
+    area = answers.get(BY_BUSINESS_AREA) or {}
     by_area, by_country = _n(answers.get(BY_BUSINESS_AREA)), _n(answers.get(BY_COUNTRY))
     if all(_n(a) is None for a in answers.values()):
         statuses = {a.get("status") for a in answers.values()}
@@ -127,7 +152,7 @@ def verdict(name: str, path: str, filter_key: str, code: str, answers: dict[str,
                 "hosting to have the eTools Datamart team give that account access to it."
             )
         return f"The eTools Datamart did not answer for {path} (see each request's error): try again later."
-    if everything == 0:
+    if everything == 0 and "error" not in area and not by_area and not by_country:
         return (
             f"The eTools Datamart holds no record at all in {path}, for any country: ask the eTools Datamart "
             "team whether this dataset is loaded."
@@ -135,28 +160,61 @@ def verdict(name: str, path: str, filter_key: str, code: str, answers: dict[str,
     if filter_key and not code:
         return (
             f"No business area code is set and the workspaces dataset holds none for {country}: enter it in "
-            "Admin → eTools Datamart: PRP business area code (the codes the records name with no filter are "
-            "listed below), then sync the dataset again."
+            f"{CODE_SETTING} (the codes the records name with no filter are listed below), then sync the "
+            "dataset again."
         )
+    if filter_key and "error" in area:
+        return _refused(area, filter_key, code, name)
     if filter_key and by_area:
+        codes = area.get("business_areas") or {}
+        mine, unnamed = codes.get(code, 0), codes.get(sync.NO_CODE, 0)
+        other = sum(n for c, n in codes.items() if c not in (code, sync.NO_CODE))
+        elsewhere = any(
+            c not in (code, sync.NO_CODE) for c in (answers.get(NO_FILTER) or {}).get("business_areas") or {}
+        )
+        if other or (by_area == everything and elsewhere):
+            return (
+                f"The eTools Datamart seems to ignore the business area filter ({filter_key}={code}) for "
+                f"{path}: with it, it announces {by_area:,} records"
+                + (f" ({everything:,} with no filter)" if everything is not None else "")
+                + f", and of the {area.get('page', 0):,} records on its page, {mine:,} "
+                f"{'names' if mine == 1 else 'name'} business area {code}, {other:,} another and {unnamed:,} "
+                "none (listed below). The sync leaves out every "
+                f"record that names another business area, so it keeps {country}'s only, but it reads every "
+                f"country's: tell the eTools Datamart team that {path} ignores {filter_key}."
+            )
+        if not mine:
+            return (
+                f"The eTools Datamart announces {by_area:,} records with the business area filter "
+                f"({filter_key}={code}), but none of the {area.get('page', 0):,} on its page names a "
+                "business area, so whether the filter works cannot be told"
+                + (
+                    ": as many as with no filter, so it may ignore it. Tell the eTools Datamart team, and "
+                    "read Data health for the records the sync kept that name no business area."
+                    if by_area == everything
+                    else f" ({everything:,} with no filter)."
+                    if everything is not None
+                    else "."
+                )
+            )
         return (
-            f"The eTools Datamart has {by_area:,} records for business area {code}: the filter works. "
-            f"Sync {name} again (Sync eTools Datamart now → Only the datasets ticked below); if its run "
-            "still keeps none, read its details for the records skipped as another business area."
+            f"The eTools Datamart has {by_area:,} records for business area {code}: the filter works (every "
+            f"record on its page that names a business area names {code}). Sync {name} again (Sync eTools "
+            "Datamart now → Only the datasets ticked below); if its run still keeps none, read its details "
+            "for the records skipped as another business area."
         )
     if filter_key and by_area == 0:
         if by_country and (everything is None or by_country < everything):
             return (
                 f"The business area filter ({filter_key}={code}) finds nothing, but the country filter "
-                f"finds {by_country:,} records: check the code in Admin → eTools Datamart: PRP business area "
-                "code against the codes listed below, and tell the team that runs NeuroDB that this dataset "
-                "answers the country filter."
+                f"finds {by_country:,} records: check the code in {CODE_SETTING} against the codes listed "
+                "below, and tell the team that runs NeuroDB that this dataset answers the country filter."
             )
         return (
             f"The eTools Datamart holds {everything:,} records in {path}, none for business area {code}: "
             f"compare {code} with the codes the records name with no filter (listed below). If {country}'s "
-            "code is among them under another form, enter it in Admin → eTools Datamart: PRP business area "
-            f"code; if none is {country}'s, ask the eTools Datamart team whether {country}'s data is loaded."
+            f"code is among them under another form, enter it in {CODE_SETTING}; if none is {country}'s, ask "
+            f"the eTools Datamart team whether {country}'s data is loaded."
             if everything is not None
             else f"The business area filter ({filter_key}={code}) finds nothing: see each request below."
         )

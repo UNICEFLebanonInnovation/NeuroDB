@@ -85,7 +85,7 @@ def test_three_small_requests_and_only_counts_key_names_and_codes(settings):
         assert text not in stored
     # the verdict says what the answers mean and what to do from the admin
     assert "none for business area 2490" in run.details["verdict"]
-    assert "Admin → eTools Datamart: PRP business area code" in run.details["verdict"]
+    assert "Admin → Data and sync → eTools Datamart: PRP business area code" in run.details["verdict"]
 
 
 @responses.activate
@@ -112,6 +112,119 @@ def test_without_a_code_set_the_probe_takes_the_workspace_held_and_asks_nothing_
     assert len(responses.calls) == 3  # no request to the workspaces
     assert (run.details["business_area"], run.details["business_area_from"]) == ("2490", "workspaces (held)")
     assert "has 10 records for business area 2490: the filter works" in run.details["verdict"]
+
+
+# ------------------------------------------------------------------- the business area answer, judged first
+def _verdict(answers: dict) -> str:
+    return probe.verdict("prp_indicator_reports", "prp/indicator-report-v2", "business_area", "2490", answers)
+
+
+def _answer(label: str, count: int | None = None, codes: dict | None = None, **failed) -> dict:
+    if failed:
+        return {"request": label, "filter": {}, **failed}
+    return {"request": label, "filter": {}, "count": count, "page": sum((codes or {}).values()),
+            "business_areas": codes or {}}  # fmt: skip
+
+
+@responses.activate
+def test_an_ignored_business_area_filter_is_never_said_to_work(settings):
+    """The Datamart answers 9,000 records of 2340, 6810 and 2490 with the filter as without it: the verdict
+    says it seems to ignore the filter, never that the filter works."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    everyone = [record(1, "2340"), record(2, "6810"), record(3, "2490")]
+    answer(V2, 9000, everyone)
+    answer(V2, 9000, everyone, business_area="2490")
+    answer(V2, 9000, everyone, country_name="Lebanon")
+    run = probe.run_job("prp_indicator_reports", "tester", client=client())
+    verdict = run.details["verdict"]
+    assert run.details["requests"][1]["business_areas"] == {"2340": 1, "6810": 1, "2490": 1}
+    assert "the filter works" not in verdict and "seems to ignore the business area filter" in verdict
+    assert "of the 3 records on its page, 1 names business area 2490, 2 another and 0 none" in verdict
+    assert "tell the eTools Datamart team" in verdict
+
+
+@pytest.mark.parametrize(
+    ("answers", "said", "never"),
+    [
+        (  # (a) the same count and page with the filter as without: ignored
+            {
+                probe.NO_FILTER: _answer("no filter", 9000, {"2340": 2, "2490": 1}),
+                probe.BY_BUSINESS_AREA: _answer("business area", 9000, {"2340": 2, "2490": 1}),
+                probe.BY_COUNTRY: _answer("country", 0),
+            },
+            "seems to ignore the business area filter (business_area=2490)",
+            "the filter works",
+        ),
+        (  # (a') as many as with no filter, and the no-filter page names other codes: ignored
+            {
+                probe.NO_FILTER: _answer("no filter", 9000, {"2340": 2, "2490": 1}),
+                probe.BY_BUSINESS_AREA: _answer("business area", 9000, {"2490": 3}),
+                probe.BY_COUNTRY: _answer("country", 0),
+            },
+            "seems to ignore the business area filter",
+            "the filter works",
+        ),
+        (  # (b) nothing with no filter, 120 with the business area: never "no record at all"
+            {
+                probe.NO_FILTER: _answer("no filter", 0),
+                probe.BY_BUSINESS_AREA: _answer("business area", 120, {"2490": 50}),
+                probe.BY_COUNTRY: _answer("country", 0),
+            },
+            "has 120 records for business area 2490: the filter works",
+            "no record at all",
+        ),
+        (  # (c) the business area request refused: said with its status, whatever the country filter finds
+            {
+                probe.NO_FILTER: _answer("no filter", 9000, {"2340": 2}),
+                probe.BY_BUSINESS_AREA: _answer("business area", status=400, error="IntegrationError: 400"),
+                probe.BY_COUNTRY: _answer("country", 120),
+            },
+            "refused the business area request (business_area=2490) (HTTP 400), and the sync of "
+            "prp_indicator_reports asks with that same filter",
+            "the filter works",
+        ),
+        (  # every answer 0: the dataset holds nothing
+            {
+                probe.NO_FILTER: _answer("no filter", 0),
+                probe.BY_BUSINESS_AREA: _answer("business area", 0),
+                probe.BY_COUNTRY: _answer("country", 0),
+            },
+            "holds no record at all",
+            "the filter works",
+        ),
+    ],
+)
+def test_the_business_area_answer_is_judged_first(settings, answers, said, never):
+    settings.ETOOLS_DATAMART_COUNTRY = "Lebanon"
+    verdict = _verdict(answers)
+    assert said in verdict and never not in verdict
+
+
+def test_a_refused_business_area_request_says_what_to_do_from_the_admin(settings):
+    found = _verdict(
+        {
+            probe.NO_FILTER: _answer("no filter", 9000, {"2340": 2}),
+            probe.BY_BUSINESS_AREA: _answer("business area", status=400, error="IntegrationError: 400"),
+            probe.BY_COUNTRY: _answer("country", 120),
+        }
+    )
+    assert "check the code in Admin → Data and sync → eTools Datamart: PRP business area code" in found
+
+
+# ------------------------------------------------------------------------- what the probe found, in the admin
+def test_the_verdict_is_on_the_runs_list_and_above_the_runs_details(client, admin_user):
+    admin_user.is_superuser = True
+    admin_user.save()
+    client.force_login(admin_user)
+    run = SyncRun.objects.create(job=SyncRun.Job.DATAMART_PROBE, target="prp_indicator_reports")
+    run.finish(SyncRun.Status.SUCCEEDED, verdict="The Datamart answered every request & the filter works.")
+    shown = "The Datamart answered every request &amp; the filter works."
+    listed = client.get(reverse("admin:core_syncrun_changelist")).content.decode()
+    assert shown in listed  # the Error cell of the run, in plain words
+    page = client.get(reverse("admin:core_syncrun_change", args=[run.pk])).content.decode()
+    assert "What the probe found" in page
+    found, details = page.index("What the probe found"), page.index(">Details<")
+    assert found < details and shown in page[found:details]
 
 
 @responses.activate

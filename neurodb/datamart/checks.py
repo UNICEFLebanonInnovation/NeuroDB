@@ -220,10 +220,11 @@ REPORT_SQL = (
 )
 
 
-def _indicator(indicator_report: str, etools_id: str, title: str) -> str:
-    """One indicator in its report: PRP's indicator report id, else its eTools id and its title (case and
-    spaces aside), as Reached tells two indicators of one report apart."""
-    return str(indicator_report or "") or f"t|{(etools_id or '').strip()}|{rc.norm(title)}"
+def _indicator(indicator_report: str, etools_id: str, title: str, output: str) -> str:
+    """One indicator in its report (an *indicator report*): PRP's indicator report id, else its eTools id,
+    its title and its PD output (case and spaces aside), as Reached tells two indicators of one report apart
+    (:func:`reached.indicator_report_key`, ``reporting.INDICATOR_REPORT`` on the tiles)."""
+    return str(indicator_report or "") or f"t|{(etools_id or '').strip()}|{rc.norm(title)}|{rc.norm(output)}"
 
 
 def _place(p_code: str, location: str) -> str:
@@ -293,6 +294,7 @@ _ROW = (
     "indicator_report",
     "etools_indicator_id",
     "indicator",
+    "pd_output",
     "p_code",
     "location",
     "_total",
@@ -308,6 +310,7 @@ class _Row:
     indicator_report: str
     etools_id: str
     title: str
+    output: str  # the PD output the row names
     more: tuple  # the extra fields asked for, in their order
 
 
@@ -327,35 +330,57 @@ class _Rows:
             pd, ref, kind, number, start, end, text, due, sub, changed, synced, row_id, ir, eid, title = (
                 values[:15]
             )
-            p_code, location, total = values[15:width]
+            output, p_code, location, total = values[15:width]
             report = _report(pd, ref, kind, number, start, end)
             self.statuses.add(report, text, (end, due, sub), (changed, synced, row_id))
             yield _Row(
                 report,
-                _indicator(ir, eid, title),
+                _indicator(ir, eid, title, output),
                 _place(p_code, location),
                 total,
                 ir or "",
                 eid or "",
                 title or "",
+                output or "",
                 values[width:],
             )
 
 
 # ------------------------------------------------------------------------------------- the checks
+def _apart(found: list[tuple[float | None, str, str]]) -> dict[str, list[float | None]]:
+    """The rows of one title at one location of one report, by the indicator report they come from, as
+    Reached tells them apart (:func:`reached.one_indicator`): by PRP's indicator report id when they carry two
+    or more, else by their PD output when they carry two or more; else they are one indicator report's.
+    ``found``: each row's value, PRP's indicator report id and its PD output (case and spaces aside)."""
+    ids = {ir for _, ir, _ in found if ir}
+    outputs = {output for _, _, output in found if output}
+    by = 1 if len(ids) > 1 else 2 if len(outputs) > 1 else None
+    out: dict[str, list[float | None]] = defaultdict(list)
+    for row in found:
+        out[row[by] if by else ""].append(row[0])
+    return out
+
+
+def _differ(values: list[float | None]) -> bool:
+    return len({round(v, 6) for v in values if v is not None}) > 1
+
+
 def _duplicate_rows(cursor) -> dict[str, Any]:
     read = _Rows(cursor, datetime.date.today(), "progress_report")
-    # each location of one indicator in one report (an indicator by its title: two indicators of a report
-    # that share it are counted apart below), with its "()" value and PRP's indicator report id
-    cells: dict[tuple, list[tuple[float | None, str]]] = defaultdict(list)
-    # Reached's own key of a location (its report, reached.report_key, the title and the place): the reports
-    # it reads as one (none since a report is told apart by its PD, type, number and period: a guard)
+    # each location of one title (its eTools id and title) in one report: each row's "()" value, PRP's
+    # indicator report id and PD output, which tell two indicator reports of that title apart (:func:`_apart`)
+    cells: dict[tuple, list[tuple[float | None, str, str]]] = defaultdict(list)
+    # Reached's own key of a location (its report, reached.report_key, the indicator report and the place):
+    # the reports it reads as one (none since a report is told apart by its PD, type, number and period: a
+    # guard)
     as_one: dict[tuple, set[tuple]] = defaultdict(set)
     rows = 0
     for row in read:
         rows += 1
         title = f"{row.etools_id.strip()}|{rc.norm(row.title)}"
-        cells[(row.report, title, row.place)].append((_value(row.total), row.indicator_report))
+        cells[(row.report, title, row.place)].append(
+            (_value(row.total), row.indicator_report, rc.norm(row.output))
+        )
         if isinstance(row.report[0], int):  # Reached reads the rows of a PD NeuroDB holds only
             pd, kind, number, start, end = row.report
             key = rc.report_key(
@@ -368,23 +393,30 @@ def _duplicate_rows(cursor) -> dict[str, Any]:
                     "period_end": end,
                 }
             )
-            as_one[(key, title, row.place)].add(row.report)
+            as_one[(key, row.indicator, row.place)].add(row.report)
     if not rows:
         return {"tone": INFO, "verdict": "No partner report rows are held yet.", "figures": []}
-    several = {key: found for key, found in cells.items() if len(found) > 1}
-    shared = {key for key, found in several.items() if len({ir for _, ir in found if ir}) > 1}
-    differ = {
-        key
-        for key, found in several.items()
-        if key not in shared and len({round(v, 6) for v, _ in found if v is not None}) > 1
-    }
+    # the locations two or more indicator reports of one title give in one report (two PRP indicators carry
+    # the title), with their values; and each indicator report's location on several rows (duplicates)
+    shared: dict[tuple, list[float | None]] = {}
+    several: dict[tuple, list[float | None]] = {}
+    for key, found in cells.items():
+        reports = _apart(found)
+        if len(reports) > 1:
+            shared[key] = [value for value, _, _ in found]
+        for name, values in reports.items():
+            if len(values) > 1:
+                several[(*key, name)] = values
+    differ = {key for key, values in several.items() if _differ(values)}
+    shared_differ = sum(1 for values in shared.values() if _differ(values))
     counted = read.statuses.counted()
     differ_counted = sum(1 for key in differ if key[0] in counted)
     spanning = sum(1 for reports in as_one.values() if len(reports) > 1)
     if not several:
         verdict = (
             "Each location appears on one row per indicator in each report (a report told apart by its "
-            "programme document, type, number and period)."
+            "programme document, type, number and period; an indicator by PRP's indicator report id, else "
+            "its title and PD output)."
         )
     else:
         verdict = (
@@ -394,16 +426,18 @@ def _duplicate_rows(cursor) -> dict[str, Any]:
         if differ:
             verdict += (
                 f"; {len(differ):,} of them carry different values, {differ_counted:,} in reports that "
-                "count: Reached uses the largest, never their sum"
+                "count: Reached uses the largest, never their sum."
             )
         else:
-            verdict += ": their rows carry the same value, which Reached reads once"
-        if shared:
-            verdict += (
-                f"; at {len(shared):,} two indicators of the report share the title (while the rows carry no "
-                "eTools indicator id Reached leaves both out, check 7)"
-            )
-        verdict += "."
+            verdict += ": their rows carry the same value, which Reached reads once."
+    if shared:
+        verdict += (
+            f" At {_plural(len(shared), 'location', 'locations')}, two or more indicator reports of one "
+            f"report carry the same title ({shared_differ:,} with different values, "
+            f"{len(shared) - shared_differ:,} with the same value): Reached keeps the one under the PD "
+            "indicator's own output, else leaves that report out with a note, never the largest of them nor "
+            "their sum (check 7 counts the rows Partner monitoring places)."
+        )
     if spanning:
         verdict += (
             f" Reached reads several reports as one at {_plural(spanning, 'location', 'locations')} (it "
@@ -416,10 +450,11 @@ def _duplicate_rows(cursor) -> dict[str, Any]:
         "figures": [
             ("Partner report rows", rows),
             ("Locations on several rows of one indicator in one report", len(several)),
-            ("… rows more than one per location", sum(len(found) - 1 for found in several.values())),
+            ("… rows more than one per location", sum(len(values) - 1 for values in several.values())),
             ("… with different values", len(differ)),
             ("… of which in reports that count (Reached takes the largest)", differ_counted),
-            ("… two indicators of the report with the same title", len(shared)),
+            ("Locations two or more indicator reports of one title give in one report", len(shared)),
+            ("… carrying different values (Reached keeps the one under its own output)", shared_differ),
             ("Locations Reached reads as one report across several reports", spanning),
         ],
     }
@@ -664,8 +699,8 @@ def _unsubmitted(cursor) -> dict[str, Any]:
         f"{COUNTS_SQL}, CASE WHEN period_end > current_date THEN 'yes' ELSE 'no' END, achievement_in_period, "
         "total_cumulative_progress, count(*) FROM datamart_reportedindicator GROUP BY 1, 2, 3, 4, 5",
     )
-    # the values read as Reached reads them: PRP's empty {"v": 0, "d": 0, "c": 0}, "0.0" and "" are no value,
-    # and a cumulative of {"c": 0, ...} is a cumulative of 0
+    # the values read as Reached reads them (PRP's empty {"v": 0, "d": 0, "c": 0} and "0.0" are 0, "" is
+    # none); "Value given" counts only a value other than 0, and a cumulative of {"c": 0, ...} is one of 0
     table: dict[tuple, list[int]] = {}
     for status, counts, running, achieved, cumulative, n in found:
         line = table.setdefault((status, counts, running), [0, 0, 0, 0])
@@ -916,7 +951,7 @@ def _identity(cursor) -> dict[str, Any]:
     )
     # the rows of the running PDs, read by Partner monitoring's own rule (monitoring._Idents): by the eTools
     # id, else by a title one indicator of the PD has, else by the PD output and a title several share; the
-    # others are left out
+    # others are left out (the title and the output shared, an output that matches none, or an unknown title)
     running = dm.ReportedIndicator.objects.filter(intervention__status__in=pd_statuses.RUNNING)
     _bound(cursor)
     pd_ids = sorted(set(running.order_by().values_list("intervention_id", flat=True).distinct()))
@@ -943,7 +978,7 @@ def _identity(cursor) -> dict[str, Any]:
         if way in ("id", "title", "output"):
             types[idents.of(pd, eid, title, output)].add((kind or "").strip().upper())
         else:
-            left.add((_report(pd, "", kind, number, start, end), _indicator(ir, eid, title)))
+            left.add((_report(pd, "", kind, number, start, end), _indicator(ir, eid, title, output)))
     humanitarian = sum(1 for kinds in types.values() if "HR" in kinds)
     both = sum(1 for kinds in types.values() if {"HR", "QPR"} <= kinds)
     # the keys the records send (names and counts only, never a value): those the sync reads first
@@ -953,14 +988,15 @@ def _identity(cursor) -> dict[str, Any]:
         ((key[:60], "yes" if key in read else "no", *found.get(key, (0,) * 7)) for key in {*found, *read}),
         key=lambda line: (line[1] != "yes", line[0]),
     )[:KEYS_LISTED]
-    out_rows = how["shared"] + how["unknown"]
+    out_rows = how["shared_output"] + how["output_unmatched"] + how["unknown"]
     parts = []
     if not with_id:
         parts.append(
             "No report row carries a PD indicator id: the one key NeuroDB reads for it, "
             "etools_cp_output_indicators_id (named after the CP output's indicators, and never confirmed "
-            "as the PD indicator's id), is empty or missing on every row, and the partner reports name no "
-            "other. Rows are matched by title, and by PD output where two indicators of a PD share a title."
+            "as the PD indicator's id), is empty or missing on every row (the table below lists every key "
+            "the records send). Rows are matched by title, and by PD output where two indicators of a PD "
+            "share a title."
         )
     else:
         parts.append(
@@ -969,18 +1005,22 @@ def _identity(cursor) -> dict[str, Any]:
         )
     if sum(how.values()):
         parts.append(
-            f"Of the {sum(how.values()):,} rows of the running programme documents, {how['id']:,} are "
-            f"matched by id, {how['title']:,} by title and {how['output']:,} by PD output and title (a title "
-            f"several indicators of the PD share); {how['shared']:,} are left out because two or more "
-            "indicators of their PD share the title and the output, and "
-            f"{how['unknown']:,} because no indicator of their PD has the title "
-            f"({_plural(len(left), 'indicator report', 'indicator reports')} in all)."
+            f"Of the {_plural(sum(how.values()), 'row', 'rows')} of the running programme documents, "
+            f"{_plural(how['id'], 'is', 'are')} matched by id, {how['title']:,} by title and "
+            f"{how['output']:,} by PD output and title (a title several indicators of the PD share)."
         )
         if out_rows:
             parts.append(
-                "Partner monitoring → Data quality lists the titles a PD repeats, and how many of those "
-                "indicators share their output too; a title PRP spells otherwise than eTools is corrected in "
-                "PRP or eTools."
+                f"Left out: {_plural(how['shared_output'], 'row', 'rows')} whose title and PD output two or "
+                "more indicators of their PD share (tell them apart in eTools), "
+                f"{_plural(how['output_unmatched'], 'row', 'rows')} whose title several indicators of their "
+                "PD share and whose PD output, as PRP sends it, is empty or matches none of theirs in eTools "
+                "(correct the output name in PRP or eTools so the two match), and "
+                f"{_plural(how['unknown'], 'row', 'rows')} whose title no indicator of their PD has "
+                f"({_plural(len(left), 'indicator report', 'indicator reports')} in all). Partner "
+                "monitoring → Data quality lists the titles a PD repeats and how many of those indicators "
+                "get none of their rows; a title PRP spells otherwise than eTools is corrected in PRP or "
+                "eTools."
             )
     if rows:
         if pr_empty == rows:
@@ -1011,7 +1051,14 @@ def _identity(cursor) -> dict[str, Any]:
             ("… matched to a PD indicator by its id", how["id"]),
             ("… matched by title (one indicator of the PD has it)", how["title"]),
             ("… matched by PD output and title (a title several indicators of the PD share)", how["output"]),
-            ("… left out: two or more indicators of the PD have the title and the output", how["shared"]),
+            (
+                "… left out: two or more indicators of the PD have the title and the output",
+                how["shared_output"],
+            ),
+            (
+                "… left out: a title several indicators of the PD share, and a PD output none of them has",
+                how["output_unmatched"],
+            ),
             ("… left out: no indicator of the PD has the title", how["unknown"]),
             ("Indicator reports left out", len(left)),
             ("PD indicators in monthly (HR) reports", humanitarian),
@@ -1047,7 +1094,8 @@ AGAIN = (
     "on Import and sync runs, press “Sync eTools Datamart now”, choose “Only the datasets ticked below, in "
     "their usual order” and tick prp_indicator_reports"
 )
-CODE_SETTING = "Admin → eTools Datamart: PRP business area code"
+CODE_SETTING = "Admin → Data and sync → eTools Datamart: PRP business area code"
+PROBE = "Run a job → Probe a Datamart dataset"  # on Import and sync runs
 
 
 def _prp_feed(cursor) -> dict[str, Any]:
@@ -1114,16 +1162,21 @@ def _feed_state(feed: dict[str, Any], *, listed: bool) -> tuple[str, str]:
             f"{asked} but could write none: Import and sync runs says why under Why rows failed.",
             WARN,
         )
-    announced = details.get("datamart_count")
-    told = (
-        f" (it announced {announced:,})"
-        if isinstance(announced, int) and not isinstance(announced, bool)
-        else ""
-    )
+    raw = details.get("datamart_count")
+    announced, read = _count(raw), _count(details.get("read")) or run.rows_in + skipped
+    if announced > read:  # the first page announced records the read never returned: cut short
+        return (
+            f"The last sync of PRP's indicator reports ({when}) asked the Datamart{asked}: it announced "
+            f"{_plural(announced, 'record', 'records')}, but its answer stopped after {read:,}. The answer "
+            f"was cut short, so a new sync may help: {AGAIN}. If it stops again, see what the Datamart holds "
+            f"with {PROBE}.",
+            INFO,
+        )
+    told = f" (it announced {announced:,})" if isinstance(raw, int) and not isinstance(raw, bool) else ""
     return (
         f"The last sync of PRP's indicator reports ({when}) asked the Datamart{asked} and it returned no "
         f"record{told}: syncing again changes nothing. Check the code in {CODE_SETTING}, or see what the "
-        "Datamart holds with Run a job → Probe a Datamart dataset.",
+        f"Datamart holds with {PROBE}.",
         INFO,
     )
 
@@ -1642,7 +1695,7 @@ def _progress_state(feed: dict[str, Any], year: int) -> tuple[str, str]:
         )
     return (
         f"{start}: their last sync ({when}) kept no record, so syncing again changes nothing; see what the "
-        "Datamart holds with Run a job → Probe a Datamart dataset.",
+        f"Datamart holds with {PROBE}.",
         INFO,
     )
 
@@ -1797,8 +1850,9 @@ def _two_feeds(cursor) -> dict[str, Any]:
         )
         if owed_more:
             progress_text += (
-                f" PRP's progress reports list more reports still owed in {', '.join(owed_more)}: those are "
-                "the reports Power BI counts as overdue and the partner reports feed does not carry."
+                f" PRP's progress reports list more reports still owed in {', '.join(owed_more)}: the "
+                "partner reports feed does not carry them, and these may be the overdue reports Power BI "
+                "counts."
             )
         progress_tone = WARN if owed_more else OK
     else:
@@ -1929,11 +1983,13 @@ CHECKS: tuple[Check, ...] = (
         "1",
         "Rows per location",
         "Does a report carry more than one row for the same indicator and location?",
-        "One value per location in each report: when several rows carry different values, the largest is "
-        "used, never their sum. Every page tells one report from another by its programme document, type, "
-        "number and period, as this check does, whatever PRP's own ids hold (they are empty on the Lebanon "
-        "rows, or one value for several reports: check 7 counts them); two indicators of a report by PRP's "
-        "indicator report id, else their title and PD output.",
+        "One value per location in each indicator report: when several rows carry different values, the "
+        "largest is used, never their sum. Every page tells one report from another by its programme "
+        "document, type, number and period, as this check does, whatever PRP's own ids hold (they can be "
+        "empty, or one value for several reports: check 7 counts them); two indicator reports of a report by "
+        "PRP's indicator report id, else their title and PD output. Where two or more indicator reports of a "
+        "report carry a PD indicator's title, the one under the indicator's own output is used, else that "
+        "report is left out with a note, never the largest of them nor their sum.",
         _duplicate_rows,
     ),
     Check(
@@ -1962,7 +2018,8 @@ CHECKS: tuple[Check, ...] = (
         "Reports that do not count",
         "What do sent-back, due, overdue and not-yet-due reports carry?",
         "Only Accepted and Submitted reports count in Reached; what the others carry changes nothing. Values "
-        "are read as Reached reads them: PRP's empty {v: 0, d: 0, c: 0} is no value.",
+        'are read as Reached reads them, and here a zero (PRP\'s empty {v: 0, d: 0, c: 0}, "0" or "0.0") '
+        "counts as no value.",
         _unsubmitted,
     ),
     Check(

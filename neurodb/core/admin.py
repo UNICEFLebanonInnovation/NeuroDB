@@ -72,6 +72,13 @@ HTTP_STATUS = re.compile(r"\b(?:HTTP|returned) (\d{3})\b")
 UNREACHABLE = re.compile(r"Timeout|ConnectionError|SSLError|timed out", re.IGNORECASE)
 
 
+def _probe_verdict(run: SyncRun) -> str:
+    """What a probe of the eTools Datamart found (``details.verdict``), or "" for any other run."""
+    if run.job != SyncRun.Job.DATAMART_PROBE or not isinstance(run.details, dict):
+        return ""
+    return str(run.details.get("verdict") or "")
+
+
 def error_hint(run: SyncRun) -> str:
     """What a known error means for the administrator, or "" when the raw error is all we know. A 502, 503
     or 504 is the service being unavailable; any other 5xx is an error inside the service for this one
@@ -229,7 +236,12 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
     search_fields = ("target", "error", "triggered_by")
     date_hierarchy = "started_at"
     ordering = ("-started_at",)
-    readonly_fields = tuple(f.name for f in SyncRun._meta.fields) + (
+    # every field, with what a probe found (its plain-words verdict) just before the details it comes from
+    readonly_fields = tuple(
+        name
+        for f in SyncRun._meta.fields
+        for name in (("probe_verdict", f.name) if f.name == "details" else (f.name,))
+    ) + (
         "error_meaning",
         "duration",
         "errors_display",
@@ -239,6 +251,12 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
     @admin.display(description=_("Triggered by"), ordering="triggered_by")
     def triggered_by_display(self, obj):
         return triggered_by_label(obj.triggered_by)
+
+    @admin.display(description=_("What the probe found"))
+    def probe_verdict(self, obj):
+        """A probe's verdict (``details.verdict``: what the Datamart's answers mean and what to do), in plain
+        words; "—" for any other run."""
+        return _probe_verdict(obj) or "—"
 
     @admin.display(description=_("What the error means"))
     def error_meaning(self, obj):
@@ -278,6 +296,9 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
 
     @admin.display(description=_("Error"))
     def error_short(self, obj):
+        verdict = _probe_verdict(obj)
+        if verdict and not obj.error:  # a probe that was answered: what it found, in the list
+            return format_html('<span class="nd-error-hint">{}</span>', verdict)
         raw = (obj.error[:90] + "…") if len(obj.error) > 90 else (obj.error or "")
         hint = error_hint(obj)
         if hint:
@@ -541,6 +562,17 @@ class DatamartSettingAdmin(ModelAdmin):
                     "kept": run.rows_in,
                     "read": details.get("read", run.rows_in),
                 }
+                unnamed = details.get("country_unnamed")
+                if isinstance(unnamed, int) and unnamed:  # kept, but nothing confirms the country
+                    said = format_html(
+                        '{} · <span class="text-warning">{}</span>',
+                        said,
+                        _(
+                            "%(n)s named no business area, kept unconfirmed (the Datamart may ignore the "
+                            "filter): press Run a job → Probe a Datamart dataset on Import and sync runs"
+                        )
+                        % {"n": unnamed},
+                    )
             else:  # a run made before the code was recorded
                 said = _("%(kept)s kept") % {"kept": run.rows_in}
             when = formats.date_format(timezone.localtime(run.started_at), "DATETIME_FORMAT")

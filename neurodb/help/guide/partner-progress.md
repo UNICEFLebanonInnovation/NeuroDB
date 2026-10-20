@@ -62,7 +62,8 @@ were given last is the report's on every page:
   one programme document, partial history). The partner reports carry no PD indicator id, so a report is
   matched to its indicator by title; where two indicators of a programme document share a title, by
   their PD output too. Indicators that share both stay without Reached until their title or output is
-  told apart in eTools: the same-title list counts them.
+  told apart in eTools, and so do those whose rows name a PD output that matches none of theirs (correct
+  the output name in PRP or eTools): the same-title list counts them.
 - **Map**: the implementation locations, coloured by the worst status there.
 
 Switching views keeps the year shown; the year menu at the top offers *All years* on these pages. The

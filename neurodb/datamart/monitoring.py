@@ -69,7 +69,7 @@ NO_SECTION = "—"  # the section of an indicator that names none (a section til
 # filter and the map's places two minutes, the filter options ten (they only change with a sync)
 STORED_SECONDS = 120
 OPTIONS_SECONDS = 600
-CACHE_VERSION = 1
+CACHE_VERSION = 2  # 2: a stored row carries the rows placed under it and its title's rows left out
 
 
 def today() -> datetime.date:
@@ -326,6 +326,11 @@ class Indicator:
     method: str = ""  # how PRP combines the locations of a period: sum (or empty), max, avg, ratio
     period_method: str = ""  # and the periods: sum (or empty), max, avg, latest, ratio
     result: rc.Reached | None = None
+    rows_placed: int = 0  # the partner report rows placed under it (of the report type read)
+    # the rows of its PD with its title, a title several indicators of the PD share, that no indicator got
+    # (Data quality's same-title list), and of them those whose PD output is empty or matches none of theirs
+    title_rows_left_out: int = 0
+    title_rows_unmatched: int = 0
 
     @property
     def cumulative(self) -> float | None:
@@ -590,6 +595,10 @@ class _Idents:
             for key, found in outputs.items()
             if len(found) == 1 and (key[0], key[2]) in self.shared
         }
+        # an output and a title two or more indicators of a PD share (no row can tell them apart)
+        self.shared_output = {
+            key for key, found in outputs.items() if len(found) > 1 and (key[0], key[2]) in self.shared
+        }
 
     def of(
         self, pd_id: int, etools_id: Any, title: str | None, output: str | None = None
@@ -603,10 +612,12 @@ class _Idents:
         return found
 
     def how(self, pd_id: int, etools_id: Any, title: str | None, output: str | None = None) -> str:
-        """How :meth:`of` reads a row (the eTools reporting checks count them): ``"id"``, ``"title"``,
-        ``"output"`` (a title several indicators share, told apart by the output), ``"shared"`` (left
-        out: the title is several indicators', and the output does not tell them apart) or
-        ``"unknown"`` (left out: no indicator of the PD has it)."""
+        """How :meth:`of` reads a row (the eTools reporting checks and Data quality count them): ``"id"``,
+        ``"title"``, ``"output"`` (a title several indicators share, told apart by the output), and the rows
+        left out: ``"shared_output"`` (two or more indicators of the PD share the title and the row's
+        output), ``"output_unmatched"`` (the title is several indicators', and the row's PD output is empty
+        or matches none of their outputs in eTools) or ``"unknown"`` (no indicator of the PD has the
+        title)."""
         source = str(etools_id or "").strip()
         if source and (pd_id, source) in self.by_source:
             return "id"
@@ -615,7 +626,10 @@ class _Idents:
             return "title"
         if key not in self.shared:
             return "unknown"
-        return "output" if output and (pd_id, norm(output), norm(title)) in self.by_output else "shared"
+        place = (pd_id, norm(output), norm(title))
+        if output and place in self.by_output:
+            return "output"
+        return "shared_output" if place in self.shared_output else "output_unmatched"
 
 
 def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, today: datetime.date) -> None:
@@ -630,16 +644,31 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
     # each progress report's status, read from every row of the report (all its indicators), so each
     # indicator of a report whose rows disagree (a partial re-sync) has the status the reports' list shows
     words: dict[str, dict[str, rc.Stamp]] = defaultdict(dict)
+    # the rows of a title several indicators of a PD share that none of them got, and of them those whose
+    # PD output matches none of theirs (Data quality's same-title list), per PD and title
+    unplaced: Counter[tuple[int, str]] = Counter()
+    unmatched: Counter[tuple[int, str]] = Counter()
 
     def note(row: dict[str, Any]) -> None:
         text, mine = row["report_status"] or "", words[rc.report_key(row)]
         mine[text] = rc.stamp(mine.get(text), rc.row_stamp(row))
 
+    def place(row: dict[str, Any]) -> tuple[int, str] | None:
+        pd, eid, title, output = (
+            row["intervention_id"],
+            row["etools_indicator_id"],
+            row["indicator"],
+            row["pd_output"],
+        )
+        ident = idents.of(pd, eid, title, output)
+        if ident is None and (pd, norm(title)) in idents.shared:
+            unplaced[(pd, norm(title))] += 1
+            unmatched[(pd, norm(title))] += idents.how(pd, eid, title, output) == "output_unmatched"
+        return ident
+
     for row in rc.report_rows(pd_ids, [filters.report_type]):
         note(row)
-        ident = idents.of(
-            row["intervention_id"], row["etools_indicator_id"], row["indicator"], row["pd_output"]
-        )
+        ident = place(row)
         if ident in found:
             per[ident].append(row)
     read_from = dict.fromkeys(per, filters.report_type)
@@ -649,9 +678,7 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
         wanted = set(missing)
         for row in rc.report_rows(sorted({ident[0] for ident in missing}), ["HR"]):
             note(row)
-            ident = idents.of(
-                row["intervention_id"], row["etools_indicator_id"], row["indicator"], row["pd_output"]
-            )
+            ident = place(row)
             if ident in wanted:
                 humanitarian[ident].append(row)
         for ident, rows in humanitarian.items():
@@ -661,6 +688,9 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
     since = rc.reports_read_from(today)  # a PD that started before it has a partial history
     only = location_filter(filters)
     for ident, entry in found.items():
+        entry.rows_placed = len(per.get(ident, []))
+        entry.title_rows_left_out = unplaced[(entry.pd.id, norm(entry.title))]
+        entry.title_rows_unmatched = unmatched[(entry.pd.id, norm(entry.title))]
         result = rc.compute(
             per.get(ident, []),
             display_type=entry.display_type,
@@ -774,6 +804,9 @@ class Row:
     method_label: str
     notes: list[str]
     url: str
+    rows_placed: int = 0
+    title_rows_left_out: int = 0
+    title_rows_unmatched: int = 0
 
     @property
     def partner(self) -> StoredPartner | None:
@@ -846,6 +879,9 @@ def as_rows(found: list[Indicator]) -> list[Row]:
                 method_label=i.method_label,
                 notes=list(i.notes),
                 url=i.url,
+                rows_placed=i.rows_placed,
+                title_rows_left_out=i.title_rows_left_out,
+                title_rows_unmatched=i.title_rows_unmatched,
             )
         )
     return out
@@ -1296,14 +1332,24 @@ def data_quality(
     titles: dict[tuple[int, str], list[Indicator]] = defaultdict(list)
     for r in rows:
         titles[(r.pd.id, norm(r.title))].append(r)
+
     # a title two or more indicators of a PD share: the partner reports' rows are placed by their PD output
-    # (monitoring._Idents); those of indicators that share the output too are left out
+    # (monitoring._Idents). An indicator is left out when it shares the output too, or when it gets no row
+    # while rows of the title were left out (their PD output is empty, or matches none of the indicators')
+    def left_out(group: list[Indicator]) -> int:
+        shared = {key for key, n in Counter(norm(r.output) for r in group).items() if n > 1}
+        return sum(
+            1 for r in group if norm(r.output) in shared or (not r.rows_placed and r.title_rows_left_out)
+        )
+
     same_title = [
         {
             "pd": group[0].pd,
             "title": group[0].title,
             "count": len(group),
-            "left_out": sum(n for n in Counter(norm(r.output) for r in group).values() if n > 1),
+            "left_out": left_out(group),
+            "rows_left_out": group[0].title_rows_left_out,
+            "rows_unmatched": group[0].title_rows_unmatched,
             "rows": group,
         }
         for group in titles.values()
@@ -1338,6 +1384,9 @@ def data_quality(
         "same_title": same_title[:QUALITY_LIMIT],
         "same_title_count": len(same_title),
         "same_title_left_out": sum(g["left_out"] for g in same_title),
+        # the rows of those titles no indicator got, and of them those whose PD output matches none
+        "same_title_rows_left_out": sum(g["rows_left_out"] for g in same_title),
+        "same_title_rows_unmatched": sum(g["rows_unmatched"] for g in same_title),
         "partial": partial[:QUALITY_LIMIT],
         "partial_count": len(partial),
         "read_from": rc.reports_read_from(today) if partial else None,

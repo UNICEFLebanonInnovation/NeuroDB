@@ -280,11 +280,15 @@ def test_a_record_naming_no_business_area_is_kept_unless_it_names_another_countr
     settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
     v2([prp(5, None), prp(6, "", country_name="Syria"), prp(7, ..., country_name=" lebanon ")])
     (result,) = run("prp_indicator_reports")
-    assert result.status == SyncRun.Status.SUCCEEDED
+    # no record of the read named a code: whether the filter works is unconfirmed, so the run says so
+    assert result.status == SyncRun.Status.PARTIAL and result.rows_failed == 0
     assert sorted(DatamartDocument.objects.values_list("record_key", flat=True)) == ["5", "7"]
     details = result.details
     assert (details["other_country_skipped"], details["country_unnamed"]) == (1, 1)
     assert details["business_areas_seen"] == {"(none)": 3}
+    v2([prp(5, None), prp(8)])  # one record names the code: the filter answered
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED and result.details["country_unnamed"] == 1
 
 
 @responses.activate
@@ -443,6 +447,34 @@ def test_a_document_read_shorter_than_announced_removes_nothing_and_says_so(link
 
 
 @responses.activate
+def test_a_document_returned_twice_removes_nothing_and_says_so(linked, settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    for key in ("5", "6", "7"):
+        DatamartDocument.objects.create(dataset="prp_indicator_reports", record_key=key)
+    url = f"{API}/prp/indicator-report-v2/"
+    responses.get(
+        url,
+        match=[responses.matchers.query_param_matcher({"page_size": "500", "business_area": "2490"})],
+        json={"count": 3, "next": f"{url}?page=2", "results": [prp(5), prp(6)]},
+    )
+    responses.get(
+        url,
+        match=[responses.matchers.query_param_matcher({"page": "2"})],
+        json={"count": 3, "next": None, "results": [prp(6)]},
+    )
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.PARTIAL and result.rows_failed == 0
+    details = result.details
+    assert details["removal_skipped"] is True and details["documents_removed"] == 0
+    assert (details["read"], details["duplicates_read"], details["business_areas_seen"]) == (
+        2,
+        1,
+        {"2490": 2},
+    )
+    assert sorted(DatamartDocument.objects.values_list("record_key", flat=True)) == ["5", "6", "7"]
+
+
+@responses.activate
 def test_raw_copies_from_a_read_shorter_than_announced_are_not_removed():
     DatamartDocument.objects.create(dataset="partners", record_key="old")
     responses.get(
@@ -513,3 +545,58 @@ def test_prp_progress_reports_are_linked_to_their_pd_through_prp_programme_docum
     )
     assert sync.link_progress_reports()["linked"] == 3
     assert DatamartDocument.objects.get(dataset="prp_progress_reports", record_key="3").intervention == other
+
+
+PROGRAMME_DOCUMENTS = "sources/prp/unicefprogrammedocument"
+PROGRESS_REPORTS = "sources/prp/unicefprogressreport"
+
+
+@responses.activate
+def test_a_progress_report_read_that_fails_part_way_unlinks_none(linked, settings):
+    """Two progress reports linked to the PD through PRP programme document 77; the next read returns report 1,
+    then HTTP 500 on its second page: the run fails, and report 1 keeps its link."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    _, pd = linked
+    page(PROGRAMME_DOCUMENTS, [{"id": 77, "external_business_area_code": "2490", "external_id": "11"}])
+    reports = [{"id": n, "business_area_code": "2490", "programme_document_id": 77} for n in (1, 2)]
+    page(PROGRESS_REPORTS, reports)
+    run("prp_programme_documents,prp_progress_reports")
+    responses.reset()
+    url = f"{API}/{PROGRESS_REPORTS}/"
+    responses.get(
+        url,
+        match=[responses.matchers.query_param_matcher({"page_size": "500", "business_area_code": "2490"})],
+        json={"count": 2, "next": f"{url}?page=2", "results": reports[:1]},
+    )
+    responses.get(url, match=[responses.matchers.query_param_matcher({"page": "2"})], status=500)
+    (result,) = run("prp_progress_reports")
+    assert result.status == SyncRun.Status.FAILED and "HTTP 500" in result.error
+    links = DatamartDocument.objects.filter(dataset="prp_progress_reports").values_list(
+        "record_key", "intervention"
+    )
+    assert dict(links) == {"1": pd.pk, "2": pd.pk}
+
+
+@responses.activate
+def test_a_progress_report_naming_no_business_area_is_kept_only_through_a_held_programme_document(
+    linked, settings
+):
+    """The progress reports endpoint may ignore business_area_code, and its records name neither a code nor a
+    country: one naming a PRP programme document NeuroDB holds (read by business area) is kept, the others
+    are left out as another country's, and counted apart."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    _, pd = linked
+    page(PROGRAMME_DOCUMENTS, [{"id": 77, "external_business_area_code": "2490", "external_id": "11"}])
+    page(
+        PROGRESS_REPORTS, [{"id": n, "programme_document_id": pk} for n, pk in ((1, 77), (2, 901), (3, 902))]
+    )
+    documents, reports = run("prp_programme_documents,prp_progress_reports")
+    assert list(
+        DatamartDocument.objects.filter(dataset="prp_progress_reports").values_list(
+            "record_key", "intervention"
+        )
+    ) == [("1", pd.pk)]
+    details = reports.details
+    assert (details["kept_by_programme_document"], details["unnamed_skipped"]) == (1, 2)
+    assert details["other_country_skipped"] == 2 and "country_unnamed" not in details
+    assert reports.status == SyncRun.Status.SUCCEEDED

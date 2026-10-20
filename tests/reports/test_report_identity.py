@@ -322,6 +322,48 @@ def test_two_indicator_reports_of_one_title_are_never_pooled(progress_report):
     assert reached.compute(rows[:2], today=TODAY).reached == 45.0
 
 
+def _row(ir: str, output: str, place: str, value: float) -> dict:
+    """One location of one PRP indicator report in PD 7's Accepted QPR1 (1 Jan-31 Mar 2026)."""
+    out = dict.fromkeys(reached.ROW_FIELDS, "")
+    out.update(
+        datamart_id=next(_ids),
+        intervention_id=7,
+        indicator="Children reached",
+        pd_output=output,
+        indicator_report=ir,
+        report_number="QPR1",
+        report_type="QPR",
+        report_status="Accepted",
+        period_start=D(2026, 1, 1),
+        period_end=MARCH,
+        due_date=D(2026, 4, 15),
+        submission_date=D(2026, 4, 10),
+        disaggregation={"()": {"v": value, "d": 1, "c": value}},
+        p_code=place,
+        location_ref_id=None,
+    )
+    return out
+
+
+@pytest.mark.parametrize("ids", [("501", "502"), ("", "")])
+def test_two_indicator_reports_of_one_title_at_different_places_are_never_added_up(ids):
+    """501 (output A) gives LB11 = 40 and 502 (output B, a second PRP indicator with the title) LB22 = 30: no
+    location is given twice, yet they are two indicator reports. Reached is the one under the PD indicator's
+    own output (40), never 70; with no PRP id the outputs alone tell them apart."""
+    rows = [_row(ids[0], "Output A", "LB11", 40), _row(ids[1], "Output B", "LB22", 30)]
+    found = reached.compute(rows, output="Output A", today=D(2026, 10, 20))
+    assert found.reached == 40.0 and "the one under its own output is used" in found.notes[-1]
+    neither = reached.compute(rows, output="Output C", today=D(2026, 10, 20))
+    assert neither.reached is None and "left out of Reached" in neither.notes[-1]
+
+
+def test_rows_of_one_indicator_report_at_one_place_still_give_the_largest():
+    rows = [_row("501", "Output A", "LB11", 40), _row("501", "Output A", "LB11", 12)]
+    found = reached.compute(rows, output="Output A", today=D(2026, 10, 20))
+    assert found.reached == 40.0 and any("the largest is used, never their sum" in n for n in found.notes)
+    assert not any("the one under its own output" in n for n in found.notes)
+
+
 # ------------------------------------------------------------------- ID-4: the id the rows carry
 def test_check_7_says_the_key_read_is_empty_and_never_confirmed():
     pd = make_pd(1)

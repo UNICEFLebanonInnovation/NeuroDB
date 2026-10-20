@@ -162,12 +162,88 @@ def test_check_1_counts_different_values_in_counted_reports_only_as_a_risk(pd):
     assert found["tone"] == "ok"
 
 
+SHARED = "Locations two or more indicator reports of one title give in one report"
+SHARED_DIFFER = "… carrying different values (Reached keeps the one under its own output)"
+KEPT = (
+    "Reached keeps the one under the PD indicator's own output, else leaves that report out with a note, "
+    "never the largest of them nor their sum"
+)
+
+
 def test_check_1_two_indicators_of_a_report_with_one_title_are_not_a_duplicate(pd):
     report_row(pd, indicator_report="501", total={"c": 3})
     report_row(pd, indicator_report="502", total={"c": 9})
     found = one("1")
-    assert figures(found)["… two indicators of the report with the same title"] == 1
+    assert (figures(found)[SHARED], figures(found)[SHARED_DIFFER]) == (1, 1)
     assert figures(found)["… with different values"] == 0 and found["tone"] == "ok"
+    # the values are 3 and 9: never "the same value", and Reached keeps one, never "both out"
+    assert "same value, which Reached reads once" not in found["verdict"]
+    assert "leaves both out" not in found["verdict"] and KEPT in found["verdict"]
+    assert "(1 with different values, 0 with the same value)" in found["verdict"]
+
+
+@pytest.mark.parametrize("ids", [("", ""), ("501", "502")])
+def test_check_1_words_two_indicator_reports_of_one_title_by_reacheds_rule(pd, ids):
+    """PD 7's QPR1 (1 Jan-31 Mar 2026, Accepted): "Children reached" at LB11 under output A (40) and output B
+    (7), with no PRP indicator report id or with 501 and 502. Neither "the largest" (the rows are two
+    indicator reports, not duplicates) nor "the same value" nor "both left out": Reached keeps the one
+    under the PD indicator's own output."""
+    for ir, output, value in zip(ids, ("Output A", "Output B"), (40, 7), strict=True):
+        report_row(pd, "QPR1", end=D(2026, 3, 31), start=D(2026, 1, 1), p_code="LB11", location="",
+                   indicator_report=ir, pd_output=output, total={"c": value})  # fmt: skip
+    found = one("1")
+    numbers = figures(found)
+    assert found["tone"] == "ok"
+    assert numbers["Locations on several rows of one indicator in one report"] == 0
+    assert (numbers["… with different values"], numbers[SHARED], numbers[SHARED_DIFFER]) == (0, 1, 1)
+    assert found["verdict"] == (
+        "Each location appears on one row per indicator in each report (a report told apart by its programme "
+        "document, type, number and period; an indicator by PRP's indicator report id, else its title and PD "
+        "output). At 1 location, two or more indicator reports of one report carry the same title (1 with "
+        f"different values, 0 with the same value): {KEPT} (check 7 counts the rows Partner monitoring "
+        "places)."
+    )
+    # two rows of one of them at that place still say what Reached does with them: the largest
+    report_row(pd, "QPR1", end=D(2026, 3, 31), start=D(2026, 1, 1), p_code="LB11", location="",
+               indicator_report=ids[0], pd_output="Output A", total={"c": 12})  # fmt: skip
+    found = one("1")
+    assert figures(found)["… of which in reports that count (Reached takes the largest)"] == 1
+    assert "Reached uses the largest, never their sum" in found["verdict"] and found["tone"] == "warning"
+
+
+def test_checks_1_and_2_tell_two_indicators_of_one_title_apart_by_their_pd_output(pd):
+    """Two PD indicators titled "Children reached" under "A. Protection" and "B. Education", rows with no PRP
+    indicator report id: Akkar under A (3) and under B (9) are two indicator reports, never a location
+    given twice; with Bekaa under each, check 2 counts two indicator reports with several locations, as the
+    tiles count them."""
+    from neurodb.datamart import services
+
+    dm.PDIndicator.objects.filter(intervention=pd).update(lower_result_name="A. Protection")
+    dm.PDIndicator.objects.create(datamart_id=9102, source_id=12, intervention=pd, title="Children reached",
+                                  lower_result_name="B. Education")  # fmt: skip
+    report_row(pd, pd_output="A. Protection", total={"c": 3})
+    report_row(pd, pd_output="B. Education", total={"c": 9})
+    found = one("1")
+    assert figures(found)["Locations on several rows of one indicator in one report"] == 0
+    assert figures(found)["… with different values"] == 0 and found["tone"] == "ok"
+    assert (
+        figures(one("7"))["… matched by PD output and title (a title several indicators of the PD share)"]
+        == 2
+    )
+    report_row(pd, pd_output="A. Protection", location="Bekaa", total={"c": 4})
+    report_row(pd, pd_output="B. Education", location="Bekaa", total={"c": 6})
+    assert figures(one("2"))["Indicator reports with several locations"] == 2
+    assert services.partner_reporting({}, datetime.date.today())["counts"]["indicator_reports"] == 2
+
+
+def test_check_2_never_reads_two_outputs_of_one_title_as_one_report_total(pd):
+    # one Accepted QPR1, no PRP id: output A at LB11 and output B at LB22, each "()" 5: two indicator
+    # reports of one location each, never "the same value on every location" of one
+    report_row(pd, p_code="LB11", location="", pd_output="Output A", total={"c": 5})
+    report_row(pd, p_code="LB22", location="", pd_output="Output B", total={"c": 5})
+    found = one("2")
+    assert found["verdict"].startswith("No indicator report has more than one location")
+    assert found["tone"] != "warning"
 
 
 def test_check_1_two_programme_documents_never_pool(pd):
@@ -293,6 +369,9 @@ def test_check_4_reads_prps_empty_value_as_no_value(pd):
                total_cumulative_progress=empty)  # fmt: skip
     report_row(pd, "QPR4", end=D(2027, 3, 31), status="Due", achievement_in_period="0.0")
     report_row(pd, "QPR5", end=D(2027, 6, 30), status="Due", achievement_in_period='{"v": 0, "d": 1, "c": 0}')
+    assert checks._value("{'c': 0, 'd': 0, 'v': 0}") == 0.0  # Reached reads it as 0: only check 4 says none
+    check = next(c for c in checks.CHECKS if c.key == "4")
+    assert "is no value" not in check.neurodb and "here a zero" in check.neurodb
     found = one("4")
     assert figures(found)["Rows of reports that do not count, with a value"] == 0
     assert found["verdict"] == "Reports that do not count carry no value."
@@ -389,8 +468,13 @@ def test_check_7_counts_the_rows_partner_monitoring_uses_and_leaves_out(indicato
     assert numbers["… matched by title (one indicator of the PD has it)"] == 2
     assert numbers["… matched by PD output and title (a title several indicators of the PD share)"] == 0
     assert numbers["… left out: two or more indicators of the PD have the title and the output"] == 1
+    assert numbers[UNMATCHED] == 0
     assert numbers["… left out: no indicator of the PD has the title"] == 1
     assert numbers["Indicator reports left out"] == 2 and found["tone"] == "warning"
+    assert (
+        "Left out: 1 row whose title and PD output two or more indicators of their PD share"
+        in (found["verdict"])
+    )
     census = {line[0]: line for line in found["table"]["rows"]}
     # the key NeuroDB reads the eTools indicator id from: on 4 rows, never with a value
     assert census["etools_cp_output_indicators_id"][1:4] == ("yes", 4, 0)
@@ -401,6 +485,33 @@ def test_check_7_counts_the_rows_partner_monitoring_uses_and_leaves_out(indicato
     text = json.dumps(found)
     for secret in ("Partner A", "Unknown title", "Kits distributed", "something else", "LEB/PD/CHK1"):
         assert secret not in text
+
+
+UNMATCHED = "… left out: a title several indicators of the PD share, and a PD output none of them has"
+
+
+def test_check_7_and_data_quality_name_a_pd_output_that_matches_none(pd):
+    """PD indicators "# of youth trained" under "2.1 Skills" and "2.2 Jobs": a row whose PD output is
+    "Output 2.1: Skills" (PRP's spelling) and one with none are left out because their output matches
+    neither, never because the indicators share it; Data quality counts both indicators left out."""
+    for n, output in enumerate(("2.1 Skills", "2.2 Jobs")):
+        dm.PDIndicator.objects.create(datamart_id=9120 + n, source_id=20 + n, intervention=pd,
+                                      title="# of youth trained", lower_result_name=output)  # fmt: skip
+    report_row(pd, title="# of youth trained", pd_output="Output 2.1: Skills", total={"c": 4})
+    report_row(pd, title="# of youth trained", pd_output="", location="Bekaa", total={"c": 6})
+    found = one("7")
+    numbers = figures(found)
+    assert numbers[UNMATCHED] == 2
+    assert numbers["… left out: two or more indicators of the PD have the title and the output"] == 0
+    assert numbers["Indicator reports left out"] == 2  # each its title and PD output
+    assert "2 rows whose title several indicators of their PD share and whose PD output" in found["verdict"]
+    assert "correct the output name in PRP or eTools so the two match" in found["verdict"]
+    assert "# of youth trained" not in json.dumps(found)
+    filters = monitoring.Filters(scope="all", year=None)
+    quality = monitoring.data_quality(monitoring.indicators(filters), filters)
+    (group,) = quality["same_title"]
+    assert (group["count"], group["left_out"], group["rows_unmatched"]) == (2, 2, 2)
+    assert (quality["same_title_left_out"], quality["same_title_rows_unmatched"]) == (2, 2)
 
 
 def test_check_7_says_whether_prps_ids_tell_the_reports_apart(pd):

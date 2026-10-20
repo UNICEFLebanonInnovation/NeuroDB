@@ -427,8 +427,9 @@ IDENTITY_FIELDS = (
 def report_identity(row: dict[str, Any]) -> tuple:
     """A progress report as every one of its rows tells it apart: its programme document (NeuroDB's link,
     else the PD reference number the row names), report type, number and period. PRP repeats them on each
-    row of a report, while its own report ids can be empty, or one value for many reports (the Lebanon rows
-    of 20 Oct 2026: no progress report id at all). The eTools reporting checks count reports by it."""
+    row of a report, while its own report ids can be empty, or one value for many reports (on the Lebanon
+    rows of 20 Oct 2026 check 5 found no indicator with several progress report ids; check 7 now counts the
+    rows with none). The eTools reporting checks count reports by it."""
     pd = row.get("intervention_id")
     return (
         pd if pd is not None else f"ref:{row.get('pd_reference_number') or ''}",
@@ -812,39 +813,38 @@ def location_method_label(method: str, ratio: bool = False) -> str:
     return "sum of locations"
 
 
-def _two_at_one_place(rows: list[dict[str, Any]]) -> bool:
-    """Whether one location of these rows (one progress report) is reported by two or more indicator reports:
-    two PRP indicator report ids there, else, when the rows carry none, two PD outputs."""
+def _two_indicator_reports(rows: list[dict[str, Any]]) -> bool:
+    """Whether these rows (one progress report) come from two or more indicator reports: two PD outputs
+    anywhere in the report (two PRP indicators of one title, whatever locations each reports), or two PRP
+    indicator report ids at one location. Ids at different locations are not enough: PRP's id may be one per
+    location of one indicator report."""
+    if len({norm(row.get("pd_output")) for row in rows} - {""}) > 1:
+        return True
     ids: dict[str, set[str]] = defaultdict(set)
-    outputs: dict[str, set[str]] = defaultdict(set)
     for row in rows:
-        place = location_key(row.get("p_code"), row.get("location"))
         if row.get("indicator_report"):
-            ids[place].add(str(row["indicator_report"]))
-        if norm(row.get("pd_output")):
-            outputs[place].add(norm(row.get("pd_output")))
-    if ids:
-        return any(len(found) > 1 for found in ids.values())
-    return any(len(found) > 1 for found in outputs.values())
+            ids[location_key(row.get("p_code"), row.get("location"))].add(str(row["indicator_report"]))
+    return any(len(found) > 1 for found in ids.values())
 
 
 def one_indicator(rows: list[dict[str, Any]], output: str | None) -> tuple[list[dict[str, Any]], list[str]]:
-    """The rows of one PD indicator, and the notes on what was left out. A progress report where one location
-    is reported by two or more indicator reports (two PRP indicators carry this indicator's title,
-    :func:`_two_at_one_place`) keeps only the rows under the indicator's own output (``output``, the PD
+    """The rows of one PD indicator, and the notes on what was left out. A progress report whose rows come
+    from two or more indicator reports (two PRP indicators carry this indicator's title,
+    :func:`_two_indicator_reports`) keeps only the rows under the indicator's own output (``output``, the PD
     indicator's); when its output does not tell them apart, the report is left out of Reached, never the
-    largest of them nor their sum."""
+    largest of them nor their sum. Several rows of one indicator report at one location still go to
+    :func:`_choose`."""
     by_report: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         by_report[report_key(row)].append(row)
     kept, notes = [], []
     for found in by_report.values():
-        if not _two_at_one_place(found):
+        if not _two_indicator_reports(found):
             kept.extend(found)
             continue
         name = found[0].get("report_number") or report_key(found[0])
         mine = [r for r in found if output and norm(r.get("pd_output")) == norm(output)]
-        if mine and not _two_at_one_place(mine):
+        if mine and not _two_indicator_reports(mine):
             kept.extend(mine)
             notes.append(
                 f"{name}: two or more indicator reports of this progress report carry this indicator's "

@@ -618,8 +618,8 @@ def datamart_quality() -> list[dict[str, Any]]:
     rows NeuroDB holds — the table to read before believing a number on an eTools page. A failed run's
     error is shown when it lists no row errors, and a diagnostic dataset (``catalogue.DIAGNOSTIC``, used by
     no page, figure or check) is marked as such. A PRP dataset's run names the business area code it read
-    with and where the code came from; a run that read fewer records than the Datamart announced says that
-    it removed nothing."""
+    with and where the code came from, and the records that named no business area; a run that read fewer
+    records than the Datamart announced, or some twice, says that it removed nothing."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
 
@@ -652,11 +652,20 @@ def datamart_quality() -> list[dict[str, Any]]:
                 # a PRP dataset's code and its source, in words (it carries no country name)
                 "business_area": details.get("business_area") or "",
                 "business_area_from": BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""),
-                # the records read (kept and skipped) and the count the Datamart announced; fewer read than
-                # announced: nothing was removed
+                # the records read (kept and skipped, each once) and the count the Datamart announced; fewer
+                # read than announced, or some returned twice: nothing was removed
                 "read": details.get("read"),
                 "datamart_count": details.get("datamart_count"),
                 "removal_skipped": bool(details.get("removal_skipped")),
+                "duplicates_read": details.get("duplicates_read"),
+                # an empty read the Datamart announced records for: its answer was cut short
+                "cut_short": bool(details.get("empty_response"))
+                and isinstance(details.get("datamart_count"), int)
+                and details["datamart_count"] > (details.get("read") or 0),
+                # PRP records naming no business area: kept unconfirmed, or left out as no PRP programme
+                # document NeuroDB holds names them
+                "country_unnamed": details.get("country_unnamed"),
+                "unnamed_skipped": details.get("unnamed_skipped"),
             }
         )
     return rows

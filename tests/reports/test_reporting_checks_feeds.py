@@ -56,6 +56,20 @@ def test_checks_8_and_9_say_the_dataset_holds_no_record_and_what_its_sync_did(db
     found = one("8")
     assert "returned no record (it announced 0)" in found["verdict"] and "2490" in found["verdict"]
     assert "never been synced" not in found["verdict"] and "changes nothing" in found["verdict"]
+    assert "Admin → Data and sync → eTools Datamart: PRP business area code" in found["verdict"]
+
+
+def test_checks_8_9_and_11_say_a_read_cut_short_may_be_helped_by_a_new_sync(pd):
+    """The first page announced 500 records and the answer returned none: never "syncing again changes
+    nothing", but that the answer stopped after 0 of the 500 and how to sync again."""
+    report_row(pd)
+    prp_run(details={"documents": 0, "empty_response": True, "business_area": "2490", "datamart_count": 500,
+                     "read": 0})  # fmt: skip
+    for key in ("8", "9", "11"):
+        verdict = one(key)["verdict"]
+        assert "changes nothing" not in verdict and "it announced 500 records" in verdict
+        assert "its answer stopped after 0" in verdict and "a new sync may help" in verdict
+        assert "Sync eTools Datamart now" in verdict
 
 
 def test_check_8_tells_records_without_an_id_from_ids_that_match_nothing(pd):

@@ -1382,12 +1382,14 @@ replaced by a complete read (rows the Datamart no longer returns are deleted), e
 Datamart returns nothing at all, or only records of another country (`details.empty_response`, with
 `details.other_country_skipped` in the second case; rows an earlier run wrote then stay until a read
 returns this country's records), which usually means a wrong country name.
-A read that returns fewer records than the Datamart announced on its first page (the `count` of the
-paginated list, kept as `details.datamart_count`; records left out as another country's count as read)
-removes nothing either: a page cut short, or rows moving on the Datamart while its pages were read,
-would otherwise delete history until the next complete read. The run then ends *Succeeded with
-errors* with `details.removal_skipped` and `details.read`, Data health says "read N records of the M
-the Datamart announced: none was removed", and the next complete read removes what the Datamart no
+A read that returns fewer distinct records than the Datamart announced on its first page (the `count` of
+the paginated list, kept as `details.datamart_count`; records left out as another country's count as read,
+and a record returned twice counts once), or that returns a record twice (rows moving on the Datamart
+while its pages were read: a record returned again stands for one never returned, whatever the counts,
+`details.duplicates_read`), removes nothing either: it would otherwise delete history until the next
+complete read. The run then ends *Succeeded with errors* with `details.removal_skipped` and
+`details.read`, Data health says "read N records of the M the Datamart announced: none was removed" (or
+that the Datamart returned N records twice), and the next complete read removes what the Datamart no
 longer returns. A failed page fails the run before anything is removed. Every run also records
 `details.held_before`, the rows of its scope NeuroDB held before the read: a large `removed` reads
 against it. The records kept whole (below), the raw copies of the partner, programme document, location
@@ -1696,21 +1698,24 @@ the PD indicator with that id when it gives one; else to the one indicator of it
 (case and spaces aside); else, for a title two or more indicators of the PD share, to the one that also
 has the row's PD output (`pd_output`, compared with the indicator's output, `lower_result_name`). A row
 none of these places is left out (two indicators are never merged): Data quality's *Same title twice in
-one PD* says how many indicators share their output too. The eTools reporting checks (check 7) count the
-rows matched by id, by title, by output and title, and left out.
+one PD* says how many indicators get none of their rows (they share their output too, or the rows' PD
+output is empty or matches none of theirs: PRP's output name is not confirmed to be spelled as eTools'),
+and how many rows were left out for an output that matches none. The eTools reporting checks (check 7)
+count the rows matched by id, by title, by output and title, and left out, by cause.
 
 **A progress report is its programme document, report type, number and period** (`reached.report_key`,
 `reporting.REPORT_KEY` in the database): every page groups a report's rows, counts it and reads its status
-by it, whatever PRP's own ids hold. The Lebanon rows carry no PRP progress report id at all (check 7), and
-an id could stand for several reports; reports were once told apart by that id first, then by PRP's
+by it, whatever PRP's own ids hold. On the Lebanon rows check 5 found no indicator with several PRP
+progress report ids (the id is empty, or one value for many reports: check 7 now counts the rows with
+none), and an id could stand for several reports; reports were once told apart by that id first, then by PRP's
 indicator report id, then by number and period, across programme documents. PRP's progress report id
 still opens a report's pop-up when all its rows are of one report, breaks the tie between two reports
 ending the same day, and tells reports apart on a row that names no programme document at all, or no
 number and no period. Within a report, one indicator (an *indicator report*) is PRP's indicator report
 id, else its eTools id, title and PD output.
 
-What this changed on the pages, with the Lebanon rows (no PRP progress report id, no eTools indicator
-id): figures stay the same wherever PRP's ids told reports apart (proved on a fixed set of reports in
+What this changed on the pages, with the Lebanon rows (PRP progress report ids that tell no report
+apart, no eTools indicator id): figures stay the same wherever PRP's ids told reports apart (proved on a fixed set of reports in
 the three shapes PRP's ids can come in, `tests/reports/test_report_identity_figures.py`); they change only
 where reports were read as one that are not, or values were left out:
 
@@ -1780,11 +1785,12 @@ the map, the programme and partner pages, the progress report pop-up and Ask Neu
   id, read from every row of the report (its programme document, type, number and period) whatever the
   filter. One indicator in one progress report (an *indicator report*) is identified by PRP's indicator
   report id, else by its eTools id, title and PD output: two indicators that share a title or an eTools
-  id are never read as one, on the pop-up and on *By location* as on the tiles. When one location of a
-  report is given by two indicator reports that one PD indicator's title matches (two PRP indicators
-  with one title), only those under the indicator's own output count; when the output does not tell them
+  id are never read as one, on the pop-up and on *By location* as on the tiles. When a report gives two
+  indicator reports that one PD indicator's title matches (two PRP indicators with one title: two PD
+  outputs anywhere in the report, whatever locations each reports, or two PRP indicator report ids at
+  one location), only those under the indicator's own output count; when the output does not tell them
   apart, that report is left out of the indicator's Reached with a data note, never the largest of them
-  nor their sum.
+  nor their sum. Several rows of one indicator report at one location still give its largest value.
 
 **The pages.** The grid lists, per indicator: Target, Reached (as of the latest counted report),
 % Reached, Reached in the chosen year, Awaiting acceptance, Status, the partner's own view, and the
@@ -1820,23 +1826,32 @@ belongs to, PRP's report totals, whether the financial contribution repeats on e
 report, the country and programme document of the rows, and the reports owed in PRP's feeds), each
 with a verdict and what NeuroDB does whatever the answer. Each check measures what NeuroDB reads: PRP's
 values are parsed as Reached parses them (`c`, else v over d, else v, given as a number, its text or PRP's
-`{v, d, c}`, so PRP's empty `{c: 0, d: 0, v: 0}` is no value), and a progress report is told apart by its
-programme document, type, number and period, whatever PRP's own ids hold. Every figure is a count: no
+`{v, d, c}`), and a progress report is told apart by its programme document, type, number and period,
+whatever PRP's own ids hold; one indicator in it (an indicator report) by PRP's indicator report id, else
+its eTools id, title and PD output, as Reached and the tiles tell them apart. Every figure is a count: no
 title, name or value of a record is shown (key names, section names, the PD numbers NeuroDB does not hold
 and business area codes at most).
 
-* **Check 1** counts the locations on several rows of one indicator in one report, those whose rows carry
-  different values and, of them, those in reports that count (a warning: Reached takes the largest), the
-  two indicators of a report that share a title, and the locations Reached reads as one report across
-  several (none since a report is its programme document, type, number and period: a guard).
+* **Check 1** counts the locations on several rows of one indicator report in one report, those whose
+  rows carry different values and, of them, those in reports that count (a warning: Reached takes the
+  largest); apart, the locations two or more indicator reports of one title give in one report (two PRP
+  indicator report ids there, else two PD outputs), and those with different values (Reached keeps the
+  one under the PD indicator's own output, else leaves that report out); and the locations Reached reads
+  as one report across several (none since a report is its programme document, type, number and period:
+  a guard). The same-value and different-values words come from the values themselves.
 * **Check 2** counts, per indicator report with several locations, those with the same `"()"` on every
   location (all zero; above zero in a report that counts and adds up its locations: the risk it is for),
   those whose value in the period is the locations' `"()"` combined, and the rows whose `"()"` gives no
-  number (the only ones the repeated-total rule reads).
+  number (the only ones the repeated-total rule reads). Two indicators of one title under different PD
+  outputs are two indicator reports here, as on the tiles.
 * **Check 3** counts the rows whose `"()"` holds a number (the others Reached reads from the running
   totals or the value in the period), the value in the period read as a number and written as `{v, d, c}`,
   the rows compared and equal (with none compared it says so, never "0 %"), and per indicator report with
   several locations whether the value in the period is each location's own or the report total repeated.
+* **Check 4** counts, per PRP status, whether the report counts and whether its period has ended, the
+  rows, those with a cumulative of 0, with none, and with a value given. Values are read as Reached reads
+  them (PRP's empty `{c: 0, d: 0, v: 0}` is 0 there); *Value given* counts only a value other than zero:
+  a zero, `"0"` or `"0.0"` counts as no value in this check.
 * **Check 5** reads Partner monitoring's own figures (the running programme documents, quarterly reports
   with the monthly fallback: what the *Data quality* tab lists): the indicators with several counted
   reports, those whose PRP cumulative never goes down from one report to the next or is the same on every
@@ -1845,8 +1860,10 @@ and business area codes at most).
   every report combined or to the latest one, a cumulative that never moves, locations not read from
   `"()"`). It needs 30 seconds of the checks' time.
 * **Check 7** counts the rows of the running programme documents matched to a PD indicator by its id, by
-  title, by PD output and title (a title several indicators of the PD share), and left out (a title and an
-  output two or more indicators share, or a title none has), with the indicator reports left out; PRP's
+  title, by PD output and title (a title several indicators of the PD share), and left out by cause: a
+  title and an output two or more indicators share (told apart in eTools), a title several share with a PD
+  output that is empty or matches none of theirs (the output name corrected in PRP or eTools), or a title
+  none has, with the indicator reports left out (each its title and PD output); PRP's
   progress report and indicator report ids (empty, how many, how many stand for more than one report, and
   the reports with more than one progress report id: counted, never a problem for the pages, which tell
   reports apart by programme document, type, number and period); and lists the keys the records send
@@ -1857,9 +1874,10 @@ and business area codes at most).
 * **Checks 8, 9 and 11** count the records of PRP's indicator reports held; when none is, they say what
   the last sync of `prp_indicator_reports` did (Data health's run): never synced, still running, failed
   (with its error), asked for the business area and got no record (syncing again changes nothing: check
-  the code in Admin → *eTools Datamart: PRP business area code*, or Run a job → *Probe a Datamart
-  dataset*), read only records of another business area (check 11 lists the codes they named), or could
-  write none. Check 8 also counts the records with a PRP id and the partner ids that are not whole numbers.
+  the code in Admin → *Data and sync* → *eTools Datamart: PRP business area code*, or Run a job → *Probe a
+  Datamart dataset*), got an answer cut short (the first page announced records the read never returned: a
+  new sync may help), read only records of another business area (check 11 lists the codes they named), or
+  could write none. Check 8 also counts the records with a PRP id and the partner ids that are not whole numbers.
 * **Check 10** counts the rows per country named in the record and per programme document link (running,
   another status, not in NeuroDB, names none), with their indicator reports (counted as Progress reports
   counts them), their first and last period end, each section name once (a row's list such as "Child
@@ -1888,8 +1906,9 @@ and business area codes at most).
   `sources/prp/unicefprogressreport`), is set beside the partner reports in a table of its own, in
   progress reports (never indicator reports): per month and status by the same rule over its status,
   end, due and submission dates, for the running programme documents it links to. It names the months
-  where PRP's progress reports list more reports still owed than the partner reports (the reports Power
-  BI counts as overdue that this feed does not carry); with none to compare, it says why (never synced,
+  where PRP's progress reports list more reports still owed than the partner reports (the partner reports
+  feed does not carry them; these may be the overdue reports Power BI counts, which nothing has confirmed
+  yet); with none to compare, it says why (never synced,
   running, failed, none returned, none linked to a programme document NeuroDB holds, with the link's
   counts, or none of the year).
 
@@ -1951,7 +1970,8 @@ figures as everywhere else (they read the rule above; nothing is added across in
   year), with and without a target (a target of zero is missing). Lists: indicators without a
   target; without Reached or with zero Reached; and NeuroDB's own checks: Reached differs from PRP's
   cumulative, the same title twice in one PD (kept apart, never merged: the rows are placed by their PD
-  output, and the list counts the indicators that share their output too, whose rows stay left out),
+  output, and the list counts the indicators that get none of their rows, as they share their output too
+  or the rows' PD output matches none of theirs, and the rows left out for such an output),
   partial history. Each list shows its first 500 rows; the counts are complete.
 * **Progress reports** has four tabs on one filter (search, report status, report type, reporting
   year, section, report #, partner, partner type, PD status, emergency indicator, period start and
@@ -2209,7 +2229,12 @@ the next sync takes and what the latest runs of the three datasets used and foun
 first `datamart/workspaces` record of the country's name that has one. Codes are compared after
 normalising (spaces, `2490.0`, `{"code": "2490"}` all read `2490`). A record naming another business
 area, or no business area but another country, is dropped (`details.other_country_skipped`); one that
-names neither is kept, as with `country_name`, and counted (`details.country_unnamed`). Each run of the
+names neither is kept, as with `country_name`, and counted (`details.country_unnamed`): Data health and
+the admin page of the code then warn that nothing confirms those records are the country's and point to
+Run a job → *Probe a Datamart dataset*, and when no record of the read named a code at all the run ends
+*Succeeded with errors*. A PRP progress report naming neither is kept only when the PRP programme
+document it names is held (those are read by business area, `details.kept_by_programme_document`); the
+others are dropped as another country's (`details.unnamed_skipped` counts them apart). Each run of the
 three records, counts only: `business_area` and `business_area_from` (`environment`, `admin` or
 `workspaces`), `read` (kept and skipped), `datamart_count`, `business_areas_seen` (the ten most frequent
 codes, `(none)` for none), `keys_seen` (how many records carry each key the sync and its readers use:
@@ -2229,7 +2254,9 @@ names by id (`programme_document_id`, else `programme_document`: no recorded rec
 that record being linked to the eTools PD by its external id or reference number. The run's details say
 how it went, counts only, under `progress_reports_pd_link`: `linked`, `pd_not_named` (the record names
 none under those keys), `pd_not_held` (a PRP programme document NeuroDB does not hold) and `pd_not_linked`
-(held, but linked to no eTools PD). Check 11 reads the linked ones as its third feed.
+(held, but linked to no eTools PD). Check 11 reads the linked ones as its third feed. A progress report
+the sync rewrites keeps the link it holds until that step runs, so a read that fails part-way unlinks
+none.
 
 To see what the Datamart holds when such a read keeps nothing, an administrator presses Run a job →
 *Probe a Datamart dataset* (`probe_datamart --dataset <name>`, `prp_indicator_reports` by default). It
@@ -2238,7 +2265,11 @@ else the workspace NeuroDB holds; the PRP datasets only), and the country name, 
 its run (job *eTools Datamart probe*, target the dataset): per request the filter sent, the count
 announced, the records on the page, how many carry each key, and the business area codes and country
 names named (counts). Its `verdict` says in plain words what the answers mean and what to do (enter
-another code, tell the Datamart team the data is not loaded, ask the hosting team for access). A probe
+another code, tell the Datamart team the data is not loaded or that it ignores the filter, ask the hosting
+team for access); for a PRP dataset it judges the business area answer first: refused (with its status),
+ignored (its page names other codes, or it finds as many as no filter while that page names other codes),
+or kept to the code. The verdict shows in the run's *Error* cell of Import and sync runs and as *What the
+probe found* on the run's page, above its details. A probe
 is never an alarm and never stale; one runs at a time. Keys naming
 an e-mail address, a phone or a mobile are removed from the records kept whole here, from the records
 of the typed eTools tables, and from every assistant answer, which also withholds any e-mail address

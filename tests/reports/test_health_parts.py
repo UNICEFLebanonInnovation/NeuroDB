@@ -344,7 +344,11 @@ def test_a_prp_dataset_names_its_business_area_and_an_empty_read_points_to_the_c
         "prp_programme_documents",
         details={**prp, "read": 2, "empty_response": True, "other_country_skipped": 2},
     )
-    error = "IntegrationError: no business area code for 'Lebanon': enter it in the admin"
+    error = (
+        "IntegrationError: enter the business area code in Admin → Data and sync → eTools Datamart: PRP "
+        "business area code (none is set for 'Lebanon', and no Datamart workspace of that name has one), or "
+        "ask the hosting team to set ETOOLS_DATAMART_BUSINESS_AREA"
+    )
     _run(datamart, "prp_progress_reports", status=SyncRun.Status.FAILED, error=error)
     _run(
         datamart,
@@ -357,17 +361,42 @@ def test_a_prp_dataset_names_its_business_area_and_an_empty_read_points_to_the_c
     datasets = unescape(text(get_part(client_viewer, PAGE, "datasets")))
     row = _dataset(datasets, "prp_indicator_reports")
     assert "the Datamart returned nothing for business area 2490" in row
-    assert "Admin → eTools Datamart: PRP business area code" in row and "Probe a Datamart dataset" in row
+    assert "Admin → Data and sync → eTools Datamart: PRP business area code" in row
+    assert "press Run a job → Probe a Datamart dataset" in row and "run Run a job" not in row
     assert "business area 2490, entered in the admin" in row and "country name" not in row
     row = _dataset(datasets, "prp_programme_documents")
     assert "every record the Datamart returned names another business area than 2490 (2)" in row
     assert "of another country skipped" not in row and "2 read" in row
-    assert error in _dataset(datasets, "prp_progress_reports")
+    assert error[:200] in _dataset(datasets, "prp_progress_reports")  # the pointer is never cut short
     row = _dataset(datasets, "grants")
     assert "read 2 records of the 4 the Datamart announced: none was removed" in row
     assert "business area" not in row  # a dataset read by country names none
     # the typed datasets keep their country-name wording
     assert "the Datamart returned nothing: check the country name" in _dataset(datasets, "partners")
+
+
+def test_a_prp_read_warns_of_records_naming_no_business_area_a_read_cut_short_and_records_twice(
+    client_viewer, world
+):
+    from html import unescape
+
+    datamart = SyncRun.Job.ETOOLS_DATAMART
+    prp = {"business_area": "2490", "business_area_from": "admin", "documents": 3}
+    _run(datamart, "prp_progress_reports", status=SyncRun.Status.PARTIAL, rows_in=3, rows_written=3,
+         details={**prp, "read": 3, "country_unnamed": 3, "business_areas_seen": {"(none)": 3}})  # fmt: skip
+    _run(datamart, "prp_indicator_reports",
+         details={**prp, "documents": 0, "read": 0, "empty_response": True, "datamart_count": 500})  # fmt: skip
+    _run(datamart, "prp_programme_documents", status=SyncRun.Status.PARTIAL, rows_in=3, rows_written=3,
+         details={**prp, "read": 2, "removal_skipped": True, "duplicates_read": 1, "datamart_count": 3})  # fmt: skip
+    datasets = unescape(text(get_part(client_viewer, PAGE, "datasets")))
+    row = _dataset(datasets, "prp_progress_reports")
+    assert "3 records name no business area: they were kept, but nothing confirms" in row
+    assert "press Run a job → Probe a Datamart dataset" in row
+    row = _dataset(datasets, "prp_indicator_reports")
+    assert "announced 500 records for business area 2490 but returned none" in row
+    assert "sync the dataset again" in row and "returned nothing for business area" not in row
+    row = _dataset(datasets, "prp_programme_documents")
+    assert "returned 1 record twice while its pages were read" in row and "none was removed" in row
 
 
 @pytest.mark.parametrize("name", PARTS)
@@ -479,8 +508,9 @@ def test_without_javascript_the_page_drawn_at_once_is_complete(client_viewer, wo
 def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
     """``datamart_quality`` as it was before this page loaded in parts (63d9646): every Datamart run read, newest
     first, and every dataset counted at each call; with the keys added since: a failed run's own error, the
-    diagnostic mark, a PRP dataset's business area code and its source, and what a read got against the count
-    the Datamart announced."""
+    diagnostic mark, a PRP dataset's business area code and its source, what a read got against the count
+    the Datamart announced (records returned twice, an empty answer cut short) and the PRP records that named
+    no business area."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
 
     last_by_target: dict[str, SyncRun] = {}
@@ -520,6 +550,12 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
                 "read": details.get("read"),
                 "datamart_count": details.get("datamart_count"),
                 "removal_skipped": bool(details.get("removal_skipped")),
+                "duplicates_read": details.get("duplicates_read"),
+                "cut_short": bool(details.get("empty_response"))
+                and isinstance(details.get("datamart_count"), int)
+                and details["datamart_count"] > (details.get("read") or 0),
+                "country_unnamed": details.get("country_unnamed"),
+                "unnamed_skipped": details.get("unnamed_skipped"),
             }
         )
     return rows

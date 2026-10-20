@@ -1217,19 +1217,31 @@ class OfCountry:
     the API ignored must never let another country's records in (``CountryScope.keeps`` does the same
     for the records kept whole). ``skipped`` counts the records left out; they are never written.
     Rows an earlier run wrote are removed from the ``datamart`` tables (:func:`remove_other_country`) and
-    from the records kept whole; the partner, programme document, location and site tables keep them."""
+    from the records kept whole; the partner, programme document, location and site tables keep them.
+    ``read`` counts the distinct records read, kept or skipped (by :func:`record_key`), and ``repeated``
+    those the Datamart returned again (:func:`read_whole`)."""
 
     def __init__(self, client: DatamartClient, items: Iterable[dict[str, Any]]) -> None:
         self.client = client  # its ``last_count`` once the items are read: what the Datamart announced
         self.country = getattr(client, "country", settings.ETOOLS_DATAMART_COUNTRY)
         self.items, self.skipped = items, 0
+        self.keys: set[str] = set()
+        self.repeated = 0
 
     def __iter__(self):
         for item in self.items:
+            key = record_key(item)
+            if key in self.keys:
+                self.repeated += 1
+            self.keys.add(key)
             if other_country(item, self.country):
                 self.skipped += 1
             else:
                 yield item
+
+    @property
+    def read(self) -> int:
+        return len(self.keys)
 
     def details(self) -> dict[str, int]:
         return {"other_country_skipped": self.skipped} if self.skipped else {}
@@ -1248,11 +1260,14 @@ def record_key(item: dict[str, Any]) -> str:
 
 class DocumentWriter:
     """Upserts the records of one catalogue dataset into ``DatamartDocument`` and, once the dataset
-    was read to the end, removes the records the Datamart no longer returns."""
+    was read to the end, removes the records the Datamart no longer returns. A dataset whose records name
+    no partner or programme document of their own, linked after its read (:data:`AFTER_DOCUMENTS`), keeps
+    the link a record holds: a read that fails part-way never unlinks the records it rewrote."""
 
     def __init__(self, name: str, links: Links) -> None:
         self.name, self.spec, self.links = name, catalogue.DOCUMENTS[name], links
         self.seen: set[str] = set()
+        self.linked_after = name in AFTER_DOCUMENTS and not any((*self.spec.partner, *self.spec.intervention))
 
     def write(self, item: dict[str, Any]) -> None:
         spec, key = self.spec, record_key(item)
@@ -1277,18 +1292,15 @@ class DocumentWriter:
             partner_id = PCA.objects.filter(pk=intervention_id).values_list("partner_id", flat=True).first()
         title = " · ".join(str(item[k]) for k in spec.title if item.get(k) not in (None, ""))
         source_id = item.get("id") if spec.id_is_source and "source_id" not in item else item.get("source_id")
-        dm.DatamartDocument.objects.update_or_create(
-            dataset=self.name,
-            record_key=key,
-            defaults={
-                "source_id": _int(source_id),
-                "partner_id": partner_id,
-                "intervention_id": intervention_id,
-                "title": title[:500],
-                "date": parse_iso_date(item.get(spec.date)) if spec.date else None,
-                "data": scrub(item),
-            },
-        )
+        defaults = {
+            "source_id": _int(source_id),
+            "title": title[:500],
+            "date": parse_iso_date(item.get(spec.date)) if spec.date else None,
+            "data": scrub(item),
+        }
+        if not self.linked_after:  # else the link step after the read sets them
+            defaults.update(partner_id=partner_id, intervention_id=intervention_id)
+        dm.DatamartDocument.objects.update_or_create(dataset=self.name, record_key=key, defaults=defaults)
 
     def finish(self, *, whole: bool = True) -> dict[str, Any]:
         """Remove the records the Datamart no longer returns, after a ``whole`` read that returned some: an
@@ -1316,11 +1328,11 @@ def _write_documents(
         except Exception as exc:
             failed += 1
             logger.warning("etools datamart %s: document %s failed: %s", name, _label(item), exc)
-    read = len(items) + (found.skipped if found else 0)
-    whole = found is None or read_whole(getattr(found.client, "last_count", None), read)
+    read = found.read if found else len(writer.seen)
+    whole = found is None or read_whole(getattr(found.client, "last_count", None), read, found.repeated)
     details = writer.finish(whole=whole)
     if writer.seen and not whole:
-        details.update(_removal_skipped(read))
+        details.update(_removal_skipped(read, found.repeated))
     return {**details, "documents_failed": failed} if failed else details
 
 
@@ -1516,18 +1528,22 @@ def sync_legacy(
     return sync
 
 
-def read_whole(announced: int | None, read: int) -> bool:
-    """Whether a read got every record the Datamart announced (the ``count`` of its first page): with fewer
-    (a page cut short, rows moving on the Datamart while its pages were read), the rows it did not return
-    are kept, not removed. A list without a count is taken as whole."""
-    return announced is None or read >= announced
+def read_whole(announced: int | None, read: int, repeated: int = 0) -> bool:
+    """Whether a read got every record the Datamart announced (the ``count`` of its first page), each once.
+    ``read`` counts distinct records (a record returned twice counts once), ``repeated`` the records
+    returned again. With fewer distinct records than announced (a page cut short), or any record returned
+    twice (rows moving on the Datamart while its pages were read: a record returned again stands for one
+    never returned, whatever the count), the rows it did not return are kept, not removed. A list without a
+    count, with no record returned twice, is taken as whole."""
+    return not repeated and (announced is None or read >= announced)
 
 
-def _removal_skipped(read: int) -> dict[str, Any]:
-    """The details of a read that got fewer records than the Datamart announced: nothing it did not return
-    is removed, and the run ends PARTIAL (``finish_by_counts``), so Data health says so; the next whole
-    read removes them."""
-    return {"removal_skipped": True, "read": read, "partial": True}
+def _removal_skipped(read: int, repeated: int = 0) -> dict[str, Any]:
+    """The details of a read that got fewer distinct records than the Datamart announced, or some twice
+    (``duplicates_read``): nothing it did not return is removed, and the run ends PARTIAL
+    (``finish_by_counts``), so Data health says so; the next whole read removes them."""
+    found = {"removal_skipped": True, "read": read, "partial": True}
+    return {**found, "duplicates_read": repeated} if repeated else found
 
 
 def sync_dataset(name: str) -> Callable[..., SyncRun]:
@@ -1543,17 +1559,18 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
             held_before = (spec.scope(spec.model.objects.all()) if spec.scope else spec.model.objects).count()
             found = OfCountry(client, client.list(dataset, params))
             process_items(run, found, lambda item: upsert_record(spec, item, links, seen), _label)
-            announced, read = getattr(client, "last_count", None), run.rows_in + found.skipped
+            # the distinct records read (another country's and those without an id among them)
+            announced, read = getattr(client, "last_count", None), found.read
             if seen:
                 # another country's rows first (every one, whatever its date), then the rest of the scope
                 # the Datamart no longer returns
                 other = remove_other_country(spec.model, found.country, seen)
-                if read_whole(announced, read):
+                if read_whole(announced, read, found.repeated):
                     replaced = spec.scope(spec.model.objects.all()) if spec.scope else spec.model.objects
                     _, deleted = replaced.exclude(datamart_id__in=seen).delete()
                     details = {"removed": deleted.get(spec.model._meta.label, 0), **links.details()}
-                else:  # fewer records than the Datamart announced: the rows it did not return are kept
-                    details = {"removed": 0, **_removal_skipped(read), **links.details()}
+                else:  # fewer records than announced, or some twice: the rows it did not return are kept
+                    details = {"removed": 0, **_removal_skipped(read, found.repeated), **links.details()}
                 if other:
                     details["other_country_removed"] = other
             else:  # an empty answer (a wrong country name?) never empties the table
@@ -1854,7 +1871,8 @@ def area_code(value: Any) -> str:
 
 def business_area_setting() -> tuple[str, str]:
     """The business area code set for the PRP datasets, and where: ``ETOOLS_DATAMART_BUSINESS_AREA`` (the
-    hosting team's) first, then the admin's "eTools Datamart: PRP business area code". ``("", "")`` when
+    hosting team's) first, then the admin's (Admin → Data and sync → eTools Datamart: PRP business area code).
+    ``("", "")`` when
     neither is set: the code is then looked up in the Datamart's workspaces."""
     code = area_code(settings.ETOOLS_DATAMART_BUSINESS_AREA)
     if code:
@@ -1891,8 +1909,9 @@ class CountryScope:
                         break
             if not code:
                 raise IntegrationError(
-                    f"no business area code for {self.country!r}: enter it in the admin (eTools Datamart: "
-                    "PRP business area code), or ask the hosting team to set ETOOLS_DATAMART_BUSINESS_AREA"
+                    "enter the business area code in Admin → Data and sync → eTools Datamart: PRP business "
+                    f"area code (none is set for {self.country!r}, and no Datamart workspace of that name "
+                    "has one), or ask the hosting team to set ETOOLS_DATAMART_BUSINESS_AREA"
                 )
             self._business_area, self.business_area_from = code, source
         return self._business_area
@@ -2027,6 +2046,10 @@ AFTER_DOCUMENTS: dict[str, Callable[[], dict[str, int]]] = {
     "prp_programme_documents": link_progress_reports,
     "prp_progress_reports": link_progress_reports,
 }
+# a dataset whose records may name no business area: such a record is kept only when the PRP programme
+# document it names (:func:`_named_pd`) is held in this dataset, read by business area; the others are
+# counted as another country's (``other_country_skipped``, and ``unnamed_skipped`` apart)
+KEPT_BY_PROGRAMME_DOCUMENT = {"prp_progress_reports": "prp_programme_documents"}
 
 
 def sync_documents(name: str) -> Callable[..., SyncRun]:
@@ -2040,31 +2063,56 @@ def sync_documents(name: str) -> Callable[..., SyncRun]:
             params, by_country = scope.request(spec)
             writer, other, unnamed = DocumentWriter(name, links), 0, 0
             census = Census(spec) if spec.scope == "business_area" else None
+            keys: set[str] = set()  # the distinct records read, kept or skipped (record_key)
+            repeated = 0  # the records the Datamart returned again (read_whole)
+            # a record naming no business area is kept only when the PRP programme document it names is held
+            # (those are read by business area): the others are counted as another country's
+            by_pd = KEPT_BY_PROGRAMME_DOCUMENT.get(name)
+            held = (
+                set(dm.DatamartDocument.objects.filter(dataset=by_pd).values_list("record_key", flat=True))
+                if by_pd
+                else set()
+            )
+            through_pd = unnamed_skipped = 0
 
             def items():
-                nonlocal other, unnamed
+                nonlocal other, unnamed, repeated, through_pd, unnamed_skipped
                 for item in client.list(spec.path, params, country=by_country):
-                    if census:
+                    # a record returned again is written again (its last copy wins) and counted once
+                    key = record_key(item)
+                    first = key not in keys
+                    keys.add(key)
+                    if not first:
+                        repeated += 1
+                    elif census:
                         census.saw(item)
                     kept = scope.keeps(spec, item)
-                    if kept is False:
-                        other += 1
+                    if kept is None and by_pd:
+                        kept = _named_pd(item) in held
+                        through_pd += first and kept
+                        unnamed_skipped += first and not kept
+                        if not kept:
+                            other += first
+                            continue
+                    elif kept is False:
+                        other += first
                         continue
-                    unnamed += kept is None
-                    if census:
+                    else:
+                        unnamed += first and kept is None
+                    if census and first:
                         census.kept(item)
                     yield item
 
             process_items(run, items(), writer.write, _label)
-            announced, read = getattr(client, "last_count", None), run.rows_in + other
-            whole = read_whole(announced, read)
+            announced, read = getattr(client, "last_count", None), len(keys)
+            whole = read_whole(announced, read, repeated)
             details = {**links.details(), **writer.finish(whole=whole)}
             if other:
                 details["other_country_skipped"] = other
             if announced is not None:
                 details["datamart_count"] = announced
             if writer.seen and not whole:
-                details.update(_removal_skipped(read))
+                details.update(_removal_skipped(read, repeated))
             if census:  # what was asked, from where, and what came back: counts and codes only
                 details.update(
                     business_area=scope.business_area(),
@@ -2073,6 +2121,12 @@ def sync_documents(name: str) -> Callable[..., SyncRun]:
                 )
                 if unnamed:
                     details["country_unnamed"] = unnamed
+                    if not set(census.codes) - {NO_CODE}:  # no record named a code: the filter is unconfirmed
+                        details["partial"] = True
+                if through_pd:
+                    details["kept_by_programme_document"] = through_pd
+                if unnamed_skipped:
+                    details["unnamed_skipped"] = unnamed_skipped
                 if not writer.seen:  # nothing kept: Data health warns, naming the code
                     details["empty_response"] = True
             if name in AFTER_DOCUMENTS:  # PRP's progress reports linked to their programme document

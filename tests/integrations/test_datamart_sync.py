@@ -267,6 +267,31 @@ def test_a_whole_read_with_another_country_s_record_still_removes_what_is_gone()
 
 
 @responses.activate
+def test_a_record_returned_twice_removes_nothing_and_says_so():
+    """Three grants held; the Datamart announces 3 and returns grant 1 and 2 on page 1, grant 2 again on page 2
+    (rows moving between its pages) and never grant 3: three rows read, two records. Grant 3 stays, and
+    the run says why as PARTIAL."""
+    for pk in (1, 2, 3):
+        dm.Grant.objects.create(datamart_id=pk, name=f"SC{pk}", donor="EU")
+    responses.get(
+        f"{API}/funds/grants/",
+        match=[responses.matchers.query_param_matcher({"page_size": "500", "country_name": "Lebanon"})],
+        json={"count": 3, "next": f"{API}/funds/grants/?page=2", "results": [grant(1), grant(2)]},
+    )
+    responses.get(
+        f"{API}/funds/grants/",
+        match=[responses.matchers.query_param_matcher({"page": "2"})],
+        json={"count": 3, "next": None, "results": [grant(2)]},
+    )
+    (run,) = run_all("grants")
+    assert sorted(dm.Grant.objects.values_list("datamart_id", flat=True)) == [1, 2, 3]
+    assert run.status == SyncRun.Status.PARTIAL and run.rows_failed == 0
+    details = run.details
+    assert details["removal_skipped"] is True and details["removed"] == 0
+    assert (details["read"], details["duplicates_read"], details["datamart_count"]) == (2, 1, 3)
+
+
+@responses.activate
 def test_a_server_error_on_a_later_page_fails_the_run_and_removes_nothing():
     """Today's behaviour, pinned: a page that fails ends the read before anything is removed."""
     for pk in (1, 2, 3):

@@ -73,6 +73,13 @@ def test_the_page_lists_the_latest_runs_of_the_prp_datasets(admin_client):
         and "business area 2490 (entered in the admin): 0 kept of 7 read" in listed
     )
     assert "HTTP 403 Forbidden" in listed and "prp_programme_documents : not synced" in listed
+    # records that named no business area were kept unconfirmed: the line says so and what to press
+    unnamed = SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="prp_programme_documents")
+    unnamed.finish(SyncRun.Status.PARTIAL, business_area="2490", business_area_from="admin", read=3,
+                   country_unnamed=3)  # fmt: skip
+    listed = _readonly(admin_client.get(url).content.decode(), "Latest runs of the PRP datasets")
+    assert "3 named no business area, kept unconfirmed" in listed
+    assert "press Run a job → Probe a Datamart dataset" in listed
 
 
 def test_the_page_has_one_row_is_for_administrators_and_is_in_data_and_sync(admin_client, client, viewer):
