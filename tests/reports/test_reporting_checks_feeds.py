@@ -133,6 +133,81 @@ def test_check_11_without_a_sync_says_so_and_never_blames_a_sync_that_ran(pd):
     assert "never been synced" not in found["verdict"] and found["tone"] == "info"
 
 
+def test_checks_8_9_and_11_say_a_name_is_not_a_business_area_code(pd, settings):
+    """Production's run: the hosting team set the country's name, the Datamart was asked for it and announced
+    0. The checks say so, and which code the next sync takes instead: never "syncing again changes
+    nothing"."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "Lebanon"
+    report_row(pd)
+    prp_run(details={"documents": 0, "empty_response": True, "business_area": "Lebanon",
+                     "business_area_from": "environment", "datamart_count": 0, "read": 0})  # fmt: skip
+    for key in ("8", "9", "11"):
+        verdict = one(key)["verdict"]
+        assert "changes nothing" not in verdict, key
+        assert (
+            "asked the Datamart for business area Lebanon (set by the hosting team) and it returned no record (it "
+            "announced 0). “Lebanon” is a name, not a business area code (a code is digits, as 2490), so the "
+            "Datamart found nothing. The next sync sets it aside and finds no code: enter it in Admin → Data and "
+            "sync → eTools Datamart: PRP business area code."
+        ) in verdict, key
+    dm.DatamartDocument.objects.create(
+        dataset="workspaces", record_key="1", data={"name": "Lebanon", "business_area_code": "2490"}
+    )
+    verdict = one("8")["verdict"]
+    assert (
+        "The next sync sets it aside and uses 2490 (found in the workspace NeuroDB holds); a code entered in "
+        "Admin → Data and sync → eTools Datamart: PRP business area code comes first."
+    ) in verdict
+    # the next run read with the code NeuroDB found, and still nothing: the admin's code is pointed to
+    prp_run(details={"documents": 0, "empty_response": True, "business_area": "2490", "datamart_count": 0,
+                     "business_area_from": "workspace_held", "business_area_found": True,
+                     "business_area_set_aside": {"environment": "Lebanon"}},
+            started_at=timezone.make_aware(datetime.datetime(2026, 10, 15, 20, 30)))  # fmt: skip
+    verdict = one("8")["verdict"]
+    assert (
+        "asked the Datamart for business area 2490 (found in the workspace NeuroDB holds) and it returned no "
+        "record (it announced 0): enter the right code in Admin → Data and sync → eTools Datamart: PRP business "
+        "area code (it comes first), or see what the Datamart holds with Run a job → Probe a Datamart dataset. "
+        "The hosting team's ETOOLS_DATAMART_BUSINESS_AREA (“Lebanon”) is not a business area code: it was set "
+        "aside."
+    ) in verdict
+
+
+def _progress_run(**details):
+    """The last sync of PRP's own progress reports."""
+    return SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART,
+        target="prp_progress_reports",
+        status=SyncRun.Status.SUCCEEDED,
+        started_at=timezone.make_aware(datetime.datetime(2026, 10, 14, 20, 30)),
+        details=details,
+    )
+
+
+def test_check_11_names_the_code_of_prp_progress_reports_and_what_was_skipped(pd, settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "Lebanon"
+    report_row(pd)
+    _progress_run(business_area="Lebanon", business_area_from="environment", datamart_count=0, read=0,
+                  empty_response=True)  # fmt: skip
+    verdict = one("11")["verdict"]
+    assert (
+        "PRP's own progress reports list none of a running programme document for 2026: their last sync (14 Oct "
+        "2026) asked for business area Lebanon (set by the hosting team), a name, not a business area code: the "
+        "Datamart announced 0 and NeuroDB kept none. “Lebanon” is a name, not a business area code"
+    ) in verdict
+    assert "kept no record, so syncing again changes nothing" not in verdict
+    SyncRun.objects.filter(target="prp_progress_reports").delete()
+    _progress_run(business_area="2490", business_area_from="admin", datamart_count=3, read=3,
+                  other_country_skipped=3, unnamed_skipped=2, empty_response=True)  # fmt: skip
+    verdict = one("11")["verdict"]
+    assert (
+        "their last sync (14 Oct 2026) asked for business area 2490 (entered in the admin): the Datamart "
+        "announced 3 and NeuroDB kept none (1 record of another business area; 2 named no business area and no "
+        "PRP programme document NeuroDB holds). Syncing again changes nothing; see what the Datamart holds with "
+        "Run a job → Probe a Datamart dataset."
+    ) in verdict
+
+
 def test_check_11_names_a_failed_sync_and_its_error(pd):
     report_row(pd)
     prp_run(SyncRun.Status.FAILED, error="IntegrationError: no business area code for 'the country'")

@@ -1115,13 +1115,46 @@ def _prp_feed(cursor) -> dict[str, Any]:
     return {**held, "run": run, "details": details}
 
 
+def _area_words(details: dict[str, Any]) -> tuple[str, str]:
+    """A PRP sync run's business area in words (checks 8, 9 and 11): the " for business area N (where it came
+    from)" clause, and a sentence when the code asked was not a business area code (a country's name: the
+    code the next sync takes instead, as NeuroDB resolves it now from the database) or a value was set
+    aside."""
+    from neurodb.integrations.etools import datamart_sync as sync
+    from neurodb.reports.services import BUSINESS_AREA_FROM
+
+    code = str(details.get("business_area") or "")
+    where = str(BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""))
+    asked = (f" for business area {code}" + (f" ({where})" if where else "")) if code else ""
+    if code and not sync.is_area_code(code):
+        then = sync.resolve_business_area()
+        takes = (
+            f"uses {then.code} ({BUSINESS_AREA_FROM.get(then.source, then.source)})"
+            if then.code
+            else f"finds no code: enter it in {CODE_SETTING}"
+        )
+        first = f"; a code entered in {CODE_SETTING} comes first" if then.found else ""
+        return asked, (
+            f"“{code}” is {sync.not_a_code(code)} (a code is digits, as 2490), so the Datamart found "
+            f"nothing. The next sync sets it aside and {takes}{first}."
+        )
+    aside = details.get("business_area_set_aside")
+    if isinstance(aside, dict) and aside.get(sync.FROM_ENVIRONMENT):
+        value = str(aside[sync.FROM_ENVIRONMENT])
+        return asked, (
+            f"The hosting team's ETOOLS_DATAMART_BUSINESS_AREA (“{value}”) is not a business area code: it "
+            "was set aside."
+        )
+    return asked, ""
+
+
 def _feed_state(feed: dict[str, Any], *, listed: bool) -> tuple[str, str]:
     """What the last sync of PRP's indicator reports did, when NeuroDB holds none of its records, in words
     with what to do from the admin, and the tone it gives (a warning for a failed sync, records all of
     another business area, or records none of which could be written). ``listed``: the check lists the
     business area codes the records named (check 11); the others point to it."""
     from neurodb.core.models import SyncRun
-    from neurodb.reports.services import BUSINESS_AREA_FROM
+    from neurodb.integrations.etools.datamart_sync import is_area_code
 
     run, details = feed["run"], feed["details"]
     if run is None:
@@ -1144,8 +1177,7 @@ def _feed_state(feed: dict[str, Any], *, listed: bool) -> tuple[str, str]:
             WARN,
         )
     code = str(details.get("business_area") or "")
-    where = str(BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""))
-    asked = (f" for business area {code}" + (f" ({where})" if where else "")) if code else ""
+    asked, area = _area_words(details)
     skipped = _count(details.get("other_country_skipped"))
     if skipped:
         codes = "the codes they name are listed below" if listed else "check 11 lists the codes they name"
@@ -1173,12 +1205,23 @@ def _feed_state(feed: dict[str, Any], *, listed: bool) -> tuple[str, str]:
             INFO,
         )
     told = f" (it announced {announced:,})" if isinstance(raw, int) and not isinstance(raw, bool) else ""
-    return (
+    start = (
         f"The last sync of PRP's indicator reports ({when}) asked the Datamart{asked} and it returned no "
-        f"record{told}: syncing again changes nothing. Check the code in {CODE_SETTING}, or see what the "
-        f"Datamart holds with {PROBE}.",
-        INFO,
+        f"record{told}"
     )
+    if code and not is_area_code(code):  # the next sync asks with another code: syncing again may help
+        return f"{start}. {area}", INFO
+    if details.get("business_area_found"):  # a code NeuroDB found: one entered in the admin comes first
+        then = (
+            f"enter the right code in {CODE_SETTING} (it comes first), or see what the Datamart holds with "
+            f"{PROBE}."
+        )
+    else:
+        then = (
+            f"syncing again changes nothing. Check the code in {CODE_SETTING}, or see what the Datamart "
+            f"holds with {PROBE}."
+        )
+    return f"{start}: {then}" + (f" {area}" if area else ""), INFO
 
 
 def _report_totals(cursor) -> dict[str, Any]:
@@ -1644,15 +1687,18 @@ def _progress_feed(cursor, today: datetime.date) -> dict[str, Any]:
         "unlinked": held[LINK_NOT_HELD],
         "undated": undated,
         "link": link if isinstance(link, dict) else {},
+        "details": details,
     }
 
 
 def _progress_state(feed: dict[str, Any], year: int) -> tuple[str, str]:
     """Check 11's words on PRP's progress reports when they list none of a running programme document for
     ``year``: why (records held but none linked to a programme document NeuroDB holds, with the link's
-    counts, or none of the year; else never synced, running, failed, none returned) and what to do from the
-    admin; and the tone (a warning for a failed sync)."""
+    counts, or none of the year; else never synced, running, failed, none kept: the code asked and where it
+    came from, what the Datamart announced and the records left out) and what to do from the admin; and the
+    tone (a warning for a failed sync)."""
     from neurodb.core.models import SyncRun
+    from neurodb.integrations.etools.datamart_sync import is_area_code, not_a_code
 
     run, start = (
         feed["run"],
@@ -1693,11 +1739,41 @@ def _progress_state(feed: dict[str, Any], year: int) -> tuple[str, str]:
             f"{PROGRESS}), and once its cause is fixed, {AGAIN_PROGRESS}.",
             WARN,
         )
-    return (
-        f"{start}: their last sync ({when}) kept no record, so syncing again changes nothing; see what the "
-        f"Datamart holds with {PROBE}.",
-        INFO,
+    details = feed.get("details") or {}
+    code = str(details.get("business_area") or "")
+    if not code:  # a run made before the code was recorded
+        return (
+            f"{start}: their last sync ({when}) kept no record, so syncing again changes nothing; see what "
+            f"the Datamart holds with {PROBE}.",
+            INFO,
+        )
+    asked, area = _area_words(details)
+    named = not is_area_code(code)  # a country's name was asked: the next sync asks with a code
+    raw = details.get("datamart_count")
+    got = f"the Datamart announced {raw:,} and " if isinstance(raw, int) and not isinstance(raw, bool) else ""
+    other, unnamed = _count(details.get("other_country_skipped")), _count(details.get("unnamed_skipped"))
+    why = []
+    if other > unnamed:
+        why.append(f"{_plural(other - unnamed, 'record', 'records')} of another business area")
+    if unnamed:
+        why.append(f"{unnamed:,} named no business area and no PRP programme document NeuroDB holds")
+    text = (
+        f"{start}: their last sync ({when}) asked{asked}"
+        + (f", {not_a_code(code)}" if named else "")
+        + f": {got}NeuroDB kept none"
+        + (f" ({'; '.join(why)})" if why else "")
+        + "."
     )
+    if named:
+        return f"{text} {area}", INFO
+    if details.get("business_area_found"):  # a code NeuroDB found: one entered in the admin comes first
+        text += (
+            f" Enter the right code in {CODE_SETTING} (it comes first), or see what the Datamart holds with "
+            f"{PROBE}."
+        )
+    else:
+        text += f" Syncing again changes nothing; see what the Datamart holds with {PROBE}."
+    return text + (f" {area}" if area else ""), INFO
 
 
 def _two_feeds(cursor) -> dict[str, Any]:

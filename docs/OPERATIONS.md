@@ -1492,7 +1492,13 @@ while its pages were read: a record returned again stands for one never returned
 complete read. The run then ends *Succeeded with errors* with `details.removal_skipped` and
 `details.read`, Data health says "read N records of the M the Datamart announced: none was removed" (or
 that the Datamart returned N records twice), and the next complete read removes what the Datamart no
-longer returns. A failed page fails the run before anything is removed. Every run also records
+longer returns. A count of 5,000 or more that is a multiple of 1,000 (`CAP_FLOOR`, `CAP_ROUND` in the sync)
+reads as a limit of the Datamart's answer, not what it holds (the partner reports read on 20 Oct 2026 kept
+9,970 rows, none of a period ending before 28 Feb 2026: the Datamart likely answers at most about 10,000
+records): such a read removes nothing either, whatever it read, and ends *Succeeded with errors*
+with `details.cap_suspected` = `round_count`; Data health says "the Datamart announced exactly N records, a
+limit of its answer, not what it holds: none was removed". A failed page fails the run before anything
+is removed. Every run also records
 `details.held_before`, the rows of its scope NeuroDB held before the read: a large `removed` reads
 against it. The records kept whole (below), the raw copies of the partner, programme document, location
 and audit records among them, follow the same rule.
@@ -1979,7 +1985,14 @@ and business area codes at most).
   the code in Admin → *Data and sync* → *eTools Datamart: PRP business area code*, or Run a job → *Probe a
   Datamart dataset*), got an answer cut short (the first page announced records the read never returned: a
   new sync may help), read only records of another business area (check 11 lists the codes they named), or
-  could write none. Check 8 also counts the records with a PRP id and the partner ids that are not whole numbers.
+  could write none. When the code asked was not a code (a country's name, as "Lebanon"), they say so and
+  which code the next sync takes instead (as NeuroDB finds it now: the admin's, the workspace it holds, the
+  partner report rows), never that syncing again changes nothing; when it was a code NeuroDB found, they
+  point to the admin's code, which comes first; a value set aside is named. Check 11 also says, for PRP's
+  own progress reports, the code their last sync asked with and where it came from, what the Datamart
+  announced, and the records left out (of another business area, or naming no business area and no PRP
+  programme document NeuroDB holds). Check 8 also counts the records with a PRP id and the partner ids that
+  are not whole numbers.
 * **Check 10** counts the rows per country named in the record and per programme document link (running,
   another status, not in NeuroDB, names none), with their indicator reports (counted as Progress reports
   counts them), their first and last period end, each section name once (a row's list such as "Child
@@ -2324,26 +2337,43 @@ assistant sees every field. The FM questions, options and programme activities, 
 sections also feed Monitoring insights, which reads their keys first (see Monitoring insights).
 
 The PRP views have no `country_name`: `prp_indicator_reports`, `prp_programme_documents` and
-`prp_progress_reports` are filtered by the country office's business area code, taken from
-`ETOOLS_DATAMART_BUSINESS_AREA` when the hosting team set it, else from Admin → *Data and sync* →
-*eTools Datamart: PRP business area code* (one row, set by an administrator; the page says which code
-the next sync takes and what the latest runs of the three datasets used and found), else from the
-first `datamart/workspaces` record of the country's name that has one. Codes are compared after
-normalising (spaces, `2490.0`, `{"code": "2490"}` all read `2490`). A record naming another business
-area, or no business area but another country, is dropped (`details.other_country_skipped`); one that
+`prp_progress_reports` are filtered by the country office's business area code. A code is digits (after
+normalising: spaces, `2490.0`, `{"code": "2490"}` all read `2490`); a value that is not one (a country's
+name, as "Lebanon") is set aside and never sent (`details.business_area_set_aside`, with where it came
+from). The code is the first of: Admin → *Data and sync* → *eTools Datamart: PRP business area code* (one
+row, digits only, set by an administrator: it comes first, also over a code the hosting team set); the
+hosting team's `ETOOLS_DATAMART_BUSINESS_AREA` when it is a code; the workspace of the country NeuroDB
+holds (the previous sync of `workspaces`); the Datamart's `workspaces` list (asked by the sync only, never
+by a page; a failed request goes on to the next step); the code more than half of the partner report rows
+held carry (`data.business_area`). A workspace step gives a code only when every workspace of the
+country's name that has one names the same code. `details.business_area_from` says which: `admin`,
+`environment`, `workspace_held`, `workspaces` or `partner_reports` (the last three found by NeuroDB:
+`details.business_area_found`; for the partner rows `details.business_area_rows`, rows carrying it and rows
+held). With no code anywhere the run fails, naming what was set aside and where to enter the code. A
+found code whose read keeps nothing removes nothing and ends the run *Succeeded with errors*, so Data
+health points to the admin's code. The admin page says which code the next sync takes and why, lists the
+*Codes NeuroDB finds* (in the workspace held, with its sync date, and on the partner report rows, with how
+many carry it), offers **Use 2490** to enter the code found (derived again on the server, never taken
+from the request; the change permission is needed), and shows what the latest runs of the three datasets
+used and found. A record naming another business area, a code but another country, or no business area
+but another country, is dropped (`details.other_country_skipped`); a record naming its business area by
+name ("Lebanon") is compared as a country's name (case and spaces aside); one that
 names neither is kept, as with `country_name`, and counted (`details.country_unnamed`): Data health and
 the admin page of the code then warn that nothing confirms those records are the country's and point to
 Run a job → *Probe a Datamart dataset*, and when no record of the read named a code at all the run ends
 *Succeeded with errors*. A PRP progress report naming neither is kept only when the PRP programme
 document it names is held (those are read by business area, `details.kept_by_programme_document`); the
 others are dropped as another country's (`details.unnamed_skipped` counts them apart). Each run of the
-three records, counts only: `business_area` and `business_area_from` (`environment`, `admin` or
-`workspaces`), `read` (kept and skipped), `datamart_count`, `business_areas_seen` (the ten most frequent
+three records, counts only: `business_area` and `business_area_from` (above), `read` (kept and skipped),
+`datamart_count`, `business_areas_seen` (the ten most frequent
 codes, `(none)` for none), `keys_seen` (how many records carry each key the sync and its readers use:
 a key the Datamart does not send reads 0) and `dated` (the records kept by the year of their date, this
 year and the years beside it, `other` and `none`); a read that kept nothing sets `empty_response`, and
 Data health then says "the Datamart returned nothing for business area N" (or that every record named
-another business area) and points to the code, never to the country name. A record of PRP's indicator
+another business area) and points to the code, never to the country name; for a code NeuroDB found it
+says so and points to the admin's code, which comes first; for a run asked with a value that is not a code
+(made before the sync set such values aside) it says the value is a name, not a business area code, and
+that the next sync sets it aside; a value set aside is named on a muted line. A record of PRP's indicator
 reports without a `source_id` key takes its `id` as its source id (a record with a `source_id` key, even
 empty, keeps its own): that the two ids match the partner reports' `indicator_report` is not confirmed,
 so the partner reports' totals (`reached.progress_values`) use such a record only when it names the same
@@ -2362,15 +2392,19 @@ none.
 
 To see what the Datamart holds when such a read keeps nothing, an administrator presses Run a job →
 *Probe a Datamart dataset* (`probe_datamart --dataset <name>`, `prp_indicator_reports` by default). It
-makes at most three requests of 50 records each: no filter, the business area code (the code as above,
-else the workspace NeuroDB holds; the PRP datasets only), and the country name, and writes nothing but
+makes at most three requests of 50 records each: no filter, the business area code (the code as the sync
+resolves it, above, without the request to the Datamart's workspaces; the PRP datasets only), and the
+country name, and writes nothing but
 its run (job *eTools Datamart probe*, target the dataset): per request the filter sent, the count
 announced, the records on the page, how many carry each key, and the business area codes and country
 names named (counts). Its `verdict` says in plain words what the answers mean and what to do (enter
 another code, tell the Datamart team the data is not loaded or that it ignores the filter, ask the hosting
 team for access); for a PRP dataset it judges the business area answer first: refused (with its status),
 ignored (its page names other codes, or it finds as many as no filter while that page names other codes),
-or kept to the code. The verdict shows in the run's *Error* cell of Import and sync runs and as *What the
+or kept to the code. A value set aside is said first ("The hosting team's ETOOLS_DATAMART_BUSINESS_AREA is
+“Lebanon”, a name, not a business area code: the probe and the sync set it aside and use 2490, found in
+the workspace NeuroDB holds."), and a code that finds nothing is compared with the workspace NeuroDB holds
+when that names another. The verdict shows in the run's *Error* cell of Import and sync runs and as *What the
 probe found* on the run's page, above its details. A probe
 is never an alarm and never stale; one runs at a time. Keys naming
 an e-mail address, a phone or a mobile are removed from the records kept whole here, from the records

@@ -10,6 +10,8 @@ from neurodb.integrations.etools import datamart_sync as sync
 from neurodb.integrations.etools.datamart import DatamartClient
 from neurodb.integrations.http import make_session
 from neurodb.partnerships.models import PCA, PartnerOrganization
+from tests.integrations.fake_datamart import FakeDatamart
+from tests.integrations.fake_datamart import v2 as fake_v2
 
 pytestmark = pytest.mark.django_db
 
@@ -329,7 +331,7 @@ def test_a_prp_read_records_what_it_saw_as_counts_only(linked, settings):
 
 
 @responses.activate
-def test_the_code_entered_in_the_admin_comes_after_the_environment_and_before_the_workspaces(settings):
+def test_the_code_entered_in_the_admin_comes_before_the_environment(settings):
     DatamartSetting.objects.create(pk=1, prp_business_area="2490")
     settings.ETOOLS_DATAMART_BUSINESS_AREA = ""
     # only the indicator reports answer: a request to the workspaces would fail the run
@@ -342,27 +344,30 @@ def test_the_code_entered_in_the_admin_comes_after_the_environment_and_before_th
     ]
 
     responses.reset()
-    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2491"  # the hosting team's code comes first
-    v2([], business_area="2491", page_size="500")
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2491"  # the admin's code comes first, even over a code
+    v2([prp(6)], business_area="2490", page_size="500")
     (result,) = run("prp_indicator_reports")
     assert result.status == SyncRun.Status.SUCCEEDED, result.error
-    assert (result.details["business_area"], result.details["business_area_from"]) == ("2491", "environment")
+    assert (result.details["business_area"], result.details["business_area_from"]) == ("2490", "admin")
+    assert "business_area_set_aside" not in result.details and "business_area_found" not in result.details
 
 
 @responses.activate
-def test_the_workspaces_give_the_code_of_the_first_workspace_of_that_name_that_has_one(settings):
+def test_the_workspaces_give_the_code_every_workspace_of_that_name_names(settings):
     settings.ETOOLS_DATAMART_BUSINESS_AREA = ""
     page(
         "datamart/workspaces",
         [
             {"id": 1, "name": "Lebanon", "business_area_code": None},
             {"id": 2, "name": " LEBANON ", "business_area_code": 2490.0},
+            {"id": 3, "name": "Syria", "business_area_code": "2340"},
         ],
     )
-    v2([], business_area="2490", page_size="500")
+    v2([prp(5)], business_area="2490", page_size="500")
     (result,) = run("prp_indicator_reports")
     assert result.status == SyncRun.Status.SUCCEEDED, result.error
     assert (result.details["business_area"], result.details["business_area_from"]) == ("2490", "workspaces")
+    assert result.details["business_area_found"] is True
 
 
 @responses.activate
@@ -379,6 +384,201 @@ def test_the_missing_code_error_says_where_to_enter_it(settings):
     with pytest.raises(sync.IntegrationError, match="Admin|admin") as raised:
         scope.business_area()
     assert "eTools Datamart: PRP business area code" in str(raised.value)
+    assert "the workspace it holds, the Datamart's workspaces or the partner report rows" in str(raised.value)
+
+
+# ---------------------------------------------------------- a business area that is not a code is never sent
+def _paths() -> list[str]:
+    return [call.request.url.split("/api/latest/")[1].split("?")[0] for call in responses.calls]
+
+
+def _held_workspace(code="2490", name="Lebanon", key="1"):
+    DatamartDocument.objects.create(
+        dataset="workspaces",
+        record_key=key,
+        title=f"{name} · {code}",
+        data={"name": name, "business_area_code": code},
+    )
+
+
+@responses.activate
+def test_a_hosting_name_is_never_sent_and_the_held_workspace_gives_the_code(linked, settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "Lebanon"
+    _held_workspace()
+    fake = FakeDatamart([fake_v2(5, "2490"), fake_v2(6, "2340")])
+    fake.register(f"{API}/prp/indicator-report-v2/")
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED, result.error
+    # the one PRP request carries the code, never the name, and no request goes to the workspaces
+    assert _paths() == ["prp/indicator-report-v2/"] and fake.requests == [
+        {"page_size": "500", "business_area": "2490"}
+    ]
+    details = result.details
+    assert (details["business_area"], details["business_area_from"]) == ("2490", "workspace_held")
+    assert details["business_area_set_aside"] == {"environment": "Lebanon"} and details["business_area_found"]
+    assert DatamartDocument.objects.filter(dataset="prp_indicator_reports").count() == 1
+
+
+@responses.activate
+def test_with_nothing_held_the_live_workspaces_then_the_partner_rows_give_the_code(settings):
+    from neurodb.datamart.models import ReportedIndicator
+
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "Lebanon"
+    page("datamart/workspaces", [{"id": 1, "name": "Lebanon", "business_area_code": "2490"}])
+    v2([prp(5)], business_area="2490", page_size="500")
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED, result.error
+    assert _paths() == ["datamart/workspaces/", "prp/indicator-report-v2/"]
+    assert result.details["business_area_from"] == "workspaces"
+
+    # the workspaces name none: the code most partner report rows carry, its forms merged
+    responses.reset()
+    page("datamart/workspaces", [{"id": 1, "name": "Syria", "business_area_code": "2340"}])
+    v2([prp(6)], business_area="2490", page_size="500")
+    for pk, area in ((1, "2490"), (2, " 2490.0"), (3, {"code": "2490"}), (4, "2340"), (5, None)):
+        ReportedIndicator.objects.create(datamart_id=pk, data={"business_area": area})
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED, result.error
+    details = result.details
+    assert (details["business_area"], details["business_area_from"]) == ("2490", "partner_reports")
+    assert details["business_area_rows"] == [3, 5]
+
+    # a code on half the rows or fewer, or a name, is never taken: the run fails, saying what was set aside
+    ReportedIndicator.objects.filter(datamart_id=2).update(data={"business_area": "2340"})
+    ReportedIndicator.objects.filter(datamart_id=3).update(data={"business_area": "Lebanon"})
+    assert sync.reported_business_area() == ("", 0, 5)  # 2340, the most frequent, on 2 of 5
+    ReportedIndicator.objects.filter(datamart_id__in=[1, 2]).update(data={"business_area": "Lebanon"})
+    assert sync.reported_business_area() == ("", 0, 5)  # "Lebanon" on 3 of 5: a name, not a code
+    responses.reset()
+    page("datamart/workspaces", [])
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.FAILED
+    assert _paths() == ["datamart/workspaces/"]  # nothing asked of PRP's indicator reports
+
+
+@responses.activate
+def test_no_code_anywhere_fails_naming_the_hosting_name(settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "Lebanon"
+    page("datamart/workspaces", [{"id": 1, "name": "Syria", "business_area_code": "2340"}])
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.FAILED and _paths() == ["datamart/workspaces/"]
+    assert result.error == (
+        "IntegrationError: the hosting team's ETOOLS_DATAMART_BUSINESS_AREA is “Lebanon”, a name, not a business "
+        "area code (a code is digits, as 2490), and NeuroDB found no code in the workspace it holds, the "
+        "Datamart's workspaces or the partner report rows: enter it in Admin → Data and sync → eTools Datamart: "
+        "PRP business area code"
+    )
+
+
+@responses.activate
+def test_a_workspaces_request_that_fails_goes_on_to_the_partner_rows(settings):
+    from neurodb.datamart.models import ReportedIndicator
+
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = ""
+    responses.get(f"{API}/datamart/workspaces/", status=403)
+    ReportedIndicator.objects.create(datamart_id=1, data={"business_area": "2490"})
+    v2([prp(5)], business_area="2490", page_size="500")
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED, result.error
+    assert result.details["business_area_from"] == "partner_reports"
+
+
+@pytest.mark.parametrize("source", ["workspace_held", "workspaces", "partner_reports"])
+@responses.activate
+def test_a_found_code_that_reads_nothing_removes_nothing_and_ends_partial(settings, source):
+    from neurodb.datamart.models import ReportedIndicator
+
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "Lebanon"
+    for key in ("7", "8"):
+        DatamartDocument.objects.create(dataset="prp_indicator_reports", record_key=key)
+    if source == "workspace_held":
+        _held_workspace()
+    page(
+        "datamart/workspaces",
+        [{"id": 1, "name": "Lebanon", "business_area_code": "2490"}] if source == "workspaces" else [],
+    )
+    if source == "partner_reports":
+        ReportedIndicator.objects.create(datamart_id=1, data={"business_area": "2490"})
+    v2([], count=0, business_area="2490", page_size="500")
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.PARTIAL and result.rows_failed == 0
+    details = result.details
+    assert (details["business_area"], details["business_area_from"]) == ("2490", source)
+    assert details["empty_response"] is True and details["business_area_found"] is True
+    assert sorted(
+        DatamartDocument.objects.filter(dataset="prp_indicator_reports").values_list("record_key", flat=True)
+    ) == ["7", "8"]
+
+
+@responses.activate
+def test_a_record_naming_its_business_area_by_name_is_kept_as_the_country_s(linked, settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    # the Datamart takes the code, but its records name their business area by name
+    fake = FakeDatamart(
+        [fake_v2(5, "Lebanon"), fake_v2(6, " lebanon "), fake_v2(7, "Syria"), fake_v2(8, "2490")],
+        ignore=("business_area",),
+    )
+    fake.register(f"{API}/prp/indicator-report-v2/")
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED, result.error
+    assert sorted(DatamartDocument.objects.values_list("record_key", flat=True)) == ["5", "6", "8"]
+    assert result.details["other_country_skipped"] == 1 and "country_unnamed" not in result.details
+
+
+@responses.activate
+def test_a_record_with_the_code_but_another_country_is_dropped(linked, settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    fake = FakeDatamart(
+        [
+            fake_v2(5, "2490"),
+            fake_v2(6, "2490", country_name="Syria"),
+            fake_v2(7, "2490", country_name=" LEBANON"),
+        ]
+    )
+    fake.register(f"{API}/prp/indicator-report-v2/")
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED, result.error
+    assert sorted(DatamartDocument.objects.values_list("record_key", flat=True)) == ["5", "7"]
+    assert result.details["other_country_skipped"] == 1
+
+
+@responses.activate
+def test_two_held_workspaces_of_the_country_with_different_codes_give_none(settings):
+    from neurodb.datamart.models import ReportedIndicator
+
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = ""
+    _held_workspace("2490", key="1")
+    _held_workspace("2491", key="2")
+    assert sync.held_business_area("Lebanon") == ""
+    # the live workspaces disagree too: the chain goes on to the partner rows
+    page(
+        "datamart/workspaces",
+        [
+            {"id": 1, "name": "Lebanon", "business_area_code": "2490"},
+            {"id": 2, "name": "Lebanon", "business_area_code": "2491"},
+        ],
+    )
+    ReportedIndicator.objects.create(datamart_id=1, data={"business_area": "2491"})
+    v2([prp(5, "2491")], business_area="2491", page_size="500")
+    (result,) = run("prp_indicator_reports")
+    assert result.status == SyncRun.Status.SUCCEEDED, result.error
+    assert (result.details["business_area"], result.details["business_area_from"]) == (
+        "2491",
+        "partner_reports",
+    )
+
+
+def test_a_value_that_is_not_a_code_is_never_sent(settings):
+    """The guard of the request: resolve_business_area gives codes only, and a code that is not one never
+    leaves NeuroDB."""
+    assert [sync.is_area_code(v) for v in ("2490", 2490, " 2490 ", 2490.0, "2490.0", {"code": "2490"})] == [
+        True
+    ] * 6
+    assert [sync.is_area_code(v) for v in ("Lebanon", "LB", "2490; 2340", "", None, "٢٤٩٠")] == [False] * 6
+    scope = sync.CountryScope(object())
+    scope.choice = sync.AreaCode("Lebanon", "environment")
+    with pytest.raises(sync.IntegrationError, match="not a business area code: it is never sent"):
+        scope.request(catalogue.DOCUMENTS["prp_indicator_reports"])
 
 
 # --------------------------------------------------------------------------- the source id of a v2 record

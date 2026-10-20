@@ -22,7 +22,6 @@ from django.db import DatabaseError, connection
 
 from neurodb.core.models import SyncRun
 from neurodb.datamart import catalogue
-from neurodb.datamart.models import DatamartDocument
 from neurodb.integrations.etools import datamart_sync as sync
 from neurodb.integrations.etools.datamart import DatamartClient
 from neurodb.integrations.http import IntegrationError
@@ -36,8 +35,6 @@ KEYS = 100  # the key names listed per request at most
 LOCK_ID = 7140439  # one probe at a time; neurodb.integrations.background.DATAMART_PROBE_LOCK_ID
 BUSY = "A probe of the eTools Datamart is already running."
 DEFAULT = "prp_indicator_reports"
-# where the business area code of the probe came from: the setting's sources, or the workspaces dataset held
-FROM_HELD_WORKSPACES = "workspaces (held)"
 NO_FILTER, BY_BUSINESS_AREA, BY_COUNTRY = "no filter", "business area", "country"
 CODE_SETTING = "Admin → Data and sync → eTools Datamart: PRP business area code"  # as checks.CODE_SETTING
 
@@ -63,16 +60,8 @@ def endpoint(name: str) -> tuple[str, str]:
     raise ValueError(f"unknown eTools Datamart dataset {name!r}")
 
 
-def held_business_area(country: str) -> str:
-    """The business area code of the country's workspace as the last sync of ``workspaces`` stored it: the
-    probe asks the Datamart nothing more to find it."""
-    wanted = sync.country_name(country)
-    for data in DatamartDocument.objects.filter(dataset="workspaces").values_list("data", flat=True):
-        if isinstance(data, dict) and sync.country_name(data.get("name")) == wanted:
-            code = sync.area_code(data.get("business_area_code"))
-            if code:
-                return code
-    return ""
+# the business area code of the country's workspace as the last sync of ``workspaces`` stored it
+held_business_area = sync.held_business_area
 
 
 def _short(value: Any, size: int) -> str:
@@ -136,10 +125,38 @@ def _refused(answer: dict[str, Any], filter_key: str, code: str, name: str) -> s
     return f"{start}: probe it again later; if it is refused again, tell the eTools Datamart team."
 
 
-def verdict(name: str, path: str, filter_key: str, code: str, answers: dict[str, dict[str, Any]]) -> str:
+def verdict(
+    name: str,
+    path: str,
+    filter_key: str,
+    code: str,
+    answers: dict[str, dict[str, Any]],
+    choice: sync.AreaCode | None = None,
+) -> str:
     """What the answers mean, in plain words, and what to do from the admin. For a dataset the sync reads by
     business area, the business area answer is judged first: refused, ignored (its page names other codes,
-    or it finds as many as no filter while that page names other codes) or kept to the code."""
+    or it finds as many as no filter while that page names other codes) or kept to the code. ``choice``, the
+    code as the sync resolves it: a value set aside (a country's name) is said first."""
+    from neurodb.reports.services import BUSINESS_AREA_FROM
+
+    choice = choice or sync.AreaCode(code)
+    aside = sync.set_aside_words(choice.set_aside) if filter_key else ""
+    if aside and code:
+        where = BUSINESS_AREA_FROM.get(choice.source, "")
+        first = (
+            f"{aside[0].upper()}{aside[1:]}: the probe and the sync set it aside and use {code}"
+            + (f", {where}" if where else "")
+            + ". "
+        )
+    else:
+        first = ""
+    return first + _verdict(name, path, filter_key, code, answers, aside)
+
+
+def _verdict(
+    name: str, path: str, filter_key: str, code: str, answers: dict[str, dict[str, Any]], aside: str
+) -> str:
+    """:func:`verdict` after its first sentence; ``aside``, the values set aside in words."""
     country = (settings.ETOOLS_DATAMART_COUNTRY or "").strip()
     everything = _n(answers.get(NO_FILTER))
     area = answers.get(BY_BUSINESS_AREA) or {}
@@ -159,9 +176,11 @@ def verdict(name: str, path: str, filter_key: str, code: str, answers: dict[str,
         )
     if filter_key and not code:
         return (
-            f"No business area code is set and the workspaces dataset holds none for {country}: enter it in "
-            f"{CODE_SETTING} (the codes the records name with no filter are listed below), then sync the "
-            "dataset again."
+            "No business area code is set"
+            + (f" ({aside} (a code is digits, as 2490))" if aside else "")
+            + f" and NeuroDB finds none for {country} in the workspace it holds or on the partner report "
+            f"rows: enter it in {CODE_SETTING} (the codes the records name with no filter are listed below), "
+            "then sync the dataset again."
         )
     if filter_key and "error" in area:
         return _refused(area, filter_key, code, name)
@@ -210,11 +229,13 @@ def verdict(name: str, path: str, filter_key: str, code: str, answers: dict[str,
                 f"finds {by_country:,} records: check the code in {CODE_SETTING} against the codes listed "
                 "below, and tell the team that runs NeuroDB that this dataset answers the country filter."
             )
+        held = held_business_area(country)
+        named = f"; the workspace NeuroDB holds names {held}" if held and held != code else ""
         return (
             f"The eTools Datamart holds {everything:,} records in {path}, none for business area {code}: "
-            f"compare {code} with the codes the records name with no filter (listed below). If {country}'s "
-            f"code is among them under another form, enter it in {CODE_SETTING}; if none is {country}'s, ask "
-            f"the eTools Datamart team whether {country}'s data is loaded."
+            f"compare {code} with the codes the records name with no filter (listed below){named}. If "
+            f"{country}'s code is among them under another form, enter it in {CODE_SETTING}; if none is "
+            f"{country}'s, ask the eTools Datamart team whether {country}'s data is loaded."
             if everything is not None
             else f"The business area filter ({filter_key}={code}) finds nothing: see each request below."
         )
@@ -245,10 +266,9 @@ def probe(name: str, run: SyncRun, *, client: DatamartClient | None = None) -> S
         path, filter_key = endpoint(name)
         client = client or DatamartClient()
         country = (settings.ETOOLS_DATAMART_COUNTRY or "").strip()
-        code, source = sync.business_area_setting() if filter_key else ("", "")
-        if filter_key and not code:
-            code = held_business_area(country)
-            source = FROM_HELD_WORKSPACES if code else ""
+        # the code as the sync resolves it, without its request to the workspaces: the probe asks nothing more
+        choice = sync.resolve_business_area() if filter_key else sync.AreaCode()
+        code = choice.code
         answers = {NO_FILTER: ask(client, path, NO_FILTER, {}, filter_key)}
         if filter_key and code:
             answers[BY_BUSINESS_AREA] = ask(client, path, BY_BUSINESS_AREA, {filter_key: code}, filter_key)
@@ -258,8 +278,8 @@ def probe(name: str, run: SyncRun, *, client: DatamartClient | None = None) -> S
     run.rows_in = sum(a.get("page", 0) for a in answers.values())
     details: dict[str, Any] = {"dataset": name, "path": path, "requests": list(answers.values())}
     if filter_key:
-        details.update(filter_key=filter_key, business_area=code, business_area_from=source)
-    details["verdict"] = verdict(name, path, filter_key, code, answers)
+        details.update(filter_key=filter_key, **choice.details())
+    details["verdict"] = verdict(name, path, filter_key, code, answers, choice)
     refused = any("error" in a for a in answers.values())
     run.finish(SyncRun.Status.PARTIAL if refused else SyncRun.Status.SUCCEEDED, **details)
     return run

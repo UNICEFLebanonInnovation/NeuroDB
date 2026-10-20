@@ -110,8 +110,63 @@ def test_without_a_code_set_the_probe_takes_the_workspace_held_and_asks_nothing_
     answer(V2, 10, [record(1, "2490")], country_name="Lebanon")
     run = probe.run_job("prp_indicator_reports", client=client())
     assert len(responses.calls) == 3  # no request to the workspaces
-    assert (run.details["business_area"], run.details["business_area_from"]) == ("2490", "workspaces (held)")
+    assert (run.details["business_area"], run.details["business_area_from"]) == ("2490", "workspace_held")
     assert "has 10 records for business area 2490: the filter works" in run.details["verdict"]
+    assert run.details["verdict"].startswith("The eTools Datamart has 10 records")  # nothing set aside
+
+
+@responses.activate
+def test_a_hosting_name_is_set_aside_and_said_in_the_verdict(settings):
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "Lebanon"
+    answer(V2, 10, [record(1, "2490")])
+    answer(V2, 0, [], country_name="Lebanon")
+    # no code anywhere: two requests, never one with the name, and the verdict names what was set aside
+    run = probe.run_job("prp_indicator_reports", client=client())
+    assert [_query(call) for call in responses.calls] == [
+        {"page_size": "50"},
+        {"page_size": "50", "country_name": "Lebanon"},
+    ]
+    assert (
+        run.details["business_area_set_aside"] == {"environment": "Lebanon"}
+        and run.details["business_area"] == ""
+    )
+    assert run.details["verdict"].startswith(
+        "No business area code is set (the hosting team's ETOOLS_DATAMART_BUSINESS_AREA is “Lebanon”, a name, "
+        "not a business area code (a code is digits, as 2490)) and NeuroDB finds none for Lebanon"
+    )
+    # the workspace held gives the code: the name is set aside and the probe asks with the code
+    responses.reset()
+    DatamartDocument.objects.create(
+        dataset="workspaces", record_key="2", data={"name": "Lebanon", "business_area_code": "2490"}
+    )
+    answer(V2, 10, [record(1, "2490")])
+    answer(V2, 10, [record(1, "2490")], business_area="2490")
+    answer(V2, 10, [record(1, "2490")], country_name="Lebanon")
+    run = probe.run_job("prp_indicator_reports", client=client())
+    assert [_query(call).get("business_area") for call in responses.calls] == [None, "2490", None]
+    assert (run.details["business_area"], run.details["business_area_from"]) == ("2490", "workspace_held")
+    assert run.details["verdict"].startswith(
+        "The hosting team's ETOOLS_DATAMART_BUSINESS_AREA is “Lebanon”, a name, not a business area code: the "
+        "probe and the sync set it aside and use 2490, found in the workspace NeuroDB holds. The eTools "
+        "Datamart has 10 records for business area 2490"
+    )
+
+
+@responses.activate
+def test_a_code_that_finds_nothing_names_the_workspace_held_when_it_differs(settings):
+    DatamartSetting.objects.create(pk=1, prp_business_area="2491")
+    DatamartDocument.objects.create(
+        dataset="workspaces", record_key="2", data={"name": "Lebanon", "business_area_code": "2490"}
+    )
+    answer(V2, 9000, [record(1, "2490")])
+    answer(V2, 0, [], business_area="2491")
+    answer(V2, 0, [], country_name="Lebanon")
+    run = probe.run_job("prp_indicator_reports", client=client())
+    assert run.details["business_area_from"] == "admin"
+    assert (
+        "compare 2491 with the codes the records name with no filter (listed below); the workspace NeuroDB "
+        "holds names 2490." in run.details["verdict"]
+    )
 
 
 # ------------------------------------------------------------------- the business area answer, judged first

@@ -399,6 +399,45 @@ def test_a_prp_read_warns_of_records_naming_no_business_area_a_read_cut_short_an
     assert "returned 1 record twice while its pages were read" in row and "none was removed" in row
 
 
+def test_data_health_says_a_business_area_that_is_not_a_code(client_viewer, world):
+    """Production's run: the Datamart was asked for business area "Lebanon" (the hosting team's value): Data
+    health says it is a name, not a code, and that the next sync sets it aside. A later run that found its code
+    and read nothing points to the admin's code; the value set aside is named; a round count says the Datamart
+    limited its answer and nothing was removed."""
+    from html import unescape
+
+    datamart = SyncRun.Job.ETOOLS_DATAMART
+    _run(datamart, "prp_indicator_reports", details={"business_area": "Lebanon", "business_area_from": "environment",
+         "read": 0, "documents": 0, "empty_response": True, "datamart_count": 0})  # fmt: skip
+    _run(datamart, "prp_programme_documents", status=SyncRun.Status.PARTIAL,
+         details={"business_area": "2490", "business_area_from": "workspace_held", "business_area_found": True,
+                  "business_area_set_aside": {"environment": "Lebanon"}, "read": 0, "documents": 0,
+                  "empty_response": True, "datamart_count": 0})  # fmt: skip
+    _run(datamart, "partner_reports", status=SyncRun.Status.PARTIAL, rows_in=10_000, rows_written=10_000,
+         details={"removed": 0, "removal_skipped": True, "cap_suspected": "round_count", "read": 10_000,
+                  "datamart_count": 10_000})  # fmt: skip
+    datasets = unescape(text(get_part(client_viewer, PAGE, "datasets")))
+    row = _dataset(datasets, "prp_indicator_reports")
+    assert (
+        "the Datamart was asked for business area “Lebanon”, a name, not a business area code (digits, as 2490), "
+        "so it found nothing: the next sync sets it aside and uses the code NeuroDB finds, or the one entered in "
+        "Admin → Data and sync → eTools Datamart: PRP business area code"
+    ) in row
+    assert "the Datamart returned nothing for business area" not in row
+    row = _dataset(datasets, "prp_programme_documents")
+    assert (
+        "the Datamart returned nothing for business area 2490, a code NeuroDB found (found in the workspace "
+        "NeuroDB holds): enter the right code in Admin → Data and sync → eTools Datamart: PRP business area code "
+        "(it comes first), or press Run a job → Probe a Datamart dataset"
+    ) in row
+    assert "ETOOLS_DATAMART_BUSINESS_AREA “Lebanon” set aside: not a business area code" in row
+    row = _dataset(datasets, "partner_reports")
+    assert (
+        "the Datamart announced exactly 10,000 records, a limit of its answer, not what it holds: none was removed"
+    ) in row
+    assert "read 10,000 records of the 10,000" not in row
+
+
 @pytest.mark.parametrize("name", PARTS)
 def test_each_part_stays_within_its_query_ceiling(client_viewer, world, name, django_assert_max_num_queries):
     raw_get(client_viewer, PAGE)  # the navigation stored, as after the frame
@@ -509,9 +548,11 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
     """``datamart_quality`` as it was before this page loaded in parts (63d9646): every Datamart run read, newest
     first, and every dataset counted at each call; with the keys added since: a failed run's own error, the
     diagnostic mark, a PRP dataset's business area code and its source, what a read got against the count
-    the Datamart announced (records returned twice, an empty answer cut short) and the PRP records that named
-    no business area."""
+    the Datamart announced (records returned twice, an empty answer cut short, a round count) and the PRP
+    records that named no business area, a code asked that is not one, the values set aside and a code NeuroDB
+    found."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
+    from neurodb.integrations.etools.datamart_sync import FOUND, is_area_code, not_a_code
 
     last_by_target: dict[str, SyncRun] = {}
     for run in SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_DATAMART).order_by("-started_at"):
@@ -530,6 +571,7 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
         not_linked = {
             services.NOT_LINKED_LABELS.get(k, k): v for k, v in (details.get("not_linked") or {}).items()
         }
+        code = str(details.get("business_area") or "")
         rows.append(
             {
                 "name": name,
@@ -547,10 +589,17 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
                 "diagnostic": name in DIAGNOSTIC,
                 "business_area": details.get("business_area") or "",
                 "business_area_from": services.BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""),
+                "business_area_not_code": not_a_code(code) if code and not is_area_code(code) else "",
+                "business_area_set_aside": "; ".join(
+                    f"{services.SET_ASIDE_FROM.get(k, k)} “{v}”"
+                    for k, v in (details.get("business_area_set_aside") or {}).items()
+                ),
+                "business_area_found": details.get("business_area_from") in FOUND,
                 "read": details.get("read"),
                 "datamart_count": details.get("datamart_count"),
                 "removal_skipped": bool(details.get("removal_skipped")),
                 "duplicates_read": details.get("duplicates_read"),
+                "cap_suspected": details.get("cap_suspected") or "",
                 "cut_short": bool(details.get("empty_response"))
                 and isinstance(details.get("datamart_count"), int)
                 and details["datamart_count"] > (details.get("read") or 0),

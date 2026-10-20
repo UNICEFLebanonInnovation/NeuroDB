@@ -385,7 +385,8 @@ ETOOLS_DATAMART_REPORTING_YEARS = env.int(
 # Partner reports are also read from the start of every running programme document (else a PD that
 # started before the window above would add up only its later reports): "Reached" sums them all.
 ETOOLS_DATAMART_REPORTING_FROM_PD_START = env.bool("ETOOLS_DATAMART_REPORTING_FROM_PD_START", default=True)
-# Business area code for the PRP datasets (found from the Datamart workspaces when empty)
+# Business area code for the PRP datasets: digits, as 2490 (not the country's name); a code entered in the
+# admin comes first, and NeuroDB finds it when both are empty
 ETOOLS_DATAMART_BUSINESS_AREA = env("ETOOLS_DATAMART_BUSINESS_AREA", default="").strip()
 ETOOLS_USERNAME = env("ETOOLS_USERNAME", default="").strip()
 ETOOLS_PASSWORD = env.ENVIRON.get("ETOOLS_PASSWORD", "").strip("\r\n")
