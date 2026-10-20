@@ -838,6 +838,19 @@ class EtoolsMasterAdmin(ModelAdmin):
             for year_row in formset.save(commit=False):
                 year_row.updated_by = request.user.get_username()
                 year_row.save()
+                left = 0 if year_row.is_active else masters.counted_running(form.instance, year_row.year)
+                if left:
+                    self.message_user(
+                        request,
+                        _(
+                            "%(name)s is not shown in %(year)s: the %(n)s PD indicator(s) it counts of "
+                            "programme documents running in %(year)s count nowhere in %(year)s (the Master "
+                            "indicators tab lists them under Not in a master). Tick shown this year again to "
+                            "count them, or take them out of it, which takes them out of its other years too."
+                        )
+                        % {"name": form.instance.name, "year": year_row.year, "n": left},
+                        messages.WARNING,
+                    )
             for gone in formset.deleted_objects:
                 gone.delete()
             return

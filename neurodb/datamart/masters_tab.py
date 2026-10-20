@@ -245,6 +245,12 @@ class SubLine:
         """A suggestion, or a confirmed link whose type changed in eTools: confirming it (again) counts it."""
         return self.suggested or self.sub.reason == masters.TYPE_CHANGED
 
+    @property
+    def periods_combined(self) -> bool:
+        """A percentage or a ratio whose PD averages its reporting periods or takes the largest: its year has
+        no numerator and denominator, whatever its reports carry (they are not missing)."""
+        return self.sub.row is not None and bool(masters.periods_combined(self.sub.row))
+
 
 @dataclass
 class Line:
@@ -284,7 +290,15 @@ class Line:
 
     @property
     def percentage(self) -> bool:
-        return self.master.method == Method.PERCENT
+        """Its figures read as percentages: a percentage master, or an average, a maximum or a minimum of
+        percentages (the one type of its totals, else of those it counts)."""
+        method = self.master.method
+        if method == Method.PERCENT:
+            return True
+        if method not in masters.ONE_CLASS:
+            return False
+        kind = self.whole.one_class or next((s.unit_class for s in self.whole.subs if s.counted), "")
+        return kind == masters.PERCENTAGE
 
     @property
     def target_input(self) -> str:
@@ -490,8 +504,9 @@ class Proposed:
 
 @dataclass
 class Unattached:
-    """A PD indicator of the year in no master (no confirmed link to an active one), with what NeuroDB says of
-    it: its suggestion, the proposal it is in, "Ambiguous: A or B", or why it cannot join one."""
+    """A PD indicator of the year in no master that year (no confirmed link to an active one that is not
+    switched off for it), with what NeuroDB says of it: its suggestion, the proposal it is in, "Ambiguous: A
+    or B", why it counts nowhere, or why it cannot join one."""
 
     row: Row
     unit: str
@@ -519,8 +534,9 @@ class Tab:
     unattached: list[Unattached] = field(default_factory=list)  # the first UNATTACHED_LIMIT
     unattached_count: int = 0
     indicators: int = 0  # the PD indicators of the year the filter reads...
-    in_master: int = 0  # ...and those in a master (a confirmed link to an active one)
-    attach: list[EtoolsMaster] = field(default_factory=list)  # the active masters this person may attach to
+    in_master: int = 0  # ...and those in a master (masters.homes: active, its year not switched off)
+    attach: list[EtoolsMaster] = field(default_factory=list)  # the masters this person may attach to
+    may_curate: bool = False  # this person curates a section the tab reads (an Administrator, its editor)
 
     @property
     def status_counts(self) -> dict[str, int]:
@@ -536,12 +552,13 @@ class Tab:
         return sum(len(p.links) for p in self.proposals)
 
     @property
+    def accepts(self) -> bool:
+        """A proposal this person may accept is listed."""
+        return any(p.curate for p in self.proposals)
+
+    @property
     def curates(self) -> bool:
-        return (
-            bool(self.attach)
-            or any(p.curate for p in self.proposals)
-            or any(line.curate for line in self.lines)
-        )
+        return self.may_curate or bool(self.attach) or self.accepts or any(line.curate for line in self.lines)
 
 
 def read(
@@ -550,7 +567,9 @@ def read(
     """The tab for the page's filter: its master rows (those active in the year, :func:`masters.appears`, that
     the status, search and CP output keep; with a partner filter those the partner takes part in), grouped by
     section and CP output; the proposals; the PD indicators in no master; and the counts of the tiles.
-    ``curate``: :func:`curator` of the person reading (default: nobody curates)."""
+    ``curate``: :func:`curator` of the person reading (default: nobody curates). A master switched off for the
+    year is not listed and takes no attachment: its PD indicators are in no master that year
+    (:func:`neurodb.datamart.masters.homes`)."""
     curate = curate or (lambda section: False)
     base = rows_filter(filters)
     year = base.year
@@ -581,9 +600,12 @@ def read(
         for m in chosen
         if m.status == MASTER.PROPOSED
     ]
+    off = set(masters.switched_off(year))
     tab.attach = sorted(
-        (m for m in active if curate(m.section)), key=lambda m: (norm(m.section), norm(m.name))
+        (m for m in active if m.pk not in off and curate(m.section)),
+        key=lambda m: (norm(m.section), norm(m.name)),
     )
+    tab.may_curate = any(curate(section) for section in base.sections or {row.section for row in every})
     _unattached(tab, rows, by_key, chosen)
     return tab
 
@@ -591,39 +613,46 @@ def read(
 def _unattached(
     tab: Tab, rows: list[Row], by_key: dict[tuple[int, str], Row], chosen: Sequence[EtoolsMaster]
 ) -> None:
-    """The PD indicators of the year the filter reads with no confirmed link to an active master, each with
-    NeuroDB's word on it; nothing is silently dropped."""
+    """The PD indicators of the year the filter reads in no master that year (no confirmed link to an active
+    master that is not switched off for it, :func:`neurodb.datamart.masters.homes`), each with NeuroDB's word
+    on it; nothing is silently dropped."""
     pd_ids = sorted({row.pd.id for row in rows})
-    homes = set(
-        EtoolsMasterLink.objects.filter(
-            status=Status.CONFIRMED, master__status=MASTER.ACTIVE, pd_id__in=pd_ids
-        ).values_list("pd_id", "ident")
-    )
-    # confirmed in the total of a master that is not active: it counts nowhere, and no other master can take
-    # it in its total until that one is active again or it is taken out there
-    stuck = {
-        (pd_id, ident): f"In the total of {name}, which is {MASTER(status).label.lower()}: it counts nowhere "
-        "until that master indicator is active, or the PD indicator is taken out of it."
-        for pd_id, ident, name, status in EtoolsMasterLink.objects.filter(
-            status=Status.CONFIRMED, role=Role.TOTAL, pd_id__in=pd_ids
-        )
-        .exclude(master__status=MASTER.ACTIVE)
-        .values_list("pd_id", "ident", "master__name", "master__status")
-    }
+    year = tab.year
+    homes = masters.homes(year, pd_ids)
+    off = set(masters.switched_off(year))
+    # confirmed in the total of a master that is not active, or switched off for the year: it counts nowhere
+    # (that year), and no other master can take it in its total until that one counts again or it is taken
+    # out there
+    stuck = {}
+    for pd_id, ident, master_id, name, status in EtoolsMasterLink.objects.filter(
+        status=Status.CONFIRMED, role=Role.TOTAL, pd_id__in=pd_ids
+    ).values_list("pd_id", "ident", "master_id", "master__name", "master__status"):
+        if status != MASTER.ACTIVE:
+            stuck[(pd_id, ident)] = (
+                f"In the total of {name}, which is {MASTER(status).label.lower()}: it counts nowhere until "
+                "that master indicator is active, or the PD indicator is taken out of it."
+            )
+        elif master_id in off:
+            stuck[(pd_id, ident)] = (
+                f"In the total of {name}, which is not shown in {year}: it counts nowhere in {year} until "
+                "that master indicator is shown this year again, or the PD indicator is taken out of it."
+            )
     suggested: dict[tuple[int, str], list[str]] = defaultdict(list)
     found = (
         EtoolsMasterLink.objects.filter(
             status=Status.SUGGESTED, master__status__in=(MASTER.ACTIVE, MASTER.PROPOSED), pd_id__in=pd_ids
         )
         .order_by("-score", "master__name")
-        .values_list("pd_id", "ident", "master__name", "master__status", "score")
+        .values_list("pd_id", "ident", "master_id", "master__name", "master__status", "score")
     )
-    for pd_id, ident, name, status, score in found:
+    for pd_id, ident, master_id, name, status, score in found:
         if status == MASTER.PROPOSED:
             suggested[(pd_id, ident)].append(f"In the proposed master indicator {name}")
         else:
             suggested[(pd_id, ident)].append(
-                f"Suggested for {name}" + (f" ({score:.2f})" if score is not None else "")
+                f"Suggested for {name}"
+                + (f" ({score:.2f})" if score is not None else "")
+                + (f", which is not shown in {year}" if master_id in off else "")
             )
     free = sorted(
         (row for row in rows if key_of(row) not in homes),
@@ -632,7 +661,7 @@ def _unattached(
     tab.indicators, tab.in_master = len(rows), len(rows) - len(free)
     tab.unattached_count = len(free)
     shown = free[:UNATTACHED_LIMIT]
-    active = [m for m in chosen if m.status == MASTER.ACTIVE]
+    active = [m for m in chosen if m.status == MASTER.ACTIVE and m.pk not in off]
     quiet = [key_of(row) for row in shown if key_of(row) not in suggested]
     links = [link for m in active for link in m.links.all()]
     unclear = master_links.ambiguous(by_key, active, links, quiet) if quiet and active else {}

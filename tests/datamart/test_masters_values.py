@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from neurodb.datamart import masters, monitoring
+from neurodb.datamart import master_links, masters, monitoring
 from neurodb.datamart import models as dm
 from neurodb.indicators.services.tracking import tracking
 
@@ -170,6 +170,86 @@ def test_the_disjoint_rule_reads_the_title_tags(pds):
     assert not masters.disjoint(found[1], found[8])  # a disability subset of the girls
 
 
+def test_a_title_naming_both_sexes_or_two_nationalities_is_apart_from_neither(pds):
+    """The rule reads every gender and nationality word of a title, not its first tag: girls and boys hold the
+    boys, Syrian and Lebanese children hold the Lebanese ones. Refugees may be of any nationality, except
+    those a nationality names ("Syrian refugee children")."""
+    a = pds["A"]
+    titles = {
+        1: "# of girls and boys reached with PSS",
+        2: "# of boys reached with PSS",
+        3: "# of boys and girls enrolled",
+        4: "# of girls enrolled",
+        5: "# of Syrian and Lebanese children reached",
+        6: "# of Lebanese children reached",
+        7: "# of refugee and Lebanese children reached",
+        8: "# of Syrian children reached",
+        9: "# of Syrian refugee children reached",
+        10: "# of Palestinian children reached",
+        11: "# of displaced Lebanese children reached",
+    }
+    for source_id, title in titles.items():
+        w.indicator(a, source_id, title)
+    found = {int(r.key): r for r in w.rows()}
+    assert found[1].tags["gender"] == "Girls"  # the stored tag names the first word only
+    assert not masters.disjoint(found[1], found[2]) and not masters.disjoint(found[2], found[1])
+    assert not masters.disjoint(found[3], found[4])
+    assert not masters.disjoint(found[5], found[6])
+    assert not masters.disjoint(found[7], found[8])  # the refugees may be Syrian
+    assert masters.disjoint(found[2], found[4])  # boys and girls still add up
+    assert masters.disjoint(found[8], found[10]) and masters.disjoint(found[6], found[8])
+    assert masters.disjoint(found[9], found[6])  # Syrian refugees are Syrian
+    assert masters.disjoint(found[11], found[8])  # displaced Lebanese are Lebanese
+
+
+def test_a_total_and_its_breakdown_named_in_one_title_count_once_in_every_rule(pds):
+    """'Girls and boys' next to 'boys' of one programme document: only the larger counts in a sum, in a
+    percentage's totals and in the PD targets, and the nightly job's default roles put one in the total."""
+    a = pds["A"]
+    both, boys = "# of girls and boys reached with PSS", "# of boys reached with PSS"
+    w.indicator(a, 111, both, section=w.CP, target=(600, 1))
+    quarterly(a, 111, both, {1: 500})
+    w.indicator(a, 112, boys, section=w.CP, target=(250, 1))
+    quarterly(a, 112, boys, {1: 200})
+    nations = "# of Syrian and Lebanese children in recreational activities"
+    lebanese = "# of Lebanese children in recreational activities"
+    w.indicator(a, 115, nations, section=w.CP)
+    quarterly(a, 115, nations, {1: 300})
+    w.indicator(a, 116, lebanese, section=w.CP)
+    quarterly(a, 116, lebanese, {1: 100})
+
+    pss = w.master("Children reached with PSS", section=w.CP)
+    w.link(pss, a, 111)
+    w.link(pss, a, 112)
+    fig = w.figure(pss)
+    found = w.subs(fig)
+    assert fig.value == fig.at_least == 500.0  # never 700: the boys are among the girls and boys
+    assert found["s111"].counted and found["s112"].reason == masters.SAME_PD
+    assert fig.pd_target == 600.0  # never 850
+    recreation = w.master("Children in recreational activities", section=w.CP)
+    w.link(recreation, a, 115)
+    w.link(recreation, a, 116)
+    assert w.figure(recreation).value == 300.0  # never 400
+
+    passing, boys_passing = "% of girls and boys passing", "% of boys passing"
+    w.indicator(a, 131, passing, display_type="percentage", target=(60, 100))
+    quarterly(a, 131, passing, {1: w.pct(60, 100)})
+    w.indicator(a, 132, boys_passing, display_type="percentage", target=(25, 50))
+    quarterly(a, 132, boys_passing, {1: w.pct(20, 50)})
+    rate = w.master("Children passing", "percent")
+    w.link(rate, a, 131, unit_class="percentage")
+    w.link(rate, a, 132, unit_class="percentage")
+    fig = w.figure(rate)
+    assert (fig.numerator, fig.denominator, fig.value) == (60.0, 100.0, 60.0)  # never 80 / 150
+    assert w.subs(fig)["s132"].reason == masters.SAME_PD
+    assert fig.pd_target == pytest.approx(60.0)  # never 85 / 150
+
+    rows = {int(r.key): r for r in w.rows()}
+    roles = master_links.roles([rows[111], rows[112]])
+    assert sorted(roles.values()) == ["shown", "total"]
+    assert roles[masters.key_of(rows[111])] == "total"  # the largest target
+
+
 def test_a_value_too_large_to_be_true_is_set_aside(pds):
     a, b, c = pds["A"], pds["B"], pds["C"]
     w.indicator(a, 121, "# of children vaccinated", target=(10, 1))
@@ -246,6 +326,29 @@ def test_a_percentage_reported_without_its_parts_is_left_out_and_said_so(pds):
     assert found["s233"].reason == masters.NO_PARTS == "Reported without numerator and denominator"
     assert (fig.counted_pds, fig.pds, fig.coverage) == (1, 2, "counted 1 of 2 PDs")
     assert fig.how == "The numerators added up over the denominators added up, × 100 (counted 1 of 2 PDs)."
+
+
+@pytest.mark.parametrize("method, value", [("avg", 40.0), ("max", 50.0)])
+def test_a_percentage_whose_pd_averages_its_periods_is_left_out_for_that_reason(pds, method, value):
+    """Its reports carry their numerator and denominator, but its PD averages its periods (or takes the
+    largest): the year has none. It is left out, never averaged in, and its row says why: the partner's
+    reporting is not at fault."""
+    a, b = pds["A"], pds["B"]
+    title = "% of children attending regularly"
+    w.indicator(a, 161, title, display_type="percentage")
+    quarterly(a, 161, title, {1: w.pct(30, 100), 2: w.pct(50, 100)}, calculation_across_periods=method)
+    w.indicator(b, 261, title, display_type="percentage")
+    quarterly(b, 261, title, {1: w.pct(30, 100), 2: w.pct(50, 100)})
+    m = w.master("Children attending regularly", "percent", target=60)
+    w.link(m, a, 161, unit_class="percentage")
+    w.link(m, b, 261, unit_class="percentage")
+
+    fig = w.figure(m)
+    found = w.subs(fig)
+    assert fig.value == 40.0 and fig.coverage == "counted 1 of 2 PDs"  # B's 80 / 200 alone
+    assert found["s161"].value == value and not found["s161"].counted
+    assert found["s161"].reason == masters.PERIODS_COMBINED[method] != masters.NO_PARTS
+    assert found["s261"].counted
 
 
 def test_numerators_and_denominators_pair_within_each_programme_document(pds):

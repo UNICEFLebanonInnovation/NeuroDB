@@ -2326,19 +2326,23 @@ indicator, an amendment's included, is suggested the next night.
   indicator with no quarterly report). A master never adds report rows again.
 * **A sum** adds up its subs' Reached in the year. Partners may reach the same people, so it reads **up to**
   the sum, **at least** the largest programme document's figure. Two subs of one programme document are added
-  only when they cannot count the same people (girls and boys, two nationalities) or the master says *parts of
-  one PD add up*; otherwise only that programme document's largest one counts ("may count the same people;
-  not added"). A value too large to be true (above 20 times its own target, or above the country's children
+  only when they cannot count the same people (one names girls and the other boys, or each one nationality and
+  they differ, read from every gender and nationality word of their titles: "girls and boys" next to "boys",
+  or "Syrian and Lebanese" next to "Lebanese", may count the same children, and so may refugees no
+  nationality names) or the master says *parts of one PD add up*; otherwise only that programme document's
+  largest one counts ("may count the same people; not added"). A value too large to be true (above 20 times its own target, or above the country's children
   for a children indicator) is set aside and said so.
 * **A percentage or a ratio** is the numerators added up over the denominators added up (× 100 for a
   percentage only); numerator and denominator links of one programme document are paired. Each programme
   document counts once: one counted through its numerator and denominator adds none of its totals ("Same
   programme document: counted through its numerator and denominator"), and of its several totals only the
   one with the largest denominator counts, unless they cannot count the same people or the master says
-  *parts of one PD add up* (the sum's rule). **A sub reported
-  without its numerator and denominator is left out of the figure** (PRP sent the % alone, or its period
-  method is an average or a maximum): its row says "Reported without numerator and denominator" and the
-  master says "counted 4 of 6 PDs". It is never averaged in.
+  *parts of one PD add up* (the sum's rule). **A sub without a numerator and a denominator for the year is
+  left out of the figure** and the master says "counted 4 of 6 PDs"; it is never averaged in. Its row says
+  why: "Reported without numerator and denominator" when PRP sent the % alone, or "Its PD averages its
+  reporting periods" (or "takes its largest reporting period") when its period method is an average or a
+  maximum, which keeps no numerator and denominator for the year however the partner reported (its
+  *Numerator / denominator* cell reads "not combined", not "not reported").
 * **An average, a maximum or a minimum** is taken over the subs' figures, all of one type.
 * **Shown only** subs are listed and never counted. Masters are never added together, nor to the children
   headline, the overview, the country programme or the forecasts.
@@ -2358,9 +2362,13 @@ choose master rows only (a master's figure never changes with them); a partner f
 contribution, with its share of a sum only. The tiles count the masters by status, the PD indicators in a
 master, the suggestions waiting and the proposals; under them come the masters by section and CP output
 (each opens on its subs, with *Details* for the detail), the **Proposed master indicators** (Accept,
-Dismiss) and **Not in a master**: every PD indicator of the year with no confirmed place in an active master,
-with NeuroDB's word on it (its suggestion, its proposal, "Ambiguous", or why it cannot join one) and *Attach
-to…*. The buttons that change anything show to an Administrator and to a Section editor of the master's
+Dismiss) and **Not in a master**: every PD indicator of the year with no confirmed place in a master listed
+in the year, with NeuroDB's word on it (its suggestion, its proposal, "Ambiguous", why it counts nowhere, or
+why it cannot join one) and *Attach to…*. A master whose year is switched off (*shown this year* unticked)
+counts nothing that year: it is not listed, its PD indicators of programme documents running in the year are
+under *Not in a master* ("In the total of X, which is not shown in 2026: it counts nowhere in 2026…"), the
+*PD indicators in a master* tile and reporting check 12 count them out, and *Attach to…* does not offer it.
+The figures of an average, a maximum or a minimum of percentages read with "%", as a percentage master's do. The buttons that change anything show to an Administrator and to a Section editor of the master's
 section only; a viewer, an editor of another section and a donor are refused. *Excel of the filter* and *CSV
 of the filter* give one row per master and one per sub (`level`), never who changed or confirmed what. The
 tab loads in parts (`masters-summary`, `masters-table`) from the stored partner monitoring rows: one read of
@@ -5422,7 +5430,12 @@ from 15 December (see *ActivityInfo: in use or archive*, *The yearly reminder*).
    Nothing needs copying: the masters have no year and their PD indicators carry on with their programme
    documents; a master listed in the year without a target reads *No target* and *Needs attention* lists it
    (its link opens exactly those, the filter *Listed this year, no target*). Untick *shown this year* for a
-   master that does not go on.
+   master that does not go on: it is no longer listed that year, and the PD indicators it counts of
+   programme documents still running in it then count nowhere that year (saving says how many; they are
+   listed under *Not in a master*, and check 12 counts them). A link has no year, so another master can take
+   one in its total only once it is taken out of this one, which takes it out of this one's past years too:
+   keep the master shown while its programme documents run, or merge it into its successor (which moves its
+   links and years).
 
 ## Backups
 Azure Database for PostgreSQL point-in-time restore (set retention to at least 14 days) covers the

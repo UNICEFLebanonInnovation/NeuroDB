@@ -242,6 +242,31 @@ def test_once_live_it_counts_where_the_grouping_stands_and_warns(world):
     assert figures(found)["… without a target for 2026"] == 0 and found["tone"] == checks.OK
 
 
+def test_a_master_switched_off_for_the_year_counts_none_of_its_running_pd_indicators(world):
+    """As the Master indicators tab reads it: a PD indicator of this year's programme documents confirmed only
+    in a master switched off for this year is in no master, and counted apart; last year's programme
+    document's stays in it (that year still lists the master)."""
+    master = w.master(ENROLLED)
+    for pd, source_id in ((world["A"], 101), (world["B"], 201), (world["D"], 401)):
+        w.link(master, pd, source_id)
+    dm.EtoolsMasterYear.objects.create(master=master, year=w.YEAR, target=1000)
+    found = grouping()
+    assert figures(found)["PD indicators in an active master indicator"] == 3
+    assert figures(found)["… only in one switched off for 2026 (they count nowhere in 2026)"] == 0
+    dm.EtoolsMasterYear.objects.filter(master=master).update(is_active=False)
+    found = grouping()
+    got = figures(found)
+    assert got["PD indicators in an active master indicator"] == 1  # PD/2026/004's, of 2025
+    assert got["… only in one switched off for 2026 (they count nowhere in 2026)"] == 2
+    assert section_rows(found)["Education"]["In a master indicator"] == 1
+    assert (
+        "2 PD indicators of programme documents running in 2026 are only in master indicators switched off "
+        "for 2026: they count nowhere in 2026." in found["verdict"]
+    )
+    assert found["tone"] == checks.WARN
+    no_title_or_name(found, master.name)
+
+
 def test_the_page_shows_check_12_with_its_two_tables(client, admin_user, world):
     client.force_login(admin_user)
     page = client.get(reverse("admin:datamart_reporting_checks"))

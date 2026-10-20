@@ -730,3 +730,125 @@ def test_the_detail_words_the_pd_targets_by_method_and_three_pds_all_plan_a_plac
     url = reverse("reports:etools_master", args=[world["enrolled"].pk]) + "?year=2026"
     html = text(client_viewer.get(url, **HX))
     assert "PD/2026/001, PD/2026/002 and PD/2026/003 all plan Akkar" in html and "both plan" not in html
+
+
+def test_a_percentage_whose_pd_averages_its_periods_says_why_on_the_tab_and_in_the_export(
+    client_viewer, world
+):
+    """Its reports carry their numerator and denominator, but its PD averages its periods: the row says so
+    ("not combined", never "not reported"), and so does the export."""
+    a, b, _c = world["pds"]
+    title = "% of children attending regularly"
+    for pd, source_id in ((a, 171), (b, 271)):
+        w.indicator(pd, source_id, title, display_type="percentage")
+        for number, end, value in (
+            ("QPR1", day(3, 31), w.pct(30, 100)),
+            ("QPR2", day(6, 30), w.pct(50, 100)),
+        ):
+            w.report(pd, source_id, title, number, end, {"Akkar": value}, calculation_across_periods="avg")
+    regular = w.master("Children attending regularly", "percent", target=60)
+    for pd, source_id in ((a, 171), (b, 271)):
+        w.link(regular, pd, source_id, unit_class="percentage")
+    reason = masters.PERIODS_COMBINED["avg"]
+
+    response = _tab(client_viewer)
+    line = _lines(response)["Children attending regularly"]
+    assert line.figure.value is None and line.figure.coverage == "counted 0 of 2 PDs"
+    assert [s.sub.reason for s in line.subs] == [reason, reason] and all(
+        s.periods_combined for s in line.subs
+    )
+    html = text(response)
+    table = html[html.index(f'id="master-{regular.pk}-subs-table"') :]
+    table = table[: table.index("</table>")]
+    assert table.count("not combined") == 2 and "not reported" not in table and reason in table
+    assert "not reported" in html  # PD/2026/003 sent its percentage alone
+    response = client_viewer.get(PAGE, {"view": "masters", "section": w.EDUCATION, "export": "csv"})
+    rows = list(csv.DictReader(io.StringIO(b"".join(response.streaming_content).decode("utf-8-sig"))))
+    mine = [r for r in rows if r["level"] == "sub" and r["master"] == "Children attending regularly"]
+    assert [r["counted"] for r in mine] == [reason, reason]
+
+
+def _row(html: str, master) -> str:
+    """The tab's row of one master, from its cells to the end of the row."""
+    found = html[html.index(f'<tr id="master-{master.pk}">') :]
+    return found[: found.index("</tr>")]
+
+
+def test_an_average_of_percentages_and_a_percentage_masters_target_read_with_a_percent_sign(
+    client_viewer, world
+):
+    a, b, _c = world["pds"]
+    title = "% of children completing catch-up classes"
+    for pd, source_id, value in ((a, 181, w.pct(40, 100)), (b, 281, w.pct(10, 50))):
+        w.indicator(pd, source_id, title, display_type="percentage")
+        w.report(pd, source_id, title, "QPR1", day(3, 31), {"Akkar": value})
+    average = w.master("Children completing catch-up classes", "average", target=50)
+    for pd, source_id in ((a, 181), (b, 281)):
+        w.link(average, pd, source_id, unit_class="percentage")
+
+    response = _tab(client_viewer)
+    lines = _lines(response)
+    assert lines["Children completing catch-up classes"].figure.value == 30.0  # (40 + 20) / 2
+    assert lines["Children completing catch-up classes"].percentage and lines[PERCENT_NAME].percentage
+    assert not lines[SUM_NAME].percentage
+    row = _row(text(response), average)
+    assert (
+        '<td class="num">50%</td>' in row
+        and '<td class="num">30%</td>' in row
+        and "<strong>30%</strong>" in row
+    )
+    assert '<td class="num">1,000</td>' in _row(text(response), world["enrolled"])
+    for master, value in ((average, "30.0%"), (world["passing"], "33.3%")):
+        url = reverse("reports:etools_master", args=[master.pk]) + "?year=2026"
+        modal = text(client_viewer.get(url, **HX))
+        assert f'<div class="kpi__value">{value}' in modal
+        assert '<div class="kpi__value">50%' in modal  # the year's target, as the tab's row reads it
+    modal = text(client_viewer.get(reverse("reports:etools_master", args=[average.pk]) + "?year=2026", **HX))
+    assert '<td class="num">30%</td>' in modal  # its quarters
+
+
+@pytest.mark.parametrize("who", ["admin", "editor", "viewer"])
+def test_with_no_master_and_no_proposal_whoever_can_make_one_is_told_how(db, roles, admin_user, viewer, who):
+    a = w.programme("A", 1)
+    w.indicator(a, 101, ENROLLED)
+    w.report(a, 101, ENROLLED, "QPR1", day(3, 31), {"Akkar": 10})
+    user = {"admin": admin_user, "viewer": viewer}.get(who) or _editor("Education", "ED", w.EDUCATION)
+    html = text(_tab(_signed_in(user)))
+    assert "No master indicator in this year" in html and "Accept a proposed" not in html
+    told = {
+        "admin": "Make one in the administration (Reporting setup).",
+        "editor": "Ask an Administrator to make one.",
+        "viewer": "Change the filters, or ask your section",
+    }
+    for person, words in told.items():
+        assert (words in html) is (person == who), (person, who)
+
+
+def test_a_master_switched_off_for_the_year_lists_its_pd_indicators_in_no_master(client_viewer, world):
+    """Unticking "shown this year": the master is not listed, so its PD indicators count nowhere that year.
+    They are listed under Not in a master, saying why, and the tile counts them out."""
+    a, b, c = world["pds"]
+    dm.EtoolsMasterYear.objects.filter(master=world["enrolled"], year=2026).update(is_active=False)
+    response = _tab(client_viewer)
+    tab = response.context["tab"]
+    assert SUM_NAME not in _lines(response) and tab.listed == 2
+    notes = {(u.row.pd.id, u.row.title): u.note for u in tab.unattached}
+    stuck = (
+        "In the total of Children enrolled in NFE, which is not shown in 2026: it counts nowhere in 2026 until "
+        "that master indicator is shown this year again, or the PD indicator is taken out of it."
+    )
+    assert notes[(a.pk, ENROLLED)] == notes[(b.pk, BOTH)] == stuck
+    assert notes[(c.pk, "# of children enrolled in NFE classes")] == (
+        "Suggested for Children enrolled in NFE (0.95), which is not shown in 2026"
+    )
+    assert (tab.in_master, tab.indicators, tab.unattached_count) == (3, 9, 6)
+    assert world["enrolled"].pk not in {m.pk for m in tab.attach}
+    html = text(response)
+    assert "3 of 9" in html and stuck in html
+    # every PD indicator of the year is in a listed master or listed in no master, never both
+    year = {masters.key_of(row) for row in w.rows(sections=[w.EDUCATION])}
+    linked = {(s.pd_id, s.link.ident) for line in tab.lines for s in line.subs if s.sub.status == "confirmed"}
+    listed = {masters.key_of(u.row) for u in tab.unattached}
+    assert len(linked & year) == tab.in_master and (linked & year) | listed == year and not linked & listed
+    dm.EtoolsMasterYear.objects.filter(master=world["enrolled"], year=2026).update(is_active=True)
+    assert _tab(client_viewer).context["tab"].in_master == 5

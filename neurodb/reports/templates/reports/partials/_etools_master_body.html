@@ -5,7 +5,7 @@ report_type, labels, quarter_labels.{% endcomment %}
 {% with f=figure %}
 <div class="kpi-grid">
   {% trans "Value" as l1 %}{% if line.percentage and f.value is not None %}{% include "components/kpi_tile.html" with label=l1 value=f.value|percent unit=master.unit %}{% else %}{% include "components/kpi_tile.html" with label=l1 value=f.value|number unit=master.unit %}{% endif %}
-  {% blocktrans asvar l2 %}Target {{ year }}{% endblocktrans %}{% if f.target %}{% include "components/kpi_tile.html" with label=l2 value=f.target|number %}{% else %}{% include "components/kpi_tile.html" with label=l2 value=_("No target") hint=_("typed by staff, not yet") %}{% endif %}
+  {% blocktrans asvar l2 %}Target {{ year }}{% endblocktrans %}{% if f.target %}{% if line.percentage %}{% blocktrans asvar v2 with t=f.target|number %}{{ t }}%{% endblocktrans %}{% else %}{% blocktrans asvar v2 with t=f.target|number %}{{ t }}{% endblocktrans %}{% endif %}{% include "components/kpi_tile.html" with label=l2 value=v2 %}{% else %}{% include "components/kpi_tile.html" with label=l2 value=_("No target") hint=_("typed by staff, not yet") %}{% endif %}
   {% trans "Of target" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=f.achieved|percent:0 %}
   {% if f.as_of and f.target %}{% blocktrans asvar h4 with d=f.as_of|date:"j M Y" %}as of {{ d }}{% endblocktrans %}{% endif %}
   {% trans "Status" as l4 %}{% include "components/kpi_tile.html" with label=l4 value="" status=f.status status_label=f.status_label hint=h4 %}

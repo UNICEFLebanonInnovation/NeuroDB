@@ -46,7 +46,7 @@ from neurodb.indicators.services.tracking import NO_TARGET, label_for, tracking
 from . import headline, monitoring, tags
 from . import reached as rc
 from .children import NUMBER_TYPES
-from .models import EtoolsMaster, EtoolsMasterLink
+from .models import EtoolsMaster, EtoolsMasterLink, EtoolsMasterYear
 from .reached import norm
 
 Row = Any  # neurodb.datamart.monitoring.Row (a stored row) or Indicator: the same fields
@@ -108,6 +108,12 @@ NO_VALUE = "Not reported in the year"
 SAME_PD = "Same programme document: may count the same people; not added"
 SAME_PD_PARTS = "Same programme document: counted through its numerator and denominator"
 NO_PARTS = "Reported without numerator and denominator"
+# its PD combines its periods by an average or the largest (reached.combine_items): the year has no numerator
+# and denominator, whatever its reports carry
+PERIODS_COMBINED = {
+    "avg": "Its PD averages its reporting periods: no numerator and denominator for the year",
+    "max": "Its PD takes its largest reporting period: no numerator and denominator for the year",
+}
 NUMERATOR_ALONE = "Numerator without its denominator"
 DENOMINATOR_ALONE = "Denominator without its numerator"
 SET_ASIDE = "Set aside: {why}"
@@ -477,6 +483,7 @@ class Figure:
     eligible: int = 0  # ...of the subs that count (confirmed, found, of their type, not shown only)
     partners: int = 0  # partners counted
     pd_target: float | None = None  # for reference only: the programme documents' own targets (whole periods)
+    one_class: str = ""  # an average, a maximum or a minimum: the type of its totals (its first confirmed's)
     subs: list[Sub] = field(default_factory=list)
 
     @property
@@ -524,16 +531,43 @@ def _number(value: float | None) -> str:
 _SEX = {"Girls": "F", "Women": "F", "Female": "F", "Boys": "M", "Men": "M", "Male": "M"}
 # refugees may be Syrian or Palestinian: never apart from them
 _NATIONS = frozenset({"Syrian", "Palestinian", "Lebanese", "Migrants"})
+_NATION_WORDS = "|".join(f"(?:{pattern})" for label, pattern in tags.NATIONALITY if label in _NATIONS)
+_REFUGEE_WORDS = dict(tags.NATIONALITY)["Refugees"]
+# refugees a nationality names ("Syrian refugees", "displaced Lebanese") are of that nationality
+_THEIR_REFUGEES = re.compile(
+    rf"(?P<before>{_NATION_WORDS})\s+(?:{_REFUGEE_WORDS})|(?:{_REFUGEE_WORDS})\s+(?P<after>{_NATION_WORDS})"
+)
+
+
+def _sexes(row: Row) -> set[str]:
+    """Every sex a title names ("girls and boys": both); the stored tag for a row without a title."""
+    text = (row.title or "").lower()
+    if not text:
+        return {_SEX[label] for label in [row.tags.get("gender") or ""] if label in _SEX}
+    return {_SEX[label] for label, pattern in tags.GENDER if re.search(pattern, text)}
+
+
+def _lands(row: Row) -> set[str]:
+    """Every nationality a title names, refugees among them unless a nationality names them; the stored tag
+    for a row without a title."""
+    text = (row.title or "").lower()
+    if not text:
+        return {row.tags["nationality"]} if row.tags.get("nationality") else set()
+    text = _THEIR_REFUGEES.sub(lambda m: m.group("before") or m.group("after"), text)
+    return {label for label, pattern in tags.NATIONALITY if re.search(pattern, text)}
 
 
 def disjoint(a: Row, b: Row) -> bool:
-    """Two indicators that cannot count the same person, by their title tags: girls and boys (women and
-    men, female and male), or two nationalities. Disability and age subsets never are."""
-    sex_a, sex_b = _SEX.get(a.tags.get("gender") or ""), _SEX.get(b.tags.get("gender") or "")
-    if sex_a and sex_b and sex_a != sex_b:
+    """Two indicators that cannot count the same person, by every gender and nationality word of their
+    titles: one names girls and the other boys (women and men, female and male), or each names one
+    nationality and they differ. A title naming both sexes or two nationalities ("girls and boys", "Syrian
+    and Lebanese") is apart from neither, nor are refugees a nationality does not name (they may be Syrian or
+    Palestinian). Disability and age subsets never are."""
+    sex_a, sex_b = _sexes(a), _sexes(b)
+    if len(sex_a) == len(sex_b) == 1 and sex_a != sex_b:
         return True
-    land_a, land_b = a.tags.get("nationality") or "", b.tags.get("nationality") or ""
-    return land_a in _NATIONS and land_b in _NATIONS and land_a != land_b
+    land_a, land_b = _lands(a), _lands(b)
+    return len(land_a) == len(land_b) == 1 and land_a | land_b <= _NATIONS and land_a != land_b
 
 
 def _apart(rows: Sequence[Row]) -> bool:
@@ -550,6 +584,37 @@ def appears(master: EtoolsMaster, year: int, running: Iterable[int]) -> bool:
         return year_row.is_active
     running = set(running)
     return any(link.status == Status.CONFIRMED and link.pd_id in running for link in master.links.all())
+
+
+def counted_running(master: EtoolsMaster, year: int) -> int:
+    """The PD indicators ``master`` counts (confirmed, not shown only) of programme documents running in
+    ``year``: what switching its year off leaves counting nowhere in it (links have no year, so no other
+    master can take one in its total while this one holds it)."""
+    counting = master.links.filter(status=Status.CONFIRMED).exclude(role=Role.SHOWN)
+    pd_ids = sorted(set(counting.values_list("pd_id", flat=True)))
+    if not pd_ids:
+        return 0
+    running = monitoring._pd_queryset(monitoring.Filters(year=year, scope="year", pd_ids=pd_ids))
+    return counting.filter(pd_id__in=running.values("id")).count()
+
+
+def switched_off(year: int):
+    """The ids of the masters whose ``year`` is switched off (*shown this year* unticked): they are not listed
+    in it and count nothing in it (a values query, for ``master_id__in``)."""
+    return EtoolsMasterYear.objects.filter(year=year, is_active=False).values_list("master_id", flat=True)
+
+
+def homes(year: int, pd_ids: Iterable[int] | None = None) -> set[tuple[int, str]]:
+    """The PD indicators, by key, in a master in ``year``: a confirmed link to an active master whose year
+    is not switched off (:func:`switched_off`). One confirmed only in a master switched off for the year is in
+    no master that year: it counts nowhere, the Master indicators tab lists it under Not in a master and says
+    why, and reporting check 12 counts it apart. ``pd_ids``: only these programme documents' (default all)."""
+    found = EtoolsMasterLink.objects.filter(
+        status=Status.CONFIRMED, master__status=EtoolsMaster.Status.ACTIVE
+    ).exclude(master_id__in=switched_off(year))
+    if pd_ids is not None:
+        found = found.filter(pd_id__in=sorted(set(pd_ids)))
+    return set(found.values_list("pd_id", "ident"))
 
 
 def has_target(master: EtoolsMaster, year: int) -> bool:
@@ -639,6 +704,7 @@ def _figure(
         (link for link in links if link.status == Status.CONFIRMED and link.role == Role.TOTAL), None
     )
     one_class = first.unit_class if first is not None and master.method in ONE_CLASS else ""
+    out.one_class = one_class
     for link in links:
         sub = _sub(master, link, by_key, running, one_class)
         if sub is not None:
@@ -753,9 +819,18 @@ def _total(values: Iterable[float | None]) -> float | None:
     return sum(present) if present else None
 
 
+def periods_combined(row: Row) -> str:
+    """How a PD indicator's period method combines its reporting periods when it averages them ("avg") or
+    takes the largest ("max"): its year then has no numerator and denominator
+    (:func:`neurodb.datamart.reached.combine_items`). "" for any other method."""
+    method = rc.method_of(getattr(row, "period_method", "") or "")
+    return method if method in PERIODS_COMBINED else ""
+
+
 def _with_parts(out: Figure, candidates: list[Sub]) -> None:
     """Percentages and ratios: Σ numerators ÷ Σ denominators (× 100 for a percentage). A total brings its
-    own numerator and denominator (left out without them, never averaged); numerator and denominator subs
+    own numerator and denominator (left out without them, never averaged: the reason says whether its
+    reports lack them or its PD averages its periods or takes the largest); numerator and denominator subs
     of one programme document are added up, and take part only when it has both. Each programme document
     counts once: one counted through its numerator and denominator adds none of its totals, and of its
     several totals only the one with the largest denominator, unless they cannot count the same people or
@@ -766,7 +841,7 @@ def _with_parts(out: Figure, candidates: list[Sub]) -> None:
         if sub.role != Role.TOTAL:
             continue
         if sub.numerator is None or sub.denominator is None:
-            sub.reason = NO_PARTS
+            sub.reason = PERIODS_COMBINED.get(periods_combined(sub.row), NO_PARTS)
         else:
             totals[sub.pd_id].append(sub)
     pairs: dict[int, dict[str, list[Sub]]] = defaultdict(lambda: {Role.NUMERATOR: [], Role.DENOMINATOR: []})

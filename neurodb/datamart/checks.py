@@ -2064,10 +2064,20 @@ def _grouping(cursor) -> dict[str, Any]:
     found = master_links.plan(rows, year)
     totals = found.totals()
     active = dm.EtoolsMaster.objects.filter(status=dm.EtoolsMaster.Status.ACTIVE).count()
-    homes = set(
-        dm.EtoolsMasterLink.objects.filter(
-            status=dm.EtoolsMasterLink.Status.CONFIRMED, master__status=dm.EtoolsMaster.Status.ACTIVE
-        ).values_list("pd_id", "ident")
+    # in a master in its year (masters.homes, as the Master indicators tab reads it): this year's for a
+    # programme document running in it, else last year's. A master switched off for this year counts none of
+    # them in it: those of this year's programme documents are counted apart (they count nowhere)
+    homes = masters.homes(year)
+    homes_before = masters.homes(year - 1)
+    switched_off = (
+        set(
+            dm.EtoolsMasterLink.objects.filter(
+                status=dm.EtoolsMasterLink.Status.CONFIRMED,
+                master__status=dm.EtoolsMaster.Status.ACTIVE,
+                master_id__in=masters.switched_off(year),
+            ).values_list("pd_id", "ident")
+        )
+        - homes
     )
     listed = masters.listed(year) if active else []
     no_target = sum(1 for m in listed if not masters.has_target(m, year))
@@ -2087,7 +2097,8 @@ def _grouping(cursor) -> dict[str, Any]:
         mine["no_id"] += not row.source_id
         mine["cp_output"] += masters.cp_output_key(row) != masters.NO_CP_OUTPUT
         mine["ratios"] += masters.unit_class(row) in (masters.PERCENTAGE, masters.RATIO)
-        mine["in_master"] += key in homes
+        mine["in_master"] += key in (homes if key in of_year else homes_before)
+        mine["switched_off"] += key in of_year and key in switched_off
     for s in found.suggestions:
         counts(s.row.section)["suggested"] += 1
     for key in found.ambiguous:
@@ -2100,6 +2111,7 @@ def _grouping(cursor) -> dict[str, Any]:
     every: Counter[str] = sum(sections.values(), Counter())
     n, no_id, known = every["indicators"], every["no_id"], every["cp_output"]
     proposed, in_proposals, alone = totals["proposed"], totals["in_proposals"], totals["unattached"]
+    stranded = every["switched_off"]
     gone, changed = totals["no_longer_in_etools"], totals["type_changed"]
     span = f"{year - 1} or {year}"
 
@@ -2120,7 +2132,8 @@ def _grouping(cursor) -> dict[str, Any]:
     if valued:
         verdict += (
             f" {with_parts:,} of {valued_rows} with a value ({_share(with_parts, valued)}) carry their "
-            "numerator and denominator; a master indicator's percentage leaves the others out and says so."
+            "numerator and denominator; a master indicator's percentage leaves out the others, and a PD "
+            "indicator whose PD averages its periods or takes the largest, and says so."
         )
     else:
         verdict += " No percentage or ratio report row carries a value yet."
@@ -2150,7 +2163,13 @@ def _grouping(cursor) -> dict[str, Any]:
             f"{_plural(gone, 'confirmed link', 'confirmed links')} no longer in eTools, {changed:,} of "
             "another type now."
         )
-        tone = WARN if no_target or gone or changed else OK
+        if stranded:
+            verdict += (
+                f" {_plural(stranded, 'PD indicator', 'PD indicators')} of programme documents running in "
+                f"{year} {'is' if stranded == 1 else 'are'} only in master indicators switched off for "
+                f"{year}: they count nowhere in {year}."
+            )
+        tone = WARN if no_target or gone or changed or stranded else OK
     if not n and not active:
         tone = INFO
     order = sorted(sections, key=lambda key: (key == "", names[key].lower()))
@@ -2174,6 +2193,7 @@ def _grouping(cursor) -> dict[str, Any]:
             (f"… listed in {year}", len(listed)),
             (f"… without a target for {year}", no_target),
             ("PD indicators in an active master indicator", every["in_master"]),
+            (f"… only in one switched off for {year} (they count nowhere in {year})", stranded),
             ("… suggested for one", totals["suggested"]),
             ("… that two master indicators fit as well (ambiguous)", totals["ambiguous"]),
             ("Confirmed links no longer in eTools", gone),

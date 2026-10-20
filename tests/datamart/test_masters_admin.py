@@ -650,6 +650,54 @@ def test_a_years_target_of_0_or_less_is_refused_and_the_filter_reads_it_as_none(
     assert negative.pk in shown["no"] and negative.pk not in shown["yes"]
 
 
+def test_switching_a_year_off_warns_that_its_running_pd_indicators_count_nowhere_that_year(
+    admin_user, education
+):
+    from django.contrib.messages.storage.fallback import FallbackStorage
+
+    m = w.master("Children enrolled in NFE", target=500)
+    w.link(m, education["a"], 101, title=ENROLLED)
+    w.link(m, education["a"], 104, title="# of youth enrolled in NFE", role="shown")  # counts nothing
+    year = m.years.get(year=w.YEAR)
+    model_admin = EtoolsMasterAdmin(dm.EtoolsMaster, admin.site)
+
+    def save(active: bool) -> list[str]:
+        request = RequestFactory().post("/")
+        request.user, request.session = admin_user, {}
+        request._messages = FallbackStorage(request)
+        (formset_class,) = [
+            f
+            for f, _inline in model_admin.get_formsets_with_inlines(request, m)
+            if f.model is dm.EtoolsMasterYear
+        ]
+        data = {
+            "years-TOTAL_FORMS": "1",
+            "years-INITIAL_FORMS": "1",
+            "years-0-id": str(year.pk),
+            "years-0-master": str(m.pk),
+            "years-0-year": str(w.YEAR),
+            "years-0-code": "ED-1",
+            "years-0-target": "500",
+            "years-0-note": "",
+            **({"years-0-is_active": "on"} if active else {}),
+        }
+        formset = formset_class(data=data, instance=m, prefix="years")
+        assert formset.is_valid(), formset.errors
+        form = model_admin.get_form(request, m)(instance=m)
+        model_admin.save_formset(request, form, formset, change=True)
+        return [str(message) for message in request._messages]
+
+    (warned,) = save(active=False)
+    assert warned.startswith(
+        "Children enrolled in NFE is not shown in 2026: the 1 PD indicator(s) it counts of programme documents "
+        "running in 2026 count nowhere in 2026"
+    )
+    year.refresh_from_db()
+    mine = {(education["a"].pk, "s101"), (education["a"].pk, "s104")}
+    assert not year.is_active and not mine & masters.homes(w.YEAR)
+    assert save(active=True) == [] and mine <= masters.homes(w.YEAR)
+
+
 def test_the_master_form_refuses_a_method_change_that_breaks_its_links(admin_user, education):
     m = w.master("Children enrolled in NFE")
     w.link(m, education["a"], 101, title=ENROLLED)

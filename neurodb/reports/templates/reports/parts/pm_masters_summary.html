@@ -11,7 +11,8 @@ indicators stored for every worker), chart_data, and labels and filters (the pag
   {% blocktrans asvar h4 with year=tab.year %}the target of {{ year }} is not typed yet{% endblocktrans %}
   {% trans "No target" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=tab.status_counts.no_target hint=h4 %}
   {% blocktrans asvar v5 with x=tab.in_master|intcomma y=tab.indicators|intcomma %}{{ x }} of {{ y }}{% endblocktrans %}
-  {% trans "PD indicators in a master" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=v5 hint=_("confirmed in an active master indicator") %}
+  {% blocktrans asvar h5 with year=tab.year %}confirmed in a master indicator listed in {{ year }}{% endblocktrans %}
+  {% trans "PD indicators in a master" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=v5 hint=h5 %}
   {% trans "Suggestions waiting" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=tab.suggested hint=_("they count only once confirmed") %}
   {% blocktrans asvar h7 count counter=tab.proposed_links %}{{ counter }} PD indicator in them{% plural %}{{ counter }} PD indicators in them{% endblocktrans %}
   {% trans "Proposed masters" as l7 %}{% include "components/kpi_tile.html" with label=l7 value=tab.proposals|length hint=h7 %}
@@ -27,7 +28,7 @@ indicators stored for every worker), chart_data, and labels and filters (the pag
     <ul class="small mb-0 ps-3">
       <li>{% trans "Only the PD indicators a section confirmed count. NeuroDB's suggestions are listed under each master indicator and never added until someone confirms them." %}</li>
       <li>{% trans "A sum adds up the programme documents' Reached in the year. Partners may reach the same people, so it reads “up to”, with “at least” the largest programme document's figure." %}</li>
-      <li>{% trans "A percentage or a ratio is the numerators added up over the denominators added up. A programme document reported without them is left out and said so (“counted 4 of 6 PDs”), never averaged." %}</li>
+      <li>{% trans "A percentage or a ratio is the numerators added up over the denominators added up. A programme document reported without them, or whose PD averages its reporting periods (or takes the largest), is left out and said so (“counted 4 of 6 PDs”), never averaged." %}</li>
       <li>{% trans "The status compares the figure with the year's target typed by staff, as of the latest counted report. Without that target it reads “No target”; the programme documents' own targets are shown for reference only." %}</li>
     </ul>
   </section>

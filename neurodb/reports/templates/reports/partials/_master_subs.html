@@ -30,7 +30,7 @@ report_type, edit, roles, next.{% endcomment %}
       <td class="num">{{ s.target|number:0 }}{% if s.percentage and s.target is not None %}%{% endif %}</td>
       {% for v in s.quarters|slice:":3" %}<td class="num">{{ v|number }}{% if s.percentage and v is not None %}%{% endif %}</td>{% endfor %}
       <td class="num">{{ s.sub.value|number }}{% if s.percentage and s.sub.value is not None %}%{% endif %}{% if s.tracking %}<span class="cell-sub" title="{% trans 'Its own status, over its PD period, as Program Performance shows it' %}">{% status_pill s.tracking s.tracking_label "sm" %}</span>{% endif %}</td>
-      <td class="num small">{% if s.parts %}{% if s.sub.numerator is not None and s.sub.denominator is not None %}{{ s.sub.numerator|number }} / {{ s.sub.denominator|number }}{% else %}<span class="text-muted">{% trans "not reported" %}</span>{% endif %}{% else %}<span class="text-muted">·</span>{% endif %}</td>
+      <td class="num small">{% if s.parts %}{% if s.sub.numerator is not None and s.sub.denominator is not None %}{{ s.sub.numerator|number }} / {{ s.sub.denominator|number }}{% elif s.periods_combined %}<span class="text-muted" title="{{ s.sub.reason }}">{% trans "not combined" %}</span>{% else %}<span class="text-muted">{% trans "not reported" %}</span>{% endif %}{% else %}<span class="text-muted">·</span>{% endif %}</td>
       <td class="small">{{ s.pd_status|default:"—" }}</td>
       <td class="small">{% if s.sub.counted %}{% trans "Counted" %}{% else %}<span class="text-muted">{{ s.sub.reason }}</span>{% endif %}</td>
       {% if edit %}<td class="small masters-subs__change">
