@@ -1,0 +1,12 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+{% block object-tools-items %}
+  {% if original %}
+    {% url 'admin:datamart_etoolsmaster_add_indicators' original.pk as add_url %}
+    {% trans "Add PD indicators" as add_title %}
+    {% include "unfold/helpers/tab_action.html" with title=add_title link=add_url icon="playlist_add" %}
+    {% trans "Confirm or reject its PD indicators" as links_title %}
+    {% include "unfold/helpers/tab_action.html" with title=links_title link=links_url icon="fact_check" %}
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

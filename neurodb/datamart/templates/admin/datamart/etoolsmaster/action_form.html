@@ -1,0 +1,31 @@
+{% extends "admin/base_site.html" %}
+{% load i18n l10n unfold %}
+{% comment %}The page between choosing an action on the eTools master indicators and applying it (Merge, Change section).{% endcomment %}
+{% block content %}
+<form method="post" class="max-w-4xl">
+  {% csrf_token %}
+  {% for obj in chosen %}<input type="hidden" name="{{ action_checkbox_name }}" value="{{ obj.pk|unlocalize }}">{% endfor %}
+  <input type="hidden" name="action" value="{{ action_name }}">
+  <input type="hidden" name="apply" value="1">
+  {% include "unfold/helpers/form_errors.html" with errors=form.non_field_errors %}
+  {% component "unfold/components/card.html" with title=title %}
+    <div class="flex flex-col gap-6">
+      <p>{{ intro }}</p>
+      <ul class="list-disc pl-6">
+        {% for obj in chosen %}<li>{{ obj.name }} <span class="text-subtle">({{ obj.get_status_display }}, {{ obj.get_method_display }})</span></li>{% endfor %}
+      </ul>
+      {% for field in form %}
+        <div class="flex flex-col gap-2">
+          <label class="font-semibold text-important" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {% if field.errors %}<div class="text-red-600 dark:text-red-500">{{ field.errors }}</div>{% endif %}
+          <div class="nd-wizard-field">{{ field }}</div>
+          {% if field.help_text %}<p class="text-subtle">{{ field.help_text }}</p>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endcomponent %}
+  <div class="flex justify-end mt-6">
+    {% component "unfold/components/button.html" with submit=1 %}{{ submit_label }}{% endcomponent %}
+  </div>
+</form>
+{% endblock %}

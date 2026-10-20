@@ -251,6 +251,74 @@ class MasterIndicatorAdmin(ModelAdmin):
     filter_horizontal = ("tags",)
     inlines = (MasterSubInline,)
     change_form_template = "admin/pivoting/masterindicator/change_form.html"
+    actions = ("make_etools_masters",)
+
+    def has_make_etools_permission(self, request):
+        return request.user.has_perm("datamart.add_etoolsmaster")
+
+    @admin.action(description=_("Create eTools master indicators from these"), permissions=("make_etools",))
+    def make_etools_masters(self, request, queryset):
+        """Seed the eTools master indicators from these ActivityInfo masters: name, unit, method and this
+        year's AWP code (no target), in their database's eTools section (``datamart.curation``). It writes
+        only the eTools master indicator tables: the ActivityInfo masters are read, never changed."""
+        from neurodb.core import years
+        from neurodb.datamart import curation
+
+        year = years.this_year()
+        chosen = queryset.select_related("database").order_by("database_id", "sequence", "pk")
+        done = curation.from_activityinfo(chosen, year, request.user.get_username())
+        if done.created:
+            url = reverse("admin:datamart_etoolsmaster_changelist") + "?origin__exact=activityinfo"
+            sections = sorted({m.section for m in done.created})
+            self.message_user(
+                request,
+                format_html(
+                    '{} <a class="nd-link" href="{}">{}</a>',
+                    _(
+                        "%(n)s eTools master indicator(s) created in %(sections)s. Type the %(year)s target "
+                        "of each one and add its PD indicators:"
+                    )
+                    % {"n": len(done.created), "sections": ", ".join(sections), "year": year},
+                    url,
+                    _("Master indicators (eTools)"),
+                ),
+                messages.SUCCESS,
+            )
+        if done.counts:
+            self.message_user(
+                request,
+                _(
+                    "%(n)s left out: COUNT counted ActivityInfo records and has no meaning for eTools PD "
+                    "indicators (%(names)s)."
+                )
+                % {"n": len(done.counts), "names": curation.listed(done.counts)},
+                messages.WARNING,
+            )
+        if done.existing:
+            self.message_user(
+                request,
+                _(
+                    "%(n)s left out: their eTools section has a master indicator of that name already "
+                    "(%(names)s)."
+                )
+                % {"n": len(done.existing), "names": curation.listed(done.existing)},
+                messages.WARNING,
+            )
+        if done.no_section:
+            self.message_user(
+                request,
+                format_html(
+                    '{} <a class="nd-link" href="{}">{}</a>',
+                    _(
+                        "%(n)s not created: the NeuroDB section of their database has no confirmed eTools "
+                        "section name (%(names)s). Confirm it, then run this again:"
+                    )
+                    % {"n": len(done.no_section), "names": curation.listed(done.no_section)},
+                    reverse("admin:watch_sectionmatch_changelist"),
+                    _("eTools section names"),
+                ),
+                messages.ERROR,
+            )
 
     def get_urls(self):
         return [

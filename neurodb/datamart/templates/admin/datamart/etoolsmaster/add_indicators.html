@@ -1,0 +1,5 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% block content %}
+{% include "admin/pivoting/wizard_form.html" with submit_label=_("Add the indicators ticked") %}
+{% endblock %}

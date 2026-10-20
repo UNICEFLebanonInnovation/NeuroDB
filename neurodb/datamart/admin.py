@@ -1,21 +1,35 @@
-"""Read-only admin over the eTools Datamart tables (refreshed by ``sync_etools_datamart``), and the
-eTools reporting checks page (admin/datamart/reporting-checks/, Administrators only)."""
+"""Read-only admin over the eTools Datamart tables (refreshed by ``sync_etools_datamart``), the eTools
+reporting checks page (admin/datamart/reporting-checks/, Administrators only), and the tables people edit: the
+indicator flags, the HACT visit plan's comments and the eTools master indicators with their PD indicators."""
 
 import time
+from urllib.parse import urlencode
 
 from django import forms
 from django.contrib import admin, messages
-from django.http import Http404
-from django.shortcuts import redirect, render
+from django.contrib.admin import helpers
+from django.core.exceptions import PermissionDenied
+from django.db.models import Count, Exists, OuterRef, Q, Subquery
+from django.http import Http404, HttpResponse
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 from django.utils import timezone
+from django.utils.text import Truncator
 from django.utils.translation import gettext_lazy as _
-from unfold.admin import ModelAdmin
+from unfold.admin import ModelAdmin, TabularInline
+from unfold.decorators import action
+from unfold.forms import BaseDialogForm
+from unfold.widgets import (
+    UnfoldAdminCheckboxSelectMultipleWidget,
+    UnfoldAdminRadioSelectWidget,
+    UnfoldAdminSelectWidget,
+)
 
 from neurodb.accounts.roles import ADMIN, role_of
-from neurodb.web.admin_helpers import ReadOnlyModelAdmin
+from neurodb.core import years
+from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
-from . import checks
+from . import checks, curation, master_links, masters
 from . import models as dm
 
 
@@ -458,3 +472,698 @@ class VisitPlanCommentAdmin(ModelAdmin):
         if obj.intervention_id and not obj.pd_reference:
             obj.pd_reference = (obj.intervention.number or "")[:64]
         super().save_model(request, obj, form, change)
+
+
+# ------------------------------------------------------------------------------- eTools master indicators
+Method, Role, Status = dm.EtoolsMaster.Method, dm.EtoolsMasterLink.Role, dm.EtoolsMasterLink.Status
+MASTER = dm.EtoolsMaster.Status
+STATUS_TONES = {"proposed": "info", "active": "ok", "dismissed": "muted", "archived": "muted"}
+LINK_TONES = {"suggested": "info", "confirmed": "ok", "rejected": "muted"}
+SHOWN_IN_MESSAGES = 3  # reasons spelled out in a message, then "and N more"
+
+
+def _left(left) -> str:
+    """The links or indicators an action left as they were, with why: the first few, then how many more."""
+    shown = "; ".join(f"{what}: {why}" for what, why in left[:SHOWN_IN_MESSAGES])
+    return f"{shown}; and {len(left) - SHOWN_IN_MESSAGES} more" if len(left) > SHOWN_IN_MESSAGES else shown
+
+
+def _link_name(link) -> str:
+    return f"{link.pd_number or 'PD'} {Truncator(link.title or link.ident).chars(60)}"
+
+
+class YearTargetFilter(admin.SimpleListFilter):
+    """Whether the master has this year's target, which its status is measured against (the idea of the
+    ActivityInfo masters' AWP target filter)."""
+
+    title = _("target this year")
+    parameter_name = "target"
+
+    def lookups(self, request, model_admin):
+        return (("yes", _("Has a target")), ("no", _("No target")))
+
+    def queryset(self, request, queryset):
+        typed = dm.EtoolsMasterYear.objects.filter(
+            master=OuterRef("pk"), year=years.this_year(), target__isnull=False
+        ).exclude(target=0)
+        if self.value() == "yes":
+            return queryset.filter(Exists(typed))
+        if self.value() == "no":
+            return queryset.exclude(Exists(typed))
+        return queryset
+
+
+class MasterYearInline(TabularInline):
+    """A master's settings for each calendar year: its AWP/RWP code and the target staff type."""
+
+    model = dm.EtoolsMasterYear
+    extra = 0
+    fields = ("year", "code", "target", "is_active", "note")
+
+
+class MasterLinkForm(forms.ModelForm):
+    """A link on its master's page: what it counts as, and its place. Its status changes through the
+    actions, which read the indicator again (Confirm and Reject, on the links' list)."""
+
+    class Meta:
+        model = dm.EtoolsMasterLink
+        fields = ("role", "sequence")
+
+    def _post_clean(self):
+        # an unchanged link is not checked again: the check reads its programme document's indicators, with
+        # their Reached, which would make saving a master with many links slow
+        if self.instance.pk is not None and not self.has_changed():
+            return
+        super()._post_clean()
+
+    def clean(self):
+        data = super().clean()
+        link = self.instance
+        if (
+            data.get("role") == Role.TOTAL
+            and "role" in self.changed_data
+            and link.status != Status.REJECTED
+            and link.pd_id
+        ):
+            other = (
+                dm.EtoolsMasterLink.objects.filter(
+                    pd_id=link.pd_id,
+                    ident=link.ident,
+                    role=Role.TOTAL,
+                    status__in=[Status.SUGGESTED, Status.CONFIRMED],
+                )
+                .exclude(pk=link.pk)
+                .select_related("master")
+                .first()
+            )
+            if other is not None:
+                self.add_error(
+                    "role",
+                    _(
+                        "This PD indicator is in the total of %(name)s already (%(status)s): it can be in "
+                        "one total only."
+                    )
+                    % {"name": other.master.name, "status": other.get_status_display().lower()},
+                )
+        return data
+
+
+class MasterLinkInline(TabularInline):
+    """A master's PD indicators. They are added with Add PD indicators (or by the nightly suggestions)."""
+
+    model = dm.EtoolsMasterLink
+    form = MasterLinkForm
+    extra = 0
+    fields = ("pd_number", "title", "unit_class", "role", "status", "score", "reason", "sequence")
+    readonly_fields = ("pd_number", "title", "unit_class", "status", "score", "reason")
+    show_change_link = True
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+class AddPDIndicatorsForm(forms.Form):
+    """The *Add PD indicators* wizard: the section's PD indicators of this year that can join the master
+    (:func:`neurodb.datamart.curation.offered`), and the one role they all take."""
+
+    role = forms.ChoiceField(label=_("Counts as"), widget=UnfoldAdminSelectWidget)
+    indicators = forms.MultipleChoiceField(widget=UnfoldAdminCheckboxSelectMultipleWidget)
+
+    def __init__(self, master, offers, year, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        roles = [Role.TOTAL, Role.SHOWN]
+        if master.method in masters.WITH_PARTS:
+            roles = [Role.TOTAL, Role.NUMERATOR, Role.DENOMINATOR, Role.SHOWN]
+        self.fields["role"].choices = [(role.value, role.label) for role in roles]
+        self.fields["role"].help_text = _(
+            "Every indicator ticked counts this way. They count at once: a person chose them."
+        )
+        self.fields["indicators"].label = _(
+            "PD indicators of %(section)s in the programme documents running in %(year)s"
+        ) % {"section": master.section, "year": year}
+        self.fields["indicators"].choices = [(offer.value, _offer_label(offer)) for offer in offers]
+        self.fields["indicators"].help_text = (
+            _(
+                "Indicators that already count in another master's total, of a type this master cannot "
+                "combine, or that it holds already are not listed."
+            )
+            if offers
+            else _(
+                "No PD indicator of this section can be added: each one counts in a master already, is held "
+                "by this one, or is of a type it cannot combine."
+            )
+        )
+
+
+def _offer_label(offer) -> str:
+    row = offer.row
+    parts = [
+        row.pd.number or _("No PD number"),
+        offer.partner,
+        dm.EtoolsMasterLink.UnitClass(offer.unit).label,
+    ]
+    if row.cp_output:
+        parts.append(_("CP output: %(output)s") % {"output": Truncator(row.cp_output).chars(80)})
+    text = f"{row.title} ({' · '.join(str(p) for p in parts if p)})"
+    return f"{text}. {offer.note}" if offer.note else text
+
+
+class MergeForm(forms.Form):
+    """The master indicator the others are merged into."""
+
+    keep = forms.ModelChoiceField(
+        label=_("Keep"),
+        queryset=dm.EtoolsMaster.objects.none(),
+        widget=UnfoldAdminRadioSelectWidget,
+        empty_label=None,
+        help_text=_(
+            "The others' PD indicators and the years' settings it lacks move to it; the others are archived "
+            "(a proposal is dismissed, so NeuroDB never proposes it again)."
+        ),
+    )
+
+    def __init__(self, chosen, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        active = [m for m in chosen if m.status == MASTER.ACTIVE]
+        self.fields["keep"].queryset = dm.EtoolsMaster.objects.filter(pk__in=[m.pk for m in active])
+        if active:  # the one with the most confirmed PD indicators
+            self.fields["keep"].initial = max(
+                active, key=lambda m: (getattr(m, "confirmed_links", 0), -m.pk)
+            ).pk
+
+
+class SectionForm(forms.Form):
+    """The eTools section the masters move to, as the PD indicators name it now."""
+
+    section = forms.ChoiceField(
+        label=_("New eTools section"),
+        widget=UnfoldAdminSelectWidget,
+        help_text=_(
+            "After eTools renamed a section: its masters keep their PD indicators, codes and targets."
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["section"].choices = [(name, name) for name in curation.sections()]
+
+
+class SuggestNowForm(BaseDialogForm):
+    """The confirmation step of "Suggest now" (it makes the action a POST)."""
+
+
+@admin.register(dm.EtoolsMaster)
+class EtoolsMasterAdmin(ModelAdmin):
+    """The eTools master indicators of each section: one figure a year combined from the partners' PD
+    indicators linked to it, by its method. Only confirmed links count; NeuroDB suggests links and proposes
+    masters every night (Suggest now runs it at once), and staff accept, confirm or dismiss them here or on
+    the Master indicators tab. ``updated_by`` and ``confirmed_by`` are shown here only."""
+
+    list_display = (
+        "section",
+        "cp_output_short",
+        "name",
+        "method",
+        "status_badge",
+        "target_this_year",
+        "confirmed_count",
+        "suggested_count",
+        "origin",
+    )
+    list_display_links = ("name",)
+    list_filter = ("section", "method", "status", "origin", YearTargetFilter)
+    search_fields = ("name", "keywords", "cp_output", "section")
+    fields = (
+        "section",
+        "name",
+        "unit",
+        "cp_output",
+        "keywords",
+        "method",
+        "pd_parts_add_up",
+        "status",
+        "sequence",
+        "note",
+        "origin",
+        "proposal_key",
+        "activityinfo_master_id",
+        "updated_by",
+        "updated_at",
+    )
+    readonly_fields = ("origin", "proposal_key", "activityinfo_master_id", "updated_by", "updated_at")
+    inlines = (MasterYearInline, MasterLinkInline)
+    change_form_template = "admin/datamart/etoolsmaster/change_form.html"
+    actions = (
+        "accept_proposals",
+        "dismiss_proposals",
+        "confirm_all",
+        "confirm_strong",
+        "merge_selected",
+        "change_section",
+    )
+    actions_list = ("suggest_now",)
+    list_per_page = 50
+
+    def get_queryset(self, request):
+        target = dm.EtoolsMasterYear.objects.filter(master=OuterRef("pk"), year=years.this_year())
+        return (
+            super()
+            .get_queryset(request)
+            .annotate(
+                confirmed_links=Count("links", filter=Q(links__status=Status.CONFIRMED), distinct=True),
+                suggested_links=Count("links", filter=Q(links__status=Status.SUGGESTED), distinct=True),
+                year_target=Subquery(target.values("target")[:1]),
+            )
+        )
+
+    @admin.display(description=_("CP output"), ordering="cp_output")
+    def cp_output_short(self, obj):
+        return Truncator(obj.cp_output).chars(60) if obj.cp_output else "—"
+
+    @admin.display(description=_("Status"), ordering="status")
+    def status_badge(self, obj):
+        return badge(obj.get_status_display(), STATUS_TONES.get(obj.status))
+
+    @admin.display(description=_("Target this year"), ordering="year_target")
+    def target_this_year(self, obj):
+        value = getattr(obj, "year_target", None)
+        if not value:
+            return badge(_("No target"), "warn")
+        return f"{value:,.0f}" if float(value).is_integer() else f"{value:,.1f}"
+
+    @admin.display(description=_("Confirmed"), ordering="confirmed_links")
+    def confirmed_count(self, obj):
+        return getattr(obj, "confirmed_links", 0)
+
+    @admin.display(description=_("Suggestions"), ordering="suggested_links")
+    def suggested_count(self, obj):
+        return getattr(obj, "suggested_links", 0)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        links = reverse("admin:datamart_etoolsmasterlink_changelist")
+        query = urlencode({"master__id__exact": object_id})
+        extra_context = {**(extra_context or {}), "links_url": f"{links}?{query}"}
+        return super().change_view(request, object_id, form_url, extra_context)
+
+    def save_model(self, request, obj, form, change):
+        obj.updated_by = request.user.get_username()
+        super().save_model(request, obj, form, change)
+
+    def save_formset(self, request, form, formset, change):
+        if formset.model is dm.EtoolsMasterYear:
+            for year_row in formset.save(commit=False):
+                year_row.updated_by = request.user.get_username()
+                year_row.save()
+            for gone in formset.deleted_objects:
+                gone.delete()
+            return
+        super().save_formset(request, form, formset, change)
+
+    # --------------------------------------------------------------------------------- Add PD indicators
+    def get_urls(self):
+        return [
+            path(
+                "<int:pk>/add-pd-indicators/",
+                self.admin_site.admin_view(self.add_pd_indicators),
+                name="datamart_etoolsmaster_add_indicators",
+            ),
+            *super().get_urls(),
+        ]
+
+    def add_pd_indicators(self, request, pk):
+        """*Add PD indicators*, as the ActivityInfo masters' Add sub-indicators: tick the section's PD
+        indicators of this year that can join the master, choose what they count as, and they are linked,
+        confirmed (:func:`neurodb.datamart.curation.add`)."""
+        master = get_object_or_404(dm.EtoolsMaster, pk=pk)
+        if not self.has_change_permission(request, master):
+            raise PermissionDenied
+        year = years.this_year()
+        offers = curation.offered(master, year)
+        form = AddPDIndicatorsForm(master, offers, year, request.POST or None)
+        if request.method == "POST" and form.is_valid():
+            keys = [key for key in map(curation.parse_key, form.cleaned_data["indicators"]) if key]
+            done = curation.add(master, keys, form.cleaned_data["role"], request.user.get_username())
+            if done.added:
+                self.message_user(
+                    request,
+                    _("%(n)s PD indicator(s) added, confirmed: they count from now on.") % {"n": done.added},
+                    messages.SUCCESS,
+                )
+            if done.left:
+                self.message_user(
+                    request,
+                    _("%(n)s left out: %(why)s") % {"n": len(done.left), "why": _left(done.left)},
+                    messages.WARNING,
+                )
+            return redirect(reverse("admin:datamart_etoolsmaster_change", args=[pk]))
+        context = {
+            **self.admin_site.each_context(request),
+            "form": form,
+            "master": master,
+            "opts": self.model._meta,
+            "title": _("Add PD indicators to %(name)s") % {"name": master.name},
+        }
+        return render(request, "admin/datamart/etoolsmaster/add_indicators.html", context)
+
+    # ------------------------------------------------------------------------------------------- actions
+    @admin.action(description=_("Accept the proposed master indicators"), permissions=("change",))
+    def accept_proposals(self, request, queryset):
+        """A proposal becomes active and its suggested PD indicators confirmed, in one click."""
+        done = master_links.accept(queryset.order_by("section", "name", "pk"), request.user.get_username())
+        if done.accepted:
+            self.message_user(
+                request,
+                _("%(n)s master indicator(s) accepted, %(links)s PD indicator(s) confirmed.")
+                % {"n": len(done.accepted), "links": done.links.confirmed},
+                messages.SUCCESS,
+            )
+        refused = [(m.name, why) for m, why in done.refused]
+        if refused:
+            self.message_user(
+                request,
+                _("%(n)s not accepted: %(why)s") % {"n": len(refused), "why": _left(refused)},
+                messages.WARNING,
+            )
+        if done.links.left:
+            left = [(_link_name(link), why) for link, why in done.links.left]
+            self.message_user(
+                request,
+                _("%(n)s PD indicator(s) left as suggestions: %(why)s")
+                % {"n": len(left), "why": _left(left)},
+                messages.WARNING,
+            )
+
+    @admin.action(description=_("Dismiss the proposed master indicators"), permissions=("change",))
+    def dismiss_proposals(self, request, queryset):
+        """A dismissed proposal is kept, so NeuroDB never proposes it again."""
+        proposed = queryset.filter(status=MASTER.PROPOSED)
+        others = queryset.count() - proposed.count()
+        done = master_links.dismiss(list(proposed), request.user.get_username())
+        self.message_user(
+            request,
+            _("%(n)s proposal(s) dismissed: NeuroDB will not propose them again.") % {"n": done},
+            messages.SUCCESS,
+        )
+        if others:
+            self.message_user(
+                request,
+                _("%(n)s were not proposals and were left as they were.") % {"n": others},
+                messages.WARNING,
+            )
+
+    @admin.action(description=_("Confirm all suggestions"), permissions=("change",))
+    def confirm_all(self, request, queryset):
+        self._confirm(request, queryset, strong=False)
+
+    @admin.action(description=_("Confirm suggestions scoring 0.9 or more"), permissions=("change",))
+    def confirm_strong(self, request, queryset):
+        self._confirm(request, queryset, strong=True)
+
+    def _confirm(self, request, queryset, strong: bool) -> None:
+        """Confirm the suggested PD indicators of the selected active masters (only the strong matches, the
+        same structure or a replacement, with ``strong``). A proposal's are confirmed by accepting it."""
+        proposed = queryset.filter(status=MASTER.PROPOSED).count()
+        links = dm.EtoolsMasterLink.objects.filter(
+            master__in=queryset.filter(status=MASTER.ACTIVE), status=Status.SUGGESTED
+        )
+        if strong:
+            links = links.filter(score__gte=master_links.STRONG)
+        links = links.select_related("master").order_by("master__section", "master__name", "sequence", "id")
+        done = master_links.confirm(list(links), request.user.get_username())
+        self.message_user(
+            request,
+            _("%(n)s suggestion(s) confirmed: they count from now on.") % {"n": done.confirmed},
+            messages.SUCCESS,
+        )
+        if done.left:
+            left = [(_link_name(link), why) for link, why in done.left]
+            self.message_user(
+                request,
+                _("%(n)s left as suggestions: %(why)s") % {"n": len(left), "why": _left(left)},
+                messages.WARNING,
+            )
+        if proposed:
+            self.message_user(
+                request,
+                _(
+                    "%(n)s proposed master indicator(s) skipped: accept a proposal to confirm its PD "
+                    "indicators (Accept the proposed master indicators)."
+                )
+                % {"n": proposed},
+                messages.WARNING,
+            )
+
+    @admin.action(description=_("Merge the selected master indicators"), permissions=("change",))
+    def merge_selected(self, request, queryset):
+        """Merge masters of one section and one method into the one kept (chosen on the next page)."""
+        chosen = list(queryset.order_by("section", "name", "pk"))
+        problem = curation.merge_problem(chosen)
+        if problem:
+            self.message_user(request, problem, messages.ERROR)
+            return None
+        form = MergeForm(chosen, request.POST if "apply" in request.POST else None)
+        if form.is_valid():
+            keep = form.cleaned_data["keep"]
+            done = curation.merge(keep, [m for m in chosen if m.pk != keep.pk], request.user.get_username())
+            if isinstance(done, str):
+                self.message_user(request, done, messages.ERROR)
+                return None
+            self.message_user(
+                request,
+                _(
+                    "%(n)s master indicator(s) merged into %(name)s: %(moved)s PD indicator(s) moved, "
+                    "%(dropped)s it held already dropped, %(years)s year(s) of settings moved."
+                )
+                % {
+                    "n": len(done.merged),
+                    "name": keep.name,
+                    "moved": done.moved,
+                    "dropped": done.dropped,
+                    "years": done.years,
+                },
+                messages.SUCCESS,
+            )
+            return None
+        return self._action_page(
+            request,
+            chosen,
+            form,
+            "merge_selected",
+            _("Merge master indicators"),
+            _("These master indicators of %(section)s become one.") % {"section": chosen[0].section},
+            _("Merge"),
+        )
+
+    @admin.action(description=_("Change section (after an eTools rename)"), permissions=("change",))
+    def change_section(self, request, queryset):
+        """Move masters to the eTools section their PD indicators are in now, after eTools renamed it."""
+        chosen = list(queryset.order_by("section", "name", "pk"))
+        form = SectionForm(request.POST if "apply" in request.POST else None)
+        if form.is_valid():
+            moved, left = curation.move(chosen, form.cleaned_data["section"], request.user.get_username())
+            self.message_user(
+                request,
+                _("%(n)s master indicator(s) moved to %(section)s.")
+                % {"n": moved, "section": form.cleaned_data["section"]},
+                messages.SUCCESS,
+            )
+            if left:
+                why = _left([(m.name, reason) for m, reason in left])
+                self.message_user(
+                    request, _("%(n)s not moved: %(why)s") % {"n": len(left), "why": why}, messages.WARNING
+                )
+            return None
+        return self._action_page(
+            request,
+            chosen,
+            form,
+            "change_section",
+            _("Change section"),
+            _("Move these master indicators to the section eTools names their PD indicators with now."),
+            _("Move"),
+        )
+
+    def _action_page(self, request, chosen, form, name, title, intro, submit) -> HttpResponse:
+        """The page between choosing an action and applying it (a choice to make first)."""
+        context = {
+            **self.admin_site.each_context(request),
+            "title": title,
+            "intro": intro,
+            "form": form,
+            "chosen": chosen,
+            "action_name": name,
+            "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
+            "submit_label": submit,
+            "opts": self.model._meta,
+        }
+        return render(request, "admin/datamart/etoolsmaster/action_form.html", context)
+
+    @action(
+        description=_("Suggest now"),
+        url_path="suggest-now",
+        icon="category",
+        permissions=["change"],
+        dialog={
+            "title": _("Suggest PD indicators for the master indicators now"),
+            "description": _(
+                "Works out, in the background, the PD indicators of this year and last year that belong "
+                "in each master indicator, and proposes new master indicators where programme documents "
+                "share an indicator no master holds. Nothing counts until someone confirms it; confirmed and "
+                "rejected links and dismissed proposals are kept. It also runs every night. No AI is used."
+            ),
+            "form_class": SuggestNowForm,
+            "form_submit_text": _("Start"),
+        },
+    )
+    def suggest_now(self, request, form):
+        from neurodb.core.models import SyncRun
+        from neurodb.integrations import background
+
+        if background.is_running(SyncRun.Job.ETOOLS_MASTERS):
+            messages.warning(request, master_links.BUSY)
+        else:
+            background.start_command(
+                "suggest_master_indicators", "--triggered-by", request.user.get_username()
+            )
+            messages.success(
+                request,
+                _(
+                    "The suggestions are being worked out in the background. Refresh this page in a few "
+                    "minutes to see them."
+                ),
+            )
+        url = reverse("admin:datamart_etoolsmaster_changelist")
+        if request.headers.get("HX-Request"):  # the dialog posts with HTMX: load the whole page
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = url
+            return response
+        return redirect(url)
+
+
+class ScoreFilter(admin.SimpleListFilter):
+    """How close a suggestion is: the strong matches staff can confirm in one click, the similar titles."""
+
+    title = _("score")
+    parameter_name = "score"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("strong", _("0.9 or more")),
+            ("similar", _("Below 0.9")),
+            ("none", _("No score")),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "strong":
+            return queryset.filter(score__gte=master_links.STRONG)
+        if self.value() == "similar":
+            return queryset.filter(score__lt=master_links.STRONG)
+        if self.value() == "none":
+            return queryset.filter(score__isnull=True)
+        return queryset
+
+
+@admin.register(dm.EtoolsMasterLink)
+class EtoolsMasterLinkAdmin(ModelAdmin):
+    """Each PD indicator of an eTools master indicator, and what it counts as there. A suggestion counts
+    only once confirmed (Confirm reads the indicator again and saves it as eTools has it now); a rejected
+    one is never suggested for that master again."""
+
+    list_display = (
+        "pd_number",
+        "title_short",
+        "master",
+        "section",
+        "role",
+        "status_badge",
+        "score",
+        "reason",
+    )
+    list_display_links = ("pd_number", "title_short")
+    list_filter = (
+        "status",
+        "role",
+        ("master__section", admin.AllValuesFieldListFilter),
+        "master",
+        ScoreFilter,
+    )
+    list_select_related = ("master",)
+    search_fields = ("title", "pd_number", "ident", "master__name", "reason")
+    autocomplete_fields = ("master",)
+    raw_id_fields = ("pd",)
+    fields = (
+        "master",
+        "pd",
+        "ident",
+        "role",
+        "status",
+        "title",
+        "pd_number",
+        "unit_class",
+        "score",
+        "reason",
+        "sequence",
+        "confirmed_by",
+        "updated_at",
+    )
+    actions = ("confirm_links", "reject_links", "make_shown")
+    list_per_page = 50
+
+    def get_readonly_fields(self, request, obj=None):
+        fixed = ("title", "pd_number", "unit_class", "score", "reason", "confirmed_by", "updated_at")
+        # a link's indicator is fixed once saved; its status changes with Confirm and Reject
+        return ("master", "pd", "ident", "status", *fixed) if obj else fixed
+
+    @admin.display(description=_("PD indicator"), ordering="title")
+    def title_short(self, obj):
+        return Truncator(obj.title or obj.ident).chars(90)
+
+    @admin.display(description=_("Section"), ordering="master__section")
+    def section(self, obj):
+        return obj.master.section
+
+    @admin.display(description=_("Status"), ordering="status")
+    def status_badge(self, obj):
+        return badge(obj.get_status_display(), LINK_TONES.get(obj.status))
+
+    def save_model(self, request, obj, form, change):
+        if not change and obj.status != Status.SUGGESTED:  # a link added by hand, confirmed or rejected
+            obj.confirmed_by = request.user.get_username()
+        super().save_model(request, obj, form, change)
+
+    @admin.action(description=_("Confirm"), permissions=("change",))
+    def confirm_links(self, request, queryset):
+        """Confirm links: each PD indicator is read again and saved as eTools has it now; one that cannot
+        count is left as it was, and said why."""
+        links = list(queryset.select_related("master").order_by("master_id", "sequence", "id"))
+        done = master_links.confirm(links, request.user.get_username())
+        self.message_user(
+            request,
+            _("%(n)s link(s) confirmed: they count from now on.") % {"n": done.confirmed},
+            messages.SUCCESS,
+        )
+        if done.left:
+            left = [(_link_name(link), why) for link, why in done.left]
+            self.message_user(
+                request,
+                _("%(n)s left as they were: %(why)s") % {"n": len(left), "why": _left(left)},
+                messages.WARNING,
+            )
+
+    @admin.action(description=_("Reject"), permissions=("change",))
+    def reject_links(self, request, queryset):
+        done = master_links.reject(list(queryset), request.user.get_username())
+        self.message_user(
+            request,
+            _("%(n)s link(s) rejected: never counted, and never suggested for that master again.")
+            % {"n": done},
+            messages.SUCCESS,
+        )
+
+    @admin.action(description=_('Make "Shown only"'), permissions=("change",))
+    def make_shown(self, request, queryset):
+        """Shown next to the master's figure, never counted (a breakdown, a partner's other indicator)."""
+        done = queryset.exclude(role=Role.SHOWN).update(role=Role.SHOWN, updated_at=timezone.now())
+        self.message_user(
+            request, _('%(n)s link(s) made "Shown only": never counted.') % {"n": done}, messages.SUCCESS
+        )
