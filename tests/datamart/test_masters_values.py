@@ -320,6 +320,84 @@ def test_totals_and_numerators_mix_in_one_master_and_the_quarters_follow_the_sam
     assert fig.coverage == "counted 2 of 2 PDs"
 
 
+PASSING, PASSED, ASSESSED = (
+    "% of children passing the exam",
+    "# of children passing the exam",
+    "# of children assessed",
+)
+
+
+def test_a_programme_document_counted_through_its_parts_adds_none_of_its_totals(pds):
+    """PD/2026/001's percentage (40/50) and its numerator and denominator (40 and 50) are the same children:
+    counted once, through its parts, never 90/150."""
+    a, b = pds["A"], pds["B"]
+    w.indicator(a, 131, PASSING, display_type="percentage", target=(80, 100))
+    quarterly(a, 131, PASSING, {1: w.pct(40, 50)})
+    for source_id, title, value, target in ((132, PASSED, 40, 80), (133, ASSESSED, 50, 100)):
+        w.indicator(a, source_id, title, target=(target, None))
+        quarterly(a, source_id, title, {1: value})
+    w.indicator(b, 231, PASSING, display_type="percentage", target=(30, 50))
+    quarterly(b, 231, PASSING, {1: w.pct(10, 50)})
+    m = w.master("Children passing the exam", "percent")
+    w.link(m, a, 131, unit_class="percentage")
+    w.link(m, a, 132, role="numerator")
+    w.link(m, a, 133, role="denominator")
+    w.link(m, b, 231, unit_class="percentage")
+
+    fig = w.figure(m)
+    found = w.subs(fig)
+    assert (fig.numerator, fig.denominator, fig.value) == (50.0, 100.0, 50.0)  # never 90 / 150 = 60 %
+    assert found["s132"].counted and found["s133"].counted and found["s231"].counted
+    assert not found["s131"].counted
+    assert (
+        found["s131"].reason
+        == masters.SAME_PD_PARTS
+        == ("Same programme document: counted through its numerator and denominator")
+    )
+    assert all(fig.quarters[q] == 50.0 for q in masters.QUARTERS)
+    assert (fig.counted_pds, fig.pds, fig.coverage) == (2, 2, "counted 2 of 2 PDs")
+    assert fig.pd_target == pytest.approx(110 / 150 * 100)  # (80 + 30) / (100 + 50): A once, by its parts
+
+
+def test_one_programme_documents_overlapping_totals_count_once_unless_they_cannot_count_the_same_people(pds):
+    """A percentage master takes the sum's rule within one programme document: its girls are among its
+    children, so only the total with the largest denominator counts; girls and boys add up."""
+    a, b = pds["A"], pds["B"]
+    for source_id, title, value, target in (
+        (141, PASSING, w.pct(40, 50), (80, 100)),
+        (142, "% of girls passing the exam", w.pct(20, 25), (45, 50)),
+        (143, "% of boys passing the exam", w.pct(20, 25), (35, 50)),
+    ):
+        w.indicator(a, source_id, title, display_type="percentage", target=target)
+        quarterly(a, source_id, title, {1: value})
+    w.indicator(b, 241, PASSING, display_type="percentage", target=(30, 50))
+    quarterly(b, 241, PASSING, {1: w.pct(10, 50)})
+    m = w.master("Children passing the exam", "percent")
+    for source_id in (141, 142):
+        w.link(m, a, source_id, unit_class="percentage")
+    w.link(m, b, 241, unit_class="percentage")
+
+    fig = w.figure(m)
+    found = w.subs(fig)
+    assert (fig.numerator, fig.denominator, fig.value) == (50.0, 100.0, 50.0)  # never 70 / 125 = 56 %
+    assert found["s141"].counted and not found["s142"].counted
+    assert found["s142"].reason == masters.SAME_PD
+    assert fig.pd_target == pytest.approx(110 / 150 * 100)  # the largest target denominator of PD A alone
+    assert (fig.counted_pds, fig.pds) == (2, 2)
+
+    m.pd_parts_add_up = True  # the section says they count different children
+    fig = w.figure(m)
+    assert (fig.numerator, fig.denominator) == (70.0, 125.0) and all(s.counted for s in fig.subs)
+
+    m.links.all().delete()  # a PD indicator counts in one total
+    girls_and_boys = w.master("Girls and boys passing the exam", "percent")
+    for source_id in (142, 143):
+        w.link(girls_and_boys, a, source_id, unit_class="percentage")
+    fig = w.figure(girls_and_boys)
+    assert (fig.numerator, fig.denominator, fig.value) == (40.0, 50.0, 80.0)  # girls and boys add up
+    assert all(s.counted for s in fig.subs) and fig.pd_target == pytest.approx(80.0)
+
+
 def test_a_ratio_is_never_multiplied_by_100_and_never_mixes_with_a_percentage(pds):
     a, b = pds["A"], pds["B"]
     title = "Ratio of girls to boys enrolled"

@@ -16,7 +16,7 @@ from django.core.management.base import CommandError
 from neurodb.core import jobs
 from neurodb.core.admin_jobs import BACKGROUND_JOBS
 from neurodb.core.models import ScheduledJob, SyncRun
-from neurodb.datamart import master_links, masters, monitoring
+from neurodb.datamart import curation, master_links, masters, monitoring
 from neurodb.datamart import models as dm
 from neurodb.integrations import background
 
@@ -468,6 +468,120 @@ def test_a_proposal_whose_family_is_gone_goes_unless_someone_decided_a_link_of_i
     assert proposals() == [kept]  # kept for its rejected link, which stays
     assert not dm.EtoolsMaster.objects.filter(pk=gone.pk).exists()
     assert {x.status for x in kept.links.all()} == {"rejected"}
+
+
+def test_a_suggestion_made_again_keeps_its_id_and_the_role_a_person_gave_it(pds):
+    """A person sets a suggested breakdown aside ("Shown only"): the night keeps it so, and keeps its id (a
+    page left open still finds it), so a one-click confirm of the strong matches never counts it."""
+    a, b, c = pds["A"], pds["B"], pds["C"]
+    family((a, 101), (b, 201), (c, 301))
+    m = w.master("Children enrolled in NFE")
+    w.link(m, a, 101, title=ENROLLED)
+    run()
+    first = suggested()
+    aside, other = first[("PD/2026/002", "s201")], first[("PD/2026/003", "s301")]
+    assert (aside.role, aside.score, other.role) == ("total", 0.95, "total")
+    assert curation.set_role(aside, "shown", "staff") == ""
+    run()
+    again = suggested()
+    assert {key: (x.pk, x.role, x.score) for key, x in again.items()} == {
+        ("PD/2026/002", "s201"): (aside.pk, "shown", 0.95),  # the person's role, its id
+        ("PD/2026/003", "s301"): (other.pk, "total", 0.95),  # made again: the same link
+    }
+    strong = dm.EtoolsMasterLink.objects.filter(status="suggested", score__gte=master_links.STRONG)
+    assert master_links.confirm(list(strong.select_related("master")), "staff").confirmed == 2
+    sub = w.subs(w.figure(m))["s201"]
+    assert (sub.status, sub.role, sub.counted, sub.reason) == ("confirmed", "shown", False, masters.SHOWN)
+
+    # a suggestion the night no longer makes goes; one it makes anew is written
+    w.indicator(pds["D"], 401, ENROLLED, cp_output=OUTPUT)
+    dm.PDIndicator.objects.filter(source_id=301).delete()
+    dm.EtoolsMasterLink.objects.filter(ident="s301").update(status="suggested")
+    run()
+    assert set(suggested()) == {("PD/2026/004", "s401")}
+
+
+def test_a_proposal_a_person_edited_is_kept_and_found_again_when_its_key_changes(pds):
+    """Staff renamed a proposal and typed its code and target; then a report names its CP output, so its
+    family's structure key changes: it is the same proposal, under its new key, with what staff typed."""
+    a, b = pds["A"], pds["B"]
+    family((a, 101), (b, 201), cp_output="")
+    run()
+    (proposal,) = proposals()
+    before = proposal.proposal_key
+    errors = curation.save_settings(
+        proposal, w.YEAR, name="Children in NFE", code="AWP-1", target="500", by="staff"
+    )
+    assert errors == {}
+    dm.PDIndicator.objects.filter(source_id=101).update(cp_output=OUTPUT)  # its first report names it
+    run()
+    (again,) = proposals()
+    settings = again.years.get(year=w.YEAR)
+    assert (again.pk, again.name, settings.code, settings.target) == (
+        proposal.pk,
+        "Children in NFE",
+        "AWP-1",
+        500.0,
+    )
+    assert again.proposal_key and again.proposal_key != before
+    assert {(x.pd_number, x.status) for x in again.links.all()} == {
+        ("PD/2026/001", "suggested"),
+        ("PD/2026/002", "suggested"),
+    }
+    # its family is gone: what staff typed is kept, never deleted
+    dm.PDIndicator.objects.filter(source_id=201).delete()
+    run()
+    assert proposals() == [again] and again.years.filter(year=w.YEAR, target=500).exists()
+    # one no person edited still goes with its family
+    family((a, 102), (b, 202), title=TRAINED)
+    run()
+    untouched = next(p for p in proposals() if p.pk != again.pk)
+    dm.PDIndicator.objects.filter(source_id=202).delete()
+    run()
+    assert not dm.EtoolsMaster.objects.filter(pk=untouched.pk).exists()
+
+
+def test_a_proposals_links_count_only_once_it_is_accepted(pds):
+    """Confirming a proposal's links one by one would count them nowhere (a proposal is listed nowhere) and
+    keep them from every other master: it is refused, and accepting confirms them."""
+    a, b = pds["A"], pds["B"]
+    family((a, 101), (b, 201))
+    run()
+    (proposal,) = proposals()
+    done = master_links.confirm(list(proposal.links.select_related("master")), "staff")
+    assert done.confirmed == 0
+    assert {why for _link, why in done.left} == {
+        "Accept this proposed master indicator first: its PD indicators count once it is active."
+    }
+    assert {x.status for x in proposal.links.all()} == {"suggested"}
+    archived = w.master("Children enrolled (old)", status="archived")
+    (left,) = curation.add(archived, [(a.id, "s101")], "total", "staff").left
+    assert left == (
+        f"PD/2026/001: {ENROLLED}",
+        "This master indicator is archived: make it active first, or choose another one.",
+    )
+    assert master_links.accept([proposal], "staff").links.confirmed == 2
+
+
+def test_a_similar_title_reads_each_text_once_a_run(pds, monkeypatch):
+    """Rule c scores with the words of every master and indicator read once a run, never again for each pair
+    (thousands of indicators against a section's masters)."""
+    a = pds["A"]
+    for n in range(1, 13):
+        w.indicator(a, 100 + n, f"# of children enrolled in NFE classes in area {n}")
+    for n in range(1, 11):
+        target = w.master(
+            f"Children enrolled in learning programme {n}", keywords="children enrolled classes"
+        )
+        w.indicator(pds["B"], 200 + n, f"# of children in learning programme {n}")
+        w.link(target, pds["B"], 200 + n, title=f"# of children in learning programme {n}")
+    calls = []
+    words = master_links.linking.words
+    monkeypatch.setattr(master_links.linking, "words", lambda text: calls.append(text) or words(text))
+    found = master_links.plan(master_links.pool(w.YEAR), w.YEAR)
+    # the indicators' titles and outputs, and each master's name, keywords and confirmed title: once each
+    assert len(calls) <= 2 * 12 + 3 * 10
+    assert found.ambiguous  # they are scored all the same: every master fits as well
 
 
 def test_a_type_changed_in_etools_is_flagged_and_confirming_it_again_saves_the_new_type(pds):

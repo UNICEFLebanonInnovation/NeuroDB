@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import itertools
 import math
+import re
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -46,6 +47,8 @@ AVERAGED = (
     "programme documents' figures."
 )
 ALREADY_HERE = "Already in this master indicator"
+REJECTED_BEFORE = "Rejected for this master before"
+IDENT = re.compile(r"s\d{1,18}|t[0-9a-f]{40}")  # a link's ident code (masters.ident_code)
 
 
 # ------------------------------------------------------------------------------------- Add PD indicators
@@ -70,23 +73,24 @@ class Offer:
 
 
 def parse_key(value: str) -> tuple[int, str] | None:
-    """An :attr:`Offer.value` back into its ``(PD id, ident code)``; None when it is not one."""
+    """An :attr:`Offer.value` (or the tab's ``key``) back into its ``(PD id, ident code)``; None when it is
+    not one. The ident is the code a link stores already (``s<eTools id>``, or ``t`` and the 40 hex digits of
+    a title's sha1, :func:`neurodb.datamart.masters.key_of`), taken as it is: coding it again would hash the
+    hash, and the indicator would never be found."""
     pd_id, _sep, ident = str(value or "").partition("|")
-    if not pd_id.isdigit() or not ident:
+    if not pd_id.isdigit() or len(pd_id) > 18 or not IDENT.fullmatch(ident):
         return None
-    try:
-        return int(pd_id), masters.ident_code(ident)
-    except ValueError:
-        return None
+    return int(pd_id), ident
 
 
 def offered(master: EtoolsMaster, year: int) -> list[Offer]:
     """The PD indicators *Add PD indicators* offers for ``master``: those of its section in the programme
     documents running in ``year`` (:func:`neurodb.datamart.monitoring.collect`: no Reached is computed), of a
     type it takes (in its total, or as a numerator or a denominator of a percentage or a ratio), that it does
-    not hold yet (its own suggestions aside) and that no master counts in a confirmed total. A percentage or a
-    ratio master also offers the numbers another master counts in its total, as a numerator or a denominator
-    only. Sorted by PD number, then title."""
+    not hold yet (its own suggestions aside, and those rejected for it before, which a person may change their
+    mind on) and that no master counts in a confirmed total. A percentage or a ratio master also offers the
+    numbers another master counts in its total, as a numerator or a denominator only. Sorted by PD number,
+    then title."""
     section = norm(master.section)
     rows = [
         row
@@ -112,7 +116,7 @@ def offered(master: EtoolsMaster, year: int) -> list[Offer]:
     out = []
     for row in rows:
         key = key_of(row)
-        if held.get(key) in (Status.CONFIRMED, Status.REJECTED):
+        if held.get(key) == Status.CONFIRMED:
             continue
         unit = masters.unit_class(row)
         as_total = not masters.misfit(master.method, Role.TOTAL, unit) and not (
@@ -129,8 +133,8 @@ def offered(master: EtoolsMaster, year: int) -> list[Offer]:
                 Offer(row, key, unit, f"In the total of {home}: a numerator or a denominator only", True)
             )
         elif as_total or as_part:
-            note = "Suggested for this master" if held.get(key) == Status.SUGGESTED else ""
-            out.append(Offer(row, key, unit, note))
+            note = {Status.SUGGESTED: "Suggested for this master", Status.REJECTED: REJECTED_BEFORE}
+            out.append(Offer(row, key, unit, note.get(held.get(key), "")))
     out.sort(key=lambda offer: (offer.row.pd.number or "", offer.row.title, offer.key))
     return out
 
@@ -157,7 +161,7 @@ def _why_left(master: EtoolsMaster, row: Row | None, key: tuple[int, str], role:
         return masters.GONE
     if norm(row.section) != norm(master.section):
         return f"It is in section {row.section or 'none'}, not in {master.section}."
-    if master.links.filter(pd_id=key[0], ident=key[1]).exclude(status=Status.SUGGESTED).exists():
+    if master.links.filter(pd_id=key[0], ident=key[1], status=Status.CONFIRMED).exists():
         return ALREADY_HERE
     unit = masters.unit_class(row)
     problem = masters.misfit(master.method, role, unit)
@@ -179,18 +183,21 @@ def _why_left(master: EtoolsMaster, row: Row | None, key: tuple[int, str], role:
 def add(master: EtoolsMaster, keys: Iterable[tuple[int, str]], role: str, by: str) -> Added:
     """Add PD indicators (``(PD id, ident code)``) to ``master``, all with one role, confirmed at once: a
     person chose them. Each is read again as the pages read it and saved with its title, PD number and type.
-    One that is no longer in eTools, of another section, already held by the master, of a type the role or
-    the method does not take, or (in the total) counted in another master's confirmed total is left out and
-    said why. The master's own suggestion of it, and another master's suggestion to count it in its total,
-    give way."""
+    One that is no longer in eTools, of another section, already confirmed in the master, of a type the role
+    or the method does not take, or (in the total) counted in another master's confirmed total is left out
+    and said why; nothing is added to a master that is not active
+    (:func:`neurodb.datamart.masters.not_active`). The master's own suggestion of it, and another master's
+    suggestion to count it in its total, give way; its own link rejected before is confirmed with the new
+    role (a person changed their mind)."""
     keys = list(dict.fromkeys(keys))
     rows = _now_rows(pd_id for pd_id, _ident in keys)
     out = Added()
+    refused = masters.not_active(master)
     with transaction.atomic():
         sequence = master.links.aggregate(last=Max("sequence"))["last"] or 0
         for key in keys:
             row = rows.get(key)
-            why = _why_left(master, row, key, role)
+            why = refused or _why_left(master, row, key, role)
             if why:
                 label = f"{row.pd.number or 'PD'}: {row.title}" if row is not None else key[1]
                 out.left.append((label, why))
@@ -200,6 +207,24 @@ def add(master: EtoolsMaster, keys: Iterable[tuple[int, str]], role: str, by: st
                 EtoolsMasterLink.objects.filter(
                     pd_id=key[0], ident=key[1], role=Role.TOTAL, status=Status.SUGGESTED
                 ).delete()
+            rejected = master.links.filter(pd_id=key[0], ident=key[1], status=Status.REJECTED).first()
+            if rejected is not None:
+                rejected.title, rejected.pd_number = row.title[:1024], (row.pd.number or "")[:64]
+                rejected.unit_class, rejected.role = masters.unit_class(row), role
+                rejected.status, rejected.confirmed_by = Status.CONFIRMED, (by or "")[:150]
+                rejected.save(
+                    update_fields=[
+                        "title",
+                        "pd_number",
+                        "unit_class",
+                        "role",
+                        "status",
+                        "confirmed_by",
+                        "updated_at",
+                    ]
+                )
+                out.added += 1
+                continue
             sequence += 1
             EtoolsMasterLink.objects.create(
                 master=master,
@@ -223,7 +248,8 @@ def set_role(link: EtoolsMasterLink, role: str, by: str) -> str:
     indicator's type (as it was confirmed); in the total, the indicator may count in no other master's
     confirmed total (another master's suggestion to count it gives way), and an average, a maximum or a
     minimum keeps one type. A confirmed link stays confirmed, a suggestion a suggestion (it counts only once
-    confirmed)."""
+    confirmed); either keeps who set it (``confirmed_by``), so the nightly job keeps the role a person gave a
+    suggestion rather than its own default (:func:`neurodb.datamart.master_links.write`)."""
     if role not in Role.values:
         return "Choose what it counts as."
     if role == link.role:
@@ -252,7 +278,7 @@ def set_role(link: EtoolsMasterLink, role: str, by: str) -> str:
             ).exclude(pk=link.pk).delete()
         link.role = role
         fields = ["role", "updated_at"]
-        if link.status == Status.CONFIRMED:
+        if link.status in (Status.CONFIRMED, Status.SUGGESTED):
             link.confirmed_by = (by or "")[:150]
             fields.append("confirmed_by")
         link.save(update_fields=fields)
@@ -355,11 +381,21 @@ def merge_problem(chosen: Sequence[EtoolsMaster]) -> str:
     return ""
 
 
+def _wins(incoming: EtoolsMasterLink, mine: EtoolsMasterLink) -> bool:
+    """Whether a merged master's link replaces the kept master's link of the same PD indicator: a person's
+    decision beats a suggestion, and a confirmed link (it counts) beats a rejected one."""
+    if mine.status == Status.SUGGESTED:
+        return incoming.status != Status.SUGGESTED
+    return mine.status == Status.REJECTED and incoming.status == Status.CONFIRMED
+
+
 def merge(keep: EtoolsMaster, others: Sequence[EtoolsMaster], by: str) -> Merged | str:
     """Merge ``others`` into ``keep``, or say why not (:func:`merge_problem`). Their links move to it; a PD
     indicator it holds already is dropped, unless it holds only a suggestion and a person decided the other
-    (confirmed or rejected), which then wins. The years' settings it lacks move to it. The others are archived
-    (a proposal is dismissed, so it is never proposed again), keeping their other years' settings."""
+    (confirmed or rejected), or it rejected the indicator and the other counts it (confirmed): the other then
+    wins, so nothing counted before the merge stops counting. The years' settings it lacks move to it. The
+    others are archived (a proposal is dismissed, so it is never proposed again), keeping their other years'
+    settings."""
     others = [m for m in others if m.pk != keep.pk]
     problem = merge_problem([keep, *others])
     if not problem and keep.status != MASTER.ACTIVE:
@@ -375,9 +411,7 @@ def merge(keep: EtoolsMaster, others: Sequence[EtoolsMaster], by: str) -> Merged
         for other in others:
             for link in other.links.order_by("sequence", "id"):
                 mine = held.get((link.pd_id, link.ident))
-                if mine is not None and not (
-                    mine.status == Status.SUGGESTED and link.status != Status.SUGGESTED
-                ):
+                if mine is not None and not _wins(link, mine):
                     link.delete()
                     out.dropped += 1
                     continue

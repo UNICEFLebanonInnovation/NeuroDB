@@ -106,6 +106,7 @@ WRONG_TYPE = "Its type does not fit this master's method"
 SHOWN = "Shown only"
 NO_VALUE = "Not reported in the year"
 SAME_PD = "Same programme document: may count the same people; not added"
+SAME_PD_PARTS = "Same programme document: counted through its numerator and denominator"
 NO_PARTS = "Reported without numerator and denominator"
 NUMERATOR_ALONE = "Numerator without its denominator"
 DENOMINATOR_ALONE = "Denominator without its numerator"
@@ -333,14 +334,31 @@ def _one_type(master: EtoolsMaster, found: set[str]) -> str:
     return f"Every total of {kind} has one type: this master's are {', '.join(sorted(found))}."
 
 
+def not_active(master: EtoolsMaster) -> str:
+    """Why a PD indicator cannot be confirmed in ``master`` ("" when it is active): a master that is not
+    active is listed nowhere, so what its total holds would count nowhere and keep the indicator from every
+    other master's total."""
+    if master.status == EtoolsMaster.Status.ACTIVE:
+        return ""
+    if master.status == EtoolsMaster.Status.PROPOSED:
+        return "Accept this proposed master indicator first: its PD indicators count once it is active."
+    return (
+        f"This master indicator is {master.get_status_display().lower()}: make it active first, or choose "
+        "another one."
+    )
+
+
 def check_link(link: EtoolsMasterLink) -> None:
     """:meth:`EtoolsMasterLink.clean`: the indicator is one of its PD's (read again, as the indicator flags
     check theirs), in the master's section when the link is new, and of a type its role and the master's
-    method take. Fills the title, PD number and type it was linked with when they are empty."""
+    method take; a new confirmed link only in an active master (:func:`not_active`). Fills the title, PD
+    number and type it was linked with when they are empty."""
     errors: dict[str, str] = {}
     if not link.master_id:
         raise ValidationError({"master": "Choose the master indicator."})
     master = link.master
+    if link._state.adding and link.status == Status.CONFIRMED and not_active(master):
+        errors["master"] = not_active(master)
     row = None
     if not link.pd_id:
         errors["pd"] = "Choose the programme document."
@@ -372,14 +390,24 @@ def check_link(link: EtoolsMasterLink) -> None:
 
 
 def check_master(master: EtoolsMaster) -> None:
-    """:meth:`EtoolsMaster.clean`: a section is named (never the tile of the indicators without one), and a
+    """:meth:`EtoolsMaster.clean`: a section is named (never the tile of the indicators without one), a
     new method is refused while any link (rejected ones aside) would not fit it, by the type it was linked
-    with."""
+    with, and an active master is not archived or dismissed while it counts PD indicators in its total: they
+    would count nowhere and no other master could take them (merging moves them first)."""
     errors: dict[str, str] = {}
     if not (master.section or "").strip() or master.section.strip() == monitoring.NO_SECTION:
         errors["section"] = "Name the eTools section, as on the PD indicators."
     if master.pk is not None:
-        before = EtoolsMaster.objects.filter(pk=master.pk).values_list("method", flat=True).first()
+        stored = EtoolsMaster.objects.filter(pk=master.pk).values_list("method", "status").first()
+        before, was = stored if stored is not None else (None, None)
+        changed = was is not None and was != master.status and not_active(master)
+        totals = master.links.filter(role=Role.TOTAL, status=Status.CONFIRMED).count() if changed else 0
+        if totals:
+            errors["status"] = (
+                f"It counts {totals} PD indicator(s) in its total: make them “Shown only” or take them out "
+                "first (or merge it into another master indicator, which moves them), so they can count "
+                "elsewhere."
+            )
         if before is not None and before != master.method:
             links = list(master.links.exclude(status=Status.REJECTED).exclude(unit_class=""))
             wrong = [link for link in links if misfit(master.method, link.role, link.unit_class)]
@@ -728,34 +756,48 @@ def _total(values: Iterable[float | None]) -> float | None:
 def _with_parts(out: Figure, candidates: list[Sub]) -> None:
     """Percentages and ratios: Σ numerators ÷ Σ denominators (× 100 for a percentage). A total brings its
     own numerator and denominator (left out without them, never averaged); numerator and denominator subs
-    of one programme document are added up, and take part only when it has both. The same for each
-    quarter."""
+    of one programme document are added up, and take part only when it has both. Each programme document
+    counts once: one counted through its numerator and denominator adds none of its totals, and of its
+    several totals only the one with the largest denominator, unless they cannot count the same people or
+    the section said its parts add up (a sum's rule). The same for each quarter."""
     scale = 100.0 if out.master.method == Method.PERCENT else 1.0
-    taking: list[Sub] = []
+    totals: dict[int, list[Sub]] = defaultdict(list)
     for sub in candidates:
         if sub.role != Role.TOTAL:
             continue
         if sub.numerator is None or sub.denominator is None:
             sub.reason = NO_PARTS
         else:
-            sub.counted = True
-            taking.append(sub)
+            totals[sub.pd_id].append(sub)
     pairs: dict[int, dict[str, list[Sub]]] = defaultdict(lambda: {Role.NUMERATOR: [], Role.DENOMINATOR: []})
     for sub in candidates:
         if sub.role in (Role.NUMERATOR, Role.DENOMINATOR):
             pairs[sub.pd_id][sub.role].append(sub)
     paired = []
-    for found in pairs.values():
+    for pd_id, found in pairs.items():
         numerators, denominators = found[Role.NUMERATOR], found[Role.DENOMINATOR]
         if numerators and denominators:
             for sub in numerators + denominators:
                 sub.counted = True
             paired.append((numerators, denominators))
+            for sub in totals.pop(pd_id, []):  # the programme document is counted through its parts
+                sub.reason = SAME_PD_PARTS
         else:
             for sub in numerators:
                 sub.reason = NUMERATOR_ALONE
             for sub in denominators:
                 sub.reason = DENOMINATOR_ALONE
+    taking: list[Sub] = []
+    for subs in totals.values():
+        if len(subs) > 1 and not out.master.pd_parts_add_up and not _apart([s.row for s in subs]):
+            largest = max(subs, key=lambda s: (s.denominator, s.numerator, s.row.key or ""))
+            for sub in subs:
+                if sub is not largest:
+                    sub.reason = SAME_PD
+            subs = [largest]
+        for sub in subs:
+            sub.counted = True
+        taking.extend(subs)
     if not taking and not paired:
         return
 
@@ -804,7 +846,9 @@ def _pd_target(master: EtoolsMaster, eligible: list[Sub]) -> float | None:
     """For reference only (never the status): the programme documents' own targets, for their whole
     periods. A sum: Σ of the subs' targets, a PD's subs as its figure reads them (added when they cannot
     count the same people or its parts add up, else its largest). A percentage or a ratio: Σ target
-    numerators ÷ Σ target denominators. None for an average, a maximum or a minimum."""
+    numerators ÷ Σ target denominators, each programme document once as its figure reads it (its numerator
+    and denominator targets when it has both, else its totals', the largest denominator's alone unless they
+    cannot count the same people or its parts add up). None for an average, a maximum or a minimum."""
     if master.method == Method.SUM:
         by_pd: dict[int, list[Sub]] = defaultdict(list)
         for sub in eligible:
@@ -822,16 +866,23 @@ def _pd_target(master: EtoolsMaster, eligible: list[Sub]) -> float | None:
         return None
     numerator = denominator = 0.0
     sides: dict[int, dict[str, float]] = defaultdict(dict)
+    totals: dict[int, list[tuple[float, float, Sub]]] = defaultdict(list)
     for sub in eligible:
         top, bottom = sub.row.target_parts
         if sub.role == Role.TOTAL and top is not None and bottom is not None:
-            numerator, denominator = numerator + top, denominator + bottom
+            totals[sub.pd_id].append((bottom, top, sub))
         elif sub.role in (Role.NUMERATOR, Role.DENOMINATOR) and sub.row.target is not None:
             side = sides[sub.pd_id]
             side[sub.role] = side.get(sub.role, 0.0) + sub.row.target
-    for side in sides.values():
+    for pd_id, side in sides.items():
         if Role.NUMERATOR in side and Role.DENOMINATOR in side:
             numerator, denominator = numerator + side[Role.NUMERATOR], denominator + side[Role.DENOMINATOR]
+            totals.pop(pd_id, None)
+    for found in totals.values():
+        if len(found) > 1 and not master.pd_parts_add_up and not _apart([s.row for _b, _t, s in found]):
+            found = [max(found, key=lambda item: (item[0], item[1], item[2].row.key or ""))]
+        numerator += sum(top for _bottom, top, _sub in found)
+        denominator += sum(bottom for bottom, _top, _sub in found)
     if not denominator:
         return None
     return numerator / denominator * (100.0 if master.method == Method.PERCENT else 1.0)

@@ -33,9 +33,12 @@ gender, nationality or disability next to ones with them is in the total and the
 girls and boys (two genders, two nationalities) are all in the total; otherwise the largest target is in the
 total and the others are shown. A total already confirmed there keeps its role.
 
-**Writing** (:func:`write`), in one transaction: every suggested link is replaced and every proposed master
-NeuroDB made is rebuilt. Confirmed and rejected links and dismissed masters are never touched. A proposal made
-again keeps its master (its id, a name someone gave it, a link someone rejected there).
+**Writing** (:func:`write`), in one transaction: the suggested links are written again and every proposed
+master NeuroDB made is rebuilt. A suggestion made again keeps its id and the role a person gave it; one not
+made again goes. Confirmed and rejected links and dismissed masters are never touched. A proposal made again
+keeps its master (its id, a name someone gave it, a link someone rejected there); one a person edited
+(renamed, or gave a year's code or target) is never deleted, and when its family's structure key changes (a
+report names its CP output) it is found again by its PD indicators and takes the new key.
 """
 
 from __future__ import annotations
@@ -46,15 +49,15 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from django.db import DatabaseError, connection, transaction
-from django.db.models import Exists, OuterRef
+from django.db import DatabaseError, IntegrityError, connection, transaction
+from django.db.models import Exists, OuterRef, Q
 
 from neurodb.cpd.services import _norm as output_norm
 from neurodb.youth import linking
 
 from . import masters, monitoring
 from .masters import Row, key_of
-from .models import EtoolsMaster, EtoolsMasterLink
+from .models import EtoolsMaster, EtoolsMasterLink, EtoolsMasterYear
 from .reached import norm
 
 if TYPE_CHECKING:
@@ -200,6 +203,20 @@ class _Target:
     classes: set[str] = field(default_factory=set)  # their types (an average, a maximum or a minimum has one)
     totals: dict[int, list[Row]] = field(default_factory=lambda: defaultdict(list))  # theirs, by PD
     vanished: dict[int, list[EtoolsMasterLink]] = field(default_factory=lambda: defaultdict(list))
+    words: list[frozenset[str]] | None = None  # rule c: the words of its name, keywords and titles, read once
+
+    def texts(self) -> list[frozenset[str]]:
+        """The word sets rule c scores an indicator against (:func:`neurodb.youth.linking.words` of its name,
+        its keywords and each confirmed total's title), each once, worked out on first use: a run scores
+        every candidate of the section against them."""
+        if self.words is None:
+            found: list[frozenset[str]] = []
+            for text in (self.master.name, self.master.keywords, *sorted(self.titles)):
+                mine = frozenset(linking.words(text))
+                if mine and mine not in found:
+                    found.append(mine)
+            self.words = found
+        return self.words
 
 
 @dataclass
@@ -379,10 +396,15 @@ def _matches(row: Row, targets: list[_Target], structure: str) -> list[_Match]:
     if found:
         return found
     age = row.tags.get("age_group") or ""
+    theirs: frozenset[str] | None = None  # the indicator's words and CP output, read once for every master
+    output = ""
     for target in targets:  # c: a similar title
         if not _fits(target, Role.TOTAL, unit) or (target.ages and age not in target.ages):
             continue
-        value = _title_score(target, row)
+        if theirs is None:
+            theirs = frozenset(linking.words(row.title) | linking.words(row.output))
+            output = masters.cp_output_key(row)
+        value = _title_score(target, theirs, output)
         if value >= TITLE_SCORE:
             found.append(_Match(target, value, SIMILAR_TITLE, "title"))
     return found
@@ -435,12 +457,13 @@ def ambiguous(
     return out
 
 
-def _title_score(target: _Target, row: Row) -> float:
+def _title_score(target: _Target, theirs: frozenset[str], output: str) -> float:
     """Rule c: the best share of a master's words (its name, its keywords, a confirmed total's title) found in
-    the indicator's title and PD output, 0.1 more for the same CP output, at most :data:`TITLE_CAP`."""
-    texts = [target.master.name, target.master.keywords, *sorted(target.titles)]
-    value = max((linking.score(text, None, row) for text in texts if (text or "").strip()), default=0.0)
-    if value and masters.cp_output_key(row) in target.outputs:
+    the indicator's title and PD output (``theirs``; :func:`neurodb.youth.linking.score` with no target), 0.1
+    more for the same CP output (``output``), at most :data:`TITLE_CAP`. Set intersections only: the words
+    are read once a run."""
+    value = max((round(min(len(mine & theirs) / len(mine), 1.0), 3) for mine in target.texts()), default=0.0)
+    if value and output in target.outputs:
         value += CP_OUTPUT_BONUS
     return round(min(value, TITLE_CAP), 3)
 
@@ -511,7 +534,8 @@ def _proposals(
     blocked: dict[tuple[int, str], set[int]],
 ) -> list[Proposal]:
     """The structure keys of the free indicators that span two or more programme documents, under a key no
-    master holds but a proposal NeuroDB made (which is rebuilt, keeping its master)."""
+    master holds but a proposal NeuroDB made (which is rebuilt, keeping its master). A proposal a person
+    edited whose key is not proposed again is found again under a new key that holds its PD indicators."""
     held = {m.proposal_key for m in every if m.proposal_key and m.status != MASTER.PROPOSED}
     before = {
         m.proposal_key: m
@@ -524,19 +548,65 @@ def _proposals(
     for row in free:
         if structure.get(key_of(row)):
             groups[structure[key_of(row)]].append(row)
+
+    def kept(rows: list[Row], master: EtoolsMaster | None) -> list[Row]:
+        if master is None:
+            return rows
+        return [row for row in rows if master.pk not in blocked.get(key_of(row), ())]  # never where rejected
+
+    ordered = sorted(groups.items(), key=lambda item: (norm(item[1][0].section), item[0]))
+    chosen = {
+        key: before[key]
+        for key, rows in ordered
+        if key not in held and key in before and len({r.pd.id for r in kept(rows, before[key])}) >= 2
+    }
+    orphans = _edited([m for key, m in before.items() if key not in chosen])
     out = []
-    for key, rows in sorted(groups.items(), key=lambda item: (norm(item[1][0].section), item[0])):
-        if key in held:
+    for key, rows in ordered:
+        if key in held or (key in before and key not in chosen):
             continue
-        master = before.get(key)
-        if master is not None:  # never again where someone rejected it
-            rows = [row for row in rows if master.pk not in blocked.get(key_of(row), ())]
+        master = chosen.get(key)
+        if master is None and orphans:
+            master = _found_again(rows, orphans)
+            if master is not None and len({r.pd.id for r in kept(rows, master)}) >= 2:
+                del orphans[master]
+            else:
+                master = None
+        rows = kept(rows, master)
         if len({row.pd.id for row in rows}) < 2:
             continue
         proposal = _proposal(key, rows, master, taken)
         taken.add((norm(proposal.section), norm(proposal.name)))
         out.append(proposal)
     return out
+
+
+def _edited(proposals: Sequence[EtoolsMaster]) -> dict[EtoolsMaster, set[tuple[int, str]]]:
+    """Of these proposals, those a person edited (``updated_by``: renamed or moved; or given a year's
+    settings), with the PD indicators each holds."""
+    if not proposals:
+        return {}
+    with_year = set(EtoolsMasterYear.objects.filter(master__in=proposals).values_list("master_id", flat=True))
+    edited = [m for m in proposals if m.updated_by or m.pk in with_year]
+    found: dict[EtoolsMaster, set[tuple[int, str]]] = {m: set() for m in edited}
+    by_pk = {m.pk: m for m in edited}
+    links = EtoolsMasterLink.objects.filter(master__in=edited).values_list("master_id", "pd_id", "ident")
+    for master_id, pd_id, ident in links:
+        found[by_pk[master_id]].add((pd_id, ident))
+    return found
+
+
+def _found_again(rows: list[Row], orphans: dict[EtoolsMaster, set[tuple[int, str]]]) -> EtoolsMaster | None:
+    """The edited proposal of the rows' section that holds the most of them (the lowest id of equals), or
+    None when none holds any."""
+    section = norm(rows[0].section)
+    keys = {key_of(row) for row in rows}
+    best = max(
+        ((len(keys & held), -m.pk, m) for m, held in orphans.items() if norm(m.section) == section),
+        key=lambda item: item[:2],
+        default=None,
+    )
+    return best[2] if best is not None and best[0] else None
 
 
 def _proposal(key: str, rows: list[Row], master: EtoolsMaster | None, taken: set) -> Proposal:
@@ -584,21 +654,30 @@ def _link(master: EtoolsMaster, s: Suggestion) -> EtoolsMasterLink:
         role=s.role,
         status=Status.SUGGESTED,
         score=s.score,
-        reason=s.reason[:200],
+        reason=s.reason[:200],  # as _update reads it
     )
 
 
+def set_by_person(link: EtoolsMasterLink) -> bool:
+    """A suggestion whose role a person set (``confirmed_by``: :func:`neurodb.datamart.curation.set_role`, the
+    administration): the run keeps that role rather than its own default."""
+    return link.status == Status.SUGGESTED and bool(link.confirmed_by)
+
+
 def write(found: Plan) -> None:
-    """Replace every suggested link and rebuild the proposals NeuroDB made, in one transaction. Confirmed and
-    rejected links, dismissed masters and a proposal someone confirmed or rejected a link of are kept."""
+    """Write the run's suggestions and rebuild the proposals NeuroDB made, in one transaction. A suggestion
+    made again keeps its link: its id (so a page left open still finds it) and the role a person gave it
+    (:func:`set_by_person`); its score, reason, title and PD number are the run's. A suggestion not made
+    again goes. Confirmed and rejected links, dismissed masters, and a proposal someone confirmed or
+    rejected a link of or edited (renamed it or gave it a year's settings) are kept."""
     with transaction.atomic():
-        EtoolsMasterLink.objects.filter(status=Status.SUGGESTED).delete()
         kept = [p.master.pk for p in found.proposals if p.master is not None]
         decided = EtoolsMasterLink.objects.filter(master=OuterRef("pk")).exclude(status=Status.SUGGESTED)
+        edited = Q(updated_by__gt="") | Exists(EtoolsMasterYear.objects.filter(master=OuterRef("pk")))
         EtoolsMaster.objects.filter(status=MASTER.PROPOSED, origin=EtoolsMaster.Origin.PROPOSED).exclude(
             pk__in=kept
-        ).exclude(Exists(decided)).delete()
-        new = [_link(s.master, s) for s in found.suggestions]
+        ).exclude(Exists(decided)).exclude(edited).delete()
+        planned = [(s.master, s) for s in found.suggestions]
         for proposal in found.proposals:
             master = proposal.master or EtoolsMaster.objects.create(
                 section=proposal.section,
@@ -609,10 +688,48 @@ def write(found: Plan) -> None:
                 origin=EtoolsMaster.Origin.PROPOSED,
                 proposal_key=proposal.key,
             )
+            if master.proposal_key != proposal.key:  # an edited proposal found again under its new key
+                master.proposal_key = proposal.key
+                master.save(update_fields=["proposal_key", "updated_at"])
             proposal.master = master
-            new.extend(_link(master, s) for s in proposal.links)
+            planned.extend((master, s) for s in proposal.links)
+        wanted = {(master.pk, *key_of(s.row)): (master, s) for master, s in planned}
+        before = {
+            (x.master_id, x.pd_id, x.ident): x
+            for x in EtoolsMasterLink.objects.filter(status=Status.SUGGESTED)
+        }
+        # first the suggestions not made again, so one moved to another master's total has room there
+        EtoolsMasterLink.objects.filter(
+            pk__in=[x.pk for key, x in before.items() if key not in wanted]
+        ).delete()
+        _update(before, wanted)
+        new = [_link(master, s) for key, (master, s) in wanted.items() if key not in before]
         # a person may confirm a link while the run works: theirs stays, a clashing suggestion is not written
         EtoolsMasterLink.objects.bulk_create(new, ignore_conflicts=True)
+
+
+def _update(before: dict[tuple, EtoolsMasterLink], wanted: dict[tuple, tuple]) -> None:
+    """The suggestions made again: the run's score, reason, title and PD number, and its role unless a
+    person set one. A role a person's confirmed total took meanwhile clashes: that suggestion goes."""
+    changed, roles = [], []
+    for key, (_master, s) in wanted.items():
+        link = before.get(key)
+        if link is None:
+            continue
+        values = (s.score, s.reason[:200], (s.row.title or "")[:1024], (s.row.pd.number or "")[:64])
+        if (link.score, link.reason, link.title, link.pd_number) != values:
+            link.score, link.reason, link.title, link.pd_number = values
+            changed.append(link)
+        if not set_by_person(link) and link.role != s.role:
+            link.role = s.role
+            roles.append(link)
+    EtoolsMasterLink.objects.bulk_update(changed, ["score", "reason", "title", "pd_number"], batch_size=500)
+    for link in roles:
+        try:
+            with transaction.atomic():
+                link.save(update_fields=["role", "updated_at"])
+        except IntegrityError:
+            link.delete()
 
 
 # -------------------------------------------------------------------------------------------------- the job
@@ -680,6 +797,9 @@ class Confirmed:
 
 
 def _why_not(link: EtoolsMasterLink, row: Row | None) -> str:
+    refused = masters.not_active(link.master)  # a proposal's links are confirmed by accepting it
+    if refused:
+        return refused
     if row is None:
         return masters.GONE
     unit = masters.unit_class(row)
@@ -702,9 +822,10 @@ def _why_not(link: EtoolsMasterLink, row: Row | None) -> str:
 def confirm(links: Iterable[EtoolsMasterLink], by: str) -> Confirmed:
     """Confirm links (a suggestion, a rejected link, or a confirmed one again after its type changed in
     eTools): each PD indicator is read again as the pages read it, and the title, PD number and type it is
-    confirmed with are saved. One that is no longer in eTools, of a type its role or its master's method does
-    not take, or already in another master's confirmed total, is left as it was and said why. Another
-    master's suggestion to count the same indicator in its total gives way."""
+    confirmed with are saved. One of a master that is not active (a proposal's are confirmed by accepting
+    it), no longer in eTools, of a type its role or its master's method does not take, or already in another
+    master's confirmed total, is left as it was and said why. Another master's suggestion to count the same
+    indicator in its total gives way."""
     links = list(links)
     rows = _now_rows(links)
     out = Confirmed()

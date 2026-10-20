@@ -27,6 +27,7 @@ import datetime
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any
 
 from django.db.models import Prefetch, prefetch_related_objects
@@ -266,12 +267,27 @@ class Line:
         return sum(1 for s in self.subs if s.suggested)
 
     @property
+    def suggested_links(self) -> list[int]:
+        """The suggestions this row shows: "Confirm all" confirms these and nothing it does not show."""
+        return [s.link.pk for s in self.subs if s.suggested]
+
+    @property
     def strong(self) -> int:
         return sum(1 for s in self.subs if s.strong)
 
     @property
+    def strong_links(self) -> list[int]:
+        return [s.link.pk for s in self.subs if s.strong]
+
+    @property
     def percentage(self) -> bool:
         return self.master.method == Method.PERCENT
+
+    @property
+    def target_input(self) -> str:
+        """The year's target as the settings form shows it: in full, never rounded nor with an exponent, so
+        saving the form unchanged keeps it."""
+        return plain(self.whole.target)
 
     @property
     def hints(self) -> list[str]:
@@ -288,8 +304,11 @@ class Line:
                     pds.add(s.pd_number or "a PD")
             shared = sorted((name, sorted(pds)) for name, pds in places.values() if len(pds) > 1)
             for name, pds in shared[:3]:
-                joined = " and ".join(pds) if len(pds) == 2 else ", ".join(pds[:-1]) + f" and {pds[-1]}"
-                out.append(f"{joined} both plan {name}: partners may reach the same people there.")
+                if len(pds) == 2:
+                    joined = f"{pds[0]} and {pds[1]} both"
+                else:
+                    joined = ", ".join(pds[:-1]) + f" and {pds[-1]} all"
+                out.append(f"{joined} plan {name}: partners may reach the same people there.")
             if len(shared) > 3:
                 out.append(f"{len(shared) - 3} more places are planned by two programme documents or more.")
         monthly = sum(1 for s in self.subs if s.monthly)
@@ -305,6 +324,15 @@ class Line:
                 "still read here."
             )
         return out
+
+
+def plain(value: float | None) -> str:
+    """A number as a form's text box shows it: every digit it has (the shortest text that reads back as the
+    same number), no exponent, no thousands separator; "" for none. ``1234567.0`` is "1234567"."""
+    if value is None:
+        return ""
+    text = format(Decimal(repr(float(value))), "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
 
 
 def _partner(pd) -> tuple[str, int | None]:
@@ -410,10 +438,12 @@ def _grouped(lines: list[Line]) -> list[dict[str, Any]]:
     for line in lines:
         master = line.master
         section = sections.setdefault(
-            norm(master.section), {"section": master.section, "outputs": {}, "count": 0, "strong": 0}
+            norm(master.section),
+            {"section": master.section, "outputs": {}, "count": 0, "strong": 0, "strong_links": []},
         )
         section["count"] += 1
         section["strong"] += line.strong
+        section["strong_links"] += line.strong_links  # what "Confirm the strong matches" confirms
         section["curate"] = line.curate
         output = section["outputs"].setdefault(
             norm(master.cp_output), {"cp_output": master.cp_output.strip(), "lines": []}
@@ -479,6 +509,7 @@ class Tab:
     year: int
     report_type: str
     partner: bool  # a partner filter: the lines are that partner's contributions
+    listed: int = 0  # the masters listed in the year, before the status, search, CP output and partner
     lines: list[Line] = field(default_factory=list)
     groups: list[dict[str, Any]] = field(default_factory=list)
     proposals: list[Proposed] = field(default_factory=list)
@@ -527,7 +558,7 @@ def read(
     shown = [m for m in active if masters.appears(m, year, running)]
     whole = _figures(shown, every, running, base, today)
     partners = {int(p) for p in filters.partners if p.isdigit()}
-    tab = Tab(year=year, report_type=base.report_type, partner=bool(partners))
+    tab = Tab(year=year, report_type=base.report_type, partner=bool(partners), listed=len(shown))
     if partners:
         mine = [row for row in every if row.pd.partner_id in partners]
         theirs = _figures(shown, mine, {row.pd.id for row in mine}, base, today)
@@ -565,6 +596,17 @@ def _unattached(
             status=Status.CONFIRMED, master__status=MASTER.ACTIVE, pd_id__in=pd_ids
         ).values_list("pd_id", "ident")
     )
+    # confirmed in the total of a master that is not active: it counts nowhere, and no other master can take
+    # it in its total until that one is active again or it is taken out there
+    stuck = {
+        (pd_id, ident): f"In the total of {name}, which is {MASTER(status).label.lower()}: it counts nowhere "
+        "until that master indicator is active, or the PD indicator is taken out of it."
+        for pd_id, ident, name, status in EtoolsMasterLink.objects.filter(
+            status=Status.CONFIRMED, role=Role.TOTAL, pd_id__in=pd_ids
+        )
+        .exclude(master__status=MASTER.ACTIVE)
+        .values_list("pd_id", "ident", "master__name", "master__status")
+    }
     suggested: dict[tuple[int, str], list[str]] = defaultdict(list)
     found = (
         EtoolsMasterLink.objects.filter(
@@ -596,6 +638,8 @@ def _unattached(
         unit = masters.unit_class(row)
         if not row.section.strip() or row.section.strip() == monitoring.NO_SECTION:
             note = "It names no section in eTools: it cannot join a master indicator."
+        elif key in stuck:
+            note = stuck[key]
         elif key in suggested:
             note = "; ".join(suggested[key])
         elif key in unclear:

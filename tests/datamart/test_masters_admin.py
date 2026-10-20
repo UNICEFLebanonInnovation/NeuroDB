@@ -14,9 +14,9 @@ from django.urls import reverse
 
 from neurodb.accounts.models import Section, User
 from neurodb.accounts.roles import SECTION_EDITOR, VIEWER
-from neurodb.datamart import curation, masters
+from neurodb.datamart import curation, master_links, masters
 from neurodb.datamart import models as dm
-from neurodb.datamart.admin import EtoolsMasterAdmin, MasterLinkForm
+from neurodb.datamart.admin import EtoolsMasterAdmin, MasterLinkForm, MasterYearForm
 from neurodb.indicators.models import Database, MasterIndicator, MasterSubIndicator, SubIndicator
 from neurodb.integrations import background
 from neurodb.watch.models import SectionMatch
@@ -166,11 +166,14 @@ def test_the_wizard_offers_the_sections_indicators_that_can_join_and_none_with_a
     response = wizard(admin_client, m)
     assert response.status_code == 200
     found = offered(response)
-    assert set(found) == {f"{a.id}|s101", f"{b.id}|s202"}  # numbers of Education, running this year, homeless
+    # numbers of Education, running this year, homeless; the one rejected here before too (a person may
+    # change their mind), and said so
+    assert set(found) == {f"{a.id}|s101", f"{b.id}|s202", f"{a.id}|s104"}
     assert found[f"{a.id}|s101"] == (
         f"{ENROLLED} (PD/2026/001 · Partner A · Number · CP output: 1.1 Children access learning)"
     )
     assert found[f"{b.id}|s202"].endswith("Suggested for this master")
+    assert found[f"{a.id}|s104"].endswith(curation.REJECTED_BEFORE)
     roles = dict(response.context["form"].fields["role"].choices)
     assert roles == {"total": "In the total", "shown": "Shown only"}  # a sum has no numerators
 
@@ -189,7 +192,7 @@ def test_the_wizard_offers_the_sections_indicators_that_can_join_and_none_with_a
         "admin",
         None,
     )
-    assert set(offered(wizard(admin_client, m))) == set()  # nothing left to add
+    assert set(offered(wizard(admin_client, m))) == {f"{a.id}|s104"}  # only the one rejected before
     fig = w.figure(m)
     assert {sub.link.ident for sub in fig.subs if sub.eligible} == {"s101", "s202"}
 
@@ -223,6 +226,33 @@ def test_a_percentage_master_offers_percentages_and_numbers_as_parts_only_where_
         ("PD/2026/001", "s102"): ("total", "confirmed"),
         ("PD/2026/002", "s201"): ("denominator", "confirmed"),  # a number, the denominator here
     }
+
+
+def test_a_pd_indicator_without_an_etools_id_is_added_and_counts(admin_client, education):
+    """The wizard sends the ident a link stores (t and its title's sha1), which is taken as it is: never
+    hashed again, which would find no indicator ("No longer in eTools")."""
+    a = education["a"]
+    title = "# of children enrolled in catch-up classes"
+    w.indicator(a, None, title)
+    w.report(a, None, title, "QPR1", w.day(3, 31), {"Akkar": 40})
+    m = w.master("Children in catch-up classes")
+    (key,) = [k for k in offered(wizard(admin_client, m)) if "|t" in k]
+    pd_id, ident = key.split("|")
+    assert curation.parse_key(key) == (a.id, ident) and len(ident) == 41
+    response = wizard(admin_client, m, role="total", indicators=[key])
+    assert "1 PD indicator(s) added, confirmed: they count from now on." in said(response)
+    link = dm.EtoolsMasterLink.objects.get(master=m)
+    assert (link.pd_id, link.ident, link.status, link.title) == (a.id, ident, "confirmed", title)
+    sub = w.subs(w.figure(m))[ident]
+    assert sub.counted and sub.value == 40.0
+
+
+def test_parse_key_takes_a_links_ident_as_it_is_and_refuses_anything_else():
+    code = masters.ident_code((7, "t# of children enrolled"))
+    assert curation.parse_key(f"7|{code}") == (7, code)
+    assert curation.parse_key("7|s101") == (7, "s101")
+    for wrong in ("7|t# of children enrolled", "7|r55", "x|s101", "7|", "|s101", "7|s", f"7|{code}0"):
+        assert curation.parse_key(wrong) is None, wrong
 
 
 def test_add_leaves_out_what_cannot_join_and_says_why(education):
@@ -340,6 +370,25 @@ def test_merge_moves_the_links_and_the_missing_years_and_archives_the_others(adm
     proposal.refresh_from_db()
     assert (other.status, proposal.status) == ("archived", "dismissed")  # a proposal is never proposed again
     assert {(y.year, y.code) for y in other.years.all()} == {(2026, "9.9")}  # the year the one kept had stays
+
+
+def test_merge_keeps_counting_a_total_the_kept_master_had_rejected(admin_client, education):
+    """The kept master once rejected PD/2026/001's indicator, the merged one counts it in its total: after the
+    merge it still counts (in the kept one), never nowhere."""
+    a = education["a"]
+    keep = w.master("Children enrolled in NFE")
+    w.link(keep, a, 101, title=ENROLLED, status="rejected")
+    other = w.master("Children enrolled (NFE)")
+    w.link(other, a, 101, title=ENROLLED)
+    done = curation.merge(keep, [other], "admin")
+    assert (done.moved, done.dropped) == (1, 1)
+    assert links_of(keep) == {("PD/2026/001", "s101"): ("total", "confirmed")}
+    assert w.subs(w.figure(keep))["s101"].eligible
+    # a link the kept master confirmed stays; the other's rejection of it is dropped
+    again = w.master("Children enrolled again")
+    w.link(again, a, 101, title=ENROLLED, status="rejected")
+    curation.merge(keep, [again], "admin")
+    assert links_of(keep) == {("PD/2026/001", "s101"): ("total", "confirmed")}
 
 
 def test_merge_is_refused_across_sections_or_methods_and_changes_nothing(admin_client, education):
@@ -510,6 +559,95 @@ def test_a_link_added_by_hand_saves_what_it_was_and_who_confirmed_it(admin_clien
         "number",
         "admin",
     )
+
+
+@pytest.mark.parametrize("home", ["confirmed", "suggested"])
+def test_the_link_page_refuses_a_second_total_with_a_form_error(admin_client, education, home):
+    """On a saved link only its role and place are a form's fields: the one-total rule is the form's, so
+    making it count in a second total is said on the form, never a server error."""
+    dm.EtoolsMasterLink.objects.filter(master=education["other"], ident="s201").update(status=home)
+    m = w.master("Children enrolled in NFE")
+    shown = w.link(m, education["b"], 201, title=ENROLLED, role="shown")
+    url = reverse("admin:datamart_etoolsmasterlink_change", args=[shown.pk])
+    response = admin_client.post(url, {"role": "total", "sequence": 0, "_save": "Save"})
+    assert response.status_code == 200
+    assert response.context["adminform"].form.errors["role"] == [
+        f"This PD indicator is in the total of Children in non-formal education already ({home}): it can "
+        "be in one total only."
+    ]
+    shown.refresh_from_db()
+    assert shown.role == "shown"
+    assert admin_client.post(url, {"role": "numerator", "sequence": 0, "_save": "Save"}).status_code == 200
+
+
+def test_a_link_added_by_hand_starts_confirmed_and_the_night_keeps_it(admin_client, education):
+    m = w.master("Children enrolled in NFE")
+    form = admin_client.get(reverse("admin:datamart_etoolsmasterlink_add")).context["adminform"].form
+    assert form["status"].initial == "confirmed"
+    assert [value for value, _label in form.fields["status"].choices] == ["confirmed", "rejected"]
+    refused = _add_link(admin_client, m, education["a"], "s101", status="suggested")
+    assert refused.status_code == 200 and not dm.EtoolsMasterLink.objects.filter(master=m).exists()
+    assert (
+        _add_link(admin_client, m, education["a"], "s101", status=form["status"].initial).status_code == 302
+    )
+    link = dm.EtoolsMasterLink.objects.get(master=m)
+    assert (link.status, link.confirmed_by) == ("confirmed", "admin")
+    assert not isinstance(master_links.run(w.YEAR, "test"), str)
+    link.refresh_from_db()  # the night rewrites suggestions only
+    assert (link.status, link.role) == ("confirmed", "total")
+
+
+def test_a_suggestion_made_shown_only_in_the_admin_stays_so_after_the_night(admin_client, education):
+    a, other = education["a"], education["other"]
+    master_links.run(w.YEAR, "test")
+    suggestion = other.links.get(ident="s101", status="suggested")  # the same structure as PD B's total
+    assert suggestion.role == "total"
+    act(admin_client, "make_shown", [suggestion], url=LINKS)
+    master_links.run(w.YEAR, "test")
+    again = other.links.get(ident="s101", pd=a)
+    assert (again.pk, again.status, again.role) == (suggestion.pk, "suggested", "shown")
+
+
+def test_the_link_list_never_confirms_a_proposals_links_and_an_archived_master_keeps_none(
+    admin_client, admin_user, education
+):
+    a = education["a"]
+    proposal = w.master(ENROLLED, status="proposed", origin="proposed", proposal_key="k")
+    link = w.link(proposal, a, 101, title=ENROLLED, status="suggested", unit_class="")
+    response = act(admin_client, "confirm_links", [link], url=LINKS)
+    assert any("Accept this proposed master indicator first" in text for text in said(response))
+    link.refresh_from_db()
+    assert link.status == "suggested"
+    # an active master that counts PD indicators in its total is not archived: they would count nowhere
+    m = w.master("Children enrolled in NFE")
+    w.link(m, a, 104, title="# of youth enrolled in NFE")
+    request = RequestFactory().get("/")
+    request.user = admin_user
+    form_class = EtoolsMasterAdmin(dm.EtoolsMaster, admin.site).get_form(request, m)
+    data = {"section": m.section, "name": m.name, "method": "sum", "status": "archived", "sequence": 0}
+    form = form_class(data, instance=m)
+    assert not form.is_valid()
+    assert form.errors["status"][0].startswith("It counts 1 PD indicator(s) in its total")
+    m.links.update(role="shown")
+    assert form_class(data, instance=dm.EtoolsMaster.objects.get(pk=m.pk)).is_valid()
+
+
+def test_a_years_target_of_0_or_less_is_refused_and_the_filter_reads_it_as_none(admin_client, education):
+    for target, valid in (("-5", False), ("0", False), ("", True), ("120", True)):
+        form = MasterYearForm({"year": 2026, "code": "", "target": target, "is_active": "on"})
+        assert form.is_valid() is valid, target
+    negative = w.master("Typed below 0")
+    dm.EtoolsMasterYear.objects.create(master=negative, year=w.YEAR, target=-5)  # saved before the check
+    assert not masters.has_target(
+        dm.EtoolsMaster.objects.prefetch_related("years").get(pk=negative.pk), w.YEAR
+    )
+    shown = {
+        value: {
+            m.pk for m in admin_client.get(reverse(MASTERS) + f"?target={value}").context["cl"].result_list
+        }
+        for value in ("yes", "no")
+    }
+    assert negative.pk in shown["no"] and negative.pk not in shown["yes"]
 
 
 def test_the_master_form_refuses_a_method_change_that_breaks_its_links(admin_user, education):

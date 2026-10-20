@@ -3,8 +3,9 @@ eTools master indicators of the filter in its year by section and CP output, eac
 (_master_subs.html) with its detail in the modal; the masters NeuroDB proposes (Accept, Dismiss); and the PD
 indicators of the year in no master, each with NeuroDB's word on it (Attach to…). The buttons that change them show
 to an Administrator or a Section editor of the section only; each is a POST of reports.master_views that comes back
-here (next). Context: tab = masters_tab.read of the filter, roles, not_applied, detail_query, downloads, and filters,
-labels and report_types (the page's scope).{% endcomment %}
+here (next); "Confirm all" and the section's "Confirm the strong matches" post the suggestions shown, one link each.
+Context: tab = masters_tab.read of the filter, roles, not_applied, detail_query, downloads, can_set_up (the
+administration opens for them), and filters, labels and report_types (the page's scope).{% endcomment %}
 {% with next=request.get_full_path year=tab.year report_type=tab.report_type %}
 <section class="panel p-0" aria-labelledby="masters-title">
   <div class="table-toolbar">
@@ -30,7 +31,7 @@ labels and report_types (the page's scope).{% endcomment %}
       <th scope="col"><span class="visually-hidden">{% trans "Details" %}</span></th>
     </tr></thead>
     {% for group in tab.groups %}
-    <tbody><tr class="masters-table__section"><th colspan="12" scope="rowgroup">{{ group.section }} <span class="text-muted fw-normal">· {% blocktrans count counter=group.count %}{{ counter }} master indicator{% plural %}{{ counter }} master indicators{% endblocktrans %}</span>{% if group.curate and group.strong %} <form method="post" action="{% url 'reports:etools_masters_confirm' %}" class="d-inline">{% csrf_token %}<input type="hidden" name="section" value="{{ group.section }}"><input type="hidden" name="next" value="{{ next }}"><button type="submit" class="btn btn-outline-primary btn-sm ms-2">{% blocktrans count counter=group.strong %}Confirm the {{ counter }} strong match (0.9 or more){% plural %}Confirm all {{ counter }} strong matches (0.9 or more){% endblocktrans %}</button></form>{% endif %}</th></tr></tbody>
+    <tbody><tr class="masters-table__section"><th colspan="12" scope="rowgroup">{{ group.section }} <span class="text-muted fw-normal">· {% blocktrans count counter=group.count %}{{ counter }} master indicator{% plural %}{{ counter }} master indicators{% endblocktrans %}</span>{% if group.curate and group.strong %} <form method="post" action="{% url 'reports:etools_masters_confirm' %}" class="d-inline">{% csrf_token %}<input type="hidden" name="section" value="{{ group.section }}">{% for pk in group.strong_links %}<input type="hidden" name="link" value="{{ pk }}">{% endfor %}<input type="hidden" name="next" value="{{ next }}"><button type="submit" class="btn btn-outline-primary btn-sm ms-2">{% blocktrans count counter=group.strong %}Confirm the {{ counter }} strong match (0.9 or more){% plural %}Confirm all {{ counter }} strong matches (0.9 or more){% endblocktrans %}</button></form>{% endif %}</th></tr></tbody>
     {% for output in group.outputs %}
     <tbody><tr class="masters-table__output"><td colspan="12" class="small text-muted">{% if output.cp_output %}{{ output.cp_output }}{% else %}{% trans "No CP output given" %}{% endif %}</td></tr></tbody>
     {% for line in output.lines %}{% with f=line.figure w=line.whole m=line.master %}
@@ -54,10 +55,10 @@ labels and report_types (the page's scope).{% endcomment %}
           <form method="post" action="{% url 'reports:etools_master_edit' m.pk %}" class="masters-settings__form">{% csrf_token %}<input type="hidden" name="action" value="settings"><input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="next" value="{{ next }}">
             <label class="small">{% trans "Name" %} <input class="form-control form-control-sm" type="text" name="name" value="{{ m.name }}" maxlength="500" required></label>
             <label class="small">{% blocktrans %}Code {{ year }}{% endblocktrans %} <input class="form-control form-control-sm" type="text" name="code" value="{{ w.code }}" maxlength="32"></label>
-            <label class="small">{% blocktrans %}Target {{ year }}{% endblocktrans %} <input class="form-control form-control-sm" type="text" inputmode="decimal" name="target" value="{% if w.target is not None %}{{ w.target|stringformat:'g' }}{% endif %}" placeholder="{% trans 'No target' %}"></label>
+            <label class="small">{% blocktrans %}Target {{ year }}{% endblocktrans %} <input class="form-control form-control-sm" type="text" inputmode="decimal" name="target" value="{{ line.target_input }}" placeholder="{% trans 'No target' %}"></label>
             <button type="submit" class="btn btn-outline-secondary btn-sm">{% trans "Save" %}</button>
           </form>
-          {% if line.suggested %}<form method="post" action="{% url 'reports:etools_master_edit' m.pk %}">{% csrf_token %}<input type="hidden" name="action" value="confirm_all"><input type="hidden" name="next" value="{{ next }}"><button type="submit" class="btn btn-primary btn-sm">{% blocktrans count counter=line.suggested %}Confirm the suggestion{% plural %}Confirm all {{ counter }} suggestions{% endblocktrans %}</button></form>{% endif %}
+          {% if line.suggested %}<form method="post" action="{% url 'reports:etools_master_edit' m.pk %}">{% csrf_token %}<input type="hidden" name="action" value="confirm_all">{% for pk in line.suggested_links %}<input type="hidden" name="link" value="{{ pk }}">{% endfor %}<input type="hidden" name="next" value="{{ next }}"><button type="submit" class="btn btn-primary btn-sm">{% blocktrans count counter=line.suggested %}Confirm the suggestion{% plural %}Confirm all {{ counter }} suggestions{% endblocktrans %}</button></form>{% endif %}
         </div>{% endif %}
         {% if line.subs %}{% include "reports/partials/_master_subs.html" with edit=line.curate %}{% else %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}No PD indicator of a programme document running in {{ year }} is linked yet.{% endblocktrans %}</p>{% endif %}
       </td></tr>
@@ -68,7 +69,8 @@ labels and report_types (the page's scope).{% endcomment %}
   </table></div>
   <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}Open a master indicator to see its PD indicators. Q1, to Q2 and to Q3 are Reached from 1 January to the end of each quarter, a report counting in the quarter its period ends in; Year is the whole of {{ year }}. Each PD indicator brings its own Reached in the year, read as Program Performance reads it: no report is added twice. Reporting counts the PD indicators with a value in the year among those that count.{% endblocktrans %}</p>
   {% else %}
-  {% if tab.curates %}{% include "components/empty_state.html" with icon="layers" title=_("No master indicator in this year") message=_("Accept a proposed master indicator below, or make one in the administration (Reporting setup).") %}{% else %}{% include "components/empty_state.html" with icon="layers" title=_("No master indicator in this year") message=_("Change the filters, or ask your section's editor to set up its master indicators.") %}{% endif %}
+  {% if tab.listed %}{% blocktrans asvar hidden count counter=tab.listed %}{{ counter }} master indicator is listed in {{ year }}: clear the search, the status, the CP output or the partner to see it.{% plural %}{{ counter }} master indicators are listed in {{ year }}: clear the search, the status, the CP output or the partner to see them.{% endblocktrans %}{% include "components/empty_state.html" with icon="layers" title=_("No master indicator matches these filters") message=hidden %}
+  {% elif tab.curates and can_set_up %}{% include "components/empty_state.html" with icon="layers" title=_("No master indicator in this year") message=_("Accept a proposed master indicator below, or make one in the administration (Reporting setup).") %}{% elif tab.curates %}{% include "components/empty_state.html" with icon="layers" title=_("No master indicator in this year") message=_("Accept a proposed master indicator below, or ask an Administrator to make one.") %}{% else %}{% include "components/empty_state.html" with icon="layers" title=_("No master indicator in this year") message=_("Change the filters, or ask your section's editor to set up its master indicators.") %}{% endif %}
   {% endif %}
 </section>
 

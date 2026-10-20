@@ -1070,7 +1070,7 @@ admin home page, *Quick actions*):
 | Run a job → *eTools reporting checks* (also *Run the checks now* on the eTools reporting checks page) | `reporting_checks` | background |
 | Run a job → *Probe a Datamart dataset* (the dataset chosen in the dialog) | `probe_datamart --dataset <name>` | background (seconds); writes nothing but its run |
 | Run a job → *eTools master indicators* (also *Suggest now* on *Reporting setup* → *Master indicators (eTools)*) | `suggest_master_indicators` | background |
-| *Reporting setup* → *Master indicators (eTools)*: actions *Accept* / *Dismiss the proposed master indicators*, *Confirm all suggestions*, *Confirm suggestions scoring 0.9 or more*, *Merge the selected master indicators*, *Change section (after an eTools rename)*, and *Add PD indicators* on a master's page; *Master indicator links (eTools)*: *Confirm*, *Reject*, *Make "Shown only"*; the same decisions on Partner monitoring's *Master indicators* tab | (no command: they change the master indicators and their links) | in the request |
+| *Reporting setup* → *Master indicators (eTools)*: actions *Accept the proposed master indicators*, *Dismiss the proposed master indicators*, *Confirm all suggestions*, *Confirm suggestions scoring 0.9 or more*, *Merge the selected master indicators*, *Change section (after an eTools rename)*, and *Add PD indicators* on a master's page; *Master indicator links (eTools)*: *Confirm*, *Reject*, *Make "Shown only"*; the same decisions on Partner monitoring's *Master indicators* tab | (no command: they change the master indicators and their links) | in the request |
 | *Reporting setup* → *Master indicators* (ActivityInfo): action *Create eTools master indicators from these* | (no command: writes eTools master indicators only, never an ActivityInfo row) | in the request |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
@@ -2294,16 +2294,23 @@ the **same structure** (section, CP output, type and title) as one of the master
 (0.95); (c) a **similar title** (0.6 to 0.89, 0.1 more for the same CP output, never another age group).
 When two masters fit within 0.05 of each other it gets no suggestion and the tab says "Ambiguous: A or B".
 **Only confirmed links count**: a suggestion is listed under its master, never added. Confirming is one click
-for a master (*Confirm all suggestions*) or for a section (*Confirm the strong matches*, 0.9 or more), on the
-tab or in the admin; *Reject* keeps the indicator from being suggested for that master again. Several
+for a master (on the tab *Confirm all N suggestions*, in the admin *Confirm all suggestions*) or for a section
+(on the tab *Confirm all N strong matches (0.9 or more)*, in the admin *Confirm suggestions scoring 0.9 or
+more*). The tab's buttons confirm exactly the suggestions it shows, as their count says: never another
+partner's when a partner filter is set, nor those of a master the search hides. A proposal's PD indicators are
+confirmed by accepting it, and nothing is confirmed in an archived master. *Reject* keeps the indicator from
+being suggested for that master again; attaching it to that master later (*Attach to…*, or *Add PD
+indicators*, which says "Rejected for this master before") confirms it there. A role a person gives a
+suggestion (*Shown only*, say) is kept by the nightly job until it is confirmed. Several
 indicators of one programme document in one master start with sensible roles: a total and its girls and
 boys (or other) breakdowns, the breakdowns *shown only*; girls and boys alone, both in the total; otherwise
 the one with the largest target in the total.
 
 After each eTools sync nothing is rewritten. A confirmed link stops counting, and says why, when its
-programme document runs in the year but the indicator is gone (*No longer in eTools*, with the replacement
-suggested the next night), or when its type changed in eTools (*Type changed in eTools*, until someone
-confirms it again); an indicator now in another section is still read and says *Now in section X*. A new PD
+programme document runs in the year but the indicator is gone (*No longer in eTools*: it cannot be confirmed
+again, and its replacement is suggested the next night), or when its type changed in eTools (*Type changed
+in eTools*, until someone clicks *Confirm again*); an indicator now in another section is still read and says
+*Now in section X*. A new PD
 indicator, an amendment's included, is suggested the next night.
 
 **How a master's figure is worked out** (the same on the tab, its detail, its export):
@@ -2318,7 +2325,11 @@ indicator, an amendment's included, is suggested the next night.
   not added"). A value too large to be true (above 20 times its own target, or above the country's children
   for a children indicator) is set aside and said so.
 * **A percentage or a ratio** is the numerators added up over the denominators added up (× 100 for a
-  percentage only); numerator and denominator links of one programme document are paired. **A sub reported
+  percentage only); numerator and denominator links of one programme document are paired. Each programme
+  document counts once: one counted through its numerator and denominator adds none of its totals ("Same
+  programme document: counted through its numerator and denominator"), and of its several totals only the
+  one with the largest denominator counts, unless they cannot count the same people or the master says
+  *parts of one PD add up* (the sum's rule). **A sub reported
   without its numerator and denominator is left out of the figure** (PRP sent the % alone, or its period
   method is an average or a maximum): its row says "Reported without numerator and denominator" and the
   master says "counted 4 of 6 PDs". It is never averaged in.
@@ -5394,11 +5405,16 @@ from 15 December (see *ActivityInfo: in use or archive*, *The yearly reminder*).
    switch off *activityinfo-data* in Scheduled jobs. On *Automatic*, ActivityInfo then becomes an archive
    by itself within 30 seconds (or set *Archived* on Admin → Reporting setup → *ActivityInfo: in use or
    archive*); its alarms stop, and every ActivityInfo page of past years stays open.
-9. eTools master indicators: set each one's code and target for the new year, in its admin page's year rows
-   (*Reporting setup* → *Master indicators (eTools)*) or on Partner monitoring's *Master indicators* tab (open
-   the master, *Code* and *Target*, *Save*). Nothing needs copying: the masters have no year and their PD
-   indicators carry on with their programme documents; until a target is typed the master reads *No target*
-   and *Needs attention* lists it. Untick *shown this year* for a master that does not go on.
+9. eTools master indicators: set each one's code and target for the new year. A master is on Partner
+   monitoring's *Master indicators* tab of the new year (open the master, *Code* and *Target*, *Save*) once it
+   has a confirmed PD indicator of a programme document running in that year, or a year row for it; a master
+   whose programme documents all ended last year is not there until a new one's PD indicator is confirmed in
+   it (*Attach to…* lists every active master). Before that, an Administrator types the code and target in its
+   admin page's year rows (*Reporting setup* → *Master indicators (eTools)*), which lists it on the tab at once.
+   Nothing needs copying: the masters have no year and their PD indicators carry on with their programme
+   documents; a master listed in the year without a target reads *No target* and *Needs attention* lists it
+   (its link opens exactly those, the filter *Listed this year, no target*). Untick *shown this year* for a
+   master that does not go on.
 
 ## Backups
 Azure Database for PostgreSQL point-in-time restore (set retention to at least 14 days) covers the

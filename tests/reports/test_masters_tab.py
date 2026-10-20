@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from collections import Counter
 from urllib.parse import parse_qs, urlsplit
 
@@ -22,7 +23,7 @@ from django.urls import reverse
 
 from neurodb.accounts.models import Section, User
 from neurodb.accounts.roles import SECTION_EDITOR
-from neurodb.datamart import masters, masters_tab, monitoring
+from neurodb.datamart import master_links, masters, masters_tab, monitoring
 from neurodb.datamart import models as dm
 from neurodb.donors.models import DonorAccount
 from neurodb.watch.models import SectionMatch
@@ -505,10 +506,182 @@ def test_dismiss_keeps_the_proposal_dismissed_and_a_percentage_refuses_a_number_
     assert "left out" in text(response)
 
 
+def _posted(html: str, action: str) -> list[dict[str, list[str]]]:
+    """The hidden fields each form posting to ``action`` sends, as a browser sends them."""
+    out = []
+    for form in re.findall(r'<form method="post" action="' + re.escape(action) + r'".*?</form>', html, re.S):
+        fields: dict[str, list[str]] = {}
+        for name, value in re.findall(r'<input type="hidden" name="([a-z_]+)" value="([^"]*)"', form):
+            fields.setdefault(name, []).append(value)
+        out.append(fields)
+    return out
+
+
 def test_confirm_the_strong_matches_of_a_section(world, admin_user):
     client = _signed_in(admin_user)
-    assert "strong match" in text(_tab(client))
-    client.post(reverse("reports:etools_masters_confirm"), {"section": w.EDUCATION})
+    html = text(_tab(client))
+    assert "strong match" in html
+    (form,) = _posted(html, reverse("reports:etools_masters_confirm"))
+    assert form["link"] == [str(world["suggestion"].pk)]
+    client.post(reverse("reports:etools_masters_confirm"), form)
     link = world["suggestion"]
     link.refresh_from_db()
     assert link.status == "confirmed"
+
+
+def _strong(master, pd, source_id, title):
+    w.indicator(pd, source_id, title)
+    link = w.link(master, pd, source_id, title=title, status="suggested", unit_class="")
+    dm.EtoolsMasterLink.objects.filter(pk=link.pk).update(score=0.95)
+    return link
+
+
+def test_the_confirm_buttons_confirm_the_suggestions_the_tab_shows_and_nothing_else(world, admin_user):
+    """With a partner filter the buttons count that partner's suggestions: they confirm those, never
+    another partner's the page does not show; a search hides a master, and its suggestions with it."""
+    a, b, _c = world["pds"]
+    enrolled, unseen = world["enrolled"], world["suggestion"]  # Partner C's
+    mine = _strong(enrolled, a, 102, "# of girls enrolled in NFE")
+    teachers = w.master("Teachers trained", target=40)
+    hidden = _strong(teachers, b, 203, "# of teachers trained on child safeguarding")
+    client = _signed_in(admin_user)
+    edit = reverse("reports:etools_master_edit", args=[enrolled.pk])
+    response = _tab(client, partner=str(a.partner_id))
+    line = _lines(response)[SUM_NAME]
+    assert (line.suggested, line.suggested_links) == (1, [mine.pk])
+    html = text(response)
+    assert "Confirm the suggestion" in html and "Confirm the 1 strong match (0.9 or more)" in html
+    (confirm_all,) = [f for f in _posted(html, edit) if f.get("action") == ["confirm_all"]]
+    assert confirm_all["link"] == [str(mine.pk)]
+    done = client.post(edit, confirm_all, follow=True)
+    assert "1 PD indicator(s) confirmed: they count from now on." in text(done)
+    statuses = dict(
+        dm.EtoolsMasterLink.objects.filter(pk__in=[mine.pk, unseen.pk]).values_list("pk", "status")
+    )
+    assert statuses == {mine.pk: "confirmed", unseen.pk: "suggested"}
+
+    html = text(_tab(client, q="enrolled"))  # Teachers trained is not shown
+    (section,) = _posted(html, reverse("reports:etools_masters_confirm"))
+    assert section["link"] == [str(unseen.pk)] and "Confirm the 1 strong match (0.9 or more)" in html
+    done = client.post(reverse("reports:etools_masters_confirm"), section, follow=True)
+    assert "1 PD indicator(s) confirmed: they count from now on." in text(done)
+    unseen.refresh_from_db()
+    hidden.refresh_from_db()
+    assert (unseen.status, hidden.status) == ("confirmed", "suggested")
+    # nothing shown, nothing confirmed: a post without the links confirms none
+    nothing = client.post(reverse("reports:etools_masters_confirm"), {"section": w.EDUCATION}, follow=True)
+    assert "None of the strong matches shown is waiting any more." in text(nothing)
+    hidden.refresh_from_db()
+    assert hidden.status == "suggested"
+
+
+def test_a_pd_indicator_without_an_etools_id_is_attached_from_the_tab_and_counts(world, admin_user):
+    b = world["pds"][1]
+    title = "# of children enrolled in catch-up classes"
+    w.indicator(b, None, title)
+    w.report(b, None, title, "QPR1", day(3, 31), {"Akkar": 40})
+    catch_up = w.master("Children in catch-up classes", target=100)
+    client = _signed_in(admin_user)
+    (row,) = [u for u in _tab(client).context["tab"].unattached if u.row.title == title]
+    assert f'name="key" value="{row.key}"' in text(_tab(client))
+    response = client.post(
+        reverse("reports:etools_master_attach"),
+        {"master": catch_up.pk, "role": "total", "key": [row.key], "next": PAGE},
+        follow=True,
+    )
+    assert "1 PD indicator(s) attached to “Children in catch-up classes”" in text(response)
+    assert catch_up.links.get().status == "confirmed"
+    assert _lines(_tab(client))["Children in catch-up classes"].figure.value == 40.0
+
+
+def test_an_indicator_rejected_for_a_master_is_attached_to_it_again(world, admin_user):
+    enrolled, link = world["enrolled"], world["suggestion"]
+    c = world["pds"][2]
+    client = _signed_in(admin_user)
+    edit = reverse("reports:etools_master_edit", args=[enrolled.pk])
+    client.post(edit, {"action": "reject", "link": link.pk})
+    link.refresh_from_db()
+    assert link.status == "rejected"
+    notes = {u.key: u.note for u in _tab(client).context["tab"].unattached}
+    assert notes[f"{c.pk}|s301"] == "No suggestion yet"  # listed in no master, never suggested here again
+    response = client.post(
+        reverse("reports:etools_master_attach"),
+        {"master": enrolled.pk, "role": "total", "key": [f"{c.pk}|s301"], "next": PAGE},
+        follow=True,
+    )
+    assert "1 PD indicator(s) attached" in text(response)
+    link.refresh_from_db()
+    assert (link.status, link.role) == ("confirmed", "total")  # the same link, a person's choice now
+    assert _lines(_tab(client))[SUM_NAME].figure.value == 770.0
+
+
+@pytest.mark.parametrize(
+    "typed, shown", [("1234567", "1234567"), ("123456.7", "123456.7"), ("2,000", "2000")]
+)
+def test_the_target_box_shows_every_digit_so_saving_it_unchanged_keeps_the_target(world, typed, shown):
+    client = _signed_in(_editor("Education", "ED", w.EDUCATION))
+    enrolled = world["enrolled"]
+    edit = reverse("reports:etools_master_edit", args=[enrolled.pk])
+    client.post(
+        edit, {"action": "settings", "year": "2026", "name": enrolled.name, "code": "ED-1.1", "target": typed}
+    )
+    stored = enrolled.years.get(year=2026).target
+    html = text(_tab(client))
+    boxes = re.findall(r'name="target" value="([^"]*)"', html)
+    assert shown in boxes and not any("e+" in box for box in boxes)
+    assert _lines(_tab(client))[SUM_NAME].target_input == shown
+    client.post(
+        edit,
+        {"action": "settings", "year": "2026", "name": "Children in NFE", "code": "ED-1.1", "target": shown},
+    )
+    assert enrolled.years.get(year=2026).target == stored == float(typed.replace(",", ""))
+
+
+def test_a_filter_that_hides_every_master_says_so_and_the_administration_only_to_who_can_open_it(
+    world, admin_user
+):
+    admin = text(_tab(_signed_in(admin_user), q="zzz"))
+    assert "No master indicator matches these filters" in admin
+    assert "3 master indicators are listed in 2026: clear the search" in admin
+    assert "No master indicator in this year" not in admin
+    editor = _signed_in(_editor("Education", "ED", w.EDUCATION))
+    assert "No master indicator matches these filters" in text(_tab(editor, partner="999999"))
+    empty_year = text(_tab(editor, year="2027"))
+    assert "No master indicator in this year" in empty_year
+    assert "ask an Administrator to make one" in empty_year and "Reporting setup" not in empty_year
+    assert "make one in the administration (Reporting setup)" in text(
+        _tab(_signed_in(admin_user), year="2027")
+    )
+
+
+def test_a_proposals_links_are_confirmed_by_accepting_it_and_one_stuck_in_its_total_says_so(
+    world, admin_user
+):
+    proposal = world["proposal"]
+    client = _signed_in(admin_user)
+    edit = reverse("reports:etools_master_edit", args=[proposal.pk])
+    link = proposal.links.order_by("id").first()
+    response = client.post(edit, {"action": "confirm", "link": link.pk, "next": PAGE}, follow=True)
+    assert "Accept this proposed master indicator first" in text(response)
+    link.refresh_from_db()
+    assert link.status == "suggested"
+    # one confirmed there before the rule: it counts nowhere, and the tab says why
+    dm.EtoolsMasterLink.objects.filter(pk=link.pk).update(status="confirmed")
+    notes = {(u.row.pd.id, u.row.title): u.note for u in _tab(client).context["tab"].unattached}
+    assert notes[(link.pd_id, CAREGIVERS)] == (
+        "In the total of Caregivers trained on positive parenting, which is proposed: it counts nowhere until "
+        "that master indicator is active, or the PD indicator is taken out of it."
+    )
+
+
+def test_the_detail_words_the_pd_targets_by_method_and_three_pds_all_plan_a_place(client_viewer, world):
+    url = reverse("reports:etools_master", args=[world["passing"].pk]) + "?year=2026"
+    html = text(client_viewer.get(url, **HX))
+    assert (
+        "The programme documents' own targets come to 60% (their target numerators over their target" in html
+    )
+    assert "add up to 60" not in html
+    master_links.confirm([world["suggestion"]], "staff")  # Partner C plans Akkar too
+    url = reverse("reports:etools_master", args=[world["enrolled"].pk]) + "?year=2026"
+    html = text(client_viewer.get(url, **HX))
+    assert "PD/2026/001, PD/2026/002 and PD/2026/003 all plan Akkar" in html and "both plan" not in html

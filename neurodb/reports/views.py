@@ -32,7 +32,7 @@ from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from neurodb.accounts.roles import SECTION_EDITOR, can_edit_section, role_of
+from neurodb.accounts.roles import SECTION_EDITOR, can_edit_section, can_set_up, role_of
 from neurodb.core import years
 from neurodb.core.models import PopulationFigure, SavedView, SyncRun
 from neurodb.core.services import population as population_service
@@ -2831,6 +2831,7 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
             "tab": master_tab(),
             "roles": EtoolsMasterLink.Role.choices,
             "not_applied": masters_tab.not_applied(params),
+            "can_set_up": can_set_up(request.user),  # the administration (Reporting setup) opens for them
             # the detail (modal) reads the tab's year, report type and places
             "detail_query": _query_with(
                 QueryDict(mutable=True),

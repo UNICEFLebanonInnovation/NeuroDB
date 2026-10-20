@@ -103,9 +103,11 @@ Administrators, and Section editors of the master indicator's section, decide on
 
 - **Accept** a proposed master indicator to make it active with its PD indicators confirmed; **Dismiss** it
   and it is never proposed again.
-- **Confirm all suggestions** of one master indicator, or **Confirm the strong matches** of a section (those
-  scoring 0.9 or more), in one click; **Reject** a suggestion that is wrong, and it is not suggested for that
-  master indicator again.
+- **Confirm all N suggestions** of one master indicator, or **Confirm all N strong matches (0.9 or more)** of
+  a section, in one click: they confirm exactly the suggestions the page shows, as their count says.
+  **Reject** a suggestion that is wrong, and it is not suggested for that master indicator again (attach it
+  to that master indicator later if you change your mind). A role you give a suggestion, *Shown only* say,
+  stays until you confirm it.
 - In **Not in a master**, tick PD indicators and **Attach to…** a master indicator, as its total, a numerator,
   a denominator or *shown only*. Each one says what NeuroDB thinks of it: its suggestion, the proposal it is
   in, or *Ambiguous* when two master indicators fit it as well.
@@ -119,7 +121,8 @@ Program Performance reads it, so no report is ever added twice.
   least* the largest programme document's figure. Two PD indicators of one programme document are added only
   when they cannot count the same people (girls and boys, for example); otherwise only the larger one counts.
 - **Percentages and ratios are the numerators added up over the denominators added up**, never an average of
-  the percentages. A partner who reported the percentage alone, without its numerator and denominator, is
+  the percentages, each programme document counted once (its numerator and denominator, or its largest
+  total). A partner who reported the percentage alone, without its numerator and denominator, is
   left out of the figure: its row says *Reported without numerator and denominator*, and the master
   indicator says how many programme documents it counted ("counted 4 of 6 PDs").
 - *Shown only* PD indicators are listed and never counted. Master indicators are never added together.
@@ -128,8 +131,8 @@ Program Performance reads it, so no report is ever added twice.
   target is typed it reads **No target**; the programme documents' own targets are shown in the details for
   reference only.
 
-A PD indicator that is no longer in eTools, or whose type changed there, stops counting and says so until
-someone confirms it again. *Excel of the filter* and *CSV of the filter* give one row per master indicator and
+A PD indicator that is no longer in eTools stops counting and says so; its replacement is suggested the next
+night. One whose type changed in eTools stops counting until someone clicks **Confirm again**. *Excel of the filter* and *CSV of the filter* give one row per master indicator and
 one per PD indicator. In the administration, under Reporting setup, master indicators can also be made by
 hand (with *Add PD indicators*), from an ActivityInfo master indicator, merged, or moved after eTools renames
 a section.

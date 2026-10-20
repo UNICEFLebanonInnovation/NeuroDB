@@ -61,6 +61,10 @@ def _number(value: Any) -> int | None:
     return int(text) if text.isdigit() and len(text) <= 18 else None
 
 
+def _numbers(values: list[str]) -> list[int]:
+    return [n for n in map(_number, values) if n is not None]
+
+
 def _may_curate_anything(user) -> bool:
     return role_of(user) in (ADMIN, SECTION_EDITOR)
 
@@ -128,10 +132,10 @@ def etools_master(request: HttpRequest, pk: int) -> HttpResponse:
 # ------------------------------------------------------------------------------------------------ the changes
 @require_POST
 def etools_master_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """One change to master indicator ``pk`` (``action``): accept or dismiss it (a proposal), confirm all its
-    suggestions, confirm or reject one (``link``), change what one counts as (``role``), take one out
-    (remove), or rename it and set the year's code and target (settings: ``name``, ``year``, ``code``,
-    ``target``)."""
+    """One change to master indicator ``pk`` (``action``): accept or dismiss it (a proposal), confirm the
+    suggestions its row showed (confirm_all, one ``link`` each), confirm or reject one (``link``), change what
+    one counts as (``role``), take one out (remove), or rename it and set the year's code and target
+    (settings: ``name``, ``year``, ``code``, ``target``). A proposal's links are confirmed by accepting it."""
     master = get_object_or_404(EtoolsMaster, pk=pk)
     if not masters_tab.can_curate(request.user, master.section):
         raise PermissionDenied
@@ -172,7 +176,16 @@ def etools_master_edit(request: HttpRequest, pk: int) -> HttpResponse:
         else:
             messages.warning(request, master_links.NOT_PROPOSED)
     elif action == "confirm_all":
-        links = list(master.links.filter(status=Status.SUGGESTED).order_by("sequence", "id"))
+        # the suggestions the row showed (``link``), never one it did not: another partner's, a PD's of
+        # another year
+        links = list(
+            master.links.filter(
+                status=Status.SUGGESTED, pk__in=_numbers(request.POST.getlist("link"))
+            ).order_by("sequence", "id")
+        )
+        if not links:
+            messages.warning(request, _("None of the suggestions shown is waiting any more."))
+            return redirect(back)
         for link in links:
             link.master = master
         _said_confirmed(request, master_links.confirm(links, by))
@@ -279,13 +292,15 @@ def etools_master_attach(request: HttpRequest) -> HttpResponse:
 @require_POST
 def etools_masters_confirm(request: HttpRequest) -> HttpResponse:
     """Confirm a section's strong matches in one click: the suggestions scoring 0.9 or more (the same
-    structure as a confirmed sub, or a replacement) of its active masters, as the administration's "Confirm
-    suggestions scoring 0.9 or more" does."""
+    structure as a confirmed sub, or a replacement) of its active masters that the tab showed (``link``), as
+    the administration's "Confirm suggestions scoring 0.9 or more" does. One the tab did not show (another
+    partner's, a master hidden by the search) is never confirmed by it."""
     section = (request.POST.get("section") or "").strip()
     if not section or not masters_tab.can_curate(request.user, section):
         raise PermissionDenied
     links = list(
         EtoolsMasterLink.objects.filter(
+            pk__in=_numbers(request.POST.getlist("link")),
             master__section__iexact=section,
             master__status=MASTER.ACTIVE,
             status=Status.SUGGESTED,
@@ -294,5 +309,8 @@ def etools_masters_confirm(request: HttpRequest) -> HttpResponse:
         .select_related("master")
         .order_by("master__name", "sequence", "id")
     )
+    if not links:
+        messages.warning(request, _("None of the strong matches shown is waiting any more."))
+        return redirect(_back(request))
     _said_confirmed(request, master_links.confirm(links, request.user.get_username()))
     return redirect(_back(request))

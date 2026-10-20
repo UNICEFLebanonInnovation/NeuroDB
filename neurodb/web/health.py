@@ -121,7 +121,8 @@ def _etools_masters_without_target() -> list[Warning]:
                 found,
             )
             % {"n": found, "year": year},
-            url=_admin_url("datamart_etoolsmaster") + "?target=no&status__exact=active",
+            # the list of exactly these masters (the filter reads masters.without_target as this count does)
+            url=_admin_url("datamart_etoolsmaster") + "?target=listed",
             read=_("eTools master indicators without a target for %(year)s") % {"year": year},
             value=found,
         )

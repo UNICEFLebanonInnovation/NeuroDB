@@ -494,61 +494,77 @@ def _link_name(link) -> str:
 
 class YearTargetFilter(admin.SimpleListFilter):
     """Whether the master has this year's target, which its status is measured against (the idea of the
-    ActivityInfo masters' AWP target filter)."""
+    ActivityInfo masters' AWP target filter): a target above 0, as :func:`neurodb.datamart.masters.has_target`
+    reads it. "Listed this year, no target" are the masters Data health's warning counts
+    (:func:`neurodb.datamart.masters.without_target`), the list its line opens."""
 
     title = _("target this year")
     parameter_name = "target"
 
     def lookups(self, request, model_admin):
-        return (("yes", _("Has a target")), ("no", _("No target")))
+        return (
+            ("yes", _("Has a target")),
+            ("no", _("No target")),
+            ("listed", _("Listed this year, no target")),
+        )
 
     def queryset(self, request, queryset):
-        typed = dm.EtoolsMasterYear.objects.filter(
-            master=OuterRef("pk"), year=years.this_year(), target__isnull=False
-        ).exclude(target=0)
+        year = years.this_year()
+        typed = dm.EtoolsMasterYear.objects.filter(master=OuterRef("pk"), year=year, target__gt=0)
         if self.value() == "yes":
             return queryset.filter(Exists(typed))
         if self.value() == "no":
             return queryset.exclude(Exists(typed))
+        if self.value() == "listed":
+            return queryset.filter(pk__in=[m.pk for m in masters.without_target(year)])
         return queryset
+
+
+class MasterYearForm(forms.ModelForm):
+    """A master's settings for one year, refusing a target of 0 or less (the status reads it as none, as the
+    Master indicators tab refuses it)."""
+
+    class Meta:
+        model = dm.EtoolsMasterYear
+        fields = ("year", "code", "target", "is_active", "note")
+
+    def clean_target(self):
+        target = self.cleaned_data.get("target")
+        if target is not None and not target > 0:
+            raise forms.ValidationError(_("The target is a number above 0 (leave it blank for no target)."))
+        return target
 
 
 class MasterYearInline(TabularInline):
     """A master's settings for each calendar year: its AWP/RWP code and the target staff type."""
 
     model = dm.EtoolsMasterYear
+    form = MasterYearForm
     extra = 0
     fields = ("year", "code", "target", "is_active", "note")
 
 
-class MasterLinkForm(forms.ModelForm):
-    """A link on its master's page: what it counts as, and its place. Its status changes through the
-    actions, which read the indicator again (Confirm and Reject, on the links' list)."""
-
-    class Meta:
-        model = dm.EtoolsMasterLink
-        fields = ("role", "sequence")
-
-    def _post_clean(self):
-        # an unchanged link is not checked again: the check reads its programme document's indicators, with
-        # their Reached, which would make saving a master with many links slow
-        if self.instance.pk is not None and not self.has_changed():
-            return
-        super()._post_clean()
+class OneTotalForm(forms.ModelForm):
+    """A link's form that keeps a PD indicator in one total: making it count in the total while another
+    master's total holds it (confirmed or suggested) is a form error. The database refuses it too
+    (``one_total_home``), but only with a server error once the indicator's fields are fixed (read-only)."""
 
     def clean(self):
         data = super().clean()
         link = self.instance
+        pd = data["pd"].pk if data.get("pd") else link.pd_id
+        ident = data.get("ident") or link.ident
+        status = data.get("status") or link.status
         if (
             data.get("role") == Role.TOTAL
-            and "role" in self.changed_data
-            and link.status != Status.REJECTED
-            and link.pd_id
+            and (link.pk is None or "role" in self.changed_data)
+            and status != Status.REJECTED
+            and pd
         ):
             other = (
                 dm.EtoolsMasterLink.objects.filter(
-                    pd_id=link.pd_id,
-                    ident=link.ident,
+                    pd_id=pd,
+                    ident=ident,
                     role=Role.TOTAL,
                     status__in=[Status.SUGGESTED, Status.CONFIRMED],
                 )
@@ -566,6 +582,46 @@ class MasterLinkForm(forms.ModelForm):
                     % {"name": other.master.name, "status": other.get_status_display().lower()},
                 )
         return data
+
+
+def _role_set_by(link, form, username: str) -> None:
+    """A person changed a suggestion's role: keep who (``confirmed_by``), so the nightly job keeps the role
+    (:func:`neurodb.datamart.master_links.set_by_person`)."""
+    if link.status == Status.SUGGESTED and "role" in form.changed_data:
+        link.confirmed_by = username[:150]
+
+
+class MasterLinkForm(OneTotalForm):
+    """A link on its master's page: what it counts as, and its place. Its status changes through the
+    actions, which read the indicator again (Confirm and Reject, on the links' list)."""
+
+    class Meta:
+        model = dm.EtoolsMasterLink
+        fields = ("role", "sequence")
+
+    def _post_clean(self):
+        # an unchanged link is not checked again: the check reads its programme document's indicators, with
+        # their Reached, which would make saving a master with many links slow
+        if self.instance.pk is not None and not self.has_changed():
+            return
+        super()._post_clean()
+
+
+class EtoolsMasterLinkForm(OneTotalForm):
+    """A link on its own page. A new one is a person's decision, so it starts confirmed (it counts, and the
+    nightly job, which rewrites suggestions, never touches it) or is rejected; it cannot be added as a
+    suggestion."""
+
+    class Meta:
+        model = dm.EtoolsMasterLink
+        fields = ("master", "pd", "ident", "role", "status", "sequence")  # the admin's own list wins
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        status = self.fields.get("status")
+        if status is not None and self.instance.pk is None:
+            status.choices = [(s.value, s.label) for s in (Status.CONFIRMED, Status.REJECTED)]
+            status.initial = Status.CONFIRMED
 
 
 class MasterLinkInline(TabularInline):
@@ -777,6 +833,10 @@ class EtoolsMasterAdmin(ModelAdmin):
             for gone in formset.deleted_objects:
                 gone.delete()
             return
+        if formset.model is dm.EtoolsMasterLink:
+            for link_form in formset.forms:
+                if link_form.instance.pk is not None and link_form.has_changed():
+                    _role_set_by(link_form.instance, link_form, request.user.get_username())
         super().save_formset(request, form, formset, change)
 
     # --------------------------------------------------------------------------------- Add PD indicators
@@ -1089,6 +1149,7 @@ class EtoolsMasterLinkAdmin(ModelAdmin):
     )
     list_select_related = ("master",)
     search_fields = ("title", "pd_number", "ident", "master__name", "reason")
+    form = EtoolsMasterLinkForm
     autocomplete_fields = ("master",)
     raw_id_fields = ("pd",)
     fields = (
@@ -1129,6 +1190,8 @@ class EtoolsMasterLinkAdmin(ModelAdmin):
     def save_model(self, request, obj, form, change):
         if not change and obj.status != Status.SUGGESTED:  # a link added by hand, confirmed or rejected
             obj.confirmed_by = request.user.get_username()
+        if change:
+            _role_set_by(obj, form, request.user.get_username())
         super().save_model(request, obj, form, change)
 
     @admin.action(description=_("Confirm"), permissions=("change",))
@@ -1162,8 +1225,17 @@ class EtoolsMasterLinkAdmin(ModelAdmin):
 
     @admin.action(description=_('Make "Shown only"'), permissions=("change",))
     def make_shown(self, request, queryset):
-        """Shown next to the master's figure, never counted (a breakdown, a partner's other indicator)."""
-        done = queryset.exclude(role=Role.SHOWN).update(role=Role.SHOWN, updated_at=timezone.now())
+        """Shown next to the master's figure, never counted (a breakdown, a partner's other indicator). A
+        suggestion keeps who set it (the nightly job keeps a role a person gave a suggestion)."""
+        changing = list(queryset.exclude(role=Role.SHOWN).values_list("pk", "status"))
+        suggested = {pk for pk, status in changing if status == Status.SUGGESTED}
+        now, by = timezone.now(), request.user.get_username()[:150]
+        links = dm.EtoolsMasterLink.objects
+        links.filter(pk__in=suggested).update(role=Role.SHOWN, confirmed_by=by, updated_at=now)
+        links.filter(pk__in=[pk for pk, _status in changing if pk not in suggested]).update(
+            role=Role.SHOWN, updated_at=now
+        )
+        done = len(changing)
         self.message_user(
             request, _('%(n)s link(s) made "Shown only": never counted.') % {"n": done}, messages.SUCCESS
         )

@@ -272,7 +272,7 @@ def test_a_master_listed_this_year_without_a_target_is_a_warning_until_one_is_ty
     w.link(master, world["A"], 101)
     line = warning()
     assert line is not None and line.text == "1 eTools master indicator has no target for 2026."
-    assert line.url == reverse("admin:datamart_etoolsmaster_changelist") + "?target=no&status__exact=active"
+    assert line.url == reverse("admin:datamart_etoolsmaster_changelist") + "?target=listed"
     assert line.value == 1 and line.read == "eTools master indicators without a target for 2026"
     assert health.about_activityinfo(KEY) is False  # followed whatever the ActivityInfo import does
     year = dm.EtoolsMasterYear.objects.create(master=master, year=w.YEAR, target=0)
@@ -305,6 +305,23 @@ def test_the_admin_list_the_warning_opens_holds_the_master(client, admin_user, w
     client.force_login(admin_user)
     page = client.get(warning().url)
     assert page.status_code == 200 and ENROLLED in page.text
+
+
+def test_the_list_the_warning_opens_holds_exactly_the_masters_it_counts(client, admin_user, world):
+    """The count and the list agree: not a master whose year is switched off, nor one with no link and no
+    year (not listed this year), and a target of 0 or less is none on both."""
+    linked = w.master(ENROLLED)
+    w.link(linked, world["A"], 101)
+    unticked = w.master("Switched off this year")
+    dm.EtoolsMasterYear.objects.create(master=unticked, year=w.YEAR, is_active=False)
+    w.master("No link and no year")
+    negative = w.master("Typed below 0")
+    dm.EtoolsMasterYear.objects.create(master=negative, year=w.YEAR, target=-5)
+    line = warning()
+    client.force_login(admin_user)
+    found = client.get(line.url).context["cl"]
+    assert found.result_count == line.value == 2
+    assert {m.pk for m in found.result_list} == {linked.pk, negative.pk}
 
 
 def test_no_master_no_warning(db):
