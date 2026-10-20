@@ -127,7 +127,7 @@ def test_the_eyebrows_coloured_in_the_template_are_readable():
 
 
 def test_words_on_the_photographs_sit_on_a_deep_shade():
-    """The credits ("Photo provided for NeuroDB design preview"), the story caption and its honesty label sit
+    """The credits ("Photo · UNICEF Lebanon story"), the story caption and its honesty label sit
     on the shade at the foot of each photograph: dark enough for white words over a white photograph."""
     assert ".field-photo-image:after{background:linear-gradient(transparent,#052d3dc4)}" in CSS
     assert "rgba(4,40,56,.78) 50%,rgba(4,40,56,.9))}" in CSS

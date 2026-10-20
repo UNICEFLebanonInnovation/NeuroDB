@@ -18,10 +18,9 @@ HONESTY_LABELS = (
     "These are rules, not live counts.",
     "This illustration contains no live programme data or personal records.",
     "Illustrative workflow, not an actual child record or evidence of measured impact.",
-    "Project-supplied photo · confirm attribution before publishing",
-    "Photo provided for NeuroDB design preview",
-    "photography permissions and exact credits should be verified before publication.",
-    "Photographs © UNICEF Lebanon and credited photographers; obtain clearance before publication.",
+    "Photo · UNICEF Lebanon story",
+    "These photographs come from UNICEF Lebanon stories.",
+    "Photographs from UNICEF Lebanon stories published on unicef.org; each card links to a related story.",
     "must not be presented as an outcome caused or measured by NeuroDB.",
     "© UNICEF2025/Fouad-Choufany/Lebanon",
 )
@@ -99,15 +98,15 @@ def test_stats_can_be_switched_off(client, hierarchy, settings):
     assert "data-count" not in html
 
 
-def test_support_email_adds_request_access(client, hierarchy, settings):
-    """A footer link to the team's mailbox (an opt-in setting); the address is in the link only, never shown
-    as text."""
-    html = client.get(reverse("landing")).content.decode()
-    assert "mailto:" not in html and "Request access" not in html
+def test_footer_has_no_mailto_or_page_jump_links(client, hierarchy, settings):
+    """The footer holds the logo and the public pages only: no team mailbox (even with SUPPORT_EMAIL set), no
+    links back into the page, no UNICEF site link and no concept-page note."""
     settings.SUPPORT_EMAIL = "neurodb-support@example.org"
     html = client.get(reverse("landing")).content.decode()
-    assert '<a href="mailto:neurodb-support@example.org?subject=NeuroDB%20access">Request access</a>' in html
-    assert html.count("neurodb-support@example.org") == 1
+    footer = html[html.index('<footer class="footer">') : html.index("</footer>")]
+    assert "mailto:" not in html and "neurodb-support@example.org" not in html
+    assert "Request access" not in footer and 'href="#' not in footer and "unicef.org" not in footer
+    assert "Concept landing page" not in html and "<nav" not in footer
 
 
 def test_user_guide_adds_a_footer_link(client, hierarchy, settings):
