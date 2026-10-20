@@ -1688,12 +1688,47 @@ few of their ids (every record is also in the container log). Two causes to know
 *Partner monitoring* replaces the ActivityInfo indicator dashboards for partners reporting in
 eTools/PRP. It joins the PD indicators (`pd_indicators`: target, baseline, section, output,
 planned locations, disaggregations) with the partners' data reports (`partner_reports`: one row per
-report, indicator and location). A report row belongs to the PD indicator with its eTools indicator
-id (`etools_cp_output_indicators_id`, read as the PD indicator's `source_id`: unconfirmed, and empty on
-every row so far, so rows are matched by title); a row whose id names none of the PD's indicators is
-matched by its title, only when one indicator of the PD has that title (two indicators with the same
-title are never merged, and their rows are left out). The eTools reporting checks (check 7) count the
-rows matched by id, by title and left out.
+report, indicator and location). The partner reports carry no PD indicator id: the one key the sync
+reads for it, `etools_cp_output_indicators_id`, is empty or missing on every row (20 Oct 2026), its name
+says it belongs to the CP output's indicators, and nothing has confirmed it as the PD indicator's
+`source_id`; the Datamart's partner report records name no other PD indicator id. A report row belongs to
+the PD indicator with that id when it gives one; else to the one indicator of its PD that has its title
+(case and spaces aside); else, for a title two or more indicators of the PD share, to the one that also
+has the row's PD output (`pd_output`, compared with the indicator's output, `lower_result_name`). A row
+none of these places is left out (two indicators are never merged): Data quality's *Same title twice in
+one PD* says how many indicators share their output too. The eTools reporting checks (check 7) count the
+rows matched by id, by title, by output and title, and left out.
+
+**A progress report is its programme document, report type, number and period** (`reached.report_key`,
+`reporting.REPORT_KEY` in the database): every page groups a report's rows, counts it and reads its status
+by it, whatever PRP's own ids hold. The Lebanon rows carry no PRP progress report id at all (check 7), and
+an id could stand for several reports; reports were once told apart by that id first, then by PRP's
+indicator report id, then by number and period, across programme documents. PRP's progress report id
+still opens a report's pop-up when all its rows are of one report, breaks the tie between two reports
+ending the same day, and tells reports apart on a row that names no programme document at all, or no
+number and no period. Within a report, one indicator (an *indicator report*) is PRP's indicator report
+id, else its eTools id, title and PD output.
+
+What this changed on the pages, with the Lebanon rows (no PRP progress report id, no eTools indicator
+id): figures stay the same wherever PRP's ids told reports apart (proved on a fixed set of reports in
+the three shapes PRP's ids can come in, `tests/reports/test_report_identity_figures.py`); they change only
+where reports were read as one that are not, or values were left out:
+
+* a programme document's report no longer takes the status of another PD's report of the same number
+  and dates changed later (an accepted QPR1 could read Due and stop counting in Reached);
+* a report whose rows disagree on its status (a partial re-sync) is one report with its newest word on
+  Partner monitoring, Progress reports and Report/Location (it was listed once per word, and each
+  indicator read its own rows' word);
+* two indicators of a PD that share a title get their Reached when their outputs differ (both were Not
+  reported); Report/Location and the tiles count them apart;
+* Report/Location gives each programme document's report its own line (rows of one title, number and
+  dates were pooled across PDs, showing the largest value);
+* the home page's progress reports this year, the brief's quarterly reports, the daily review's
+  overdue reports and Partner monitoring's overdue reports count each report (with no PRP id they
+  counted none, or one per partner or PD), and every report's pop-up opens from the lists.
+
+To see what is still left out, read Partner monitoring → Data quality → *Same title twice in one PD*
+(with every PD status and no filter) and the eTools reporting checks, check 7.
 
 **Reached: one rule for every page** (`neurodb/datamart/reached.py`; the grid, the indicator detail,
 the map, the programme and partner pages, the progress report pop-up and Ask NeuroDB all read it):
@@ -1742,10 +1777,14 @@ the map, the programme and partner pages, the progress report pop-up and Ask Neu
 * **One status per progress report.** A report whose rows disagree on its status (a partial re-sync:
   some indicators' rows still carry the old word) has one status on every page: the word of its rows
   changed last in the Datamart (`last_modify_date`), then synced last, then with the highest Datamart
-  id, read from every row of the report whatever the filter. One indicator in one progress report
-  (an *indicator report*) is identified by PRP's indicator report id, else by its eTools id and title:
-  two indicators that share a title or an eTools id are never read as one, on the pop-up and on
-  *By location* as on the tiles.
+  id, read from every row of the report (its programme document, type, number and period) whatever the
+  filter. One indicator in one progress report (an *indicator report*) is identified by PRP's indicator
+  report id, else by its eTools id, title and PD output: two indicators that share a title or an eTools
+  id are never read as one, on the pop-up and on *By location* as on the tiles. When one location of a
+  report is given by two indicator reports that one PD indicator's title matches (two PRP indicators
+  with one title), only those under the indicator's own output count; when the output does not tell them
+  apart, that report is left out of the indicator's Reached with a data note, never the largest of them
+  nor their sum.
 
 **The pages.** The grid lists, per indicator: Target, Reached (as of the latest counted report),
 % Reached, Reached in the chosen year, Awaiting acceptance, Status, the partner's own view, and the
@@ -1778,7 +1817,7 @@ of the partner report data the rule depends on (rows per location, whether the v
 report total repeated, disaggregation keys and the `"()"` total, what reports that do not count carry,
 PRP's cumulative against Reached, the calculation methods in use, which PD indicator each report row
 belongs to, PRP's report totals, whether the financial contribution repeats on every indicator of a
-report, the country and programme document of the rows, and the reports owed in PRP's two feeds), each
+report, the country and programme document of the rows, and the reports owed in PRP's feeds), each
 with a verdict and what NeuroDB does whatever the answer. Each check measures what NeuroDB reads: PRP's
 values are parsed as Reached parses them (`c`, else v over d, else v, given as a number, its text or PRP's
 `{v, d, c}`, so PRP's empty `{c: 0, d: 0, v: 0}` is no value), and a progress report is told apart by its
@@ -1789,7 +1828,7 @@ and business area codes at most).
 * **Check 1** counts the locations on several rows of one indicator in one report, those whose rows carry
   different values and, of them, those in reports that count (a warning: Reached takes the largest), the
   two indicators of a report that share a title, and the locations Reached reads as one report across
-  several (PRP's progress report id standing for several reports).
+  several (none since a report is its programme document, type, number and period: a guard).
 * **Check 2** counts, per indicator report with several locations, those with the same `"()"` on every
   location (all zero; above zero in a report that counts and adds up its locations: the risk it is for),
   those whose value in the period is the locations' `"()"` combined, and the rows whose `"()"` gives no
@@ -1806,11 +1845,15 @@ and business area codes at most).
   every report combined or to the latest one, a cumulative that never moves, locations not read from
   `"()"`). It needs 30 seconds of the checks' time.
 * **Check 7** counts the rows of the running programme documents matched to a PD indicator by its id, by
-  title, and left out (a title two or more indicators of the PD share, or none has), with the indicator
-  reports left out; PRP's progress report and indicator report ids (empty, how many, how many stand for
-  more than one report); and lists the keys the records send (rows with the key, with a value, and by kind
-  of value: object, text, number, empty), the keys the sync reads first, so a key it reads and no record
-  sends shows 0.
+  title, by PD output and title (a title several indicators of the PD share), and left out (a title and an
+  output two or more indicators share, or a title none has), with the indicator reports left out; PRP's
+  progress report and indicator report ids (empty, how many, how many stand for more than one report, and
+  the reports with more than one progress report id: counted, never a problem for the pages, which tell
+  reports apart by programme document, type, number and period); and lists the keys the records send
+  (rows with the key, with a value, and by kind of value: object, text, number, empty), the keys the sync
+  reads first, so a key it reads and no record sends shows 0. With no eTools id on any row it says the
+  key read (`etools_cp_output_indicators_id`) is empty everywhere and never confirmed as the PD
+  indicator's id.
 * **Checks 8, 9 and 11** count the records of PRP's indicator reports held; when none is, they say what
   the last sync of `prp_indicator_reports` did (Data health's run): never synced, still running, failed
   (with its error), asked for the business area and got no record (syncing again changes nothing: check
@@ -1841,7 +1884,14 @@ and business area codes at most).
   progress reports missing between the report numbers held (a QPR2 between QPR1 and QPR3) whose period
   ended this year: an estimate (its month from the report before it, its indicator reports as many as the
   report next to it), in the column *Expected, not in the feed*; a report owed after the last number held
-  cannot be seen this way.
+  cannot be seen this way. A third feed, PRP's own progress reports (`prp_progress_reports`,
+  `sources/prp/unicefprogressreport`), is set beside the partner reports in a table of its own, in
+  progress reports (never indicator reports): per month and status by the same rule over its status,
+  end, due and submission dates, for the running programme documents it links to. It names the months
+  where PRP's progress reports list more reports still owed than the partner reports (the reports Power
+  BI counts as overdue that this feed does not carry); with none to compare, it says why (never synced,
+  running, failed, none returned, none linked to a programme document NeuroDB holds, with the link's
+  counts, or none of the year).
 
 Checks 10 and 11 run first, so they answer whatever time the others take; the page lists the checks in
 their order. Every query is aggregate; the rows a check parses in Python are read 2,000 at a time and stop
@@ -1900,8 +1950,9 @@ figures as everywhere else (they read the rule above; nothing is added across in
   Reached ("with Reached": a counted report carries a value; with a year chosen, Reached in that
   year), with and without a target (a target of zero is missing). Lists: indicators without a
   target; without Reached or with zero Reached; and NeuroDB's own checks: Reached differs from PRP's
-  cumulative, the same title twice in one PD (kept apart, never merged), partial history. Each list
-  shows its first 500 rows; the counts are complete.
+  cumulative, the same title twice in one PD (kept apart, never merged: the rows are placed by their PD
+  output, and the list counts the indicators that share their output too, whose rows stay left out),
+  partial history. Each list shows its first 500 rows; the counts are complete.
 * **Progress reports** has four tabs on one filter (search, report status, report type, reporting
   year, section, report #, partner, partner type, PD status, emergency indicator, period start and
   period end between). The Section list offers each section name once: a report row whose section is a
@@ -2170,6 +2221,15 @@ reports without a `source_id` key takes its `id` as its source id (a record with
 empty, keeps its own): that the two ids match the partner reports' `indicator_report` is not confirmed,
 so the partner reports' totals (`reached.progress_values`) use such a record only when it names the same
 programme document and indicator, and check 8 counts those that name another programme document.
+
+PRP's progress reports name no eTools programme document, only PRP's own: after each sync of
+`prp_programme_documents` and of `prp_progress_reports` (the catalogue syncs them in that order), each
+progress report is linked to the programme document (and its partner) of the PRP programme document it
+names by id (`programme_document_id`, else `programme_document`: no recorded record confirms the key yet),
+that record being linked to the eTools PD by its external id or reference number. The run's details say
+how it went, counts only, under `progress_reports_pd_link`: `linked`, `pd_not_named` (the record names
+none under those keys), `pd_not_held` (a PRP programme document NeuroDB does not hold) and `pd_not_linked`
+(held, but linked to no eTools PD). Check 11 reads the linked ones as its third feed.
 
 To see what the Datamart holds when such a read keeps nothing, an administrator presses Run a job →
 *Probe a Datamart dataset* (`probe_datamart --dataset <name>`, `prp_indicator_reports` by default). It

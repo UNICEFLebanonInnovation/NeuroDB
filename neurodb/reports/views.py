@@ -2093,9 +2093,10 @@ def _reporting_export(data: dict[str, Any], tab: str, fmt: str, params=None) -> 
 
 @require_GET
 def progress_report(request: HttpRequest) -> HttpResponse:
-    """Quick view: the indicators of one progress report (``?report=<progress report id>``), with
-    each location's value parsed and a total row that follows the indicator's method."""
-    detail = datamart.report_detail(request.GET.get("report", "")[:300])
+    """Quick view: the indicators of one progress report (``?report=<its key>``, as the reports' lists link
+    it, or PRP's progress report id), with each location's value parsed and a total row that follows the
+    indicator's method."""
+    detail = datamart.report_detail(request.GET.get("report", "")[:600])
     if detail is None:
         raise Http404
     report = detail["report"]

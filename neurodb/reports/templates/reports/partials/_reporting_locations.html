@@ -13,7 +13,7 @@
       <td class="small cell-wrap">{{ r.cp_output|default:"—" }}</td>
       <td class="small cell-wrap">{{ r.indicator }}</td>
       <td class="small">{{ r.emergency }}</td>
-      <td class="text-nowrap">{% url 'reports:progress_report' as report_url %}{% if r.progress_report %}<a class="mono small" href="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-get="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ r.report|default:"—" }}</a>{% else %}<span class="mono small">{{ r.report|default:"—" }}</span>{% endif %}<span class="cell-sub">{{ r.report_type }}</span></td>
+      <td class="text-nowrap">{% url 'reports:progress_report' as report_url %}{% if r.report_key %}<a class="mono small" href="{{ report_url }}?report={{ r.report_key|urlencode }}" hx-get="{{ report_url }}?report={{ r.report_key|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ r.report|default:"—" }}</a>{% else %}<span class="mono small">{{ r.report|default:"—" }}</span>{% endif %}<span class="cell-sub">{{ r.report_type }}</span></td>
       <td>{% status_pill r.status r.report_status "sm" %}</td>
       <td class="small text-nowrap">{{ r.period_start|date:"j M Y"|default:"—" }}</td>
       <td class="small text-nowrap">{{ r.period_end|date:"j M Y"|default:"—" }}</td>

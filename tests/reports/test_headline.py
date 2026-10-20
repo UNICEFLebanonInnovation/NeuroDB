@@ -480,12 +480,11 @@ def test_the_admin_checks_the_indicator_belongs_to_the_pd_and_counts_people(data
 
 def test_the_headline_says_how_much_awaits_acceptance(data, reporting_year):
     """The enrolment indicator (the PD's main one) reached 300 in an accepted Q1 report and 400 more in a
-    Q2 report still awaiting acceptance: children reached 700, of which 400 a send-back would take off."""
+    Q2 report still awaiting acceptance: children reached 700, of which 400 a send-back would take off. The
+    Q2 report (the PD's, of every indicator: one report, one status) awaits acceptance as a whole."""
     _indicator(data, 300, ENROLLED, [(datetime.date(2026, 3, 31), "Achrafieh", 300),
                                      (datetime.date(2026, 6, 30), "Achrafieh", 400)])  # fmt: skip
-    dm.ReportedIndicator.objects.filter(etools_indicator_id="300", period_end__month=6).update(
-        report_status="Submitted"
-    )
+    dm.ReportedIndicator.objects.filter(period_end__month=6).update(report_status="Submitted")
     impact = build()["impact"]
     assert (impact["children_etools"], impact["children_awaiting"]) == (700, 400)
     assert build(governorate="Beirut")["impact"]["children_awaiting"] is None  # not split by place
@@ -497,7 +496,8 @@ def test_the_headline_says_how_much_awaits_acceptance(data, reporting_year):
     # a "latest" indicator: the year's figure is the latest report (400); without it, 300: 100 awaits
     dm.ReportedIndicator.objects.filter(etools_indicator_id="300").update(calculation_across_periods="latest")
     impact = build()["impact"]
-    assert (impact["children_etools"], impact["children_awaiting"]) == (500, 0)  # 100's 500 is larger now
+    # 100's 500 is larger now, its Q2 200 awaiting acceptance with the rest of the report
+    assert (impact["children_etools"], impact["children_awaiting"]) == (500, 200)
     (row,) = [r for r in _rows(data["pd"].id) if r.key == "300"]
     assert row.result.awaiting_in(2026) == 100 and row.result.awaiting_in(2025) is None
 

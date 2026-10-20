@@ -65,9 +65,14 @@ def test_etools_counts_show_without_activityinfo(client, db):
             datamart_id=n, source_id=source, intervention=pd, title=f"# {source}", location_name=location
         )
     year = timezone.localdate().year
+    # two rows of QPR1 (two indicators or locations of one report: its PD, number and period) and one of QPR2
     for n, report in enumerate(["QPR1", "QPR1", "QPR2"], start=1):
         dm.ReportedIndicator.objects.create(
-            datamart_id=n, intervention=pd, progress_report=report, period_end=datetime.date(year, 3 * n, 28)
+            datamart_id=n,
+            intervention=pd,
+            progress_report=report,
+            report_number=report,
+            period_end=datetime.date(year, 3 if report == "QPR1" else 6, 28),
         )
     html = client.get(reverse("landing")).content.decode()
     assert "programme documents running this year" in html and "partner progress reports this year" in html

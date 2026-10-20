@@ -26,7 +26,7 @@ from django.utils import timezone
 
 from neurodb.core.jobs import NEVER_AN_ALARM, PARTIAL_IS_NOT_AN_ALARM
 from neurodb.core.models import SyncRun
-from neurodb.datamart import children, headline, monitoring
+from neurodb.datamart import children, headline, monitoring, reporting
 from neurodb.datamart import models as dm
 from neurodb.datamart.catalogue import DIAGNOSTIC
 from neurodb.datamart.monitoring import ACTIVE_PD_STATUSES, NOT_REPORTED, Filters, Indicator
@@ -368,12 +368,13 @@ def check_reports_overdue(ctx: Context) -> list[Draft]:
             due_date__lt=ctx.today,
         )
         .order_by()
-        .values("intervention_id", "progress_report", "report_number", "due_date")
+        .annotate(_report=reporting.REPORT_KEY)  # its PD, type, number and period, whatever PRP's ids hold
+        .values("intervention_id", "_report", "report_number", "due_date")
         .distinct()
     )
     per_pd: dict[int, dict[str, tuple[str, datetime.date]]] = defaultdict(dict)
     for r in rows:
-        per_pd[r["intervention_id"]][r["progress_report"] or ""] = (r["report_number"], r["due_date"])
+        per_pd[r["intervention_id"]][r["_report"]] = (r["report_number"], r["due_date"])
     drafts = []
     for pd_id, reports in per_pd.items():
         pd = ctx.active_pds.get(pd_id)

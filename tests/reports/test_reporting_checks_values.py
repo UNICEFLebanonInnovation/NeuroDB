@@ -177,14 +177,16 @@ def test_check_1_two_programme_documents_never_pool(pd):
     assert figures(one("1"))["Locations on several rows of one indicator in one report"] == 0
 
 
-def test_check_1_finds_a_progress_report_id_that_stands_for_several_reports(pd):
-    # PRP's id repeated on QPR1 and QPR2: Reached reads them as one report and keeps the largest
+def test_check_1_a_progress_report_id_that_stands_for_several_reports_is_read_as_several(pd):
+    # PRP's id repeated on QPR1 and QPR2 (finding ID-6): Reached reads two reports, their PD, type, number and
+    # period, never one report keeping the largest; check 7 counts the id
     report_row(pd, "QPR1", end=D(2026, 3, 31), progress_report="PR-PD", total={"c": 200})
     report_row(pd, "QPR2", end=D(2026, 6, 30), progress_report="PR-PD", total={"c": 7})
     found = one("1")
     assert figures(found)["Locations on several rows of one indicator in one report"] == 0
-    assert figures(found)["Locations Reached reads as one report across several reports"] == 1
-    assert found["tone"] == "warning" and "stands for several reports" in found["verdict"]
+    assert figures(found)["Locations Reached reads as one report across several reports"] == 0
+    assert found["tone"] == "ok"
+    assert figures(one("7"))["PRP progress report ids standing for more than one report"] == 1
 
 
 # -------------------------------------------------------------------------------------------- check 2
@@ -385,7 +387,8 @@ def test_check_7_counts_the_rows_partner_monitoring_uses_and_leaves_out(indicato
     numbers = figures(found)
     assert numbers["… matched to a PD indicator by its id"] == 1
     assert numbers["… matched by title (one indicator of the PD has it)"] == 2
-    assert numbers["… left out: two or more indicators of the PD have the title"] == 1
+    assert numbers["… matched by PD output and title (a title several indicators of the PD share)"] == 0
+    assert numbers["… left out: two or more indicators of the PD have the title and the output"] == 1
     assert numbers["… left out: no indicator of the PD has the title"] == 1
     assert numbers["Indicator reports left out"] == 2 and found["tone"] == "warning"
     census = {line[0]: line for line in found["table"]["rows"]}
@@ -412,5 +415,11 @@ def test_check_7_says_whether_prps_ids_tell_the_reports_apart(pd):
     dm.ReportedIndicator.objects.update(progress_report="PR-PD")
     found = one("7")
     assert figures(found)["PRP progress report ids standing for more than one report"] == 1
+    assert figures(found)["Reports with more than one PRP progress report id"] == 0
     assert "1 progress report id of PRP stands for more than one report" in found["verdict"]
-    assert found["tone"] == "warning"
+    assert "reads them as the separate reports they are" in found["verdict"]
+    assert found["tone"] == "ok"  # every page tells the two reports apart by their number and period
+    # two ids on one report (a report PRP re-created): counted, the report read once
+    dm.ReportedIndicator.objects.filter(report_number="HR3").update(progress_report="PR-A")
+    report_row(pd, "HR3", end=D(2026, 6, 30), progress_report="PR-B", location="Bekaa")
+    assert figures(one("7"))["Reports with more than one PRP progress report id"] == 1

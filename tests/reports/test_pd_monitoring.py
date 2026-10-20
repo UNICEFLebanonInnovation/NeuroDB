@@ -255,10 +255,11 @@ def test_summary_and_grouping(data):
     assert data_["overdue_reports"] == 1 and data_["programme_documents"] == 1 and data_["partners"] == 1
     assert (data_["with_reached"], data_["awaiting_acceptance"], data_["differs_from_prp"]) == (2, 0, 0)
     # an indicator whose only report is due is not reported, never off track (or "with Reached"): the
-    # boys' QPR1 becomes a progress report of its own, still due (a status belongs to a whole progress
-    # report: rows of one report that disagree are read as one, tests/reports/test_cross_page_fixes.py)
+    # boys' QPR1 becomes a progress report of its own (another number), still due (a status belongs to a
+    # whole progress report, its PD, type, number and period: rows of one report that disagree are read as
+    # one, tests/reports/test_cross_page_fixes.py)
     dm.ReportedIndicator.objects.filter(indicator=data["boys"], progress_report="PR-1").update(
-        progress_report="PR-1B", report_status="Due", submission_date=None
+        progress_report="PR-1B", report_number="QPR1B", report_status="Due", submission_date=None
     )
     rows = monitoring.indicators(filters, today=TODAY)
     data_ = monitoring.summary(rows, filters, today=datetime.date(2026, 11, 1))
@@ -586,7 +587,7 @@ def test_reached_is_computed_and_a_different_prp_cumulative_is_flagged(data):
     )
     row = _girls(monitoring.Filters(year=2026))
     assert (row.reached, row.prp_cumulative, row.mismatch) == (551.0, 700.0, True)
-    assert row.result.latest.key == "PR-2b"  # "PR-2b" sorts after "PR-2"
+    assert row.result.latest.progress_report == "PR-2b"  # "PR-2b" sorts after "PR-2"
     assert row.months == {3: 300.0, 6: 251.0}  # two counted reports ending in June add up
 
 
@@ -640,7 +641,7 @@ def test_indicator_detail_matrix_adds_up_and_never_adds_rows_of_one_location(dat
     pd = data["pd"]
     # every report is in the matrix whatever the year; the year chooses "Reached in"
     before = monitoring.indicator_detail(pd, "100", "QPR", 2025, today=TODAY)
-    assert [p["key"] for p in before["periods"]] == ["PR-1", "PR-2"]
+    assert [p["progress_report"] for p in before["periods"]] == ["PR-1", "PR-2"]
     assert before["indicator"].reached == 550.0 and before["indicator"].reached_in_year is None
     detail = monitoring.indicator_detail(pd, "100", "QPR", 2026, today=TODAY)
     rows = {loc["location"]: loc for loc in detail["by_location"]}
@@ -665,7 +666,7 @@ def test_indicator_detail_matrix_adds_up_and_never_adds_rows_of_one_location(dat
     )
     detail = monitoring.indicator_detail(pd, "100", "QPR", 2026, today=TODAY)
     akkar = next(loc for loc in detail["by_location"] if loc["location"] == "Akkar")
-    assert akkar["cells"]["PR-1"] == 200.0 and detail["periods"][0]["total"] == 300.0
+    assert akkar["cells"][detail["periods"][0]["key"]] == 200.0 and detail["periods"][0]["total"] == 300.0
     assert detail["indicator"].reached == 550.0 and any(
         "never their sum" in n for n in detail["result"].notes
     )
@@ -686,7 +687,7 @@ def test_indicator_detail_greys_reports_that_do_not_count(data):
         report_status="Sent back"
     )
     detail = monitoring.indicator_detail(pd, "100", "QPR", 2026, today=TODAY)
-    periods = {p["key"]: p for p in detail["periods"]}
+    periods = {p["progress_report"]: p for p in detail["periods"]}
     assert periods["PR-2"]["status"] == "sent_back" and not periods["PR-2"]["counted"]
     assert periods["PR-2"]["total"] == 250.0  # shown, but outside every total
     assert detail["indicator"].reached == 300.0
@@ -696,9 +697,12 @@ def test_indicator_detail_greys_reports_that_do_not_count(data):
     }
     # the boys' Due report is in its matrix, greyed; a report not yet due is left out
     boys = monitoring.indicator_detail(pd, "200", "QPR", 2026, today=datetime.date(2026, 9, 1))
-    assert [(p["key"], p["status"]) for p in boys["periods"]] == [("PR-1", "accepted")]
+    assert [(p["progress_report"], p["status"]) for p in boys["periods"]] == [("PR-1", "accepted")]
     boys = monitoring.indicator_detail(pd, "200", "QPR", 2026, today=datetime.date(2026, 10, 2))
-    assert [(p["key"], p["status"]) for p in boys["periods"]] == [("PR-1", "accepted"), ("PR-3", "due")]
+    assert [(p["progress_report"], p["status"]) for p in boys["periods"]] == [
+        ("PR-1", "accepted"),
+        ("PR-3", "due"),
+    ]
 
 
 def test_r_keys_match_only_their_own_rows(data):

@@ -635,8 +635,11 @@ def test_report_by_location_keeps_each_report_by_its_own_status(client_viewer, m
         report_status="", submission_date=None
     )
     data = _reporting()
-    assert next(r for r in data["reports"] if r["progress_report"] == "PR-1")["status"] == "accepted"
-    assert data["statuses"]["PR-1"] == "accepted"
+    pr1 = next(r for r in data["reports"] if r["progress_report"] == "PR-1")
+    assert pr1["status"] == "accepted"
+    assert (
+        data["statuses"][pr1["key"]] == "accepted"
+    )  # each report's status by its key (PD, type, number, period)
     page = client_viewer.get(
         reverse("reports:partner_reporting"), {"tab": "locations", "status": "overdue", "pd_status": ""}
     )

@@ -335,9 +335,10 @@ class Cell:
 class Report:
     """One indicator in one progress report (``indicator_report`` in PRP)."""
 
-    key: str
+    key: str  # :func:`report_key`
     number: str = ""
     report_type: str = ""
+    progress_report: str = ""  # PRP's id of the report, as its rows give it (often none)
     status: str = DUE
     status_text: str = ""
     period_start: datetime.date | None = None
@@ -373,13 +374,16 @@ class Report:
 
     @property
     def order(self) -> tuple:
-        return (self.period_end or datetime.date.min, self.key)
+        """Oldest first; two reports ending the same day by PRP's id, then their number."""
+        return (self.period_end or datetime.date.min, self.progress_report, self.number, self.key)
 
 
 ROW_FIELDS = (
     "datamart_id",
     "intervention_id",
+    "pd_reference_number",
     "indicator",
+    "pd_output",
     "etools_indicator_id",
     "progress_report",
     "indicator_report",
@@ -409,21 +413,56 @@ ROW_FIELDS = (
 ROW_ORDER = ("period_end", "progress_report", "location", "p_code", "datamart_id")
 
 
+# the fields that tell one progress report from another (:func:`report_identity`)
+IDENTITY_FIELDS = (
+    "intervention_id",
+    "pd_reference_number",
+    "report_type",
+    "report_number",
+    "period_start",
+    "period_end",
+)
+
+
+def report_identity(row: dict[str, Any]) -> tuple:
+    """A progress report as every one of its rows tells it apart: its programme document (NeuroDB's link,
+    else the PD reference number the row names), report type, number and period. PRP repeats them on each
+    row of a report, while its own report ids can be empty, or one value for many reports (the Lebanon rows
+    of 20 Oct 2026: no progress report id at all). The eTools reporting checks count reports by it."""
+    pd = row.get("intervention_id")
+    return (
+        pd if pd is not None else f"ref:{row.get('pd_reference_number') or ''}",
+        (row.get("report_type") or "").strip().upper(),
+        row.get("report_number") or "",
+        row.get("period_start"),
+        row.get("period_end"),
+    )
+
+
 def report_key(row: dict[str, Any]) -> str:
-    """The progress report of a row; rows without one are never pooled with other reports."""
-    if row.get("progress_report"):
-        return str(row["progress_report"])
-    if row.get("indicator_report"):
-        return f"ir:{row['indicator_report']}"
-    return f"{row.get('report_number') or ''}|{row.get('period_start') or ''}|{row.get('period_end') or ''}"
+    """The progress report of a row (:func:`report_identity`) as text: every page groups a report's rows,
+    counts it and reads its one status by it (``reporting.REPORT_KEY`` in the database). Two programme
+    documents' reports of one number and period are never one, nor two periods of one indicator. PRP's
+    progress report id is read only where it cannot contradict the identity: on a row that names no
+    programme document at all, or no report number and no period, it tells apart reports nothing else
+    would (check 7 counts the ids that stand for several reports, and the reports with several ids)."""
+    pd, kind, number, start, end = report_identity(row)
+    key = f"{'pd' if isinstance(pd, int) else ''}{pd}|{kind}|{number}|{start or ''}|{end or ''}"
+    unnamed = pd == "ref:" or (not number and start is None and end is None)
+    if unnamed and row.get("progress_report"):
+        key += f"|pr:{row['progress_report']}"
+    return key
 
 
 def indicator_report_key(row: dict[str, Any]) -> str:
-    """One indicator in one progress report: PRP's indicator report id, else the eTools id and the title
-    (the rule of ``reporting.INDICATOR_REPORT``, which counts them). Two indicators of one report are
-    never read as one, even when they share a title or an eTools id."""
+    """One indicator in one progress report: PRP's indicator report id, else the eTools id, the title and
+    the PD output (the rule of ``reporting.INDICATOR_REPORT``, which counts them). Two indicators of one
+    report are never read as one, even when they share a title or an eTools id, as long as PRP's id or
+    their output tells them apart."""
     found = str(row.get("indicator_report") or "")
-    return found or f"t|{row.get('etools_indicator_id') or ''}|{row.get('indicator') or ''}"
+    return found or (
+        f"t|{row.get('etools_indicator_id') or ''}|{row.get('indicator') or ''}|{row.get('pd_output') or ''}"
+    )
 
 
 # ------------------------------------------------------------------------- one status per report
@@ -534,6 +573,7 @@ def build_reports(
         if report is None:
             report = reports[key] = Report(key=key)
         report.number = _first(report.number, row.get("report_number") or "")
+        report.progress_report = _first(report.progress_report, str(row.get("progress_report") or ""))
         report.report_type = _first(report.report_type, (row.get("report_type") or "").upper())
         text = row.get("report_status") or ""
         words[key][text] = stamp(words[key].get(text), row_stamp(row))
@@ -772,6 +812,53 @@ def location_method_label(method: str, ratio: bool = False) -> str:
     return "sum of locations"
 
 
+def _two_at_one_place(rows: list[dict[str, Any]]) -> bool:
+    """Whether one location of these rows (one progress report) is reported by two or more indicator reports:
+    two PRP indicator report ids there, else, when the rows carry none, two PD outputs."""
+    ids: dict[str, set[str]] = defaultdict(set)
+    outputs: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        place = location_key(row.get("p_code"), row.get("location"))
+        if row.get("indicator_report"):
+            ids[place].add(str(row["indicator_report"]))
+        if norm(row.get("pd_output")):
+            outputs[place].add(norm(row.get("pd_output")))
+    if ids:
+        return any(len(found) > 1 for found in ids.values())
+    return any(len(found) > 1 for found in outputs.values())
+
+
+def one_indicator(rows: list[dict[str, Any]], output: str | None) -> tuple[list[dict[str, Any]], list[str]]:
+    """The rows of one PD indicator, and the notes on what was left out. A progress report where one location
+    is reported by two or more indicator reports (two PRP indicators carry this indicator's title,
+    :func:`_two_at_one_place`) keeps only the rows under the indicator's own output (``output``, the PD
+    indicator's); when its output does not tell them apart, the report is left out of Reached, never the
+    largest of them nor their sum."""
+    by_report: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_report[report_key(row)].append(row)
+    kept, notes = [], []
+    for found in by_report.values():
+        if not _two_at_one_place(found):
+            kept.extend(found)
+            continue
+        name = found[0].get("report_number") or report_key(found[0])
+        mine = [r for r in found if output and norm(r.get("pd_output")) == norm(output)]
+        if mine and not _two_at_one_place(mine):
+            kept.extend(mine)
+            notes.append(
+                f"{name}: two or more indicator reports of this progress report carry this indicator's "
+                "title; the one under its own output is used."
+            )
+        else:
+            notes.append(
+                f"{name}: two or more indicator reports of this progress report carry this indicator's "
+                "title, and their output does not say which is this one: the report is left out of Reached "
+                "(never the largest of them, nor their sum)."
+            )
+    return kept, notes
+
+
 def compute(
     rows: Iterable[dict[str, Any]],
     *,
@@ -783,14 +870,16 @@ def compute(
     only: set[str] | None = None,
     partial: bool = False,
     report_status: dict[str, str] | None = None,
+    output: str | None = None,
 ) -> Reached:
     """Reached for one indicator from its report rows (one report type, read in ``ROW_ORDER``).
 
     ``only``: the locations to keep, for a location filter, by :func:`location_key` (the P-code) or by
     normalised name (:func:`location_filter`): the figures are then those locations' own Reached, and
     PRP's report totals and cumulative (for the whole PD) are not used. ``report_status``: each
-    progress report's status word (:func:`report_status_texts`)."""
-    rows = list(rows)
+    progress report's status word (:func:`report_status_texts`). ``output``: the PD indicator's output,
+    which tells its rows from another indicator's of the same title in one report (:func:`one_indicator`)."""
+    rows, left_out = one_indicator(list(rows), output)
     ratio = is_ratio(
         display_type,
         unit,
@@ -886,6 +975,7 @@ def compute(
             if note not in seen and r.counted:
                 seen.add(note)
                 out.notes.append(f"{r.number or r.key}: {note}")
+    out.notes.extend(left_out)
     return out
 
 

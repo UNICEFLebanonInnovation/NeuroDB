@@ -1962,6 +1962,73 @@ class Census:
         }
 
 
+# the keys a PRP progress report may name its PRP programme document by (``sources/prp/unicefprogressreport``
+# is a raw PRP table: no recorded record confirms which one it sends), the first found first
+PROGRESS_REPORT_PD_KEYS = ("programme_document_id", "programme_document")
+
+
+def _named_pd(data: Any) -> str:
+    """The PRP programme document a progress report names (its id as text: an id, ``{"id": ..}``), or ""."""
+    data = data if isinstance(data, dict) else {}
+    for key in PROGRESS_REPORT_PD_KEYS:
+        value = data.get(key)
+        if isinstance(value, dict):
+            value = value.get("id")
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        if value not in (None, "") and not isinstance(value, bool | list):
+            return str(value).strip()
+    return ""
+
+
+def link_progress_reports() -> dict[str, int]:
+    """PRP's progress reports (``prp_progress_reports``) linked to their programme document and its partner,
+    through PRP's own programme documents (``prp_programme_documents``, linked to the eTools PD by its
+    external id or reference number): a progress report names its PRP programme document by id, the key that
+    record is held under. Run after each of the two datasets (the catalogue syncs the programme documents
+    first), so a link follows a change in either. Counts only, for the run's details: ``linked``;
+    ``pd_not_named`` (the record names none, under the keys tried); ``pd_not_held`` (a PRP programme
+    document NeuroDB does not hold); ``pd_not_linked`` (held, not linked to a PD NeuroDB holds)."""
+    held = dict(
+        dm.DatamartDocument.objects.filter(dataset="prp_programme_documents").values_list(
+            "record_key", "intervention_id"
+        )
+    )
+    partners = dict(
+        PCA.objects.filter(pk__in={pk for pk in held.values() if pk}).values_list("pk", "partner_id")
+    )
+    counts: Counter[str] = Counter()
+    changed = []
+    reports = dm.DatamartDocument.objects.filter(dataset="prp_progress_reports").only(
+        "pk", "data", "intervention_id", "partner_id"
+    )
+    for doc in reports.iterator(chunk_size=2000):
+        named = _named_pd(doc.data)
+        pd_id = held.get(named) if named else None
+        counts[
+            "linked"
+            if pd_id
+            else "pd_not_named"
+            if not named
+            else "pd_not_held"
+            if named not in held
+            else "pd_not_linked"
+        ] += 1
+        partner_id = partners.get(pd_id) if pd_id else None
+        if (doc.intervention_id, doc.partner_id) != (pd_id, partner_id):
+            doc.intervention_id, doc.partner_id = pd_id, partner_id
+            changed.append(doc)
+    dm.DatamartDocument.objects.bulk_update(changed, ["intervention_id", "partner_id"], batch_size=2000)
+    return dict(counts)
+
+
+# the link steps run after a dataset's records are written (:func:`sync_documents`)
+AFTER_DOCUMENTS: dict[str, Callable[[], dict[str, int]]] = {
+    "prp_programme_documents": link_progress_reports,
+    "prp_progress_reports": link_progress_reports,
+}
+
+
 def sync_documents(name: str) -> Callable[..., SyncRun]:
     spec = catalogue.DOCUMENTS[name]
 
@@ -2008,6 +2075,8 @@ def sync_documents(name: str) -> Callable[..., SyncRun]:
                     details["country_unnamed"] = unnamed
                 if not writer.seen:  # nothing kept: Data health warns, naming the code
                     details["empty_response"] = True
+            if name in AFTER_DOCUMENTS:  # PRP's progress reports linked to their programme document
+                details["progress_reports_pd_link"] = AFTER_DOCUMENTS[name]()
             return details
 
         return _run(run, body)

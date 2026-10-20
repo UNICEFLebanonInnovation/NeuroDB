@@ -529,14 +529,13 @@ class _Builder:
                 partner_id__in=self._partner_ids(), period_end__year=self.year, report_type="QPR"
             )
             .exclude(reporting.NO_PD)  # a report naming no PD: never counted (reporting.NO_PD)
-            .values(
-                "partner_id", "progress_report", "due_date", "submission_date", "report_status", "period_end"
-            )
+            .annotate(_report=reporting.REPORT_KEY)  # its PD, type, number and period
+            .values("partner_id", "_report", "due_date", "submission_date", "report_status", "period_end")
             .distinct()
         )
         seen: dict[tuple[int, str], dict[str, Any]] = {}
         for r in rows:
-            seen.setdefault((r["partner_id"], r["progress_report"]), r)
+            seen.setdefault((r["partner_id"], r["_report"]), r)
         self._report_rows = list(seen.values())
         return self._report_rows
 

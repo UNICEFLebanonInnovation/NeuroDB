@@ -34,7 +34,9 @@ reports. Every page, export and Ask NeuroDB answer reads the same rule:
 ## Report statuses
 
 Every progress report has one of six statuses, the same on every page, so the counts add up to the
-total:
+total. A progress report is one programme document's report of one type, number and period (QPR2 of
+1 April to 30 June); when its rows disagree (some synced before the report changed), the status its rows
+were given last is the report's on every page:
 
 | Status | Meaning | Counts in Reached |
 |---|---|---|
@@ -57,7 +59,10 @@ total:
   as Power BI does, with Reached to date beside them.
 - **Data quality**: programme documents and indicators with and without a target or Reached, and the
   lists to fix (missing targets, no or zero Reached, Reached differing from PRP, the same title twice in
-  one programme document, partial history).
+  one programme document, partial history). The partner reports carry no PD indicator id, so a report is
+  matched to its indicator by title; where two indicators of a programme document share a title, by
+  their PD output too. Indicators that share both stay without Reached until their title or output is
+  told apart in eTools: the same-title list counts them.
 - **Map**: the implementation locations, coloured by the worst status there.
 
 Switching views keeps the year shown; the year menu at the top offers *All years* on these pages. The
@@ -165,7 +170,8 @@ from Data health and Progress reports): eleven read-only checks of what the part
 like (rows per location, repeated values, disaggregation keys, what reports that do not count carry,
 PRP's cumulative, the calculation methods, which PD indicator each report row belongs to, PRP's report
 totals, the financial contribution, the country and programme document of the rows and how much of the
-running programme documents' reporting is held, and the reports still owed in PRP's two feeds), each with
+running programme documents' reporting is held, and the reports still owed in PRP's feeds: the partner
+reports, PRP's indicator reports and PRP's own progress reports), each with
 a verdict and what NeuroDB does whatever the answer; they show counts only. When PRP's indicator reports
 hold nothing, checks 8, 9 and 11 say what their last sync did and what to do in the administration.
 Checks 10 and 11 run first. The checks run every night as a job and the page shows their latest result at

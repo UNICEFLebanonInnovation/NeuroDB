@@ -35,7 +35,7 @@
       <td class="small">{{ r.section|default:"—" }}</td>
       <td>{% status_pill r.status r.status_label "sm" %}</td>
       <td class="small text-nowrap">{{ r.due_date|date:"j M Y"|default:"—" }}</td>
-      <td class="text-nowrap">{% if r.progress_report %}<a class="mono small" href="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-get="{{ report_url }}?report={{ r.progress_report|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ r.report_number|default:"—" }}</a>{% else %}{{ r.report_number|default:"—" }}{% endif %}<span class="cell-sub">{{ r.report_type }}</span></td>
+      <td class="text-nowrap">{% if r.key %}<a class="mono small" href="{{ report_url }}?report={{ r.key|urlencode }}" hx-get="{{ report_url }}?report={{ r.key|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ r.report_number|default:"—" }}</a>{% else %}{{ r.report_number|default:"—" }}{% endif %}<span class="cell-sub">{{ r.report_type }}</span></td>
       <td class="num">{{ r.indicators }}</td>
     </tr>{% endfor %}</tbody>
   </table></div>

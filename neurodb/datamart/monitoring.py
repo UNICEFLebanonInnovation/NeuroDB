@@ -559,8 +559,11 @@ def location_filter(filters: Filters) -> set[str] | None:
 
 class _Idents:
     """Which PD indicator a report row belongs to: by its eTools indicator id, else by its title when
-    one indicator of the PD has it (two indicators with the same title are never merged: a row that
-    names neither id is then left out).
+    one indicator of the PD has it, else, for a title two or more indicators of the PD share, by its PD
+    output and title when one of them has both (the row's ``pd_output`` and the indicator's output, case
+    and spaces aside). Two indicators are never merged: a row these do not place is left out. The
+    partner reports send no PD indicator id so far (the key read, ``etools_cp_output_indicators_id``, is
+    empty on every row), so production rows are matched by title and output.
 
     Built over every indicator of the PDs, not only those the filters keep: a report row of a
     filtered-out indicator is then skipped instead of falling back to another indicator's title."""
@@ -568,31 +571,51 @@ class _Idents:
     def __init__(self, pd_ids: list[int]) -> None:
         self.by_source: dict[tuple[int, str], tuple[int, str]] = {}
         titles: dict[tuple[int, str], set[tuple[int, str]]] = defaultdict(set)
+        outputs: dict[tuple[int, str, str], set[tuple[int, str]]] = defaultdict(set)
         rows = dm.PDIndicator.objects.filter(intervention_id__in=pd_ids)
-        for pd_id, source_id, title in rows.values_list("intervention_id", "source_id", "title"):
+        for pd_id, source_id, title, output in rows.values_list(
+            "intervention_id", "source_id", "title", "lower_result_name"
+        ):
             ident = ident_of(pd_id, source_id, title)
             if source_id:
                 self.by_source.setdefault((pd_id, str(source_id)), ident)
             titles[(pd_id, norm(title))].add(ident)
+            outputs[(pd_id, norm(output), norm(title))].add(ident)
         self.by_title = {key: next(iter(found)) for key, found in titles.items() if len(found) == 1}
-        # the titles two or more indicators of a PD share: a row matched by such a title only is left out
+        # the titles two or more indicators of a PD share: a row is then placed by its output and title,
+        # when one of them has both, else left out
         self.shared = {key for key, found in titles.items() if len(found) > 1}
+        self.by_output = {
+            key: next(iter(found))
+            for key, found in outputs.items()
+            if len(found) == 1 and (key[0], key[2]) in self.shared
+        }
 
-    def of(self, pd_id: int, etools_id: Any, title: str | None) -> tuple[int, str] | None:
+    def of(
+        self, pd_id: int, etools_id: Any, title: str | None, output: str | None = None
+    ) -> tuple[int, str] | None:
         source = str(etools_id or "").strip()
         if source and (pd_id, source) in self.by_source:
             return self.by_source[(pd_id, source)]
-        return self.by_title.get((pd_id, norm(title)))
+        found = self.by_title.get((pd_id, norm(title)))
+        if found is None and output:
+            found = self.by_output.get((pd_id, norm(output), norm(title)))
+        return found
 
-    def how(self, pd_id: int, etools_id: Any, title: str | None) -> str:
+    def how(self, pd_id: int, etools_id: Any, title: str | None, output: str | None = None) -> str:
         """How :meth:`of` reads a row (the eTools reporting checks count them): ``"id"``, ``"title"``,
-        ``"shared"`` (left out: the title is several indicators') or ``"unknown"`` (left out: no
-        indicator of the PD has it)."""
+        ``"output"`` (a title several indicators share, told apart by the output), ``"shared"`` (left
+        out: the title is several indicators', and the output does not tell them apart) or
+        ``"unknown"`` (left out: no indicator of the PD has it)."""
         source = str(etools_id or "").strip()
         if source and (pd_id, source) in self.by_source:
             return "id"
         key = (pd_id, norm(title))
-        return "title" if key in self.by_title else "shared" if key in self.shared else "unknown"
+        if key in self.by_title:
+            return "title"
+        if key not in self.shared:
+            return "unknown"
+        return "output" if output and (pd_id, norm(output), norm(title)) in self.by_output else "shared"
 
 
 def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, today: datetime.date) -> None:
@@ -614,7 +637,9 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
 
     for row in rc.report_rows(pd_ids, [filters.report_type]):
         note(row)
-        ident = idents.of(row["intervention_id"], row["etools_indicator_id"], row["indicator"])
+        ident = idents.of(
+            row["intervention_id"], row["etools_indicator_id"], row["indicator"], row["pd_output"]
+        )
         if ident in found:
             per[ident].append(row)
     read_from = dict.fromkeys(per, filters.report_type)
@@ -624,7 +649,9 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
         wanted = set(missing)
         for row in rc.report_rows(sorted({ident[0] for ident in missing}), ["HR"]):
             note(row)
-            ident = idents.of(row["intervention_id"], row["etools_indicator_id"], row["indicator"])
+            ident = idents.of(
+                row["intervention_id"], row["etools_indicator_id"], row["indicator"], row["pd_output"]
+            )
             if ident in wanted:
                 humanitarian[ident].append(row)
         for ident, rows in humanitarian.items():
@@ -644,6 +671,7 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
             only=only,
             partial=bool(entry.pd.start and entry.pd.start < since),
             report_status=statuses,
+            output=entry.output,
         )
         _apply(entry, result, read_from.get(ident, filters.report_type))
         if result.reached is None:
@@ -1104,17 +1132,20 @@ def stored_map_points(filters: Filters, day: datetime.date | None = None) -> dic
 
 # ------------------------------------------------------------------------------------- summaries
 def summary(rows: list[Indicator], filters: Filters, today: datetime.date | None = None) -> dict[str, Any]:
+    from .reporting import REPORT_KEY
+
     today = today or datetime.date.today()
     counts = Counter(r.tracking for r in rows)
     pd_ids = {r.pd.id for r in rows}
-    overdue = (
+    overdue = (  # progress reports, each its PD, type, number and period (reached.report_key)
         dm.ReportedIndicator.objects.filter(
             pending_q(),
             intervention_id__in=pd_ids,
             report_type=filters.report_type,
             due_date__lt=today,
         )
-        .values("progress_report")
+        .annotate(_report=REPORT_KEY)
+        .values("_report")
         .distinct()
         .count()
     )
@@ -1265,8 +1296,16 @@ def data_quality(
     titles: dict[tuple[int, str], list[Indicator]] = defaultdict(list)
     for r in rows:
         titles[(r.pd.id, norm(r.title))].append(r)
+    # a title two or more indicators of a PD share: the partner reports' rows are placed by their PD output
+    # (monitoring._Idents); those of indicators that share the output too are left out
     same_title = [
-        {"pd": group[0].pd, "title": group[0].title, "count": len(group), "rows": group}
+        {
+            "pd": group[0].pd,
+            "title": group[0].title,
+            "count": len(group),
+            "left_out": sum(n for n in Counter(norm(r.output) for r in group).values() if n > 1),
+            "rows": group,
+        }
         for group in titles.values()
         if len(group) > 1
     ]
@@ -1298,6 +1337,7 @@ def data_quality(
         "mismatch_count": len(mismatch),
         "same_title": same_title[:QUALITY_LIMIT],
         "same_title_count": len(same_title),
+        "same_title_left_out": sum(g["left_out"] for g in same_title),
         "partial": partial[:QUALITY_LIMIT],
         "partial_count": len(partial),
         "read_from": rc.reports_read_from(today) if partial else None,
@@ -1397,7 +1437,7 @@ def filter_options(filters: Filters) -> dict[str, Any]:
 def _report_entry(report: rc.Report) -> dict[str, Any]:
     return {
         "key": report.key,
-        "progress_report": report.key,
+        "progress_report": report.progress_report,
         "report": report.number or report.key,
         "report_number": report.number,
         "report_type": report.report_type,
@@ -1466,7 +1506,11 @@ def indicator_detail(
         }
         for place in (result.by_location.values() if result else [])
     ]
-    newest_first = sorted(periods, key=lambda p: (p["end"] or datetime.date.min, p["key"]), reverse=True)
+    newest_first = sorted(
+        periods,
+        key=lambda p: (p["end"] or datetime.date.min, p["progress_report"], p["report_number"], p["key"]),
+        reverse=True,
+    )
     return {
         "pd": pd,
         "indicator": indicator,

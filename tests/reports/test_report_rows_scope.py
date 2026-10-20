@@ -366,3 +366,49 @@ def test_the_admin_menu_lists_the_reporting_checks_for_administrators_only(rf, a
     ]
     request.user = viewer
     assert admin_site._datamart_pages(request) == []
+
+
+def _progress_report(pd, key, end, **data):
+    """One of PRP's own progress reports (``prp_progress_reports``), linked to ``pd``."""
+    dm.DatamartDocument.objects.create(
+        dataset="prp_progress_reports",
+        record_key=key,
+        intervention=pd,
+        date=end,
+        data={"end_date": end.isoformat(), **data},
+    )
+
+
+def test_check_11_sets_prp_progress_reports_beside_the_partner_reports_in_progress_reports(rows):
+    """PRP's own progress reports, a third feed in check 11: counted in progress reports (never indicator
+    reports) per month and status; an overdue one of a running PD the partner reports do not carry names
+    its month."""
+    running = rows["running"]
+    _progress_report(running, "1", JUNE, status="Acc", submission_date="2026-07-10")
+    _progress_report(running, "2", D(2026, 8, 31), status="Ove", due_date="2026-09-30")
+    _progress_report(rows["ended"], "3", D(2026, 8, 31), status="Ove", due_date="2026-09-30")
+    _progress_report(None, "4", D(2026, 8, 31), status="Due")
+    found = {c["key"]: c for c in checks.run_all()}["11"]
+    (table,) = [t for t in found["tables"] if t["title"].startswith("Progress reports of the running")]
+    lines = {(r[0], r[1]): dict(zip(COLUMNS[:6], r[2:], strict=True)) for r in table["rows"]}
+    # the partner reports' R-1 (two indicator reports) is one progress report here
+    assert lines[("Jun 2026", "Partner reports")]["Accepted"] == 1
+    assert lines[("Jun 2026", "PRP progress reports")]["Accepted"] == 1
+    assert lines[("Aug 2026", "PRP progress reports")]["Overdue"] == 1
+    figures = dict(found["figures"])
+    assert figures["Progress reports due or overdue in PRP's progress reports"] == 1
+    assert figures["PRP progress report records held"] == 4
+    assert figures["PRP progress reports of the year linked to a programme document"] == 3  # one ended
+    assert figures["PRP progress reports of the year linked to none"] == 1
+    assert "PRP's progress reports list more reports still owed in Aug 2026" in found["verdict"]
+    assert found["tone"] == "warning"
+    assert "LEB/RUN" not in str(found)  # counts only
+
+
+def test_check_11_says_why_prp_progress_reports_give_nothing_to_compare(rows):
+    found = {c["key"]: c for c in checks.run_all()}["11"]
+    assert "PRP's own progress reports list none of a running programme document" in found["verdict"]
+    assert "no sync of them has run yet" in found["verdict"]
+    _progress_report(None, "1", D(2026, 8, 31), status="Ove")
+    found = {c["key"]: c for c in checks.run_all()}["11"]
+    assert "1 is held for 2026, none linked to a programme document NeuroDB holds" in found["verdict"]

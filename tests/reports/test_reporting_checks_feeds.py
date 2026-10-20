@@ -135,7 +135,7 @@ def test_check_11_lists_the_business_areas_of_records_all_of_another_one(pd):
     assert "all of another business area" in found["verdict"] and found["tone"] == "warning"
     assert figures(found)["… skipped as another business area"] == 12
     assert figures(found)["Last sync of PRP's indicator reports: records read"] == 12
-    (codes,) = found["tables"]
+    (codes,) = [t for t in found["tables"] if t["title"].startswith("Business area codes")]
     assert codes["rows"] == [("2340", 12)]
 
 

@@ -1,0 +1,2582 @@
+{
+ "ir_only": {
+  "detail/LEB/PCA-A/PD1/1101": {
+   "by_location": {
+    "Akkar": 430.0,
+    "Bekaa": 170.0
+   },
+   "periods": [
+    "QPR1:accepted:300.0",
+    "QPR2:accepted:200.0",
+    "QPR3:submitted:100.0"
+   ]
+  },
+  "detail/LEB/PCA-A/PD1/1103": {
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "periods": [
+    "HR1:accepted:30.0",
+    "HR2:accepted:25.0",
+    "HR3:sent_back:99.0",
+    "HR4:overdue:0.0",
+    "HR5:accepted:20.0"
+   ]
+  },
+  "detail/LEB/PCA-B/PD2/2101": {
+   "by_location": {
+    "Akkar": 70.0
+   },
+   "periods": [
+    "QPR1:overdue:60.0",
+    "QPR2:accepted:70.0"
+   ]
+  },
+  "home/progress_reports": 0,
+  "monitoring/HR/2026/LEB/PCA-A/PD1/1103": {
+   "as_of": "2026-05-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "1": 30.0,
+    "2": 25.0,
+    "5": 20.0
+   },
+   "reached": 75.0,
+   "reached_accepted": 75.0,
+   "reached_in_year": 75.0,
+   "read_from": "HR",
+   "reports": 3,
+   "statuses": [
+    "HR1:accepted",
+    "HR2:accepted",
+    "HR3:sent_back",
+    "HR4:overdue",
+    "HR5:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 75.0
+   }
+  },
+  "monitoring/HR/all/LEB/PCA-A/PD1/1103": {
+   "as_of": "2026-05-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 75.0,
+   "reached_accepted": 75.0,
+   "reached_in_year": null,
+   "read_from": "HR",
+   "reports": 3,
+   "statuses": [
+    "HR1:accepted",
+    "HR2:accepted",
+    "HR3:sent_back",
+    "HR4:overdue",
+    "HR5:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 75.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-A/PD1/1101": {
+   "as_of": "2026-09-30",
+   "awaiting": 100.0,
+   "awaiting_reports": 1,
+   "by_location": {
+    "Akkar": 430.0,
+    "Bekaa": 170.0
+   },
+   "latest_status": "Submitted",
+   "months": {
+    "3": 300.0,
+    "6": 200.0,
+    "9": 100.0
+   },
+   "reached": 600.0,
+   "reached_accepted": 500.0,
+   "reached_in_year": 600.0,
+   "read_from": "QPR",
+   "reports": 3,
+   "statuses": [
+    "QPR1:accepted",
+    "QPR2:accepted",
+    "QPR3:submitted",
+    "QPR4:not_yet_due"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 600.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-A/PD1/1102": {
+   "as_of": "2026-09-30",
+   "awaiting": 40.0,
+   "awaiting_reports": 2,
+   "by_location": {
+    "Akkar": 80.0
+   },
+   "latest_status": "Submitted",
+   "months": {
+    "3": 40.0,
+    "6": 30.0,
+    "9": 10.0
+   },
+   "reached": 80.0,
+   "reached_accepted": 40.0,
+   "reached_in_year": 80.0,
+   "read_from": "QPR",
+   "reports": 3,
+   "statuses": [
+    "QPR1:accepted",
+    "QPR2:submitted",
+    "QPR3:submitted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 80.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-A/PD1/1103": {
+   "as_of": "2026-05-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "1": 30.0,
+    "2": 25.0,
+    "5": 20.0
+   },
+   "reached": 75.0,
+   "reached_accepted": 75.0,
+   "reached_in_year": 75.0,
+   "read_from": "HR",
+   "reports": 3,
+   "statuses": [
+    "HR1:accepted",
+    "HR2:accepted",
+    "HR3:sent_back",
+    "HR4:overdue",
+    "HR5:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 75.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-A/PD1/1104": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 80.0,
+    "Bekaa": 40.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "3": 50.0,
+    "6": 80.0
+   },
+   "reached": 80.0,
+   "reached_accepted": 80.0,
+   "reached_in_year": 80.0,
+   "read_from": "QPR",
+   "reports": 2,
+   "statuses": [
+    "QPR1:accepted",
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 80.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2101": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "6": 70.0
+   },
+   "reached": 70.0,
+   "reached_accepted": 70.0,
+   "reached_in_year": 70.0,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:overdue",
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 70.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2201": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2202": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2301": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2302": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/2026/LEB/PCA-C/PD3/3101": {
+   "as_of": "2025-03-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 9.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 9.0,
+   "reached_accepted": 9.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2025": 9.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-A/PD1/1101": {
+   "as_of": "2026-09-30",
+   "awaiting": 100.0,
+   "awaiting_reports": 1,
+   "by_location": {
+    "Akkar": 430.0,
+    "Bekaa": 170.0
+   },
+   "latest_status": "Submitted",
+   "months": {},
+   "reached": 600.0,
+   "reached_accepted": 500.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 3,
+   "statuses": [
+    "QPR1:accepted",
+    "QPR2:accepted",
+    "QPR3:submitted",
+    "QPR4:not_yet_due"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 600.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-A/PD1/1102": {
+   "as_of": "2026-09-30",
+   "awaiting": 40.0,
+   "awaiting_reports": 2,
+   "by_location": {
+    "Akkar": 80.0
+   },
+   "latest_status": "Submitted",
+   "months": {},
+   "reached": 80.0,
+   "reached_accepted": 40.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 3,
+   "statuses": [
+    "QPR1:accepted",
+    "QPR2:submitted",
+    "QPR3:submitted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 80.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-A/PD1/1103": {
+   "as_of": "2026-05-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 75.0,
+   "reached_accepted": 75.0,
+   "reached_in_year": null,
+   "read_from": "HR",
+   "reports": 3,
+   "statuses": [
+    "HR1:accepted",
+    "HR2:accepted",
+    "HR3:sent_back",
+    "HR4:overdue",
+    "HR5:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 75.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-A/PD1/1104": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 80.0,
+    "Bekaa": 40.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 80.0,
+   "reached_accepted": 80.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 2,
+   "statuses": [
+    "QPR1:accepted",
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 80.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2101": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 70.0,
+   "reached_accepted": 70.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:overdue",
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 70.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2201": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2202": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2301": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2302": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/all/LEB/PCA-C/PD3/3101": {
+   "as_of": "2025-03-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 9.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 9.0,
+   "reached_accepted": 9.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2025": 9.0
+   }
+  },
+  "progress/every/by_month": {
+   "Accepted": [
+    1,
+    1,
+    1,
+    4,
+    0,
+    1,
+    7,
+    0,
+    0
+   ],
+   "Not yet due": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "Overdue": [
+    0,
+    0,
+    0,
+    1,
+    1,
+    0,
+    0,
+    0,
+    0
+   ],
+   "Sent back": [
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "Submitted": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    2,
+    0
+   ]
+  },
+  "progress/every/counts": {
+   "accepted": 15,
+   "due": 0,
+   "indicator_reports": 22,
+   "late": 0,
+   "not_yet_due": 1,
+   "overdue": 2,
+   "progress_reports": 14,
+   "sent_back": 1,
+   "submitted": 3
+  },
+  "progress/every/left_out": {
+   "by_pd_status": 0,
+   "no_pd": 1,
+   "not_held": 0,
+   "other_status": 0
+  },
+  "progress/every/locations": [
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR1|Akkar|40.0|accepted|1",
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR2|Akkar|30.0|submitted|1",
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR3|Akkar|10.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR1|Akkar|200.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR1|Bekaa|100.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR2|Akkar|150.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR2|Bekaa|50.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR3|Akkar|80.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR3|Bekaa|20.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR4|Akkar|None|not_yet_due|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR1|Akkar|30.0|accepted|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR2|Akkar|25.0|accepted|2",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR3|Akkar|99.0|sent_back|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR4|Akkar|0.0|overdue|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR5|Akkar|15.0|accepted|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR5|Bekaa|5.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR1|Akkar|60.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR1|Bekaa|40.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR2|Akkar|80.0|accepted|1",
+   "LEB/PCA-B/PD2|# of children reached with PSS|QPR1|Akkar|60.0|overdue|1",
+   "LEB/PCA-B/PD2|# of children reached with PSS|QPR2|Akkar|70.0|accepted|1",
+   "LEB/PCA-B/PD2|# of households supported|QPR2|Akkar|5.0|accepted|1",
+   "LEB/PCA-B/PD2|# of households supported|QPR2|Bekaa|7.0|accepted|1",
+   "LEB/PCA-B/PD2|# of youth trained|QPR2|Akkar|12.0|accepted|1",
+   "LEB/PCA-B/PD2|# of youth trained|QPR2|Akkar|30.0|accepted|1",
+   "LEB/PCA-C/PD3|# of children reached with PSS|QPR1|Akkar|9.0|accepted|1",
+   "LEB/PCA-X/PD9|# of children reached with PSS|QPR1|Akkar|500.0|accepted|1"
+  ],
+  "progress/every/partners": {
+   "not_reported": 0,
+   "partners": 3,
+   "reported": 3
+  },
+  "progress/every/reports": [
+   "LEB/PCA-A/PD1|HR|HR1|2026-01-31|accepted|1",
+   "LEB/PCA-A/PD1|HR|HR2|2026-02-28|accepted|1",
+   "LEB/PCA-A/PD1|HR|HR3|2026-03-31|sent_back|1",
+   "LEB/PCA-A/PD1|HR|HR4|2026-04-30|overdue|1",
+   "LEB/PCA-A/PD1|HR|HR5|2026-05-31|accepted|1",
+   "LEB/PCA-A/PD1|QPR|QPR1|2026-03-31|accepted|3",
+   "LEB/PCA-A/PD1|QPR|QPR2|2026-06-30|accepted|2",
+   "LEB/PCA-A/PD1|QPR|QPR2|2026-06-30|submitted|1",
+   "LEB/PCA-A/PD1|QPR|QPR3|2026-09-30|submitted|2",
+   "LEB/PCA-A/PD1|QPR|QPR4|2026-12-31|not_yet_due|1",
+   "LEB/PCA-B/PD2|QPR|QPR1|2026-03-31|overdue|1",
+   "LEB/PCA-B/PD2|QPR|QPR2|2026-06-30|accepted|5",
+   "LEB/PCA-C/PD3|QPR|QPR1|2025-03-31|accepted|1",
+   "LEB/PCA-X/PD9|QPR|QPR1|2026-03-31|accepted|1"
+  ],
+  "progress/every/summary": {
+   "accepted": 8,
+   "due": 0,
+   "not_yet_due": 1,
+   "overdue": 2,
+   "sent_back": 1,
+   "submitted": 2
+  },
+  "progress/running/by_month": {
+   "Accepted": [
+    1,
+    1,
+    3,
+    0,
+    1,
+    7,
+    0,
+    0
+   ],
+   "Not yet due": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "Overdue": [
+    0,
+    0,
+    1,
+    1,
+    0,
+    0,
+    0,
+    0
+   ],
+   "Sent back": [
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "Submitted": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    2,
+    0
+   ]
+  },
+  "progress/running/counts": {
+   "accepted": 13,
+   "due": 0,
+   "indicator_reports": 20,
+   "late": 0,
+   "not_yet_due": 1,
+   "overdue": 2,
+   "progress_reports": 12,
+   "sent_back": 1,
+   "submitted": 3
+  },
+  "progress/running/left_out": {
+   "by_pd_status": 2,
+   "no_pd": 1,
+   "not_held": 1,
+   "other_status": 1
+  },
+  "progress/running/locations": [
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR1|Akkar|40.0|accepted|1",
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR2|Akkar|30.0|submitted|1",
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR3|Akkar|10.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR1|Akkar|200.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR1|Bekaa|100.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR2|Akkar|150.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR2|Bekaa|50.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR3|Akkar|80.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR3|Bekaa|20.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR4|Akkar|None|not_yet_due|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR1|Akkar|30.0|accepted|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR2|Akkar|25.0|accepted|2",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR3|Akkar|99.0|sent_back|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR4|Akkar|0.0|overdue|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR5|Akkar|15.0|accepted|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR5|Bekaa|5.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR1|Akkar|60.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR1|Bekaa|40.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR2|Akkar|80.0|accepted|1",
+   "LEB/PCA-B/PD2|# of children reached with PSS|QPR1|Akkar|60.0|overdue|1",
+   "LEB/PCA-B/PD2|# of children reached with PSS|QPR2|Akkar|70.0|accepted|1",
+   "LEB/PCA-B/PD2|# of households supported|QPR2|Akkar|5.0|accepted|1",
+   "LEB/PCA-B/PD2|# of households supported|QPR2|Bekaa|7.0|accepted|1",
+   "LEB/PCA-B/PD2|# of youth trained|QPR2|Akkar|12.0|accepted|1",
+   "LEB/PCA-B/PD2|# of youth trained|QPR2|Akkar|30.0|accepted|1"
+  ],
+  "progress/running/partners": {
+   "not_reported": 0,
+   "partners": 2,
+   "reported": 2
+  },
+  "progress/running/reports": [
+   "LEB/PCA-A/PD1|HR|HR1|2026-01-31|accepted|1",
+   "LEB/PCA-A/PD1|HR|HR2|2026-02-28|accepted|1",
+   "LEB/PCA-A/PD1|HR|HR3|2026-03-31|sent_back|1",
+   "LEB/PCA-A/PD1|HR|HR4|2026-04-30|overdue|1",
+   "LEB/PCA-A/PD1|HR|HR5|2026-05-31|accepted|1",
+   "LEB/PCA-A/PD1|QPR|QPR1|2026-03-31|accepted|3",
+   "LEB/PCA-A/PD1|QPR|QPR2|2026-06-30|accepted|2",
+   "LEB/PCA-A/PD1|QPR|QPR2|2026-06-30|submitted|1",
+   "LEB/PCA-A/PD1|QPR|QPR3|2026-09-30|submitted|2",
+   "LEB/PCA-A/PD1|QPR|QPR4|2026-12-31|not_yet_due|1",
+   "LEB/PCA-B/PD2|QPR|QPR1|2026-03-31|overdue|1",
+   "LEB/PCA-B/PD2|QPR|QPR2|2026-06-30|accepted|5"
+  ],
+  "progress/running/summary": {
+   "accepted": 6,
+   "due": 0,
+   "not_yet_due": 1,
+   "overdue": 2,
+   "sent_back": 1,
+   "submitted": 2
+  },
+  "quality/HR/2026": {
+   "no_reached_count": 0,
+   "same_title_count": 0,
+   "with_reached": 1,
+   "without_reached": 0
+  },
+  "quality/HR/all": {
+   "no_reached_count": 0,
+   "same_title_count": 0,
+   "with_reached": 1,
+   "without_reached": 0
+  },
+  "quality/QPR/2026": {
+   "no_reached_count": 5,
+   "same_title_count": 2,
+   "with_reached": 5,
+   "without_reached": 5
+  },
+  "quality/QPR/all": {
+   "no_reached_count": 4,
+   "same_title_count": 2,
+   "with_reached": 6,
+   "without_reached": 4
+  },
+  "summary/HR/2026": {
+   "awaiting_acceptance": 0,
+   "indicators": 1,
+   "overdue_reports": 1,
+   "reported_zero": 0,
+   "with_reached": 1
+  },
+  "summary/HR/all": {
+   "awaiting_acceptance": 0,
+   "indicators": 1,
+   "overdue_reports": 1,
+   "reported_zero": 0,
+   "with_reached": 1
+  },
+  "summary/QPR/2026": {
+   "awaiting_acceptance": 2,
+   "indicators": 10,
+   "overdue_reports": 1,
+   "reported_zero": 0,
+   "with_reached": 6
+  },
+  "summary/QPR/all": {
+   "awaiting_acceptance": 2,
+   "indicators": 10,
+   "overdue_reports": 1,
+   "reported_zero": 0,
+   "with_reached": 6
+  }
+ },
+ "production": {
+  "detail/LEB/PCA-A/PD1/1101": {
+   "by_location": {
+    "Akkar": 430.0,
+    "Bekaa": 170.0
+   },
+   "periods": [
+    "QPR1:accepted:300.0",
+    "QPR2:accepted:200.0",
+    "QPR3:submitted:100.0"
+   ]
+  },
+  "detail/LEB/PCA-A/PD1/1103": {
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "periods": [
+    "HR1:accepted:30.0",
+    "HR2:accepted:25.0",
+    "HR3:sent_back:99.0",
+    "HR4:overdue:0.0",
+    "HR5:accepted:20.0"
+   ]
+  },
+  "detail/LEB/PCA-B/PD2/2101": {
+   "by_location": {
+    "Akkar": 70.0
+   },
+   "periods": [
+    "QPR1:overdue:60.0",
+    "QPR2:accepted:70.0"
+   ]
+  },
+  "home/progress_reports": 0,
+  "monitoring/HR/2026/LEB/PCA-A/PD1/1103": {
+   "as_of": "2026-05-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "1": 30.0,
+    "2": 25.0,
+    "5": 20.0
+   },
+   "reached": 75.0,
+   "reached_accepted": 75.0,
+   "reached_in_year": 75.0,
+   "read_from": "HR",
+   "reports": 3,
+   "statuses": [
+    "HR1:accepted",
+    "HR2:accepted",
+    "HR3:sent_back",
+    "HR4:overdue",
+    "HR5:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 75.0
+   }
+  },
+  "monitoring/HR/all/LEB/PCA-A/PD1/1103": {
+   "as_of": "2026-05-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 75.0,
+   "reached_accepted": 75.0,
+   "reached_in_year": null,
+   "read_from": "HR",
+   "reports": 3,
+   "statuses": [
+    "HR1:accepted",
+    "HR2:accepted",
+    "HR3:sent_back",
+    "HR4:overdue",
+    "HR5:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 75.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-A/PD1/1101": {
+   "as_of": "2026-09-30",
+   "awaiting": 100.0,
+   "awaiting_reports": 1,
+   "by_location": {
+    "Akkar": 230.0,
+    "Bekaa": 70.0
+   },
+   "latest_status": "Submitted",
+   "months": {
+    "6": 200.0,
+    "9": 100.0
+   },
+   "reached": 300.0,
+   "reached_accepted": 200.0,
+   "reached_in_year": 300.0,
+   "read_from": "QPR",
+   "reports": 2,
+   "statuses": [
+    "QPR1:due",
+    "QPR2:accepted",
+    "QPR3:submitted",
+    "QPR4:not_yet_due"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 300.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-A/PD1/1102": {
+   "as_of": "2026-09-30",
+   "awaiting": 10.0,
+   "awaiting_reports": 1,
+   "by_location": {
+    "Akkar": 40.0
+   },
+   "latest_status": "Submitted",
+   "months": {
+    "6": 30.0,
+    "9": 10.0
+   },
+   "reached": 40.0,
+   "reached_accepted": 30.0,
+   "reached_in_year": 40.0,
+   "read_from": "QPR",
+   "reports": 2,
+   "statuses": [
+    "QPR1:due",
+    "QPR2:accepted",
+    "QPR3:submitted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 40.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-A/PD1/1103": {
+   "as_of": "2026-05-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "1": 30.0,
+    "2": 25.0,
+    "5": 20.0
+   },
+   "reached": 75.0,
+   "reached_accepted": 75.0,
+   "reached_in_year": 75.0,
+   "read_from": "HR",
+   "reports": 3,
+   "statuses": [
+    "HR1:accepted",
+    "HR2:accepted",
+    "HR3:sent_back",
+    "HR4:overdue",
+    "HR5:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 75.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-A/PD1/1104": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 80.0,
+    "Bekaa": null
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "6": 80.0
+   },
+   "reached": 80.0,
+   "reached_accepted": 80.0,
+   "reached_in_year": 80.0,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:due",
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 80.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2101": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "6": 70.0
+   },
+   "reached": 70.0,
+   "reached_accepted": 70.0,
+   "reached_in_year": 70.0,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:overdue",
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 70.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2201": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2202": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2301": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2302": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/2026/LEB/PCA-C/PD3/3101": {
+   "as_of": "2025-03-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 9.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 9.0,
+   "reached_accepted": 9.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2025": 9.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-A/PD1/1101": {
+   "as_of": "2026-09-30",
+   "awaiting": 100.0,
+   "awaiting_reports": 1,
+   "by_location": {
+    "Akkar": 230.0,
+    "Bekaa": 70.0
+   },
+   "latest_status": "Submitted",
+   "months": {},
+   "reached": 300.0,
+   "reached_accepted": 200.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 2,
+   "statuses": [
+    "QPR1:due",
+    "QPR2:accepted",
+    "QPR3:submitted",
+    "QPR4:not_yet_due"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 300.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-A/PD1/1102": {
+   "as_of": "2026-09-30",
+   "awaiting": 10.0,
+   "awaiting_reports": 1,
+   "by_location": {
+    "Akkar": 40.0
+   },
+   "latest_status": "Submitted",
+   "months": {},
+   "reached": 40.0,
+   "reached_accepted": 30.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 2,
+   "statuses": [
+    "QPR1:due",
+    "QPR2:accepted",
+    "QPR3:submitted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 40.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-A/PD1/1103": {
+   "as_of": "2026-05-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 75.0,
+   "reached_accepted": 75.0,
+   "reached_in_year": null,
+   "read_from": "HR",
+   "reports": 3,
+   "statuses": [
+    "HR1:accepted",
+    "HR2:accepted",
+    "HR3:sent_back",
+    "HR4:overdue",
+    "HR5:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 75.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-A/PD1/1104": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 80.0,
+    "Bekaa": null
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 80.0,
+   "reached_accepted": 80.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:due",
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 80.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2101": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 70.0,
+   "reached_accepted": 70.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:overdue",
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 70.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2201": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2202": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2301": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2302": {
+   "as_of": null,
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {},
+   "latest_status": "",
+   "months": {},
+   "reached": null,
+   "reached_accepted": null,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 0,
+   "statuses": [],
+   "value_status": "not_reported",
+   "years": {}
+  },
+  "monitoring/QPR/all/LEB/PCA-C/PD3/3101": {
+   "as_of": "2025-03-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 9.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 9.0,
+   "reached_accepted": 9.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2025": 9.0
+   }
+  },
+  "progress/every/by_month": {
+   "Accepted": [
+    1,
+    1,
+    1,
+    4,
+    0,
+    1,
+    5,
+    0,
+    0
+   ],
+   "Not yet due": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "Overdue": [
+    0,
+    0,
+    0,
+    1,
+    1,
+    0,
+    0,
+    0,
+    0
+   ],
+   "Sent back": [
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "Submitted": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    2,
+    0
+   ]
+  },
+  "progress/every/counts": {
+   "accepted": 13,
+   "due": 0,
+   "indicator_reports": 20,
+   "late": 0,
+   "not_yet_due": 1,
+   "overdue": 2,
+   "progress_reports": 14,
+   "sent_back": 1,
+   "submitted": 3
+  },
+  "progress/every/left_out": {
+   "by_pd_status": 0,
+   "no_pd": 1,
+   "not_held": 0,
+   "other_status": 0
+  },
+  "progress/every/locations": [
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR1|Akkar|40.0|accepted|1",
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR2|Akkar|30.0|submitted|1",
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR3|Akkar|10.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR1|Akkar|500.0|accepted|3",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR1|Bekaa|100.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR2|Akkar|150.0|accepted|2",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR2|Bekaa|50.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR3|Akkar|80.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR3|Bekaa|20.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR4|Akkar|None|not_yet_due|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR1|Akkar|30.0|accepted|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR2|Akkar|25.0|accepted|2",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR3|Akkar|99.0|sent_back|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR4|Akkar|0.0|overdue|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR5|Akkar|15.0|accepted|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR5|Bekaa|5.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR1|Akkar|60.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR1|Bekaa|40.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR2|Akkar|80.0|accepted|1",
+   "LEB/PCA-B/PD2|# of households supported|QPR2|Akkar|5.0|accepted|1",
+   "LEB/PCA-B/PD2|# of households supported|QPR2|Bekaa|7.0|accepted|1",
+   "LEB/PCA-B/PD2|# of youth trained|QPR2|Akkar|30.0|accepted|2",
+   "LEB/PCA-C/PD3|# of children reached with PSS|QPR1|Akkar|9.0|accepted|1"
+  ],
+  "progress/every/partners": {
+   "not_reported": 0,
+   "partners": 3,
+   "reported": 3
+  },
+  "progress/every/reports": [
+   "LEB/PCA-A/PD1|HR|HR1|2026-01-31|accepted|1",
+   "LEB/PCA-A/PD1|HR|HR2|2026-02-28|accepted|1",
+   "LEB/PCA-A/PD1|HR|HR3|2026-03-31|sent_back|1",
+   "LEB/PCA-A/PD1|HR|HR4|2026-04-30|overdue|1",
+   "LEB/PCA-A/PD1|HR|HR5|2026-05-31|accepted|1",
+   "LEB/PCA-A/PD1|QPR|QPR1|2026-03-31|accepted|3",
+   "LEB/PCA-A/PD1|QPR|QPR2|2026-06-30|accepted|2",
+   "LEB/PCA-A/PD1|QPR|QPR2|2026-06-30|submitted|1",
+   "LEB/PCA-A/PD1|QPR|QPR3|2026-09-30|submitted|2",
+   "LEB/PCA-A/PD1|QPR|QPR4|2026-12-31|not_yet_due|1",
+   "LEB/PCA-B/PD2|QPR|QPR1|2026-03-31|overdue|1",
+   "LEB/PCA-B/PD2|QPR|QPR2|2026-06-30|accepted|3",
+   "LEB/PCA-C/PD3|QPR|QPR1|2025-03-31|accepted|1",
+   "LEB/PCA-X/PD9|QPR|QPR1|2026-03-31|accepted|1"
+  ],
+  "progress/every/summary": {
+   "accepted": 8,
+   "due": 0,
+   "not_yet_due": 1,
+   "overdue": 2,
+   "sent_back": 1,
+   "submitted": 2
+  },
+  "progress/running/by_month": {
+   "Accepted": [
+    1,
+    1,
+    3,
+    0,
+    1,
+    5,
+    0,
+    0
+   ],
+   "Not yet due": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "Overdue": [
+    0,
+    0,
+    1,
+    1,
+    0,
+    0,
+    0,
+    0
+   ],
+   "Sent back": [
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "Submitted": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    2,
+    0
+   ]
+  },
+  "progress/running/counts": {
+   "accepted": 11,
+   "due": 0,
+   "indicator_reports": 18,
+   "late": 0,
+   "not_yet_due": 1,
+   "overdue": 2,
+   "progress_reports": 12,
+   "sent_back": 1,
+   "submitted": 3
+  },
+  "progress/running/left_out": {
+   "by_pd_status": 2,
+   "no_pd": 1,
+   "not_held": 1,
+   "other_status": 1
+  },
+  "progress/running/locations": [
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR1|Akkar|40.0|accepted|1",
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR2|Akkar|30.0|submitted|1",
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR3|Akkar|10.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR1|Akkar|200.0|accepted|2",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR1|Bekaa|100.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR2|Akkar|150.0|accepted|2",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR2|Bekaa|50.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR3|Akkar|80.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR3|Bekaa|20.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR4|Akkar|None|not_yet_due|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR1|Akkar|30.0|accepted|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR2|Akkar|25.0|accepted|2",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR3|Akkar|99.0|sent_back|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR4|Akkar|0.0|overdue|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR5|Akkar|15.0|accepted|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR5|Bekaa|5.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR1|Akkar|60.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR1|Bekaa|40.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR2|Akkar|80.0|accepted|1",
+   "LEB/PCA-B/PD2|# of households supported|QPR2|Akkar|5.0|accepted|1",
+   "LEB/PCA-B/PD2|# of households supported|QPR2|Bekaa|7.0|accepted|1",
+   "LEB/PCA-B/PD2|# of youth trained|QPR2|Akkar|30.0|accepted|2"
+  ],
+  "progress/running/partners": {
+   "not_reported": 0,
+   "partners": 2,
+   "reported": 2
+  },
+  "progress/running/reports": [
+   "LEB/PCA-A/PD1|HR|HR1|2026-01-31|accepted|1",
+   "LEB/PCA-A/PD1|HR|HR2|2026-02-28|accepted|1",
+   "LEB/PCA-A/PD1|HR|HR3|2026-03-31|sent_back|1",
+   "LEB/PCA-A/PD1|HR|HR4|2026-04-30|overdue|1",
+   "LEB/PCA-A/PD1|HR|HR5|2026-05-31|accepted|1",
+   "LEB/PCA-A/PD1|QPR|QPR1|2026-03-31|accepted|3",
+   "LEB/PCA-A/PD1|QPR|QPR2|2026-06-30|accepted|2",
+   "LEB/PCA-A/PD1|QPR|QPR2|2026-06-30|submitted|1",
+   "LEB/PCA-A/PD1|QPR|QPR3|2026-09-30|submitted|2",
+   "LEB/PCA-A/PD1|QPR|QPR4|2026-12-31|not_yet_due|1",
+   "LEB/PCA-B/PD2|QPR|QPR1|2026-03-31|overdue|1",
+   "LEB/PCA-B/PD2|QPR|QPR2|2026-06-30|accepted|3"
+  ],
+  "progress/running/summary": {
+   "accepted": 6,
+   "due": 0,
+   "not_yet_due": 1,
+   "overdue": 2,
+   "sent_back": 1,
+   "submitted": 2
+  },
+  "quality/HR/2026": {
+   "no_reached_count": 0,
+   "same_title_count": 0,
+   "with_reached": 1,
+   "without_reached": 0
+  },
+  "quality/HR/all": {
+   "no_reached_count": 0,
+   "same_title_count": 0,
+   "with_reached": 1,
+   "without_reached": 0
+  },
+  "quality/QPR/2026": {
+   "no_reached_count": 5,
+   "same_title_count": 2,
+   "with_reached": 5,
+   "without_reached": 5
+  },
+  "quality/QPR/all": {
+   "no_reached_count": 4,
+   "same_title_count": 2,
+   "with_reached": 6,
+   "without_reached": 4
+  },
+  "summary/HR/2026": {
+   "awaiting_acceptance": 0,
+   "indicators": 1,
+   "overdue_reports": 1,
+   "reported_zero": 0,
+   "with_reached": 1
+  },
+  "summary/HR/all": {
+   "awaiting_acceptance": 0,
+   "indicators": 1,
+   "overdue_reports": 1,
+   "reported_zero": 0,
+   "with_reached": 1
+  },
+  "summary/QPR/2026": {
+   "awaiting_acceptance": 2,
+   "indicators": 10,
+   "overdue_reports": 1,
+   "reported_zero": 0,
+   "with_reached": 6
+  },
+  "summary/QPR/all": {
+   "awaiting_acceptance": 2,
+   "indicators": 10,
+   "overdue_reports": 1,
+   "reported_zero": 0,
+   "with_reached": 6
+  }
+ },
+ "prp_ids": {
+  "detail/LEB/PCA-A/PD1/1101": {
+   "by_location": {
+    "Akkar": 430.0,
+    "Bekaa": 170.0
+   },
+   "periods": [
+    "QPR1:accepted:300.0",
+    "QPR2:accepted:200.0",
+    "QPR3:submitted:100.0"
+   ]
+  },
+  "detail/LEB/PCA-A/PD1/1103": {
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "periods": [
+    "HR1:accepted:30.0",
+    "HR2:accepted:25.0",
+    "HR3:sent_back:99.0",
+    "HR4:overdue:0.0",
+    "HR5:accepted:20.0"
+   ]
+  },
+  "detail/LEB/PCA-B/PD2/2101": {
+   "by_location": {
+    "Akkar": 70.0
+   },
+   "periods": [
+    "QPR1:overdue:60.0",
+    "QPR2:accepted:70.0"
+   ]
+  },
+  "home/progress_reports": 12,
+  "monitoring/HR/2026/LEB/PCA-A/PD1/1103": {
+   "as_of": "2026-05-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "1": 30.0,
+    "2": 25.0,
+    "5": 20.0
+   },
+   "reached": 75.0,
+   "reached_accepted": 75.0,
+   "reached_in_year": 75.0,
+   "read_from": "HR",
+   "reports": 3,
+   "statuses": [
+    "HR1:accepted",
+    "HR2:accepted",
+    "HR3:sent_back",
+    "HR4:overdue",
+    "HR5:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 75.0
+   }
+  },
+  "monitoring/HR/all/LEB/PCA-A/PD1/1103": {
+   "as_of": "2026-05-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 75.0,
+   "reached_accepted": 75.0,
+   "reached_in_year": null,
+   "read_from": "HR",
+   "reports": 3,
+   "statuses": [
+    "HR1:accepted",
+    "HR2:accepted",
+    "HR3:sent_back",
+    "HR4:overdue",
+    "HR5:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 75.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-A/PD1/1101": {
+   "as_of": "2026-09-30",
+   "awaiting": 100.0,
+   "awaiting_reports": 1,
+   "by_location": {
+    "Akkar": 430.0,
+    "Bekaa": 170.0
+   },
+   "latest_status": "Submitted",
+   "months": {
+    "3": 300.0,
+    "6": 200.0,
+    "9": 100.0
+   },
+   "reached": 600.0,
+   "reached_accepted": 500.0,
+   "reached_in_year": 600.0,
+   "read_from": "QPR",
+   "reports": 3,
+   "statuses": [
+    "QPR1:accepted",
+    "QPR2:accepted",
+    "QPR3:submitted",
+    "QPR4:not_yet_due"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 600.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-A/PD1/1102": {
+   "as_of": "2026-09-30",
+   "awaiting": 10.0,
+   "awaiting_reports": 1,
+   "by_location": {
+    "Akkar": 80.0
+   },
+   "latest_status": "Submitted",
+   "months": {
+    "3": 40.0,
+    "6": 30.0,
+    "9": 10.0
+   },
+   "reached": 80.0,
+   "reached_accepted": 70.0,
+   "reached_in_year": 80.0,
+   "read_from": "QPR",
+   "reports": 3,
+   "statuses": [
+    "QPR1:accepted",
+    "QPR2:accepted",
+    "QPR3:submitted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 80.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-A/PD1/1103": {
+   "as_of": "2026-05-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "1": 30.0,
+    "2": 25.0,
+    "5": 20.0
+   },
+   "reached": 75.0,
+   "reached_accepted": 75.0,
+   "reached_in_year": 75.0,
+   "read_from": "HR",
+   "reports": 3,
+   "statuses": [
+    "HR1:accepted",
+    "HR2:accepted",
+    "HR3:sent_back",
+    "HR4:overdue",
+    "HR5:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 75.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-A/PD1/1104": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 80.0,
+    "Bekaa": 40.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "3": 50.0,
+    "6": 80.0
+   },
+   "reached": 80.0,
+   "reached_accepted": 80.0,
+   "reached_in_year": 80.0,
+   "read_from": "QPR",
+   "reports": 2,
+   "statuses": [
+    "QPR1:accepted",
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 80.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2101": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "6": 70.0
+   },
+   "reached": 70.0,
+   "reached_accepted": 70.0,
+   "reached_in_year": 70.0,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:overdue",
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 70.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2201": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 12.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "6": 12.0
+   },
+   "reached": 12.0,
+   "reached_accepted": 12.0,
+   "reached_in_year": 12.0,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 12.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2202": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 30.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "6": 30.0
+   },
+   "reached": 30.0,
+   "reached_accepted": 30.0,
+   "reached_in_year": 30.0,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 30.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2301": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "6": 5.0
+   },
+   "reached": 5.0,
+   "reached_accepted": 5.0,
+   "reached_in_year": 5.0,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 5.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-B/PD2/2302": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Bekaa": 7.0
+   },
+   "latest_status": "Accepted",
+   "months": {
+    "6": 7.0
+   },
+   "reached": 7.0,
+   "reached_accepted": 7.0,
+   "reached_in_year": 7.0,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 7.0
+   }
+  },
+  "monitoring/QPR/2026/LEB/PCA-C/PD3/3101": {
+   "as_of": "2025-03-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 9.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 9.0,
+   "reached_accepted": 9.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2025": 9.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-A/PD1/1101": {
+   "as_of": "2026-09-30",
+   "awaiting": 100.0,
+   "awaiting_reports": 1,
+   "by_location": {
+    "Akkar": 430.0,
+    "Bekaa": 170.0
+   },
+   "latest_status": "Submitted",
+   "months": {},
+   "reached": 600.0,
+   "reached_accepted": 500.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 3,
+   "statuses": [
+    "QPR1:accepted",
+    "QPR2:accepted",
+    "QPR3:submitted",
+    "QPR4:not_yet_due"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 600.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-A/PD1/1102": {
+   "as_of": "2026-09-30",
+   "awaiting": 10.0,
+   "awaiting_reports": 1,
+   "by_location": {
+    "Akkar": 80.0
+   },
+   "latest_status": "Submitted",
+   "months": {},
+   "reached": 80.0,
+   "reached_accepted": 70.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 3,
+   "statuses": [
+    "QPR1:accepted",
+    "QPR2:accepted",
+    "QPR3:submitted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 80.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-A/PD1/1103": {
+   "as_of": "2026-05-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0,
+    "Bekaa": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 75.0,
+   "reached_accepted": 75.0,
+   "reached_in_year": null,
+   "read_from": "HR",
+   "reports": 3,
+   "statuses": [
+    "HR1:accepted",
+    "HR2:accepted",
+    "HR3:sent_back",
+    "HR4:overdue",
+    "HR5:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 75.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-A/PD1/1104": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 80.0,
+    "Bekaa": 40.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 80.0,
+   "reached_accepted": 80.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 2,
+   "statuses": [
+    "QPR1:accepted",
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 80.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2101": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 70.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 70.0,
+   "reached_accepted": 70.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:overdue",
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 70.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2201": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 12.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 12.0,
+   "reached_accepted": 12.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 12.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2202": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 30.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 30.0,
+   "reached_accepted": 30.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 30.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2301": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 5.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 5.0,
+   "reached_accepted": 5.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 5.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-B/PD2/2302": {
+   "as_of": "2026-06-30",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Bekaa": 7.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 7.0,
+   "reached_accepted": 7.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR2:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2026": 7.0
+   }
+  },
+  "monitoring/QPR/all/LEB/PCA-C/PD3/3101": {
+   "as_of": "2025-03-31",
+   "awaiting": null,
+   "awaiting_reports": 0,
+   "by_location": {
+    "Akkar": 9.0
+   },
+   "latest_status": "Accepted",
+   "months": {},
+   "reached": 9.0,
+   "reached_accepted": 9.0,
+   "reached_in_year": null,
+   "read_from": "QPR",
+   "reports": 1,
+   "statuses": [
+    "QPR1:accepted"
+   ],
+   "value_status": "reported",
+   "years": {
+    "2025": 9.0
+   }
+  },
+  "pop_up/LEB/PCA-A/PD1/QPR1": {
+   "indicators": [
+    "# of caregivers reached with parenting sessions|1.2 Caregivers|40.0",
+    "# of children reached with PSS|1.1 Protection services|300.0",
+    "% of children with improved wellbeing|1.4 Wellbeing|50.0"
+   ],
+   "status": "accepted"
+  },
+  "pop_up/LEB/PCA-A/PD1/QPR2": {
+   "indicators": [
+    "# of caregivers reached with parenting sessions|1.2 Caregivers|30.0",
+    "# of children reached with PSS|1.1 Protection services|200.0",
+    "% of children with improved wellbeing|1.4 Wellbeing|80.0"
+   ],
+   "status": "accepted"
+  },
+  "pop_up/LEB/PCA-B/PD2/QPR1": {
+   "indicators": [
+    "# of children reached with PSS|1.1 Protection services|60.0"
+   ],
+   "status": "overdue"
+  },
+  "progress/every/by_month": {
+   "Accepted": [
+    1,
+    1,
+    1,
+    4,
+    0,
+    1,
+    8,
+    0,
+    0
+   ],
+   "Not yet due": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "Overdue": [
+    0,
+    0,
+    0,
+    1,
+    1,
+    0,
+    0,
+    0,
+    0
+   ],
+   "Sent back": [
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "Submitted": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    2,
+    0
+   ]
+  },
+  "progress/every/counts": {
+   "accepted": 16,
+   "due": 0,
+   "indicator_reports": 22,
+   "late": 0,
+   "not_yet_due": 1,
+   "overdue": 2,
+   "progress_reports": 13,
+   "sent_back": 1,
+   "submitted": 2
+  },
+  "progress/every/left_out": {
+   "by_pd_status": 0,
+   "no_pd": 1,
+   "not_held": 0,
+   "other_status": 0
+  },
+  "progress/every/locations": [
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR1|Akkar|40.0|accepted|1",
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR2|Akkar|30.0|accepted|1",
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR3|Akkar|10.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR1|Akkar|200.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR1|Bekaa|100.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR2|Akkar|150.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR2|Bekaa|50.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR3|Akkar|80.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR3|Bekaa|20.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR4|Akkar|None|not_yet_due|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR1|Akkar|30.0|accepted|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR2|Akkar|25.0|accepted|2",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR3|Akkar|99.0|sent_back|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR4|Akkar|0.0|overdue|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR5|Akkar|15.0|accepted|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR5|Bekaa|5.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR1|Akkar|60.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR1|Bekaa|40.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR2|Akkar|80.0|accepted|1",
+   "LEB/PCA-B/PD2|# of children reached with PSS|QPR1|Akkar|60.0|overdue|1",
+   "LEB/PCA-B/PD2|# of children reached with PSS|QPR2|Akkar|70.0|accepted|1",
+   "LEB/PCA-B/PD2|# of households supported|QPR2|Akkar|5.0|accepted|1",
+   "LEB/PCA-B/PD2|# of households supported|QPR2|Bekaa|7.0|accepted|1",
+   "LEB/PCA-B/PD2|# of youth trained|QPR2|Akkar|12.0|accepted|1",
+   "LEB/PCA-B/PD2|# of youth trained|QPR2|Akkar|30.0|accepted|1",
+   "LEB/PCA-C/PD3|# of children reached with PSS|QPR1|Akkar|9.0|accepted|1",
+   "LEB/PCA-X/PD9|# of children reached with PSS|QPR1|Akkar|500.0|accepted|1"
+  ],
+  "progress/every/partners": {
+   "not_reported": 0,
+   "partners": 3,
+   "reported": 3
+  },
+  "progress/every/reports": [
+   "LEB/PCA-A/PD1|HR|HR1|2026-01-31|accepted|1",
+   "LEB/PCA-A/PD1|HR|HR2|2026-02-28|accepted|1",
+   "LEB/PCA-A/PD1|HR|HR3|2026-03-31|sent_back|1",
+   "LEB/PCA-A/PD1|HR|HR4|2026-04-30|overdue|1",
+   "LEB/PCA-A/PD1|HR|HR5|2026-05-31|accepted|1",
+   "LEB/PCA-A/PD1|QPR|QPR1|2026-03-31|accepted|3",
+   "LEB/PCA-A/PD1|QPR|QPR2|2026-06-30|accepted|3",
+   "LEB/PCA-A/PD1|QPR|QPR3|2026-09-30|submitted|2",
+   "LEB/PCA-A/PD1|QPR|QPR4|2026-12-31|not_yet_due|1",
+   "LEB/PCA-B/PD2|QPR|QPR1|2026-03-31|overdue|1",
+   "LEB/PCA-B/PD2|QPR|QPR2|2026-06-30|accepted|5",
+   "LEB/PCA-C/PD3|QPR|QPR1|2025-03-31|accepted|1",
+   "LEB/PCA-X/PD9|QPR|QPR1|2026-03-31|accepted|1"
+  ],
+  "progress/every/summary": {
+   "accepted": 8,
+   "due": 0,
+   "not_yet_due": 1,
+   "overdue": 2,
+   "sent_back": 1,
+   "submitted": 1
+  },
+  "progress/running/by_month": {
+   "Accepted": [
+    1,
+    1,
+    3,
+    0,
+    1,
+    8,
+    0,
+    0
+   ],
+   "Not yet due": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "Overdue": [
+    0,
+    0,
+    1,
+    1,
+    0,
+    0,
+    0,
+    0
+   ],
+   "Sent back": [
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "Submitted": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    2,
+    0
+   ]
+  },
+  "progress/running/counts": {
+   "accepted": 14,
+   "due": 0,
+   "indicator_reports": 20,
+   "late": 0,
+   "not_yet_due": 1,
+   "overdue": 2,
+   "progress_reports": 11,
+   "sent_back": 1,
+   "submitted": 2
+  },
+  "progress/running/left_out": {
+   "by_pd_status": 2,
+   "no_pd": 1,
+   "not_held": 1,
+   "other_status": 1
+  },
+  "progress/running/locations": [
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR1|Akkar|40.0|accepted|1",
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR2|Akkar|30.0|accepted|1",
+   "LEB/PCA-A/PD1|# of caregivers reached with parenting sessions|QPR3|Akkar|10.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR1|Akkar|200.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR1|Bekaa|100.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR2|Akkar|150.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR2|Bekaa|50.0|accepted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR3|Akkar|80.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR3|Bekaa|20.0|submitted|1",
+   "LEB/PCA-A/PD1|# of children reached with PSS|QPR4|Akkar|None|not_yet_due|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR1|Akkar|30.0|accepted|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR2|Akkar|25.0|accepted|2",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR3|Akkar|99.0|sent_back|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR4|Akkar|0.0|overdue|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR5|Akkar|15.0|accepted|1",
+   "LEB/PCA-A/PD1|# of emergency kits distributed|HR5|Bekaa|5.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR1|Akkar|60.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR1|Bekaa|40.0|accepted|1",
+   "LEB/PCA-A/PD1|% of children with improved wellbeing|QPR2|Akkar|80.0|accepted|1",
+   "LEB/PCA-B/PD2|# of children reached with PSS|QPR1|Akkar|60.0|overdue|1",
+   "LEB/PCA-B/PD2|# of children reached with PSS|QPR2|Akkar|70.0|accepted|1",
+   "LEB/PCA-B/PD2|# of households supported|QPR2|Akkar|5.0|accepted|1",
+   "LEB/PCA-B/PD2|# of households supported|QPR2|Bekaa|7.0|accepted|1",
+   "LEB/PCA-B/PD2|# of youth trained|QPR2|Akkar|12.0|accepted|1",
+   "LEB/PCA-B/PD2|# of youth trained|QPR2|Akkar|30.0|accepted|1"
+  ],
+  "progress/running/partners": {
+   "not_reported": 0,
+   "partners": 2,
+   "reported": 2
+  },
+  "progress/running/reports": [
+   "LEB/PCA-A/PD1|HR|HR1|2026-01-31|accepted|1",
+   "LEB/PCA-A/PD1|HR|HR2|2026-02-28|accepted|1",
+   "LEB/PCA-A/PD1|HR|HR3|2026-03-31|sent_back|1",
+   "LEB/PCA-A/PD1|HR|HR4|2026-04-30|overdue|1",
+   "LEB/PCA-A/PD1|HR|HR5|2026-05-31|accepted|1",
+   "LEB/PCA-A/PD1|QPR|QPR1|2026-03-31|accepted|3",
+   "LEB/PCA-A/PD1|QPR|QPR2|2026-06-30|accepted|3",
+   "LEB/PCA-A/PD1|QPR|QPR3|2026-09-30|submitted|2",
+   "LEB/PCA-A/PD1|QPR|QPR4|2026-12-31|not_yet_due|1",
+   "LEB/PCA-B/PD2|QPR|QPR1|2026-03-31|overdue|1",
+   "LEB/PCA-B/PD2|QPR|QPR2|2026-06-30|accepted|5"
+  ],
+  "progress/running/summary": {
+   "accepted": 6,
+   "due": 0,
+   "not_yet_due": 1,
+   "overdue": 2,
+   "sent_back": 1,
+   "submitted": 1
+  },
+  "quality/HR/2026": {
+   "no_reached_count": 0,
+   "same_title_count": 0,
+   "with_reached": 1,
+   "without_reached": 0
+  },
+  "quality/HR/all": {
+   "no_reached_count": 0,
+   "same_title_count": 0,
+   "with_reached": 1,
+   "without_reached": 0
+  },
+  "quality/QPR/2026": {
+   "no_reached_count": 1,
+   "same_title_count": 2,
+   "with_reached": 9,
+   "without_reached": 1
+  },
+  "quality/QPR/all": {
+   "no_reached_count": 0,
+   "same_title_count": 2,
+   "with_reached": 10,
+   "without_reached": 0
+  },
+  "summary/HR/2026": {
+   "awaiting_acceptance": 0,
+   "indicators": 1,
+   "overdue_reports": 1,
+   "reported_zero": 0,
+   "with_reached": 1
+  },
+  "summary/HR/all": {
+   "awaiting_acceptance": 0,
+   "indicators": 1,
+   "overdue_reports": 1,
+   "reported_zero": 0,
+   "with_reached": 1
+  },
+  "summary/QPR/2026": {
+   "awaiting_acceptance": 2,
+   "indicators": 10,
+   "overdue_reports": 1,
+   "reported_zero": 0,
+   "with_reached": 10
+  },
+  "summary/QPR/all": {
+   "awaiting_acceptance": 2,
+   "indicators": 10,
+   "overdue_reports": 1,
+   "reported_zero": 0,
+   "with_reached": 10
+  }
+ }
+}

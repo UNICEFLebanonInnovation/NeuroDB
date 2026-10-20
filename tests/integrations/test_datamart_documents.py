@@ -453,3 +453,63 @@ def test_raw_copies_from_a_read_shorter_than_announced_are_not_removed():
     assert result.status == SyncRun.Status.PARTIAL and result.rows_failed == 0
     assert result.details["removal_skipped"] is True and result.details["documents_removed"] == 0
     assert sorted(DatamartDocument.objects.values_list("record_key", flat=True)) == ["9", "old"]
+
+
+# ------------------------------------------------------------- PRP's progress reports: their programme document
+@responses.activate
+def test_prp_progress_reports_are_linked_to_their_pd_through_prp_programme_documents(linked, settings):
+    """A PRP progress report names its PRP programme document by id; that record links to the eTools PD by
+    its external id: the progress report gets the PD and its partner, after either dataset's sync. Counts
+    only in the run's details."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    partner, pd = linked
+    page(
+        "sources/prp/unicefprogrammedocument",
+        [
+            {"id": 77, "external_business_area_code": "2490", "external_id": "11", "reference_number": "X"},
+            {"id": 78, "external_business_area_code": "2490", "external_id": "999"},  # a PD NeuroDB lacks
+        ],
+        external_business_area_code="2490",
+        page_size="500",
+    )
+    page(
+        "sources/prp/unicefprogressreport",
+        [
+            {"id": 1, "business_area_code": "2490", "programme_document_id": 77, "status": "Ove"},
+            {"id": 2, "business_area_code": "2490", "programme_document": {"id": "77"}, "status": "Due"},
+            {"id": 3, "business_area_code": "2490", "programme_document_id": 78},
+            {"id": 4, "business_area_code": "2490", "programme_document_id": 55},  # not held
+            {"id": 5, "business_area_code": "2490", "report_type": "QPR"},  # names none
+        ],
+        business_area_code="2490",
+        page_size="500",
+    )
+    documents, reports = run("prp_programme_documents,prp_progress_reports")
+    assert reports.status == SyncRun.Status.SUCCEEDED
+    linked_to = dict(
+        DatamartDocument.objects.filter(dataset="prp_progress_reports").values_list(
+            "record_key", "intervention"
+        )
+    )
+    assert linked_to == {"1": pd.pk, "2": pd.pk, "3": None, "4": None, "5": None}
+    assert set(
+        DatamartDocument.objects.filter(dataset="prp_progress_reports", intervention=pd).values_list(
+            "partner", flat=True
+        )
+    ) == {partner.pk}
+    assert reports.details["progress_reports_pd_link"] == {
+        "linked": 2,
+        "pd_not_linked": 1,
+        "pd_not_held": 1,
+        "pd_not_named": 1,
+    }
+    assert documents.details["progress_reports_pd_link"] == {}  # no progress report held yet
+    # the PRP programme document now links to another PD: the next sync of either dataset follows it
+    other = PCA.objects.create(etl_id="999", number="LEB/PD9", title="PD 9", partner=partner)
+    sync.link_progress_reports()
+    assert DatamartDocument.objects.get(dataset="prp_progress_reports", record_key="3").intervention is None
+    DatamartDocument.objects.filter(dataset="prp_programme_documents", record_key="78").update(
+        intervention=other
+    )
+    assert sync.link_progress_reports()["linked"] == 3
+    assert DatamartDocument.objects.get(dataset="prp_progress_reports", record_key="3").intervention == other

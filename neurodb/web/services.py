@@ -93,10 +93,11 @@ def _etools_counts(year: int | None = None) -> dict[str, Any]:
         "running_programmes": len(pds),
         "etools_partners": len({pd.partner_id for pd in pds.values() if pd.partner_id}),
         "pd_indicators": len(rows),
+        # each its programme document, type, number and period (reporting.REPORT_KEY), whatever PRP's ids hold
         "progress_reports": ReportedIndicator.objects.filter(period_end__year=calendar_year)
-        .exclude(progress_report="")
         .exclude(reporting.NO_PD)  # a report naming no PD: never counted (reporting.NO_PD)
-        .values("progress_report")
+        .annotate(_report=reporting.REPORT_KEY)
+        .values("_report")
         .distinct()
         .count(),
         "etools_update": last.finished_at if last else None,

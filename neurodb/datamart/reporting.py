@@ -27,9 +27,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from django.conf import settings
-from django.db.models import CharField, Count, Max, Q, QuerySet, TextField, Value
+from django.db.models import Case, CharField, Count, Max, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTransform
-from django.db.models.functions import Cast, Coalesce, Concat, ExtractYear, NullIf
+from django.db.models.functions import Cast, Coalesce, Concat, ExtractYear, NullIf, Trim, Upper
 
 from neurodb.core import compute
 from neurodb.partnerships import statuses as pd_statuses
@@ -74,31 +74,58 @@ DISAGGREGATION_LIMIT = 10_000
 # Report/Disaggregation tables two minutes, its filter options ten (they only change with a sync)
 STORED_SECONDS = 120
 OPTIONS_SECONDS = 600
-CACHE_VERSION = 2  # 2: the stored tables carry no chart data (by_month) any more
+CACHE_VERSION = 3  # 2: the stored tables carry no chart data (by_month); 3: their rows carry the report key
 NO_SECTION = "—"
 EMAIL = re.compile(r"[^\s@]+@[^\s@]+")
 
-# one indicator in one progress report: PRP's indicator report id, else the eTools id and title
+# one indicator in one progress report: PRP's indicator report id, else the eTools id, title and PD output
+# (reached.indicator_report_key)
 INDICATOR_REPORT = Coalesce(
     NullIf("indicator_report", Value("")),
-    Concat(Value("t|"), "etools_indicator_id", Value("|"), "indicator", output_field=CharField()),
+    Concat(
+        Value("t|"),
+        "etools_indicator_id",
+        Value("|"),
+        "indicator",
+        Value("|"),
+        "pd_output",
+        output_field=CharField(),
+    ),
     output_field=CharField(),
 )
-# one indicator report among all: its progress report (PRP's id, else all the report's fields, as
-# report_key groups the rows) and the indicator in it, as progress_reports counts them
-INDICATOR_REPORT_KEY = Concat(
-    Coalesce(
-        NullIf("progress_report", Value("")),
-        Concat(
-            *[part for name in REPORT_FIELDS for part in (Value("|"), Cast(name, TextField()))],
-            output_field=TextField(),
-        ),
-        output_field=TextField(),
+# a progress report as reached.report_key tells it apart: its programme document (NeuroDB's link, else the
+# reference number), type, number and period; PRP's progress report id only on a row naming no programme
+# document at all, or no number and no period
+REPORT_KEY = Concat(
+    Case(
+        When(intervention__isnull=False, then=Concat(Value("pd"), Cast("intervention_id", CharField()))),
+        default=Concat(Value("ref:"), "pd_reference_number"),
+        output_field=CharField(),
     ),
-    Value("#"),
-    INDICATOR_REPORT,
-    output_field=TextField(),
+    Value("|"),
+    Upper(Trim("report_type")),
+    Value("|"),
+    "report_number",
+    Value("|"),
+    Coalesce(Cast("period_start", CharField()), Value("")),
+    Value("|"),
+    Coalesce(Cast("period_end", CharField()), Value("")),
+    Case(
+        When(
+            (
+                Q(intervention__isnull=True, pd_reference_number="")
+                | Q(report_number="", period_start=None, period_end=None)
+            )
+            & ~Q(progress_report=""),
+            then=Concat(Value("|pr:"), "progress_report"),
+        ),
+        default=Value(""),
+        output_field=CharField(),
+    ),
+    output_field=CharField(),
 )
+# one indicator report among all: its progress report and the indicator in it, as progress_reports counts them
+INDICATOR_REPORT_KEY = Concat(REPORT_KEY, Value("#"), INDICATOR_REPORT, output_field=CharField())
 # report rows that name no programme document at all (no link, no PD reference number, no eTools PD id):
 # PRP reports outside programme documents, which no PD status filter keeps: Progress reports, the partner
 # page, the home page and the management brief never count them
@@ -279,9 +306,10 @@ def report_status(report: dict[str, Any], today: datetime.date) -> str:
     )
 
 
-def report_key(row: dict[str, Any]) -> Any:
-    """The progress report of a grouped row: its id, else all its fields (rows without an id)."""
-    return row["progress_report"] or tuple(row[f] for f in REPORT_FIELDS)
+def report_key(row: dict[str, Any]) -> str:
+    """The progress report of a grouped row (:func:`neurodb.datamart.reached.report_key`: its programme
+    document, type, number and period), whatever its status, partner link or dates say."""
+    return rc.report_key(row)
 
 
 def progress_reports(
@@ -291,12 +319,13 @@ def progress_reports(
     status, its indicator reports (``indicators``) and their sections (``sections``: section ->
     indicator reports).
 
-    A report whose rows disagree on a field (a partial re-sync, a partner link set on some rows only) is
-    still listed and counted once: its status is the word of its rows changed last
+    A report is its programme document, type, number and period (:func:`report_key`), whatever PRP's ids
+    hold. A report whose rows disagree on a field (a partial re-sync, a partner link set on some rows
+    only) is still listed and counted once: its status is the word of its rows changed last
     (:func:`neurodb.datamart.reached.newest_status`, as every page reads it), read from every row of
     the report, also those a filter leaves out (a section, a search, the emergency indicators: Partner
     monitoring and the pop-up read the whole report); every other field is the first non-empty value
-    of its rows, in a fixed order. Rows without a progress report id stay grouped by all their fields."""
+    of its rows, in a fixed order. ``key``: the report's key, which opens its pop-up."""
     today = today or datetime.date.today()
     grouped = (
         queryset.annotate(_ir=INDICATOR_REPORT)
@@ -319,7 +348,7 @@ def progress_reports(
             report = reports[key] = {f: row[f] for f in ("progress_report", *REPORT_FIELDS)}
             report["_group"] = key  # filling empty fields below must not change the report's key
         else:
-            for f in REPORT_FIELDS:
+            for f in ("progress_report", *REPORT_FIELDS):
                 if report[f] in (None, "") and row[f] not in (None, ""):
                     report[f] = row[f]
         text = row["report_status"] or ""
@@ -328,7 +357,7 @@ def progress_reports(
         known = sections[key].get(row["_ir"])
         if known is None or (not known and section):
             sections[key][row["_ir"]] = section
-    words.update(_status_words(queryset))
+    words.update(_status_words(queryset, set(reports)))
     out = sorted(reports.values(), key=lambda r: (r["pd_reference_number"], r["report_number"]))
     # latest period first, reports without a period end at the top (as the database sorts them)
     out.sort(key=lambda r: r["period_end"] or datetime.date.max, reverse=True)
@@ -341,28 +370,33 @@ def progress_reports(
         report["section"] = ", ".join(s for s in by_section if s != NO_SECTION)
         report["status"] = report_status(report, today)
         report["status_label"] = rc.STATUS_LABELS[report["status"]]
-        report["key"] = report["progress_report"] or ""
+        report["key"] = key
     return out
 
 
-def _status_words(queryset: QuerySet[dm.ReportedIndicator]) -> dict[str, dict[str, rc.Stamp]]:
-    """Each status word of every row of the progress reports in ``queryset`` (all their rows, not only
-    the filter's) with the latest stamp of its rows (:func:`neurodb.datamart.reached.newest_status`)."""
+def _status_words(queryset: QuerySet[dm.ReportedIndicator], keys: set[str]) -> dict[str, dict[str, rc.Stamp]]:
+    """Each status word of every row of the progress reports ``keys`` of ``queryset`` (all their rows, not
+    only the filter's: the rows of the same programme documents and period ends) with the latest stamp of
+    its rows (:func:`neurodb.datamart.reached.newest_status`)."""
+    held = queryset.exclude(intervention=None)
+    named = queryset.filter(intervention=None)
     every = (
         dm.ReportedIndicator.objects.filter(
-            progress_report__in=queryset.exclude(progress_report="").values("progress_report")
+            Q(intervention_id__in=held.values("intervention_id"))
+            | Q(intervention=None, pd_reference_number__in=named.values("pd_reference_number")),
+            Q(period_end__in=queryset.values("period_end")) | Q(period_end=None),
         )
-        .values("progress_report", "report_status")
+        .values(*rc.IDENTITY_FIELDS, "progress_report", "report_status")
         .annotate(_changed=Max("last_modify_date"), _synced=Max("synced_at"), _id=Max("datamart_id"))
         .order_by()
     )
     out: dict[str, dict[str, rc.Stamp]] = defaultdict(dict)
     for row in every:
-        out[row["progress_report"]][row["report_status"] or ""] = (
-            row["_changed"],
-            row["_synced"],
-            row["_id"],
-        )
+        key = rc.report_key(row)
+        if key not in keys:
+            continue
+        mine, text = out[key], row["report_status"] or ""
+        mine[text] = rc.stamp(mine.get(text), (row["_changed"], row["_synced"], row["_id"]))
     return out
 
 
@@ -590,7 +624,6 @@ def partner_performance(reports: list[dict[str, Any]]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------------- Report/Location
 LOCATION_FIELDS = (
     *rc.ROW_FIELDS,
-    "pd_reference_number",
     "partner_id",
     "partner_name",
     "section",
@@ -600,18 +633,32 @@ LOCATION_FIELDS = (
 
 
 def _definitions(pd_ids: set[int]) -> dict[tuple[int, str], tuple[str, str]]:
-    """Display type and unit of the PDs' indicators, by eTools id ("s…") and by title ("t…")."""
+    """Display type and unit of the PDs' indicators, by eTools id ("s…"), by output and title ("o…", for a
+    title two indicators share) and by title ("t…")."""
     out: dict[tuple[int, str], tuple[str, str]] = {}
     ids = sorted(i for i in pd_ids if i)
     for start in range(0, len(ids), 5000):
         rows = dm.PDIndicator.objects.filter(intervention_id__in=ids[start : start + 5000]).values_list(
-            "intervention_id", "source_id", "title", "display_type", "unit"
+            "intervention_id", "source_id", "title", "lower_result_name", "display_type", "unit"
         )
-        for pd_id, source_id, title, display_type, unit in rows:
+        for pd_id, source_id, title, output, display_type, unit in rows:
             if source_id:
                 out.setdefault((pd_id, f"s{source_id}"), (display_type, unit))
+            out.setdefault((pd_id, f"o{rc.norm(output)}|{rc.norm(title)}"), (display_type, unit))
             out.setdefault((pd_id, f"t{rc.norm(title)}"), (display_type, unit))
     return out
+
+
+def definition_of(definitions: dict[tuple[int, str], Any], pd_id: Any, row: dict[str, Any]) -> Any:
+    """A report row's PD indicator in ``definitions`` (keyed as :func:`_definitions` keys them): by its eTools
+    id, else by its output and title, else by its title; None when none has it."""
+    etools_id = (row.get("etools_indicator_id") or "").strip()
+    title = rc.norm(row.get("indicator"))
+    return (
+        (definitions.get((pd_id, f"s{etools_id}")) if etools_id else None)
+        or definitions.get((pd_id, f"o{rc.norm(row.get('pd_output'))}|{title}"))
+        or definitions.get((pd_id, f"t{title}"))
+    )
 
 
 def _location_cells(rows: list[dict[str, Any]], statuses: dict[Any, str], today: datetime.date, wanted):
@@ -623,13 +670,14 @@ def _location_cells(rows: list[dict[str, Any]], statuses: dict[Any, str], today:
     definitions = _definitions({r["intervention_id"] for r in rows if r["intervention_id"]})
     details = pd_details({r["intervention_id"] for r in rows if r["intervention_id"]})
     # one group per indicator report (one indicator in one progress report, as the tiles count them):
-    # two indicators that share an eTools id or a title are never read as one
+    # two indicators that share an eTools id or a title are never read as one, nor two programme documents'
+    # reports of one number and period
     groups: dict[tuple, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         groups[(rc.report_key(row), rc.indicator_report_key(row))].append(row)
-    for group in groups.values():
+    for (key, _), group in groups.items():
         first = group[0]
-        status = statuses.get(first["progress_report"]) if first["progress_report"] else None
+        status = statuses.get(key)
         if status is None:
             status = rc.status_of(
                 first["report_status"],
@@ -641,12 +689,7 @@ def _location_cells(rows: list[dict[str, Any]], statuses: dict[Any, str], today:
         if wanted is not None and status not in wanted:
             continue
         pd_id = first["intervention_id"]
-        etools_id = (first["etools_indicator_id"] or "").strip()
-        display_type, unit = (
-            (definitions.get((pd_id, f"s{etools_id}")) if etools_id else None)
-            or definitions.get((pd_id, f"t{rc.norm(first['indicator'])}"))
-            or ("", "")
-        )
+        display_type, unit = definition_of(definitions, pd_id, first) or ("", "")
         ratio = rc.is_ratio(
             display_type, unit, first["calculation_across_locations"], first["calculation_across_periods"]
         )
@@ -669,6 +712,7 @@ def _location_cells(rows: list[dict[str, Any]], statuses: dict[Any, str], today:
                     "report": report.number,
                     "report_type": report.report_type,
                     "progress_report": first["progress_report"],
+                    "report_key": key,
                     "status": status,
                     "report_status": rc.STATUS_LABELS[status],
                     "counted": status in rc.COUNTED,
@@ -705,7 +749,7 @@ def location_rows(
     """Report/Location: one row per indicator report and location, with the value of the location in
     the period (the disaggregation total "()", read as :mod:`reached` reads it: a report total repeated
     on every location gives no value of its own, two rows of one location are never added) and PRP's
-    figure to date there. ``statuses``: each progress report's status (``progress_reports``);
+    figure to date there. ``statuses``: each progress report's status by its key (``progress_reports``);
     ``wanted``: the statuses to keep (None: all). Read only below :data:`LOCATION_LIMIT` rows."""
     total = queryset.count()
     if total > LOCATION_LIMIT:

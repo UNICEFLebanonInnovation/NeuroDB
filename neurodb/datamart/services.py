@@ -1304,7 +1304,7 @@ def partner_reporting(params, today: datetime.date | None = None, *, options: bo
     filters = reporting.ReportFilters.from_params(params)
     rows = filters.queryset(today)
     reports = reporting.progress_reports(rows, today)
-    statuses = {r["progress_report"]: r["status"] for r in reports if r["progress_report"]}
+    statuses = {r["key"]: r["status"] for r in reports}
     if filters.statuses:
         reports = [r for r in reports if r["status"] in filters.statuses]
     reporting.with_pd_details(reports)
@@ -1335,35 +1335,68 @@ def report_indicators(progress_report: str) -> list[dm.ReportedIndicator]:
     )
 
 
-def report_detail(progress_report: str, today: datetime.date | None = None) -> dict[str, Any] | None:
-    """One progress report, indicator by indicator: each location's value in the report (the
-    disaggregation total "()", as ``reached`` reads it, parsed), PRP's value to date there, and a
-    total row that combines the locations by the indicator's method (never a sum of a percentage,
-    never the report total repeated on each row added up)."""
+def report_rows(report: str) -> list[dict[str, Any]]:
+    """The rows of one progress report (``reached.ROW_FIELDS`` and the target), in ``reached.ROW_ORDER``:
+    ``report`` is its key (``reached.report_key``: programme document, type, number and period, as the
+    reports' lists link it), or PRP's progress report id when every row carrying it is of one report (an id
+    that stands for several reports opens none). Empty when nothing matches."""
+    text = (report or "").strip()
+    if not text:
+        return []  # rows without a report id belong to no one report
+    by_id = dm.ReportedIndicator.objects.filter(progress_report=text).order_by()
+    found = {
+        reached.report_key(r) for r in by_id.values(*reached.IDENTITY_FIELDS, "progress_report").distinct()
+    }
+    if len(found) > 1:
+        return []
+    key = found.pop() if found else text
+    parts = key.split("|")
+    if len(parts) < 5:
+        return []
+    pd, number = parts[0], parts[2]
+    rows = dm.ReportedIndicator.objects.filter(report_number=number)
+    if re.fullmatch(r"pd[0-9]{1,18}", pd):
+        rows = rows.filter(intervention_id=int(pd[2:]))
+    elif pd.startswith("ref:"):
+        rows = rows.filter(intervention=None, pd_reference_number=pd[4:])
+    else:
+        return []
+    every = rows.order_by(*reached.ROW_ORDER).values(*reached.ROW_FIELDS, "target")
+    return [r for r in every if reached.report_key(r) == key]
+
+
+def report_detail(report: str, today: datetime.date | None = None) -> dict[str, Any] | None:
+    """One progress report (:func:`report_rows`: its key, or PRP's id), indicator by indicator: each
+    location's value in the report (the disaggregation total "()", as ``reached`` reads it, parsed), PRP's
+    value to date there, and a total row that combines the locations by the indicator's method (never a
+    sum of a percentage, never the report total repeated on each row added up)."""
     today = today or datetime.date.today()
-    if not (progress_report or "").strip():
-        return None  # rows without a report id belong to no one report
-    rows = list(
-        dm.ReportedIndicator.objects.filter(progress_report=progress_report)
-        .order_by(*reached.ROW_ORDER)
-        .values(*reached.ROW_FIELDS, "pd_output", "target")
-    )
+    rows = report_rows(report)
     if not rows:
         return None
-    report = (
-        dm.ReportedIndicator.objects.filter(progress_report=progress_report).order_by("datamart_id").first()
-    )
-    definitions: dict[str, tuple[str, str, float | None]] = {}
+    report = dm.ReportedIndicator.objects.get(datamart_id=min(r["datamart_id"] for r in rows))
+    definitions: dict[tuple[int, str], tuple[str, str, float | None]] = {}
     if report.intervention_id:
         for row in dm.PDIndicator.objects.filter(intervention_id=report.intervention_id).values(
-            "source_id", "title", "display_type", "unit", "target_numerator", "target_denominator"
+            "source_id",
+            "title",
+            "lower_result_name",
+            "display_type",
+            "unit",
+            "target_numerator",
+            "target_denominator",
         ):
-            # by eTools id ("s…"), else by title ("t…"): a row without an id never takes the type of
-            # an indicator that has none. The target as Partner monitoring reads it (a percentage × 100)
+            # by eTools id ("s…"), else by output and title ("o…"), else by title ("t…"): a row without an
+            # id never takes the type of an indicator that has none. The target as Partner monitoring
+            # reads it (a percentage × 100)
             found = (row["display_type"], row["unit"], pd_monitoring._target(row))
+            title = pd_monitoring.norm(row["title"])
             if row["source_id"]:
-                definitions.setdefault(f"s{row['source_id']}", found)
-            definitions.setdefault(f"t{pd_monitoring.norm(row['title'])}", found)
+                definitions.setdefault((report.intervention_id, f"s{row['source_id']}"), found)
+            definitions.setdefault(
+                (report.intervention_id, f"o{pd_monitoring.norm(row['lower_result_name'])}|{title}"), found
+            )
+            definitions.setdefault((report.intervention_id, f"t{title}"), found)
     # one entry per indicator report (one indicator in this report), as the tiles count them: two
     # indicators that share a title or an eTools id are never one line
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -1375,12 +1408,10 @@ def report_detail(progress_report: str, today: datetime.date | None = None) -> d
     for _key, group in sorted(
         groups.items(), key=lambda kv: (kv[1][0]["pd_output"] or "", kv[1][0]["indicator"] or "", kv[0])
     ):
-        etools_id, title = (group[0]["etools_indicator_id"] or "").strip(), group[0]["indicator"] or ""
-        display_type, unit, target = (
-            (definitions.get(f"s{etools_id}") if etools_id else None)
-            or definitions.get(f"t{pd_monitoring.norm(title)}")
-            or ("", "", None)
-        )
+        title = group[0]["indicator"] or ""
+        display_type, unit, target = reporting.definition_of(
+            definitions, report.intervention_id, group[0]
+        ) or ("", "", None)
         ratio = reached.is_ratio(
             display_type,
             unit,

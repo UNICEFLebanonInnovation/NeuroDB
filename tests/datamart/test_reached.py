@@ -107,9 +107,9 @@ def test_the_worked_example():
         "due",
         "not_yet_due",
     ]
-    assert out.latest.key == "QPR4" and out.value_status == reached.REPORTED
+    assert out.latest.number == "QPR4" and out.value_status == reached.REPORTED
     # Akkar in QPR3: sex 5 + 15 = 20, nationality 20, location total 20 (never 40)
-    cell = next(r for r in out.reports if r.key == "QPR3").cells["LB1"]
+    cell = next(r for r in out.reports if r.number == "QPR3").cells["LB1"]
     assert cell.value == 20.0
     assert cell.parts["(1,)"] + cell.parts["(2,)"] == cell.parts["(3,)"] == cell.parts["()"] == cell.value
     # the zero a due or future report carries never becomes "the latest"
@@ -310,6 +310,33 @@ def test_two_rows_of_one_location_are_never_added():
     rows[1]["disaggregation"]["()"] = {"v": 200, "d": 1, "c": 200}
     out = compute(rows)
     assert out.reached == 300.0 and not out.notes  # the same value twice: nothing to say
+
+
+@pytest.mark.parametrize(
+    ("progress_report", "indicator_report"),
+    [("LEB/PD1", "ir-1"), ("", "Children reached"), ("", "")],
+)
+def test_a_report_is_its_pd_type_number_and_period_whatever_prps_ids_say(progress_report, indicator_report):
+    """QPR1 (March, 100) and QPR2 (June, 50) at one place under one PRP id (a PD-level progress report id, an
+    indicator report id that does not vary, or none): two counted reports, 150, never the largest (100)."""
+    rows = [
+        row(r, end, "Akkar", value, progress_report=progress_report, indicator_report=indicator_report)
+        for r, end, value in (
+            ("QPR1", datetime.date(2026, 3, 31), 100),
+            ("QPR2", datetime.date(2026, 6, 30), 50),
+        )
+    ]
+    out = compute(rows)
+    assert (out.reached, len(out.counted), out.months) == (150.0, 2, {3: 100.0, 6: 50.0})
+    assert [r.key for r in out.reports] == [
+        "pd1|QPR|QPR1|2026-01-01|2026-03-31",
+        "pd1|QPR|QPR2|2026-04-02|2026-06-30",
+    ]
+    # a report whose rows disagree on its status reads the word of its rows changed last
+    rows.append(row("QPR2", datetime.date(2026, 6, 30), "Bekaa", 10, status="Due", submitted=False))
+    rows[-1]["last_modify_date"], rows[1]["last_modify_date"] = "2026-07-01", "2026-07-09"
+    out = compute(rows)
+    assert [r.status for r in out.reports] == ["accepted", "accepted"] and out.reached == 160.0
 
 
 # ------------------------------------------------------------------------------------- methods
