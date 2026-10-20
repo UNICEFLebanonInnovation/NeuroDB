@@ -575,12 +575,24 @@ class _Idents:
                 self.by_source.setdefault((pd_id, str(source_id)), ident)
             titles[(pd_id, norm(title))].add(ident)
         self.by_title = {key: next(iter(found)) for key, found in titles.items() if len(found) == 1}
+        # the titles two or more indicators of a PD share: a row matched by such a title only is left out
+        self.shared = {key for key, found in titles.items() if len(found) > 1}
 
     def of(self, pd_id: int, etools_id: Any, title: str | None) -> tuple[int, str] | None:
         source = str(etools_id or "").strip()
         if source and (pd_id, source) in self.by_source:
             return self.by_source[(pd_id, source)]
         return self.by_title.get((pd_id, norm(title)))
+
+    def how(self, pd_id: int, etools_id: Any, title: str | None) -> str:
+        """How :meth:`of` reads a row (the eTools reporting checks count them): ``"id"``, ``"title"``,
+        ``"shared"`` (left out: the title is several indicators') or ``"unknown"`` (left out: no
+        indicator of the PD has it)."""
+        source = str(etools_id or "").strip()
+        if source and (pd_id, source) in self.by_source:
+            return "id"
+        key = (pd_id, norm(title))
+        return "title" if key in self.by_title else "shared" if key in self.shared else "unknown"
 
 
 def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, today: datetime.date) -> None:

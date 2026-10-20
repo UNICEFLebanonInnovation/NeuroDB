@@ -425,15 +425,50 @@ def with_pd_details(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def section_q(names: list[str]) -> Q:
     """Report rows in these sections: the row's own section (alone or in a list such as "C4D,
-    Education"), else, for a row that names none, its PD's sections: the rule of the counts by section."""
+    Education" or "C4D; Education", as :func:`section_names` reads it), else, for a row that names none,
+    its PD's sections: the rule of the counts by section."""
     found = Q()
     for name in names:
         found |= (
             Q(section__iexact=name)
-            | Q(section__iregex=r"(^|,)\s*" + re.escape(name) + r"\s*(,|$)")
+            | Q(section__iregex=r"(^|[,;])\s*" + re.escape(name) + r"\s*([,;]|$)")
             | (Q(section="") & Q(intervention__section_names__contains=[name]))
         )
     return found
+
+
+def _spaced(text: Any) -> str:
+    """A section name with its spaces as one (a no-break space or a tab too), and one space after a comma
+    or a semicolon, none before."""
+    return re.sub(r"\s*([,;])\s*", r"\1 ", " ".join(str(text or "").split())).strip()
+
+
+def section_names(text: Any, known: Any = ()) -> list[str]:
+    """The section names in a partner report row's section field, which holds one name or a list ("Child
+    Protection, Adolescent & Youth"): split at commas and semicolons, the spaces inside a name as one, each
+    name once whatever its case (its first spelling kept). ``known``: section names as eTools spells them
+    (the PDs' sections); one of them that holds a comma itself ("WASH / Water, Sanitation and Hygiene") is
+    kept whole. Check 10 of the eTools reporting checks and the Section filter of Progress reports read
+    the field this way, and :func:`section_q` finds a name inside such a list."""
+    whole = {_spaced(k).casefold() for k in known or () if _spaced(k)}
+    pieces = re.split(r"([,;])", str(text or ""))
+    words, separators = pieces[0::2], pieces[1::2]
+
+    def joined(first: int, last: int) -> str:
+        return _spaced(
+            "".join(words[k] + (separators[k] if k < last else "") for k in range(first, last + 1))
+        )
+
+    out: dict[str, str] = {}
+    i = 0
+    while i < len(words):
+        # the longest run of pieces from here that a known name spells whole, else this piece alone
+        last = next((j for j in range(len(words) - 1, i, -1) if joined(i, j).casefold() in whole), i)
+        name = joined(i, last)
+        if name:
+            out.setdefault(name.casefold(), name)
+        i = last + 1
+    return list(out.values())
 
 
 # ------------------------------------------------------------------------------- Reporting Progress
@@ -895,10 +930,15 @@ def stored_options() -> dict[str, Any]:
 
 def filter_options() -> dict[str, Any]:
     rows = dm.ReportedIndicator.objects.order_by()
-    sections = {(x or "").strip() for x in rows.values_list("section", flat=True).distinct()}
     pds = PCA.objects.filter(pk__in=rows.exclude(intervention=None).values("intervention_id")).order_by()
-    for names in pds.values_list("section_names", flat=True):
-        sections.update(x for x in names or [] if x)
+    known = {_spaced(x) for names in pds.values_list("section_names", flat=True) for x in names or [] if x}
+    # one option per section name, the PDs' spelling first: a row's list ("Child Protection, Adolescent &
+    # Youth") gives each of its names, which section_q finds inside the list
+    found = {name.casefold(): name for name in sorted(known - {""})}
+    for text in rows.values_list("section", flat=True).distinct():
+        for name in section_names(text, known):
+            found.setdefault(name.casefold(), name)
+    sections = set(found.values())
     reporting = PartnerOrganization.objects.filter(pk__in=rows.exclude(partner=None).values("partner_id"))
     partners = reporting.order_by("name", "id").values_list("id", "name")
     partner_types = reporting.order_by()

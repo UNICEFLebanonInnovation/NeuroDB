@@ -19,6 +19,8 @@ D = datetime.date
 TODAY = D(2026, 10, 15)  # the suite's day (tests/conftest.py SITE_NOW)
 JUNE = D(2026, 6, 30)
 _ids = iter(range(70_000, 10**9))
+# check 11's table after its period end and feed: the six statuses, then the reports expected and not in the feed
+COLUMNS = ["Accepted", "Submitted", "Sent back", "Due", "Overdue", "Not yet due", "Expected"]
 
 
 def row(pd, number, pr, indicator, *, status="Accepted", end=JUNE, location="Akkar", **extra):
@@ -150,7 +152,7 @@ def test_check_11_compares_the_reports_owed_in_the_two_feeds(rows):
     assert figures["Due or overdue in the partner reports"] == 0
     assert figures["Due or overdue in PRP's indicator reports"] == 2
     assert "does not carry every report still owed" in found["verdict"]
-    labels = ["Accepted", "Submitted", "Sent back", "Due", "Overdue", "Not yet due"]
+    labels = COLUMNS
     table = {(r[0], r[1]): dict(zip(labels, r[2:], strict=True)) for r in found["table"]["rows"]}
     assert table[("Jun 2026", "Partner reports")]["Accepted"] == 2
     assert table[("Jun 2026", "PRP indicator reports")]["Accepted"] == 1
@@ -232,7 +234,7 @@ def test_check_11_reads_the_progress_report_status_of_prp_records_first(rows):
     # no word of its own: its progress report's dates decide
     _document(running, "2", D(2026, 6, 30), pr_end_date="2026-08-31", pr_due_date="2026-09-30")
     found = {c["key"]: c for c in checks.run_all()}["11"]
-    labels = ["Accepted", "Submitted", "Sent back", "Due", "Overdue", "Not yet due"]
+    labels = COLUMNS
     table = {(r[0], r[1]): dict(zip(labels, r[2:], strict=True)) for r in found["table"]["rows"]}
     assert table[("Jun 2026", "PRP indicator reports")]["Submitted"] == 1
     assert table[("Aug 2026", "PRP indicator reports")]["Overdue"] == 1
@@ -292,7 +294,7 @@ def test_check_11_counts_prp_records_in_the_year_their_progress_report_ends(rows
     # its own period ends in December 2026, its progress report in January 2027: not this year's
     _document(running, "2", D(2026, 12, 31), pr_end_date="2027-01-15", pr_due_date="2027-02-15")
     found = {c["key"]: c for c in checks.run_all()}["11"]
-    labels = ["Accepted", "Submitted", "Sent back", "Due", "Overdue", "Not yet due"]
+    labels = COLUMNS
     table = {(r[0], r[1]): dict(zip(labels, r[2:], strict=True)) for r in found["table"]["rows"]}
     assert table[("Jan 2026", "PRP indicator reports")]["Overdue"] == 1
     assert ("Dec 2026", "PRP indicator reports") not in table

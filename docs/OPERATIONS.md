@@ -1689,9 +1689,11 @@ few of their ids (every record is also in the container log). Two causes to know
 eTools/PRP. It joins the PD indicators (`pd_indicators`: target, baseline, section, output,
 planned locations, disaggregations) with the partners' data reports (`partner_reports`: one row per
 report, indicator and location). A report row belongs to the PD indicator with its eTools indicator
-id (`etools_cp_output_indicators_id` = the PD indicator's `source_id`); a row without one is matched
-by its title, only when one indicator of the PD has that title (two indicators with the same title
-are never merged).
+id (`etools_cp_output_indicators_id`, read as the PD indicator's `source_id`: unconfirmed, and empty on
+every row so far, so rows are matched by title); a row whose id names none of the PD's indicators is
+matched by its title, only when one indicator of the PD has that title (two indicators with the same
+title are never merged, and their rows are left out). The eTools reporting checks (check 7) count the
+rows matched by id, by title and left out.
 
 **Reached: one rule for every page** (`neurodb/datamart/reached.py`; the grid, the indicator detail,
 the map, the programme and partner pages, the progress report pop-up and Ask NeuroDB all read it):
@@ -1771,28 +1773,79 @@ it. Per-location targets are not in any country-filterable Datamart endpoint, so
 locations are compared on reported values only.
 
 **eTools reporting checks** (admin → *Data and sync* → *eTools reporting checks*, Administrators only;
-also in the admin home's quick actions, on *Data health* and on *Progress reports*): eleven read-only checks of the partner report data the rule depends on (rows per
-location, whether the value in the period is the report total repeated, disaggregation keys and the
-`"()"` total, what reports that do not count carry, PRP's cumulative against Reached, the
-calculation methods in use, whether report rows carry the PD indicator's id, PRP's report totals,
-whether the financial contribution repeats on every indicator of a report, the country and
-programme document of the rows, and the reports owed in PRP's two feeds), each with a verdict
-and what NeuroDB does whatever the answer. Check 10 counts the rows per country named in the record
-and per programme document link (running, another status, not in NeuroDB, names none), with their
-indicator reports (counted as Progress reports counts them), their first and last period end, their
-sections and the first PD numbers NeuroDB does not hold; a row of another country is one the sync
-would skip (the same comparison). Check 11 sets, month by month for this year and the running
-programme documents, the indicator reports per status of the partner reports (`prp/datareport`, what
-Progress reports and Partner monitoring count) beside those of PRP's indicator reports
-(`prp/indicator-report-v2`, kept whole for Ask NeuroDB), both read with the same status rule (for PRP's
-records, their progress report's own status and dates first, as the Funds page reads them, and the
-year and month by that same period end): it names
-the months where PRP lists more reports still owed (the partner reports feed does not carry them, and
-Power BI's Reporting Progress can then show overdue reports NeuroDB does not), those where the partner
-reports list more, and those where the statuses differ otherwise; with nothing to compare, it says why
-(no record of the year held, none linked to a programme document NeuroDB holds, or none of a running
-one). Checks 10 and 11 run first, so they answer whatever time the others take; the page lists the
-checks in their order. Every query is aggregate.
+also in the admin home's quick actions, on *Data health* and on *Progress reports*): eleven read-only checks
+of the partner report data the rule depends on (rows per location, whether the value in the period is the
+report total repeated, disaggregation keys and the `"()"` total, what reports that do not count carry,
+PRP's cumulative against Reached, the calculation methods in use, which PD indicator each report row
+belongs to, PRP's report totals, whether the financial contribution repeats on every indicator of a
+report, the country and programme document of the rows, and the reports owed in PRP's two feeds), each
+with a verdict and what NeuroDB does whatever the answer. Each check measures what NeuroDB reads: PRP's
+values are parsed as Reached parses them (`c`, else v over d, else v, given as a number, its text or PRP's
+`{v, d, c}`, so PRP's empty `{c: 0, d: 0, v: 0}` is no value), and a progress report is told apart by its
+programme document, type, number and period, whatever PRP's own ids hold. Every figure is a count: no
+title, name or value of a record is shown (key names, section names, the PD numbers NeuroDB does not hold
+and business area codes at most).
+
+* **Check 1** counts the locations on several rows of one indicator in one report, those whose rows carry
+  different values and, of them, those in reports that count (a warning: Reached takes the largest), the
+  two indicators of a report that share a title, and the locations Reached reads as one report across
+  several (PRP's progress report id standing for several reports).
+* **Check 2** counts, per indicator report with several locations, those with the same `"()"` on every
+  location (all zero; above zero in a report that counts and adds up its locations: the risk it is for),
+  those whose value in the period is the locations' `"()"` combined, and the rows whose `"()"` gives no
+  number (the only ones the repeated-total rule reads).
+* **Check 3** counts the rows whose `"()"` holds a number (the others Reached reads from the running
+  totals or the value in the period), the value in the period read as a number and written as `{v, d, c}`,
+  the rows compared and equal (with none compared it says so, never "0 %"), and per indicator report with
+  several locations whether the value in the period is each location's own or the report total repeated.
+* **Check 5** reads Partner monitoring's own figures (the running programme documents, quarterly reports
+  with the monthly fallback: what the *Data quality* tab lists): the indicators with several counted
+  reports, those whose PRP cumulative never goes down from one report to the next or is the same on every
+  report, the indicators compared (Reached and PRP's cumulative both given, no partial history) and those
+  where Reached differs, with a table of what they share (PRP above or below, monthly reports, PRP equal to
+  every report combined or to the latest one, a cumulative that never moves, locations not read from
+  `"()"`). It needs 30 seconds of the checks' time.
+* **Check 7** counts the rows of the running programme documents matched to a PD indicator by its id, by
+  title, and left out (a title two or more indicators of the PD share, or none has), with the indicator
+  reports left out; PRP's progress report and indicator report ids (empty, how many, how many stand for
+  more than one report); and lists the keys the records send (rows with the key, with a value, and by kind
+  of value: object, text, number, empty), the keys the sync reads first, so a key it reads and no record
+  sends shows 0.
+* **Checks 8, 9 and 11** count the records of PRP's indicator reports held; when none is, they say what
+  the last sync of `prp_indicator_reports` did (Data health's run): never synced, still running, failed
+  (with its error), asked for the business area and got no record (syncing again changes nothing: check
+  the code in Admin → *eTools Datamart: PRP business area code*, or Run a job → *Probe a Datamart
+  dataset*), read only records of another business area (check 11 lists the codes they named), or could
+  write none. Check 8 also counts the records with a PRP id and the partner ids that are not whole numbers.
+* **Check 10** counts the rows per country named in the record and per programme document link (running,
+  another status, not in NeuroDB, names none), with their indicator reports (counted as Progress reports
+  counts them), their first and last period end, each section name once (a row's list such as "Child
+  Protection, Adolescent & Youth" gives each name; the five with the most indicator reports, then
+  "(+N more)") and the first PD numbers NeuroDB does not hold; a row of another country is one the sync
+  would skip (the same comparison). It also says how much of the running programme documents' reporting is
+  held: those with no row, those whose first report held ends over 100 days after their start, those
+  without their first report (QPR1 or HR1), and the window and rows of the latest partner reports sync:
+  Reached adds up only the reports held.
+* **Check 11** sets, month by month for this year and the running programme documents, the indicator
+  reports per status of the partner reports (`prp/datareport`, what Progress reports and Partner
+  monitoring count) beside those of PRP's indicator reports (`prp/indicator-report-v2`, kept whole for
+  Ask NeuroDB and the Funds page), both read with the same status rule (for PRP's records, their progress
+  report's own status and dates first, as the Funds page reads them, and the year and month by that same
+  period end, also for a record with no period end of its own): it names the months where PRP lists more
+  reports still owed (the partner reports feed does not carry them, and Power BI's Reporting Progress can
+  then show overdue reports NeuroDB does not), those where the partner reports list more, and those where
+  the statuses differ otherwise; with nothing to compare, it says why (no record held, records of other
+  years or with no period end, none linked to a programme document NeuroDB holds, or none of a running
+  one, else what the last sync did). It warns when the partner reports feed carries no report still owed
+  for an ended period (every report still to submit is of a period not yet ended), and counts the
+  progress reports missing between the report numbers held (a QPR2 between QPR1 and QPR3) whose period
+  ended this year: an estimate (its month from the report before it, its indicator reports as many as the
+  report next to it), in the column *Expected, not in the feed*; a report owed after the last number held
+  cannot be seen this way.
+
+Checks 10 and 11 run first, so they answer whatever time the others take; the page lists the checks in
+their order. Every query is aggregate; the rows a check parses in Python are read 2,000 at a time and stop
+at the checks' time limit like a query.
 
 The checks run as a job, `reporting_checks` (`neurodb/datamart/checks.py`, `run_job`): every night at
 02:15 (the schedule `reporting-checks`, after the 20:30 eTools Datamart sync; due at once after the
@@ -1851,7 +1904,9 @@ figures as everywhere else (they read the rule above; nothing is added across in
   shows its first 500 rows; the counts are complete.
 * **Progress reports** has four tabs on one filter (search, report status, report type, reporting
   year, section, report #, partner, partner type, PD status, emergency indicator, period start and
-  period end between). The PD status filter opens on the running programme documents (active, signed,
+  period end between). The Section list offers each section name once: a report row whose section is a
+  list ("Child Protection, Adolescent & Youth") gives each of its names, and a name chosen keeps the rows
+  that list it (`reporting.section_names`, `section_q`). The PD status filter opens on the running programme documents (active, signed,
   suspended), as Partner monitoring does; with every status chosen, the reports of programme
   documents NeuroDB does not hold are listed too. A report row that names no programme document (no
   link, no PD reference number, no eTools PD id: PRP's reports outside programme documents) is never

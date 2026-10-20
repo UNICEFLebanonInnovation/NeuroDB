@@ -82,10 +82,11 @@ the same way: the page first, then its locations.
 
 [Progress reports](/partner-reporting/) has four tabs on one filter (search, report status, report
 type, reporting year, section, report number, partner, partner type, PD status, emergency indicator, and
-the period start and end). Like Partner monitoring, it opens on the running programme documents
-(active, signed or suspended); clear the PD status choice to see every status. Under the tiles, a
-note says how many more indicator reports the PD status filter leaves out (of programme documents with
-another status, or not in NeuroDB), with a link that shows every status. Draft and cancelled
+the period start and end; the section list offers each section once, and a section chosen also finds
+reports whose rows list several sections). Like Partner monitoring, it opens on the running programme
+documents (active, signed or suspended); clear the PD status choice to see every status. Under the
+tiles, a note says how many more indicator reports the PD status filter leaves out (of programme
+documents with another status, or not in NeuroDB), with a link that shows every status. Draft and cancelled
 programme documents are never listed, nor reports that name no programme document.
 
 - **Reporting progress**: the tiles count *indicator reports* (one indicator in one progress report, as
@@ -162,9 +163,11 @@ withholds any e-mail address written in a text.
 Administrators find **eTools reporting checks** in the administration, under Data and sync (also linked
 from Data health and Progress reports): eleven read-only checks of what the partner report data looks
 like (rows per location, repeated values, disaggregation keys, what reports that do not count carry,
-PRP's cumulative, the calculation methods, indicator ids, PRP's report totals, the financial
-contribution, the country and programme document of the rows, and the reports still owed in PRP's two
-feeds), each with a verdict and what NeuroDB does whatever the answer. Checks 10 and 11 run first. The
-checks run every night as a job and the page shows their latest result at once, with when they were
-checked; **Run the checks now** runs them again in the background (they can take several minutes on the
-full data), and the page shows the new result once you reload it.
+PRP's cumulative, the calculation methods, which PD indicator each report row belongs to, PRP's report
+totals, the financial contribution, the country and programme document of the rows and how much of the
+running programme documents' reporting is held, and the reports still owed in PRP's two feeds), each with
+a verdict and what NeuroDB does whatever the answer; they show counts only. When PRP's indicator reports
+hold nothing, checks 8, 9 and 11 say what their last sync did and what to do in the administration.
+Checks 10 and 11 run first. The checks run every night as a job and the page shows their latest result at
+once, with when they were checked; **Run the checks now** runs them again in the background (they can take
+several minutes on the full data), and the page shows the new result once you reload it.

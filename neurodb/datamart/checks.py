@@ -3,7 +3,15 @@
 ``neurodb.datamart.reached`` is built to be right whichever way these questions come out; this page
 (admin → eTools reporting checks, Administrators only, linked from Data health) shows how they do
 come out on the data NeuroDB holds, with a plain verdict and what NeuroDB does in each case. Every
-query is read-only and aggregate (no person's data).
+query is read-only and every figure a count: no person's data, and no title, name or text of a record
+(key names, section names, PD reference numbers NeuroDB does not hold and business area codes at most).
+
+The checks measure what NeuroDB itself reads. PRP's values are read with Reached's own parser
+(:func:`_value`: a number, its text or PRP's ``{v, d, c}``); a progress report is told apart by its
+programme document, type, number and period (:func:`_report`), whatever PRP's own ids hold; PRP's
+cumulative is compared through :func:`monitoring.indicators`, the figures of Partner monitoring's Data
+quality tab; the report rows a check reads in Python come 2,000 at a time and stop at the deadline as
+the queries do (:func:`_each`).
 
 The checks run as a job (:func:`run_job`: the ``reporting-checks`` schedule every night, or *Run the
 checks now* on the page and *Run a job*), with ``JOB_TIMEOUT_MS`` for each statement and
@@ -15,13 +23,17 @@ limit), so it always answers: a check left out says so.
 
 from __future__ import annotations
 
+import calendar
 import datetime
+import functools
+import itertools
 import json
 import logging
+import re
 import time
-from collections import Counter
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections import Counter, defaultdict
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 from typing import Any
 
 from django.conf import settings
@@ -29,10 +41,12 @@ from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Case, Count, Max, Min, Q, TextField, Value, When
-from django.db.models.fields.json import KT
+from django.db.models.fields.json import KT, KeyTransform
 from django.db.models.functions import Coalesce, NullIf, Trim
+from django.utils import timezone
 
 from neurodb.partnerships import statuses as pd_statuses
+from neurodb.partnerships.models import PCA
 
 from . import models as dm
 from . import reached as rc
@@ -48,8 +62,13 @@ JOB_BUDGET_S = 3600.0  # every check of the job together
 LOCK_ID = 7140438  # one run of the checks at a time; neurodb.integrations.background.REPORTING_CHECKS_LOCK_ID
 PRP_COMPARE_MIN_S = 30.0  # the comparison with PRP (check 5) computes Reached: only with this much left
 QUERY_CANCELED = "57014"  # PostgreSQL's code for a statement its statement_timeout stopped
-NUM = r"^\s*-?[0-9]+(\.[0-9]+)?\s*$"
 OK, WARN, INFO = "ok", "warning", "info"
+PRP = "prp_indicator_reports"  # PRP's indicator reports (prp/indicator-report-v2): checks 8, 9 and 11
+CHUNK = 2000  # report rows a check reads at a time in Python (:func:`_each`)
+STEP_MONTHS = {"QPR": 3, "HR": 1}  # how far apart two reports of a type end (checks 10 and 11)
+LATE_FIRST_DAYS = 100  # a running PD whose first report held ends this long after its start (check 10)
+SECTIONS_SHOWN = 5  # the section names check 10 shows per row of its table
+KEYS_LISTED = 150  # the record keys check 7 lists at most
 
 
 @dataclass
@@ -118,11 +137,27 @@ def _all(cursor, sql: str, params: list[Any] | None = None) -> list[tuple]:
     return cursor.fetchall()
 
 
+def _each(cursor, queryset, *fields: str) -> Iterator[tuple]:
+    """The rows of ``queryset`` as tuples of ``fields``, :data:`CHUNK` at a time from a server-side cursor:
+    each fetch is bounded by the time left for the checks (the statement timeout), and so is the Python
+    that reads them (:class:`OutOfTime` once it is used up)."""
+    _bound(cursor)
+    timed = hasattr(cursor, "remaining")
+    for n, row in enumerate(queryset.order_by().values_list(*fields).iterator(chunk_size=CHUNK)):
+        if timed and n % CHUNK == 0 and cursor.remaining() <= 0:
+            raise OutOfTime
+        yield row
+
+
 def _day(day: datetime.date | None) -> str | None:
     """A date in a check's table, as text ("31 Mar 2026", in English whatever the language, as check
     11's months): the page shows the same whether it ran the checks itself or reads what the job
     stored."""
     return f"{day.day} {day:%b %Y}" if day else None
+
+
+def _local_day(moment: datetime.datetime) -> datetime.date:
+    return timezone.localtime(moment).date() if timezone.is_aware(moment) else moment.date()
 
 
 def _duration(ms: int) -> str:
@@ -138,67 +173,345 @@ def _share(part: int, whole: int) -> str:
     return f"{round(100 * part / whole)} %" if whole else "—"
 
 
+def _count(value: Any) -> int:
+    """A count from a run's details (0 when it is not one)."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _plural(n: int, one: str, many: str) -> str:
+    return f"{n:,} {one if n == 1 else many}"
+
+
+# ------------------------------------------------------------------------- values and identities
+@functools.lru_cache(maxsize=65_536)
+def _text_value(text: str) -> float | None:
+    found = rc.parts(text)
+    return found.value() if found else None
+
+
+def _value(raw: Any) -> float | None:
+    """A PRP value as Reached reads it (:func:`reached.parts`: ``c``, else v over a real d, else v): a
+    number, its text, or PRP's ``{"v", "d", "c"}`` as a dict or as its text (Python's or JSON's); None
+    when it holds no number. A text is read once, however many rows repeat it."""
+    if isinstance(raw, str):
+        return _text_value(raw)
+    found = rc.parts(raw)
+    return found.value() if found else None
+
+
+def _structured(raw: Any) -> bool:
+    """Whether a value is written as PRP's ``{v, d, c}`` (a dict, or its text)."""
+    return isinstance(raw, dict) or (isinstance(raw, str) and raw.lstrip().startswith("{"))
+
+
+def _report(pd_id: int | None, reference: str, kind: str, number: str, start: Any, end: Any) -> tuple:
+    """A progress report as the rows tell it apart, whatever PRP's own ids hold (they can be empty, or one
+    value for many reports): its programme document (NeuroDB's link, else the reference number the row
+    names), type, number and period. Checks 1 to 3, 7 and 11 count reports by it."""
+    pd = pd_id if pd_id is not None else f"ref:{reference or ''}"
+    return (pd, (kind or "").strip().upper(), number or "", start, end)
+
+
+# :func:`_report` in SQL (check 7)
+REPORT_SQL = (
+    "concat_ws('|', coalesce(intervention_id::text, 'ref:' || pd_reference_number), "
+    "upper(btrim(report_type)), report_number, coalesce(period_start::text, ''), "
+    "coalesce(period_end::text, ''))"
+)
+
+
+def _indicator(indicator_report: str, etools_id: str, title: str) -> str:
+    """One indicator in its report: PRP's indicator report id, else its eTools id and its title (case and
+    spaces aside), as Reached tells two indicators of one report apart."""
+    return str(indicator_report or "") or f"t|{(etools_id or '').strip()}|{rc.norm(title)}"
+
+
+def _place(p_code: str, location: str) -> str:
+    """A row's location as Reached keys it (the P-code, else the name; "" when it names neither)."""
+    return rc.location_key(p_code, location) if (p_code or location) else ""
+
+
+def _number(text: Any) -> int | None:
+    """A report's number from its name ("QPR2" → 2, "HR10" → 10); None without one (or above 99)."""
+    digits = re.sub(r"\D", "", str(text or ""))
+    return int(digits) if digits and len(digits) <= 2 else None
+
+
+def _month_end(day: datetime.date, months: int) -> datetime.date:
+    """The last day of the month ``months`` after (or before) the month of ``day``."""
+    year, month = divmod(day.year * 12 + day.month - 1 + months, 12)
+    return datetime.date(year, month + 1, calendar.monthrange(year, month + 1)[1])
+
+
+class _Statuses:
+    """Each progress report's status (:func:`reached.status_of`) from its rows, as every page reads it:
+    the word of its rows changed last (:func:`reached.newest_status`), with the report's dates."""
+
+    def __init__(self, today: datetime.date) -> None:
+        self.today = today
+        self.words: dict[tuple, dict[str, rc.Stamp]] = defaultdict(dict)
+        self.dates: dict[tuple, list[Any]] = {}
+
+    def add(self, report: tuple, text: str, dates: tuple, stamp: rc.Stamp) -> None:
+        words = self.words[report]
+        words[text or ""] = rc.stamp(words.get(text or ""), stamp)
+        known = self.dates.setdefault(report, list(dates))
+        for i, value in enumerate(dates):  # the first date given, as Reached reads a report's fields
+            if known[i] is None:
+                known[i] = value
+
+    def counted(self) -> set[tuple]:
+        """The reports that count in Reached (Accepted or Submitted)."""
+        out = set()
+        for report, words in self.words.items():
+            end, due, submitted = self.dates[report]
+            status = rc.status_of(
+                rc.newest_status(words),
+                period_end=end,
+                due_date=due,
+                submission_date=submitted,
+                today=self.today,
+            )
+            if status in rc.COUNTED:
+                out.add(report)
+        return out
+
+
+_ROW = (
+    "intervention_id",
+    "pd_reference_number",
+    "report_type",
+    "report_number",
+    "period_start",
+    "period_end",
+    "report_status",
+    "due_date",
+    "submission_date",
+    "last_modify_date",
+    "synced_at",
+    "datamart_id",
+    "indicator_report",
+    "etools_indicator_id",
+    "indicator",
+    "p_code",
+    "location",
+    "_total",
+)
+
+
+@dataclass(frozen=True)
+class _Row:
+    report: tuple  # :func:`_report`
+    indicator: str  # :func:`_indicator`
+    place: str  # :func:`_place`
+    total: Any  # the disaggregation total "()" as stored (None: none)
+    indicator_report: str
+    etools_id: str
+    title: str
+    more: tuple  # the extra fields asked for, in their order
+
+
+class _Rows:
+    """Every partner report row, read once in Python (:func:`_each`) by the checks that parse its values:
+    its report, indicator, place and "()" (only that key of its disaggregation), with ``extra`` fields;
+    and, as they are read, each report's status (:attr:`statuses`)."""
+
+    def __init__(self, cursor, today: datetime.date, *extra: str) -> None:
+        self.cursor, self.extra = cursor, extra
+        self.statuses = _Statuses(today)
+
+    def __iter__(self) -> Iterator[_Row]:
+        rows = dm.ReportedIndicator.objects.annotate(_total=KeyTransform("()", "disaggregation"))
+        width = len(_ROW)
+        for values in _each(self.cursor, rows, *_ROW, *self.extra):
+            pd, ref, kind, number, start, end, text, due, sub, changed, synced, row_id, ir, eid, title = (
+                values[:15]
+            )
+            p_code, location, total = values[15:width]
+            report = _report(pd, ref, kind, number, start, end)
+            self.statuses.add(report, text, (end, due, sub), (changed, synced, row_id))
+            yield _Row(
+                report,
+                _indicator(ir, eid, title),
+                _place(p_code, location),
+                total,
+                ir or "",
+                eid or "",
+                title or "",
+                values[width:],
+            )
+
+
+# ------------------------------------------------------------------------------------- the checks
 def _duplicate_rows(cursor) -> dict[str, Any]:
-    (rows,) = _one(cursor, "SELECT count(*) FROM datamart_reportedindicator")
-    (groups,) = _one(
-        cursor,
-        "SELECT count(*) FROM (SELECT 1 FROM datamart_reportedindicator "
-        "GROUP BY progress_report, etools_indicator_id, indicator, coalesce(nullif(p_code, ''), location) "
-        "HAVING count(*) > 1) x",
-    )
+    read = _Rows(cursor, datetime.date.today(), "progress_report")
+    # each location of one indicator in one report (an indicator by its title: two indicators of a report
+    # that share it are counted apart below), with its "()" value and PRP's indicator report id
+    cells: dict[tuple, list[tuple[float | None, str]]] = defaultdict(list)
+    # Reached's own key of a location (the PD, type, PRP's progress report id first, title and place): the
+    # reports it reads as one
+    as_one: dict[tuple, set[tuple]] = defaultdict(set)
+    rows = 0
+    for row in read:
+        rows += 1
+        title = f"{row.etools_id.strip()}|{rc.norm(row.title)}"
+        cells[(row.report, title, row.place)].append((_value(row.total), row.indicator_report))
+        if isinstance(row.report[0], int):  # Reached reads the rows of a PD NeuroDB holds only
+            pd, kind, number, start, end = row.report
+            key = rc.report_key(
+                {
+                    "progress_report": row.more[0],
+                    "indicator_report": row.indicator_report,
+                    "report_number": number,
+                    "period_start": start,
+                    "period_end": end,
+                }
+            )
+            as_one[(pd, kind, key, title, row.place)].add(row.report)
     if not rows:
         return {"tone": INFO, "verdict": "No partner report rows are held yet.", "figures": []}
+    several = {key: found for key, found in cells.items() if len(found) > 1}
+    shared = {key for key, found in several.items() if len({ir for _, ir in found if ir}) > 1}
+    differ = {
+        key
+        for key, found in several.items()
+        if key not in shared and len({round(v, 6) for v, _ in found if v is not None}) > 1
+    }
+    counted = read.statuses.counted()
+    differ_counted = sum(1 for key in differ if key[0] in counted)
+    spanning = sum(1 for reports in as_one.values() if len(reports) > 1)
+    if not several:
+        verdict = (
+            "Each location appears on one row per indicator in each report (a report told apart by its "
+            "programme document, type, number and period)."
+        )
+    else:
+        verdict = (
+            f"{_plural(len(several), 'location appears', 'locations appear')} on more than one row of one "
+            "indicator in one report"
+        )
+        if differ:
+            verdict += (
+                f"; {len(differ):,} of them carry different values, {differ_counted:,} in reports that "
+                "count: Reached uses the largest, never their sum"
+            )
+        else:
+            verdict += ": their rows carry the same value, which Reached reads once"
+        if shared:
+            verdict += (
+                f"; at {len(shared):,} two indicators of the report share the title (while the rows carry no "
+                "eTools indicator id Reached leaves both out, check 7)"
+            )
+        verdict += "."
+    if spanning:
+        verdict += (
+            " PRP's progress report id stands for several reports at "
+            f"{_plural(spanning, 'location', 'locations')}: Reached reads those reports as one and keeps the "
+            "largest value of each location (check 7 counts the report ids the Datamart sends)."
+        )
     return {
-        "tone": OK if not groups else WARN,
-        "verdict": (
-            "Each location appears on one row per indicator in each report."
-            if not groups
-            else f"{groups:,} locations appear on more than one row of the same report and indicator."
-        ),
-        "figures": [("Partner report rows", rows), ("Locations on several rows of one report", groups)],
+        "tone": WARN if differ_counted or spanning else OK,
+        "verdict": verdict,
+        "figures": [
+            ("Partner report rows", rows),
+            ("Locations on several rows of one indicator in one report", len(several)),
+            ("… rows more than one per location", sum(len(found) - 1 for found in several.values())),
+            ("… with different values", len(differ)),
+            ("… of which in reports that count (Reached takes the largest)", differ_counted),
+            ("… two indicators of the report with the same title", len(shared)),
+            ("Locations Reached reads as one report across several reports", spanning),
+        ],
     }
 
 
 def _repeated_value(cursor) -> dict[str, Any]:
-    several, same = _one(
-        cursor,
-        "SELECT count(*) FILTER (WHERE l > 1), count(*) FILTER (WHERE l > 1 AND v = 1) FROM ("
-        "SELECT progress_report, etools_indicator_id, indicator, "
-        "count(DISTINCT coalesce(nullif(p_code, ''), location)) l, count(DISTINCT achievement_in_period) v "
-        "FROM datamart_reportedindicator WHERE achievement_in_period <> '' GROUP BY 1, 2, 3) g",
-    )
+    read = _Rows(cursor, datetime.date.today(), "achievement_in_period", "calculation_across_locations")
+    # each indicator in each report: its locations' "()" values, the values in the period of its rows and how
+    # PRP combines its locations
+    places: dict[tuple, dict[str, list[float | None]]] = defaultdict(lambda: defaultdict(list))
+    achieved: dict[tuple, set[float | None]] = defaultdict(set)
+    methods: dict[tuple, str] = {}
+    no_total = 0
+    for row in read:
+        key = (row.report, row.indicator)
+        total = _value(row.total)
+        no_total += total is None
+        places[key][row.place].append(total)
+        value = _value(row.more[0])
+        achieved[key].add(None if value is None else round(value, 6))
+        methods.setdefault(key, rc.method_of(row.more[1]))
+    counted = read.statuses.counted()
+    several = same = zero = risky = report_total = 0
+    for key, cells in places.items():
+        if len(cells) < 2:
+            continue
+        several += 1
+        # one value per location, as Reached chooses it: the largest of its rows
+        values = [max((v for v in found if v is not None), default=None) for found in cells.values()]
+        if None in values:
+            continue
+        if len({round(v, 6) for v in values}) == 1:
+            same += 1
+            if values[0] == 0:
+                zero += 1
+            elif key[0] in counted and methods[key] in ("", "sum"):  # only a sum adds a total up again
+                risky += 1
+        given = next(iter(achieved[key])) if len(achieved[key]) == 1 else None
+        if given is not None and rc.close(given, rc.combine(values, methods[key] or "sum")):
+            report_total += 1
     if not several:
-        verdict, tone = "No indicator report has more than one location with a value yet.", INFO
-    elif same / several >= 0.8:
-        verdict = (
-            f"In {same:,} of {several:,} indicator reports with several locations ({_share(same, several)}), "
-            "every location carries the same value: the field is the report total repeated on each row."
+        return {
+            "tone": INFO,
+            "verdict": "No indicator report has more than one location yet.",
+            "figures": [('Rows whose "()" gives no number', no_total)],
+        }
+    verdict = (
+        f"In {same:,} of {several:,} indicator reports with several locations ({_share(same, several)}), "
+        f'every location carries the same "()" ({zero:,} of them all zero)'
+    )
+    if risky:
+        verdict += (
+            f"; {risky:,} of them, in reports that count and add up their locations, carry the same value "
+            "above zero on every location: if it is the report total repeated, adding up the locations "
+            "counts it once per location."
         )
-        tone = WARN
     else:
-        verdict = (
-            f"The value differs between locations in {several - same:,} of {several:,} indicator reports "
-            "with several locations: it looks like each location's own value."
+        verdict += (
+            "; none in a report that counts and adds up its locations carries the same value above zero on "
+            "every location."
         )
-        tone = OK
+    if report_total:
+        verdict += (
+            ' The value in the period is the report total (the locations\' "()" combined) repeated on every '
+            f"row in {report_total:,} of them."
+        )
+    if no_total:
+        verdict += (
+            f' {_plural(no_total, "row gives", "rows give")} no number in "()": only for those does Reached '
+            "read the running totals or the value in the period (a value repeated on every location is then "
+            "the report total)."
+        )
+    else:
+        verdict += ' Every row\'s "()" holds a number: the value in the period decides nothing in Reached.'
     return {
-        "tone": tone,
+        "tone": WARN if risky else OK,
         "verdict": verdict,
         "figures": [
             ("Indicator reports with several locations", several),
-            ("… with the same value on every location", same),
+            ('… with the same "()" on every location', same),
+            ("… of which all zero", zero),
+            ("… of which above zero, in reports that count and add up their locations", risky),
+            ('… where the value in the period is the locations\' "()" combined', report_total),
+            ('Rows whose "()" gives no number', no_total),
         ],
     }
 
 
 def _disaggregation(cursor) -> dict[str, Any]:
-    with_total, equal = _one(
+    (with_total,) = _one(
         cursor,
-        "SELECT count(*) FILTER (WHERE disaggregation ? '()'), count(*) FILTER (WHERE disaggregation ? '()' "
-        "AND achievement_in_period ~ %s AND (disaggregation->'()'->>'c') ~ %s "
-        "AND achievement_in_period::numeric = (disaggregation->'()'->>'c')::numeric) "
-        "FROM datamart_reportedindicator WHERE jsonb_typeof(disaggregation) = 'object'",
-        [NUM, NUM],
+        "SELECT count(*) FILTER (WHERE disaggregation ? '()') FROM datamart_reportedindicator "
+        "WHERE jsonb_typeof(disaggregation) = 'object'",
     )
     keys = _all(
         cursor,
@@ -226,14 +539,76 @@ def _disaggregation(cursor) -> dict[str, Any]:
         if seen
         else {}
     )
-    if not with_total:
+    # both sides read as Reached reads them (a number, its text or PRP's {v, d, c}), row by row and per
+    # indicator report: is the value in the period each location's own, or the report total repeated?
+    read = _Rows(
+        cursor,
+        datetime.date.today(),
+        "achievement_in_period",
+        "calculation_across_locations",
+        "calculation_across_periods",
+    )
+    rows = total_number = given = written = compared = equal = 0
+    reports: dict[tuple, list[tuple[str, float | None, float | None]]] = defaultdict(list)
+    methods: dict[tuple, tuple[str, bool]] = {}
+    for row in read:
+        rows += 1
+        raw, across, periods = row.more
+        total, value = _value(row.total), _value(raw)
+        ratio = rc.is_ratio("", "", across or "", periods or "")
+        total_number += total is not None
+        given += value is not None
+        written += value is not None and _structured(raw)
+        if total is not None and value is not None:
+            compared += 1
+            equal += rc.close(total, value, ratio=ratio)
+        reports[(row.report, row.indicator)].append((row.place, total, value))
+        methods.setdefault((row.report, row.indicator), (rc.method_of(across), ratio))
+    several = own = repeated = 0
+    for key, cells in reports.items():
+        if len({place for place, _, _ in cells}) < 2 or any(t is None or v is None for _, t, v in cells):
+            continue
+        several += 1
+        method, ratio = methods[key]
+        if all(rc.close(t, v, ratio=ratio) for _, t, v in cells):
+            own += 1
+            continue
+        by_place: dict[str, float] = {}
+        for place, total, _ in cells:  # one value per location: the largest of its rows, as Reached
+            by_place[place] = max(by_place.get(place, total), total)
+        values = {round(v, 6) for _, _, v in cells}
+        if len(values) == 1 and rc.close(
+            cells[0][2], rc.combine(list(by_place.values()), method or "sum"), ratio=ratio
+        ):
+            repeated += 1
+    if not rows or (not with_total and not total_number):
         verdict, tone = 'No row carries a disaggregation total ("()") yet: the other fields are used.', INFO
     else:
-        verdict = (
-            f"{with_total:,} rows carry a disaggregation total; on {equal:,} of them "
-            f"({_share(equal, with_total)}) it equals the value in the period."
-        )
-        tone = OK if equal == with_total else INFO
+        if total_number == rows:
+            verdict = (
+                "Every row's \"()\" holds a number: Reached reads each location's value from it, and the "
+                "value in the period decides nothing."
+            )
+        else:
+            verdict = (
+                f'{rows - total_number:,} of {rows:,} rows give no number in "()": Reached reads those '
+                "locations from their running totals or the value in the period."
+            )
+        if compared:
+            verdict += (
+                f' Where both are numbers, "()" equals the value in the period on {equal:,} of {compared:,} '
+                f"rows ({_share(equal, compared)})."
+            )
+        else:
+            verdict += (
+                ' "()" and the value in the period could not be compared: no row gives both as a number.'
+            )
+        if several:
+            verdict += (
+                f" In {several:,} indicator reports with several locations, the value in the period is each "
+                f"location's own in {own:,} and the report total repeated on every location in {repeated:,}."
+            )
+        tone = OK if total_number == rows else INFO
     if seen:
         verdict += (
             f" The labels of {len(labels):,} of the {len(seen):,} disaggregation values named are read."
@@ -252,8 +627,16 @@ def _disaggregation(cursor) -> dict[str, Any]:
         "tone": tone,
         "verdict": verdict,
         "figures": [
-            ("Rows with a disaggregation total", with_total),
-            ("… equal to the value in the period", equal),
+            ('Rows with a disaggregation total ("()")', with_total),
+            ('Rows whose "()" holds a number', total_number),
+            ("… holding none (Reached reads them another way)", rows - total_number),
+            ("Rows whose value in the period is a number", given),
+            ("… written as PRP's {v, d, c}", written),
+            ('Rows compared ("()" and the value in the period both numbers)', compared),
+            ("… equal", equal),
+            ("Indicator reports with several locations, compared", several),
+            ("… the value in the period is each location's own", own),
+            ("… it is the report total, repeated on every location", repeated),
             ("Disaggregation values named by the reports", len(seen)),
             ("… whose label is read", len(labels)),
         ],
@@ -274,16 +657,23 @@ COUNTS_SQL = (
 
 
 def _unsubmitted(cursor) -> dict[str, Any]:
-    rows = _all(
+    found = _all(
         cursor,
         "SELECT coalesce(nullif(trim(report_status), ''), '(none)'), "  # noqa: S608 (constants only)
-        f"{COUNTS_SQL}, "
-        "CASE WHEN period_end > current_date THEN 'yes' ELSE 'no' END, count(*), "
-        "count(*) FILTER (WHERE total_cumulative_progress ~ '^\\s*0+(\\.0+)?\\s*$'), "
-        "count(*) FILTER (WHERE total_cumulative_progress = ''), "
-        "count(*) FILTER (WHERE achievement_in_period NOT IN ('', '0')) "
-        "FROM datamart_reportedindicator GROUP BY 1, 2, 3 ORDER BY 1, 2, 3",
+        f"{COUNTS_SQL}, CASE WHEN period_end > current_date THEN 'yes' ELSE 'no' END, achievement_in_period, "
+        "total_cumulative_progress, count(*) FROM datamart_reportedindicator GROUP BY 1, 2, 3, 4, 5",
     )
+    # the values read as Reached reads them: PRP's empty {"v": 0, "d": 0, "c": 0}, "0.0" and "" are no value,
+    # and a cumulative of {"c": 0, ...} is a cumulative of 0
+    table: dict[tuple, list[int]] = {}
+    for status, counts, running, achieved, cumulative, n in found:
+        line = table.setdefault((status, counts, running), [0, 0, 0, 0])
+        value, total = _value(achieved), _value(cumulative)
+        line[0] += n
+        line[1] += n if total == 0 else 0
+        line[2] += n if total is None else 0
+        line[3] += n if value not in (None, 0.0) else 0
+    rows = [(*key, *line) for key, line in sorted(table.items())]
     carrying = sum(r[6] for r in rows if r[1] == "no")
     return {
         "tone": INFO if carrying else OK,
@@ -309,57 +699,136 @@ def _unsubmitted(cursor) -> dict[str, Any]:
     }
 
 
-def _cumulative(cursor) -> dict[str, Any]:
-    several, same = _one(
-        cursor,
-        "SELECT count(*), count(*) FILTER (WHERE cums = 1) FROM ("
-        "SELECT intervention_id, etools_indicator_id, indicator, "
-        "count(DISTINCT total_cumulative_progress) cums "
-        "FROM datamart_reportedindicator WHERE total_cumulative_progress <> '' GROUP BY 1, 2, 3 "
-        "HAVING count(DISTINCT progress_report) > 1) g",
-    )
-    # NeuroDB's Reached for every indicator of the running PDs (Python; its queries keep the statement
-    # timeout the query above set, within the same transaction): only with PRP_COMPARE_MIN_S of the
-    # checks' time left
-    left = cursor.remaining() if hasattr(cursor, "remaining") else PAGE_BUDGET_S
-    differ, compared = _reached_against_prp() if left >= PRP_COMPARE_MIN_S else (0, 0)
-    skipped = left < PRP_COMPARE_MIN_S
-    if not several:
-        verdict, tone = "No indicator has several reports with PRP's cumulative yet.", INFO
-    else:
-        verdict = (
-            f"{same:,} of {several:,} indicators with several reports carry the same cumulative on every "
-            f"report ({_share(same, several)}); "
-            + (
-                "NeuroDB's Reached was not compared with PRP's cumulative (the checks run before it, "
-                "checks 10 and 11 first, used up most of the time for the checks); the Data quality tab of "
-                "Partner monitoring lists the indicators where they differ."
-                if skipped
-                else f"NeuroDB's Reached differs from PRP's cumulative on {differ:,} of {compared:,} "
-                "indicators of the running programme documents."
-                if compared
-                else "no running programme document has an indicator to compare."
-            )
-        )
-        tone = WARN if differ else (INFO if skipped else OK)
-    return {
-        "tone": tone,
-        "verdict": verdict,
-        "figures": [
-            ("Indicators with several reports", several),
-            ("… with the same cumulative on every report", same),
-            ("Indicators where Reached differs from PRP", "—" if skipped else differ),
-        ],
-    }
+@dataclass
+class _Comparison:
+    """NeuroDB's Reached against PRP's cumulative (check 5), as counts of indicators."""
+
+    several: int = 0  # with several counted reports
+    growing: int = 0  # … whose PRP cumulative never goes down from one report to the next
+    same: int = 0  # … the same on every one
+    compared: int = 0  # Reached and PRP's cumulative both given, no partial history
+    partial: int = 0  # both given, with a partial history (Reached is PRP's cumulative)
+    differ: int = 0  # Reached differs from PRP's cumulative (Data quality's list)
+    why: Counter = field(default_factory=Counter)  # what the indicators where they differ share
 
 
-def _reached_against_prp() -> tuple[int, int]:
-    """How many indicators of the running PDs have a Reached that differs from PRP's cumulative."""
+# what the indicators where Reached differs from PRP's cumulative share (check 5's table)
+WHY = (
+    ("above", "PRP's cumulative is above Reached"),
+    ("below", "PRP's cumulative is below Reached"),
+    ("hr", "Read from the monthly (HR) reports: the indicator has no quarterly one"),
+    ("every", "PRP's cumulative equals every report combined, also those that do not count"),
+    ("latest", "PRP's cumulative equals the latest counted report's own value"),
+    ("steady", "PRP's cumulative is the same on every counted report (a current total, not a running one)"),
+    ("source", 'A location is read from its running totals or the value in the period, not from "()"'),
+    ("total", "A report is read from a report total (PRP's own, or one repeated on every location)"),
+)
+
+
+def _reached_against_prp() -> _Comparison:
+    """Reached against PRP's cumulative for every indicator of the running programme documents, from
+    :func:`monitoring.indicators` (Partner monitoring's Data quality tab reads the same: its identity, its
+    report type, its report key and its parser): how PRP's cumulative runs over the counted reports, how
+    many indicators can be compared, and what those where Reached differs share."""
     from . import monitoring
 
-    rows = monitoring.indicators(monitoring.Filters(scope="active", year=None))
-    compared = [r for r in rows if r.reached is not None and r.prp_cumulative is not None]
-    return sum(1 for r in compared if r.mismatch), len(compared)
+    out = _Comparison()
+    for entry in monitoring.indicators(monitoring.Filters(scope="active", year=None)):
+        result = entry.result
+        if result is None:
+            continue
+        same = functools.partial(rc.close, ratio=result.ratio, percentage=result.percentage)
+        cumulatives = [r.prp_cumulative for r in result.counted]
+        known = len(cumulatives) > 1 and None not in cumulatives
+        steady = known and all(same(c, cumulatives[0]) for c in cumulatives)
+        if len(cumulatives) > 1:
+            out.several += 1
+            out.same += steady
+            out.growing += known and all(b >= a or same(a, b) for a, b in itertools.pairwise(cumulatives))
+        if entry.reached is not None and entry.prp_cumulative is not None:
+            if entry.partial:
+                out.partial += 1
+            else:
+                out.compared += 1
+        if not entry.mismatch:
+            continue
+        out.differ += 1
+        out.why["above" if entry.prp_cumulative > entry.reached else "below"] += 1
+        out.why["hr"] += entry.report_type == "HR"
+        every = [r.item for r in result.reports if r.value is not None]
+        method = result.period_method or "sum"
+        combined = rc.combine_items(
+            every, method, ratio=result.ratio, percentage=result.percentage, fallback="latest"
+        )[0]
+        out.why["every"] += bool(every) and same(entry.prp_cumulative, combined)
+        out.why["latest"] += result.latest is not None and same(entry.prp_cumulative, result.latest.value)
+        out.why["steady"] += steady
+        sources = {c.source for r in result.counted for c in r.cells.values() if c.value is not None}
+        out.why["source"] += bool(sources - {"total"})
+        out.why["total"] += any(r.source != "locations" for r in result.counted)
+    return out
+
+
+def _cumulative(cursor) -> dict[str, Any]:
+    labels = (
+        "Indicators of the running programme documents with several counted reports",
+        "… whose PRP cumulative never goes down from one report to the next",
+        "… with the same PRP cumulative on every report",
+        "Indicators compared (running PDs, Reached and PRP's cumulative both given)",
+        "Indicators where Reached differs from PRP",
+        "Indicators with a partial history (Reached is PRP's cumulative)",
+    )
+    # NeuroDB's Reached for every indicator of the running PDs (Python; its queries share the time left):
+    # only with PRP_COMPARE_MIN_S of the checks' time left
+    left = cursor.remaining() if hasattr(cursor, "remaining") else PAGE_BUDGET_S
+    if left < PRP_COMPARE_MIN_S:
+        return {
+            "tone": INFO,
+            "verdict": (
+                "Not compared: the checks run before it (checks 10 and 11 first) used up most of the time "
+                "for the checks, and this one computes Reached for every indicator of the running programme "
+                "documents. Partner monitoring → Data quality lists the indicators where Reached differs "
+                "from PRP's cumulative."
+            ),
+            "figures": [(label, "—") for label in labels],
+        }
+    _bound(cursor)
+    c = _reached_against_prp()
+    if c.several:
+        verdict = (
+            f"Of the {c.several:,} indicators of the running programme documents with several counted "
+            f"reports, PRP's cumulative never goes down from one report to the next on {c.growing:,} and is "
+            f"the same on every report on {c.same:,}"
+        )
+    else:
+        verdict = "No indicator of the running programme documents has several counted reports yet"
+    if c.compared:
+        verdict += (
+            f"; NeuroDB's Reached differs from PRP's cumulative on {c.differ:,} of the {c.compared:,} "
+            f"indicators where both are given ({_share(c.differ, c.compared)})"
+        )
+        if c.differ:
+            verdict += (
+                ": Partner monitoring → Data quality lists them (choose All sections and Quarterly reports, "
+                "no other filter), and the table below says what they share"
+            )
+    else:
+        verdict += "; no indicator of a running programme document has both a Reached and PRP's cumulative"
+    if c.partial:
+        verdict += f"; {c.partial:,} more have a partial history (their Reached is PRP's cumulative)"
+    out = {
+        "tone": WARN if c.differ else (INFO if not c.compared or not c.several else OK),
+        "verdict": verdict + ".",
+        "figures": list(
+            zip(labels, (c.several, c.growing, c.same, c.compared, c.differ, c.partial), strict=True)
+        ),
+    }
+    if c.differ:
+        out["table"] = {
+            "columns": ("What the indicators where Reached differs share", "Indicators"),
+            "rows": [(label, c.why[key]) for key, label in WHY],
+        }
+    return out
 
 
 def _methods(cursor) -> dict[str, Any]:
@@ -382,7 +851,42 @@ def _methods(cursor) -> dict[str, Any]:
     }
 
 
+# the keys of a partner report record the sync reads beside its field map (``_link_report``, the record's
+# ids and country): check 7 lists them even when no record sends them
+LINK_KEYS = (
+    "id",
+    "source_id",
+    "last_modify_date",
+    "country_name",
+    "etools_intervention_id",
+    "due_date",
+    "reporting_period_due_date",
+    "high_frequency",
+    "disaggregation",
+    "indicator_report",
+    "cp_output",
+    "etools_cp_output_id",
+)
+# per key of the records kept whole: the rows with it, with a value, and by the kind of value (no value read)
+CENSUS_SQL = (
+    "SELECT e.key, count(*), "
+    "count(*) FILTER (WHERE jsonb_typeof(e.value) <> 'null' "
+    "AND e.value NOT IN ('\"\"'::jsonb, '{}'::jsonb, '[]'::jsonb)), "
+    "count(*) FILTER (WHERE jsonb_typeof(e.value) = 'object'), "
+    "count(*) FILTER (WHERE jsonb_typeof(e.value) = 'string'), "
+    "count(*) FILTER (WHERE jsonb_typeof(e.value) = 'number'), "
+    "count(*) FILTER (WHERE jsonb_typeof(e.value) IN ('array', 'boolean')), "
+    "count(*) FILTER (WHERE jsonb_typeof(e.value) = 'null') "
+    "FROM datamart_reportedindicator r, jsonb_each(r.data) e "
+    "WHERE jsonb_typeof(r.data) = 'object' GROUP BY 1"
+)
+
+
 def _identity(cursor) -> dict[str, Any]:
+    from neurodb.integrations.etools.datamart_sync import DATASETS
+
+    from . import monitoring
+
     with_id, matched, other_title = _one(
         cursor,
         "SELECT count(*), count(p.source_id), count(*) FILTER (WHERE p.source_id IS NOT NULL "
@@ -391,83 +895,336 @@ def _identity(cursor) -> dict[str, Any]:
         "SELECT source_id, title FROM datamart_pdindicator p WHERE p.intervention_id = r.intervention_id "
         "AND p.source_id::text = r.etools_indicator_id LIMIT 1) p ON true WHERE r.etools_indicator_id <> ''",
     )
-    humanitarian, both = _one(
+    # PRP's report ids: empty, how many, and how many stand for more than one report (a report told apart by
+    # its programme document, type, number and period, :func:`_report`)
+    rows, pr_empty, pr_values, pr_many, ir_empty, ir_whole, ir_values, ir_many = _one(
         cursor,
-        "SELECT count(*) FILTER (WHERE hr), count(*) FILTER (WHERE hr AND qpr) FROM ("
-        "SELECT intervention_id, etools_indicator_id, indicator, bool_or(report_type = 'HR') hr, "
-        "bool_or(report_type = 'QPR') qpr FROM datamart_reportedindicator GROUP BY 1, 2, 3) g",
+        f"WITH r AS MATERIALIZED (SELECT progress_report, indicator_report, {REPORT_SQL} AS report "  # noqa: S608
+        "FROM datamart_reportedindicator) SELECT (SELECT count(*) FROM r), "
+        "(SELECT count(*) FROM r WHERE progress_report = ''), "
+        "(SELECT count(DISTINCT progress_report) FROM r WHERE progress_report <> ''), "
+        "(SELECT count(*) FROM (SELECT 1 FROM r WHERE progress_report <> '' GROUP BY progress_report "
+        "HAVING count(DISTINCT report) > 1) x), "
+        "(SELECT count(*) FROM r WHERE indicator_report = ''), "
+        "(SELECT count(*) FROM r WHERE indicator_report ~ '^[0-9]{1,18}$'), "
+        "(SELECT count(DISTINCT indicator_report) FROM r WHERE indicator_report <> ''), "
+        "(SELECT count(*) FROM (SELECT 1 FROM r WHERE indicator_report <> '' GROUP BY indicator_report "
+        "HAVING count(DISTINCT report) > 1) x)",
     )
+    # the rows of the running PDs, read by Partner monitoring's own rule (monitoring._Idents): by the eTools
+    # id, else by a title one indicator of the PD has; the others are left out
+    running = dm.ReportedIndicator.objects.filter(intervention__status__in=pd_statuses.RUNNING)
+    _bound(cursor)
+    pd_ids = sorted(set(running.order_by().values_list("intervention_id", flat=True).distinct()))
+    _bound(cursor)
+    idents = monitoring._Idents(pd_ids)
+    how: Counter[str] = Counter()
+    left: set[tuple] = set()  # the indicator reports left out
+    types: dict[tuple, set[str]] = defaultdict(set)  # each PD indicator's report types
+    for pd, eid, title, kind, ir, number, start, end in _each(
+        cursor,
+        running,
+        "intervention_id",
+        "etools_indicator_id",
+        "indicator",
+        "report_type",
+        "indicator_report",
+        "report_number",
+        "period_start",
+        "period_end",
+    ):
+        way = idents.how(pd, eid, title)
+        how[way] += 1
+        if way in ("id", "title"):
+            types[idents.of(pd, eid, title)].add((kind or "").strip().upper())
+        else:
+            left.add((_report(pd, "", kind, number, start, end), _indicator(ir, eid, title)))
+    humanitarian = sum(1 for kinds in types.values() if "HR" in kinds)
+    both = sum(1 for kinds in types.values() if {"HR", "QPR"} <= kinds)
+    # the keys the records send (names and counts only, never a value): those the sync reads first
+    read = {*DATASETS["partner_reports"][1].fields.values(), *LINK_KEYS}
+    found = {key: counts for key, *counts in _all(cursor, CENSUS_SQL)}
+    census = sorted(
+        ((key[:60], "yes" if key in read else "no", *found.get(key, (0,) * 7)) for key in {*found, *read}),
+        key=lambda line: (line[1] != "yes", line[0]),
+    )[:KEYS_LISTED]
+    out_rows = how["shared"] + how["unknown"]
+    parts = []
     if not with_id:
-        verdict, tone = "No report row carries an eTools indicator id: rows are matched by title.", INFO
+        parts.append(
+            "No report row carries an eTools indicator id (the key etools_cp_output_indicators_id is empty "
+            "or missing on every row), so rows are matched by title."
+        )
     else:
-        verdict = (
+        parts.append(
             f"{matched:,} of {with_id:,} rows with an eTools indicator id ({_share(matched, with_id)}) match "
             f"a PD indicator of their programme document; {other_title:,} of those carry another title."
         )
-        tone = OK if matched == with_id and not other_title else WARN
+    if sum(how.values()):
+        parts.append(
+            f"Of the {sum(how.values()):,} rows of the running programme documents, {how['id']:,} are "
+            f"matched by id and {how['title']:,} by title; {how['shared']:,} are left out because two or "
+            f"more indicators of their PD share the title, and {how['unknown']:,} because no indicator of "
+            f"their PD has it ({_plural(len(left), 'indicator report', 'indicator reports')} in all)."
+        )
+        if out_rows:
+            parts.append(
+                "Partner monitoring → Data quality lists the titles a PD repeats; a title PRP spells "
+                "otherwise than eTools is corrected in PRP or eTools."
+            )
+    if rows:
+        if pr_empty == rows:
+            parts.append(
+                "PRP's progress report id is empty on every row: Reached tells reports apart by PRP's "
+                "indicator report id, else by their number and period."
+            )
+        elif pr_many:
+            parts.append(
+                f"{_plural(pr_many, 'progress report id of PRP stands', 'progress report ids of PRP stand')} "
+                "for more than one report (programme document, type, number and period): Reached reads each "
+                "as one report."
+            )
+        if ir_many:
+            parts.append(
+                f"{_plural(ir_many, 'indicator report id', 'indicator report ids')} of PRP "
+                f"{'stands' if ir_many == 1 else 'stand'} for more than one report."
+            )
+    problems = out_rows or pr_many or ir_many or (with_id and (matched != with_id or other_title))
     return {
-        "tone": tone,
-        "verdict": verdict,
+        "tone": WARN if problems else (OK if rows else INFO),
+        "verdict": " ".join(parts),
         "figures": [
             ("Rows with an eTools indicator id", with_id),
             ("… matching a PD indicator", matched),
             ("… of which with another title", other_title),
-            ("Indicators in monthly (HR) reports", humanitarian),
+            ("Rows of the running programme documents", sum(how.values())),
+            ("… matched to a PD indicator by its id", how["id"]),
+            ("… matched by title (one indicator of the PD has it)", how["title"]),
+            ("… left out: two or more indicators of the PD have the title", how["shared"]),
+            ("… left out: no indicator of the PD has the title", how["unknown"]),
+            ("Indicator reports left out", len(left)),
+            ("PD indicators in monthly (HR) reports", humanitarian),
             ("… also in quarterly (QPR) reports", both),
+            ("Rows with no PRP progress report id", pr_empty),
+            ("PRP progress report ids", pr_values),
+            ("PRP progress report ids standing for more than one report", pr_many),
+            ("Rows with no PRP indicator report id", ir_empty),
+            ("Rows with a whole-number PRP indicator report id", ir_whole),
+            ("PRP indicator report ids", ir_values),
+            ("PRP indicator report ids standing for more than one report", ir_many),
         ],
+        "table": {
+            "columns": (
+                "Key the Datamart sends",
+                "Read by NeuroDB",
+                "Rows with the key",
+                "… with a value",
+                "Object",
+                "Text",
+                "Number",
+                "Other (list, true or false)",
+                "Empty (null)",
+            ),
+            "rows": census,
+        },
     }
+
+
+# ------------------------------------------------------------------------- PRP's indicator reports
+AGAIN = (
+    "on Import and sync runs, press “Sync eTools Datamart now”, choose “Only the datasets ticked below, in "
+    "their usual order” and tick prp_indicator_reports"
+)
+CODE_SETTING = "Admin → eTools Datamart: PRP business area code"
+
+
+def _prp_feed(cursor) -> dict[str, Any]:
+    """PRP's indicator reports as NeuroDB holds them, and their last sync (checks 8, 9 and 11), as counts:
+    the records held and those with a PRP id (``source_id``); the last run of the dataset is Data health's
+    (the latest started, a running one too), with what it asked and read in its details (counts, the
+    business area code and the codes the records named)."""
+    from neurodb.reports.services import latest_datamart_runs
+
+    _bound(cursor)
+    run = latest_datamart_runs([PRP]).get(PRP)
+    _bound(cursor)
+    held = dm.DatamartDocument.objects.filter(dataset=PRP).aggregate(
+        held=Count("pk"), with_id=Count("source_id")
+    )
+    details = run.details if run is not None and isinstance(run.details, dict) else {}
+    return {**held, "run": run, "details": details}
+
+
+def _feed_state(feed: dict[str, Any], *, listed: bool) -> tuple[str, str]:
+    """What the last sync of PRP's indicator reports did, when NeuroDB holds none of its records, in words
+    with what to do from the admin, and the tone it gives (a warning for a failed sync, records all of
+    another business area, or records none of which could be written). ``listed``: the check lists the
+    business area codes the records named (check 11); the others point to it."""
+    from neurodb.core.models import SyncRun
+    from neurodb.reports.services import BUSINESS_AREA_FROM
+
+    run, details = feed["run"], feed["details"]
+    if run is None:
+        return f"PRP's indicator reports (prp/indicator-report-v2) have never been synced: {AGAIN}.", INFO
+    when = _day(_local_day(run.started_at))
+    if run.status == SyncRun.Status.RUNNING:
+        return (
+            f"A sync of PRP's indicator reports is running (started {when}): run the checks again once it "
+            "has ended.",
+            INFO,
+        )
+    if run.status == SyncRun.Status.FAILED:
+        # the run's own error, cut short, without an e-mail address (a Datamart answer can quote one)
+        error = reporting.EMAIL.sub("(an address)", " ".join(str(run.error or "").split()))
+        error = f"{error[:137]}..." if len(error) > 140 else error
+        return (
+            f"The last sync of PRP's indicator reports ({when}) failed{f' ({error})' if error else ''}: "
+            "read it in Import and sync runs (search prp_indicator_reports), and once its cause is fixed, "
+            f"{AGAIN}.",
+            WARN,
+        )
+    code = str(details.get("business_area") or "")
+    where = str(BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""))
+    asked = (f" for business area {code}" + (f" ({where})" if where else "")) if code else ""
+    skipped = _count(details.get("other_country_skipped"))
+    if skipped:
+        codes = "the codes they name are listed below" if listed else "check 11 lists the codes they name"
+        return (
+            f"The last sync of PRP's indicator reports ({when}) asked{asked} and read "
+            f"{_plural(skipped, 'record', 'records')}, all of another business area ({codes}): check the "
+            f"code in {CODE_SETTING}, then {AGAIN}.",
+            WARN,
+        )
+    if run.rows_failed and not run.rows_written:
+        return (
+            f"The last sync of PRP's indicator reports ({when}) read "
+            f"{_plural(run.rows_in, 'record', 'records')}"
+            f"{asked} but could write none: Import and sync runs says why under Why rows failed.",
+            WARN,
+        )
+    announced = details.get("datamart_count")
+    told = (
+        f" (it announced {announced:,})"
+        if isinstance(announced, int) and not isinstance(announced, bool)
+        else ""
+    )
+    return (
+        f"The last sync of PRP's indicator reports ({when}) asked the Datamart{asked} and it returned no "
+        f"record{told}: syncing again changes nothing. Check the code in {CODE_SETTING}, or see what the "
+        "Datamart holds with Run a job → Probe a Datamart dataset.",
+        INFO,
+    )
 
 
 def _report_totals(cursor) -> dict[str, Any]:
-    reports, compared, equal, other_pd = _one(
-        cursor,
-        "WITH r AS MATERIALIZED (SELECT indicator_report, min(intervention_id) pd, "
-        "sum(CASE WHEN (disaggregation->'()'->>'c') ~ %s THEN (disaggregation->'()'->>'c')::numeric END) s "
-        "FROM datamart_reportedindicator WHERE indicator_report ~ '^[0-9]{1,18}$' GROUP BY 1) "
-        "SELECT count(*), count(*) FILTER (WHERE d.v IS NOT NULL AND r.s IS NOT NULL), "
-        "count(*) FILTER (WHERE d.v IS NOT NULL AND r.s IS NOT NULL AND abs(d.v - r.s) <= 0.5), "
-        "count(*) FILTER (WHERE d.pd IS NOT NULL AND r.pd IS NOT NULL AND d.pd <> r.pd) "
-        "FROM r JOIN LATERAL (SELECT CASE WHEN (x.data->>'progress_value') ~ %s "
-        "THEN (x.data->>'progress_value')::numeric WHEN (x.data->'progress_value'->>'c') ~ %s "
-        "THEN (x.data->'progress_value'->>'c')::numeric END v, x.intervention_id pd "
-        "FROM datamart_datamartdocument x "
-        "WHERE x.dataset = 'prp_indicator_reports' AND x.source_id = r.indicator_report::bigint LIMIT 1) d "
-        "ON true",
-        [NUM, NUM, NUM],
+    feed = _prp_feed(cursor)
+    # the partner indicator reports with a whole-number id: their PDs, and their value as Reached reads it
+    # from the locations ("()", the largest of a location's rows, combined by PRP's method)
+    reports: dict[int, dict[str, Any]] = {}
+    other_ids: set[str] = set()
+    rows = dm.ReportedIndicator.objects.exclude(indicator_report="").annotate(
+        _total=KeyTransform("()", "disaggregation")
     )
-    if not reports:
-        verdict, tone = "No indicator report can be found in PRP's indicator reports yet.", INFO
-    else:
-        verdict = (
-            f"PRP's report total equals the sum of the location totals on {equal:,} of {compared:,} "
-            f"indicator reports that can be compared ({_share(equal, compared)})."
-            if compared
-            else "No indicator report can be compared with PRP's own total yet."
+    for ir, pd, p_code, location, total, method in _each(
+        cursor,
+        rows,
+        "indicator_report",
+        "intervention_id",
+        "p_code",
+        "location",
+        "_total",
+        "calculation_across_locations",
+    ):
+        if not (ir.isascii() and ir.isdigit()) or len(ir) > 18:
+            other_ids.add(ir)
+            continue
+        entry = reports.setdefault(int(ir), {"pds": set(), "places": {}, "method": rc.method_of(method)})
+        if pd is not None:
+            entry["pds"].add(pd)
+        value = _value(total)
+        if value is not None:
+            place = _place(p_code, location)
+            entry["places"][place] = max(entry["places"].get(place, value), value)
+    # PRP's record of each id (the first, as reached.progress_values reads them), and its own total
+    found: dict[int, tuple[int | None, Any]] = {}
+    ids = sorted(reports)
+    for start in range(0, len(ids), 5000):
+        _bound(cursor)
+        records = (
+            dm.DatamartDocument.objects.filter(dataset=PRP, source_id__in=ids[start : start + 5000])
+            .order_by("pk")
+            .annotate(_value=KT("data__progress_value"))
+            .values_list("source_id", "intervention_id", "_value")
         )
-        if other_pd:
-            verdict += (
-                f" {other_pd:,} PRP {'record' if other_pd == 1 else 'records'} with the same id "
-                f"{'is' if other_pd == 1 else 'are'} about another programme document: the two datasets "
-                "do not share their ids, and NeuroDB uses no PRP total that names another programme "
-                "document or indicator."
-            )
-        if other_pd or (compared and equal != compared):
-            tone = WARN
-        else:
-            tone = OK if compared else INFO
-    return {
-        "tone": tone,
-        "verdict": verdict,
-        "figures": [
-            ("Indicator reports found in PRP's indicator reports", reports),
-            ("… that can be compared", compared),
-            ("… equal", equal),
-            ("… about another programme document", other_pd),
-        ],
-    }
+        for source_id, pd, raw in records:
+            found.setdefault(source_id, (pd, raw))
+    compared = equal = other_pd = 0
+    for source_id, (pd, raw) in found.items():
+        entry = reports[source_id]
+        if pd is not None and entry["pds"] and pd not in entry["pds"]:
+            other_pd += 1
+        theirs = _value(raw)
+        mine = (
+            rc.combine(list(entry["places"].values()), entry["method"] or "sum") if entry["places"] else None
+        )
+        if theirs is not None and mine is not None:
+            compared += 1
+            equal += rc.close(theirs, mine)
+    figures = [
+        ("PRP indicator report records held", feed["held"]),
+        ("… with a PRP id (source_id)", feed["with_id"]),
+        ("Partner indicator report ids that are whole numbers", len(reports)),
+        ("… that are not", len(other_ids)),
+        ("Indicator reports found in PRP's indicator reports", len(found)),
+        ("… that can be compared", compared),
+        ("… equal", equal),
+        ("… about another programme document", other_pd),
+    ]
+    if not feed["held"]:
+        text, tone = _feed_state(feed, listed=False)
+        verdict = f"PRP's indicator reports hold no record, so no report total can be compared. {text}"
+        return {"tone": tone, "verdict": verdict, "figures": figures}
+    if not feed["with_id"]:
+        verdict = (
+            f"{_plural(feed['held'], 'PRP record is', 'PRP records are')} held, none with a PRP id "
+            "(source_id): the two feeds cannot be matched by id, so no PRP report total is used."
+        )
+        return {"tone": WARN, "verdict": verdict, "figures": figures}
+    if not reports:
+        verdict = (
+            "No partner report row carries a whole-number indicator report id"
+            + (f" ({_plural(len(other_ids), 'id is', 'ids are')} of another kind)" if other_ids else "")
+            + ": the two feeds cannot be matched by id, so no PRP report total is used."
+        )
+        return {"tone": WARN if other_ids else INFO, "verdict": verdict, "figures": figures}
+    if not found:
+        verdict = (
+            f"The {feed['with_id']:,} PRP ids match none of the {len(reports):,} partner indicator report "
+            "ids: the two feeds may not share their ids, and no PRP report total is used."
+        )
+        return {"tone": WARN, "verdict": verdict, "figures": figures}
+    verdict = (
+        f"PRP's report total equals the locations combined on {equal:,} of {compared:,} indicator reports "
+        f"that can be compared ({_share(equal, compared)})."
+        if compared
+        else "No indicator report can be compared with PRP's own total yet."
+    )
+    if other_pd:
+        verdict += (
+            f" {other_pd:,} PRP {'record' if other_pd == 1 else 'records'} with the same id "
+            f"{'is' if other_pd == 1 else 'are'} about another programme document: the two datasets "
+            "do not share their ids, and NeuroDB uses no PRP total that names another programme "
+            "document or indicator."
+        )
+    if other_pd or (compared and equal != compared):
+        tone = WARN
+    else:
+        tone = OK if compared else INFO
+    return {"tone": tone, "verdict": verdict, "figures": figures}
 
 
 def _financial(cursor) -> dict[str, Any]:
+    feed = _prp_feed(cursor)
     reports, varying = _one(
         cursor,
         "SELECT count(*), count(*) FILTER (WHERE n > 1) FROM (SELECT data->>'pd_reference_number', "
@@ -476,8 +1233,18 @@ def _financial(cursor) -> dict[str, Any]:
         "FROM datamart_datamartdocument WHERE dataset = 'prp_indicator_reports' "
         "AND coalesce(data->>'financial_contribution_to_date', '') <> '' GROUP BY 1, 2, 3) g",
     )
-    if not reports:
-        verdict, tone = "No PRP indicator report carries a financial contribution yet.", INFO
+    tone = INFO
+    if not feed["held"]:
+        text, tone = _feed_state(feed, listed=False)
+        verdict = (
+            "PRP's indicator reports hold no record, so no financial contribution can be read (the Funds "
+            f"page shows none). {text}"
+        )
+    elif not reports:
+        verdict = (
+            f"{_plural(feed['held'], 'PRP record is', 'PRP records are')} held; none carries a financial "
+            "contribution (financial_contribution_to_date)."
+        )
     else:
         verdict = (
             f"The financial contribution is the same on every indicator of {reports - varying:,} of "
@@ -488,6 +1255,7 @@ def _financial(cursor) -> dict[str, Any]:
         "tone": tone,
         "verdict": verdict,
         "figures": [
+            ("PRP indicator report records held", feed["held"]),
             ("Progress reports with a financial contribution", reports),
             ("… where it varies", varying),
         ],
@@ -502,6 +1270,42 @@ LINK_NOT_HELD = "not in NeuroDB"
 LINK_NONE = "names none"
 
 
+def _coverage(cursor) -> dict[str, Any]:
+    """How much of the running programme documents' reporting the partner reports hold (check 10), as
+    counts: the PDs with no row, those whose first report held ends long after their start, and those
+    whose lowest report number of a type is above 1; and the latest partner reports sync's window."""
+    from neurodb.reports.services import latest_datamart_runs
+
+    _bound(cursor)
+    starts = dict(PCA.objects.filter(status__in=pd_statuses.RUNNING).values_list("pk", "start"))
+    rows = dm.ReportedIndicator.objects.filter(intervention__status__in=pd_statuses.RUNNING).order_by()
+    _bound(cursor)
+    first = dict(
+        rows.values("intervention_id")
+        .annotate(first=Min("period_end"))
+        .values_list("intervention_id", "first")
+    )
+    lowest: dict[int, dict[str, int]] = defaultdict(dict)
+    _bound(cursor)
+    for pd, kind, number in rows.values_list("intervention_id", "report_type", "report_number").distinct():
+        n, kind = _number(number), (kind or "").strip().upper()
+        if n is not None and kind in STEP_MONTHS:
+            lowest[pd][kind] = min(lowest[pd].get(kind, n), n)
+    _bound(cursor)
+    run = latest_datamart_runs(["partner_reports"], finished=True).get("partner_reports")
+    return {
+        "running": len(starts),
+        "none": sum(1 for pk in starts if pk not in first),
+        "late": sum(
+            1
+            for pk, start in starts.items()
+            if start and first.get(pk) and (first[pk] - start).days > LATE_FIRST_DAYS
+        ),
+        "no_first": sum(1 for kinds in lowest.values() if any(n > 1 for n in kinds.values())),
+        "run": run,
+    }
+
+
 def _country_and_link(cursor) -> dict[str, Any]:
     from neurodb.integrations.etools.datamart_sync import other_country
 
@@ -513,7 +1317,7 @@ def _country_and_link(cursor) -> dict[str, Any]:
         When(intervention__status__in=pd_statuses.RUNNING, then=Value(LINK_RUNNING)),
         default=Value(LINK_OTHER_STATUS),
     )
-    groups = list(
+    annotated = (
         dm.ReportedIndicator.objects.order_by()
         .annotate(
             _country=Coalesce(
@@ -522,19 +1326,51 @@ def _country_and_link(cursor) -> dict[str, Any]:
             )
         )
         .annotate(_link=link)
-        .values("_country", "_link")
+    )
+    groups = list(
+        annotated.values("_country", "_link")
         .annotate(
             rows=Count("pk"),
             reports=Count(reporting.INDICATOR_REPORT_KEY, distinct=True),
             first=Min("period_end"),
             last=Max("period_end"),
-            sections=ArrayAgg(NullIf(Trim("section"), Value("")), distinct=True, filter=~Q(section="")),
             numbers=ArrayAgg("pd_reference_number", distinct=True, filter=Q(intervention__isnull=True)),
         )
         .order_by("_country", "_link")
     )
     if not groups:
         return {"tone": INFO, "verdict": "No partner report rows are held yet.", "figures": []}
+    # each section name once (a row's field can hold a list, "Child Protection, Adolescent & Youth"), those
+    # with the most indicator reports first
+    _bound(cursor)
+    known = {
+        name for names in PCA.objects.values_list("section_names", flat=True) for name in names or [] if name
+    }
+    _bound(cursor)
+    # (country, link) -> each name, case aside -> its spellings and their indicator reports
+    sections: dict[tuple, dict[str, Counter[str]]] = defaultdict(lambda: defaultdict(Counter))
+    for g in (
+        annotated.exclude(section="")
+        .values("_country", "_link", "section")
+        .annotate(n=Count(reporting.INDICATOR_REPORT_KEY, distinct=True))
+    ):
+        for name in reporting.section_names(g["section"], known):
+            sections[(g["_country"], g["_link"])][name.casefold()][name] += g["n"]
+    spelled = {" ".join(name.split()).casefold(): " ".join(name.split()) for name in known}
+
+    def top(key: tuple) -> str | None:
+        # a name as eTools spells it for the PDs, else its spelling with the most reports (capitals first)
+        found = sorted(
+            (
+                (spelled.get(fold) or max(ways, key=lambda w: (ways[w], w != w.lower(), w)), ways.total())
+                for fold, ways in sections.get(key, {}).items()
+            ),
+            key=lambda e: (-e[1], e[0].casefold()),
+        )
+        shown = ", ".join(name for name, _ in found[:SECTIONS_SHOWN])
+        more = len(found) - SECTIONS_SHOWN
+        return (shown + (f" (+{more} more)" if more > 0 else "")) or None
+
     # the sync's own rule (case and spaces aside; nothing is another country's while none is set)
     other = sum(
         g["rows"]
@@ -543,6 +1379,7 @@ def _country_and_link(cursor) -> dict[str, Any]:
     )
     not_held = sum(g["reports"] for g in groups if g["_link"] == LINK_NOT_HELD)
     no_pd = sum(g["reports"] for g in groups if g["_link"] == LINK_NONE)
+    cover = _coverage(cursor)
     parts = []
     if other:
         parts.append(
@@ -554,6 +1391,34 @@ def _country_and_link(cursor) -> dict[str, Any]:
         parts.append(f"{not_held:,} indicator reports belong to programme documents NeuroDB does not hold")
     if no_pd:
         parts.append(f"{no_pd:,} indicator reports name no programme document")
+    verdict = (
+        "; ".join(parts) + "."
+        if parts
+        else "Every row is of this country and belongs to a programme document NeuroDB holds."
+    )
+    if cover["running"]:
+        verdict += (
+            f" Of the {cover['running']:,} running programme documents, {cover['none']:,} have no partner "
+            f"report row, {cover['late']:,} started more than {LATE_FIRST_DAYS} days before the end of their "
+            f"first report held and {cover['no_first']:,} lack their first report (QPR1 or HR1)"
+        )
+        verdict += (
+            ": Reached adds up only the reports the feed holds, so theirs may be partial."
+            if cover["late"] or cover["no_first"]
+            else "."
+        )
+    run = cover["run"]
+    if run is not None:
+        details = run.details if isinstance(run.details, dict) else {}
+        try:
+            since = _day(datetime.date.fromisoformat(str(details.get("read_from") or "")[:10]))
+        except ValueError:
+            since = None
+        window = f" asked for the reports from {since} on and" if since else ""
+        verdict += (
+            f" The latest partner reports sync ({_day(_local_day(run.started_at))}){window} kept "
+            f"{_plural(run.rows_in, 'row', 'rows')}: what the Datamart did not return cannot be counted."
+        )
     rows = [
         (
             g["_country"],
@@ -562,22 +1427,26 @@ def _country_and_link(cursor) -> dict[str, Any]:
             g["reports"],
             _day(g["first"]),
             _day(g["last"]),
-            ", ".join(sorted(x for x in g["sections"] or [] if x)[:5]) or None,
+            top((g["_country"], g["_link"])),
             ", ".join(sorted(x for x in g["numbers"] or [] if x)[:3]) or None,
         )
         for g in groups
     ]
+    if other or not_held or cover["late"] or cover["no_first"]:
+        tone = WARN
+    else:
+        tone = INFO if no_pd or cover["none"] else OK
     return {
-        "tone": WARN if other or not_held else (INFO if no_pd else OK),
-        "verdict": (
-            "; ".join(parts) + "."
-            if parts
-            else "Every row is of this country and belongs to a programme document NeuroDB holds."
-        ),
+        "tone": tone,
+        "verdict": verdict,
         "figures": [
             ("Rows naming another country", other),
             ("Indicator reports of programme documents not held", not_held),
             ("Indicator reports naming no programme document", no_pd),
+            ("Running programme documents", cover["running"]),
+            ("… with no partner report row", cover["none"]),
+            (f"… whose first report held ends over {LATE_FIRST_DAYS} days after their start", cover["late"]),
+            ("… without their first report (QPR1 or HR1)", cover["no_first"]),
         ],
         "table": {
             "columns": (
@@ -587,12 +1456,67 @@ def _country_and_link(cursor) -> dict[str, Any]:
                 "Indicator reports",
                 "First period end",
                 "Last period end",
-                "Sections (first 5)",
+                f"Sections (top {SECTIONS_SHOWN})",
                 "PD numbers not held (first 3)",
             ),
             "rows": rows,
         },
     }
+
+
+def _number_gaps(cursor, today: datetime.date) -> tuple[Counter[int], int, int]:
+    """The progress reports missing between the report numbers the partner reports hold for each running
+    programme document and type (a QPR2 missing between QPR1 and QPR3) whose period has ended this year,
+    by an estimate from the numbers alone: per month of the estimated period end (the report before it,
+    plus the type's months, at most the day before the report after it starts), the indicator reports it
+    would hold (as many as the report before it, else after it); and in all, the progress reports and their
+    indicator reports. A report owed after the last number held cannot be seen."""
+    _bound(cursor)
+    # each PD and type: its report numbers -> [period start, period end, indicator reports]
+    held: dict[tuple[int, str], dict[int, list[Any]]] = defaultdict(dict)
+    grouped = (
+        reporting.ReportFilters()  # the running PDs, every year
+        .queryset(today)
+        .order_by()
+        .values("intervention_id", "report_type", "report_number")
+        .annotate(
+            start=Min("period_start"),
+            end=Min("period_end"),
+            n=Count(reporting.INDICATOR_REPORT, distinct=True),
+        )
+    )
+    for g in grouped:
+        kind, number = (g["report_type"] or "").strip().upper(), _number(g["report_number"])
+        if kind not in STEP_MONTHS or number is None or g["intervention_id"] is None:
+            continue
+        known = held[(g["intervention_id"], kind)].setdefault(number, [None, None, 0])
+        known[0] = min((d for d in (known[0], g["start"]) if d), default=None)
+        known[1] = min((d for d in (known[1], g["end"]) if d), default=None)
+        known[2] = max(known[2], g["n"])
+    months: Counter[int] = Counter()
+    missing = estimated = 0
+    for (_, kind), numbers in held.items():
+        step, given = STEP_MONTHS[kind], sorted(numbers)
+        for n in range(1, given[-1]):
+            if n in numbers:
+                continue
+            before = max((h for h in given if h < n), default=None)
+            after = min(h for h in given if h > n)
+            if before is not None and numbers[before][1]:
+                end = _month_end(numbers[before][1], (n - before) * step)
+            elif numbers[after][1]:
+                end = _month_end(numbers[after][1], -(after - n) * step)
+            else:
+                continue
+            if numbers[after][0] and end >= numbers[after][0]:
+                end = numbers[after][0] - datetime.timedelta(days=1)
+            if end > today or end.year != today.year:
+                continue
+            missing += 1
+            indicators = numbers[before if before is not None else after][2]
+            estimated += indicators
+            months[end.month] += indicators
+    return months, missing, estimated
 
 
 def _two_feeds(cursor) -> dict[str, Any]:
@@ -604,10 +1528,13 @@ def _two_feeds(cursor) -> dict[str, Any]:
     for r in reporting.progress_reports(filters.queryset(today), today):
         counts = ours.setdefault(r["period_end"].month if r["period_end"] else None, dict(zero))
         counts[r["status"]] += r["indicators"]
+    gaps, missing, estimated = _number_gaps(cursor, today)
+    feed = _prp_feed(cursor)
     # PRP's records of the year by the period end they are counted by (their progress report's, else
-    # their own: prp_document_status), read from the records whose own end is within a year of it
-    near = dm.DatamartDocument.objects.filter(
-        dataset="prp_indicator_reports", date__year__in=(today.year - 1, today.year, today.year + 1)
+    # their own: prp_document_status), read from the records whose own end is within a year of it, or that
+    # have none of their own (the progress report's may still date them)
+    near = dm.DatamartDocument.objects.filter(dataset=PRP).filter(
+        Q(date__year__in=(today.year - 1, today.year, today.year + 1)) | Q(date=None)
     )
     _bound(cursor)
     found = (
@@ -631,6 +1558,7 @@ def _two_feeds(cursor) -> dict[str, Any]:
     )
     theirs: dict[Any, dict[str, int]] = {}
     held: Counter[str] = Counter()  # the records of the year, by their programme document link
+    undated = 0  # records with no period end of their own or of their progress report
     for g in found:
         # the rule of the Funds page for these records: the progress report's own fields first
         status, end = rc.prp_document_status(
@@ -644,50 +1572,114 @@ def _two_feeds(cursor) -> dict[str, Any]:
             sub=g["_sub"],
             today=today,
         )
-        if end is None or end.year != today.year:
+        if end is None:
+            undated += g["n"]
+            continue
+        if end.year != today.year:
             continue
         held[g["_link"]] += g["n"]
         if g["_link"] == LINK_RUNNING:
             counts = theirs.setdefault(end.month, dict(zero))
             counts[status] += g["n"]
     unlinked, other = held[LINK_NOT_HELD], held[LINK_OTHER_STATUS]
-    figures = [
-        ("Due or overdue in the partner reports", 0),
-        ("Due or overdue in PRP's indicator reports", 0),
-        ("PRP indicator reports of the year linked to a programme document", held[LINK_RUNNING] + other),
-        ("… not linked to one", unlinked),
-    ]
-    if not ours and not theirs:
-        return {
-            "tone": INFO,
-            "verdict": _no_prp(today.year, other, unlinked, ours=False),
-            "figures": figures,
-        }
+    other_years = max(feed["held"] - sum(held.values()) - undated, 0)
     owed = (rc.DUE, rc.OVERDUE)
 
     def owing(table: dict[Any, dict[str, int]], month: Any) -> int:
         return sum((table.get(month) or zero)[k] for k in owed)
 
-    months = sorted({*ours, *theirs}, key=lambda m: (m is None, m or 0))
+    ours_owed = sum(owing(ours, m) for m in ours)
+    theirs_owed = sum(owing(theirs, m) for m in theirs)
+    not_yet = sum(counts[rc.NOT_YET_DUE] for counts in ours.values())
+    figures = [
+        ("Due or overdue in the partner reports", ours_owed),
+        ("Not yet due in the partner reports", not_yet),
+        ("Expected, not in the partner reports (number gaps, period ended)", estimated),
+        ("… progress reports missing between the numbers held", missing),
+        ("Due or overdue in PRP's indicator reports", theirs_owed),
+        ("PRP indicator report records held", feed["held"]),
+        ("PRP indicator reports of the year linked to a programme document", held[LINK_RUNNING] + other),
+        ("… not linked to one", unlinked),
+        ("PRP indicator report records of other years", other_years),
+        ("PRP indicator report records with no period end", undated),
+    ]
+    run, skipped = feed["run"], _count(feed["details"].get("other_country_skipped"))
+    figures += [  # what the last sync of PRP's indicator reports read ("—": never synced)
+        (
+            "Last sync of PRP's indicator reports: records read",
+            "—" if run is None else _count(feed["details"].get("read")) or run.rows_in + skipped,
+        ),
+        ("… skipped as another business area", "—" if run is None else skipped),
+    ]
+    seen = feed["details"].get("business_areas_seen")
+    tables = (
+        [
+            {
+                "title": "Business area codes the records of the last sync of PRP's indicator reports named",
+                "columns": ("Business area code", "Records read"),
+                "rows": sorted(
+                    ((str(k), _count(n)) for k, n in seen.items()), key=lambda kv: (-kv[1], kv[0])
+                ),
+            }
+        ]
+        if isinstance(seen, dict) and seen
+        else []
+    )
+    # what the partner reports feed carries (what Progress reports counts), whatever PRP's own feed holds
+    lead, warn = [], False
+    if ours and not ours_owed and not_yet:
+        lead.append(
+            "The partner reports feed (what Progress reports counts) carries no report still owed for a "
+            "period that has ended: every report still to submit there is of a period not yet ended, so the "
+            "overdue reports PRP or Power BI count are not in this feed."
+        )
+        warn = True
+    if missing:
+        lead.append(
+            "Between the report numbers the partner reports hold for the running programme documents, "
+            f"{_plural(missing, 'progress report', 'progress reports')} of a period ended this year "
+            f"{'is' if missing == 1 else 'are'} missing (about "
+            f"{_plural(estimated, 'indicator report', 'indicator reports')}, "
+            "as many as the report next to each): expected, not in the feed."
+        )
+        warn = True
+    months = sorted({*ours, *theirs, *gaps}, key=lambda m: (m is None, m or 0))
     label = {m: datetime.date(today.year, m, 1).strftime("%b %Y") if m else "No period end" for m in months}
     rows = [
-        (label[m], feed, *((table.get(m) or zero)[k] for k in rc.STATUS_LABELS))
+        (
+            label[m],
+            feed_name,
+            *((table.get(m) or zero)[k] for k in rc.STATUS_LABELS),
+            gaps.get(m, 0) if table is ours else None,
+        )
         for m in months
-        for feed, table in (("Partner reports", ours), ("PRP indicator reports", theirs))
+        for feed_name, table in (("Partner reports", ours), ("PRP indicator reports", theirs))
     ]
-    ours_owed, theirs_owed = sum(owing(ours, m) for m in months), sum(owing(theirs, m) for m in months)
-    figures[0], figures[1] = (figures[0][0], ours_owed), (figures[1][0], theirs_owed)
-    table = {"columns": ("Period end", "Feed", *rc.STATUS_LABELS.values()), "rows": rows}
+    table = {
+        "columns": (
+            "Period end",
+            "Feed",
+            *rc.STATUS_LABELS.values(),
+            "Expected, not in the feed (number gaps)",
+        ),
+        "rows": rows,
+    }
     if not theirs:
-        return {
-            "tone": INFO,
-            "verdict": _no_prp(today.year, other, unlinked, ours=True),
+        text, tone = _no_prp(
+            today.year, other, unlinked, ours=bool(ours), feed=feed, undated=undated, other_years=other_years
+        )
+        out = {
+            "tone": WARN if warn or tone == WARN else INFO,
+            "verdict": " ".join([*lead, text]),
             "figures": figures,
-            "table": table,
+            "tables": tables,
         }
+        if months:
+            out["table"] = table
+        return out
     more = [label[m] for m in months if owing(theirs, m) > owing(ours, m)]
     fewer = [label[m] for m in months if owing(theirs, m) < owing(ours, m)]
-    other = [
+    other_months = [
         label[m]
         for m in months
         if (ours.get(m) or zero) != (theirs.get(m) or zero) and label[m] not in (*more, *fewer)
@@ -704,22 +1696,26 @@ def _two_feeds(cursor) -> dict[str, Any]:
         )
     if fewer:
         verdict += f" The partner reports list more reports still owed in {', '.join(fewer)}."
-    if other:
-        verdict += f" The two feeds give other statuses in {', '.join(other)}."
-    if not (more or fewer or other):
+    if other_months:
+        verdict += f" The two feeds give other statuses in {', '.join(other_months)}."
+    if not (more or fewer or other_months):
         verdict += " Every month has the same indicator reports per status in both feeds."
     return {
-        "tone": WARN if more or fewer or other else OK,
-        "verdict": verdict,
+        "tone": WARN if more or fewer or other_months or warn else OK,
+        "verdict": " ".join([*lead, verdict]),
         "figures": figures,
         "table": table,
+        "tables": tables,
     }
 
 
-def _no_prp(year: int, other: int, unlinked: int, *, ours: bool) -> str:
+def _no_prp(
+    year: int, other: int, unlinked: int, *, ours: bool, feed: dict[str, Any], undated: int, other_years: int
+) -> tuple[str, str]:
     """Check 11's verdict when PRP's indicator reports of the year hold none of a running programme
-    document: why (``other`` of the year link to a PD of another status, ``unlinked`` to none), and what
-    to do."""
+    document, and its tone: why (``other`` of the year link to a PD of another status, ``unlinked`` to none,
+    the records held are of other years or have no period end, or the last sync kept none: what it did,
+    :func:`_feed_state`), and what to do."""
     start = (
         f"PRP's indicator reports hold nothing of the running programme documents for {year}"
         if ours
@@ -729,14 +1725,24 @@ def _no_prp(year: int, other: int, unlinked: int, *, ours: bool) -> str:
         return (
             f"{start}: {unlinked:,} of the year are held, but none links to a programme document NeuroDB "
             "holds (their PD reference numbers match none). A sync helps only if the programme documents "
-            "were synced after them."
+            "were synced after them.",
+            INFO,
         )
     if other:
         return (
             f"{start}: the {other:,} of the year that link to a programme document are of PDs that are not "
-            f"running{f', and {unlinked:,} link to none' if unlinked else ''}."
+            f"running{f', and {unlinked:,} link to none' if unlinked else ''}.",
+            INFO,
         )
-    return f"{start}: run the eTools Datamart sync (prp_indicator_reports) to compare."
+    if feed["held"]:
+        return (
+            f"{start}: {_plural(feed['held'], 'of its records is', 'of its records are')} held, none of a "
+            f"period ending in {year} ({undated:,} with no period end of their own or of their progress "
+            f"report, {other_years:,} of other years).",
+            INFO,
+        )
+    text, tone = _feed_state(feed, listed=True)
+    return f"{start}. {text}", tone
 
 
 RUN_FIRST = ("10", "11")
@@ -746,40 +1752,49 @@ CHECKS: tuple[Check, ...] = (
         "Rows per location",
         "Does a report carry more than one row for the same indicator and location?",
         "One value per location in each report: when several rows carry different values, the largest is "
-        "used, never their sum.",
+        "used, never their sum. Reached tells one report from another by PRP's progress report id, else "
+        "PRP's indicator report id, else its number and period; this check tells them apart by programme "
+        "document, type, number and period, so it also shows where PRP's ids stand for several reports.",
         _duplicate_rows,
     ),
     Check(
         "2",
         "Value in the period, per location",
-        "Is the value in the period the same on every location of a report (the report total repeated)?",
-        "A location's value is the disaggregation total first, then its running total minus its previous "
-        "one, then the value in the period. A value repeated on every location is read as the report total "
-        "and never added up over the locations.",
+        "Is the value of a report the same on every one of its locations (the report total repeated)?",
+        'A location\'s value is the disaggregation total "()" first, then its running total minus its '
+        "previous one, then the value in the period. A value in the period repeated on every location is "
+        "read as the report total, and never added up over the locations, only when every location's value "
+        'comes from the value in the period (no "()" number and no running totals).',
         _repeated_value,
     ),
     Check(
         "3",
         "Disaggregations",
-        'Which disaggregation keys appear, and does the total ("()") equal the value in the period?',
-        'The total "()" is each location\'s value. Disaggregation values add up only within one type; '
-        "they are never added across types. The partner reports sync reads the label of each value id the "
-        "reports name; a value whose label is not read yet is not listed on the By disaggregation tab.",
+        'Which disaggregation keys appear, does the total ("()") hold a number, and does it equal the value '
+        "in the period?",
+        'The total "()" is each location\'s value when it holds a number (c, else v over d, else v, written '
+        "as a number or as PRP's {v, d, c}). Disaggregation values add up only within one type; they are "
+        "never added across types. The partner reports sync reads the label of each value id the reports "
+        "name; a value whose label is not read yet is not listed on the By disaggregation tab.",
         _disaggregation,
     ),
     Check(
         "4",
         "Reports that do not count",
         "What do sent-back, due, overdue and not-yet-due reports carry?",
-        "Only Accepted and Submitted reports count in Reached; what the others carry changes nothing.",
+        "Only Accepted and Submitted reports count in Reached; what the others carry changes nothing. Values "
+        "are read as Reached reads them: PRP's empty {v: 0, d: 0, c: 0} is no value.",
         _unsubmitted,
     ),
     Check(
         "5",
         "PRP's cumulative",
         "Is PRP's cumulative one running total, and does it equal NeuroDB's Reached?",
-        "Reached is computed from the reports; PRP's cumulative on the latest counted report is shown beside "
-        "it, and an indicator where they differ is marked.",
+        "Reached is computed from the counted reports (Accepted and Submitted) of each indicator; PRP's "
+        "cumulative on the latest counted report is shown beside it, and an indicator where they differ "
+        "(beyond rounding) is marked Differs from PRP. A programme document with a partial history takes "
+        "PRP's "
+        "cumulative as its Reached. This check reads the figures of Partner monitoring's Data quality tab.",
         _cumulative,
     ),
     Check(
@@ -793,10 +1808,12 @@ CHECKS: tuple[Check, ...] = (
     Check(
         "7",
         "Indicator identity",
-        "Does the eTools indicator id of a report row match the PD indicator's id, and do monthly indicators "
-        "also appear in quarterly reports?",
-        "Rows are matched to the PD indicator by its id, by title only when there is no id. Monthly reports "
-        "are used only for an indicator with no quarterly report, and never added to quarterly ones.",
+        "Which PD indicator does each report row belong to, how many rows are left out, and which keys do "
+        "the records send?",
+        "A row belongs to the PD indicator whose eTools id it carries, else to the one indicator of its PD "
+        "that has its title (case and spaces aside); a row whose title two or more indicators of the PD "
+        "share, or none has, is left out. Monthly reports are used only for an indicator with no quarterly "
+        "report, and never added to quarterly ones.",
         _identity,
     ),
     Check(
@@ -818,21 +1835,27 @@ CHECKS: tuple[Check, ...] = (
     Check(
         "10",
         "Country and programme document of the rows",
-        "Which country does each report row name, and does it belong to a programme document NeuroDB holds?",
+        "Which country does each report row name, does it belong to a programme document NeuroDB holds, and "
+        "how much of the running programme documents' reporting is held?",
         "A record naming another country is never written (the sync counts it in other_country_skipped). "
         "Progress reports counts the running programme documents by default; a report of a programme "
         "document NeuroDB does not hold only when every PD status is chosen, and a report that names no "
-        "programme document never. The page says how many the PD status filter leaves out.",
+        "programme document never. The page says how many the PD status filter leaves out. Reached adds up "
+        "the reports held: a running programme document whose first reports are not in the feed has a "
+        "partial sum (the partial history rule covers only a PD that started before the window the sync "
+        "read).",
         _country_and_link,
     ),
     Check(
         "11",
         "Reports owed, in PRP's two feeds",
-        "This year, do the partner reports and PRP's indicator reports list the same reports per status, for "
-        "the running programme documents?",
+        "This year, do the partner reports and PRP's indicator reports list the same reports per status for "
+        "the running programme documents, and which reports does the partner reports feed miss?",
         "Progress reports and Partner monitoring read the partner reports (prp/datareport); PRP's indicator "
-        "reports (prp/indicator-report-v2) are kept whole for Ask NeuroDB. Both are read with the same "
-        "status rule (PRP's word, then the dates).",
+        "reports (prp/indicator-report-v2) are kept whole for Ask NeuroDB and the Funds page. Both are read "
+        "with the same status rule (PRP's word, then the dates). A report the partner reports feed does not "
+        "carry is counted nowhere: the number gaps (a QPR2 missing between QPR1 and QPR3) are estimated "
+        "here only, and a report owed after the last number held cannot be seen.",
         _two_feeds,
     ),
 )
