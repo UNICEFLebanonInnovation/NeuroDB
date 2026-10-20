@@ -234,7 +234,7 @@ def check(
     ``names`` are the known person names (default :func:`neurodb.watch.people.known_names`).
     ``named_fields`` are the fields of the facts whose words a sentence may repeat even when they are
     system words ("non-food items" in a cited title)."""
-    sentence = " ".join(str(sentence or "").split())
+    sentence = " ".join(people.visible(sentence).split())
     if not sentence:
         return Verdict(False, EMPTY)
     if len(sentence) > MAX_CHARS:

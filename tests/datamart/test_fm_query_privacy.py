@@ -1,6 +1,7 @@
 """Ask's generic eTools tools send field monitoring records without people and without long texts (A8):
 person keys dropped and never queried, texts over 80 characters withheld, the shorter ones redacted,
-and a search for a person's name finds no field monitoring record. Other datasets are unchanged."""
+and a search for a person's name finds no field monitoring record. The other datasets are sent without a
+person too (``test_query_privacy_all``), their texts kept whole."""
 
 import datetime
 import json
@@ -126,7 +127,7 @@ def records(db):
             "focal_point": "Karim Canary",
         },
     )
-    # a dataset outside field monitoring, with a name in a value: unchanged by A8
+    # datasets outside field monitoring, with a name in a value and under a person key
     dm.DatamartDocument.objects.create(
         dataset="intervention_epd",
         record_key="1",
@@ -272,22 +273,21 @@ def test_a_person_cannot_be_looked_for_in_field_monitoring(records):
         tools.run(
             "etools_query", {"dataset": "fm_questions", "filters": {"summary__contains": "Rania Canary"}}
         )
-    # the same search on another dataset is answered as before
-    other = tools.run("etools_query", {"dataset": "intervention_epd", "search": "Rania Canary"})
-    assert other["matching_records"] == 1
+    # nor in any other dataset
+    with pytest.raises(tools.ToolInputError, match="eTools records cannot be searched for a person"):
+        tools.run("etools_query", {"dataset": "intervention_epd", "search": "Rania Canary"})
 
 
 def test_search_shows_field_monitoring_by_reference_and_finds_no_person(records):
-    found = tools.run("etools_search", {"text": "Canary"})
+    found = tools.run("etools_search", {"text": "Attendance"})  # in the long narrative: found, not sent
     by_dataset = {h["dataset"]: h for h in found["datasets"]}
     assert by_dataset["field_monitoring"]["examples"] == ["FM-2026-022"]
     assert set(by_dataset["fm_questions"]["examples"]) == {"FM-2026-022"}
-    assert by_dataset["fm_programme_activities"]["examples"] == ["FM-2026-022"]
     assert_clean({k: v for k, v in by_dataset.items() if k in catalogue.FM_PRIVATE})
+    # part of a person's name finds nothing: only what Ask is sent is searched
+    assert not {h["dataset"] for h in tools.run("etools_search", {"text": "Canary"})["datasets"]}
     named = tools.run("etools_search", {"text": "Rania Canary"})
-    datasets = {h["dataset"] for h in named["datasets"]}
-    assert not datasets & catalogue.FM_PRIVATE
-    assert {"intervention_epd", "action_points"} <= datasets  # other datasets are searched as before
+    assert named["datasets"] == []  # a person's name finds no record of any dataset
     email = tools.run("etools_search", {"text": "karim.canary@example.org"})
     assert not {h["dataset"] for h in email["datasets"]} & catalogue.FM_PRIVATE
 
@@ -322,25 +322,22 @@ def test_person_key_is_token_based():
         assert not catalogue.person_key(key), key
 
 
-def test_other_datasets_are_unchanged(records, monkeypatch):
-    """Every non field monitoring output is byte-identical to the output without A8."""
-
-    def outputs():
-        out = {}
-        for name in ("intervention_epd", "action_points"):
-            out[name] = [
-                tools.run("etools_query", {"dataset": name}),
-                tools.run("etools_query", {"dataset": name, "group_by": "partner"}),
-                tools.run("etools_query", {"dataset": name, "fields": ["id"]}),
-                tools.run("etools_datasets", {"dataset": name}),
-                tools.run("etools_record", {"dataset": name, "record": "1"}),
-                query.public({"assigned_to_name": "Rania Canary", "x": "y" * 500}, dataset=name),
-            ]
-        searched = tools.run("etools_search", {"text": "Rania Canary"})["datasets"]
-        out["search"] = [h for h in searched if h["dataset"] not in FM]
-        return json.dumps(out, sort_keys=True, default=str)
-
-    with_a8 = outputs()
-    monkeypatch.setattr(catalogue, "FM_PRIVATE", frozenset())
-    assert outputs() == with_a8
-    assert "Rania Canary" in with_a8  # names in other datasets' records are still sent, as documented
+def test_other_datasets_are_sent_without_a_person_and_keep_their_texts(records):
+    """The datasets outside field monitoring: no person and no person key, their texts sent whole
+    (cut at ``shorten``'s length, never withheld for being long)."""
+    out = {}
+    for name in ("intervention_epd", "action_points"):
+        out[name] = [
+            tools.run("etools_query", {"dataset": name}),
+            tools.run("etools_query", {"dataset": name, "group_by": "partner"}),
+            tools.run("etools_query", {"dataset": name, "fields": ["id"]}),
+            tools.run("etools_datasets", {"dataset": name}),
+            tools.run("etools_record", {"dataset": name, "record": "1"}),
+        ]
+    out["public"] = query.public(
+        {"assigned_to_name": "Rania Canary", "x": "y" * 500}, dataset="action_points"
+    )
+    text = json.dumps(out, default=str)
+    assert "Rania Canary" not in text and "assigned_to_name" not in text
+    assert "Repair the tank" in text and "Prepared with" in text
+    assert out["public"]["x"].startswith("y" * 80)  # a long text is not withheld outside field monitoring

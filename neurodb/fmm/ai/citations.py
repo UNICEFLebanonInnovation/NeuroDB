@@ -85,7 +85,7 @@ def _scrub(text: str, names_: frozenset[str]) -> str:
     """People and contacts out of the answer, line by line (the Markdown is kept)."""
     lines = []
     for line in text.split("\n"):
-        line = people.EMAIL.sub(people.EMAIL_WITHHELD, line)
+        line = people.EMAIL.sub(people.EMAIL_WITHHELD, people.visible(line))
         line = redact.LINK.sub(redact.LINK_WITHHELD, line)
         line = privacy.PHONE.sub(privacy.PHONE_WITHHELD, line)
         line = privacy.INTL_PHONE.sub(privacy.PHONE_WITHHELD, line)

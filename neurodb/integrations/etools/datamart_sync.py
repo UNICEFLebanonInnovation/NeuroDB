@@ -2179,4 +2179,12 @@ def sync_all(
         except Exception:
             logger.error("etools datamart %s aborted; continuing with the next dataset", name)
         runs.append(run)
+    from neurodb.datamart import query  # lazy: query reads the datamart this sync writes
+    from neurodb.watch import people
+
+    try:  # the people the records name, read again from every record just synced
+        query.remember_people()
+        people.forget()
+    except Exception:
+        logger.exception("etools datamart: the people the records name could not be read")
     return runs

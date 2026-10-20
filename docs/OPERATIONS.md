@@ -108,49 +108,151 @@ come from.
   off with the key still set. A question counts towards the hourly limit from the moment it is
   asked, and a user can have at most two questions being answered at the same time.
 - **Data leaves Azure**: each question, up to six earlier questions and answers of the same
-  conversation, and the data looked up to answer it are sent to the OpenAI API (api.openai.com
-  over HTTPS). That data is the figures plus partner, programme-document, donor and library
-  details, such as partner names, vendor numbers, risk ratings, HACT and assurance results,
-  programme document titles, library summaries and the free-text comments staff write on Neuro
-  and HPM reports. When a filter matches nothing, the list of known partner, donor or office names
-  is sent too. It is organisational data. The summary lookups send field visits as counts. The
-  HACT visit plan lookup (`hact_visit_plan`) sends counts, section names and the remarks' labels
-  only: never a partner, a programme document reference, a section comment or a focal point. The
-  lookups that return eTools records as eTools holds them (`etools_query`, `etools_record`,
-  `etools_datasets` and the examples of `etools_search`) read only the standard, rating, partner and
-  date of the PSEA assessment answers (`psea_answers`): their comments can describe a case of sexual
-  exploitation or abuse, so every other key is left out, and those records are never searched by text
-  nor filtered, grouped, summed, sorted or picked on another key. They treat the field monitoring datasets
-  (findings, questions and answers, answer options, programme activities) apart: the keys that hold
-  a person (visit lead, team members, monitors, focal points, assignees, user names, contacts,
-  comments, any key named like a person, an e-mail or a phone, also inside a nested value) are
-  dropped and cannot be filtered, grouped, summed, sorted or picked; texts longer than 80 characters
-  (narratives, answers, summaries) are withheld ("text withheld: read it in Monitoring insights");
-  shorter values (ratings, statuses, references, place names, "Yes") are sent without e-mail
-  addresses, phone numbers, links, the person names NeuroDB knows (the field monitoring team members
-  included, once Monitoring insights has built its visits) and any name written after a title
-  such as Mrs, Dr or Sheikh (a place named that way, such as Sheikh Zennad, is withheld too); a
-  question that names a person finds no field monitoring record, and the search examples show the
-  visit reference only. The four field monitoring look-ups (`fm_summary`, `fm_visits`, `fm_visit`,
+  conversation, and the data looked up to answer it are sent to the OpenAI API (api.openai.com over
+  HTTPS). That data is the figures plus partner, programme-document, donor and library details, such as
+  partner names, vendor numbers, risk ratings, HACT and assurance results, programme document titles,
+  library summaries and the free-text comments staff write on Neuro and HPM reports. When a filter
+  matches nothing, the list of known partner, donor or office names is sent too. It is organisational
+  data. The summary lookups send field visits as counts. The HACT visit plan lookup (`hact_visit_plan`)
+  sends counts, section names and the remarks' labels only: never a partner, a programme document
+  reference, a section comment or a focal point. The lookups that return eTools records as eTools holds
+  them (`etools_query`, `etools_record`, `etools_datasets` and the examples of `etools_search`) read
+  only the standard, rating, partner and date of the PSEA assessment answers (`psea_answers`): their
+  comments can describe a case of sexual exploitation or abuse, so every other key is left out, and
+  those records are never searched by text nor filtered, grouped, summed, sorted or picked on another
+  key. They treat the field monitoring datasets (findings, questions and answers, answer options,
+  programme activities) apart: the keys that hold a person (visit lead, team members, monitors, focal
+  points, assignees, user names, contacts, comments, any key named like a person, an e-mail or a phone,
+  also inside a nested value) are dropped and cannot be filtered, grouped, summed, sorted or picked;
+  texts longer than 80 characters (narratives, answers, summaries) are withheld ("text withheld: read it
+  in Monitoring insights"); shorter values (ratings, statuses, references, place names, "Yes") are sent
+  without e-mail addresses, phone numbers (any 7 or 8 digits, also as an answer's `value`,
+  `answer.value` or `answer_value`: an answer, never an amount), links, the person names NeuroDB knows
+  (the field monitoring team members included, once Monitoring insights has built its visits) and any
+  name written after a
+  title such as Mrs, Dr or Sheikh (a place named that way, such as Sheikh Zennad, is withheld too); a
+  question that names a person finds no field monitoring record, a search or a filter looks in the texts
+  as these rules clean them (the long ones too, never sent), and the search examples show the visit
+  reference only. The four field monitoring look-ups (`fm_summary`, `fm_visits`, `fm_visit`,
   `fm_search`, registered by Monitoring insights when `FMM_ENABLED` is on) give Ask the visits,
   entities, ratings, HACT Q1, report quality, urgency and follow-up of this calendar year in the whole
   country as **structured fields only**: no monitors' note, no checklist answer and no search snippet
   ("narratives are available in Monitoring insights"), and never a visit lead or a team; `fm_search`
-  says which visits mention a word, and refuses a search for a person NeuroDB knows. For every other
-  dataset, keys naming an e-mail address, a
-  phone or a mobile are removed, as before, and names written in other fields (action point
-  assignees, TPM report authors, travellers) are sent. Partner staff contact lists are not synced at
-  all. NeuroDB Watch's look-ups never use those four (below). Only signed-in users can ask, and the
-  lookups can only read what any signed-in user can already see. Nothing is written back. Requests are sent with
-  `store=false`, so OpenAI does not keep the responses for later retrieval through the API;
-  NeuroDB keeps its own question log. Each request carries a keyed hash (HMAC-SHA-256 with the
-  app's Django secret key) of the signed-in user's internal id (`safety_identifier`), never a name
-  or email address, so OpenAI can flag misuse per user. OpenAI's published API data terms say
-  that API data is not used to train models unless the organisation opts in, that abuse-monitoring
-  logs may be kept for up to 30 days, and that Zero Data Retention is available only to approved,
-  eligible customers; check the current terms on openai.com before switching on. Clear this with the
-  data protection focal point before switching it on; outbound HTTPS to api.openai.com must be
-  allowed.
+  says which visits mention a word, and refuses a search for a person NeuroDB knows. Every other dataset
+  is sent without a person too, by one rule shared with Monitoring insights (`catalogue.holds_person`).
+  Keys naming an e-mail address, a phone or a mobile are removed, as before, and so are the keys that
+  hold a person, by their words (camelCase and acronyms split: `UNICEFFocalPoints`): assignees, authors,
+  travellers, focal points, leads and heads (not a lead office or section), teams, members, users,
+  owners, reviewers, supervisors, officers, signatories, approvers, managers, coordinators, assessors,
+  chiefs, representatives, directors, contacts and any way to reach someone (WhatsApp, Viber, telephone,
+  landline, hotline, cell, fax, tel), anything "by" someone (`submitted_by_name`, `led_by`, `rated_by`;
+  not `visits_by_status` nor a party such as `provided_by`), the parts of a name
+  (`signatory_first_name`), any other `<role>_name` that is not the name of a thing (`visitor_name`,
+  `reporter_name`, `pme_name` are people; `partner_name`, `cp_output_name`, `tpm_name`, `ngo_name`,
+  `place_name`, `auditor_name` stay), a name inside an object whose key is not a thing (`approval.name`,
+  `review.display_name`, `sent_back.label`; the names in `location`, `sections_data`, `offices_data`,
+  `locations_data` and `cp_outputs_data` stay), comments and notes, and a key that is itself an e-mail
+  address, a phone or a person's name (a key that is a number by its dataset's rule: `1234567` stays
+  outside field monitoring). An object written as text (JSON or Python's quotes, with its
+  `Decimal('120.00')`, `datetime.date(2024, 1, 1)` or `UUID(...)` read as their text, "120.00",
+  "2024-01-01") is read back first; one that still cannot be read is withheld whole
+  ("[object withheld]"), and the names under its person keys are still learnt. A key that holds a
+  number, a date or a kind stays (`persons_reached`, `team_members_count`, `approved_cost_traveler`,
+  `unicef_cash`, `signed_by_unicef_date`, `submitted_at`, `user_type`; not `staff_on_duty` nor
+  `focal_point_at_site`). These keys, and the keys naming an e-mail address, a phone or a mobile, cannot
+  be filtered, grouped, summed, sorted or selected on; a key inside an object cannot be grouped, summed
+  or sorted on at all. A sort is by the main date, by a field's numbers as Ask is sent them (a withheld
+  number sorts with the empty values) or by a field that holds nothing but dates; any other field
+  (a text, an object) is sorted by its values as Ask is sent them (at most 100,000 records of at most
+  20,000 different values), never by the stored text, which would tell where a withheld name falls. A
+  group on a record field is its value as Ask is sent it: values sent alike are one group, counted and
+  summed together (three places that differ only by a withheld focal point are one place), ordered by
+  their records and then by the value sent (at most 20,000 different values; when more than 20,000
+  records match, counted over the whole dataset, never over the records a query found). Every text is
+  sent whole (cut at 400 characters) but without e-mail addresses (even cut short, spaced
+  "x @ unicef.org", with a full-width or small @, in brackets "x(@)unicef.org", "x [@] unicef.org", with
+  spaced dots "x . y @ unicef . org", with an invisible character inside, or spelled out:
+  "x at unicef dot org", "x[at]unicef[.]org", "x{at}unicef.org", "x<at>unicef.org", "x -at- unicef.org",
+  "x at unicef.org", "x at hotmail.fr", "x at yahoo.co.uk", "x dot y at unicef dot org",
+  "x . y at unicef . org", "Layla.Saab at Unicef.Org", or cut short after a space where an address can
+  be, before a domain in lower case or after a word in lower case or with a full stop, an underscore or
+  a digit, "x @unicef", "R.Haddad @Unicef"; "located at Tyre. Net enrolment rose", "met at school.it
+  was", "meeting @10am", "Workshop @Beirut" and "Follow @UNICEFLebanon" stay), links, phone
+  numbers, the person names NeuroDB knows (every name the eTools records hold under the keys that name a
+  person among them, at any depth and split names put together, read from every record at the end of
+  each eTools Datamart sync and stored in a table of their own, `datamart.RecordPeople`, until the next
+  sync: not in the page-figure cache, so no cull, no *Empty the stored page figures* and no restart
+  loses them; before the first sync after a release, from the latest 500 records of each dataset), the
+  names the same record holds there (a name split over first and last name keys put together per person,
+  "Layla" and "Abi Saab" too; a known name is also found with up to two middle names,
+  "Karim Ahmad Nassar" for Karim Nassar, and where two names overlap), and the names written after a
+  title, up to four after a Latin one (Mr, Mrs, Ms, Miss, Mx, Mister, Sir, Madam, Madame, Mme, Mlle,
+  Monsieur, Eng, Engineer, Prof, Professor, Hajj, Hajja, Hajjeh, Hajji, Ustaz, Sayyed, Dr, Doctor,
+  Sheikh, "Dr.Haddad", any capital letter, "Mr Élie Khoury", "Mr. Mohamad Ali Hassan Khalil", the
+  particles el, bou, abi...) and up to three after an Arabic one (السيد, السيدة, الآنسة, الأستاذ, الحاج,
+  المهندس, الدكتور, الشيخ, مدام, د., م. and أ., a first, a father's and a family name, "عبد الله" counted as
+  one; also written "to Mr", "للسيد", "للسيدة", with ه for ة, "السيده", or before a slash or a colon,
+  "السيد/ كريم"); an Arabic name stops before a word no name is (في, على, عن, مع, و, الذي, a few verbs
+  such as وافق, and الرسمية) and at a punctuation mark, so "الحاجة إلى المياه" and the words after
+  "المهندس المسؤول" stay; a title always starts a name of its own ("Mrs Layla Saab Mrs Hiba Haddad" is
+  two names); "M.Sc" and "M. Ed" are degrees, and "M."
+  after a figure or in a time, "USD 2.5 M. The", "9 A.M. Teachers", is not a title; the titles that are
+  also words, Miss, Sir, Madame, Eng, Engineer, Prof, Professor, Hajj and Doctor, take a name without
+  their full stop only before a word that is not a common word of a sentence or a programme's title, so
+  "No Child Will Miss Out On Learning", "Eng Language Classes", "Prof Development Sessions",
+  "Hajj Season Health Response" and "Doctor Visits" stay). Comments, notes and remarks never teach a
+  name. Only a name after Sheikh, Dr or Doctor is ever kept, and only under a key that holds the name of
+  a place or an organisation (Sheikh Taba under `location`, "Dr. Khaled Foundation" under
+  `partner_name`, `assessment_partner_name`, `partner_name_ar` and in search examples), never in a text
+  about one (`site_feedback`, `other_partners_involved`). A number written alone, or a JSON number, with
+  a phone's shape is withheld unless its key holds an amount (amount, total, cost, budget, cash,
+  contribution, amt, expenditure, value, funds, disbursed, reserved, liquidation, paid, price...);
+  `2500000.00` and `1500000` stay. In field monitoring no key holds an amount (an answer's `value` or
+  `answer_value` is what a monitor wrote; only PRP's `v`, `d` and `c` are numbers), and a sum, a group,
+  a comparison or a search there leaves out what is withheld, as everywhere. In texts a phone needs a
+  phone's prefix (the leading 0, 961 or (961), a mobile prefix 70, 71, 76, 78, 79 or 81, a Syrian
+  mobile's 093 to 099, "0944 123 456", or "+" or "00" with a space, and nine digits at least; never
+  the "00" of an amount's decimals, "1500.00 1200.00"), and a number with one is never taken for an
+  amount, next to a currency or not, unless its last six digits are 0 ("LBP 70.000.000", "81 000 000");
+  extensions ("03 123456/7"), pairs ("71 12 34 56"), spaced and en dashes ("03 - 123456",
+  "03 – 123456"), numbers joined by a slash or a dash ("03123456/71123456"), a number right after "Tel."
+  or "Mob." and Arabic-Indic digits ("٠٣١٢٣٤٥٦") are phones; "USD 1250000", "1 500 000 USD",
+  "LBP 71,500,000", "+1 250 000 LBP", "+2023-2024", a reference such as "PR 0010123456" or a number
+  padded with zeros such as "0900012345", a time range
+  ("08.30-10.30") and, outside field monitoring, a figure with six decimals ("76.923077%") stay. Section
+  and donor names are never taken for person names. A search, a `__contains` filter and an equality
+  (`eq`, `ne`) look only at what Ask is sent: the database narrows first, then each record is checked,
+  on the fields that can hold the text, as it would be sent (a place the text is written that no
+  cleaning rule can reach, with no address sign, link, title, first word of a known name or of the
+  record's own and fewer than seven digits around it, is taken as it is, without cleaning, so that a
+  search of a common word over 19,000 PRP reports takes 2 to 3 seconds; else each value cleaned once, a
+  long text only around the searched words; an equality on a single plain word is left to the
+  database). At most 20,000 records are looked in for a search or a `__contains`, 100,000 for an
+  equality such as a status of several words, "Sent back", counted before any text or equality narrows
+  them (by the partner, the programme document, the dates and the filters on numbers, dates and single
+  words): above that Ask is asked to add one of those, and whether it is asked never depends on what is
+  withheld. A sum, a group's sum and a `__gt`/`__lt` on a number leave out the numbers Ask is not sent,
+  and texts are compared with `__gt`/`__lt` only as whole dates (YYYY-MM-DD) in a field that holds
+  nothing but dates in the records of the partner, programme document and dates asked (never judged on
+  the records a search or another filter found). So nothing finds, counts or orders a record by a
+  withheld name, part of one, an address, a phone or a person held at any depth; a question that names
+  a person NeuroDB knows, or an e-mail address, finds no record of any dataset, and the answer says
+  why. `etools_search` looks in the
+  latest 1,000 records of each dataset and checks those with the text as they are sent, latest first,
+  until 50 hold it: it then says "at least 50", else how many hold it ("at least" when the dataset has
+  older records, which `etools_query` looks in too). What it says depends only on what is sent and on
+  the dataset's size, never on how many records hold the text only where it is withheld. Partner staff
+  contact lists are not synced at all. NeuroDB Watch's look-ups never use those four (below). Only
+  signed-in users can ask, and the lookups can only read what any signed-in user can already see.
+  Nothing is written back. Requests are sent with `store=false`, so OpenAI does not keep the responses
+  for later retrieval through the API; NeuroDB keeps its own question log. Each request carries a keyed
+  hash (HMAC-SHA-256 with the app's Django secret key) of the signed-in user's internal id
+  (`safety_identifier`), never a name or email address, so OpenAI can flag misuse per user. OpenAI's
+  published API data terms say that API data is not used to train models unless the organisation opts
+  in, that abuse-monitoring logs may be kept for up to 30 days, and that Zero Data Retention is
+  available only to approved, eligible customers; check the current terms on openai.com before switching
+  on. Clear this with the data protection focal point before switching it on; outbound HTTPS to
+  api.openai.com must be allowed.
 - **Cost and review**: every question is logged in Admin → Data and sync → AI questions with the
   lookups made, tokens used and time taken. Every AI feature on the key (Ask NeuroDB, the daily
   review, What's new, document summaries, periodic figures, country programme reading, NeuroDB

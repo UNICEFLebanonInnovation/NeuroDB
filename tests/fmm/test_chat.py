@@ -259,6 +259,19 @@ def test_a_link_written_another_way_is_checked_too():
     assert "Layla" not in citations.verify("Mrs Layla Saab called.", ctx, frozenset()).text
 
 
+def test_an_answer_keeps_its_figures_times_and_organisations():
+    """ "M." after a figure or in a time is not a title, and a time range is not a phone: the answer staff
+    read keeps them; a phone, an address and a name after a title still go."""
+    kept = (
+        "The partner received USD 2.5 M. The Ministry of Education co-funds it.\n"
+        "- Most sessions ran 08.30-10.30, from 9 A.M. Teachers came."
+    )
+    assert citations._scrub(kept, frozenset()) == kept
+    assert citations._scrub("Call Mrs Layla Saab on 03123456/71123456", frozenset()) == (
+        "Call [name withheld] on [phone withheld]"
+    )
+
+
 # ------------------------------------------------------------------------------------------ history
 def test_a_follow_up_keeps_the_visits_verified_earlier_and_a_new_filter_starts_afresh(
     built, ai_on, model, client_viewer

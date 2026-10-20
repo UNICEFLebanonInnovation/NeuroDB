@@ -79,3 +79,22 @@ def test_a_search_of_every_dataset_never_looks_into_the_answers(answers):
     assert query.search_all("Reporting")["datasets"] == [] or all(
         h["dataset"] != "psea_answers" for h in query.search_all("Reporting")["datasets"]
     )
+
+
+def test_the_partner_an_answer_is_about_keeps_its_name_and_can_be_filtered_on(answers):
+    """The partner's name keeps a title as under ``partner_name`` ("Dr. ... Foundation"), so that an
+    answer still says which partner it is about and a filter on that name finds it."""
+    partner = "Dr. Mohamad Khaled Social Foundation"
+    dm.DatamartDocument.objects.create(
+        dataset="psea_answers",
+        record_key="9",
+        data={"id": 9, "indicator_subject": "Policy", "rating": "Yes", "assessment_partner_name": partner},
+    )
+    assert tools.etools_record("psea_answers", "9")["data"]["assessment_partner_name"] == partner
+    found = tools.etools_query("psea_answers", filters={"assessment_partner_name": partner})
+    assert found["matching_records"] == 1
+    groups = tools.etools_query("psea_answers", group_by="assessment_partner_name")["groups"]
+    assert {"assessment_partner_name": partner, "records": 1} in groups
+    # a name in another language, and a qualifier before the partner's name, keep it too
+    names = {"partner_name_ar": "Sheikh Taba Association", "implementing_partner_name": partner}
+    assert query.public(names, dataset="partners") == names

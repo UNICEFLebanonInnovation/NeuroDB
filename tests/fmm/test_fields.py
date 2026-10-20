@@ -248,10 +248,17 @@ def test_examples_are_cleaned_and_person_keys_withheld(fm_world):
     assert "Off Track" in examples[("field_monitoring", "overall_finding_rating")]
 
 
-def test_a_team_name_written_in_a_text_is_cleaned_from_the_examples(fm_world):
-    """The team's names are not on NeuroDB's lists yet: the probe learns them from the person keys."""
+def test_a_team_name_written_in_a_text_is_cleaned_from_the_examples(fm_world, monkeypatch):
+    """The team's names are not on NeuroDB's lists yet: the probe learns them from the person keys. (Ask's
+    reading of the eTools records' person keys, ``datamart.query.datamart_people``, would teach them
+    too: left out here.)"""
+    from neurodb.datamart import query
     from neurodb.watch import people
 
+    monkeypatch.setattr(
+        people, "EXTRA_SOURCES", [s for s in people.EXTRA_SOURCES if s is not query.datamart_people]
+    )
+    people.forget()
     assert not any("karim" in name for name in people.known_names())
     row = fm_world.rows[103]
     row.narrative_finding = f"{MEMBER} checked the registers."

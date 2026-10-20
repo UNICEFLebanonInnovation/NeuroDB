@@ -64,10 +64,14 @@ NAME_CHARS = 200
 LINE_CHARS = 300
 
 LINK_WITHHELD = "[link withheld]"
+# A bare domain needs a name with a letter in it and a top-level domain: one of three letters or more in
+# any case ("UNICEF.ORG", "4children.org/2024"), one of two letters in lower case or before a "/", so that
+# a sentence missing its space ("soon.To", "approx.US", "1.To") is not taken for a link
+_TLD3 = r"com|org|net|int|gov|edu|info|biz|app"
+_TLD2 = r"io|co|lb|uk|fr|ch|us|me|ai|ly|gl|to"
 LINK = re.compile(
     r"\b(?:https?|ftp|mailto|javascript):\S*|\bwww\.\S+"
-    r"|\b[\w-]+(?:\.[\w-]+)*\.(?:com|org|net|int|gov|edu|io|info|biz|co|lb|uk|fr|ch|us|me|app|ai|ly|gl|to)"
-    r"\b(?:/\S*)?",
+    rf"|\b(?=[\w-]*[^\W\d_])[\w-]+(?:\.[\w-]+)*\.(?:(?:{_TLD3})|(?-i:{_TLD2})|(?:{_TLD2})(?=/))\b(?:/\S*)?",
     re.IGNORECASE,
 )
 ISO_DATE = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:[T ][\d:.+\-Z]*)?$")
@@ -280,12 +284,17 @@ class Refused(ValueError):
 
 
 # ---------------------------------------------------------------------------- texts
-def text(value: Any, limit: int = NAME_CHARS, names: Iterable[str] | None = None) -> str:
-    """A text as it may be sent: on one line, without links, email addresses or known person names,
-    and at most ``limit`` characters."""
-    clean = " ".join(str(value or "").split())
+def text(
+    value: Any,
+    limit: int = NAME_CHARS,
+    names: Iterable[str] | None = None,
+    extra: frozenset[str] = frozenset(),
+) -> str:
+    """A text as it may be sent: on one line, without links, email addresses or known person names (and
+    the ``extra`` names of one record, :func:`people.scrub`), and at most ``limit`` characters."""
+    clean = " ".join(people.visible(value).split())
     clean = people.EMAIL.sub(people.EMAIL_WITHHELD, clean)  # before links: an address holds a domain
-    clean = people.scrub(LINK.sub(LINK_WITHHELD, clean), names)
+    clean = people.scrub(LINK.sub(LINK_WITHHELD, clean), names, extra)
     return clean[:limit]
 
 

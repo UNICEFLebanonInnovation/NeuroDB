@@ -832,3 +832,20 @@ class VisitPlanComment(models.Model):
 
     def __str__(self):
         return f"{self.pd_reference or f'PD {self.intervention_id}'} {self.year}"
+
+
+class RecordPeople(models.Model):
+    """The person names the eTools records hold under their keys that name a person
+    (``query.datamart_people``), read from every record at the end of each eTools Datamart sync. One row,
+    in a table of its own: no cull of the page-figure cache, no emptied page figure and no restart loses
+    it. Never shown, exported or sent to the AI: NeuroDB only takes these names out of what it sends."""
+
+    names = models.JSONField(default=list)
+    read_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "names the records hold"
+        verbose_name_plural = "names the records hold"
+
+    def __str__(self):
+        return f"{len(self.names)} names, read {self.read_at:%Y-%m-%d %H:%M}"

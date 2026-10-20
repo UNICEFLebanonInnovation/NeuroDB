@@ -23,6 +23,7 @@ from django.utils import translation
 
 from neurodb.core import compute
 from neurodb.core.models import SyncRun
+from neurodb.datamart import query
 from neurodb.fmm import metrics
 from neurodb.fmm import scope as scope_module
 from neurodb.fmm.models import ScoreSetting
@@ -217,4 +218,6 @@ def test_a_drill_on_the_reviews_is_never_shared(built, client_viewer, monkeypatc
     calls = _computed(monkeypatch)
     _tab(client_viewer, "analysis", section="", review="none", entity_kind="all")
     assert calls == {}
-    assert not caches["shared"]._cache  # nothing stored (LocMem in the tests)
+    # nothing stored (LocMem in the tests) but the names the eTools records hold, which every worker shares
+    # (``datamart.query.datamart_people``)
+    assert not [key for key in caches["shared"]._cache if query.PEOPLE_CACHE_KEY not in key]

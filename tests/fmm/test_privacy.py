@@ -36,10 +36,107 @@ def test_clean_withholds_phone_numbers(phone):
 
 
 @pytest.mark.parametrize(
-    "kept", ["2026-05-11", "412 children", "2,800", "2500212345", "FM-2026-022", "LB1101"]
+    "phone",
+    [
+        "03 123456/7",
+        "01-345678/9",
+        "71 12 34 56",
+        "00 44 20 7946 0958",
+        "03 - 123456",
+        "(961) 3-123456",
+        "961 71 12 34 56",
+        "03123456/71123456",
+        "03-123456/71-123456",
+        "03 123456/71 123456",
+        "03 \u2013 123456",
+        "٠٣١٢٣٤٥٦",
+        "+٩٦١ ٣ ١٢٣ ٤٥٦",
+        "0944 123 456",
+        "0944123456",
+        "0933-123-456",
+        "+963 944 123 456",
+    ],
+)
+def test_clean_withholds_phone_numbers_in_more_written_forms(phone):
+    """The one definition of a phone (``watch.people``) Ask NeuroDB and NeuroDB Watch use too."""
+    assert privacy.clean(f"Call {phone} today", 100, frozenset())[0] == "Call [phone withheld] today"
+
+
+@pytest.mark.parametrize(
+    "kept",
+    [
+        "2026-05-11",
+        "412 children",
+        "2,800",
+        "2500212345",
+        "0900012345",
+        "FM-2026-022",
+        "LB1101",
+        "PR 0010123456",
+        "the +2023-2024 plan",
+        "Trainer holds an M.Sc in Education",
+        "at M. Sc. level",
+        "Budget of USD 2.5 M. The partner reached 300 children.",
+        "The visit started at 9 A.M. Teachers and parents attended.",
+        "Sessions end at 2 P.M. The Ministry of Education was informed.",
+        "Remedial classes run 08.30-10.30 and 13.00-14.30",
+        "Training 09.00-12.00 then lunch",
+        "Unit costs 1500.00 1200.00 1300.00 per school",
+        "Total 300.00 (2023) 450.00 (2024)",
+        "USD 0.00 123456789",
+        "No Child Will Miss Out On Learning in Akkar",
+        "Eng Language Classes for Grade 4",
+        "Hajj Season Health Response",
+        "Doctor Visits Increased in Halba",
+    ],
 )
 def test_clean_keeps_dates_numbers_and_references(kept):
     assert privacy.clean(kept, 100, frozenset())[0] == kept
+
+
+def test_the_decimals_of_amounts_are_not_a_phone_for_the_last_check():
+    privacy.assert_clean({"x": "Unit costs 1500.00 1200.00 1300.00", "y": "Rates 12.00 14.00 16.00"}, NAMES)
+
+
+def test_clean_withholds_a_phone_right_after_a_word_s_full_stop_and_a_name_with_a_middle_name():
+    assert privacy.clean("Mob.03-123456, Tel.01-345678", 100, frozenset())[0] == (
+        "Mob.[phone withheld], Tel.[phone withheld]"
+    )
+    assert (
+        privacy.clean("Met Karim Ahmad Nassar", 100, frozenset({"karim nassar"}))[0] == "Met [name withheld]"
+    )
+    assert privacy.clean("Met M. Haddad", 100, frozenset())[0] == "Met [name withheld]"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Met Madam Hana Saleh",
+        "Met Sir Omar Khalil",
+        "Met Mx Omar Khalil",
+        "Met Hajj Omar Khalil",
+        "Met Mrs Élise Martin",
+        "Met Mr Ömer Çelik",
+        "Met Dr. Émile Haddad",
+        "Met Doctor Rami Haddad",
+        "Met Mister Rami Haddad",
+        "Met Professor Rami Haddad",
+        "Met Engineer Rami Haddad",
+        "Met Hajjeh Mona Fares",
+        "Met Sayyed Omar Khalil",
+        "Met Miss Layla Saab",
+        "Met Mr. Mohamad Ali Hassan Khalil",
+    ],
+)
+def test_clean_withholds_a_name_after_more_titles(text):
+    assert privacy.clean(text, 100, frozenset())[0] == "Met [name withheld]"
+
+
+def test_clean_withholds_each_of_two_titled_names_written_one_after_the_other():
+    """A title starts a name of its own: the second name is never left out as the end of the first."""
+    assert privacy.clean("Met Mrs Layla Saab Mrs Hiba Haddad", 100, frozenset())[0] == (
+        "Met [name withheld] [name withheld]"
+    )
 
 
 def test_clean_cuts_puts_on_one_line_and_counts_only_what_it_put_in():
@@ -112,6 +209,10 @@ def test_keys_that_do_not_hold_a_person(key):
         ("note", False),
         ("review_note", False),
         ("narrative_finding", False),
+        ("author_comments", False),
+        ("reviewer_remarks", False),
+        ("UNICEFFocalPoints", True),
+        ("led_by", True),
     ],
 )
 def test_keys_whose_texts_are_names(key, names):
@@ -191,10 +292,12 @@ def test_person_display_gives_names_never_emails(value, names, unnamed):
 
 
 # ------------------------------------------------------------------------------------------ team names
-def test_the_team_names_join_the_names_neurodb_removes(fm_world):
+def test_the_team_names_join_the_names_neurodb_removes(fm_world, monkeypatch):
     """A team member who is on no other list (here only in a record's team) is known once the visits are
-    built: Watch, Ask and Monitoring insights then remove the name from every text they send."""
+    built: Watch, Ask and Monitoring insights then remove the name from every text they send. (The eTools
+    records' own person keys teach it too, ``datamart.query.datamart_people``: left out here.)"""
     assert privacy.team_names in people.EXTRA_SOURCES  # registered when the app started
+    monkeypatch.setattr(people, "EXTRA_SOURCES", [privacy.team_names])
     people.forget()
     assert "karim canary" not in people.known_names()  # only in the team, not built yet
     refresh.run(triggered_by="test")

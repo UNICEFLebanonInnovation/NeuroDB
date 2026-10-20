@@ -29,8 +29,9 @@ TODAY = datetime.date(2026, 10, 9)
 
 
 def test_ask_never_reads_an_email_address_under_another_key():
-    """The records Ask NeuroDB reads lose the contact keys (``catalogue.scrub``) and, whatever the key,
-    every e-mail address in a text (a partner report's ``submitted_by`` stored by an earlier sync)."""
+    """The records Ask NeuroDB reads lose the contact keys (``catalogue.scrub``) and the keys that hold a
+    person (a partner report's ``submitted_by`` stored by an earlier sync, ``submitted_by_name``,
+    ``people``), and, whatever the key, every e-mail address and link in a text."""
     record = {
         "submitted_by": "staff@example.org",
         "submitted_by_name": "Partner Staff",
@@ -41,11 +42,8 @@ def test_ask_never_reads_an_email_address_under_another_key():
     }
     found = query.public(record, dataset="partner_reports")
     assert found == {
-        "submitted_by": "[email withheld]",
-        "submitted_by_name": "Partner Staff",
-        "people": ["Nadia Madeup", "[email withheld]"],
         "narrative": "Ask [email withheld] about the second session.",
-        "nested": {"website": "https://example.org/x"},
+        "nested": {"website": "[link withheld]"},
         "count": 3,
     }
     # the records kept are cleaned by key only, as every reader of them (field monitoring too) expects

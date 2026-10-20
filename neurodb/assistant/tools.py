@@ -1493,8 +1493,9 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "micro-assessments, findings, action points; HACT; field and third-party monitoring; staff trips; "
         "partner reporting and satisfaction (PRP); attachments; locations, offices, sections) with their "
         "size and links. Give a dataset name to see its fields with example values before querying it. "
-        "Field monitoring records come without people's names and without long texts; for visits use "
-        "fm_visits / fm_visit.",
+        "Records come without people (no assignees, authors, travellers, focal points, managers or "
+        "teams, and no names, e-mail addresses or phone numbers in their texts); field monitoring records "
+        "also without long texts: for visits use fm_visits / fm_visit.",
         _schema({"dataset": {"type": "string"}}),
         "Listing eTools datasets",
     ),
@@ -1509,8 +1510,9 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "NeuroDB partner and programme document pages. Partner report values (partner_reports, "
         "prp_indicator_reports) repeat across locations, reports and indicators, and PD indicator targets "
         "(pd_indicators) across locations and disaggregations, so they are never summed: use "
-        "pd_indicator_progress for targets and what was reached. Field monitoring records come without "
-        "people's names and without long texts; for visits use fm_visits / fm_visit.",
+        "pd_indicator_progress for targets and what was reached. Records come without people, and a field "
+        "that holds a person cannot be filtered, grouped or searched on; field monitoring records also "
+        "without long texts: for visits use fm_visits / fm_visit.",
         _schema(
             {
                 "dataset": {"type": "string", "description": "A name from etools_datasets."},
@@ -1535,16 +1537,17 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     ),
     "etools_search": (
         etools_search,
-        "Find which eTools datasets mention a word, name, place or reference number, with a few examples "
-        "each. Use it when unsure where information lives. Field monitoring records come without people's "
-        "names and without long texts; for visits use fm_visits / fm_visit.",
+        "Find which eTools datasets mention a word, place, partner or reference number, with a few examples "
+        "each. Use it when unsure where information lives. A person's name or an e-mail address finds "
+        "nothing: people are never sent. Field monitoring records also come without long texts; for "
+        "visits use fm_visits / fm_visit.",
         _schema({"text": {"type": "string"}}, ["text"]),
         "Searching eTools data",
     ),
     "etools_record": (
         etools_record,
-        "One eTools record in full, by dataset and the record value returned by etools_query. Field "
-        "monitoring records come without people's names and without long texts; for visits use fm_visits / "
+        "One eTools record in full, by dataset and the record value returned by etools_query, without its "
+        "people. Field monitoring records also come without long texts; for visits use fm_visits / "
         "fm_visit.",
         _schema({"dataset": {"type": "string"}, "record": {"type": "string"}}, ["dataset", "record"]),
         "Opening an eTools record",

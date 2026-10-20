@@ -2,7 +2,7 @@
 
 Field monitoring records name people (the visit lead, the team) and hold free texts that can name more
 (narratives, answers, summaries). The rules here are the same as Ask NeuroDB's for these records
-(``datamart.query._fm_safe``) and NeuroDB Watch's, from one place each:
+(``datamart.query._safe``) and NeuroDB Watch's, from one place each:
 
 - a key that holds a person (:func:`person_like`: ``datamart.catalogue.person_key``, "visit_lead",
   "team_members", "person_responsible"..., or one of NeuroDB Watch's person fields such as
@@ -33,7 +33,7 @@ WITHHELD = "(withheld)"  # the example of a key that holds a person
 EXAMPLE_CHARS = 60  # characters of a key's example (Fields found)
 NAME_CHARS = 120  # characters of a team member's display name
 # Person-like keys whose values are texts written by people, not their names (watch.redact.PERSON_FIELDS)
-WRITTEN_BY_PEOPLE = frozenset({"note", "notes", "comment", "comments"})
+WRITTEN_BY_PEOPLE = catalogue.WRITTEN_BY_PEOPLE
 PLACEHOLDERS = (people.NAME_WITHHELD, people.EMAIL_WITHHELD, redact.LINK_WITHHELD, PHONE_WITHHELD)
 # A team written as one text: "Rania Haddad, Karim Saab; Nour Khalil / Ali Hassan and Zeina Fares"
 _MEMBERS = re.compile(r"[,;/\n]|\s+and\s+", re.IGNORECASE)
@@ -53,16 +53,15 @@ def person_like(key: Any) -> bool:
     """A record key (any depth, "a.b" too) that holds a person: one of its words is a person word
     (``catalogue.person_key``), or one of its parts is a field NeuroDB Watch never sends because it
     names or was written by a person (``watch.redact._person_field``)."""
-    text = str(key or "")
-    return catalogue.person_key(text) or any(redact._person_field(part) for part in text.split(".") if part)
+    return catalogue.holds_person(str(key or ""))
 
 
 def names_person(key: Any) -> bool:
     """A key that holds a person (:func:`person_like`) whose texts are names (a lead, a team, a user),
-    not texts a person wrote (a note, a comment): only these teach the names to remove elsewhere, so
-    that a comment's words are not taken for a name."""
-    last = str(key or "").rsplit(".", 1)[-1].lower()
-    return person_like(key) and last not in WRITTEN_BY_PEOPLE and not last.endswith("_note")
+    not texts a person wrote (a note, a comment, a remark: ``catalogue.written_by_people``): only these
+    teach the names to remove elsewhere, so that a comment's words are not taken for a name. Ask
+    NeuroDB learns the names of the eTools records by the same rule."""
+    return person_like(key) and not catalogue.written_by_people(key)
 
 
 def _placeholders(text: str) -> int:
@@ -281,6 +280,7 @@ def assert_clean(payload: Any, names_: frozenset[str]) -> None:
     raises :class:`PrivacyRefused` when any string in ``payload`` holds an e-mail address, a phone
     number, a link or a person name in ``names_`` (``watch.people.mentions``)."""
     for where, text in _strings(payload, names_):
+        text = people.visible(text)
         if people.EMAIL.search(text):
             raise PrivacyRefused(f"an e-mail address at {where}")
         if PHONE.search(text) or INTL_PHONE.search(text):

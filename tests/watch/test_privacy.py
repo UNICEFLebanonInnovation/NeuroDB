@@ -196,6 +196,40 @@ def test_a_name_is_looked_for_in_its_usual_forms():
     assert people.mentions("Jane and Doe are words", names) == []
 
 
+def test_a_record_s_own_names_are_looked_for_beside_the_known_ones_and_spaced_addresses_too():
+    names = frozenset({"jane doe"})
+    own = frozenset({"john roe"})
+    assert people.scrub("Jane Doe met John Roe", names, own) == "[name withheld] met [name withheld]"
+    assert people.mentions("John Roe", names, own) == ["john roe"]
+    assert redact.text("write to jane @ example.org or jane＠example.org", 200, frozenset()) == (
+        "write to [email withheld] or [email withheld]"
+    )
+    assert redact.text("2 trainers @ 50 USD/day", 200, frozenset()) == "2 trainers @ 50 USD/day"
+
+
+def test_a_known_name_is_found_with_a_middle_name_overlapping_names_and_invisible_characters():
+    names = frozenset({"karim nassar", "hiba saad", "saad karam"})
+    assert people.scrub("Karim Ahmad Nassar and Karim el Nassar came", names) == (
+        "[name withheld] and [name withheld] came"
+    )
+    assert people.scrub("Karim met Nassar", names) == "Karim met Nassar"  # a lower-case word is no name
+    assert people.scrub("Hiba Saad Karam came", names) == "[name withheld] came"  # every word of both
+    assert people.scrub("Ka\u200brim Nassar wrote to layla.saab\u200b@example.org", names) == (
+        "[name withheld] wrote to [email withheld]"
+    )
+    assert people.mentions("Karim Ahmad Nassar", names) == ["karim nassar"]
+
+
+def test_the_longest_name_is_counted_once_per_set_of_names_however_often_the_names_are_read():
+    """A set read again holds the same names in a new object: it is counted again, never compared name by
+    name with the one before (which would cost more than every text it cleans)."""
+    first = frozenset({f"name {n} doe" for n in range(200)})
+    again = frozenset(list(first))
+    assert again == first and again is not first
+    assert people._longest(first) == people._longest(again) == 3
+    assert people._LONGEST[id(again)][0] is again
+
+
 # ---------------------------------------------------------------------------- what the AI may read
 def test_planted_people_never_reach_the_ai_input(planted):
     item = _careless_item(planted)

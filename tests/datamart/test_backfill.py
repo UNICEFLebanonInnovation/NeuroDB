@@ -297,6 +297,9 @@ QUICK_MIGRATIONS = {
     # the youth figures of all years together in a table of their own: a new table, and at most one row
     # moved into it from the youth figures (the "all" row a build of this release may have kept there)
     ("youth", "0002_youth_all_years", "move_all_years"),
+    # the person names the eTools records hold, kept out of what Ask sends: a new, empty table of one row
+    # (CreateModel only, no code runs; the next eTools Datamart sync fills it)
+    ("datamart", "0015_record_people", "CreateModel"),
 }
 
 

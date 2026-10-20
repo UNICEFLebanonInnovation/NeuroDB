@@ -15,6 +15,7 @@ from __future__ import annotations
 import functools
 import re
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -238,7 +239,7 @@ DOCUMENTS: dict[str, Source] = {
     "staff_trips": Source(
         "travels",
         "UNICEF staff trips: purpose, dates, status, office, section, mode of travel, international or "
-        "not, costs, report notes.",
+        "not, costs.",
         date="start_date",
         title=("reference_number", "purpose"),
     ),
@@ -443,32 +444,63 @@ PERSONAL_KEYS = ("email", "phone", "mobile")
 # FM_TEXT_MAX and redact the rest; Monitoring insights reads them in full for staff.
 FM_PRIVATE = frozenset({"field_monitoring", "fm_questions", "fm_options", "fm_programme_activities"})
 PERSON_TOKENS = frozenset(
-    {
-        "team",
-        "member",
-        "members",
-        "lead",
-        "leads",
-        "monitor",
-        "monitors",
-        "staff",
-        "user",
-        "users",
-        "person",
-        "persons",
-        "focal",
-        "assigned",
-        "assignee",
-        "author",
-        "traveler",
-        "traveller",
-        "reviewer",
-        "owner",
-        "email",
-        "phone",
-        "mobile",
-    }
+    {"team", "member", "members", "monitor", "monitors", "staff", "user", "users", "person", "persons"}
+    | {"focal", "focalpoint", "focalpoints", "assigned", "assignee", "assignees", "author", "authors"}
+    | {"traveler", "travelers", "traveller", "travellers", "reviewer", "reviewers", "owner", "owners"}
+    | {"email", "phone", "mobile", "teamlead", "principal", "respondent", "respondents"}
+    # the roles a record names a person by ("supervisor_name", "authorized_officers", "prc_officers",
+    # "overall_approver", "unicef_signatory", "unicef_representative")
+    | {"supervisor", "supervisors", "officer", "officers", "signatory", "signatories", "signer", "signers"}
+    | {"approver", "approvers", "manager", "managers", "coordinator", "coordinators", "assessor"}
+    | {"assessors", "requester", "requesters", "submitter", "submitters", "verifier", "verifiers"}
+    | {"creator", "creators", "contact", "contacts", "chief", "chiefs", "representative"}
+    | {"representatives", "director", "directors", "username", "surname", "firstname", "lastname"}
+    | {"fullname"}
 )
+# "lead" and "head" name a person ("visit_lead", "section_leads", "head_of_unit"), except before a thing:
+# "lead_office", "lead_section" (a partner's lead office and section), "head_office"
+LED_WORDS = frozenset({"lead", "leads", "head", "heads"})
+NOT_LED = frozenset(
+    {"office", "offices", "section", "sections", "organization", "organisation", "agency", "partner"}
+    | {"ministry", "unit", "cluster", "country", "sector", "donor", "government", "entity", "quarters"}
+)
+# "by" names a person when nothing but a name part follows it ("reviewed_by", "reviewed_by_name",
+# "createdByName", "led_by"); "visits_by_status" is a count by status, and a party is not a person
+# ("provided_by", "funded_by": UNICEF or the partner)
+BY_TAIL = frozenset({"name", "names", "email", "user", "username", "id", "full", "first", "last", "display"})
+BY_PARTY = frozenset(
+    {"provided", "funded", "supported", "implemented", "covered", "paid", "financed", "required"}
+    | {"grouped", "sorted", "disaggregated", "broken", "split"}
+)
+# A key holds a number, a date or a kind, not a person, when it holds an amount or a measure
+# ("persons_reached", "team_members_count", "staff_cost", "approved_cost_traveler", "number_of_persons",
+# "unicef_cash", "outstanding_amt"; not when a person who handles it follows: "budget_owner_name",
+# "funds_manager"), names a date ("signed_by_unicef_date", "date_of_comments_by_ip", "submitted_at") or
+# ends with a kind ("user_type", "beneficiary_category"), unless it names a way to reach someone
+# ("phone_number")
+MEASURE_WORDS = frozenset(
+    {"count", "counts", "number", "num", "total", "totals", "cost", "costs", "amount", "amounts", "size"}
+    | {"budget", "percentage", "percent", "pct", "rate", "ratio", "share", "reached", "target", "targets"}
+    | {"cash", "contribution", "contributions", "amt", "expenditure", "expenditures", "value", "values"}
+    | {"funds", "disbursed", "reserved", "liquidation", "liquidations", "paid", "price", "prices", "ct"}
+    | {"achieved", "spent", "balance", "outstanding", "sum"}
+)
+# Those for whom an amount is: "approved_cost_traveler" is a cost
+FOR_WHOM = frozenset({"traveler", "travelers", "traveller", "travellers", "person", "persons", "staff"})
+DATE_WORDS = frozenset({"date", "dates", "datetime"})  # anywhere in the key
+LAST_DATE_WORDS = frozenset({"time", "at", "on", "year", "month", "day", "deadline"})  # its last word
+KIND_WORDS = frozenset({"type", "types", "category", "categories", "kind", "kinds", "status", "level"})
+CONTACT_WORDS = frozenset(
+    {"email", "emails", "phone", "phones", "mobile", "fax", "tel", "username", "contact", "whatsapp"}
+    | {"viber", "telephone", "telephones", "landline", "hotline", "hotlines", "cell", "cellphone"}
+)
+# Texts people wrote, not their names: a key that holds one is never sent, and its words are never
+# taken for a name ("comments", "remarks", "report_note")
+WRITTEN_BY_PEOPLE = frozenset(
+    {"note", "notes", "comment", "comments", "remark", "remarks", "description", "descriptions"}
+)
+# Split names: "unicef_signatory_first_name", "assessor_last_name"
+NAME_PARTS = frozenset({"first", "last", "middle", "full", "given", "family"})
 FM_TEXT_MAX = 80  # longer strings in FM_PRIVATE datasets are withheld
 
 # ---- safeguarding: the answers of PSEA assessments. Their comments can describe a case of sexual
@@ -487,22 +519,118 @@ SAFEGUARDING_KEYS = frozenset(
     }
 )
 FM_TEXT_WITHHELD = "(text withheld: read it in Monitoring insights)"
-_CAMEL = re.compile(r"(?<=[a-z])(?=[A-Z])")
+# camelCase and acronyms: "createdByName", "UNICEFFocalPoints" (unicef_focal_points), "TPMVisit"
+_CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _NOT_LETTERS = re.compile(r"[^a-z]+")
 
 
-@functools.lru_cache(maxsize=2048)
+def _key_words(part: str) -> list[str]:
+    return [word for word in _NOT_LETTERS.split(part) if word]
+
+
+def _measure(words: list[str]) -> bool:
+    """Words that hold an amount or a measure (``MEASURE_WORDS``), unless a person who handles it
+    follows the last measure word ("budget_owner_name", "funds_manager", "cost_approved_by"); a person
+    it is for does not count ("approved_cost_traveler", "cost_per_person")."""
+    at = [i for i, word in enumerate(words) if word in MEASURE_WORDS]
+    if not at:
+        return False
+    tail = words[at[-1] + 1 :]
+    if "per" in tail:
+        tail = tail[: tail.index("per")]
+    if tail[-1:] and tail[-1] in FOR_WHOM:
+        tail = tail[:-1]
+    return not any(
+        word in PERSON_TOKENS or word in LED_WORDS or word in NAME_PARTS or word in ("by", "name", "names")
+        for word in tail
+    )
+
+
+def _not_a_person(words: list[str]) -> bool:
+    """A key that holds a number, a date, a kind or a party (see ``MEASURE_WORDS``), not a person."""
+    found = set(words)
+    if found & CONTACT_WORDS or not words:
+        return False
+    if found & DATE_WORDS or words[-1] in LAST_DATE_WORDS | KIND_WORDS or words[:2] == ["number", "of"]:
+        return True
+    if _measure(words):
+        return True
+    return any(word == "by" and i and words[i - 1] in BY_PARTY for i, word in enumerate(words))
+
+
+def key_words(key: Any) -> list[str]:
+    """The words of a key's last part ("a.b": "b"), split on anything that is not a letter, camelCase and
+    acronyms too: "UNICEFFocalPoints" gives unicef, focal, points."""
+    return _key_words(_CAMEL.sub("_", str(key or "").rsplit(".", 1)[-1]).lower())
+
+
+def holds_amount(key: Any) -> bool:
+    """A key that holds an amount or a measure (:func:`_measure`) and does not name a way to reach
+    someone: a number written there is never taken for a phone number."""
+    words = key_words(key)
+    return _measure(words) and not set(words) & CONTACT_WORDS
+
+
+def written_by_people(key: Any) -> bool:
+    """A key that holds a text people wrote (``WRITTEN_BY_PEOPLE``: "comments", "site_visit_notes",
+    "report_note"), not a name: its words are never learnt as names."""
+    words = key_words(key)
+    return bool(words) and words[-1] in WRITTEN_BY_PEOPLE
+
+
+def _part_holds_person(part: str, suffixes: tuple[str, ...]) -> bool:
+    words = _key_words(part)
+    if not words:
+        return False
+    if set(words) & CONTACT_WORDS:
+        return True
+    if _not_a_person(words):
+        return False
+    if part.endswith(suffixes):
+        return True
+    if any(a in NAME_PARTS and b in ("name", "names") for a, b in zip(words, words[1:], strict=False)):
+        return True
+    for i, word in enumerate(words):
+        if word == "by" and all(w in BY_TAIL for w in words[i + 1 :]):
+            return True
+        if word in LED_WORDS and (i + 1 == len(words) or words[i + 1] not in NOT_LED):
+            return True
+        if word in PERSON_TOKENS:
+            return True
+    return False
+
+
+@functools.lru_cache(maxsize=4096)
 def person_key(key: str) -> bool:
     """Whether a record key holds a person: one of its words (split on anything that is not a letter,
-    "a.b" and camelCase too) is in PERSON_TOKENS, or it ends like the fields NeuroDB Watch never sends
-    (``_by``, ``_lead``, ``_email``, ``_owner``...). Whole words only: "visit_lead" and
-    "team_members" hold a person, "monitoring_activity" does not."""
+    "a.b" and camelCase too) is in PERSON_TOKENS, "lead" or "head" not before a thing (``NOT_LED``),
+    "by" followed by nothing but a name part, a part of a name ("signatory_first_name"), or it ends
+    like the fields NeuroDB Watch never sends (``_by``, ``_lead``, ``_email``, ``_owner``...). Whole
+    words only: "visit_lead" and "team_members" hold a person, "monitoring_activity" does not. A key that
+    holds a number, a date, a kind or a party (:func:`_not_a_person`) does not, unless it names a contact
+    ("phone_number")."""
     from neurodb.watch.redact import DROPPED_SUFFIXES  # lazy: watch reads the datamart, not the reverse
 
     text = _CAMEL.sub("_", str(key or "")).lower()
-    if any(part.endswith(DROPPED_SUFFIXES) for part in text.split(".")):
+    return any(_part_holds_person(part, DROPPED_SUFFIXES) for part in text.split("."))
+
+
+@functools.lru_cache(maxsize=4096)
+def holds_person(key: str) -> bool:
+    """The one rule every reader uses (Ask NeuroDB's eTools tools, Monitoring insights): :func:`person_key`,
+    or a part that is a field NeuroDB Watch never sends because it names or was written by a person
+    (``redact._person_field``: "first_name", "contacts", "comments"...), unless that part holds a number,
+    a date, a kind or a party."""
+    from neurodb.watch import redact  # lazy: watch reads the datamart, not the reverse
+
+    text = str(key or "")
+    if person_key(text):
         return True
-    return any(token in PERSON_TOKENS for token in _NOT_LETTERS.split(text) if token)
+    for part in text.split("."):
+        words = _key_words(_CAMEL.sub("_", part).lower())
+        if part and redact._person_field(part) and not _not_a_person(words):
+            return True
+    return False
 
 
 def scrub(value):
