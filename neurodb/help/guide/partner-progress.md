@@ -124,15 +124,15 @@ Program Performance reads it, so no report is ever added twice.
 - **Numbers are added up.** Partners may reach the same people, so the figure reads *up to* the sum, with *at
   least* the largest programme document's figure. Two PD indicators of one programme document are added only
   when they cannot count the same people (one counts girls and the other boys, for example); otherwise only
-  the larger one counts. "Girls and boys" next to "boys" may count the same children, so only the larger
-  one counts there.
+  the larger one counts. "Girls and boys" next to "boys", or "Lebanese and non-Lebanese" next to "Syrian",
+  may count the same children, so only the larger one counts there.
 - **Percentages and ratios are the numerators added up over the denominators added up**, never an average of
   the percentages, each programme document counted once (its numerator and denominator, or its largest
   total). A partner who reported the percentage alone, without its numerator and denominator, is
   left out of the figure: its row says *Reported without numerator and denominator*, and the master
   indicator says how many programme documents it counted ("counted 4 of 6 PDs"). A programme document that
-  averages its reporting periods (or takes the largest) has no numerator and denominator for the year
-  however the partner reported: it is left out too, and its row says so (*not combined*).
+  averages its reporting periods or its locations (or takes the largest) has no numerator and denominator
+  for the year however the partner reported: it is left out too, and its row says so (*not combined*).
 - *Shown only* PD indicators are listed and never counted. Master indicators are never added together.
 - **Q1, to Q2, to Q3 and Year** are Reached from 1 January to the end of each quarter.
 - **Status** compares the figure with the year's target staff typed, as of the latest counted report. Until a

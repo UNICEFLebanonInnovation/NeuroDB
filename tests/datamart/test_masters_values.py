@@ -187,6 +187,11 @@ def test_a_title_naming_both_sexes_or_two_nationalities_is_apart_from_neither(pd
         9: "# of Syrian refugee children reached",
         10: "# of Palestinian children reached",
         11: "# of displaced Lebanese children reached",
+        12: "# of Lebanese and non-Lebanese children enrolled in ALP",
+        13: "# of non-Lebanese children reached",
+        14: "# of Palestine refugee children (PRS) enrolled",
+        15: "# of refugee children reached",
+        16: "# of Palestine Refugees from Syria (PRS) children reached",
     }
     for source_id, title in titles.items():
         w.indicator(a, source_id, title)
@@ -200,6 +205,17 @@ def test_a_title_naming_both_sexes_or_two_nationalities_is_apart_from_neither(pd
     assert masters.disjoint(found[8], found[10]) and masters.disjoint(found[6], found[8])
     assert masters.disjoint(found[9], found[6])  # Syrian refugees are Syrian
     assert masters.disjoint(found[11], found[8])  # displaced Lebanese are Lebanese
+    # "non-Lebanese" is never Lebanese: it names every other nationality, so it is apart from the Lebanese
+    # alone, and "Lebanese and non-Lebanese" names everyone
+    assert found[12].tags["nationality"] == found[13].tags["nationality"] == "Lebanese"  # the stored tags
+    assert not masters.disjoint(found[12], found[8]) and not masters.disjoint(found[12], found[10])
+    assert not masters.disjoint(found[12], found[6]) and not masters.disjoint(found[12], found[13])
+    assert not masters.disjoint(found[13], found[10]) and not masters.disjoint(found[13], found[8])
+    assert masters.disjoint(found[13], found[6]) and masters.disjoint(found[11], found[13])
+    # Palestine refugees (UNRWA's words, PRS and PRL) are Palestinian; refugees no nationality names are not
+    assert masters.disjoint(found[14], found[6]) and masters.disjoint(found[16], found[6])
+    assert not masters.disjoint(found[14], found[10]) and not masters.disjoint(found[14], found[13])
+    assert not masters.disjoint(found[15], found[6])
 
 
 def test_a_total_and_its_breakdown_named_in_one_title_count_once_in_every_rule(pds):
@@ -248,6 +264,109 @@ def test_a_total_and_its_breakdown_named_in_one_title_count_once_in_every_rule(p
     roles = master_links.roles([rows[111], rows[112]])
     assert sorted(roles.values()) == ["shown", "total"]
     assert roles[masters.key_of(rows[111])] == "total"  # the largest target
+
+
+def test_non_lebanese_names_every_other_nationality_in_every_rule(pds):
+    """'Lebanese and non-Lebanese' children hold the Syrian ones, and 'non-Lebanese' ones the Palestinian
+    ones: only the larger counts in a sum, a percentage's totals and the PD targets, and the job's default
+    roles put one in the total. 'Non-Lebanese' next to 'Lebanese' cannot count the same children: they add
+    up."""
+    a, b, c = pds["A"], pds["B"], pds["C"]
+    everyone, syrian = (
+        "# of Lebanese and non-Lebanese children enrolled in ALP",
+        "# of Syrian children enrolled in ALP",
+    )
+    w.indicator(a, 101, everyone, target=(1000, 1))
+    quarterly(a, 101, everyone, {1: 800})
+    w.indicator(a, 102, syrian, target=(600, 1))
+    quarterly(a, 102, syrian, {1: 500})
+    alp = w.master("Children enrolled in ALP")
+    w.link(alp, a, 101)
+    w.link(alp, a, 102)
+    fig = w.figure(alp)
+    found = w.subs(fig)
+    assert fig.value == fig.at_least == 800.0  # never 1300: the Syrian children are among them
+    assert found["s101"].counted and found["s102"].reason == masters.SAME_PD
+    assert fig.pd_target == 1000.0  # never 1600
+
+    non, palestinian = "# of non-Lebanese children reached", "# of Palestinian children reached"
+    w.indicator(b, 213, non, section=w.CP, target=(400, 1))
+    quarterly(b, 213, non, {1: 300})
+    w.indicator(b, 214, palestinian, section=w.CP, target=(150, 1))
+    quarterly(b, 214, palestinian, {1: 100})
+    reached = w.master("Children reached", section=w.CP)
+    w.link(reached, b, 213)
+    w.link(reached, b, 214)
+    fig = w.figure(reached)
+    assert fig.value == 300.0 and w.subs(fig)["s214"].reason == masters.SAME_PD  # never 400
+    assert fig.pd_target == 400.0
+    for source_id, title, target, value in (
+        (313, non, 400, 300),
+        (315, "# of Lebanese children reached", 200, 100),
+    ):
+        w.indicator(c, source_id, title, section=w.CP, target=(target, 1))
+        quarterly(c, source_id, title, {1: value})
+    apart = w.master("Children reached in two groups", section=w.CP)
+    w.link(apart, c, 313)
+    w.link(apart, c, 315)
+    fig = w.figure(apart)
+    assert fig.value == 400.0 and all(s.counted for s in fig.subs)  # the Lebanese are not among them
+    assert fig.pd_target == 600.0
+
+    passing, syrian_passing = (
+        "% of Lebanese and non-Lebanese children passing",
+        "% of Syrian children passing",
+    )
+    w.indicator(a, 131, passing, display_type="percentage", target=(60, 100))
+    quarterly(a, 131, passing, {1: w.pct(60, 100)})
+    w.indicator(a, 132, syrian_passing, display_type="percentage", target=(25, 50))
+    quarterly(a, 132, syrian_passing, {1: w.pct(20, 50)})
+    rate = w.master("Children passing", "percent")
+    w.link(rate, a, 131, unit_class="percentage")
+    w.link(rate, a, 132, unit_class="percentage")
+    fig = w.figure(rate)
+    assert (fig.numerator, fig.denominator, fig.value) == (60.0, 100.0, 60.0)  # never 80 / 150
+    assert w.subs(fig)["s132"].reason == masters.SAME_PD
+    assert fig.pd_target == pytest.approx(60.0)  # never 85 / 150
+
+    rows = {int(r.key): r for r in w.rows()}
+    roles = master_links.roles([rows[101], rows[102]])
+    assert roles == {masters.key_of(rows[101]): "total", masters.key_of(rows[102]): "shown"}
+    roles = master_links.roles([rows[213], rows[214]])
+    assert roles == {masters.key_of(rows[213]): "total", masters.key_of(rows[214]): "shown"}
+    assert set(master_links.roles([rows[313], rows[315]]).values()) == {"total"}
+
+
+def test_palestine_refugees_are_palestinian_and_add_up_with_lebanese_children(pds):
+    """'Palestine refugee children (PRS)' cannot be Lebanese children: one programme document's two subs add
+    up. Refugees no nationality names may be of any nationality: only the larger counts."""
+    a, b = pds["A"], pds["B"]
+    prs, lebanese = "# of Palestine refugee children (PRS) enrolled", "# of Lebanese children enrolled"
+    w.indicator(a, 121, prs, target=(400, 1))
+    quarterly(a, 121, prs, {1: 300})
+    w.indicator(a, 122, lebanese, target=(600, 1))
+    quarterly(a, 122, lebanese, {1: 500})
+    m = w.master("Children enrolled")
+    w.link(m, a, 121)
+    w.link(m, a, 122)
+    fig = w.figure(m)
+    assert fig.value == 800.0 and all(s.counted and s.reason == "" for s in fig.subs)
+    assert fig.pd_target == 1000.0
+
+    refugees = "# of refugee children enrolled"
+    w.indicator(b, 221, refugees, target=(400, 1))
+    quarterly(b, 221, refugees, {1: 300})
+    w.indicator(b, 222, lebanese, target=(600, 1))
+    quarterly(b, 222, lebanese, {1: 500})
+    other = w.master("Children enrolled in public schools")
+    w.link(other, b, 221)
+    w.link(other, b, 222)
+    fig = w.figure(other)
+    assert fig.value == 500.0 and w.subs(fig)["s221"].reason == masters.SAME_PD
+
+    rows = {int(r.key): r for r in w.rows()}
+    assert set(master_links.roles([rows[121], rows[122]]).values()) == {"total"}
+    assert sorted(master_links.roles([rows[221], rows[222]]).values()) == ["shown", "total"]
 
 
 def test_a_value_too_large_to_be_true_is_set_aside(pds):
@@ -349,6 +468,43 @@ def test_a_percentage_whose_pd_averages_its_periods_is_left_out_for_that_reason(
     assert found["s161"].value == value and not found["s161"].counted
     assert found["s161"].reason == masters.PERIODS_COMBINED[method] != masters.NO_PARTS
     assert found["s261"].counted
+
+
+@pytest.mark.parametrize("method, value", [("avg", 40.0), ("max", 50.0)])
+def test_a_percentage_whose_pd_averages_its_locations_is_left_out_for_that_reason(pds, method, value):
+    """Each location row carries its numerator and denominator, but its PD averages its locations (or takes
+    the largest): no report, and so no year, has them. It is left out, never averaged in, and its row says
+    why, not that the partner sent the percentage alone."""
+    a, b = pds["A"], pds["B"]
+    title = "% of children attending regularly"
+    w.indicator(a, 161, title, display_type="percentage", places=("Akkar", "Bekaa"))
+    for quarter, end in ((1, day(3, 31)), (2, day(6, 30))):
+        w.report(
+            a,
+            161,
+            title,
+            f"QPR{quarter}",
+            end,
+            {"Akkar": w.pct(30, 100), "Bekaa": w.pct(50, 100)},
+            calculation_across_locations=method,
+        )
+    w.indicator(b, 261, title, display_type="percentage")
+    quarterly(b, 261, title, {1: w.pct(30, 100), 2: w.pct(30, 100)})
+    m = w.master("Children attending regularly", "percent", target=60)
+    w.link(m, a, 161, unit_class="percentage")
+    w.link(m, b, 261, unit_class="percentage")
+
+    fig = w.figure(m)
+    found = w.subs(fig)
+    assert fig.value == 30.0 and fig.coverage == "counted 1 of 2 PDs"  # B's 60 / 200 alone
+    assert found["s161"].value == value and not found["s161"].counted
+    assert (found["s161"].numerator, found["s161"].denominator) == (None, None)
+    assert found["s161"].reason == masters.LOCATIONS_COMBINED[method] != masters.NO_PARTS
+    assert found["s261"].counted
+    # summed over its locations, the same reports count
+    dm.ReportedIndicator.objects.filter(intervention=a).update(calculation_across_locations="sum")
+    fig = w.figure(m)
+    assert w.subs(fig)["s161"].counted and fig.coverage == "counted 2 of 2 PDs"
 
 
 def test_numerators_and_denominators_pair_within_each_programme_document(pds):

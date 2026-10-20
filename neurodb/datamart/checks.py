@@ -2099,10 +2099,14 @@ def _grouping(cursor) -> dict[str, Any]:
         mine["ratios"] += masters.unit_class(row) in (masters.PERCENTAGE, masters.RATIO)
         mine["in_master"] += key in (homes if key in of_year else homes_before)
         mine["switched_off"] += key in of_year and key in switched_off
-    for s in found.suggestions:
-        counts(s.row.section)["suggested"] += 1
+    # PD indicators, each once: a replacement is suggested in every master whose link it replaces
+    suggested = {masters.key_of(s.row): s.row for s in found.suggestions}
+    for row in suggested.values():
+        counts(row.section)["suggested"] += 1
     for key in found.ambiguous:
         counts(rows[key].section)["ambiguous"] += 1
+    # a replacement suggested in another role (a denominator, say) and ambiguous for its total
+    both = len(suggested.keys() & found.ambiguous.keys())
     for p in found.proposals:
         counts(p.section)["proposed"] += 1
         counts(p.section)["in_proposals"] += len(p.links)
@@ -2133,7 +2137,7 @@ def _grouping(cursor) -> dict[str, Any]:
         verdict += (
             f" {with_parts:,} of {valued_rows} with a value ({_share(with_parts, valued)}) carry their "
             "numerator and denominator; a master indicator's percentage leaves out the others, and a PD "
-            "indicator whose PD averages its periods or takes the largest, and says so."
+            "indicator whose PD averages its periods or its locations or takes the largest, and says so."
         )
     else:
         verdict += " No percentage or ratio report row carries a value yet."
@@ -2156,8 +2160,14 @@ def _grouping(cursor) -> dict[str, Any]:
     else:
         verdict += (
             f" {_plural(every['in_master'], 'PD indicator', 'PD indicators')} in an active master indicator, "
-            f"{totals['suggested']:,} suggested for one and {totals['ambiguous']:,} that two fit as well; "
-            f"{alone:,} in none and suggested for none. The next run would propose {would}. "
+            f"{every['suggested']:,} suggested for one and {totals['ambiguous']:,} that two fit as well"
+            + (
+                f" ({both:,} of them both: suggested in another role, a denominator say, and ambiguous for "
+                "its total)"
+                if both
+                else ""
+            )
+            + f"; {alone:,} in none and suggested for none. The next run would propose {would}. "
             f"{no_target:,} of the {_plural(len(listed), 'master indicator', 'master indicators')} listed in "
             f"{year} {'has' if no_target == 1 else 'have'} no target for {year}; "
             f"{_plural(gone, 'confirmed link', 'confirmed links')} no longer in eTools, {changed:,} of "
@@ -2194,7 +2204,7 @@ def _grouping(cursor) -> dict[str, Any]:
             (f"… without a target for {year}", no_target),
             ("PD indicators in an active master indicator", every["in_master"]),
             (f"… only in one switched off for {year} (they count nowhere in {year})", stranded),
-            ("… suggested for one", totals["suggested"]),
+            ("… suggested for one", every["suggested"]),
             ("… that two master indicators fit as well (ambiguous)", totals["ambiguous"]),
             ("Confirmed links no longer in eTools", gone),
             ("Confirmed links whose type changed in eTools", changed),

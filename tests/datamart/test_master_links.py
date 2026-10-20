@@ -16,7 +16,7 @@ from django.core.management.base import CommandError
 from neurodb.core import jobs
 from neurodb.core.admin_jobs import BACKGROUND_JOBS
 from neurodb.core.models import ScheduledJob, SyncRun
-from neurodb.datamart import curation, master_links, masters, monitoring
+from neurodb.datamart import curation, master_links, masters, masters_tab, monitoring
 from neurodb.datamart import models as dm
 from neurodb.integrations import background
 
@@ -361,6 +361,51 @@ def test_a_replacement_is_suggested_in_every_master_whose_link_it_replaces_with_
         (a.id, "s102"): [enrolled, other]
     }
     assert sync.details["sections"]["Education"]["ambiguous"] == 1
+    # the tab says both: where it is suggested, and that two masters want it in their total
+    tab = masters_tab.read(monitoring.Filters(year=w.YEAR, sections=[w.EDUCATION]), w.TODAY)
+    notes = {(x.row.pd.number, x.row.ident[1]): x.note for x in tab.unattached}
+    assert notes[("PD/2026/001", "s102")] == (
+        "Suggested for Retention in NFE (1.00); Ambiguous: Children enrolled in NFE or Children in non-formal "
+        "education"
+    )
+
+
+def test_a_replacement_confirmed_in_one_masters_total_stays_suggested_in_the_others(pds):
+    """The replacement is suggested in one master's total and another's denominator. A person confirms the
+    total first: the next nights still suggest it as the denominator (the same link), until it is confirmed
+    there too."""
+    a, b = pds["A"], pds["B"]
+    family((a, 101), (b, 201))
+    completing = "# of learners completing the NFE cycle"
+    w.indicator(a, 105, completing, cp_output=OUTPUT)
+    enrolled = w.master("Children enrolled in NFE")
+    w.link(enrolled, a, 101, title=ENROLLED)
+    w.link(enrolled, b, 201, title=ENROLLED)
+    retention = w.master("Retention in NFE", "percent")
+    w.link(retention, a, 105, title=completing, role="numerator")
+    w.link(retention, a, 101, title=ENROLLED, role="denominator")
+    dm.PDIndicator.objects.filter(source_id=101).delete()
+    w.indicator(a, 102, ENROLLED, cp_output=OUTPUT)
+    run()
+    total = dm.EtoolsMasterLink.objects.get(master=enrolled, ident="s102")
+    denominator = dm.EtoolsMasterLink.objects.get(master=retention, ident="s102")
+    assert master_links.confirm([total], "staff").confirmed == 1
+
+    for _night in range(2):
+        sync = run()
+        found = {
+            x.master.name: (x.role, x.status, x.pk)
+            for x in dm.EtoolsMasterLink.objects.filter(ident="s102").select_related("master")
+        }
+        assert found == {
+            "Children enrolled in NFE": ("total", "confirmed", total.pk),
+            "Retention in NFE": ("denominator", "suggested", denominator.pk),
+        }
+        counts = sync.details["sections"]["Education"]
+        assert (counts["suggested"], counts["replacements"], counts["ambiguous"]) == (1, 1, 0)
+    assert master_links.confirm([denominator], "staff").confirmed == 1
+    assert w.subs(w.figure(retention))["s102"].eligible
+    assert run().details["totals"]["suggested"] == 0
 
 
 def test_an_indicator_two_masters_fit_as_well_gets_no_suggestion_and_says_which(pds):
@@ -752,6 +797,76 @@ def test_a_family_that_is_a_ratio_by_its_prp_methods_is_proposed_and_suggested_a
     run()
     link = suggested()[("PD/2026/005", "s501")]
     assert (link.master, link.score) == (proposal, master_links.STRUCTURE_SCORE)
+
+
+def test_a_programme_document_not_reported_yet_does_not_decide_a_ratio_familys_type(pds):
+    """A PD indicator with no report has no PRP method yet: it reads as a number, but its family's type is
+    read from those that reported. Two report the ratio method and a new one has not reported: a Ratio with
+    all three in the total. Accept confirms the two and leaves the new one a suggestion, said why; once it
+    reports the ratio method it is suggested there by its structure. One ratio and one not reported: a
+    Ratio, never a Sum that would count nothing."""
+    a, b, c, d = pds["A"], pds["B"], pds["C"], pds["D"]
+    assessed, screened = "# of children assessed", "# of learners screened"
+
+    def ratio(pd, source_id, title=assessed, value=(3, 4)):
+        w.report(
+            pd,
+            source_id,
+            title,
+            "QPR1",
+            day(3, 31),
+            {"Akkar": w.pct(*value)},
+            calculation_across_periods="ratio",
+        )
+
+    for pd, source_id in ((a, 101), (b, 201), (c, 301), (d, 401), (a, 102)):
+        w.indicator(pd, source_id, screened if source_id in (401, 102) else assessed, cp_output=OUTPUT)
+    ratio(a, 101)
+    ratio(b, 201)
+    ratio(d, 401, screened)
+    run()
+    by_name = {p.name: p for p in proposals()}
+    proposal, other = by_name[assessed], by_name[screened]
+    assert (proposal.method, other.method) == ("ratio", "ratio")
+    assert {(x.pd_number, x.role) for x in proposal.links.all()} == {
+        ("PD/2026/001", "total"),
+        ("PD/2026/002", "total"),
+        ("PD/2026/003", "total"),
+    }
+    assert {(x.pd_number, x.role) for x in other.links.all()} == {
+        ("PD/2026/001", "total"),
+        ("PD/2026/004", "total"),
+    }
+    done = master_links.accept([proposal], "staff")
+    assert done.links.confirmed == 2
+    assert [(x.pd_number, why) for x, why in done.links.left] == [
+        ("PD/2026/003", masters.misfit("ratio", "total", "number"))
+    ]
+    run()
+    assert ("PD/2026/003", "s301") not in suggested()  # still a number: never counted as a ratio's total
+    ratio(c, 301, value=(1, 2))
+    run()
+    link = suggested()[("PD/2026/003", "s301")]
+    assert (link.master, link.score, link.role) == (proposal, master_links.STRUCTURE_SCORE, "total")
+    assert master_links.confirm([link], "staff").confirmed == 1
+    assert w.figure(proposal).value == pytest.approx(7 / 10)
+
+
+def test_a_number_confirmed_in_a_sum_whose_reports_then_name_the_ratio_method_is_flagged(pds):
+    """Confirmed as a number, its reports now combine it as a ratio (PRP's methods): the page reads "Type
+    changed in eTools", and the job counts it so (reporting check 12 reads that count)."""
+    a, b = pds["A"], pds["B"]
+    family((a, 101), (b, 201), title=TRAINED)
+    m = w.master("Caregivers trained")
+    w.link(m, a, 101, title=TRAINED)
+    w.link(m, b, 201, title=TRAINED)
+    w.report(a, 101, TRAINED, "QPR1", day(3, 31), {"Akkar": 12})
+    assert run().details["totals"]["type_changed"] == 0
+    w.report(b, 201, TRAINED, "QPR1", day(3, 31), {"Akkar": w.pct(3, 4)}, calculation_across_periods="ratio")
+    sync = run()
+    assert sync.details["sections"]["Education"]["type_changed"] == 1
+    sub = w.subs(w.figure(m))["s201"]
+    assert (sub.reason, sub.counted) == (masters.TYPE_CHANGED, False)
 
 
 def test_a_proposals_links_count_only_once_it_is_accepted(pds):

@@ -6,9 +6,11 @@ person confirms it (:func:`accept`, :func:`confirm`); the job only writes sugges
 **Candidates** (:func:`pool`): the PD indicators of every programme document running this calendar year or
 the last, each once (:func:`neurodb.datamart.monitoring.collect`: no Reached is computed; draft and
 cancelled PDs are never read), except those that name no section and those already counted in a confirmed
-total. A master that holds the indicator already, confirmed or rejected, is never suggested again. Reached is
-read only for the programme documents of an indicator that reads as a number but may be a ratio by its PRP
-methods (:func:`_types`), and to check a confirmed link whose type looks changed (:func:`_changed`).
+total (rule a still suggests one of those where it replaces a link of another role). A master that holds the
+indicator already, confirmed or rejected, is never suggested again. Reached is read only for the programme
+documents of an indicator that reads as a number but may be a ratio by its PRP methods (:func:`_types`), and
+to check a confirmed link whose type looks changed (:func:`_changed`), a number whose reports name the ratio
+method among them.
 
 **Rules**, in order: the first that finds a master wins. Each needs the master's section, an active master
 and a type its method takes as the indicator's role (the type the pages read).
@@ -16,7 +18,7 @@ and a type its method takes as the indicator's role (the type the pages read).
 a. *Replacement* (1.0): a confirmed link of the same programme document is no longer in eTools and its title
    reads the same (:func:`neurodb.datamart.masters.base_title`). A suggestion only: the link is never moved.
    It is suggested in every master whose link it replaces, with that link's role (one master's total and
-   another's denominator, say).
+   another's denominator, say), and stays suggested in the others once a person confirms it in one's total.
 b. *Same structure* (0.95): the same section, CP output, type and base title
    (:func:`neurodb.datamart.masters.structure_key`) as one of the master's confirmed totals.
 c. *Similar title* (0.6 to 0.89): the share of the master's words (its name, its keywords or a confirmed
@@ -29,8 +31,10 @@ replacement is ambiguous only between two masters that would count it in their t
 
 **Proposals**: the indicators left with no suggestion and no confirmed link that share a structure key across
 two or more programme documents, under a key no master holds (a dismissed one included), become one proposed
-master: a sum of numbers, a percentage or a ratio (by the type the pages read), named after its shortest
-title without gender, nationality or disability.
+master: a sum of numbers, a percentage or a ratio (by the type the pages read of those that reported: one
+with no report has no PRP method yet, so it reads as a number but does not decide), named after its shortest
+title without gender, nationality or disability. An indicator of another type keeps its role there: Accept
+leaves it a suggestion and says why.
 
 **Default roles**, when several indicators of one programme document go to one master: an indicator without
 gender, nationality or disability next to ones with them is in the total and they are shown (its breakdown);
@@ -86,6 +90,10 @@ AMBIGUITY = 0.05  # two masters this close: no suggestion
 # what a proposal combines, by its indicators' type
 METHOD_OF = {masters.NUMBER: Method.SUM, masters.PERCENTAGE: Method.PERCENT, masters.RATIO: Method.RATIO}
 SUBSETS = ("gender", "nationality", "disability")  # the title tags of a breakdown (an age group is a family)
+# a report row that combines its locations or its periods as a ratio (PRP's methods)
+RATIO_NAMED = Q(calculation_across_locations__icontains="ratio") | Q(
+    calculation_across_periods__icontains="ratio"
+)
 
 # why NeuroDB suggested a link (EtoolsMasterLink.reason)
 REPLACES = "Replaces an indicator no longer in eTools"
@@ -270,7 +278,6 @@ def plan(rows: dict[tuple[int, str], Row], year: int) -> Plan:
         blocked[(link.pd_id, link.ident)].add(link.master_id)
 
     targets = _targets([m for m in every if m.status == MASTER.ACTIVE], links, rows, structure, running, out)
-    out.type_changed = _changed(out.type_changed)
     by_section: dict[str, list[_Target]] = defaultdict(list)
     for target in targets:
         by_section[norm(target.master.section)].append(target)
@@ -283,7 +290,16 @@ def plan(rows: dict[tuple[int, str], Row], year: int) -> Plan:
         ),
         key=lambda row: (norm(row.section), row.pd.number or "", row.title, row.ident[1]),
     )
-    types = _types(out.candidates)
+    # the numbers whose reports name the ratio method, read once: the candidates', and the confirmed links'
+    # saved as a number (the pages may read a ratio now: "Type changed in eTools")
+    saved = _saved_numbers(targets, links, rows)
+    named = _reported(
+        {key_of(row) for row in out.candidates if masters.unit_class(row) == masters.NUMBER}
+        | {(link.pd_id, link.ident) for link in saved},
+        RATIO_NAMED,
+    )
+    out.type_changed = _changed(out.type_changed + [x for x in saved if (x.pd_id, x.ident) in named])
+    types = _types(out.candidates, named)
     taken: set[tuple[int, str]] = set()  # suggested or ambiguous
     for row in out.candidates:
         key = key_of(row)
@@ -306,12 +322,75 @@ def plan(rows: dict[tuple[int, str], Row], year: int) -> Plan:
             )
             for match in chosen
         )
+    out.suggestions.extend(_replacing_elsewhere(rows, homes, targets, by_section, blocked))
     _default_roles(out.suggestions, {t.master.pk: t for t in targets})
 
     free = [row for row in out.candidates if key_of(row) not in taken and key_of(row) not in attached]
-    out.proposals = _proposals(free, every, structure, blocked, types)
+    # a PD indicator with no report yet reads as a number: it does not decide the type of a family another of
+    # which reads as a ratio by its methods (only there it matters, so only there it is looked up)
+    mixed = {
+        structure[key_of(row)]
+        for row in free
+        if structure.get(key_of(row)) and types[key_of(row)] != masters.NUMBER
+    }
+    numbers = {
+        key_of(row)
+        for row in free
+        if structure.get(key_of(row)) in mixed and types[key_of(row)] == masters.NUMBER
+    }
+    out.proposals = _proposals(free, every, structure, blocked, types, numbers - _reported(numbers))
     proposed = {key_of(s.row) for p in out.proposals for s in p.links}
     out.unattached = [row for row in free if key_of(row) not in proposed]
+    return out
+
+
+def _replacing_elsewhere(
+    rows: dict[tuple[int, str], Row],
+    homes: set[tuple[int, str]],
+    targets: list[_Target],
+    by_section: dict[str, list[_Target]],
+    blocked: dict[tuple[int, str], set[int]],
+) -> list[Suggestion]:
+    """Rule a for the PD indicators counted in a confirmed total already (never candidates): one still
+    replaces, in the other masters of its section that do not hold it, a link no longer in eTools of
+    another role (a denominator, say), and is suggested there with that role. Else, once a person confirms it
+    in one master's total, the next night would take back its suggestions in the others for good."""
+    replacing = {
+        pd_id
+        for target in targets
+        for pd_id, gone in target.vanished.items()
+        if any(link.role != Role.TOTAL for link in gone)
+    }
+    counted = sorted(
+        (
+            row
+            for key, row in rows.items()
+            if key in homes
+            and row.pd.id in replacing
+            and row.section.strip()
+            and row.section.strip() != monitoring.NO_SECTION
+        ),
+        key=lambda row: (norm(row.section), row.pd.number or "", row.title, row.ident[1]),
+    )
+    if not counted:
+        return []
+    types = _types(counted)
+    out = []
+    for row in counted:
+        key = key_of(row)
+        mine = [t for t in by_section.get(norm(row.section), []) if t.master.pk not in blocked.get(key, ())]
+        out.extend(
+            Suggestion(
+                row=row,
+                score=match.score,
+                reason=match.reason,
+                rule=match.rule,
+                role=match.role,
+                master=match.target.master,
+            )
+            for match in _replacing(row, mine, types[key])
+            if match.role != Role.TOTAL  # it counts in one total at most: it has its own
+        )
     return out
 
 
@@ -374,27 +453,53 @@ def _changed(suspects: list[EtoolsMasterLink]) -> list[EtoolsMasterLink]:
     ]
 
 
-def _types(rows: Sequence[Row]) -> dict[tuple[int, str], str]:
+def _saved_numbers(
+    targets: list[_Target], links: list[EtoolsMasterLink], rows: dict[tuple[int, str], Row]
+) -> list[EtoolsMasterLink]:
+    """The active masters' confirmed links saved as a number that still reads as one without Reached: one
+    whose reports name the ratio method reads as a ratio on the pages ("Type changed in eTools"), which only
+    :func:`_changed`, with Reached, tells."""
+    active = {target.master.pk for target in targets}
+    return [
+        link
+        for link in links
+        if link.status == Status.CONFIRMED
+        and link.master_id in active
+        and link.unit_class == masters.NUMBER
+        and (row := rows.get((link.pd_id, link.ident))) is not None
+        and masters.unit_class(row) == masters.NUMBER
+    ]
+
+
+def _reported(keys: Collection[tuple[int, str]], named: Q | None = None) -> set[tuple[int, str]]:
+    """Of these PD indicators, by key, those with a partner report row (``named``: one that matches it),
+    placed as Reached places them."""
+    pd_ids = sorted({pd_id for pd_id, _ident in keys})
+    if not pd_ids:
+        return set()
+    found = ReportedIndicator.objects.filter(intervention_id__in=pd_ids)
+    if named is not None:
+        found = found.filter(named)
+    found = list(
+        found.values_list("intervention_id", "etools_indicator_id", "indicator", "pd_output").distinct()
+    )
+    if not found:
+        return set()
+    idents = monitoring._Idents(sorted({pd_id for pd_id, *_rest in found}))
+    return {idents.of(*row) for row in found} & set(keys)
+
+
+def _types(
+    rows: Sequence[Row], named: Collection[tuple[int, str]] | None = None
+) -> dict[tuple[int, str], str]:
     """Each PD indicator's type as the pages read it (:func:`neurodb.datamart.masters.unit_class` with its
     Reached), by key, without computing Reached for nearly all of them: one that reads as a number may be a
     ratio by its PRP methods alone, so only the programme documents where a report of such an indicator
-    names the ratio method are read again with Reached (as :func:`_changed` does for the confirmed links)."""
+    names the ratio method are read again with Reached (as :func:`_changed` does for the confirmed links).
+    ``named``: those whose reports name it, when read already (:func:`_reported`)."""
     out = {key_of(row): masters.unit_class(row) for row in rows}
     numbers = {key for key, unit in out.items() if unit == masters.NUMBER}
-    if not numbers:
-        return out
-    named = Q(calculation_across_locations__icontains="ratio")
-    named |= Q(calculation_across_periods__icontains="ratio")
-    pd_ids = sorted({pd_id for pd_id, _ident in numbers})
-    found = list(
-        ReportedIndicator.objects.filter(named, intervention_id__in=pd_ids)
-        .values_list("intervention_id", "etools_indicator_id", "indicator", "pd_output")
-        .distinct()
-    )
-    if not found:
-        return out
-    idents = monitoring._Idents(sorted({pd_id for pd_id, *_rest in found}))  # placed as Reached places them
-    suspects = {idents.of(*row) for row in found} & numbers
+    suspects = numbers & set(_reported(numbers, RATIO_NAMED) if named is None else named)
     for key, row in _read_again(pd_id for pd_id, _ident in suspects).items():
         if key in suspects:
             out[key] = masters.unit_class(row)
@@ -414,13 +519,7 @@ def _matches(row: Row, targets: list[_Target], structure: str, unit: str = "") -
     """The masters of the indicator's section it may go to, by the first rule that finds any. ``unit``: its
     type as the pages read it (:func:`_types`), when the row was read without its Reached."""
     unit = unit or masters.unit_class(row)
-    base = masters.base_title(row.title)
-    found = []
-    for target in targets:  # a: it replaces a confirmed link of its PD no longer in eTools
-        for link in target.vanished.get(row.pd.id, ()):
-            if base and masters.base_title(link.title) == base and _fits(target, link.role, unit):
-                found.append(_Match(target, REPLACEMENT_SCORE, REPLACES, "replacement", link.role))
-                break
+    found = _replacing(row, targets, unit)  # a
     if found:
         return found
     for target in targets:  # b: the structure of a confirmed total
@@ -442,6 +541,19 @@ def _matches(row: Row, targets: list[_Target], structure: str, unit: str = "") -
         value = _title_score(target, theirs, output)
         if value >= TITLE_SCORE:
             found.append(_Match(target, value, SIMILAR_TITLE, "title"))
+    return found
+
+
+def _replacing(row: Row, targets: list[_Target], unit: str) -> list[_Match]:
+    """Rule a: the masters where the indicator replaces a confirmed link of its PD no longer in eTools whose
+    title reads the same, each with that link's role, when the master's method takes it so."""
+    base = masters.base_title(row.title)
+    found = []
+    for target in targets:
+        for link in target.vanished.get(row.pd.id, ()):
+            if base and masters.base_title(link.title) == base and _fits(target, link.role, unit):
+                found.append(_Match(target, REPLACEMENT_SCORE, REPLACES, "replacement", link.role))
+                break
     return found
 
 
@@ -583,10 +695,12 @@ def _proposals(
     structure: dict[tuple[int, str], str],
     blocked: dict[tuple[int, str], set[int]],
     types: dict[tuple[int, str], str],
+    unknown: Collection[tuple[int, str]] = (),
 ) -> list[Proposal]:
     """The structure keys of the free indicators that span two or more programme documents, under a key no
     master holds but a proposal NeuroDB made (which is rebuilt, keeping its master). A proposal a person
-    edited whose key is not proposed again is found again under a new key that holds its PD indicators."""
+    edited whose key is not proposed again is found again under a new key that holds its PD indicators.
+    ``unknown``: the indicators with no report, whose PRP method is not known yet (:func:`_proposal`)."""
     held = {m.proposal_key for m in every if m.proposal_key and m.status != MASTER.PROPOSED}
     before = {
         m.proposal_key: m
@@ -626,7 +740,7 @@ def _proposals(
         rows = kept(rows, master)
         if len({row.pd.id for row in rows}) < 2:
             continue
-        proposal = _proposal(key, rows, master, taken, types)
+        proposal = _proposal(key, rows, master, taken, types, unknown)
         taken.add((norm(proposal.section), norm(proposal.name)))
         out.append(proposal)
     return out
@@ -668,13 +782,22 @@ def _found_again(rows: list[Row], orphans: dict[EtoolsMaster, set[tuple[int, str
 
 
 def _proposal(
-    key: str, rows: list[Row], master: EtoolsMaster | None, taken: set, types: dict[tuple[int, str], str]
+    key: str,
+    rows: list[Row],
+    master: EtoolsMaster | None,
+    taken: set,
+    types: dict[tuple[int, str], str],
+    unknown: Collection[tuple[int, str]] = (),
 ) -> Proposal:
     """The proposal of one structure key's rows, combined by the type the pages read most of them as
-    (``types``, :func:`_types`): an indicator of another type is shown there."""
+    (``types``, :func:`_types`), of those whose PRP method is known: one with no report (``unknown``) reads as
+    a number whatever it will report, so it does not decide unless none reported. An indicator of another
+    type keeps its role: Accept leaves it a suggestion and says why, and the nightly job suggests it there
+    again once it reads as the master's type."""
     rows = sorted(rows, key=lambda row: (row.pd.number or "", row.title, row.ident[1]))
     kind = {key_of(row): types.get(key_of(row)) or masters.unit_class(row) for row in rows}
-    unit = _most_common(kind.values())
+    known = [unit for key, unit in kind.items() if key not in unknown]
+    unit = _most_common(known or kind.values())
     if master is not None:  # made before: it keeps what someone may have changed
         section, name, method, cp_output = master.section, master.name, master.method, master.cp_output
     else:
@@ -695,11 +818,10 @@ def _proposal(
     for found in by_pd.values():
         chosen = roles(found)
         for row in found:
-            role = chosen[key_of(row)]
-            if masters.misfit(method, role, kind[key_of(row)]):  # another method, or another type: shown
-                role = Role.SHOWN
             proposal.links.append(
-                Suggestion(row=row, score=STRUCTURE_SCORE, reason=reason, rule="proposal", role=role)
+                Suggestion(
+                    row=row, score=STRUCTURE_SCORE, reason=reason, rule="proposal", role=chosen[key_of(row)]
+                )
             )
     return proposal
 

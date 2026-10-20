@@ -362,6 +362,7 @@ class Merged:
     moved: int = 0  # links moved to the master kept
     dropped: int = 0  # links it held already (the same PD indicator)
     years: int = 0  # years' settings it did not have
+    shown: int = 0  # of them, years a merged master was not shown in (shown this year unticked): shown now
     confirmed: int = 0  # a proposal's PD indicators confirmed in it (merging a proposal accepts it there)
     left: list[tuple[EtoolsMasterLink, str]] = field(default_factory=list)  # those left as suggestions, why
 
@@ -414,12 +415,15 @@ def merge(keep: EtoolsMaster, others: Sequence[EtoolsMaster], by: str) -> Merged
     """Merge ``others`` into ``keep``, or say why not (:func:`merge_problem`). Their links move to it; a PD
     indicator it holds already is dropped, unless it holds only a suggestion and a person decided the other
     (confirmed or rejected), or it rejected the indicator and the other counts it (confirmed): the other then
-    wins, so nothing counted before the merge stops counting. The years' settings it lacks move to it. The
-    others are archived (a proposal is dismissed, so it is never proposed again), keeping their other years'
-    settings. Merging a proposal accepts it into ``keep``: its suggestions are confirmed there, each read
-    again as Accept does (:func:`neurodb.datamart.master_links.confirm`), and one that cannot count there
-    stays a suggestion, said why. Left as suggestions, the nightly job would take them all back (it makes
-    none of them for ``keep``), and the dismissed proposal would keep its family from being proposed again."""
+    wins, so nothing counted before the merge stops counting. The years' settings it lacks move to it; a
+    year a merged master was not shown in (*shown this year* unticked: it did not go on) is shown, since
+    ``keep`` goes on (else it would leave ``keep`` out of that year, its own PD indicators counting nowhere).
+    The others are archived (a proposal is dismissed, so it is never proposed again), keeping their other
+    years' settings. Merging a proposal accepts it into ``keep``: its suggestions are confirmed there, each
+    read again as Accept does (:func:`neurodb.datamart.master_links.confirm`), and one that cannot count
+    there stays a suggestion, said why. Left as suggestions, the nightly job would take them all back (it
+    makes none of them for ``keep``), and the dismissed proposal would keep its family from being proposed
+    again."""
     others = [m for m in others if m.pk != keep.pk]
     problem = merge_problem([keep, *others])
     if not problem and keep.status != MASTER.ACTIVE:
@@ -457,8 +461,11 @@ def merge(keep: EtoolsMaster, others: Sequence[EtoolsMaster], by: str) -> Merged
             for year_row in other.years.order_by("year"):
                 if year_row.year in have:
                     continue
+                if not year_row.is_active:
+                    year_row.is_active = True
+                    out.shown += 1
                 year_row.master, year_row.updated_by = keep, by
-                year_row.save(update_fields=["master", "updated_by", "updated_at"])
+                year_row.save(update_fields=["master", "is_active", "updated_by", "updated_at"])
                 have.add(year_row.year)
                 out.years += 1
             other.status = MASTER.DISMISSED if other.status == MASTER.PROPOSED else MASTER.ARCHIVED

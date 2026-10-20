@@ -2030,10 +2030,11 @@ and business area codes at most).
   is placed under as check 7 places it; a master's percentage leaves the others out); and the job's **dry
   run**, "would propose M master indicators from N PD indicators; K would be left on their own", worked
   out by the job's own code and written nowhere (the job then records the same counts). Once a master is
-  active it also counts the PD indicators in a master, suggested, ambiguous and in none, the masters of
-  this year without a target, and the confirmed links no longer in eTools or of another type now (a
-  warning while any is above 0). Read it before accepting the first proposals: it says how far titles and
-  CP outputs carry them, and how many percentages would be left out for lack of their parts.
+  active it also counts the PD indicators in a master, suggested (each once, a replacement suggested in two
+  masters too), ambiguous and in none, the masters of this year without a target, and the confirmed links
+  no longer in eTools or of another type now (a warning while any is above 0). Read it before accepting the
+  first proposals: it says how far titles and CP outputs carry them, and how many percentages would be left
+  out for lack of their parts.
 
 Checks 10 and 11 run first, so they answer whatever time the others take; the page lists the checks in
 their order. Every query is aggregate; the rows a check parses in Python are read 2,000 at a time and stop
@@ -2280,10 +2281,13 @@ quick):
    type (number, percentage or ratio) and a title once its counting words, gender, nationality, disability
    and age range are set aside, across two programme documents or more, become one *proposed* master (a sum
    of numbers, a percentage or a ratio, by the type the pages read: a number its reports combine as a ratio
-   is a ratio), named after the shortest such title. An indicator whose CP output is not known joins the one
-   family of its title in its section, when there is exactly one. *Accept* (on the tab or in the admin) makes
-   it active with its PD indicators confirmed in one click; on the tab it confirms the PD indicators the
-   proposal's row listed, and one the night added since stays a suggestion of the master, said so.
+   is a ratio, and a PD indicator with no report yet, whose method is not known, does not decide it), named
+   after the shortest such title. An indicator whose CP output is not known joins the one family of its title
+   in its section, when there is exactly one. *Accept* (on the tab or in the admin) makes it active with its
+   PD indicators confirmed in one click; on the tab it confirms the PD indicators the proposal's row listed,
+   and one the night added since stays a suggestion of the master, said so. One of another type (a new
+   programme document's, not reported yet, in a ratio) stays a suggestion, said why, and the job suggests it
+   there again once its reports name the master's type.
    *Dismiss* keeps it as dismissed, so the same family is never proposed again. *Merge the selected master
    indicators* with an active master accepts the proposal there: its PD indicators are confirmed in the
    master kept, each read again as *Accept* does, and one that cannot count there stays a suggestion, said
@@ -2304,15 +2308,16 @@ quick):
    section typed by hand differently from eTools, or one eTools renamed since), the wizard says so: correct
    the section, or use *Change section (after an eTools rename)*.
 
-**How PD indicators are attached.** The job suggests each PD indicator for at most one master of its own
-section, by the first rule that finds one: (a) it **replaces** a confirmed link of the same programme
-document that is no longer in eTools and reads the same (1.0; a suggestion only, a link is never moved; it is
-suggested in every master that had the old one, with the role it had there, a total in one and a
-denominator in another, say); (b)
+**How PD indicators are attached.** The job suggests each PD indicator for one master of its own section,
+by the first rule that finds one: (a) it **replaces** a confirmed link of the same programme document that
+is no longer in eTools and reads the same (1.0; a suggestion only, a link is never moved; it is suggested in
+every master that had the old one, with the role it had there, a total in one and a denominator in another,
+say, and stays suggested in the others once it is confirmed in one's total); (b)
 the **same structure** (section, CP output, type and title) as one of the master's confirmed indicators
 (0.95); (c) a **similar title** (0.6 to 0.89, 0.1 more for the same CP output, never another age group).
 When two masters fit within 0.05 of each other it gets no suggestion and the tab says "Ambiguous: A or B" (a
-replacement only when two masters would count it in their total).
+replacement only when two masters would count it in their total: it is still suggested in another role,
+and its note says both, "Suggested for C (1.00); Ambiguous: A or B").
 **Only confirmed links count**: a suggestion is listed under its master, never added. Confirming is one click
 for a master (on the tab *Confirm all N suggestions*, in the admin *Confirm all suggestions*) or for a section
 (on the tab *Confirm all N strong matches (0.9 or more)*, in the admin *Confirm suggestions scoring 0.9 or
@@ -2330,7 +2335,8 @@ After each eTools sync nothing is rewritten. A confirmed link stops counting, an
 programme document runs in the year but the indicator is gone (*No longer in eTools*: it cannot be confirmed
 again, and its replacement is suggested the next night; it can still be made *Shown only* on its page or in
 its master's list, checked by the type it was linked with), or when its type changed in eTools (*Type changed
-in eTools*, until someone clicks *Confirm again*); an indicator now in another section is still read and says
+in eTools*, until someone clicks *Confirm again*; a number whose reports now combine it as a ratio too, which
+the job and check 12 count); an indicator now in another section is still read and says
 *Now in section X*. A new PD
 indicator, an amendment's included, is suggested the next night.
 
@@ -2342,10 +2348,12 @@ indicator, an amendment's included, is suggested the next night.
 * **A sum** adds up its subs' Reached in the year. Partners may reach the same people, so it reads **up to**
   the sum, **at least** the largest programme document's figure. Two subs of one programme document are added
   only when they cannot count the same people (one names girls and the other boys, or each one nationality and
-  they differ, read from every gender and nationality word of their titles: "girls and boys" next to "boys",
-  or "Syrian and Lebanese" next to "Lebanese", may count the same children, and so may refugees no
-  nationality names) or the master says *parts of one PD add up*; otherwise only that programme document's
-  largest one counts ("may count the same people; not added"). A value too large to be true (above 20 times its own target, or above the country's children
+  they differ, or one Lebanese and the other non-Lebanese, read from every gender and nationality word of
+  their titles: "girls and boys" next to "boys", "Syrian and Lebanese" or "Lebanese and non-Lebanese" next to
+  "Syrian", and "non-Lebanese" next to "Palestinian" may count the same children, and so may refugees no
+  nationality names; "Palestine refugees", PRS and PRL are Palestinian) or the master says *parts of one PD
+  add up*; otherwise only that programme document's largest one counts ("may count the same people; not
+  added"). A value too large to be true (above 20 times its own target, or above the country's children
   for a children indicator) is set aside and said so.
 * **A percentage or a ratio** is the numerators added up over the denominators added up (× 100 for a
   percentage only); numerator and denominator links of one programme document are paired. Each programme
@@ -2356,7 +2364,8 @@ indicator, an amendment's included, is suggested the next night.
   left out of the figure** and the master says "counted 4 of 6 PDs"; it is never averaged in. Its row says
   why: "Reported without numerator and denominator" when PRP sent the % alone, or "Its PD averages its
   reporting periods" (or "takes its largest reporting period") when its period method is an average or a
-  maximum, which keeps no numerator and denominator for the year however the partner reported (its
+  maximum, or "Its PD averages its locations" (or "takes its largest location") when its location method
+  is, which keeps no numerator and denominator for the year however the partner reported (its
   *Numerator / denominator* cell reads "not combined", not "not reported").
 * **An average, a maximum or a minimum** is taken over the subs' figures, all of one type.
 * **Shown only** subs are listed and never counted. Masters are never added together, nor to the children
@@ -5451,7 +5460,8 @@ from 15 December (see *ActivityInfo: in use or archive*, *The yearly reminder*).
    listed under *Not in a master*, and check 12 counts them). A link has no year, so another master can take
    one in its total only once it is taken out of this one, which takes it out of this one's past years too:
    keep the master shown while its programme documents run, or merge it into its successor (which moves its
-   links and years).
+   links and years; a year unticked on the master merged is shown on the successor, which goes on, and the
+   merge says so).
 
 ## Backups
 Azure Database for PostgreSQL point-in-time restore (set retention to at least 14 days) covers the

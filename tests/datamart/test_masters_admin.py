@@ -400,6 +400,40 @@ def test_merge_moves_the_links_and_the_missing_years_and_archives_the_others(adm
     assert {(y.year, y.code) for y in other.years.all()} == {(2026, "9.9")}  # the year the one kept had stays
 
 
+def test_a_year_switched_off_on_a_merged_master_is_shown_on_its_successor(admin_client, education):
+    """Rollover step 9: the old master is unticked for 2026 (it does not go on), then merged into its
+    successor, which has no 2026 row. The year moves shown: the master kept goes on, and both PD indicators
+    still count in 2026, its own among them."""
+    a, b = education["a"], education["b"]
+    old = w.master("Children enrolled in NFE (old RWP)", target=900, code="9.9", year=2025)
+    dm.EtoolsMasterYear.objects.create(master=old, year=2026, is_active=False)
+    w.link(old, a, 101, title=ENROLLED)
+    new = w.master("Children enrolled in NFE")
+    w.link(new, b, 202, title="# of boys enrolled in NFE")
+    assert (a.id, "s101") not in masters.homes(2026) and (b.id, "s202") in masters.homes(2026)
+
+    response = act(admin_client, "merge_selected", [new, old], apply="1", keep=new.pk)
+    assert response.status_code == 302
+    assert (
+        "1 year(s) not shown on the master indicators merged (shown this year unticked) are shown on Children "
+        "enrolled in NFE, which goes on." in said(response)
+    )
+    assert sorted(new.years.values_list("year", "is_active", "code")) == [
+        (2025, True, "9.9"),
+        (2026, True, ""),
+    ]
+    new = dm.EtoolsMaster.objects.prefetch_related("years", "links").get(pk=new.pk)
+    assert masters.appears(new, 2026, [a.id, b.id])
+    assert {(a.id, "s101"), (b.id, "s202")} <= masters.homes(2026)
+    # a year the master kept has stays as it is, shown or not
+    dm.EtoolsMasterYear.objects.filter(master=new, year=2026).update(is_active=False)
+    again = w.master("Children enrolled in NFE (2027)")
+    dm.EtoolsMasterYear.objects.create(master=again, year=2026, target=50)
+    done = curation.merge(new, [again], "admin")
+    assert (done.years, done.shown) == (0, 0)
+    assert not new.years.get(year=2026).is_active
+
+
 def test_merge_keeps_counting_a_total_the_kept_master_had_rejected(admin_client, education):
     """The kept master once rejected PD/2026/001's indicator, the merged one counts it in its total: after the
     merge it still counts (in the kept one), never nowhere."""

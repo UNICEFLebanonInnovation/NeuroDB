@@ -247,9 +247,10 @@ class SubLine:
 
     @property
     def periods_combined(self) -> bool:
-        """A percentage or a ratio whose PD averages its reporting periods or takes the largest: its year has
-        no numerator and denominator, whatever its reports carry (they are not missing)."""
-        return self.sub.row is not None and bool(masters.periods_combined(self.sub.row))
+        """A percentage or a ratio whose PD averages its reporting periods or its locations, or takes the
+        largest: its year has no numerator and denominator, whatever its reports carry (they are not
+        missing)."""
+        return self.sub.row is not None and bool(masters.combined(self.sub.row))
 
 
 @dataclass
@@ -638,14 +639,17 @@ def _unattached(
                 "that master indicator is shown this year again, or the PD indicator is taken out of it."
             )
     suggested: dict[tuple[int, str], list[str]] = defaultdict(list)
+    replacing = set()  # suggested as a replacement: it may be ambiguous for its total all the same
     found = (
         EtoolsMasterLink.objects.filter(
             status=Status.SUGGESTED, master__status__in=(MASTER.ACTIVE, MASTER.PROPOSED), pd_id__in=pd_ids
         )
         .order_by("-score", "master__name")
-        .values_list("pd_id", "ident", "master_id", "master__name", "master__status", "score")
+        .values_list("pd_id", "ident", "master_id", "master__name", "master__status", "score", "reason")
     )
-    for pd_id, ident, master_id, name, status, score in found:
+    for pd_id, ident, master_id, name, status, score, reason in found:
+        if reason == master_links.REPLACES:
+            replacing.add((pd_id, ident))
         if status == MASTER.PROPOSED:
             suggested[(pd_id, ident)].append(f"In the proposed master indicator {name}")
         else:
@@ -662,7 +666,9 @@ def _unattached(
     tab.unattached_count = len(free)
     shown = free[:UNATTACHED_LIMIT]
     active = [m for m in chosen if m.status == MASTER.ACTIVE and m.pk not in off]
-    quiet = [key_of(row) for row in shown if key_of(row) not in suggested]
+    # the job's rule: no suggestion, or a replacement suggested in another role while two masters would both
+    # count it in their total
+    quiet = [key_of(row) for row in shown if key_of(row) not in suggested or key_of(row) in replacing]
     links = [link for m in active for link in m.links.all()]
     unclear = master_links.ambiguous(by_key, active, links, quiet) if quiet and active else {}
     for row in shown:
@@ -674,6 +680,8 @@ def _unattached(
             note = stuck[key]
         elif key in suggested:
             note = "; ".join(suggested[key])
+            if key in unclear:  # a replacement two masters would both count in their total
+                note += "; " + master_links.ambiguous_note(unclear[key])
         elif key in unclear:
             note = master_links.ambiguous_note(unclear[key])
         elif unit == masters.OTHER:

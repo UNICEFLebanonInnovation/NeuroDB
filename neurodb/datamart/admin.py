@@ -1033,6 +1033,16 @@ class EtoolsMasterAdmin(ModelAdmin):
                 },
                 messages.SUCCESS,
             )
+            if done.shown:
+                self.message_user(
+                    request,
+                    _(
+                        "%(n)s year(s) not shown on the master indicators merged (shown this year unticked) "
+                        "are shown on %(name)s, which goes on."
+                    )
+                    % {"n": done.shown, "name": keep.name},
+                    messages.WARNING,
+                )
             if done.confirmed:
                 self.message_user(
                     request,

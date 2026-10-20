@@ -802,24 +802,35 @@ def test_the_detail_words_the_pd_targets_by_method_and_three_pds_all_plan_a_plac
     assert "PD/2026/001, PD/2026/002 and PD/2026/003 all plan Akkar" in html and "both plan" not in html
 
 
+@pytest.mark.parametrize(
+    "field, method, reasons",
+    [
+        ("calculation_across_periods", "avg", masters.PERIODS_COMBINED),
+        ("calculation_across_locations", "avg", masters.LOCATIONS_COMBINED),
+        ("calculation_across_locations", "max", masters.LOCATIONS_COMBINED),
+    ],
+    ids=["averages its periods", "averages its locations", "takes its largest location"],
+)
 def test_a_percentage_whose_pd_averages_its_periods_says_why_on_the_tab_and_in_the_export(
-    client_viewer, world
+    client_viewer, world, field, method, reasons
 ):
-    """Its reports carry their numerator and denominator, but its PD averages its periods: the row says so
-    ("not combined", never "not reported"), and so does the export."""
+    """Its reports carry their numerator and denominator at each location, but its PD averages its periods,
+    or its locations (or takes the largest): the row says so ("not combined", never "not reported"), and so
+    does the export."""
     a, b, _c = world["pds"]
     title = "% of children attending regularly"
     for pd, source_id in ((a, 171), (b, 271)):
-        w.indicator(pd, source_id, title, display_type="percentage")
+        w.indicator(pd, source_id, title, display_type="percentage", places=("Akkar", "Bekaa"))
         for number, end, value in (
             ("QPR1", day(3, 31), w.pct(30, 100)),
             ("QPR2", day(6, 30), w.pct(50, 100)),
         ):
-            w.report(pd, source_id, title, number, end, {"Akkar": value}, calculation_across_periods="avg")
+            places = {"Akkar": value, "Bekaa": w.pct(10, 100)}
+            w.report(pd, source_id, title, number, end, places, **{field: method})
     regular = w.master("Children attending regularly", "percent", target=60)
     for pd, source_id in ((a, 171), (b, 271)):
         w.link(regular, pd, source_id, unit_class="percentage")
-    reason = masters.PERIODS_COMBINED["avg"]
+    reason = reasons[method]
 
     response = _tab(client_viewer)
     line = _lines(response)["Children attending regularly"]

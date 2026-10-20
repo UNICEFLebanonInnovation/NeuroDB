@@ -267,6 +267,48 @@ def test_a_master_switched_off_for_the_year_counts_none_of_its_running_pd_indica
     no_title_or_name(found, master.name)
 
 
+def test_a_replacement_suggested_in_two_masters_is_one_pd_indicator(db):
+    """eTools replaces PD A's indicator, a total in one master and a denominator in another: it is suggested
+    in both, and check 12 counts one PD indicator suggested for one. When two masters would count it in
+    their total, it is suggested as the denominator and ambiguous for its total, and the verdict says so."""
+    a, b = w.programme("A", 1), w.programme("B", 2)
+    completing = "# of learners completing the NFE cycle"
+    for pd, source_id in ((a, 101), (b, 201)):
+        w.indicator(pd, source_id, ENROLLED, cp_output=OUTPUT)
+    w.indicator(a, 105, completing, cp_output=OUTPUT)
+    enrolled = w.master("Children enrolled in NFE")
+    w.link(enrolled, a, 101, title=ENROLLED)
+    w.link(enrolled, b, 201, title=ENROLLED)
+    retention = w.master("Retention in NFE", "percent")
+    w.link(retention, a, 105, title=completing, role="numerator")
+    w.link(retention, a, 101, title=ENROLLED, role="denominator")
+    dm.PDIndicator.objects.filter(source_id=101).delete()
+    w.indicator(a, 102, ENROLLED, cp_output=OUTPUT)
+    found = grouping()
+    got = figures(found)
+    assert (got["PD indicators the nightly job reads (programme documents running in 2025 or 2026)"]) == 3
+    assert got["PD indicators in an active master indicator"] == 2
+    assert got["… suggested for one"] == 1  # never 2: one PD indicator, in two masters
+    assert section_rows(found)["Education"]["Suggested"] == 1
+    assert (
+        "2 PD indicators in an active master indicator, 1 suggested for one and 0 that two fit"
+        in (found["verdict"])
+    )
+
+    other = w.master("Children in non-formal education")
+    w.indicator(a, 103, "# of children enrolled in NFE (6-14)", cp_output=OUTPUT)
+    w.link(other, a, 103, title="# of children enrolled in NFE (6-14)")
+    dm.PDIndicator.objects.filter(source_id=103).delete()
+    found = grouping()
+    got = figures(found)
+    assert (got["… suggested for one"], got["… that two master indicators fit as well (ambiguous)"]) == (1, 1)
+    assert (
+        "1 suggested for one and 1 that two fit as well (1 of them both: suggested in another role, a "
+        "denominator say, and ambiguous for its total);" in found["verdict"]
+    )
+    no_title_or_name(found, enrolled.name, retention.name, other.name, completing)
+
+
 def test_the_page_shows_check_12_with_its_two_tables(client, admin_user, world):
     client.force_login(admin_user)
     page = client.get(reverse("admin:datamart_reporting_checks"))

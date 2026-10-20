@@ -108,11 +108,15 @@ NO_VALUE = "Not reported in the year"
 SAME_PD = "Same programme document: may count the same people; not added"
 SAME_PD_PARTS = "Same programme document: counted through its numerator and denominator"
 NO_PARTS = "Reported without numerator and denominator"
-# its PD combines its periods by an average or the largest (reached.combine_items): the year has no numerator
-# and denominator, whatever its reports carry
+# its PD combines its periods, or its locations, by an average or the largest (reached.combine_items): the
+# year has no numerator and denominator, whatever its reports carry
 PERIODS_COMBINED = {
     "avg": "Its PD averages its reporting periods: no numerator and denominator for the year",
     "max": "Its PD takes its largest reporting period: no numerator and denominator for the year",
+}
+LOCATIONS_COMBINED = {
+    "avg": "Its PD averages its locations: no numerator and denominator for the year",
+    "max": "Its PD takes its largest location: no numerator and denominator for the year",
 }
 NUMERATOR_ALONE = "Numerator without its denominator"
 DENOMINATOR_ALONE = "Denominator without its numerator"
@@ -537,6 +541,15 @@ _SEX = {"Girls": "F", "Women": "F", "Female": "F", "Boys": "M", "Men": "M", "Mal
 _NATIONS = frozenset({"Syrian", "Palestinian", "Lebanese", "Migrants"})
 _NATION_WORDS = "|".join(f"(?:{pattern})" for label, pattern in tags.NATIONALITY if label in _NATIONS)
 _REFUGEE_WORDS = dict(tags.NATIONALITY)["Refugees"]
+# "non-Lebanese" names every nationality but one: never that one ("non-" is read before the nationality
+# words, which would read it as Lebanese), and apart from it alone
+_NOT_OF = [
+    (f"non-{label}", re.compile(rf"\bnon[-\u2010\u2011\s]*(?:{pattern})"))
+    for label, pattern in tags.NATIONALITY
+    if label in _NATIONS
+]
+# "Palestine refugees" (UNRWA's words, as PRS and PRL) are Palestinian
+_PALESTINE = re.compile(r"\bpalestine\b")
 # refugees a nationality names ("Syrian refugees", "displaced Lebanese") are of that nationality
 _THEIR_REFUGEES = re.compile(
     rf"(?P<before>{_NATION_WORDS})\s+(?:{_REFUGEE_WORDS})|(?:{_REFUGEE_WORDS})\s+(?P<after>{_NATION_WORDS})"
@@ -552,26 +565,41 @@ def _sexes(row: Row) -> set[str]:
 
 
 def _lands(row: Row) -> set[str]:
-    """Every nationality a title names, refugees among them unless a nationality names them; the stored tag
-    for a row without a title."""
+    """Every nationality a title names, refugees among them unless a nationality names them, and "non-X" for
+    every nationality but X ("non-Lebanese", never Lebanese); the stored tag for a row without a title."""
     text = (row.title or "").lower()
     if not text:
         return {row.tags["nationality"]} if row.tags.get("nationality") else set()
+    found = set()
+    for label, pattern in _NOT_OF:
+        text, n = pattern.subn(" ", text)
+        if n:
+            found.add(label)
+    text = _PALESTINE.sub("palestinian", text)
     text = _THEIR_REFUGEES.sub(lambda m: m.group("before") or m.group("after"), text)
-    return {label for label, pattern in tags.NATIONALITY if re.search(pattern, text)}
+    return found | {label for label, pattern in tags.NATIONALITY if re.search(pattern, text)}
+
+
+def _nations_apart(a: str, b: str) -> bool:
+    """Two nationalities, or a nationality and "non-" another, that no one has both of."""
+    if a in _NATIONS and b in _NATIONS:
+        return a != b
+    return a == f"non-{b}" or b == f"non-{a}"
 
 
 def disjoint(a: Row, b: Row) -> bool:
     """Two indicators that cannot count the same person, by every gender and nationality word of their
     titles: one names girls and the other boys (women and men, female and male), or each names one
-    nationality and they differ. A title naming both sexes or two nationalities ("girls and boys", "Syrian
-    and Lebanese") is apart from neither, nor are refugees a nationality does not name (they may be Syrian or
-    Palestinian). Disability and age subsets never are."""
+    nationality and they differ, or one names Lebanese and the other non-Lebanese. A title naming both sexes
+    or two nationalities ("girls and boys", "Syrian and Lebanese", "Lebanese and non-Lebanese") is apart from
+    neither, nor are refugees a nationality does not name (they may be Syrian or Palestinian), and
+    "non-Lebanese" is apart from the Lebanese alone (the Syrian may be among them). Disability and age subsets
+    never are."""
     sex_a, sex_b = _sexes(a), _sexes(b)
     if len(sex_a) == len(sex_b) == 1 and sex_a != sex_b:
         return True
     land_a, land_b = _lands(a), _lands(b)
-    return len(land_a) == len(land_b) == 1 and land_a | land_b <= _NATIONS and land_a != land_b
+    return len(land_a) == len(land_b) == 1 and _nations_apart(next(iter(land_a)), next(iter(land_b)))
 
 
 def _apart(rows: Sequence[Row]) -> bool:
@@ -823,29 +851,34 @@ def _total(values: Iterable[float | None]) -> float | None:
     return sum(present) if present else None
 
 
-def periods_combined(row: Row) -> str:
-    """How a PD indicator's period method combines its reporting periods when it averages them ("avg") or
-    takes the largest ("max"): its year then has no numerator and denominator
-    (:func:`neurodb.datamart.reached.combine_items`). "" for any other method."""
+def combined(row: Row) -> str:
+    """Why a PD indicator's year has no numerator and denominator whatever its reports carry, when its period
+    method averages its reporting periods or takes the largest (:data:`PERIODS_COMBINED`), or else its
+    location method averages its locations or takes the largest (:data:`LOCATIONS_COMBINED`; PRP's methods,
+    :func:`neurodb.datamart.reached.combine_items`). "" for any other method."""
     method = rc.method_of(getattr(row, "period_method", "") or "")
-    return method if method in PERIODS_COMBINED else ""
+    if method in PERIODS_COMBINED:
+        return PERIODS_COMBINED[method]
+    method = rc.method_of(getattr(row, "method", "") or "")
+    return LOCATIONS_COMBINED.get(method, "")
 
 
 def _with_parts(out: Figure, candidates: list[Sub]) -> None:
     """Percentages and ratios: Σ numerators ÷ Σ denominators (× 100 for a percentage). A total brings its
     own numerator and denominator (left out without them, never averaged: the reason says whether its
-    reports lack them or its PD averages its periods or takes the largest); numerator and denominator subs
-    of one programme document are added up, and take part only when it has both. Each programme document
-    counts once: one counted through its numerator and denominator adds none of its totals, and of its
-    several totals only the one with the largest denominator, unless they cannot count the same people or
-    the section said its parts add up (a sum's rule). The same for each quarter."""
+    reports lack them or its PD averages its periods or its locations, or takes the largest,
+    :func:`combined`); numerator and denominator subs of one programme document are added up, and take part
+    only when it has both. Each programme document counts once: one counted through its numerator and
+    denominator adds none of its totals, and of its several totals only the one with the largest
+    denominator, unless they cannot count the same people or the section said its parts add up (a sum's
+    rule). The same for each quarter."""
     scale = 100.0 if out.master.method == Method.PERCENT else 1.0
     totals: dict[int, list[Sub]] = defaultdict(list)
     for sub in candidates:
         if sub.role != Role.TOTAL:
             continue
         if sub.numerator is None or sub.denominator is None:
-            sub.reason = PERIODS_COMBINED.get(periods_combined(sub.row), NO_PARTS)
+            sub.reason = combined(sub.row) or NO_PARTS
         else:
             totals[sub.pd_id].append(sub)
     pairs: dict[int, dict[str, list[Sub]]] = defaultdict(lambda: {Role.NUMERATOR: [], Role.DENOMINATOR: []})
