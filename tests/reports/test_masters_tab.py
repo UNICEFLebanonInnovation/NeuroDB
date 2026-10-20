@@ -523,8 +523,10 @@ def test_a_section_editor_curates_on_the_page_without_the_administration(world):
         {"master": teachers.pk, "role": "total", "key": [f"{b.pk}|s202"]},
     )
     assert teachers.links.get().status == "confirmed"
-    # accept the proposal: active, its PD indicators confirmed
-    client.post(reverse("reports:etools_master_edit", args=[proposal.pk]), {"action": "accept"})
+    # accept the proposal, as its row posts it (with the PD indicators it shows): active, they are confirmed
+    accept_url = reverse("reports:etools_master_edit", args=[proposal.pk])
+    (accept,) = _posted(text(_tab(client)), accept_url)
+    client.post(accept_url, {**accept, "action": "accept"})
     proposal.refresh_from_db()
     assert proposal.status == "active" and set(proposal.links.values_list("status", flat=True)) == {
         "confirmed"
@@ -618,6 +620,36 @@ def test_the_confirm_buttons_confirm_the_suggestions_the_tab_shows_and_nothing_e
     assert "None of the strong matches shown is waiting any more." in text(nothing)
     hidden.refresh_from_db()
     assert hidden.status == "suggested"
+
+
+def test_accept_confirms_the_pd_indicators_the_tab_showed_and_none_proposed_since(world, admin_user):
+    """The night (or Suggest now) adds a PD indicator to a proposal while the page is open: Accept confirms
+    the ones the page listed, as its count said, and leaves the new one as a suggestion of the master, said
+    so. A post that names none of them (a page from before) accepts nothing."""
+    proposal = world["proposal"]
+    _a, _b, c = world["pds"]
+    client = _signed_in(admin_user)
+    edit = reverse("reports:etools_master_edit", args=[proposal.pk])
+    html = text(_tab(client))
+    (form,) = _posted(html, edit)
+    shown = sorted(proposal.links.values_list("pk", flat=True))
+    assert sorted(map(int, form["link"])) == shown and "2 PD indicators in 2 programme documents" in html
+    w.indicator(c, 341, CAREGIVERS)
+    late = w.link(proposal, c, 341, status="suggested", unit_class="")
+
+    stale = client.post(edit, {"action": "accept", "next": PAGE}, follow=True)
+    assert "None of the PD indicators shown is in the proposal any more" in text(stale)
+    proposal.refresh_from_db()
+    assert proposal.status == "proposed"
+
+    done = client.post(edit, {**form, "action": "accept"}, follow=True)
+    said = text(done)
+    assert "is active: 2 PD indicator(s) confirmed, they count from now on." in said
+    assert "1 PD indicator(s) added to the proposal after the page was shown are left as suggestions" in said
+    proposal.refresh_from_db()
+    assert proposal.status == "active"
+    statuses = dict(proposal.links.values_list("pk", "status"))
+    assert statuses == {shown[0]: "confirmed", shown[1]: "confirmed", late.pk: "suggested"}
 
 
 def test_a_pd_indicator_without_an_etools_id_is_attached_from_the_tab_and_counts(world, admin_user):

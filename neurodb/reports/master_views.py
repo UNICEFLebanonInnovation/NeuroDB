@@ -132,10 +132,11 @@ def etools_master(request: HttpRequest, pk: int) -> HttpResponse:
 # ------------------------------------------------------------------------------------------------ the changes
 @require_POST
 def etools_master_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """One change to master indicator ``pk`` (``action``): accept or dismiss it (a proposal), confirm the
-    suggestions its row showed (confirm_all, one ``link`` each), confirm or reject one (``link``), change what
-    one counts as (``role``), take one out (remove), or rename it and set the year's code and target
-    (settings: ``name``, ``year``, ``code``, ``target``). A proposal's links are confirmed by accepting it."""
+    """One change to master indicator ``pk`` (``action``): accept it (a proposal, with the PD indicators its
+    row showed, one ``link`` each) or dismiss it, confirm the suggestions its row showed (confirm_all, one
+    ``link`` each), confirm or reject one (``link``), change what one counts as (``role``), take one out
+    (remove), or rename it and set the year's code and target (settings: ``name``, ``year``, ``code``,
+    ``target``). A proposal's links are confirmed by accepting it."""
     master = get_object_or_404(EtoolsMaster, pk=pk)
     if not masters_tab.can_curate(request.user, master.section):
         raise PermissionDenied
@@ -150,7 +151,19 @@ def etools_master_edit(request: HttpRequest, pk: int) -> HttpResponse:
         )
         return redirect(back)
     if action == "accept":
-        done = master_links.accept([master], by)
+        # the PD indicators the row showed (``link``), never one the night added since
+        shown = set(_numbers(request.POST.getlist("link")))
+        waiting = set(master.links.filter(status=Status.SUGGESTED).values_list("pk", flat=True))
+        if master.status == MASTER.PROPOSED and waiting and not waiting & shown:
+            messages.warning(
+                request,
+                _(
+                    "None of the PD indicators shown is in the proposal any more: open the tab again to see "
+                    "what it holds now."
+                ),
+            )
+            return redirect(back)
+        done = master_links.accept([master], by, only=shown)
         if done.accepted:
             messages.success(
                 request,
@@ -159,6 +172,15 @@ def etools_master_edit(request: HttpRequest, pk: int) -> HttpResponse:
             )
         for _master, why in done.refused:
             messages.warning(request, why)
+        if done.unseen:
+            messages.warning(
+                request,
+                _(
+                    "%(n)s PD indicator(s) added to the proposal after the page was shown are left as "
+                    "suggestions: confirm them under the master indicator."
+                )
+                % {"n": done.unseen},
+            )
         if done.links.left:
             messages.warning(
                 request,

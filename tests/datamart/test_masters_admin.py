@@ -360,10 +360,15 @@ def test_merge_moves_the_links_and_the_missing_years_and_archives_the_others(adm
         "2 master indicator(s) merged into Children enrolled in NFE: 2 PD indicator(s) moved, 1 it held already "
         "dropped, 1 year(s) of settings moved." in said(response)
     )
+    # merging the proposal accepts it there: its PD indicator is confirmed in the master kept
+    assert (
+        "1 PD indicator(s) of the proposals confirmed in Children enrolled in NFE: they count from now on."
+        in said(response)
+    )
     assert links_of(keep) == {
         ("PD/2026/001", "s101"): ("total", "confirmed"),
         ("PD/2026/002", "s202"): ("total", "confirmed"),
-        ("PD/2026/001", "s104"): ("total", "suggested"),
+        ("PD/2026/001", "s104"): ("total", "confirmed"),
     }
     assert {(y.year, y.code, y.target) for y in keep.years.all()} == {(2026, "1.1", 1000), (2025, "0.9", 700)}
     other.refresh_from_db()

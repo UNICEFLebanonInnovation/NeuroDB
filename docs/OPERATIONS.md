@@ -2279,10 +2279,17 @@ quick):
 1. **Proposed every night** (the job below): PD indicators in no master that share a section, a CP output, a
    type (number, percentage or ratio) and a title once its counting words, gender, nationality, disability
    and age range are set aside, across two programme documents or more, become one *proposed* master (a sum
-   of numbers, a percentage or a ratio), named after the shortest such title. An indicator whose CP output is
-   not known joins the one family of its title in its section, when there is exactly one. *Accept* (on the
-   tab or in the admin) makes it active with its PD indicators confirmed in one click; *Dismiss* keeps it as
-   dismissed, so the same family is never proposed again.
+   of numbers, a percentage or a ratio, by the type the pages read: a number its reports combine as a ratio
+   is a ratio), named after the shortest such title. An indicator whose CP output is not known joins the one
+   family of its title in its section, when there is exactly one. *Accept* (on the tab or in the admin) makes
+   it active with its PD indicators confirmed in one click; on the tab it confirms the PD indicators the
+   proposal's row listed, and one the night added since stays a suggestion of the master, said so.
+   *Dismiss* keeps it as dismissed, so the same family is never proposed again. *Merge the selected master
+   indicators* with an active master accepts the proposal there: its PD indicators are confirmed in the
+   master kept, each read again as *Accept* does, and one that cannot count there stays a suggestion, said
+   why. A proposal keeps what people decided (its name, a year's code or target, a link rejected there, a
+   role given to a suggestion) when a report names its family's CP output: it is the same proposal under
+   its new key.
 2. **Made from ActivityInfo**: *Reporting setup* → *Master indicators* (ActivityInfo), action *Create eTools
    master indicators from these*: name and unit copied, the method mapped (Sum, Sum over sum as a percentage,
    Average, Maximum, Minimum; Count is skipped and said), the AWP code put on the current year with the
@@ -2295,10 +2302,13 @@ quick):
 
 **How PD indicators are attached.** The job suggests each PD indicator for at most one master of its own
 section, by the first rule that finds one: (a) it **replaces** a confirmed link of the same programme
-document that is no longer in eTools and reads the same (1.0; a suggestion only, a link is never moved); (b)
+document that is no longer in eTools and reads the same (1.0; a suggestion only, a link is never moved; it is
+suggested in every master that had the old one, with the role it had there, a total in one and a
+denominator in another, say); (b)
 the **same structure** (section, CP output, type and title) as one of the master's confirmed indicators
 (0.95); (c) a **similar title** (0.6 to 0.89, 0.1 more for the same CP output, never another age group).
-When two masters fit within 0.05 of each other it gets no suggestion and the tab says "Ambiguous: A or B".
+When two masters fit within 0.05 of each other it gets no suggestion and the tab says "Ambiguous: A or B" (a
+replacement only when two masters would count it in their total).
 **Only confirmed links count**: a suggestion is listed under its master, never added. Confirming is one click
 for a master (on the tab *Confirm all N suggestions*, in the admin *Confirm all suggestions*) or for a section
 (on the tab *Confirm all N strong matches (0.9 or more)*, in the admin *Confirm suggestions scoring 0.9 or
@@ -2379,7 +2389,8 @@ them per request, plus one by programme document for linked indicators now in an
 after the deployment that adds it), *Suggest now* on the masters' admin list, or *Run a job → eTools master
 indicators*. It reads the PD indicators of the programme documents running this year or last, writes
 suggestions and proposals in one transaction (confirmed and rejected links and dismissed masters are never
-touched; a run again changes nothing more), one run at a time, and records a run with counts only for each
+touched, and nothing is written back to a master a person dismissed, merged, archived or deleted while the
+run worked; a run again changes nothing more), one run at a time, and records a run with counts only for each
 section (proposed, in proposals, suggested, replacements, ambiguous, no longer in eTools, type changed,
 unattached).
 

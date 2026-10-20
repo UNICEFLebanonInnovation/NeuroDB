@@ -1024,6 +1024,21 @@ class EtoolsMasterAdmin(ModelAdmin):
                 },
                 messages.SUCCESS,
             )
+            if done.confirmed:
+                self.message_user(
+                    request,
+                    _("%(n)s PD indicator(s) of the proposals confirmed in %(name)s: they count from now on.")
+                    % {"n": done.confirmed, "name": keep.name},
+                    messages.SUCCESS,
+                )
+            if done.left:
+                left = [(_link_name(link), why) for link, why in done.left]
+                self.message_user(
+                    request,
+                    _("%(n)s PD indicator(s) of the proposals left as suggestions: %(why)s")
+                    % {"n": len(left), "why": _left(left)},
+                    messages.WARNING,
+                )
             return None
         return self._action_page(
             request,

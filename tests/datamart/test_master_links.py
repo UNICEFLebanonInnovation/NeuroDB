@@ -312,6 +312,57 @@ def test_an_indicator_no_longer_in_etools_is_flagged_and_its_replacement_suggest
     assert (sub.reason, sub.counted) == (masters.GONE, False)
 
 
+def test_a_replacement_is_suggested_in_every_master_whose_link_it_replaces_with_that_role(pds):
+    """PD A's indicator is in one master's total and another's denominator. eTools replaces it (an amendment:
+    the same title, a new id): the replacement is suggested in both, as each had it. They are no rivals: only
+    one of them holds it in its total."""
+    a, b = pds["A"], pds["B"]
+    family((a, 101), (b, 201))
+    completing = "# of learners completing the NFE cycle"
+    w.indicator(a, 105, completing, cp_output=OUTPUT)
+    enrolled = w.master("Children enrolled in NFE")
+    w.link(enrolled, a, 101, title=ENROLLED)
+    w.link(enrolled, b, 201, title=ENROLLED)
+    retention = w.master("Retention in NFE", "percent")
+    w.link(retention, a, 105, title=completing, role="numerator")
+    w.link(retention, a, 101, title=ENROLLED, role="denominator")
+    dm.PDIndicator.objects.filter(source_id=101).delete()
+    w.indicator(a, 102, ENROLLED, cp_output=OUTPUT)
+    sync = run()
+
+    found = {
+        x.master.name: (x.role, x.score, x.reason)
+        for x in dm.EtoolsMasterLink.objects.filter(status="suggested", ident="s102").select_related("master")
+    }
+    assert found == {
+        "Children enrolled in NFE": ("total", 1.0, master_links.REPLACES),
+        "Retention in NFE": ("denominator", 1.0, master_links.REPLACES),
+    }
+    counts = sync.details["sections"]["Education"]
+    assert (counts["replacements"], counts["ambiguous"], counts["no_longer_in_etools"]) == (2, 0, 2)
+    rows = master_links.pool(w.YEAR)
+    assert (
+        master_links.ambiguous(rows, [enrolled, retention], list(dm.EtoolsMasterLink.objects.all()), rows)
+        == {}
+    )
+
+    # two totals it would replace are rivals: neither gets it, the denominator still does
+    other = w.master("Children in non-formal education")
+    w.indicator(a, 103, "# of children enrolled in NFE (6-14)", cp_output=OTHER_OUTPUT)
+    w.link(other, a, 103, title="# of children enrolled in NFE (6-14)")
+    dm.PDIndicator.objects.filter(source_id=103).delete()
+    sync = run()
+    found = {
+        x.master.name: x.role
+        for x in dm.EtoolsMasterLink.objects.filter(status="suggested", ident="s102").select_related("master")
+    }
+    assert found == {"Retention in NFE": "denominator"}
+    assert master_links.plan(master_links.pool(w.YEAR), w.YEAR).ambiguous == {
+        (a.id, "s102"): [enrolled, other]
+    }
+    assert sync.details["sections"]["Education"]["ambiguous"] == 1
+
+
 def test_an_indicator_two_masters_fit_as_well_gets_no_suggestion_and_says_which(pds):
     a, b, c = pds["A"], pds["B"], pds["C"]
     family((a, 101), (b, 201), (c, 301))
@@ -539,6 +590,168 @@ def test_a_proposal_a_person_edited_is_kept_and_found_again_when_its_key_changes
     dm.PDIndicator.objects.filter(source_id=202).delete()
     run()
     assert not dm.EtoolsMaster.objects.filter(pk=untouched.pk).exists()
+
+
+@pytest.mark.parametrize("decision", ["rejected", "role"])
+def test_a_proposal_a_person_decided_a_link_of_is_the_same_proposal_when_its_key_changes(pds, decision):
+    """Staff rejected one of a proposal's PD indicators, or set one to Shown only; then a report names the
+    family's CP output, so its structure key changes: it is the same proposal under its new key, the
+    rejected indicator stays out of it and the role stays the person's. Never a second proposal of the same
+    name holding the indicator staff rejected."""
+    a, b, c = pds["A"], pds["B"], pds["C"]
+    family((a, 101), (b, 201), (c, 301), cp_output="")
+    run()
+    (proposal,) = proposals()
+    before = proposal.proposal_key
+    link = proposal.links.get(pd_number="PD/2026/003")
+    if decision == "rejected":
+        assert master_links.reject([link], "staff") == 1
+    else:
+        assert curation.set_role(link, "shown", "staff") == ""
+    dm.PDIndicator.objects.filter(source_id=101).update(cp_output=OUTPUT)  # its first report names it
+    run()
+
+    (again,) = proposals()
+    assert again.pk == proposal.pk and again.proposal_key and again.proposal_key != before
+    expected = ("rejected", "total", "staff") if decision == "rejected" else ("suggested", "shown", "staff")
+    assert {(x.pd_number, x.status, x.role, x.confirmed_by) for x in again.links.all()} == {
+        ("PD/2026/001", "suggested", "total", ""),
+        ("PD/2026/002", "suggested", "total", ""),
+        ("PD/2026/003", *expected),
+    }
+    done = master_links.accept([again], "staff")
+    assert done.links.confirmed == (2 if decision == "rejected" else 3)
+
+
+def test_a_proposal_merged_into_an_active_master_is_confirmed_there_and_stays_after_the_night(pds):
+    """Merging a proposal into an active master of other words is accepting it there: its PD indicators are
+    confirmed in the master kept (each read again, as Accept does), so the night keeps them, and the family's
+    new programme documents are suggested there by their structure."""
+    a, b, c, d = pds["A"], pds["B"], pds["C"], pds["D"]
+    family((a, 101), (b, 201))
+    learners = "# of out-of-school learners in NFE"
+    w.indicator(c, 301, learners, cp_output=OTHER_OUTPUT)
+    keep = w.master("Out-of-school learners in non-formal education")
+    w.link(keep, c, 301, title=learners)
+    run()
+    (proposal,) = proposals()
+    done = curation.merge(keep, [proposal], "staff")
+    run()
+
+    assert {(x.pd_number, x.status, x.role, x.confirmed_by) for x in keep.links.all()} == {
+        ("PD/2026/001", "confirmed", "total", "staff"),
+        ("PD/2026/002", "confirmed", "total", "staff"),
+        ("PD/2026/003", "confirmed", "total", ""),
+    }
+    assert (done.moved, done.confirmed, done.left) == (2, 2, [])
+    proposal.refresh_from_db()
+    assert proposal.status == "dismissed" and not proposals()
+    family((d, 401))  # a new programme document of the family
+    run()
+    link = suggested()[("PD/2026/004", "s401")]
+    assert (link.master, link.score) == (keep, master_links.STRUCTURE_SCORE)
+
+
+def test_a_proposal_merged_keeps_as_suggestions_what_cannot_count_in_the_master_kept_and_says_why(pds):
+    a, b = pds["A"], pds["B"]
+    family((a, 101), (b, 201))
+    run()
+    (proposal,) = proposals()
+    keep = w.master("Out-of-school learners in non-formal education")
+    # PD B's indicator is a percentage in eTools since the proposal was made: a sum cannot count it
+    dm.PDIndicator.objects.filter(source_id=201).update(display_type="percentage", unit="percentage")
+    done = curation.merge(keep, [proposal], "staff")
+    assert (done.moved, done.confirmed) == (2, 1)
+    assert [(x.ident, why) for x, why in done.left] == [
+        ("s201", masters.misfit("sum", "total", "percentage"))
+    ]
+    assert {(x.ident, x.status) for x in keep.links.all()} == {("s101", "confirmed"), ("s201", "suggested")}
+
+
+def test_a_proposal_dismissed_or_deleted_or_a_master_archived_while_the_run_works_gets_nothing_back(
+    pds, monkeypatch
+):
+    """The run works out what to write first, then writes it: a person may dismiss a proposal on the tab,
+    or delete one or archive a master in the administration, meanwhile. Nothing is written back into
+    them, and the run never fails for it."""
+    from django.db import connection
+
+    a, b, c, d = pds["A"], pds["B"], pds["C"], pds["D"]
+    family((a, 101), (b, 201))
+    family((a, 102), (b, 202), title=TRAINED)
+    w.indicator(c, 301, "# of children reached with PSS", cp_output=OUTPUT)
+    w.indicator(d, 401, "# of children reached with PSS", cp_output=OUTPUT)
+    m = w.master("Children reached with PSS")
+    w.link(m, c, 301, title="# of children reached with PSS")
+    run()
+    by_name = {p.name: p for p in proposals()}
+    dismissed, deleted = by_name[ENROLLED], by_name[TRAINED]
+    assert set(suggested()) == {("PD/2026/004", "s401")}
+    plan = master_links.plan
+
+    def meanwhile(*args):
+        found = plan(*args)
+        assert master_links.dismiss([dismissed], "staff") == 1  # on the tab
+        dm.EtoolsMaster.objects.filter(pk=deleted.pk).delete()  # in the administration
+        dm.EtoolsMaster.objects.filter(pk=m.pk).update(status="archived")
+        return found
+
+    monkeypatch.setattr(master_links, "plan", meanwhile)
+    sync = run()
+    connection.check_constraints()  # no link to a master that is gone
+    dismissed.refresh_from_db()
+    assert dismissed.status == "dismissed" and not dismissed.links.exists()
+    assert not dm.EtoolsMaster.objects.filter(pk=deleted.pk).exists()
+    assert not m.links.filter(status="suggested").exists()
+    assert sync.rows_written == 0
+    assert (sync.details["totals"]["proposed"], sync.details["totals"]["suggested"]) == (0, 0)
+
+
+def test_a_family_that_is_a_ratio_by_its_prp_methods_is_proposed_and_suggested_as_a_ratio(pds, monkeypatch):
+    """Its display type and unit say number, its reports' PRP methods say ratio: the pages read a ratio, so
+    it is proposed as a ratio, accepted in one click, and a new programme document of it is suggested there.
+    Only the programme documents whose reports name the ratio method are read with their Reached."""
+    a, b, c, d = pds["A"], pds["B"], pds["C"], pds["D"]
+    assessed = "# of children assessed"
+
+    def ratio(pd, source_id):
+        w.indicator(pd, source_id, assessed, cp_output=OUTPUT)
+        w.report(
+            pd,
+            source_id,
+            assessed,
+            "QPR1",
+            day(3, 31),
+            {"Akkar": w.pct(3, 4)},
+            calculation_across_periods="ratio",
+        )
+
+    ratio(a, 101)
+    ratio(b, 201)
+    family((c, 301), (d, 401), title=TRAINED)  # numbers: read without Reached
+    w.report(c, 301, TRAINED, "QPR1", day(3, 31), {"Akkar": 12})
+    read = []
+    attach = monitoring._attach_reached
+    monkeypatch.setattr(
+        monitoring,
+        "_attach_reached",
+        lambda found, *args: read.append({k[0] for k in found}) or attach(found, *args),
+    )
+    run()
+    assert read == [{a.id, b.id}]
+    by_name = {p.name: p for p in proposals()}
+    proposal = by_name[assessed]
+    assert (proposal.method, by_name[TRAINED].method) == ("ratio", "sum")
+    assert {x.role for x in proposal.links.all()} == {"total"}
+    done = master_links.accept([proposal], "staff")
+    assert (done.links.confirmed, done.links.left) == (2, [])
+    assert w.figure(proposal).value == 0.75
+
+    e = w.programme("E", 5)
+    ratio(e, 501)
+    run()
+    link = suggested()[("PD/2026/005", "s501")]
+    assert (link.master, link.score) == (proposal, master_links.STRUCTURE_SCORE)
 
 
 def test_a_proposals_links_count_only_once_it_is_accepted(pds):

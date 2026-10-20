@@ -7,13 +7,16 @@ person confirms it (:func:`accept`, :func:`confirm`); the job only writes sugges
 the last, each once (:func:`neurodb.datamart.monitoring.collect`: no Reached is computed; draft and
 cancelled PDs are never read), except those that name no section and those already counted in a confirmed
 total. A master that holds the indicator already, confirmed or rejected, is never suggested again. Reached is
-read only to check a confirmed link whose type looks changed (:func:`_changed`).
+read only for the programme documents of an indicator that reads as a number but may be a ratio by its PRP
+methods (:func:`_types`), and to check a confirmed link whose type looks changed (:func:`_changed`).
 
 **Rules**, in order: the first that finds a master wins. Each needs the master's section, an active master
-and a type its method takes as the indicator's role.
+and a type its method takes as the indicator's role (the type the pages read).
 
 a. *Replacement* (1.0): a confirmed link of the same programme document is no longer in eTools and its title
    reads the same (:func:`neurodb.datamart.masters.base_title`). A suggestion only: the link is never moved.
+   It is suggested in every master whose link it replaces, with that link's role (one master's total and
+   another's denominator, say).
 b. *Same structure* (0.95): the same section, CP output, type and base title
    (:func:`neurodb.datamart.masters.structure_key`) as one of the master's confirmed totals.
 c. *Similar title* (0.6 to 0.89): the share of the master's words (its name, its keywords or a confirmed
@@ -21,12 +24,13 @@ c. *Similar title* (0.6 to 0.89): the share of the master's words (its name, its
    for the same CP output; never when the indicator's age group is none of the confirmed totals'. A similar
    title never scores as a strong match (0.9 or more), which only a structure gives.
 
-When two masters score within 0.05 of each other the indicator gets no suggestion: it is "ambiguous".
+When two masters score within 0.05 of each other the indicator gets no suggestion: it is "ambiguous". A
+replacement is ambiguous only between two masters that would count it in their total.
 
 **Proposals**: the indicators left with no suggestion and no confirmed link that share a structure key across
 two or more programme documents, under a key no master holds (a dismissed one included), become one proposed
-master: a sum of numbers, a percentage or a ratio, named after its shortest title without gender, nationality
-or disability.
+master: a sum of numbers, a percentage or a ratio (by the type the pages read), named after its shortest
+title without gender, nationality or disability.
 
 **Default roles**, when several indicators of one programme document go to one master: an indicator without
 gender, nationality or disability next to ones with them is in the total and they are shown (its breakdown);
@@ -37,15 +41,17 @@ total and the others are shown. A total already confirmed there keeps its role.
 master NeuroDB made is rebuilt. A suggestion made again keeps its id and the role a person gave it; one not
 made again goes. Confirmed and rejected links and dismissed masters are never touched. A proposal made again
 keeps its master (its id, a name someone gave it, a link someone rejected there); one a person edited
-(renamed, or gave a year's code or target) is never deleted, and when its family's structure key changes (a
-report names its CP output) it is found again by its PD indicators and takes the new key.
+(renamed, or gave a year's code or target) or rejected a link of is never deleted. When its family's
+structure key changes (a report names its CP output), a proposal a person edited, rejected a link of or gave
+a suggestion's role is found again by its PD indicators and takes the new key, with what the person decided.
+Nothing is written to a master a person dismissed, merged, archived or deleted while the run worked.
 """
 
 from __future__ import annotations
 
 import logging
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -57,7 +63,7 @@ from neurodb.youth import linking
 
 from . import masters, monitoring
 from .masters import Row, key_of
-from .models import EtoolsMaster, EtoolsMasterLink, EtoolsMasterYear
+from .models import EtoolsMaster, EtoolsMasterLink, EtoolsMasterYear, ReportedIndicator
 from .reached import norm
 
 if TYPE_CHECKING:
@@ -94,7 +100,7 @@ NOT_PROPOSED = "Not a proposed master indicator"
 COUNTS = (
     "proposed",  # proposed masters
     "in_proposals",  # PD indicators in them
-    "suggested",  # PD indicators suggested for an active master (the replacements among them)
+    "suggested",  # suggestions for an active master (the replacements among them, one in each master)
     "replacements",
     "ambiguous",  # left without a suggestion: two masters fit as well
     "no_longer_in_etools",  # confirmed links of running PDs whose indicator is gone
@@ -277,32 +283,33 @@ def plan(rows: dict[tuple[int, str], Row], year: int) -> Plan:
         ),
         key=lambda row: (norm(row.section), row.pd.number or "", row.title, row.ident[1]),
     )
+    types = _types(out.candidates)
     taken: set[tuple[int, str]] = set()  # suggested or ambiguous
     for row in out.candidates:
         key = key_of(row)
         mine = [t for t in by_section.get(norm(row.section), []) if t.master.pk not in blocked.get(key, ())]
-        found = _matches(row, mine, structure.get(key, ""))
+        found = _matches(row, mine, structure.get(key, ""), types[key])
         if not found:
             continue
         taken.add(key)
-        best, close = _best(found)
+        chosen, close = _chosen(found)
         if close:
             out.ambiguous[key] = close
-            continue
-        out.suggestions.append(
+        out.suggestions.extend(
             Suggestion(
                 row=row,
-                score=best.score,
-                reason=best.reason,
-                rule=best.rule,
-                role=best.role,
-                master=best.target.master,
+                score=match.score,
+                reason=match.reason,
+                rule=match.rule,
+                role=match.role,
+                master=match.target.master,
             )
+            for match in chosen
         )
     _default_roles(out.suggestions, {t.master.pk: t for t in targets})
 
     free = [row for row in out.candidates if key_of(row) not in taken and key_of(row) not in attached]
-    out.proposals = _proposals(free, every, structure, blocked)
+    out.proposals = _proposals(free, every, structure, blocked, types)
     proposed = {key_of(s.row) for p in out.proposals for s in p.links}
     out.unattached = [row for row in free if key_of(row) not in proposed]
     return out
@@ -367,6 +374,33 @@ def _changed(suspects: list[EtoolsMasterLink]) -> list[EtoolsMasterLink]:
     ]
 
 
+def _types(rows: Sequence[Row]) -> dict[tuple[int, str], str]:
+    """Each PD indicator's type as the pages read it (:func:`neurodb.datamart.masters.unit_class` with its
+    Reached), by key, without computing Reached for nearly all of them: one that reads as a number may be a
+    ratio by its PRP methods alone, so only the programme documents where a report of such an indicator
+    names the ratio method are read again with Reached (as :func:`_changed` does for the confirmed links)."""
+    out = {key_of(row): masters.unit_class(row) for row in rows}
+    numbers = {key for key, unit in out.items() if unit == masters.NUMBER}
+    if not numbers:
+        return out
+    named = Q(calculation_across_locations__icontains="ratio")
+    named |= Q(calculation_across_periods__icontains="ratio")
+    pd_ids = sorted({pd_id for pd_id, _ident in numbers})
+    found = list(
+        ReportedIndicator.objects.filter(named, intervention_id__in=pd_ids)
+        .values_list("intervention_id", "etools_indicator_id", "indicator", "pd_output")
+        .distinct()
+    )
+    if not found:
+        return out
+    idents = monitoring._Idents(sorted({pd_id for pd_id, *_rest in found}))  # placed as Reached places them
+    suspects = {idents.of(*row) for row in found} & numbers
+    for key, row in _read_again(pd_id for pd_id, _ident in suspects).items():
+        if key in suspects:
+            out[key] = masters.unit_class(row)
+    return out
+
+
 def _fits(target: _Target, role: str, unit: str) -> bool:
     """The master's method takes an indicator of type ``unit`` as ``role`` (an average, a maximum or a
     minimum only of its totals' one type)."""
@@ -376,9 +410,10 @@ def _fits(target: _Target, role: str, unit: str) -> bool:
     return not (role == Role.TOTAL and one and target.classes and unit not in target.classes)
 
 
-def _matches(row: Row, targets: list[_Target], structure: str) -> list[_Match]:
-    """The masters of the indicator's section it may go to, by the first rule that finds any."""
-    unit = masters.unit_class(row)
+def _matches(row: Row, targets: list[_Target], structure: str, unit: str = "") -> list[_Match]:
+    """The masters of the indicator's section it may go to, by the first rule that finds any. ``unit``: its
+    type as the pages read it (:func:`_types`), when the row was read without its Reached."""
+    unit = unit or masters.unit_class(row)
     base = masters.base_title(row.title)
     found = []
     for target in targets:  # a: it replaces a confirmed link of its PD no longer in eTools
@@ -421,6 +456,21 @@ def _best(found: list[_Match]) -> tuple[_Match, list[EtoolsMaster]]:
     return best, []
 
 
+def _chosen(found: list[_Match]) -> tuple[list[_Match], list[EtoolsMaster]]:
+    """The matches an indicator is suggested for, and the masters it is "ambiguous" between (none when it is
+    not). A replacement (rule a) is suggested in every master whose link it replaces, with that link's role:
+    they do not compete, unless two of them would count it in their total (it counts in one at most), and
+    those two get nothing. By the other rules, the best match only (:func:`_best`)."""
+    if found[0].rule != "replacement":
+        best, close = _best(found)
+        return ([] if close else [best]), close
+    _best(found)  # in its order
+    totals = [m for m in found if m.role == Role.TOTAL]
+    if len(totals) > 1:
+        return [m for m in found if m.role != Role.TOTAL], [m.target.master for m in totals]
+    return found, []
+
+
 def ambiguous(
     rows: dict[tuple[int, str], Row],
     active: Sequence[EtoolsMaster],
@@ -451,7 +501,7 @@ def ambiguous(
         mine = [t for t in by_section.get(norm(row.section), []) if t.master.pk not in blocked.get(key, ())]
         found = _matches(row, mine, structure.get(key, ""))
         if len(found) > 1:
-            _best_match, close = _best(found)
+            _chosen_matches, close = _chosen(found)
             if close:
                 out[key] = close
     return out
@@ -532,6 +582,7 @@ def _proposals(
     every: list[EtoolsMaster],
     structure: dict[tuple[int, str], str],
     blocked: dict[tuple[int, str], set[int]],
+    types: dict[tuple[int, str], str],
 ) -> list[Proposal]:
     """The structure keys of the free indicators that span two or more programme documents, under a key no
     master holds but a proposal NeuroDB made (which is rebuilt, keeping its master). A proposal a person
@@ -575,24 +626,31 @@ def _proposals(
         rows = kept(rows, master)
         if len({row.pd.id for row in rows}) < 2:
             continue
-        proposal = _proposal(key, rows, master, taken)
+        proposal = _proposal(key, rows, master, taken, types)
         taken.add((norm(proposal.section), norm(proposal.name)))
         out.append(proposal)
     return out
 
 
 def _edited(proposals: Sequence[EtoolsMaster]) -> dict[EtoolsMaster, set[tuple[int, str]]]:
-    """Of these proposals, those a person edited (``updated_by``: renamed or moved; or given a year's
-    settings), with the PD indicators each holds."""
+    """Of these proposals, those a person edited (``updated_by``: renamed or moved; given a year's settings;
+    a link of it rejected, or a suggestion's role set, :func:`set_by_person`), with the PD indicators each
+    holds."""
     if not proposals:
         return {}
     with_year = set(EtoolsMasterYear.objects.filter(master__in=proposals).values_list("master_id", flat=True))
-    edited = [m for m in proposals if m.updated_by or m.pk in with_year]
+    links = list(
+        EtoolsMasterLink.objects.filter(master__in=proposals).values_list(
+            "master_id", "pd_id", "ident", "status", "confirmed_by"
+        )
+    )
+    decided = {master_id for master_id, _pd, _ident, status, by in links if status != Status.SUGGESTED or by}
+    edited = [m for m in proposals if m.updated_by or m.pk in with_year or m.pk in decided]
     found: dict[EtoolsMaster, set[tuple[int, str]]] = {m: set() for m in edited}
     by_pk = {m.pk: m for m in edited}
-    links = EtoolsMasterLink.objects.filter(master__in=edited).values_list("master_id", "pd_id", "ident")
-    for master_id, pd_id, ident in links:
-        found[by_pk[master_id]].add((pd_id, ident))
+    for master_id, pd_id, ident, _status, _by in links:
+        if master_id in by_pk:
+            found[by_pk[master_id]].add((pd_id, ident))
     return found
 
 
@@ -609,9 +667,14 @@ def _found_again(rows: list[Row], orphans: dict[EtoolsMaster, set[tuple[int, str
     return best[2] if best is not None and best[0] else None
 
 
-def _proposal(key: str, rows: list[Row], master: EtoolsMaster | None, taken: set) -> Proposal:
+def _proposal(
+    key: str, rows: list[Row], master: EtoolsMaster | None, taken: set, types: dict[tuple[int, str], str]
+) -> Proposal:
+    """The proposal of one structure key's rows, combined by the type the pages read most of them as
+    (``types``, :func:`_types`): an indicator of another type is shown there."""
     rows = sorted(rows, key=lambda row: (row.pd.number or "", row.title, row.ident[1]))
-    unit = masters.unit_class(rows[0])
+    kind = {key_of(row): types.get(key_of(row)) or masters.unit_class(row) for row in rows}
+    unit = _most_common(kind.values())
     if master is not None:  # made before: it keeps what someone may have changed
         section, name, method, cp_output = master.section, master.name, master.method, master.cp_output
     else:
@@ -633,7 +696,7 @@ def _proposal(key: str, rows: list[Row], master: EtoolsMaster | None, taken: set
         chosen = roles(found)
         for row in found:
             role = chosen[key_of(row)]
-            if masters.misfit(method, role, unit):  # a proposal someone gave another method: shown there
+            if masters.misfit(method, role, kind[key_of(row)]):  # another method, or another type: shown
                 role = Role.SHOWN
             proposal.links.append(
                 Suggestion(row=row, score=STRUCTURE_SCORE, reason=reason, rule="proposal", role=role)
@@ -669,8 +732,19 @@ def write(found: Plan) -> None:
     made again keeps its link: its id (so a page left open still finds it) and the role a person gave it
     (:func:`set_by_person`); its score, reason, title and PD number are the run's. A suggestion not made
     again goes. Confirmed and rejected links, dismissed masters, and a proposal someone confirmed or
-    rejected a link of or edited (renamed it or gave it a year's settings) are kept."""
+    rejected a link of or edited (renamed it or gave it a year's settings) are kept.
+
+    The plan was worked out before, outside the transaction: a person may have dismissed or merged a
+    proposal, archived a master or deleted one meanwhile. The planned masters are read again and locked
+    first, and nothing is written to one that is no longer active (a suggestion) or proposed (a proposal):
+    ``found`` keeps only what is written."""
     with transaction.atomic():
+        ids = {s.master.pk for s in found.suggestions} | {p.master.pk for p in found.proposals if p.master}
+        now = dict(EtoolsMaster.objects.select_for_update().filter(pk__in=ids).values_list("pk", "status"))
+        found.suggestions = [s for s in found.suggestions if now.get(s.master.pk) == MASTER.ACTIVE]
+        found.proposals = [
+            p for p in found.proposals if p.master is None or now.get(p.master.pk) == MASTER.PROPOSED
+        ]
         kept = [p.master.pk for p in found.proposals if p.master is not None]
         decided = EtoolsMasterLink.objects.filter(master=OuterRef("pk")).exclude(status=Status.SUGGESTED)
         edited = Q(updated_by__gt="") | Exists(EtoolsMasterYear.objects.filter(master=OuterRef("pk")))
@@ -779,13 +853,19 @@ def run(year: int | None = None, triggered_by: str = "command") -> SyncRun | str
 
 
 # -------------------------------------------------------------------------------------------- the decisions
-def _now_rows(links: Sequence[EtoolsMasterLink]) -> dict[tuple[int, str], Row]:
-    """The links' PD indicators as the pages read them (with Reached, so their type is the pages'), by key."""
-    pd_ids = sorted({link.pd_id for link in links if link.pd_id})
+def _read_again(pd_ids: Iterable[int]) -> dict[tuple[int, str], Row]:
+    """The PD indicators of these programme documents as the pages read them (with Reached, so their type is
+    the pages'), by key."""
+    pd_ids = sorted(set(pd_ids))
     if not pd_ids:
         return {}
     found = monitoring.indicators(monitoring.Filters(pd_ids=pd_ids, scope="all"))
     return {key_of(row): row for row in found}
+
+
+def _now_rows(links: Sequence[EtoolsMasterLink]) -> dict[tuple[int, str], Row]:
+    """The links' PD indicators as the pages read them (with Reached, so their type is the pages'), by key."""
+    return _read_again(link.pd_id for link in links if link.pd_id)
 
 
 @dataclass
@@ -867,12 +947,15 @@ class Accepted:
     accepted: list[EtoolsMaster] = field(default_factory=list)
     refused: list[tuple[EtoolsMaster, str]] = field(default_factory=list)
     links: Confirmed = field(default_factory=Confirmed)
+    unseen: int = 0  # suggestions the page did not show (added since): left as suggestions
 
 
-def accept(proposals: Iterable[EtoolsMaster], by: str) -> Accepted:
+def accept(proposals: Iterable[EtoolsMaster], by: str, only: Collection[int] | None = None) -> Accepted:
     """Accept proposed masters, in one click each: the master becomes active and its suggested links are
     confirmed (:func:`confirm`). One whose name an active or archived master of its section has already is
-    refused: rename it first, or merge it into that one."""
+    refused: rename it first, or merge it into that one. ``only``: the ids of the links the page showed (the
+    tab's Accept); a suggestion the night added since is left a suggestion of the master, now active, and
+    counted in :attr:`Accepted.unseen`."""
     out = Accepted()
     for master in proposals:
         if master.status != MASTER.PROPOSED:
@@ -894,6 +977,9 @@ def accept(proposals: Iterable[EtoolsMaster], by: str) -> Accepted:
             master.status, master.updated_by = MASTER.ACTIVE, (by or "")[:150]
             master.save(update_fields=["status", "updated_by", "updated_at"])
             links = list(master.links.filter(status=Status.SUGGESTED).order_by("sequence", "id"))
+            if only is not None:
+                out.unseen += sum(link.pk not in only for link in links)
+                links = [link for link in links if link.pk in only]
             for link in links:
                 link.master = master
             done = confirm(links, by)

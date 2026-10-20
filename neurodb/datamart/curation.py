@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from django.db import transaction
 from django.db.models import Max, Q
 
-from . import masters, monitoring
+from . import master_links, masters, monitoring
 from .masters import Row, key_of
 from .models import EtoolsMaster, EtoolsMasterLink, EtoolsMasterYear, PDIndicator
 from .reached import norm
@@ -348,6 +348,8 @@ class Merged:
     moved: int = 0  # links moved to the master kept
     dropped: int = 0  # links it held already (the same PD indicator)
     years: int = 0  # years' settings it did not have
+    confirmed: int = 0  # a proposal's PD indicators confirmed in it (merging a proposal accepts it there)
+    left: list[tuple[EtoolsMasterLink, str]] = field(default_factory=list)  # those left as suggestions, why
 
 
 def merge_problem(chosen: Sequence[EtoolsMaster]) -> str:
@@ -395,7 +397,10 @@ def merge(keep: EtoolsMaster, others: Sequence[EtoolsMaster], by: str) -> Merged
     (confirmed or rejected), or it rejected the indicator and the other counts it (confirmed): the other then
     wins, so nothing counted before the merge stops counting. The years' settings it lacks move to it. The
     others are archived (a proposal is dismissed, so it is never proposed again), keeping their other years'
-    settings."""
+    settings. Merging a proposal accepts it into ``keep``: its suggestions are confirmed there, each read
+    again as Accept does (:func:`neurodb.datamart.master_links.confirm`), and one that cannot count there
+    stays a suggestion, said why. Left as suggestions, the nightly job would take them all back (it makes
+    none of them for ``keep``), and the dismissed proposal would keep its family from being proposed again."""
     others = [m for m in others if m.pk != keep.pk]
     problem = merge_problem([keep, *others])
     if not problem and keep.status != MASTER.ACTIVE:
@@ -408,21 +413,28 @@ def merge(keep: EtoolsMaster, others: Sequence[EtoolsMaster], by: str) -> Merged
         held = {(link.pd_id, link.ident): link for link in keep.links.all()}
         sequence = keep.links.aggregate(last=Max("sequence"))["last"] or 0
         have = set(keep.years.values_list("year", flat=True))
+        accepted: dict[tuple[int, str], EtoolsMasterLink] = {}  # a proposal's suggestions, now in ``keep``
         for other in others:
+            proposal = other.status == MASTER.PROPOSED
             for link in other.links.order_by("sequence", "id"):
                 mine = held.get((link.pd_id, link.ident))
                 if mine is not None and not _wins(link, mine):
                     link.delete()
                     out.dropped += 1
+                    if proposal and mine.status == Status.SUGGESTED:
+                        accepted[(mine.pd_id, mine.ident)] = mine
                     continue
                 if mine is not None:
                     mine.delete()
+                    accepted.pop((mine.pd_id, mine.ident), None)
                     out.dropped += 1
                 sequence += 1
                 link.master, link.sequence = keep, min(sequence, 32767)
                 link.save(update_fields=["master", "sequence", "updated_at"])
                 held[(link.pd_id, link.ident)] = link
                 out.moved += 1
+                if proposal and link.status == Status.SUGGESTED:
+                    accepted[(link.pd_id, link.ident)] = link
             for year_row in other.years.order_by("year"):
                 if year_row.year in have:
                     continue
@@ -436,6 +448,10 @@ def merge(keep: EtoolsMaster, others: Sequence[EtoolsMaster], by: str) -> Merged
             out.merged.append(other)
         keep.updated_by = by
         keep.save(update_fields=["updated_by", "updated_at"])
+        for link in accepted.values():
+            link.master = keep
+        done = master_links.confirm(list(accepted.values()), by)
+        out.confirmed, out.left = done.confirmed, done.left
     return out
 
 

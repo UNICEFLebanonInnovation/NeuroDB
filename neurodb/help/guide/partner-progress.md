@@ -101,8 +101,9 @@ documents or more share a CP output, a type and a title, and suggests PD indicat
 there are. A suggestion is listed under its master indicator and never added until someone confirms it.
 Administrators, and Section editors of the master indicator's section, decide on the page:
 
-- **Accept** a proposed master indicator to make it active with its PD indicators confirmed; **Dismiss** it
-  and it is never proposed again.
+- **Accept** a proposed master indicator to make it active with the PD indicators its row lists confirmed
+  (one NeuroDB added after you opened the page stays a suggestion, and the page says so); **Dismiss** it and
+  it is never proposed again.
 - **Confirm all N suggestions** of one master indicator, or **Confirm all N strong matches (0.9 or more)** of
   a section, in one click: they confirm exactly the suggestions the page shows, as their count says.
   **Reject** a suggestion that is wrong, and it is not suggested for that master indicator again (attach it
@@ -143,7 +144,8 @@ high-frequency nor a cluster indicator, or one not planned at the place) is simp
 eTools. *Excel of the filter* and *CSV of the filter* give one row per master indicator and
 one per PD indicator. In the administration, under Reporting setup, master indicators can also be made by
 hand (with *Add PD indicators*), from an ActivityInfo master indicator, merged, or moved after eTools renames
-a section.
+a section. Merging a proposed master indicator into an active one accepts it there: its PD indicators are
+confirmed in the one kept.
 
 ## Progress reports
 
