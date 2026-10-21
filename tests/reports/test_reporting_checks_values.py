@@ -467,7 +467,7 @@ def test_check_7_counts_the_rows_partner_monitoring_uses_and_leaves_out(indicato
     assert numbers["… matched to a PD indicator by its id"] == 1
     assert numbers["… matched by title (one indicator of the PD has it)"] == 2
     assert numbers["… matched by PD output and title (a title several indicators of the PD share)"] == 0
-    assert numbers["… left out: two or more indicators of the PD have the title and the output"] == 1
+    assert numbers["… two or more indicators of the PD have the title and the output"] == 1
     assert numbers[UNMATCHED] == 0
     assert numbers["… left out: no indicator of the PD has the title"] == 1
     assert numbers["Indicator reports left out"] == 2 and found["tone"] == "warning"
@@ -502,7 +502,7 @@ def test_check_7_and_data_quality_name_a_pd_output_that_matches_none(pd):
     found = one("7")
     numbers = figures(found)
     assert numbers[UNMATCHED] == 2
-    assert numbers["… left out: two or more indicators of the PD have the title and the output"] == 0
+    assert numbers["… two or more indicators of the PD have the title and the output"] == 0
     assert numbers["Indicator reports left out"] == 2  # each its title and PD output
     assert "2 rows whose title several indicators of their PD share and whose PD output" in found["verdict"]
     assert "correct the output name in PRP or eTools so the two match" in found["verdict"]
@@ -534,3 +534,55 @@ def test_check_7_says_whether_prps_ids_tell_the_reports_apart(pd):
     dm.ReportedIndicator.objects.filter(report_number="HR3").update(progress_report="PR-A")
     report_row(pd, "HR3", end=D(2026, 6, 30), progress_report="PR-B", location="Bekaa")
     assert figures(one("7"))["Reports with more than one PRP progress report id"] == 1
+
+
+def test_check_7_tables_say_what_tells_shared_indicators_apart(pd):
+    """Two PD indicators "Kits distributed" share the title and the output (none given), one high frequency:
+    Table A says high frequency alone would place their two rows (not used on the pages: no sync has proved
+    it), Table B gives the value pairs of the row placed by title, Table C the PD indicator key that tells the
+    two apart, Table D the record key that differs between the two rows of one place. Counts and key names
+    only: no title, name or text of a record."""
+    for n, hf in enumerate((True, False)):
+        dm.PDIndicator.objects.create(
+            datamart_id=9130 + n,
+            source_id=30 + n,
+            intervention=pd,
+            title="Kits distributed",
+            is_high_frequency=hf,
+            location_pcode="LB11",
+            data={"is_high_frequency": hf, "title": "Kits distributed"},
+        )
+    for text in ("Lists of Partner A", "Photos of Partner A"):
+        report_row(pd, title="Kits distributed", high_frequency=True, p_code="LB11",
+                   data={"means_of_verification": text})  # fmt: skip
+    report_row(pd, data={"cluster_indicator": "false", "indicator_type": "quantity"})  # placed by its title
+    found = one("7")
+    numbers = figures(found)
+    assert numbers["… two or more indicators of the PD have the title and the output"] == 2
+    assert numbers["… at a location where the report has one row of that title and output"] == 0
+    assert numbers["… where it has two or more"] == 2
+    assert (numbers["… placed on the pages by a tie-breaker"], numbers["… still left out"]) == (0, 2)
+    assert numbers["Titles and outputs two or more indicators of a running PD share"] == 1
+    assert numbers["… PD indicators in them"] == 2
+    assert numbers["… whose indicators agree on every field compared"] == 0
+    assert "tie-breakers place 0 of them on the pages and 2 stay left out" in found["verdict"]
+    tables = {t["title"]: t for t in found["tables"]}
+    lines = {
+        line[0]: line
+        for line in tables["What tells apart indicators that share a title and an output"]["rows"]
+    }
+    assert lines["High frequency"][1:5] == ("high_frequency", "is_high_frequency", "no", 1)
+    assert lines["High frequency"][7:] == (1, 2, 0, 0)  # the shared pair differs; it alone would place both
+    assert lines["Target"][8:] == (0, 0, 0)  # neither the rows nor the copies give one: it does not apply
+    assert lines[checks.ALL_BREAKERS][8:] == (0, 2, 0)
+    pairs = tables["Value pairs on the rows already placed"]["rows"]
+    assert ("high_frequency", "false", "is_high_frequency no", 1) in pairs
+    assert ("cluster_indicator", "false", "no cluster", 1) in pairs
+    assert ("indicator_type", "quantity", "number / (empty)", 1) in pairs
+    assert tables["PD indicator keys that differ inside a shared group"]["rows"] == [("is_high_frequency", 1)]
+    assert tables["Report row keys that differ between the rows of one location"]["rows"] == [
+        ("means_of_verification", 1)
+    ]
+    text = json.dumps(found)
+    for secret in ("Kits distributed", "Children reached", "Partner A", "Lists of"):
+        assert secret not in text

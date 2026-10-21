@@ -1070,3 +1070,18 @@ def test_the_schedule_run_a_job_and_the_locks_know_the_job(db, monkeypatch):
     monkeypatch.setattr(background, "start_command", lambda *args: started.append(args) or 1)
     assert jobs.start(job.command, "schedule") == "started"
     assert started == [("suggest_master_indicators", "--triggered-by", "schedule")]
+
+
+def test_a_pd_indicator_placed_by_a_tie_breaker_is_reported_as_partner_monitoring_reads_it():
+    """Two PD indicators share a title and an output; high frequency, proved by the data, gives the report's
+    rows to X. The nightly job reads X as reported, and Y not, as Partner monitoring places the rows."""
+    from neurodb.datamart import identity
+
+    from .test_identity import X, Y, proof, world
+
+    pd = world("high_frequency")
+    x, y = identity.ident_of(pd.id, X, None), identity.ident_of(pd.id, Y, None)
+    assert master_links._reported({x, y}) == set()  # no proof yet: both left out
+    proof()
+    assert master_links._reported({x, y}) == {x}
+    assert master_links._reported({x, y}, master_links.RATIO_NAMED) == set()  # its rows name no ratio

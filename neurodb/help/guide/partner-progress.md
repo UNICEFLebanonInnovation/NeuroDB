@@ -61,9 +61,12 @@ were given last is the report's on every page:
   lists to fix (missing targets, no or zero Reached, Reached differing from PRP, the same title twice in
   one programme document, partial history). The partner reports carry no PD indicator id, so a report is
   matched to its indicator by title; where two indicators of a programme document share a title, by
-  their PD output too. Indicators that share both stay without Reached until their title or output is
-  told apart in eTools, and so do those whose rows name a PD output that matches none of theirs (correct
-  the output name in PRP or eTools): the same-title list counts them.
+  their PD output too; where two indicators of a programme document share a title and an output, NeuroDB
+  tells them apart by what the partner reports and eTools both say of them (high frequency, cluster,
+  target, type, disaggregations, planned places, active), once the data shows each of these agrees.
+  Indicators still alike stay without Reached until told apart in eTools, and so do those whose rows name
+  a PD output that matches none of theirs (correct the output name in PRP or eTools): the same-title list
+  counts them.
 - **Map**: the implementation locations, coloured by the worst status there.
 - **Master indicators**: each section's eTools master indicators, one figure a year combined from the
   partners' PD indicators (see [Master indicators](#master-indicators) below).
@@ -240,9 +243,13 @@ running programme documents' reporting is held, the reports still owed in PRP's 
 reports, PRP's indicator reports and PRP's own progress reports, and how the PD indicators can be grouped
 into master indicators), each with a verdict and what NeuroDB does whatever the answer; they show counts
 only. When PRP's indicator reports hold nothing, checks 8, 9 and 11 say what their last sync did and what
-to do in the administration. Check 12 counts, per section, the PD indicators with and without an eTools
-id and a CP output, the percentages reported with their numerator and denominator, and how many master
-indicators the next night would propose; it changes nothing. Checks 10 and 11 run first. The checks run
-every night as a job and the page shows their latest result at once, with when they were checked; **Run
-the checks now** runs them again in the background (they can take several minutes on the full data), and
-the page shows the new result once you reload it.
+to do in the administration. When the business area code the hosting team set is not a code (a country
+name), NeuroDB sets it aside, uses the code it finds, and the checks and Data health say so; an
+administrator can enter the code in the administration, where it comes first. Check 10 says how the
+partner reports were read (in windows when the Datamart answers only part of them at a time, and whether
+every window was read whole) and why running programme documents have no row. Check 12 counts, per
+section, the PD indicators with and without an eTools id and a CP output, the percentages reported with
+their numerator and denominator, and how many master indicators the next night would propose; it changes
+nothing. Checks 10 and 11 run first. The checks run every night as a job and the page shows their latest
+result at once, with when they were checked; **Run the checks now** runs them again in the background
+(they can take several minutes on the full data), and the page shows the new result once you reload it.

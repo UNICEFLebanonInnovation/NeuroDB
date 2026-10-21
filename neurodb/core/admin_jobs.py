@@ -437,10 +437,13 @@ def _background_action(spec: BackgroundJob):
         "title": _("Probe a Datamart dataset"),
         "description": _(
             "Asks the eTools Datamart what it holds for one dataset, in the background: with no filter, with "
-            "the business area code (PRP's datasets) and with the country name, at most three requests of 50 "
-            "records each. The run (in this list, as eTools Datamart probe) keeps only counts, key names, "
-            "business area codes and country names, and says in plain words what the answers mean and what "
-            "to do. It writes nothing else and takes a few seconds."
+            "the business area code (PRP's datasets) and with the country name, two or three requests of 50 "
+            "records each (the partner reports also get the sync's own query). For the partner reports, or "
+            "a dataset of 5,000 records or more, it then sends up to about ten more one-page requests that "
+            "test the window filters and the Datamart's limit. The run (in this list, as eTools Datamart "
+            "probe) keeps only counts, key names, business area codes and country names, and says in plain "
+            "words what the answers mean and what to do. It writes nothing else and takes from a few seconds "
+            "to about a minute."
         ),
         "form_class": ProbeDatamartForm,
         "form_submit_text": _("Probe"),
@@ -468,8 +471,9 @@ def run_probe_datamart(self, request, form):
         messages.success(
             request,
             _(
-                "The probe of %(dataset)s started. In a few seconds, refresh this page: the run eTools "
-                "Datamart probe in this list says what it found, and its page has the details."
+                "The probe of %(dataset)s started. In a few seconds (up to a minute for the partner "
+                "reports), refresh this page: the run eTools Datamart probe in this list says what it found, "
+                "and its page has the details."
             )
             % {"dataset": dataset},
         )

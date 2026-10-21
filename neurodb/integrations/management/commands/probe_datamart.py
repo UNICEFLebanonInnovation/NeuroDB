@@ -1,7 +1,9 @@
 """``probe_datamart [--dataset prp_indicator_reports]``: ask the eTools Datamart about one dataset with no
-filter, with the business area filter and with the country filter (at most three requests of one small page
-each), and record what it answered as counts and key names only (``neurodb.integrations.etools.probe``).
-Started from *Run a job → Probe a Datamart dataset*; it writes nothing but its own run."""
+filter, with the business area filter and with the country filter (two or three requests of one small page
+each, the sync's own query too for the partner reports, then the window requests for the partner reports or
+a dataset of 5,000 records or more), and record what it answered as counts and key names only
+(``neurodb.integrations.etools.probe``). Started from *Run a job → Probe a Datamart dataset*; it writes
+nothing but its own run."""
 
 from __future__ import annotations
 

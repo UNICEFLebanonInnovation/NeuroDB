@@ -452,12 +452,18 @@ LEGACY_TABLES = {
 }
 # What a sync could not link, as the data health table names it (other codes are shown as written)
 NOT_LINKED_LABELS = {"programme_document_fm": "programme document (field monitoring)"}
-# Where the business area code of a PRP dataset's run came from (details.business_area_from), in words
+# Where the business area code of a PRP dataset's run came from (details.business_area_from), in words;
+# "workspaces (held)" is how the probe runs made before the sync read the workspace held named it
 BUSINESS_AREA_FROM = {
     "environment": _("set by the hosting team"),
     "admin": _("entered in the admin"),
     "workspaces": _("found in the Datamart's workspaces"),
+    "workspace_held": _("found in the workspace NeuroDB holds"),
+    "workspaces (held)": _("found in the workspace NeuroDB holds"),
+    "partner_reports": _("the code most partner report rows carry"),
 }
+# Where a value set aside as not a business area code came from (details.business_area_set_aside)
+SET_ASIDE_FROM = {"environment": "ETOOLS_DATAMART_BUSINESS_AREA", "admin": _("the code entered in the admin")}
 # The rows each dataset holds are counted once an hour at most, and again as soon as one of the jobs that
 # write those tables starts or ends a run (the eTools Datamart sync above all). The gazetteer is the one
 # table staff also change by hand (Admin → Locations), outside any job: it is counted at each visit.
@@ -614,15 +620,29 @@ def dataset_row_counts() -> dict[str, int | None]:
     return {name: stored[name] if name in stored else _dataset_rows(name) for name in names}
 
 
+def _window_bound(text: Any) -> str:
+    """A window's bound as Data health shows it: "1 Jan 2026" for a date, "open" for the open end, an id (or a
+    day and an id) as it is."""
+    text = str(text or "")
+    try:
+        day = datetime.date.fromisoformat(text) if len(text) == 10 else None
+    except ValueError:
+        day = None
+    return f"{day.day} {day:%b %Y}" if day else text or "open"
+
+
 def datamart_quality() -> list[dict[str, Any]]:
     """Per eTools Datamart dataset: the last run, what it read, wrote, failed to link, and how many
     rows NeuroDB holds — the table to read before believing a number on an eTools page. A failed run's
     error is shown when it lists no row errors, and a diagnostic dataset (``catalogue.DIAGNOSTIC``, used by
     no page, figure or check) is marked as such. A PRP dataset's run names the business area code it read
-    with and where the code came from, and the records that named no business area; a run that read fewer
-    records than the Datamart announced, or some twice, says that it removed nothing."""
+    with and where the code came from (a value that is not a code, a code NeuroDB found, the values set
+    aside), and the records that named no business area; a run that read fewer records than the Datamart
+    announced, some twice, or a round count (a limit of the Datamart's answer), says that it removed
+    nothing. A large dataset read in windows says how many, what they announced and read, those not read
+    whole (the first three), a count that changed during the read, and a removal held one night."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
-    from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
+    from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS, FOUND, is_area_code, not_a_code
 
     last_by_target = latest_datamart_runs(ENTITY_SYNCS)
     counts = dataset_row_counts()
@@ -633,6 +653,9 @@ def datamart_quality() -> list[dict[str, Any]]:
         count = counts[name]
         failed = run is not None and run.status == SyncRun.Status.FAILED
         not_linked = {NOT_LINKED_LABELS.get(k, k): v for k, v in (details.get("not_linked") or {}).items()}
+        code = str(details.get("business_area") or "")
+        aside = details.get("business_area_set_aside")
+        aside = aside if isinstance(aside, dict) else {}
         rows.append(
             {
                 "name": name,
@@ -653,12 +676,42 @@ def datamart_quality() -> list[dict[str, Any]]:
                 # a PRP dataset's code and its source, in words (it carries no country name)
                 "business_area": details.get("business_area") or "",
                 "business_area_from": BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""),
+                # a code asked that is not one (a country's name, before the sync set such a value aside), in
+                # words; the values a later sync set aside; a code NeuroDB found rather than one a person set
+                "business_area_not_code": not_a_code(code) if code and not is_area_code(code) else "",
+                "business_area_set_aside": "; ".join(
+                    f"{SET_ASIDE_FROM.get(k, k)} “{v}”" for k, v in aside.items()
+                ),
+                "business_area_found": details.get("business_area_from") in FOUND,
                 # the records read (kept and skipped, each once) and the count the Datamart announced; fewer
                 # read than announced, or some returned twice: nothing was removed
                 "read": details.get("read"),
                 "datamart_count": details.get("datamart_count"),
                 "removal_skipped": bool(details.get("removal_skipped")),
                 "duplicates_read": details.get("duplicates_read"),
+                # why the answer looks cut (a round count read in one answer, a cut the ends test found...)
+                "cap_suspected": details.get("cap_suspected") or "",
+                # read in windows: how many, what they announced (the Datamart's own count may be cut), those
+                # not read whole (the first three: from, to, announced, read), and a count that moved
+                "windows_read": details.get("windows_read"),
+                "windows_announced": details.get("windows_announced"),
+                "windows_not_whole": details.get("windows_not_whole"),
+                "windows_not_whole_first": [
+                    {
+                        "from": _window_bound(w.get("from")),
+                        "to": _window_bound(w.get("to")),
+                        "announced": w.get("announced"),
+                        "read": w.get("read"),
+                    }
+                    for w in (details.get("windows_not_whole_first") or [])[:3]
+                    if isinstance(w, dict)
+                ],
+                "whole_count_capped": bool(details.get("whole_count_capped")),
+                "whole_count_end": details.get("whole_count_end"),
+                "changed": details.get("whole_count_end") is not None
+                and details.get("whole_count_end") != details.get("datamart_count"),
+                # a whole read that would remove more than half of the rows held waits one night
+                "removal_held": details.get("removal_held"),
                 # an empty read the Datamart announced records for: its answer was cut short
                 "cut_short": bool(details.get("empty_response"))
                 and isinstance(details.get("datamart_count"), int)

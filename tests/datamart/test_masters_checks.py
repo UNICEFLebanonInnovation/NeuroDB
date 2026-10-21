@@ -193,7 +193,7 @@ def test_a_ratio_by_its_method_alone_counts_with_the_percentages(world):
 def test_a_report_row_is_a_percentage_by_the_indicator_partner_monitoring_places_it_under(world):
     """Two indicators of PD/2026/002 share a title (a percentage under one PD output, a number under another)
     and their rows name no eTools id: each row is placed by its PD output and title, as Partner monitoring and
-    check 7 place it (monitoring._Idents), so only the row under the percentage counts here; a row whose PD
+    check 7 place it (identity.Idents.place), so only the row under the percentage counts here; a row whose PD
     output matches neither indicator is placed under none and counts by its methods alone (none here)."""
     dm.ReportedIndicator.objects.all().delete()
     w.indicator(world["B"], 203, SHARED, display_type="percentage")
@@ -205,6 +205,25 @@ def test_a_report_row_is_a_percentage_by_the_indicator_partner_monitoring_places
     got = figures(grouping())
     assert got["Percentage and ratio report rows with a value"] == 1
     assert got["… with their numerator and denominator"] == 1
+
+
+def test_a_report_row_placed_by_a_tie_breaker_counts_under_its_percentage(db):
+    """Two indicators of a PD share a title and an output (a high-frequency percentage, and a number): the
+    report row, high frequency, its methods a sum, is left out until the data proves high frequency, then
+    placed under the percentage as Partner monitoring places it (identity.Idents.place), and counted here."""
+    from .test_identity import X, Y, gate, indicator, labels, make_pd, proof, row
+
+    pd = make_pd("B")
+    indicator(pd, X, hf=True, display_type="percentage", unit="percentage")
+    indicator(pd, Y)
+    row(pd, hf=True, total={"v": 3, "d": 4, "c": 75})
+    gate()
+    labels()
+    with connection.cursor() as cursor:
+        assert checks._ratio_parts(cursor) == (0, 0)  # no proof yet: left out, and a sum by its methods
+    proof()
+    with connection.cursor() as cursor:
+        assert checks._ratio_parts(cursor) == (1, 1)
 
 
 def test_once_live_it_counts_where_the_grouping_stands_and_warns(world):

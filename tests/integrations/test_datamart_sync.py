@@ -651,6 +651,113 @@ def test_partner_reports_of_another_country_are_never_written_and_old_ones_go(li
 
 
 @responses.activate
+def test_partner_reports_scope_and_request_use_one_since(linked, monkeypatch):
+    """The date the partner reports are read from is computed once per run: the request asks from it and the
+    rows the read replaces are those from it, even when a second computation would give another date (a PD
+    changing status during the read, midnight passing)."""
+    import datetime
+
+    dates = iter([datetime.date(2025, 1, 1), datetime.date(2024, 1, 1)])
+    monkeypatch.setattr(sync.DATASETS["partner_reports"][1], "since", lambda: next(dates))
+    before = dm.ReportedIndicator.objects.create(
+        datamart_id=90, period_start="2024-06-01", indicator="earlier"
+    )
+    gone = dm.ReportedIndicator.objects.create(datamart_id=91, period_start="2025-06-01", indicator="gone")
+    common = {"partner_vendor_number": "V1", "intervention_reference_number": "LEB/PD1",
+              "reporting_period_start_date": "2025-02-01", "country_name": "Lebanon"}  # fmt: skip
+    responses.get(
+        f"{BASE}/api/latest/prp/datareport/",
+        match=[
+            responses.matchers.query_param_matcher(
+                {
+                    "page_size": "500",
+                    "country_name": "Lebanon",
+                    "reporting_period_start_date__gte": "2025-01-01",
+                }
+            )
+        ],
+        json={"count": 1, "next": None, "results": [{**common, "id": 1}]},
+    )
+    (run,) = run_all("partner_reports")
+    assert run.status == SyncRun.Status.SUCCEEDED
+    assert (run.details["read_from"], run.details["held_before"], run.details["removed"]) == (
+        "2025-01-01",
+        1,
+        1,
+    )
+    assert dm.ReportedIndicator.objects.filter(pk=before.pk).exists()  # before the window asked: kept
+    assert not dm.ReportedIndicator.objects.filter(pk=gone.pk).exists()
+
+
+def _reports(start: str, n: int) -> list[dict]:
+    """``n`` partner report rows of the linked PD, all of this country and of the window."""
+    common = {"partner_vendor_number": "V1", "etools_intervention_id": "11", "intervention_reference_number": "LEB/PD1",
+              "report_status": "Accepted", "reporting_period_start_date": start, "country_name": "Lebanon"}  # fmt: skip
+    return [{**common, "id": pk, "performance_indicator": f"Indicator {pk}"} for pk in range(1, n + 1)]
+
+
+@responses.activate
+def test_a_round_count_removes_nothing(linked, settings, monkeypatch):
+    """A count of 5,000 or more that is a multiple of 1,000 (here 20 and 10) reads as a limit of the
+    Datamart's answer, not what it holds: the rows held that the read did not return stay, and the run ends
+    PARTIAL saying so, even when every record announced was read. This answer ignores every filter, so it
+    cannot be read in windows either (``windows_unproven``). A count that is not round reads as ever."""
+    monkeypatch.setattr(sync, "CAP_FLOOR", 20)
+    monkeypatch.setattr(sync, "CAP_ROUND", 10)
+    settings.ETOOLS_DATAMART_REPORTING_YEARS = 2
+    start = f"{__import__('datetime').date.today().year - 1}-01-01"
+    held = dm.ReportedIndicator.objects.create(datamart_id=90, period_start=start, indicator="not returned")
+    url = f"{BASE}/api/latest/prp/datareport/"
+    responses.get(url, json={"count": 20, "next": None, "results": _reports(start, 20)})
+    (run,) = run_all("partner_reports")
+    assert run.status == SyncRun.Status.PARTIAL and run.rows_failed == 0
+    details = run.details
+    assert (details["removal_skipped"], details["cap_suspected"], details["removed"]) == (
+        True,
+        "windows_unproven",
+        0,
+    )
+    assert (details["read"], details["datamart_count"]) == (20, 20)
+    assert dm.ReportedIndicator.objects.filter(pk=held.pk).exists()
+
+    responses.reset()
+    responses.get(url, json={"count": 21, "next": None, "results": _reports(start, 21)})
+    (run,) = run_all("partner_reports")
+    assert run.status == SyncRun.Status.SUCCEEDED and run.details["removed"] == 1
+    assert "cap_suspected" not in run.details and not dm.ReportedIndicator.objects.filter(pk=held.pk).exists()
+
+
+@responses.activate
+def test_a_round_count_removes_no_record_kept_whole(settings, monkeypatch):
+    monkeypatch.setattr(sync, "CAP_FLOOR", 20)
+    monkeypatch.setattr(sync, "CAP_ROUND", 10)
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    dm.DatamartDocument.objects.create(dataset="prp_indicator_reports", record_key="old")
+    records = [{"id": pk, "business_area": "2490", "pd_reference_number": "LEB/PD1"} for pk in range(1, 21)]
+    responses.get(
+        f"{BASE}/api/latest/prp/indicator-report-v2/", json={"count": 20, "next": None, "results": records}
+    )
+    (run,) = run_all("prp_indicator_reports")
+    assert run.status == SyncRun.Status.PARTIAL and run.rows_failed == 0
+    details = run.details
+    assert (details["removal_skipped"], details["cap_suspected"], details["documents_removed"]) == (
+        True,
+        "windows_unproven",
+        0,
+    )
+    assert dm.DatamartDocument.objects.filter(dataset="prp_indicator_reports", record_key="old").exists()
+    monkeypatch.undo()  # the real constants: 5,000 and 1,000
+    assert [sync.capped(n) for n in (None, 4_000, 5_000, 9_970, 10_000, 12_000)] == [
+        False,
+        False,
+        True,
+        False,
+        True,
+        True,
+    ]
+
+
+@responses.activate
 def test_this_countrys_name_with_odd_spaces_or_case_is_never_another_country(linked, settings):
     """The sync compares names one way (case and every kind of space aside): a row it writes is never
     deleted as another country's in the same run."""

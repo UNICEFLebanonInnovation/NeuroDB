@@ -393,6 +393,11 @@ def test_operations_says_the_database_forecast_card_follows_the_overviews():
     )
 
 
+def test_operations_md_never_names_a_design_note_stage():
+    """The design notes' stage labels ("fix A") are defined nowhere in OPERATIONS.md: it says what changed."""
+    assert not re.search(r"\bfix [A-H]\b", OPERATIONS)
+
+
 def test_the_guide_says_the_country_programme_is_added_in_the_administration():
     """The Country programme page has no upload: an administrator adds the cycle in the administration
     (its own empty state says so), and the Help assistant answers from this table (R2 sweep-3)."""

@@ -7,9 +7,9 @@ from django.contrib import admin, messages
 from django.contrib.admin.models import ADDITION, CHANGE, DELETION, LogEntry
 from django.contrib.humanize.templatetags.humanize import naturaltime
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse, HttpResponseNotAllowed
 from django.shortcuts import redirect
-from django.urls import NoReverseMatch, reverse
+from django.urls import NoReverseMatch, path, reverse
 from django.utils import formats, timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
@@ -500,17 +500,28 @@ class ActivityInfoSettingAdmin(ModelAdmin):
 @admin.register(DatamartSetting)
 class DatamartSettingAdmin(ModelAdmin):
     """Admin → Data and sync → "eTools Datamart: PRP business area code": one row, empty until an
-    administrator enters the code. The page says which code the next sync of the PRP datasets takes, and what
-    their latest runs used and found (counts only)."""
+    administrator enters the code. The page says which code the next sync of the PRP datasets takes, the
+    codes NeuroDB finds by itself (with *Use 2490* to enter the one found), and what their latest runs used
+    and found (counts only)."""
 
-    fields = ("prp_business_area", "next_sync", "latest_runs", "updated_by", "updated_at")
-    readonly_fields = ("next_sync", "latest_runs", "updated_by", "updated_at")
+    fields = ("prp_business_area", "next_sync", "found_codes", "latest_runs", "updated_by", "updated_at")
+    readonly_fields = ("next_sync", "found_codes", "latest_runs", "updated_by", "updated_at")
+    # *Use 2490* posts a form of its own, after the change form: a submit button inside the change form would
+    # be its default one, and Enter in the code field would save the code found instead of the one typed
+    change_form_outer_after_template = "admin/core/datamartsetting/use_found_code.html"
 
     def has_add_permission(self, request):
         return False
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    def get_fields(self, request, obj=None):
+        """The codes NeuroDB finds come with *Use 2490* only for someone who may change the code."""
+        fields = super().get_fields(request, obj)
+        if self.has_change_permission(request, obj):
+            return fields
+        return [("codes_found" if name == "found_codes" else name) for name in fields]
 
     def changelist_view(self, request, extra_context=None):
         if not self.has_view_or_change_permission(request):
@@ -522,26 +533,151 @@ class DatamartSettingAdmin(ModelAdmin):
         obj.updated_by = request.user
         super().save_model(request, obj, form, change)
 
+    def get_urls(self):
+        return [
+            path(
+                "<path:object_id>/use-found-code/",
+                self.admin_site.admin_view(self.use_found_code),
+                name="core_datamartsetting_use_found_code",
+            ),
+            *super().get_urls(),
+        ]
+
+    def use_found_code(self, request, object_id):
+        """*Use 2490*: enter the code NeuroDB finds (the workspace it holds, else the partner report rows),
+        derived again here, never read from the request. POST only, with the change permission."""
+        from neurodb.integrations.etools.datamart_sync import found_business_area
+
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+        setting = self.get_object(request, object_id)
+        if setting is None:
+            raise Http404
+        if not self.has_change_permission(request, setting):
+            raise PermissionDenied
+        change = reverse("admin:core_datamartsetting_change", args=[setting.pk])
+        code = found_business_area().code
+        if not code:
+            messages.warning(
+                request,
+                _(
+                    "NeuroDB finds no code in the workspace it holds or on the partner report rows: nothing "
+                    "was changed."
+                ),
+            )
+            return redirect(change)
+        setting.prp_business_area, setting.updated_by = code, request.user
+        setting.save(update_fields=["prp_business_area", "updated_by", "updated_at"])
+        self.log_change(request, setting, [{"changed": {"fields": ["prp_business_area"]}}])
+        messages.success(request, _("%(code)s is now the code entered here.") % {"code": code})
+        return redirect(change)
+
     @admin.display(description=_("The next sync takes"))
     def next_sync(self, obj):
-        from neurodb.integrations.etools.datamart_sync import FROM_ENVIRONMENT, business_area_setting
+        from neurodb.integrations.etools import datamart_sync as sync
+        from neurodb.reports.services import BUSINESS_AREA_FROM
 
-        code, source = business_area_setting()
-        if source == FROM_ENVIRONMENT:
+        choice = sync.resolve_business_area()  # without the Datamart's workspaces: a page asks nothing
+        hosting, entered = choice.set_aside.get(sync.FROM_ENVIRONMENT), choice.set_aside.get(sync.FROM_ADMIN)
+        if choice.source == sync.FROM_ADMIN:
+            said = _("%(code)s, the code entered here.") % {"code": choice.code}
+            other = sync.area_code(settings.ETOOLS_DATAMART_BUSINESS_AREA)
+            if sync.is_area_code(other) and other != choice.code:
+                said += " " + _(
+                    "The hosting team's ETOOLS_DATAMART_BUSINESS_AREA (%(other)s) is not used while a code "
+                    "is entered here."
+                ) % {"other": other}
+            elif hosting:
+                said += " " + _(
+                    "The hosting team's ETOOLS_DATAMART_BUSINESS_AREA (“%(value)s”) is %(words)s: it is not "
+                    "used."
+                ) % {"value": hosting, "words": sync.not_a_code(hosting)}
+            return said
+        if choice.source == sync.FROM_ENVIRONMENT:
             return _(
-                "%(code)s, set by the hosting team (ETOOLS_DATAMART_BUSINESS_AREA): it comes before the code "
-                "entered here. Ask them to remove it for the code entered here to apply."
-            ) % {"code": code}
-        if code:
-            return _("%(code)s, the code entered here.") % {"code": code}
+                "%(code)s, set by the hosting team (ETOOLS_DATAMART_BUSINESS_AREA). A code entered here "
+                "comes first."
+            ) % {"code": choice.code}
+        here = (
+            _("the code entered here, “%(value)s”, is %(words)s")
+            % {"value": entered, "words": sync.not_a_code(entered)}
+            if entered
+            else _("nothing is entered here")
+        )
+        if choice.code:  # found by NeuroDB
+            where = str(BUSINESS_AREA_FROM.get(choice.source, ""))
+            if choice.source == sync.FROM_PARTNER_REPORTS:
+                n, held = choice.rows
+                where += " " + _("on %(n)s of %(held)s rows") % {"n": f"{n:,}", "held": f"{held:,}"}
+            set_by = (
+                _(", and the hosting team's ETOOLS_DATAMART_BUSINESS_AREA, “%(value)s”, is %(words)s")
+                % {"value": hosting, "words": sync.not_a_code(hosting)}
+                if hosting
+                else ""
+            )
+            return _(
+                "%(code)s, %(where)s (%(here)s%(hosting)s). Enter it here, or press Use %(code)s below, to "
+                "keep it whatever the Datamart sends."
+            ) % {"code": choice.code, "where": where, "here": here, "hosting": set_by}
+        set_by = (
+            _("the hosting team set “%(value)s”, %(words)s")
+            % {"value": hosting, "words": sync.not_a_code(hosting)}
+            if hosting
+            else _("the hosting team set none")
+        )
         return _(
-            "The business area code of the Datamart workspace named %(country)s, as nothing is entered here "
-            "(the sync of a PRP dataset fails, saying so, when there is none)."
-        ) % {"country": settings.ETOOLS_DATAMART_COUNTRY}
+            "No code: %(here)s, %(hosting)s, the workspace NeuroDB holds has none and the partner report "
+            "rows carry none. The next sync of a PRP dataset asks the Datamart's list of workspaces; if "
+            "that has none either, the sync fails, saying so."
+        ) % {"here": here, "hosting": set_by}
+
+    @admin.display(description=_("Codes NeuroDB finds"))
+    def codes_found(self, obj):
+        """What NeuroDB finds, for someone who may only view the page: no button."""
+        return self.found_codes(obj, button=False)
+
+    @admin.display(description=_("Codes NeuroDB finds"))
+    def found_codes(self, obj, button=True):
+        from neurodb.datamart.models import DatamartDocument
+        from neurodb.integrations.etools import datamart_sync as sync
+
+        held = sync.held_business_area(settings.ETOOLS_DATAMART_COUNTRY)
+        if held:
+            workspaces = DatamartDocument.objects.filter(dataset="workspaces").order_by("-synced_at")
+            synced = workspaces.values_list("synced_at", flat=True).first()
+            when = formats.date_format(timezone.localtime(synced), "j M Y") if synced else ""
+            in_workspace = (
+                _("In the workspace NeuroDB holds: %(code)s (synced %(when)s).")
+                % {"code": held, "when": when}
+                if when
+                else _("In the workspace NeuroDB holds: %(code)s.") % {"code": held}
+            )
+        else:
+            in_workspace = _("In the workspace NeuroDB holds: none.")
+        code, n, rows = sync.reported_business_area()
+        on_rows = (
+            _("On the partner report rows held: %(code)s on %(n)s of %(held)s.")
+            % {"code": code, "n": f"{n:,}", "held": f"{rows:,}"}
+            if code
+            else _("On the partner report rows held: none.")
+        )
+        found = held or code  # what Use … enters: the workspace held first
+        entered = sync.area_code(obj.prp_business_area) if obj else ""
+        if not button or not found or found == entered:
+            return format_html("{}<br>{}", in_workspace, on_rows)
+        # the button belongs to the form after the change form (use_found_code.html), never to this one
+        return format_html(
+            '{}<br>{}<br><button type="submit" form="use_found_code_form" class="btn btn-outline-secondary '
+            'btn-sm mt-2" name="use_found_code" value="1">{}</button>',
+            in_workspace,
+            on_rows,
+            _("Use %(code)s") % {"code": found},
+        )
 
     @admin.display(description=_("Latest runs of the PRP datasets"))
     def latest_runs(self, obj):
         from neurodb.datamart.catalogue import DOCUMENTS
+        from neurodb.integrations.etools.datamart_sync import is_area_code, not_a_code
         from neurodb.reports.services import BUSINESS_AREA_FROM, latest_datamart_runs
 
         names = [name for name, spec in DOCUMENTS.items() if spec.scope == "business_area"]
@@ -556,12 +692,28 @@ class DatamartSettingAdmin(ModelAdmin):
             if run.status == SyncRun.Status.FAILED:
                 said = run.error[:200]
             elif details.get("business_area"):
-                said = _("business area %(code)s (%(source)s): %(kept)s kept of %(read)s read") % {
-                    "code": details["business_area"],
+                code = str(details["business_area"])
+                found = {
+                    "code": code,
                     "source": BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""),
                     "kept": run.rows_in,
                     "read": details.get("read", run.rows_in),
                 }
+                if is_area_code(code):
+                    said = _("business area %(code)s (%(source)s): %(kept)s kept of %(read)s read") % found
+                else:  # asked before the sync set such a value aside
+                    said = format_html(
+                        '<span class="text-warning">{}</span>',
+                        _("business area %(code)s (%(source)s), %(words)s: %(kept)s kept of %(read)s read")
+                        % {**found, "words": not_a_code(code)},
+                    )
+                aside = details.get("business_area_set_aside")
+                if isinstance(aside, dict) and aside.get("environment"):
+                    said = format_html(
+                        "{} · {}",
+                        said,
+                        _("the hosting team's “%(value)s” set aside") % {"value": aside["environment"]},
+                    )
                 unnamed = details.get("country_unnamed")
                 if isinstance(unnamed, int) and unnamed:  # kept, but nothing confirms the country
                     said = format_html(

@@ -1,0 +1,2 @@
+{% comment %}The form "Use 2490" posts (DatamartSettingAdmin.found_codes): its own, after the change form, so that Enter in the code field submits the change form with Save.{% endcomment %}
+{% if has_change_permission and original %}<form id="use_found_code_form" method="post" action="{% url 'admin:core_datamartsetting_use_found_code' original.pk %}">{% csrf_token %}</form>{% endif %}

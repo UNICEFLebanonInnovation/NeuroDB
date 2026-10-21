@@ -35,7 +35,7 @@ from neurodb.core import compute
 from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
-from . import keys
+from . import identity, keys
 from . import models as dm
 from . import reached as rc
 
@@ -74,7 +74,10 @@ DISAGGREGATION_LIMIT = 10_000
 # Report/Disaggregation tables two minutes, its filter options ten (they only change with a sync)
 STORED_SECONDS = 120
 OPTIONS_SECONDS = 600
-CACHE_VERSION = 3  # 2: the stored tables carry no chart data (by_month); 3: their rows carry the report key
+# 2: the stored tables carry no chart data (by_month); 3: their rows carry the report key; 4: an indicator
+# report's type and unit are its placed indicator's (neurodb.datamart.identity); 5: placed from the whole
+# report, whatever the filter keeps
+CACHE_VERSION = 5
 NO_SECTION = "—"
 EMAIL = re.compile(r"[^\s@]+@[^\s@]+")
 
@@ -622,43 +625,7 @@ def partner_performance(reports: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------------- Report/Location
-LOCATION_FIELDS = (
-    *rc.ROW_FIELDS,
-    "partner_id",
-    "partner_name",
-    "section",
-    "cp_output",
-    "high_frequency",
-)
-
-
-def _definitions(pd_ids: set[int]) -> dict[tuple[int, str], tuple[str, str]]:
-    """Display type and unit of the PDs' indicators, by eTools id ("s…"), by output and title ("o…", for a
-    title two indicators share) and by title ("t…")."""
-    out: dict[tuple[int, str], tuple[str, str]] = {}
-    ids = sorted(i for i in pd_ids if i)
-    for start in range(0, len(ids), 5000):
-        rows = dm.PDIndicator.objects.filter(intervention_id__in=ids[start : start + 5000]).values_list(
-            "intervention_id", "source_id", "title", "lower_result_name", "display_type", "unit"
-        )
-        for pd_id, source_id, title, output, display_type, unit in rows:
-            if source_id:
-                out.setdefault((pd_id, f"s{source_id}"), (display_type, unit))
-            out.setdefault((pd_id, f"o{rc.norm(output)}|{rc.norm(title)}"), (display_type, unit))
-            out.setdefault((pd_id, f"t{rc.norm(title)}"), (display_type, unit))
-    return out
-
-
-def definition_of(definitions: dict[tuple[int, str], Any], pd_id: Any, row: dict[str, Any]) -> Any:
-    """A report row's PD indicator in ``definitions`` (keyed as :func:`_definitions` keys them): by its eTools
-    id, else by its output and title, else by its title; None when none has it."""
-    etools_id = (row.get("etools_indicator_id") or "").strip()
-    title = rc.norm(row.get("indicator"))
-    return (
-        (definitions.get((pd_id, f"s{etools_id}")) if etools_id else None)
-        or definitions.get((pd_id, f"o{rc.norm(row.get('pd_output'))}|{title}"))
-        or definitions.get((pd_id, f"t{title}"))
-    )
+LOCATION_FIELDS = (*rc.ROW_FIELDS, "partner_id", "partner_name", "section", "cp_output")
 
 
 def _location_cells(rows: list[dict[str, Any]], statuses: dict[Any, str], today: datetime.date, wanted):
@@ -666,8 +633,9 @@ def _location_cells(rows: list[dict[str, Any]], statuses: dict[Any, str], today:
     the disaggregation total "()", never a sum of repeated or duplicated rows): ``(fields, cell)`` per
     location, ``fields`` being what the Report/Location and Report/Disaggregation tabs show of the
     report. A report keeps its progress report's own status (``statuses``), also under a status filter
-    (``wanted``: the statuses to keep, None: all)."""
-    definitions = _definitions({r["intervention_id"] for r in rows if r["intervention_id"]})
+    (``wanted``: the statuses to keep, None: all). Each indicator report reads the type and unit of the PD
+    indicator its rows belong to (:func:`identity.definitions`)."""
+    definition = identity.definitions(rows)
     details = pd_details({r["intervention_id"] for r in rows if r["intervention_id"]})
     # one group per indicator report (one indicator in one progress report, as the tiles count them):
     # two indicators that share an eTools id or a title are never read as one, nor two programme documents'
@@ -689,7 +657,7 @@ def _location_cells(rows: list[dict[str, Any]], statuses: dict[Any, str], today:
         if wanted is not None and status not in wanted:
             continue
         pd_id = first["intervention_id"]
-        display_type, unit = definition_of(definitions, pd_id, first) or ("", "")
+        display_type, unit, _ = definition(group) or ("", "", None)
         ratio = rc.is_ratio(
             display_type, unit, first["calculation_across_locations"], first["calculation_across_periods"]
         )

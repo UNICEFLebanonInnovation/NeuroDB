@@ -52,23 +52,30 @@ class ActivityInfoSetting(models.Model):
 class DatamartSetting(models.Model):
     """The one row (pk=1) of "eTools Datamart: PRP business area code". The PRP datasets of the Datamart
     (``prp_indicator_reports``, ``prp_programme_documents``, ``prp_progress_reports``) carry no country
-    name: they are read by the country office's business area code, taken from
-    ``ETOOLS_DATAMART_BUSINESS_AREA`` (set by the hosting team), else from this row, else from the
-    Datamart's list of workspaces (:func:`neurodb.integrations.etools.datamart_sync.business_area_setting`).
-    No row, or an empty code, means the workspaces. Readers use ``filter(pk=1).first()`` and never write."""
+    name: they are read by the country office's business area code, digits (2490), taken from this row
+    first, else from ``ETOOLS_DATAMART_BUSINESS_AREA`` (set by the hosting team) when it is a code, else
+    found by NeuroDB: in the Datamart workspace it holds, the Datamart's list of workspaces, or the partner
+    report rows (:func:`neurodb.integrations.etools.datamart_sync.resolve_business_area`). A value that is
+    not a code (a country's name) is never sent. No row, or an empty code, means NeuroDB finds it. Readers
+    use ``filter(pk=1).first()`` and never write."""
 
     prp_business_area = models.CharField(
         _("PRP business area code"),
         max_length=20,
         blank=True,
-        validators=[RegexValidator(r"^[0-9A-Za-z]+$", _("Letters and digits only, as in 2490."))],
+        validators=[
+            RegexValidator(
+                r"^[0-9]+$", _("Digits only, as in 2490: the business area code, not the country's name.")
+            )
+        ],
         help_text=_(
-            "The country office's business area code, which the eTools Datamart sync sends to PRP's "
-            "indicator reports, programme documents and progress reports (they carry no country name). "
-            "Leave it empty to let NeuroDB find it in the Datamart's list of workspaces. A code the hosting "
-            "team set (ETOOLS_DATAMART_BUSINESS_AREA) comes before this one. It applies from the next sync "
-            "of those datasets; Run a job → Probe a Datamart dataset shows first what the Datamart holds for "
-            "it."
+            "The country office's business area code (digits, as 2490), which the eTools Datamart sync sends "
+            "to PRP's indicator reports, programme documents and progress reports (they carry no country "
+            "name). A code entered here comes first, before one the hosting team set "
+            "(ETOOLS_DATAMART_BUSINESS_AREA). Leave it empty to let NeuroDB find it: in the Datamart "
+            "workspace it holds, else in the Datamart's list of workspaces, else on the partner report rows. "
+            "It applies from the next sync of those datasets; Run a job → Probe a Datamart dataset shows "
+            "first what the Datamart holds for it."
         ),
     )
     updated_by = models.ForeignKey(

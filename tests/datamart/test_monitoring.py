@@ -331,14 +331,15 @@ def test_the_figures_the_pages_show_are_unchanged(world):
 # ------------------------------------------------------------------------------------------- what is stored
 def test_rows_stored_before_the_new_fields_are_never_read(world, monkeypatch, settings):
     """A Row changed shape: the stored rows' key carries the cache version, so rows a previous release stored
-    (without the new fields) are computed again, never read. Version 3 follows two versions 2 (the rows placed
-    and left out; the year's parts and the quarters): rows stored by either are never read."""
+    (without the new fields) are computed again, never read. Version 4 follows two versions 3 (the rows placed
+    and left out with the year's parts and the quarters; the tie-breaker that placed the rows), each after two
+    versions 2: rows stored by any of them are never read."""
     settings.DEBUG = False
     filters = monitoring.Filters(year=2026)
-    assert monitoring.CACHE_VERSION == 3
+    assert monitoring.CACHE_VERSION == 4
     key = monitoring._rows_key(filters, TODAY, "stamp")
-    assert key.startswith("pm-rows:v3:")
-    for previous in (1, 2):  # what a previous version stored for the same filter, day and data
+    assert key.startswith("pm-rows:v4:")
+    for previous in (1, 2, 3):  # what a previous version stored for the same filter, day and data
         with monkeypatch.context() as patch:
             patch.setattr(monitoring, "CACHE_VERSION", previous)
             patch.setattr(monitoring, "indicators", lambda *args, **kwargs: [])

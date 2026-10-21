@@ -9,6 +9,11 @@ come from the environment or Key Vault only. The credentials are attached per re
 the Datamart host: a ``next`` link pointing anywhere else is refused rather than followed, so they
 can never be sent to another server. They never appear in logs or errors (``http.py`` logs the
 method, path, status and time only).
+
+:meth:`DatamartClient.list` keeps what its latest read saw: the ``count`` its first page announced
+(``last_count``), the pages it read (``last_pages``) and the records on its last page
+(``last_page_length``); a large read in windows (``windows.Reading``) asks :meth:`DatamartClient.count`, one
+record per request, before it reads.
 """
 
 from __future__ import annotations
@@ -24,6 +29,9 @@ from django.conf import settings
 from neurodb.integrations.http import HostBoundBasicAuth, IntegrationError, get_json, make_session
 
 logger = logging.getLogger(__name__)
+
+
+COUNT_PAGE = 1  # the records a count request asks for: its ``count`` is what it is for
 
 
 class DatamartNotConfigured(IntegrationError):
@@ -64,8 +72,10 @@ class DatamartClient:
         self.session = session or make_session("")
         self.session.auth = _HostBoundBasicAuth(username, password, self.origin)
         # the ``count`` the first page of the latest :meth:`list` announced (None: not read yet, or an
-        # unpaginated list): a sync compares it with what it read before it removes anything
+        # unpaginated list), the pages it read and the records on its last one
         self.last_count: int | None = None
+        self.last_pages = 0
+        self.last_page_length = 0
 
     # API roots beside ``datamart/``: the Partner Reporting Portal views, its source tables, the ETL log.
     OTHER_ROOTS = ("prp/", "sources/", "system/", "rapidpro/")
@@ -99,26 +109,45 @@ class DatamartClient:
         """Yield every record of a dataset across all pages, for the configured country unless
         ``country`` is False (datasets without a ``country_name`` field get their own filter). The first
         page's ``count`` is kept in :attr:`last_count` (read it once the records are read)."""
+        for _, results in self.pages(dataset, params, country=country):
+            yield from results
+
+    def pages(
+        self, dataset: str, params: dict[str, Any] | None = None, *, country: bool = True
+    ) -> Iterator[tuple[int | None, list[dict[str, Any]]]]:
+        """Each page of a dataset's list in turn, as (its ``count``, its records), following ``next``; an
+        unpaginated list is one page with no count. Keeps :attr:`last_count` (the first page's),
+        :attr:`last_pages` and :attr:`last_page_length` as it reads."""
         query: dict[str, Any] = {"page_size": self.page_size, **(params or {})}
         if self.country and country:
             query.setdefault("country_name", self.country)
         url = self.url(dataset)
-        self.last_count = None
-        first = True
+        self.last_count, self.last_pages, self.last_page_length = None, 0, 0
         while True:
             payload = get_json(self.session, url, **query)
             if isinstance(payload, list):  # an unpaginated list
-                yield from payload
+                self.last_pages, self.last_page_length = 1, len(payload)
+                yield None, payload
                 return
             if not isinstance(payload, dict) or "results" not in payload:
                 raise IntegrationError(f"unrecognised list payload from datamart/{dataset}")
-            if first:
-                self.last_count, first = _count(payload.get("count")), False
-            yield from payload["results"] or []
+            results = payload["results"] or []
+            count = _count(payload.get("count"))
+            if not self.last_pages:
+                self.last_count = count
+            self.last_pages, self.last_page_length = self.last_pages + 1, len(results)
+            yield count, results
             next_url = payload.get("next")
             if not next_url:
                 return
             url, query = self._same_origin(next_url), {}
+
+    def count(
+        self, dataset: str, params: dict[str, Any] | None = None, *, country: bool = True
+    ) -> int | None:
+        """The ``count`` the Datamart announces for a query, in one request of :data:`COUNT_PAGE` record
+        (None when it says none)."""
+        return self.first_page(dataset, {**(params or {}), "page_size": COUNT_PAGE}, country=country)[0]
 
     def first_page(
         self, dataset: str, params: dict[str, Any] | None = None, *, country: bool = True

@@ -18,9 +18,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from django.utils import timezone
 
-from neurodb.datamart import monitoring, reporting, services
-from tests.reports.identity_world import SHAPES, TODAY, World
+from neurodb.core.models import SyncRun
+from neurodb.datamart import identity, monitoring, reached, reporting, services
+from tests.reports.identity_world import HOUSEHOLDS, SHAPES, TODAY, World
 
 pytestmark = pytest.mark.django_db
 
@@ -587,3 +589,28 @@ def test_figures_stay_identical_except_where_reports_were_merged(shape):
 def test_every_change_says_why():
     assert all(why.strip() for *_rest, why in CHANGED)
     assert not any("prp_ids" in shapes for shapes, *_rest in CHANGED)  # consistent PRP ids: nothing changes
+
+
+def test_a_stored_calibration_leaves_the_identical_pair_out():
+    """PD B's two household indicators share their title, their output and every key a tie-breaker reads (the
+    same high frequency, target 1000, both plan Akkar and Bekaa): with every tie-breaker in use and the PD
+    indicators read whole they still stay out, and no figure moves."""
+    world = World("production").build()
+    before = figures(world)
+    SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART,
+        target="pd_indicators",
+        status=SyncRun.Status.SUCCEEDED,
+        finished_at=timezone.now(),
+        details={
+            "datamart_count": 20,
+            "identity": {"version": identity.CALIBRATION_VERSION, "enabled": list(identity.BREAKERS)},
+        },
+    )
+    assert identity.calibration().enabled == frozenset(identity.BREAKERS) and identity.indicators_read_whole()
+    assert figures(world) == before
+    rows = list(reached.report_rows([world.pds["B"].id], ["QPR"]))
+    placed = identity.Idents([world.pds["B"].id]).place(rows)
+    assert {p.way for r, p in zip(rows, placed, strict=True) if r["indicator"] == HOUSEHOLDS} == {
+        "shared_output"
+    }

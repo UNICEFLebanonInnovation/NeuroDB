@@ -65,7 +65,8 @@ from django.db.models import Exists, OuterRef, Q
 from neurodb.cpd.services import _norm as output_norm
 from neurodb.youth import linking
 
-from . import masters, monitoring
+from . import identity, masters, monitoring
+from . import reached as rc
 from .masters import Row, key_of
 from .models import EtoolsMaster, EtoolsMasterLink, EtoolsMasterYear, ReportedIndicator
 from .reached import norm
@@ -473,20 +474,37 @@ def _saved_numbers(
 
 def _reported(keys: Collection[tuple[int, str]], named: Q | None = None) -> set[tuple[int, str]]:
     """Of these PD indicators, by key, those with a partner report row (``named``: one that matches it),
-    placed as Reached places them."""
+    placed as Reached places them (:meth:`neurodb.datamart.identity.Idents.place`: by the eTools id, the
+    title or the PD output and title, then the tie-breakers the stored proof enables), over the whole
+    progress reports of their programme documents, whatever ``named`` keeps: a tie-breaker decides from
+    every row of a report, as on Partner monitoring."""
     pd_ids = sorted({pd_id for pd_id, _ident in keys})
     if not pd_ids:
         return set()
-    found = ReportedIndicator.objects.filter(intervention_id__in=pd_ids)
+    wanted: set[int] | None = None
     if named is not None:
-        found = found.filter(named)
-    found = list(
-        found.values_list("intervention_id", "etools_indicator_id", "indicator", "pd_output").distinct()
+        found = list(
+            ReportedIndicator.objects.filter(named, intervention_id__in=pd_ids)
+            .order_by()
+            .values_list("datamart_id", "intervention_id")
+        )
+        wanted = {pk for pk, _pd_id in found}
+        pd_ids = sorted({pd_id for _pk, pd_id in found})
+        if not pd_ids:
+            return set()
+    rows = list(
+        ReportedIndicator.objects.filter(intervention_id__in=pd_ids)
+        .order_by(*rc.ROW_ORDER)
+        .values(*identity.PLACE_FIELDS)
     )
-    if not found:
+    if not rows:
         return set()
-    idents = monitoring._Idents(sorted({pd_id for pd_id, *_rest in found}))
-    return {idents.of(*row) for row in found} & set(keys)
+    placed = identity.Idents(pd_ids).place(rows)
+    return {
+        spot.ident
+        for row, spot in zip(rows, placed, strict=True)
+        if spot.ident is not None and (wanted is None or row["datamart_id"] in wanted)
+    } & set(keys)
 
 
 def _types(
