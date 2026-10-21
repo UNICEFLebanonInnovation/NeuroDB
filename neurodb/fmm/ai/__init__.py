@@ -1,4 +1,5 @@
-"""Monitoring insights' AI: the brief of a filter and the chat with its visits (OpenAI, Responses API).
+"""Monitoring insights' AI: the brief of a filter and the chat with its visits (Claude or OpenAI, whichever
+the AI settings use: :mod:`neurodb.assistant.llm`).
 
 - :mod:`.prompts`: the fixed texts that close every prompt (what the data is, the safety rules) and how a
   version's editable text is put together with them;

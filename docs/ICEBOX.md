@@ -30,7 +30,7 @@ separate **Add a document or text** form.
 - **Only administrators and section editors** get the save action (the same rule as the Add form,
   `neurodb.knowledge.access.can_add`); viewers keep a read-only assistant.
 - **Attachments go to NeuroDB first**: the file is stored and its text extracted on the server
-  (`neurodb.knowledge.text`); only the text is sent to OpenAI, as today.
+  (`neurodb.knowledge.text`); only the text is sent to the AI provider, as today.
 - **Pasted content needs its own limit**: questions are capped at 1,000 characters
   (`MAX_QUESTION_CHARS`); a pasted text would allow about 100,000, and anything longer is attached
   as a file.

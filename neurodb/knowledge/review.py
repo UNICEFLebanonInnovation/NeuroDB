@@ -34,7 +34,7 @@ left out.
 **Limits**: the review is switched on in Document review settings (off until an administrator turns it
 on) and needs the AI assistant. Its calls are recorded under ``doc_review`` in the AI use ledger, with
 its own daily cap (the settings' cap, else ``DOC_REVIEW_DAILY_TOKEN_CAP``), 80% of the shared
-``AI_DAILY_TOKEN_SOFT_CAP`` (a background job) and the OpenAI credit pause (Monitoring insights'
+``AI_DAILY_TOKEN_SOFT_CAP`` (a background job) and the AI provider's credit pause (Monitoring insights'
 ``AIState``, shared by every AI feature on the key): when one is reached the run stops cleanly and the
 rest waits for the next night (a full run leaves the documents it did not reach waiting). A document
 that needs more than a whole day's budget is not started: it could never finish (failed, with the
@@ -97,7 +97,6 @@ PRIORITIES = [value for value, _label in DocumentActionPoint.Priority.choices]
 
 OFF = "the document review is switched off (Document review settings)"
 AI_OFF = "AI is switched off"
-PAUSED = "AI is paused: the OpenAI credit ran out"
 BUDGET = "budget: today's AI budget for the document review is used; the rest waits for the next run"
 SHARED_BUDGET = "budget: today's shared AI budget is nearly used; the rest waits for the next run"
 NOT_READ_YET = "waiting: the knowledge base is still reading the document"
@@ -112,6 +111,13 @@ TOO_LONG_SHARED = (
     "shared budget."
 )
 TEXT_CHANGED = "waiting: the knowledge base read a new text while it was analysed; it is analysed again"
+
+
+def paused() -> str:
+    """Why the review stops while the AI rests: the provider's credit ran out (it names the provider)."""
+    from neurodb.fmm.ai import budget
+
+    return f"AI is paused: {budget.quota_reason()}"
 
 
 def _string(description: str = "") -> dict[str, Any]:
@@ -203,7 +209,7 @@ def blocked(tokens: int, setting: DocumentReviewSettings) -> str:
     from neurodb.fmm.ai import budget
 
     if budget.paused_until() is not None:
-        return PAUSED
+        return paused()
     if usage.today_total(usage.DOC_REVIEW) + tokens > setting.token_cap:
         return BUDGET
     if usage.today_total() + tokens > settings.AI_DAILY_TOKEN_SOFT_CAP * SOFT_SHARE:
@@ -326,7 +332,7 @@ def ask(ctx: Context, stage: str, payload: str, extra: str = "") -> list[dict[st
         result = ctx.api.complete(request)
     except Exception as exc:
         if budget.trip(exc):
-            raise Stop(PAUSED) from exc
+            raise Stop(paused()) from exc
         raise
     llm.record(usage.DOC_REVIEW, result.model, result)
     ctx.tally["calls"] += 1

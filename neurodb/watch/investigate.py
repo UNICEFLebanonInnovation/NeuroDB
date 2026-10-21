@@ -24,8 +24,8 @@ today (became critical, got worse) first, and asks the AI to look into at most
 - its tokens count in the watch's daily cap (the AI use ledger, feature "watch"). A look-up starts only
   while the watch's tokens and calls today leave room for a whole one, all features together stay under
   80% of ``AI_DAILY_TOKEN_SOFT_CAP``, and the watch's AI is not paused;
-- the OpenAI credit running out pauses the watch's AI for 6 hours (``WatchState.ai_paused_until``); so
-  do 3 failed calls in a row. The admin home then says so.
+- the AI provider's credit running out pauses the watch's AI for 6 hours (``WatchState.ai_paused_until``);
+  so do 3 failed calls in a row. The admin home then says so.
 
 The result goes in ``WatchItem.looked_up``, shown on the item's card as "What NeuroDB looked up (AI)"
 (:func:`shown`): ``{text, numbers, tools, at, on, kept, reason}``. A result that is not kept still
@@ -94,7 +94,7 @@ MAX_NUMBERS = 10
 # Why no (more) look-ups ran (Summary.skipped); the first five are the morning note's reasons too
 OFF, BUDGET, PAUSED, QUOTA, ERROR = budget.OFF, budget.BUDGET, budget.PAUSED, budget.QUOTA, budget.ERROR
 STOPPED, DONE_TODAY = "stopped", "done_today"
-QUOTA_REASON = budget.QUOTA_REASON
+quota_reason = budget.quota_reason
 ERRORS_REASON = budget.ERRORS_REASON
 
 # Why a result was not kept (looked_up["reason"]), besides grounding's reasons (number, date, person...)
@@ -360,7 +360,8 @@ def look_into(
 # ---------------------------------------------------------------------------- the circuit breaker
 # The watch's one breaker, shared with the morning notes (neurodb.watch.budget)
 def _quota(exc: Exception) -> bool:
-    """The OpenAI credit ran out (insufficient_quota, or a 429 that says quota)."""
+    """The AI provider's credit ran out (OpenAI's insufficient_quota, or a 429 that says quota;
+    Anthropic's billing_error)."""
     return budget.is_quota(exc)
 
 

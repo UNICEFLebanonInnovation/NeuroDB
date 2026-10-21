@@ -28,7 +28,7 @@
       <button type="submit" class="btn btn-primary btn-sm" id="help-submit" data-ask-part="submit"><span>{% trans "Ask" %}</span></button>
     </div>
   </form>
-  <p class="ask__note small text-muted mb-0">{% blocktrans with limit=help.allowed %}Answers come from the help guide and the live settings, written by ChatGPT (OpenAI's GPT model), and can contain mistakes. Names, emails and phone numbers are removed from your question, which is sent with the page you are on. Up to {{ limit }} questions a day.{% endblocktrans %}</p>
+  <p class="ask__note small text-muted mb-0">{% blocktrans with limit=help.allowed writer=AI_PROVIDER.writer %}Answers come from the help guide and the live settings, written by {{ writer }}, and can contain mistakes. Names, emails and phone numbers are removed from your question, which is sent with the page you are on. Up to {{ limit }} questions a day.{% endblocktrans %}</p>
   <template data-ask-turn>
     <article class="ask-turn">
       <div class="ask-turn__question"></div>

@@ -13,9 +13,9 @@ settings, streamed to the panel opened with Ctrl+Shift+H (``help.views.stream``)
   NeuroDB's own message is shown, and a declined question costs no quota.
 - **Limits**: ``HELP_PER_USER_PER_DAY`` questions a day per person (declined and refused-over-a-limit
   questions do not count; one being answered does; as many questions declined by the model again, as
-  each was a call), at most 2 at once per person, the shared
-  ``AI_DAILY_TOKEN_SOFT_CAP`` (100%: a person asks) and the OpenAI credit pause (Monitoring insights'
-  ``AIState``: a run that finds the credit gone pauses it for 6 hours). Every answer's calls are recorded
+  each was a call), at most 2 at once per person, the shared ``AI_DAILY_TOKEN_SOFT_CAP`` (100%: a
+  person asks) and the AI provider's credit pause (Monitoring insights' ``AIState``: a run that finds
+  the credit gone pauses it for 6 hours). Every answer's calls are recorded
   in the AI use ledger under ``help``.
 - **Its log** (``HelpQuestion``): the question as sent (names, e-mail addresses, phone numbers and links
   removed), the page, the answer, the tokens and whether it was declined, kept 90 days (:func:`prune`,
@@ -127,7 +127,7 @@ _SCREEN = (
         re.compile(
             r"\b(pass ?words?|passwd|passcodes?|api[ _-]?keys?|secret[ _-]?keys?|access[ _-]?keys?|"
             r"private[ _-]?keys?|client[ _-]?secrets?|connection[ _-]?strings?|environment[ _-]?variables?|"
-            r"env[ _-]?vars?|openai_api_key|django_secret_key|key ?vault)\b|\.env\b",
+            r"env[ _-]?vars?|openai_api_key|anthropic_api_key|django_secret_key|key ?vault)\b|\.env\b",
             re.IGNORECASE,
         ),
     ),
@@ -370,7 +370,7 @@ def stream(request, row: HelpQuestion, turns: list[dict[str, str]], line: str) -
             if reason:
                 break
     except Exception as exc:  # the stream has started: report errors as events, never as a 500
-        budget.trip(exc)  # the OpenAI credit ran out: the AI rests 6 hours
+        budget.trip(exc)  # the AI provider's credit ran out: the AI rests 6 hours
         message = _friendly(exc)
         if message is None:
             logger.exception("Help assistant failed")
@@ -383,7 +383,7 @@ def stream(request, row: HelpQuestion, turns: list[dict[str, str]], line: str) -
         if outcome.status == "answered" and not answered:
             # the browser went away (Stop, closed panel) before the answer was complete
             outcome.status, outcome.error = "failed", outcome.error or "stopped"
-        if outcome.status == "refused" and not row.refused:  # declined by OpenAI's own checks
+        if outcome.status == "refused" and not row.refused:  # declined by the provider's own checks
             row.refused, row.refusal_reason = True, row.refusal_reason or "other"
         row.answer = _storable(outcome.answer)
         row.status = outcome.status if outcome.status in HelpQuestion.Status.values else "failed"

@@ -38,9 +38,11 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
   completed map products.
 - **Data health**: freshness of every sync job and database import, with recent run history.
 - **Ask NeuroDB (AI assistant)**: questions in plain language ("which Child Protection programme
-  documents are off track this year?", "total budget of EU-funded PDs?") answered by ChatGPT (an OpenAI model via the
-  OpenAI API) from NeuroDB's own data through read-only lookups, streamed live with links to the
-  source pages; also from the search box. Needs `OPENAI_API_KEY`; see `docs/OPERATIONS.md`.
+  documents are off track this year?", "total budget of EU-funded PDs?") answered by the AI, Claude
+  (preferred) or ChatGPT, chosen in the admin's AI settings, from NeuroDB's own data through read-only
+  lookups, streamed live with links to the source pages; also from the search box. Needs an Anthropic
+  or OpenAI API key, entered in AI settings or set as `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`; see
+  `docs/OPERATIONS.md`.
 - **Everywhere**: search (Ctrl K or /) across pages, partners, programme documents, country programme
   indicators, knowledge base documents and the ActivityInfo archive of every year; dark mode;
   copy or CSV on every table; keyboard-sortable tables; mobile layout; strict Content Security Policy.
@@ -54,7 +56,7 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 - **Monitoring insights**: eTools field monitoring as visits, at `/fmm/`: report quality rules
   and scores, urgency and follow-up, charts with drill-down, a visit page, a map of visits against
   planned locations, and an AI brief and chat over the filter's visits (off until go-live). How it
-  counts, what goes to OpenAI, how to switch it off and the go-live checklist are in
+  counts, what goes to the AI provider, how to switch it off and the go-live checklist are in
   `docs/OPERATIONS.md`, *Monitoring insights*.
 
 ## Documents
@@ -143,7 +145,7 @@ neurodb/partnerships  eTools replicas (v2 tables) and partner/PD/donor services
 neurodb/datamart   eTools Datamart tables (funds, indicators, assurance, monitoring) and their page services
 neurodb/integrations  ActivityInfo, eTools and eTools Datamart clients, sync commands
 neurodb/reports    Page views, internal JSON API, exports
-neurodb/assistant  AI assistant: OpenAI API agent (Responses API), read-only data tools, question log
+neurodb/assistant  AI assistant: Claude or OpenAI through one provider layer (llm/), read-only data tools, question log
 infra/             Azure Bicep template, deploy and rollback scripts
 docker/            Container entrypoint and health check
 neurodb/web        Base layout, components, static assets (vendored, no CDN), CSP middleware

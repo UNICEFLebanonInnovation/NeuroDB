@@ -235,6 +235,25 @@ def test_the_whole_country_view_reads_the_country_note_and_trial_checks(team):
     assert trial.title not in login(team.edu).get(FOR_YOU).content.decode()
 
 
+def test_a_note_names_the_vendor_of_the_model_that_wrote_it(team):
+    WatchNote.objects.create(
+        date=today(),
+        audience_key=WatchNote.COUNTRY,
+        audience_name="Whole country",
+        sentences=[{"text": "Nothing needs a person today.", "keys": []}],
+        written_by="gpt-5.5",
+    )
+    with override_settings(AI_PROVIDER="claude", ANTHROPIC_API_KEY="test-key-not-real"):
+        html = login(team.boss).get(FOR_YOU).content.decode()
+        assert "The note is written by AI (OpenAI)" in html  # written before the switch: OpenAI wrote it
+        WatchNote.objects.update(written_by=WatchNote.TEMPLATE, ai_skipped_reason="quota")
+        html = login(team.boss).get(FOR_YOU).content.decode()
+        assert "The note is written by AI (Anthropic)" in html  # a listed note: the provider in use
+        assert "AI not used today: the Anthropic credit ran out" in html
+    html = login(team.boss).get(FOR_YOU).content.decode()
+    assert "AI not used today: the OpenAI credit ran out" in html and "written by AI (OpenAI)" in html
+
+
 def test_the_administrators_picker_shows_an_audience_and_never_anyones_receipts(team, health):
     edu_point = item()
     tell(team.edu, edu_point, reaction=Reaction.WRONG, comment="secret remark")

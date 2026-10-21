@@ -1,13 +1,14 @@
-"""One ledger of AI use for the shared OpenAI key.
+"""One ledger of AI use for the shared key of the AI provider in use (Claude or OpenAI).
 
 Every feature that calls the model adds the call to today's ``AIUsage`` row of its feature and model
 right after the call returns (``record``): Ask NeuroDB, the daily review (summary and decisions), the
 What's new note, document summaries, periodic report figures, the country programme reading, NeuroDB
 Watch and Monitoring insights (its briefs, test runs and chat; its AI checks apart; the action points'
-AI review and summaries apart), the Help assistant and the document review. The day's totals
-(``today_total``, ``today_calls``) tell how much of the key's daily spend is used, across every feature
-or for one; the admin lists the rows under "AI use", in tokens, and in US dollars when the optional
-``AI_PRICE_*`` settings give the prices.
+AI review and summaries apart), the Help assistant, the document review and AI settings' connection
+test. The day's totals (``today_total``, ``today_calls``) tell how much of the key's daily spend is used,
+across every feature or for one; the admin lists the rows under "AI use", in tokens, and in US dollars
+where the price is known: Claude's are built in (``CLAUDE_PRICES``), OpenAI's come from the optional
+``AI_PRICE_*`` settings. The model names the provider, so Claude and OpenAI rows never mix.
 
 Recording never fails the feature that called the model: an error is logged and the call goes on.
 """
@@ -24,6 +25,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import F, Sum
 from django.utils import timezone
 
+from . import llm
 from .models import AIUsage
 
 logger = logging.getLogger(__name__)
@@ -133,26 +135,45 @@ def split(usage: Any) -> tuple[int, int, int]:
     """The (input, cached, output) tokens of one model call's ``usage``, counted as
     ``agent.Outcome.add_usage`` counts them: OpenAI includes the cached prompt tokens in input_tokens,
     so they are taken out of it and kept apart (input + cached is the whole prompt). An
-    ``agent.Outcome``, whose tokens are already added up and split, is read as it is. No usage (a fake
-    or an older response) gives zeros."""
+    ``agent.Outcome`` or an ``llm.Usage``, whose tokens are already added up and split, is read as it is.
+    An Anthropic message's usage leaves the cache reads and writes out of its input_tokens: the writes
+    are added to it, the reads kept apart. No usage (a fake or an older response) gives zeros."""
     if not usage:
         return 0, 0, 0
-    if hasattr(usage, "cache_read_tokens"):  # an agent.Outcome: the tokens of all its calls, split
+    if hasattr(usage, "cache_read_tokens"):  # an agent.Outcome or llm.Usage: already split
         return _count(usage.input_tokens), _count(usage.cache_read_tokens), _count(usage.output_tokens)
+    if hasattr(usage, "cache_creation_input_tokens"):  # an Anthropic message's usage
+        return (
+            _count(getattr(usage, "input_tokens", 0)) + _count(usage.cache_creation_input_tokens),
+            _count(getattr(usage, "cache_read_input_tokens", 0)),
+            _count(getattr(usage, "output_tokens", 0)),
+        )
     cached = _count(getattr(getattr(usage, "input_tokens_details", None), "cached_tokens", 0))
     prompt = _count(getattr(usage, "input_tokens", 0))
     return max(prompt - cached, 0), cached, _count(getattr(usage, "output_tokens", 0))
 
 
+def written(usage: Any) -> int:
+    """The prompt tokens of ``usage`` written to the cache, which ``split`` counts in its input (Claude
+    only: 0 on OpenAI, whose cache costs nothing to write)."""
+    if not usage:
+        return 0
+    if hasattr(usage, "cache_read_tokens"):  # an agent.Outcome or llm.Usage
+        return _count(getattr(usage, "cache_write_tokens", 0))
+    return _count(getattr(usage, "cache_creation_input_tokens", 0))
+
+
 def record(feature: str, model: str, usage: Any = None, calls: int = 1) -> None:
-    """Add ``calls`` model calls and the tokens of ``usage`` (one response's usage, or an
-    ``agent.Outcome``) to today's row of ``feature`` and ``model`` (the model the call asked for).
+    """Add ``calls`` model calls and the tokens of ``usage`` (one response's usage, an ``llm.Usage`` or
+    an ``agent.Outcome``) to today's row of ``feature`` and ``model`` (the model that ran the tokens:
+    ``llm.record`` gives a refusal fallback's attempt a row of its own model).
 
     Called right after each call returns. It never fails its caller: any error is logged. Inside an
     open transaction it writes in a savepoint, so a failed write leaves the caller's work intact.
     """
     try:
         input_tokens, cached, output = split(usage)
+        cache_written = min(written(usage), input_tokens)
         calls = _count(calls)
         if not (calls or input_tokens or cached or output):
             return
@@ -161,6 +182,7 @@ def record(feature: str, model: str, usage: Any = None, calls: int = 1) -> None:
             "calls": F("calls") + calls,
             "input_tokens": F("input_tokens") + input_tokens,
             "cached_tokens": F("cached_tokens") + cached,
+            "cache_write_tokens": F("cache_write_tokens") + cache_written,
             "output_tokens": F("output_tokens") + output,
         }
         with transaction.atomic():
@@ -173,6 +195,7 @@ def record(feature: str, model: str, usage: Any = None, calls: int = 1) -> None:
                         calls=calls,
                         input_tokens=input_tokens,
                         cached_tokens=cached,
+                        cache_write_tokens=cache_written,
                         output_tokens=output,
                     )
             except IntegrityError:  # another call wrote the day's first row in between: add to it
@@ -232,10 +255,31 @@ def prices() -> dict[str, Decimal] | None:
     return given
 
 
+def price_for(model: str) -> dict[str, Decimal] | None:
+    """US dollars per million input, cached (read from the cache), cache-write and output tokens of
+    ``model``: a Claude model's from ``CLAUDE_PRICES`` (the longest id its name starts with, so a dated
+    id has its model's prices), any other model's from ``prices`` (OpenAI's cache costs nothing to write:
+    the input price). None when the price is not known: a Claude model missing from the table, never
+    OpenAI's prices for it; or no AI_PRICE_* settings."""
+    name = (model or "").strip().lower()
+    if llm.provider_of(name) == llm.CLAUDE:
+        known = max((m for m in CLAUDE_PRICES if name.startswith(m)), key=len, default=None)
+        if known is None:
+            return None
+        entry = CLAUDE_PRICES[known]
+        return {part: entry[part] for part in ("input", "cached", "write", "output")}
+    given = prices()
+    return {**given, "write": given["input"]} if given else None
+
+
 def cost(row: AIUsage, price: dict[str, Decimal]) -> Decimal:
-    """What one row cost in US dollars at ``price`` (from ``prices``)."""
+    """What one row cost in US dollars at ``price`` (from ``price_for`` or ``prices``). The tokens
+    written to the cache are inside the input tokens, already at the input price: only the premium of
+    the write is added (none on OpenAI, whose rows write none)."""
+    write = price.get("write", price["input"])
     return (
         row.input_tokens * price["input"]
         + row.cached_tokens * price["cached"]
+        + getattr(row, "cache_write_tokens", 0) * (write - price["input"])
         + row.output_tokens * price["output"]
     ) / MILLION

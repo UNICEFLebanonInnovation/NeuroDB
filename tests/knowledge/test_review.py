@@ -518,7 +518,7 @@ def test_the_credit_pause_and_the_shared_cap_stop_it(report, setting, fake, ai_o
     client = fake()
     monkeypatch.setattr("neurodb.fmm.ai.budget.paused_until", lambda *a: timezone.now())
     run = review.run(review.PENDING, triggered_by="test")
-    assert client.requests == [] and run.details["stopped"] == review.PAUSED
+    assert client.requests == [] and run.details["stopped"] == review.paused()
     monkeypatch.setattr("neurodb.fmm.ai.budget.paused_until", lambda *a: None)
     _used_today(79_000)  # the document fits 80% of the shared cap, but not what is left of it today
     with override_settings(AI_DAILY_TOKEN_SOFT_CAP=100_000):

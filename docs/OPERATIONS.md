@@ -60,13 +60,15 @@ Key Vault secrets: `django-secret-key`, `database-url`, `activityinfo-username` 
 `activityinfo-password` (the ActivityInfo account's email and password; or `activityinfo-token` with
 `activityInfoAuth = 'token'`), `etools-token`, `etools-username` and `etools-password` (the eTools
 Datamart service account), (with SSO)
-`entra-client-secret`, (with the AI assistant) `openai-api-key` and (with Compiler youth figures)
-`compiler-api-token`. To rotate, set a
+`entra-client-secret`, (with the AI assistant, when the key is not entered in the admin's AI settings)
+`anthropic-api-key` or `openai-api-key` and (with Compiler youth figures) `compiler-api-token`. To rotate, set a
 new version in Key Vault, then restart the active web revision (`az containerapp revision
 restart`). Jobs pick the new value up on their next run.
 No code change is needed. Rotating the Django secret key signs everyone out and changes the
-per-user identifier sent to OpenAI (`safety_identifier`, below), so OpenAI's misuse history for
-each user starts afresh.
+per-user identifier sent to the AI provider (Claude's `metadata.user_id`, OpenAI's `safety_identifier`,
+below), so the provider's misuse history for each user starts afresh. The API keys entered in AI settings
+are sealed with the secret key: after a rotation they can no longer be read, Needs attention says so,
+and an administrator enters them again in AI settings (a key set by the hosting team is not affected).
 
 ## AI assistant (Ask NeuroDB)
 Signed-in users ask questions in plain language on `/ask/` or from the search box (Ctrl K; staff only:
@@ -75,43 +77,78 @@ visitors and donor accounts have no search box). The search box's "Ask NeuroDB A
 page reload never asks it. The answers start from eTools for this year; the ActivityInfo tools serve the
 ActivityInfo years, and the line after the date tells the model whether ActivityInfo is in use or an
 archive (see *ActivityInfo: in use or archive*).
-ChatGPT answers them: an OpenAI GPT model called through the OpenAI API (platform.openai.com,
-Responses API), not the consumer ChatGPT app. The model calls read-only lookups over NeuroDB's own
+The AI answers them: Claude, Anthropic's model, called through the Claude API (the Messages API;
+platform.claude.com), the preferred one; or ChatGPT, an OpenAI GPT model called through the OpenAI API
+(platform.openai.com, Responses API), not the consumer ChatGPT app or Claude.ai. Which one runs is chosen
+in the admin's AI settings (below). The model calls read-only lookups over NeuroDB's own
 services (indicator results, activity reports, Neuro reports, programme documents, donors,
 partners, every eTools Datamart dataset NeuroDB holds (funds, indicators, assurance, reporting,
 monitoring, PD narratives and reviews..., without e-mail addresses or phone numbers),
 population, library, data freshness) and links each answer to the pages its figures
 come from.
 
-- **API key and billing** (platform.openai.com, with an organisation account, not a personal one):
-  in the organisation, create a project named `NeuroDB` (only organisation owners can create
+- **Choosing the AI** (Admin → Data and sync → **AI settings**, one page, no command line): every AI
+  feature (Ask NeuroDB, the Help assistant, Monitoring insights, NeuroDB Watch, the daily review,
+  What's new, the document summaries, review and periodic figures, the country programme reading) runs
+  on one provider: **Claude** (Anthropic), the preferred one, or **ChatGPT** (OpenAI). *Automatic*, the
+  default, uses Claude when an Anthropic key is available (set by the hosting team or entered on the
+  page) and OpenAI otherwise. The page holds the provider, the two API keys (write-only: only their
+  last 4 characters are shown again), the model and default effort of each provider, *Retry a declined
+  answer on another Claude model* (on by default, see *Refusals and failures*), *In use now*, a table
+  of which model each AI feature asks for and runs on now, and **Test the connection** (one tiny
+  request, "Reply with the word OK.", with no NeuroDB data; the result is kept on the page). A value
+  the hosting team sets comes first: `AI_PROVIDER` for the provider and `ANTHROPIC_API_KEY` /
+  `OPENAI_API_KEY` for the keys (the page shows their last 4 characters and disables the key box); a
+  model or default effort chosen on the page comes before `CLAUDE_MODEL`, `CLAUDE_EFFORT`,
+  `AI_ASSISTANT_MODEL` and `AI_ASSISTANT_EFFORT`. Keys entered on the page are sealed with the site's
+  secret key (`DJANGO_SECRET_KEY`): after that key changes they cannot be read any more, Needs attention
+  says so, and an administrator enters them again. A save applies with no restart: the worker that
+  saved at once, the others within 10 seconds. A model of the other provider is never sent: a prompt
+  version, the Score settings or `WATCH_MODEL` naming an OpenAI model runs on the Claude model while
+  Claude is in use (and the other way round), and nothing stored is rewritten; the table on the page
+  shows which model runs.
+- **API key and billing, Claude** (the Claude Console, platform.claude.com, with the organisation's
+  account, not a personal one): in the organisation's workspace for NeuroDB, create an API key on the
+  API keys page. API usage is prepaid: buy credits under Billing. It is billed separately from any
+  Claude.ai subscription, which includes no API credit. Set a spend limit and usage alerts on the
+  workspace. Enter the key in AI settings, or give it to the hosting team as `ANTHROPIC_API_KEY`.
+- **API key and billing, OpenAI** (platform.openai.com, with an organisation account, not a personal
+  one): in the organisation, create a project named `NeuroDB` (only organisation owners can create
   projects), then create an API key owned by that project on the API keys page
   (`https://platform.openai.com/settings/organization/api-keys`). API usage is prepaid: buy credits
   under Billing. It is billed separately from any ChatGPT subscription, which includes no API
   credit. Set a budget and usage alerts on the `NeuroDB` project's limits page.
-- **Switch on**: store the key in Key Vault as `openai-api-key` and reference it as
-  `OPENAI_API_KEY` (App Service:
-  `@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=openai-api-key)`; Container Apps:
-  `enableAiAssistant = true` in `main.bicepparam`). Restart the app. Without a key the assistant is
-  off and the search box ("Search partners, programme documents, indicators") works as before; `/ask/` then points users to Search and the Management
-  brief, and only staff see which setting is missing. Never put the key in a committed file or a Bicep
-  parameter.
-- **Settings**: `AI_ASSISTANT_MODEL` (default `gpt-5.5`; it can be switched to a newer model such
-  as `gpt-6-sol`, released on 2026-09-22, after checking its price on OpenAI's pricing page and
-  trying it on staging), `AI_ASSISTANT_EFFORT` (reasoning effort, default `medium`; the API's
-  values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`, but not every model
-  accepts every value: gpt-5.5 takes `none`, `low`, `medium`, `high` and `xhigh`. Lower is cheaper
-  and faster, higher reasons longer. Any other value stops the app at start-up: the website and
-  the jobs do not start until it is corrected), `AI_ASSISTANT_HOURLY_LIMIT` (questions per user per
-  hour, default 30), `AI_ASSISTANT_MAX_TOOL_ROUNDS` (rounds of lookups per question, default 8),
-  `AI_ASSISTANT_TIME_LIMIT_SECONDS` (default 180) and `AI_ASSISTANT_ENABLED=false` to switch it
-  off with the key still set. A question counts towards the hourly limit from the moment it is
-  asked, and a user can have at most two questions being answered at the same time.
+- **Switch on**: enter the key in AI settings; or store it in Key Vault as `anthropic-api-key` (or
+  `openai-api-key`) and reference it as `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) (App Service:
+  `@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=anthropic-api-key)`; Container Apps:
+  `enableAiAssistant = true`, and `anthropicKeyInKeyVault = true` for the Anthropic key, in
+  `main.bicepparam`), then restart the app. A key entered in AI settings needs no restart. Without a
+  key the assistant is off and the search box ("Search partners, programme documents, indicators")
+  works as before; `/ask/` then points users to Search and the Management brief, and only staff see
+  where the key goes. Never put a key in a committed file or a Bicep parameter.
+- **Settings**: `AI_PROVIDER` (`auto`, the default: the choice in AI settings, else Claude when an
+  Anthropic key is available; `claude` or `openai` pins it, before AI settings; any other value stops
+  the app at start-up), `ANTHROPIC_API_KEY` (optional: the key can be entered in AI settings instead),
+  `CLAUDE_MODEL` (default `claude-opus-5-5`; a Claude model id, starting with `claude-`, else the app
+  does not start), `CLAUDE_EFFORT` (how much Claude thinks before it answers: `low`, `medium`, `high`,
+  `xhigh` or `max`; default `medium`; a feature's `none` or `minimal` runs as `low`; any other value
+  stops the app at start-up), `AI_ASSISTANT_MODEL` (the OpenAI model, default `gpt-5.5`; it can be
+  switched to a newer model such as `gpt-6-sol`, released on 2026-09-22, after checking its price on
+  OpenAI's pricing page and trying it on staging), `AI_ASSISTANT_EFFORT` (OpenAI's reasoning effort,
+  default `medium`; the API's values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and
+  `max`, but not every model accepts every value: gpt-5.5 takes `none`, `low`, `medium`, `high` and
+  `xhigh`. Lower is cheaper and faster, higher reasons longer. Any other value stops the app at
+  start-up: the website and the jobs do not start until it is corrected), `AI_ASSISTANT_HOURLY_LIMIT`
+  (questions per user per hour, default 30), `AI_ASSISTANT_MAX_TOOL_ROUNDS` (rounds of lookups per
+  question, default 8), `AI_ASSISTANT_TIME_LIMIT_SECONDS` (default 180) and
+  `AI_ASSISTANT_ENABLED=false` to switch every AI feature off whatever key is set or entered. A
+  question counts towards the hourly limit from the moment it is asked, and a user can have at most
+  two questions being answered at the same time.
 - **Data leaves Azure**: each question, up to six earlier questions and answers of the same
-  conversation, and the data looked up to answer it are sent to the OpenAI API (api.openai.com over
-  HTTPS). That data is the figures plus partner, programme-document, donor and library details, such as
-  partner names, vendor numbers, risk ratings, HACT and assurance results, programme document titles,
-  library summaries and the free-text comments staff write on Neuro and HPM reports. When a filter
+  conversation, and the data looked up to answer it are sent to the provider in use: the Claude API
+  (api.anthropic.com) or the OpenAI API (api.openai.com), over HTTPS. That data is the figures plus
+  partner, programme-document, donor and library details, such as partner names, vendor numbers, risk
+  ratings, HACT and assurance results, programme document titles, library summaries and the free-text comments staff write on Neuro and HPM reports. When a filter
   matches nothing, the list of known partner, donor or office names is sent too. It is organisational
   data. The summary lookups send field visits as counts. The HACT visit plan lookup (`hact_visit_plan`)
   sends counts, section names and the remarks' labels only: never a partner, a programme document
@@ -244,35 +281,55 @@ come from.
   the dataset's size, never on how many records hold the text only where it is withheld. Partner staff
   contact lists are not synced at all. NeuroDB Watch's look-ups never use those four (below). Only
   signed-in users can ask, and the lookups can only read what any signed-in user can already see.
-  Nothing is written back. Requests are sent with `store=false`, so OpenAI does not keep the responses
-  for later retrieval through the API; NeuroDB keeps its own question log. Each request carries a keyed
-  hash (HMAC-SHA-256 with the app's Django secret key) of the signed-in user's internal id
-  (`safety_identifier`), never a name or email address, so OpenAI can flag misuse per user. OpenAI's
-  published API data terms say that API data is not used to train models unless the organisation opts
-  in, that abuse-monitoring logs may be kept for up to 30 days, and that Zero Data Retention is
-  available only to approved, eligible customers; check the current terms on openai.com before switching
-  on. Clear this with the data protection focal point before switching it on; outbound HTTPS to
-  api.openai.com must be allowed.
+  Nothing is written back. Claude's Messages API keeps no conversation between requests: NeuroDB sends
+  what each call needs. OpenAI requests are sent with `store=false`, so OpenAI does not keep the
+  responses for later retrieval through the API. NeuroDB keeps its own question log. Each request a
+  person asked for carries a keyed hash (HMAC-SHA-256 with the app's Django secret key) of the
+  signed-in user's internal id, never a name or email address: as Claude's `metadata.user_id`
+  (Anthropic may use it to help detect abuse) or OpenAI's `safety_identifier` (so OpenAI can flag
+  misuse per user). Whether a provider may use the data sent through its API to train its models is set
+  by its commercial terms: check Anthropic's (anthropic.com/legal) or OpenAI's (openai.com/policies)
+  before switching on. How long each provider keeps requests (for example for abuse monitoring) is set
+  by its terms too: check Anthropic's commercial terms and privacy policy (anthropic.com/legal) or
+  OpenAI's API data terms (openai.com/policies) before switching on. Clear this with the data
+  protection focal point before switching it on; outbound HTTPS to api.anthropic.com (Claude) or
+  api.openai.com (OpenAI) must be allowed.
 - **Cost and review**: every question is logged in Admin → Data and sync → AI questions with the
   lookups made, tokens used and time taken. Every AI feature on the key (Ask NeuroDB, the daily
   review, What's new, document summaries, periodic figures, country programme reading, NeuroDB
-  Watch, Monitoring insights, the Help assistant) is also counted per day in one ledger, Admin → Data and sync → **AI use** (tokens; US
-  dollars when `AI_PRICE_INPUT_PER_MTOK`, `AI_PRICE_CACHED_PER_MTOK` and `AI_PRICE_OUTPUT_PER_MTOK`
-  are set). The background features stop using AI first when all of them together pass 80% of
-  `AI_DAILY_TOKEN_SOFT_CAP` (default 3,000,000 tokens a day), so questions keep being answered. Output tokens include the model's reasoning tokens,
-  which are billed as output. A typical question makes 2-4 lookups. The instructions and tool
-  definitions are sent first and unchanged on every request, so OpenAI's automatic prompt caching
-  (prompts of 1,024 tokens or more, no setup) bills that repeated part at the cheaper cached-input
-  rate. Prices per model are on OpenAI's pricing page.
+  Watch, Monitoring insights, the Help assistant, the document review, AI settings' connection test)
+  is also counted per day and model in one ledger, Admin → Data and sync → **AI use**, with the
+  provider of each row and the prompt tokens read from and written to the cache, in tokens and in US
+  dollars where the model's price is known: Claude's prices are built in (per million tokens on the
+  default Claude model, `CLAUDE_MODEL`: $4 input, $0.20 read from the cache, $5 written to it, $20 output; check
+  Anthropic's pricing page), OpenAI's come from `AI_PRICE_INPUT_PER_MTOK`, `AI_PRICE_CACHED_PER_MTOK`
+  and `AI_PRICE_OUTPUT_PER_MTOK` when they are set. The background features stop using AI first when
+  all of them together pass 80% of `AI_DAILY_TOKEN_SOFT_CAP` (default 3,000,000 tokens a day), so
+  questions keep being answered. Output tokens include the model's reasoning (OpenAI) or thinking
+  (Claude) tokens, which are billed as output. A typical question makes 2-4 lookups. The instructions
+  and tool definitions are sent first and unchanged on every request: on Claude NeuroDB marks that
+  fixed part for caching, so a repeat reads it from the cache at $0.20 per million tokens on the
+  default Claude model instead of $4 (writing the cache costs 1.25 times the input price; prompts under
+  512 tokens are not cached); on OpenAI its automatic prompt caching (prompts of 1,024 tokens or more,
+  no setup) bills that repeated part at the cheaper cached-input rate. Prices per model are on each
+  provider's pricing page.
 - **Refusals and failures**: when the model declines a question, it is logged as "Declined by the
-  model" and the user is asked to rephrase; there is no automatic retry on another model. A
-  question blocked by OpenAI's safety checks (error codes `invalid_prompt`, `bio_policy`,
-  `cyber_policy`, `misalignment_policy_violation`) is logged the same way, with the code in the
-  Error field; asking the same question again will not help. If every question fails, open a
-  failed question in the log: its Error field (and the app logs) shows the cause, for example an
-  invalid or revoked key (401), used-up credits (429 `insufficient_quota`: buy credits, retrying
-  does not help), rate limits (429) or an unknown model id (404). A question still being answered
-  shows as Failed with the Error "in progress" until it ends.
+  model" and the user is asked to rephrase. On Claude a declined answer arrives as a refusal, and
+  refusal fallbacks are on: Anthropic runs the request again on another Claude model it chooses for the
+  reason of the decline; the question log and AI use then name the model that answered, and the
+  declined attempt's tokens stay with the model asked for. Untick *Retry a declined answer on another
+  Claude model* in AI settings to switch them off; an Anthropic account that does not accept them gets
+  every call without them for a day, and Needs attention says so. A refusal's partial text is never
+  kept. On OpenAI there is no automatic retry on another model, and a question blocked by OpenAI's
+  safety checks (error codes `invalid_prompt`, `bio_policy`, `cyber_policy`,
+  `misalignment_policy_violation`) is logged the same way, with the code in the Error field; asking the
+  same question again will not help. If every question fails, use Test the connection in AI settings,
+  or open a failed question in the log: its Error field (and the app logs) shows the cause. On Claude:
+  an invalid or revoked key (401), used-up credits (402 `billing_error`: buy credits, retrying does not
+  help), rate limits (429 `rate_limit_error`), the service overloaded (529 `overloaded_error`) or an
+  unknown model id (404). On OpenAI: an invalid or revoked key (401), used-up credits (429
+  `insufficient_quota`: buy credits, retrying does not help), rate limits (429) or an unknown model id
+  (404). A question still being answered shows as Failed with the Error "in progress" until it ends.
 - **Background look-ups (NeuroDB Watch)**: every morning NeuroDB Watch runs this same loop on its
   own, with no person asking, to look into at most 3 open critical points (see NeuroDB Watch, *The
   daily look-ups*). It offers only 13 read-only tools of the 44 (`find_anything`, `entity_profile`,
@@ -282,14 +339,16 @@ come from.
   under known fields; no people's names, free text, links, Makani centres or the daily review's data
   checks) before the model reads it, runs each tool in a read-only database transaction,
   stops after 4 rounds or 150 seconds and keeps an answer only when its figures are in what was
-  looked up. It uses its own prompt cache key and sends no `safety_identifier`; its tokens count in
-  the watch's own daily cap, never in anyone's hourly limit. A question asked on `/ask/` is sent
-  exactly as before: same instructions, all tools, same cache key.
+  looked up. It uses its own prompt cache key (OpenAI) or cached prompt (Claude), and no person
+  identifier; its tokens count in the watch's own daily cap, never in anyone's hourly limit. A question
+  asked on `/ask/` is sent exactly as before: same instructions, all tools, same cache key.
 - **Azure OpenAI is a different service**: Microsoft's Azure OpenAI hosts OpenAI models inside an
   Azure subscription, with its own endpoint (`https://<resource>.openai.azure.com`), its own keys
   or Entra ID sign-in, and deployment names instead of model ids. A platform.openai.com key does
   not work there. Moving the assistant to Azure OpenAI (for example to keep the traffic in the
   Azure tenant) needs a small code change (the SDK's `AzureOpenAI` client) and different settings.
+  NeuroDB calls Anthropic's own API: Claude through Microsoft Foundry or another cloud would need a code
+  change too, and has no server-side refusal fallbacks.
 
 ### Knowledge base (`/knowledge/`)
 
@@ -328,15 +387,15 @@ minutes; the page refreshes until it is ready; several files added at once are r
    named in the text are linked. Matching is literal and whole-word; "North" and "South" count
    only as "North Lebanon" / "South governorate". The documents then show on the partner's and the
    programme document's pages, and `partner_details` / `programme_details` give them to the AI.
-4. **Summary** (when the AI assistant is configured): the first 120,000 characters go to the OpenAI
-   API (`store=false`) for a short summary, key points, the document's date and the organisations,
-   places and reference numbers it names; those names become *AI-suggested* links when they match a
+4. **Summary** (when the AI assistant is configured): the first 120,000 characters go to the AI
+   provider in use (Claude, or OpenAI with `store=false`) for a short summary, key points, the
+   document's date and the organisations, places and reference numbers it names; those names become *AI-suggested* links when they match a
    NeuroDB record. If this step fails, the document is still searchable and says so.
 
 The assistant has two tools for it: `search_knowledge` (best passages for some words, optionally
 only in the documents linked to a partner, programme document, section or year) and
 `read_knowledge` (a document's summary, links and text in parts of 8,000 characters). It quotes
-and links the documents it uses. Their text is sent to OpenAI as part of the answer; the
+and links the documents it uses. Their text is sent to the AI provider in use as part of the answer; the
 instructions tell the model that it is material, never instructions to follow, and the AI cannot
 change or add documents. Do not add personal data of children, beneficiaries or staff.
 
@@ -382,8 +441,8 @@ differences, follow trends and draw charts.
   the older editions such as #23) cannot be read: the edition names those pages. Their history is
   usually in the later editions' charts, which repeat every date since the start.
 - **Other figures** (headline counts and their breakdowns, indicators with achievement and target)
-  are listed by the AI (OpenAI API, `store=false`) from the pages laid out as on paper. A figure is
-  kept only when its number is printed on the page it is said to come from; the others are counted
+  are listed by the AI (the provider in use; OpenAI with `store=false`) from the pages laid out as on
+  paper. A figure is kept only when its number is printed on the page it is said to come from; the others are counted
   in the edition's note. Earlier editions' measures are given to the AI so that the same measure
   keeps the same name. Without the AI configured only the charts' figures are kept.
 - **Over time**: the figures of all editions are lined up by the date they are about. When several
@@ -413,7 +472,8 @@ in `review_docx.py` and the theme paragraph in `review_paragraph.py`.
 
 **Turning it on.** Admin → Library and maps → **Document review settings** (Administrators only):
 tick *Enabled*. It is off when NeuroDB is deployed: until then nothing is analysed and the nightly
-run finishes *skipped*. It also needs the AI assistant (`AI_ASSISTANT_ENABLED`, an OpenAI key).
+run finishes *skipped*. It also needs the AI assistant (`AI_ASSISTANT_ENABLED`, and an Anthropic or
+OpenAI key, set by the hosting team or entered in AI settings).
 
 **Batches.** Only documents put in a **review batch** are analysed: a folder for one kind of document
 (the review page's Documents tab, or Admin → **Document review batches**). Put a knowledge base document
@@ -481,16 +541,17 @@ calls, the tokens, the parts read again as halves, and why it stopped.
 run cleanly, leaving the document as it was for the next night, when: the review's own daily cap would
 be passed (*Daily token cap* in the settings; 0 = `DOC_REVIEW_DAILY_TOKEN_CAP`, default 1,000,000),
 the shared `AI_DAILY_TOKEN_SOFT_CAP` would pass 80% (a background job leaves the rest to people), or
-the OpenAI credit pause of Monitoring insights is on (a call that meets the credit's end starts the
-pause). A part of 12,000 characters is about 4,000 tokens sent and 1,000–3,000 written; a 100-page
+the AI service's credit pause of Monitoring insights is on (a call that meets the credit's end starts
+the pause). A part of 12,000 characters is about 4,000 tokens sent and 1,000–3,000 written; a 100-page
 report takes roughly 150,000 tokens, so the default cap reads about six such reports a night. A
 document that needs more than a whole day's budget (the smaller of the review's cap and 80% of the
 shared cap) is not started, as it could never finish: it fails with the reason, and the next nightly
 run tries it again once the cap is raised or the document is split. A full run stopped by the budget
 leaves the documents it did not reach waiting, so the nightly run goes on with them. The
-model is `AI_ASSISTANT_MODEL` at low effort, `store=false`, 180 seconds and one retry per call.
+model is the one of AI settings (`AI_ASSISTANT_MODEL` on OpenAI) at low effort, `store=false` (OpenAI;
+Claude keeps no conversation either), 180 seconds and one retry per call.
 
-**What goes to OpenAI**: the document's title and text (the part being read), the topic list, and for
+**What goes to the AI provider in use**: the document's title and text (the part being read), the topic list, and for
 the statements and action points the findings' texts. The prompts tell the model that the document is
 material, never instructions, and never to write a person's name, e-mail address or phone number; owners
 are cleaned of them again before they are kept. Do not put personal data of children, beneficiaries or
@@ -549,12 +610,13 @@ The prompts and settings stay in the admin, for Administrators. Its tabs:
   every figure opens the rows it counts (`counted=1`: the same query), so the two always agree.
 - **Synthesis**: themes ranked by distinct documents (Other apart), Over time, Coverage and Repeated
   findings (Python, no AI: at most the 3,000 best-evidenced findings compared, 50 groups kept).
-  **Write a paragraph** is the only AI call: one Responses call (`AI_ASSISTANT_MODEL`, low effort,
-  `store=false`) on that theme's findings only (at most 60, cleaned of names, e-mail addresses, links and
-  phone numbers), cited back as "(Document title, p. n)"; a citation that is not one of them is dropped,
+  **Write a paragraph** is the only AI call: one call (the model of AI settings, low effort,
+  `store=false` on OpenAI; Claude keeps no conversation either) on that theme's findings only (at most
+  60, cleaned of names, e-mail addresses, links and phone numbers), cited back as "(Document title, p. n)"; a citation that is not one of them is dropped,
   and an answer citing none is not shown. Each person may write **50 a day** (the chip "n of 50 today";
   refused requests do not count); it is recorded under *Document review* in AI use, counts against the
-  review's daily cap and 100% of `AI_DAILY_TOKEN_SOFT_CAP`, and stops when the OpenAI credit pause is on.
+  review's daily cap and 100% of `AI_DAILY_TOKEN_SOFT_CAP`, and stops when the AI service's credit pause
+  is on.
   Each request is kept in Admin → Theme paragraphs (who, when, what, tokens).
 - **Actions**: cards, open by owner, the table with its filters (*Current*: documents dated within a year
   of the newest document of the collection — their date, issue date or year, else when added; *All
@@ -678,7 +740,8 @@ Where it shows:
 - **The daily note**: the job `whats-new` (`whats_new_digest`, daily 07:30 Beirut, after the hub) writes
   one note for everyone and one per section concerned, from the notable changes of the last 24 hours.
   With the assistant configured, the model writes two to five sentences from the change lines only
-  (`store=false`; names and figures as NeuroDB holds them, no personal data); otherwise, or if it
+  (`store=false` on OpenAI, and Claude keeps no conversation either; names and figures as NeuroDB holds
+  them, no personal data); otherwise, or if it
   fails, the changes are listed. Run again the same day, the note is rewritten. Admin → Library and
   maps → *What's new notes*.
 - **By email**, when `EMAIL_URL` is set (SMTP, e.g. `smtp+tls://user:password@smtp.office365.com:587`;
@@ -811,11 +874,12 @@ with a link. Every signed-in person but a donor has it. The code is in `neurodb/
   run's status and time: never who ran it or its error text). Each look-up runs in a read-only
   transaction. Answers cite the guide sections (`/help/<page>/#<slug>`) and, for an Administrator only,
   the admin page a setting lives on.
-- **What it sends to OpenAI**: the question (names NeuroDB knows, e-mail addresses, phone numbers and links
+- **What it sends to the AI provider in use**: the question (names NeuroDB knows, e-mail addresses, phone numbers and links
   removed before it is sent and kept), the page's path and cleaned title, up to 6 earlier questions and
-  answers of the conversation, and what its look-ups return. Its own prompt (not Ask's), the model
-  `AI_ASSISTANT_MODEL` at low effort, at most 4 rounds and 90 seconds, `store=false`, a keyed hash of the
-  person (`safety_identifier`).
+  answers of the conversation, and what its look-ups return. Its own prompt (not Ask's), the model of
+  AI settings at low effort, at most 4 rounds and 90 seconds, `store=false` (OpenAI; Claude keeps no
+  conversation either), a keyed hash of the person (OpenAI's `safety_identifier`, Claude's
+  `metadata.user_id`).
 - **What it refuses** (a refusal costs no quota): passwords, API keys, secrets, connection strings and
   environment variables, and ways around sign-in or access rules are refused before any call (a fixed list
   of words, `help.assistant.screen`); the model declines the subtler ones and questions about programme
@@ -825,12 +889,13 @@ with a link. Every signed-in person but a donor has it. The code is in `neurodb/
   today; the count starts again tomorrow."). Questions the model declines were calls all the same, so
   only as many as the quota are free each day; past that the person waits for tomorrow (429). At most 2
   being answered per person. The shared
-  `AI_DAILY_TOKEN_SOFT_CAP` at 100% (a person asks), and the OpenAI credit pause of Monitoring insights
-  (6 hours after OpenAI says the credit ran out; a help answer that meets it starts the pause too). Its
+  `AI_DAILY_TOKEN_SOFT_CAP` at 100% (a person asks), and the AI service's credit pause of Monitoring
+  insights (6 hours after the provider says the credit ran out; a help answer that meets it starts the
+  pause too). Its
   calls are counted under *Help assistant* in *AI use*. One answer is usually 2-3 model calls of about
   4,000-10,000 tokens each, mostly the cached prompt and look-ups.
-- **Switching it off**: `HELP_ENABLED=false` (default: on when `OPENAI_API_KEY` is set; it also needs
-  `AI_ASSISTANT_ENABLED`). The help pages stay; the panel says the assistant is switched off and links them.
+- **Switching it off**: `HELP_ENABLED=false` (default: on, whenever the AI is on; it also needs the
+  AI assistant: a key set by the hosting team or entered in AI settings). The help pages stay; the panel says the assistant is switched off and links them.
 - **The log**: Admin → Data and sync → **Help questions** (read-only): who asked, from which page, the
   question as sent, the answer, answered / declined (and why) / failed / over a limit, the look-ups, the
   tokens and the time. Kept 90 days: each run of the daily review job (`daily-review`, 06:00) first
@@ -3196,8 +3261,9 @@ children): the PD's main indicator (its unique beneficiaries indicator, else its
 indicator this year, as on the PD page and the overview) when it is among the finding's indicators,
 else the children indicator furthest behind; the finding names it.
 
-**The summary.** With the AI assistant configured (`OPENAI_API_KEY`), the model reads only the
-day's findings and counts (titles, details and numbers; no staff names, `store=false`) and writes four to six plain sentences;
+**The summary.** With the AI assistant configured (an Anthropic or OpenAI key), the model reads only the
+day's findings and counts (titles, details and numbers; no staff names; `store=false` on OpenAI, and
+Claude keeps no conversation either) and writes four to six plain sentences;
 tokens are recorded on the review. Without it, or when the call fails, a template writes the
 summary. Findings are prompts to look, never verdicts on partners or staff.
 
@@ -3272,7 +3338,7 @@ readers. Donor accounts never see the page, the count or the card.
 | `daily_review` | The critical and warning findings still open in the latest daily review, under their own keys | the finding's section | on |
 | `system` | The admin home's *Needs attention* lines (failed jobs, a silent scheduler, a missing daily review, the watch's own lines below) | Administrators | on |
 | `stale_source` | A data source a check needs that has not synced within `SYNC_STALENESS_HOURS` | Administrators | on |
-| `openai_quota` | The OpenAI credit ran out (see the circuit breaker below) | Administrators | on |
+| `openai_quota` | The AI service's credit ran out, Anthropic's or OpenAI's (see the circuit breaker below; the id is the one it always had) | Administrators | on |
 
 Looking ahead belongs to the watch and looking back to the daily review: one thing is never two
 points. A point closes at once on positive evidence (a report submitted, a forecast back on course,
@@ -3398,7 +3464,7 @@ been on for staff for 4 weeks). The background look-ups do not wait for it.
 
 ### The AI: the morning note and the daily look-ups
 
-**The morning note.** One OpenAI call per audience that has new or changed points that day: each
+**The morning note.** One AI call per audience that has new or changed points that day: each
 section, and the whole country. The model gets the facts as JSON built by an allow-list and writes 2 to
 6 plain sentences, each citing the points it rests on. A sentence is kept only when every number,
 date and eTools reference in it is in the points it cites, and it has no link, no markup, no person's
@@ -3438,9 +3504,10 @@ today first. It runs Ask NeuroDB's own loop with these limits:
 The AI never creates or closes a point, changes a severity or a date, chooses who is told, sends
 anything, or writes to the hub or the knowledge base.
 
-### What goes to OpenAI, and what never does
+### What goes to the AI provider, and what never does
 
-Sent (to api.openai.com over HTTPS, `store=false`, under the same API terms as Ask NeuroDB):
+Sent (to the provider in use, api.anthropic.com or api.openai.com, over HTTPS; on OpenAI with
+`store=false`; under the same API terms as Ask NeuroDB):
 
 - for each point in a note or a look-up: its key, check, severity and confidence, the title written
   by code, its due date, days left and days open, the dates and numbers of its evidence, the name and
@@ -3457,8 +3524,8 @@ and every text is checked against the list of names NeuroDB knows, in and out), 
 a finding assignment, people's reactions and comments, a point's detail and evidence records, system
 points (they carry error text), document summaries or text, earlier notes or anything else the AI
 wrote, the daily review's summary and decisions, figures marked for internal use, and child-level
-data. No `safety_identifier` is sent: no person asked, and one constant identifier would pool every
-background run.
+data. No person identifier is sent (OpenAI's `safety_identifier`, Claude's `metadata.user_id`): no
+person asked, and one constant identifier would pool every background run.
 
 ### Costs, limits and the circuit breaker
 
@@ -3481,14 +3548,16 @@ Expected use: about 10 notes of 4,000 to 5,000 input tokens and up to 1,500 outp
 look-ups of up to 4 rounds (each round resends Ask's instructions and the tools, most of it at the
 cheaper cached rate), together roughly 150,000 to 250,000 tokens a day, about 5 to 8 million a month.
 At example prices of $1.25 per million input tokens and $10 per million output tokens that is roughly
-$10 to $30 a month; check the price of the model in use on OpenAI's pricing page. The cap bounds the
-worst case at 9 million tokens a month. The OpenAI project budget and usage alert stay the hard outer
+$10 to $30 a month; check the price of the model in use on its provider's pricing page (AI use shows
+Claude's cost itself). The cap bounds the worst case at 9 million tokens a month. The provider's own
+spend limit or budget and usage alert (the Anthropic workspace's, or the OpenAI project's) stay the hard outer
 limit (see *AI assistant* above).
 
-**The circuit breaker.** When OpenAI says the credit ran out (`insufficient_quota`), the watch stops
-using AI for 6 hours, and the administrators get a critical point and a *Needs attention* line ("The
-OpenAI credit ran out: Ask NeuroDB is affected too"). Three failed calls in a row pause it too. The
-notes are listed by code meanwhile, and the first call that succeeds closes the point.
+**The circuit breaker.** When the AI provider says the credit ran out (OpenAI's `insufficient_quota`,
+Anthropic's `billing_error`), the watch stops using AI for 6 hours, and the administrators get a
+critical point and a *Needs attention* line ("The Anthropic credit ran out: Ask NeuroDB is affected
+too", or the OpenAI credit). Three failed calls in a row pause it too. The notes are listed by code
+meanwhile, and the first call that succeeds closes the point.
 
 ### The morning email
 
@@ -3520,7 +3589,7 @@ restart. Their defaults:
 |---|---|---|
 | `WATCH_ENABLED` | `true` | The watch as a whole |
 | `WATCH_AI` | `true` | The AI for notes and look-ups (also needs the AI assistant switched on) |
-| `WATCH_MODEL` | empty: `AI_ASSISTANT_MODEL` | The model of the notes and look-ups |
+| `WATCH_MODEL` | empty: `AI_ASSISTANT_MODEL` | The model of the notes and look-ups. A model of the other AI provider is not used: the provider's own model runs instead (AI settings shows which). |
 | `WATCH_DAILY_TOKEN_CAP` | `300000` | The watch's tokens a day, notes and look-ups together |
 | `WATCH_MAX_MODEL_CALLS_PER_DAY` | `24` | The watch's model calls a day |
 | `WATCH_INVESTIGATE_ENABLED` | `true` | The daily look-ups |
@@ -3549,7 +3618,7 @@ their For you page:
 - *NeuroDB Watch has not run for more than 26 hours*: look at the `watch` scheduled job and the last
   runs of *NeuroDB Watch* in *Import and sync runs*;
 - *NeuroDB Watch stopped using AI until ...*: the credit ran out or the AI failed three times in a
-  row; add credit to the OpenAI project or wait, nothing else to do;
+  row; add credit to the Anthropic workspace (or the OpenAI project) or wait, nothing else to do;
 - *N eTools section names have no confirmed NeuroDB section*: confirm them (above);
 - *The check “...” went back to trial*: look at its points and reactions, then switch it on again,
   keep it in trial or switch it off.
@@ -4330,7 +4399,8 @@ and the chat reads "Chat is not available: the AI is switched off."
   API refuses one by name, only that one is dropped and the call is made again (at most twice), and the
   refusal is kept per model and effort for `FMM_SAMPLING_RECHECK_DAYS` (30) days; the brief's chips then
   say "not applied". Deleting a row means "check again on the next call". `FMM_SAMPLING=off` never sends
-  either. Ask NeuroDB and NeuroDB Watch never send them.
+  either. Ask NeuroDB and NeuroDB Watch never send them. Temperature and top-p are OpenAI only: they
+  are never sent to Claude (Claude Opus 5.5 refuses them), and the chips then say "not sent".
 
 The caps and quotas every call checks are under *Costs, limits and quotas*, below.
 
@@ -4340,7 +4410,7 @@ FMS's narrative rules are **AI checks**, made record by record (`fmm.ai.checks`)
 (Q1 against Q2), R6 (the narrative against Q1, Q2, the rating and the visit's objective), R7 (Q3 and the
 action points), R8 (problems without action points) and R32 (key challenges without action points).
 
-- **One check** is one OpenAI call per record (an entity row of a visit, as FMS checks each record) and
+- **One check** is one AI call per record (an entity row of a visit, as FMS checks each record) and
   rule. Its instructions are the rule's prompt (the published prompt version's *AI checks'
   instructions*, under the rule's `ai_prompt_key`, seeded from FMS Lebanon's prompt file; editable and
   versioned with the prompt version) followed by NeuroDB's fixed rules (shown nowhere else, the same for
@@ -4358,7 +4428,8 @@ action points), R8 (problems without action points) and R32 (key challenges with
   disaggregated activity evidence — …") and takes the rule's deduction off the record.
 - The model is *AI model* (Score settings; empty: `AI_ASSISTANT_MODEL`, the same as the assistant's),
   at low reasoning effort, with *AI max output tokens* (2,000, the reasoning included) and temperature
-  0.30 (sent only when the model accepts it, as for the briefs). Nothing is stored at OpenAI.
+  0.30 (OpenAI only, sent only when the model accepts it, as for the briefs; never sent to Claude).
+  Nothing is stored at the AI provider.
 - **Answers kept** (admin → *AI check answers*): each answer is kept by what was asked (the rule, its
   prompt and the record's inputs, hashed), so records with the same texts, on one visit or several,
   share one answer, and a record is checked again only when its narrative, answers or action points, or
@@ -4411,7 +4482,7 @@ action points), R8 (problems without action points) and R32 (key challenges with
   (again only when it changes). The checks have their own cap, `FMM_RULES_DAILY_TOKEN_CAP` (2,000,000
   tokens a day, about 900-1,300 checks, counted under *Monitoring insights (AI checks)* in *AI use*), and
   stop at 80% of `AI_DAILY_TOKEN_SOFT_CAP` across every AI feature, so people's questions keep their
-  share. When OpenAI says the credit ran out, the AI of Monitoring insights pauses for 6 hours (briefs
+  share. When the AI provider says the credit ran out, the AI of Monitoring insights pauses for 6 hours (briefs
   and chat too); 3 failed checks in a row stop the run.
 - **Switching off.** *Score settings → AI checks* unticked: the AI rules count as switched off, no check
   is made and no record is provisional (the answers kept are used again when it is back on).
@@ -4421,7 +4492,7 @@ action points), R8 (problems without action points) and R32 (key challenges with
 ### Chat with Data
 
 Under the brief on the Insights tab, staff ask questions about the visits **of the page's filter**
-("Which visits were off track and why?"). ChatGPT answers with four look-ups of Monitoring insights
+("Which visits were off track and why?"). The AI answers with four look-ups of Monitoring insights
 and nothing else: `fm_summary` (counts of visits and records, optionally by section, governorate,
 office, partner, month, rating, rule, entity type or status: each group gives its records, their visits
 and their average quality per record), `fm_visits` (visit cards, each with its records: entity, type,
@@ -4505,7 +4576,7 @@ the eTools action points as before.
   ranks the people with the most open action points ("Top assignees"); NeuroDB never ranks staff by
   name, so offices and sections stand in its place.
 - **AI adequacy review** (`fmm.ai.ap_review`): for each **completed** action point (completed, closed or
-  resolved) with an action taken written in eTools, one OpenAI call reads the description (the issue)
+  resolved) with an action taken written in eTools, one AI call reads the description (the issue)
   and the action taken, cleaned of names, e-mail addresses, phone numbers and links, and answers
   *Adequately addressed*, *Partially addressed*, *Not addressed* or *Generic/vague* with one sentence
   why (cleaned, and left out when it names a figure neither text holds). Its instructions are the
@@ -4561,7 +4632,7 @@ the eTools action points as before.
   and summaries)* in *AI use*) is about 150-250 reviews a night, and a back-log is reviewed over several
   nights; the nightly review also stops at 80% of `AI_DAILY_TOKEN_SOFT_CAP`. A summary of 150 action
   points uses about 10,000-20,000 tokens and counts against the same cap (and 100% of the shared cap).
-  When OpenAI says the credit ran out, the AI of Monitoring insights pauses for 6 hours.
+  When the AI provider says the credit ran out, the AI of Monitoring insights pauses for 6 hours.
 
 ### Exports (FMS §13): Excel, PDF report, Power BI
 
@@ -4712,17 +4783,17 @@ an action point is assigned to (shown to staff on the page already). *PDF report
 repeated), the key figures, the six charts, the action points by module and, with Monitoring insights,
 the AI verdicts.
 
-### What goes to OpenAI, and what never does
+### What goes to the AI provider, and what never does
 
 Nothing goes while `FMM_AI` is off. Once it is on, the brief and the chat send:
 
-| Sent to OpenAI (briefs and chat) | Never sent |
+| Sent to the AI provider (briefs and chat) | Never sent |
 |---|---|
 | The period and filter (dates, section, governorate and office names) | The visit lead, team members and monitors (names or e-mail addresses), from any source |
 | Figures: visits and records, rated and not monitored, rating counts, quality averages per record and bands, rule results (records flagged), shares worked out by NeuroDB | E-mail addresses, phone numbers and links, also removed from inside every text |
 | Up to `comp` quality flags (rule, reason, records and visits); the visits of the 15 most urgent records and the flags' example visits as cards (dates, partner, PD reference, place, sections, rating with its date, HACT Q1, quality: the mean of its records, flags, urgency: its most urgent record's, action point counts); in the chat, a visit's records (entity, type, rating, score, urgency, flags, rule results) | Action point assignees, PD focal points, partner staff, eTools user ids |
 | Up to `narr` texts per brief or per chat answer (monitors' notes, checklist answers, search snippets), each cleaned and cut to `FMM_NARRATIVE_CHARS` (600) | The finding records as eTools holds them, raw answers, attachments, coordinates (only place names go) |
-| A keyed hash of the person (`safety_identifier`) on runs a person starts; `store=False` always | Child-level or Makani data; the user's name, e-mail address or id |
+| A keyed hash of the person (OpenAI's `safety_identifier`, Claude's `metadata.user_id`) on runs a person starts; `store=False` always on OpenAI (Claude keeps no conversation either) | Child-level or Makani data; the user's name, e-mail address or id |
 | Within one chat conversation only: its last 6 questions and checked answers, cleaned again, at most 1,500 characters each | Earlier briefs; answers of other conversations or other filters |
 
 - **Cleaning** (`neurodb/fmm/privacy.py: clean`) removes e-mail addresses, links, the names NeuroDB
@@ -4760,8 +4831,8 @@ Every brief, test run and chat round is counted under *Monitoring insights* in A
 *AI use*; the AI checks of the quality rules under *Monitoring insights (AI checks)*, with their own cap
 (see *AI checks of the quality rules*); the action points' AI review and summaries under *Action points
 (AI review and summaries)*, with their own cap (see *Action points*). Before each call NeuroDB checks, in order: the AI is switched on (`FMM_ENABLED`, `FMM_AI`,
-`AI_ASSISTANT_ENABLED` and a published prompt version); it is not paused (6 hours after OpenAI said
-the credit ran out); Monitoring insights' own caps for the whole office, `FMM_DAILY_TOKEN_CAP`
+`AI_ASSISTANT_ENABLED` and a published prompt version); it is not paused (6 hours after the AI provider
+said the credit ran out); Monitoring insights' own caps for the whole office, `FMM_DAILY_TOKEN_CAP`
 (1,200,000 tokens) and `FMM_MAX_CALLS_PER_DAY` (400 calls); and the shared `AI_DAILY_TOKEN_SOFT_CAP`
 (3,000,000), of which nightly briefs and test runs may use 80% and people's Regenerates and questions
 100%. Per person: 5 *Regenerate* and 20 chat questions a day (set in the prompt version), counted from
@@ -4959,8 +5030,8 @@ on, and before its figures are trusted:
 | `FMM_HUB_MONTHS` | `24` | The visits dated (start, else end) within this many months are in the knowledge hub. |
 | `FMM_NEWS_DAYS` | `30` | A visit rated off track or constrained that comes into the knowledge hub is news in What's new only when it is dated (start, else end) within this many days. |
 | `FMM_AI` | `false` | The AI brief and chat. They also need `AI_ASSISTANT_ENABLED` and a published prompt version. Off at deploy; switched on at go-live once the real keys are confirmed (above) and a Preview and a Test run look right. |
-| `FMM_MODEL` | (blank) | The model of a prompt version that names none; blank: `AI_ASSISTANT_MODEL`. |
-| `FMM_SAMPLING` | `auto` | `auto`: send temperature/top-p when a version sets them and the model has not refused them; `off`: never send them. Another value stops the start-up. |
+| `FMM_MODEL` | (blank) | The model of a prompt version that names none; blank: `AI_ASSISTANT_MODEL`. A model of the other AI provider is not used: the provider's own model runs instead (AI settings shows which). |
+| `FMM_SAMPLING` | `auto` | `auto`: send temperature/top-p when a version sets them and the model has not refused them; `off`: never send them. OpenAI only: they are never sent to Claude. Another value stops the start-up. |
 | `FMM_SAMPLING_RECHECK_DAYS` | `30` | Days after which a refused temperature or top-p is tried again. |
 | `FMM_DAILY_TOKEN_CAP` | `1200000` | Monitoring insights' own tokens a day for the whole office (briefs, test runs and chat): about 30-40 chat answers and 10 Regenerates a day plus the nightly briefs. Raise `AI_DAILY_TOKEN_SOFT_CAP` with it. |
 | `FMM_MAX_CALLS_PER_DAY` | `400` | Monitoring insights' own model calls a day (brief calls plus chat rounds). |
@@ -4992,7 +5063,7 @@ settings*) or with the prompts (*Prompt versions*):
 | Score settings › *Follow-up days*, *Report late days* | `14`, `30` | The follow-up signals on the visit page (no longer part of urgency). |
 | Score settings › *Score categories* | FMS Lebanon's six: completeness 30, evidence 20, alignment 20, coherence 15, Q3 quality 10, actionability 5 | Each rule's category and its weight: a category loses at most its weight. The weights add up to 100 (Rebalance). |
 | Score settings › *AI checks* | on | The AI checks of the narrative rules; off: those rules count as switched off. |
-| Score settings › *AI model* | (blank: `AI_ASSISTANT_MODEL`) | The model of the AI checks. |
+| Score settings › *AI model* | (blank: `AI_ASSISTANT_MODEL`) | The model of the AI checks. A model of the other AI provider is not used: the provider's own model runs instead (AI settings shows which). |
 | Score settings › *AI max output tokens* | `2000` | Per check, the reasoning included (500-16,000). |
 | Score settings › *AI temperature* | `0.30` | Sent only when the model accepts it; blank: not sent. |
 | Score settings › *AI text characters* | `1500` | Each text a check sends is cut to this (200-6,000). |
@@ -5548,8 +5619,8 @@ an output), in any of three ways, which can be mixed:
   saved and the page lists the rows to fix.
 - *AI-suggested from the CPD*: in *CPD documents*, select the CPD — a PDF, a Word document (.docx)
   or a text file (.txt, .md; an old .doc must be saved as .docx or PDF first) — and run **Propose the results
-  framework**. The document is read in the background (a minute or two) by the OpenAI API with the
-  same key and model as Ask NeuroDB (`OPENAI_API_KEY`, `AI_ASSISTANT_MODEL`), with `store=False`
+  framework**. The document is read in the background (a minute or two) by the AI provider in use with
+  the same key and model as Ask NeuroDB (AI settings), on OpenAI with `store=False`
   (a PDF is sent as a file, the text of a Word or text document as text);
   the CPD is a public document. The proposal appears in *AI-suggested frameworks*: **Review and
   apply** lists every outcome, output and indicator with its baseline and target; untick what is

@@ -10,6 +10,7 @@ from django.conf import settings
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.test import override_settings
 from django.urls import reverse
 from django.utils.html import escape
 
@@ -289,6 +290,21 @@ def test_the_warnings(v1, admin_user):
         re.search(r"Temperature was refused by .+ at effort medium on .+: it will not be applied", w)
         for w in profiles.warnings(draft)
     )
+
+
+def test_the_warnings_on_claude(v1, admin_user):
+    draft = profiles.draft_from(
+        v1, admin_user, "x", model="gpt-5.5", effort="minimal", temperature="0.3", top_p="0.9"
+    )
+    with override_settings(AI_PROVIDER="claude", ANTHROPIC_API_KEY="test-key-not-real"):
+        found = profiles.warnings(draft)
+    assert found == [
+        f"gpt-5.5 is an OpenAI model and Claude (Anthropic) is in use: {settings.CLAUDE_MODEL} writes the "
+        "briefs instead.",
+        "Effort minimal: Claude does not have it, so it runs as low.",
+        "Temperature and top-p are not sent while Claude is in use: Claude chooses its own.",
+    ]  # and OpenAI's advice on setting one of the two is OpenAI's only
+    assert any("both set" in w for w in profiles.warnings(draft))  # on OpenAI, as always
 
 
 # ------------------------------------------------------------------------------------------ the admin

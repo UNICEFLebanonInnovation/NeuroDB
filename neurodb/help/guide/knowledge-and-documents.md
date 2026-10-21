@@ -21,7 +21,7 @@ reads and searches them.
 - **Links**: the partners (name, short name, vendor number), programme documents (reference number),
   sections, governorates and districts named in the text are linked, word for word. The documents then
   show on the partner's and the programme document's pages.
-- **Summary**: when the AI is set up, ChatGPT writes a short summary, key points, the document's date
+- **Summary**: when the AI is set up, it writes a short summary, key points, the document's date
   and the organisations, places and references it names; names that match NeuroDB records become
   *AI-suggested* links. If this fails, the document is still searchable and says so.
 - **Changing or removing**: the person who added a document, or an Administrator, reads it again or

@@ -51,7 +51,8 @@ for every record whose input is the same (``shared``), while the day's budget al
 ``FMM_RULES_DAILY_TOKEN_CAP``, recorded under the AI use feature ``fmm_rules``, and 80% of
 ``AI_DAILY_TOKEN_SOFT_CAP`` across every feature); what is left waits for the next night (the back-fill:
 ``records_pending``, ``checks_pending`` and ``nights_estimate`` in the run details). It stops when the
-OpenAI credit runs out (the AI pauses for 6 hours, as for the briefs) or after 3 failed checks in a row.
+AI provider's credit runs out (the AI pauses for 6 hours, as for the briefs) or after 3 failed checks in a
+row.
 When it checked or carried anything it recomputes the scores (a scores-only refresh). Nothing runs while
 the AI, Monitoring insights' AI or the AI checks (Score settings) are switched off.
 """
@@ -613,7 +614,7 @@ def switched_on(book) -> tuple[bool, str]:
     if not book.ai_rules():
         return False, "no AI check is on with instructions in the published prompt version"
     if budget.paused_until() is not None:
-        return False, budget.REASONS[budget.PAUSED]
+        return False, budget.reason_for(budget.PAUSED)
     return True, ""
 
 
@@ -930,7 +931,7 @@ def _check_all(conn, book, sync_run, tally: dict[str, int], limit: int | None) -
             found = check(conn, rule, prompt, sent, setting, names_)
         except Exception as exc:
             if budget.trip(exc):
-                stop("paused: the OpenAI credit ran out")
+                stop(f"paused: {budget.quota_reason()}")
                 return None
             logger.warning("Monitoring insights: an AI check failed: %s", type(exc).__name__)
             failed()

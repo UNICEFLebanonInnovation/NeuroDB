@@ -10,6 +10,7 @@ import httpx2
 import openai
 import pytest
 from django.contrib.auth.models import Group
+from django.test import override_settings
 from django.utils import timezone
 
 from neurodb.accounts.models import Section, User
@@ -610,7 +611,7 @@ def test_the_credit_running_out_pauses_the_ai_and_tells_the_administrators(opena
     assert summary.details()["ai_skipped_reason"] == "quota" and summary.model_calls == 0
     state = WatchState.get()
     hours = (state.ai_paused_until - timezone.now()).total_seconds() / 3600
-    assert 5.9 < hours <= 6 and state.ai_pause_reason == budget.QUOTA_REASON
+    assert 5.9 < hours <= 6 and state.ai_pause_reason == budget.quota_reason()
     assert AIUsage.objects.count() == 0  # no answer, no tokens
 
     item = WatchItem.objects.get(key=budget.QUOTA_KEY)
@@ -680,6 +681,29 @@ def test_the_credit_running_out_again_reopens_the_same_item():
 
     assert again.pk == first.pk and again.state == "open" and again.closed_on is None
     assert [line["text"] for line in again.story][-1] == "The OpenAI credit ran out again"
+
+
+def test_on_claude_the_item_names_the_anthropic_credit_and_where_to_add_it():
+    with override_settings(AI_PROVIDER="claude", ANTHROPIC_API_KEY="test-key-not-real"):
+        assert budget.quota_reason() == "the Anthropic credit ran out"
+        item = budget.raise_quota_item()
+    assert item.key == budget.QUOTA_KEY  # the id it always had
+    assert (
+        item.title.startswith("The Anthropic credit ran out on")
+        and "Ask NeuroDB is affected too" in item.title
+    )
+    assert item.detail.startswith("Anthropic refused a call because the credit of the shared key ran out.")
+    assert item.detail.endswith(
+        "Buy credits in the Claude Console (Billing), or raise the workspace's spend limit."
+    )
+    assert item.evidence["source"] == "Anthropic"
+    assert [(r["label"], r["value"]) for r in item.evidence["records"]] == [
+        ("Anthropic refused a call: the credit ran out", "billing_error")
+    ]
+    assert [line["text"] for line in item.story] == ["First noticed: the Anthropic credit ran out"]
+    # on OpenAI every word is the one it always was
+    assert budget.quota_reason() == "the OpenAI credit ran out" and budget.quota_source() == "OpenAI"
+    assert budget.quota_detail().endswith("Add credit to the OpenAI project, or raise its budget.")
 
 
 def test_an_item_marked_wrong_stays_hidden_the_same_day():

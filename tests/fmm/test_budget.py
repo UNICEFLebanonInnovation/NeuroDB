@@ -242,7 +242,7 @@ def test_the_credit_running_out_fails_the_brief_and_pauses_the_next(built, ai_on
     assert (row.status, row.reason, row.called) == ("failed", "quota", False)
     assert AIState.objects.get().paused_until > timezone.now()
     row = insights.generate(_scope(), user=viewer, trigger=Insight.Trigger.USER)
-    assert (row.status, row.reason) == (Insight.Status.LIMITED, budget.REASONS[budget.PAUSED])
+    assert (row.status, row.reason) == (Insight.Status.LIMITED, budget.reason_for(budget.PAUSED))
 
 
 @override_settings(FMM_DAILY_TOKEN_CAP=1_000_000)
@@ -323,4 +323,4 @@ def test_the_chat_stops_when_the_days_budget_is_used(ai_on, client_viewer):
     assert budget.quota("chat", ChatQuestion.objects.get().user)[0] == 0  # a refused question does not count
     budget.pause()
     response = _chat(client_viewer)
-    assert response.status_code == 503 and response.json()["error"] == budget.REASONS[budget.PAUSED]
+    assert response.status_code == 503 and response.json()["error"] == budget.reason_for(budget.PAUSED)

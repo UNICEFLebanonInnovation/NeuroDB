@@ -280,3 +280,68 @@ def test_the_test_result_never_holds_the_key(page, claude, ai_settings):
     row = AISettings.objects.get()
     assert row.checked_at <= timezone.now() and KEY not in row.check_result
     assert row.check_result == f"{llm.NOT_PROCESSED} The API said: max_tokens: must be at least 1"
+
+
+# --------------------------------------------------------------------------- which model each feature runs on
+def test_the_page_lists_which_model_each_feature_runs_on(page, settings):
+    html = page.get(_url()).content.decode()
+    assert "Which model each AI feature runs on" in html and "Runs on now" in html
+    assert "NeuroDB Watch" in html and f"WATCH_MODEL: {settings.WATCH_MODEL}" in html
+    assert "is an OpenAI model" not in html  # OpenAI in use: every feature runs on what it asks for
+    assert _post(page, anthropic_key=KEY).status_code == 302  # Automatic: Claude now
+    html = page.get(_url()).content.decode()
+    assert f"{settings.WATCH_MODEL} is an OpenAI model: {settings.CLAUDE_MODEL} runs instead." in html
+    assert "AI_ASSISTANT_MODEL names a Claude model" not in html
+    settings.AI_ASSISTANT_MODEL = "claude-opus-5"  # left over from an earlier release
+    html = page.get(_url()).content.decode()
+    assert (
+        "AI_ASSISTANT_MODEL names a Claude model; OpenAI calls would fail; choose an OpenAI model here."
+        in html
+    )
+
+
+# ------------------------------------------------------------------------------------ Needs attention
+def _lines():
+    from neurodb.web import health
+
+    return {line.key: line for line in health.warnings() if line.key.startswith("ai_")}
+
+
+def test_needs_attention_says_when_the_provider_chosen_has_no_key(ai_settings):
+    assert _lines() == {}  # Automatic with no key: OpenAI as today, nothing to say
+    with override_settings(AI_PROVIDER="claude", ANTHROPIC_API_KEY=""):
+        line = _lines()["ai_no_key"]
+        assert line.text == (
+            "Claude (Anthropic) is chosen for the AI features (AI_PROVIDER=claude) but no Anthropic API key "
+            "is entered: the AI features are off."
+        )
+        assert line.url == reverse("admin:assistant_aisettings_changelist")
+    AISettings.objects.filter(pk=ai_settings.pk).update(provider="claude")  # chosen there before a key
+    llm.forget()
+    assert "(AI settings)" in _lines()["ai_no_key"].text
+    with override_settings(AI_ASSISTANT_SWITCH=False):  # the hosting team switched the AI off
+        assert _lines() == {}
+
+
+def test_needs_attention_says_when_a_key_entered_can_no_longer_be_read(page):
+    assert _post(page, anthropic_key=KEY).status_code == 302
+    assert _lines() == {}
+    with override_settings(SECRET_KEY="another-secret-key-for-this-test-only-0123456789abcdef"):
+        line = _lines()["ai_key_unreadable:anthropic"]
+        assert line.text == (
+            "The Anthropic API key entered in AI settings can no longer be read, as the site's secret key "
+            "changed: enter it again."
+        )
+        assert KEY[-4:] not in line.text and llm.provider() == llm.OPENAI  # Automatic moved: it says so
+        with override_settings(ANTHROPIC_API_KEY="test-key-not-real"):  # the hosting team's key comes first
+            assert "ai_key_unreadable:anthropic" not in _lines()
+
+
+def test_needs_attention_says_when_a_key_vault_reference_did_not_resolve(ai_settings):
+    with override_settings(AI_KEY_VAULT_UNRESOLVED=("ANTHROPIC_API_KEY",)):
+        assert _lines()["ai_key_vault:anthropic"].text == (
+            "ANTHROPIC_API_KEY is a Key Vault reference that did not resolve: the hosting team should check "
+            "the secret anthropic-api-key."
+        )
+    with override_settings(AI_KEY_VAULT_UNRESOLVED=("OPENAI_API_KEY",)):
+        assert list(_lines()) == ["ai_key_vault:openai"]

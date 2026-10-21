@@ -1,8 +1,9 @@
 # AI limits
 
-Every AI feature of NeuroDB uses ChatGPT (OpenAI's GPT model) through one shared OpenAI account, paid
-in advance. To keep the cost under control, each feature has limits per person and for the whole
-office. Every limit counts from **local midnight** (Beirut) unless it says per hour. The numbers below
+Every AI feature of NeuroDB uses one AI through one shared account, paid in advance: Claude
+(Anthropic's model), or ChatGPT (OpenAI's GPT model) where the administrators chose it in AI settings;
+Claude is the preferred one. To keep the cost under control, each feature has limits per person and for
+the whole office. Every limit counts from **local midnight** (Beirut) unless it says per hour. The numbers below
 are the defaults; administrators can change them.
 
 ## Per person
@@ -30,22 +31,25 @@ The chips next to each feature say how much you have used: "3 of 20 today".
 | Document review | 1,000,000 tokens | The knowledge base documents put in a review batch, read each night; a 100-page report takes roughly 150,000 tokens, so about six such reports a night. What is left waits for the next night. The theme paragraphs of the Synthesis tab count here too, and stop at 100% of the shared budget. |
 
 A **token** is a piece of a word, about four characters of English. What is sent (the question, the
-instructions, the data looked up) and what is written (the answer and the model's reasoning) both count.
+instructions, the data looked up) and what is written (the answer and the model's reasoning, which
+Claude calls its thinking) both count.
 
 When an office budget is used, the feature says so ("Today's AI budget for Monitoring insights is used;
 it resets at midnight.") and the pages keep working without AI: the brief written by NeuroDB from the
 figures, the rule results already checked, the review verdicts already made.
 
-## When the OpenAI credit runs out
+## When the AI service's credit runs out
 
-When OpenAI says the account's credit has run out, the AI of Monitoring insights, the Help assistant and
-the document review pause for **6 hours**, so that no question is sent while it cannot be answered. Ask NeuroDB says
+When the AI service (Anthropic for Claude, OpenAI for ChatGPT) says the account's credit has run out,
+the AI of Monitoring insights, the Help assistant and the document review pause for **6 hours**, so that
+no question is sent while it cannot be answered. Ask NeuroDB says
 "The AI service's credit for this application has run out. Ask an administrator."
 
 ## What is sent, and what never is
 
-Requests are made with nothing kept at OpenAI for later use. A keyed code stands for the person asking,
-never a name or an e-mail address.
+Requests are made with nothing kept at the AI service for later use: each one sends what it needs, and
+no conversation is stored there. A keyed code stands for the person asking, never a name or an e-mail
+address.
 
 - **Never sent**: the team, the visit lead, monitors' e-mail addresses, who an action point is assigned
   to, child-level data, your name or e-mail address.

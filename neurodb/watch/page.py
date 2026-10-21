@@ -59,7 +59,7 @@ from neurodb.accounts.models import Section
 from neurodb.assistant import llm
 from neurodb.core.models import SyncRun
 
-from . import connect, detectors, investigate, routing
+from . import budget, connect, detectors, investigate, routing
 from .detectors import CHECK, CRITICAL, DAILY, LIKELY, ON, SURE, TRIAL, WARNING
 from .detectors.concerns import FORECAST_ID
 from .models import DetectorSetting, WatchItem, WatchNote, WatchReceipt
@@ -90,12 +90,12 @@ SET_ASIDE = (Reaction.DONE, Reaction.NOT_MINE, Reaction.WRONG)
 
 CONFIDENCE_WORDS = {SURE: "Sure", LIKELY: "Likely", CHECK: "Please check"}
 SEVERITY_WORDS = {CRITICAL: "Critical", WARNING: "Warning", "info": "To note"}
-# Why the AI did not write a note, in the words of "AI not used today: ..."
+# Why the AI did not write a note, in the words of "AI not used today: ..."; the credit running out
+# names the provider's credit (budget.quota_reason), so it is written when the page is
 SKIPPED_WORDS = {
     WatchNote.Skipped.OFF: "the AI is switched off",
     WatchNote.Skipped.BUDGET: "daily limit reached",
     WatchNote.Skipped.PAUSED: "the AI is paused for a few hours",
-    WatchNote.Skipped.QUOTA: "the OpenAI credit ran out",
     WatchNote.Skipped.ERROR: "the AI did not give an answer that passed the checks",
     WatchNote.Skipped.NO_CHANGE: "nothing changed",
 }
@@ -687,7 +687,10 @@ def _note(audience: str, today: datetime.date, title: str, cards: dict[str, dict
                 links.append({"label": found["title"], "anchor": f"watch-{found['pk']}"})
         sentences.append({"text": str(sentence["text"]), "links": links})
     if note.written_by == WatchNote.TEMPLATE:
-        why = SKIPPED_WORDS.get(note.ai_skipped_reason, "")
+        if note.ai_skipped_reason == WatchNote.Skipped.QUOTA:
+            why = budget.quota_reason()
+        else:
+            why = SKIPPED_WORDS.get(note.ai_skipped_reason, "")
         label = "Listed by NeuroDB." + (f" AI not used today: {why}" if why else "")
     else:
         label = AI_WROTE
@@ -696,10 +699,19 @@ def _note(audience: str, today: datetime.date, title: str, cards: dict[str, dict
         "sentences": sentences,
         "label": label,
         "by_ai": note.written_by != WatchNote.TEMPLATE,
+        # who wrote it: the vendor of the model it keeps (after a switch of provider a note written before
+        # is not credited to the new one)
+        "vendor": llm.names_of(note.written_by).vendor if note.written_by != WatchNote.TEMPLATE else "",
         "date": note.date,
         "old": note.date != today,
         "when": day_words(note.date, today),
     }
+
+
+def ai_vendor(notes: list[dict]) -> str:
+    """Who writes the notes, for "How this works": the vendor of the model of the first note shown that
+    the AI wrote; "" when none was (the template then names the provider in use)."""
+    return next((note["vendor"] for note in notes if note.get("by_ai")), "")
 
 
 # ---------------------------------------------------------------------------- the page
@@ -764,6 +776,7 @@ def build(
         "audience": "",
         "preview": False,
         "notes": [],
+        "ai_vendor": "",
         "needs_you": [],
         "coming_up": [],
         "situations": [],
@@ -877,6 +890,7 @@ def build(
         if found:
             notes.append(found)
     context["notes"] = notes
+    context["ai_vendor"] = ai_vendor(notes)
     if stamp:
         shown_now = needs + coming + good  # not "Everything else open": it is folded away
         _stamp(user, [shown["receipt"] for shown in shown_now if shown["receipt"] is not None], now)
@@ -923,6 +937,7 @@ def _preview(
     title = "Across the country" if audience == WatchNote.COUNTRY else "Today's note"
     found = _note(audience, today, title, cards)
     context["notes"] = [found] if found else []
+    context["ai_vendor"] = ai_vendor(context["notes"])
     return context
 
 

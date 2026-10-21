@@ -11,7 +11,7 @@ cited.
 **Limits**: each person may ask ``PER_PERSON_PER_DAY`` paragraphs a day (a request refused by the quota or
 the budget does not count); the call is recorded under ``doc_review`` and counts against the document
 review's daily cap and 100% of the shared ``AI_DAILY_TOKEN_SOFT_CAP`` (a person's request comes before
-background work); the OpenAI credit pause stops it. ``ReviewParagraph`` keeps who asked, when, what was
+background work); the AI provider's credit pause stops it. ``ReviewParagraph`` keeps who asked, when, what was
 written and what it cost.
 """
 
@@ -57,12 +57,18 @@ Reply with the JSON object {"paragraph": "..."} and nothing else."""
 _CITE = re.compile(r"\s*\[(\d{1,3})\]")
 
 OFF = "Writing a paragraph is not available: AI is switched off."
-PAUSED = "AI is paused: the OpenAI credit ran out. Try again later."
 BUDGET = "Today's AI budget for the document review is used; it resets at midnight."
 QUOTA = "You have written today's {n} paragraphs; the count starts again at midnight."
 NOTHING = "This theme has no findings to write about."
 FAILED = "The paragraph could not be written. Try again in a moment."
 NOT_CITED = "The paragraph cited none of the findings, so it is not shown. Try again."
+
+
+def paused() -> str:
+    """Why no paragraph is written while the AI rests: the provider's credit ran out (it names it)."""
+    from neurodb.fmm.ai import budget
+
+    return f"AI is paused: {budget.quota_reason()}. Try again later."
 
 
 @dataclass
@@ -150,7 +156,7 @@ def write(topic: Topic, user, batch: int | None, verified: bool, challenges: boo
         )
         return Paragraph(False, QUOTA.format(n=allowed))
     if budget.paused_until() is not None:
-        return Paragraph(False, PAUSED)
+        return Paragraph(False, paused())
     found = review_data.theme_findings(topic.pk, batch, verified, challenges, limit=MAX_FINDINGS)
     if not found:
         return Paragraph(False, NOTHING)

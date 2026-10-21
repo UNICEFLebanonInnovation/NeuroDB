@@ -62,7 +62,7 @@ DEMOTED_BY = "NeuroDB Watch"  # DetectorSetting.updated_by when a check went bac
 # what "on for staff" means for the gate
 ADMIN_CHECKS = frozenset({"system", STALE_DETECTOR, "openai_quota"})
 # Labels of the checks that are not in the registry (see detectors._stale_result and budget.QUOTA_CHECK)
-LABELS = {STALE_DETECTOR: "Data sources not refreshed", "openai_quota": "OpenAI credit"}
+LABELS = {STALE_DETECTOR: "Data sources not refreshed", "openai_quota": "AI service credit"}
 
 
 # ---------------------------------------------------------------------------- the scores

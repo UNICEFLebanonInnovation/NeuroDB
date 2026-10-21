@@ -3,8 +3,9 @@
 [Ask NeuroDB](/ask/) (sidebar, marked AI) answers questions about the **programme data** in plain
 language: indicator results, activity reports, Neuro and HPM reports, programme documents, donors,
 partners, funds, assurance, field monitoring visits, population, the library, the knowledge base and the
-country programme. It is ChatGPT (OpenAI's GPT model), called through the OpenAI API, using NeuroDB's
-own read-only look-ups, and it links each answer to the pages its figures come from.
+country programme. The AI is Claude (Anthropic's model), or ChatGPT (OpenAI's GPT model) where the
+administrators chose it in AI settings; Claude is the preferred one. It answers with NeuroDB's own
+read-only look-ups, and it links each answer to the pages its figures come from.
 
 ## Asking
 

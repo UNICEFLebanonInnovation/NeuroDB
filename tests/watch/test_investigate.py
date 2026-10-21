@@ -588,7 +588,7 @@ def test_the_credit_running_out_pauses_the_ai(openai_api):
     assert summary.skipped == investigate.QUOTA and summary.dropped == {KEY: investigate.ERROR}
     state = WatchState.get()
     hours = (state.ai_paused_until - timezone.now()).total_seconds() / 3600
-    assert 5.9 < hours <= 6 and state.ai_pause_reason == investigate.QUOTA_REASON
+    assert 5.9 < hours <= 6 and state.ai_pause_reason == investigate.quota_reason()
     item.refresh_from_db()
     # the try is recorded: it counts in the day's look-ups, and the item is tried again another day
     assert item.looked_up["on"] == _today().isoformat() and item.looked_up["kept"] is False

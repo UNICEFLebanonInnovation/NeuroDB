@@ -10,6 +10,7 @@ param image = ''                            // e.g. neurodbacr.azurecr.io/neurod
 param customDomain = ''                     // e.g. neuro-db.org once DNS is ready
 param enableSso = false
 param enableAiAssistant = false  // true once the Key Vault secret openai-api-key exists
+param anthropicKeyInKeyVault = false  // true once the Key Vault secret anthropic-api-key exists; or enter the key in AI settings
 param entraTenantId = ''
 param entraClientId = ''
 param publicPages = []                      // e.g. ['library', 'maps']

@@ -21,7 +21,7 @@
   </div>
   {% endif %}
   {% endfor %}
-  <p class="small text-muted">{% trans "Do not add personal data of children, beneficiaries or staff. The text is stored in NeuroDB, sent to the OpenAI API to be summarised, and passages of it are sent again when a question uses them; every signed-in NeuroDB user can read it." %}</p>
+  <p class="small text-muted">{% blocktrans with api=AI_PROVIDER.api %}Do not add personal data of children, beneficiaries or staff. The text is stored in NeuroDB, sent to the {{ api }} to be summarised, and passages of it are sent again when a question uses them; every signed-in NeuroDB user can read it.{% endblocktrans %}</p>
   <div class="d-flex gap-2">
     <button type="submit" class="btn btn-primary">{% trans "Add to the knowledge base" %}</button>
     <a class="btn btn-link" href="{% url 'knowledge:index' %}">{% trans "Cancel" %}</a>

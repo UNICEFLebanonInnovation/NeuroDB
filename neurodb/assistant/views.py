@@ -51,11 +51,21 @@ def ask(request: HttpRequest) -> HttpResponse:
         if q not in seen:
             seen.add(q)
             recent_unique.append(q)
+    enabled = llm.enabled()
     context = {
         "page_title": _("Ask NeuroDB"),
-        "page_subtitle": _("Questions in plain language, answered from NeuroDB's data by ChatGPT (OpenAI)"),
+        "page_subtitle": _("Questions in plain language, answered from NeuroDB's data by %(ai)s")
+        % {"ai": llm.names().label},
         "breadcrumbs": [{"label": _("Ask NeuroDB"), "url": None}],
-        "enabled": llm.enabled(),
+        "enabled": enabled,
+        # for staff only: where the key goes (it names both providers, so it is written here, not in the
+        # template, whose words name none)
+        "setup_hint": _(
+            "For administrators: enter an Anthropic (Claude) or OpenAI API key in the admin (AI settings), "
+            "or ask the hosting team to set ANTHROPIC_API_KEY or OPENAI_API_KEY."
+        )
+        if request.user.is_staff and not enabled
+        else "",
         "initial_question": request.GET.get("q", "")[:MAX_QUESTION_CHARS],
         "examples": EXAMPLES,
         "recent": recent_unique[:6],

@@ -1,6 +1,7 @@
-"""The ledger of AI use on the shared OpenAI key: cached tokens kept apart, one row per day, feature
-and model, one call counted per model call in every feature, never failing the feature, and the
-read-only admin list (in US dollars only when the prices are set)."""
+"""The ledger of AI use on the shared key of the provider in use: cached tokens kept apart (and on Claude
+those written to the cache), one row per day, feature and model, one call counted per model call in every
+feature, never failing the feature, and the read-only admin list (in US dollars where the price is known:
+Claude's built in, OpenAI's when the prices are set)."""
 
 import datetime
 import json
@@ -14,7 +15,7 @@ from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from neurodb.assistant import usage
+from neurodb.assistant import llm, usage
 from neurodb.assistant.models import AIUsage, AssistantQuestion
 from neurodb.cpd import extraction
 from neurodb.cpd.models import CountryProgramme, CPDocument
@@ -23,6 +24,7 @@ from neurodb.knowledge import indexing, periodic
 from neurodb.knowledge.models import Document
 from neurodb.review import services as review
 from neurodb.review.models import DailyReview
+from tests.assistant.anthropic_mock import MODEL as CLAUDE
 from tests.assistant.test_assistant import ENABLED, FakeClient, _ask, _events, call, reply, say
 from tests.reports.overview_fixture import TODAY, make_overview_data
 
@@ -268,3 +270,112 @@ def test_the_admin_lists_the_use_in_tokens_and_dollars_only_with_prices(client, 
     logged = row(usage.ASK)
     assert client.post(reverse("admin:assistant_aiusage_delete", args=[logged.pk])).status_code == 403
     assert reverse("admin:assistant_aiusage_add") not in page
+
+
+# ------------------------------------------------------------------------------- Claude's prices
+def test_a_claude_model_has_its_own_prices_and_the_settings_stay_openais(no_prices):
+    price = usage.price_for(CLAUDE)
+    assert price == {
+        "input": Decimal("4.00"),
+        "cached": Decimal("0.20"),
+        "write": Decimal("5.00"),  # a 5-minute cache write: 1.25 times the input
+        "output": Decimal("20.00"),
+    }
+    assert usage.price_for(f"{CLAUDE}-20261001") == price  # a dated id has its model's prices
+    assert usage.price_for("claude-opus-5")["input"] == Decimal("5.00")  # the longest id, not a shorter one
+    assert usage.price_for("claude-unknown-9") is None  # never OpenAI's prices for a Claude model
+    assert usage.price_for(MODEL) is None  # an OpenAI model: no AI_PRICE_* settings
+    no_prices.AI_PRICE_INPUT_PER_MTOK, no_prices.AI_PRICE_OUTPUT_PER_MTOK = "2", "10"
+    assert usage.price_for(MODEL) == {**usage.prices(), "write": Decimal("2")}
+    assert set(usage.prices()) == {"input", "cached", "output"}  # what its callers have always read
+    assert usage.price_for(CLAUDE) == price  # the settings are OpenAI's prices only
+
+
+def test_the_price_table_offers_and_retries_only_priced_models():
+    choices = {model for model, entry in usage.CLAUDE_PRICES.items() if entry["choice"]}
+    retried = {model for model, entry in usage.CLAUDE_PRICES.items() if entry["fallbacks"]}
+    assert CLAUDE in choices and retried <= choices
+    for model in usage.CLAUDE_PRICES:
+        assert usage.price_for(model)["write"] == usage.price_for(model)["input"] * Decimal("1.25")
+
+
+def test_a_cache_write_adds_only_its_premium_to_the_cost():
+    price = usage.price_for(CLAUDE)
+    # 1M prompt tokens not read from the cache, 400k of them written to it; 2M read from it; 100k out
+    row = AIUsage(
+        input_tokens=1_000_000, cache_write_tokens=400_000, cached_tokens=2_000_000, output_tokens=100_000
+    )
+    # as Anthropic bills it: 600k x 4 + 400k x 5 + 2M x 0.20 + 100k x 20
+    assert usage.cost(row, price) == Decimal("6.80")
+    openai_row = AIUsage(input_tokens=1_000_000, cached_tokens=2_000_000, output_tokens=100_000)
+    three = {"input": Decimal("1.25"), "cached": Decimal("0.125"), "output": Decimal("10")}
+    assert usage.cost(openai_row, three) == Decimal("2.50")  # no write column: today's sum to the cent
+
+
+def test_claude_tokens_are_recorded_with_those_written_to_the_cache():
+    usage.record(
+        usage.ASK,
+        CLAUDE,
+        llm.Usage(input_tokens=900, cache_read_tokens=300, cache_write_tokens=500, output_tokens=40),
+    )
+    logged = AIUsage.objects.get(feature=usage.ASK)
+    assert (logged.input_tokens, logged.cached_tokens, logged.cache_write_tokens) == (900, 300, 500)
+    assert logged.total_tokens == 1240  # the writes are inside the prompt tokens: counted once
+    # an Anthropic message's own usage leaves the cache reads and writes out of its input_tokens
+    raw = SimpleNamespace(
+        input_tokens=400, cache_creation_input_tokens=500, cache_read_input_tokens=300, output_tokens=40
+    )
+    assert usage.split(raw) == (900, 300, 40) and usage.written(raw) == 500
+    usage.record(usage.WATCH, CLAUDE, raw)
+    logged = AIUsage.objects.get(feature=usage.WATCH)
+    assert (logged.input_tokens, logged.cached_tokens, logged.cache_write_tokens) == (900, 300, 500)
+    usage.record(usage.REVIEW, MODEL, tokens(1000, 200, cached=600))  # OpenAI writes none
+    assert AIUsage.objects.get(feature=usage.REVIEW).cache_write_tokens == 0 and usage.written(None) == 0
+
+
+def test_after_a_refusal_fallback_each_model_books_and_costs_its_own_tokens():
+    asked, answered = llm.Usage(50, 200, 0, 10), llm.Usage(90, 0, 30, 40)
+    result = llm.Result(
+        text="The answer.",
+        parsed=None,
+        stop="ok",
+        reason="end_turn",
+        model=CLAUDE,
+        served_by="claude-opus-5",
+        usage=asked + answered,
+        provider=llm.CLAUDE,
+        by_model={CLAUDE: asked, "claude-opus-5": answered},
+        model_calls={"claude-opus-5": 1},
+    )
+    llm.record(usage.REVIEW, result.model, result)
+    rows = {row.model: row for row in AIUsage.objects.filter(feature=usage.REVIEW)}
+    assert {
+        name: (row.calls, row.input_tokens, row.cached_tokens, row.cache_write_tokens)
+        for name, row in rows.items()
+    } == {
+        CLAUDE: (0, 50, 200, 0),  # the declined attempt, under the model asked for
+        "claude-opus-5": (1, 90, 0, 30),  # the fallback's own attempt, and the answer
+    }
+    # the rows add up to the answer: input + cached is the whole prompt on both providers
+    assert sum(row.input_tokens + row.cached_tokens for row in rows.values()) == (
+        result.usage.input_tokens + result.usage.cache_read_tokens
+    )
+    assert sum(row.output_tokens for row in rows.values()) == result.usage.output_tokens
+    # each at its model's prices: 50 x 4 + 200 x 0.20 + 10 x 20; 90 x 5 + 30 x 1.25 + 40 x 25 (per million)
+    assert usage.cost(rows[CLAUDE], usage.price_for(CLAUDE)) == Decimal("0.00044")
+    assert usage.cost(rows["claude-opus-5"], usage.price_for("claude-opus-5")) == Decimal("0.0014875")
+
+
+def test_the_admin_lists_the_provider_the_cache_writes_and_claudes_cost(client, admin_user, no_prices):
+    usage.record(
+        usage.ASK,
+        CLAUDE,
+        llm.Usage(input_tokens=1_000_000, cache_write_tokens=500_000, output_tokens=100_000),
+    )
+    usage.record(usage.WATCH, MODEL, tokens(10, 1))  # OpenAI, with no price set
+    client.force_login(admin_user)
+    page = client.get(reverse("admin:assistant_aiusage_changelist")).content.decode()
+    assert "Provider" in page and "Claude (Anthropic)" in page and "ChatGPT (OpenAI)" in page
+    assert "Written to the cache" in page and "500,000" in page
+    # a Claude row is priced from the table: 1M x 4 + 0.5M x (5 - 4) + 0.1M x 20
+    assert "Cost (USD)" in page and "$6.50" in page

@@ -125,7 +125,7 @@
   <summary>{% trans "How this works" %}</summary>
   <p class="mt-2 mb-1">{% trans "Every morning, and when new data arrives, NeuroDB reads eTools, the daily review, the year-end forecasts, the knowledge hub and the health of its own jobs. It tells you again only when something changes or a date comes near, and at most a few things a day need you. It never changes any data." %}</p>
   <p class="mb-1">{% trans "New checks start in a trial that only administrators and management see, and are switched on for staff once they prove useful. Your answers (Useful, Not useful, Done, Not mine, Remind me later, Something's wrong) change what you are told next; a comment on Something's wrong is read by administrators only." %}</p>
-  <p class="mb-0">{% trans "The note is written by AI (OpenAI) from the points listed, and every sentence is checked against them. Each morning NeuroDB may also look up a few urgent points with Ask NeuroDB's read-only tools: what it found is shown as “What NeuroDB looked up (AI)” and kept only when its numbers match the data. People's names and children's individual data are never sent." %}</p>
+  <p class="mb-0">{% blocktrans with vendor=ai_vendor|default:AI_PROVIDER.vendor %}The note is written by AI ({{ vendor }}) from the points listed, and every sentence is checked against them. Each morning NeuroDB may also look up a few urgent points with Ask NeuroDB's read-only tools: what it found is shown as “What NeuroDB looked up (AI)” and kept only when its numbers match the data. People's names and children's individual data are never sent.{% endblocktrans %}</p>
 </details>
 </div>
 {% endblock %}

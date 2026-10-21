@@ -195,7 +195,9 @@ def gate(
     published = version if version.status == PromptVersion.Status.PUBLISHED else None
     ok, why = budget.allowed(KINDS.get(trigger, "user"), user, _rough_estimate(version), version=published)
     if not ok:
-        return (Insight.Status.SKIPPED if why == budget.OFF else Insight.Status.LIMITED), budget.REASONS[why]
+        return (Insight.Status.SKIPPED if why == budget.OFF else Insight.Status.LIMITED), budget.reason_for(
+            why
+        )
     if not version.insights_enabled:
         return Insight.Status.SKIPPED, DISABLED
     if _visits(scope) < settings.FMM_MIN_VISITS_FOR_AI:
@@ -567,7 +569,7 @@ def _generate(scope, version, user, trigger, insight, today) -> Insight:
     ok, why = budget.allowed(kind, user, budget.estimate(facts, version))
     if not ok:
         status_ = Insight.Status.SKIPPED if why == budget.OFF else Insight.Status.LIMITED
-        return _refused_by_gate(insight, scope, version, user, trigger, (status_, budget.REASONS[why]))
+        return _refused_by_gate(insight, scope, version, user, trigger, (status_, budget.reason_for(why)))
 
     row = insight if insight is not None else _new_row(scope, version, user, trigger, Insight.Status.RUNNING)
     rules_version, as_of = _refresh_state()
@@ -716,7 +718,7 @@ def why_not(scope, version: PromptVersion | None) -> str:
     if version is None or not budget.switched_on(version):
         return OFF
     if budget.paused_until() is not None:
-        return budget.REASONS[budget.PAUSED]
+        return budget.reason_for(budget.PAUSED)
     if not version.insights_enabled:
         return DISABLED
     if _visits(scope) < settings.FMM_MIN_VISITS_FOR_AI:

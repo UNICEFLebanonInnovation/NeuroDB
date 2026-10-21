@@ -105,7 +105,7 @@ behind it.
 
 ### AI monitoring brief
 
-A brief of the filter written by ChatGPT (OpenAI's GPT model) from figures NeuroDB works out. The
+A brief of the filter written by the AI from figures NeuroDB works out. The
 parts are set by the published prompt version; the Lebanon version has a coverage and quality
 summary, key programmatic findings, operational challenges, recommendations and up to five priority
 action points ("[PRIORITY: High] Education / partner — action — responsible — timeframe"). Every
@@ -138,7 +138,7 @@ records of that urgency band.
 ### Chat with Data
 
 Questions about the visits **of the page's filter** ("Which visits were off track and why?"),
-answered by ChatGPT with four look-ups of Monitoring insights: counts of visits and their records (also
+answered by the AI with four look-ups of Monitoring insights: counts of visits and their records (also
 by section, partner, month, rating, rule...), lists of visits with their records, one visit with each
 of its records' score, urgency and rule results, and a search of the visits' notes. As on the page, the
 average quality and the urgency are per record. The model can narrow the filter but never widen it; changing the filter
@@ -306,7 +306,7 @@ Rule types:
 
 - **Completeness**: each listed field missing from the report takes its own deduction off.
 - **Scoring bands**: one figure scored by bands; the first band that matches gives the deduction.
-- **AI check**: ChatGPT reads the fields the rule lists and says whether the report is coherent, with
+- **AI check**: the AI reads the fields the rule lists and says whether the report is coherent, with
   one or two sentences why (see [AI checks](/help/monitoring-insights/#ai-checks-of-the-rules)).
 - **Reference check**: compares a value with reference data (staff lists, a programme document's
   registered locations, a CP output's sections).
@@ -342,7 +342,7 @@ R19 compares are read and dropped at once: never kept, never shown, never sent t
 
 The AI rules (R3, R5, R6, R7, R8 and R32) are checked record by record (each entity of a visit, as FMS
 does), every morning at 05:50, this year's first and those of visits with several records first,
-within the day's AI budget; the rest are checked over the next nights. One check is one ChatGPT call
+within the day's AI budget; the rest are checked over the next nights. One check is one AI call
 per record and rule: the rule's instructions and the fields it lists (the record's entity type,
 rating, narrative and Q1–Q3 answers; the visit goals, objective and action points with their due
 dates), each text cut to 1,500 characters and cleaned of names, e-mail addresses, phone numbers and

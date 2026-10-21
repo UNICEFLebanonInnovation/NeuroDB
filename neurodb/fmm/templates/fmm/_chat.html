@@ -3,7 +3,7 @@
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
     <div>
       <h2 class="h6 mb-1" id="fmm-chat-title">{% trans "Chat with Data" %}</h2>
-      <p class="small text-muted mb-0">{% trans "Questions about the visits in the current filter, answered by ChatGPT (OpenAI) from Monitoring insights' look-ups." %}</p>
+      <p class="small text-muted mb-0">{% blocktrans with ai=AI_PROVIDER.label %}Questions about the visits in the current filter, answered by {{ ai }} from Monitoring insights' look-ups.{% endblocktrans %}</p>
     </div>
     <div class="chips" aria-label="{% trans 'What the chat covers' %}">
       <span class="chip" title="{% trans 'The chat covers the visits of this filter only; change the filter above to ask about others.' %}">{{ scope.label }}</span>
@@ -31,7 +31,7 @@
       </div>
     </form>
     <p class="ask__note small text-muted">
-      {% blocktrans with limit=chat.allowed %}Names, emails and phone numbers are removed from your question before it is sent. Answers are written by ChatGPT (OpenAI's GPT model) from the visits of this filter and can contain mistakes: visit references are checked against the visits looked up, and figures that could not be checked are listed under the answer. Up to {{ limit }} questions a day.{% endblocktrans %}
+      {% blocktrans with limit=chat.allowed writer=AI_PROVIDER.writer %}Names, emails and phone numbers are removed from your question before it is sent. Answers are written by {{ writer }} from the visits of this filter and can contain mistakes: visit references are checked against the visits looked up, and figures that could not be checked are listed under the answer. Up to {{ limit }} questions a day.{% endblocktrans %}
     </p>
     <template data-ask-turn>
       <article class="ask-turn">

@@ -9,8 +9,11 @@ the watch follows it as the item ``system:<key>`` and closes it once the line go
 - **set-up**: no reporting year marked as current; displayed ActivityInfo databases never imported or
   not imported for more than 40 days; active master indicators without a target (these four only while
   the ActivityInfo import is followed: once ActivityInfo is an archive they are nobody's task); eTools
-  master indicators listed this year without a target for it; active users without a role; the
-  Anthropic account refusing the refusal fallbacks of AI settings;
+  master indicators listed this year without a target for it; active users without a role; the AI
+  settings: the provider chosen there or by the hosting team without its API key (``ai_no_key``), a key
+  entered there that the site's secret key no longer opens (``ai_key_unreadable:<vendor>``), a key the
+  hosting team set as a Key Vault reference that did not resolve (``ai_key_vault:<vendor>``), and the
+  Anthropic account refusing the refusal fallbacks (``ai_fallbacks_refused``);
 - **jobs**: the last run of a job failed or lost rows. A Compiler job counts only while a switched-on
   schedule runs it: the Compiler reads are off by default, and a trial run that failed should not
   stay listed. The ActivityInfo imports count only while their import is followed. The eTools Datamart
@@ -258,25 +261,90 @@ def _users_without_role() -> list[Warning]:
     return lines
 
 
+# Each provider's key: (its vendor in a line's key, the hosting team's setting, its Key Vault secret)
+AI_KEYS = {
+    "claude": ("anthropic", "ANTHROPIC_API_KEY", "anthropic-api-key"),
+    "openai": ("openai", "OPENAI_API_KEY", "openai-api-key"),
+}
+
+
 def _ai_setup(now: datetime.datetime) -> list[Warning]:
-    """The Anthropic account refused the header of the refusal fallbacks (AI settings) in the last 24
-    hours: the calls go without them meanwhile. One cache read, no query."""
+    """The AI settings, while the hosting team's switch is on: a key set as a Key Vault reference that
+    did not resolve; the provider chosen (in AI settings or by the hosting team) with no key; a key
+    entered in AI settings that can no longer be read (the site's secret key changed: Automatic would
+    move to the other provider without a word); the Anthropic account refusing the header of the refusal
+    fallbacks in the last 24 hours (the calls go without them meanwhile). The AI settings as kept in
+    memory and one cache read: no query."""
+    from neurodb.assistant import llm
     from neurodb.assistant.llm import claude_backend
 
-    if not claude_backend.fallbacks_refused():
+    if not getattr(settings, "AI_ASSISTANT_SWITCH", True):
         return []
-    return [
-        Warning(
-            key="ai_fallbacks_refused",
-            text=_(
-                "This Anthropic account does not accept refusal fallbacks: an answer Claude declines is not "
-                "retried on another model. Untick the option in AI settings to stop this check."
-            ),
-            url=_admin_url("assistant_aisettings"),
-            read=_("Refusal fallbacks accepted by the Anthropic account"),
-            value=_("no"),
+    url = _admin_url("assistant_aisettings")
+    entered = llm.snapshot()
+    lines = []
+    for p, (vendor, setting, secret) in AI_KEYS.items():
+        if setting in settings.AI_KEY_VAULT_UNRESOLVED:
+            lines.append(
+                Warning(
+                    key=f"ai_key_vault:{vendor}",
+                    text=_(
+                        "%(setting)s is a Key Vault reference that did not resolve: the hosting team should "
+                        "check the secret %(secret)s."
+                    )
+                    % {"setting": setting, "secret": secret},
+                    url=url,
+                    read=_("%(setting)s from Key Vault") % {"setting": setting},
+                    value=_("not resolved"),
+                )
+            )
+        if getattr(settings, setting):  # the hosting team's key comes first: one entered here is not read
+            continue
+        if getattr(entered, f"{vendor}_entered") and not getattr(entered, f"{vendor}_readable"):
+            lines.append(
+                Warning(
+                    key=f"ai_key_unreadable:{vendor}",
+                    text=_(
+                        "The %(vendor)s API key entered in AI settings can no longer be read, as the site's "
+                        "secret key changed: enter it again."
+                    )
+                    % {"vendor": llm.NAMES[p].vendor},
+                    url=url,
+                    read=_("%(vendor)s API key entered in AI settings") % {"vendor": llm.NAMES[p].vendor},
+                    value=_("cannot be read"),
+                )
+            )
+    p = llm.provider()
+    vendor = AI_KEYS[p][0]
+    if llm.chosen_by() != llm.AUTO and not llm.available(p) and not getattr(entered, f"{vendor}_entered"):
+        where = _("AI settings") if llm.chosen_by() == "admin" else f"AI_PROVIDER={settings.AI_PROVIDER}"
+        lines.append(
+            Warning(
+                key="ai_no_key",
+                text=_(
+                    "%(provider)s is chosen for the AI features (%(where)s) but no %(vendor)s API key is "
+                    "entered: the AI features are off."
+                )
+                % {"provider": llm.NAMES[p].label, "where": where, "vendor": llm.NAMES[p].vendor},
+                url=url,
+                read=_("API key of the AI provider chosen"),
+                value=_("none"),
+            )
         )
-    ]
+    if claude_backend.fallbacks_refused():
+        lines.append(
+            Warning(
+                key="ai_fallbacks_refused",
+                text=_(
+                    "This Anthropic account does not accept refusal fallbacks: an answer Claude declines is "
+                    "not retried on another model. Untick the option in AI settings to stop this check."
+                ),
+                url=url,
+                read=_("Refusal fallbacks accepted by the Anthropic account"),
+                value=_("no"),
+            )
+        )
+    return lines
 
 
 # ---------------------------------------------------------------------------- jobs
@@ -524,8 +592,8 @@ def _watch_late(now: datetime.datetime) -> list[Warning]:
 
 
 def _watch_ai_paused(now: datetime.datetime) -> list[Warning]:
-    """NeuroDB Watch stopped using AI for a while (the daily limit, the OpenAI credit ran out...): the
-    morning notes are listed without it until then."""
+    """NeuroDB Watch stopped using AI for a while (the daily limit, the AI provider's credit ran out...):
+    the morning notes are listed without it until then."""
     from neurodb.watch.models import WatchState
 
     if not settings.WATCH_AI:

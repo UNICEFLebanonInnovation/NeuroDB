@@ -17,9 +17,10 @@ is recorded right after it returns.
 
 **The circuit breaker.** After a call fails, :func:`trip` decides:
 
-- the OpenAI credit ran out (``insufficient_quota``, or a 429 that says quota): the watch's AI pauses
-  for 6 hours at once, and the administrators get the critical item ``system:openai_quota`` ("The
-  OpenAI credit ran out: Ask NeuroDB is affected too");
+- the AI provider's credit ran out (OpenAI's ``insufficient_quota``, or a 429 that says quota;
+  Anthropic's ``billing_error``): the watch's AI pauses for 6 hours at once, and the administrators get
+  the critical item ``system:openai_quota`` ("The OpenAI credit ran out: Ask NeuroDB is affected too",
+  or the Anthropic credit; the item's id stays the one it always had);
 - any other failure counts one more failure in a row (``WatchState.consecutive_ai_errors``); the third
   in a row pauses the AI for 6 hours.
 
@@ -61,21 +62,48 @@ OFF, BUDGET, PAUSED = (
     WatchNote.Skipped.PAUSED.value,
 )
 QUOTA, ERROR = WatchNote.Skipped.QUOTA.value, WatchNote.Skipped.ERROR.value
-# Why the AI paused (WatchState.ai_pause_reason; the admin home shows it)
-QUOTA_REASON = "the OpenAI credit ran out"
+# Why the AI paused (WatchState.ai_pause_reason; the admin home shows it): the credit ran out
+# (quota_reason), or the AI failed several times in a row
 ERRORS_REASON = f"the AI did not answer {ERRORS_TO_PAUSE} times in a row"
 
 # The administrators' item when the credit runs out. No check module finds it, so the memory never
-# closes it as missed: it is opened by :func:`trip` and closed by :func:`succeeded`.
+# closes it as missed: it is opened by :func:`trip` and closed by :func:`succeeded`. Its id stays the one
+# it had when OpenAI was the only provider; its words name the provider in use (quota_source() and so on).
 QUOTA_KEY = "system:openai_quota"
 QUOTA_CHECK = "openai_quota"
-QUOTA_SOURCE = "OpenAI"
-QUOTA_DETAIL = (
-    "OpenAI refused a call because the credit of the shared key ran out. Ask NeuroDB, the daily review "
-    "and the other AI features use the same key, so they are affected too. NeuroDB Watch lists its "
-    "notes without AI and tries again later. Add credit to the OpenAI project, or raise its budget."
-)
 QUOTA_CLOSED = "the AI answered again"
+# Where each provider's credit is added, the last sentence of the item's detail
+TOP_UP = {
+    llm.OPENAI: "Add credit to the OpenAI project, or raise its budget.",
+    llm.CLAUDE: "Buy credits in the Claude Console (Billing), or raise the workspace's spend limit.",
+}
+# The provider's own word for it, in the item's evidence
+QUOTA_ERRORS = {llm.OPENAI: "insufficient_quota", llm.CLAUDE: "billing_error"}
+
+
+def quota_reason() -> str:
+    """Why the AI paused when the credit ran out: "the OpenAI credit ran out" (or the Anthropic one)."""
+    return f"{llm.names().credit} ran out"
+
+
+def quota_source() -> str:
+    """The item's source: the provider's name ("OpenAI", "Anthropic")."""
+    return llm.names().vendor
+
+
+def quota_detail() -> str:
+    """The item's detail, naming the provider in use and where its credit is added."""
+    return (
+        f"{llm.names().vendor} refused a call because the credit of the shared key ran out. Ask NeuroDB, "
+        "the daily review and the other AI features use the same key, so they are affected too. NeuroDB "
+        f"Watch lists its notes without AI and tries again later. {TOP_UP[llm.provider()]}"
+    )
+
+
+def _credit() -> str:
+    """The provider's credit as a sentence starts with it: "The OpenAI credit"."""
+    credit = llm.names().credit
+    return credit[:1].upper() + credit[1:]
 
 
 # ---------------------------------------------------------------------------- may the AI be used
@@ -155,11 +183,11 @@ def trip(exc: BaseException, now: datetime.datetime | None = None) -> str:
     was not used: ``quota`` or ``error``."""
     now = now or timezone.now()
     if is_quota(exc):
-        pause(QUOTA_REASON, now=now)
+        pause(quota_reason(), now=now)
         try:
             raise_quota_item(now)
         except Exception:  # the pause holds even if the item cannot be written
-            logger.exception("NeuroDB Watch: the item for the OpenAI credit could not be written")
+            logger.exception("NeuroDB Watch: the item for the AI service's credit could not be written")
         return QUOTA
     WatchState.get()
     WatchState.objects.filter(pk=1).update(consecutive_ai_errors=F("consecutive_ai_errors") + 1)
@@ -170,12 +198,12 @@ def trip(exc: BaseException, now: datetime.datetime | None = None) -> str:
 
 def succeeded(now: datetime.datetime | None = None) -> None:
     """The model service answered a call: the failures in a row start again from none, and the
-    administrators' item for the OpenAI credit closes (the credit is back)."""
+    administrators' item for the AI service's credit closes (the credit is back)."""
     WatchState.objects.filter(pk=1, consecutive_ai_errors__gt=0).update(consecutive_ai_errors=0)
     try:
         close_quota_item(timezone.localdate(now or timezone.now()))
     except Exception:
-        logger.exception("NeuroDB Watch: the item for the OpenAI credit could not be closed")
+        logger.exception("NeuroDB Watch: the item for the AI service's credit could not be closed")
 
 
 # ---------------------------------------------------------------------------- the administrators' item
@@ -188,19 +216,21 @@ def _ai_use_url() -> str:
 
 def raise_quota_item(now: datetime.datetime | None = None) -> WatchItem:
     """Open (or keep open) the critical item ``system:openai_quota``, told to the administrators only
-    and never sent to the AI. Seen again on another day, it says so in its story."""
+    and never sent to the AI. Seen again on another day, it says so in its story. Its words name the
+    provider in use (OpenAI's are the ones it always had)."""
     now = now or timezone.now()
     today = timezone.localdate(now)
     url = _ai_use_url()
+    credit = _credit()
     evidence = {
-        "source": QUOTA_SOURCE,
+        "source": quota_source(),
         "source_job": "",
         "synced_at": now.isoformat(timespec="seconds"),
         "records": [
             {
-                "label": "OpenAI refused a call: the credit ran out",
+                "label": f"{quota_source()} refused a call: the credit ran out",
                 "date": today.isoformat(),
-                "value": "insufficient_quota",
+                "value": QUOTA_ERRORS[llm.provider()],
                 "url": url,
             }
         ],
@@ -212,8 +242,8 @@ def raise_quota_item(now: datetime.datetime | None = None) -> WatchItem:
         "severity": WatchItem.Severity.CRITICAL,
         "confidence": WatchItem.Confidence.SURE,
         "scope": WatchItem.Scope.ADMINS,
-        "title": f"The OpenAI credit ran out on {_day(today)}: Ask NeuroDB is affected too",
-        "detail": QUOTA_DETAIL,
+        "title": f"{credit} ran out on {_day(today)}: Ask NeuroDB is affected too",
+        "detail": quota_detail(),
         "url": url,
         "evidence": evidence,
     }
@@ -224,7 +254,7 @@ def raise_quota_item(now: datetime.datetime | None = None) -> WatchItem:
             item = WatchItem(
                 key=QUOTA_KEY, first_seen_on=today, last_seen_on=today, changed_on=today, **values
             )
-            item.add_story("First noticed: the OpenAI credit ran out", today)
+            item.add_story(f"First noticed: {quota_reason()}", today)
         elif item.state == WatchItem.State.WRONG and item.evidence_hash == fingerprint(evidence):
             return item  # marked wrong, and nothing new since: it stays hidden
         elif item.state != WatchItem.State.OPEN:
@@ -236,9 +266,9 @@ def raise_quota_item(now: datetime.datetime | None = None) -> WatchItem:
             item.first_seen_on = today
             item.changed_on = today
             item.missed_runs = 0
-            item.add_story("The OpenAI credit ran out again", today)
+            item.add_story(f"{credit} ran out again", today)
         elif item.last_seen_on != today:
-            item.add_story("The OpenAI credit is still out", today)
+            item.add_story(f"{credit} is still out", today)
         item.last_seen_on = today
         item.evidence_hash = fingerprint(item.evidence)
         item.save()

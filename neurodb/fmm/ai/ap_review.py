@@ -22,8 +22,8 @@ kept is cleaned and checked against what was sent, like the AI checks' (``checks
 point review)"): the completed action points not reviewed yet or out of date, most recently completed
 first, while the day's budget allows (``FMM_AP_REVIEW_DAILY_TOKEN_CAP``, recorded under the AI use
 feature ``fmm_ap_review``, and 80% of ``AI_DAILY_TOKEN_SOFT_CAP`` across every feature); ``limit`` (the
-page's batch size: 20, 50, 100 or 200) stops it earlier. It stops when the OpenAI credit runs out (the AI
-pauses for 6 hours) or after 3 failed reviews in a row. Its status line: "n reviewed, n skipped, n
+page's batch size: 20, 50, 100 or 200) stops it earlier. It stops when the AI provider's credit runs out
+(the AI pauses for 6 hours) or after 3 failed reviews in a row. Its status line: "n reviewed, n skipped, n
 errors": reviewed are the verdicts made, skipped the completed points with no action taken (or whose
 texts could not be sent safely), errors the calls or answers that failed. Nothing runs while the AI,
 Monitoring insights' AI or the review (Action point settings) is switched off.
@@ -201,7 +201,7 @@ def switched_on() -> tuple[bool, str]:
     if instructions() is None:
         return False, "the published prompt version holds no instructions for the review"
     if budget.paused_until() is not None:
-        return False, budget.REASONS[budget.PAUSED]
+        return False, budget.reason_for(budget.PAUSED)
     return True, ""
 
 
@@ -312,7 +312,7 @@ def _review_all(conn, sync_run, tally: dict[str, int], limit: int | None) -> str
             found = review(conn, prompt, sent, setting, names_)
         except Exception as exc:
             if budget.trip(exc):
-                return "paused: the OpenAI credit ran out"
+                return f"paused: {budget.quota_reason()}"
             logger.warning("Action points: an AI review failed: %s", type(exc).__name__)
             found = None
         if found is None:

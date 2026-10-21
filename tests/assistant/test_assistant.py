@@ -1137,6 +1137,11 @@ def test_settings_read_the_anthropic_key_and_the_claude_defaults(monkeypatch):
         monkeypatch, ANTHROPIC_API_KEY="@Microsoft.KeyVault(VaultName=kv;SecretName=anthropic-api-key)"
     )
     assert unresolved["ANTHROPIC_API_KEY"] == "" and unresolved["AI_ASSISTANT_ENABLED"] is False
+    # Needs attention names the key that did not resolve
+    assert (
+        unresolved["AI_KEY_VAULT_UNRESOLVED"] == ("ANTHROPIC_API_KEY",)
+        and loaded["AI_KEY_VAULT_UNRESOLVED"] == ()
+    )
     # the key that counts is the one of the provider the hosting team set
     pinned = _settings(monkeypatch, ANTHROPIC_API_KEY="test-key-not-real", AI_PROVIDER=" OpenAI ")
     assert pinned["AI_PROVIDER"] == "openai" and pinned["AI_ASSISTANT_ENABLED"] is False

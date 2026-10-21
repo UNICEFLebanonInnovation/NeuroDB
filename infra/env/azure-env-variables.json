@@ -201,13 +201,49 @@
       "description": "A source is reported stale after this many hours without a successful sync."
     },
     {
+      "name": "AI_PROVIDER",
+      "group": "AI assistant",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "auto",
+      "description": "auto | claude | openai: the AI provider of every AI feature. auto: the choice in the admin's AI settings, else Claude (the preferred one) when an Anthropic key is available, else OpenAI. claude or openai pins it, before AI settings. Any other value stops the app at start-up."
+    },
+    {
+      "name": "ANTHROPIC_API_KEY",
+      "group": "AI assistant",
+      "required": false,
+      "secret": true,
+      "keyVaultSecret": "anthropic-api-key",
+      "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=anthropic-api-key)",
+      "description": "Anthropic API key (optional; can be entered in the admin's AI settings) for Claude, the preferred AI: a key of the organisation's workspace in the Claude Console (platform.claude.com). Set here, it comes before a key entered in AI settings."
+    },
+    {
+      "name": "CLAUDE_MODEL",
+      "group": "AI assistant",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "claude-opus-5-5",
+      "description": "Claude model (Anthropic's Messages API) when the admin's AI settings choose none. A Claude model id (claude-...), else the app stops at start-up."
+    },
+    {
+      "name": "CLAUDE_EFFORT",
+      "group": "AI assistant",
+      "required": false,
+      "secret": false,
+      "keyVaultSecret": null,
+      "value": "medium",
+      "description": "low | medium | high | xhigh | max: how much Claude thinks before it answers (its thinking is always on), depth vs cost and speed; a feature's none or minimal runs as low. Any other value stops the app at start-up."
+    },
+    {
       "name": "OPENAI_API_KEY",
       "group": "AI assistant",
       "required": false,
       "secret": true,
       "keyVaultSecret": "openai-api-key",
       "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=openai-api-key)",
-      "description": "OpenAI API key (a project key from platform.openai.com) for the AI assistant (Ask NeuroDB). Leave unset to switch the assistant off."
+      "description": "OpenAI API key (a project key from platform.openai.com; optional, can be entered in the admin's AI settings) for the AI features on OpenAI. Set here, it comes before a key entered in AI settings."
     },
     {
       "name": "AI_ASSISTANT_MODEL",
@@ -216,7 +252,7 @@
       "secret": false,
       "keyVaultSecret": null,
       "value": "gpt-5.5",
-      "description": "OpenAI model (ChatGPT, via the OpenAI Responses API) that answers questions."
+      "description": "OpenAI model (ChatGPT, via the OpenAI Responses API) when OpenAI is the provider in use and the admin's AI settings choose none."
     },
     {
       "name": "AI_ASSISTANT_EFFORT",
@@ -225,7 +261,7 @@
       "secret": false,
       "keyVaultSecret": null,
       "value": "medium",
-      "description": "none | minimal | low | medium | high | xhigh | max: reasoning effort, depth of reasoning vs cost and speed. Supported values vary by model (gpt-5.5: none, low, medium, high, xhigh). Any other value stops the app at start-up."
+      "description": "none | minimal | low | medium | high | xhigh | max: OpenAI's reasoning effort, depth of reasoning vs cost and speed. Supported values vary by model (gpt-5.5: none, low, medium, high, xhigh). Any other value stops the app at start-up."
     },
     {
       "name": "AI_ASSISTANT_HOURLY_LIMIT",

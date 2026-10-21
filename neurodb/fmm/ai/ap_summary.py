@@ -77,12 +77,16 @@ OFF = "The AI content summary is not available: AI is switched off."
 NO_PROMPT = (
     "The AI content summary is not available: the published prompt version holds no instructions for it."
 )
-PAUSED = "AI is paused: the OpenAI credit ran out. Try again later."
 BUDGET = "Today's AI budget for action points is used; it resets at midnight."
 QUOTA = "You have used today's AI content summaries ({n} a day); they reset at midnight."
 NOTHING = "No action point with a description matches the filter."
 FAILED = "The summary could not be written. Try again in a moment."
 NOT_CHECKED = "The summary did not add up to the action points read, so it is not shown. Try again."
+
+
+def paused() -> str:
+    """Why no summary is written while the AI rests: the provider's credit ran out (it names it)."""
+    return f"AI is paused: {budget.quota_reason()}. Try again later."
 
 
 @dataclass
@@ -214,7 +218,7 @@ def summarise(points, user) -> Summary:
         ActionPointSummary.objects.create(user=user, status=ActionPointSummary.Status.LIMITED, reason="quota")
         return Summary(False, QUOTA.format(n=allowed_))
     if budget.paused_until() is not None:
-        return Summary(False, PAUSED)
+        return Summary(False, paused())
     setting = ScoreSetting.load()
     names_ = privacy.names()
     sent_points, total = collect(points, ActionPointSetting.load().summary_points, names_)

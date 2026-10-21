@@ -277,7 +277,7 @@ class WatchNote(models.Model):
         OFF = "off", _("AI switched off")
         BUDGET = "budget", _("Daily limit reached")
         PAUSED = "paused", _("AI paused")
-        QUOTA = "quota", _("OpenAI credit ran out")
+        QUOTA = "quota", _("The AI service's credit ran out")
         ERROR = "error", _("AI did not answer")
         NO_CHANGE = "no_change", _("Nothing changed")
 

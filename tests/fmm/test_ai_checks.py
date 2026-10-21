@@ -291,7 +291,7 @@ def test_the_credit_running_out_pauses_the_ai_and_three_failures_stop_the_job(bu
     run = _run()
     assert run.details["stopped"] == "paused: the OpenAI credit ran out" and run.rows_written == 0
     assert budget.paused_until() is not None
-    assert _run().details["skipped"] == budget.REASONS[budget.PAUSED]
+    assert _run().details["skipped"] == budget.reason_for(budget.PAUSED)
     AIState.objects.update(paused_until=None)
     busy = openai.RateLimitError("Busy", response=httpx2.Response(429, request=request), body=None)
     fake(errors=[busy, busy, busy])

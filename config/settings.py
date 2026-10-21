@@ -427,10 +427,16 @@ if AI_PROVIDER not in AI_PROVIDERS:
 
     raise ImproperlyConfigured(f"AI_PROVIDER must be one of {AI_PROVIDERS}; got {AI_PROVIDER!r}")
 ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", default="").strip()
-if ANTHROPIC_API_KEY.startswith("@Microsoft.KeyVault("):
-    ANTHROPIC_API_KEY = ""
 OPENAI_API_KEY = env("OPENAI_API_KEY", default="").strip()
-if OPENAI_API_KEY.startswith("@Microsoft.KeyVault("):
+# The keys that arrived as an unresolved Key Vault reference (Needs attention names them)
+AI_KEY_VAULT_UNRESOLVED = tuple(
+    name
+    for name, value in (("ANTHROPIC_API_KEY", ANTHROPIC_API_KEY), ("OPENAI_API_KEY", OPENAI_API_KEY))
+    if value.startswith("@Microsoft.KeyVault(")
+)
+if "ANTHROPIC_API_KEY" in AI_KEY_VAULT_UNRESOLVED:
+    ANTHROPIC_API_KEY = ""
+if "OPENAI_API_KEY" in AI_KEY_VAULT_UNRESOLVED:
     OPENAI_API_KEY = ""
 # The hosting team's switch: off, no AI runs whatever is entered in AI settings. AI_ASSISTANT_ENABLED is
 # the switch and a key here, for the provider set here (or either); llm.enabled() adds the keys entered in
@@ -504,7 +510,7 @@ HELP_PER_USER_PER_DAY = env.int("HELP_PER_USER_PER_DAY", default=20)
 # are read by the AI into findings, key statements and action points, nightly (scheduled job doc-review,
 # 04:40) or on request. Switched on in the admin (Document review settings, off by default); tokens a day
 # for it (the settings page may set a lower or higher cap); the shared AI_DAILY_TOKEN_SOFT_CAP (80%: a
-# background job) and the OpenAI credit pause apply too.
+# background job) and the AI provider's credit pause apply too.
 DOC_REVIEW_DAILY_TOKEN_CAP = env.int("DOC_REVIEW_DAILY_TOKEN_CAP", default=1_000_000)
 
 # ---------------------------------------------------------------------------- NeuroDB Watch (For you)

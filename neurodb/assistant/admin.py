@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.formats import date_format
-from django.utils.html import escape
+from django.utils.html import escape, format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.debug import sensitive_post_parameters
 from unfold.admin import ModelAdmin
@@ -68,11 +68,13 @@ class FeatureFilter(admin.SimpleListFilter):
 
 @admin.register(AIUsage)
 class AIUsageAdmin(ReadOnlyModelAdmin):
-    """The AI use of every feature on the shared OpenAI key, per day, in tokens; in US dollars too
-    when the optional AI_PRICE_* settings give the prices."""
+    """The AI use of every feature on the shared key of the provider in use, per day and model (the model
+    names the provider), in tokens; in US dollars too where the price is known: Claude's prices are built
+    in, OpenAI's come from the optional AI_PRICE_* settings ("-" for a row with no known price)."""
 
     list_display = (
-        "day", "feature_name", "model", "calls", "prompt_tokens", "cached", "output", "total",
+        "day", "feature_name", "provider", "model", "calls", "prompt_tokens", "cached", "written", "output",
+        "total",
     )  # fmt: skip
     list_filter = (FeatureFilter, "day", "model")
     date_hierarchy = "day"
@@ -80,11 +82,17 @@ class AIUsageAdmin(ReadOnlyModelAdmin):
 
     def get_list_display(self, request):
         shown = super().get_list_display(request)
-        return (*shown, "cost") if usage.prices() else shown
+        if usage.prices() or AIUsage.objects.filter(model__istartswith="claude").exists():
+            return (*shown, "cost")
+        return shown
 
     @admin.display(description=_("Feature"), ordering="feature")
     def feature_name(self, obj):
         return usage.FEATURES.get(obj.feature, obj.feature)
+
+    @admin.display(description=_("Provider"))
+    def provider(self, obj):
+        return llm.names_of(obj.model).label
 
     @admin.display(description=_("Prompt tokens (not cached)"), ordering="input_tokens")
     def prompt_tokens(self, obj):
@@ -93,6 +101,10 @@ class AIUsageAdmin(ReadOnlyModelAdmin):
     @admin.display(description=_("Cached prompt tokens"), ordering="cached_tokens")
     def cached(self, obj):
         return f"{obj.cached_tokens:,}"
+
+    @admin.display(description=_("Written to the cache"), ordering="cache_write_tokens")
+    def written(self, obj):
+        return f"{obj.cache_write_tokens:,}"
 
     @admin.display(description=_("Output tokens"), ordering="output_tokens")
     def output(self, obj):
@@ -104,7 +116,7 @@ class AIUsageAdmin(ReadOnlyModelAdmin):
 
     @admin.display(description=_("Cost (USD)"))
     def cost(self, obj):
-        price = usage.prices()
+        price = usage.price_for(obj.model)
         if not price:
             return "-"
         dollars = usage.cost(obj, price)
@@ -142,6 +154,58 @@ def _claude_models() -> list[tuple[str, str]]:
 
 def _env_key(prefix: str) -> str:
     return settings.ANTHROPIC_API_KEY if prefix == "anthropic" else settings.OPENAI_API_KEY
+
+
+def _feature_models() -> list[tuple[str, str, str, str]]:
+    """Each AI feature's (name, what it asks for, the model it runs on now, a note): a model of the other
+    provider is not used, the provider in use's runs instead (``llm.model_for``; nothing stored changes)."""
+    from neurodb.fmm.ai import profiles
+    from neurodb.fmm.models import ScoreSetting
+
+    p = llm.provider()
+    default = str(_("the default model"))
+    version = profiles.published()
+    insights_model = (version.model or "").strip() if version is not None else ""
+    setting = ScoreSetting.objects.filter(pk=1).first()  # read only: the row is made by its own page
+    checks_model = (setting.ai_model or "").strip() if setting is not None else ""
+    asked = [
+        (_("Ask NeuroDB and the Help assistant"), "", default),
+        (
+            _(
+                "Daily review, What's new note, document summaries, periodic report figures, country "
+                "programme reading, document review"
+            ),
+            "",
+            default,
+        ),
+        (_("NeuroDB Watch"), settings.WATCH_MODEL, f"WATCH_MODEL: {settings.WATCH_MODEL}"),
+        (
+            _("Monitoring insights"),
+            insights_model or settings.FMM_MODEL,
+            _("prompt v%(number)s: %(model)s") % {"number": version.number, "model": insights_model}
+            if insights_model
+            else f"FMM_MODEL: {settings.FMM_MODEL}",
+        ),
+        (
+            _("AI checks and action points"),
+            checks_model or settings.AI_ASSISTANT_MODEL,
+            _("Score settings: %(model)s") % {"model": checks_model}
+            if checks_model
+            else f"AI_ASSISTANT_MODEL: {settings.AI_ASSISTANT_MODEL}",
+        ),
+    ]
+    rows = []
+    for name, model, said in asked:
+        runs = llm.model_for(model, p)
+        note = ""
+        if model and llm.provider_of(model) != p:
+            note = _("%(model)s is an %(vendor)s model: %(runs)s runs instead.") % {
+                "model": model,
+                "vendor": llm.names_of(model).vendor,
+                "runs": runs,
+            }
+        rows.append((str(name), str(said), runs, str(note)))
+    return rows
 
 
 class AISettingsForm(forms.ModelForm):
@@ -320,10 +384,13 @@ class AISettingsAdmin(ModelAdmin):
             },
         ),
         (_("OpenAI"), {"fields": ("openai_key", "remove_openai_key", "openai_model", "openai_effort")}),
+        (_("Which model each AI feature runs on"), {"fields": ("feature_models",)}),
         (_("Last connection test"), {"fields": ("checked_at", "check_result")}),
         (None, {"fields": ("updated_by", "updated_at")}),
     )
-    readonly_fields = ("in_use_now", "checked_at", "check_result", "updated_by", "updated_at")
+    readonly_fields = (
+        "in_use_now", "feature_models", "checked_at", "check_result", "updated_by", "updated_at",
+    )  # fmt: skip
     actions_detail = ("test_connection",)
 
     def has_add_permission(self, request):
@@ -397,6 +464,31 @@ class AISettingsAdmin(ModelAdmin):
         elif not llm.available(p):
             text += " " + _("It has no API key yet, so the AI features are off.")
         return text
+
+    @admin.display(description=_("Models in use"))
+    def feature_models(self, obj):
+        rows = format_html_join(
+            "",
+            "<tr><td>{}</td><td>{}</td><td><code>{}</code> {}</td></tr>",
+            _feature_models(),
+        )
+        header = format_html(
+            "<thead><tr><th>{}</th><th>{}</th><th>{}</th></tr></thead>",
+            _("Feature"),
+            _("Asks for"),
+            _("Runs on now"),
+        )
+        table = format_html(
+            '<table class="nd-jobs nd-found__table">{}<tbody>{}</tbody></table>', header, rows
+        )
+        if llm.provider_of(settings.AI_ASSISTANT_MODEL) == llm.CLAUDE and not llm.snapshot().openai_model:
+            # left over from an earlier release: every OpenAI call would ask OpenAI for a Claude model
+            warning = _(
+                "AI_ASSISTANT_MODEL names a Claude model; OpenAI calls would fail; choose an OpenAI model "
+                "here."
+            )
+            return format_html("{}<p><strong>{}</strong></p>", table, warning)
+        return table
 
     @action(
         description=_("Test the connection"),

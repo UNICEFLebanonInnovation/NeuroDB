@@ -67,12 +67,22 @@ param enableCompilerYouth bool = false
 @description('Base URL of Compiler, e.g. https://compiler.example.org')
 param compilerApiUrl string = ''
 
-@description('AI assistant (Ask NeuroDB, OpenAI API). When true the secret openai-api-key must exist.')
+@description('AI assistant with the OpenAI key in Key Vault (Ask NeuroDB and the other AI features, OpenAI API). When true the secret openai-api-key must exist. Without it the keys can be entered in the admin (AI settings).')
 param enableAiAssistant bool = false
-@description('OpenAI model for the AI assistant.')
+@description('OpenAI model for the AI features on OpenAI.')
 param aiAssistantModel string = 'gpt-5.5'
-@description('Reasoning effort for the AI assistant: none, minimal, low, medium, high, xhigh or max (support varies by model).')
+@description('OpenAI reasoning effort: none, minimal, low, medium, high, xhigh or max (support varies by model).')
 param aiAssistantEffort string = 'medium'
+@description('The AI provider: auto (the choice in the admin AI settings, else Claude when an Anthropic key is available), claude or openai (pinned, before AI settings).')
+@allowed(['auto', 'claude', 'openai'])
+param aiProvider string = 'auto'
+@description('The Anthropic API key (Claude, the preferred AI) in Key Vault. When true the secret anthropic-api-key must exist (a missing secret fails the revision); false: the key can be entered in the admin (AI settings).')
+param anthropicKeyInKeyVault bool = false
+@description('Claude model when the admin AI settings choose none.')
+param claudeModel string = 'claude-opus-5-5'
+@description('Claude effort (how much it thinks): low, medium, high, xhigh or max.')
+@allowed(['low', 'medium', 'high', 'xhigh', 'max'])
+param claudeEffort string = 'medium'
 
 @description('Pages opened to the public without sign-in: any of library, maps, population.')
 param publicPages array = []
@@ -265,7 +275,8 @@ var secretNames = concat(
   enableSso ? ['entra-client-secret'] : [],
   enableEtoolsDatamart ? ['etools-username', 'etools-password'] : [],
   enableCompilerYouth ? ['compiler-api-token'] : [],
-  enableAiAssistant ? ['openai-api-key'] : []
+  enableAiAssistant ? ['openai-api-key'] : [],
+  anthropicKeyInKeyVault ? ['anthropic-api-key'] : []
 )
 var appSecrets = [for s in secretNames: {
   name: s
@@ -324,6 +335,12 @@ var commonEnv = concat(
         { name: 'COMPILER_API_TOKEN', secretRef: 'compiler-api-token' }
       ]
     : [],
+  [
+    { name: 'AI_PROVIDER', value: aiProvider }
+    { name: 'CLAUDE_MODEL', value: claudeModel }
+    { name: 'CLAUDE_EFFORT', value: claudeEffort }
+  ],
+  anthropicKeyInKeyVault ? [{ name: 'ANTHROPIC_API_KEY', secretRef: 'anthropic-api-key' }] : [],
   enableAiAssistant
     ? [
         { name: 'OPENAI_API_KEY', secretRef: 'openai-api-key' }

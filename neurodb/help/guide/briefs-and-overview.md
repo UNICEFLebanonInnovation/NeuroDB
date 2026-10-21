@@ -99,7 +99,7 @@ its own, [Daily review](/daily-review/), which says the time it runs; Home shows
   track, and the data problems (failed syncs, data quality, stale sources), summed up in one line that
   links to Data health.
 - Each finding is *new*, *still open* or *resolved* compared with the day before.
-- With the AI set up, ChatGPT writes four to six plain sentences from the day's findings only, and
+- With the AI set up, the AI writes four to six plain sentences from the day's findings only, and
   chooses up to five decisions for the management brief; a decision is kept only when every finding it
   cites exists and every number it writes is in those findings. Without the AI, a template writes the
   summary.

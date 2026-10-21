@@ -1009,11 +1009,19 @@ class ScoreSettingForm(_NoteForm):
                 "as "
                 "switched off and no check is made; the checks kept are used again when it is back on."
             ),
-            "ai_model": _("The model of the AI checks; empty: the assistant's model (AI_ASSISTANT_MODEL)."),
-            "ai_max_output_tokens": _(
-                "The most tokens one check may write, its reasoning included (2,000 by default)."
+            "ai_model": _(
+                "The model of the AI checks; empty: the assistant's model (AI_ASSISTANT_MODEL). A model of "
+                "the other AI provider is not used: the provider's own model runs instead (AI settings "
+                "shows which)."
             ),
-            "ai_temperature": _("Sent only when the model accepts it (FMS: 0.3); empty: not sent."),
+            "ai_max_output_tokens": _(
+                "The most tokens one check may write, its reasoning included (2,000 by default). On Claude "
+                "at least 2,000: its thinking counts too."
+            ),
+            "ai_temperature": _(
+                "Sent only when the model accepts it (FMS: 0.3); empty: not sent. OpenAI only: it is never "
+                "sent to Claude."
+            ),
             "ai_text_chars": _(
                 "Each text a check sends (a narrative, an answer) is cut to this many characters."
             ),
@@ -1439,7 +1447,10 @@ class PromptVersionForm(forms.ModelForm):
 
     effort = forms.ChoiceField(
         choices=[(e, e) for e in settings.AI_ASSISTANT_EFFORTS],
-        help_text=_("How much the model reasons before it writes; higher costs more output tokens."),
+        help_text=_(
+            "How much the model reasons before it writes; higher costs more output tokens. On Claude none "
+            "and minimal run as low."
+        ),
     )
     sections = JSONTextField(label=_("Parts of the brief"), help_text=SECTIONS_HELP)
     rule_prompts = JSONTextField(
@@ -1478,11 +1489,15 @@ class PromptVersionForm(forms.ModelForm):
                 "Output tokens of each model call of a chat answer, reasoning included."
             ),
             "temperature": _(
-                "Empty: not sent. Temperature/top-p are sent only when the model accepts them (Sampling "
-                "checks); OpenAI advises setting one of the two only."
+                "Empty: not sent. OpenAI only: Claude chooses its own sampling and is never sent either. "
+                "Temperature/top-p are sent only when the model accepts them (Sampling checks); OpenAI "
+                "advises setting one of the two only."
             ),
-            "top_p": _("Empty: not sent (the API's default is 1.00)."),
-            "model": _("Empty: the default model (FMM_MODEL)."),
+            "top_p": _("Empty: not sent (the API's default is 1.00). OpenAI only, as the temperature."),
+            "model": _(
+                "Empty: the default model (FMM_MODEL). A model of the other AI provider is not used: the "
+                "provider's own model runs instead (AI settings shows which)."
+            ),
             "note": _("Required: what changed and why. Kept with the version, with your name and the time."),
         }
 
@@ -1852,8 +1867,9 @@ class PromptVersionAdmin(ModelAdmin):
 
 def _preview_facts(scope, version) -> dict[str, Any]:
     """The Preview's facts: the payload a brief of ``scope`` would send now (redacted), what it holds
-    against what is allowed, the input tokens it would cost and, when prices are set, the cost of a
-    brief at the version's output limit. No AI call; nothing is saved."""
+    against what is allowed, the input tokens it would cost and, when the model's price is known
+    (Claude's built in, OpenAI's from the AI_PRICE_* settings), the cost of a brief at the version's
+    output limit. No AI call; nothing is saved."""
     from decimal import Decimal
 
     from neurodb.assistant import usage
@@ -1863,7 +1879,7 @@ def _preview_facts(scope, version) -> dict[str, Any]:
 
     facts = ai_facts.build(scope, version)
     estimate = budget.estimate(facts, version)
-    price = usage.prices()
+    price = usage.price_for(profiles.model_of(version))
     cost = None
     if price:
         input_tokens = estimate - version.max_output_tokens

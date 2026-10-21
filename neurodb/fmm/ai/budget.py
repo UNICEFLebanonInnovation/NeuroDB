@@ -5,8 +5,8 @@ the tokens it may need (:func:`estimate`). It says no, with a reason, when:
 
 - **off**: Monitoring insights, its AI (``FMM_AI``) or the assistant is switched off, or no prompt version
   is published (:func:`switched_on`);
-- **paused**: the OpenAI credit ran out on an earlier call (:func:`trip`), so the AI rests for 6 hours
-  (``AIState.paused_until``);
+- **paused**: the AI provider's credit ran out on an earlier call (:func:`trip`), so the AI rests for 6
+  hours (``AIState.paused_until``);
 - **budget**: Monitoring insights' tokens today plus the call would pass ``FMM_DAILY_TOKEN_CAP``, or its
   calls today reached ``FMM_MAX_CALLS_PER_DAY``; or every AI feature on the shared key together would
   pass 80% of ``AI_DAILY_TOKEN_SOFT_CAP`` for a nightly brief or a test run, or 100% for a person's
@@ -41,14 +41,25 @@ from . import profiles
 logger = logging.getLogger(__name__)
 
 PAUSE_HOURS = 6
-QUOTA_REASON = "the OpenAI credit ran out"
 CHARS_PER_TOKEN = 3.5
 OFF, PAUSED, BUDGET = "off", "paused", "budget"
+# What a refused call says (reason_for); the pause names the provider's credit, so it is written then
 REASONS = {
     OFF: "AI is switched off",
-    PAUSED: "AI is paused: the OpenAI credit ran out",
     BUDGET: "Today's AI budget for Monitoring insights is used; it resets at midnight.",
 }
+
+
+def quota_reason() -> str:
+    """Why the AI paused when the credit ran out: "the OpenAI credit ran out" (or the Anthropic one)."""
+    return f"{llm.names().credit} ran out"
+
+
+def reason_for(why: str) -> str:
+    """What a call refused for ``why`` (off, paused or budget) says."""
+    if why == PAUSED:
+        return f"AI is paused: {quota_reason()}"
+    return REASONS[why]
 
 
 def switched_on(version: PromptVersion | None = None) -> bool:
@@ -156,10 +167,11 @@ def estimate(facts: Any, version: PromptVersion) -> int:
 
 
 # ------------------------------------------------------------------------------------------ the pause
-def pause(reason: str = QUOTA_REASON, hours: int = PAUSE_HOURS, now: datetime.datetime | None = None) -> None:
+def pause(reason: str | None = None, hours: int = PAUSE_HOURS, now: datetime.datetime | None = None) -> None:
     """Stop Monitoring insights' AI for ``hours``: every brief and chat answer is refused ("paused")
-    until then."""
+    until then. ``reason`` defaults to the credit running out."""
     now = now or timezone.now()
+    reason = quota_reason() if reason is None else reason
     AIState.load()
     AIState.objects.filter(pk=1).update(
         paused_until=now + datetime.timedelta(hours=hours), reason=str(reason)[:200], updated_at=now
@@ -168,10 +180,10 @@ def pause(reason: str = QUOTA_REASON, hours: int = PAUSE_HOURS, now: datetime.da
 
 
 def trip(exc: BaseException, now: datetime.datetime | None = None) -> bool:
-    """A call failed with ``exc``: when the OpenAI credit ran out (``watch.budget.is_quota``), pause the
-    AI for 6 hours. True when it paused."""
+    """A call failed with ``exc``: when the AI provider's credit ran out (``watch.budget.is_quota``),
+    pause the AI for 6 hours. True when it paused."""
     if is_quota(exc):
-        pause(QUOTA_REASON, now=now)
+        pause(quota_reason(), now=now)
         return True
     return False
 

@@ -312,6 +312,10 @@ QUICK_MIGRATIONS = {
     # row per day, feature and model), and two help texts (CreateModel, AddField and AlterField only, no code
     # runs; listed so that the migration is accounted for here)
     ("assistant", "0004_ai_settings", "CreateModel"),
+    # the label of NeuroDB Watch's "credit ran out" note reason, which no longer names OpenAI (AlterField of a
+    # choice label only, no code runs and nothing in the database changes; listed so that the migration is
+    # accounted for here)
+    ("watch", "0002_quota_label", "AlterField"),
 }
 
 

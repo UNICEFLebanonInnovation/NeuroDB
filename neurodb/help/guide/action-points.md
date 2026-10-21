@@ -46,7 +46,7 @@ Over the filter; each has *Download PNG*, and a bar opens its action points:
 ## AI adequacy review
 
 For each **completed** action point (completed, closed or resolved) with an action taken written in
-eTools, ChatGPT reads the description (the issue) and the action taken, cleaned of names, e-mail
+eTools, the AI reads the description (the issue) and the action taken, cleaned of names, e-mail
 addresses, phone numbers and links, and answers **Adequately addressed**, **Partially addressed**,
 **Not addressed** or **Generic/vague**, with one sentence why. The review runs every morning at 06:10
 on the action points not reviewed yet, most recently completed first, within its own daily budget;

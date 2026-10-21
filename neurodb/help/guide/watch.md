@@ -50,7 +50,7 @@ check that many people find not useful goes back to trial by itself.
 
 ### The AI in For you
 
-ChatGPT writes only the short morning note (each sentence must cite the points it rests on, with the
+The AI writes only the short morning note (each sentence must cite the points it rests on, with the
 same numbers and dates) and looks into at most 3 critical points a day with read-only look-ups. It never
 decides what is followed, how serious it is, when it is due or who is told.
 

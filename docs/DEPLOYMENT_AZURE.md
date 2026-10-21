@@ -98,7 +98,8 @@ files or generated so they never appear in shell history.
 | `etools-username` | eTools Datamart service account (basic authentication user name) |
 | `etools-password` | eTools Datamart password; required while `enableEtoolsDatamart = true` (the default) |
 | `entra-client-secret` | only when single sign-on is enabled (step 8) |
-| `openai-api-key` | only when the AI assistant is enabled (`enableAiAssistant = true`): the OpenAI project API key (see `docs/OPERATIONS.md`) |
+| `anthropic-api-key` | optional: the key can be entered in the admin's AI settings instead. With `enableAiAssistant = true` and `anthropicKeyInKeyVault = true`: the Anthropic API key for Claude, the preferred AI (see `docs/OPERATIONS.md`) |
+| `openai-api-key` | only when the AI assistant is enabled (`enableAiAssistant = true`) and OpenAI's key is not entered in AI settings: the OpenAI project API key (see `docs/OPERATIONS.md`) |
 
 ```bash
 KV=neurodb-prod-kv
@@ -235,7 +236,7 @@ environments. Put their names in the variables at the top of the pipeline.
 | Job run logs | `az containerapp job logs show -n neurodb-prod-ai-data -g rg-neurodb-prod --execution <name> --container ai-data` |
 | One-off command | `az containerapp exec -n neurodb-prod-web -g rg-neurodb-prod --command "neurodb manage createsuperuser"` |
 | Roll back | `RESOURCE_GROUP=… PREFIX=neurodb-prod IMAGE=<acr>/neurodb:<previous sha> infra/scripts/rollback.sh` |
-| Rotate a secret | Update it in Key Vault, then `az containerapp revision restart -n neurodb-prod-web -g … --revision <active>`; jobs read it on their next run |
+| Rotate a secret | Update it in Key Vault, then `az containerapp revision restart -n neurodb-prod-web -g … --revision <active>`; jobs read it on their next run. An API key entered in the admin's AI settings is replaced there instead, with no restart |
 | Scale | `minReplicas` and `maxReplicas` parameters (HTTP rule: 40 concurrent requests per replica) |
 
 The schedules are managed in the application (admin → **Scheduled jobs**, in Beirut time), run by

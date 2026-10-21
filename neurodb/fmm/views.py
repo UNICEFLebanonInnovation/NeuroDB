@@ -2675,9 +2675,9 @@ def chat_stream(request: HttpRequest) -> HttpResponse:
         if not ok:
             if why == budget.BUDGET:
                 limited("budget")
-                return JsonResponse({"error": budget.REASONS[why]}, status=429)
+                return JsonResponse({"error": budget.reason_for(why)}, status=429)
             return JsonResponse(
-                {"error": budget.REASONS[why] if why != budget.OFF else str(CHAT_OFF)}, status=503
+                {"error": budget.reason_for(why) if why != budget.OFF else str(CHAT_OFF)}, status=503
             )
         if not version.chat_enabled:
             return JsonResponse({"error": str(CHAT_DISABLED)}, status=503)

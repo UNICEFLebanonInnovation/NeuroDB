@@ -120,8 +120,18 @@ def refused(version: PromptVersion, parameter: str) -> ModelCapability | None:
 
 
 def warnings(version: PromptVersion) -> list[str]:
-    """What an administrator should know about a saved version, without blocking the save."""
+    """What an administrator should know about a saved version, without blocking the save. On Claude: a
+    model of OpenAI's that is not used, an effort Claude does not have, sampling that is not sent."""
     out = []
+    claude = llm.provider() == llm.CLAUDE
+    named = (version.model or "").strip()
+    if named and llm.provider_of(named) != llm.provider():
+        out.append(
+            f"{named} is an {llm.names_of(named).vendor} model and {llm.names().label} is in use: "
+            f"{model_of(version)} writes the briefs instead."
+        )
+    if claude and version.effort not in settings.CLAUDE_EFFORTS:
+        out.append(f"Effort {version.effort}: Claude does not have it, so it runs as low.")
     if version.effort in EFFORTS_THAT_REASON_LONG and (
         version.max_output_tokens < LOW_TOKENS or version.chat_max_output_tokens < LOW_TOKENS
     ):
@@ -129,6 +139,10 @@ def warnings(version: PromptVersion) -> list[str]:
             f"Effort {version.effort} with under {LOW_TOKENS:,} output tokens: reasoning uses part of the "
             "limit and the brief may be cut off."
         )
+    if claude:
+        if version.temperature is not None or version.top_p is not None:
+            out.append("Temperature and top-p are not sent while Claude is in use: Claude chooses its own.")
+        return out
     if version.temperature is not None and version.top_p is not None:
         out.append("Temperature and top-p are both set: OpenAI advises changing one of them only.")
     for parameter, label in (("temperature", "Temperature"), ("top_p", "Top-p")):

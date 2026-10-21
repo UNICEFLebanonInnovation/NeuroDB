@@ -1233,8 +1233,8 @@ class ModelCapability(models.Model):
 
 
 class AIState(models.Model):
-    """The one row (pk=1) of Monitoring insights' AI pause: after the OpenAI credit ran out, its AI is
-    not used until ``paused_until``."""
+    """The one row (pk=1) of Monitoring insights' AI pause: after the AI provider's credit ran out, its AI
+    is not used until ``paused_until``."""
 
     paused_until = models.DateTimeField(null=True, blank=True)
     reason = models.CharField(max_length=200, blank=True)
