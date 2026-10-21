@@ -9,8 +9,9 @@ Two kinds of targets:
 * The datasets those tables have no place for (funds reservations, grants, PD indicators,
   assessments, audits and spot checks, action points, TPM visits, field monitoring findings, HACT
   totals) go to the ``datamart`` app, keyed by the Datamart id and linked to the programme
-  document and partner. A dataset read to the end replaces its table: rows the Datamart no longer
-  returns are deleted.
+  document and partner. A dataset read whole replaces its table: rows the Datamart no longer
+  returns are deleted. A large dataset is read in windows (``windows.Reading``), and nothing is removed
+  unless every window was read whole.
 
 Each record is written in its own savepoint (``runs.process_items``): one bad record is logged and
 counted, the rest are written and the run ends PARTIAL. Every request is limited to one country
@@ -42,6 +43,7 @@ from neurodb.datamart import catalogue, identity, tags
 from neurodb.datamart import models as dm
 from neurodb.datamart.fm import PDResolver, entity_kind
 from neurodb.geo.models import Location, LocationType
+from neurodb.integrations.etools import windows
 from neurodb.integrations.etools.datamart import DatamartClient
 from neurodb.integrations.etools.fields import assign, coerce, parse_iso_date
 from neurodb.integrations.etools.locations import parse_point
@@ -521,9 +523,13 @@ class Dataset:
     fields: dict[str, str] = field(default_factory=dict)  # model field -> record key
     link: Callable[[models.Model, dict[str, Any], Links], None] | None = None
     after: Callable[[dm.DatamartRecord, dict[str, Any], Links], None] | None = None
-    # Extra query parameters (e.g. a date window) and, with them, the rows a complete read replaces.
-    params: Callable[[], dict[str, Any]] | None = None
-    scope: Callable[[models.QuerySet], models.QuerySet] | None = None
+    # Extra query parameters (e.g. a date window) and, with them, the rows a complete read replaces; both
+    # take ``since`` (computed once per run), so the request and the rows it replaces never differ
+    since: Callable[[], dt.date] | None = None
+    params: Callable[[Any], dict[str, Any]] | None = None
+    scope: Callable[[models.QuerySet, Any], models.QuerySet] | None = None
+    # the date key a large read is windowed by (``windows.Reading``); the others are windowed by id
+    windows: str = ""
 
 
 def _link_intervention(key: str = "source_intervention_id", number_key: str = "pd_reference_number"):
@@ -631,11 +637,15 @@ def _link_finding(row, item, links):
     row.engagement_id = links.engagement(item.get("reference_number"))
 
 
-def _reporting_window() -> dict[str, Any]:
+# the partner reports' date key: the request asks from it, and their windows are made of it
+REPORT_START = "reporting_period_start_date"
+
+
+def _reporting_window(since: dt.date) -> dict[str, Any]:
     """Partner reports of the last ``ETOOLS_DATAMART_REPORTING_YEARS`` years (the table is large) and
     of every running programme document since its start (``reached.history_start``): Reached adds up
     every counted report of a PD, so its early reports must be read too."""
-    return {"reporting_period_start_date__gte": _reporting_since().isoformat()}
+    return {f"{REPORT_START}__gte": since.isoformat()}
 
 
 def _reporting_since() -> dt.date:
@@ -644,8 +654,8 @@ def _reporting_since() -> dt.date:
     return history_start(timezone.localdate())
 
 
-def _in_reporting_window(queryset: models.QuerySet) -> models.QuerySet:
-    return queryset.filter(models.Q(period_start__gte=_reporting_since()) | models.Q(period_start=None))
+def _in_reporting_window(queryset: models.QuerySet, since: dt.date) -> models.QuerySet:
+    return queryset.filter(models.Q(period_start__gte=since) | models.Q(period_start=None))
 
 
 def _link_report(row, item, links):
@@ -1013,8 +1023,10 @@ DATASETS: dict[str, tuple[str, Dataset]] = {
                 "narrative_assessment": "pd_output_narrative_assessment",
             },
             link=_link_report,
+            since=_reporting_since,
             params=_reporting_window,
             scope=_in_reporting_window,
+            windows=REPORT_START,
         ),
     ),
     "tpm_activities": (
@@ -1214,27 +1226,22 @@ def remove_other_country(model: type[dm.DatamartRecord], country: str, keep: set
 
 
 class OfCountry:
-    """The records of a ``country_name``-filtered request that belong to the client's country: a filter
+    """The records of a ``country_name``-filtered read that belong to the client's country: a filter
     the API ignored must never let another country's records in (``CountryScope.keeps`` does the same
     for the records kept whole). ``skipped`` counts the records left out; they are never written.
     Rows an earlier run wrote are removed from the ``datamart`` tables (:func:`remove_other_country`) and
     from the records kept whole; the partner, programme document, location and site tables keep them.
-    ``read`` counts the distinct records read, kept or skipped (by :func:`record_key`), and ``repeated``
-    those the Datamart returned again (:func:`read_whole`)."""
+    ``read`` counts the distinct records read, kept or skipped (by :func:`record_key`), ``repeated``
+    those the Datamart returned again, and ``whole`` says whether the read got them all
+    (``windows.Reading.whole``): only then is anything it did not return removed."""
 
-    def __init__(self, client: DatamartClient, items: Iterable[dict[str, Any]]) -> None:
-        self.client = client  # its ``last_count`` once the items are read: what the Datamart announced
-        self.country = getattr(client, "country", settings.ETOOLS_DATAMART_COUNTRY)
-        self.items, self.skipped = items, 0
-        self.keys: set[str] = set()
-        self.repeated = 0
+    def __init__(self, reading: windows.Reading) -> None:
+        self.reading = reading
+        self.country = getattr(reading.client, "country", settings.ETOOLS_DATAMART_COUNTRY)
+        self.skipped = 0
 
     def __iter__(self):
-        for item in self.items:
-            key = record_key(item)
-            if key in self.keys:
-                self.repeated += 1
-            self.keys.add(key)
+        for item in self.reading:
             if other_country(item, self.country):
                 self.skipped += 1
             else:
@@ -1242,7 +1249,15 @@ class OfCountry:
 
     @property
     def read(self) -> int:
-        return len(self.keys)
+        return self.reading.read
+
+    @property
+    def repeated(self) -> int:
+        return self.reading.repeated
+
+    @property
+    def whole(self) -> bool:
+        return self.reading.whole
 
     def details(self) -> dict[str, int]:
         return {"other_country_skipped": self.skipped} if self.skipped else {}
@@ -1305,13 +1320,18 @@ class DocumentWriter:
 
     def finish(self, *, whole: bool = True) -> dict[str, Any]:
         """Remove the records the Datamart no longer returns, after a ``whole`` read that returned some: an
-        empty answer, or fewer records than the Datamart announced, removes nothing."""
+        empty answer, or a read not whole, removes nothing; a large removal waits one night
+        (:func:`removal_waits`)."""
         if not self.seen:  # an empty answer never empties the dataset
             return {"documents": 0}
         if not whole:
             return {"documents": len(self.seen), "documents_removed": 0}
-        stale = dm.DatamartDocument.objects.filter(dataset=self.name).exclude(record_key__in=self.seen)
-        removed, _ = stale.delete()
+        held = dm.DatamartDocument.objects.filter(dataset=self.name)
+        stale = held.exclude(record_key__in=self.seen)
+        n = stale.count()
+        if n and removal_waits(self.name, n, held.count()):
+            return {"documents": len(self.seen), "documents_removed": 0, "removal_held": n, "partial": True}
+        removed, _ = stale.delete() if n else (0, {})
         return {"documents": len(self.seen), "documents_removed": removed}
 
 
@@ -1319,8 +1339,8 @@ def _write_documents(
     name: str, items: list[dict[str, Any]], links: Links, found: OfCountry | None = None
 ) -> dict[str, Any]:
     """Raw copies of a dataset whose records were just applied elsewhere (one failure never stops them).
-    ``found``, the read they come from: when it got fewer records than the Datamart announced, no copy it
-    did not return is removed (:func:`read_whole`) and the run ends PARTIAL."""
+    ``found``, the read they come from: when it was not read whole (``windows.Reading.whole``), no copy it
+    did not return is removed and the run ends PARTIAL."""
     writer, failed = DocumentWriter(name, links), 0
     for item in items:
         try:
@@ -1329,12 +1349,10 @@ def _write_documents(
         except Exception as exc:
             failed += 1
             logger.warning("etools datamart %s: document %s failed: %s", name, _label(item), exc)
-    read = found.read if found else len(writer.seen)
-    announced = getattr(found.client, "last_count", None) if found else None
-    whole = found is None or read_whole(announced, read, found.repeated)
+    whole = found is None or found.whole
     details = writer.finish(whole=whole)
     if writer.seen and not whole:
-        details.update(_removal_skipped(read, found.repeated, announced))
+        details.update(_removal_skipped(found.reading))
     return {**details, "documents_failed": failed} if failed else details
 
 
@@ -1387,7 +1405,7 @@ def sync_locations(run: SyncRun, *, client: DatamartClient, links: Links) -> Syn
 
     def body() -> dict[str, Any]:
         links.missing.clear()
-        found = OfCountry(client, client.list("locations"))
+        found = OfCountry(windows.Reading(client, "locations"))
         items = list(found)
         types: dict[int, int] = {}
         by_datamart_id: dict[str, int] = {}
@@ -1496,7 +1514,7 @@ def upsert_site(item: dict[str, Any], links: Links) -> None:
 def sync_sites(run: SyncRun, *, client: DatamartClient, links: Links) -> SyncRun:
     def body() -> dict[str, Any]:
         links.missing.clear()
-        found = OfCountry(client, client.list("location-sites"))
+        found = OfCountry(windows.Reading(client, "location-sites"))
         items = list(found)
         process_items(run, items, lambda item: upsert_site(item, links), _label)
         links.refresh()
@@ -1514,7 +1532,7 @@ def sync_legacy(
         def body() -> dict[str, Any]:
             links.missing.clear()
             aligned = align_sequences()
-            found = OfCountry(client, client.list(dataset))
+            found = OfCountry(windows.Reading(client, dataset))
             items = list(found)
             process_items(run, items, lambda item: handler(item, links), _label)
             links.refresh()  # new partners and programme documents are linkable from here on
@@ -1553,17 +1571,71 @@ def read_whole(announced: int | None, read: int, repeated: int = 0) -> bool:
     return not repeated and not capped(announced) and (announced is None or read >= announced)
 
 
-def _removal_skipped(read: int, repeated: int = 0, announced: int | None = None) -> dict[str, Any]:
-    """The details of a read that got fewer distinct records than the Datamart announced, or some twice
-    (``duplicates_read``), or whose count is a round number (``cap_suspected``): nothing it did not return
-    is removed, and the run ends PARTIAL (``finish_by_counts``), so Data health says so; the next whole read
-    removes them."""
-    found: dict[str, Any] = {"removal_skipped": True, "read": read, "partial": True}
-    if repeated:
-        found["duplicates_read"] = repeated
-    if capped(announced):
-        found["cap_suspected"] = "round_count"
+def _removal_skipped(reading: windows.Reading) -> dict[str, Any]:
+    """The details of a read not whole (``windows.Reading.whole``): fewer distinct records than the Datamart
+    announced, some twice (``duplicates_read``), an answer that looks cut (``cap_suspected``), or a window
+    not read whole (the reading's details say which): nothing it did not return is removed, and the run
+    ends PARTIAL (``finish_by_counts``), so Data health says so; the next whole read removes them."""
+    found: dict[str, Any] = {"removal_skipped": True, "read": reading.read, "partial": True}
+    if reading.repeated:
+        found["duplicates_read"] = reading.repeated
+    if reading.cap_suspected:
+        found["cap_suspected"] = reading.cap_suspected
     return found
+
+
+# A whole read that would remove more than half of the rows held, and at least this many, waits one night: a
+# Datamart table reloaded while it was read (its ETL empties and refills tables) can announce and return a
+# consistent smaller set, which counts that agree cannot catch
+HOLD_FLOOR = 1_000
+
+
+def removal_waits(name: str, n: int, held: int) -> bool:
+    """Whether a whole read of ``name`` removes none of the ``n`` rows (of ``held``) it no longer returned
+    tonight: more than half of those held and at least :data:`HOLD_FLOOR`, unless the previous finished run
+    of the dataset held its removal already (a second whole read in a row removes them)."""
+    if n < HOLD_FLOOR or n * 2 <= held:
+        return False
+    previous = (
+        SyncRun.objects.filter(
+            job=SyncRun.Job.ETOOLS_DATAMART,
+            target=name,
+            status__in=(SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL),
+        )
+        .order_by("-started_at", "-pk")
+        .values_list("details", flat=True)
+        .first()
+    )
+    return not (isinstance(previous, dict) and previous.get("removal_held"))
+
+
+def held_whole_from(name: str) -> dt.date | None:
+    """The first period start the previous finished run of ``name`` left held whole (``windows.Reading.
+    whole_from`` chains from it): its ``whole_from``; a run read before windows, its ``read_from`` unless its
+    count was a limit of the Datamart's answer (its history was cut: then none). None without such a run."""
+    for details in (
+        SyncRun.objects.filter(
+            job=SyncRun.Job.ETOOLS_DATAMART,
+            target=name,
+            status__in=(SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL),
+        )
+        .order_by("-started_at", "-pk")
+        .values_list("details", flat=True)[:20]
+    ):
+        details = details if isinstance(details, dict) else {}
+        if details.get("empty_response"):
+            continue  # nothing was read: the rows held are an earlier run's
+        if details.get("window_bound"):  # read in windows: what it held whole, if it said
+            text = details.get("whole_from")
+        elif capped(details.get("datamart_count")) or details.get("cap_suspected"):
+            return None
+        else:
+            text = details.get("read_from")
+        try:
+            return dt.date.fromisoformat(str(text or "")[:10])
+        except ValueError:
+            return None
+    return None
 
 
 def sync_dataset(name: str) -> Callable[..., SyncRun]:
@@ -1574,36 +1646,48 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
             links.missing.clear()
             seen: set[int] = set()
             linked_before = _funded_pcas() if spec.model is dm.FundsReservation else set()
-            params = spec.params() if spec.params else None
+            since = spec.since() if spec.since else None  # once: the request and the rows it replaces agree
+            params = spec.params(since) if spec.params else None
+
+            def scoped() -> models.QuerySet:
+                rows = spec.model.objects.all()
+                return spec.scope(rows, since) if spec.scope else rows
+
             # the rows this read replaces, counted before it writes (a large "removed" reads against it)
-            held_before = (spec.scope(spec.model.objects.all()) if spec.scope else spec.model.objects).count()
-            found = OfCountry(client, client.list(dataset, params))
+            held_before = scoped().count()
+            reading = windows.Reading(client, dataset, params, date_key=spec.windows)
+            found = OfCountry(reading)
             process_items(run, found, lambda item: upsert_record(spec, item, links, seen), _label)
-            # the distinct records read (another country's and those without an id among them)
-            announced, read = getattr(client, "last_count", None), found.read
             if seen:
                 # another country's rows first (every one, whatever its date), then the rest of the scope
                 # the Datamart no longer returns
                 other = remove_other_country(spec.model, found.country, seen)
-                if read_whole(announced, read, found.repeated):
-                    replaced = spec.scope(spec.model.objects.all()) if spec.scope else spec.model.objects
-                    _, deleted = replaced.exclude(datamart_id__in=seen).delete()
-                    details = {"removed": deleted.get(spec.model._meta.label, 0), **links.details()}
-                else:  # fewer records than announced, some twice, or a round count: the others stay
-                    skipped = _removal_skipped(read, found.repeated, announced)
-                    details = {"removed": 0, **skipped, **links.details()}
+                if reading.whole:
+                    stale = scoped().exclude(datamart_id__in=seen)
+                    n = stale.count()
+                    if n and removal_waits(name, n, held_before):  # a large removal waits one night
+                        details = {"removed": 0, "removal_held": n, "partial": True, **links.details()}
+                    else:
+                        _, deleted = stale.delete() if n else (0, {})
+                        details = {"removed": deleted.get(spec.model._meta.label, 0), **links.details()}
+                else:  # fewer records than announced, some twice, a cut answer, a window not whole: they stay
+                    details = {"removed": 0, **_removal_skipped(reading), **links.details()}
                 if other:
                     details["other_country_removed"] = other
             else:  # an empty answer (a wrong country name?) never empties the table
                 details = {"removed": 0, "empty_response": True, **links.details()}
             details.update(found.details(), held_before=held_before)
-            if announced is not None:
-                details["datamart_count"] = announced
+            # the count of the first page (never the last window's), and the windows when read in windows
+            details.update(reading.details())
+            if spec.windows and reading.windowed and seen:
+                start = reading.whole_from(held_whole_from(name))
+                if start is not None:
+                    details["whole_from"] = start.isoformat()
             if spec.model is dm.FundsReservation:
                 details["donor_sets"] = _refresh_donor_sets(linked_before)
             if spec.model is dm.ReportedIndicator:
                 details["cp_outputs"] = derive_cp_outputs()
-                details["read_from"] = (params or {}).get("reporting_period_start_date__gte", "")
+                details["read_from"] = since.isoformat() if since else ""
                 try:  # the labels never fail the reports: a failure is said, and the run is partial
                     details["disaggregation_labels"] = sync_disaggregation_labels(client)
                 except Exception as exc:
@@ -1688,7 +1772,7 @@ def sync_enrichment(name: str) -> Callable[..., SyncRun]:
         def body() -> dict[str, Any]:
             links.missing.clear()
             links.refresh()  # the engagements were just synced
-            found = OfCountry(client, client.list(dataset))
+            found = OfCountry(windows.Reading(client, dataset))
             items = list(found)
             process_items(run, items, lambda item: enrich_engagement(name, fields, item, links), _label)
             details = {**links.details(), **found.details()}
@@ -2269,7 +2353,7 @@ def sync_documents(name: str) -> Callable[..., SyncRun]:
             writer, other, unnamed = DocumentWriter(name, links), 0, 0
             census = Census(spec) if spec.scope == "business_area" else None
             keys: set[str] = set()  # the distinct records read, kept or skipped (record_key)
-            repeated = 0  # the records the Datamart returned again (read_whole)
+            reading = windows.Reading(client, spec.path, params, country=by_country)
             # a record naming no business area is kept only when the PRP programme document it names is held
             # (those are read by business area): the others are counted as another country's
             by_pd = KEPT_BY_PROGRAMME_DOCUMENT.get(name)
@@ -2281,15 +2365,13 @@ def sync_documents(name: str) -> Callable[..., SyncRun]:
             through_pd = unnamed_skipped = 0
 
             def items():
-                nonlocal other, unnamed, repeated, through_pd, unnamed_skipped
-                for item in client.list(spec.path, params, country=by_country):
+                nonlocal other, unnamed, through_pd, unnamed_skipped
+                for item in reading:
                     # a record returned again is written again (its last copy wins) and counted once
                     key = record_key(item)
                     first = key not in keys
                     keys.add(key)
-                    if not first:
-                        repeated += 1
-                    elif census:
+                    if first and census:
                         census.saw(item)
                     kept = scope.keeps(spec, item)
                     if kept is None and by_pd:
@@ -2309,15 +2391,13 @@ def sync_documents(name: str) -> Callable[..., SyncRun]:
                     yield item
 
             process_items(run, items(), writer.write, _label)
-            announced, read = getattr(client, "last_count", None), len(keys)
-            whole = read_whole(announced, read, repeated)
+            whole = reading.whole
             details = {**links.details(), **writer.finish(whole=whole)}
             if other:
                 details["other_country_skipped"] = other
-            if announced is not None:
-                details["datamart_count"] = announced
+            details.update(reading.details())  # the first page's count, never the last window's
             if writer.seen and not whole:
-                details.update(_removal_skipped(read, repeated, announced))
+                details.update(_removal_skipped(reading))
             if census:  # what was asked, from where, and what came back: counts and codes only
                 choice = scope.choice or AreaCode()  # resolved by the request above
                 details.update(**choice.details(), **census.details())

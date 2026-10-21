@@ -4,7 +4,9 @@
 (admin → eTools reporting checks, Administrators only, linked from Data health) shows how they do
 come out on the data NeuroDB holds, with a plain verdict and what NeuroDB does in each case. Every
 query is read-only and every figure a count: no person's data, and no title, name or text of a record
-(key names, section names, PD reference numbers NeuroDB does not hold and business area codes at most).
+(key names, section names, PD reference numbers NeuroDB does not hold and business area codes at most;
+check 10 also names, in one table, up to three PD reference numbers of running PDs with no partner report
+row per reason).
 
 The checks measure what NeuroDB itself reads. PRP's values are read with Reached's own parser
 (:func:`_value`: a number, its text or PRP's ``{v, d, c}``); a progress report is told apart by its
@@ -1639,14 +1641,70 @@ LINK_NOT_HELD = "not in NeuroDB"
 LINK_NONE = "names none"
 
 
+# Why a running PD has no partner report row (check 10's table): the first reason that applies, in this order
+NO_ROW_REASONS = (
+    ("later", "Signed, starting later"),
+    ("not_due", "First report not due yet"),
+    ("not_reported", "A document type PRP does not report (not PD, SPD or SHPD)"),
+    ("no_indicator", "No active PD indicator"),
+    ("ended", "End passed, status still running"),
+    ("before_held", "Started before the earliest period start held (the read explains them)"),
+    ("expected", "Left: their reports should be in the feed"),
+)
+PRP_DOCUMENT_TYPES = ("PD", "SPD", "SHPD")  # the programme documents PRP reports on
+NUMBERS_SHOWN = 3  # the PD reference numbers check 10's table names per reason
+
+
+def _no_row_reasons(
+    pds: list[tuple], earliest: datetime.date | None, today: datetime.date
+) -> dict[str, list]:
+    """The running PDs with no partner report row (``(pk, number, start, end, document type)``), by the first
+    reason that explains it (:data:`NO_ROW_REASONS`); ``earliest``, the earliest period start held."""
+    ids = [pd[0] for pd in pds]
+    active, frequent = set(), set()
+    for pd_id, is_active, high in dm.PDIndicator.objects.filter(intervention_id__in=ids).values_list(
+        "intervention_id", "is_active", "is_high_frequency"
+    ):
+        if is_active:
+            active.add(pd_id)
+        if high:
+            frequent.add(pd_id)
+    found: dict[str, list] = {key: [] for key, _ in NO_ROW_REASONS}
+    for pk, number, start, end, kind in pds:
+        first_end = _month_end(start, STEP_MONTHS["HR" if pk in frequent else "QPR"]) if start else None
+        if start and start > today:
+            key = "later"
+        elif first_end and first_end >= today:
+            key = "not_due"
+        elif (kind or "").strip().upper() not in ("", *PRP_DOCUMENT_TYPES):
+            key = "not_reported"
+        elif pk not in active:
+            key = "no_indicator"
+        elif end and end < today:
+            key = "ended"
+        elif start and earliest and start < earliest:
+            key = "before_held"
+        else:
+            key = "expected"
+        found[key].append((pk, number))
+    return found
+
+
 def _coverage(cursor) -> dict[str, Any]:
     """How much of the running programme documents' reporting the partner reports hold (check 10), as
-    counts: the PDs with no row, those whose first report held ends long after their start, and those
-    whose lowest report number of a type is above 1; and the latest partner reports sync's window."""
+    counts: the PDs with no row (and why, :func:`_no_row_reasons`), those whose first report held ends long
+    after their start, and those whose lowest report number of a type is above 1; the earliest period start
+    held and the running PDs that started before it; and the latest partner reports sync that finished."""
     from neurodb.reports.services import latest_datamart_runs
 
     _bound(cursor)
-    starts = dict(PCA.objects.filter(status__in=pd_statuses.RUNNING).values_list("pk", "start"))
+    today = timezone.localdate()
+    pds = list(
+        PCA.objects.filter(status__in=pd_statuses.RUNNING).values_list(
+            "pk", "number", "start", "end", "document_type"
+        )
+    )
+    starts = {pd[0]: pd[2] for pd in pds}
     rows = dm.ReportedIndicator.objects.filter(intervention__status__in=pd_statuses.RUNNING).order_by()
     _bound(cursor)
     first = dict(
@@ -1661,6 +1719,16 @@ def _coverage(cursor) -> dict[str, Any]:
         if n is not None and kind in STEP_MONTHS:
             lowest[pd][kind] = min(lowest[pd].get(kind, n), n)
     _bound(cursor)
+    earliest = dm.ReportedIndicator.objects.aggregate(first=Min("period_start"))["first"]
+    _bound(cursor)
+    reasons = _no_row_reasons([pd for pd in pds if pd[0] not in first], earliest, today)
+    _bound(cursor)
+    prp = set(
+        dm.DatamartDocument.objects.filter(dataset="prp_programme_documents")
+        .exclude(intervention=None)
+        .values_list("intervention_id", flat=True)
+    )
+    prp_held = prp or dm.DatamartDocument.objects.filter(dataset="prp_programme_documents").exists()
     run = latest_datamart_runs(["partner_reports"], finished=True).get("partner_reports")
     return {
         "running": len(starts),
@@ -1671,8 +1739,108 @@ def _coverage(cursor) -> dict[str, Any]:
             if start and first.get(pk) and (first[pk] - start).days > LATE_FIRST_DAYS
         ),
         "no_first": sum(1 for kinds in lowest.values() if any(n > 1 for n in kinds.values())),
+        "earliest": earliest,
+        "before_earliest": sum(1 for start in starts.values() if start and earliest and start < earliest),
+        "reasons": reasons,
+        "prp": prp if prp_held else None,  # None: PRP's programme documents hold no record (check 8)
         "run": run,
     }
+
+
+def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool]:
+    """What the latest partner reports sync did, for check 10: its sentence (what it asked, what the Datamart
+    announced, what was read, kept and removed, then the windows or the limit), its figures, the table of its
+    windows, and whether it calls for a warning (a cut answer, nothing removed, a window not whole)."""
+    from neurodb.integrations.etools.datamart_sync import capped
+
+    details = run.details if isinstance(run.details, dict) else {}
+    try:
+        since = _day(datetime.date.fromisoformat(str(details.get("read_from") or "")[:10]))
+    except ValueError:
+        since = None
+    announced = details.get("datamart_count")
+    other, kept = _count(details.get("other_country_skipped")), run.rows_in
+    read = _count(details.get("read")) or kept + other
+    removed, skipped, held = (
+        _count(details.get("removed")),
+        bool(details.get("removal_skipped")),
+        details.get("removal_held"),
+    )
+    asked = f" asked for the reports from {since} on" if since else ""
+    when = f"{_day(_local_day(run.started_at))}, {run.get_status_display()}"
+    said = f"The latest partner reports sync ({when}){asked}: "
+    said += (
+        f"the Datamart announced {announced:,}, "
+        if isinstance(announced, int)
+        else "the Datamart announced no count, "
+    )
+    said += f"NeuroDB read {read:,}" + (f" ({other:,} of another country)" if other else "")
+    said += f", kept {_plural(kept, 'row', 'rows')} and removed " + (f"{removed:,}" if removed else "none")
+    said += " (removal skipped)." if skipped else " (held one more night)." if held else "."
+    bound, cut = details.get("window_bound"), details.get("cap_suspected")
+    windows, not_whole = details.get("windows") or [], _count(details.get("windows_not_whole"))
+    if cut == "windows_unproven" or (capped(announced) and not bound):
+        said += f" Exactly {announced:,} is a limit of the Datamart's answer, not what it holds" + (
+            ", and the Datamart ignores the window filters, so NeuroDB could not read it whole: tell the "
+            "eTools Datamart team."
+            if cut == "windows_unproven"
+            else "."
+        )
+    elif cut == "ends_missing":
+        said += " The Datamart's last record by id was never returned: its answer was cut."
+    elif cut == "no_count":
+        said += " The Datamart gave no count and stopped on a full page: its answer may be cut."
+    if bound:
+        by = "reporting period start" if bound != "id" else "id"
+        n = _count(details.get("windows_read")) or len(windows)
+        said += f" It read them in {_plural(n, 'window', 'windows')} by {by}"
+        said += ", every one whole" if not not_whole else ""
+        if details.get("whole_count_capped") and isinstance(announced, int):
+            said += f" (the Datamart's own count, {announced:,}, was cut)"
+        said += "."
+        if not_whole:
+            said += f" {_plural(not_whole, 'window was', 'windows were')} not read whole: none was removed."
+    if details.get("changed") and isinstance(details.get("whole_count_end"), int):
+        said += (
+            f" The Datamart's count changed during the read ({announced:,}, then "
+            f"{details['whole_count_end']:,}): none was removed."
+        )
+    try:
+        whole_from = _day(datetime.date.fromisoformat(str(details.get("whole_from") or "")[:10]))
+    except ValueError:
+        whole_from = None
+    figures = [
+        ("Latest partner reports sync", run.get_status_display()),
+        ("… records the Datamart announced", announced if isinstance(announced, int) else "—"),
+        ("… records read", read),
+        ("… rows kept", kept),
+        ("… of another country skipped", other),
+        ("… returned twice", _count(details.get("duplicates_read"))),
+        ("… rows removed", removed),
+        ("… rows held before", _count(details.get("held_before"))),
+        ("… windows read", _count(details.get("windows_read"))),
+        ("… windows not read whole", not_whole),
+        ("… history held whole from", whole_from or "—"),
+    ]
+    table = {
+        "title": "The latest partner reports read, window by window",
+        "columns": ("From", "To", "Announced", "Read", "Pages", "Outside the window", "Whole"),
+        "rows": [
+            (
+                w.get("from") or None,
+                w.get("to") or "open",
+                w.get("announced"),
+                w.get("read"),
+                w.get("pages"),
+                w.get("outside"),
+                "yes" if w.get("whole") else "no",
+            )  # fmt: skip
+            for w in windows
+            if isinstance(w, dict)
+        ],
+    }
+    warn = bool(cut or skipped or not_whole or details.get("changed"))
+    return said, figures, table, warn
 
 
 def _country_and_link(cursor) -> dict[str, Any]:
@@ -1776,18 +1944,58 @@ def _country_and_link(cursor) -> dict[str, Any]:
             if cover["late"] or cover["no_first"]
             else "."
         )
-    run = cover["run"]
+    run, read_figures, tables, read_warn, late_history = cover["run"], [], [], False, False
     if run is not None:
-        details = run.details if isinstance(run.details, dict) else {}
+        said, read_figures, window_table, read_warn = _partner_read(run)
+        verdict += " " + said
+        if window_table["rows"]:
+            tables.append(window_table)
         try:
-            since = _day(datetime.date.fromisoformat(str(details.get("read_from") or "")[:10]))
+            since = datetime.date.fromisoformat(str((run.details or {}).get("read_from") or "")[:10])
         except ValueError:
             since = None
-        window = f" asked for the reports from {since} on and" if since else ""
-        verdict += (
-            f" The latest partner reports sync ({_day(_local_day(run.started_at))}){window} kept "
-            f"{_plural(run.rows_in, 'row', 'rows')}: what the Datamart did not return cannot be counted."
+        earliest = cover["earliest"]
+        # the earliest report held starts more than a year after the date asked, while running PDs started
+        # before it: their early reports did not arrive
+        late_history = bool(since and earliest and (earliest - since).days > 365 and cover["before_earliest"])
+        if late_history:
+            before = _plural(
+                cover["before_earliest"], "running programme document", "running programme documents"
+            )
+            verdict += (
+                f" The earliest report held starts {_day(earliest)}, more than a year after the date asked, "
+                f"while {before} started before it: the Datamart likely did not return their early reports."
+            )
+    reasons, prp = cover["reasons"], cover["prp"]
+    expected = len(reasons["expected"])
+    if cover["none"]:
+        tables.append(
+            {
+                "title": "Running programme documents with no partner report row, by what explains it",
+                "columns": (
+                    "Reason",
+                    "Running programme documents",
+                    "In PRP's programme documents",
+                    f"PD reference numbers (first {NUMBERS_SHOWN})",
+                ),
+                "rows": [
+                    (
+                        label,
+                        len(reasons[key]),
+                        "unknown (check 8)" if prp is None else sum(1 for pk, _ in reasons[key] if pk in prp),
+                        ", ".join(sorted(n for _, n in reasons[key] if n)[:NUMBERS_SHOWN]) or None,
+                    )
+                    for key, label in NO_ROW_REASONS
+                    if reasons[key]
+                ],
+            }
         )
+        if expected:
+            verdict += (
+                f" {_plural(expected, 'running programme document has', 'running programme documents have')} "
+                "no row although nothing explains it (no later start, report not yet due, type PRP does not "
+                "report, missing indicator, passed end or early start): their reports should be in the feed."
+            )
     rows = [
         (
             g["_country"],
@@ -1801,9 +2009,9 @@ def _country_and_link(cursor) -> dict[str, Any]:
         )
         for g in groups
     ]
-    if other or not_held or cover["late"] or cover["no_first"]:
+    if other or not_held or cover["late"] or cover["no_first"] or read_warn or late_history or expected:
         tone = WARN
-    else:
+    else:  # running PDs with no row, every one explained, stay information
         tone = INFO if no_pd or cover["none"] else OK
     return {
         "tone": tone,
@@ -1814,9 +2022,13 @@ def _country_and_link(cursor) -> dict[str, Any]:
             ("Indicator reports naming no programme document", no_pd),
             ("Running programme documents", cover["running"]),
             ("… with no partner report row", cover["none"]),
+            ("… of which nothing explains (their reports should be in the feed)", expected),
             (f"… whose first report held ends over {LATE_FIRST_DAYS} days after their start", cover["late"]),
             ("… without their first report (QPR1 or HR1)", cover["no_first"]),
+            ("Earliest period start held", _day(cover["earliest"]) or "—"),
+            *read_figures,
         ],
+        "tables": tables,
         "table": {
             "columns": (
                 "Country in the row",

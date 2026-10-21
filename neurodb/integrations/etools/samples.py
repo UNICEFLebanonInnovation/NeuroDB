@@ -33,7 +33,7 @@ def endpoint_of(name: str, client: DatamartClient) -> tuple[str, dict[str, Any],
     """(Datamart path, query parameters, whether the country filter applies) of a sync dataset."""
     if name in sync.DATASETS:
         path, spec = sync.DATASETS[name]
-        return path, (spec.params() if spec.params else {}), True
+        return path, (spec.params(spec.since() if spec.since else None) if spec.params else {}), True
     if name in sync.ENRICHMENTS:
         return sync.ENRICHMENTS[name][0], {}, True
     if name in catalogue.DOCUMENTS:

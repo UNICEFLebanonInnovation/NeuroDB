@@ -619,6 +619,17 @@ def dataset_row_counts() -> dict[str, int | None]:
     return {name: stored[name] if name in stored else _dataset_rows(name) for name in names}
 
 
+def _window_bound(text: Any) -> str:
+    """A window's bound as Data health shows it: "1 Jan 2026" for a date, "open" for the open end, an id (or a
+    day and an id) as it is."""
+    text = str(text or "")
+    try:
+        day = datetime.date.fromisoformat(text) if len(text) == 10 else None
+    except ValueError:
+        day = None
+    return f"{day.day} {day:%b %Y}" if day else text or "open"
+
+
 def datamart_quality() -> list[dict[str, Any]]:
     """Per eTools Datamart dataset: the last run, what it read, wrote, failed to link, and how many
     rows NeuroDB holds — the table to read before believing a number on an eTools page. A failed run's
@@ -627,7 +638,8 @@ def datamart_quality() -> list[dict[str, Any]]:
     with and where the code came from (a value that is not a code, a code NeuroDB found, the values set
     aside), and the records that named no business area; a run that read fewer records than the Datamart
     announced, some twice, or a round count (a limit of the Datamart's answer), says that it removed
-    nothing."""
+    nothing. A large dataset read in windows says how many, what they announced and read, those not read
+    whole (the first three), a count that changed during the read, and a removal held one night."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS, FOUND, is_area_code, not_a_code
 
@@ -676,8 +688,29 @@ def datamart_quality() -> list[dict[str, Any]]:
                 "datamart_count": details.get("datamart_count"),
                 "removal_skipped": bool(details.get("removal_skipped")),
                 "duplicates_read": details.get("duplicates_read"),
-                # a round count (5,000 or more, a multiple of 1,000): a limit of the Datamart's answer
+                # why the answer looks cut (a round count read in one answer, a cut the ends test found...)
                 "cap_suspected": details.get("cap_suspected") or "",
+                # read in windows: how many, what they announced (the Datamart's own count may be cut), those
+                # not read whole (the first three: from, to, announced, read), and a count that moved
+                "windows_read": details.get("windows_read"),
+                "windows_announced": details.get("windows_announced"),
+                "windows_not_whole": details.get("windows_not_whole"),
+                "windows_not_whole_first": [
+                    {
+                        "from": _window_bound(w.get("from")),
+                        "to": _window_bound(w.get("to")),
+                        "announced": w.get("announced"),
+                        "read": w.get("read"),
+                    }
+                    for w in (details.get("windows_not_whole_first") or [])[:3]
+                    if isinstance(w, dict)
+                ],
+                "whole_count_capped": bool(details.get("whole_count_capped")),
+                "whole_count_end": details.get("whole_count_end"),
+                "changed": details.get("whole_count_end") is not None
+                and details.get("whole_count_end") != details.get("datamart_count"),
+                # a whole read that would remove more than half of the rows held waits one night
+                "removal_held": details.get("removal_held"),
                 # an empty read the Datamart announced records for: its answer was cut short
                 "cut_short": bool(details.get("empty_response"))
                 and isinstance(details.get("datamart_count"), int)

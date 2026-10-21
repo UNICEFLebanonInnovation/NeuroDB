@@ -230,5 +230,6 @@ The **Data health** page (user menu, or the sidebar) shows when each source last
 runs failed. It opens at once (see [Pages that open at once](/help/overview/#pages-that-open-at-once)):
 the sync jobs fill in first, then the ActivityInfo databases (the archive's, once ActivityInfo is
 no longer in use) and the latest runs, then the eTools
-datasets, *Compared with Power BI* and the machine learning readiness check. Pages show the date of their data next to every status ("On track · reported for Jun
+datasets, each saying when the Datamart's answer was limited and how NeuroDB read it whole (or removed
+nothing), *Compared with Power BI* and the machine learning readiness check. Pages show the date of their data next to every status ("On track · reported for Jun
 2026", "status as of 3 Oct 2026").

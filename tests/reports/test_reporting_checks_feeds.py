@@ -331,7 +331,112 @@ def test_check_10_says_how_much_of_the_running_pds_reporting_is_held(pd):
     assert numbers["… with no partner report row"] == 1
     assert numbers["… whose first report held ends over 100 days after their start"] == 1  # LATE
     assert numbers["… without their first report (QPR1 or HR1)"] == 1
-    assert "from 1 Jan 2024 on and kept 4 rows" in found["verdict"] and found["tone"] == "warning"
+    assert found["tone"] == "warning"
+    assert (
+        "asked for the reports from 1 Jan 2024 on: the Datamart announced no count, NeuroDB read 4, kept 4 rows "
+        "and removed none." in found["verdict"]
+    )
+    (why,) = [t for t in found["tables"] if t["title"].startswith("Running programme documents with no")]
+    assert why["rows"] == [("No active PD indicator", 1, "unknown (check 8)", "LEB/PD/NONE")]
+
+
+def _partner_run(status=SyncRun.Status.SUCCEEDED, rows_in=0, **details):
+    return SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART,
+        target="partner_reports",
+        status=status,
+        started_at=timezone.make_aware(datetime.datetime(2026, 10, 14, 22, 0)),
+        finished_at=timezone.now(),
+        rows_in=rows_in,
+        details={"read_from": "2018-11-01", **details},
+    )
+
+
+def test_check_10_reads_the_windows_and_warns_of_a_cap(pd):
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    windows = [
+        {"from": "2018-11-01", "to": "2026-01-01", "announced": 4_000, "read": 4_000, "pages": 8, "outside": 0,
+         "whole": True},
+        {"from": "2026-01-01", "to": "", "announced": 4_100, "read": 4_100, "pages": 9, "outside": 0, "whole": True},
+    ]  # fmt: skip
+    _partner_run(rows_in=8_070, datamart_count=10_000, read=8_100, other_country_skipped=30, removed=12,
+                 held_before=9_970, window_bound="reporting_period_start_date", windows=windows, windows_read=2,
+                 windows_not_whole=0, whole_count_capped=True, whole_from="2018-11-01")  # fmt: skip
+    found = one("10")
+    verdict = found["verdict"]
+    assert (
+        "The latest partner reports sync (14 Oct 2026, Succeeded) asked for the reports from 1 Nov 2018 on: the "
+        "Datamart announced 10,000, NeuroDB read 8,100 (30 of another country), kept 8,070 rows and removed 12."
+    ) in verdict
+    assert (
+        "It read them in 2 windows by reporting period start, every one whole (the Datamart's own count, 10,000, "
+        "was cut)." in verdict
+    )
+    numbers = figures(found)
+    assert (numbers["… windows read"], numbers["… history held whole from"]) == (2, "1 Nov 2018")
+    (read,) = [
+        t for t in found["tables"] if t["title"] == "The latest partner reports read, window by window"
+    ]
+    assert read["rows"][1] == ("2026-01-01", "open", 4_100, 4_100, 9, 0, "yes")
+
+    SyncRun.objects.all().delete()
+    _partner_run(SyncRun.Status.PARTIAL, rows_in=9_970, datamart_count=10_000, read=10_000,
+                 other_country_skipped=30, removed=0, removal_skipped=True, cap_suspected="windows_unproven",
+                 window_bound="")  # fmt: skip
+    found = one("10")
+    assert found["tone"] == "warning"
+    assert "kept 9,970 rows and removed none (removal skipped)." in found["verdict"]
+    assert (
+        "Exactly 10,000 is a limit of the Datamart's answer, not what it holds, and the Datamart ignores the "
+        "window filters, so NeuroDB could not read it whole: tell the eTools Datamart team."
+        in found["verdict"]
+    )
+
+
+def test_check_10_explains_the_running_pds_without_rows(pd):
+    """One running PD per reason (the first that applies); a PD nothing explains makes the check a warning,
+    and the reasons add up to the PDs with no row."""
+    report_row(
+        pd, "QPR1", start=D(2025, 3, 1), end=D(2025, 5, 31)
+    )  # the earliest period start held: 1 Mar 2025
+
+    def running(number, start, *, end=None, kind="PD", indicator=True, high=False):
+        found = other_pd(number)
+        PCA.objects.filter(pk=found.pk).update(start=start, end=end or D(2027, 12, 31), document_type=kind)
+        if indicator:
+            dm.PDIndicator.objects.create(datamart_id=found.pk + 50_000, intervention=found, title="Reached",
+                                          is_high_frequency=high)  # fmt: skip
+        return found
+
+    running("LEB/PD/LATER", D(2026, 12, 1))
+    running("LEB/PD/SOON", D(2026, 9, 15), high=True)  # its first monthly report ends after today
+    running("LEB/SSFA/1", D(2026, 1, 1), kind="SSFA")
+    running("LEB/PD/NOIND", D(2026, 1, 1), indicator=False)
+    running("LEB/PD/OVER", D(2025, 6, 1), end=D(2026, 6, 30))
+    running("LEB/PD/EARLY", D(2024, 6, 1))
+    running("LEB/PD/MISSING", D(2026, 1, 1))
+    dm.DatamartDocument.objects.create(dataset="prp_programme_documents", record_key="1",
+                                       intervention=PCA.objects.get(number="LEB/PD/MISSING"))  # fmt: skip
+    found = one("10")
+    assert found["tone"] == "warning"
+    (why,) = [t for t in found["tables"] if t["title"].startswith("Running programme documents with no")]
+    assert why["rows"] == [
+        ("Signed, starting later", 1, 0, "LEB/PD/LATER"),
+        ("First report not due yet", 1, 0, "LEB/PD/SOON"),
+        ("A document type PRP does not report (not PD, SPD or SHPD)", 1, 0, "LEB/SSFA/1"),
+        ("No active PD indicator", 1, 0, "LEB/PD/NOIND"),
+        ("End passed, status still running", 1, 0, "LEB/PD/OVER"),
+        ("Started before the earliest period start held (the read explains them)", 1, 0, "LEB/PD/EARLY"),
+        ("Left: their reports should be in the feed", 1, 1, "LEB/PD/MISSING"),
+    ]
+    numbers = figures(found)
+    assert numbers["… with no partner report row"] == 7 == sum(row[1] for row in why["rows"])
+    assert numbers["… of which nothing explains (their reports should be in the feed)"] == 1
+    assert "1 running programme document has no row although nothing explains it" in found["verdict"]
+
+    PCA.objects.filter(number="LEB/PD/MISSING").delete()  # every PD without a row explained: information
+    report_row(pd, "QPR2", start=D(2025, 6, 1), end=D(2025, 8, 31))
+    assert one("10")["tone"] == "info"
 
 
 # ------------------------------------------------------------------------------- the section names

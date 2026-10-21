@@ -414,9 +414,9 @@ def _stored() -> Calibration:
 
 def indicators_read_whole() -> bool:
     """Whether the latest finished PD indicators sync read them whole: it succeeded, removed what the Datamart
-    no longer holds (no ``removal_skipped``, no ``empty_response``) and its count is not a limit of the
-    Datamart's answer (``cap_suspected``, a round count): only then is a place no indicator plans in eTools
-    truly unplanned. Read once per request."""
+    no longer holds (no ``removal_skipped``, no ``empty_response``) and its answer was not cut
+    (``cap_suspected``; a round count read in one answer, not in windows): only then is a place no indicator
+    plans in eTools truly unplanned. Read once per request."""
 
     def read() -> bool:
         from neurodb.core.models import SyncRun
@@ -437,7 +437,7 @@ def indicators_read_whole() -> bool:
             and not details.get("removal_skipped")
             and not details.get("empty_response")
             and not details.get("cap_suspected")
-            and not capped(details.get("datamart_count"))
+            and not (capped(details.get("datamart_count")) and not details.get("window_bound"))
         )
 
     return compute.per_request("datamart_indicators_read_whole", read)

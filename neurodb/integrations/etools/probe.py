@@ -9,6 +9,13 @@ most three requests of one small page each (:data:`PAGE` records), and writes no
 counts), and the business area codes and country names they name (counts): never another value of a
 record, no title, name or text. Its verdict (``details.verdict``) says in plain words what the answers mean
 and what to do from the admin.
+
+For the partner reports, and for any dataset whose sync query announces ``windows.WINDOW_RECORDS`` records or
+more, it also asks what a read in windows needs (``details.windows``, one small page each, with the sync's own
+filter): whether the Datamart applies the window filters (a request that should find nothing finds nothing),
+whether its count or its paging stops at a limit, and, for the partner reports, how many reports end before
+any NeuroDB holds. Per request it keeps the count, the page length, the page number and query keys of its
+``next`` link and the records per start year of the page: counts, dates and key names only.
 """
 
 from __future__ import annotations
@@ -16,15 +23,21 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
 from django.conf import settings
 from django.db import DatabaseError, connection
+from django.db.models import Min
+from django.utils import timezone
 
 from neurodb.core.models import SyncRun
 from neurodb.datamart import catalogue
+from neurodb.datamart import models as dm
 from neurodb.integrations.etools import datamart_sync as sync
+from neurodb.integrations.etools import windows
 from neurodb.integrations.etools.datamart import DatamartClient
-from neurodb.integrations.http import IntegrationError
+from neurodb.integrations.etools.fields import parse_iso_date
+from neurodb.integrations.http import IntegrationError, get_json
 from neurodb.integrations.runs import describe_error, fail, new_run
 
 logger = logging.getLogger(__name__)
@@ -36,6 +49,13 @@ LOCK_ID = 7140439  # one probe at a time; neurodb.integrations.background.DATAMA
 BUSY = "A probe of the eTools Datamart is already running."
 DEFAULT = "prp_indicator_reports"
 NO_FILTER, BY_BUSINESS_AREA, BY_COUNTRY = "no filter", "business area", "country"
+AS_SYNC = "as the sync asks"  # the partner reports' own query: the country and the date they are read from
+FAR_FUTURE, FAR_PAST, FAR_PAST_LTE = "far future", "far past", "far past (lte)"
+BEFORE_YEAR, FROM_YEAR = "before this year", "from this year"
+IDS_BELOW, IDS_ABOVE, IDS_BELOW_LTE = "ids below 1", "ids from 10^15", "ids below 1 (lte)"
+PAST_COUNT, END_PROOF, OLDER = "past the count", "end date far past", "older than held"
+CUT_PAGE = 10_050  # a count from this many on asks the page past it even when not round (a limit near 10,000)
+END_KEY = "reporting_period_end_date"  # the partner reports' period end, for the reports older than any held
 CODE_SETTING = "Admin → Data and sync → eTools Datamart: PRP business area code"  # as checks.CODE_SETTING
 
 
@@ -85,16 +105,69 @@ def summary(results: list[dict[str, Any]], filter_key: str) -> dict[str, Any]:
 
 
 def ask(
-    client: DatamartClient, path: str, label: str, query: dict[str, Any], filter_key: str
+    client: DatamartClient,
+    path: str,
+    label: str,
+    query: dict[str, Any],
+    filter_key: str,
+    keep: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """One request of one page: the filter sent, the count announced, the records on the page and their
-    :func:`summary`; on a refusal, its HTTP status and error instead."""
+    :func:`summary`; on a refusal, its HTTP status and error instead. ``keep``: the page's records are added
+    to it (compared, never stored)."""
     answer: dict[str, Any] = {"request": label, "filter": query}
     try:
         count, results = client.first_page(path, {**query, "page_size": PAGE}, country=False)
     except IntegrationError as exc:
         return {**answer, "status": exc.status, "error": describe_error(exc)[:300]}
+    if keep is not None:
+        keep.extend(results)
     return {**answer, "count": count, "page": len(results), **summary(results, filter_key)}
+
+
+def look(
+    client: DatamartClient,
+    path: str,
+    label: str,
+    query: dict[str, Any],
+    date_key: str,
+    keep: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """One request of one page for the windows: the count announced, the records on the page, whether ``next``
+    is given (its page number and the query keys it carries: does it keep the filters?) and, for ``date_key``,
+    the records of the page per start year; on a refusal, its HTTP status and error."""
+    answer: dict[str, Any] = {"request": label, "filter": query}
+    try:
+        payload = get_json(client.session, client.url(path), **{**query, "page_size": PAGE})
+    except IntegrationError as exc:
+        return {**answer, "status": exc.status, "error": describe_error(exc)[:300]}
+    if isinstance(payload, list):
+        count, results, following = None, payload, None
+    elif isinstance(payload, dict) and "results" in payload:
+        count, results, following = (
+            sync._count(payload.get("count")),
+            payload["results"] or [],
+            payload.get("next"),
+        )
+    else:
+        return {**answer, "error": "unrecognised list payload"}
+    results = [item for item in results if isinstance(item, dict)]
+    answer.update(count=count, page=len(results))
+    if following:
+        keys = dict(parse_qsl(urlsplit(str(following)).query))
+        answer["next"] = {"page": keys.get("page", ""), "keys": sorted(k[:60] for k in keys)[:KEYS]}
+    if date_key:
+        years: Counter[str] = Counter()
+        for item in results:
+            try:
+                day = parse_iso_date(item.get(date_key))
+            except ValueError:
+                day = None
+            years[str(day.year) if day else "none"] += 1
+        answer["years"] = dict(sorted(years.items()))
+    if keep is not None:
+        keep.extend(results)
+    return answer
 
 
 def _n(answer: dict[str, Any] | None) -> int | None:
@@ -257,6 +330,142 @@ def _verdict(
     return "Some requests failed: see each request's error below."
 
 
+def _ids(results: list[dict[str, Any]]) -> list[str]:
+    return [str(item.get("id")) for item in results if item.get("id") not in (None, "")]
+
+
+def window_requests(
+    client: DatamartClient,
+    name: str,
+    path: str,
+    base: dict[str, Any],
+    count: int | None,
+    first: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """What a read of ``name`` in windows needs (:func:`look`, each with the sync's own query ``base``, whose
+    first page announced ``count`` and held ``first``): the date filters (partner reports: a far future and a
+    far past start, ``__lte`` when ``__lt`` is ignored, the reports before and from this year), the id
+    filters, the page past the count when the count looks like a limit, and for the partner reports the
+    reports that end before any NeuroDB holds, once the end-date filter is proven."""
+    date_key = sync.DATASETS[name][1].windows if name in sync.DATASETS else ""
+    asked: list[dict[str, Any]] = []
+
+    def one(label: str, extra: dict[str, Any], keep: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        found = look(client, path, label, {**base, **extra}, date_key, keep)
+        asked.append(found)
+        return found
+
+    if date_key:
+        one(FAR_FUTURE, {f"{date_key}__gte": windows.FAR_FUTURE})
+        if _n(one(FAR_PAST, {f"{date_key}__lt": windows.FAR_PAST})) != 0:
+            one(FAR_PAST_LTE, {f"{date_key}__lte": windows.FAR_PAST})
+        january = timezone.localdate().replace(month=1, day=1).isoformat()
+        since = base.get(f"{date_key}__gte")
+        one(BEFORE_YEAR, {f"{date_key}__lt": january, **({f"{date_key}__gte": since} if since else {})})
+        one(FROM_YEAR, {f"{date_key}__gte": january})
+    one(IDS_ABOVE, {"id__gte": windows.ID_TOP})
+    if _n(one(IDS_BELOW, {"id__lt": 1})) != 0:
+        one(IDS_BELOW_LTE, {"id__lte": 0})
+    if count is not None and (sync.capped(count) or count >= CUT_PAGE):
+        page: list[dict[str, Any]] = []
+        past = one(PAST_COUNT, {"page": count // PAGE + 1}, page)
+        past["same_as_first_page"] = bool(page) and _ids(page) == _ids(first)
+    if name == "partner_reports":
+        earliest = dm.ReportedIndicator.objects.aggregate(first=Min("period_end"))["first"]
+        if earliest and _n(one(END_PROOF, {f"{END_KEY}__lt": windows.FAR_PAST})) == 0:
+            one(OLDER, {f"{END_KEY}__lt": earliest.isoformat()})
+    return asked
+
+
+def _day(text: Any) -> str:
+    day = parse_iso_date(text)
+    return f"{day.day} {day:%b %Y}" if day else str(text)
+
+
+def window_verdict(name: str, path: str, count: int | None, asked: list[dict[str, Any]]) -> str:
+    """What the window requests mean, in plain words (:func:`window_requests`): which window filters the
+    Datamart applies and so how NeuroDB reads the dataset, whether its count or its paging stops at a limit,
+    and for the partner reports how many reports end before any NeuroDB holds."""
+    by = {a["request"]: a for a in asked}
+    date_key = sync.DATASETS[name][1].windows if name in sync.DATASETS else ""
+    zero = {label: _n(a) == 0 for label, a in by.items()}
+    ids = zero.get(IDS_ABOVE) and (zero.get(IDS_BELOW) or zero.get(IDS_BELOW_LTE))
+    dates = date_key and zero.get(FAR_FUTURE) and (zero.get(FAR_PAST) or zero.get(FAR_PAST_LTE))
+    said = []
+    if dates:
+        end = "__lt" if zero.get(FAR_PAST) else "__lte"
+        said.append(
+            f"The Datamart applies {date_key}{end} and __gte (requests that should find nothing found "
+            "nothing): NeuroDB reads the partner reports in date windows."
+        )
+    elif date_key:
+        ignored = f"{date_key}__gte" if not zero.get(FAR_FUTURE) else f"{date_key}__lt"
+        found = _n(by.get(FAR_FUTURE)) if not zero.get(FAR_FUTURE) else _n(by.get(FAR_PAST))
+        said.append(
+            f"The Datamart ignores {ignored} (a request that should find nothing found {found or 0:,})"
+            + (
+                ": NeuroDB reads in id windows."
+                if ids
+                else f": NeuroDB cannot read more than one answer gives: tell the eTools Datamart team that "
+                f"{path} ignores {ignored} and id__lt."
+            )
+        )
+    elif ids:
+        said.append(
+            "The Datamart applies id__lt and id__gte (requests that should find nothing found nothing): "
+            f"NeuroDB reads {path} in id windows."
+        )
+    else:
+        said.append(
+            f"The Datamart ignores id__lt or id__gte for {path}: NeuroDB cannot read more than one answer "
+            f"gives; tell the eTools Datamart team that {path} ignores id__lt."
+        )
+    how = "NeuroDB reads it in windows" if dates or ids else "NeuroDB cannot read it whole"
+    past = by.get(PAST_COUNT)
+    if past and past.get("status") in (400, 404) and count is not None:
+        said.append(
+            f"It answers no page past record {count:,}: it returns at most {count:,} records to one request; "
+            f"{how}."
+        )
+    elif past and past.get("same_as_first_page"):
+        said.append(
+            f"The Datamart ignores the page number (page {past['filter'].get('page')} gives the first page's "
+            "records): its paging says nothing of a limit."
+        )
+    elif past and past.get("page"):
+        said.append(
+            f"Page {past['filter'].get('page')}, past the {count:,} records announced, still holds records: "
+            f"the count is cut, the Datamart holds more; {how}."
+        )
+    elif count is not None and sync.capped(count):
+        said.append(
+            f"It announces exactly {count:,} records: it returns at most {count:,} records to one request; "
+            f"{how}."
+        )
+    before, after = _n(by.get(BEFORE_YEAR)), _n(by.get(FROM_YEAR))
+    if dates and None not in (before, after, count) and before + after > count:
+        said.append(
+            f"The reports starting before this year ({before:,}) and from this year ({after:,}) add up to "
+            f"more than the {count:,} announced: the count is cut."
+        )
+    proof, older = by.get(END_PROOF), by.get(OLDER)
+    if proof and _n(proof):
+        said.append(
+            f"The Datamart ignores {END_KEY}__lt (a request that should find nothing found {_n(proof):,}): "
+            "how many reports end before those NeuroDB holds cannot be told."
+        )
+    elif older and _n(older) is not None:
+        day = _day(older["filter"].get(f"{END_KEY}__lt"))
+        n = _n(older)
+        said.append(
+            f"It holds {n:,} reports that end before any NeuroDB holds ({day}): the last read did not get "
+            "them."
+            if n
+            else f"It holds no report that ends before those NeuroDB holds ({day})."
+        )
+    return " ".join(said)
+
+
 def probe(name: str, run: SyncRun, *, client: DatamartClient | None = None) -> SyncRun:
     """Ask the Datamart about one dataset (:data:`NO_FILTER`, :data:`BY_BUSINESS_AREA` for a dataset filtered
     by business area, :data:`BY_COUNTRY`) and finish ``run`` with what it answered: SUCCEEDED when every
@@ -269,10 +478,34 @@ def probe(name: str, run: SyncRun, *, client: DatamartClient | None = None) -> S
         # the code as the sync resolves it, without its request to the workspaces: the probe asks nothing more
         choice = sync.resolve_business_area() if filter_key else sync.AreaCode()
         code = choice.code
-        answers = {NO_FILTER: ask(client, path, NO_FILTER, {}, filter_key)}
+        first: dict[str, list[dict[str, Any]]] = {NO_FILTER: [], BY_BUSINESS_AREA: [], BY_COUNTRY: []}
+        answers = {NO_FILTER: ask(client, path, NO_FILTER, {}, filter_key, first[NO_FILTER])}
         if filter_key and code:
-            answers[BY_BUSINESS_AREA] = ask(client, path, BY_BUSINESS_AREA, {filter_key: code}, filter_key)
-        answers[BY_COUNTRY] = ask(client, path, BY_COUNTRY, {"country_name": country}, filter_key)
+            answers[BY_BUSINESS_AREA] = ask(
+                client, path, BY_BUSINESS_AREA, {filter_key: code}, filter_key, first[BY_BUSINESS_AREA]
+            )
+        answers[BY_COUNTRY] = ask(
+            client, path, BY_COUNTRY, {"country_name": country}, filter_key, first[BY_COUNTRY]
+        )
+        # the sync's own query, whose count decides whether it reads in windows
+        if name == "partner_reports":
+            base = {"country_name": country, **sync._reporting_window(sync._reporting_since())}
+            first[AS_SYNC] = []
+            answers[AS_SYNC] = ask(client, path, AS_SYNC, base, filter_key, first[AS_SYNC])
+            own = AS_SYNC
+        elif filter_key:
+            base, own = {filter_key: code}, BY_BUSINESS_AREA
+        elif name in catalogue.DOCUMENTS and catalogue.DOCUMENTS[name].scope == "lookup":
+            base, own = {}, NO_FILTER
+        else:
+            base, own = {"country_name": country}, BY_COUNTRY
+        count = (answers.get(own) or {}).get("count")
+        large = isinstance(count, int) and count >= windows.WINDOW_RECORDS
+        looked = (
+            window_requests(client, name, path, base, count, first.get(own, []))
+            if own in answers and "error" not in answers[own] and (name == "partner_reports" or large)
+            else []
+        )
     except Exception as exc:
         return fail(run, exc)
     run.rows_in = sum(a.get("page", 0) for a in answers.values())
@@ -280,7 +513,13 @@ def probe(name: str, run: SyncRun, *, client: DatamartClient | None = None) -> S
     if filter_key:
         details.update(filter_key=filter_key, **choice.details())
     details["verdict"] = verdict(name, path, filter_key, code, answers, choice)
-    refused = any("error" in a for a in answers.values())
+    if looked:
+        details["windows"] = looked
+        details["verdict"] += " " + window_verdict(name, path, count, looked)
+    # a page past the count that is refused is what the probe asks (a paging limit), not a refusal
+    refused = any("error" in a for a in answers.values()) or any(
+        "error" in a for a in looked if a["request"] != PAST_COUNT
+    )
     run.finish(SyncRun.Status.PARTIAL if refused else SyncRun.Status.SUCCEEDED, **details)
     return run
 

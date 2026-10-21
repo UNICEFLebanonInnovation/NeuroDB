@@ -438,6 +438,59 @@ def test_data_health_says_a_business_area_that_is_not_a_code(client_viewer, worl
     assert "read 10,000 records of the 10,000" not in row
 
 
+def test_data_health_shows_windows_and_a_cap(client_viewer, world):
+    """A partner reports read in windows: how many, what they announced and read, a count the Datamart cut but
+    the windows read whole; a read whose window was not whole, a count that changed, an answer cut that could
+    not be read in windows, and a large removal held one night."""
+    from html import unescape
+
+    datamart = SyncRun.Job.ETOOLS_DATAMART
+    _run(datamart, "partner_reports", rows_in=31_240, rows_written=31_240,
+         details={"removed": 3, "read": 31_240, "datamart_count": 10_000, "window_bound": "reporting_period_start_date",
+                  "windows_read": 14, "windows_announced": 31_240, "windows_not_whole": 0,
+                  "whole_count_capped": True, "whole_count_end": 10_000})  # fmt: skip
+    _run(datamart, "pd_indicators", status=SyncRun.Status.PARTIAL, rows_in=9_500, rows_written=9_500,
+         details={"removed": 0, "removal_skipped": True, "read": 9_500, "datamart_count": 10_000, "window_bound": "id",
+                  "windows_read": 3, "windows_announced": 10_000, "windows_not_whole": 2,
+                  "windows_not_whole_first": [{"from": "2026-01-01", "to": "2026-04-01", "announced": 5_000,
+                                               "read": 4_500}],
+                  "whole_count_end": 10_000})  # fmt: skip
+    _run(datamart, "fm_questions", status=SyncRun.Status.PARTIAL, rows_in=10_000, rows_written=10_000,
+         details={"documents": 10_000, "documents_removed": 0, "removal_skipped": True, "read": 10_000,
+                  "datamart_count": 10_000, "cap_suspected": "windows_unproven", "window_bound": ""})  # fmt: skip
+    _run(datamart, "action_points", status=SyncRun.Status.PARTIAL, rows_in=6_000, rows_written=6_000,
+         details={"removed": 0, "removal_skipped": True, "read": 6_100, "datamart_count": 6_000,
+                  "window_bound": "id", "windows_read": 2, "windows_announced": 6_000, "windows_not_whole": 0,
+                  "whole_count_end": 6_100, "changed": True})  # fmt: skip
+    _run(datamart, "tpm_activities", status=SyncRun.Status.PARTIAL, rows_in=200, rows_written=200,
+         details={"removed": 0, "removal_held": 1_800, "datamart_count": 200})  # fmt: skip
+    datasets = unescape(text(get_part(client_viewer, PAGE, "datasets")))
+    row = _dataset(datasets, "partner_reports")
+    assert "read in 14 windows: the Datamart announced 31,240, NeuroDB read 31,240" in row
+    assert (
+        "the Datamart announced exactly 10,000 records, a limit of its answer, not what it holds: NeuroDB read it in "
+        "windows" in row
+    )
+    assert "none was removed" not in row
+    row = _dataset(datasets, "pd_indicators")
+    assert (
+        "2 windows not read whole (1 Jan 2026 → 1 Apr 2026: 5,000 announced, 4,500 read): none was removed; the "
+        "next complete read removes those it no longer returns" in row
+    )
+    row = _dataset(datasets, "fm_questions")
+    assert (
+        "the Datamart announced exactly 10,000 records, a limit of its answer, not what it holds: none was removed, "
+        "and it could not be read in windows (the Datamart ignores the window filters): tell the eTools Datamart team"
+    ) in row
+    row = _dataset(datasets, "action_points")
+    assert "the Datamart's count changed during the read (6,000, then 6,100): none was removed" in row
+    row = _dataset(datasets, "tpm_activities")
+    assert (
+        "1,800 rows the Datamart no longer returns are kept one more night: more than half of those held; the next "
+        "whole read removes them" in row
+    )
+
+
 @pytest.mark.parametrize("name", PARTS)
 def test_each_part_stays_within_its_query_ceiling(client_viewer, world, name, django_assert_max_num_queries):
     raw_get(client_viewer, PAGE)  # the navigation stored, as after the frame
@@ -550,7 +603,7 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
     diagnostic mark, a PRP dataset's business area code and its source, what a read got against the count
     the Datamart announced (records returned twice, an empty answer cut short, a round count) and the PRP
     records that named no business area, a code asked that is not one, the values set aside and a code NeuroDB
-    found."""
+    found, and a read in windows (how many, those not whole, a cut count, a changed count, a removal held)."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.etools.datamart_sync import FOUND, is_area_code, not_a_code
 
@@ -600,6 +653,23 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
                 "removal_skipped": bool(details.get("removal_skipped")),
                 "duplicates_read": details.get("duplicates_read"),
                 "cap_suspected": details.get("cap_suspected") or "",
+                "windows_read": details.get("windows_read"),
+                "windows_announced": details.get("windows_announced"),
+                "windows_not_whole": details.get("windows_not_whole"),
+                "windows_not_whole_first": [
+                    {
+                        "from": services._window_bound(w.get("from")),
+                        "to": services._window_bound(w.get("to")),
+                        "announced": w.get("announced"),
+                        "read": w.get("read"),
+                    }
+                    for w in (details.get("windows_not_whole_first") or [])[:3]
+                ],  # fmt: skip
+                "whole_count_capped": bool(details.get("whole_count_capped")),
+                "whole_count_end": details.get("whole_count_end"),
+                "changed": details.get("whole_count_end") is not None
+                and details.get("whole_count_end") != details.get("datamart_count"),
+                "removal_held": details.get("removal_held"),
                 "cut_short": bool(details.get("empty_response"))
                 and isinstance(details.get("datamart_count"), int)
                 and details["datamart_count"] > (details.get("read") or 0),

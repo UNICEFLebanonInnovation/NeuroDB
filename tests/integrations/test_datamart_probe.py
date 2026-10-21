@@ -368,3 +368,104 @@ def test_viewers_cannot_probe(client, viewer, started):
     client.force_login(viewer)
     client.post(reverse(URL), {"_form_submitted": "on", "dataset": "prp_indicator_reports"})
     assert started == []
+
+
+# ------------------------------------------------------------------ the partner reports: windows and the cap
+REPORTS = f"{BASE}/api/latest/prp/datareport/"
+
+
+@pytest.fixture
+def small(settings, monkeypatch):
+    """Pages of 5, windows below 20, a round count of 20 or more a multiple of 10; the partner reports read
+    from 1 Jan 2025; 120 reports, one every 5 days from 3 Jan 2025, each ending 89 days after it starts."""
+    from neurodb.integrations.etools import datamart_sync as sync
+    from neurodb.integrations.etools import windows
+
+    monkeypatch.setattr(probe, "PAGE", 5)
+    monkeypatch.setattr(windows, "WINDOW_RECORDS", 20)
+    monkeypatch.setattr(sync, "CAP_FLOOR", 20)
+    monkeypatch.setattr(sync, "CAP_ROUND", 10)
+    settings.ETOOLS_DATAMART_REPORTING_YEARS = 2
+    import datetime
+
+    from .fake_datamart import report
+
+    first = datetime.date(2025, 1, 3)
+    rows = []
+    for i in range(120):
+        start = first + datetime.timedelta(days=5 * i)
+        rows.append(
+            report(i + 1, start.isoformat(), reporting_period_end_date=str(start + datetime.timedelta(89)))
+        )
+    return rows
+
+
+def _held_report(end: str) -> None:
+    from neurodb.datamart.models import ReportedIndicator
+
+    ReportedIndicator.objects.create(datamart_id=9000, period_start="2025-12-01", period_end=end)
+
+
+@responses.activate
+def test_the_partner_reports_probe_tests_the_window_filter_and_the_cap(small):
+    from .fake_datamart import FakeDatamart
+
+    _held_report("2026-02-28")
+    fake = FakeDatamart(small, cap=50, page_limit=10)
+    fake.register(REPORTS)
+    run = probe.run_job("partner_reports", client=client())
+    assert (
+        run.status == SyncRun.Status.SUCCEEDED
+    )  # the page past the count refused is an answer, not a refusal
+    asked = {a["request"]: a for a in run.details["windows"]}
+    assert (asked["far future"]["count"], asked["far past"]["count"]) == (0, 0)
+    assert (asked["ids from 10^15"]["count"], asked["ids below 1"]["count"]) == (0, 0)
+    assert asked["past the count"]["status"] == 404 and asked["past the count"]["filter"]["page"] == 11
+    assert asked["before this year"]["years"] == {"2025": 5}
+    older = sum(1 for r in small if r["reporting_period_end_date"] < "2026-02-28")
+    assert asked["older than held"]["count"] == min(older, 50)
+    verdict = run.details["verdict"]
+    assert "applies reporting_period_start_date__lt and __gte" in verdict and "date windows" in verdict
+    assert "answers no page past record 50: it returns at most 50 records to one request" in verdict
+    assert f"holds {min(older, 50):,} reports that end before any NeuroDB holds (28 Feb 2026)" in verdict
+    sync_query = run.details["requests"][-1]
+    assert sync_query["request"] == "as the sync asks"
+    assert sync_query["filter"]["reporting_period_start_date__gte"] == "2025-01-01"
+    assert all(set(a) <= {"request", "filter", "count", "page", "next", "years", "status", "error",
+                          "same_as_first_page"} for a in run.details["windows"])  # fmt: skip
+    assert len(fake.requests) <= 3 + 10
+
+    responses.reset()
+    FakeDatamart(small, cap=50, ignore=("reporting_period_start_date__lt", "reporting_period_start_date__lte"),
+                 page_limit=10).register(REPORTS)  # fmt: skip
+    verdict = probe.run_job("partner_reports", client=client()).details["verdict"]
+    assert "ignores reporting_period_start_date__lt (a request that should find nothing found 50)" in verdict
+    assert "NeuroDB reads in id windows" in verdict
+
+
+@responses.activate
+def test_the_probe_never_counts_older_reports_with_an_ignored_end_date_filter(small):
+    from .fake_datamart import FakeDatamart
+
+    _held_report("2026-02-28")
+    fake = FakeDatamart(small, cap=50, ignore=("reporting_period_end_date__lt",), page_limit=10)
+    fake.register(REPORTS)
+    run = probe.run_job("partner_reports", client=client())
+    asked = {a["request"]: a for a in run.details["windows"]}
+    assert "older than held" not in asked and asked["end date far past"]["count"] == 50
+    verdict = run.details["verdict"]
+    assert "ignores reporting_period_end_date__lt" in verdict and "cannot be told" in verdict
+    assert "reports that end before any NeuroDB holds" not in verdict
+
+
+@responses.activate
+def test_a_page_number_the_datamart_ignores_is_not_read_as_more_records(small):
+    from .fake_datamart import FakeDatamart
+
+    FakeDatamart(small, cap=50, ignore=("page",)).register(REPORTS)
+    run = probe.run_job("partner_reports", client=client())
+    asked = {a["request"]: a for a in run.details["windows"]}
+    assert asked["past the count"]["same_as_first_page"] is True
+    verdict = run.details["verdict"]
+    assert "ignores the page number (page 11 gives the first page's records)" in verdict
+    assert "holds more" not in verdict

@@ -1085,12 +1085,13 @@ def history_start(today: datetime.date | None = None) -> datetime.date:
 
 
 def reports_read_from(today: datetime.date | None = None) -> datetime.date:
-    """The first period start NeuroDB holds partner reports from: the window of the latest partner
-    reports sync that finished (``read_from`` in its details; a run made before that was recorded
-    read the last ``ETOOLS_DATAMART_REPORTING_YEARS`` years of its day), else :func:`history_start`.
-    A PD that started before it has a partial history. It is the window actually read, not the one
-    the next sync will read: when the window is widened (a new running PD, the setting turned on,
-    a deployment), the early reports count only once a sync has read them."""
+    """The first period start NeuroDB holds partner reports from: of the latest partner reports sync that
+    finished, the first start it holds whole when it was read in windows (``whole_from``: a window not read
+    whole moves it on, ``windows.Reading.whole_from``), else the window it read (``read_from``; a run made
+    before that was recorded read the last ``ETOOLS_DATAMART_REPORTING_YEARS`` years of its day), else
+    :func:`history_start`. A PD that started before it has a partial history. It is the window actually
+    read, not the one the next sync will read: when the window is widened (a new running PD, the setting
+    turned on, a deployment), the early reports count only once a sync has read them."""
     from django.conf import settings
     from django.utils import timezone
 
@@ -1106,7 +1107,9 @@ def reports_read_from(today: datetime.date | None = None) -> datetime.date:
         if details.get("empty_response"):
             continue  # nothing was read: the rows held are those of an earlier run
         try:
-            return datetime.date.fromisoformat(str(details.get("read_from") or "")[:10])
+            return datetime.date.fromisoformat(
+                str(details.get("whole_from") or details.get("read_from") or "")[:10]
+            )
         except ValueError:
             day = timezone.localtime(started).date() if timezone.is_aware(started) else started.date()
             return datetime.date(day.year - settings.ETOOLS_DATAMART_REPORTING_YEARS + 1, 1, 1)
