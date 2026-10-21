@@ -375,6 +375,29 @@ def test_a_prp_dataset_names_its_business_area_and_an_empty_read_points_to_the_c
     assert "the Datamart returned nothing: check the country name" in _dataset(datasets, "partners")
 
 
+def test_a_prp_run_that_found_no_code_points_to_the_admin_field_on_data_health_and_the_checks(
+    client_viewer, world
+):
+    """The three PRP runs fail when the hosting team's value is a name and NeuroDB finds no code: Data health
+    (240 characters of the error) and checks 8, 9 and 11 (140) still say where to enter the code."""
+    from html import unescape
+
+    from neurodb.datamart import checks
+    from neurodb.integrations.etools import datamart_sync as sync
+
+    where = "Admin → Data and sync → eTools Datamart: PRP business area code"
+    error = "IntegrationError: " + sync._no_code_error(
+        sync.AreaCode("", "", {"environment": "Lebanon"}), "Lebanon"
+    )
+    run = _run(
+        SyncRun.Job.ETOOLS_DATAMART, "prp_indicator_reports", status=SyncRun.Status.FAILED, error=error
+    )
+    datasets = unescape(text(get_part(client_viewer, PAGE, "datasets")))
+    assert where in _dataset(datasets, "prp_indicator_reports")
+    said, _tone = checks._feed_state({"run": run, "details": {}}, listed=False)
+    assert where in said
+
+
 def test_a_prp_read_warns_of_records_naming_no_business_area_a_read_cut_short_and_records_twice(
     client_viewer, world
 ):
@@ -486,8 +509,8 @@ def test_data_health_shows_windows_and_a_cap(client_viewer, world):
     assert "the Datamart's count changed during the read (6,000, then 6,100): none was removed" in row
     row = _dataset(datasets, "tpm_activities")
     assert (
-        "1,800 rows the Datamart no longer returns are kept one more night: more than half of those held; the next "
-        "whole read removes them" in row
+        "1,800 rows the Datamart no longer returns are kept one more night: more than half of those held; the first "
+        "whole read a night later removes them" in row
     )
 
 

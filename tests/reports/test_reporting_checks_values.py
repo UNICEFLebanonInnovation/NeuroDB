@@ -467,7 +467,7 @@ def test_check_7_counts_the_rows_partner_monitoring_uses_and_leaves_out(indicato
     assert numbers["… matched to a PD indicator by its id"] == 1
     assert numbers["… matched by title (one indicator of the PD has it)"] == 2
     assert numbers["… matched by PD output and title (a title several indicators of the PD share)"] == 0
-    assert numbers["… left out: two or more indicators of the PD have the title and the output"] == 1
+    assert numbers["… two or more indicators of the PD have the title and the output"] == 1
     assert numbers[UNMATCHED] == 0
     assert numbers["… left out: no indicator of the PD has the title"] == 1
     assert numbers["Indicator reports left out"] == 2 and found["tone"] == "warning"
@@ -502,7 +502,7 @@ def test_check_7_and_data_quality_name_a_pd_output_that_matches_none(pd):
     found = one("7")
     numbers = figures(found)
     assert numbers[UNMATCHED] == 2
-    assert numbers["… left out: two or more indicators of the PD have the title and the output"] == 0
+    assert numbers["… two or more indicators of the PD have the title and the output"] == 0
     assert numbers["Indicator reports left out"] == 2  # each its title and PD output
     assert "2 rows whose title several indicators of their PD share and whose PD output" in found["verdict"]
     assert "correct the output name in PRP or eTools so the two match" in found["verdict"]
@@ -558,7 +558,7 @@ def test_check_7_tables_say_what_tells_shared_indicators_apart(pd):
     report_row(pd, data={"cluster_indicator": "false", "indicator_type": "quantity"})  # placed by its title
     found = one("7")
     numbers = figures(found)
-    assert numbers["… left out: two or more indicators of the PD have the title and the output"] == 2
+    assert numbers["… two or more indicators of the PD have the title and the output"] == 2
     assert numbers["… at a location where the report has one row of that title and output"] == 0
     assert numbers["… where it has two or more"] == 2
     assert (numbers["… placed on the pages by a tie-breaker"], numbers["… still left out"]) == (0, 2)
@@ -574,7 +574,7 @@ def test_check_7_tables_say_what_tells_shared_indicators_apart(pd):
     assert lines["High frequency"][1:5] == ("high_frequency", "is_high_frequency", "no", 1)
     assert lines["High frequency"][7:] == (1, 2, 0, 0)  # the shared pair differs; it alone would place both
     assert lines["Target"][8:] == (0, 0, 0)  # neither the rows nor the copies give one: it does not apply
-    assert lines["All, in this order (on the pages)"][8:] == (0, 2, 0)
+    assert lines[checks.ALL_BREAKERS][8:] == (0, 2, 0)
     pairs = tables["Value pairs on the rows already placed"]["rows"]
     assert ("high_frequency", "false", "is_high_frequency no", 1) in pairs
     assert ("cluster_indicator", "false", "no cluster", 1) in pairs

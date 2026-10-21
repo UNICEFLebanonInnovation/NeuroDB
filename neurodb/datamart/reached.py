@@ -1089,13 +1089,21 @@ def reports_read_from(today: datetime.date | None = None) -> datetime.date:
     finished, the first start it holds whole when it was read in windows (``whole_from``: a window not read
     whole moves it on, ``windows.Reading.whole_from``), else the window it read (``read_from``; a run made
     before that was recorded read the last ``ETOOLS_DATAMART_REPORTING_YEARS`` years of its day), else
-    :func:`history_start`. A PD that started before it has a partial history. It is the window actually
-    read, not the one the next sync will read: when the window is widened (a new running PD, the setting
-    turned on, a deployment), the early reports count only once a sync has read them."""
+    :func:`history_start`. A run that proves no history whole from the window it read (``datamart_sync.
+    history_cut``: an answer cut at a round count, date windows that proved none, an id window not read
+    whole) gives the earliest period start held in that window instead: a cut that drops the oldest reports
+    is seen, one in the middle of the history is not. A PD that started before it has a partial history. It
+    is the window actually read, not the one the next sync will read: when the window is widened (a new
+    running PD, the setting turned on, a deployment), the early reports count only once a sync has read
+    them."""
     from django.conf import settings
+    from django.db.models import Min
     from django.utils import timezone
 
     from neurodb.core.models import SyncRun
+    from neurodb.integrations.etools.datamart_sync import history_cut
+
+    from .models import ReportedIndicator
 
     runs = SyncRun.objects.filter(
         job=SyncRun.Job.ETOOLS_DATAMART,
@@ -1107,12 +1115,19 @@ def reports_read_from(today: datetime.date | None = None) -> datetime.date:
         if details.get("empty_response"):
             continue  # nothing was read: the rows held are those of an earlier run
         try:
-            return datetime.date.fromisoformat(
-                str(details.get("whole_from") or details.get("read_from") or "")[:10]
-            )
+            window = datetime.date.fromisoformat(str(details.get("read_from") or "")[:10])
         except ValueError:
             day = timezone.localtime(started).date() if timezone.is_aware(started) else started.date()
-            return datetime.date(day.year - settings.ETOOLS_DATAMART_REPORTING_YEARS + 1, 1, 1)
+            window = datetime.date(day.year - settings.ETOOLS_DATAMART_REPORTING_YEARS + 1, 1, 1)
+        if history_cut(details):
+            earliest = ReportedIndicator.objects.filter(period_start__gte=window).aggregate(
+                first=Min("period_start")
+            )["first"]
+            return max(window, earliest) if earliest else window
+        try:
+            return datetime.date.fromisoformat(str(details.get("whole_from") or "")[:10])
+        except ValueError:
+            return window
     return history_start(today)
 
 

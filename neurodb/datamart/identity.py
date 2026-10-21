@@ -33,7 +33,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.fields.json import KT, KeyTransform
 from django.utils import timezone
 
@@ -654,10 +654,12 @@ class Idents:
         if group.side_by_side:
             return None, "side_by_side"
         # every tie-breaker in use that says something must match the winner (one that matches none, or only
-        # others, finds the group unlike every placed one); and no row at a place only another one plans
+        # others, finds the group unlike every placed one); and no row at a place only another one plans, by
+        # the places held whatever the last PD indicators read was: this only keeps rows out (the planned
+        # locations tie-breaker, which places them, waits for a whole read)
         if any(all(c.ident != winner.ident for c in found) for found in answers):
             return None, "keys_disagree"
-        if self.read_whole and any(
+        if any(
             code not in winner.planned and any(code in c.planned for c in cands if c.ident != winner.ident)
             for code in group.places
         ):
@@ -724,16 +726,42 @@ class Idents:
 
 
 # --------------------------------------------------------------------------------- the definitions
+def _whole_reports(rows: list[dict[str, Any]], reports: set[str]) -> list[dict[str, Any]]:
+    """Every row of these progress reports (``reached.report_key``), not only the given ones a page's filter
+    kept (an emergency, section or search filter can keep one group of a report and drop another), in the
+    order Partner monitoring reads them: one query over their PDs and period ends."""
+    mine = [row for row in rows if row.get("intervention_id") and rc.report_key(row) in reports]
+    ends = {row.get("period_end") for row in mine}
+    when = Q(period_end__in=[end for end in ends if end is not None])
+    if None in ends:
+        when |= Q(period_end=None)
+    found = dm.ReportedIndicator.objects.filter(
+        when, intervention_id__in=sorted({row["intervention_id"] for row in mine})
+    )
+    return [
+        row for row in found.order_by(*rc.ROW_ORDER).values(*PLACE_FIELDS) if rc.report_key(row) in reports
+    ]
+
+
 def definitions(rows: list[dict[str, Any]]) -> Callable[[list[dict[str, Any]]], tuple | None]:
     """For Report/Location, Report/Disaggregation and the report pop-up: the (display type, unit, target) of
     the indicator an indicator report's rows belong to, ``rows`` being every row the page reads. The
-    indicator :meth:`Idents.place` gives all of them; else, for rows under a title and an output two or
-    more indicators share, the definition those indicators have in common (none when they differ: the rows
-    are read as numbers, as a row with no indicator is); else the first indicator of the PD with the title,
-    in the order Partner monitoring reads them."""
+    indicator :meth:`Idents.place` gives all of them, placing whole progress reports as Partner monitoring
+    does (a tie-breaker decides from every group of a report, whatever the page's filter keeps); else, for
+    rows under a title and an output two or more indicators share, the definition those indicators have in
+    common (none when they differ: the rows are read as numbers, as a row with no indicator is); else the
+    first indicator of the PD with the title, in the order Partner monitoring reads them."""
     pd_ids = sorted({row["intervention_id"] for row in rows if row.get("intervention_id")})
     idents = Idents(pd_ids)
-    placed = {row["datamart_id"]: p.ident for row, p in zip(rows, idents.place(rows), strict=True)}
+    # a report holding a shared title and output is placed from all its rows (a tie-breaker can place it);
+    # the others row by row, as they come
+    shared: set[str] = set()
+    if idents.calibration.enabled:
+        keys = ("intervention_id", "etools_indicator_id", "indicator", "pd_output")
+        shared = {rc.report_key(r) for r in rows if idents.how(*(r.get(k) for k in keys)) == "shared_output"}
+    read = [row for row in rows if not shared or rc.report_key(row) not in shared]
+    read += _whole_reports(rows, shared) if shared else []
+    placed = {row["datamart_id"]: p.ident for row, p in zip(read, idents.place(read), strict=True)}
 
     def of(group: list[dict[str, Any]]) -> tuple | None:
         first = group[0]

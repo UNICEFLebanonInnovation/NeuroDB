@@ -75,8 +75,9 @@ DISAGGREGATION_LIMIT = 10_000
 STORED_SECONDS = 120
 OPTIONS_SECONDS = 600
 # 2: the stored tables carry no chart data (by_month); 3: their rows carry the report key; 4: an indicator
-# report's type and unit are its placed indicator's (neurodb.datamart.identity)
-CACHE_VERSION = 4
+# report's type and unit are its placed indicator's (neurodb.datamart.identity); 5: placed from the whole
+# report, whatever the filter keeps
+CACHE_VERSION = 5
 NO_SECTION = "—"
 EMAIL = re.compile(r"[^\s@]+@[^\s@]+")
 

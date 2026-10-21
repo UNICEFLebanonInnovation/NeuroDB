@@ -420,6 +420,65 @@ def test_a_group_holding_both_copies_at_different_places_is_not_given_to_the_act
     assert ways(pd) == ["keys_disagree"]
 
 
+@pytest.mark.parametrize("pd_indicators", ["none", "partial"])
+def test_the_place_only_the_other_copy_plans_keeps_the_group_out_after_any_pd_indicators_read(pd_indicators):
+    """The same report with no PD indicators sync yet, or one that ended with errors: the places held still
+    say the Bekaa row may be Y's, so X never takes it (the check only keeps rows out; only the planned
+    locations tie-breaker, which places rows, waits for a whole read)."""
+    pd = make_pd("B")
+    indicator(pd, X, places=("Akkar",))
+    indicator(pd, Y, places=("Bekaa",), active=False)
+    row(pd, 10)
+    row(pd, 30, place="Bekaa")
+    gate(indicators={"places": ("Akkar",)})
+    if pd_indicators == "partial":
+        SyncRun.objects.create(
+            job=SyncRun.Job.ETOOLS_DATAMART,
+            target="pd_indicators",
+            status=SyncRun.Status.PARTIAL,
+            finished_at=timezone.now(),
+            details={"datamart_count": 40, "rows_failed": 1},
+        )
+    assert "active" in proof()["enabled"] and not identity.indicators_read_whole()
+    entries = grid(pd)
+    assert (entries[X].reached, entries[Y].reached) == (None, None)
+    assert ways(pd) == ["keys_disagree"]
+
+
+def test_a_filter_never_changes_where_a_report_s_rows_go():
+    """X (a cluster's, a percentage) and Y (a number) share the title and output; QPR1 has a high frequency
+    row at Akkar and another at Bekaa, both naming the cluster. The cluster gives both groups to X, so
+    neither goes (two indicator reports for one). The emergency filter keeps one of them: Report/Location
+    still places the whole report, so its line reads as a number under every filter, as in the pop-up."""
+    pd = make_pd("B")
+    indicator(pd, X, cluster="Child Protection cluster", display_type="percentage", unit="percentage")
+    indicator(pd, Y)
+    shared = row(pd, hf=True, cluster="true", total={"v": 4, "d": 10, "c": 0.4})
+    row(pd, 30, place="Bekaa", cluster="true")
+    gate(rows={"cluster": "false"})
+    off = make_pd("H")  # high frequency is not proved: one placed group differs
+    indicator(off, 7001, "# of teachers trained", "5.1 Teachers")
+    row(off, title="# of teachers trained", output="5.1 Teachers", hf=True)
+    stored = proof()
+    assert "cluster" in stored["enabled"] and "high_frequency" not in stored["enabled"]
+    assert ways(pd) == ["two_for_one"]
+    for chosen in ({}, {"emergency": "yes"}, {"emergency": "no"}):
+        data = services.partner_reporting(chosen, TODAY)
+        lines = [
+            r
+            for r in reporting.location_rows(data["rows"], data["statuses"], TODAY)["rows"]
+            if r["indicator"] == CHILDREN
+        ]
+        assert lines and not any(line["percentage"] or line["ratio"] for line in lines), chosen
+        blocks = reporting.disaggregation_rows(data["rows"], data["statuses"], TODAY)["blocks"]
+        assert not any(b["percentage"] for b in blocks if b["indicator"] == CHILDREN), chosen
+    detail = services.report_detail(
+        reached.report_key(dm.ReportedIndicator.objects.values().get(pk=shared.pk))
+    )
+    (item,) = [i for i in detail["indicators"] if i["indicator"] == CHILDREN]
+    assert item["percentage"] is False
+
+
 def test_an_hr_group_excludes_indicators_neither_high_frequency_nor_cluster():
     """A monthly report under the shared title: Y is neither high frequency nor a cluster's, so the monthly
     rows are X's (a cluster's); X has no quarterly report, so its Reached reads them."""
@@ -562,6 +621,33 @@ def test_the_calibration_is_stored_by_the_sync_and_read_by_every_page():
     assert item["percentage"] is True and item["total"] == 40.0
     numbers = dict(one("7")["figures"])
     assert numbers["… placed on the pages by a tie-breaker"] == 1 and numbers["… still left out"] == 0
+
+
+def test_check_7_counts_the_rows_left_out_after_the_tie_breakers():
+    """High frequency places the one shared row; a row whose title no indicator has stays out. Check 7's
+    sentence, its figures and its tables count the same rows left out: none of the shared ones."""
+    pd = world("high_frequency")
+    row(pd, title="# of tents", output="4.1 Shelter")
+    whole()
+    proof()
+    found = one("7")
+    numbers = dict(found["figures"])
+    assert numbers["… two or more indicators of the PD have the title and the output"] == 1
+    assert (numbers["… placed on the pages by a tie-breaker"], numbers["… still left out"]) == (1, 0)
+    assert (
+        numbers["… left out: no indicator of the PD has the title"],
+        numbers["Indicator reports left out"],
+    ) == (1, 1)
+    assert (
+        "Left out: 0 rows whose title and PD output two or more indicators of their PD share"
+        in found["verdict"]
+    )
+    assert "1 row whose title no indicator of their PD has (1 indicator report in all)" in found["verdict"]
+    assert "PD indicator records the latest pd-indicators sync did not return" in numbers
+    (table_a,) = [t for t in found["tables"] if t["title"].startswith("What tells apart")]
+    (everything,) = [line for line in table_a["rows"] if line[0].startswith("All, in this order")]
+    assert everything[0] == checks.ALL_BREAKERS and everything[8:] == (1, 0, 0)
+    assert "placed" in everything[0] and "keeps out" in everything[0]
 
 
 def test_the_lines_of_shared_copies_read_their_common_type_or_none():

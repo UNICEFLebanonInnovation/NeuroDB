@@ -1501,8 +1501,11 @@ read. A failed page fails the run before anything is removed. Every run also rec
 against it. **A large removal waits one night**: a whole read that would remove more than half of the rows
 held in its scope, and at least 1,000 (`HOLD_FLOOR`), removes nothing that night (`details.removal_held`, the
 rows kept; *Succeeded with errors*; Data health: "N rows the Datamart no longer returns are kept one more
-night: more than half of those held; the next whole read removes them"); the next run removes them when
-its own read is whole and the previous finished run of the dataset held its removal. Counts that agree with
+night: more than half of those held; the first whole read a night later removes them"); a run removes them
+when its own read is whole and the finished runs of the dataset have held the removal, one after the other,
+since 20 hours ago or more (`HOLD_HOURS`): the next night's run. A sync pressed again minutes after the
+hold (*Sync this dataset again*, *Sync eTools (Datamart)*), while the table is still reloading, holds it
+again. Counts that agree with
 what was read cannot catch a Datamart table reloaded while it is read (its ETL empties and refills tables);
 one night's wait keeps such a read from emptying NeuroDB's copy. The records kept whole (below), the raw
 copies of the partner, programme document, location and audit records among them, follow the same rules.
@@ -1545,8 +1548,9 @@ holds: NeuroDB read it in windows" (or, read once: "…: none was removed, and i
 Jan 2026 → 1 Apr 2026: 5,000 announced, 4,500 read): none was removed; the next complete read removes those
 it no longer returns" and "the Datamart's count changed during the read (31,240, then 31,300): none was
 removed". Datasets that can pass 5,000 records for one country office over the years: `partner_reports`,
-`pd_indicators`, `prp_indicator_reports` (read by business area since fix A), `fm_questions`,
-`attachments`, `staff_trips`, `staff_visits`, `etools_usage`, and, when they grow, `action_points`,
+`pd_indicators`, `prp_indicator_reports` (once its business area code is a real code, not a country's
+name: *Every other endpoint*, below), `fm_questions`, `attachments`, `staff_trips`, `staff_visits`,
+`etools_usage`, and, when they grow, `action_points`,
 `intervention_locations`, `tpm_activities`, `funds_reservations`, `cp_indicators`, `psea_answers`,
 `locations` and `location_sites`; no flag is needed, each windows itself when its first page says so. A
 windowed partner reports read of about 100,000 rows makes about 35 one-record requests besides its pages.
@@ -1881,9 +1885,9 @@ answer, not in windows) and **active**
 goes to it only when every other tie-breaker in use that can say something matches the same one (one that
 matches none finds the group unlike every placed one: an amended target, or two indicators in one group),
 when no two rows of the group at one location carry different values (both indicators may be in it), when
-no row is at a P-code another indicator plans and the chosen one does not (once the PD indicators were read
-whole), and when the chosen indicator gets no other group or row of that progress report (Reached would
-take the larger of two). Otherwise the group stays out, and check 7 says why. An indicator placed by
+no row is at a P-code another indicator plans and the chosen one does not (by the places held, whatever the
+latest PD indicators sync was: this only keeps rows out), and when the chosen indicator gets no other group
+or row of that progress report (Reached would take the larger of two). Otherwise the group stays out, and check 7 says why. An indicator placed by
 *active* carries the note "Its programme document also holds an inactive indicator with this title and
 output: the partner reports are read as this one's." Means of verification and the section are shown by
 check 7 only (free text, and the section may be the PD's). The CP output a PD indicator takes from its
@@ -1997,12 +2001,18 @@ the map, the programme and partner pages, the progress report pop-up and Ask Neu
   setting is on, once a sync has run with it) has a partial history: its Reached is PRP's
   cumulative, marked *Partial history*. A sync read in windows records instead the first start it holds
   whole (`details.whole_from`), read first: the date read from when every window was whole, else the end
-  of the latest window not read whole (none when that is the open last one: recent reports missing is no
-  history question). It chains from night to night: a window not read whole tonight removed nothing, so
-  the rows the previous run held whole for it are still there, and it counts as whole when the previous
-  finished run's `whole_from` is at or before its start (a run read before windows counts with its
-  `read_from`, except when its count was a round limit: its history was cut, and tonight's windows decide).
-  One window failing once never moves every early PD to PRP's cumulative for one night. After the window is widened (the setting turned on, a
+  of the latest window not read whole, never one of reports starting after today (the open last window:
+  recent reports missing is no history question, and it never hides an older gap). It chains from night
+  to night: a window not read whole tonight removed nothing, so the rows the previous run held whole for
+  it are still there, and it counts as whole when the previous finished run's `whole_from` is at or
+  before its start (a run read before windows, or in id windows every one whole, counts with its
+  `read_from`, except when its count was a round limit: its history was cut, and tonight's windows
+  decide, also when tonight's read changed as a whole). A run that proves no history whole
+  (`datamart_sync.history_cut`: an answer cut at a round count or whose window filters the Datamart
+  ignores, an id window not read whole, date windows that proved none) gives instead the earliest period
+  start held in the window it read: a cut that drops the oldest reports is seen; one in the middle of the
+  history is not. One window failing once never moves every early PD to PRP's cumulative for one night.
+  After the window is widened (the setting turned on, a
   deployment), a running PD's early reports count from the next eTools Datamart sync on; until then
   it shows *Partial history*.
 * **A location filter** shows each indicator's Reached at the chosen locations; its % is a share of
@@ -2091,22 +2101,26 @@ and business area codes at most).
   every report combined or to the latest one, a cumulative that never moves, locations not read from
   `"()"`). It needs 30 seconds of the checks' time.
 * **Check 7** counts the rows of the running programme documents matched to a PD indicator by its id, by
-  title, by PD output and title (a title several indicators of the PD share), and left out by cause: a
-  title and an output two or more indicators share (told apart in eTools), a title several share with a PD
-  output that is empty or matches none of theirs (the output name corrected in PRP or eTools), or a title
-  none has, with the indicator reports left out (each its title and PD output). Of the rows of a shared
+  title, by PD output and title (a title several indicators of the PD share), those of a title and an
+  output two or more indicators share (told apart in eTools, or by a tie-breaker), and those left out by
+  cause: such a title and output no tie-breaker placed, a title several share with a PD output that is
+  empty or matches none of theirs (the output name corrected in PRP or eTools), or a title none has, with
+  the indicator reports left out (each its title and PD output); its sentence counts what the pages leave
+  out, after the tie-breakers. Of the rows of a shared
   title and output it counts those alone at their place in their report (PRP sends one of the copies),
   those with two or more, the monthly ones, those the tie-breakers place on the pages and those still left
   out (two keys name different indicators, two indicator reports would go to one indicator, two rows at one
   location carry different values); the titles and outputs shared, their indicators, those with exactly one
-  active and those whose indicators agree on every field compared; the PD indicators the latest
-  `pd_indicators` sync did not return (records it did not touch), what it announced and read, and whether
+  active and those whose indicators agree on every field compared; the PD indicator records the latest
+  `pd_indicators` sync did not return (records it did not touch, one per location and disaggregation),
+  what it announced and read, and whether
   it skipped its removal. Table A, *What tells apart indicators that share a title and an output*, gives
   each tie-breaker (and the means of verification and the section, shown only) with its report row key and
   PD indicator field, whether the pages use it, the placed indicator reports where it was the same, differed
   or was not given (a proof made afresh on every row held: what the next sync stores), the shared groups
   whose indicators differ on it, and the left-out rows it alone would place, leaves to two or more, or
-  matches none; then all of them in their order, as the pages place them. Table B lists the value pairs
+  matches none; then all of them in their order, as the pages place them (its last three cells: the rows
+  placed, those none decides, and those a check keeps out). Table B lists the value pairs
   on the rows already placed (high frequency, cluster, indicator type and report type against the indicator's
   fields, and the rows placed under an inactive indicator; a value longer than 20 characters or not a plain
   word shows "(other text)"); Table C the PD indicator keys that differ inside a shared group (the key and
@@ -2514,7 +2528,8 @@ found code whose read keeps nothing removes nothing and ends the run *Succeeded 
 health points to the admin's code. The admin page says which code the next sync takes and why, lists the
 *Codes NeuroDB finds* (in the workspace held, with its sync date, and on the partner report rows, with how
 many carry it), offers **Use 2490** to enter the code found (derived again on the server, never taken
-from the request; the change permission is needed), and shows what the latest runs of the three datasets
+from the request; shown only with the change permission, and a form of its own, so Enter in the code field
+saves the code typed), and shows what the latest runs of the three datasets
 used and found. A record naming another business area, a code but another country, or no business area
 but another country, is dropped (`details.other_country_skipped`); a record naming its business area by
 name ("Lebanon") is compared as a country's name (case and spaces aside); one that
@@ -2552,21 +2567,24 @@ none.
 
 To see what the Datamart holds when such a read keeps nothing, an administrator presses Run a job →
 *Probe a Datamart dataset* (`probe_datamart --dataset <name>`, `prp_indicator_reports` by default). It
-makes three requests of 50 records each: no filter, the business area code (the code as the sync
+makes two or three requests of 50 records each: no filter, the business area code (the code as the sync
 resolves it, above, without the request to the Datamart's workspaces; the PRP datasets only), and the
-country name (for the partner reports, a fourth: the sync's own query, from the date they are read from).
-For the partner reports, and for any dataset whose sync query announces 5,000 records or more, it then asks
-what a read in windows needs, at most about ten more requests of one page each with the sync's own filter
-(`details.windows`): a far future and a far past start (and `__lte` when `__lt` is ignored), the reports
-starting before and from this year, ids below 1 and from 10^15, the page past the count when the count
-looks like a limit (round, or 10,050 or more), and for the partner reports the reports ending before the
+country name (for the partner reports, which take no business area filter, a third: the sync's own query,
+from the date they are read from). For the partner reports, and for any dataset whose sync query announces
+5,000 records or more, it then asks what a read in windows needs, up to about ten more requests of one page
+each with the sync's own filter (`details.windows`), so such a probe can take up to a minute: a far future
+and a far past start (and `__lte` when `__lt` is ignored), the reports starting before and from this year,
+ids below 1 and from 10^15, the first page wholly past the count when the count looks like a limit (round,
+or 10,050 or more), and for the partner reports the reports ending before the
 earliest period end NeuroDB holds, once a request with an end before 1900 proves the end-date filter
 (unproven, no number is given). For each it keeps the count, the page length, the page number and query
 keys of its `next` link and the records of the page per start year. The verdict then says, in plain words,
 whether the Datamart applies the window filters and so how NeuroDB reads the dataset (date windows, id
 windows, or not more than one answer gives: tell the eTools Datamart team), whether it returns at most N
-records to one request (a round count, or no page past the count; a page number it ignores is said as such,
-never as more records), and how many reports it holds that end before any NeuroDB holds. A page past the
+records to one request (a round count, with no page past it: the Datamart refuses every page past the last
+one, so a refused page says nothing of a limit when the count is not round), whether the count is cut
+(records on the page past it; a page number it ignores is said as such, never as more records), and how
+many reports it holds that end before any NeuroDB holds. A page past the
 count that is refused is an answer (a paging limit), not a refusal. It writes nothing but
 its run (job *eTools Datamart probe*, target the dataset): per request the filter sent, the count
 announced, the records on the page, how many carry each key, and the business area codes and country

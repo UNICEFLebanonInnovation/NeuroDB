@@ -2,8 +2,9 @@
 Datamart answers with no filter, with the business area filter and with the country filter.
 
 When a dataset's sync reads nothing, its run cannot tell a country office with no records from a filter
-the Datamart does not take or a code it does not know. The probe asks the three questions side by side, at
-most three requests of one small page each (:data:`PAGE` records), and writes nothing but its own run
+the Datamart does not take or a code it does not know. The probe asks the questions side by side, two or
+three requests of one small page each (:data:`PAGE` records; the sync's own query too for the partner
+reports), then the window requests below, and writes nothing but its own run
 (``SyncRun`` job ``datamart_probe``, target the dataset). For each request it keeps the filter sent, the
 ``count`` the Datamart announces, the records on the page, how many of them carry each key (key names and
 counts), and the business area codes and country names they name (counts): never another value of a
@@ -368,7 +369,7 @@ def window_requests(
         one(IDS_BELOW_LTE, {"id__lte": 0})
     if count is not None and (sync.capped(count) or count >= CUT_PAGE):
         page: list[dict[str, Any]] = []
-        past = one(PAST_COUNT, {"page": count // PAGE + 1}, page)
+        past = one(PAST_COUNT, {"page": -(-count // PAGE) + 1}, page)  # the first page wholly past it
         past["same_as_first_page"] = bool(page) and _ids(page) == _ids(first)
     if name == "partner_reports":
         earliest = dm.ReportedIndicator.objects.aggregate(first=Min("period_end"))["first"]
@@ -422,7 +423,9 @@ def window_verdict(name: str, path: str, count: int | None, asked: list[dict[str
         )
     how = "NeuroDB reads it in windows" if dates or ids else "NeuroDB cannot read it whole"
     past = by.get(PAST_COUNT)
-    if past and past.get("status") in (400, 404) and count is not None:
+    # every page past the last one is refused (DRF): that says something of a limit only with a round count;
+    # records found past the count are what proves it cut
+    if past and past.get("status") in (400, 404) and count is not None and sync.capped(count):
         said.append(
             f"It answers no page past record {count:,}: it returns at most {count:,} records to one request; "
             f"{how}."

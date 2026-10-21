@@ -441,10 +441,13 @@ class Reading:
 
     def whole_from(self, held_from: dt.date | None) -> dt.date | None:
         """Date windows only: the first period start held whole once this read is done: its lower bound when
-        every window is whole, else the end of the latest window not whole (None when that is the open last
-        one: recent reports missing). A window not whole removed nothing, so the rows an earlier whole read
-        kept for it are still held: it counts as whole when ``held_from`` (the previous run's) is at or before
-        its start. A read not whole as a whole (a changed count, a plan cut short) keeps ``held_from``."""
+        every window is whole, else the end of the latest window not whole. A window of reports starting after
+        today (the open last one, split or not) holds reports not due yet: one not read whole means recent
+        reports missing, no history question, so it never hides an older gap. A window not whole removed
+        nothing, so the rows an earlier whole read kept for it are still held: it counts as whole when
+        ``held_from`` (the previous run's) is at or before its start. A read not whole as a whole (a changed
+        count, a plan cut short) keeps ``held_from``; with none (the first windowed night, after runs that
+        cover nothing), its own windows decide, and with no gap among them nothing is held whole (None)."""
         if self.bound != self.date_key or not self.date_key:
             return None
         since = self.windows[0].days[0] if self.windows and self.windows[0].days else None
@@ -452,13 +455,13 @@ class Reading:
         def held(window: Window) -> bool:
             return window.whole or (held_from is not None and window.days and held_from <= window.days[0])
 
-        if not self.plan_complete or self.end_check_failed or self.changed or self.windows_short:
+        failed = not self.plan_complete or self.end_check_failed or self.changed or self.windows_short
+        if failed and held_from is not None:
             return held_from
-        gaps = [w for w in self.windows if not held(w)]
-        if not gaps:
-            return since
-        latest = max(gaps, key=lambda w: w.days[0])
-        return latest.days[1]
+        gaps = [w for w in self.windows if not held(w) and w.days and w.days[0] <= self.today]
+        if gaps:
+            return max(gaps, key=lambda w: w.days[0]).days[1]
+        return None if failed else since
 
     def details(self) -> dict[str, Any]:
         """For the run: ``datamart_count`` (the first page's count, C) and, when windowed, the windows (the

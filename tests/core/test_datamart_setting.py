@@ -115,7 +115,7 @@ def test_the_page_says_a_hosting_name_is_set_aside_and_which_code_the_next_sync_
     found = _readonly(html, "Codes NeuroDB finds")
     assert found.startswith("In the workspace NeuroDB holds: 2490 (synced ")
     assert found.endswith("On the partner report rows held: none. Use 2490")
-    assert 'formaction="' + reverse("admin:core_datamartsetting_use_found_code", args=[1]) in html
+    assert 'form="use_found_code_form"' in html
     # with no workspace held, the partner report rows give it, saying how many carry it
     DatamartDocument.objects.filter(dataset="workspaces").delete()
     for pk, area in ((1, "2490"), (2, " 2490.0"), (3, {"code": "2490"}), (4, "2340")):
@@ -132,7 +132,26 @@ def test_the_page_says_a_hosting_name_is_set_aside_and_which_code_the_next_sync_
         "2490, the code entered here. The hosting team&#x27;s ETOOLS_DATAMART_BUSINESS_AREA (“Lebanon”) is a "
         "name, not a business area code: it is not used."
     )
-    assert "use-found-code" not in html
+    assert 'name="use_found_code"' not in html
+
+
+def test_enter_in_the_code_field_saves_the_code_typed_never_the_one_found(admin_client, settings):
+    """*Use 2490* belongs to a form of its own, after the change form: no submit button of the change form
+    comes before Save, so Enter in "PRP business area code" saves the code typed, not the one found."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "Lebanon"
+    _workspace()
+    url = reverse("admin:core_datamartsetting_change", args=[DatamartSetting.load().pk])
+    html = admin_client.get(url).content.decode()
+    start = html.index('id="datamartsetting_form"')
+    end = html.index("</form>", start)
+    inside = [b for b in re.findall(r"<button\b[^>]*>", html[start:end]) if 'type="submit"' in b]
+    assert inside and all('form="use_found_code_form"' in b for b in inside)  # none is the change form's
+    assert "formaction" not in html[start:end] and 'name="prp_business_area"' in html[start:end]
+    use = reverse("admin:core_datamartsetting_use_found_code", args=[1])
+    outer = re.search(r'<form id="use_found_code_form" method="post" action="([^"]+)">', html[end:])
+    assert outer and outer[1] == use
+    response = admin_client.post(url, {"prp_business_area": "2491", "_save": "Save"})  # what Enter sends
+    assert response.status_code == 302 and DatamartSetting.objects.get().prp_business_area == "2491"
 
 
 def test_use_the_found_code_saves_the_code_found_on_the_server(admin_client, admin_user, settings):
@@ -165,7 +184,11 @@ def test_use_the_found_code_needs_the_change_permission(client, viewer, settings
     viewer.user_permissions.add(Permission.objects.get(codename="view_datamartsetting"))
     client.force_login(viewer)
     change = reverse("admin:core_datamartsetting_change", args=[setting.pk])
-    assert client.get(change).status_code == 200
+    response = client.get(change)
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert "In the workspace NeuroDB holds: 2490" in html  # what NeuroDB finds, without the button
+    assert 'name="use_found_code"' not in html and "use_found_code_form" not in html
     use = reverse("admin:core_datamartsetting_use_found_code", args=[setting.pk])
     assert client.post(use, {"use_found_code": "1"}).status_code == 403
     setting.refresh_from_db()

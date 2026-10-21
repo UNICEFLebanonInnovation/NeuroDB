@@ -1588,31 +1588,52 @@ def _removal_skipped(reading: windows.Reading) -> dict[str, Any]:
 # Datamart table reloaded while it was read (its ETL empties and refills tables) can announce and return a
 # consistent smaller set, which counts that agree cannot catch
 HOLD_FLOOR = 1_000
+# the night: a held removal is released only by a run this long after the first run that held it (a sync
+# pressed again minutes later, while the table is still reloading, holds it again)
+HOLD_HOURS = 20
 
 
 def removal_waits(name: str, n: int, held: int) -> bool:
     """Whether a whole read of ``name`` removes none of the ``n`` rows (of ``held``) it no longer returned
-    tonight: more than half of those held and at least :data:`HOLD_FLOOR`, unless the previous finished run
-    of the dataset held its removal already (a second whole read in a row removes them)."""
+    tonight: more than half of those held and at least :data:`HOLD_FLOOR`, unless the finished runs of the
+    dataset have held their removal, one after the other, since :data:`HOLD_HOURS` ago or longer (the whole
+    read a night after the first hold removes them; one made earlier holds them again)."""
     if n < HOLD_FLOOR or n * 2 <= held:
         return False
-    previous = (
+    first = None  # the start of the first run of the holds in a row, newest first
+    for started, details in (
         SyncRun.objects.filter(
             job=SyncRun.Job.ETOOLS_DATAMART,
             target=name,
             status__in=(SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL),
         )
         .order_by("-started_at", "-pk")
-        .values_list("details", flat=True)
-        .first()
-    )
-    return not (isinstance(previous, dict) and previous.get("removal_held"))
+        .values_list("started_at", "details")[:50]
+    ):
+        if not (isinstance(details, dict) and details.get("removal_held")):
+            break
+        first = started
+    return first is None or timezone.now() - first < dt.timedelta(hours=HOLD_HOURS)
+
+
+def history_cut(details: dict[str, Any]) -> bool:
+    """Whether a finished partner reports run proves no history whole from the date it read from: read in date
+    windows with no ``whole_from`` (none proven), in id windows one of which was not read whole
+    (``removal_skipped``), or read once with an answer that looked cut (a round count, ``cap_suspected``).
+    :func:`held_whole_from` and ``reached.reports_read_from`` read a run by this one rule."""
+    bound = details.get("window_bound")
+    if bound == "id":
+        return bool(details.get("removal_skipped"))
+    if bound:
+        return not details.get("whole_from")
+    return capped(details.get("datamart_count")) or bool(details.get("cap_suspected"))
 
 
 def held_whole_from(name: str) -> dt.date | None:
     """The first period start the previous finished run of ``name`` left held whole (``windows.Reading.
-    whole_from`` chains from it): its ``whole_from``; a run read before windows, its ``read_from`` unless its
-    count was a limit of the Datamart's answer (its history was cut: then none). None without such a run."""
+    whole_from`` chains from it): its ``whole_from``, else its ``read_from`` (a run read before windows, or in
+    id windows every one whole); none when it proves no history whole (:func:`history_cut`: its history was
+    cut). None without such a run."""
     for details in (
         SyncRun.objects.filter(
             job=SyncRun.Job.ETOOLS_DATAMART,
@@ -1625,13 +1646,10 @@ def held_whole_from(name: str) -> dt.date | None:
         details = details if isinstance(details, dict) else {}
         if details.get("empty_response"):
             continue  # nothing was read: the rows held are an earlier run's
-        if details.get("window_bound"):  # read in windows: what it held whole, if it said
-            text = details.get("whole_from")
-        elif capped(details.get("datamart_count")) or details.get("cap_suspected"):
+        if history_cut(details):
             return None
-        else:
-            text = details.get("read_from")
         try:
+            text = details.get("whole_from") or details.get("read_from")
             return dt.date.fromisoformat(str(text or "")[:10])
         except ValueError:
             return None
@@ -2154,14 +2172,16 @@ def set_aside_words(set_aside: dict[str, str]) -> str:
 
 
 def _no_code_error(choice: AreaCode, country: str) -> str:
-    """The error of a PRP dataset's run when no business area code is set or found: what was set aside, where
-    NeuroDB looked, and where to enter it."""
+    """The error of a PRP dataset's run when no business area code is set or found: where to enter it first
+    (the pages that cut an error short, checks 8, 9 and 11 at 140 characters, keep it), then what was set
+    aside and where NeuroDB looked."""
     looked = "the workspace it holds, the Datamart's workspaces or the partner report rows"
     where = "Admin → Data and sync → eTools Datamart: PRP business area code"
     if choice.set_aside:
         aside = set_aside_words(choice.set_aside)
         return (
-            f"{aside} (a code is digits, as 2490), and NeuroDB found no code in {looked}: enter it in {where}"
+            f"enter the business area code in {where}: {aside} (a code is digits, as 2490), and NeuroDB "
+            f"found none in {looked}"
         )
     return (
         f"enter the business area code in {where} (none is set for {country!r}, and NeuroDB found none in "

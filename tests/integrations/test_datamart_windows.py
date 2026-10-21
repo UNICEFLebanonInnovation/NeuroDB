@@ -103,6 +103,18 @@ def test_a_cut_count_and_pages_on_one_read_remove_nothing():
 
 
 @responses.activate
+def test_a_cut_read_holds_its_history_from_its_earliest_row_only():
+    """The Datamart keeps the latest 50 of 120 rows and ignores every window filter: the read proves no history
+    from the date it asked, so a running PD that started before the earliest row held (19 Dec 2025) has a
+    partial history (its Reached is PRP's cumulative)."""
+    FakeDatamart(list(reversed(spread(120))), cap=50, ignore=(*DATE_FILTERS, *ID_FILTERS)).register(REPORTS)
+    found = run("partner_reports")
+    assert (found.status, found.details["cap_suspected"]) == (SyncRun.Status.PARTIAL, "windows_unproven")
+    assert found.details["read_from"] == "2025-01-01" and "whole_from" not in found.details
+    assert reached.reports_read_from() == dt.date(2025, 12, 19)
+
+
+@responses.activate
 def test_a_capped_dataset_is_read_whole_in_date_windows():
     """120 rows, at most 50 to one query and a count cut to 50: read in date windows split below 20, every row
     arrives, the stale row goes, and the run says the Datamart's own count was cut."""
@@ -132,6 +144,7 @@ def test_an_ignored_date_filter_falls_back_to_id_windows():
     assert details["window_bound"] == "id" and ids() == set(range(1, 121))
     assert "whole_from" not in details  # id windows say nothing of the history by date
     assert any("id__lt" in q for q in fake.requests)
+    assert reached.reports_read_from() == dt.date(2025, 1, 1)  # every id window whole: all it asked for
 
 
 @responses.activate
@@ -170,13 +183,14 @@ def _register(fake: FakeDatamart, answer=None) -> None:
     responses.add_callback(responses.GET, re.compile(rf"{REPORTS}(\?.*)?$"), callback=answer or fake._answer)
 
 
-def _dry(records: list[dict], **options) -> list[dict[str, str]]:
-    """The requests a read of ``records`` makes, in order (the same read gives the same requests)."""
+def _dry(records: list[dict], since: str = "2025-01-01", **options) -> list[dict[str, str]]:
+    """The requests a read of ``records`` from ``since`` makes, in order (the same read gives the same
+    requests)."""
     fake = FakeDatamart(records, **options)
     with responses.RequestsMock() as mock:
         fake.url = REPORTS
         mock.add_callback(responses.GET, re.compile(rf"{REPORTS}(\?.*)?$"), callback=fake._answer)
-        list(windows.Reading(client(), "prp/datareport", {f"{KEY}__gte": "2025-01-01"}, date_key=KEY))
+        list(windows.Reading(client(), "prp/datareport", {f"{KEY}__gte": since}, date_key=KEY))
     return fake.requests
 
 
@@ -285,6 +299,61 @@ def test_whole_from_sets_the_partial_history(settings):
 
 
 @responses.activate
+def test_an_open_window_not_whole_keeps_the_gap_of_an_earlier_window():
+    """At most 12 rows to one query, with the true count: 2025 (16 rows) is not read whole, and neither is the
+    open last window (15 reports starting in 2027). The open window says nothing of the history: it is held
+    whole from 1 Jan 2026, after the 2025 gap."""
+    rows = spread(16, dt.date(2025, 1, 10), step=10) + spread(15, dt.date(2027, 1, 10), step=5, start=500)
+    FakeDatamart(rows, cap=12, cut_count=False).register(REPORTS)
+    found = run("partner_reports")
+    details = found.details
+    assert found.status == SyncRun.Status.PARTIAL and details["windows_not_whole"] == 2
+    assert details["whole_from"] == "2026-01-01" and reached.reports_read_from() == dt.date(2026, 1, 1)
+
+
+def _running_pd(start: dt.date) -> PCA:
+    partner = PartnerOrganization.objects.create(
+        etl_id="1", name="Partner A", partner_type="NGO", vendor_number="V1"
+    )
+    return PCA.objects.create(etl_id="11", number="LEB/PCA-1/PD1", title="PD", partner=partner, status="active",
+                              start=start)  # fmt: skip
+
+
+@responses.activate
+def test_a_past_window_not_whole_counts_whatever_the_open_window_gives(settings):
+    """The 2019 window is not read whole and the open window (15 reports starting in 2027) neither: history is
+    held whole from 1 Jan 2020, and a running PD that started in 2019 has a partial history."""
+    pd = _running_pd(dt.date(2019, 3, 1))
+    rows = _history(settings) + spread(15, dt.date(2027, 1, 10), step=5, start=5000)
+    FakeDatamart(rows, cap=12, cut_count=False).register(REPORTS)
+    found = run("partner_reports")
+    assert found.details["read_from"] == "2019-01-01" and found.details["whole_from"] == "2020-01-01"
+    assert reached.reports_read_from() == dt.date(2020, 1, 1) > pd.start
+
+
+@responses.activate
+def test_a_changed_read_after_a_cut_run_still_counts_its_own_windows(settings):
+    """The first windowed night after a run whose count was a limit (it covers nothing): the Datamart's count
+    changes during the read, and the 2019 window is not read whole. Tonight's windows decide: history is held
+    whole from 1 Jan 2020, never from the date the sync asked (1 Jan 2019)."""
+    pd = _running_pd(dt.date(2019, 3, 1))
+    rows = _history(settings)
+    before_end = (
+        len(_dry(rows, "2019-01-01", cap=12, cut_count=False)) - 1
+    )  # the end check is the last request
+    SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="partner_reports", status=SyncRun.Status.PARTIAL,
+                           details={"read_from": "2019-01-01", "datamart_count": 10_000})  # fmt: skip
+    FakeDatamart(rows, cap=12, cut_count=False, changes=(before_end, [report(9000, "2025-02-01")])).register(
+        REPORTS
+    )
+    found = run("partner_reports")
+    details = found.details
+    assert details["changed"] is True and details["windows_not_whole"] == 1
+    assert details["whole_from"] == "2020-01-01"
+    assert reached.reports_read_from() == dt.date(2020, 1, 1) > pd.start
+
+
+@responses.activate
 def test_whole_from_keeps_a_window_an_earlier_run_read_whole(settings):
     rows = _history(settings)
     fake = FakeDatamart(rows)
@@ -370,9 +439,33 @@ def test_a_large_removal_waits_one_night(monkeypatch):
     first = run("partner_reports")
     assert first.status == SyncRun.Status.PARTIAL
     assert (first.details["removal_held"], first.details["removed"]) == (5, 0) and len(ids()) == 7
-    second = run("partner_reports")  # the next whole read removes them
+    _hours_ago(first, 21)
+    second = run("partner_reports")  # the next night's whole read removes them
     assert second.status == SyncRun.Status.SUCCEEDED
     assert second.details["removed"] == 5 and ids() == {1, 2}
+
+
+def _hours_ago(found: SyncRun, hours: int) -> None:
+    """Move a run's start ``hours`` back (the run of the night before)."""
+    SyncRun.objects.filter(pk=found.pk).update(started_at=found.started_at - dt.timedelta(hours=hours))
+
+
+@responses.activate
+def test_a_held_removal_is_held_again_by_a_sync_minutes_later(monkeypatch):
+    """The sync pressed again minutes after the night's run (the Datamart's table still reloading) reads the
+    same smaller set: it removes nothing either. The run a night after the first hold removes the rows."""
+    monkeypatch.setattr(sync, "HOLD_FLOOR", 3)
+    for pk in range(900, 905):
+        held(pk)
+    FakeDatamart(spread(2)).register(REPORTS)
+    first = run("partner_reports")
+    second = run("partner_reports")  # minutes later
+    assert second.status == SyncRun.Status.PARTIAL
+    assert (second.details["removal_held"], second.details["removed"]) == (5, 0) and len(ids()) == 7
+    _hours_ago(first, 21)  # the first hold was a night ago: its chain of holds has waited long enough
+    third = run("partner_reports")
+    assert third.status == SyncRun.Status.SUCCEEDED
+    assert third.details["removed"] == 5 and ids() == {1, 2}
 
 
 @responses.activate

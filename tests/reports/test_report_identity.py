@@ -272,7 +272,7 @@ def test_a_title_two_indicators_share_is_told_apart_by_the_pd_output(client_view
     assert (quality["same_title_count"], quality["same_title_left_out"]) == (2, 2)
     numbers = dict(one("7")["figures"])
     assert numbers["… matched by PD output and title (a title several indicators of the PD share)"] == 2
-    assert numbers["… left out: two or more indicators of the PD have the title and the output"] == 1
+    assert numbers["… two or more indicators of the PD have the title and the output"] == 1
 
 
 def _two_indicator_reports(progress_report: str) -> list[dict]:

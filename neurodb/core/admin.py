@@ -506,12 +506,22 @@ class DatamartSettingAdmin(ModelAdmin):
 
     fields = ("prp_business_area", "next_sync", "found_codes", "latest_runs", "updated_by", "updated_at")
     readonly_fields = ("next_sync", "found_codes", "latest_runs", "updated_by", "updated_at")
+    # *Use 2490* posts a form of its own, after the change form: a submit button inside the change form would
+    # be its default one, and Enter in the code field would save the code found instead of the one typed
+    change_form_outer_after_template = "admin/core/datamartsetting/use_found_code.html"
 
     def has_add_permission(self, request):
         return False
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    def get_fields(self, request, obj=None):
+        """The codes NeuroDB finds come with *Use 2490* only for someone who may change the code."""
+        fields = super().get_fields(request, obj)
+        if self.has_change_permission(request, obj):
+            return fields
+        return [("codes_found" if name == "found_codes" else name) for name in fields]
 
     def changelist_view(self, request, extra_context=None):
         if not self.has_view_or_change_permission(request):
@@ -622,7 +632,12 @@ class DatamartSettingAdmin(ModelAdmin):
         ) % {"here": here, "hosting": set_by}
 
     @admin.display(description=_("Codes NeuroDB finds"))
-    def found_codes(self, obj):
+    def codes_found(self, obj):
+        """What NeuroDB finds, for someone who may only view the page: no button."""
+        return self.found_codes(obj, button=False)
+
+    @admin.display(description=_("Codes NeuroDB finds"))
+    def found_codes(self, obj, button=True):
         from neurodb.datamart.models import DatamartDocument
         from neurodb.integrations.etools import datamart_sync as sync
 
@@ -648,15 +663,14 @@ class DatamartSettingAdmin(ModelAdmin):
         )
         found = held or code  # what Use … enters: the workspace held first
         entered = sync.area_code(obj.prp_business_area) if obj else ""
-        if not found or found == entered:
+        if not button or not found or found == entered:
             return format_html("{}<br>{}", in_workspace, on_rows)
-        use_url = reverse("admin:core_datamartsetting_use_found_code", args=[obj.pk])
+        # the button belongs to the form after the change form (use_found_code.html), never to this one
         return format_html(
-            '{}<br>{}<br><button type="submit" class="btn btn-outline-secondary btn-sm mt-2" formaction="{}" '
-            'name="use_found_code" value="1">{}</button>',
+            '{}<br>{}<br><button type="submit" form="use_found_code_form" class="btn btn-outline-secondary '
+            'btn-sm mt-2" name="use_found_code" value="1">{}</button>',
             in_workspace,
             on_rows,
-            use_url,
             _("Use %(code)s") % {"code": found},
         )
 

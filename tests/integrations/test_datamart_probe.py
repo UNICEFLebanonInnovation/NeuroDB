@@ -354,7 +354,10 @@ def test_administrators_probe_a_dataset_from_run_a_job(client, admin_user, start
     client.force_login(admin_user)
     html = client.get(reverse("admin:core_syncrun_changelist")).content.decode()
     assert "Probe a Datamart dataset" in html
-    assert client.get(reverse(URL)).status_code == 200 and started == []  # a GET only shows the dialog
+    dialog = client.get(reverse(URL))
+    assert dialog.status_code == 200 and started == []  # a GET only shows the dialog
+    said = " ".join(dialog.content.decode().split())
+    assert "at most three requests" not in said and "up to about ten more" in said and "a minute" in said
     response = client.post(reverse(URL), {"_form_submitted": "on", "dataset": "prp_progress_reports"})
     assert response.status_code == 302
     assert started == [
@@ -469,3 +472,21 @@ def test_a_page_number_the_datamart_ignores_is_not_read_as_more_records(small):
     verdict = run.details["verdict"]
     assert "ignores the page number (page 11 gives the first page's records)" in verdict
     assert "holds more" not in verdict
+
+
+@responses.activate
+def test_a_true_count_past_the_limit_is_never_said_cut(small, monkeypatch):
+    """123 reports, a true count, no limit: the first page wholly past them is 26 (records 121 to 123 are on
+    page 25), which the Datamart refuses as DRF refuses every page past the last. Its paging says nothing of a
+    limit, and no record past the count means the count is not cut."""
+    from .fake_datamart import FakeDatamart, report
+
+    monkeypatch.setattr(probe, "CUT_PAGE", 100)
+    FakeDatamart(small + [report(pk, "2026-08-01") for pk in (121, 122, 123)], page_limit=25).register(
+        REPORTS
+    )
+    run = probe.run_job("partner_reports", client=client())
+    asked = {a["request"]: a for a in run.details["windows"]}
+    assert (asked["past the count"]["filter"]["page"], asked["past the count"]["status"]) == (26, 404)
+    verdict = run.details["verdict"]
+    assert "count is cut" not in verdict and "returns at most" not in verdict

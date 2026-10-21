@@ -463,11 +463,13 @@ def test_no_code_anywhere_fails_naming_the_hosting_name(settings):
     (result,) = run("prp_indicator_reports")
     assert result.status == SyncRun.Status.FAILED and _paths() == ["datamart/workspaces/"]
     assert result.error == (
-        "IntegrationError: the hosting team's ETOOLS_DATAMART_BUSINESS_AREA is “Lebanon”, a name, not a business "
-        "area code (a code is digits, as 2490), and NeuroDB found no code in the workspace it holds, the "
-        "Datamart's workspaces or the partner report rows: enter it in Admin → Data and sync → eTools Datamart: "
-        "PRP business area code"
+        "IntegrationError: enter the business area code in Admin → Data and sync → eTools Datamart: PRP business "
+        "area code: the hosting team's ETOOLS_DATAMART_BUSINESS_AREA is “Lebanon”, a name, not a business area "
+        "code (a code is digits, as 2490), and NeuroDB found none in the workspace it holds, the Datamart's "
+        "workspaces or the partner report rows"
     )
+    # what to do comes first: the pages that cut the error short (checks 8, 9 and 11 at 140 characters) keep it
+    assert "Admin → Data and sync → eTools Datamart: PRP business area code" in result.error[:137]
 
 
 @responses.activate

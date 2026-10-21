@@ -925,6 +925,8 @@ CENSUS_SQL = (
 # when it is a short word
 TABLE_KEYS = 30  # the keys Tables C and D list at most
 PAIRS_LISTED = 60  # the value pairs Table B lists at most
+# Table A's last line: what the tie-breakers in use did with the shared rows, in the last three columns
+ALL_BREAKERS = "All, in this order (on the pages): rows placed, rows none decides, rows a check keeps out"
 VOCABULARY = re.compile(r"[A-Za-z0-9_ .-]{1,20}")
 # Table D: in each cell of two or more rows of one title and output at one place of one report (the running
 # PDs' rows), the record keys whose values differ, with the number of cells
@@ -1087,7 +1089,7 @@ def _identity(cursor) -> dict[str, Any]:
         )
     table_a.append(
         (
-            "All, in this order (on the pages)",
+            ALL_BREAKERS,
             None,
             None,
             "yes" if pages.calibration.enabled else "no",
@@ -1172,8 +1174,7 @@ def _identity(cursor) -> dict[str, Any]:
         ),
         key=lambda line: (line[1] != "yes", line[0]),
     )[:KEYS_LISTED]
-    out_rows = how["shared_output"] + how["output_unmatched"] + how["unknown"]
-    still = sum(1 for spot in placed if spot.ident is None)
+    still = sum(1 for spot in placed if spot.ident is None)  # what the pages leave out after the tie-breakers
     parts = []
     if not with_id:
         parts.append(
@@ -1194,10 +1195,10 @@ def _identity(cursor) -> dict[str, Any]:
             f"{_plural(how['id'], 'is', 'are')} matched by id, {how['title']:,} by title and "
             f"{how['output']:,} by PD output and title (a title several indicators of the PD share)."
         )
-        if out_rows:
+        if still:
             parts.append(
-                f"Left out: {_plural(how['shared_output'], 'row', 'rows')} whose title and PD output two or "
-                "more indicators of their PD share (tell them apart in eTools), "
+                f"Left out: {_plural(len(shared) - by_breakers, 'row', 'rows')} whose title and PD output "
+                "two or more indicators of their PD share (tell them apart in eTools), "
                 f"{_plural(how['output_unmatched'], 'row', 'rows')} whose title several indicators of their "
                 "PD share and whose PD output, as PRP sends it, is empty or matches none of theirs in eTools "
                 "(correct the output name in PRP or eTools so the two match), and "
@@ -1209,8 +1210,8 @@ def _identity(cursor) -> dict[str, Any]:
             )
         if how["shared_output"]:
             parts.append(
-                f"Of the {_plural(how['shared_output'], 'row', 'rows')} left out because two or more "
-                f"indicators share the title and the output, {alone:,} {'is' if alone == 1 else 'are'} at a "
+                f"Of the {_plural(how['shared_output'], 'row', 'rows')} whose title and output two or more "
+                f"indicators share, {alone:,} {'is' if alone == 1 else 'are'} at a "
                 "location where the report has one row of them (PRP sends one of the copies) and "
                 f"{monthly:,} in monthly reports; tie-breakers place {by_breakers:,} of them on the pages "
                 f"and {how['shared_output'] - by_breakers:,} stay left out (Table A says why). A tie-breaker "
@@ -1280,10 +1281,7 @@ def _identity(cursor) -> dict[str, Any]:
             ("… matched to a PD indicator by its id", how["id"]),
             ("… matched by title (one indicator of the PD has it)", how["title"]),
             ("… matched by PD output and title (a title several indicators of the PD share)", how["output"]),
-            (
-                "… left out: two or more indicators of the PD have the title and the output",
-                how["shared_output"],
-            ),
+            ("… two or more indicators of the PD have the title and the output", how["shared_output"]),
             ("… at a location where the report has one row of that title and output", alone),
             ("… where it has two or more", len(shared) - alone),
             ("… in monthly (HR) reports", monthly),
@@ -1316,7 +1314,7 @@ def _identity(cursor) -> dict[str, Any]:
                     if not any(len({c.value(n) for c in cands}) > 1 for n in identity.BREAKERS)
                 ),
             ),
-            ("PD indicators the latest pd-indicators sync did not return", stale),
+            ("PD indicator records the latest pd-indicators sync did not return", stale),
             (
                 "Last pd-indicators sync: records announced",
                 details["datamart_count"] if isinstance(details.get("datamart_count"), int) else "—",
@@ -2632,8 +2630,9 @@ CHECKS: tuple[Check, ...] = (
         "document NeuroDB does not hold only when every PD status is chosen, and a report that names no "
         "programme document never. The page says how many the PD status filter leaves out. Reached adds up "
         "the reports held: a running programme document whose first reports are not in the feed has a "
-        "partial sum (the partial history rule covers only a PD that started before the window the sync "
-        "read).",
+        "partial sum (the partial history rule covers only a PD that started before the first period the "
+        "sync holds whole: the window it read, the first one held whole when read in windows, or the "
+        "earliest report held when its answer was cut).",
         _country_and_link,
     ),
     Check(
