@@ -1,11 +1,12 @@
 """ "Write a paragraph" on the Synthesis tab: the one AI call of the synthesis, for one theme.
 
-One click is one Responses API call over that theme's findings only (the page's batch, Verified only and
-Challenges only apply): at most ``MAX_FINDINGS``, best evidence first and every document before a second
-finding of any, each numbered, with its document, page, year and category, cleaned of names, e-mail
-addresses, links and phone numbers (``fmm.privacy.clean``). The model writes 80-160 words citing the
-numbers; NeuroDB writes each number out as "(Document title, p. n)" and drops a number it did not send,
-so every claim is cited to a real page. Nothing is written when no finding is cited.
+One click is one call to the AI provider in use over that theme's findings only (the page's batch,
+Verified only and Challenges only apply): at most ``MAX_FINDINGS``, best evidence first and every
+document before a second finding of any, each numbered, with its document, page, year and category,
+cleaned of names, e-mail addresses, links and phone numbers (``fmm.privacy.clean``). The model writes
+80-160 words citing the numbers; NeuroDB writes each number out as "(Document title, p. n)" and drops a
+number it did not send, so every claim is cited to a real page. Nothing is written when no finding is
+cited.
 
 **Limits**: each person may ask ``PER_PERSON_PER_DAY`` paragraphs a day (a request refused by the quota or
 the budget does not count); the call is recorded under ``doc_review`` and counts against the document
@@ -17,7 +18,6 @@ written and what it cost.
 from __future__ import annotations
 
 import datetime
-import json
 import logging
 import re
 from dataclasses import dataclass
@@ -138,7 +138,6 @@ def written(raw: str, numbered: dict[int, Any], names: frozenset[str]) -> str:
 
 def write(topic: Topic, user, batch: int | None, verified: bool, challenges: bool) -> Paragraph:
     """The paragraph of ``topic`` for ``user`` (see the module's notes)."""
-    from neurodb.assistant import agent
     from neurodb.fmm import privacy
     from neurodb.fmm.ai import budget
 
@@ -168,37 +167,29 @@ def write(topic: Topic, user, batch: int | None, verified: bool, challenges: boo
             user=user, topic=topic, status=ReviewParagraph.Status.LIMITED, reason="budget"
         )
         return Paragraph(False, BUDGET)
-    model = settings.AI_ASSISTANT_MODEL
+    model = llm.model_for("")
     row = ReviewParagraph.objects.create(user=user, topic=topic, findings=len(found), model=model[:64])
-    request = {
-        "model": model,
-        "instructions": INSTRUCTIONS,
-        "input": [{"role": "user", "content": content}],
-        "reasoning": {"effort": EFFORT},
-        "max_output_tokens": OUTPUT_TOKENS,
-        "store": False,
-        "prompt_cache_key": "neurodb-doc-review-theme",
-        "text": {"format": {"type": "json_schema", "name": FORMAT_NAME, "strict": True, "schema": SCHEMA}},
-    }
+    request = llm.Request(
+        system=INSTRUCTIONS,
+        user=content,
+        schema=SCHEMA,
+        schema_name=FORMAT_NAME,
+        effort=EFFORT,
+        max_output_tokens=OUTPUT_TOKENS,
+        model=model,
+        cache_key="neurodb-doc-review-theme",
+    )
     try:
-        api = agent.client().with_options(timeout=review.TIMEOUT_SECONDS, max_retries=1)
-        response = api.responses.create(**request)
+        result = llm.connect(review.TIMEOUT_SECONDS, 1).complete(request)
     except Exception as exc:
         budget.trip(exc)
         logger.warning("Document review: a theme paragraph failed: %s", type(exc).__name__)
         _finish(row, ReviewParagraph.Status.FAILED, None, type(exc).__name__)
         return Paragraph(False, FAILED)
-    answered = getattr(response, "usage", None)
-    usage.record(usage.DOC_REVIEW, model, answered)
-    try:
-        raw = json.loads(getattr(response, "output_text", "") or "").get("paragraph", "")
-    except (TypeError, ValueError, AttributeError):
-        raw = ""
-    text = (
-        written(raw, numbered, names)
-        if isinstance(raw, str) and getattr(response, "status", "") != "incomplete"
-        else ""
-    )
+    llm.record(usage.DOC_REVIEW, result.model, result)
+    answered = result.usage
+    raw = result.parsed.get("paragraph", "") if isinstance(result.parsed, dict) else ""
+    text = written(raw, numbered, names) if isinstance(raw, str) and not result.cut_off else ""
     if not text:
         _finish(row, ReviewParagraph.Status.FAILED, answered, "not cited" if raw else "no answer")
         return Paragraph(False, NOT_CITED if raw else FAILED)

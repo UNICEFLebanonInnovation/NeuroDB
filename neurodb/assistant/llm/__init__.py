@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Protocol
 
 from django.conf import settings
@@ -145,7 +145,11 @@ class Result:
     ``stop`` is ``ok``, ``max_tokens``, ``refused``, ``incomplete`` or ``failed`` (OpenAI only), and
     ``reason`` its detail (OpenAI's incomplete reason, "refusal: <category>", Claude's stop reason). On
     Claude a refused answer has no text (a partial answer is never used); on OpenAI ``text`` is always the
-    response's output_text, whatever its status, as the callers read it."""
+    response's output_text, whatever its status, as the callers read it.
+
+    ``by_model`` and ``model_calls`` are the AI use ledger's rows (:func:`record`): on OpenAI the call's
+    tokens under the model asked for; on Claude a declined attempt's under the model asked for and a
+    refusal fallback's under its own model, the call counted on the model that wrote the answer."""
 
     text: str
     parsed: Any  # with a schema: the JSON answer when the text parses, else None
@@ -156,10 +160,19 @@ class Result:
     usage: Usage
     provider: str
     raw: Any = None  # the SDK's response (tests, logs); never stored
+    by_model: dict[str, Usage] = field(default_factory=dict)
+    model_calls: dict[str, int] = field(default_factory=dict)
 
     @property
     def complete(self) -> bool:
         return self.stop == "ok"
+
+    @property
+    def cut_off(self) -> bool:
+        """The answer stopped before its end, as the features have always read an incomplete OpenAI
+        response (its content filter included): its token limit or another incomplete stop. Neither a
+        failed response nor a refusal part is a cut; nor a refusal on Claude, which leaves no text."""
+        return self.stop in ("max_tokens", "incomplete") or self.reason == "content_filter"
 
     @property
     def ledger_model(self) -> str:
@@ -541,6 +554,16 @@ def effort_refused(exc: BaseException) -> bool:
     return False
 
 
+def too_large(exc: BaseException) -> bool:
+    """The request is larger than the provider takes (Anthropic's 413). On OpenAI no error is read this
+    way: its features say what they always said."""
+    if _sdk(exc) != "anthropic":
+        return False
+    from . import claude_backend
+
+    return claude_backend.too_large(exc)
+
+
 def api_message(exc: BaseException) -> str:
     """The API's own words in an error response (``error.message`` of its body), else the exception's."""
     body = getattr(exc, "body", None)
@@ -554,10 +577,11 @@ def api_message(exc: BaseException) -> str:
 # ------------------------------------------------------------------------------------- AI use ledger
 def record(feature: str, model: str, outcome: Any) -> None:
     """Book an answer's model calls in the AI use ledger (``usage.record``, which never fails its caller).
-    An answer whose tokens are kept per model (``by_model``, on Claude) gets one row per model that ran
-    them, at that model's prices: the model asked for, and after a refusal fallback the fallback's model
-    for its own attempt, each call counted on the model that wrote its message (``model_calls``). Any
-    other answer (OpenAI's) is one row of ``model``, the model asked for, as always."""
+    An answer whose tokens are kept per model (``by_model``: an Ask answer on Claude, and every
+    :class:`Result`) gets one row per model that ran them, at that model's prices: the model asked for,
+    and after a refusal fallback the fallback's model for its own attempt, each call counted on the model
+    that wrote its message (``model_calls``). An OpenAI Result is one row of the model asked for; any
+    other answer (an Ask answer on OpenAI) is one row of ``model``, as always."""
     from neurodb.assistant import usage
 
     per_model = getattr(outcome, "by_model", None) or {}
@@ -606,7 +630,7 @@ def test_connection(p: str | None = None) -> Check:
         logger.warning("AI settings: the connection test failed: %s", type(exc).__name__)
         return Check(False, text[:CHECK_CHARS], model, round(seconds, 1))
     seconds = time.monotonic() - started
-    usage.record(usage.TEST, result.ledger_model, result.usage)
+    record(usage.TEST, result.model, result)
     text = (
         f"{names(p).label} answered with {result.ledger_model} in {seconds:.1f} s: the key, the model and "
         "the credit work."

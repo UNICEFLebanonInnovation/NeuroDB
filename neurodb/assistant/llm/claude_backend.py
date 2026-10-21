@@ -114,6 +114,11 @@ def effort_refused(exc: BaseException) -> bool:
     return isinstance(exc, anthropic.BadRequestError) and "effort" in llm.api_message(exc)
 
 
+def too_large(exc: BaseException) -> bool:
+    """A 413: the request (a long document, say) is larger than the API takes."""
+    return isinstance(exc, anthropic.RequestTooLargeError)
+
+
 def beta_refused(exc: BaseException) -> bool:
     """A 400 naming the ``anthropic-beta`` header: this account does not accept the refusal fallback."""
     return isinstance(exc, anthropic.BadRequestError) and "anthropic-beta" in llm.api_message(exc)
@@ -323,16 +328,20 @@ def read(message: Any, req: llm.Request) -> llm.Result:
             parsed = json.loads(text)
         except ValueError:
             parsed = None
+    model = llm.model_for(req.model, llm.CLAUDE)
+    wrote = getattr(message, "model", "") or ""
     return llm.Result(
         text=text,
         parsed=parsed,
         stop=stop,
         reason=reason,
-        model=llm.model_for(req.model, llm.CLAUDE),
-        served_by=(getattr(message, "model", "") or "") if fell_back(message) else "",
+        model=model,
+        served_by=wrote if fell_back(message) else "",
         usage=usage(message),
         provider=llm.CLAUDE,
         raw=message,
+        by_model=by_model(message, model),
+        model_calls={wrote or model: 1},  # the call, on the model that wrote the answer
     )
 
 

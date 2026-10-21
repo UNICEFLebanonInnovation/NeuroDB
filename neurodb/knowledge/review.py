@@ -46,7 +46,6 @@ from __future__ import annotations
 
 import datetime
 import hashlib
-import json
 import logging
 import time
 from collections import Counter
@@ -280,7 +279,8 @@ class Topics:
 # ------------------------------------------------------------------------------------------ one call
 @dataclass
 class Context:
-    """What one run shares: the client, the settings, the topics, the gazetteer and its tally."""
+    """What one run shares: the connection to the AI provider in use (``llm.connect``), the settings, the
+    topics, the gazetteer and its tally."""
 
     api: Any
     setting: DocumentReviewSettings
@@ -312,39 +312,28 @@ def ask(ctx: Context, stage: str, payload: str, extra: str = "") -> list[dict[st
     if why := blocked(tokens, ctx.setting):
         raise Stop(why)
     instructions = prompts.compose(ctx.setting.prompt(PROMPT_OF[stage]))
-    request = {
-        "model": ctx.model,
-        "instructions": f"{instructions}\n\n{extra}".strip(),
-        "input": [{"role": "user", "content": payload}],
-        "reasoning": {"effort": EFFORT},
-        "max_output_tokens": MAX_OUTPUT[stage],
-        "store": False,
-        "prompt_cache_key": f"neurodb-doc-review-{stage}",
-        "text": {
-            "format": {
-                "type": "json_schema",
-                "name": f"doc_review_{stage}",
-                "strict": True,
-                "schema": SCHEMAS[stage],
-            }
-        },
-    }
+    request = llm.Request(
+        system=f"{instructions}\n\n{extra}".strip(),
+        user=payload,
+        schema=SCHEMAS[stage],
+        schema_name=f"doc_review_{stage}",
+        effort=EFFORT,
+        max_output_tokens=MAX_OUTPUT[stage],
+        model=ctx.model,
+        cache_key=f"neurodb-doc-review-{stage}",
+    )
     try:
-        response = ctx.api.responses.create(**request)
+        result = ctx.api.complete(request)
     except Exception as exc:
         if budget.trip(exc):
             raise Stop(PAUSED) from exc
         raise
-    answered = getattr(response, "usage", None)
-    usage.record(usage.DOC_REVIEW, ctx.model, answered)
+    llm.record(usage.DOC_REVIEW, result.model, result)
     ctx.tally["calls"] += 1
-    ctx.tally["tokens"] += sum(usage.split(answered))
-    if getattr(response, "status", "") == "incomplete":
+    ctx.tally["tokens"] += sum(usage.split(result.usage))
+    if result.cut_off:
         return None
-    try:
-        data = json.loads(getattr(response, "output_text", "") or "")
-    except (TypeError, ValueError):
-        return None
+    data = result.parsed
     rows = data.get(ANSWER_KEYS[stage]) if isinstance(data, dict) else None
     if not isinstance(rows, list):
         return None
@@ -959,7 +948,6 @@ def run(
     """The review (see the module's notes) as one ``SyncRun`` (target: the mode): ``rows_in`` the
     documents reached, ``rows_written`` those analysed (fully or partly), ``rows_failed`` those that
     failed; its details say how many of each, the calls and tokens, and why it stopped."""
-    from neurodb.assistant import agent
     from neurodb.core.models import SyncRun
     from neurodb.integrations.runs import fail, finish_by_counts, new_run
 
@@ -970,7 +958,7 @@ def run(
     )
     clock = time.monotonic()
     setting = DocumentReviewSettings.load()
-    ctx = Context(api=None, setting=setting, model=settings.AI_ASSISTANT_MODEL)
+    ctx = Context(api=None, setting=setting, model=llm.model_for(settings.AI_ASSISTANT_MODEL))
 
     def done(**extra):
         details = {k: v for k, v in ctx.tally.items()}
@@ -984,8 +972,8 @@ def run(
         on, why = switched_on(setting)
         if on:
             try:
-                ctx.api = agent.client().with_options(timeout=TIMEOUT_SECONDS, max_retries=1)
-            except agent.AssistantUnavailable:
+                ctx.api = llm.connect(TIMEOUT_SECONDS, 1)
+            except llm.AssistantUnavailable:
                 on, why = False, AI_OFF
         if not on:
             sync_run.finish(SyncRun.Status.SUCCEEDED, skipped_reason=why, **done())

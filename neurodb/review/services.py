@@ -17,7 +17,6 @@ from collections import Counter
 from dataclasses import asdict
 from typing import Any
 
-from django.conf import settings
 from django.db import connection, transaction
 from django.utils import timezone
 from django.utils.translation import gettext as _
@@ -354,25 +353,24 @@ def narrate(review: DailyReview, findings: list[ReviewFinding]) -> str:
         review.narrated_by = DailyReview.TEMPLATE
         return template_summary(findings, stats)
     try:
-        from neurodb.assistant import agent
         from neurodb.assistant import usage as ai_usage
 
-        response = agent.client().responses.create(
-            model=settings.AI_ASSISTANT_MODEL,
-            instructions=NARRATION_INSTRUCTIONS,
-            input=json.dumps(narration_input(review, findings), default=str),
-            max_output_tokens=NARRATION_MAX_OUTPUT_TOKENS,
-            store=False,
-            reasoning={"effort": "low"},
+        result = llm.complete(
+            llm.Request(
+                system=NARRATION_INSTRUCTIONS,
+                user=json.dumps(narration_input(review, findings), default=str),
+                as_message=False,
+                max_output_tokens=NARRATION_MAX_OUTPUT_TOKENS,
+            )
         )
-        ai_usage.record(ai_usage.REVIEW, settings.AI_ASSISTANT_MODEL, getattr(response, "usage", None))
-        text = (getattr(response, "output_text", "") or "").strip()
+        llm.record(ai_usage.REVIEW, result.model, result)
+        text = result.text.strip()
         if not text:
             raise ValueError("the model returned no text")
-        usage = getattr(response, "usage", None)
-        review.model_input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
-        review.model_output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
-        review.narrated_by = settings.AI_ASSISTANT_MODEL
+        used = result.usage
+        review.model_input_tokens = used.input_tokens + used.cache_read_tokens  # the whole prompt
+        review.model_output_tokens = used.output_tokens
+        review.narrated_by = result.model
         return text
     except Exception:
         logger.exception("daily review %s: narration failed, using the template summary", review.date)
@@ -510,30 +508,23 @@ def decide(review: DailyReview, findings: list[ReviewFinding]) -> list[dict[str,
         review.decided_by = RULES
         return []
     try:
-        from neurodb.assistant import agent
         from neurodb.assistant import usage as ai_usage
 
-        response = agent.client().responses.create(
-            model=settings.AI_ASSISTANT_MODEL,
-            instructions=DECISION_INSTRUCTIONS,
-            input=json.dumps(decision_input(review, candidates), default=str),
-            max_output_tokens=DECISIONS_MAX_OUTPUT_TOKENS,
-            store=False,
-            reasoning={"effort": "low"},
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "decisions",
-                    "schema": DECISION_SCHEMA,
-                    "strict": True,
-                }
-            },
+        result = llm.complete(
+            llm.Request(
+                system=DECISION_INSTRUCTIONS,
+                user=json.dumps(decision_input(review, candidates), default=str),
+                as_message=False,
+                schema=DECISION_SCHEMA,
+                schema_name="decisions",
+                max_output_tokens=DECISIONS_MAX_OUTPUT_TOKENS,
+            )
         )
-        usage = getattr(response, "usage", None)
-        ai_usage.record(ai_usage.REVIEW, settings.AI_ASSISTANT_MODEL, usage)
-        review.model_input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
-        review.model_output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
-        raw = json.loads(getattr(response, "output_text", "") or "{}")
+        llm.record(ai_usage.REVIEW, result.model, result)
+        used = result.usage
+        review.model_input_tokens += used.input_tokens + used.cache_read_tokens  # the whole prompt
+        review.model_output_tokens += used.output_tokens
+        raw = json.loads(result.text or "{}")
         decisions = validate_decisions(raw, candidates)
     except Exception:
         logger.exception(
@@ -541,7 +532,7 @@ def decide(review: DailyReview, findings: list[ReviewFinding]) -> list[dict[str,
         )
         review.decided_by = RULES
         return []
-    review.decided_by = settings.AI_ASSISTANT_MODEL if decisions else RULES
+    review.decided_by = result.model if decisions else RULES
     return decisions
 
 

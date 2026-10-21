@@ -1206,14 +1206,6 @@ def _imports(path):
     return found
 
 
-# The modules that still read the openai SDK's errors themselves; each moves onto the provider layer (llm),
-# so this set only shrinks.
-OPENAI_ERRORS_READ_IN = {
-    "neurodb/fmm/ai/insights.py",
-    "neurodb/watch/budget.py",
-}
-
-
 def test_only_the_provider_modules_import_the_sdks():
     """openai only in llm/openai_backend.py and anthropic only in llm/claude_backend.py: every other module
     goes through the provider layer, and settings import neither SDK."""
@@ -1223,7 +1215,7 @@ def test_only_the_provider_modules_import_the_sdks():
         for sdk in importers.keys() & _imports(path):
             importers[sdk].add(path.relative_to(root).as_posix())
     assert importers["anthropic"] == {"neurodb/assistant/llm/claude_backend.py"}
-    assert importers["openai"] == {"neurodb/assistant/llm/openai_backend.py", *OPENAI_ERRORS_READ_IN}
+    assert importers["openai"] == {"neurodb/assistant/llm/openai_backend.py"}
     assert not {"openai", "anthropic"} & _imports(SETTINGS_FILE)
     assert not {"openai", "anthropic"} & _imports(root / "neurodb" / "assistant" / "agent.py")
     assert not {"openai", "anthropic"} & _imports(root / "neurodb" / "assistant" / "views.py")

@@ -15,6 +15,7 @@ import pytest
 from django.core.files.base import ContentFile
 from django.test import override_settings
 
+from neurodb.assistant import llm
 from tests.assistant.openai_shapes import SHAPES, install, outcome_of, shaped
 
 ON = {"AI_ASSISTANT_ENABLED": True, "OPENAI_API_KEY": "test-key-not-real", "AI_ASSISTANT_MODEL": "gpt-5.5"}
@@ -25,7 +26,7 @@ def _check(api):
     from neurodb.fmm.ai import checks
 
     found = checks.check(
-        api,
+        llm.connect(),  # the scripted client, through the provider layer as the job calls it
         SimpleNamespace(code="R7"),
         "Is the narrative coherent with the rating?",
         {"narrative": "Sessions were held as planned in two centres."},
@@ -39,7 +40,7 @@ def _ap_review(api):
     from neurodb.fmm.ai import ap_review
 
     found = ap_review.review(
-        api,
+        llm.connect(),
         "Is the action taken adequate?",
         {"issue": "Restock the school kits.", "action_taken": "The kits were delivered on 8 September."},
         SimpleNamespace(ai_model="", ai_temperature=None, ai_max_output_tokens=2000),
@@ -54,7 +55,7 @@ def _doc_review(api):
     from neurodb.knowledge import review
     from neurodb.knowledge.models import DocumentReviewSettings
 
-    ctx = review.Context(api=api, setting=DocumentReviewSettings.load(), model="gpt-5.5")
+    ctx = review.Context(api=llm.connect(), setting=DocumentReviewSettings.load(), model="gpt-5.5")
     return [review.ask(ctx, review.FINDINGS, "[page 1] Attendance fell in two centres."), dict(ctx.tally)]
 
 

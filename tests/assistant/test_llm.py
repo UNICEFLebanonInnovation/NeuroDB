@@ -521,6 +521,57 @@ def test_an_openai_text_that_is_not_json_is_not_parsed():
     )  # no schema
 
 
+@pytest.mark.parametrize(
+    "stop, reason, cut",
+    [
+        ("ok", "", False),
+        ("max_tokens", "max_output_tokens", True),  # OpenAI's, cut at its limit
+        ("refused", "content_filter", True),  # an incomplete OpenAI response, read as always
+        ("incomplete", "something_new", True),
+        ("refused", "refusal", False),  # a refusal part in a completed response: read on, as always
+        ("failed", "server_error", False),  # no feature ever looked at a failed status
+        ("max_tokens", "max_tokens", True),  # Claude's
+        ("incomplete", "model_context_window_exceeded", True),
+        ("refused", "refusal: cyber", False),  # Claude's refusal keeps no text to read
+    ],
+)
+def test_what_a_feature_reads_as_cut_off(stop, reason, cut):
+    result = llm.Result(
+        text="",
+        parsed=None,
+        stop=stop,
+        reason=reason,
+        model="m",
+        served_by="",
+        usage=llm.Usage(),
+        provider="",
+    )
+    assert result.cut_off is cut
+
+
+def test_an_openai_call_is_one_row_of_the_model_asked_for(db):
+    response = _response()
+    response.usage = SimpleNamespace(
+        input_tokens=150, input_tokens_details=SimpleNamespace(cached_tokens=50), output_tokens=20
+    )
+    result = openai_backend.Connection.read(None, response, llm.Request())
+    used = llm.Usage(input_tokens=100, cache_read_tokens=50, output_tokens=20)
+    model = settings.AI_ASSISTANT_MODEL
+    assert result.by_model == {model: used} and result.model_calls == {model: 1}
+    llm.record(usage.REVIEW, result.model, result)
+    row = AIUsage.objects.get()
+    assert (row.model, row.calls, row.input_tokens, row.cached_tokens, row.output_tokens) == (
+        model,
+        1,
+        100,
+        50,
+        20,
+    )
+    llm.record(usage.REVIEW, result.model, openai_backend.Connection.read(None, _response(), llm.Request()))
+    row.refresh_from_db()
+    assert row.calls == 2 and row.input_tokens == 100  # a call without usage still counts, as always
+
+
 def _openai_error(cls, status, code=None, message="x", param=None):
     request = httpx2.Request("POST", "https://api.openai.com/v1/responses")
     body = {"code": code, "message": message, "param": param, "type": "invalid_request_error"}
@@ -632,6 +683,14 @@ def test_the_claude_credit_rule():
     assert claude_backend.beta_refused(
         _claude_error(anthropic.BadRequestError, 400, "invalid_request_error", beta)
     )
+
+
+def test_a_request_too_large_for_claude_is_told_apart():
+    assert llm.too_large(_claude_error(anthropic.RequestTooLargeError, 413, "request_too_large"))
+    assert not llm.too_large(_claude_error(anthropic.BadRequestError, 400, "invalid_request_error"))
+    # on OpenAI no error is read this way: its features say what they always said
+    assert not llm.too_large(_openai_error(openai.APIStatusError, 413))
+    assert not llm.too_large(ValueError("too large"))
 
 
 # ------------------------------------------------------------------------------------- the keys

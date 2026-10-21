@@ -50,21 +50,21 @@ def narrate(audience: str, lines: list[str]) -> tuple[str, str]:
     if not llm.enabled():
         return _template(lines), TEMPLATE
     try:
-        from neurodb.assistant import agent, usage
+        from neurodb.assistant import usage
 
-        response = agent.client().responses.create(
-            model=settings.AI_ASSISTANT_MODEL,
-            instructions=INSTRUCTIONS.format(audience=audience),
-            input="\n".join(lines[:MAX_LINES]),
-            max_output_tokens=2000,
-            store=False,
-            reasoning={"effort": "low"},
+        result = llm.complete(
+            llm.Request(
+                system=INSTRUCTIONS.format(audience=audience),
+                user="\n".join(lines[:MAX_LINES]),
+                as_message=False,
+                max_output_tokens=2000,
+            )
         )
-        usage.record(usage.DIGEST, settings.AI_ASSISTANT_MODEL, getattr(response, "usage", None))
-        text = (getattr(response, "output_text", "") or "").strip()
+        llm.record(usage.DIGEST, result.model, result)
+        text = result.text.strip()
         if not text:
             raise ValueError("the model returned no text")
-        return text, settings.AI_ASSISTANT_MODEL
+        return text, result.model
     except Exception:
         logger.exception("what's new note for %s: the assistant failed, listing the changes", audience)
         return _template(lines), TEMPLATE

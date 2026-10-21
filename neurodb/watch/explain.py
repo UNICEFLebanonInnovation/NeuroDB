@@ -15,9 +15,9 @@ country (``country``, read by the Administrators and the Management group). :fun
    same facts (the same ``input_hash``: the note is kept and no call is made).
 3. **One call**: a fixed instruction (:data:`INSTRUCTIONS`, the same every day so it can be cached),
    the facts as JSON, a strict output format (:data:`SCHEMA`: at most 6 sentences, each with the keys
-   it rests on), low effort, at most 1,500 output tokens, ``store`` off, its own prompt cache key, no
-   tools and no safety identifier (no person asked). The call's tokens go in the AI use ledger
-   (feature "watch").
+   it rests on), low effort, at most 1,500 output tokens, nothing stored by the provider, its own prompt
+   cache key (OpenAI) or cached instructions (Claude), no tools and no person identifier (no person
+   asked). The call's tokens go in the AI use ledger (feature "watch").
 4. **The checks**: every sentence must cite only keys of its audience and pass
    :func:`neurodb.watch.grounding.check` (numbers, dates, eTools references, no link, markup or
    person's name, at most 400 characters). Any other sentence is dropped.
@@ -45,7 +45,7 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
-from neurodb.assistant import usage
+from neurodb.assistant import llm, usage
 
 from . import budget, grounding, people, redact
 from .models import WatchItem, WatchNote
@@ -211,9 +211,11 @@ class Facts:
 
     @property
     def input_hash(self) -> str:
-        """A fingerprint of the facts, the instructions and the model: the same means the same note."""
+        """A fingerprint of the facts, the instructions and the model that writes the note (``WATCH_MODEL``
+        as the provider in use takes it): the same means the same note, and after a switch of provider the
+        notes are written once again."""
         text = json.dumps(
-            {"instructions": INSTRUCTIONS, "model": settings.WATCH_MODEL, "input": self.payload},
+            {"instructions": INSTRUCTIONS, "model": model(), "input": self.payload},
             sort_keys=True,
             ensure_ascii=False,
             default=str,
@@ -369,19 +371,26 @@ def facts(
 
 
 # ---------------------------------------------------------------------------- the AI's note
-def request(payload: Mapping[str, Any]) -> dict[str, Any]:
-    """The call's parameters: the fixed instructions, the facts as JSON and the strict format. No
-    tools, no safety identifier, nothing stored at OpenAI."""
-    return {
-        "model": settings.WATCH_MODEL,
-        "instructions": INSTRUCTIONS,
-        "input": json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str),
-        "max_output_tokens": MAX_OUTPUT_TOKENS,
-        "store": False,
-        "reasoning": {"effort": EFFORT},
-        "prompt_cache_key": CACHE_KEY,
-        "text": {"format": {"type": "json_schema", "name": "morning_note", "schema": SCHEMA, "strict": True}},
-    }
+def model() -> str:
+    """The model the notes are written with: ``WATCH_MODEL``, or the provider in use's own when it names a
+    model of the other provider (``llm.model_for``)."""
+    return llm.model_for(settings.WATCH_MODEL)
+
+
+def request(payload: Mapping[str, Any]) -> llm.Request:
+    """The call, for either provider: the fixed instructions, the facts as JSON and the strict format. No
+    tools, no person identifier, nothing stored by the provider."""
+    return llm.Request(
+        system=INSTRUCTIONS,
+        user=json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str),
+        as_message=False,
+        schema=SCHEMA,
+        schema_name="morning_note",
+        effort=EFFORT,
+        max_output_tokens=MAX_OUTPUT_TOKENS,
+        model=model(),
+        cache_key=CACHE_KEY,
+    )
 
 
 def _expand(keys: list[str], citable: Mapping[str, Any]) -> list[str]:
@@ -403,18 +412,16 @@ class _Asked:
     called: bool = False
     tokens: tuple[int, int, int] = (0, 0, 0)
     dropped: list[str] = field(default_factory=list)
+    model: str = ""  # the model that wrote the sentences
 
 
 def ask(facts: Facts, today: datetime.date, names: Iterable[str]) -> _Asked:
     """One call to the AI for ``facts``, and the sentences that pass the checks. The breaker hears of
     every failure and every answer (:mod:`neurodb.watch.budget`)."""
-    from neurodb.assistant import agent
-
     asked = _Asked()
     try:
-        api = agent.client().with_options(timeout=TIMEOUT, max_retries=MAX_RETRIES)
-        response = api.responses.create(**request(facts.payload))
-    except agent.AssistantUnavailable:
+        result = llm.connect(TIMEOUT, MAX_RETRIES).complete(request(facts.payload))
+    except llm.AssistantUnavailable:
         asked.reason = budget.OFF
         return asked
     except Exception as exc:  # the service failed: count it, pause when the credit ran out
@@ -423,11 +430,11 @@ def ask(facts: Facts, today: datetime.date, names: Iterable[str]) -> _Asked:
         return asked
     asked.called = True
     budget.succeeded()
-    answered = getattr(response, "usage", None)
-    usage.record(usage.WATCH, settings.WATCH_MODEL, answered)
-    asked.tokens = usage.split(answered)
+    llm.record(usage.WATCH, result.model, result)
+    asked.tokens = usage.split(result.usage)
+    asked.model = result.model
     try:
-        raw = json.loads(getattr(response, "output_text", "") or "")
+        raw = json.loads(result.text)
     except ValueError:
         raw = None
     kept, asked.dropped = grounding.validate(raw, facts.citable, MAX_SENTENCES, today, names)
@@ -612,7 +619,7 @@ def write(
         summary.tokens += sum(asked.tokens)
         summary.dropped.update(asked.dropped)
     if asked.sentences:
-        sentences, written_by = asked.sentences, settings.WATCH_MODEL
+        sentences, written_by = asked.sentences, asked.model
         summary.by_ai += 1
     else:
         sentences = template(

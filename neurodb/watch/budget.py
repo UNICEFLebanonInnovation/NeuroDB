@@ -36,7 +36,6 @@ import datetime
 import logging
 from typing import Any
 
-import openai
 from django.conf import settings
 from django.db import transaction
 from django.db.models import F
@@ -131,14 +130,10 @@ def status(now: datetime.datetime | None = None) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------- the circuit breaker
-def is_quota(exc: BaseException) -> bool:
-    """The OpenAI credit ran out: ``insufficient_quota`` (as an error code or type, also when the
-    stream ended with it), or a 429 whose message says quota (a plain 429 is the service being busy)."""
-    for name in ("code", "type"):
-        if str(getattr(exc, name, "") or "") == "insufficient_quota":
-            return True
-    too_many = isinstance(exc, openai.RateLimitError) or getattr(exc, "status_code", None) == 429
-    return too_many and "quota" in str(exc).lower()
+# The provider's credit ran out: OpenAI's ``insufficient_quota`` (as an error code or type, also when the
+# stream ended with it, or a 429 whose message says quota: a plain 429 is the service being busy), or
+# Anthropic's ``billing_error`` (a 402, or a 400 about the credit balance).
+is_quota = llm.is_quota
 
 
 def pause(reason: str, hours: int = PAUSE_HOURS, now: datetime.datetime | None = None) -> None:

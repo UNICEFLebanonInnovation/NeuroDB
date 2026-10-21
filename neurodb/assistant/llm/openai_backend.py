@@ -214,16 +214,20 @@ class Connection:
             except (TypeError, ValueError):
                 parsed = None
         prompt, cached, output = usage.split(getattr(response, "usage", None))
+        used = llm.Usage(input_tokens=prompt, cache_read_tokens=cached, output_tokens=output)
+        model = llm.model_for(request.model, llm.OPENAI)
         return llm.Result(
             text=text,
             parsed=parsed,
             stop=stop,
             reason=reason,
-            model=llm.model_for(request.model, llm.OPENAI),
+            model=model,
             served_by="",
-            usage=llm.Usage(input_tokens=prompt, cache_read_tokens=cached, output_tokens=output),
+            usage=used,
             provider=llm.OPENAI,
             raw=response,
+            by_model={model: used},  # one row of the model asked for, as every feature has booked it
+            model_calls={model: 1},
         )
 
     def complete(self, request: llm.Request) -> llm.Result:

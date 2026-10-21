@@ -17,9 +17,10 @@ time limit plus a minute is taken as stopped (:func:`expire_stale`).
 **What generate does** (it never raises): the gates (switched on, not paused, within the caps, the
 version's brief switched on, at least ``FMM_MIN_VISITS_FOR_AI`` visits, the person's quota), the facts
 (:mod:`.facts`); a brief already written from the very same input is reused without a call; the last
-privacy check (``privacy.assert_clean``); the call (``sampling.call``, recorded in the AI use ledger);
-then the checks of every sentence and action (:func:`validate`, ``watch.grounding``). What passes is
-kept; when nothing passes, the code-written brief (:mod:`.fallback`) is kept instead.
+privacy check (``privacy.assert_clean``); the call, on the AI provider in use (``sampling.complete``,
+recorded in the AI use ledger); then the checks of every sentence and action (:func:`validate`,
+``watch.grounding``). What passes is kept; when nothing passes, the code-written brief (:mod:`.fallback`)
+is kept instead.
 
 **What the page shows** (:func:`current`): the newest brief of the filter under the published version
 ("Up to date", or "the data has changed since"), else one under an older version, else the
@@ -29,7 +30,6 @@ code-written brief of the figures, built on the spot and not kept.
 from __future__ import annotations
 
 import datetime
-import json
 import logging
 import time
 from collections import Counter
@@ -38,14 +38,13 @@ from functools import partial
 from types import SimpleNamespace
 from typing import Any
 
-import openai
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.http import QueryDict
 from django.utils import timezone
 from django.utils.formats import date_format
 
-from neurodb.assistant import usage
+from neurodb.assistant import llm, usage
 from neurodb.integrations import background
 from neurodb.integrations.background import FMM_INSIGHTS_LOCK_ID
 from neurodb.watch import grounding, people, redact
@@ -146,34 +145,26 @@ def _refresh_state() -> tuple[int, datetime.datetime | None]:
 
 
 # ------------------------------------------------------------------------------------------ the request
-def request(facts, version: PromptVersion, user=None) -> dict[str, Any]:
-    """The call's parameters: the whole prompt, the facts as JSON, the strict format; nothing stored at
-    OpenAI, its own prompt cache key, and a safety identifier only for a brief someone asked for."""
+def request(facts, version: PromptVersion, user=None) -> llm.Request:
+    """The call, for either provider: the whole prompt, the facts as JSON, the strict format; nothing
+    stored by the provider, its own prompt cache key (on Claude the prompt is cached), and a keyed hash of
+    the person only for a brief someone asked for."""
     from neurodb.assistant import agent
 
     from .facts import dump
 
-    out = {
-        "model": profiles.model_of(version),
-        "instructions": profiles.compose(version, "insights"),
-        "input": [{"role": "user", "content": dump(facts.payload)}],
-        "reasoning": {"effort": version.effort},
-        "max_output_tokens": version.max_output_tokens,
-        "store": False,
-        "prompt_cache_key": CACHE_KEY,
-        "text": {
-            "format": {
-                "type": "json_schema",
-                "name": FORMAT_NAME,
-                "strict": True,
-                "schema": sections_module.schema(sections_module.of(version)),
-            }
-        },
-    }
     identifier = agent.safety_identifier(user) if user is not None else None
-    if identifier:
-        out["safety_identifier"] = identifier
-    return out
+    return llm.Request(
+        system=profiles.compose(version, "insights"),
+        user=dump(facts.payload),
+        schema=sections_module.schema(sections_module.of(version)),
+        schema_name=FORMAT_NAME,
+        effort=version.effort,
+        max_output_tokens=version.max_output_tokens,
+        model=profiles.model_of(version),
+        cache_key=CACHE_KEY,
+        user_id=identifier or None,
+    )
 
 
 # ------------------------------------------------------------------------------------------ the gates
@@ -488,20 +479,7 @@ def cited_visits(sections: dict[str, Any], actions: list[dict]) -> list[str]:
 
 
 # ------------------------------------------------------------------------------------------ writing
-def _refusal(response: Any) -> bool:
-    for item in getattr(response, "output", None) or []:
-        for part in getattr(item, "content", None) or []:
-            if getattr(part, "type", "") == "refusal":
-                return True
-    return False
-
-
-def _effort_refused(exc: BaseException) -> bool:
-    if not isinstance(exc, openai.BadRequestError):
-        return False
-    param = str(getattr(exc, "param", "") or "")
-    message = str(getattr(exc, "message", "") or exc)
-    return param.startswith("reasoning") or "reasoning.effort" in message
+_effort_refused = llm.effort_refused  # the API refused the effort sent (either provider's rule)
 
 
 def _friendly(exc: BaseException) -> str:
@@ -567,8 +545,6 @@ def generate(
 
 
 def _generate(scope, version, user, trigger, insight, today) -> Insight:
-    from neurodb.assistant import agent
-
     from . import fallback
     from .facts import build
 
@@ -597,7 +573,8 @@ def _generate(scope, version, user, trigger, insight, today) -> Insight:
     rules_version, as_of = _refresh_state()
     row.rules_version, row.data_as_of, row.input_hash = rules_version, as_of, facts.input_hash
     row.sent = facts.sent
-    model, effort = profiles.model_of(version), version.effort
+    # the model and effort as the provider in use runs them (Claude runs none and minimal as low)
+    model, effort = profiles.model_of(version), llm.effort_for(version.effort)
     row.model, row.effort, row.max_output_tokens = model[:64], effort[:8], version.max_output_tokens
 
     # 3. a brief written from the very same input: shown again, no call (a test run always calls)
@@ -635,9 +612,9 @@ def _generate(scope, version, user, trigger, insight, today) -> Insight:
     states = dict(plan.states)
     call = request(facts, version, user if trigger == Insight.Trigger.USER else None)
     try:
-        api = agent.client().with_options(timeout=settings.FMM_INSIGHTS_TIMEOUT_SECONDS, max_retries=1)
-        response, states = sampling.call(api, call, plan, model, effort)
-    except agent.AssistantUnavailable:
+        conn = llm.connect(settings.FMM_INSIGHTS_TIMEOUT_SECONDS, 1)
+        result, states = sampling.complete(conn, call, plan, model, effort)
+    except llm.AssistantUnavailable:
         row.status, row.reason, row.called = Insight.Status.SKIPPED, OFF, False
         return _save(row)
     except Exception as exc:
@@ -652,28 +629,22 @@ def _generate(scope, version, user, trigger, insight, today) -> Insight:
         row.sampling = sampling.summary(version, states, model, effort)
         row.duration_ms = int((time.monotonic() - clock) * 1000)
         return _save(row)
-    answered = getattr(response, "usage", None)
-    usage.record(usage.FMM, model, answered)
+    llm.record(usage.FMM, result.model, result)
     row.called = True
-    row.input_tokens, row.cached_tokens, row.output_tokens = _tokens(answered)
+    row.input_tokens, row.cached_tokens, row.output_tokens = _tokens(result.usage)
     row.sampling = sampling.summary(version, states, model, effort)
     row.sent_payload = facts.payload
     row.duration_ms = int((time.monotonic() - clock) * 1000)
 
     # 7. the answer
-    if getattr(response, "status", "") == "incomplete":
-        details = getattr(response, "incomplete_details", None)
-        why_cut = str(getattr(details, "reason", "") or "")
+    if result.cut_off:
         row.status = Insight.Status.FAILED
-        row.reason = REFUSED if why_cut == "content_filter" else CUT_OFF
+        row.reason = REFUSED if result.reason == "content_filter" else CUT_OFF
         return _save(row)
-    if _refusal(response):
+    if result.stop == "refused":
         row.status, row.reason = Insight.Status.FAILED, REFUSED
         return _save(row)
-    try:
-        raw = json.loads(getattr(response, "output_text", "") or "")
-    except (TypeError, ValueError):
-        raw = None
+    raw = result.parsed
     if not isinstance(raw, dict):
         row.status, row.reason = Insight.Status.FAILED, MALFORMED
         return _save(row)

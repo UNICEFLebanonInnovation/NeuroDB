@@ -5,17 +5,23 @@ the key, the beta header and the body, checked against the SDK's own request typ
 ``assert_claude_params``) and how the final message it builds from the stream is read back: the text,
 a refusal, a refusal fallback, a cut stream, the errors and the connection test. Then Ask NeuroDB's answers
 with tools on Claude: the request, the conversation sent back round after round, the events, refusals and
-fallbacks, the limits, every way a stream can fail, and NeuroDB Watch's look-up. No network access and no
-real API key.
+fallbacks, the limits, every way a stream can fail, and NeuroDB Watch's look-up. Last, each feature's own
+call (the AI checks, the action point review, the document review, the country programme reading, the daily
+review, the What's new note, the Watch morning note, the periodic figures and the document summaries)
+driven through its own function: what it sends, and that it keeps what it keeps on OpenAI. No network
+access and no real API key.
 """
 
 import base64
 import json
+from types import SimpleNamespace
 
 import pytest
 from anthropic.lib.streaming._beta_messages import BetaMessageStream
 from django.conf import settings
 from django.core.cache import caches
+from django.core.files.base import ContentFile
+from django.test import override_settings
 from django.urls import reverse
 
 from neurodb.assistant import agent, llm, tools, usage, views
@@ -24,6 +30,7 @@ from neurodb.assistant.models import AIUsage, AssistantQuestion
 from neurodb.watch import investigate
 from neurodb.web import health
 from tests.assistant import anthropic_mock
+from tests.assistant import test_openai_parity as parity
 from tests.assistant.anthropic_mock import (
     MODEL,
     cut_before_start,
@@ -770,3 +777,151 @@ def test_a_run_with_an_empty_prompt_of_its_own_sends_one_system_block(claude, db
     assert block["text"].startswith("\nToday is ") and block["text"].endswith("\n\nLook.")
     assert block["cache_control"] == {"type": "ephemeral"}
     assert "tools" not in params and "metadata" not in params  # no tools offered, no person asked
+
+
+# ------------------------------------------------------------------------- each feature's own call
+def _framework_from_a_pdf(api):
+    from neurodb.cpd import extraction
+
+    return extraction.extract(SimpleNamespace(filename="tiny.pdf", file=ContentFile(PDF)))
+
+
+# Each feature's call as the OpenAI parity tests make it (tests/assistant/test_openai_parity.py), the country
+# programme reading with a PDF, sent whole
+CALLERS = {caller: call for caller, (call, _answer) in parity.ANSWERS.items()}
+CALLERS["G_cpd"] = _framework_from_a_pdf
+# What each call sends (§3 of the design): its instructions marked for caching (None: it has none), the
+# effort and max_tokens (at least 2,000: the thinking counts too)
+SENT = {
+    "B_checks": (True, "low", 2000),
+    "C_ap_review": (True, "low", 2000),
+    "E_doc_review": (True, "low", 8000),
+    "G_cpd": (None, "medium", 32000),
+    "H1_narration": (False, "low", 2000),
+    "H2_decisions": (False, "low", 2000),
+    "I_whats_new": (False, "low", 2000),
+    "J_watch_note": (True, "low", 2000),
+    "M_figures": (None, "medium", 32000),
+    "N_summary": (None, "medium", 8000),
+}
+USED = anthropic_mock.usage(100, 20, read=50)  # the parity shapes' tokens: a prompt of 150, 50 of it cached
+# A reply on Claude, and the OpenAI shape whose kept outcome it gives: an answer cut at its limit is read as
+# OpenAI's, and a declined one, which keeps no text, as an empty answer
+REPLIES = {
+    "ok": ("completed", lambda answer: turn([thinking("sig-1"), text(answer)], usage=USED)),
+    "max_tokens": (
+        "max_output_tokens",
+        lambda answer: turn([text(answer)], stop_reason="max_tokens", usage=USED),
+    ),
+    "refusal": ("empty", lambda answer: refusal("cyber", blocks=[text(answer[:10])], usage=USED)),
+}
+
+
+def _on_claude(value):
+    """An outcome recorded on OpenAI, with the model that wrote it on Claude."""
+    if isinstance(value, list):
+        return [_on_claude(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _on_claude(item) for key, item in value.items()}
+    return MODEL if value == "gpt-5.5" else value
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("reply", list(REPLIES))
+@pytest.mark.parametrize("caller", list(CALLERS))
+def test_each_feature_keeps_on_claude_what_it_keeps_on_openai(claude, caller, reply):
+    shape, make = REPLIES[reply]
+    answer = parity._answer(caller)
+    server = claude(make(answer if isinstance(answer, str) else json.dumps(answer)))
+
+    outcome = json.loads(json.dumps(parity.outcome_of(lambda: CALLERS[caller](None)), default=str))
+
+    assert outcome == _on_claude(parity.EXPECTED[caller][shape])
+    (booked,) = AIUsage.objects.all()  # one row, of the model that ran the call
+    assert (booked.model, booked.calls) == (MODEL, 1)
+    assert (booked.input_tokens, booked.cached_tokens, booked.output_tokens) == (100, 50, 20)
+    body, headers = _sent(server)
+    assert_claude_params(body, headers)
+    cached, effort, most = SENT[caller]
+    assert body["model"] == MODEL  # a feature that names an OpenAI model runs on Claude's
+    assert body["output_config"]["effort"] == effort and body["max_tokens"] == most
+    if cached is None:
+        assert "system" not in body
+    else:
+        assert ("cache_control" in body["system"][0]) is cached
+    assert "cache_control" not in body and "metadata" not in body  # a one-off call; no person asked
+
+
+def test_the_country_programme_goes_whole_and_its_numbers_may_be_missing(claude, db):
+    from neurodb.cpd import extraction
+
+    server = claude(turn([text(json.dumps(parity._answer("G_cpd")))]))
+    _framework_from_a_pdf(None)
+    body, _headers = _sent(server)
+    document, prompt = body["messages"][0]["content"]
+    assert document["type"] == "document" and document["title"] == "tiny.pdf"
+    assert base64.b64decode(document["source"]["data"]) == PDF
+    assert prompt == {"type": "text", "text": extraction.PROMPT}
+    outcome = body["output_config"]["format"]["schema"]["properties"]["outcomes"]["items"]["properties"]
+    baseline = outcome["indicators"]["items"]["properties"]["baseline"]
+    assert baseline == {"anyOf": [{"type": "number"}, {"type": "null"}]}
+
+
+@pytest.mark.parametrize(
+    "caller, key, limit",
+    [("H2_decisions", "decisions", "{maxItems: 5}"), ("J_watch_note", "sentences", "{maxItems: 6}")],
+)
+def test_a_list_limit_claude_does_not_take_is_said_in_words_and_kept_by_the_code(
+    claude, db, caller, key, limit
+):
+    server = claude(turn([text(json.dumps(parity._answer(caller)))]))
+    parity.outcome_of(lambda: CALLERS[caller](None))
+    body, _headers = _sent(server)
+    listed = body["output_config"]["format"]["schema"]["properties"][key]
+    assert "maxItems" not in listed and limit in listed["description"]
+
+
+def test_a_feature_with_no_key_for_claude_is_not_set_up(claude, db):
+    from neurodb.cpd import extraction
+
+    with override_settings(ANTHROPIC_API_KEY=""):
+        with pytest.raises(extraction.ExtractionError) as raised:
+            _framework_from_a_pdf(None)
+    assert str(raised.value) == "The AI assistant is not configured: enter an API key in AI settings."
+
+
+def test_a_document_too_large_for_claude_says_to_import_the_framework(claude, db):
+    from neurodb.cpd import extraction
+
+    claude(http_error(413, error_body("request_too_large", "Request exceeds the maximum size")))
+    with pytest.raises(extraction.ExtractionError) as raised:
+        _framework_from_a_pdf(None)
+    assert str(raised.value) == extraction.TOO_LARGE
+
+
+def test_a_call_answered_after_a_refusal_fallback_books_each_model_its_own_attempt(claude, db):
+    attempts = [
+        iteration("message", 50, 10, read=200),
+        iteration("fallback_message", 60, 40, model="claude-opus-5", write=30),
+    ]
+    claude(
+        turn(
+            [text("The first half, "), fallback(MODEL, "claude-opus-5", "cyber"), text("and the rest.")],
+            usage=anthropic_mock.usage(60, 40, write=30, iterations=attempts),
+        )
+    )
+    result = llm.complete(llm.Request(system="x", user="y"))
+    assert result.by_model == {
+        MODEL: llm.Usage(input_tokens=50, cache_read_tokens=200, output_tokens=10),
+        "claude-opus-5": llm.Usage(input_tokens=90, cache_write_tokens=30, output_tokens=40),
+    }
+    assert result.model_calls == {"claude-opus-5": 1}  # the model that wrote the answer
+    llm.record(usage.REVIEW, result.model, result)
+    rows = {row.model: row for row in AIUsage.objects.filter(feature=usage.REVIEW)}
+    assert {
+        name: (row.calls, row.input_tokens, row.cached_tokens, row.output_tokens)
+        for name, row in rows.items()
+    } == {
+        MODEL: (0, 50, 200, 10),  # the declined attempt, at the prices of the model asked for
+        "claude-opus-5": (1, 90, 0, 40),
+    }

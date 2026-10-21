@@ -2,11 +2,11 @@
 about, as up to 5 dominant themes (a name, how many action points it covers and one example action point)
 and a one-sentence overall pattern.
 
-One click is one Responses API call. It reads the action points of the page's filter (at most
+One click is one call to the AI provider in use. It reads the action points of the page's filter (at most
 ``ActionPointSetting.summary_points``, 150, most recent first): each one's reference and its description,
 cut to ``TEXT_CHARS`` and cleaned (``privacy.clean``: names, e-mail addresses, phone numbers and links
-removed), then checked once more (``privacy.assert_clean``). Who a point is assigned to is never sent. The
-instructions are the published prompt version's ``rule_prompts["ap_content_summary"]`` followed by
+removed), then checked once more (``privacy.assert_clean``). Who a point is assigned to is never sent.
+The instructions are the published prompt version's ``rule_prompts["ap_content_summary"]`` followed by
 NeuroDB's fixed rules (``prompts.SAFETY_AP_SUMMARY``); the model and temperature are the AI checks'.
 
 **Checked before it is shown** (:func:`grounded`): a theme whose example is not one of the references
@@ -153,17 +153,17 @@ def collect(points, limit: int, names_: frozenset[str]) -> tuple[list[dict[str, 
     return out, total
 
 
-def request(prompt: str, sent: dict[str, Any], setting: ScoreSetting) -> dict[str, Any]:
-    return {
-        "model": checks.model_of(setting),
-        "instructions": prompts.compose_ap(prompt, "summary"),
-        "input": [{"role": "user", "content": json.dumps(sent, ensure_ascii=False, sort_keys=True)}],
-        "reasoning": {"effort": EFFORT},
-        "max_output_tokens": max(OUTPUT_TOKENS, setting.ai_max_output_tokens),
-        "store": False,
-        "prompt_cache_key": "neurodb-fmm-ap-summary",
-        "text": {"format": {"type": "json_schema", "name": FORMAT_NAME, "strict": True, "schema": SCHEMA}},
-    }
+def request(prompt: str, sent: dict[str, Any], setting: ScoreSetting) -> llm.Request:
+    return llm.Request(
+        system=prompts.compose_ap(prompt, "summary"),
+        user=json.dumps(sent, ensure_ascii=False, sort_keys=True),
+        schema=SCHEMA,
+        schema_name=FORMAT_NAME,
+        effort=EFFORT,
+        max_output_tokens=max(OUTPUT_TOKENS, setting.ai_max_output_tokens),
+        model=checks.model_of(setting),
+        cache_key="neurodb-fmm-ap-summary",
+    )
 
 
 def grounded(
@@ -204,8 +204,6 @@ def grounded(
 def summarise(points, user) -> Summary:
     """The AI content summary of the ``points`` query (``datamart.ActionPoint``, the page's filter) for
     ``user`` (see the module's notes)."""
-    from neurodb.assistant import agent
-
     if not (settings.FMM_ENABLED and settings.FMM_AI and llm.enabled()):
         return Summary(False, OFF)
     prompt = instructions()
@@ -243,21 +241,18 @@ def summarise(points, user) -> Summary:
     )
     model = checks.model_of(setting)
     try:
-        api = agent.client().with_options(timeout=settings.FMM_AP_REVIEW_TIMEOUT_SECONDS, max_retries=1)
+        conn = llm.connect(settings.FMM_AP_REVIEW_TIMEOUT_SECONDS, 1)
         plan = sampling.plan(SimpleNamespace(temperature=setting.ai_temperature, top_p=None), model, EFFORT)
-        response, _states = sampling.call(api, request(prompt, sent, setting), plan, model, EFFORT)
+        result, _states = sampling.complete(conn, request(prompt, sent, setting), plan, model, EFFORT)
     except Exception as exc:
         budget.trip(exc)
         logger.warning("Action points: an AI content summary failed: %s", type(exc).__name__)
         _finish(row, ActionPointSummary.Status.FAILED, model, None, type(exc).__name__)
         return Summary(False, FAILED, total=total)
-    answered = getattr(response, "usage", None)
-    usage.record(usage.FMM_AP_REVIEW, model, answered)
-    try:
-        raw = json.loads(getattr(response, "output_text", "") or "")
-    except (TypeError, ValueError):
-        raw = None
-    found = grounded(raw, sent, names_) if getattr(response, "status", "") != "incomplete" else None
+    llm.record(usage.FMM_AP_REVIEW, result.model, result)
+    answered = result.usage
+    raw = result.parsed
+    found = grounded(raw, sent, names_) if not result.cut_off else None
     if found is None or not found[0]:
         _finish(row, ActionPointSummary.Status.FAILED, model, answered, "not checked")
         return Summary(False, NOT_CHECKED if raw is not None else FAILED, total=total)

@@ -1,16 +1,17 @@
 """The AI review of completed eTools action points (FMS §10.3, "AI Adequacy Review"), and the job that
 makes it (``manage.py fmm_ap_review``).
 
-**One review** is one Responses API call per completed action point (status completed, closed or
-resolved) whose action taken is written: the instructions are the published prompt version's
-``rule_prompts["ap_adequacy_review"]`` (seeded from FMS Lebanon's prompt file) followed by NeuroDB's fixed
-rules (``prompts.SAFETY_AP_REVIEW``); the input is the action point's description (the issue) and its
-action taken, each cut to the score settings' ``ai_text_chars`` and cleaned (``privacy.clean``: names,
-e-mail addresses, phone numbers and links removed), then checked once more (``privacy.assert_clean``). Who
-the action point is assigned to, its office and its partner are never sent. The answer follows a strict
-JSON schema, ``{"verdict": "Adequately addressed" | "Partially addressed" | "Not addressed" |
-"Generic/vague", "explanation": string}``. The model, temperature (through the sampling guard),
-reasoning effort and output limit are the AI checks' (Score settings); nothing is stored at OpenAI.
+**One review** is one call to the AI provider in use per completed action point (status completed, closed
+or resolved) whose action taken is written: the instructions are the published prompt version's
+``rule_prompts["ap_adequacy_review"]`` (seeded from FMS Lebanon's prompt file) followed by NeuroDB's
+fixed rules (``prompts.SAFETY_AP_REVIEW``); the input is the action point's description (the issue) and
+its action taken, each cut to the score settings' ``ai_text_chars`` and cleaned (``privacy.clean``:
+names, e-mail addresses, phone numbers and links removed), then checked once more
+(``privacy.assert_clean``). Who the action point is assigned to, its office and its partner are never
+sent. The answer follows a strict JSON schema, ``{"verdict": "Adequately addressed" | "Partially
+addressed" | "Not addressed" | "Generic/vague", "explanation": string}``. The model, temperature (through
+the sampling guard), reasoning effort and output limit are the AI checks' (Score settings); nothing is
+stored by the provider.
 
 **The cache** (``ActionPointReview``, per action point): a point is reviewed again only when its
 description or action taken (``input_hash``) or the instructions (``prompt_hash``) change; a review out of
@@ -120,17 +121,17 @@ def payload(description: str, action: str, limit: int, names_: frozenset[str]) -
 
 
 # ------------------------------------------------------------------------------------------ one review
-def request(prompt: str, sent: dict[str, str], setting: ScoreSetting) -> dict[str, Any]:
-    return {
-        "model": checks.model_of(setting),
-        "instructions": prompts.compose_ap(prompt, "review"),
-        "input": [{"role": "user", "content": json.dumps(sent, ensure_ascii=False, sort_keys=True)}],
-        "reasoning": {"effort": EFFORT},
-        "max_output_tokens": setting.ai_max_output_tokens,
-        "store": False,
-        "prompt_cache_key": "neurodb-fmm-ap-review",
-        "text": {"format": {"type": "json_schema", "name": FORMAT_NAME, "strict": True, "schema": SCHEMA}},
-    }
+def request(prompt: str, sent: dict[str, str], setting: ScoreSetting) -> llm.Request:
+    return llm.Request(
+        system=prompts.compose_ap(prompt, "review"),
+        user=json.dumps(sent, ensure_ascii=False, sort_keys=True),
+        schema=SCHEMA,
+        schema_name=FORMAT_NAME,
+        effort=EFFORT,
+        max_output_tokens=setting.ai_max_output_tokens,
+        model=checks.model_of(setting),
+        cache_key="neurodb-fmm-ap-review",
+    )
 
 
 def estimate(sent: dict[str, str], prompt: str, setting: ScoreSetting) -> int:
@@ -147,21 +148,19 @@ def allowed(tokens: int) -> bool:
     return usage.today_total() + tokens <= settings.AI_DAILY_TOKEN_SOFT_CAP * SOFT_SHARE
 
 
-def review(api, prompt: str, sent: dict[str, str], setting: ScoreSetting, names_) -> ActionPointReview | None:
-    """One review: the answer as an ``ActionPointReview`` not saved yet (no id or hashes); None when the
-    answer could not be read. Raises what the call raised."""
+def review(
+    conn, prompt: str, sent: dict[str, str], setting: ScoreSetting, names_
+) -> ActionPointReview | None:
+    """One review through ``conn`` (``llm.connect``): the answer as an ``ActionPointReview`` not saved yet
+    (no id or hashes); None when the answer could not be read. Raises what the call raised."""
     model = checks.model_of(setting)
     plan = sampling.plan(SimpleNamespace(temperature=setting.ai_temperature, top_p=None), model, EFFORT)
-    response, _states = sampling.call(api, request(prompt, sent, setting), plan, model, EFFORT)
-    answered = getattr(response, "usage", None)
-    usage.record(usage.FMM_AP_REVIEW, model, answered)
-    input_tokens, cached, output = usage.split(answered)
-    if getattr(response, "status", "") == "incomplete":
+    result, _states = sampling.complete(conn, request(prompt, sent, setting), plan, model, EFFORT)
+    llm.record(usage.FMM_AP_REVIEW, result.model, result)
+    input_tokens, cached, output = usage.split(result.usage)
+    if result.cut_off:
         return None
-    try:
-        raw = json.loads(getattr(response, "output_text", "") or "")
-    except (TypeError, ValueError):
-        return None
+    raw = result.parsed
     if not isinstance(raw, dict) or raw.get("verdict") not in VERDICTS:
         return None
     sent_text = json.dumps(sent, ensure_ascii=False)
@@ -246,7 +245,6 @@ def run(triggered_by: str = "schedule", limit: int | None = None):
     """The review (see the module's notes), as one ``SyncRun``: ``rows_in`` the completed points reached
     that needed a review, ``rows_written`` the verdicts made, ``rows_failed`` the reviews whose call or
     answer failed. ``limit``: the most reviews to make (the page's batch size)."""
-    from neurodb.assistant import agent
     from neurodb.core.models import SyncRun
     from neurodb.integrations.runs import fail, finish_by_counts, new_run
 
@@ -263,9 +261,9 @@ def run(triggered_by: str = "schedule", limit: int | None = None):
         return sync_run
     stopped = ""
     try:
-        api = agent.client().with_options(timeout=settings.FMM_AP_REVIEW_TIMEOUT_SECONDS, max_retries=1)
-        stopped = _review_all(api, sync_run, tally, limit)
-    except agent.AssistantUnavailable:
+        conn = llm.connect(settings.FMM_AP_REVIEW_TIMEOUT_SECONDS, 1)
+        stopped = _review_all(conn, sync_run, tally, limit)
+    except llm.AssistantUnavailable:
         stopped = "AI is switched off"
     except Exception as exc:
         return fail(sync_run, exc, **tally, duration_ms=int((time.monotonic() - clock) * 1000))
@@ -274,7 +272,7 @@ def run(triggered_by: str = "schedule", limit: int | None = None):
     )
 
 
-def _review_all(api, sync_run, tally: dict[str, int], limit: int | None) -> str:
+def _review_all(conn, sync_run, tally: dict[str, int], limit: int | None) -> str:
     """The reviews due, most recently completed first, until the budget, the pause, ``limit`` or 3
     failures in a row stop them; why they stopped ("" when every review due was made)."""
     setting = ScoreSetting.load()
@@ -311,7 +309,7 @@ def _review_all(api, sync_run, tally: dict[str, int], limit: int | None) -> str:
             tally["skipped"] += 1
             continue
         try:
-            found = review(api, prompt, sent, setting, names_)
+            found = review(conn, prompt, sent, setting, names_)
         except Exception as exc:
             if budget.trip(exc):
                 return "paused: the OpenAI credit ran out"

@@ -12,7 +12,6 @@ import logging
 import re
 from typing import Any
 
-from django.conf import settings
 from django.contrib.postgres.search import SearchVector
 from django.db import transaction
 from django.db.models import Max, Min, Value
@@ -197,42 +196,27 @@ def _date(text: str) -> datetime.date | None:
 def summarise(document: Document) -> bool:
     """Ask the model for the summary, key points, date and names of the document; the names become
     AI-suggested links when they match NeuroDB records. False when the assistant is not configured."""
-    from neurodb.assistant import usage
-    from neurodb.assistant.agent import AssistantUnavailable, client
+    from neurodb.assistant import llm, usage
 
     try:
-        api = client()
-    except AssistantUnavailable:
+        conn = llm.connect()
+    except llm.AssistantUnavailable:
         return False
     body = document.text.replace(PAGE_BREAK, "\n")[:SUMMARY_INPUT_CHARS]
-    response = api.responses.create(
-        model=settings.AI_ASSISTANT_MODEL,
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": SUMMARY_PROMPT},
-                    {
-                        "type": "input_text",
-                        "text": f"Title: {document.title}\n\n<document>\n{body}\n</document>",
-                    },
-                ],
-            }
-        ],
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": "knowledge_document",
-                "schema": SUMMARY_SCHEMA,
-                "strict": True,
-            }
-        },
-        reasoning={"effort": settings.AI_ASSISTANT_EFFORT},
-        max_output_tokens=8000,
-        store=False,
+    result = conn.complete(
+        llm.Request(
+            user=(
+                llm.Text(SUMMARY_PROMPT),
+                llm.Text(f"Title: {document.title}\n\n<document>\n{body}\n</document>"),
+            ),
+            schema=SUMMARY_SCHEMA,
+            schema_name="knowledge_document",
+            effort=llm.default_effort(),
+            max_output_tokens=8000,
+        )
     )
-    usage.record(usage.KNOWLEDGE, settings.AI_ASSISTANT_MODEL, getattr(response, "usage", None))
-    data = json.loads(response.output_text)
+    llm.record(usage.KNOWLEDGE, result.model, result)
+    data = json.loads(result.text)
     document.summary = str(data.get("summary") or "")[:4000]
     document.key_points = [str(p)[:500] for p in (data.get("key_points") or [])][:8]
     document.document_date = document.document_date or _date(data.get("document_date", ""))

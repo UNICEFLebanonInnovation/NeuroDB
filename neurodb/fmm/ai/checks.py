@@ -1,22 +1,23 @@
 """The AI checks of the narrative quality rules (FMS's AI rules: R3, R5, R6, R7, R8, R32...), record by
 record, and the nightly job that makes them (``manage.py fmm_ai_checks``).
 
-**One check** is one Responses API call per record (an entity row of a visit, as FMS checks each record)
-and rule: the instructions are the rule's prompt (the published prompt version's ``rule_prompts`` under
-the rule's ``ai_prompt_key``, seeded from FMS Lebanon's prompt file) followed by NeuroDB's fixed rules
-(``prompts.SAFETY_CHECKS``); the input is the rule's fields for the record (:func:`payload`): its entity
-type and the row fields the rule lists (rating, narrative, Q1, Q2 and Q3 answers: its own, else its
-entity's, its partner's or the visit's), then the visit's own fields it lists (the record's visit goals
-and objective, else the visit's; the visit's action points with their due dates, repeated on each record
-as FMS does; who an action point is assigned to only as a count; the team and the person responsible
-never). Neither the visit's label nor the entity's name is sent: the rules judge the coherence of the
-texts, and identical texts then ask the same question. Each text is cut to the settings'
-``ai_text_chars`` and cleaned (``privacy.clean``: names, e-mail addresses, phone numbers and links
-removed), then checked once more (``privacy.assert_clean``). The answer follows a strict JSON schema,
-``{"is_coherent": boolean, "detail": string}``. The model is the score settings' (``ai_model``), else
-``AI_ASSISTANT_MODEL``; temperature 0.3 through the sampling guard (``sampling``: not sent when the model
-refuses it), low reasoning effort, ``ai_max_output_tokens`` (2,000, the reasoning included), nothing
-stored at OpenAI, and one prompt cache key per rule.
+**One check** is one call to the AI provider in use per record (an entity row of a visit, as FMS checks
+each record) and rule: the instructions are the rule's prompt (the published prompt version's
+``rule_prompts`` under the rule's ``ai_prompt_key``, seeded from FMS Lebanon's prompt file) followed by
+NeuroDB's fixed rules (``prompts.SAFETY_CHECKS``); the input is the rule's fields for the record
+(:func:`payload`): its entity type and the row fields the rule lists (rating, narrative, Q1, Q2 and Q3
+answers: its own, else its entity's, its partner's or the visit's), then the visit's own fields it lists
+(the record's visit goals and objective, else the visit's; the visit's action points with their due
+dates, repeated on each record as FMS does; who an action point is assigned to only as a count; the team
+and the person responsible never). Neither the visit's label nor the entity's name is sent: the rules
+judge the coherence of the texts, and identical texts then ask the same question. Each text is cut to the
+settings' ``ai_text_chars`` and cleaned (``privacy.clean``: names, e-mail addresses, phone numbers and
+links removed), then checked once more (``privacy.assert_clean``). The answer follows a strict JSON
+schema, ``{"is_coherent": boolean, "detail": string}``. The model is the score settings' (``ai_model``),
+else ``AI_ASSISTANT_MODEL``, as the provider in use takes it (``llm.model_for``); temperature 0.3 through
+the sampling guard (``sampling``: OpenAI only, and not sent when the model refuses it), low reasoning
+effort, ``ai_max_output_tokens`` (2,000, the reasoning included), nothing stored by the provider, and one
+prompt cache key per rule.
 
 **The answers** (``AICheckAnswer``) are kept by what was asked: the rule, its prompt (``prompt_hash``: its
 instructions, fields and NeuroDB's fixed text, ``prompts.CHECKS_VERSION``) and the record's inputs as
@@ -75,7 +76,7 @@ from django.db import connection
 from django.db.models import Case, F, IntegerField, Value, When
 from django.utils import timezone
 
-from neurodb.assistant import usage
+from neurodb.assistant import llm, usage
 from neurodb.integrations.background import FMM_AI_CHECKS_LOCK_ID
 from neurodb.watch.budget import SOFT_SHARE
 
@@ -484,21 +485,23 @@ def fresh(
 
 # ------------------------------------------------------------------------------------------ one check
 def model_of(setting) -> str:
-    return (setting.ai_model or "").strip() or settings.AI_ASSISTANT_MODEL
+    """The model the checks (and the action points' AI) run on: the score settings' own, else
+    ``AI_ASSISTANT_MODEL``; a model of the other provider is not used (``llm.model_for``)."""
+    return llm.model_for((setting.ai_model or "").strip() or settings.AI_ASSISTANT_MODEL)
 
 
-def request(rule, prompt: str, sent: Mapping[str, Any], setting) -> dict[str, Any]:
-    """The parameters of one check (temperature is added by the sampling guard)."""
-    return {
-        "model": model_of(setting),
-        "instructions": prompts.compose_check(prompt),
-        "input": [{"role": "user", "content": json.dumps(sent, ensure_ascii=False, sort_keys=True)}],
-        "reasoning": {"effort": EFFORT},
-        "max_output_tokens": setting.ai_max_output_tokens,
-        "store": False,
-        "prompt_cache_key": f"neurodb-fmm-check-{rule.code}",
-        "text": {"format": {"type": "json_schema", "name": FORMAT_NAME, "strict": True, "schema": SCHEMA}},
-    }
+def request(rule, prompt: str, sent: Mapping[str, Any], setting) -> llm.Request:
+    """One check's call, for either provider (temperature is added by the sampling guard)."""
+    return llm.Request(
+        system=prompts.compose_check(prompt),
+        user=json.dumps(sent, ensure_ascii=False, sort_keys=True),
+        schema=SCHEMA,
+        schema_name=FORMAT_NAME,
+        effort=EFFORT,
+        max_output_tokens=setting.ai_max_output_tokens,
+        model=model_of(setting),
+        cache_key=f"neurodb-fmm-check-{rule.code}",
+    )
 
 
 def grounded(detail: Any, sent_text: str, names_: frozenset[str]) -> str:
@@ -535,23 +538,19 @@ class Stop(Exception):
 
 
 def check(
-    api, rule, prompt: str, sent: dict[str, Any], setting, names_: frozenset[str]
+    conn, rule, prompt: str, sent: dict[str, Any], setting, names_: frozenset[str]
 ) -> AICheckAnswer | None:
-    """One check (see the module's notes): the answer as an ``AICheckAnswer`` not saved yet (without its
-    hashes); None when the answer could not be read (cut off, refused or not the format). Raises what
-    the call raised."""
+    """One check (see the module's notes) through ``conn`` (``llm.connect``): the answer as an
+    ``AICheckAnswer`` not saved yet (without its hashes); None when the answer could not be read (cut
+    off, refused or not the format). Raises what the call raised."""
     model = model_of(setting)
     plan = sampling.plan(SimpleNamespace(temperature=setting.ai_temperature, top_p=None), model, EFFORT)
-    response, _states = sampling.call(api, request(rule, prompt, sent, setting), plan, model, EFFORT)
-    answered = getattr(response, "usage", None)
-    usage.record(usage.FMM_RULES, model, answered)
-    input_tokens, cached, output = usage.split(answered)
-    if getattr(response, "status", "") == "incomplete":
+    result, _states = sampling.complete(conn, request(rule, prompt, sent, setting), plan, model, EFFORT)
+    llm.record(usage.FMM_RULES, result.model, result)
+    input_tokens, cached, output = usage.split(result.usage)
+    if result.cut_off:
         return None
-    try:
-        raw = json.loads(getattr(response, "output_text", "") or "")
-    except (TypeError, ValueError):
-        return None
+    raw = result.parsed
     if not isinstance(raw, dict) or not isinstance(raw.get("is_coherent"), bool):
         return None
     sent_text = json.dumps(sent, ensure_ascii=False)
@@ -764,7 +763,6 @@ def run(triggered_by: str = "schedule", limit: int | None = None):
     """The nightly checks (see the module's notes), as one ``SyncRun``: ``rows_in`` the checks due that
     were reached, ``rows_written`` the checks made, ``rows_failed`` those whose call or answer failed.
     ``limit``: the most checks to make (an administrator's trial run)."""
-    from neurodb.assistant import agent
     from neurodb.core.models import SyncRun
     from neurodb.integrations.runs import fail, finish_by_counts, new_run
 
@@ -793,9 +791,9 @@ def run(triggered_by: str = "schedule", limit: int | None = None):
     stopped = ""
     try:
         legacy = carry_over(book)
-        api = agent.client().with_options(timeout=settings.FMM_RULES_TIMEOUT_SECONDS, max_retries=1)
-        stopped = _check_all(api, book, sync_run, tally, limit)
-    except agent.AssistantUnavailable:
+        conn = llm.connect(settings.FMM_RULES_TIMEOUT_SECONDS, 1)
+        stopped = _check_all(conn, book, sync_run, tally, limit)
+    except llm.AssistantUnavailable:
         stopped = "AI is switched off"
     except Exception as exc:
         return fail(sync_run, exc, **tally, duration_ms=int((time.monotonic() - clock) * 1000))
@@ -853,7 +851,7 @@ def _ordered(book):
     )
 
 
-def _check_all(api, book, sync_run, tally: dict[str, int], limit: int | None) -> str:
+def _check_all(conn, book, sync_run, tally: dict[str, int], limit: int | None) -> str:
     """The checks due, record by record in the job's order (:func:`_ordered`), one call for every
     record whose input is the same, until the budget, the pause, ``limit`` or 3 failures in a row stop
     them; the records left are still read, to count what waits (``records_pending``,
@@ -929,7 +927,7 @@ def _check_all(api, book, sync_run, tally: dict[str, int], limit: int | None) ->
             sync_run.rows_failed += 1
             return None
         try:
-            found = check(api, rule, prompt, sent, setting, names_)
+            found = check(conn, rule, prompt, sent, setting, names_)
         except Exception as exc:
             if budget.trip(exc):
                 stop("paused: the OpenAI credit ran out")

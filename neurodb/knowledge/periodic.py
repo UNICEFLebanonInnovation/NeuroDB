@@ -24,7 +24,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -250,12 +249,11 @@ def _ai_figures(
     document: Document, pages: list[str], charts: list[pdf_layout.ChartSeries]
 ) -> list[dict[str, Any]] | None:
     """The AI's list of the edition's figures; None when the assistant is not configured."""
-    from neurodb.assistant import usage
-    from neurodb.assistant.agent import AssistantUnavailable, client
+    from neurodb.assistant import llm, usage
 
     try:
-        api = client()
-    except AssistantUnavailable:
+        conn = llm.connect()
+    except llm.AssistantUnavailable:
         return None
     known = (
         ReportFigure.objects.filter(series=document.series)
@@ -274,32 +272,21 @@ def _ai_figures(
         context.append("Charts already read (leave their points out):")
         context += [f"- page {c.page}: {c.group} | {c.metric}" for c in charts]
     body = "\n\n".join(f"=== Page {n} ===\n{text}" for n, text in enumerate(pages, start=1))
-    response = api.responses.create(
-        model=settings.AI_ASSISTANT_MODEL,
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": FIGURES_PROMPT},
-                    {"type": "input_text", "text": "\n".join(context)},
-                    {"type": "input_text", "text": f"<report>\n{body}\n</report>"},
-                ],
-            }
-        ],
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": "report_figures",
-                "schema": FIGURES_SCHEMA,
-                "strict": True,
-            }
-        },
-        reasoning={"effort": settings.AI_ASSISTANT_EFFORT},
-        max_output_tokens=32000,
-        store=False,
+    result = conn.complete(
+        llm.Request(
+            user=(
+                llm.Text(FIGURES_PROMPT),
+                llm.Text("\n".join(context)),
+                llm.Text(f"<report>\n{body}\n</report>"),
+            ),
+            schema=FIGURES_SCHEMA,
+            schema_name="report_figures",
+            effort=llm.default_effort(),
+            max_output_tokens=32000,
+        )
     )
-    usage.record(usage.PERIODIC, settings.AI_ASSISTANT_MODEL, getattr(response, "usage", None))
-    return list(json.loads(response.output_text).get("figures") or [])
+    llm.record(usage.PERIODIC, result.model, result)
+    return list(json.loads(result.text).get("figures") or [])
 
 
 def read_figures(document: Document) -> Document:

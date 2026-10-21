@@ -3,24 +3,23 @@
 The CPD can be a PDF, a Word document (.docx) or a text file (.txt, .md). A PDF is sent as a file;
 the text of the others is sent as text.
 
-The document goes to the OpenAI API (the same key and model as Ask NeuroDB) with a strict JSON
-schema; the answer is stored as a FrameworkProposal. Nothing enters the framework until an
+The document goes to the AI provider in use (the same key and model as Ask NeuroDB) with a strict
+JSON schema; the answer is stored as a FrameworkProposal. Nothing enters the framework until an
 administrator ticks the items to keep on the review page and applies them; applied items are
 marked "AI-suggested" until someone edits them. A CPD is a public document; the request is not
-stored by OpenAI (store=False).
+stored by the provider (OpenAI: store=False; Claude keeps no conversation either).
 """
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 from typing import Any
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from neurodb.assistant import llm
 from neurodb.knowledge import text as knowledge_text
 
 from .models import CPDocument, FrameworkProposal, Indicator, Origin, Outcome, Output
@@ -31,6 +30,7 @@ MAX_PDF_MB = 30
 MAX_TEXT_CHARS = 600_000  # about 150k tokens; a CPD is far shorter
 READABLE = (".pdf", ".docx", ".txt", ".md")
 MAX_OUTPUT_TOKENS = 32000
+TOO_LARGE = "The document is too large for the AI service; import the framework from Excel instead."
 
 _INDICATOR = {
     "type": "object",
@@ -115,27 +115,22 @@ def docx_text(data: bytes) -> str:
         raise ExtractionError(str(exc)) from exc
 
 
-def _content(document: CPDocument, data: bytes) -> dict[str, Any]:
+def _content(document: CPDocument, data: bytes) -> llm.Pdf | llm.Text:
+    """The document as the call sends it: a PDF whole, the text of the others."""
     name = document.filename.lower()
     if name.endswith(".pdf"):
-        encoded = base64.b64encode(data).decode("ascii")
-        return {
-            "type": "input_file",
-            "filename": document.filename,
-            "file_data": f"data:application/pdf;base64,{encoded}",
-        }
+        return llm.Pdf(document.filename, data)
     text = docx_text(data) if name.endswith(".docx") else knowledge_text.decode_text(data)
     if not text.strip():
         raise ExtractionError("The document holds no text.")
     if len(text) > MAX_TEXT_CHARS:
         raise ExtractionError(f"The text is longer than {MAX_TEXT_CHARS:,} characters.")
-    return {"type": "input_text", "text": f"The document ({document.filename}):\n\n{text}"}
+    return llm.Text(f"The document ({document.filename}):\n\n{text}")
 
 
 def extract(document: CPDocument) -> dict[str, Any]:
     """The proposed framework of a PDF, Word (.docx) or text document (raises ExtractionError)."""
     from neurodb.assistant import usage
-    from neurodb.assistant.agent import AssistantUnavailable, client
 
     if not readable(document.filename):
         raise ExtractionError(
@@ -147,27 +142,25 @@ def extract(document: CPDocument) -> dict[str, Any]:
     with document.file.open("rb") as handle:
         content = _content(document, handle.read())
     try:
-        api = client()
-    except AssistantUnavailable as exc:
-        raise ExtractionError("The AI assistant is not configured (OPENAI_API_KEY).") from exc
-    response = api.responses.create(
-        model=settings.AI_ASSISTANT_MODEL,
-        input=[{"role": "user", "content": [content, {"type": "input_text", "text": PROMPT}]}],
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": "cpd_results_framework",
-                "schema": SCHEMA,
-                "strict": True,
-            }
-        },
-        reasoning={"effort": settings.AI_ASSISTANT_EFFORT},
+        conn = llm.connect()
+    except llm.AssistantUnavailable as exc:
+        raise ExtractionError("The AI assistant is not configured: enter an API key in AI settings.") from exc
+    request = llm.Request(
+        user=(content, llm.Text(PROMPT)),
+        schema=SCHEMA,
+        schema_name="cpd_results_framework",
+        effort=llm.default_effort(),
         max_output_tokens=MAX_OUTPUT_TOKENS,
-        store=False,
     )
-    usage.record(usage.CPD, settings.AI_ASSISTANT_MODEL, getattr(response, "usage", None))
     try:
-        items = json.loads(response.output_text)
+        result = conn.complete(request)
+    except Exception as exc:
+        if llm.too_large(exc):
+            raise ExtractionError(TOO_LARGE) from exc
+        raise
+    llm.record(usage.CPD, result.model, result)
+    try:
+        items = json.loads(result.text)
     except (TypeError, ValueError) as exc:
         raise ExtractionError("The answer could not be read as a framework.") from exc
     if not isinstance(items, dict) or not isinstance(items.get("outcomes"), list):

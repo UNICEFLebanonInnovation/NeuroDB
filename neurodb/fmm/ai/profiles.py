@@ -24,6 +24,8 @@ from django.db.models import Max
 from django.utils import timezone
 from django.utils.formats import date_format
 
+from neurodb.assistant import llm
+
 from ..models import Insight, ModelCapability, PromptProfile, PromptVersion
 from . import prompts
 
@@ -59,8 +61,10 @@ def published(key: str = DEFAULT_PROFILE) -> PromptVersion | None:
 
 
 def model_of(version: PromptVersion) -> str:
-    """The model a version calls: its own, else ``FMM_MODEL`` (which defaults to the assistant's)."""
-    return (version.model or "").strip() or settings.FMM_MODEL
+    """The model a version calls: its own, else ``FMM_MODEL`` (which defaults to the assistant's); a model
+    of the other provider is not used, the provider in use's runs instead (``llm.model_for``; the version
+    keeps what it names)."""
+    return llm.model_for((version.model or "").strip() or settings.FMM_MODEL)
 
 
 def compose(version: PromptVersion, kind: Literal["insights", "chat"]) -> str:

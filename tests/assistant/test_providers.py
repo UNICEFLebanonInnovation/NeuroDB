@@ -1,11 +1,14 @@
-"""An answer with tools behaves the same on both providers: each test runs once on OpenAI (the real openai SDK
-against openai_mock, a stand-in for the Responses API) and once on Claude (the real anthropic SDK against
-anthropic_mock, a stand-in for the Messages API). The replies differ only as the two APIs differ; what the
-person sees, what is logged and what the ledger books are the same. No network access and no real API key.
+"""An answer with tools, and a feature's own call, behave the same on both providers: each test runs once on
+OpenAI (the real openai SDK against openai_mock, a stand-in for the Responses API) and once on Claude (the
+real anthropic SDK against anthropic_mock, a stand-in for the Messages API). The replies differ only as the
+two APIs differ; what the person sees, what is kept, what is logged and what the ledger books are the same.
+No network access and no real API key.
 """
 
+import datetime
 import json
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import pytest
 from django.test import override_settings
@@ -50,6 +53,10 @@ class OpenAIScript:
 
     def empty(self):
         return om.turn([om.reasoning("rs_1")])
+
+    def structured(self, text):
+        """A feature's own call (not streamed): its prompt of 150 tokens, 50 of them read from the cache."""
+        return om.completed([om.message("msg_s", text)], usage_=om.usage(150, 20, cached=50))
 
     def busy(self):
         return om.http_error(429, om.api_error_body("Rate limit reached", type_="rate_limit_error"))
@@ -97,6 +104,9 @@ class ClaudeScript:
 
     def empty(self):
         return am.turn([am.thinking("sig")])
+
+    def structured(self, text):
+        return am.turn([am.thinking("sig"), am.text(text)], usage=am.usage(100, 20, read=50))
 
     def busy(self):
         return am.http_error(529, am.error_body("overloaded_error", "Overloaded"))
@@ -282,3 +292,53 @@ def test_a_background_run_filters_binds_and_reads_only(ai, db, caplog):
     assert "read-only transaction" in caplog.text and not AssistantQuestion.objects.exists()
     assert filtered == ["data_freshness"] and len(entered) == 2  # the context around each call
     assert outcome.numbers == {4.0}
+
+
+def test_the_watch_morning_note(ai, db):
+    from neurodb.watch import explain
+
+    facts = SimpleNamespace(
+        payload={"items": [{"key": "item:1", "title": "A progress report is due"}]},
+        citable={"item:1": {"key": "item:1", "title": "A progress report is due"}},
+    )
+    answer = {"sentences": [{"text": "A progress report is due.", "keys": ["item:1"]}]}
+    server = ai.install(ai.script.structured(json.dumps(answer)))
+
+    asked = explain.ask(facts, datetime.date(2026, 10, 15), [])
+
+    assert asked.called and asked.sentences == [{"text": "A progress report is due.", "keys": ["item:1"]}]
+    assert asked.tokens == (100, 50, 20) and asked.model == ai.script.model and asked.dropped == []
+    (booked,) = AIUsage.objects.filter(feature=usage.WATCH)
+    assert (booked.model, booked.calls, booked.input_tokens, booked.cached_tokens) == (
+        ai.script.model,
+        1,
+        100,
+        50,
+    )
+    assert len(server.requests) == 1
+
+
+def test_an_ai_check(ai, db):
+    from neurodb.fmm.ai import checks
+
+    server = ai.install(
+        ai.script.structured(json.dumps({"is_coherent": False, "detail": "The rating is vague."}))
+    )
+
+    found = checks.check(
+        llm.connect(timeout=10, retries=0),
+        SimpleNamespace(code="R7"),
+        "Is the narrative coherent with the rating?",
+        {"narrative": "Sessions were held as planned in two centres."},
+        SimpleNamespace(ai_model="", ai_temperature=0.3, ai_max_output_tokens=2000),
+        frozenset(),
+    )
+
+    assert (found.passed, found.detail, found.model) == (False, "The rating is vague.", ai.script.model)
+    assert (found.input_tokens, found.output_tokens) == (150, 20)  # the whole prompt, on both providers
+    (booked,) = AIUsage.objects.filter(feature=usage.FMM_RULES)
+    assert (booked.model, booked.calls) == (ai.script.model, 1)
+    # the temperature goes to OpenAI only: Claude Opus 5.5 refuses it
+    body = server.requests[0]["body"]
+    sent = {name: body[name] for name in ("temperature", "top_p") if name in body}
+    assert sent == ({"temperature": 0.3} if ai.script.provider == llm.OPENAI else {})
