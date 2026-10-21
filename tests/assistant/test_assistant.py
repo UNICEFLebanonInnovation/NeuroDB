@@ -1168,6 +1168,31 @@ def test_settings_check_the_provider_and_the_claude_model_and_effort(monkeypatch
         _settings(monkeypatch, CLAUDE_EFFORT="minimal")  # an OpenAI effort Claude does not have
 
 
+def _bicep_env_lists(text):
+    """The container apps' environment in infra/main.bicep, as {condition: [variable names]}: the lists
+    of ``commonEnv``'s concat(...), each under the condition that adds it ("" for always)."""
+    body = text.split("var commonEnv = concat(\n", 1)[1].split("\n)\n", 1)[0]
+    lists = {}
+    for item in re.split(r",\n(?=  \S)", body):  # concat's arguments, one per item at its indent
+        item = item.strip()
+        condition = "" if item.startswith("[") else item.split("?", 1)[0].strip()
+        lists.setdefault(condition, []).extend(re.findall(r"name: '(\w+)'", item))
+    return lists
+
+
+def test_the_bicep_template_passes_the_openai_model_and_effort_without_the_key_vault_key():
+    """OpenAI runs with its key entered in AI settings too (enableAiAssistant = false): the model and effort
+    the hosting team sets reach it as they reach Claude; only the Key Vault reference needs the switch."""
+    text = (SETTINGS_FILE.parents[1] / "infra" / "main.bicep").read_text(encoding="utf-8")
+    lists = _bicep_env_lists(text)
+    assert lists["enableAiAssistant"] == ["OPENAI_API_KEY"]
+    assert lists["anthropicKeyInKeyVault"] == ["ANTHROPIC_API_KEY"]
+    always = lists[""]
+    for name in ("AI_PROVIDER", "CLAUDE_MODEL", "CLAUDE_EFFORT", "AI_ASSISTANT_MODEL", "AI_ASSISTANT_EFFORT"):
+        assert name in always, name
+    assert "value: aiAssistantModel" in text and "value: aiAssistantEffort" in text
+
+
 def test_the_claude_effort_values_are_the_sdks():
     """Settings list Claude's effort values instead of importing the anthropic SDK: they must stay its own."""
     from anthropic.types.beta import BetaOutputConfigParam

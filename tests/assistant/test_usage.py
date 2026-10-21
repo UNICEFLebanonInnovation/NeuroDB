@@ -299,6 +299,64 @@ def test_the_price_table_offers_and_retries_only_priced_models():
         assert usage.price_for(model)["write"] == usage.price_for(model)["input"] * Decimal("1.25")
 
 
+HAIKU = "claude-haiku-5-5"
+
+
+def _haiku(input_tokens, output_tokens, *, read=0, write=0):
+    """A final Claude Haiku 5.5 message, as the stream gives it (no refusal fallback on this model)."""
+    return SimpleNamespace(
+        model=HAIKU,
+        stop_reason="end_turn",
+        stop_details=None,
+        content=[SimpleNamespace(type="text", text="The framework.")],
+        usage=SimpleNamespace(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_input_tokens=read,
+            cache_creation_input_tokens=write,
+            iterations=None,
+        ),
+    )
+
+
+def test_a_long_prompt_on_a_model_with_two_price_cards_is_costed_at_the_higher_one(no_prices):
+    """Claude Haiku 5.5 bills a prompt over 100,000 tokens at its higher card ($0.50 / $2.50 per million):
+    such a call is booked in a row of its own, priced at that card, and a shorter one stays at $0.10 /
+    $0.50. The whole prompt counts (not read from the cache, written to it and read from it)."""
+    from neurodb.assistant.llm import claude_backend
+
+    request = llm.Request(model=HAIKU)
+    long = claude_backend.read(_haiku(150_000, 10_000), request)  # the country programme reading
+    llm.record(usage.CPD, long.model, long)
+    short = claude_backend.read(_haiku(60_000, 2_000, read=30_000, write=10_000), request)  # 100,000 in all
+    llm.record(usage.CPD, short.model, short)
+
+    rows = {row.model: row for row in AIUsage.objects.filter(feature=usage.CPD)}
+    assert set(rows) == {HAIKU, HAIKU + usage.LONG}
+    long_row, short_row = rows[HAIKU + usage.LONG], rows[HAIKU]
+    assert (long_row.calls, long_row.input_tokens, long_row.output_tokens) == (1, 150_000, 10_000)
+    assert (short_row.calls, short_row.input_tokens, short_row.cached_tokens) == (1, 70_000, 30_000)
+    # as Anthropic bills them: 150k x 0.50 + 10k x 2.50; 60k x 0.10 + 10k x 0.125 + 30k x 0.01 + 2k x 0.50
+    assert usage.cost(long_row, usage.price_for(long_row.model)) == Decimal("0.10")
+    assert usage.cost(short_row, usage.price_for(short_row.model)) == Decimal("0.00855")
+    assert usage.price_for(HAIKU + usage.LONG) == {
+        "input": Decimal("0.50"), "cached": Decimal("0.05"), "write": Decimal("0.6250"), "output": Decimal("2.50")
+    }  # fmt: skip
+    assert llm.provider_of(long_row.model) == llm.CLAUDE  # still a Claude row
+    # an Ask answer's rounds are booked one by one: a round over the line goes to the higher card's row
+    calls = [_haiku(80_000, 500), _haiku(20_000, 500, read=90_000)]
+    assert [claude_backend.by_model(m, HAIKU) for m in calls] == [
+        {HAIKU: llm.Usage(80_000, 0, 0, 500)},
+        {HAIKU + usage.LONG: llm.Usage(20_000, 90_000, 0, 500)},
+    ]
+    assert [claude_backend.writer(m, HAIKU) for m in calls] == [HAIKU, HAIKU + usage.LONG]
+    # a model with one card, whatever the prompt
+    assert usage.ledger_model(CLAUDE, llm.Usage(input_tokens=900_000)) == CLAUDE
+    assert usage.ledger_model("gpt-5.5", llm.Usage(input_tokens=900_000)) == "gpt-5.5"
+    # AI settings never offers the higher card as a model
+    assert HAIKU + usage.LONG not in {m for m, e in usage.CLAUDE_PRICES.items() if e["choice"]}
+
+
 def test_a_cache_write_adds_only_its_premium_to_the_cost():
     price = usage.price_for(CLAUDE)
     # 1M prompt tokens not read from the cache, 400k of them written to it; 2M read from it; 100k out

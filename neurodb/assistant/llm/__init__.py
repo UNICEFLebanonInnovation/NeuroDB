@@ -15,8 +15,11 @@ anthropic one; this module imports either only inside a function.
 
 The AI settings row is read through a snapshot of its values that are not secret (:func:`snapshot`), kept
 in the shared cache and, in front of it, for 10 seconds in each process: a page asks the database nothing,
-and a save clears both, so the saving worker follows at once and the others within 10 seconds. No restart
-is needed when a key, a provider or a model is changed.
+and a save clears both, then, once committed, writes the row as saved to the shared cache. A worker that
+read the row only adds its snapshot to the shared cache when none is there, so one it read just before a
+save cannot replace the save's. The saving worker follows at once and the others within 10 seconds. No
+restart is needed when a key, a provider or a model is changed. A run that is already going (the AI
+checks, the action point review, the document review) keeps the connection it opened until it ends.
 """
 
 from __future__ import annotations
@@ -42,7 +45,7 @@ AUTO = "auto"
 CONNECT_TIMEOUT = 10.0  # seconds to reach the API: an unreachable API fails fast
 READ_TIMEOUT = 120.0  # longest silence in a stream (the model may reason for a while before it writes)
 MEMO_SECONDS = 10.0  # how long a process keeps the AI settings it read
-SNAPSHOT_SECONDS = 300  # how long the shared cache keeps them (a save clears it at once)
+SNAPSHOT_SECONDS = 300  # how long the shared cache keeps them (a save writes them again once committed)
 
 # What the person reads when a call fails, whichever provider made it.
 NOT_SET_UP = "The AI assistant is not set up. Ask an administrator to add the API key."
@@ -272,6 +275,8 @@ def _kept(value: Any) -> Snapshot | None:
 
 def snapshot() -> Snapshot:
     """The AI settings as this process knows them: its memo (10 s), else the shared cache, else the row.
+    A snapshot read from the row is added to the shared cache only when none is there (``add``): one a
+    save wrote once committed (:func:`_saved`) is never replaced by a read made before that commit.
     Never read at import or start-up. When the table cannot be read (a release's first page before its
     migration ran) it gives the defaults and keeps nothing."""
     global _memo
@@ -293,7 +298,7 @@ def snapshot() -> Snapshot:
             logger.warning("AI settings could not be read: the defaults apply for now", exc_info=True)
             return Snapshot()
         try:
-            shared.set(key, asdict(found), SNAPSHOT_SECONDS)
+            shared.add(key, asdict(found), SNAPSHOT_SECONDS)
         except Exception:
             logger.warning("AI settings: the shared cache could not be written", exc_info=True)
     _memo = (now, found)
@@ -310,10 +315,37 @@ def forget() -> None:
         logger.warning("AI settings: the shared cache could not be cleared", exc_info=True)
 
 
+def _share_committed() -> None:
+    """Once a save of AI settings is committed: this process reads the row again, and the shared cache holds
+    the row as committed, whatever another worker put there in between (a snapshot read before the commit
+    and added after it would otherwise stay for SNAPSHOT_SECONDS). When the row cannot be read, or the key
+    still holds something else afterwards (another worker's write, in a transaction of its own, held the
+    key), the shared cache's copy is dropped instead: the next read takes the row."""
+    global _memo
+    _memo = None
+    try:
+        with transaction.atomic():
+            found = _read()
+    except DatabaseError:
+        logger.warning("AI settings could not be read after a save", exc_info=True)
+        forget()
+        return
+    shared, key, value = caches["shared"], _cache_key(), asdict(found)
+    try:
+        shared.set(key, value, SNAPSHOT_SECONDS)  # the database cache gives up quietly on a held key
+        held = shared.get(key)
+    except Exception:
+        logger.warning("AI settings: the shared cache could not be written", exc_info=True)
+        held = None
+    if held != value:
+        forget()
+
+
 def _saved(sender, **kwargs) -> None:
     forget()
-    # and once more when the save is committed: another worker may have read the row as it was in between
-    transaction.on_commit(forget)
+    # and once the save is committed, the row as committed is shared: another worker may have read the row
+    # as it was in between, and adds what it read only to an empty key
+    transaction.on_commit(_share_committed, robust=True)  # a failure there never fails the save
     from neurodb.indicators.services import navigation
 
     from . import claude_backend
@@ -539,6 +571,16 @@ def is_quota(exc: BaseException) -> bool:
     from . import openai_backend
 
     return openai_backend.is_quota(exc)
+
+
+def quota_provider(exc: BaseException) -> str:
+    """Whose credit ran out when ``exc`` says so (:func:`is_quota`): ``claude`` for Anthropic's error,
+    ``openai`` for OpenAI's (the one that ends a stream too); "" for any other error. It is read from the
+    error, never from the provider in use: a run that opened its connection before AI settings switched
+    provider keeps calling the provider it started on."""
+    if not is_quota(exc):
+        return ""
+    return CLAUDE if _sdk(exc) == "anthropic" else OPENAI
 
 
 def unsupported_param(exc: BaseException) -> str | None:

@@ -1872,17 +1872,19 @@ def _preview_facts(scope, version) -> dict[str, Any]:
     output limit. No AI call; nothing is saved."""
     from decimal import Decimal
 
-    from neurodb.assistant import usage
+    from neurodb.assistant import llm, usage
 
     from .ai import budget
     from .ai import facts as ai_facts
 
     facts = ai_facts.build(scope, version)
     estimate = budget.estimate(facts, version)
-    price = usage.price_for(profiles.model_of(version))
+    input_tokens = estimate - version.max_output_tokens
+    # at the card a prompt this long is billed at (a model with two cards, usage.ledger_model)
+    model = usage.ledger_model(profiles.model_of(version), llm.Usage(input_tokens=input_tokens))
+    price = usage.price_for(model)
     cost = None
     if price:
-        input_tokens = estimate - version.max_output_tokens
         cost = (input_tokens * price["input"] + version.max_output_tokens * price["output"]) / Decimal(
             1_000_000
         )

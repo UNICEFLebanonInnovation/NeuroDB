@@ -118,6 +118,56 @@ def test_a_pause_for_one_providers_credit_lifts_when_the_other_provider_is_in_us
     assert budget.allowed("chat", None, 0) == (False, "paused") and watch_budget.paused_until() is not None
 
 
+@override_settings(WATCH_AI=True)
+def test_a_pause_names_the_provider_whose_call_failed_not_the_one_in_use(ai_on, ai_settings):
+    """A run that opened its connection on Claude (the AI checks, the action point review, the document
+    review) keeps calling Anthropic after an administrator chose OpenAI in AI settings: when that call
+    finds the Anthropic credit out, the pause and the administrators' item blame Anthropic's credit, and
+    hold only while Claude is in use."""
+    import anthropic
+
+    from neurodb.assistant import llm
+    from neurodb.watch import budget as watch_budget
+    from neurodb.watch.models import WatchItem, WatchState
+    from tests.assistant.anthropic_mock import error_body
+
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    billing = anthropic.APIStatusError(
+        "Error code: 402",
+        response=httpx2.Response(402, request=request),
+        body=error_body("billing_error", "Your credit balance is too low."),
+    )
+    ai_settings.provider = llm.OPENAI
+    ai_settings.save()
+    assert llm.provider() == llm.OPENAI
+
+    assert budget.trip(billing) and watch_budget.trip(billing) == watch_budget.QUOTA
+    assert budget.reason_for(budget.PAUSED) == "AI is paused: the Anthropic credit ran out"
+    assert WatchState.get().ai_pause_reason == "the Anthropic credit ran out"
+    item = WatchItem.objects.get(key=watch_budget.QUOTA_KEY)
+    assert item.title.startswith("The Anthropic credit ran out on") and item.evidence["source"] == "Anthropic"
+    assert [r["value"] for r in item.evidence["records"]] == ["billing_error"]
+    assert item.detail.endswith(
+        "Buy credits in the Claude Console (Billing), or raise the workspace's spend limit."
+    )
+    assert [line["text"] for line in item.story] == ["First noticed: the Anthropic credit ran out"]
+    # OpenAI, in use, has its credit: nothing is paused for it
+    assert budget.paused_until() is None and budget.allowed("chat", None, 0) == (True, "")
+    assert watch_budget.paused_until() is None
+    # Back on Claude within the 6 hours: its credit is the one that ran out
+    ai_settings.provider = llm.CLAUDE
+    ai_settings.save()
+    assert budget.allowed("chat", None, 0) == (False, "paused") and watch_budget.paused_until() is not None
+
+    # The other way round: an OpenAI run's credit error after a switch to Claude blames OpenAI's credit
+    AIState.objects.all().delete()
+    quota = _error({"message": "You exceeded your current quota.", "code": "insufficient_quota"})
+    assert (
+        budget.trip(quota) and budget.reason_for(budget.PAUSED) == "AI is paused: the OpenAI credit ran out"
+    )
+    assert budget.paused_until() is None  # Claude in use: the OpenAI pause does not hold
+
+
 # ------------------------------------------------------------------------------------------ the caps
 @override_settings(FMM_DAILY_TOKEN_CAP=10_000, FMM_MAX_CALLS_PER_DAY=5)
 def test_the_office_caps_of_monitoring_insights(ai_on):

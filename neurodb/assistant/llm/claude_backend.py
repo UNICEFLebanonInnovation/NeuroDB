@@ -254,25 +254,49 @@ def _tokens(entry: Any) -> llm.Usage:
     )
 
 
-def by_model(message: Any, asked: str) -> dict[str, llm.Usage]:
-    """A message's tokens per model that ran them. With refusal fallbacks the attempts are in
-    ``usage.iterations``: a declined attempt (``message``) under its model, or ``asked`` when it names
-    none, and the fallback's attempt (``fallback_message``) under the fallback's model, each at its own
-    model's prices. Without them the message's usage, under the model that wrote it."""
+def _attempts(message: Any) -> list[Any]:
+    """The attempts of a message with refusal fallbacks (``usage.iterations``), else none."""
     top = getattr(message, "usage", None)
-    attempts = [
+    return [
         entry
         for entry in (getattr(top, "iterations", None) or [])
         if getattr(entry, "type", "") in ("message", "fallback_message")
     ]
+
+
+def by_model(message: Any, asked: str) -> dict[str, llm.Usage]:
+    """A message's tokens per model that ran them. With refusal fallbacks the attempts are in
+    ``usage.iterations``: a declined attempt (``message``) under its model, or ``asked`` when it names
+    none, and the fallback's attempt (``fallback_message``) under the fallback's model, each at its own
+    model's prices. Without them the message's usage, under the model that wrote it. Each attempt is one
+    call: one whose prompt was long enough for its model's higher card goes under that card's row
+    (``usage.ledger_model``)."""
+    from neurodb.assistant import usage as ledger
+
+    top = getattr(message, "usage", None)
+    attempts = _attempts(message)
     out: dict[str, llm.Usage] = {}
     if attempts:
         for entry in attempts:
-            model = getattr(entry, "model", None) or asked
-            out[model] = out.get(model, llm.Usage()) + _tokens(entry)
+            used = _tokens(entry)
+            model = ledger.ledger_model(getattr(entry, "model", None) or asked, used)
+            out[model] = out.get(model, llm.Usage()) + used
     elif top is not None:
-        out[getattr(message, "model", None) or asked] = _tokens(top)
+        used = _tokens(top)
+        out[ledger.ledger_model(getattr(message, "model", None) or asked, used)] = used
     return out
+
+
+def writer(message: Any, asked: str) -> str:
+    """The ledger row a message's call counts under (``model_calls``): the model that wrote it, or
+    ``asked`` when it names none, under its higher card's row when its own attempt's prompt was long
+    enough for it (as :func:`by_model` books that attempt's tokens)."""
+    from neurodb.assistant import usage as ledger
+
+    model = getattr(message, "model", None) or asked
+    own = [entry for entry in _attempts(message) if (getattr(entry, "model", None) or asked) == model]
+    entry = own[-1] if own else getattr(message, "usage", None)
+    return ledger.ledger_model(model, _tokens(entry)) if entry is not None else model
 
 
 def usage(message: Any) -> llm.Usage:
@@ -341,7 +365,7 @@ def read(message: Any, req: llm.Request) -> llm.Result:
         provider=llm.CLAUDE,
         raw=message,
         by_model=by_model(message, model),
-        model_calls={wrote or model: 1},  # the call, on the model that wrote the answer
+        model_calls={writer(message, model): 1},  # the call, on the model that wrote the answer
     )
 
 

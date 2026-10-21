@@ -20,8 +20,9 @@ is recorded right after it returns.
 - the AI provider's credit ran out (OpenAI's ``insufficient_quota``, or a 429 that says quota;
   Anthropic's ``billing_error``): the watch's AI pauses for 6 hours at once, and the administrators get
   the critical item ``system:openai_quota`` ("The OpenAI credit ran out: Ask NeuroDB is affected too",
-  or the Anthropic credit; the item's id stays the one it always had). The pause is lifted while the
-  other provider is in use (:func:`lifted`): an administrator who switches does not wait;
+  or the Anthropic credit: the provider whose call failed, read from the error; the item's id stays the
+  one it always had). The pause is lifted while the other provider is in use (:func:`lifted`): an
+  administrator who switches does not wait;
 - any other failure counts one more failure in a row (``WatchState.consecutive_ai_errors``); the third
   in a row pauses the AI for 6 hours.
 
@@ -69,7 +70,8 @@ ERRORS_REASON = f"the AI did not answer {ERRORS_TO_PAUSE} times in a row"
 
 # The administrators' item when the credit runs out. No check module finds it, so the memory never
 # closes it as missed: it is opened by :func:`trip` and closed by :func:`succeeded`. Its id stays the one
-# it had when OpenAI was the only provider; its words name the provider in use (quota_source() and so on).
+# it had when OpenAI was the only provider; its words name the provider whose call failed
+# (llm.quota_provider: quota_source(p) and so on), which may not be the one in use now.
 QUOTA_KEY = "system:openai_quota"
 QUOTA_CHECK = "openai_quota"
 QUOTA_CLOSED = "the AI answered again"
@@ -82,9 +84,10 @@ TOP_UP = {
 QUOTA_ERRORS = {llm.OPENAI: "insufficient_quota", llm.CLAUDE: "billing_error"}
 
 
-def quota_reason() -> str:
-    """Why the AI paused when the credit ran out: "the OpenAI credit ran out" (or the Anthropic one)."""
-    return f"{llm.names().credit} ran out"
+def quota_reason(p: str | None = None) -> str:
+    """Why the AI paused when the credit of ``p`` (default: the provider in use) ran out: "the OpenAI
+    credit ran out" (or the Anthropic one)."""
+    return f"{llm.names(p).credit} ran out"
 
 
 def lifted(reason: str) -> bool:
@@ -96,23 +99,27 @@ def lifted(reason: str) -> bool:
     return bool(whose) and whose != llm.provider()
 
 
-def quota_source() -> str:
-    """The item's source: the provider's name ("OpenAI", "Anthropic")."""
-    return llm.names().vendor
+def quota_source(p: str | None = None) -> str:
+    """The item's source: the name of the provider ``p`` (default: the one in use), "OpenAI" or
+    "Anthropic"."""
+    return llm.names(p).vendor
 
 
-def quota_detail() -> str:
-    """The item's detail, naming the provider in use and where its credit is added."""
+def quota_detail(p: str | None = None) -> str:
+    """The item's detail, naming the provider ``p`` (default: the one in use) and where its credit is
+    added."""
+    p = p or llm.provider()
     return (
-        f"{llm.names().vendor} refused a call because the credit of the shared key ran out. Ask NeuroDB, "
+        f"{llm.names(p).vendor} refused a call because the credit of the shared key ran out. Ask NeuroDB, "
         "the daily review and the other AI features use the same key, so they are affected too. NeuroDB "
-        f"Watch lists its notes without AI and tries again later. {TOP_UP[llm.provider()]}"
+        f"Watch lists its notes without AI and tries again later. {TOP_UP[p]}"
     )
 
 
-def _credit() -> str:
-    """The provider's credit as a sentence starts with it: "The OpenAI credit"."""
-    credit = llm.names().credit
+def _credit(p: str | None = None) -> str:
+    """The credit of ``p`` (default: the provider in use) as a sentence starts with it: "The OpenAI
+    credit"."""
+    credit = llm.names(p).credit
     return credit[:1].upper() + credit[1:]
 
 
@@ -190,13 +197,16 @@ def pause(reason: str, hours: int = PAUSE_HOURS, now: datetime.datetime | None =
 
 def trip(exc: BaseException, now: datetime.datetime | None = None) -> str:
     """A call failed with ``exc``: pause at once when the credit ran out (and tell the
-    administrators), else count one more failure in a row and pause at the third. Returns why the AI
-    was not used: ``quota`` or ``error``."""
+    administrators), else count one more failure in a row and pause at the third. The pause and the item
+    name the provider whose call failed (``llm.quota_provider``: a run that started before a switch in AI
+    settings still calls the provider it started on). Returns why the AI was not used: ``quota`` or
+    ``error``."""
     now = now or timezone.now()
     if is_quota(exc):
-        pause(quota_reason(), now=now)
+        whose = llm.quota_provider(exc)
+        pause(quota_reason(whose), now=now)
         try:
-            raise_quota_item(now)
+            raise_quota_item(now, whose)
         except Exception:  # the pause holds even if the item cannot be written
             logger.exception("NeuroDB Watch: the item for the AI service's credit could not be written")
         return QUOTA
@@ -225,23 +235,24 @@ def _ai_use_url() -> str:
         return ""
 
 
-def raise_quota_item(now: datetime.datetime | None = None) -> WatchItem:
+def raise_quota_item(now: datetime.datetime | None = None, p: str | None = None) -> WatchItem:
     """Open (or keep open) the critical item ``system:openai_quota``, told to the administrators only
     and never sent to the AI. Seen again on another day, it says so in its story. Its words name the
-    provider in use (OpenAI's are the ones it always had)."""
+    provider ``p`` whose credit ran out (default: the one in use; OpenAI's are the ones it always had)."""
     now = now or timezone.now()
+    p = p or llm.provider()
     today = timezone.localdate(now)
     url = _ai_use_url()
-    credit = _credit()
+    credit = _credit(p)
     evidence = {
-        "source": quota_source(),
+        "source": quota_source(p),
         "source_job": "",
         "synced_at": now.isoformat(timespec="seconds"),
         "records": [
             {
-                "label": f"{quota_source()} refused a call: the credit ran out",
+                "label": f"{quota_source(p)} refused a call: the credit ran out",
                 "date": today.isoformat(),
-                "value": QUOTA_ERRORS[llm.provider()],
+                "value": QUOTA_ERRORS[p],
                 "url": url,
             }
         ],
@@ -254,7 +265,7 @@ def raise_quota_item(now: datetime.datetime | None = None) -> WatchItem:
         "confidence": WatchItem.Confidence.SURE,
         "scope": WatchItem.Scope.ADMINS,
         "title": f"{credit} ran out on {_day(today)}: Ask NeuroDB is affected too",
-        "detail": quota_detail(),
+        "detail": quota_detail(p),
         "url": url,
         "evidence": evidence,
     }
@@ -265,7 +276,7 @@ def raise_quota_item(now: datetime.datetime | None = None) -> WatchItem:
             item = WatchItem(
                 key=QUOTA_KEY, first_seen_on=today, last_seen_on=today, changed_on=today, **values
             )
-            item.add_story(f"First noticed: {quota_reason()}", today)
+            item.add_story(f"First noticed: {quota_reason(p)}", today)
         elif item.state == WatchItem.State.WRONG and item.evidence_hash == fingerprint(evidence):
             return item  # marked wrong, and nothing new since: it stays hidden
         elif item.state != WatchItem.State.OPEN:

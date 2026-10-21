@@ -8,6 +8,7 @@ import logging
 import pickle
 import subprocess
 import sys
+from dataclasses import asdict
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -174,12 +175,58 @@ def test_the_snapshot_is_shared_and_holds_no_secret(ai_settings, monkeypatch):
     assert "anthropic_key_sealed" not in kept
 
 
-def test_a_save_clears_the_snapshot_again_once_committed(ai_settings, django_capture_on_commit_callbacks):
+def test_a_save_shares_the_row_as_committed(ai_settings, django_capture_on_commit_callbacks):
     with django_capture_on_commit_callbacks(execute=True):
         _enter(ai_settings, claude_effort="high")
         # another worker reads the row before the save is committed, and shares what it saw
         caches["shared"].set(llm._cache_key(), {"claude_effort": ""}, llm.SNAPSHOT_SECONDS)
-    assert caches["shared"].get(llm._cache_key()) is None and llm.snapshot().claude_effort == "high"
+    assert caches["shared"].get(llm._cache_key())["claude_effort"] == "high"
+    assert llm.snapshot().claude_effort == "high"
+    with django_capture_on_commit_callbacks(execute=True):
+        ai_settings.delete()  # no row: the defaults are shared
+    assert (
+        caches["shared"].get(llm._cache_key()) == asdict(llm.Snapshot()) and llm.snapshot() == llm.Snapshot()
+    )
+
+
+def test_a_save_drops_a_snapshot_it_could_not_replace(
+    ai_settings, monkeypatch, django_capture_on_commit_callbacks
+):
+    """Another worker's write held the key (in a transaction of its own) when the save shared the row, and
+    the database cache gave up quietly: the stale copy is dropped, and the next read takes the row."""
+    shared = caches["shared"]
+    with django_capture_on_commit_callbacks(execute=True):
+        _enter(ai_settings, claude_effort="high")
+        shared.set(llm._cache_key(), {"claude_effort": ""}, llm.SNAPSHOT_SECONDS)  # the other worker's
+        monkeypatch.setattr(shared, "set", lambda *args, **kwargs: None)
+    assert shared.get(llm._cache_key()) is None
+    assert llm.snapshot().claude_effort == "high"
+
+
+def test_a_snapshot_read_before_a_save_was_committed_never_replaces_it(
+    ai_settings, monkeypatch, django_capture_on_commit_callbacks
+):
+    """Another worker misses the shared cache and reads the row just before an administrator's save is
+    committed, then shares what it read after the save's own clean-up ran: the save's values stay shared,
+    so every worker follows within its 10 seconds, not the shared cache's 5 minutes."""
+    monkeypatch.setattr(llm, "_pinned", False)
+    _enter(ai_settings, provider=llm.OPENAI)
+    llm.forget()  # no snapshot shared yet (the first page after a save, or after a restart)
+    real = llm._read
+
+    def read_then_save():
+        seen = real()  # the other worker reads the row as it is
+        monkeypatch.setattr(llm, "_read", real)  # only that read is the other worker's
+        with django_capture_on_commit_callbacks(execute=True):  # the administrator's save is committed
+            _enter(AISettings.objects.get(pk=1), provider=llm.CLAUDE)
+        return seen
+
+    monkeypatch.setattr(llm, "_read", read_then_save)
+    assert llm.snapshot().provider == llm.OPENAI  # that worker's page, with what it read
+    llm._memo = None  # any worker, once its memo has expired
+    assert AISettings.objects.get(pk=1).provider == llm.CLAUDE
+    assert llm.snapshot().provider == llm.CLAUDE
+    assert caches["shared"].get(llm._cache_key())["provider"] == llm.CLAUDE
 
 
 def test_without_the_table_the_defaults_apply_and_nothing_is_kept(db, monkeypatch):
@@ -659,6 +706,24 @@ REQUEST = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
 )
 def test_claude_failures_become_the_known_messages(exc, message):
     assert llm.friendly(exc) == message
+
+
+def test_a_credit_error_names_the_provider_whose_call_failed():
+    """Not the provider in use: a run that opened its connection before a switch keeps calling the other."""
+    low = "Your credit balance is too low"
+    with override_settings(AI_PROVIDER="openai"):
+        assert llm.quota_provider(_claude_error(anthropic.APIStatusError, 402, "billing_error")) == llm.CLAUDE
+        assert (
+            llm.quota_provider(_claude_error(anthropic.BadRequestError, 400, "invalid_request_error", low))
+            == llm.CLAUDE
+        )
+    with override_settings(AI_PROVIDER="claude"):
+        quota = _openai_error(openai.RateLimitError, 429, "insufficient_quota", "You exceeded your quota.")
+        assert llm.quota_provider(quota) == llm.OPENAI
+        assert llm.quota_provider(llm.ServiceError("insufficient_quota", "No credit")) == llm.OPENAI
+    assert llm.quota_provider(_claude_error(anthropic.RateLimitError, 429, "rate_limit_error")) == ""
+    assert llm.quota_provider(_openai_error(openai.InternalServerError, 500)) == ""
+    assert llm.quota_provider(ValueError("unexpected")) == ""
 
 
 def test_the_claude_credit_rule():

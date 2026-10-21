@@ -103,10 +103,12 @@ come from.
   `AI_ASSISTANT_MODEL` and `AI_ASSISTANT_EFFORT`. Keys entered on the page are sealed with the site's
   secret key (`DJANGO_SECRET_KEY`): after that key changes they cannot be read any more, Needs attention
   says so, and an administrator enters them again. A save applies with no restart: the worker that
-  saved at once, the others within 10 seconds. A model of the other provider is never sent: a prompt
-  version, the Score settings or `WATCH_MODEL` naming an OpenAI model runs on the Claude model while
-  Claude is in use (and the other way round), and nothing stored is rewritten; the table on the page
-  shows which model runs.
+  saved at once, the others within 10 seconds. A run already going (the AI checks, the action point
+  review, the document review) finishes on the provider it started with; if that provider's credit runs
+  out meanwhile, the pause names its credit, not the provider chosen since. A model of the other
+  provider is never sent: a prompt version, the Score settings or `WATCH_MODEL` naming an OpenAI model
+  runs on the Claude model while Claude is in use (and the other way round), and nothing stored is
+  rewritten; the table on the page shows which model runs.
 - **API key and billing, Claude** (the Claude Console, platform.claude.com, with the organisation's
   account, not a personal one): in the organisation's workspace for NeuroDB, create an API key on the
   API keys page. API usage is prepaid: buy credits under Billing. It is billed separately from any
@@ -305,12 +307,15 @@ come from.
   dollars where the model's price is known: Claude's prices are built in (per million tokens on the
   default Claude model, `CLAUDE_MODEL`: $4 input, $0.20 read from the cache, $5 written to it, $20 output; check
   Anthropic's pricing page), OpenAI's come from `AI_PRICE_INPUT_PER_MTOK`, `AI_PRICE_CACHED_PER_MTOK`
-  and `AI_PRICE_OUTPUT_PER_MTOK` when they are set. The background features stop using AI first when
-  all of them together pass 80% of `AI_DAILY_TOKEN_SOFT_CAP` (default 3,000,000 tokens a day), so
-  questions keep being answered. Output tokens include the model's reasoning (OpenAI) or thinking
-  (Claude) tokens, which are billed as output. A typical question makes 2-4 lookups. The instructions
-  and tool definitions are sent first and unchanged on every request: on Claude NeuroDB marks that
-  fixed part for caching, so a repeat reads it from the cache at $0.20 per million tokens on the
+  and `AI_PRICE_OUTPUT_PER_MTOK` when they are set. Claude Haiku 5.5 has two prices, chosen by the
+  length of each call's whole prompt: $0.10 input and $0.50 output per million tokens up to 100,000
+  prompt tokens, $0.50 and $2.50 above; a longer call (a long country programme document, say) is
+  counted in a row of its own, its model followed by `:long`, at the higher price. The background
+  features stop using AI first when all of them together pass 80% of `AI_DAILY_TOKEN_SOFT_CAP`
+  (default 3,000,000 tokens a day), so questions keep being answered. Output tokens include the
+  model's reasoning (OpenAI) or thinking (Claude) tokens, which are billed as output. A typical
+  question makes 2-4 lookups. The instructions and tool definitions are sent first and unchanged on
+  every request: on Claude NeuroDB marks that fixed part for caching, so a repeat reads it from the cache at $0.20 per million tokens on the
   default Claude model instead of $4 (writing the cache costs 1.25 times the input price; prompts under
   512 tokens are not cached); on OpenAI its automatic prompt caching (prompts of 1,024 tokens or more,
   no setup) bills that repeated part at the cheaper cached-input rate. Prices per model are on each
@@ -3561,9 +3566,11 @@ limit (see *AI assistant* above).
 Anthropic's `billing_error`), the watch stops using AI for 6 hours, and the administrators get a
 critical point and a *Needs attention* line ("The Anthropic credit ran out: Ask NeuroDB is affected
 too", or the OpenAI credit). Three failed calls in a row pause it too. The notes are listed by code
-meanwhile, and the first call that succeeds closes the point. A pause for one provider's credit ends as
-soon as the other provider is in use (AI settings), whose credit did not run out; it holds again if the
-first provider is chosen back within the 6 hours. The same goes for the pause of Monitoring insights.
+meanwhile, and the first call that succeeds closes the point. The pause and the point name the
+provider whose call failed, read from its error: a run that started before an administrator chose the
+other provider still calls the first one. A pause for one provider's credit ends as soon as the other
+provider is in use (AI settings), whose credit did not run out; it holds again if the first provider is
+chosen back within the 6 hours. The same goes for the pause of Monitoring insights.
 
 ### The morning email
 

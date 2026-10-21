@@ -69,9 +69,9 @@ param compilerApiUrl string = ''
 
 @description('AI assistant with the OpenAI key in Key Vault (Ask NeuroDB and the other AI features, OpenAI API). When true the secret openai-api-key must exist. Without it the keys can be entered in the admin (AI settings).')
 param enableAiAssistant bool = false
-@description('OpenAI model for the AI features on OpenAI.')
+@description('OpenAI model for the AI features on OpenAI when the admin AI settings choose none (with the OpenAI key in Key Vault or entered in AI settings).')
 param aiAssistantModel string = 'gpt-5.5'
-@description('OpenAI reasoning effort: none, minimal, low, medium, high, xhigh or max (support varies by model).')
+@description('OpenAI reasoning effort when the admin AI settings choose none: none, minimal, low, medium, high, xhigh or max (support varies by model).')
 param aiAssistantEffort string = 'medium'
 @description('The AI provider: auto (the choice in the admin AI settings, else Claude when an Anthropic key is available), claude or openai (pinned, before AI settings).')
 @allowed(['auto', 'claude', 'openai'])
@@ -339,15 +339,11 @@ var commonEnv = concat(
     { name: 'AI_PROVIDER', value: aiProvider }
     { name: 'CLAUDE_MODEL', value: claudeModel }
     { name: 'CLAUDE_EFFORT', value: claudeEffort }
+    { name: 'AI_ASSISTANT_MODEL', value: aiAssistantModel }
+    { name: 'AI_ASSISTANT_EFFORT', value: aiAssistantEffort }
   ],
   anthropicKeyInKeyVault ? [{ name: 'ANTHROPIC_API_KEY', secretRef: 'anthropic-api-key' }] : [],
-  enableAiAssistant
-    ? [
-        { name: 'OPENAI_API_KEY', secretRef: 'openai-api-key' }
-        { name: 'AI_ASSISTANT_MODEL', value: aiAssistantModel }
-        { name: 'AI_ASSISTANT_EFFORT', value: aiAssistantEffort }
-      ]
-    : []
+  enableAiAssistant ? [{ name: 'OPENAI_API_KEY', secretRef: 'openai-api-key' }] : []
 )
 
 // ------------------------------------------------------------------------------ web app

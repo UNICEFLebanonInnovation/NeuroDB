@@ -51,9 +51,10 @@ REASONS = {
 }
 
 
-def quota_reason() -> str:
-    """Why the AI paused when the credit ran out: "the OpenAI credit ran out" (or the Anthropic one)."""
-    return f"{llm.names().credit} ran out"
+def quota_reason(p: str | None = None) -> str:
+    """Why the AI paused when the credit of ``p`` (default: the provider in use) ran out: "the OpenAI
+    credit ran out" (or the Anthropic one)."""
+    return f"{llm.names(p).credit} ran out"
 
 
 def pause_reason() -> str:
@@ -190,9 +191,11 @@ def pause(reason: str | None = None, hours: int = PAUSE_HOURS, now: datetime.dat
 
 def trip(exc: BaseException, now: datetime.datetime | None = None) -> bool:
     """A call failed with ``exc``: when the AI provider's credit ran out (``watch.budget.is_quota``),
-    pause the AI for 6 hours. True when it paused."""
+    pause the AI for 6 hours, for the credit of the provider whose call failed (``llm.quota_provider``:
+    a run that started before a switch in AI settings still calls the provider it started on). True when
+    it paused."""
     if is_quota(exc):
-        pause(quota_reason(), now=now)
+        pause(quota_reason(llm.quota_provider(exc)), now=now)
         return True
     return False
 

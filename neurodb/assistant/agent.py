@@ -855,7 +855,7 @@ def _answer_claude(
             continue
         unreadable = False
         outcome.add_usage(claude_backend.usage(message))
-        outcome.add_models(claude_backend.by_model(message, asked), message.model or asked)
+        outcome.add_models(claude_backend.by_model(message, asked), claude_backend.writer(message, asked))
         outcome.model = message.model or outcome.model
         if claude_backend.fell_back(message):
             outcome.served_by = message.model

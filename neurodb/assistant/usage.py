@@ -8,7 +8,9 @@ AI review and summaries apart), the Help assistant, the document review and AI s
 test. The day's totals (``today_total``, ``today_calls``) tell how much of the key's daily spend is used,
 across every feature or for one; the admin lists the rows under "AI use", in tokens, and in US dollars
 where the price is known: Claude's are built in (``CLAUDE_PRICES``), OpenAI's come from the optional
-``AI_PRICE_*`` settings. The model names the provider, so Claude and OpenAI rows never mix.
+``AI_PRICE_*`` settings. The model names the provider, so Claude and OpenAI rows never mix. A Claude
+model billed at a higher card above a prompt length (``long_above``) books each longer call in a row of
+its own, the model's id followed by ``LONG``, priced at that card (``ledger_model``).
 
 Recording never fails the feature that called the model: an error is logged and the call goes on.
 """
@@ -79,8 +81,18 @@ MILLION = Decimal(1_000_000)
 CENT = Decimal("0.01")
 
 
+LONG = ":long"  # a ledger row's model id ends with it when its calls are priced at the long-prompt card
+
+
 def _claude(
-    input_: str, cached: str, output: str, *, name: str, fallbacks: bool, choice: bool
+    input_: str,
+    cached: str,
+    output: str,
+    *,
+    name: str,
+    fallbacks: bool,
+    choice: bool,
+    long_above: int = 0,
 ) -> dict[str, Any]:
     price = Decimal(input_)
     return {
@@ -91,6 +103,7 @@ def _claude(
         "name": name,
         "fallbacks": fallbacks,
         "choice": choice,
+        "long_above": long_above,
     }
 
 
@@ -99,6 +112,9 @@ def _claude(
 # columns, so that no other code lists model ids: ``fallbacks``, the model takes the server-side refusal
 # fallback (Claude Haiku 5.5 has none; older models are not documented); ``choice``, AI settings offers it
 # (the models whose request NeuroDB sends: effort from low to max, structured outputs, no sampling).
+# ``long_above``: the model has two cards, chosen by the length of each call's whole prompt; a call over
+# that many tokens is booked under the entry of the same id followed by ``LONG``, which holds the higher
+# card and is never offered as a model.
 CLAUDE_PRICES = {
     "claude-opus-5-5": _claude(
         "4.00", "0.20", "20.00", name="Claude Opus 5.5 (recommended)", fallbacks=True, choice=True
@@ -113,9 +129,16 @@ CLAUDE_PRICES = {
     "claude-sonnet-5": _claude(
         "2.00", "0.20", "10.00", name="Claude Sonnet 5", fallbacks=False, choice=False
     ),
-    # prompts of 100,000 tokens or fewer ($0.50 and $2.50 above)
     "claude-haiku-5-5": _claude(
-        "0.10", "0.01", "0.50", name="Claude Haiku 5.5", fallbacks=False, choice=True
+        "0.10", "0.01", "0.50", name="Claude Haiku 5.5", fallbacks=False, choice=True, long_above=100_000
+    ),
+    "claude-haiku-5-5" + LONG: _claude(
+        "0.50",
+        "0.05",
+        "2.50",
+        name="Claude Haiku 5.5, prompts over 100,000 tokens",
+        fallbacks=False,
+        choice=False,
     ),
     "claude-fable-5-1": _claude(
         "10.00", "0.25", "50.00", name="Claude Fable 5.1", fallbacks=False, choice=False
@@ -255,18 +278,47 @@ def prices() -> dict[str, Decimal] | None:
     return given
 
 
+def _claude_entry(model: str) -> dict[str, Any] | None:
+    """``CLAUDE_PRICES``' entry of a Claude ``model``: the longest id its name starts with (a dated id has
+    its model's), its long-prompt entry for a row booked at that card (the id followed by ``LONG``); None
+    when the table has none."""
+    name = (model or "").strip().lower()
+    long = name.endswith(LONG)
+    name = name.removesuffix(LONG)
+    known = max(
+        (m for m in CLAUDE_PRICES if not m.endswith(LONG) and name.startswith(m)), key=len, default=None
+    )
+    if known is None:
+        return None
+    return CLAUDE_PRICES.get(known + LONG) if long else CLAUDE_PRICES[known]
+
+
+def ledger_model(model: str, used: Any) -> str:
+    """The ledger row of one model call: ``model``, or for a Claude model with two cards (``long_above``)
+    ``model`` followed by ``LONG`` when that call's whole prompt (not read from the cache, written to it
+    included, and read from it) was longer, so that ``price_for`` prices the row at the higher card. Only
+    one call's tokens tell: the ledger adds calls up per day, and the card depends on each call alone."""
+    if llm.provider_of(model) != llm.CLAUDE or (model or "").endswith(LONG):
+        return model
+    entry = _claude_entry(model)
+    if not entry or not entry["long_above"]:
+        return model
+    prompt, cached, _ = split(used)
+    return f"{model}{LONG}" if prompt + cached > entry["long_above"] else model
+
+
 def price_for(model: str) -> dict[str, Decimal] | None:
     """US dollars per million input, cached (read from the cache), cache-write and output tokens of
     ``model``: a Claude model's from ``CLAUDE_PRICES`` (the longest id its name starts with, so a dated
-    id has its model's prices), any other model's from ``prices`` (OpenAI's cache costs nothing to write:
-    the input price). None when the price is not known: a Claude model missing from the table, never
-    OpenAI's prices for it; or no AI_PRICE_* settings."""
+    id has its model's prices; a row booked at a long-prompt card, ``ledger_model``, that card), any other
+    model's from ``prices`` (OpenAI's cache costs nothing to write: the input price). None when the price
+    is not known: a Claude model missing from the table, never OpenAI's prices for it; or no AI_PRICE_*
+    settings."""
     name = (model or "").strip().lower()
     if llm.provider_of(name) == llm.CLAUDE:
-        known = max((m for m in CLAUDE_PRICES if name.startswith(m)), key=len, default=None)
-        if known is None:
+        entry = _claude_entry(name)
+        if entry is None:
             return None
-        entry = CLAUDE_PRICES[known]
         return {part: entry[part] for part in ("input", "cached", "write", "output")}
     given = prices()
     return {**given, "write": given["input"]} if given else None
