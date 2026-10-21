@@ -85,6 +85,39 @@ def test_the_credit_running_out_pauses_the_ai_for_six_hours(ai_on):
     assert budget.allowed("chat", None, 0, now=later) == (True, "")
 
 
+@override_settings(WATCH_AI=True)
+def test_a_pause_for_one_providers_credit_lifts_when_the_other_provider_is_in_use(ai_on, ai_settings):
+    from neurodb.assistant import llm
+    from neurodb.assistant.llm import keys
+    from neurodb.fmm.ai import ap_summary
+    from neurodb.watch import budget as watch_budget
+    from neurodb.web import health
+
+    def watch_line():
+        return "watch_ai_paused" in {line.key for line in health.warnings()}
+
+    quota = _error({"message": "You exceeded your current quota.", "code": "insufficient_quota"})
+    assert llm.provider() == llm.OPENAI
+    assert budget.trip(quota) and watch_budget.trip(quota) == watch_budget.QUOTA
+    assert budget.reason_for(budget.PAUSED) == "AI is paused: the OpenAI credit ran out"
+    assert budget.allowed("chat", None, 0) == (False, "paused") and watch_budget.paused_until() is not None
+    assert watch_line()
+    # The administrator enters the Anthropic key in AI settings: Automatic moves every feature to Claude,
+    # whose credit did not run out
+    ai_settings.anthropic_key_sealed = keys.seal("kx-test-" + "5" * 32)
+    ai_settings.save()
+    assert llm.provider() == llm.CLAUDE
+    assert budget.paused_until() is None and budget.allowed("chat", None, 0) == (True, "")
+    assert watch_budget.paused_until() is None and not watch_line()
+    # A pause says what was written when it paused, never the credit of the provider in use now
+    assert budget.reason_for(budget.PAUSED) == "AI is paused: the OpenAI credit ran out"
+    assert ap_summary.paused() == "AI is paused: the OpenAI credit ran out. Try again later."
+    # Back on OpenAI within the 6 hours: its credit is still out
+    ai_settings.provider = llm.OPENAI
+    ai_settings.save()
+    assert budget.allowed("chat", None, 0) == (False, "paused") and watch_budget.paused_until() is not None
+
+
 # ------------------------------------------------------------------------------------------ the caps
 @override_settings(FMM_DAILY_TOKEN_CAP=10_000, FMM_MAX_CALLS_PER_DAY=5)
 def test_the_office_caps_of_monitoring_insights(ai_on):

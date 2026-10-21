@@ -114,10 +114,10 @@ TEXT_CHANGED = "waiting: the knowledge base read a new text while it was analyse
 
 
 def paused() -> str:
-    """Why the review stops while the AI rests: the provider's credit ran out (it names the provider)."""
+    """Why the review stops while the AI rests: a provider's credit ran out (the one the pause names)."""
     from neurodb.fmm.ai import budget
 
-    return f"AI is paused: {budget.quota_reason()}"
+    return f"AI is paused: {budget.pause_reason()}"
 
 
 def _string(description: str = "") -> dict[str, Any]:

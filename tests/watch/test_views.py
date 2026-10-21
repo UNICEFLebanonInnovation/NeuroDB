@@ -235,6 +235,9 @@ def test_the_whole_country_view_reads_the_country_note_and_trial_checks(team):
     assert trial.title not in login(team.edu).get(FOR_YOU).content.decode()
 
 
+CREDIT_OUT = "AI not used today: the AI service&#x27;s credit ran out"  # as the page escapes it
+
+
 def test_a_note_names_the_vendor_of_the_model_that_wrote_it(team):
     WatchNote.objects.create(
         date=today(),
@@ -249,9 +252,10 @@ def test_a_note_names_the_vendor_of_the_model_that_wrote_it(team):
         WatchNote.objects.update(written_by=WatchNote.TEMPLATE, ai_skipped_reason="quota")
         html = login(team.boss).get(FOR_YOU).content.decode()
         assert "The note is written by AI (Anthropic)" in html  # a listed note: the provider in use
-        assert "AI not used today: the Anthropic credit ran out" in html
+        # the note keeps no provider: whose credit ran out is not said, so a switch never misnames it
+        assert CREDIT_OUT in html and "Anthropic credit" not in html and "OpenAI credit" not in html
     html = login(team.boss).get(FOR_YOU).content.decode()
-    assert "AI not used today: the OpenAI credit ran out" in html and "written by AI (OpenAI)" in html
+    assert CREDIT_OUT in html and "written by AI (OpenAI)" in html
 
 
 def test_the_administrators_picker_shows_an_audience_and_never_anyones_receipts(team, health):

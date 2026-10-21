@@ -931,7 +931,7 @@ def _check_all(conn, book, sync_run, tally: dict[str, int], limit: int | None) -
             found = check(conn, rule, prompt, sent, setting, names_)
         except Exception as exc:
             if budget.trip(exc):
-                stop(f"paused: {budget.quota_reason()}")
+                stop(f"paused: {budget.pause_reason()}")
                 return None
             logger.warning("Monitoring insights: an AI check failed: %s", type(exc).__name__)
             failed()

@@ -432,7 +432,7 @@ def ask(facts: Facts, today: datetime.date, names: Iterable[str]) -> _Asked:
     budget.succeeded()
     llm.record(usage.WATCH, result.model, result)
     asked.tokens = usage.split(result.usage)
-    asked.model = result.model
+    asked.model = result.ledger_model  # after a refusal fallback, the fallback's model wrote them
     try:
         raw = json.loads(result.text)
     except ValueError:

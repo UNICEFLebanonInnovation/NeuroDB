@@ -216,7 +216,7 @@
       "secret": true,
       "keyVaultSecret": "anthropic-api-key",
       "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=anthropic-api-key)",
-      "description": "Anthropic API key (optional; can be entered in the admin's AI settings) for Claude, the preferred AI: a key of the organisation's workspace in the Claude Console (platform.claude.com). Set here, it comes before a key entered in AI settings."
+      "description": "Anthropic API key (optional; can be entered in the admin's AI settings) for Claude, the preferred AI: a key of the organisation's workspace in the Claude Console (platform.claude.com). Set here, it comes before a key entered in AI settings. Delete this entry when the key is not kept in Key Vault (entered in AI settings, or Claude not used): a reference to a missing secret shows under Needs attention."
     },
     {
       "name": "CLAUDE_MODEL",
@@ -243,7 +243,7 @@
       "secret": true,
       "keyVaultSecret": "openai-api-key",
       "value": "@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=openai-api-key)",
-      "description": "OpenAI API key (a project key from platform.openai.com; optional, can be entered in the admin's AI settings) for the AI features on OpenAI. Set here, it comes before a key entered in AI settings."
+      "description": "OpenAI API key (a project key from platform.openai.com; optional, can be entered in the admin's AI settings) for the AI features on OpenAI. Set here, it comes before a key entered in AI settings. Delete this entry when the key is not kept in Key Vault (entered in AI settings, or OpenAI not used): a reference to a missing secret shows under Needs attention."
     },
     {
       "name": "AI_ASSISTANT_MODEL",

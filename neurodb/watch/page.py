@@ -59,7 +59,7 @@ from neurodb.accounts.models import Section
 from neurodb.assistant import llm
 from neurodb.core.models import SyncRun
 
-from . import budget, connect, detectors, investigate, routing
+from . import connect, detectors, investigate, routing
 from .detectors import CHECK, CRITICAL, DAILY, LIKELY, ON, SURE, TRIAL, WARNING
 from .detectors.concerns import FORECAST_ID
 from .models import DetectorSetting, WatchItem, WatchNote, WatchReceipt
@@ -90,12 +90,14 @@ SET_ASIDE = (Reaction.DONE, Reaction.NOT_MINE, Reaction.WRONG)
 
 CONFIDENCE_WORDS = {SURE: "Sure", LIKELY: "Likely", CHECK: "Please check"}
 SEVERITY_WORDS = {CRITICAL: "Critical", WARNING: "Warning", "info": "To note"}
-# Why the AI did not write a note, in the words of "AI not used today: ..."; the credit running out
-# names the provider's credit (budget.quota_reason), so it is written when the page is
+# Why the AI did not write a note, in the words of "AI not used today: ..."; a note keeps no provider, so
+# the credit running out names none (the provider in use when the page is shown may not be the one whose
+# credit ran out)
 SKIPPED_WORDS = {
     WatchNote.Skipped.OFF: "the AI is switched off",
     WatchNote.Skipped.BUDGET: "daily limit reached",
     WatchNote.Skipped.PAUSED: "the AI is paused for a few hours",
+    WatchNote.Skipped.QUOTA: "the AI service's credit ran out",
     WatchNote.Skipped.ERROR: "the AI did not give an answer that passed the checks",
     WatchNote.Skipped.NO_CHANGE: "nothing changed",
 }
@@ -687,10 +689,7 @@ def _note(audience: str, today: datetime.date, title: str, cards: dict[str, dict
                 links.append({"label": found["title"], "anchor": f"watch-{found['pk']}"})
         sentences.append({"text": str(sentence["text"]), "links": links})
     if note.written_by == WatchNote.TEMPLATE:
-        if note.ai_skipped_reason == WatchNote.Skipped.QUOTA:
-            why = budget.quota_reason()
-        else:
-            why = SKIPPED_WORDS.get(note.ai_skipped_reason, "")
+        why = SKIPPED_WORDS.get(note.ai_skipped_reason, "")
         label = "Listed by NeuroDB." + (f" AI not used today: {why}" if why else "")
     else:
         label = AI_WROTE

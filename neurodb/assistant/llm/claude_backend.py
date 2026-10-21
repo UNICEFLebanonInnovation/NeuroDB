@@ -10,8 +10,8 @@ the reason. It never carries ``thinking`` (always on), ``temperature``, ``top_p`
 ``tool_choice`` or a prefill: Claude Opus 5.5 refuses each with a 400.
 
 An account that does not accept the fallback's beta header refuses the request with a 400 before anything
-is streamed: the call is made again without the fallback, and every call goes without it for 24 hours
-(Needs attention says so).
+is streamed: the call is made again without the fallback, and every call goes without it for 24 hours or
+until AI settings are saved again (Needs attention says so while Claude is in use with the fallback on).
 
 Ask NeuroDB's answers with tools (``agent``) stream each round through :func:`stream_round` and send the
 conversation back append-only: each round adds the assistant's whole content as Claude wrote it
@@ -498,15 +498,16 @@ class Connection:
     def complete(self, req: llm.Request) -> llm.Result:
         return read(send(self.api, request(req)), req)
 
-    def check(self) -> llm.Result:
-        """The connection test's call, not streamed: one short message and 16 output tokens at most, with
-        the fallback when it is on (an account that refuses it shows it here, with no retry). Any stop
-        counts: the thinking may use the 16 tokens."""
+    def check(self, effort: str) -> llm.Result:
+        """The connection test's call, not streamed: one short message and 16 output tokens at most, at
+        ``effort`` (the default the features send, so a model that does not take it shows here), with the
+        fallback when it is on (an account that refuses it shows it here, with no retry). Any stop counts:
+        the thinking may use the 16 tokens."""
         model = llm.default_model(llm.CLAUDE)
         params = {
             "model": model,
             "max_tokens": 16,
-            "output_config": {"effort": "low"},
+            "output_config": {"effort": effort},
             "messages": [{"role": "user", "content": llm.PROBE}],
             **fallback_params(model, check=True),
         }

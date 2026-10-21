@@ -370,7 +370,7 @@ def narrate(review: DailyReview, findings: list[ReviewFinding]) -> str:
         used = result.usage
         review.model_input_tokens = used.input_tokens + used.cache_read_tokens  # the whole prompt
         review.model_output_tokens = used.output_tokens
-        review.narrated_by = result.model
+        review.narrated_by = result.ledger_model  # a refusal fallback's model, when it wrote it
         return text
     except Exception:
         logger.exception("daily review %s: narration failed, using the template summary", review.date)
@@ -532,7 +532,7 @@ def decide(review: DailyReview, findings: list[ReviewFinding]) -> list[dict[str,
         )
         review.decided_by = RULES
         return []
-    review.decided_by = result.model if decisions else RULES
+    review.decided_by = result.ledger_model if decisions else RULES
     return decisions
 
 

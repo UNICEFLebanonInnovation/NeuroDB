@@ -85,8 +85,8 @@ NOT_CHECKED = "The summary did not add up to the action points read, so it is no
 
 
 def paused() -> str:
-    """Why no summary is written while the AI rests: the provider's credit ran out (it names it)."""
-    return f"AI is paused: {budget.quota_reason()}. Try again later."
+    """Why no summary is written while the AI rests: a provider's credit ran out (the one the pause names)."""
+    return f"AI is paused: {budget.pause_reason()}. Try again later."
 
 
 @dataclass

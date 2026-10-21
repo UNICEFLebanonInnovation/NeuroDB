@@ -20,7 +20,8 @@ is recorded right after it returns.
 - the AI provider's credit ran out (OpenAI's ``insufficient_quota``, or a 429 that says quota;
   Anthropic's ``billing_error``): the watch's AI pauses for 6 hours at once, and the administrators get
   the critical item ``system:openai_quota`` ("The OpenAI credit ran out: Ask NeuroDB is affected too",
-  or the Anthropic credit; the item's id stays the one it always had);
+  or the Anthropic credit; the item's id stays the one it always had). The pause is lifted while the
+  other provider is in use (:func:`lifted`): an administrator who switches does not wait;
 - any other failure counts one more failure in a row (``WatchState.consecutive_ai_errors``); the third
   in a row pauses the AI for 6 hours.
 
@@ -86,6 +87,15 @@ def quota_reason() -> str:
     return f"{llm.names().credit} ran out"
 
 
+def lifted(reason: str) -> bool:
+    """A pause written for one provider's credit (``reason``, :func:`quota_reason`'s words when it paused)
+    is over while the other provider is in use: its credit did not run out. Back on the first provider
+    within the 6 hours, the pause holds again. Any other reason (failures in a row) is never lifted here."""
+    said = (reason or "").strip()
+    whose = next((p for p, names in llm.NAMES.items() if said == f"{names.credit} ran out"), "")
+    return bool(whose) and whose != llm.provider()
+
+
 def quota_source() -> str:
     """The item's source: the provider's name ("OpenAI", "Anthropic")."""
     return llm.names().vendor
@@ -117,7 +127,8 @@ def paused_until(now: datetime.datetime | None = None) -> datetime.datetime | No
     now = now or timezone.now()
     state = WatchState.objects.filter(pk=1).first()  # read only: the row is created on first write
     if state is not None and state.ai_paused_until and state.ai_paused_until > now:
-        return state.ai_paused_until
+        if not lifted(state.ai_pause_reason):  # the credit of a provider no longer in use
+            return state.ai_paused_until
     return None
 
 

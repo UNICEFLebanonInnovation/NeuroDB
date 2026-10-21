@@ -295,6 +295,28 @@ def test_an_account_that_refuses_the_fallback_header_gets_the_call_without_it(cl
     assert "ai_fallbacks_refused" not in {line.key for line in health.warnings()}
 
 
+def _attention():
+    return {line.key for line in health.warnings()}
+
+
+def test_the_refused_fallback_line_goes_once_the_option_is_unticked_or_claude_is_not_in_use(
+    claude, ai_settings
+):
+    caches["shared"].set(claude_backend.REFUSED_KEY, True, claude_backend.REFUSED_SECONDS)
+    assert "ai_fallbacks_refused" in _attention()
+    with override_settings(AI_PROVIDER="openai"):  # no Claude call sends the fallback any more
+        assert "ai_fallbacks_refused" not in _attention()
+    ai_settings.claude_fallbacks = False  # what the line says to do
+    ai_settings.save()
+    assert "ai_fallbacks_refused" not in _attention()
+    # A save of AI settings forgets the refusal: the next call (or Test the connection) asks again
+    assert not claude_backend.fallbacks_refused()
+    caches["shared"].set(claude_backend.REFUSED_KEY, True, claude_backend.REFUSED_SECONDS)
+    ai_settings.claude_fallbacks = True
+    ai_settings.save()
+    assert not claude_backend.fallbacks_refused() and "ai_fallbacks_refused" not in _attention()
+
+
 def test_another_400_is_not_retried(claude):
     server = claude(
         http_error(
@@ -343,7 +365,7 @@ def test_the_connection_test_on_claude(claude, db):
     assert body == {
         "model": "claude-opus-5-5",
         "max_tokens": 16,
-        "output_config": {"effort": "low"},
+        "output_config": {"effort": "medium"},  # the default effort (CLAUDE_EFFORT), as the features send
         "messages": [{"role": "user", "content": "Reply with the word OK."}],  # no NeuroDB data
         "fallbacks": "default",
     }
@@ -360,6 +382,19 @@ def test_a_connection_test_that_fails_says_why(claude, db):
     assert not check.ok and check.text == llm.KEY_REJECTED
     assert "test-key-not-real" not in check.text
     assert not AIUsage.objects.exists()
+
+
+def test_the_connection_test_sends_the_effort_chosen_in_ai_settings(claude, ai_settings):
+    ai_settings.claude_effort = "max"
+    ai_settings.save()
+    said = "output_config.effort: 'max' is not supported by this model."
+    server = claude(http_error(400, error_body("invalid_request_error", said)))
+    check = llm.test_connection()
+    assert _sent(server)[0]["output_config"] == {"effort": "max"}
+    assert not check.ok and check.text == (
+        f"The model {MODEL} does not take the default effort max: choose another default effort here and "
+        f"test again. The API said: {said}"
+    )
 
 
 def test_a_refused_fallback_header_shows_in_the_connection_test(claude, db):
@@ -925,3 +960,51 @@ def test_a_call_answered_after_a_refusal_fallback_books_each_model_its_own_attem
         MODEL: (0, 50, 200, 10),  # the declined attempt, at the prices of the model asked for
         "claude-opus-5": (1, 90, 0, 40),
     }
+
+
+FALLBACK_MODEL = "claude-opus-4-8"
+
+
+def _answered_by_the_fallback(answer):
+    """A call the model asked for declined and a refusal fallback's model answered."""
+    attempts = [
+        iteration("message", 50, 10),
+        iteration("fallback_message", 60, 40, model=FALLBACK_MODEL),
+    ]
+    return turn(
+        [fallback(MODEL, FALLBACK_MODEL, "cyber"), text(answer)],
+        usage=anthropic_mock.usage(60, 40, iterations=attempts),
+    )
+
+
+def _watch_note_writer(api):
+    from neurodb.watch import explain
+
+    facts = SimpleNamespace(
+        payload={"items": [{"key": "item:1", "title": "A progress report is due"}]},
+        citable={"item:1": {"key": "item:1", "title": "A progress report is due"}},
+    )
+    asked = explain.ask(facts, parity.TODAY, [])
+    return [asked.sentences, asked.model]  # the model becomes the note's written_by
+
+
+# Each feature that keeps who wrote its text, as (what it kept, who wrote it): the daily review's narration
+# (narrated_by) and decisions (decided_by), the What's new note and the Watch morning note (written_by)
+WRITERS = {
+    "H1_narration": CALLERS["H1_narration"],
+    "H2_decisions": CALLERS["H2_decisions"],
+    "I_whats_new": CALLERS["I_whats_new"],
+    "J_watch_note": _watch_note_writer,
+}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("caller", list(WRITERS))
+def test_a_text_written_after_a_refusal_fallback_names_the_model_that_wrote_it(claude, caller):
+    answer = parity._answer(caller)
+    server = claude(_answered_by_the_fallback(answer if isinstance(answer, str) else json.dumps(answer)))
+    kept, written_by = WRITERS[caller](None)[:2]
+    assert kept and written_by == FALLBACK_MODEL  # not the model asked for, which declined
+    assert _sent(server)[0]["model"] == MODEL  # asked of the model in use, as always
+    booked = dict(AIUsage.objects.values_list("model", "calls"))
+    assert booked == {MODEL: 0, FALLBACK_MODEL: 1}  # the call counted on the model that wrote it

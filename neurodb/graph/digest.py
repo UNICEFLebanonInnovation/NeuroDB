@@ -64,7 +64,7 @@ def narrate(audience: str, lines: list[str]) -> tuple[str, str]:
         text = result.text.strip()
         if not text:
             raise ValueError("the model returned no text")
-        return text, result.model
+        return text, result.ledger_model  # a refusal fallback's model, when it wrote the note
     except Exception:
         logger.exception("what's new note for %s: the assistant failed, listing the changes", audience)
         return _template(lines), TEMPLATE

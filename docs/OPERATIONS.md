@@ -121,8 +121,10 @@ come from.
 - **Switch on**: enter the key in AI settings; or store it in Key Vault as `anthropic-api-key` (or
   `openai-api-key`) and reference it as `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) (App Service:
   `@Microsoft.KeyVault(VaultName=neurodb-prod-kv;SecretName=anthropic-api-key)`; Container Apps:
-  `enableAiAssistant = true`, and `anthropicKeyInKeyVault = true` for the Anthropic key, in
-  `main.bicepparam`), then restart the app. A key entered in AI settings needs no restart. Without a
+  `anthropicKeyInKeyVault = true` for the Anthropic key, `enableAiAssistant = true` for the OpenAI key,
+  in `main.bicepparam`; each needs its secret to exist, or the revision fails), then restart the app. A
+  key entered in AI settings needs no restart, and a key not kept in Key Vault has no reference: delete
+  its entry from the pasted settings (`docs/DEPLOYMENT_AZURE.md`, *Environment variables*). Without a
   key the assistant is off and the search box ("Search partners, programme documents, indicators")
   works as before; `/ask/` then points users to Search and the Management brief, and only staff see
   where the key goes. Never put a key in a committed file or a Bicep parameter.
@@ -316,11 +318,12 @@ come from.
 - **Refusals and failures**: when the model declines a question, it is logged as "Declined by the
   model" and the user is asked to rephrase. On Claude a declined answer arrives as a refusal, and
   refusal fallbacks are on: Anthropic runs the request again on another Claude model it chooses for the
-  reason of the decline; the question log and AI use then name the model that answered, and the
-  declined attempt's tokens stay with the model asked for. Untick *Retry a declined answer on another
-  Claude model* in AI settings to switch them off; an Anthropic account that does not accept them gets
-  every call without them for a day, and Needs attention says so. A refusal's partial text is never
-  kept. On OpenAI there is no automatic retry on another model, and a question blocked by OpenAI's
+  reason of the decline; the question log, AI use and the daily review, What's new and Watch notes
+  (*Narrated by*, *Written by*) then name the model that answered, and the declined attempt's tokens stay
+  with the model asked for. Untick *Retry a declined answer on another Claude model* in AI settings to
+  switch them off; an Anthropic account that does not accept them gets every call without them for a day
+  (or until AI settings are saved again), and Needs attention says so until the option is unticked. A
+  refusal's partial text is never kept. On OpenAI there is no automatic retry on another model, and a question blocked by OpenAI's
   safety checks (error codes `invalid_prompt`, `bio_policy`, `cyber_policy`,
   `misalignment_policy_violation`) is logged the same way, with the code in the Error field; asking the
   same question again will not help. If every question fails, use Test the connection in AI settings,
@@ -347,8 +350,9 @@ come from.
   or Entra ID sign-in, and deployment names instead of model ids. A platform.openai.com key does
   not work there. Moving the assistant to Azure OpenAI (for example to keep the traffic in the
   Azure tenant) needs a small code change (the SDK's `AzureOpenAI` client) and different settings.
-  NeuroDB calls Anthropic's own API: Claude through Microsoft Foundry or another cloud would need a code
-  change too, and has no server-side refusal fallbacks.
+  NeuroDB calls Anthropic's own API: Claude through Amazon Bedrock, Google Vertex AI or Microsoft Foundry
+  would need a code change too, and has no server-side refusal fallbacks there; Claude Platform on AWS
+  (run by Anthropic) keeps them but also needs its own client.
 
 ### Knowledge base (`/knowledge/`)
 
@@ -3557,7 +3561,9 @@ limit (see *AI assistant* above).
 Anthropic's `billing_error`), the watch stops using AI for 6 hours, and the administrators get a
 critical point and a *Needs attention* line ("The Anthropic credit ran out: Ask NeuroDB is affected
 too", or the OpenAI credit). Three failed calls in a row pause it too. The notes are listed by code
-meanwhile, and the first call that succeeds closes the point.
+meanwhile, and the first call that succeeds closes the point. A pause for one provider's credit ends as
+soon as the other provider is in use (AI settings), whose credit did not run out; it holds again if the
+first provider is chosen back within the 6 hours. The same goes for the pause of Monitoring insights.
 
 ### The morning email
 
@@ -3618,7 +3624,8 @@ their For you page:
 - *NeuroDB Watch has not run for more than 26 hours*: look at the `watch` scheduled job and the last
   runs of *NeuroDB Watch* in *Import and sync runs*;
 - *NeuroDB Watch stopped using AI until ...*: the credit ran out or the AI failed three times in a
-  row; add credit to the Anthropic workspace (or the OpenAI project) or wait, nothing else to do;
+  row; add credit to the Anthropic workspace (or the OpenAI project), choose the other provider in AI
+  settings (a pause for one provider's credit ends then), or wait;
 - *N eTools section names have no confirmed NeuroDB section*: confirm them (above);
 - *The check “...” went back to trial*: look at its points and reactions, then switch it on again,
   keep it in trial or switch it off.
@@ -4832,7 +4839,7 @@ Every brief, test run and chat round is counted under *Monitoring insights* in A
 (see *AI checks of the quality rules*); the action points' AI review and summaries under *Action points
 (AI review and summaries)*, with their own cap (see *Action points*). Before each call NeuroDB checks, in order: the AI is switched on (`FMM_ENABLED`, `FMM_AI`,
 `AI_ASSISTANT_ENABLED` and a published prompt version); it is not paused (6 hours after the AI provider
-said the credit ran out); Monitoring insights' own caps for the whole office, `FMM_DAILY_TOKEN_CAP`
+said the credit ran out, unless the other provider is in use meanwhile); Monitoring insights' own caps for the whole office, `FMM_DAILY_TOKEN_CAP`
 (1,200,000 tokens) and `FMM_MAX_CALLS_PER_DAY` (400 calls); and the shared `AI_DAILY_TOKEN_SOFT_CAP`
 (3,000,000), of which nightly briefs and test runs may use 80% and people's Regenerates and questions
 100%. Per person: 5 *Regenerate* and 20 chat questions a day (set in the prompt version), counted from

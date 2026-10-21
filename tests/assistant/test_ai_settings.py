@@ -13,6 +13,7 @@ from neurodb.accounts.models import User
 from neurodb.assistant import llm
 from neurodb.assistant.llm import keys
 from neurodb.assistant.models import AISettings, AIUsage
+from tests.assistant import openai_mock
 from tests.assistant.anthropic_mock import error_body, http_error, message_json, text
 from tests.assistant.openai_mock import MockResponsesServer, completed, message
 
@@ -248,15 +249,51 @@ def test_the_connection_test_on_openai(page, monkeypatch):
         "input": "Reply with the word OK.",  # no NeuroDB data
         "max_output_tokens": 16,
         "store": False,
-        "reasoning": {"effort": "low"},
+        "reasoning": {"effort": "medium"},  # the default effort (AI_ASSISTANT_EFFORT), as the features send
     }
     assert AISettings.objects.get().check_result.startswith("ChatGPT (OpenAI) answered with gpt-5.5 in ")
 
 
-def test_the_connection_test_with_the_ai_off(page):
-    with override_settings(AI_ASSISTANT_ENABLED=False, AI_ASSISTANT_SWITCH=False):
+def test_the_connection_test_says_when_the_model_does_not_take_the_default_effort(page, monkeypatch):
+    for var in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(var, "127.0.0.1,localhost")
+    said = "Unsupported value: 'reasoning.effort' does not support 'minimal' with this model."
+    server = MockResponsesServer([openai_mock.http_error(400, openai_mock.api_error_body(said))]).start()
+    monkeypatch.setenv("OPENAI_BASE_URL", server.base_url)
+    try:
+        with override_settings(AI_ASSISTANT_ENABLED=True, OPENAI_API_KEY="test-key-not-real"):
+            assert _post(page, openai_effort="minimal").status_code == 302
+            assert _test(page).status_code == 302
+    finally:
+        server.stop()
+    assert server.requests[0]["body"]["reasoning"] == {"effort": "minimal"}  # what Ask NeuroDB would send
+    assert AISettings.objects.get().check_result == (
+        "The model gpt-5.5 does not take the default effort minimal: choose another default effort here and "
+        f"test again. The API said: {said}"
+    )
+
+
+def test_the_connection_test_with_the_ai_off(page, claude):
+    server = claude()
+    for provider in ("claude", "openai"):
+        with override_settings(AI_PROVIDER=provider, AI_ASSISTANT_ENABLED=False, AI_ASSISTANT_SWITCH=False):
+            assert _test(page).status_code == 302
+        # what "In use now" says above it, not the message for the people using the AI
+        assert AISettings.objects.get().check_result == (
+            "The hosting team switched the AI off (AI_ASSISTANT_ENABLED=false): nothing was sent."
+        )
+    assert server.requests == [] and not AIUsage.objects.exists()
+
+
+def test_the_connection_test_with_no_key_says_which_key_is_missing(page, claude):
+    server = claude()
+    with override_settings(ANTHROPIC_API_KEY=""):
         assert _test(page).status_code == 302
-    assert AISettings.objects.get().check_result == llm.NOT_SET_UP
+    assert AISettings.objects.get().check_result == (
+        "Claude (Anthropic) has no API key yet, so nothing was sent: enter one here, or ask the hosting team "
+        "to set ANTHROPIC_API_KEY."
+    )
+    assert server.requests == [] and not AIUsage.objects.exists()
 
 
 def test_only_administrators_change_ai_settings(client, viewer, ai_settings, roles):
@@ -341,7 +378,7 @@ def test_needs_attention_says_when_a_key_vault_reference_did_not_resolve(ai_sett
     with override_settings(AI_KEY_VAULT_UNRESOLVED=("ANTHROPIC_API_KEY",)):
         assert _lines()["ai_key_vault:anthropic"].text == (
             "ANTHROPIC_API_KEY is a Key Vault reference that did not resolve: the hosting team should check "
-            "the secret anthropic-api-key."
+            "the secret anthropic-api-key, or remove ANTHROPIC_API_KEY if the key is not kept in Key Vault."
         )
     with override_settings(AI_KEY_VAULT_UNRESOLVED=("OPENAI_API_KEY",)):
         assert list(_lines()) == ["ai_key_vault:openai"]

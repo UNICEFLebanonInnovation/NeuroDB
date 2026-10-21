@@ -273,8 +273,8 @@ def _ai_setup(now: datetime.datetime) -> list[Warning]:
     did not resolve; the provider chosen (in AI settings or by the hosting team) with no key; a key
     entered in AI settings that can no longer be read (the site's secret key changed: Automatic would
     move to the other provider without a word); the Anthropic account refusing the header of the refusal
-    fallbacks in the last 24 hours (the calls go without them meanwhile). The AI settings as kept in
-    memory and one cache read: no query."""
+    fallbacks in the last 24 hours (the calls go without them meanwhile), while Claude is in use with the
+    fallback on. The AI settings as kept in memory and one cache read: no query."""
     from neurodb.assistant import llm
     from neurodb.assistant.llm import claude_backend
 
@@ -290,7 +290,8 @@ def _ai_setup(now: datetime.datetime) -> list[Warning]:
                     key=f"ai_key_vault:{vendor}",
                     text=_(
                         "%(setting)s is a Key Vault reference that did not resolve: the hosting team should "
-                        "check the secret %(secret)s."
+                        "check the secret %(secret)s, or remove %(setting)s if the key is not kept in Key "
+                        "Vault."
                     )
                     % {"setting": setting, "secret": secret},
                     url=url,
@@ -331,7 +332,8 @@ def _ai_setup(now: datetime.datetime) -> list[Warning]:
                 value=_("none"),
             )
         )
-    if claude_backend.fallbacks_refused():
+    # only while a Claude call would send the fallback: unticking the option (or another provider) ends it
+    if p == llm.CLAUDE and entered.claude_fallbacks and claude_backend.fallbacks_refused():
         lines.append(
             Warning(
                 key="ai_fallbacks_refused",
@@ -593,13 +595,17 @@ def _watch_late(now: datetime.datetime) -> list[Warning]:
 
 def _watch_ai_paused(now: datetime.datetime) -> list[Warning]:
     """NeuroDB Watch stopped using AI for a while (the daily limit, the AI provider's credit ran out...):
-    the morning notes are listed without it until then."""
+    the morning notes are listed without it until then. A pause for the credit of a provider no longer in
+    use is over (``watch.budget.lifted``)."""
+    from neurodb.watch.budget import lifted
     from neurodb.watch.models import WatchState
 
     if not settings.WATCH_AI:
         return []
     state = WatchState.objects.filter(pk=1).first()  # read only: the row is created by a run
     if state is None or not state.ai_paused_until or state.ai_paused_until <= now:
+        return []
+    if lifted(state.ai_pause_reason):
         return []
     until = timezone.localtime(state.ai_paused_until)
     same_day = until.date() == timezone.localdate(now)

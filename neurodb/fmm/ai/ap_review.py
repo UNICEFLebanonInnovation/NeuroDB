@@ -312,7 +312,7 @@ def _review_all(conn, sync_run, tally: dict[str, int], limit: int | None) -> str
             found = review(conn, prompt, sent, setting, names_)
         except Exception as exc:
             if budget.trip(exc):
-                return f"paused: {budget.quota_reason()}"
+                return f"paused: {budget.pause_reason()}"
             logger.warning("Action points: an AI review failed: %s", type(exc).__name__)
             found = None
         if found is None:

@@ -65,10 +65,10 @@ NOT_CITED = "The paragraph cited none of the findings, so it is not shown. Try a
 
 
 def paused() -> str:
-    """Why no paragraph is written while the AI rests: the provider's credit ran out (it names it)."""
+    """Why no paragraph is written while the AI rests: a provider's credit ran out (the pause names it)."""
     from neurodb.fmm.ai import budget
 
-    return f"AI is paused: {budget.quota_reason()}. Try again later."
+    return f"AI is paused: {budget.pause_reason()}. Try again later."
 
 
 @dataclass

@@ -98,8 +98,8 @@ files or generated so they never appear in shell history.
 | `etools-username` | eTools Datamart service account (basic authentication user name) |
 | `etools-password` | eTools Datamart password; required while `enableEtoolsDatamart = true` (the default) |
 | `entra-client-secret` | only when single sign-on is enabled (step 8) |
-| `anthropic-api-key` | optional: the key can be entered in the admin's AI settings instead. With `enableAiAssistant = true` and `anthropicKeyInKeyVault = true`: the Anthropic API key for Claude, the preferred AI (see `docs/OPERATIONS.md`) |
-| `openai-api-key` | only when the AI assistant is enabled (`enableAiAssistant = true`) and OpenAI's key is not entered in AI settings: the OpenAI project API key (see `docs/OPERATIONS.md`) |
+| `anthropic-api-key` | optional: the key can be entered in the admin's AI settings instead. Only with `anthropicKeyInKeyVault = true` (on its own: `enableAiAssistant` is not needed): the Anthropic API key for Claude, the preferred AI; the secret must then exist, or the revision fails (see `docs/OPERATIONS.md`) |
+| `openai-api-key` | only with `enableAiAssistant = true` (OpenAI's key in Key Vault): the OpenAI project API key; the secret must then exist, even when a key is also entered in AI settings, or the revision fails (see `docs/OPERATIONS.md`) |
 
 ```bash
 KV=neurodb-prod-kv
@@ -199,6 +199,13 @@ to the existing user.
 Replace every `<placeholder>`, the Key Vault name (`neurodb-prod-kv`) and the domain. Do not add
 `CONTAINER_APP_NAME`, `CONTAINER_APP_ENV_DNS_SUFFIX`, `WEBSITE_HOSTNAME` or `APP_VERSION`: Azure or
 the image build sets them. `AZURE_STORAGE_KEY` stays unset because storage access uses the managed identity.
+
+**Delete the AI key you do not keep in Key Vault.** Both files reference `anthropic-api-key` and
+`openai-api-key`. When a key is entered in the admin's AI settings instead, or that provider is not
+used, delete its entry: `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) in `azure-app-settings.json`, and in
+`containerapp-env.json` both its `secrets` entry and its `env` entry. A reference to a secret that is not
+in Key Vault fails a Container App revision, and on App Service it shows under *Needs attention* ("... is
+a Key Vault reference that did not resolve").
 
 **Uploaded files (knowledge base documents, CPD documents) need the storage account.** Set
 `AZURE_STORAGE_ACCOUNT` (and `AZURE_CLIENT_ID`, the managed identity that holds *Storage Blob Data

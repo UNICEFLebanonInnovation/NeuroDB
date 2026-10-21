@@ -176,6 +176,8 @@ class Result:
 
     @property
     def ledger_model(self) -> str:
+        """The model that wrote the answer: a refusal fallback's when one answered, else the one asked for
+        (what a feature keeps as its text's writer; the request and its hash stay on ``model``)."""
         return self.served_by or self.model
 
 
@@ -314,7 +316,15 @@ def _saved(sender, **kwargs) -> None:
     transaction.on_commit(forget)
     from neurodb.indicators.services import navigation
 
+    from . import claude_backend
+
     navigation.invalidate()  # the menu's Ask item follows the AI
+    # An account's refusal of the fallback's header is forgotten too: the next call, or Test the
+    # connection, asks again with the settings just saved (it costs one refused call if nothing changed)
+    try:
+        caches["shared"].delete(claude_backend.REFUSED_KEY)
+    except Exception:
+        logger.warning("AI settings: the refused fallback could not be forgotten", exc_info=True)
 
 
 def _setting_changed(setting, **kwargs) -> None:
@@ -596,6 +606,7 @@ def record(feature: str, model: str, outcome: Any) -> None:
 # ----------------------------------------------------------------------------- test the connection
 PROBE = "Reply with the word OK."  # all a connection test sends: no NeuroDB data
 CHECK_CHARS = 300
+SWITCHED_OFF = "The hosting team switched the AI off (AI_ASSISTANT_ENABLED=false): nothing was sent."
 
 
 @dataclass(frozen=True)
@@ -609,20 +620,36 @@ class Check:
 
 
 def test_connection(p: str | None = None) -> Check:
-    """One tiny call to the provider in use (or ``p``) with no NeuroDB data, held to 30 seconds and no
-    retry (it runs inside the admin's request). Any answer counts: the key, the model and the credit work.
-    A failure gives the message a feature would show, with the API's own words for a refused request (a 400
-    holds no secret). The tokens go to AI use as the connection test."""
+    """One tiny call to the provider in use (or ``p``) with no NeuroDB data, at the default effort the
+    features send, held to 30 seconds and no retry (it runs inside the admin's request). Any answer counts:
+    the key, the model, the effort and the credit work. With the AI switched off by the hosting team, or
+    no key for the provider, nothing is sent and the check says which. A failure gives the message a
+    feature would show (said for the effort when the model does not take it), with the API's own words
+    for a refused request (a 400 holds no secret). The tokens go to AI use as the connection test."""
     from neurodb.assistant import usage
 
     p = p or provider()
     model = default_model(p)
+    effort = effort_for(default_effort(p), p)
+    if not getattr(settings, "AI_ASSISTANT_SWITCH", True):
+        return Check(False, SWITCHED_OFF, model, 0.0)
+    if not available(p):
+        text = (
+            f"{names(p).label} has no API key yet, so nothing was sent: enter one here, or ask the hosting "
+            f"team to set {names(p).key_setting}."
+        )
+        return Check(False, text, model, 0.0)
     started = time.monotonic()
     try:
-        result = connect(timeout=30, retries=0, p=p).check()
+        result = connect(timeout=30, retries=0, p=p).check(effort)
     except Exception as exc:
         seconds = time.monotonic() - started
         text = friendly(exc) or f"The AI service could not be tested ({type(exc).__name__})."
+        if effort_refused(exc):
+            text = (
+                f"The model {model} does not take the default effort {effort}: choose another default "
+                "effort here and test again."
+            )
         if getattr(exc, "status_code", None) == 400:
             text = f"{text} The API said: {api_message(exc)}"
             if p == CLAUDE and "anthropic-beta" in api_message(exc):
