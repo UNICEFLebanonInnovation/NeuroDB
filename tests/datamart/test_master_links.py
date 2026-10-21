@@ -869,6 +869,53 @@ def test_a_number_confirmed_in_a_sum_whose_reports_then_name_the_ratio_method_is
     assert (sub.reason, sub.counted) == (masters.TYPE_CHANGED, False)
 
 
+def test_pd_indicators_without_an_etools_id_are_typed_by_their_reports_as_the_tab_reads_them(pds):
+    """Known by their titles (no eTools id), their report rows placed by the title as on Partner monitoring.
+    Two whose reports name the ratio method: a ratio is proposed, as the tab reads them. A family where one
+    with an id reports the ratio method and two without one report numbers: those two reported, so they
+    decide (a sum). A link confirmed as a number whose reports then name the ratio method: "Type changed in
+    eTools"."""
+    a, b, c, d = pds["A"], pds["B"], pds["C"], pds["D"]
+    assessed, screened = "# of children assessed", "# of learners screened"
+
+    def ratio(pd, source_id, title):
+        w.report(
+            pd,
+            source_id,
+            title,
+            "QPR1",
+            day(3, 31),
+            {"Akkar": w.pct(3, 4)},
+            calculation_across_periods="ratio",
+        )
+
+    for pd in (a, b):
+        w.indicator(pd, None, assessed, cp_output=OUTPUT)
+        ratio(pd, None, assessed)
+    w.indicator(a, 102, screened, cp_output=OUTPUT)
+    ratio(a, 102, screened)
+    for pd in (b, c):
+        w.indicator(pd, None, screened, cp_output=OUTPUT)
+        w.report(pd, None, screened, "QPR1", day(3, 31), {"Akkar": 12})
+    tab = {masters.key_of(row): masters.unit_class(row) for row in w.rows()}
+    assert [tab[(pd.id, masters.ident_code((pd.id, f"t{assessed}")))] for pd in (a, b)] == ["ratio"] * 2
+    run()
+    by_name = {p.name: p for p in proposals()}
+    assert (by_name[assessed].method, by_name[screened].method) == ("ratio", "sum")
+    done = master_links.accept([by_name[assessed]], "staff")
+    assert (done.links.confirmed, done.links.left) == (2, [])
+    assert w.figure(by_name[assessed]).value == 0.75
+
+    m = w.master("Caregivers trained")
+    w.indicator(d, None, TRAINED, cp_output=OTHER_OUTPUT)
+    w.link(m, d, None, title=TRAINED)
+    assert run().details["totals"]["type_changed"] == 0
+    ratio(d, None, TRAINED)
+    assert run().details["sections"]["Education"]["type_changed"] == 1
+    sub = w.subs(w.figure(m))[masters.ident_code((d.id, f"t{TRAINED}"))]
+    assert (sub.reason, sub.counted) == (masters.TYPE_CHANGED, False)
+
+
 def test_a_proposals_links_count_only_once_it_is_accepted(pds):
     """Confirming a proposal's links one by one would count them nowhere (a proposal is listed nowhere) and
     keep them from every other master: it is refused, and accepting confirms them."""
@@ -1085,3 +1132,33 @@ def test_a_pd_indicator_placed_by_a_tie_breaker_is_reported_as_partner_monitorin
     proof()
     assert master_links._reported({x, y}) == {x}
     assert master_links._reported({x, y}, master_links.RATIO_NAMED) == set()  # its rows name no ratio
+
+
+def test_a_pd_indicator_without_an_etools_id_is_reported_and_typed_as_partner_monitoring_reads_it(pds):
+    """Known by its title (no eTools id), its key the sha1 of the title as a link stores it: the rows Partner
+    monitoring places by the title make it reported, and one whose rows name the ratio method is read again
+    with its Reached by the job, a ratio as the tab reads it, like one with an eTools id."""
+    a, b, c = pds["A"], pds["B"], pds["C"]
+    reached = "# of children reached with services"
+    for pd, source_id in ((a, None), (b, None), (c, 301)):
+        w.indicator(pd, source_id, reached)
+    w.report(a, None, reached, "QPR1", day(3, 31), {"Akkar": 10})
+    for pd, source_id in ((b, None), (c, 301)):
+        w.report(
+            pd,
+            source_id,
+            reached,
+            "QPR1",
+            day(3, 31),
+            {"Akkar": w.pct(3, 4)},
+            calculation_across_locations="ratio",
+        )
+    x, y = ((pd.id, masters.ident_code((pd.id, f"t{reached}"))) for pd in (a, b))
+    z = (c.id, "s301")
+    pool = master_links.pool(w.YEAR)
+    assert {x, y, z} <= pool.keys()
+    assert master_links._reported({x, y, z}) == {x, y, z}
+    assert master_links._reported({x, y, z}, master_links.RATIO_NAMED) == {y, z}
+    tab = {masters.key_of(row): masters.unit_class(row) for row in w.rows()}
+    assert (tab[x], tab[y], tab[z]) == (masters.NUMBER, masters.RATIO, masters.RATIO)
+    assert master_links._types([pool[x], pool[y], pool[z]]) == {key: tab[key] for key in (x, y, z)}

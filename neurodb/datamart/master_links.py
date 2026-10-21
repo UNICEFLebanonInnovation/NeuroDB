@@ -477,7 +477,9 @@ def _reported(keys: Collection[tuple[int, str]], named: Q | None = None) -> set[
     placed as Reached places them (:meth:`neurodb.datamart.identity.Idents.place`: by the eTools id, the
     title or the PD output and title, then the tie-breakers the stored proof enables), over the whole
     progress reports of their programme documents, whatever ``named`` keeps: a tie-breaker decides from
-    every row of a report, as on Partner monitoring."""
+    every row of a report, as on Partner monitoring. A row's identity is compared in the keys' own form
+    (:func:`neurodb.datamart.masters.ident_code`): an indicator without an eTools id is ``t`` and the sha1 of
+    its title there, its title itself where the row is placed."""
     pd_ids = sorted({pd_id for pd_id, _ident in keys})
     if not pd_ids:
         return set()
@@ -501,7 +503,7 @@ def _reported(keys: Collection[tuple[int, str]], named: Q | None = None) -> set[
         return set()
     placed = identity.Idents(pd_ids).place(rows)
     return {
-        spot.ident
+        (spot.ident[0], masters.ident_code(spot.ident))
         for row, spot in zip(rows, placed, strict=True)
         if spot.ident is not None and (wanted is None or row["datamart_id"] in wanted)
     } & set(keys)

@@ -328,6 +328,31 @@ def test_a_replacement_suggested_in_two_masters_is_one_pd_indicator(db):
     no_title_or_name(found, enrolled.name, retention.name, other.name, completing)
 
 
+def test_a_link_without_an_etools_id_whose_reports_name_the_ratio_method_is_of_another_type_now(db):
+    """Confirmed as a number, known by its title (no eTools id): once its reports name the ratio method the
+    tab reads a ratio, and check 12 counts it of another type, as the job does (its rows placed by the
+    title, as on Partner monitoring). Two such indicators would be proposed as a ratio."""
+    a, b, c = w.programme("A", 1), w.programme("B", 2), w.programme("C", 3)
+    assessed = "# of children assessed"
+    for pd in (a, b, c):
+        w.indicator(pd, None, assessed if pd is not c else ENROLLED_AGAIN, cp_output=OUTPUT)
+    master = w.master("Children enrolled in NFE")
+    w.link(master, c, None, title=ENROLLED_AGAIN)
+    w.report(c, None, ENROLLED_AGAIN, "QPR1", day(3, 31), {"Akkar": 12})
+    got = figures(grouping())
+    assert got["Confirmed links whose type changed in eTools"] == 0
+    for pd, title in ((a, assessed), (b, assessed), (c, ENROLLED_AGAIN)):
+        w.report(
+            pd, None, title, "QPR2", day(6, 30), {"Akkar": w.pct(3, 4)}, calculation_across_periods="ratio"
+        )
+    found = grouping()
+    got = figures(found)
+    assert got["Confirmed links whose type changed in eTools"] == 1
+    assert got["Master indicators the next run would propose"] == 1
+    assert master_links.plan(master_links.pool(w.YEAR), w.YEAR).proposals[0].method == "ratio"
+    no_title_or_name(found, master.name, assessed, ENROLLED_AGAIN)
+
+
 def test_the_page_shows_check_12_with_its_two_tables(client, admin_user, world):
     client.force_login(admin_user)
     page = client.get(reverse("admin:datamart_reporting_checks"))
