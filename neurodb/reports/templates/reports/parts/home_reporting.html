@@ -4,8 +4,10 @@ page's day). Its seven tiles (reports/partials/_reporting_tiles.html), each a li
 programme documents to follow up (reporting.pd_follow_up, at most home.HOME_PDS rows), each with its reports on
 Progress reports (pd=) and its indicators on Program Performance; then the partners line (the Partners tab's three
 tiles). The tiles count indicator reports, the table and the partners line progress reports (the table's column group
-says so). A server whose eTools Datamart sync never ran (no_etools) reads one line instead. Context: reporting,
-pd_rows, tile_urls, partners_url, no_etools.{% endcomment %}
+says so). The table sits in a panel, as on Progress reports: the scroll cues of .table-wrap are painted in the
+panel's colour, and on the page's own background they showed as pale patches at both ends of every row. A server
+whose eTools Datamart sync never ran (no_etools) reads one line instead. Context: reporting, pd_rows, tile_urls,
+partners_url, no_etools.{% endcomment %}
 <div class="home-prp__block">
   <div class="home-prp__title">
     <h3 class="home-block__title" id="home-pr-title">{% trans "Progress reports" %}</h3>
@@ -21,7 +23,7 @@ pd_rows, tile_urls, partners_url, no_etools.{% endcomment %}
     <span class="home-prp__hint">{% blocktrans count counter=reporting.pds.count with n=reporting.pds.count|intcomma %}{{ n }} programme document{% plural %}{{ n }} programme documents{% endblocktrans %}</span>
   </div>
   {% if pd_rows %}
-  <div class="table-wrap"><table class="table table-sm home-pds" aria-labelledby="home-pds-title">
+  <div class="panel p-0 home-pds__panel"><div class="table-wrap"><table class="table table-sm home-pds" aria-labelledby="home-pds-title">
     <colgroup span="2"></colgroup><colgroup span="4"></colgroup><colgroup span="2"></colgroup>
     <thead>
       <tr><td colspan="2"></td><th scope="colgroup" colspan="4" class="home-pds__group">{% trans "Progress reports" %}</th><td colspan="2"></td></tr>
@@ -37,7 +39,7 @@ pd_rows, tile_urls, partners_url, no_etools.{% endcomment %}
       <td class="small text-nowrap">{{ r.next_due|date:"j M Y"|default:"—" }}</td>
       <td class="small text-nowrap">{% if r.indicators_url %}<a href="{{ r.indicators_url }}">{% trans "Indicators" %}<span class="visually-hidden"> {% blocktrans with ref=r.pd_reference_number %}of {{ ref }} on Partner monitoring{% endblocktrans %}</span></a>{% else %}—{% endif %}</td>
     </tr>{% endfor %}</tbody>
-  </table></div>
+  </table></div></div>
   <p class="home-also">{% trans "Counts are progress reports. Overdue first, then Sent back, Due and Submitted." %} <a class="home-more" href="{{ partners_url }}">{% trans "Every report to follow up, on Progress reports" %} →</a></p>
   {% else %}
   <p class="home-empty">{% trans "Nothing to follow up: every report here is Accepted or not yet due." %}</p>
