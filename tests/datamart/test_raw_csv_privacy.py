@@ -1,6 +1,7 @@
-"""The privacy sweep of every download and every page Raw eTools data writes, and of the two exports the
-standing rule changed: people planted in a record of every source, and in every text column of NeuroDB's own
-tables, never reach a cell, a column's name, a source's list or a record's page. Synthetic people only."""
+"""The privacy sweep of every download and every page Raw eTools data writes, of the two exports the standing
+rule changed and of the Power BI comparison sheet: people planted in a record of every source, and in every text
+column of NeuroDB's own tables, never reach a cell, a column's name, a source's list or a record's page.
+Synthetic people only."""
 
 from __future__ import annotations
 
@@ -181,3 +182,57 @@ def test_the_action_points_csv_says_whether_one_is_assigned_never_to_whom(client
     rows = {r["reference"]: r for r in csv.DictReader(io.StringIO(text))}
     assert rows["AP/1"]["assigned_to_count"] == "1" and rows["AP/2"]["assigned_to_count"] == "0"
     assert "assigned_to" not in rows["AP/1"] and NAME not in text
+
+
+@pytest.mark.parametrize(
+    ("page", "params"),
+    [("progress-reports", {"pd_status": ""}), ("partner-monitoring", {"view": "table", "year": "all"})],
+)
+def test_no_person_reaches_the_power_bi_comparison_sheet(client_validator, page, params):
+    from openpyxl import load_workbook
+
+    partner = PartnerOrganization.objects.create(etl_id="1", name="Amel Association", vendor_number="V1")
+    pd = PCA.objects.create(
+        etl_id="11",
+        partner=partner,
+        partner_name=partner.name,
+        number="LEB/PD1",
+        title="A",
+        status="active",
+        unicef_focal_points=[NAME, EMAIL, f"{UNKNOWN} ({EMAIL})"],
+    )
+    dm.PDIndicator.objects.create(
+        datamart_id=1,
+        source_id=100,
+        intervention=pd,
+        pd_reference_number=pd.number,
+        title="# reached",
+        section_name="Education",
+        data=PLANTED,
+    )
+    dm.ReportedIndicator.objects.create(
+        datamart_id=1,
+        partner=partner,
+        intervention=pd,
+        partner_name=partner.name,
+        pd_reference_number=pd.number,
+        progress_report="PR-1",
+        report_number="QPR1",
+        report_type="QPR",
+        report_status="Accepted",
+        period_end=datetime.date(2026, 3, 31),
+        indicator="# reached",
+        section="Education",
+        submitted_by=NAME,
+        narrative=TYPED_TEXT,
+        narrative_assessment=TYPED_TEXT,
+        data=PLANTED,
+    )
+    response = client_validator.get(reverse("reports:check_compare", args=[page]), params)
+    assert response.status_code == 200
+    book = load_workbook(io.BytesIO(response.content))
+    text = repr([list(sheet.iter_rows(values_only=True)) for sheet in book.worksheets])
+    assert "Amel Association" in text and "LEB/PD1" in text  # partners and programme documents stay
+    for planted in FORBIDDEN:
+        assert planted not in text, (page, planted)
+    assert "@" not in text

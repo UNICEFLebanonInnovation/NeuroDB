@@ -15,8 +15,57 @@ validator without it sees "Raw data: ask for staff status" where the link would 
 A validator sees one more line under the tabs of [Progress reports](/partner-reporting/),
 [Partner monitoring](/partner-monitoring/) (and its map) and [Field monitoring](/field-monitoring/), and on
 [Home](/) under *Partner reporting*: **Raw data behind this page**. It opens Raw eTools data on the
-sources that page reads. The *eTools reporting checks* (*Data and sync*) open read-only
-for validators: only an Administrator runs them.
+sources that page reads. On Progress reports and Partner monitoring the line also offers the
+**Power BI comparison sheet (Excel)** (below). The *eTools reporting checks* (*Data and sync*) open
+read-only for validators: only an Administrator runs them.
+
+## The Power BI comparison sheet
+
+NeuroDB never reads Power BI: you compare by hand, and the sheet does the rest. *Power BI comparison sheet
+(Excel)*, under the tabs of Progress reports and Partner monitoring, downloads the page's figures for the
+filter shown, in the order and with the names of the PRP Power BI dashboard. Home, the grid, the map and
+the master indicators have no Power BI page: check them against Raw eTools data.
+
+**Statuses read for.** Due, Overdue and Not yet due depend on the day a report's status is read for.
+The page reads today; Power BI reads the day of its last refresh. Beside the link, choose the day of
+Power BI's refresh (at most 14 days back) before you download.
+
+The file has these sheets:
+
+- **Compare.** At the top: the NeuroDB filter (the page's address), the day the statuses are read for,
+  the last sync of the data, a yellow cell for the day of Power BI's refresh, and *Everything NeuroDB
+  holds* whatever the filter (with the earliest reporting period NeuroDB holds). Then **Set these in
+  Power BI**: each slicer with its value, and a *Done?* cell to tick; and **Clear these in NeuroDB before
+  comparing**: the filters Power BI has no slicer for (a search, a report number, a period...). Then one
+  row per figure: Power BI's page, visual and name for it, NeuroDB's page and figure, NeuroDB's value, and a
+  yellow cell for Power BI's value. Type Power BI's number there: *Difference* and *Same?* fill in by
+  themselves. *Notes* say why a figure can differ (a report Power BI counts that the partner reports
+  feed does not carry: check 11 of the eTools reporting checks; a programme document with no indicator:
+  check 10).
+- **Progress reports** (Progress reports): one row per progress report of the filter, with a *Match key*
+  (the PD reference, a space, the report number). No focal point is written.
+- **Partners** (Progress reports): one row per partner, its progress reports per status, and a *Match key*
+  (the vendor number, else the partner's name).
+- **Program Performance rows** (Partner monitoring): every indicator of the filter, not only the first
+  2,000 the page lists, with NeuroDB's Reached and % Reached, yellow cells for Power BI's, their
+  differences, and a *Match key* (PD number | indicator | PD output). Two indicators of one programme
+  document with the same title and PD output end in #1, #2: match them by their target.
+- **Why they can differ**: seven reasons, each with where to see it.
+
+**Matching row by row** (on the Progress reports, Partners or Program Performance rows sheet):
+
+1. In Power BI, open the visual (the Report list, the partners table or Program Performance), choose
+   *Export data* and open the file in Excel.
+2. In Power BI's file, insert a first column holding the same match key, for instance `=B2&" "&C2` for
+   the PD reference and the report number.
+3. In NeuroDB's sheet, in an empty column, look each row up in Power BI's file:
+   `=VLOOKUP(K3, '[Power BI file]Sheet1'!$A:$Z, 5, FALSE)`: K3 is the row's match key, and 5 the column of
+   the value to bring, counted from the match key.
+4. Filter the rows where the value is `#N/A` (a row Power BI does not have) or differs, and check those
+   rows against Raw eTools data.
+
+The names of Power BI's pages, visuals and slicers in the sheet follow the dashboard as it was shared. If
+your dashboard names one differently, tell the NeuroDB team: they correct it in one place.
 
 ## Raw eTools data
 
@@ -88,9 +137,16 @@ file. The file's name carries the source and the moment of the figures (day, hou
 
 ## Why NeuroDB and Power BI can differ
 
-- The days differ: Power BI refreshes on its own schedule, NeuroDB every night.
+The comparison sheet's last sheet lists these too, each with where to see it.
+
+- The days differ: Power BI refreshes on its own schedule, NeuroDB every night (choose *statuses read
+  for* beside the sheet's link).
 - NeuroDB holds partner reports from the date the partner reports' page says; Power BI may show older
   ones.
+- PRP's other feeds list reports still owed that the partner reports feed does not carry (check 11 of
+  the eTools reporting checks).
 - Draft and cancelled programme documents are never read by NeuroDB.
 - A report's status is the newest word across all its rows.
+- Reached reads Accepted and Submitted reports only, never adds a value repeated on every location, and
+  takes PRP's cumulative for a partial history.
 - An indicator is counted once, although eTools lists it once per location and disaggregation.

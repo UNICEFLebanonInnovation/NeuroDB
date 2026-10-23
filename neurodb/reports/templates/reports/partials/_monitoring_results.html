@@ -5,7 +5,9 @@ read one computation; no link inside a part carries it. Each placeholder keeps t
 measured on the x20 parity world (scripts/parity), the part loaded for an administrator (a viewer's is never
 taller): height at 1366 px, height_md at 900 px (the grids stacked), height_sm at 390 px on a phone, in a window 800
 px high (844 px on the phone), as a table scrolls inside a box of at most 75% of the window's height. The grey
-blocks take the shape of each part (app.css, stage B).{% endcomment %}
+blocks take the shape of each part (app.css, stage B). The check line (validators) is drawn here, so a change of filter
+draws it again with the new filter.{% endcomment %}
+{% include "reports/partials/_check_link.html" with page="reports:pd_monitoring" compare=check_compare %}
 {% if view == "table" %}
 {% part_url "sections" as_of=as_of as sections_url %}{% part_url "table" as_of=as_of as table_url %}
 {% part "sections" kind="tiles" tiles=5 priority="high" group="pm" url=sections_url height="71px" height_md="71px" height_sm="202px" %}

@@ -1,13 +1,13 @@
-"""The words of Raw eTools data and the check line (SPEC_validation §0.1): the reviewers and the PD managers are not
-developers, so the new pages never say a record's "key", "held", "announced", "census", "duplicates"... nor a word of
-the code."""
+"""The words of Raw eTools data, the check line and the Power BI comparison sheet (SPEC_validation §0.1): the
+reviewers and the PD managers are not developers, so the new pages never say a record's "key", "held", "announced",
+"census", "duplicates"... nor a word of the code."""
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-from neurodb.datamart import raw, runfacts
+from neurodb.datamart import comparison, raw, runfacts
 
 ROOT = Path(__file__).resolve().parents[2] / "neurodb"
 TEMPLATES = [
@@ -46,6 +46,13 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         raw.TOO_SLOW,
         raw.too_many("partner_reports", 30_000),
         *raw.NAMES.values(),
+        # the Power BI comparison sheet's own words
+        comparison.REFUSED_DAY,
+        comparison.OVERDUE_NOTE,
+        comparison.PDS_NOTE,
+        *(words for line in comparison.WHY_THEY_DIFFER for words in line),
+        *(words for page in comparison.NEURODB_ONLY.values() for words in page.values()),
+        *comparison.POWERBI_ITEMS.values(),
     ]
     facts = {
         "run": object(),

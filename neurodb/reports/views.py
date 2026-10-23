@@ -11,7 +11,6 @@ import datetime
 import functools
 import io
 import mimetypes
-from collections import Counter
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlsplit
@@ -57,7 +56,7 @@ from neurodb.reports import home as home_service
 from neurodb.reports import overview as overview_service
 from neurodb.web.parts import EAGER_KEY, Part, first_load, render_page
 
-from . import exports, services
+from . import check_views, exports, services
 from .forms import HPMCommentForm, SavedViewForm
 
 PAGE_SIZE = 50
@@ -1944,6 +1943,8 @@ def _reporting_frame(request: HttpRequest, tab: str, filters) -> dict[str, Any]:
         "overdue": request.GET.get("overdue") == "1",
         # Home's rows open the page on one programme document (pd=): the same address without it
         "every_pd_url": request.path + "?" + _query_with(params, ("pd", "export")) if filters.pds else "",
+        # the check line's Power BI comparison sheet, for the filter drawn (validators only see it)
+        "check_compare": check_views.compare_link("progress-reports", params, datamart.reporting_today()),
         "tab_urls": {
             name: request.path + "?" + _query_with(params, ("tab", "export"), tab=name)
             for name in REPORTING_TABS
@@ -2713,17 +2714,12 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
     every_section_rows = functools.cache(
         lambda: pd_monitoring_service.stored_indicators(every_section, today, as_of=as_of)
     )
-    chosen = {s.strip() for s in filters.sections if s.strip()}  # as monitoring.indicators reads them
 
     def table_rows() -> list[pd_monitoring_service.Row]:
-        """Program Performance's rows: the section tiles' computation (the filter without its sections) with
-        the chosen sections kept, as the page read them before it loaded in parts (``section_counts``): the
-        view's two parts read one computation, never two side by side (an indicator's figures do not depend
-        on the other sections)."""
-        every = every_section_rows()
-        if not chosen:
-            return every
-        return [r for r in every if (r.section or pd_monitoring_service.NO_SECTION) in chosen]
+        """Program Performance's rows (``monitoring.program_performance_rows``, as the comparison sheet reads
+        them): the section tiles' computation with the chosen sections kept, so the view's two parts read one
+        computation, never two side by side."""
+        return pd_monitoring_service.program_performance_rows(filters, today, every=every_section_rows())
 
     def stored(of: pd_monitoring_service.Filters = filters) -> Callable[[], bool]:
         return lambda: pd_monitoring_service.indicators_stored(of, today)
@@ -2756,7 +2752,7 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
 
     def sections() -> dict[str, Any]:
         # every section the other filters keep, the chosen ones or not (the filter without its sections)
-        counts = Counter(r.section or pd_monitoring_service.NO_SECTION for r in every_section_rows())
+        counts = pd_monitoring_service.section_counts(every_section_rows())
         return {
             "section_tiles": [
                 {
@@ -2895,6 +2891,10 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
             "own_section": own_section,
             "view": view,
             "as_of": as_of,
+            # the check line's Power BI comparison sheet, for the resolved filter (Power BI has no masters)
+            "check_compare": check_views.compare_link("partner-monitoring", resolved, today)
+            if view != "masters"
+            else None,
             # the tabs keep the year shown (the grid opens on this year, the others on every year: a tab
             # never changes the year silently; the master indicators show one year, this one for every year)
             "tab_urls": {
@@ -3025,6 +3025,11 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
         | ({"section": own_section} if own_section else {}),
         "own_section": own_section,
         "view": "map",
+        "check_compare": check_views.compare_link(
+            "partner-monitoring",
+            QueryDict(_query_with(params, ("view", "sort"), year=filters.year_param)),
+            pd_monitoring_service.today(),
+        ),
         "tab_urls": {
             name: reverse("reports:pd_monitoring")
             + "?"

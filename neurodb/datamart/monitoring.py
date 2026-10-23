@@ -882,6 +882,32 @@ def stored_indicators(filters: Filters, day: datetime.date | None = None, *, as_
     )
 
 
+def program_performance_rows(
+    filters: Filters,
+    day: datetime.date | None = None,
+    *,
+    as_of: str = "",
+    every: list[Row] | None = None,
+) -> list[Row]:
+    """Program Performance's rows (its table, the comparison sheet): the indicators of the filter without
+    its sections (the section tiles' computation, :func:`stored_indicators`) with the chosen sections kept.
+    Reached is computed for every section, then the status filter, then the sections: an indicator's figures
+    do not depend on the other sections, and the page's two parts read one computation. ``every``: that
+    computation, when the caller has read it already (the page's section tiles)."""
+    if every is None:
+        every = stored_indicators(replace(filters, sections=[]), day, as_of=as_of)
+    chosen = {s.strip() for s in filters.sections if s.strip()}  # as indicators() reads them
+    if not chosen:
+        return every
+    return [r for r in every if (r.section or NO_SECTION) in chosen]
+
+
+def section_counts(rows: list[Row]) -> Counter[str]:
+    """Program Performance's section tiles: the indicators of each section (:data:`NO_SECTION` for those that
+    name none), counted on the filter without its sections."""
+    return Counter(r.section or NO_SECTION for r in rows)
+
+
 def indicators_stored(filters: Filters, day: datetime.date | None = None) -> bool:
     """Whether :func:`stored_indicators` would answer ``filters`` at once from what is stored: the page's
     frame then draws its parts inline instead of asking for them (it never computes them itself)."""

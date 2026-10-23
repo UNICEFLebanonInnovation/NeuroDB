@@ -589,7 +589,9 @@ def by_month(reports: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------------------ Partner Performance
-def _partner_key(report: dict[str, Any]) -> Any:
+def partner_key(report: dict[str, Any]) -> Any:
+    """A progress report's partner, as the Partners tab counts them: its eTools partner, else its name (any
+    case); None when it names neither."""
     return report["partner_id"] or (report["partner_name"] or "").strip().lower() or None
 
 
@@ -603,7 +605,7 @@ def partner_performance(reports: list[dict[str, Any]]) -> dict[str, Any]:
     reports_of: dict[Any, Counter[str]] = defaultdict(Counter)
     pds_of: dict[Any, set[str]] = defaultdict(set)
     for r in reports:
-        key = _partner_key(r)
+        key = partner_key(r)
         if key is None:
             continue
         names.setdefault(key, r["partner_name"] or "")

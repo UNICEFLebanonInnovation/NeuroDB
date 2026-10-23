@@ -2056,7 +2056,7 @@ counts are read too, and when there are none the rows are counted there without 
 
 The management asked that every eTools figure be checked: the PRP pages against the PRP Power BI dashboard (by
 hand), and every other page against the raw data NeuroDB pulled from eTools. This section describes what is
-built for it; the figure trails and the comparison sheet follow in later releases.
+built for it; the figure trails follow in later releases.
 
 **Who.** Superusers and the members of the **Validators** group (`accounts.roles.VALIDATORS`, made at every
 start by `ensure_groups`, with no permission; setting a role never takes a person out of it). An
@@ -2073,7 +2073,11 @@ opens for validators too, read-only: its *Run the checks now* is for Administrat
 Partner monitoring (and its map), Field monitoring and under *Partner reporting* on Home, a validator sees
 **Raw data behind this page** (`reports/partials/_check_link.html`), which opens Raw eTools data on that page's
 sources (`?page=<navigation key>`, `datamart.raw.PAGE_SOURCES`); without staff status it says "Raw data: ask
-for staff status". Anyone else sees the pages as before; the addresses answer 404.
+for staff status". On Progress reports (every tab) and Partner monitoring (the grid, Program Performance, Data
+quality and the map; not the master indicators) the line also offers the **Power BI comparison sheet (Excel)**
+with a "statuses read for" day (below). The pages draw the line with their results (Partner monitoring in
+`_monitoring_results.html`, the map in its frame), so a change of filter draws it again with the new filter.
+Anyone else sees the pages as before; the addresses answer 404.
 
 | Page | Address (under the admin's path) | Name |
 |---|---|---|
@@ -2160,12 +2164,60 @@ with a 15-second statement limit (400 "This filter takes too long"); the downloa
 inside one `REPEATABLE READ READ ONLY` snapshot with a 120-second limit per statement, and a statement that
 takes longer ends the file where it is. No background job.
 
+**The Power BI comparison sheet** (`datamart/comparison.py`, `reports/check_views.py`). NeuroDB never reads
+Power BI: a validator compares by hand. `/check/progress-reports/compare.xlsx` and
+`/check/partner-monitoring/compare.xlsx`, with the page's filter in the address (the check line's form writes
+it), answer `can_validate` only (no staff status needed; a 404 for anyone else, `home` and any other page; a
+donor never reaches them). `day=` is the day the statuses are read for (Due, Overdue and Not yet due depend on
+it): the page's own day by default (`reporting_today()`, `monitoring.today()`), or Power BI's refresh, at most
+14 days back (`comparison.DAYS_BACK`; another day answers 400). The sheet takes one of the two download slots
+(503 when both are taken) and reads every figure in one `REPEATABLE READ READ ONLY` snapshot, with the page's
+own functions: `services.partner_reporting` and the stored `reporting_table` of By location and By
+disaggregation; `monitoring.stored_indicators`, `monitoring.program_performance_rows` (the rows of Program
+Performance, which the page's table now reads too: the filter without its sections, the chosen sections kept)
+and `section_counts` (its section tiles), and `data_quality`. Written with openpyxl in write-only mode, then sent
+whole; its name is `powerbi-comparison-<page>_<YYYY-MM-DD>_<HHMM>.xlsx`, the end of the last partner reports
+(and PD indicators) sync. Sheets:
+
+- *Compare*: the NeuroDB filter (the page's address), *Statuses read for*, *NeuroDB data as of* (the last
+  partner reports sync, and PD indicators for Partner monitoring; PRP's last change in the rows), a yellow
+  *Power BI refreshed on*; *Everything NeuroDB holds* whatever the filter (indicator and progress reports of
+  every PD status and year, programme documents for Partner monitoring, the earliest reporting period from
+  `reached.history_from`); *Set these in Power BI* (every slicer with its value, a yellow *Done?*) and *Clear
+  these in NeuroDB before comparing* (the filters Power BI has no slicer for, those set). Then one row per
+  figure, in Power BI's page and visual order: `#`, Power BI page, visual, name in Power BI, NeuroDB page and
+  figure, NeuroDB value, unit, a yellow *Power BI value*, *Difference* `=IF(ISNUMBER(H),H-F,"")` and *Same?*
+  (the only formulas; none on a row with no NeuroDB number, such as By location over its 20,000 rows),
+  *Notes* (checks 10 and 11 where they explain a difference) and *Trail* (empty until the figure trails).
+  Progress reports: the seven status cards, the section table (each section by status, its total, the column
+  totals), the month chart (each month by each status drawn), the progress reports listed, the Partners
+  tab's cards, the reports to follow up, the lines of By location and the location blocks of By
+  disaggregation. Partner monitoring: Program Performance's indicators (every one, not cut at 2,000) and its
+  section tiles, then Data quality's ten tiles.
+- *Progress reports* (one row per progress report: the export's `_report_row` without its focal points, the
+  partner's vendor number, a match key "PD reference + space + report #") and *Partners* (one row per partner
+  as the Partners tab counts them, `reporting.partner_key`, its progress reports per status, the match key
+  "vendor number, else name"); for Partner monitoring *Program Performance rows* (every indicator, as its export
+  writes it, NeuroDB's Reached and % Reached, yellow cells for Power BI's, two difference formulas, the match
+  key "PD number | indicator | PD output", ending in #1, #2... for indicators of one PD sharing their title and
+  PD output, check 7).
+- *Why they can differ*: seven reasons, each with where to see it.
+
+Every text from the data is written as a text (`data_type = "s"`), never a formula; no person is written
+(partners, programme documents and sections only). Power BI's page, visual, card and slicer names are
+placeholders until the user confirms them: they are in one place, `comparison.POWERBI_PAGES`,
+`POWERBI_ITEMS` and `POWERBI_SLICERS`. Every field of the page's filter dataclasses (`ReportFilters`,
+`DisaggregationFilters`, `monitoring.Filters`) is either a slicer (`POWERBI_SLICERS`) or a NeuroDB filter to
+clear (`NEURODB_ONLY`); a new field in neither stops the sheet, and a test fails.
+
 **Tests.** `tests/accounts/test_validators.py` (who validates, one groups query, the pages' queries),
 `tests/datamart/test_raw_people.py` (the rule, the pinned lists, `REVIEWED_KEYS`),
 `tests/datamart/test_raw_csv_privacy.py` (people planted in every source never reach a CSV; the two exports
 below), `tests/datamart/test_raw_admin.py` (access, completeness, the run facts, the filters, the CSV's limits,
 queries), `tests/datamart/test_page_sources.py` (each page reads only its sources) and
-`tests/web/test_plain_words.py` (the pages' words).
+`tests/web/test_plain_words.py` (the pages' words), `tests/reports/test_comparison_sheet.py` (each value is the
+page's figure under several filters, Power BI's order, the formulas, the filter blocks, the day, the lists) and
+`tests/reports/test_check_access.py` (the sheet's link and address: validators only).
 
 ### Recording real records as test fixtures
 
@@ -2807,7 +2859,8 @@ the list of indicators (`grid`); Program Performance its section tiles (`section
 (`quality-tiles`) and its lists (`quality-lists`). Every block reads one computation of the filter's
 indicators (with each one's Reached, % Reached and status), made once for every user and every web worker
 and kept two minutes; Program Performance's section tiles and table read the one of the filter without its
-sections (the table keeps the chosen ones, as it always did). Applying a filter, clicking a heading to sort
+sections (the table keeps the chosen ones, as it always did: `monitoring.program_performance_rows`, which the
+Power BI comparison sheet reads too). Applying a filter, clicking a heading to sort
 or a section tile reloads the results area under the filter bar with new grey blocks, which then fill in
 (at once when the figures are kept already); a page of the grid or of the table reloads only its own block. On
 *Progress reports*, the *By location* and *By disaggregation* tabs fetch their table as one block

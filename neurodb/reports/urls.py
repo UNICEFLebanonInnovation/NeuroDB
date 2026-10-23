@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import ap_views, master_views, views
+from . import ap_views, check_views, master_views, views
 
 app_name = "reports"
 
@@ -77,6 +77,7 @@ urlpatterns = [
     path("maps/", views.maps, name="maps"),
     path("maps/<int:pk>/", views.map_item, name="map_item"),
     path("data/health/", views.data_health, name="data_health"),
+    path("check/<str:page>/compare.xlsx", check_views.check_compare, name="check_compare"),
     path("search/", views.search, name="search"),
     path("views/save/", views.saved_view_save, name="saved_view_save"),
     path("views/<int:pk>/delete/", views.saved_view_delete, name="saved_view_delete"),

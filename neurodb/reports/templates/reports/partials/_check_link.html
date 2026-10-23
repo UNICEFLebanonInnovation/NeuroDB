@@ -1,6 +1,16 @@
 {% load i18n %}{% comment %}The check line under a page's tabs, for the people who check the figures (can_validate: superusers and the
 Validators group); everyone else sees nothing. page: the page's navigation key, which keeps the raw data of the sources
 it reads (datamart.raw.PAGE_SOURCES). Raw eTools data is in the admin, which asks for staff status: without it the line
-says so instead of linking.{% endcomment %}{% if can_validate %}
-<p class="check-line small text-muted mb-3" data-check-line="{{ page }}">{% if user.is_staff %}<a href="{% url 'admin:datamart_raw' %}?page={{ page|urlencode }}">{% trans "Raw data behind this page" %}</a>{% else %}{% trans "Raw data: ask for staff status" %}{% endif %}</p>
+says so instead of linking. compare (reports.check_views.compare_link; Progress reports and Partner monitoring only):
+the page's Power BI comparison sheet for the filter drawn, with the day the statuses are read for (the page's day by
+default, or Power BI's refresh, at most 14 days before). The pages draw the line with their results, so a change of
+filter draws it again with the new filter.{% endcomment %}{% if can_validate %}
+<div class="check-line small text-muted mb-3 d-flex flex-wrap align-items-center gap-2" data-check-line="{{ page }}">
+{% if compare %}<form method="get" action="{% url 'reports:check_compare' compare.page %}" class="d-inline-flex flex-wrap align-items-center gap-1 m-0" data-check-compare>
+  {% for key, value in compare.query %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+  <button type="submit" class="btn btn-link btn-sm p-0 align-baseline">{% trans "Power BI comparison sheet (Excel)" %}</button>
+  <label class="d-inline-flex align-items-center gap-1 mb-0">{% trans "statuses read for" %} <input type="date" name="day" class="form-control form-control-sm w-auto" value="{{ compare.today|date:'Y-m-d' }}" min="{{ compare.first|date:'Y-m-d' }}" max="{{ compare.today|date:'Y-m-d' }}" title="{% trans 'Due, Overdue and Not yet due depend on the day: choose the day of Power BI’s refresh' %}"></label>
+</form><span aria-hidden="true">·</span>{% endif %}
+<span>{% if user.is_staff %}<a href="{% url 'admin:datamart_raw' %}?page={{ page|urlencode }}">{% trans "Raw data behind this page" %}</a>{% else %}{% trans "Raw data: ask for staff status" %}{% endif %}</span>
+</div>
 {% endif %}
