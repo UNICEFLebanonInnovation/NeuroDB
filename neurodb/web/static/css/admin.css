@@ -112,3 +112,24 @@
 }
 .nd-found__button:hover { filter: brightness(1.08); }
 .nd-found__hint { color: var(--color-base-500, #6b7280); font-size: 0.8125rem; }
+
+/* eTools reporting checks: check 10's running PDs with no partner report row, one folded list per reason */
+.nd-check-group summary { cursor: pointer; font-weight: 600; }
+/* eTools reporting checks printed or saved as PDF (admin/datamart/reporting_checks.html): every column of every
+   table on the sheet, wrapping, never cut at its edge (on screen the tables scroll sideways); the sidebar, the
+   header and the run button left out; check 10's groups open (the page opens them before printing). The sheet is
+   A4 landscape on this page only (a named page: admin.css is loaded on every admin page, which keep the
+   browser's own). */
+@media print {
+  @page nd-checks { size: A4 landscape; margin: 10mm; }
+  body:has(.nd-checks) { page: nd-checks; }
+  body:has(.nd-checks) #page > :not(#main), body:has(.nd-checks) #main > :has(#header-inner) { display: none !important; }
+  .nd-checks .nd-scroll { overflow: visible !important; margin: 0; }
+  .nd-checks .nd-jobs { width: 100%; table-layout: auto; font-size: 9pt; }
+  .nd-checks .nd-jobs th, .nd-checks .nd-jobs td { white-space: normal !important; overflow-wrap: anywhere;
+    padding: 3px 6px 3px 0; vertical-align: top; }
+  .nd-checks .nd-jobs th[scope="row"] { min-width: 0; }
+  .nd-checks .nd-jobs tr, .nd-checks .nd-scheduler { break-inside: avoid; }
+  .nd-checks .nd-found__actions form { display: none; }
+  .nd-checks details.nd-check-group::details-content { content-visibility: visible; }
+}

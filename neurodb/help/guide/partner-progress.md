@@ -248,10 +248,13 @@ to do in the administration. When the business area code the hosting team set is
 name), NeuroDB sets it aside, uses the code it finds, and the checks and Data health say so; an
 administrator can enter the code in the administration, where it comes first. Check 10 says how the
 partner reports were read (in windows when the Datamart's answer looks cut, and whether every window was
-read whole) and why running programme documents have no row; checks 10 and 11 say which business area
-filter the partner reports and PRP's progress reports were read with, or why none. Check 12 counts, per
-section, the PD indicators with and without an eTools id and a CP output, the percentages reported with
-their numerator and denominator, and how many master indicators the next night would propose; it changes
-nothing. Checks 10 and 11 run first. The checks run every night as a job and the page shows their latest
+read whole) and why running programme documents have no row, and lists, by reason, every running
+programme document with no row (its reference number, type, dates, sections, whether PRP holds it and
+its active PD indicators); checks 10 and 11 say which business area filter the partner reports and PRP's
+progress reports were read with, or why none. Check 12 counts, per section, the PD indicators with and
+without an eTools id and a CP output, the percentages reported with their numerator and denominator, and
+how many master indicators the next night would propose; it changes nothing. Checks 10 and 11 run first. The checks run every night as a job and the page shows their latest
 result at once, with when they were checked; **Run the checks now** runs them again in the background
 (they can take several minutes on the full data), and the page shows the new result once you reload it.
+Print the page or save it as PDF from the browser to share it: every table prints whole, wrapping,
+with check 10's lists open; Data health prints its tables whole too.

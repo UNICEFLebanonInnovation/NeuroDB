@@ -198,6 +198,35 @@ def test_the_page_shows_the_stored_result_without_running_the_checks(client, adm
     assert "earlier release" not in page and "Not run yet" not in page  # this release's own result
 
 
+def test_check_10_lists_each_reason_s_pds_folded_under_its_summary(client, admin_user, monkeypatch):
+    """Check 10's running PDs with no partner report row come on the page as one folded table per reason,
+    under its summary ("No active PD indicator (2)"), each row one PD."""
+    from neurodb.datamart import models as dm
+    from neurodb.partnerships.models import PCA, PartnerOrganization
+
+    day, end = datetime.date, datetime.date(2026, 3, 31)
+    dm.ReportedIndicator.objects.create(datamart_id=1, progress_report="PR-1", report_type="QPR",
+                                        report_status="Accepted", period_start=end - datetime.timedelta(days=90),
+                                        period_end=end, indicator="x", location="Akkar")  # fmt: skip
+    partner = PartnerOrganization.objects.create(etl_id="901", name="Partner A", vendor_number="2500000901")
+    for n, start in ((1, day(2026, 1, 1)), (2, day(2026, 2, 1)), (3, day(2027, 1, 1))):  # none has a row
+        PCA.objects.create(etl_id=f"x{n}", partner=partner, partner_name=partner.name, number=f"LEB/PD{n}",
+                           title="A PD", status="active", start=start, end=day(2027, 12, 31))  # fmt: skip
+    (card,) = [c for c in checks.run_job("test").details["checks"] if c["key"] == "10"]
+    assert [g["summary"] for g in card["groups"]] == [
+        "Signed, starting later (1)",
+        "No active PD indicator (2)",
+    ]
+    monkeypatch.setattr(checks, "run_all", _never)
+    client.force_login(admin_user)
+    page = client.get(reverse(URL)).text
+    assert page.count('<details class="nd-check-group mt-3">') == 2
+    assert "<summary>No active PD indicator (2)</summary>" in page
+    folded = page.split("<summary>No active PD indicator (2)</summary>", 1)[1].split("</details>", 1)[0]
+    assert "<td>LEB/PD1</td>" in folded and "<td>LEB/PD2</td>" in folded and "LEB/PD3" not in folded
+    assert "<td>1 Feb 2026</td>" in folded and "Active PD indicators" in folded
+
+
 def _earlier_result() -> SyncRun:
     """A result the release before check 12 stored: checks 1 to 11, check 11 worded as it was then."""
     cards = [

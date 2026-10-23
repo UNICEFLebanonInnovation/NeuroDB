@@ -5,8 +5,8 @@
 come out on the data NeuroDB holds, with a plain verdict and what NeuroDB does in each case. Every
 query is read-only and every figure a count: no person's data, and no title, name or text of a record
 (key names, section names, PD reference numbers NeuroDB does not hold and business area codes at most;
-check 10 also names, in one table, up to three PD reference numbers of running PDs with no partner report
-row per reason).
+check 10 also lists, by reason, every running PD with no partner report row: its reference number, type,
+dates, sections, whether PRP's programme documents hold it and its active PD indicators).
 
 The checks measure what NeuroDB itself reads. PRP's values are read with Reached's own parser
 (:func:`_value`: a number, its text or PRP's ``{v, d, c}``); a progress report is told apart by its
@@ -70,7 +70,7 @@ PRP = "prp_indicator_reports"  # PRP's indicator reports (prp/indicator-report-v
 CHUNK = 2000  # report rows a check reads at a time in Python (:func:`_each`)
 STEP_MONTHS = {"QPR": 3, "HR": 1}  # how far apart two reports of a type end (checks 10 and 11)
 LATE_FIRST_DAYS = rc.LATE_FIRST_DAYS  # a running PD whose first report held ends this long after its start
-SECTIONS_SHOWN = 5  # the section names check 10 shows per row of its table
+SECTIONS_SHOWN = 5  # the section names check 10 shows per row of its tables
 KEYS_LISTED = 150  # the record keys check 7 lists at most
 
 
@@ -1657,14 +1657,15 @@ NO_ROW_REASONS = (
     ("expected", "Left: their reports should be in the feed"),
 )
 PRP_DOCUMENT_TYPES = ("PD", "SPD", "SHPD")  # the programme documents PRP reports on
-NUMBERS_SHOWN = 3  # the PD reference numbers check 10's table names per reason
+GROUP_ROWS = 500  # the running PDs check 10 lists per reason at most (its counts stay complete)
 
 
 def _no_row_reasons(
     pds: list[tuple], earliest: datetime.date | None, today: datetime.date
-) -> dict[str, list]:
-    """The running PDs with no partner report row (``(pk, number, start, end, document type)``), by the first
-    reason that explains it (:data:`NO_ROW_REASONS`); ``earliest``, the earliest period start held."""
+) -> dict[str, list[tuple]]:
+    """The running PDs with no partner report row (``(pk, number, start, end, document type, section
+    names)``), each as given, by the first reason that explains it (:data:`NO_ROW_REASONS`); ``earliest``, the
+    earliest period start held."""
     ids = [pd[0] for pd in pds]
     active, frequent = set(), set()
     for pd_id, is_active, high in dm.PDIndicator.objects.filter(intervention_id__in=ids).values_list(
@@ -1674,8 +1675,9 @@ def _no_row_reasons(
             active.add(pd_id)
         if high:
             frequent.add(pd_id)
-    found: dict[str, list] = {key: [] for key, _ in NO_ROW_REASONS}
-    for pk, number, start, end, kind in pds:
+    found: dict[str, list[tuple]] = {key: [] for key, _ in NO_ROW_REASONS}
+    for pd in pds:
+        pk, _, start, end, kind = pd[:5]
         first_end = _month_end(start, STEP_MONTHS["HR" if pk in frequent else "QPR"]) if start else None
         if start and start > today:
             key = "later"
@@ -1691,7 +1693,7 @@ def _no_row_reasons(
             key = "before_held"
         else:
             key = "expected"
-        found[key].append((pk, number))
+        found[key].append(pd)
     return found
 
 
@@ -1700,15 +1702,16 @@ def _coverage(cursor) -> dict[str, Any]:
     counts: the PDs with no row (and why, :func:`_no_row_reasons`), those whose first report held ends long
     after their start, and those whose lowest report number of a type is above 1 (both of the PDs that
     started on or after the date the history is counted from, ``reached.history_from``: the partial-history
-    rule covers the others); the earliest period start held and the running PDs that started before it; and
-    the latest partner reports sync that finished."""
+    rule covers the others); the earliest period start held and the running PDs that started before it; the
+    active PD indicators of each PD with no row; and the latest partner reports sync that finished. Of a PD
+    it reads its reference number, dates, type and section names only (never a focal point)."""
     from neurodb.reports.services import latest_datamart_runs
 
     _bound(cursor)
     today = timezone.localdate()
     pds = list(
         PCA.objects.filter(status__in=pd_statuses.RUNNING).values_list(
-            "pk", "number", "start", "end", "document_type"
+            "pk", "number", "start", "end", "document_type", "section_names"
         )
     )
     starts = {pd[0]: pd[2] for pd in pds}
@@ -1728,7 +1731,16 @@ def _coverage(cursor) -> dict[str, Any]:
     _bound(cursor)
     earliest = dm.ReportedIndicator.objects.aggregate(first=Min("period_start"))["first"]
     _bound(cursor)
-    reasons = _no_row_reasons([pd for pd in pds if pd[0] not in first], earliest, today)
+    without = [pd for pd in pds if pd[0] not in first]
+    reasons = _no_row_reasons(without, earliest, today)
+    _bound(cursor)
+    active = dict(
+        dm.PDIndicator.objects.filter(intervention_id__in=[pd[0] for pd in without], is_active=True)
+        .order_by()
+        .values("intervention_id")
+        .annotate(n=Count("pk"))
+        .values_list("intervention_id", "n")
+    )
     _bound(cursor)
     history = rc.history_from(today)
     # a PD that started before the history counted has a partial history: its Reached is PRP's cumulative
@@ -1757,6 +1769,7 @@ def _coverage(cursor) -> dict[str, Any]:
         "history": history,
         "before_history": len(starts) - len(whole),
         "reasons": reasons,
+        "active": active,  # PD -> its active PD indicators, for the PDs with no row
         "prp": prp if prp_held else None,  # None: PRP's programme documents hold no record (check 8)
         "run": run,
     }
@@ -1889,6 +1902,40 @@ def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool
     }
     warn = bool(cut or skipped or not_whole or details.get("changed") or pages_cut)
     return said, figures, table, warn
+
+
+def _no_row_group(
+    label: str, pds: list[tuple], prp: set[int] | None, active: dict[int, int]
+) -> dict[str, Any]:
+    """Check 10's list of the running PDs with no partner report row for one reason (``label``), by reference
+    number: each one's type, dates, first :data:`SECTIONS_SHOWN` section names, whether PRP's programme
+    documents hold it ("unknown" while they hold no record, check 8) and its active PD indicators; at most
+    :data:`GROUP_ROWS` of them (the summary counts them all). The page shows it folded under its summary,
+    and open when printed."""
+    rows, ordered = [], sorted(pds, key=lambda pd: (not pd[1], pd[1] or ""))  # a PD with no number last
+    for pk, number, start, end, kind, names in ordered[:GROUP_ROWS]:
+        names = [" ".join(name.split()) for name in names or [] if name and name.strip()]
+        more = len(names) - SECTIONS_SHOWN
+        sections = ", ".join(names[:SECTIONS_SHOWN]) + (f" (+{more} more)" if more > 0 else "")
+        held = "unknown (check 8)" if prp is None else "yes" if pk in prp else "no"
+        kind = (kind or "").strip()
+        rows.append(
+            (number or None, kind or None, _day(start), _day(end), sections or None, held, active.get(pk, 0))
+        )
+    listed = f", the first {GROUP_ROWS:,} listed" if len(pds) > GROUP_ROWS else ""
+    return {
+        "summary": f"{label} ({len(pds):,}{listed})",
+        "columns": (
+            "PD reference number",
+            "Document type",
+            "Start",
+            "End",
+            f"Sections (first {SECTIONS_SHOWN})",
+            "In PRP's programme documents",
+            "Active PD indicators",
+        ),
+        "rows": rows,
+    }
 
 
 def _country_and_link(cursor) -> dict[str, Any]:
@@ -2036,28 +2083,28 @@ def _country_and_link(cursor) -> dict[str, Any]:
             )
     reasons, prp = cover["reasons"], cover["prp"]
     expected = len(reasons["expected"])
+    lists = []  # one per reason: its running PDs with no row
     if cover["none"]:
         tables.append(
             {
                 "title": "Running programme documents with no partner report row, by what explains it",
-                "columns": (
-                    "Reason",
-                    "Running programme documents",
-                    "In PRP's programme documents",
-                    f"PD reference numbers (first {NUMBERS_SHOWN})",
-                ),
+                "columns": ("Reason", "Running programme documents", "In PRP's programme documents"),
                 "rows": [
                     (
                         label,
                         len(reasons[key]),
-                        "unknown (check 8)" if prp is None else sum(1 for pk, _ in reasons[key] if pk in prp),
-                        ", ".join(sorted(n for _, n in reasons[key] if n)[:NUMBERS_SHOWN]) or None,
+                        "unknown (check 8)" if prp is None else sum(1 for pd in reasons[key] if pd[0] in prp),
                     )
                     for key, label in NO_ROW_REASONS
                     if reasons[key]
                 ],
             }
         )
+        lists = [
+            _no_row_group(label, reasons[key], prp, cover["active"])
+            for key, label in NO_ROW_REASONS
+            if reasons[key]
+        ]
         if expected:
             verdict += (
                 f" {_plural(expected, 'running programme document has', 'running programme documents have')} "
@@ -2098,6 +2145,7 @@ def _country_and_link(cursor) -> dict[str, Any]:
             *read_figures,
         ],
         "tables": tables,
+        "groups": lists,
         "table": {
             "columns": (
                 "Country in the row",

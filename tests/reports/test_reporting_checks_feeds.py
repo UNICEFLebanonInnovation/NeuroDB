@@ -8,13 +8,14 @@ period), and list each section name once. The Section filter of Progress reports
 from __future__ import annotations
 
 import datetime
+import json
 
 import pytest
 from django.utils import timezone
 
 from neurodb.core.models import SyncRun
+from neurodb.datamart import checks, reporting
 from neurodb.datamart import models as dm
-from neurodb.datamart import reporting
 from neurodb.partnerships.models import PCA
 from tests.reports.test_r4_views import funded
 from tests.reports.test_reporting_checks_values import D, figures, one, other_pd, pd, report_row
@@ -337,7 +338,10 @@ def test_check_10_says_how_much_of_the_running_pds_reporting_is_held(pd):
         "and removed none." in found["verdict"]
     )
     (why,) = [t for t in found["tables"] if t["title"].startswith("Running programme documents with no")]
-    assert why["rows"] == [("No active PD indicator", 1, "unknown (check 8)", "LEB/PD/NONE")]
+    assert why["rows"] == [("No active PD indicator", 1, "unknown (check 8)")]
+    (group,) = found["groups"]
+    assert group["summary"] == "No active PD indicator (1)"
+    assert group["rows"] == [("LEB/PD/NONE", "PD", "1 Jan 2026", "31 Dec 2027", None, "unknown (check 8)", 0)]
 
 
 def _partner_run(status=SyncRun.Status.SUCCEEDED, rows_in=0, **details):
@@ -395,7 +399,9 @@ def test_check_10_reads_the_windows_and_warns_of_a_cap(pd):
 
 def test_check_10_explains_the_running_pds_without_rows(pd):
     """One running PD per reason (the first that applies); a PD nothing explains makes the check a warning,
-    and the reasons add up to the PDs with no row."""
+    and the reasons add up to the PDs with no row. Below the counts, one list per reason names every PD: its
+    reference number, type, dates, sections, whether PRP's programme documents hold it and its active PD
+    indicators."""
     report_row(
         pd, "QPR1", start=D(2025, 3, 1), end=D(2025, 5, 31)
     )  # the earliest period start held: 1 Mar 2025
@@ -415,28 +421,77 @@ def test_check_10_explains_the_running_pds_without_rows(pd):
     running("LEB/PD/OVER", D(2025, 6, 1), end=D(2026, 6, 30))
     running("LEB/PD/EARLY", D(2024, 6, 1))
     running("LEB/PD/MISSING", D(2026, 1, 1))
+    running("LEB/PD/MISSING2", D(2026, 2, 1))
+    PCA.objects.filter(number="LEB/PD/MISSING2").update(
+        section_names=["Health", " Child  Protection", "", "WASH", "Education", "PSEA", "Youth"]
+    )
     dm.DatamartDocument.objects.create(dataset="prp_programme_documents", record_key="1",
                                        intervention=PCA.objects.get(number="LEB/PD/MISSING"))  # fmt: skip
     found = one("10")
     assert found["tone"] == "warning"
     (why,) = [t for t in found["tables"] if t["title"].startswith("Running programme documents with no")]
+    assert why["columns"] == ("Reason", "Running programme documents", "In PRP's programme documents")
     assert why["rows"] == [
-        ("Signed, starting later", 1, 0, "LEB/PD/LATER"),
-        ("First report not due yet", 1, 0, "LEB/PD/SOON"),
-        ("A document type PRP does not report (not PD, SPD or SHPD)", 1, 0, "LEB/SSFA/1"),
-        ("No active PD indicator", 1, 0, "LEB/PD/NOIND"),
-        ("End passed, status still running", 1, 0, "LEB/PD/OVER"),
-        ("Started before the earliest period start held (the read explains them)", 1, 0, "LEB/PD/EARLY"),
-        ("Left: their reports should be in the feed", 1, 1, "LEB/PD/MISSING"),
+        ("Signed, starting later", 1, 0),
+        ("First report not due yet", 1, 0),
+        ("A document type PRP does not report (not PD, SPD or SHPD)", 1, 0),
+        ("No active PD indicator", 1, 0),
+        ("End passed, status still running", 1, 0),
+        ("Started before the earliest period start held (the read explains them)", 1, 0),
+        ("Left: their reports should be in the feed", 2, 1),
     ]
+    # one list per reason, in the reasons' order, each PD by reference number
+    assert [g["summary"] for g in found["groups"]] == [f"{row[0]} ({row[1]})" for row in why["rows"]]
+    assert found["groups"][0]["columns"] == (
+        "PD reference number",
+        "Document type",
+        "Start",
+        "End",
+        "Sections (first 5)",
+        "In PRP's programme documents",
+        "Active PD indicators",
+    )
+    groups = {g["summary"]: g["rows"] for g in found["groups"]}
+    assert groups["Left: their reports should be in the feed (2)"] == [
+        ("LEB/PD/MISSING", "PD", "1 Jan 2026", "31 Dec 2027", None, "yes", 1),
+        ("LEB/PD/MISSING2", "PD", "1 Feb 2026", "31 Dec 2027",
+         "Health, Child Protection, WASH, Education, PSEA (+1 more)", "no", 1),
+    ]  # fmt: skip
+    assert groups["Signed, starting later (1)"] == [
+        ("LEB/PD/LATER", "PD", "1 Dec 2026", "31 Dec 2027", None, "no", 1)
+    ]
+    (ssfa,) = groups["A document type PRP does not report (not PD, SPD or SHPD) (1)"]
+    assert ssfa[:2] == ("LEB/SSFA/1", "SSFA")
+    assert groups["No active PD indicator (1)"] == [
+        ("LEB/PD/NOIND", "PD", "1 Jan 2026", "31 Dec 2027", None, "no", 0)
+    ]
+    assert groups["End passed, status still running (1)"][0][2:4] == ("1 Jun 2025", "30 Jun 2026")
     numbers = figures(found)
-    assert numbers["… with no partner report row"] == 7 == sum(row[1] for row in why["rows"])
-    assert numbers["… of which nothing explains (their reports should be in the feed)"] == 1
-    assert "1 running programme document has no row although nothing explains it" in found["verdict"]
+    assert numbers["… with no partner report row"] == 8 == sum(row[1] for row in why["rows"])
+    assert numbers["… of which nothing explains (their reports should be in the feed)"] == 2
+    assert "2 running programme documents have no row although nothing explains it" in found["verdict"]
 
-    PCA.objects.filter(number="LEB/PD/MISSING").delete()  # every PD without a row explained: information
+    # every PD without a row explained: information
+    PCA.objects.filter(number__startswith="LEB/PD/MISSING").delete()
     report_row(pd, "QPR2", start=D(2025, 6, 1), end=D(2025, 8, 31))
     assert one("10")["tone"] == "info"
+
+
+def test_check_10_groups_name_no_person(pd):
+    """The lists of running PDs with no row read a PD's reference number, type, dates and sections only: a
+    focal point, the partner and the title are never in the result the job stores."""
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    focal = other_pd("LEB/PD/FOCAL")
+    PCA.objects.filter(pk=focal.pk).update(
+        unicef_focal_points=["Focal Person"], section_names=["Health"], title="A title of the PD"
+    )
+    (stored,) = [c for c in checks.run_job("test").details["checks"] if c["key"] == "10"]
+    (group,) = stored["groups"]
+    assert group["rows"] == [
+        ["LEB/PD/FOCAL", "PD", "1 Jan 2026", "31 Dec 2027", "Health", "unknown (check 8)", 0]
+    ]
+    text = json.dumps(stored)
+    assert "Focal Person" not in text and "Partner A" not in text and "A title of the PD" not in text
 
 
 def test_check_10_says_why_the_read_was_windowed_and_counts_cut_pages(pd):

@@ -1942,6 +1942,9 @@ with its *Stale after N hours* note. Each block is its own computation and comes
 | `power-bi` | *Compared with Power BI*: per Compiler programme (Makani, Dirasa, youth) its latest periods compared with the view Power BI reads, counts only (see *Education programmes*, *Compared with Power BI*); its heading and explanation, with the links to the card versions and the view definitions for administrators, are in the frame | After the visible ones |
 | `readiness` | *Ready for machine learning?*, the last readiness check | After the visible ones |
 
+Print Data health or save it as PDF from the browser: every table (databases, runs, datasets, *Compared with
+Power BI*) prints whole, wrapping, never cut at 560 px or at its right edge (`app.css`, stage A section).
+
 Only the *Rows held* column is kept in the shared page figures: an hour at most, the same for everyone
 and in every language, under a key made of the latest run of each job that writes the counted tables
 (eTools Datamart sync, eTools sync, Locations sync, eTools update clean-up), so the rows are counted
@@ -2334,7 +2337,12 @@ and business area codes at most).
   does not report; no active PD indicator; end passed with the status still running; started before the
   earliest period start held; and, left, those whose reports should be in the feed), so the rows add up to
   the PDs with no row, each with how many PRP's programme documents hold ("unknown" while that dataset holds
-  none, see check 8) and its first three PD reference numbers (the only place the checks name running PDs).
+  none, see check 8). Below it, one folded list per reason ("Left: their reports should be in the feed
+  (20)") names every one of those PDs (the only place the checks name running PDs): its PD reference number,
+  document type, start, end, first five sections, whether PRP's programme documents hold it (yes, no, or
+  "unknown (check 8)") and its active PD indicators, by reference number, 500 per reason at most (the counts
+  stay complete, and the summary says when the list stops). Of a PD it reads only these fields, never a focal
+  point or a partner's staff.
   It is a warning when the answer was cut, nothing was removed, a window was not whole, a page was cut, the
   earliest start held is more than a year late (and the Datamart is not known to hold nothing earlier), or a
   PD with no row is left unexplained; running PDs with no row that every reason explains stay information.
@@ -2409,6 +2417,9 @@ request: each query stopped after 20 seconds and the checks together after 75 se
 server's 120-second limit, so the page always answers), a check left out by that limit saying so; the
 comparison of Reached with PRP's cumulative (check 5) runs only with 30 seconds left. The checks read
 what the eTools Datamart sync stored (Run a job → *Sync eTools (Datamart)* refreshes it).
+Print the page or save it as PDF from the browser: every table prints whole, wrapping (on screen the wide
+ones scroll sideways), on A4 landscape, without the sidebar, the header or the run button, and check 10's
+folded lists print open (`admin.css`, `.nd-checks`).
 
 **The Power BI views.** The eTools Power BI report's pages live on NeuroDB's own pages, with the same
 figures as everywhere else (they read the rule above; nothing is added across indicators):

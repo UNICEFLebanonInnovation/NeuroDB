@@ -1562,6 +1562,13 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 /* The database imports and the recent runs side by side: each panel fills its part, so both are as tall as the
    taller one, as before the page loaded in parts. */
 .health-tables > .part > .panel { height: 100%; }
+/* Data health printed: each table whole (on screen they scroll inside 560 px and sideways) */
+@media print {
+  #part-databases .table-wrap, #part-runs .table-wrap, #part-datasets .table-wrap, #part-power-bi .table-wrap {
+    overflow: visible !important; max-height: none !important; background: none; }
+  #part-databases .table :is(th, td), #part-runs .table :is(th, td), #part-datasets .table :is(th, td),
+  #part-power-bi .table :is(th, td) { white-space: normal !important; overflow-wrap: anywhere; position: static; }
+}
 /* Partner profile (reports/partner_profile.html). The figures' placeholder (#part-datamart) keeps the room of a
    partner of middle size, 7,500 px (12,400 px on a phone); when its request fails, the error box goes without it
    (the generic rule: a failed part keeps no room). */

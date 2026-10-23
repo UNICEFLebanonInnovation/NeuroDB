@@ -9,11 +9,14 @@
   stored and none running, the page ran them itself (stored is None, checked_at now). A result an earlier
   release stored (outdated: checks.read_stored) says so, and a check added since reads "Not run yet". A
   card shows its figures, its table and its further tables (check 11's business area codes and progress reports, check 12's
-  record keys), each the same way (_check_table.html: with its title as its caption, when it has one).
+  record keys), each the same way (_check_table.html: with its title as its caption, when it has one), then its groups
+  (check 10's running PDs with no partner report row, one per reason), each a table folded under its summary. Printed
+  or saved as PDF (admin.css, nd-checks), every table prints whole, wrapping, and the script below opens the groups
+  for the print and closes again those it opened.
 {% endcomment %}
 
 {% block content %}
-<div id="content-main" class="nd-found">
+<div id="content-main" class="nd-found nd-checks">
   <p class="nd-list-note">
     <span class="material-symbols-outlined" aria-hidden="true">info</span>
     <span>{% blocktrans trimmed with rows_url=rows_url health_url=health_url %}
@@ -90,7 +93,23 @@
       {% endif %}
       {% if check.table %}{% include "admin/datamart/_check_table.html" with table=check.table %}{% endif %}
       {% for extra in check.tables %}{% include "admin/datamart/_check_table.html" with table=extra %}{% endfor %}
+      {% for group in check.groups %}<details class="nd-check-group mt-3"><summary>{{ group.summary }}</summary>{% include "admin/datamart/_check_table.html" with table=group %}</details>{% endfor %}
     {% endcomponent %}
   {% endfor %}
 </div>
+<script nonce="{{ request.csp_nonce }}">
+  // Printed or saved as PDF: every group of a card prints open; those it opened close again after.
+  window.addEventListener("beforeprint", function () {
+    document.querySelectorAll(".nd-checks details.nd-check-group:not([open])").forEach(function (group) {
+      group.open = true;
+      group.dataset.ndOpenedToPrint = "1";
+    });
+  });
+  window.addEventListener("afterprint", function () {
+    document.querySelectorAll(".nd-checks details.nd-check-group[data-nd-opened-to-print]").forEach(function (group) {
+      group.open = false;
+      delete group.dataset.ndOpenedToPrint;
+    });
+  });
+</script>
 {% endblock %}
