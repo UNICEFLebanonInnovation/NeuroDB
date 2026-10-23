@@ -354,3 +354,58 @@ def test_records_still_twice_in_a_stable_order_are_said_to_be_held_twice():
         "The Datamart returned 3 records twice in a stable order (by id): it likely holds them twice; tell the "
         "eTools Datamart team. Nothing was removed."
     )
+
+
+# ------------------------------------------------- the other readings: locations, sites, partners, engagements...
+AUDIT_RESULTS = f"{BASE}/api/latest/datamart/audit/results/"
+
+
+def audit(pk: int) -> dict:
+    """An audit result (``audit/results``) of an engagement NeuroDB does not hold: only its raw copy is written."""
+    return {"id": pk, "reference_number": f"LEB/AUD/{pk}", "country_name": "Lebanon"}
+
+
+@responses.activate
+def test_an_engagement_dataset_whose_page_came_back_cut_is_windowed_the_next_night():
+    """The locations, sites, partners, programme documents and the engagements' details (audit_results here) are
+    read as every other dataset: a page cut one night is recorded with the Datamart's count, so the next night
+    is read in windows, by id, and whole."""
+    rows = [audit(n) for n in range(1, 48)]
+    FakeDatamart(rows, cut_pages=(3,)).register(AUDIT_RESULTS)
+    first = run("audit_results")
+    details = first.details
+    assert first.status == SyncRun.Status.PARTIAL
+    assert (details["pages_cut"], details["datamart_count"], details["removal_skipped"]) == (1, 47, True)
+    assert sync.cut_sign(details) == "pages_cut"
+
+    responses.reset()
+    FakeDatamart(rows).register(AUDIT_RESULTS)
+    second = run("audit_results")
+    details = second.details
+    assert second.status == SyncRun.Status.SUCCEEDED, details
+    assert (details["windows_why"], details["window_bound"], details["documents"]) == ("pages_cut", "id", 47)
+    assert "pages_cut" not in details
+
+
+@responses.activate
+def test_an_engagement_dataset_asks_the_stable_order_every_night_once_proven():
+    """Records came twice on audit_results: the next night proves ordering=id, reads whole and records the order
+    asked, so the night after asks it again (the nights no longer alternate between records twice and whole)."""
+    rows = [audit(n) for n in range(1, 48)]
+    rows = rows[:20] + [rows[46]] + rows[20:46]  # the shift loses ids 45 and 46, never the first or the last
+    nights = []
+    for _ in range(3):
+        responses.reset()
+        fake = FakeDatamart(rows, shift=2)
+        fake.register(AUDIT_RESULTS)
+        nights.append((run("audit_results"), fake.requests))
+    (first, _), (second, _), (third, asked) = nights
+    assert first.status == SyncRun.Status.PARTIAL
+    assert (first.details["pages_shifted"], first.details["duplicates_read"]) == (
+        {"twice": 2, "missing": 2},
+        2,
+    )
+    for night in (second, third):
+        assert night.status == SyncRun.Status.SUCCEEDED, night.details
+        assert night.details["ordering"] == {"key": "id"} and "duplicates_read" not in night.details
+    assert all(r["ordering"] == "id" for r in asked[3:] if r["page_size"] == "5")  # after the three proofs

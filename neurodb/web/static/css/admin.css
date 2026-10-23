@@ -119,14 +119,17 @@
    table on the sheet, wrapping, never cut at its edge (on screen the tables scroll sideways); the sidebar, the
    header and the run button left out; check 10's groups open (the page opens them before printing). The sheet is
    A4 landscape on this page only (a named page: admin.css is loaded on every admin page, which keep the
-   browser's own). */
+   browser's own), and the cards take all of it: the print dialog reads the media queries at its portrait width,
+   where unfold's container holds the page to 40rem (640 px). A cell breaks inside a word only when that word
+   cannot fit at all (break-word, not anywhere), so reference numbers, dates and counts print whole. */
 @media print {
   @page nd-checks { size: A4 landscape; margin: 10mm; }
   body:has(.nd-checks) { page: nd-checks; }
+  body:has(.nd-checks) #content { max-width: none !important; }
   body:has(.nd-checks) #page > :not(#main), body:has(.nd-checks) #main > :has(#header-inner) { display: none !important; }
   .nd-checks .nd-scroll { overflow: visible !important; margin: 0; }
   .nd-checks .nd-jobs { width: 100%; table-layout: auto; font-size: 9pt; }
-  .nd-checks .nd-jobs th, .nd-checks .nd-jobs td { white-space: normal !important; overflow-wrap: anywhere;
+  .nd-checks .nd-jobs th, .nd-checks .nd-jobs td { white-space: normal !important; overflow-wrap: break-word;
     padding: 3px 6px 3px 0; vertical-align: top; }
   .nd-checks .nd-jobs th[scope="row"] { min-width: 0; }
   .nd-checks .nd-jobs tr, .nd-checks .nd-scheduler { break-inside: avoid; }

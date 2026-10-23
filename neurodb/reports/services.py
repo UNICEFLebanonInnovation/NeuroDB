@@ -656,6 +656,7 @@ def datamart_quality() -> list[dict[str, Any]]:
     say whether the pages shifted (and as many others did not come) or, in a stable order, the Datamart likely
     holds them twice, and the stable order asked or why none."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
+    from neurodb.integrations.etools import windows
     from neurodb.integrations.etools.datamart_sync import (
         ENTITY_SYNCS,
         FOUND,
@@ -745,6 +746,12 @@ def datamart_quality() -> list[dict[str, Any]]:
                 # and the pages that came back shorter than the first (the answer was cut)
                 "windows_why": WINDOWS_WHY.get(details.get("windows_why"), ""),
                 "pages_cut": details.get("pages_cut"),
+                # a cut sign (a page cut, the ends test) makes the next read try windows only from
+                # windows.WINDOW_RECORDS records; a read that tried them already records window_bound ("" when
+                # no window filter was proven and it was read once)
+                "windows_next": isinstance(details.get("datamart_count"), int)
+                and details["datamart_count"] >= windows.WINDOW_RECORDS,
+                "windowed": "window_bound" in details,
                 # the business area filter the read took, or why none (catalogue.AREA_FILTERS), and the
                 # records of another business area it let through
                 "area_filter": details.get("area_filter")

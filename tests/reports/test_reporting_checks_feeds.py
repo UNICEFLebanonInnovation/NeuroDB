@@ -602,6 +602,58 @@ def test_check_11_says_how_prp_progress_reports_are_linked_to_their_programme_do
     assert figures(found)["PRP progress reports linked by"] == "no key pair proven"
     assert "Partner A" not in json.dumps(found) and "LEB/PD/CHK1" not in json.dumps(found)
 
+    # the keys holding the id were left out as a value repeats among the documents one read wrote: no key is
+    # missing, so the eTools Datamart team is not asked which one holds it
+    SyncRun.objects.filter(target="prp_progress_reports").delete()
+    repeated = {"pd_not_held": 2, "by": ["named", "record_key"], "proven": False, "why": "repeated", "pairs": [],
+                "pd_keys": {"record_key": 3, "external_id": 3, "prp_id": 3, "reference_number": 3},
+                "not_unique": ["external_id", "prp_id", "reference_number"]}  # fmt: skip
+    _progress_run(business_area="2490", business_area_from="admin", progress_reports_pd_link=repeated)
+    verdict = one("11")["verdict"]
+    assert (
+        "No key pair links PRP's progress reports to their programme documents clearly (no key of PRP's programme "
+        "documents whose values are unique holds an id the progress reports name): they are linked by the id each "
+        "programme document is held under, 0 of the 2 reports naming one. Left out, as a value repeats among the "
+        "programme documents one read wrote: external_id, prp_id, reference_number (a document that changed "
+        "during that read came twice, and the next read's copy will count, or two documents share the value)."
+    ) in verdict
+    assert "tell the eTools Datamart team which one" not in verdict
+
+
+def test_check_11_counts_each_prp_progress_report_once_whatever_versions_are_held(pd):
+    """PRP's progress reports carry no id: a report that changed (Due, then Accepted) while the reads were not
+    whole is held twice, its old version under its old hash. The row an earlier read wrote is an older version
+    of the report the latest read wrote again: check 11 counts the report once, as accepted, never also as
+    overdue, and says how many older versions it left out."""
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    night = timezone.make_aware(datetime.datetime(2026, 10, 13, 20, 30))
+    qpr1 = {"programme_document": 77, "report_type": "QPR", "report_number": "QPR1", "end_date": "2026-03-31",
+            "due_date": "2026-04-15"}  # fmt: skip
+    versions = ({**qpr1, "status": "Due"}, {**qpr1, "status": "Accepted", "submission_date": "2026-04-10"})
+    for n, data in enumerate(versions):
+        SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="prp_progress_reports",
+                               status=SyncRun.Status.PARTIAL, started_at=night + datetime.timedelta(days=n),
+                               details={"removal_skipped": True})  # fmt: skip
+        row = dm.DatamartDocument.objects.create(dataset="prp_progress_reports", record_key=f"hash {n}",
+                                                 intervention=pd, date=D(2026, 3, 31), data=data)  # fmt: skip
+        dm.DatamartDocument.objects.filter(pk=row.pk).update(
+            synced_at=night + datetime.timedelta(days=n, minutes=5)
+        )
+    found = one("11")
+    (by_end,) = [t for t in found["tables"] if t["title"].startswith("Progress reports of the running")]
+    mine = {
+        r[0]: dict(zip(COLUMNS[:6], r[2:], strict=True))
+        for r in by_end["rows"]
+        if r[1] == "PRP progress reports"
+    }
+    assert mine["Mar 2026"] == {**dict.fromkeys(COLUMNS[:6], 0), "Accepted": 1}
+    numbers = figures(found)
+    assert numbers["Progress reports due or overdue in PRP's progress reports"] == 0
+    assert numbers["PRP progress report records held"] == 2
+    assert numbers["… older versions of a report a later read wrote again (not counted)"] == 1
+    assert numbers["PRP progress reports of the year linked to a programme document"] == 1
+    assert "more reports still owed" not in found["verdict"]
+
 
 def test_check_10_and_11_say_when_pages_shifted_during_the_read(pd):
     report_row(pd, "QPR1", end=D(2026, 3, 31))

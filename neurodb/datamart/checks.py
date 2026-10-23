@@ -2233,7 +2233,10 @@ def _progress_feed(cursor, today: datetime.date) -> dict[str, Any]:
     those of the year by their programme document link, those with no period end, and the last sync; PRP's
     programme documents held and those linked to an eTools PD NeuroDB holds, with their last sync; and how the
     progress reports were linked to them (``progress_reports_pd_link`` of the later of the two syncs that
-    recorded one)."""
+    recorded one). An older version of a report a later read wrote again (``datamart_sync.older_versions``:
+    they carry no id, and a read not whole keeps the old row of a report that changed) is held but counted in
+    none of these, so a report is counted once, as its latest version."""
+    from neurodb.integrations.etools.datamart_sync import older_versions
     from neurodb.reports.services import latest_datamart_runs
 
     zero = dict.fromkeys(rc.STATUS_LABELS, 0)
@@ -2244,9 +2247,14 @@ def _progress_feed(cursor, today: datetime.date) -> dict[str, Any]:
     documents = dm.DatamartDocument.objects.filter(dataset=PROGRAMME_DOCS).aggregate(
         held=Count("pk"), linked=Count("intervention")
     )
+    _bound(cursor, 2)  # the progress reports' versions: their rows, and the runs that wrote them
+    older = older_versions(
+        dm.DatamartDocument.objects.filter(dataset=PROGRESS).values_list("pk", "data", "synced_at")
+    )
     _bound(cursor)
     found = (
         dm.DatamartDocument.objects.filter(dataset=PROGRESS)
+        .exclude(pk__in=older)
         .order_by()
         .annotate(
             _link=Case(
@@ -2294,7 +2302,8 @@ def _progress_feed(cursor, today: datetime.date) -> dict[str, Any]:
     link = max(recorded, key=lambda found: found[0])[1] if recorded else {}
     return {
         "run": run,
-        "held": total,
+        "held": total + len(older),
+        "older": len(older),
         "table": table,
         "linked": held[LINK_RUNNING] + held[LINK_OTHER_STATUS],
         "running": held[LINK_RUNNING],
@@ -2323,8 +2332,9 @@ def _link_words(feed: dict[str, Any]) -> tuple[str, bool]:
     documents held for the business area and those linked to an eTools programme document NeuroDB holds (a
     warning when records of another business area name one of NeuroDB's by its reference number), then the key
     pair the last sync linked the progress reports by, with how many it links and how many of its links end
-    outside their document's dates, or why none was proven, with the keys the documents carry (what to tell
-    the Datamart team). Key names and counts only; "" for syncs made before they were recorded."""
+    outside their document's dates, or why none was proven, with the keys left out as a value repeats among
+    the documents one read wrote, or else the keys the documents carry (what to tell the Datamart team). Key
+    names and counts only; "" for syncs made before they were recorded."""
     from neurodb.integrations.etools.datamart_sync import LINK_WHY, PD_RECORD_KEY
 
     said, warn = [], False
@@ -2366,14 +2376,21 @@ def _link_words(feed: dict[str, Any]) -> tuple[str, bool]:
             keys = ", ".join(
                 f"{k} ({_count(n):,})" for k, n in (link.get("pd_keys") or {}).items() if k != PD_RECORD_KEY
             )
+            # keys left out as a value repeats among the documents one read wrote: the key holding the id may
+            # be among them, so the Datamart team is not asked which one it is
+            left = ", ".join(str(k) for k in link.get("not_unique") or [])
             said.append(
                 "No key pair links PRP's progress reports to their programme documents clearly"
                 + (f" ({why})" if why else "")
                 + f": they are linked by the id each programme document is held under, {linked:,} of the "
                 f"{naming:,} reports naming one."
                 + (
-                    f" The keys PRP's programme documents carry: {keys}; tell the eTools Datamart team which "
-                    "one holds the id the progress reports name."
+                    f" Left out, as a value repeats among the programme documents one read wrote: {left} (a "
+                    "document that changed during that read came twice, and the next read's copy will count, "
+                    "or two documents share the value)."
+                    if left
+                    else f" The keys PRP's programme documents carry: {keys}; tell the eTools Datamart team "
+                    "which one holds the id the progress reports name."
                     if keys
                     else ""
                 )
@@ -2587,6 +2604,7 @@ def _two_feeds(cursor) -> dict[str, Any]:
         ("Progress reports due or overdue in the partner reports", ours_reports_owed),
         ("Progress reports due or overdue in PRP's progress reports", mine_owed),
         ("PRP progress report records held", progress["held"]),
+        ("… older versions of a report a later read wrote again (not counted)", progress["older"]),
         ("PRP progress reports of the year linked to a programme document", progress["linked"]),
         ("PRP progress reports of the year linked to none", progress["unlinked"]),
         ("PRP progress report records with no period end", progress["undated"]),
@@ -3179,7 +3197,9 @@ CHECKS: tuple[Check, ...] = (
         "reports (prp/indicator-report-v2) are kept whole for Ask NeuroDB and the Funds page, and PRP's own "
         "progress reports (sources/prp/unicefprogressreport) for Ask NeuroDB, each linked to its programme "
         "document through PRP's programme documents after their sync, by the pair of keys the data proves "
-        "(the id each programme document is held under when none is). All are read with the same status rule "
+        "(the id each programme document is held under when none is), each progress report once, as the "
+        "latest read wrote it (an older version a read not whole kept is counted nowhere). All are read with "
+        "the same status rule "
         "(PRP's word, then the dates); indicator reports are compared with indicator reports, progress "
         "reports with progress reports. A report the partner reports feed does not carry is counted nowhere "
         "else: the number gaps (a QPR2 missing between QPR1 and QPR3) are estimated here only.",

@@ -1,8 +1,10 @@
 """Printed or saved as PDF, the eTools reporting checks and Data health print every table whole: on screen
 their wide tables scroll sideways (and Data health's inside 560 px), so a PDF copy cut off their numbers
 (check 5's "what they share" and check 7's tie-breakers came out empty). The checks print on A4 landscape,
-a named page of their own, so every other admin page keeps the browser's sheet; check 10's folded lists are
-opened before printing by a script that carries the page's nonce."""
+a named page of their own, so every other admin page keeps the browser's sheet, across the whole sheet (the
+admin's container would hold them to 640 px); check 10's folded lists, and Data health's Power BI details,
+are opened before printing by a script that carries the page's nonce. A cell breaks inside a word or a
+figure only when it cannot fit at all, so reference numbers, dates and counts print whole."""
 
 from __future__ import annotations
 
@@ -32,8 +34,13 @@ def test_the_checks_print_every_column_wrapping_on_a_landscape_page_of_their_own
     assert "body:has(.nd-checks) { page: nd-checks; }" in block
     assert ".nd-checks .nd-scroll { overflow: visible !important; margin: 0; }" in block
     assert re.search(
-        r"\.nd-checks \.nd-jobs th, \.nd-checks \.nd-jobs td \{ white-space: normal !important;", block
+        r"\.nd-checks \.nd-jobs th, \.nd-checks \.nd-jobs td \{ white-space: normal !important; "
+        r"overflow-wrap: break-word;",
+        block,
     )
+    assert "anywhere" not in block  # a reference number, a date or a count never splits to fit a column
+    # the whole landscape sheet: unfold's container holds the page to 40rem at the print dialog's portrait width
+    assert "body:has(.nd-checks) #content { max-width: none !important; }" in block
     assert '.nd-checks .nd-jobs th[scope="row"] { min-width: 0; }' in block
     assert ".nd-checks .nd-found__actions form { display: none; }" in block  # the run button
     assert "#page > :not(#main)" in block and "#main > :has(#header-inner)" in block  # sidebar, header
@@ -48,7 +55,13 @@ def test_data_health_prints_each_table_whole():
     for part in ("databases", "runs", "datasets", "power-bi"):
         assert f"#part-{part} .table-wrap" in block and f"#part-{part} .table :is(th, td)" in block
     assert "overflow: visible !important; max-height: none !important; background: none;" in block
-    assert "white-space: normal !important; overflow-wrap: anywhere; position: static;" in block
+    assert "white-space: normal !important; overflow-wrap: break-word; position: static;" in block
+    assert "anywhere" not in block  # a figure of Recent runs never splits ("781,0" over "14")
+    assert ".health-tables { grid-template-columns: 1fr; }" in block  # the imports, then the runs, each whole
+    # Compared with Power BI: each period's details print open (the page opens them before printing)
+    assert (
+        "#part-power-bi details.power-bi-details::details-content { content-visibility: visible; }" in block
+    )
     # the parts the selectors name, and the inline heights they lift
     page = (TEMPLATES / "data_health.html").read_text()
     for part in ("databases", "runs", "datasets", "power-bi"):
@@ -72,3 +85,14 @@ def test_the_checks_page_marks_itself_for_print_and_opens_its_groups_with_the_pa
     script = page.split(f'<script nonce="{nonce}">', 1)[1].split("</script>", 1)[0]
     assert 'addEventListener("beforeprint"' in script and 'addEventListener("afterprint"' in script
     assert "details.nd-check-group:not([open])" in script
+
+
+@pytest.mark.django_db
+def test_data_health_opens_the_power_bi_details_to_print_with_the_page_s_nonce(client, admin_user):
+    client.force_login(admin_user)
+    response = client.get(reverse("reports:data_health"))
+    nonce = re.search(r"'nonce-([^']+)'", response["Content-Security-Policy"]).group(1)
+    scripts = response.text.split(f'<script nonce="{nonce}">')[1:]
+    (script,) = [s.split("</script>", 1)[0] for s in scripts if "beforeprint" in s]
+    assert 'addEventListener("beforeprint"' in script and 'addEventListener("afterprint"' in script
+    assert "#part-power-bi details.power-bi-details:not([open])" in script

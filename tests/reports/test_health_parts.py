@@ -35,6 +35,7 @@ from neurodb.datamart import query as dmq
 from neurodb.donors.models import DonorAccount
 from neurodb.geo.models import Location, LocationType
 from neurodb.insights.management.commands.ml_readiness import run as run_readiness
+from neurodb.integrations.etools import windows
 from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
 from neurodb.reports import services
 from tests.web.parts import (
@@ -518,8 +519,11 @@ def test_data_health_says_why_a_read_was_windowed_a_cut_page_and_the_business_ar
     client_viewer, world
 ):
     """A read windowed because the last one looked cut says why; a page that came back shorter than the first says
-    the answer was cut; the partner reports and PRP's progress reports say which business area filter they were
-    read with, or why none, and the records of another business area a filter let through."""
+    the answer was cut, and that the next read tries windows only when it is of 5,000 records or more (a
+    smaller one is read plain again); the ends test of a plain read says the next read tries windows, and only
+    a read that tried windows and fell back to one answer says the Datamart ignores the window filters; the
+    partner reports and PRP's progress reports say which business area filter they were read with, or why
+    none, and the records of another business area a filter let through."""
     from html import unescape
 
     datamart = SyncRun.Job.ETOOLS_DATAMART
@@ -538,6 +542,16 @@ def test_data_health_says_why_a_read_was_windowed_a_cut_page_and_the_business_ar
                   "area_filter": proven})  # fmt: skip
     _run(datamart, "pd_indicators", status=SyncRun.Status.PARTIAL, rows_in=98, rows_written=98,
          details={"removed": 0, "removal_skipped": True, "read": 98, "datamart_count": 100, "pages_cut": 2})  # fmt: skip
+    _run(datamart, "fm_questions", status=SyncRun.Status.PARTIAL, rows_in=5_999, rows_written=5_999,
+         details={"documents": 5_999, "documents_removed": 0, "removal_skipped": True, "read": 5_999,
+                  "datamart_count": 6_000, "pages_cut": 1})  # fmt: skip
+    _run(datamart, "action_points", status=SyncRun.Status.PARTIAL, rows_in=7_001, rows_written=7_001,
+         details={"removed": 0, "removal_skipped": True, "read": 7_001, "datamart_count": 7_001,
+                  "cap_suspected": "ends_missing", "ends_missing": 1})  # fmt: skip
+    _run(datamart, "tpm_activities", status=SyncRun.Status.PARTIAL, rows_in=7_001, rows_written=7_001,
+         details={"removed": 0, "removal_skipped": True, "read": 7_001, "datamart_count": 7_001,
+                  "cap_suspected": "ends_missing", "ends_missing": 1, "window_bound": "",
+                  "windows_why": "cap_suspected", "count_requests": 5})  # fmt: skip
     strays = {"key": "business_area_code", "code": "2490", "why": "proven", "strays": 3, "tried": []}
     _run(datamart, "prp_progress_reports", status=SyncRun.Status.PARTIAL, rows_in=1_590, rows_written=1_590,
          details={"documents": 1_590, "documents_removed": 0, "removal_skipped": True, "read": 1_593,
@@ -552,10 +566,28 @@ def test_data_health_says_why_a_read_was_windowed_a_cut_page_and_the_business_ar
     assert "read by business area 2490 (filter business_area: 9,990 records with it, 780,905 without)" in row
     row = _dataset(datasets, "pd_indicators")
     assert (
-        "2 pages came back shorter than the first while the Datamart's answer was read: it was cut, none was "
-        "removed, and the next read is made in windows" in row
-    )
+        "2 pages came back shorter than the first while the Datamart's answer was read: it was cut and none was "
+        "removed; the next complete read removes those it no longer returns" in row
+    )  # 100 records: the next read is plain, never windowed
+    assert "windows" not in row
     assert "read 98 records of the 100" not in row  # the cut page says why nothing was removed
+    row = _dataset(datasets, "fm_questions")
+    assert (
+        "1 page came back shorter than the first while the Datamart's answer was read: it was cut, none was "
+        "removed, and the next read tries windows" in row
+    )
+    row = _dataset(datasets, "action_points")  # a plain read, with the ends test: no window filter was asked
+    assert (
+        "the Datamart's last record by id is not among those it returned: its answer was cut, none was removed, "
+        "and the next read tries windows" in row
+    )
+    assert "ignores the window filters" not in row
+    row = _dataset(datasets, "tpm_activities")  # windowed, no window filter proven: read once
+    assert (
+        "the Datamart's last record by id is not among those it returned: its answer was cut, none was removed, "
+        "and it could not be read in windows (the Datamart ignores the window filters): tell the eTools Datamart "
+        "team" in row
+    )
     row = _dataset(datasets, "prp_progress_reports")
     assert (
         "3 records of another business area came through the business_area_code filter: none was written and none "
@@ -707,7 +739,7 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
     the Datamart announced (records returned twice, an empty answer cut short, a round count) and the PRP
     records that named no business area, a code asked that is not one, the values set aside and a code NeuroDB
     found, a read in windows (how many, why, those not whole, a cut count, a changed count, a removal held), a
-    page cut, the business area filter a read took (or why none) with the records it let through, and records
+    page cut (and whether a cut sign tries windows on the next read, or a read tried them already), the business area filter a read took (or why none) with the records it let through, and records
     that came twice (pages that shifted, or records held twice in a stable order) with the order asked."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.etools.datamart_sync import (
@@ -789,6 +821,9 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
                 and details.get("whole_count_end") != details.get("datamart_count"),
                 "windows_why": services.WINDOWS_WHY.get(details.get("windows_why"), ""),
                 "pages_cut": details.get("pages_cut"),
+                "windows_next": isinstance(details.get("datamart_count"), int)
+                and details["datamart_count"] >= windows.WINDOW_RECORDS,
+                "windowed": "window_bound" in details,
                 "area_filter": details.get("area_filter")
                 if isinstance(details.get("area_filter"), dict)
                 else {},

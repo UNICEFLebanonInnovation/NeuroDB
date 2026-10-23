@@ -901,6 +901,85 @@ def test_progress_reports_with_no_id_link_through_a_key_the_data_proves(linked, 
     assert "LEB/PD1" not in json.dumps(link) and "QPR" not in json.dumps(link)
 
 
+@responses.activate
+def test_a_copy_an_earlier_read_kept_never_stops_the_link(linked, settings):
+    """A programme document held under its hash changes on a night its read is not whole (its new version comes
+    twice): the new version gets a row of its own (prp_id:77) and the old one stays, as nothing is removed. Both
+    carry prp_id 77, external_id 11 and the same reference number, but the old row was written by an earlier
+    read: the latest read's row stands for each value, and the progress reports naming 77 and 78 stay linked
+    through prp_id."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    partner, pd = linked
+    pd2 = PCA.objects.create(etl_id="12", number="LEB/PD2", title="PD 2", partner=partner)
+    old, same = (
+        _pd(77, external_id="11", reference_number="LEB/PD1", title="Old"),
+        _pd(78, external_id="12", reference_number="LEB/PD2"),
+    )
+    for record in (old, same):
+        DatamartDocument.objects.create(dataset="prp_programme_documents", record_key=sync.record_key(record),
+                                        data=record)  # fmt: skip
+    new = {**old, "title": "New"}
+    other = _pd(500, "0990", external_id="11", reference_number="SYR/PD1")
+    FakeDatamart([new, new, same, other], ignore=("external_business_area_code",)).register(
+        _url("sources/prp/unicefprogrammedocument")
+    )
+    reports = [_report(77, "QPR1"), _report(77, "QPR2", "2026-06-30"), _report(78, "QPR1")]
+    FakeDatamart(reports).register(_url("sources/prp/unicefprogressreport"))
+    documents, progress = run("prp_programme_documents,prp_progress_reports")
+    assert documents.status == SyncRun.Status.PARTIAL and documents.details["removal_skipped"]
+    held = DatamartDocument.objects.filter(dataset="prp_programme_documents")
+    assert sorted(t or "" for t in held.values_list("data__title", flat=True)) == ["", "New", "Old"]  # kept
+    link = progress.details["progress_reports_pd_link"]
+    assert (link["by"], link["proven"], link["linked"]) == (["programme_document", "prp_id"], True, 3)
+    assert "not_unique" not in link
+    assert sorted(_held("prp_progress_reports").values()) == sorted([pd.pk, pd.pk, pd2.pk])
+
+
+def test_two_documents_one_read_wrote_sharing_a_value_leave_that_key_out():
+    """Two rows sharing prp_id 77, written by the same read, are two documents (or one changed during that read):
+    prp_id is left out. A row an earlier read wrote gives way to the latest read's."""
+    pds = [("h1", {"prp_id": 77}, 1), ("h2", {"prp_id": 77}, 2), ("h3", {"prp_id": 78}, 3)]
+    reports = [{"programme_document": n} for n in (77, 77, 78)]
+    one_read = sync.prove_pd_link(pds, reports, written=[5, 5, 5])
+    assert (one_read.proven, one_read.not_unique, one_read.why) == (False, ["prp_id"], "repeated")
+    later = sync.prove_pd_link(pds, reports, written=[4, 5, 5])
+    assert (later.proven, later.pd_key, later.not_unique) == (True, "prp_id", [])
+    assert later.index == {"77": 2, "78": 3}  # 77: the row the latest read wrote
+
+
+@responses.activate
+def test_an_older_version_of_a_progress_report_is_never_linked(linked, settings):
+    """PRP's progress reports carry no id: QPR1 of programme document 77 is held as "Due", then accepted on a night
+    its read is not whole (another report comes twice), so its new version gets a row of its own and the old one
+    stays. Only the version the latest read wrote is linked to the PD: the old one is counted apart
+    (pd_superseded), so no page counts the report twice, once as overdue."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    _, pd = linked
+    FakeDatamart([_pd(77, external_id="11", reference_number="LEB/PD1"), _pd(78, external_id="999")],
+                 ignore=("external_business_area_code",)).register(_url("sources/prp/unicefprogrammedocument"))  # fmt: skip
+    due = _report(77, "QPR1", status="Due", due_date="2026-04-15")
+    accepted = {**due, "status": "Accepted", "submission_date": "2026-04-10"}
+    twice = _report(78, "QPR1")
+    nights = []
+    for version in (due, accepted):
+        FakeDatamart([version, twice, twice]).register(_url("sources/prp/unicefprogressreport"))
+        nights.append(run("prp_programme_documents,prp_progress_reports")[1])
+        responses.reset()
+        FakeDatamart([_pd(77, external_id="11", reference_number="LEB/PD1"), _pd(78, external_id="999")],
+                     ignore=("external_business_area_code",)).register(_url("sources/prp/unicefprogrammedocument"))  # fmt: skip
+    first, second = nights
+    assert first.details["progress_reports_pd_link"]["linked"] == 1
+    assert second.status == SyncRun.Status.PARTIAL and second.details["removal_skipped"]
+    held = dict(
+        DatamartDocument.objects.filter(
+            dataset="prp_progress_reports", data__programme_document=77
+        ).values_list("data__status", "intervention")
+    )
+    assert held == {"Due": None, "Accepted": pd.pk}
+    link = second.details["progress_reports_pd_link"]
+    assert (link["linked"], link["pd_superseded"], link["pd_not_linked"]) == (1, 1, 1)
+
+
 def test_a_decoy_pair_whose_dates_disagree_is_never_proven():
     """eTools ids and PRP ids are small numbers in the same range: a pair matching them by chance links more
     reports than the true pair, but to documents of 2018 while the reports end in 2026. It is out

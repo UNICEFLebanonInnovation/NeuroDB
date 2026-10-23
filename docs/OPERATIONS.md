@@ -1632,12 +1632,17 @@ the next night reads plain; if a cut comes back on every plain read, windowed an
 and nothing is lost, as a read not whole removes nothing. A plain read of 5,000 records or more also asks,
 right after its first page and before the rest, the first and the last record by id (the *ends test*, one
 record each): when the Datamart takes the ordering and either was not returned by the read, its answer was cut
-with a count that is not round (`cap_suspected` = `ends_missing`, nothing removed, the next night windowed);
+with a count that is not round (`cap_suspected` = `ends_missing`, nothing removed, the next night tries
+windows; Data health: "the Datamart's last record by id is not among those it returned: its answer was cut,
+none was removed, and the next read tries windows", and only after a read that tried windows and was read
+once, as no window filter was proven: "…: its answer was cut, none was removed, and it could not be read in
+windows (the Datamart ignores the window filters): tell the eTools Datamart team");
 records added during the read are never taken for missing ones, and there is no verdict when the records carry
 no id or the ordering is ignored. A page that comes back shorter than the first of its request, not the last,
 makes the read not whole whatever the counts (`details.pages_cut`; Data health: "N pages came back shorter than
-the first while the Datamart's answer was read: it was cut, none was removed, and the next read is made in
-windows"). A read suspected cut is read in windows, ranges that each announce fewer than 5,000, once the
+the first while the Datamart's answer was read: it was cut, none was removed, and the next read tries
+windows" for a read of 5,000 records or more, and "…: it was cut and none was removed; the next complete read
+removes those it no longer returns" for a smaller one, read plain again). A read suspected cut is read in windows, ranges that each announce fewer than 5,000, once the
 Datamart is proven to apply the window filter: a request that should find nothing (a start date from 2999 on, before 1900, an id from 10^15 on, below 1:
 one record each) finds nothing. The partner reports are windowed by reporting period start (calendar
 years from the date they are read from, then one open window, each split at its middle while it announces
@@ -1668,7 +1673,11 @@ holds after a windowed read), `read`, `window_bound` (`reporting_period_start_da
 was proven), `windows` (the first 60: from, to, announced, read, pages, outside, whole), `windows_read`,
 `windows_announced`, `windows_not_whole` and the first three of them, `outside_window`, `windows_why`,
 `windows_cut` and the flags above (a plain read records none of these, only `datamart_count`, `pages_cut`
-and the ends test's `cap_suspected`): counts, dates and ids only. Data health says "read in 14 windows: the
+and the ends test's `cap_suspected`): counts, dates and ids only. Every dataset's run records them, with the
+stable order asked and the records that came twice, the locations, sites, partners, programme documents,
+budgets, agreements and the engagements' details (`audit_results`, `audits`, `spot_checks`,
+`micro_assessments`, `special_audits`) included, so after a cut their next read of 5,000 records or more
+tries windows, and once a stable order is proven they keep asking it. Data health says "read in 14 windows: the
 Datamart announced 31,240, NeuroDB read 31,240 (the last read looked cut)", "the Datamart announced exactly 10,000 records, a limit of its answer, not what it
 holds: NeuroDB read it in windows" (or, read once: "…: none was removed, and it could not be read in windows
 (the Datamart ignores the window filters): tell the eTools Datamart team"), "2 windows not read whole (1
@@ -1691,15 +1700,18 @@ trust: each night, the first rule that applies decides (`details.area_filter.why
 or found (`no_code`; for the partner reports the code as *Every other endpoint* resolves it, without asking the
 Datamart's workspaces); a row held in the sync's scope names no code or another one (`held_not_named`: a filter
 could never return it, and a whole filtered read would remove it); no read with no filter has finished in the
-last 7 days (`weekly`, `UNFILTERED_EVERY`: a read that failed part-way is not one), so a record of the country
-that names no code, or whose code changed, is seen at least once a week; the count with no filter fails
+last 7 days (`weekly`, `UNFILTERED_EVERY`: a read that failed part-way is not one; the seventh night counts
+whatever minute its run starts, `UNFILTERED_DUE`, a week less the 20 hours of a night, as `sync_all` runs the
+datasets one after the other and a run starts minutes earlier or later from night to night), so a record of
+the country that names no code, or whose code changed, is seen at least once a week; the count with no filter fails
 (`unfiltered_failed`); else each filter key in turn (`business_area`, then `business_area_code` for the partner
 reports; the reverse for the progress reports) is asked on one page of 50 records of the sync's own query
 (`AREA_PAGE`), and the first is used (`proven`) when it finds some records but fewer than with no filter, no
 fewer than the rows held, and every record on its page names the code; otherwise its verdict is kept
 (`nothing`, `ignored`, `fewer_than_held`, `other_codes`, `not_named`, `refused` with its HTTP status, `failed`),
 and with none proven the read takes no filter (`none_proven`): an ignored or refused key is never sent. A key
-that let a record of another business area through on any finished run of the last 7 days is not tried
+that let a record of another business area through on any finished run of the last 7 days (the same night's
+margin) is not tried
 (`strays_this_week`). Under a proven filter, a record naming another business area or another country is a
 *stray*: never written, counted (`area_filter.strays`, `details.area_strays`, and in `other_country_skipped`),
 and the read removes nothing (*Succeeded with errors*); a record naming no code but this country is written
@@ -1973,7 +1985,11 @@ with its *Stale after N hours* note. Each block is its own computation and comes
 | `readiness` | *Ready for machine learning?*, the last readiness check | After the visible ones |
 
 Print Data health or save it as PDF from the browser: every table (databases, runs, datasets, *Compared with
-Power BI*) prints whole, wrapping, never cut at 560 px or at its right edge (`app.css`, stage A section).
+Power BI*) prints whole, wrapping between words (a figure or a word breaks only when it cannot fit at all, so
+"781,014" never prints as "781,0" over "14"), never cut at 560 px or at its right edge; the database imports
+and the recent runs print one above the other, each the sheet's width, and each period's details of *Compared
+with Power BI* print open (the page opens them before printing and closes them after, a script with the page's
+nonce) (`app.css`, stage A section; `data_health.html`).
 
 Only the *Rows held* column is kept in the shared page figures: an hour at most, the same for everyone
 and in every language, under a key made of the latest run of each job that writes the counted tables
@@ -2406,7 +2422,9 @@ and business area codes at most).
   wrong: probe the dataset); then how PRP's progress reports were linked to them: the key pair proven
   ("PRP's progress reports are linked to their programme document by programme_document = prp_id: N of the
   M reports naming one"), with the links that end outside their document's dates, or why no pair was
-  proven and the keys the documents carry, what to tell the eTools Datamart team (figures *PRP programme
+  proven and the keys the documents carry, what to tell the eTools Datamart team, or the keys left out as
+  their values repeat among the documents one read wrote; each progress report is counted once, as the latest
+  read wrote it (*… older versions of a report a later read wrote again (not counted)*) (figures *PRP programme
   document records held*, *… linked to an eTools programme document NeuroDB holds*, *… records of another
   business area naming one of NeuroDB's by reference number*, *PRP progress reports linked by*, *… of the
   reports naming one*); and, when their last read had records twice, what that read found.
@@ -2457,9 +2475,11 @@ request: each query stopped after 20 seconds and the checks together after 75 se
 server's 120-second limit, so the page always answers), a check left out by that limit saying so; the
 comparison of Reached with PRP's cumulative (check 5) runs only with 30 seconds left. The checks read
 what the eTools Datamart sync stored (Run a job → *Sync eTools (Datamart)* refreshes it).
-Print the page or save it as PDF from the browser: every table prints whole, wrapping (on screen the wide
-ones scroll sideways), on A4 landscape, without the sidebar, the header or the run button, and check 10's
-folded lists print open (`admin.css`, `.nd-checks`).
+Print the page or save it as PDF from the browser: every table prints whole, wrapping between words (on screen
+the wide ones scroll sideways), on A4 landscape across the whole sheet (the print dialog reads the page at its
+portrait width, where the admin's container would hold it to 640 px), without the sidebar, the header or the
+run button, and check 10's folded lists print open; a reference number, a date or a count breaks only when it
+cannot fit at all, so check 10's PD reference numbers print whole (`admin.css`, `.nd-checks`).
 
 **The Power BI views.** The eTools Power BI report's pages live on NeuroDB's own pages, with the same
 figures as everywhere else (they read the rule above; nothing is added across indicators):
@@ -2978,7 +2998,12 @@ carried `id` or `source_id`, and none of the 1,590 kept was linked, as the docum
 so the sync proves the pair on what NeuroDB holds (`datamart_sync.prove_pd_link`). The documents' keys tried
 are the key each is held under (the lookup used until now, first), every id-like key of their records (a key
 whose last word is `id` or `pk`, or whose value is `{"id": ..}`, never one that holds a person) and
-`reference_number`, a key whose values repeat among them left out; the progress reports' keys are the
+`reference_number`. A value several documents carry is the one the latest read wrote (`datamart_sync.written_by`:
+the read that last wrote a row, by its `synced_at` and the dataset's run starts): the others are copies an
+earlier read wrote, kept while the reads were not whole, as a document that changed then got a row of its own
+(one changed copy no longer stops the link for every document). A key whose value two documents one read
+wrote carry is left out (`not_unique`: two documents share it, or one changed during that read came twice;
+`why` is then `repeated`). The progress reports' keys are the
 document they name (`programme_document_id`, else `programme_document`, first) and every other key naming a
 programme document. Pairs that link the same reports to the same documents are one, named by their first key
 other than the lookup used until now. A link is dated when the report has an `end_date` and its document a
@@ -2996,10 +3021,18 @@ record names none under the pair's key), `pd_not_held` (a PRP programme document
 the pair's key), `pd_not_linked` (held, but linked to no eTools PD), `by` (`[report key, document key]`),
 `proven`, `pairs` (the five best, with the reports each links, how many of those links are dated and how many
 agree), `pd_keys` (the documents' candidate keys and the records carrying each, with `not_unique` for those
-whose values repeat) and `why` none was proven. Check 11 says which pair linked them and how many of its
-links end outside their document's dates, or why none was proven with the keys the documents carry (what to
-tell the eTools Datamart team), and reads the linked ones as its third feed. A progress report the sync
-rewrites keeps the link it holds until that step runs, so a read that fails part-way unlinks none.
+whose values repeat among the documents one read wrote), `pd_superseded` (below) and `why` none was proven.
+Check 11 says which pair linked them and how many of its links end outside their document's dates, or why none
+was proven with the keys left out as their values repeat (then it asks the eTools Datamart team nothing: the
+next read's copy counts) or else the keys the documents carry (what to tell the eTools Datamart team), and
+reads the linked ones as its third feed. A progress report the sync rewrites keeps the link it holds until
+that step runs, so a read that fails part-way unlinks none. PRP's progress reports carry no id either, so a
+report that changes (its status, a date) on a night its read is not whole gets a row of its own and its old
+row is kept until a whole read: the row of a report (the programme document it names, its `report_type` and
+`report_number`) that an earlier read wrote, when a later read wrote that report again, is an older version
+(`datamart_sync.older_versions`). It is linked to none (`pd_superseded`), and check 11 counts it nowhere (its
+figure *… older versions of a report a later read wrote again (not counted)*), so a report later accepted
+is never also counted as overdue, and Ask NeuroDB's look-ups by PD find each report once.
 
 **A record identity for records without an id.** A dataset kept whole whose records carry no `id` was held
 under a hash of each record, so a record that changed became a new row. Each read now looks for an id-like

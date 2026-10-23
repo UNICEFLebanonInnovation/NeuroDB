@@ -1562,12 +1562,17 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 /* The database imports and the recent runs side by side: each panel fills its part, so both are as tall as the
    taller one, as before the page loaded in parts. */
 .health-tables > .part > .panel { height: 100%; }
-/* Data health printed: each table whole (on screen they scroll inside 560 px and sideways) */
+/* Data health printed: each table whole (on screen they scroll inside 560 px and sideways). A cell breaks inside a
+   word or a figure only when it cannot fit at all (break-word, not anywhere: "781,014" never prints as "781,0" over
+   "14"); the database imports and the recent runs one above the other, each the sheet's width; each period's
+   details of Compared with Power BI open (the page opens them before printing, data_health.html). */
 @media print {
+  .health-tables { grid-template-columns: 1fr; }
   #part-databases .table-wrap, #part-runs .table-wrap, #part-datasets .table-wrap, #part-power-bi .table-wrap {
     overflow: visible !important; max-height: none !important; background: none; }
   #part-databases .table :is(th, td), #part-runs .table :is(th, td), #part-datasets .table :is(th, td),
-  #part-power-bi .table :is(th, td) { white-space: normal !important; overflow-wrap: anywhere; position: static; }
+  #part-power-bi .table :is(th, td) { white-space: normal !important; overflow-wrap: break-word; position: static; }
+  #part-power-bi details.power-bi-details::details-content { content-visibility: visible; }
 }
 /* Partner profile (reports/partner_profile.html). The figures' placeholder (#part-datamart) keeps the room of a
    partner of middle size, 7,500 px (12,400 px on a phone); when its request fails, the error box goes without it

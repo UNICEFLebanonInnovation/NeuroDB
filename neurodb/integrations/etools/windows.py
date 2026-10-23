@@ -14,8 +14,8 @@ end: only then is the read :attr:`Reading.whole` and may the sync remove what it
 whose window filters are not proven is read once, as ever, and is not whole when its count is round (the
 partner reports, read country-blind, hold more records than :data:`MAX_WINDOWS` windows can: a cut sign there
 buys the proof requests and a plain read with its ends test, nothing more). A page shorter than the first one
-of its request, not the last, is a cut too (``pages_cut``): the read is not whole, and the next one is
-windowed.
+of its request, not the last, is a cut too (``pages_cut``): the read is not whole, and the next one tries
+windows when it announces :data:`WINDOW_RECORDS` records or more (a smaller one is read plain again).
 
 Records that come twice while the pages are read (``pages_shifted``: the Datamart's default order moved rows
 between pages, and as many others did not come, or it holds them twice) leave the read not whole. The next

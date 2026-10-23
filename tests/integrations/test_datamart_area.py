@@ -71,7 +71,7 @@ def held(pk: int, area: str | None = "2490") -> dm.ReportedIndicator:
 
 
 def earlier(
-    name: str = "partner_reports", days: int = 2, status=SyncRun.Status.SUCCEEDED, **details
+    name: str = "partner_reports", days: float = 2, status=SyncRun.Status.SUCCEEDED, **details
 ) -> SyncRun:
     """A finished run of ``name`` ``days`` ago (with no ``area_filter``: a read with no business area filter)."""
     return SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target=name, status=status,
@@ -239,6 +239,33 @@ def test_once_a_week_the_read_takes_no_filter(code):
         "read with no business area filter: once a week every record is read, so none of Lebanon's that names "
         "no code is missed"
     )
+
+
+A_WEEK_LESS_A_MINUTE = 7 - 35 / 86_400  # days: the run a week ago started 35 seconds later than tonight's
+
+
+@responses.activate
+def test_the_weekly_read_comes_on_the_seventh_night_whatever_minute_its_run_starts(code):
+    """sync_all runs the datasets one after the other, so the partner reports' run starts minutes earlier or later
+    from night to night: the read with no filter of a week ago, started 35 seconds later in its night, still makes
+    tonight the weekly read (the six nights between read by the proven filter)."""
+    earlier(days=A_WEEK_LESS_A_MINUTE)
+    for days in range(1, 7):
+        earlier(days=days, area_filter={"key": "business_area", "why": "proven", "strays": 0})
+    FakeDatamart(mixed(), ignore=("country_name",)).register(REPORTS)
+    area = run().details["area_filter"]
+    assert (area["key"], area["why"]) == ("", "weekly")
+
+
+@responses.activate
+def test_a_key_that_let_a_stray_through_a_week_ago_is_tried_again_whatever_minute_its_run_starts(code):
+    earlier()
+    earlier(days=A_WEEK_LESS_A_MINUTE, area_filter={"key": "business_area", "why": "proven", "strays": 1})
+    FakeDatamart(mixed(), ignore=("country_name",)).register(REPORTS)
+    area = run().details["area_filter"]
+    assert (area["tried"][0]["key"], area["tried"][0]["verdict"], area["key"]) == (
+        "business_area", "proven", "business_area"
+    )  # fmt: skip
 
 
 @responses.activate

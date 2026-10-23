@@ -21,6 +21,7 @@ counted, the rest are written and the run ends PARTIAL. Every request is limited
 
 from __future__ import annotations
 
+import bisect
 import datetime as dt
 import functools
 import hashlib
@@ -1506,8 +1507,10 @@ def _write_documents(
     name: str, items: list[dict[str, Any]], links: Links, found: OfCountry | None = None
 ) -> dict[str, Any]:
     """Raw copies of a dataset whose records were just applied elsewhere (one failure never stops them).
-    ``found``, the read they come from: when it was not read whole (``windows.Reading.whole``), no copy it
-    did not return is removed and the run ends PARTIAL."""
+    ``found``, the read they come from: its details are the run's (``windows.Reading.details``: the first
+    page's count, a page cut, the stable order asked, records that came twice, the windows), as every other
+    read records them, so its next read sees them; when it was not read whole (``windows.Reading.whole``), no
+    copy it did not return is removed and the run ends PARTIAL."""
     writer, failed = DocumentWriter(name, links), 0
     for item in items:
         try:
@@ -1518,6 +1521,8 @@ def _write_documents(
             logger.warning("etools datamart %s: document %s failed: %s", name, _label(item), exc)
     whole = found is None or found.whole
     details = writer.finish(whole=whole)
+    if found is not None:
+        details.update(found.reading.details())
     if writer.seen and not whole:
         details.update(_removal_skipped(found.reading))
     return {**details, "documents_failed": failed} if failed else details
@@ -2503,6 +2508,9 @@ class CountryScope:
 # business area only once the Datamart proves, that night, that it applies the filter: it ignores country_name
 # on prp/datareport and business_area_code on PRP's progress reports, so a filter is never taken on trust.
 UNFILTERED_EVERY = dt.timedelta(days=7)  # a read with no business area filter at least this often
+# the seventh night is due whatever minute its run starts (sync_all runs the datasets one after the other, so
+# a dataset's run starts minutes earlier or later from night to night): a week less the night (HOLD_HOURS)
+UNFILTERED_DUE = UNFILTERED_EVERY - dt.timedelta(hours=HOLD_HOURS)
 AREA_PAGE = 50  # the records of the one page each filter key is proven on
 # why a read took its business area filter or none (``area_filter.why``): the first that applies, in order
 AREA_NO_CODE, AREA_HELD_NOT_NAMED, AREA_WEEKLY = "no_code", "held_not_named", "weekly"
@@ -2633,8 +2641,9 @@ def last_unfiltered(name: str) -> dt.datetime | None:
 
 def _strayed_keys(name: str) -> set[str]:
     """The filter keys that let a record of another business area through on a finished run of ``name`` in the
-    last :data:`UNFILTERED_EVERY`: they are not tried again before."""
-    since, keys = timezone.now() - UNFILTERED_EVERY, set()
+    last :data:`UNFILTERED_EVERY` (the run a week ago not counted, whatever minute it started:
+    :data:`UNFILTERED_DUE`): they are not tried again before."""
+    since, keys = timezone.now() - UNFILTERED_DUE, set()
     for started, details in _finished_runs(name):
         if started < since:
             break
@@ -2659,7 +2668,8 @@ def prove_area_filter(
     rule that applies deciding: no code (``no_code``); a row held naming no code or another one
     (``held_not_named``: a filter cannot return it, and a whole filtered read would remove it); no read with
     no filter in the last :data:`UNFILTERED_EVERY` (``weekly``: a record of the country naming no code, or a
-    code that changed, is seen at least once a week); the count with no filter failing
+    code that changed, is seen at least once a week; the seventh night whatever minute its run starts,
+    :data:`UNFILTERED_DUE`); the count with no filter failing
     (``unfiltered_failed``); else each key of ``catalogue.AREA_FILTERS`` in turn on one page of
     :data:`AREA_PAGE` records (a key that let another business area through this week skipped; a refused or
     failed request recorded, the next key tried), the first :func:`judge_area_key` proves taken (``proven``),
@@ -2674,7 +2684,7 @@ def prove_area_filter(
         area.why = AREA_HELD_NOT_NAMED
         return area
     last = last_unfiltered(name)
-    if last is None or timezone.now() - last >= UNFILTERED_EVERY:
+    if last is None or timezone.now() - last >= UNFILTERED_DUE:
         area.why = AREA_WEEKLY
         return area
     try:
@@ -2905,6 +2915,9 @@ PAIRS_KEPT = 5  # the pairs a run lists, the best first
 # why no key pair is proven (``progress_reports_pd_link.why``), in words for check 11
 LINK_WHY = {
     "no_link": "no key of PRP's programme documents holds an id the progress reports name",
+    "repeated": (
+        "no key of PRP's programme documents whose values are unique holds an id the progress reports name"
+    ),
     "dates_disagree": "every key pair that links them links reports ending outside their document's dates",
     "not_clear": "two key pairs link them otherwise, neither twice as often as the other",
     "few": "the best key pair links too few of the reports that name a programme document",
@@ -2964,14 +2977,20 @@ def prove_pd_link(
     pds: list[tuple[str, Any, int | None]],
     reports: list[Any],
     etools_dates: dict[int, tuple[dt.date | None, dt.date | None]] | None = None,
+    *,
+    written: list[int] | None = None,
 ) -> PDLink:
     """The key pair that links PRP's progress reports (``reports``, their records) to PRP's programme
     documents (``pds``: the key each is held under, its record, the eTools PD it is linked to), proven on the
     data.
 
     The documents' keys tried: the key each is held under (today's lookup, first), every id-like key of their
-    records (:func:`id_keys`), and ``reference_number``; one whose values repeat among them is left out
-    (``not_unique``). The reports' keys: the document they name (:data:`REPORT_NAMED`, today's, first), and
+    records (:func:`id_keys`), and ``reference_number``. A value several documents carry is the one the latest
+    read wrote (``written``, the read that wrote each, :func:`written_by`): the others are copies of it an
+    earlier read wrote, kept while the reads were not whole (a document that changed then got a row of its
+    own). A key whose value two documents one read wrote carry is left out (``not_unique``: two documents
+    share it, or one changed during that read came twice); with no ``written``, every document counts as one
+    read's. The reports' keys: the document they name (:data:`REPORT_NAMED`, today's, first), and
     every key naming a programme document (:func:`pd_named_keys`). Pairs that link the same reports to the
     same documents are one link, named by its first report key other than today's. A link is dated when the
     report has an ``end_date`` and its document a start and an end (its PRP record's ``start_date`` and
@@ -2995,6 +3014,7 @@ def prove_pd_link(
         ]
 
     link = PDLink()
+    reads = written if written is not None else [0] * len(pds)
     indexes: dict[str, dict[str, int]] = {}  # a document key -> its values -> the document's position
     for key in dict.fromkeys((PD_RECORD_KEY, *sorted(id_keys(datas)), "reference_number")):
         values = pd_values(key)
@@ -3002,10 +3022,14 @@ def prove_pd_link(
         if not carried:
             continue
         link.pd_keys[key] = len(carried)
-        if len(set(carried)) < len(carried):
+        latest: dict[str, int] = {}  # a value -> the document carrying it that the latest read wrote
+        for i, v in enumerate(values):
+            if v and (v not in latest or reads[i] > reads[latest[v]]):
+                latest[v] = i
+        if any(v and i != latest[v] and reads[i] == reads[latest[v]] for i, v in enumerate(values)):
             link.not_unique.append(key)
             continue
-        indexes[key] = {v: i for i, v in enumerate(values) if v}
+        indexes[key] = latest
     # each pair's links (a report's position -> its document's), the same links of two pairs one link
     groups: dict[frozenset, dict[str, Any]] = {}
     for report_key in (REPORT_NAMED, *pd_named_keys(reports)):
@@ -3038,7 +3062,7 @@ def prove_pd_link(
     contenders = [g for g in ranked if not g["disagree"]]
     best = contenders[0] if contenders else None
     if best is None:
-        link.why = "dates_disagree" if groups else "no_link"
+        link.why = "dates_disagree" if groups else "repeated" if link.not_unique else "no_link"
     else:
         rivals = [g for g in contenders[1:] if any(best["links"].get(r) != d for r, d in g["links"].items())]
         share = LINK_SHARE if best["dated"] * 2 >= best["linked"] else LINK_SHARE_UNDATED
@@ -3065,23 +3089,65 @@ def prove_pd_link(
         }
         for g in ranked[:PAIRS_KEPT]
     ]
-    link.index = {v: pds[i][2] for i, v in enumerate(pd_values(link.pd_key)) if v}
+    link.index = {v: pds[i][2] for v, i in indexes.get(link.pd_key, {}).items()}
     return link
+
+
+def written_by(name: str, moments: list[dt.datetime]) -> list[int]:
+    """For each moment a row of dataset ``name`` was last written (its ``synced_at``), the read that wrote it,
+    as a number: the runs of ``name`` started at or before it (one query, the run under way counted). Rows one
+    read wrote share it; a row an earlier read wrote, kept since (a read not whole removes nothing), has a
+    lower one."""
+    runs = SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_DATAMART, target=name)
+    starts = sorted(runs.values_list("started_at", flat=True))
+    return [bisect.bisect_right(starts, moment) for moment in moments]
 
 
 def held_pd_link(reports: list[Any] | None = None) -> PDLink:
     """:func:`prove_pd_link` on what NeuroDB holds of PRP's programme documents and progress reports
-    (``reports``, the progress reports' records when they are read already)."""
-    pds = list(
+    (``reports``, the progress reports' records when they are read already), each document with the read that
+    wrote it."""
+    held_pds = list(
         dm.DatamartDocument.objects.filter(dataset=PROGRAMME_DOCUMENTS).values_list(
-            "record_key", "data", "intervention_id"
+            "record_key", "data", "intervention_id", "synced_at"
         )
     )
+    pds = [(key, data, pk) for key, data, pk, _ in held_pds]
+    written = written_by(PROGRAMME_DOCUMENTS, [synced for *_, synced in held_pds])
     if reports is None:
         held = dm.DatamartDocument.objects.filter(dataset=PROGRESS_REPORTS)
         reports = list(held.values_list("data", flat=True))
     dates = PCA.objects.filter(pk__in={pk for _, _, pk in pds if pk}).values_list("pk", "start", "end")
-    return prove_pd_link(pds, reports, {pk: (start, end) for pk, start, end in dates})
+    return prove_pd_link(pds, reports, {pk: (start, end) for pk, start, end in dates}, written=written)
+
+
+def report_identity(data: Any) -> tuple | None:
+    """What tells one PRP progress report from another across its versions, as they carry no id: the programme
+    document it names, under every key naming one (:func:`_names_pd`), its ``report_type`` and its
+    ``report_number``; None when it names no document or no number."""
+    data = data if isinstance(data, dict) else {}
+    named = tuple(sorted((str(k), id_value(v)) for k, v in data.items() if _names_pd(str(k)) and id_value(v)))
+    number = id_value(data.get("report_number"))
+    if not named or not number:
+        return None
+    return named, str(data.get("report_type") or ""), number
+
+
+def older_versions(rows: Iterable[tuple[int, Any, dt.datetime]]) -> set[int]:
+    """The rows (``pk``, record, ``synced_at``) of PRP's progress reports that hold an older version of a
+    report a later read wrote again (:func:`report_identity`, :func:`written_by`): the report changed (its
+    status, a date) on a night its read was not whole, so it got a row of its own and its old row was kept,
+    until a whole read removes it. The rows of one report one read wrote are none of them older."""
+    rows = list(rows)
+    reads = written_by(PROGRESS_REPORTS, [synced for *_, synced in rows])
+    latest: dict[tuple, int] = {}
+    found = []
+    for (pk, data, _), read in zip(rows, reads, strict=True):
+        report = report_identity(data)
+        if report is not None:
+            found.append((pk, report, read))
+            latest[report] = max(latest.get(report, read), read)
+    return {pk for pk, report, read in found if read < latest[report]}
 
 
 def link_progress_reports() -> dict[str, Any]:
@@ -3089,19 +3155,22 @@ def link_progress_reports() -> dict[str, Any]:
     through PRP's own programme documents (``prp_programme_documents``, linked to the eTools PD by its
     external id or reference number), by the key pair the data proves (:func:`held_pd_link`; with none proven,
     the document a report names by the key it is held under). Run after each of the two datasets (the
-    catalogue syncs the programme documents first), so a link follows a change in either. Key names and counts
-    only, for the run's details: ``linked``; ``pd_not_named`` (the record names none under the pair's key);
-    ``pd_not_held`` (a PRP programme document NeuroDB does not hold under the pair's key); ``pd_not_linked``
-    (held, not linked to a PD NeuroDB holds); and the pair (:meth:`PDLink.details`: ``by``, ``proven``,
-    ``pairs``, ``pd_keys``, ``why``). Nothing when no progress report is held."""
+    catalogue syncs the programme documents first), so a link follows a change in either. An older version
+    of a report (:func:`older_versions`) is linked to none, so no page counts a report twice. Key names and
+    counts only, for the run's details: ``linked``; ``pd_not_named`` (the record names none under the pair's
+    key); ``pd_not_held`` (a PRP programme document NeuroDB does not hold under the pair's key);
+    ``pd_not_linked`` (held, not linked to a PD NeuroDB holds); ``pd_superseded`` (an older version, left
+    unlinked); and the pair (:meth:`PDLink.details`: ``by``, ``proven``, ``pairs``, ``pd_keys``, ``why``).
+    Nothing when no progress report is held."""
     reports = list(
         dm.DatamartDocument.objects.filter(dataset=PROGRESS_REPORTS).only(
-            "pk", "data", "intervention_id", "partner_id"
+            "pk", "data", "intervention_id", "partner_id", "synced_at"
         )
     )
     if not reports:
         return {}
     link = held_pd_link([doc.data for doc in reports])
+    older = older_versions((doc.pk, doc.data, doc.synced_at) for doc in reports)
     partners = dict(
         PCA.objects.filter(pk__in={pk for pk in link.index.values() if pk}).values_list("pk", "partner_id")
     )
@@ -3109,9 +3178,11 @@ def link_progress_reports() -> dict[str, Any]:
     changed = []
     for doc in reports:
         named = link.named(doc.data)
-        pd_id = link.index.get(named) if named else None
+        pd_id = link.index.get(named) if named and doc.pk not in older else None
         counts[
-            "linked"
+            "pd_superseded"
+            if doc.pk in older
+            else "linked"
             if pd_id
             else "pd_not_named"
             if not named

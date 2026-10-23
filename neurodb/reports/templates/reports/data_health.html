@@ -31,3 +31,19 @@ failed.{% endcomment %}
 </section></div>
 <div class="mt-3">{% part "readiness" kind="card" priority="low" height="546.5px" height_md="859.4px" height_sm="1431.6px" %}</div>
 {% endblock %}
+{% block scripts %}<script nonce="{{ request.csp_nonce }}">
+  // Printed or saved as PDF: each period's details of Compared with Power BI print open (looked up when printing
+  // starts, so a part that came late is in); those it opened close again after.
+  window.addEventListener("beforeprint", function () {
+    document.querySelectorAll("#part-power-bi details.power-bi-details:not([open])").forEach(function (details) {
+      details.open = true;
+      details.dataset.ndOpenedToPrint = "1";
+    });
+  });
+  window.addEventListener("afterprint", function () {
+    document.querySelectorAll("#part-power-bi details.power-bi-details[data-nd-opened-to-print]").forEach(function (details) {
+      details.open = false;
+      delete details.dataset.ndOpenedToPrint;
+    });
+  });
+</script>{% endblock %}
