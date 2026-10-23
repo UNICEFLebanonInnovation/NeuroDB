@@ -388,6 +388,8 @@ ETOOLS_DATAMART_REPORTING_FROM_PD_START = env.bool("ETOOLS_DATAMART_REPORTING_FR
 # Business area code for the PRP datasets: digits, as 2490 (not the country's name); a code entered in the
 # admin comes first, and NeuroDB finds it when both are empty
 ETOOLS_DATAMART_BUSINESS_AREA = env("ETOOLS_DATAMART_BUSINESS_AREA", default="").strip()
+# Raw eTools data's CSVs (Admin → Data and sync): the large downloads prepared at once on the whole site
+RAW_CSV_MAX_RUNNING = env.int("RAW_CSV_MAX_RUNNING", default=2)
 ETOOLS_USERNAME = env("ETOOLS_USERNAME", default="").strip()
 ETOOLS_PASSWORD = env.ENVIRON.get("ETOOLS_PASSWORD", "").strip("\r\n")
 if ETOOLS_USERNAME.startswith("@Microsoft.KeyVault(") or ETOOLS_PASSWORD.startswith("@Microsoft.KeyVault("):

@@ -2,6 +2,7 @@
 {% load i18n ui %}
 {% block content %}
 {% include "reports/partials/_monitoring_tabs.html" %}
+{% include "reports/partials/_check_link.html" with page="reports:monitoring" %}
 {% if tab == "plan" %}
 {% include "reports/partials/_plan_filters.html" %}
 <div id="monitoring-results" aria-live="polite">{% include "reports/partials/monitoring_plan.html" %}</div>

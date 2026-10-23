@@ -319,6 +319,9 @@ QUICK_MIGRATIONS = {
     # the menu each role sees (the superusers' Menu page): a new, empty table of at most three rows (CreateModel
     # only, no code runs; listed so that the migration is accounted for here)
     ("web", "0001_menu_choice", "CreateModel"),
+    # the fields a superuser reviewed on Raw eTools data: a new, empty table of a few dozen rows (CreateModel
+    # only, no code runs; listed so that the migration is accounted for here)
+    ("datamart", "0017_raw_field_review", "CreateModel"),
 }
 
 

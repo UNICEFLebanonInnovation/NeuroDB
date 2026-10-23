@@ -14,6 +14,7 @@ from typing import Any
 
 from django.http import HttpResponse, StreamingHttpResponse
 from django.utils.text import slugify
+from django.utils.translation import gettext as _
 from openpyxl import Workbook
 
 from neurodb.facts import queries
@@ -39,9 +40,35 @@ XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml
 FORMATS = ("csv", "xlsx")
 
 
-def export_filename(label: str, ext: str, today: datetime.date | None = None) -> str:
+def export_filename(
+    label: str, ext: str, today: datetime.date | None = None, *, moment: datetime.datetime | None = None
+) -> str:
+    """``<label>_<YYYY-MM-DD>.<ext>``; with ``moment`` (the figures' moment, as Raw eTools data's downloads
+    carry it), ``<label>_<YYYY-MM-DD>_<HHMM>.<ext>`` in the site's time."""
+    if moment is not None:
+        from django.utils import timezone
+
+        return f"{slugify(label) or 'export'}_{timezone.localtime(moment):%Y-%m-%d_%H%M}.{ext}"
     today = today or datetime.date.today()
     return f"{slugify(label) or 'export'}_{today:%Y-%m-%d}.{ext}"
+
+
+def too_many_words(n: int, limit: int, what: str, first: str) -> str:
+    """The sentence a download over its limit says instead: "The filter holds 31,000 records, more than
+    25,000: choose a year, a section, a partner or a programme document first."."""
+    return _("The filter holds %(n)s %(what)s, more than %(limit)s: choose %(first)s first.") % {
+        "n": f"{n:,}",
+        "what": what,
+        "limit": f"{limit:,}",
+        "first": first,
+    }
+
+
+def too_many(n: int, limit: int, what: str, first: str) -> HttpResponse:
+    """A download over its limit: 400, with :func:`too_many_words` as plain text."""
+    return HttpResponse(
+        too_many_words(n, limit, what, first), status=400, content_type="text/plain; charset=utf-8"
+    )
 
 
 def _cell(value: Any) -> Any:

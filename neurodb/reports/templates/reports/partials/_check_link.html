@@ -1,0 +1,6 @@
+{% load i18n %}{% comment %}The check line under a page's tabs, for the people who check the figures (can_validate: superusers and the
+Validators group); everyone else sees nothing. page: the page's navigation key, which keeps the raw data of the sources
+it reads (datamart.raw.PAGE_SOURCES). Raw eTools data is in the admin, which asks for staff status: without it the line
+says so instead of linking.{% endcomment %}{% if can_validate %}
+<p class="check-line small text-muted mb-3" data-check-line="{{ page }}">{% if user.is_staff %}<a href="{% url 'admin:datamart_raw' %}?page={{ page|urlencode }}">{% trans "Raw data behind this page" %}</a>{% else %}{% trans "Raw data: ask for staff status" %}{% endif %}</p>
+{% endif %}

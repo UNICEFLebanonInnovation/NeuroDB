@@ -852,6 +852,26 @@ class RecordPeople(models.Model):
         return f"{len(self.names)} names, read {self.read_at:%Y-%m-%d %H:%M}"
 
 
+class RawFieldReview(models.Model):
+    """A field of an eTools source a superuser reviewed on Raw eTools data (Admin → Data and sync): its values
+    are shown there and written in its CSVs, through the people rule (``datamart.raw_people``). A field
+    neither reviewed here nor in ``datamart.raw.REVIEWED_KEYS`` shows only numbers, yes/no and dates."""
+
+    source = models.CharField(max_length=64)
+    key = models.CharField(max_length=64)
+    reviewed_at = models.DateTimeField(auto_now_add=True)
+    # the username: for the admin only, never shown on a page, exported or sent to the AI
+    reviewed_by = models.CharField(max_length=150, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["source", "key"], name="datamart_rawfieldreview_key")]
+        verbose_name = "reviewed field"
+        verbose_name_plural = "reviewed fields"
+
+    def __str__(self):
+        return f"{self.source}.{self.key}"
+
+
 class EtoolsMaster(models.Model):
     """A section's master indicator over the partners' eTools PD indicators, like an ActivityInfo master
     indicator: one figure a year, combined from its sub-indicators (:class:`EtoolsMasterLink`, one PD

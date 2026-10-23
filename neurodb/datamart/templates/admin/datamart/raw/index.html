@@ -1,0 +1,105 @@
+{% extends "admin/base_site.html" %}
+{% load i18n humanize unfold %}
+
+{% comment %}
+  Raw eTools data (context: datamart.raw_admin.index_view, validators only): every eTools source NeuroDB reads, once
+  each. First the pages and the sources each reads (raw.PAGE_SOURCES: a page's "Raw data behind this page" line opens
+  this page with ?page=, which keeps only its sources); then what Progress reports and Partner monitoring read, the
+  other Datamart datasets (each row: what its last sync received and kept, datamart.runfacts), the eTools REST API
+  (not read yet), and what NeuroDB does not read. Counts only; a plain page, no script.
+{% endcomment %}
+
+{% block content %}
+<div id="content-main" class="nd-found nd-raw">
+  <p class="nd-list-note">
+    <span class="material-symbols-outlined" aria-hidden="true">info</span>
+    <span>{% blocktrans trimmed with checks_url=checks_url %}
+      What NeuroDB received from eTools, record by record, as it came. People's names, e-mails and phone numbers are never shown: a field that names people shows how many. Use it to check any page. The <a class="nd-link" href="{{ checks_url }}">eTools reporting checks</a> say what the partner reports answer.
+    {% endblocktrans %}</span>
+  </p>
+
+  {% trans "By page" as by_page_title %}
+  {% component "unfold/components/card.html" with title=by_page_title title_icon="web" %}
+    {% if page %}<p class="mb-3">{% blocktrans trimmed with label=page_label url=index_url %}Showing the sources {{ label }} reads. <a class="nd-link" href="{{ url }}">Show every source</a>.{% endblocktrans %}</p>{% endif %}
+    <div class="nd-scroll">
+      <table class="nd-jobs nd-found__table">
+        <thead><tr><th scope="col">{% trans "Page" %}</th><th scope="col">{% trans "Sources it reads" %}</th></tr></thead>
+        <tbody>
+          {% for p in by_page %}
+            <tr>
+              <th scope="row"><a class="nd-link" href="{{ p.url }}">{{ p.label }}</a></th>
+              <td>{% if p.every %}{% trans "every eTools Datamart dataset" %}{% else %}{% for s in p.sources %}<a class="nd-link" href="{{ s.url }}">{{ s.label }}</a>{% if not forloop.last %} · {% endif %}{% endfor %}{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endcomponent %}
+
+  {% for table in tables %}
+    {% if table.rows %}
+    {% component "unfold/components/card.html" with title=table.title title_icon="dataset" %}
+      <div class="nd-scroll">
+        <table class="nd-jobs nd-found__table">
+          <thead>
+            <tr>
+              <th scope="col">{% trans "Source" %}</th>
+              <th scope="col">{% trans "Used by" %}</th>
+              <th scope="col">{% trans "In NeuroDB" %}</th>
+              <th scope="col">{% trans "Last sync" %}</th>
+              <th scope="col">{% trans "eTools said it had" %}</th>
+              <th scope="col">{% trans "NeuroDB received" %}</th>
+              <th scope="col">{% trans "Not kept" %}</th>
+              <th scope="col">{% trans "Updated by the last sync" %}</th>
+              <th scope="col">{% trans "Complete?" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in table.rows %}
+              <tr>
+                <th scope="row"><a class="nd-link" href="{{ r.url }}">{{ r.label }}</a><small class="nd-menu__note"><code>{{ r.path }}</code></small></th>
+                <td>{{ r.used_by|join:", "|default:"—" }}</td>
+                <td>{{ r.facts.held|intcomma }}</td>
+                <td>{% if r.facts.run %}{% if r.run_url %}<a class="nd-link" href="{{ r.run_url }}">{{ r.facts.run.finished_at|date:"j M Y, H:i" }}</a>{% else %}{{ r.facts.run.finished_at|date:"j M Y, H:i" }}{% endif %}<small class="nd-menu__note">{{ r.status }}</small>{% else %}{% trans "Never" %}{% endif %}{% if r.facts.newer_failed %}<small class="nd-menu__note nd-found__warn">{% blocktrans with when=r.facts.newer_failed.started_at|date:"j M Y" %}the sync of {{ when }} failed{% endblocktrans %}</small>{% endif %}</td>
+                <td>{% if r.facts.said_it_had is None %}—{% else %}{{ r.facts.said_it_had|intcomma }}{% endif %}</td>
+                <td>{% if r.facts.received is None %}—{% else %}{{ r.facts.received|intcomma }}{% endif %}</td>
+                <td>{% if r.facts.run %}{{ r.not_kept }}{% else %}—{% endif %}</td>
+                <td>{{ r.facts.updated_by_sync|intcomma }}</td>
+                <td>{% if r.facts.complete.0 %}{{ r.facts.complete.1 }}{% else %}<span class="nd-found__warn">{{ r.facts.complete.1 }}</span>{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endcomponent %}
+    {% endif %}
+  {% endfor %}
+
+  {% if not page %}
+  {% trans "eTools REST API" as rest_title %}
+  {% component "unfold/components/card.html" with title=rest_title title_icon="api" %}
+    <p class="mb-3">{% trans "The records the eTools REST sync reads (partners, programme documents, trips, engagements, action points) are not kept here yet: a later release adds them." %}</p>
+    <div class="nd-scroll">
+      <table class="nd-jobs nd-found__table">
+        <thead><tr><th scope="col">{% trans "Source" %}</th><th scope="col">{% trans "In NeuroDB" %}</th></tr></thead>
+        <tbody>
+          {% for r in rest %}<tr><th scope="row">{{ r.label }}<small class="nd-menu__note"><code>{{ r.path }}</code></small></th><td>{% trans "Not read yet." %}</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endcomponent %}
+
+  {% trans "Not read by NeuroDB" as excluded_title %}
+  {% component "unfold/components/card.html" with title=excluded_title title_icon="block" %}
+    <div class="nd-scroll">
+      <table class="nd-jobs nd-found__table">
+        <thead><tr><th scope="col">{% trans "eTools address" %}</th><th scope="col">{% trans "Why" %}</th></tr></thead>
+        <tbody>
+          {% for path, why in excluded %}<tr><th scope="row"><code>{{ path }}</code></th><td>{{ why }}</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endcomponent %}
+  {% endif %}
+</div>
+{% endblock %}

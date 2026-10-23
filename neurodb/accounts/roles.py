@@ -9,6 +9,9 @@ ALL_ROLES = (VIEWER, SECTION_EDITOR, ADMIN)
 # Not a role: a group the administrators fill (e.g. Representative, Deputy, section chiefs) whose members
 # also get the whole-country view of NeuroDB Watch on For you. A member still needs one of the roles.
 MANAGEMENT = "Management"
+# Not a role either: the people who check the eTools figures against the raw data (Raw eTools data in the
+# admin, with staff status). Superusers always may; an Administrator only when ticked, like anyone else.
+VALIDATORS = "Validators"
 
 
 def role_of(user):
@@ -18,15 +21,7 @@ def role_of(user):
         return None
     if user.is_superuser:
         return ADMIN
-    from neurodb.core import compute
-
-    return compute.per_request(f"role:{user.pk}", lambda: _role_held(user))
-
-
-def _role_held(user):
-    held = set(
-        user.groups.filter(name__in=(ADMIN, SECTION_EDITOR)).values_list("name", flat=True)
-    )  # one query
+    held = _groups(user)
     if ADMIN in held:
         return ADMIN
     if SECTION_EDITOR in held:
@@ -34,19 +29,39 @@ def _role_held(user):
     return VIEWER
 
 
+def _groups(user) -> frozenset[str]:
+    """The groups :func:`role_of` and :func:`can_validate` read, read once per request."""
+    from neurodb.core import compute
+
+    return compute.per_request(f"groups:{user.pk}", lambda: _groups_held(user))
+
+
+def _groups_held(user) -> frozenset[str]:
+    names = (ADMIN, SECTION_EDITOR, VALIDATORS)
+    return frozenset(user.groups.filter(name__in=names).values_list("name", flat=True))  # one query
+
+
+def can_validate(user) -> bool:
+    """Superusers, and members of the Validators group. No query beyond role_of's."""
+    if not getattr(user, "is_authenticated", False) or not user.is_active:
+        return False
+    return user.is_superuser or VALIDATORS in _groups(user)
+
+
 def ensure_groups():
     """Create the three role groups and give Administrators every model permission; create the
-    Management group too, with no permissions.
+    Management and Validators groups too, with no permissions.
 
     The admin lists a model only for users holding its permissions, so without this an
     Administrator who is not a superuser would not see a table added by a deployment. Runs at
     every start (``bootstrap_roles``), so the grant follows the models. Returns the role groups only:
     setting a role removes the other returned groups, which must never take a person out of
-    Management.
+    Management or Validators.
     """
     groups = {name: Group.objects.get_or_create(name=name)[0] for name in ALL_ROLES}
     groups[ADMIN].permissions.set(Permission.objects.all())
     Group.objects.get_or_create(name=MANAGEMENT)
+    Group.objects.get_or_create(name=VALIDATORS)
     return groups
 
 

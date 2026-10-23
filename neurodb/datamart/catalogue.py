@@ -475,6 +475,11 @@ PERSON_TOKENS = frozenset(
     | {"creator", "creators", "contact", "contacts", "chief", "chiefs", "representative"}
     | {"representatives", "director", "directors", "username", "surname", "firstname", "lastname"}
     | {"fullname"}
+    # the people a visit or an activity met, as eTools' field monitoring records name them ("participants",
+    # "interviewees", "pme": the person met at the entity); "participants_count" stays a number
+    | {"participant", "participants", "attendee", "attendees", "interviewee", "interviewees", "informant"}
+    | {"informants", "beneficiary", "beneficiaries", "visitor", "visitors", "guest", "guests", "companion"}
+    | {"companions", "recipient", "recipients", "pme"}
 )
 # "lead" and "head" name a person ("visit_lead", "section_leads", "head_of_unit"), except before a thing:
 # "lead_office", "lead_section" (a partner's lead office and section), "head_office"
@@ -504,8 +509,12 @@ MEASURE_WORDS = frozenset(
     | {"funds", "disbursed", "reserved", "liquidation", "liquidations", "paid", "price", "prices", "ct"}
     | {"achieved", "spent", "balance", "outstanding", "sum"}
 )
-# Those for whom an amount is: "approved_cost_traveler" is a cost
-FOR_WHOM = frozenset({"traveler", "travelers", "traveller", "travellers", "person", "persons", "staff"})
+# Those for whom an amount is: "approved_cost_traveler" is a cost, "total_participants" a count
+FOR_WHOM = frozenset(
+    {"traveler", "travelers", "traveller", "travellers", "person", "persons", "staff", "participant"}
+    | {"participants", "attendee", "attendees", "beneficiary", "beneficiaries", "visitor", "visitors"}
+    | {"guest", "guests", "recipient", "recipients", "interviewee", "interviewees", "informant", "informants"}
+)
 DATE_WORDS = frozenset({"date", "dates", "datetime"})  # anywhere in the key
 LAST_DATE_WORDS = frozenset({"time", "at", "on", "year", "month", "day", "deadline"})  # its last word
 KIND_WORDS = frozenset({"type", "types", "category", "categories", "kind", "kinds", "status", "level"})

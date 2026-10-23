@@ -1198,6 +1198,7 @@ admin home page, *Quick actions*):
 | *Reporting setup* → *Master indicators (eTools)*: actions *Accept the proposed master indicators*, *Dismiss the proposed master indicators*, *Confirm all suggestions*, *Confirm suggestions scoring 0.9 or more*, *Merge the selected master indicators*, *Change section (after an eTools rename)*, and *Add PD indicators* on a master's page; *Master indicator links (eTools)*: *Confirm*, *Reject*, *Make "Shown only"*; the same decisions on Partner monitoring's *Master indicators* tab | (no command: they change the master indicators and their links) | in the request |
 | *Reporting setup* → *Master indicators* (ActivityInfo): action *Create eTools master indicators from these* | (no command: writes eTools master indicators only, never an ActivityInfo row) | in the request |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
+| *Data and sync* → *Raw eTools data* (validators) | (no command: pages and a streamed CSV; the fields of each source are counted on the page; a superuser's *Reviewed: show it* writes one row) | in the request |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
 | Run a job → *Empty the stored page figures* | (no command: empties the shared page figures, the table `neurodb_cache`, and says how many entries it removed; see *Pages that load in parts*) | in the request (a second); changes no data |
@@ -1912,8 +1913,7 @@ they alone feed the files, the Watch and the AI. The names are read for the page
 *About*) and *CSV of the filter* hold every PD of the filter with `unicef_focal_points_count`, never a
 focal point's name, `updated_by`, a visit lead, a team member, an assignee, an e-mail address or a phone
 number (a test reads every cell of every sheet and every CSV field). The Ask NeuroDB lookup and the
-Watch get counts only. The Progress reports export, which writes focal point names, is not changed by
-this.
+Watch get counts only. The Progress reports export writes them as a count too (`unicef_focal_points_count`).
 
 **Links.** Assurance, *HACT assurance by partner*: "Visit plan per programme document →"
 (`?tab=plan&year=<HACT year>`). The partner page, *HACT by year*: the same, on the partner
@@ -2051,6 +2051,114 @@ also edit in Admin → Locations, is counted at each visit, and everything else 
 each visit. Ask NeuroDB's *data freshness* look-up reads the same figures, and the stored counts with
 them; inside a database transaction (NeuroDB Watch's AI look-ups run it in a read-only one) the stored
 counts are read too, and when there are none the rows are counted there without storing anything.
+
+### Checking the figures: raw eTools data, figure trails, the Power BI comparison sheet
+
+The management asked that every eTools figure be checked: the PRP pages against the PRP Power BI dashboard (by
+hand), and every other page against the raw data NeuroDB pulled from eTools. This section describes what is
+built for it; the figure trails and the comparison sheet follow in later releases.
+
+**Who.** Superusers and the members of the **Validators** group (`accounts.roles.VALIDATORS`, made at every
+start by `ensure_groups`, with no permission; setting a role never takes a person out of it). An
+Administrator is a validator only when ticked, like anyone else. `roles.can_validate(user)` reads the group in
+the one groups query `role_of` already makes (`_groups_held`, per request under `groups:<pk>`), so a page that
+asks costs no query more; the context processor gives templates `can_validate` (lazy). To give the right:
+*Users and access → Users*, the person, *Groups*: tick **Validators**; Raw eTools data is in the admin, so the
+person also needs *Staff status*.
+
+**Where.** Admin → *Data and sync* → **Raw eTools data** (and a Quick action on the admin home; a staff validator
+who holds no table of *Data and sync* still gets the group, with these pages only). *eTools reporting checks*
+opens for validators too, read-only: its *Run the checks now* is for Administrators (a validator's POST answers
+403). Data health's datasets panel links Raw eTools data for validators. Under the tabs of Progress reports,
+Partner monitoring (and its map), Field monitoring and under *Partner reporting* on Home, a validator sees
+**Raw data behind this page** (`reports/partials/_check_link.html`), which opens Raw eTools data on that page's
+sources (`?page=<navigation key>`, `datamart.raw.PAGE_SOURCES`); without staff status it says "Raw data: ask
+for staff status". Anyone else sees the pages as before; the addresses answer 404.
+
+| Page | Address (under the admin's path) | Name |
+|---|---|---|
+| Every source | `datamart/raw/` (`?page=<navigation key>`) | `admin:datamart_raw` |
+| One source | `datamart/raw/<source>/` | `admin:datamart_raw_source` |
+| One record | `datamart/raw/<source>/<pk>/` | `admin:datamart_raw_record` |
+| CSV of the filter | `datamart/raw/<source>/rows.csv` | `admin:datamart_raw_csv` |
+| Review a field (POST, superusers) | `datamart/raw/<source>/fields/` | `admin:datamart_raw_field` |
+
+`<source>` is a dataset of the nightly Datamart sync (`ENTITY_SYNCS`): its records are its own table
+(`catalogue.TYPED`) or `DatamartDocument` rows (the raw copies of the partners, programme documents,
+agreements, locations and engagements included). The pages are `datamart/raw_admin.py` with
+`datamart/raw.py`; templates `datamart/templates/admin/datamart/raw/`, plain pages with no script. The eTools
+REST API's entities are listed "Not read yet" until their raw copy is added.
+
+**What each sync received** (`datamart/runfacts.py`, from Data health's own row, `reports.services.quality_row`).
+The run the records come from is the latest that succeeded, or succeeded with errors, and received something;
+a newer run that failed is named beside it. On distinct records:
+
+    received − of another country − named no country − could not be saved = updated by the sync
+    in NeuroDB = updated by the sync + updated since (a later sync under way) + kept from an earlier sync
+
+"Received" is `runfacts.records_read(run)` (`details.read`, else the rows written and those of another country
+left out), the one rule checks 10 and 11 read too. `other_country_skipped` holds the records that named no
+country (`unnamed_skipped`, shown on their own line) and those a business area filter let through
+(`area_strays`, an "of which"); records sent twice are a note. "Updated by the sync" is counted in the table
+(`synced_at` within the run). For the raw copies of the sources written by another sync, "could not be saved"
+is `details.documents_failed`. A remainder the counts do not explain shows in red. **Complete?** is *Yes* when
+the run succeeded, NeuroDB received at least what eTools said it had, nothing failed and nothing is unexplained;
+otherwise the first reason. An error is shown by its kind only (`runs._error_key`). On 21 Oct, PRP's progress
+reports: received 150,221 − of another country 148,631 − could not be saved 0 = 1,590 updated by the sync;
+eTools said it had 74 more.
+
+**The people rule** (`datamart/raw_people.py`, `public_record`): every record on screen and in every CSV goes
+through it, nothing else writes a raw record out. Contact fields are dropped at any depth; the answers of PSEA
+assessments keep only their safeguarding fields (the others one count, `withheld_keys`); a field whose name is
+not an identifier (a space, an `@`, longer than 64 characters, shaped like an e-mail, a link or a phone, or a
+person's name) is never a column (`(fields naming a person)`); a field that names people (`query._person`, Ask's
+rule: the new words participants, attendees, interviewees, informants, beneficiaries, visitors, guests,
+companions, recipients and `pme` among them; `participants_count` stays a number) shows how many; a text a person
+wrote (comments, notes) is withheld; every other text is cleaned by Ask's own `query._safe` with the record's
+own names. People inside a field shown are counted under their dotted path, and in a CSV's `people_inside`.
+NeuroDB's own columns go through pinned lists: `PERSON_COLUMNS` (shown as a count), `NEVER_COLUMNS`,
+`TEXT_COLUMNS` (cleaned like a text of the record; a field monitoring narrative over 80 characters withheld
+whole; titles with the record's own names) and `JSON_COLUMNS`. A search or partner word that names a person is
+refused ("eTools records cannot be searched for a person.").
+
+**Fields not reviewed.** A top-level field is shown as received (through the rule) when it is reviewed: in
+`raw.REVIEWED_KEYS` (the test payloads' fields whose words cannot hold a name, pinned by a test), a country field
+(`country_name`, `business_area`, `business_area_code`), a field NeuroDB reads (`raw.read_into`: the sync's
+fields maps), or a superuser's review (`datamart.RawFieldReview`, migration 0017: a new, empty table). Any
+other field shows only numbers, yes/no, dates and times; a text in it reads "N values (not reviewed)". On a
+source's page, *Fields this source sends* (counted with one query from the newest 2,000 records NeuroDB holds)
+gives a superuser *Look at its values* (the developer table, filtered on records carrying the field) and
+*Reviewed: show it*; *Hide again* takes it back. Review a field after reading a few of its values.
+
+**The filter and the list.** Programme document, partner, section (Partner reports: `reporting.section_q`), status,
+year and dates, search (references and numbers, never a person, a text or a trip's title), record id, updated by
+the last sync or an earlier one; for the partner reports also the report type and the programme document link,
+whose five choices are the rules the pages use (`pd_statuses.RUNNING`, `NOT_A_PARTNERSHIP`,
+`reporting.LEFT_OUT_REASONS`) and add up to every row. 50 records a page, newest first; each record's page
+shows its fields as received, NeuroDB's columns, its links, for a partner report row its progress report id and
+the status every page reads for it (`reporting.progress_reports`), and the sync that last updated it.
+
+**Downloads.** `rows.csv` streams the filter (`exports.stream_csv`: BOM, an apostrophe before a text a
+spreadsheet would run), NeuroDB's columns first (`figures_as_of`, the record id, `synced_at`,
+`updated_by_last_sync`, the programme document and partner in NeuroDB; for the partner reports `pd_link`,
+`progress_report_key`, `indicator_report_key`), then every field (a field that names people as
+`<field> (people)`, a count), then `people_inside`, `fields_not_shown` and `other_fields` (a field first met
+after the header was made). The file is `raw_<source>_<YYYY-MM-DD>_<HHMM>.csv`, the moment being the end of
+the source's last sync. Limits (`raw.CSV_LIMIT`): 25,000 records for the sources with long texts (partner
+reports, field monitoring findings, action points, financial findings, staff trips), 100,000 for the others;
+above, the page and the address (400) say which filter to choose. At most two large downloads at once on the
+whole site (`RAW_CSV_MAX_RUNNING`, advisory locks from 7150000; a third answers 503 "Another large download is
+being prepared"), freed when the download ends or its response is closed. The count runs in one snapshot
+with a 15-second statement limit (400 "This filter takes too long"); the download reads 2,000 records at a time
+inside one `REPEATABLE READ READ ONLY` snapshot with a 120-second limit per statement, and a statement that
+takes longer ends the file where it is. No background job.
+
+**Tests.** `tests/accounts/test_validators.py` (who validates, one groups query, the pages' queries),
+`tests/datamart/test_raw_people.py` (the rule, the pinned lists, `REVIEWED_KEYS`),
+`tests/datamart/test_raw_csv_privacy.py` (people planted in every source never reach a CSV; the two exports
+below), `tests/datamart/test_raw_admin.py` (access, completeness, the run facts, the filters, the CSV's limits,
+queries), `tests/datamart/test_page_sources.py` (each page reads only its sources) and
+`tests/web/test_plain_words.py` (the pages' words).
 
 ### Recording real records as test fixtures
 
@@ -2595,7 +2703,8 @@ figures as everywhere else (they read the rule above; nothing is added across in
     reports by section and status with a total row (a report counts under its rows' section, else its
     PD's sections, never twice); indicator reports by month of the reporting period's end and
     status, Not yet due included (the month a report is about, as Power BI places it); and the report table (PD, PD status, partner, section, report, status, document type,
-    due date, period start and end, submission, UNICEF focal points, indicators).
+    due date, period start and end, submission, UNICEF focal points, indicators); its CSV and Excel files
+    write the focal points as a count (`unicef_focal_points_count`), never a name.
   * *Partners* (Partner Performance): partners with a progress report in the filter (whatever its
     status), those with at least one Submitted or Accepted report, those without (listed), the
     partners with a report in each status, and the reports to follow up: Overdue, Sent back, Due and
@@ -3229,6 +3338,7 @@ year>&scope=year`).
 | *Where <who> stands in <year>* | The Country overview's own five key figure tiles (the same build, key and template, so Home and the overview never differ), then "Also in <year>: field monitoring visits · third-party visits done of those planned · open action points (high priority overdue)", and for editors the programme documents still counted by their largest indicator. "All the figures: Country overview →". With a section chosen, the visits are Home's own count, those to partners with a programme document in the sections ("… field monitoring visits to partners with a programme document in <sections>", `_partners_in_scope`), and are not a link, since Monitoring insights counts a section's visits another way; nor is the third-party pair, since the Field monitoring page shows the whole country; the action points link carries the sections (`points_query`), so that page lists the same open and overdue points. With every section, the visits link to Monitoring insights (to Field monitoring while `FMM_ENABLED` is off) and the third-party pair to Field monitoring. No third-party visit planned: that part is left out (never "0 of 0"). Before the eTools Datamart sync has ever succeeded on the server (this year's figures all 0 and no programme document at all), one line instead of the tiles: "No eTools data yet: the eTools Datamart sync has not run on this server." | everyone |
 | *Programmes and sources* (whole country) | The country programme cycle (year k of n, indicators on track; or ended, or not started), Compiler's Makani, Dirasa and youth registrations, and ActivityInfo (in use: its year, results and last import, "records imported" while no result is tracked yet, or "in use, waiting for its first records" while the reporting year ticked current has none, a ticked year with records having its own line; archive: "ActivityInfo archive 2019–2026: every database and report, kept as it was"). A source not set up is left out, except for people who can set it up (superusers, and Administrators with *Staff status*), who read a muted line saying where | everyone |
 | Data freshness strip | When each source last changed, "Data health →" (ActivityInfo only while its import is followed) | everyone |
+| *Raw data behind this page* | One line under *Partner reporting*'s heading: it opens Admin → *Raw eTools data* on the sources Home reads (*Checking the figures*); "Raw data: ask for staff status" without staff status. Drawn by the frame, read in the role's own groups query | validators |
 
 **Loads in parts.** The frame (title, date and scope line, purpose, the partner reporting heading and its
 links, the freshness strip) does no figure work and reads no Watch table; then each block is a part. The
@@ -5109,9 +5219,9 @@ are never deleted. A key that may have been seen by someone else is revoked at o
 new one.
 
 **Action points** (`/action-points/`, D1.6): next to the CSV downloads, *Excel of the filter* and *Excel
-of every action point* (`?export=xlsx`, `&all=1`) hold the CSV's columns without *assigned_to*, with the
-description and the action taken cleaned as above. The CSV keeps its established columns, including who
-an action point is assigned to (shown to staff on the page already). *PDF report*
+of every action point* (`?export=xlsx`, `&all=1`) hold the CSV's columns, with the description and the
+action taken cleaned as above; both write `assigned_to_count` (1 when the action point is assigned, else 0),
+never to whom, and the CSV cleans the description and the action taken as the Excel file does. *PDF report*
 (`/action-points/report/?<filter>`) prints the filter in words (a name typed in *Assigned to* is not
 repeated), the key figures, the six charts, the action points by module and, with Monitoring insights,
 the AI verdicts.

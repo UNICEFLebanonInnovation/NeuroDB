@@ -493,6 +493,7 @@ def sidebar_navigation(request) -> list[dict[str, Any]]:
             "items": [{"title": _("Dashboard"), "icon": "dashboard", "link": reverse("admin:index")}],
         }
     ]
+    placed = False
     for app in admin.site.get_app_list(request):
         items = [
             {"title": m["name"], "icon": m["icon"], "link": m["admin_url"]}
@@ -501,24 +502,34 @@ def sidebar_navigation(request) -> list[dict[str, Any]]:
         ]
         if str(app["name"]) == str(DATA_AND_SYNC):
             items[:0] = _datamart_pages(request)
+            placed = True
         groups.append({"title": app["name"], "collapsible": True, "items": items})
+    if not placed and (pages := _datamart_pages(request)):  # a validator who holds no table of the group
+        groups.append({"title": DATA_AND_SYNC, "collapsible": True, "items": pages})
     return groups
 
 
 def _datamart_pages(request) -> list[dict[str, Any]]:
-    """The eTools pages that are not a table, first in Data and sync (Administrators only; the eTools
-    Datamart tables themselves are for developers): the reporting checks."""
-    from neurodb.accounts.roles import ADMIN, role_of
+    """The eTools pages that are not a table, first in Data and sync (the eTools Datamart tables themselves
+    are for developers): the reporting checks (Administrators; validators read them) and Raw eTools data
+    (validators: ``roles.can_validate``)."""
+    from neurodb.accounts.roles import ADMIN, can_validate, role_of
 
-    if role_of(request.user) != ADMIN:
-        return []
-    return [
-        {
-            "title": _("eTools reporting checks"),
-            "icon": "fact_check",
-            "link": reverse("admin:datamart_reporting_checks"),
-        }
-    ]
+    validator = can_validate(request.user)
+    pages = []
+    if role_of(request.user) == ADMIN or validator:
+        pages.append(
+            {
+                "title": _("eTools reporting checks"),
+                "icon": "fact_check",
+                "link": reverse("admin:datamart_reporting_checks"),
+            }
+        )
+    if validator:
+        pages.append(
+            {"title": _("Raw eTools data"), "icon": "dataset", "link": reverse("admin:datamart_raw")}
+        )
+    return pages
 
 
 def environment_badge(request) -> list[str] | None:

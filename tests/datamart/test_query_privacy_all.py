@@ -9,8 +9,8 @@ import json
 import pytest
 
 from neurodb.assistant import tools
+from neurodb.datamart import catalogue, query
 from neurodb.datamart import models as dm
-from neurodb.datamart import query
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
 pytestmark = pytest.mark.django_db
@@ -1077,9 +1077,9 @@ def test_roles_whose_word_starts_like_a_thing_hold_a_person(point, role):
     assert query.public({f"{role}_name": "Zaid Qammar", "rating": "Good"}, dataset="tpm_visits") == {
         "rating": "Good"
     }
-    assert query.public({role: {"name": "Zaid Qammar", "date": "2026-01-02"}}, dataset="tpm_visits") == {
-        role: {"date": "2026-01-02"}
-    }
+    # a role catalogue.PERSON_TOKENS names (the people a visit met: "visitor", "pme") is withheld whole
+    kept = {} if role in catalogue.PERSON_TOKENS else {role: {"date": "2026-01-02"}}
+    assert query.public({role: {"name": "Zaid Qammar", "date": "2026-01-02"}}, dataset="tpm_visits") == kept
     record = {f"{role}_name": "Zaid Qammar", "purpose": "Zaid Qammar visit to Halba"}
     assert query.public(record, dataset="staff_trips") == {"purpose": "[name withheld] visit to Halba"}
     for args in ({"group_by": f"{role}_name"}, {"filters": {f"{role}_name__contains": "Qamm"}}):

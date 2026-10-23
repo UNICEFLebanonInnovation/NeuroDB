@@ -74,21 +74,19 @@ def _query(params: QueryDict, **changes: Any) -> str:
 
 
 # ------------------------------------------------------------------------------------------ the page
-# The Excel export's columns: the CSV's, without who an action point is assigned to (the CSV keeps its
-# established column)
-XLSX_COLUMNS = tuple(c for c in datamart.AP_EXPORT_COLUMNS if c != "assigned_to")
-CLEANED = ("description", "action_taken")  # texts written by people: cleaned in the Excel file
+# The Excel and CSV exports' columns: whether an action point is assigned, never to whom (assigned_to_count)
+XLSX_COLUMNS = datamart.AP_EXPORT_COLUMNS
+CLEANED = ("description", "action_taken")  # texts written by people: cleaned in both files
 
 
-def _xlsx_rows(points):
-    """The CSV's rows without the assignee, the description and the action taken cleaned of names,
-    e-mail addresses, links and phone numbers (``fmm.privacy.clean``)."""
+def _export_rows(points):
+    """The exports' rows, the description and the action taken cleaned of names, e-mail addresses, links and
+    phone numbers (``fmm.privacy.clean``)."""
     from neurodb.fmm import privacy
     from neurodb.watch import people
 
     names = people.known_names(refresh=True)  # read afresh: the file holds whole descriptions
     for row in datamart.action_point_rows(points):
-        row.pop("assigned_to", None)
         for key in CLEANED:
             row[key] = privacy.clean(row.get(key), 32_000, names)[0] if row.get(key) else ""
         yield row
@@ -108,13 +106,11 @@ def action_points(request: HttpRequest) -> HttpResponse:
         if export == "xlsx":
             return exports.xlsx_response(
                 exports.export_filename(label, "xlsx"),
-                [("Action points", XLSX_COLUMNS, _xlsx_rows(points))],
+                [("Action points", XLSX_COLUMNS, _export_rows(points))],
                 typed=True,
             )
         return exports.stream_csv(
-            exports.export_filename(label, "csv"),
-            datamart.AP_EXPORT_COLUMNS,
-            datamart.action_point_rows(points),
+            exports.export_filename(label, "csv"), datamart.AP_EXPORT_COLUMNS, _export_rows(points)
         )
     data = datamart.action_points(params)
     from django.core.paginator import Paginator

@@ -677,7 +677,7 @@ AP_EXPORT_COLUMNS = (
     "pd",
     "office",
     "section",
-    "assigned_to",
+    "assigned_to_count",  # 0 or 1: a person is never written in an export
     "priority",
     "due_date",
     "status",
@@ -1013,7 +1013,7 @@ def action_point_rows(points: QuerySet) -> Iterator[dict[str, Any]]:
                 "pd": p.intervention_number or (p.intervention.number if p.intervention else ""),
                 "office": p.office,
                 "section": p.section,
-                "assigned_to": p.assigned_to_name,
+                "assigned_to_count": 1 if (p.assigned_to_name or "").strip() else 0,
                 "priority": "High" if p.high_priority else "",
                 "due_date": p.due_date,
                 "status": p.status,

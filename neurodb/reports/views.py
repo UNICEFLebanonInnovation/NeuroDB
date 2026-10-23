@@ -1732,7 +1732,7 @@ REPORT_COLUMNS = (
     "period_end",
     "submission_date",
     "indicator_reports",
-    "unicef_focal_points",
+    "unicef_focal_points_count",  # a count: a person is never written in an export (the page shows them)
 )
 FOLLOW_UP_COLUMNS = (
     "programme_document",
@@ -1780,7 +1780,7 @@ def _report_row(r: dict[str, Any]) -> dict[str, Any]:
         "period_end": r["period_end"],
         "submission_date": r["submission_date"],
         "indicator_reports": r["indicators"],
-        "unicef_focal_points": ", ".join(r.get("focal_points", [])),
+        "unicef_focal_points_count": len(r.get("focal_points", [])),
     }
 
 
@@ -2024,14 +2024,8 @@ def _reporting_table_tab(request: HttpRequest, tab: str) -> HttpResponse:
 
 
 def _too_many(found: dict[str, Any]) -> HttpResponse:
-    return HttpResponse(
-        _(
-            "The filter holds %(n)s report rows, more than %(limit)s: choose a year, a section or a "
-            "partner first."
-        )
-        % {"n": f"{found['too_many']:,}", "limit": f"{found['limit']:,}"},
-        status=400,
-        content_type="text/plain; charset=utf-8",
+    return exports.too_many(
+        found["too_many"], found["limit"], _("report rows"), _("a year, a section or a partner")
     )
 
 

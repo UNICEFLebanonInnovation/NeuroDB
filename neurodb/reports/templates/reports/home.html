@@ -27,6 +27,7 @@ only leave room below), indicators 168/343/516.{% endcomment %}
     <h2 class="home-heading" id="home-prp-title">{% blocktrans with who=who %}Partner reporting: {{ who }}{% endblocktrans %}</h2>
     <p class="home-prp__links"><a class="home-more" href="{{ progress_url }}">{% trans "Progress reports" %} →</a> <a class="home-more" href="{{ monitoring_url }}">{% trans "Partner monitoring" %} →</a></p>
   </div>
+  {% include "reports/partials/_check_link.html" with page="reports:overview" %}
   {% part "reporting" kind="table" priority="high" height="57.5rem" height_md="67rem" height_sm="86.5rem" %}
   {% part "indicators" kind="tiles" tiles=6 priority="high" height="10.5rem" height_md="21.5rem" height_sm="32.5rem" %}
 </section>

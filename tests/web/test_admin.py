@@ -276,3 +276,27 @@ def test_developer_sections_are_listed_for_superusers_only(client, client_super,
     assert "Scheduled jobs" in html and "Daily reviews" in html and "Indicator flags" in html
     for hidden in ("Social application", "Email addresses", "eTools Datamart (read-only)", "</span>Sites"):
         assert hidden not in html
+
+
+def test_data_and_sync_lists_the_etools_pages_by_who_may_open_them(rf, admin_user, superuser):
+    from django.contrib.auth.models import Group
+
+    from neurodb.accounts.roles import VALIDATORS
+    from neurodb.web.admin_site import DATA_AND_SYNC, sidebar_navigation
+
+    def pages(user) -> list[str]:
+        request = rf.get("/")
+        request.user = user
+        groups = [g for g in sidebar_navigation(request) if str(g["title"]) == str(DATA_AND_SYNC)]
+        return [str(i["title"]) for g in groups for i in g["items"]][:2]
+
+    checks, raw = "eTools reporting checks", "Raw eTools data"
+    assert pages(superuser) == [checks, raw]
+    assert pages(admin_user)[:1] == [checks] and raw not in pages(admin_user)  # an Administrator not ticked
+    # a staff validator who holds no table of the group still gets it, with these two pages only
+    checker = User.objects.create_user(username="checker", password="pass-123456-x", is_staff=True)
+    checker.groups.set(Group.objects.filter(name__in=(VIEWER, VALIDATORS)))
+    assert pages(checker) == [checks, raw]
+    viewer = User.objects.create_user(username="staff-viewer", password="pass-123456-x", is_staff=True)
+    viewer.groups.set(Group.objects.filter(name=VIEWER))
+    assert pages(viewer) == []

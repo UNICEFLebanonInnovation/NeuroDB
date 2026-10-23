@@ -1,0 +1,62 @@
+{% extends "admin/base_site.html" %}
+{% load i18n humanize unfold %}
+
+{% comment %}
+  Raw eTools data, one record (context: datamart.raw_admin.record_view, validators only): its fields as received, one
+  row each in the record's own order, through the people rule (datamart.raw_people: a field that names people reads
+  how many, a text a person wrote is withheld, a field nobody reviewed shows only numbers and dates), nested values as
+  indented JSON; then what NeuroDB made of it (its own columns through the pinned lists, the programme document,
+  partner and location it links to, and for a partner report row its progress report and the status every page
+  reads), and the sync that last updated it. A plain page, no script.
+{% endcomment %}
+
+{% block content %}
+<div id="content-main" class="nd-found nd-raw">
+  <p class="nd-list-note">
+    <span class="material-symbols-outlined" aria-hidden="true">info</span>
+    <span>{% blocktrans trimmed with id=record_id url=source_url %}
+      Record id {{ id }}. People are shown as counts, never by name. Back to <a class="nd-link" href="{{ url }}">the records of this source</a>.
+    {% endblocktrans %}</span>
+  </p>
+
+  {% trans "As received" as received_title %}
+  {% component "unfold/components/card.html" with title=received_title title_icon="data_object" %}
+    <p class="mb-3">{% blocktrans count counter=field_count %}{{ counter }} field{% plural %}{{ counter }} fields{% endblocktrans %}{% if as_counts %}; {% trans "people shown as counts:" %} {{ as_counts|join:", " }}{% endif %}{% for line in special %}; {{ line }}{% endfor %}.</p>
+    {% if content_hash %}<p class="mb-3">{% trans "Its id is made from its content: a change in eTools gives it a new id at the next sync." %}</p>{% endif %}
+    <div class="nd-scroll">
+      <table class="nd-jobs nd-found__table">
+        <thead><tr><th scope="col">{% trans "Field" %}</th><th scope="col">{% trans "Value" %}</th></tr></thead>
+        <tbody>
+          {% for f in fields %}
+            <tr><th scope="row"><code>{{ f.key }}</code></th><td>{% if f.withheld %}<em>{{ f.value }}</em>{% elif f.nested %}<pre class="nd-raw__json">{{ f.value }}</pre>{% else %}{{ f.value }}{% endif %}</td></tr>
+          {% endfor %}
+          {% for line in inside %}<tr><th scope="row"><code>{{ line.key }}</code></th><td><em>{{ line.words }}</em></td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endcomponent %}
+
+  {% trans "What NeuroDB made of it" as made_title %}
+  {% component "unfold/components/card.html" with title=made_title title_icon="table_view" %}
+    <ul class="nd-found__rates">
+      <li>{% trans "Programme document:" %} {% if pd %}<a class="nd-link" href="{{ pd_url }}">{{ pd.number|default:pd.pk }}</a> ({{ pd.status|default:"—" }}){% else %}{{ pd_words }}{% endif %}</li>
+      <li>{% trans "Partner:" %} {% if partner %}{{ partner.name }}{% if partner.vendor_number %} ({% trans "vendor number" %} {{ partner.vendor_number }}){% endif %}{% else %}—{% endif %}</li>
+      {% if location %}<li>{% trans "Location:" %} {{ location.name }}{% if location.p_code %} ({{ location.p_code }}){% endif %}</li>{% endif %}
+      {% if report %}
+        <li>{% trans "Progress report id:" %} <code>{{ report.report_key }}</code></li>
+        <li>{% trans "Indicator report id:" %} <code>{{ report.indicator_report_key }}</code></li>
+        <li>{% trans "Status of its progress report as the pages read it:" %} {{ report.status|default:"—" }}{% if report.word %} ({% blocktrans with word=report.word %}the word of its rows changed last: {{ word }}{% endblocktrans %}){% endif %}</li>
+      {% endif %}
+      <li>{% trans "Updated by:" %} {% if written.last %}{% blocktrans with when=written.when|date:"j M Y, H:i" %}the sync of {{ when }} (the last one){% endblocktrans %}{% else %}{% blocktrans with when=written.when|date:"j M Y, H:i" %}an earlier sync ({{ when }}){% endblocktrans %}{% endif %}</li>
+    </ul>
+    {% if made %}
+      <div class="nd-scroll mt-3">
+        <table class="nd-jobs nd-found__table">
+          <thead><tr><th scope="col">{% trans "NeuroDB's column" %}</th><th scope="col">{% trans "Value" %}</th></tr></thead>
+          <tbody>{% for f in made %}<tr><th scope="row"><code>{{ f.label }}</code></th><td>{% if f.nested %}<pre class="nd-raw__json">{{ f.value }}</pre>{% else %}{{ f.value|default_if_none:"—" }}{% endif %}</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+    {% endif %}
+  {% endcomponent %}
+</div>
+{% endblock %}

@@ -33,6 +33,7 @@ ORDER = (
     "field-monitoring",
     "action-points",
     "partner-progress",
+    "checking-figures",
     "exports",
     "knowledge-and-documents",
     "ask-neurodb",
@@ -41,6 +42,11 @@ ORDER = (
     "ai-limits",
     "glossary",
 )
+# Pages for the people who check the figures (``roles.can_validate``): listed, and found by the search, for
+# them only; the page itself opens for anyone. A line of another page that starts "> **For validators:**" is
+# shown to them only, and is never in the search.
+VALIDATORS_ONLY = frozenset({"checking-figures"})
+VALIDATOR_LINE = re.compile(r"^> \*\*For validators:\*\*.*(?:\n|$)", re.MULTILINE)
 SECTION_CHARS = 1500  # characters of a section a search result carries
 HEADING_WEIGHT = 3  # a word of the heading counts this many times
 _HEADING = re.compile(r"^(#{1,3})\s+(.+?)\s*#*\s*$")
@@ -110,7 +116,8 @@ def _split(key: str, text: str) -> Page:
             slug = unique(slugify(heading, "-"), used)
             current = []
             continue
-        current.append(line)
+        if not VALIDATOR_LINE.match(line):
+            current.append(line)
     parts.append((heading, slug, level, current))
     sections = tuple(
         Section(key, title, heading or title, slug, level, "\n".join(body).strip())
@@ -230,14 +237,15 @@ def _site_links_only(tag: str, attr: str, value: str) -> str | None:
 
 
 @cache
-def render(key: str) -> str:
+def render(key: str, validator: bool = False) -> str:
     """The page as safe HTML: headings with their anchors (``id`` and a ¶ link), tables, lists, code. The
-    page title is left out (the page header shows it)."""
+    page title is left out (the page header shows it); the lines for validators only with ``validator``."""
     found = page(key)
     if found is None:
         return ""
+    text = found.markdown if validator else VALIDATOR_LINE.sub("", found.markdown)
     html = markdown.markdown(
-        found.markdown,
+        text,
         extensions=[
             TableExtension(use_align_attribute=True),
             "sane_lists",

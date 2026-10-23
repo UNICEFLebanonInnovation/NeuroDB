@@ -1,6 +1,7 @@
 """Read-only admin over the eTools Datamart tables (refreshed by ``sync_etools_datamart``), the eTools
-reporting checks page (admin/datamart/reporting-checks/, Administrators only), and the tables people edit: the
-indicator flags, the HACT visit plan's comments and the eTools master indicators with their PD indicators."""
+reporting checks page (admin/datamart/reporting-checks/, Administrators; validators read it), Raw eTools data
+(admin/datamart/raw/, validators: ``raw_admin``), and the tables people edit: the indicator flags, the HACT
+visit plan's comments and the eTools master indicators with their PD indicators."""
 
 import time
 from urllib.parse import urlencode
@@ -25,7 +26,7 @@ from unfold.widgets import (
     UnfoldAdminSelectWidget,
 )
 
-from neurodb.accounts.roles import ADMIN, role_of
+from neurodb.accounts.roles import ADMIN, can_validate, role_of
 from neurodb.core import years
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
@@ -209,8 +210,9 @@ STARTING_S = 120  # how long a run started counts as starting while its process 
 
 
 def reporting_checks_view(request):
-    """eTools reporting checks (Administrators only): how the partner report data answers the questions
-    the "Reached" rule depends on, with a verdict and what NeuroDB does in each case. Read-only.
+    """eTools reporting checks (Administrators, and read-only for validators: ``roles.can_validate``): how the
+    partner report data answers the questions the "Reached" rule depends on, with a verdict and what NeuroDB
+    does in each case. Read-only; only an Administrator runs them (*Run the checks now*).
 
     The page shows the result the last run of the job stored (``checks.run_job``: every night, or *Run
     the checks now*, which posts here and starts it in the background). Only while no run has stored one,
@@ -222,11 +224,14 @@ def reporting_checks_view(request):
     from neurodb.core.models import ScheduledJob, SyncRun
     from neurodb.integrations import background
 
-    if role_of(request.user) != ADMIN:
+    administrator = role_of(request.user) == ADMIN
+    if not (administrator or can_validate(request.user)):
         raise Http404
     job = SyncRun.Job.REPORTING_CHECKS
     here = reverse("admin:datamart_reporting_checks")
     if request.method == "POST":
+        if not administrator:  # validators read the checks; only Administrators run them
+            raise PermissionDenied
         if background.is_running(job):
             messages.warning(request, _("The eTools reporting checks are already running."))
         else:
@@ -280,6 +285,7 @@ def reporting_checks_view(request):
         "outdated_changed": get_text_list(outdated.changed, _("and")) if outdated else "",
         "failed_url": reverse("admin:core_syncrun_change", args=[failed.pk]) if failed else None,
         "run_url": here,
+        "can_run": administrator,
         "page_seconds": int(checks.PAGE_BUDGET_S),
         "job_minutes": int(checks.JOB_BUDGET_S // 60),
         "rows_url": reverse("admin:datamart_reportedindicator_changelist"),
@@ -362,6 +368,21 @@ class DatamartDocumentAdmin(ReadOnlyModelAdmin):
     raw_id_fields = ("partner", "intervention")
     readonly_fields = ("data",)
     list_per_page = 50
+
+    def site_urls(self):
+        """Raw eTools data, at admin/datamart/raw/ (``NeuroDBAdminSite.get_urls``; ``raw_admin``)."""
+        from . import raw_admin
+
+        view = self.admin_site.admin_view
+        return [
+            path("datamart/raw/", view(raw_admin.index_view), name="datamart_raw"),
+            path("datamart/raw/<str:source>/", view(raw_admin.source_view), name="datamart_raw_source"),
+            path(
+                "datamart/raw/<str:source>/<int:pk>/", view(raw_admin.record_view), name="datamart_raw_record"
+            ),
+            path("datamart/raw/<str:source>/rows.csv", view(raw_admin.csv_view), name="datamart_raw_csv"),
+            path("datamart/raw/<str:source>/fields/", view(raw_admin.field_view), name="datamart_raw_field"),
+        ]
 
 
 class IndicatorFlagForm(forms.ModelForm):

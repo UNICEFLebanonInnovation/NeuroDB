@@ -2,9 +2,9 @@
 {% load i18n humanize unfold %}
 
 {% comment %}
-  eTools reporting checks (context: datamart.admin.reporting_checks_view, Administrators only): how the
-  partner report data NeuroDB holds answers the questions the "Reached" rule depends on, each with a
-  plain verdict and what NeuroDB does whatever the answer. Read-only. The cards are the result the last
+  eTools reporting checks (context: datamart.admin.reporting_checks_view, Administrators; validators read it,
+  without the run button: can_run): how the partner report data NeuroDB holds answers the questions the
+  "Reached" rule depends on, each with a plain verdict and what NeuroDB does whatever the answer. Read-only. The cards are the result the last
   run of the job stored (stored: every night, or "Run the checks now", which posts here); with none
   stored and none running, the page ran them itself (stored is None, checked_at now). A result an earlier
   release stored (outdated: checks.read_stored) says so, and a check added since reads "Not run yet". A
@@ -37,7 +37,7 @@
         <span class="material-symbols-outlined" aria-hidden="true">hourglass_top</span>
         <span>{% trans "The checks are starting in the background. Reload this page in a few minutes to see their result." %}</span>
       </p>
-    {% else %}
+    {% elif can_run %}
       <form method="post" action="{{ run_url }}" class="inline">
         {% csrf_token %}
         <button type="submit" class="nd-found__button">{% trans "Run the checks now" %}</button>
@@ -49,11 +49,12 @@
           Checked on {{ when }} by the reporting checks job, with up to {{ minutes }} minutes for all the checks.
         {% endblocktrans %}
         {% if nightly %}{% trans "It runs every night (Scheduled jobs, reporting-checks)." %}{% else %}{% trans "Its nightly schedule is switched off (Scheduled jobs, reporting-checks)." %}{% endif %}
-        {% if not running and not starting %}{% trans "The button runs it again now, in the background." %}{% endif %}
+        {% if can_run and not running and not starting %}{% trans "The button runs it again now, in the background." %}{% endif %}
       {% elif checked_at %}
         {% blocktrans trimmed with when=checked_at|date:"j M Y, H:i" seconds=page_seconds minutes=job_minutes %}
           Checked on this page just now ({{ when }}), with {{ seconds }} seconds for all the checks: on a large database some may not finish. The button runs them in the background with up to {{ minutes }} minutes, and this page then shows that result at once.
         {% endblocktrans %}
+        {% if not can_run %}{% trans "Only an Administrator runs them; the nightly run does too." %}{% endif %}
       {% else %}
         {% trans "No result is stored yet: a run of the checks is under way." %}
       {% endif %}

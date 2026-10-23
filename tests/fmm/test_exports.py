@@ -762,16 +762,15 @@ def test_action_points_excel_has_the_csv_columns_without_the_assignee(assigned, 
     for params in ({"module": "fm", "export": "xlsx"}, {"export": "xlsx", "all": "1"}):
         book = _book(client_viewer.get(page, params))
         header = next(book.worksheets[0].iter_rows(values_only=True))
-        assert list(header) == list(ap_views.XLSX_COLUMNS)
-        assert "assigned_to" not in header and set(header) == set(datamart.AP_EXPORT_COLUMNS) - {
-            "assigned_to"
-        }
+        assert list(header) == list(ap_views.XLSX_COLUMNS) == list(datamart.AP_EXPORT_COLUMNS)
+        assert "assigned_to" not in header and "assigned_to_count" in header
         text = _all_text(book)
         assert ASSIGNEE not in text and ASSIGNEE_EMAIL not in text and "send the registers" in text
-    # the CSV keeps its established columns (who an action point is assigned to included)
+    # the CSV has the same columns: whether an action point is assigned, never to whom
     response = client_viewer.get(page, {"export": "csv", "all": "1"})
     body = b"".join(response.streaming_content).decode("utf-8")
-    assert "assigned_to" in body.splitlines()[0]
+    assert body.splitlines()[0].lstrip("\ufeff").split(",") == list(datamart.AP_EXPORT_COLUMNS)
+    assert ASSIGNEE not in body and ASSIGNEE_EMAIL not in body
 
 
 def test_the_action_points_report(assigned, client_viewer):

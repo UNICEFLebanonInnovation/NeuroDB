@@ -384,7 +384,9 @@ def test_report_exports_hold_every_report_and_the_tile_counts(client_viewer, mor
     lines = list(csv.DictReader(io.StringIO(text)))
     assert len(lines) == 5 and "@" not in text
     pr1 = next(line for line in lines if line["report"] == "QPR1" and line["programme_document"] == "LEB/PD1")
-    assert pr1["indicator_reports"] == "2" and pr1["unicef_focal_points"] == "Focal Point One"
+    # the focal points as a count: an entry holding an e-mail address is no person NeuroDB names
+    assert pr1["indicator_reports"] == "2" and pr1["unicef_focal_points_count"] == "1"
+    assert "unicef_focal_points" not in pr1 and "Focal Point One" not in text
     workbook = load_workbook(
         io.BytesIO(
             client_viewer.get(reverse("reports:partner_reporting"), {"export": "xlsx", **every}).content

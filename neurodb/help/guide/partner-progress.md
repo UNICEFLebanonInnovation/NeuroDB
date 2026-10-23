@@ -228,6 +228,8 @@ disaggregation export, values, subtotals and location totals are in columns of t
 funds export the programme document's own amounts are on its first row only, so adding up a column
 never counts a figure twice.
 
+> **For validators:** *Raw data behind this page*, under the tabs, opens the eTools records this page reads: see [Checking the figures](/help/checking-figures/).
+
 ## People and privacy
 
 UNICEF focal points are shown by name only; an entry that holds an e-mail address is left out.

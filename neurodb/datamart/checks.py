@@ -52,7 +52,7 @@ from neurodb.partnerships.models import PCA
 
 from . import models as dm
 from . import reached as rc
-from . import reporting
+from . import reporting, runfacts
 from .disaggregation import ids_in, parse_key
 from .reached import norm
 
@@ -1814,7 +1814,7 @@ def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool
         since = None
     announced = details.get("datamart_count")
     other, kept = _count(details.get("other_country_skipped")), run.rows_in
-    read = _count(details.get("read")) or kept + other
+    read = runfacts.records_read(run)
     removed, skipped, held = (
         _count(details.get("removed")),
         bool(details.get("removal_skipped")),
@@ -2590,7 +2590,7 @@ def _two_feeds(cursor) -> dict[str, Any]:
     figures += [  # what the last sync of PRP's indicator reports read ("—": never synced)
         (
             "Last sync of PRP's indicator reports: records read",
-            "—" if run is None else _count(feed["details"].get("read")) or run.rows_in + skipped,
+            "—" if run is None else runfacts.records_read(run),
         ),
         ("… skipped as another business area", "—" if run is None else skipped),
     ]

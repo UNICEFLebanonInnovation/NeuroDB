@@ -20,20 +20,28 @@ from .models import HelpQuestion
 SEARCH_CHARS = 100
 
 
-def _nav(active: str) -> list[dict[str, str | bool]]:
+def _validator(request: HttpRequest) -> bool:
+    from neurodb.accounts.roles import can_validate
+
+    return can_validate(request.user)
+
+
+def _nav(active: str, validator: bool) -> list[dict[str, str | bool]]:
+    """The guide's pages, those for validators only listed for them (or while one is open)."""
     return [
         {"key": p.key, "title": p.title, "url": p.url, "active": p.key == active}
         for p in guide.pages().values()
+        if validator or p.key not in guide.VALIDATORS_ONLY or p.key == active
     ]
 
 
-def _context(active: str, title: str) -> dict:
+def _context(request: HttpRequest, active: str, title: str) -> dict:
     return {
         "page_title": title,
         "page_subtitle": _("How NeuroDB works: its pages, figures, rules and AI features"),
         "breadcrumbs": [{"label": _("Help"), "url": None if active == "overview" else "/help/"}]
         + ([] if active == "overview" else [{"label": title, "url": None}]),
-        "guide_pages": _nav(active),
+        "guide_pages": _nav(active, _validator(request)),
         "active": active,
     }
 
@@ -44,8 +52,11 @@ def index(request: HttpRequest) -> HttpResponse:
     query = " ".join(request.GET.get("q", "").split())[:SEARCH_CHARS]
     if not query:
         return page(request, "overview")
-    found = guide.search(query, limit=12)
-    context = _context("", _("Search the help"))
+    validator = _validator(request)
+    found = [s for s in guide.search(query, limit=24) if validator or s.page not in guide.VALIDATORS_ONLY][
+        :12
+    ]
+    context = _context(request, "", _("Search the help"))
     context["breadcrumbs"] = [{"label": _("Help"), "url": "/help/"}, {"label": _("Search"), "url": None}]
     context.update(
         {
@@ -69,10 +80,10 @@ def page(request: HttpRequest, key: str) -> HttpResponse:
     found = guide.page(key)
     if found is None:
         raise Http404("No such help page")
-    context = _context(key, found.title)
+    context = _context(request, key, found.title)
     context.update(
         {
-            "html": guide.render(key),
+            "html": guide.render(key, _validator(request)),
             "contents": [s for s in found.sections if s.level == 2],
         }
     )

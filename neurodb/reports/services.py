@@ -641,6 +641,115 @@ def _window_bound(text: Any) -> str:
     return f"{day.day} {day:%b %Y}" if day else text or "open"
 
 
+def quality_row(name: str, run: SyncRun | None, count: int | None) -> dict[str, Any]:
+    """One dataset's row of :func:`datamart_quality`: what ``run`` (its latest run) read, wrote, failed to
+    link, and ``count``, the rows NeuroDB holds. Raw eTools data (``datamart.runfacts``) reads the same row
+    of the run its records come from, so the two pages tell one story."""
+    from neurodb.datamart.catalogue import DIAGNOSTIC
+    from neurodb.integrations.etools import windows
+    from neurodb.integrations.etools.datamart_sync import (
+        FOUND,
+        area_words,
+        is_area_code,
+        not_a_code,
+        shift_words,
+    )
+
+    details = (run.details or {}) if run else {}
+    failed = run is not None and run.status == SyncRun.Status.FAILED
+    not_linked = {NOT_LINKED_LABELS.get(k, k): v for k, v in (details.get("not_linked") or {}).items()}
+    code = str(details.get("business_area") or "")
+    aside = details.get("business_area_set_aside")
+    aside = aside if isinstance(aside, dict) else {}
+    shifted = details.get("pages_shifted") if isinstance(details.get("pages_shifted"), dict) else {}
+    ordering = details.get("ordering") if isinstance(details.get("ordering"), dict) else {}
+    return {
+        "name": name,
+        "run": run,
+        "rows": count,
+        "not_linked": not_linked,
+        "not_linked_total": sum(int(v) for v in not_linked.values()),
+        "removed": details.get("removed"),
+        "empty_response": bool(details.get("empty_response")),
+        # records of another country the sync left out, and rows of another country it deleted
+        "other_country_skipped": details.get("other_country_skipped"),
+        "other_country_removed": details.get("other_country_removed"),
+        "errors": (details.get("errors") or [])[:3],
+        "relinked": details.get("relinked"),
+        # the run's own error, when it stopped before listing row errors (an HTTP 500 of the Datamart)
+        "error": run.error if failed and not details.get("errors") else "",
+        "diagnostic": name in DIAGNOSTIC,  # no page, figure or check uses it: never an alarm
+        # a PRP dataset's code and its source, in words (it carries no country name)
+        "business_area": details.get("business_area") or "",
+        "business_area_from": BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""),
+        # a code asked that is not one (a country's name, before the sync set such a value aside), in
+        # words; the values a later sync set aside; a code NeuroDB found rather than one a person set
+        "business_area_not_code": not_a_code(code) if code and not is_area_code(code) else "",
+        "business_area_set_aside": "; ".join(f"{SET_ASIDE_FROM.get(k, k)} “{v}”" for k, v in aside.items()),
+        "business_area_found": details.get("business_area_from") in FOUND,
+        # the records read (kept and skipped, each once) and the count the Datamart announced; fewer
+        # read than announced, or some returned twice: nothing was removed
+        "read": details.get("read"),
+        "datamart_count": details.get("datamart_count"),
+        "removal_skipped": bool(details.get("removal_skipped")),
+        "duplicates_read": details.get("duplicates_read"),
+        # records that came twice: pages that shifted (others then missing) or, in a stable order,
+        # records the Datamart likely holds twice; the stable order asked or why none; in words
+        "pages_shifted_twice": shifted.get("twice"),
+        "pages_shifted_missing": shifted.get("missing"),
+        "held_twice": details.get("held_twice"),
+        "ordering_key": ordering.get("key") or "",
+        "ordering_why": ordering.get("why") or "",
+        "shift_words": shift_words(details),
+        # why the answer looks cut (a round count read in one answer, a cut the ends test found...)
+        "cap_suspected": details.get("cap_suspected") or "",
+        # read in windows: how many, what they announced (the Datamart's own count may be cut), those
+        # not read whole (the first three: from, to, announced, read), and a count that moved
+        "windows_read": details.get("windows_read"),
+        "windows_announced": details.get("windows_announced"),
+        "windows_not_whole": details.get("windows_not_whole"),
+        "windows_not_whole_first": [
+            {
+                "from": _window_bound(w.get("from")),
+                "to": _window_bound(w.get("to")),
+                "announced": w.get("announced"),
+                "read": w.get("read"),
+            }
+            for w in (details.get("windows_not_whole_first") or [])[:3]
+            if isinstance(w, dict)
+        ],
+        "whole_count_capped": bool(details.get("whole_count_capped")),
+        "whole_count_end": details.get("whole_count_end"),
+        "changed": details.get("whole_count_end") is not None
+        and details.get("whole_count_end") != details.get("datamart_count"),
+        # why the read was made in windows (a round count, a cut sign of the last read), in words,
+        # and the pages that came back shorter than the first (the answer was cut)
+        "windows_why": WINDOWS_WHY.get(details.get("windows_why"), ""),
+        "pages_cut": details.get("pages_cut"),
+        # a cut sign (a page cut, the ends test) makes the next read try windows only from
+        # windows.WINDOW_RECORDS records; a read that tried them already records window_bound ("" when
+        # no window filter was proven and it was read once)
+        "windows_next": isinstance(details.get("datamart_count"), int)
+        and details["datamart_count"] >= windows.WINDOW_RECORDS,
+        "windowed": "window_bound" in details,
+        # the business area filter the read took, or why none (catalogue.AREA_FILTERS), and the
+        # records of another business area it let through
+        "area_filter": details.get("area_filter") if isinstance(details.get("area_filter"), dict) else {},
+        "area_words": area_words(details.get("area_filter")),
+        "area_strays": details.get("area_strays"),
+        # a whole read that would remove more than half of the rows held waits one night
+        "removal_held": details.get("removal_held"),
+        # an empty read the Datamart announced records for: its answer was cut short
+        "cut_short": bool(details.get("empty_response"))
+        and isinstance(details.get("datamart_count"), int)
+        and details["datamart_count"] > (details.get("read") or 0),
+        # PRP records naming no business area: kept unconfirmed, or left out as no PRP programme
+        # document NeuroDB holds names them
+        "country_unnamed": details.get("country_unnamed"),
+        "unnamed_skipped": details.get("unnamed_skipped"),
+    }
+
+
 def datamart_quality() -> list[dict[str, Any]]:
     """Per eTools Datamart dataset: the last run, what it read, wrote, failed to link, and how many
     rows NeuroDB holds — the table to read before believing a number on an eTools page. A failed run's
@@ -655,123 +764,11 @@ def datamart_quality() -> list[dict[str, Any]]:
     took, or why none, and the records of another business area a filter let through. Records that came twice
     say whether the pages shifted (and as many others did not come) or, in a stable order, the Datamart likely
     holds them twice, and the stable order asked or why none."""
-    from neurodb.datamart.catalogue import DIAGNOSTIC
-    from neurodb.integrations.etools import windows
-    from neurodb.integrations.etools.datamart_sync import (
-        ENTITY_SYNCS,
-        FOUND,
-        area_words,
-        is_area_code,
-        not_a_code,
-        shift_words,
-    )
+    from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
 
     last_by_target = latest_datamart_runs(ENTITY_SYNCS)
     counts = dataset_row_counts()
-    rows = []
-    for name in ENTITY_SYNCS:
-        run = last_by_target.get(name)
-        details = (run.details or {}) if run else {}
-        count = counts[name]
-        failed = run is not None and run.status == SyncRun.Status.FAILED
-        not_linked = {NOT_LINKED_LABELS.get(k, k): v for k, v in (details.get("not_linked") or {}).items()}
-        code = str(details.get("business_area") or "")
-        aside = details.get("business_area_set_aside")
-        aside = aside if isinstance(aside, dict) else {}
-        shifted = details.get("pages_shifted") if isinstance(details.get("pages_shifted"), dict) else {}
-        ordering = details.get("ordering") if isinstance(details.get("ordering"), dict) else {}
-        rows.append(
-            {
-                "name": name,
-                "run": run,
-                "rows": count,
-                "not_linked": not_linked,
-                "not_linked_total": sum(int(v) for v in not_linked.values()),
-                "removed": details.get("removed"),
-                "empty_response": bool(details.get("empty_response")),
-                # records of another country the sync left out, and rows of another country it deleted
-                "other_country_skipped": details.get("other_country_skipped"),
-                "other_country_removed": details.get("other_country_removed"),
-                "errors": (details.get("errors") or [])[:3],
-                "relinked": details.get("relinked"),
-                # the run's own error, when it stopped before listing row errors (an HTTP 500 of the Datamart)
-                "error": run.error if failed and not details.get("errors") else "",
-                "diagnostic": name in DIAGNOSTIC,  # no page, figure or check uses it: never an alarm
-                # a PRP dataset's code and its source, in words (it carries no country name)
-                "business_area": details.get("business_area") or "",
-                "business_area_from": BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""),
-                # a code asked that is not one (a country's name, before the sync set such a value aside), in
-                # words; the values a later sync set aside; a code NeuroDB found rather than one a person set
-                "business_area_not_code": not_a_code(code) if code and not is_area_code(code) else "",
-                "business_area_set_aside": "; ".join(
-                    f"{SET_ASIDE_FROM.get(k, k)} “{v}”" for k, v in aside.items()
-                ),
-                "business_area_found": details.get("business_area_from") in FOUND,
-                # the records read (kept and skipped, each once) and the count the Datamart announced; fewer
-                # read than announced, or some returned twice: nothing was removed
-                "read": details.get("read"),
-                "datamart_count": details.get("datamart_count"),
-                "removal_skipped": bool(details.get("removal_skipped")),
-                "duplicates_read": details.get("duplicates_read"),
-                # records that came twice: pages that shifted (others then missing) or, in a stable order,
-                # records the Datamart likely holds twice; the stable order asked or why none; in words
-                "pages_shifted_twice": shifted.get("twice"),
-                "pages_shifted_missing": shifted.get("missing"),
-                "held_twice": details.get("held_twice"),
-                "ordering_key": ordering.get("key") or "",
-                "ordering_why": ordering.get("why") or "",
-                "shift_words": shift_words(details),
-                # why the answer looks cut (a round count read in one answer, a cut the ends test found...)
-                "cap_suspected": details.get("cap_suspected") or "",
-                # read in windows: how many, what they announced (the Datamart's own count may be cut), those
-                # not read whole (the first three: from, to, announced, read), and a count that moved
-                "windows_read": details.get("windows_read"),
-                "windows_announced": details.get("windows_announced"),
-                "windows_not_whole": details.get("windows_not_whole"),
-                "windows_not_whole_first": [
-                    {
-                        "from": _window_bound(w.get("from")),
-                        "to": _window_bound(w.get("to")),
-                        "announced": w.get("announced"),
-                        "read": w.get("read"),
-                    }
-                    for w in (details.get("windows_not_whole_first") or [])[:3]
-                    if isinstance(w, dict)
-                ],
-                "whole_count_capped": bool(details.get("whole_count_capped")),
-                "whole_count_end": details.get("whole_count_end"),
-                "changed": details.get("whole_count_end") is not None
-                and details.get("whole_count_end") != details.get("datamart_count"),
-                # why the read was made in windows (a round count, a cut sign of the last read), in words,
-                # and the pages that came back shorter than the first (the answer was cut)
-                "windows_why": WINDOWS_WHY.get(details.get("windows_why"), ""),
-                "pages_cut": details.get("pages_cut"),
-                # a cut sign (a page cut, the ends test) makes the next read try windows only from
-                # windows.WINDOW_RECORDS records; a read that tried them already records window_bound ("" when
-                # no window filter was proven and it was read once)
-                "windows_next": isinstance(details.get("datamart_count"), int)
-                and details["datamart_count"] >= windows.WINDOW_RECORDS,
-                "windowed": "window_bound" in details,
-                # the business area filter the read took, or why none (catalogue.AREA_FILTERS), and the
-                # records of another business area it let through
-                "area_filter": details.get("area_filter")
-                if isinstance(details.get("area_filter"), dict)
-                else {},
-                "area_words": area_words(details.get("area_filter")),
-                "area_strays": details.get("area_strays"),
-                # a whole read that would remove more than half of the rows held waits one night
-                "removal_held": details.get("removal_held"),
-                # an empty read the Datamart announced records for: its answer was cut short
-                "cut_short": bool(details.get("empty_response"))
-                and isinstance(details.get("datamart_count"), int)
-                and details["datamart_count"] > (details.get("read") or 0),
-                # PRP records naming no business area: kept unconfirmed, or left out as no PRP programme
-                # document NeuroDB holds names them
-                "country_unnamed": details.get("country_unnamed"),
-                "unnamed_skipped": details.get("unnamed_skipped"),
-            }
-        )
-    return rows
+    return [quality_row(name, last_by_target.get(name), counts[name]) for name in ENTITY_SYNCS]
 
 
 def _last_status(job: dict[str, Any]) -> str | None:

@@ -281,6 +281,15 @@ class ReportFilters:
         return rows
 
 
+# Why the PD status filter leaves an indicator report out (:func:`left_out`), given the rows every other
+# filter keeps and a PD status not chosen: Raw eTools data's "Programme document link" filter reads the same
+LEFT_OUT_REASONS: dict[str, Q] = {
+    "other_status": Q(intervention__isnull=False),
+    "not_held": Q(intervention__isnull=True) & ~NO_PD,
+    "no_pd": NO_PD,
+}
+
+
 def left_out(filters: ReportFilters, today: datetime.date) -> dict[str, int]:
     """The indicator reports every other filter keeps and the page does not count, of any report status
     (a report's status is not read here), by why: ``other_status``, of a programme document whose status
@@ -295,9 +304,7 @@ def left_out(filters: ReportFilters, today: datetime.date) -> dict[str, int]:
         rows = rows.filter(NO_PD)
     key = INDICATOR_REPORT_KEY
     found = rows.aggregate(
-        other_status=Count(key, distinct=True, filter=Q(intervention__isnull=False)),
-        not_held=Count(key, distinct=True, filter=Q(intervention__isnull=True) & ~NO_PD),
-        no_pd=Count(key, distinct=True, filter=NO_PD),
+        **{name: Count(key, distinct=True, filter=reason) for name, reason in LEFT_OUT_REASONS.items()}
     )
     out = {name: int(found[name] or 0) for name in ("other_status", "not_held", "no_pd")}
     out["by_pd_status"] = out["other_status"] + out["not_held"]

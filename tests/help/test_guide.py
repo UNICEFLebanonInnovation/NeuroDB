@@ -560,3 +560,33 @@ def test_the_guide_and_operations_say_what_only_the_full_menu_holds():
     home_rule = next(i for i, line in enumerate(lines) if line.startswith("- **Home follows the menu.**"))
     help_item = next(i for i, line in enumerate(lines) if line.startswith('  - *Help*: the "?" panel'))
     assert left_out < help_item < home_rule
+
+
+def test_checking_the_figures_is_for_validators(client, roles):
+    from django.contrib.auth.models import Group
+
+    from neurodb.accounts.models import User
+    from neurodb.accounts.roles import VALIDATORS, VIEWER
+
+    viewer = User.objects.create_user(username="reader", password="pass-123456-x")
+    viewer.groups.set([Group.objects.get(name=VIEWER)])
+    client.force_login(viewer)
+    page = reverse("help:page", args=["checking-figures"])
+    assert page not in client.get(reverse("help:index")).content.decode()  # not listed
+    assert client.get(page).status_code == 200  # the page itself opens
+    progress = client.get(reverse("help:page", args=["partner-progress"])).content.decode()
+    assert "For validators" not in progress and page not in progress
+    assert (
+        "Checking the figures"
+        not in client.get(reverse("help:index"), {"q": "raw etools data"}).content.decode()
+    )
+
+    viewer.groups.add(Group.objects.get(name=VALIDATORS))
+    assert page in client.get(reverse("help:index")).content.decode()
+    progress = client.get(reverse("help:page", args=["partner-progress"])).content.decode()
+    assert "For validators" in progress and page in progress
+    assert (
+        "Checking the figures" in client.get(reverse("help:index"), {"q": "raw etools data"}).content.decode()
+    )
+    # never in the search's text for anyone else: the line is no section's
+    assert all("For validators:" not in s.text for p in guide.pages().values() for s in p.sections)

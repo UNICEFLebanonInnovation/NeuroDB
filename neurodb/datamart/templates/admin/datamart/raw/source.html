@@ -1,0 +1,151 @@
+{% extends "admin/base_site.html" %}
+{% load i18n humanize unfold %}
+
+{% comment %}
+  Raw eTools data, one source (context: datamart.raw_admin.source_view, validators only): what its last sync received
+  and kept (datamart.runfacts: received − of another country − named no country − could not be saved = updated by the
+  sync; in NeuroDB = updated by the sync + updated since + kept from an earlier sync), the fields it sends (counted from
+  the newest records NeuroDB holds; a superuser reviews a new field), the filter (a GET form), the records (50 a page,
+  each through the people rule: datamart.raw_people) and the CSV of the filter, or the sentence that says which filter
+  to choose first. A plain page, no script.
+{% endcomment %}
+
+{% block content %}
+<div id="content-main" class="nd-found nd-raw">
+  <p class="nd-list-note">
+    <span class="material-symbols-outlined" aria-hidden="true">info</span>
+    <span>{% blocktrans trimmed with path=path url=index_url %}
+      Read from the eTools Datamart at <code>{{ path }}</code>. People are shown as counts, never by name. Back to <a class="nd-link" href="{{ url }}">Raw eTools data</a>.
+    {% endblocktrans %}</span>
+  </p>
+
+  {% trans "What the last sync received" as sync_title %}
+  {% component "unfold/components/card.html" with title=sync_title title_icon="sync" %}
+    {% if facts.run %}
+      <p class="mb-2">
+        {% blocktrans trimmed with when=facts.run.finished_at|date:"j M Y, H:i" word=status %}The sync of {{ when }} ({{ word }}).{% endblocktrans %}
+        {% if run_url %}<a class="nd-link" href="{{ run_url }}">{% trans "Open the run" %}</a>{% endif %}
+      </p>
+      <p class="mb-2">
+        {% trans "eTools said it had" %} {% if facts.said_it_had is None %}—{% else %}{{ facts.said_it_had|intcomma }}{% endif %}
+        · {% trans "NeuroDB received" %} {{ facts.received|intcomma }}{% if facts.more_than_said %} ({% blocktrans with n=facts.more_than_said|intcomma %}{{ n }} more than it said: records added during the sync{% endblocktrans %}){% endif %}
+        · {% trans "of another country" %} {{ facts.other_country|intcomma }} ({% trans "not kept" %})
+        · {% trans "could not be saved" %} {{ facts.not_saved|intcomma }}
+        · {% trans "updated by the sync" %} {{ facts.updated_by_sync|intcomma }}
+        · {% trans "removed" %} {{ facts.removed|intcomma }}
+      </p>
+      <ul class="nd-found__rates">
+        {% if facts.through_area_filter %}<li>{% blocktrans with n=facts.through_area_filter|intcomma %}Of which {{ n }} came through the business area filter.{% endblocktrans %}</li>{% endif %}
+        {% if facts.unnamed %}<li>{% blocktrans with n=facts.unnamed|intcomma %}Not kept: {{ n }} named no country and no programme document NeuroDB holds. They could be Lebanon's: see check 11.{% endblocktrans %} <a class="nd-link" href="{{ checks_url }}">{% trans "eTools reporting checks" %}</a></li>{% endif %}
+        {% if facts.sent_twice %}<li>{% blocktrans with n=facts.sent_twice|intcomma %}{{ n }} sent twice (counted once in what NeuroDB received).{% endblocktrans %}</li>{% endif %}
+        {% if facts.never_came %}<li class="nd-found__warn">{% blocktrans with n=facts.never_came|intcomma %}eTools said it had {{ n }} more than NeuroDB received.{% endblocktrans %} {% if facts.shift_words %}{{ facts.shift_words }}{% endif %} {% trans "The next sync reads them." %}</li>{% endif %}
+        {% for e in facts.error_lines %}<li class="nd-found__warn">{% blocktrans with n=e.count|intcomma words=e.words %}{{ n }} could not be saved: {{ words }}{% endblocktrans %}{% if e.examples %} ({% trans "record ids" %} {{ e.examples|join:", " }}){% endif %}</li>{% endfor %}
+        {% if facts.unexplained %}<li class="nd-found__warn">{% blocktrans with n=facts.unexplained|intcomma %}{{ n }} records are not explained by the sync's counts: tell the NeuroDB team.{% endblocktrans %}</li>{% endif %}
+        {% if facts.removal_skipped %}<li>{% trans "The last sync did not get every record, so records eTools may have deleted are still here." %}</li>{% endif %}
+        {% if facts.removal_held %}<li>{% blocktrans with n=facts.removal_held|intcomma %}{{ n }} records eTools no longer sends are kept one more night (more than half of those in NeuroDB).{% endblocktrans %}</li>{% endif %}
+      </ul>
+    {% else %}
+      <p class="mb-2">{% trans "Never synced: nothing received yet." %}</p>
+    {% endif %}
+    {% if facts.newer_failed %}<p class="mb-2 nd-found__warn">{% blocktrans trimmed with failed=facts.newer_failed.started_at|date:"j M Y, H:i" %}The last sync, on {{ failed }}, failed{% endblocktrans %}{% if facts.run %}{% blocktrans trimmed with used=facts.run.finished_at|date:"j M Y, H:i" %}: the records in NeuroDB come from the sync of {{ used }}.{% endblocktrans %}{% else %}.{% endif %}{% if newer_url %} <a class="nd-link" href="{{ newer_url }}">{% trans "Open the run" %}</a>{% endif %}</p>{% endif %}
+    <p class="mb-2"><strong>{% trans "Complete?" %}</strong> {% if facts.complete.0 %}{{ facts.complete.1 }}{% else %}<span class="nd-found__warn">{{ facts.complete.1 }}</span>{% endif %}</p>
+    <p class="mb-2">{% blocktrans trimmed with n=facts.held|intcomma by=facts.updated_by_sync|intcomma since=facts.updated_since|intcomma earlier=facts.from_earlier|intcomma %}
+      In NeuroDB now: {{ n }} records: {{ by }} updated by the sync, {{ since }} updated since (a sync is running), {{ earlier }} kept from an earlier sync.
+    {% endblocktrans %}</p>
+    {% if name == "partner_reports" %}
+      <p class="mb-2">{% blocktrans with day=history_from|date:"j M Y" %}NeuroDB holds partner reports from {{ day }} (the Datamart has none earlier).{% endblocktrans %}</p>
+      {% if check_ten %}<p class="mb-2">{% blocktrans trimmed with n=check_ten.none|intcomma m=check_ten.unexplained|default:0|intcomma %}Running PDs with no report row: {{ n }}, of which {{ m }} nothing explains:{% endblocktrans %} <a class="nd-link" href="{{ checks_url }}">{% trans "see check 10" %}</a>.</p>{% endif %}
+    {% endif %}
+  {% endcomponent %}
+
+  <details class="nd-check-group mb-6" id="fields">
+    <summary>{% blocktrans with n=counted|length %}Fields this source sends ({{ n }}){% endblocktrans %}</summary>
+    <p class="my-2">{% blocktrans with n=fields_counted|intcomma %}Counted from the newest {{ n }} records in NeuroDB.{% endblocktrans %}{% if superuser and reviewable %} {% trans "Read a few of a new field's values in the developer table before you review it." %}{% endif %}</p>
+    <div class="nd-scroll">
+      <table class="nd-jobs nd-found__table">
+        <thead><tr><th scope="col">{% trans "Field" %}</th><th scope="col">{% trans "Records carrying it" %}</th><th scope="col">{% trans "With a value" %}</th><th scope="col">{% trans "How NeuroDB uses it" %}</th>{% if superuser and reviewable %}<th scope="col">{% trans "Review" %}</th>{% endif %}</tr></thead>
+        <tbody>
+          {% for f in counted %}
+            <tr>
+              <th scope="row"><code>{{ f.key }}</code></th>
+              <td>{{ f.carrying|intcomma }}</td>
+              <td>{{ f.with_value|intcomma }}</td>
+              <td>{{ f.use }}</td>
+              {% if superuser and reviewable %}
+                <td>
+                  {% if f.kind == "new" or f.key in by_hand %}
+                    <form method="post" action="{{ field_url }}" class="flex flex-wrap gap-2">
+                      {% csrf_token %}
+                      <input type="hidden" name="key" value="{{ f.key }}">
+                      {% if f.key in by_hand %}<button type="submit" name="action" value="hide" class="nd-link">{% trans "Hide again" %}</button>
+                      {% else %}<button type="submit" name="action" value="review" class="nd-link">{% trans "Reviewed: show it" %}</button>
+                      <a class="nd-link" href="{{ developer_url }}data__has_key={{ f.key|urlencode }}">{% trans "Look at its values" %}</a>{% endif %}
+                    </form>
+                  {% endif %}
+                </td>
+              {% endif %}
+            </tr>
+          {% empty %}
+            <tr><td colspan="4">{% trans "No record in NeuroDB yet." %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if left_out %}<p class="mt-2">{% blocktrans count counter=left_out %}{{ counter }} more field is never shown: its name names a person, or it is not read for safeguarding.{% plural %}{{ counter }} more fields are never shown: their names name a person, or they are not read for safeguarding.{% endblocktrans %}</p>{% endif %}
+    {% if unsent %}<p class="mt-2">{% trans "Fields NeuroDB reads that no record sent:" %} {% for k in unsent %}<code>{{ k }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+  </details>
+
+  <form method="get" class="nd-raw__filters mb-4" role="search" aria-label="{% trans 'Filter the records' %}">
+    {% if shown.pd %}<label>{% trans "Programme document" %}<input type="text" name="pd" value="{{ filters.pd }}" placeholder="{% trans 'reference, exact' %}"></label>{% endif %}
+    {% if shown.partner %}<label>{% trans "Partner" %}<input type="text" name="partner" value="{{ filters.partner }}" placeholder="{% trans 'name or vendor number' %}"></label>{% endif %}
+    {% if shown.section and choices.section %}<label>{% trans "Section" %}<select name="section"><option value="">{% trans "Every section" %}</option>{% for s in choices.section %}<option value="{{ s }}"{% if s == filters.section %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>{% endif %}
+    {% if shown.status and choices.status %}<label>{% trans "Status" %}<select name="status"><option value="">{% trans "Every status" %}</option>{% for s in choices.status %}<option value="{{ s }}"{% if s == filters.status %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>{% endif %}
+    {% if shown.report_type and choices.report_type %}<label>{% trans "Report type" %}<select name="report_type"><option value="">{% trans "Every type" %}</option>{% for s in choices.report_type %}<option value="{{ s }}"{% if s == filters.report_type %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>{% endif %}
+    {% if shown.pd_link %}<label>{% trans "Programme document link" %}<select name="pd_link"><option value="">{% trans "Any" %}</option>{% for k, words in pd_links.items %}<option value="{{ k }}"{% if k == filters.pd_link %} selected{% endif %}>{{ words }}</option>{% endfor %}</select></label>{% endif %}
+    {% if shown.dates %}
+      <label>{% trans "Year" %}<input type="number" name="year" min="2000" max="2100" value="{{ filters.year|default:'' }}"></label>
+      <label>{% trans "From" %}<input type="date" name="from" value="{{ filters.date_from|date:'Y-m-d' }}"></label>
+      <label>{% trans "To" %}<input type="date" name="to" value="{{ filters.date_to|date:'Y-m-d' }}"></label>
+    {% endif %}
+    {% if shown.search %}<label>{% trans "Search" %}<input type="search" name="q" value="{{ filters.q }}" placeholder="{% trans 'reference or number' %}"></label>{% endif %}
+    <label>{% trans "Record id" %}<input type="text" name="record" value="{{ filters.record }}"></label>
+    <label>{% trans "Updated by" %}<select name="updated"><option value="">{% trans "Any sync" %}</option>{% for k, words in updated_choices.items %}<option value="{{ k }}"{% if k == filters.updated %} selected{% endif %}>{{ words }}</option>{% endfor %}</select></label>
+    <button type="submit" class="nd-found__button">{% trans "Filter" %}</button>
+    <a class="nd-link" href="{% url 'admin:datamart_raw_source' name %}">{% trans "Reset" %}</a>
+  </form>
+
+  {% if filters.refused %}<p class="mb-4 nd-found__warn">{{ filters.refused }}</p>{% endif %}
+
+  {% component "unfold/components/card.html" %}
+    {% if n is None %}
+      <p class="nd-found__warn">{{ too_slow }}</p>
+    {% else %}
+      <div class="nd-found__actions mb-3">
+        <strong>{% blocktrans count counter=n with total=n|intcomma %}{{ total }} record{% plural %}{{ total }} records{% endblocktrans %}</strong>
+        {% if too_many %}<span class="nd-found__warn">{{ too_many }}</span>{% elif n %}<a class="nd-link" href="{{ csv_url }}">{% blocktrans count counter=n with total=n|intcomma %}CSV of this record{% plural %}CSV of these {{ total }} records{% endblocktrans %}</a>{% endif %}
+      </div>
+      {% if records %}
+        <div class="nd-scroll">
+          <table class="nd-jobs nd-found__table">
+            <thead><tr>{% for c in columns %}<th scope="col">{{ c }}</th>{% endfor %}</tr></thead>
+            <tbody>
+              {% for r in records %}
+                <tr>{% for cell in r.cells %}{% if forloop.first %}<th scope="row"><a class="nd-link" href="{{ r.url }}">{{ cell }}</a></th>{% else %}<td>{% if cell is None or cell == "" %}—{% else %}{{ cell }}{% endif %}</td>{% endif %}{% endfor %}</tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if page_obj.has_other_pages %}
+          <p class="mt-3">
+            {% if page_obj.has_previous %}<a class="nd-link" href="?{{ page_query }}{% if page_query %}&amp;{% endif %}p={{ page_obj.previous_page_number }}">{% trans "Newer" %}</a> · {% endif %}
+            {% blocktrans with n=page_obj.number total=page_obj.paginator.num_pages %}Page {{ n }} of {{ total }}{% endblocktrans %}
+            {% if page_obj.has_next %} · <a class="nd-link" href="?{{ page_query }}{% if page_query %}&amp;{% endif %}p={{ page_obj.next_page_number }}">{% trans "Older" %}</a>{% endif %}
+          </p>
+        {% endif %}
+      {% else %}
+        <p>{% trans "No record matches this filter." %}</p>
+      {% endif %}
+    {% endif %}
+  {% endcomponent %}
+</div>
+{% endblock %}

@@ -7,6 +7,7 @@
     <a href="{{ tab_urls.disaggregations }}" {% if tab == "disaggregations" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="layers" %} {% trans "By disaggregation" %}</a>
   </div>
 </div>
+{% include "reports/partials/_check_link.html" with page="reports:partner_reporting" %}
 {% if tab == "partners" %}{% include "reports/partials/_reporting_partners.html" %}
 {% elif tab == "locations" or tab == "disaggregations" %}{% comment %}Report/Location and Report/Disaggregation load their table as
 a part (reports.views._reporting_table_tab): drawn inline when it is stored, in a change of filter (HTMX) and on the

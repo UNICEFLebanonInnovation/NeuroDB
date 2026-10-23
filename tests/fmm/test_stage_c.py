@@ -264,7 +264,7 @@ def test_csv_of_the_filter_and_of_everything(client_viewer, points):
     filtered = client_viewer.get(reverse(PAGE), {"office": "Tripoli", "export": "csv"})
     assert filtered["Content-Type"].startswith("text/csv")
     lines = b"".join(filtered.streaming_content).decode().lstrip("﻿").splitlines()
-    assert lines[0].startswith("reference,description,partner,pd,office,section,assigned_to")
+    assert lines[0].startswith("reference,description,partner,pd,office,section,assigned_to_count,")
     assert len(lines) == 2 and "LEBA/2026/9005/AP" in lines[1]
     everything = client_viewer.get(reverse(PAGE), {"office": "Tripoli", "export": "csv", "all": "1"})
     assert len(b"".join(everything.streaming_content).decode().strip().splitlines()) == 6

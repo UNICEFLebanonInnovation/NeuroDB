@@ -2,7 +2,7 @@ from django.conf import settings
 from django.urls import reverse
 from django.utils.functional import SimpleLazyObject
 
-from neurodb.accounts.roles import role_of
+from neurodb.accounts.roles import can_validate, role_of
 from neurodb.assistant import llm
 
 
@@ -13,6 +13,9 @@ def site(request):
         "SSO_ENABLED": settings.SSO_ENABLED,
         # read when a template uses it (one query for the groups): most parts of a page never do
         "user_role": SimpleLazyObject(lambda: role_of(user)) if user is not None else None,
+        # whether the person checks the eTools figures (Raw eTools data, the "Raw data behind this page"
+        # line): read in the groups query user_role makes, so no query of its own
+        "can_validate": SimpleLazyObject(lambda: can_validate(user)) if user is not None else False,
         "PUBLIC_PAGES": settings.PUBLIC_PAGES,
         "SUPPORT_EMAIL": settings.SUPPORT_EMAIL,
         "USER_GUIDE_URL": settings.USER_GUIDE_URL,
