@@ -732,7 +732,10 @@ def held_then_freed(db, monkeypatch, slept):
 
     def wait(seconds):
         slept.append(seconds)
-        other.close()  # the other run ends: its lock goes with its session
+        if other.connection is not None:  # the other run ends: it frees its lock, then its session closes
+            with other.cursor() as cursor:  # (closing alone frees it only once the server process exits)
+                cursor.execute("SELECT pg_advisory_unlock(%s)", [lock.LOCK_ID])
+            other.close()
 
     monkeypatch.setattr(services, "_sleep", wait)
     yield slept
