@@ -91,6 +91,36 @@ class UserAdmin(DjangoUserAdmin, ModelAdmin):
             fields = (*fields, "is_superuser", "user_permissions")
         return fields
 
+    @staticmethod
+    def _guarded(request, obj) -> bool:
+        """A superuser's account, for anyone else: read only. An Administrator who could set its password, its
+        e-mail or its Active status could sign in as that superuser (and open the Menu page), or leave nobody
+        able to open it."""
+        return obj is not None and obj.is_superuser and not request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        # the password form asks this too (UserAdmin.user_change_password); the form opens read only
+        return not self._guarded(request, obj) and super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        # the list's "Delete selected" asks it for each account too
+        return not self._guarded(request, obj) and super().has_delete_permission(request, obj)
+
+    def _without_superusers(self, request, queryset):
+        """The list's actions check the permission to change users, not each account: a superuser's account is
+        left out of them for anyone else (:meth:`_guarded`), and the message says how many."""
+        if request.user.is_superuser:
+            return queryset
+        skipped = queryset.filter(is_superuser=True).count()
+        if skipped:
+            self.message_user(
+                request,
+                _("%(n)s superuser account(s) skipped: only a superuser changes a superuser's account.")
+                % {"n": skipped},
+                messages.WARNING,
+            )
+        return queryset.filter(is_superuser=False)
+
     @admin.display(description=_("Name"), ordering="last_name")
     def full_name(self, obj):
         return obj.get_full_name() or "—"
@@ -114,6 +144,7 @@ class UserAdmin(DjangoUserAdmin, ModelAdmin):
     def _set_role(self, request, queryset, role):
         """Roles are exclusive: drop the other two role groups, keep any unrelated groups. A donor
         account never gets a staff role (remove its donor access first)."""
+        queryset = self._without_superusers(request, queryset)
         donors = queryset.filter(donor_account__isnull=False).count()
         if donors:
             queryset = queryset.filter(donor_account__isnull=True)
@@ -143,6 +174,7 @@ class UserAdmin(DjangoUserAdmin, ModelAdmin):
 
     @admin.action(description=_("Set role: Section editor"), permissions=("change",))
     def make_section_editor(self, request, queryset):
+        queryset = self._without_superusers(request, queryset)
         missing = queryset.filter(section__isnull=True).count()
         self._set_role(request, queryset, SECTION_EDITOR)
         if missing:
@@ -158,12 +190,12 @@ class UserAdmin(DjangoUserAdmin, ModelAdmin):
 
     @admin.action(description=_("Activate selected users"), permissions=("change",))
     def activate(self, request, queryset):
-        n = queryset.update(is_active=True)
+        n = self._without_superusers(request, queryset).update(is_active=True)
         self.message_user(request, _("%(n)s user(s) activated.") % {"n": n}, messages.SUCCESS)
 
     @admin.action(description=_("Deactivate selected users"), permissions=("change",))
     def deactivate(self, request, queryset):
-        n = queryset.exclude(pk=request.user.pk).update(is_active=False)
+        n = self._without_superusers(request, queryset).exclude(pk=request.user.pk).update(is_active=False)
         self.message_user(
             request, _("%(n)s user(s) deactivated (never yourself).") % {"n": n}, messages.SUCCESS
         )

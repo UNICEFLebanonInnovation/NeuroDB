@@ -35,7 +35,7 @@
           </thead>
           {% for section in sections %}
             <tbody>
-              <tr><th scope="colgroup" colspan="{{ columns }}">{{ section.title }}</th></tr>
+              <tr><th scope="rowgroup" colspan="{{ columns }}">{{ section.title }}</th></tr>
               {% for row in section.rows %}
                 <tr>
                   <th scope="row">{{ row.label }}{% if row.note %}<small class="nd-menu__note">{{ row.note }}</small>{% endif %}</th>

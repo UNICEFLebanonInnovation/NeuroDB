@@ -249,7 +249,7 @@ schedules as they are now.
 | Year-end forecasts | Mondays at 07:15, while ActivityInfo is in use |
 | Compiler figures (youth, education, Makani wellbeing) | Every night, once Compiler is set up |
 
-The **Data health** page (user menu, or the sidebar) shows when each source last synced and which
+The **Data health** page (user menu, or *Resources* in the full menu) shows when each source last synced and which
 runs failed. It opens at once (see [Pages that open at once](/help/overview/#pages-that-open-at-once)):
 the sync jobs fill in first, then the ActivityInfo databases (the archive's, once ActivityInfo is
 no longer in use) and the latest runs, then the eTools

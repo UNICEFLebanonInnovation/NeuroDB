@@ -23,12 +23,16 @@ pages on the same sections:
   it, and opens the page on that status.
 - **Programme documents to follow up**: one row per programme document with progress reports that are
   Overdue, Sent back, Due or Submitted (awaiting acceptance), the most overdue first: its partner, how
-  many of its progress reports are in each of those statuses, and the next due date. Its reference opens
-  Progress reports on that programme document alone, with the same counts; *Indicators* opens its
-  indicators on Program Performance. Home lists the first ten; *Every report to follow up, on Progress
-  reports* opens the full list there.
+  many of its progress reports are in each of those statuses, and its oldest due date (of its Due or
+  Overdue reports, so a past date when one is overdue). Its reference opens Progress reports on that
+  programme document alone, with the same counts; *Indicators* opens all its indicators on Program
+  Performance, whatever their section. Home lists the first ten, and says so when there are more (*The
+  first 10 of 37 programme documents*); *Every report to follow up, on Progress reports* opens the full
+  list there. With no progress report at all in the sections, the block says *No progress reports here*;
+  *Nothing to follow up* means every report is Accepted or not yet due.
 - One line with the partners that have progress reports here, how many have reported (Submitted or
-  Accepted) and how many have not yet: the figures of the Partners tab of Progress reports.
+  Accepted) and how many have not yet: the figures of the Partners tab of Progress reports (left out
+  when there is no progress report).
 - **Indicator progress** this year: the tiles of Partner monitoring for every programme document running
   this year (indicators, on track, off track, not reported, programme documents, partners), exactly the
   figures that page shows at the same link. *On track*, *Off track* and *Not reported* open the indicators
@@ -71,10 +75,10 @@ holds:
   counts a section's visits another way); the third-party visits are not a link either, since the Field
   monitoring page shows the whole country. The action points link opens that page on the same sections.
   With every section, each figure links to its page: the visits to Monitoring insights (or to Field
-  monitoring, where Monitoring insights is not in the sidebar), the third-party visits to Field
-  monitoring. *All the figures: Country overview* opens the overview on the same sections. Early in the
-  year (January to April), until the first partner reports of the year come in, the children reached
-  tile says *Not yet* and links to last year.
+  monitoring while Monitoring insights is off), the third-party visits to Field monitoring. *All the
+  figures: Country overview* opens the overview on the same sections. Early in the year (January to
+  April), until the first partner reports of the year come in, the children reached tile says *Not yet*
+  and links to last year.
 - **Programmes and sources**, for the whole country: the country programme cycle (which year of it, and
   how many of its indicators are on track), the Makani, Dirasa and youth figures from Compiler, and
   ActivityInfo (while it is in use, its year and last import; once it is an archive, a link to the
@@ -94,19 +98,20 @@ Home, the country overview and the daily review open the same way:
   (*Every section*), with *only* their section one click away when they have one.
 - Every link Home draws to Progress reports, Partner monitoring, the country overview, the daily review
   and the management brief carries the sections Home shows, so the next page shows the same figures. (The
-  menu's own *Progress reports* and *Partner monitoring* open those pages as they always open.)
+  menu's own *Progress reports* and *Partner monitoring* open those pages as they always open; a
+  programme document's *Indicators* shows all its indicators, whatever their section.)
 - *Programmes and sources* is always for the whole country, and says so when a section is chosen.
 
 ## ActivityInfo: in use or archive
 
 Partners reported their monthly results in ActivityInfo in past years and now report progress in eTools;
-the sidebar lists the years the archive holds. NeuroDB keeps every ActivityInfo year: its databases,
+the full menu lists the years the archive holds. NeuroDB keeps every ActivityInfo year: its databases,
 dashboards, maps, Neuro and HPM reports stay open, year by year. What changes is how prominent
 ActivityInfo is:
 
 | | In use | Archive |
 |---|---|---|
-| Sidebar | *Monthly results (ActivityInfo)*, at the bottom, open by default | *ActivityInfo archive* with its years, at the bottom, closed (it stays open if you open it) |
+| Sidebar (full menu, or a menu with ActivityInfo ticked) | *Monthly results (ActivityInfo)*, at the bottom, open by default | *ActivityInfo archive* with its years, at the bottom, closed (it stays open if you open it) |
 | Home | ActivityInfo's year, its results and its last import | a link to the archive of its years |
 | Year-end forecasts | made every week | no longer made: the last ones stay, marked as no longer updated |
 | The ActivityInfo import | a failed or late import is reported to administrators | nobody is told about it; Data health still lists its runs |

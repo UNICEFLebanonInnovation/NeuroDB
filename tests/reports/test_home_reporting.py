@@ -238,11 +238,33 @@ def test_the_rows_name_their_programme_document_by_its_number_whatever_the_repor
     assert rows["LEB/PD12"]["counts"]["overdue"] == 2  # one of them with a blank reference
     # the most pressing first: the most overdue, then sent back, due, submitted
     assert [row["pd_reference_number"] for row in rows.values()] == ["LEB/PD12", "LEB/PD1", "LEB/PD3"]
-    assert rows["LEB/PD1"]["next_due"] == datetime.date(2026, 7, 15)  # its overdue report's due date
+    # the oldest due date of its Due or Overdue reports: its overdue report's, long past
+    assert rows["LEB/PD1"]["oldest_due"] == datetime.date(2026, 7, 15)
     assert rows["LEB/PD3"]["sections"] == "" and rows["LEB/PD1"]["sections"] == CP
     for row in rows.values():  # every row of a PD NeuroDB holds opens its indicators on Program Performance
         assert _query(row["indicators_url"])["view"] == ["table"]
         assert _query(row["indicators_url"])["pd"] == [row["pd_reference_number"]]
+
+
+@pytest.mark.parametrize("named", [f"{EDU}, {CP}", ""])
+def test_a_row_s_indicators_link_shows_them_whichever_section_they_sit_in(client_viewer, world, named):
+    """A programme document of two sections whose indicators all sit in one: Progress reports counts it under
+    the other too (its reports name both, or name none and the PD names both), while Partner monitoring reads
+    each indicator's own section. Its Indicators link names no section, so it still shows them."""
+    alpha = PartnerOrganization.objects.get(name="Partner Alpha")
+    both = _pd(alpha, "LEB/PD77", sections=[EDU, CP])
+    _indicator(both, "# of children reached", EDU)
+    _indicator(both, "# of caregivers reached", EDU)
+    _report(both, alpha, "QPR1", datetime.date(2026, 6, 30), section=named)  # due 15 July: overdue
+    home = _home(client_viewer, f"?section={CP.replace(' ', '+')}")
+    row = next(r for r in _figures(home)["pd_rows"] if r["pd_reference_number"] == "LEB/PD77")
+    assert row["counts"]["overdue"] == 1
+    table = get_part(client_viewer, row["indicators_url"], "table")
+    assert len(table.context["rows"]) == 2
+    assert {r.pd.number for r in table.context["rows"]} == {"LEB/PD77"}
+    query = _query(row["indicators_url"])  # every section, this year, every PD running in it
+    assert query["section"] == [""] and query["pd"] == ["LEB/PD77"]
+    assert query["year"] == ["2026"] and query["scope"] == ["year"]
 
 
 def test_the_partners_line_is_the_partners_tab(client_viewer, world):
@@ -457,10 +479,31 @@ def test_no_etools_data_reads_one_line_in_each_block(client_viewer, db):
 
 
 def test_a_scope_with_true_zeros_keeps_its_tiles(client_viewer, world):
+    """A section with no progress reports at all keeps its seven tiles of 0, and says it has none: never that
+    every report is in order, nor that 0 partners have reported."""
     html = text(_home(client_viewer, "?section=Nowhere"))
+    block = html[html.index('id="home-pr-title"') : html.index('id="home-pm-title"')]
     assert "No eTools data yet" not in html.split('class="home-fold"')[0]
-    assert "Nothing to follow up: every report here is Accepted or not yet due." in html
+    assert '<p class="home-empty">No progress reports here.</p>' in block
+    assert "Nothing to follow up" not in block and "partners have progress reports here" not in block
+    assert 'class="home-prp__partners"' not in block
     assert len(_tiles(html, 'id="home-pr-title"', 'id="home-pds-title"')) == 7
+
+
+def test_a_scope_whose_reports_need_no_follow_up_says_so(client_viewer, world):
+    """Reports that are all Accepted (or not yet due): nothing to follow up, and the partners line."""
+    delta = PartnerOrganization.objects.create(etl_id="4", name="Partner Delta", partner_type="CSO")
+    pd, d = _pd(delta, "LEB/PD40", sections=["Health"]), datetime.date
+    _report(pd, delta, "QPR1", d(2026, 3, 31), "Accepted", section="Health", submitted=d(2026, 4, 10))
+    _report(pd, delta, "QPR4", d(2026, 12, 31), section="Health")  # not yet due
+    home = _home(client_viewer, "?section=Health")
+    assert _figures(home)["reporting"]["counts"]["progress_reports"] == 2 and not _figures(home)["pd_rows"]
+    html = text(home)
+    block = html[html.index('id="home-pr-title"') : html.index('id="home-pm-title"')]
+    assert "Nothing to follow up: every report here is Accepted or not yet due.</p>" in block
+    assert "No progress reports here." not in block
+    line = "1 partner has progress reports here: 1 has reported (Submitted or Accepted), 0 has not yet."
+    assert line in block
 
 
 # ------------------------------------------------------------------------- accessibility
@@ -472,6 +515,18 @@ def test_the_table_is_labelled_its_counts_carry_their_unit_and_their_word(client
     assert 'aria-labelledby="home-pds-title"' in table and 'id="home-pds-title"' in html
     assert '<th scope="colgroup" colspan="4" class="home-pds__group">Progress reports</th>' in table
     assert table.count('<th scope="col"') == 8 and table.count('<th scope="row"') == 3
+    # the date column says what it holds: the oldest due date, a past one for an overdue report
+    assert re.findall(r'<th scope="col"[^>]*>([^<]+)', table) == [
+        "Programme document",
+        "Partner",
+        "Overdue",
+        "Sent back",
+        "Due",
+        "Submitted",
+        "Oldest due date",
+        "Indicators",
+    ]
+    assert "15 Jul 2026" in table
     assert (
         '<span class="pill__dot" aria-hidden="true"></span>2 overdue</span>' in table
     )  # the word, not colour
@@ -506,8 +561,12 @@ def test_a_staff_administrator_has_the_same_home_order(client, world, roles):
     assert home_service.HOME_PDS == 10
 
 
-def test_home_shows_at_most_the_first_screen_s_rows(client_viewer, world, monkeypatch):
+def test_home_shows_at_most_the_first_screen_s_rows_and_says_so(client_viewer, world, monkeypatch):
+    """Every row drawn: the count alone. Fewer rows than the count: the hint says they are the first ones."""
+    hint = re.compile(r'id="home-pds-title">[^<]+</h3>\s*<span class="home-prp__hint">([^<]*)</span>')
+    assert hint.findall(text(_home(client_viewer))) == ["3 programme documents"]
     monkeypatch.setattr(home_service, "HOME_PDS", 2)
-    figures = _figures(_home(client_viewer))
+    home = _home(client_viewer)
+    figures = _figures(home)
     assert len(figures["pd_rows"]) == 2 and figures["reporting"]["pds"]["count"] == 3
-    assert "3 programme documents" in text(_home(client_viewer))
+    assert hint.findall(text(home)) == ["The first 2 of 3 programme documents, the most overdue first"]

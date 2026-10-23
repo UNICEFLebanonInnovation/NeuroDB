@@ -26,7 +26,8 @@ freshness strip; no figure work and no ``watch_`` table) with a placeholder for 
 
 The first load shows the person's own section by the rule the Country overview and the daily review share
 (:func:`neurodb.reports.home.default_sections`); every link Home draws to those pages, to the two eTools pages
-and to the brief carries Home's scope written out, so they show the same figures.
+and to the brief carries Home's scope written out, so they show the same figures. Only a programme document's
+*Indicators* link names no section: it shows all of that PD's indicators (:func:`_pd_row`).
 """
 
 from __future__ import annotations
@@ -70,16 +71,20 @@ def _url(name: str, query: QueryDict, **extra: str) -> str:
     return reverse(name) + (f"?{encoded}" if encoded else "")
 
 
-def _pd_row(row: dict[str, Any], progress: QueryDict, keep: QueryDict) -> dict[str, Any]:
+def _pd_row(row: dict[str, Any], progress: QueryDict, every_section: QueryDict) -> dict[str, Any]:
     """A row of "Programme documents to follow up" with its links: Progress reports on its reports (``pd=``:
     its number, or the reports' own reference; none for a row with neither), and Program Performance on its
     indicators (only for a programme document NeuroDB holds with a number: Partner monitoring's ``pd=`` reads
-    that number)."""
+    that number). The indicators link names no section (``every_section``): Progress reports counts a
+    programme document under every section its reports (or the PD) name, Partner monitoring keeps the
+    indicators of the sections chosen, and a PD of two sections may hold its indicators in one of them."""
     ref, number = row["pd_reference_number"], row["pd_number"]
     return {
         **row,
         "reports_url": _url("reports:partner_reporting", progress, pd=ref) if ref else "",
-        "indicators_url": _url("reports:pd_monitoring", keep, view="table", pd=number) if number else "",
+        "indicators_url": (
+            _url("reports:pd_monitoring", every_section, view="table", pd=number) if number else ""
+        ),
     }
 
 
@@ -229,7 +234,9 @@ def home_page(request: HttpRequest) -> HttpResponse:
 
     def reporting() -> dict[str, Any]:
         figures = datamart.reporting_figures(progress)  # on the page's day (datamart.reporting_today)
-        rows = [_pd_row(row, progress, keep) for row in figures["pds"]["rows"][: home.HOME_PDS]]
+        every_section = keep.copy()  # a row's indicators: this year, every PD running in it, every section
+        every_section.setlist("section", [""])
+        rows = [_pd_row(row, progress, every_section) for row in figures["pds"]["rows"][: home.HOME_PDS]]
         return {
             "reporting": figures,
             "pd_rows": rows,

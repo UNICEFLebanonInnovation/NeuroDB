@@ -74,7 +74,10 @@ the audit trail (the entries added and removed), and the page links each saved r
 cannot be saved with nothing ticked. The page is for a **superuser with staff status** (a superuser without
 staff status cannot open the administration at all); an Administrator gets a 403 there even though the
 Administrator group holds every permission, and only a superuser can make someone a superuser or give a
-permission one by one in Users (both are read only to anyone else).
+permission one by one in Users (both are read only to anyone else). A superuser's own account is read only to
+anyone else too: its form opens read only, its password form and its delete page answer 403, the list's
+set-role, activate and deactivate actions skip it and say so, and *Delete selected* is refused. Otherwise an Administrator could set a
+superuser's password and sign in as them, or deactivate every superuser and leave nobody to open the page.
 
 - **No row for a role means the focused menu.** A save that ticks exactly the focused menu for a role removes
   that role's row, so a later change of the focused menu in code reaches every role that was never
@@ -94,12 +97,12 @@ permission one by one in Users (both are read only to anyone else).
     Section editors; otherwise they find a report by its name in the search.
   - *For you* and *Daily review*: NeuroDB Watch reaches people through For you's count in the sidebar and
     its card on Home. Tick *For you* for a role that should keep the count.
+  - *Help*: the "?" panel links to the Help pages (*Help pages*), and the search finds them.
 - **Home follows the menu.** Home leads with partner reporting for everyone (see *Home (`/`)*); the rest of
   Home (the Watch card, *Needs a decision*, the daily review, *Since*, the key figures, the sources) is under
   *More on Home*, folded for a role whose menu shows neither *For you* nor *Daily review* (every role by
   default: Administrators and Management members, too, open it for *Needs a decision* and the Watch card)
   and open for superusers. Ticking *For you* or *Daily review* for a role opens it for that role.
-  - *Help*: the "?" panel links to the Help pages (*Help pages*), and the search finds them.
 - Quick migration `web 0001_menu_choice` (a new, empty table of at most three rows).
 
 ## Secrets rotation
@@ -1074,7 +1077,7 @@ What follows rule 2:
 
 | | In use | Archive |
 |---|---|---|
-| Sidebar | *Monthly results (ActivityInfo)*, at the bottom, open by default | *ActivityInfo archive* with its years ("2019–2026"), at the bottom, closed; a reader who opens it keeps it open |
+| Sidebar (full menu) | *Monthly results (ActivityInfo)*, at the bottom, open by default | *ActivityInfo archive* with its years ("2019–2026"), at the bottom, closed; a reader who opens it keeps it open |
 | Home | *Programmes and sources*: "ActivityInfo 2026: n results tracked against targets · last import …" ("ActivityInfo 2026: records imported · last import …" while no result is tracked yet; "ActivityInfo 2026: in use, waiting for its first records" while the reporting year ticked current has no record yet; a year ticked current that has records, 2025 say, shows its own line); the Section editors' "HPM reports of 2026 to comment on" | "ActivityInfo archive 2019–2026: every database and report, kept as it was" |
 | Year-end forecasts | made every Monday; the Country overview's and this year's database dashboards' forecast card (this year only); Watch's forecast points | the weekly job skips ("ActivityInfo is not in use in 2026") and keeps the last table; the page says "These forecasts were made for 2026 while ActivityInfo was in use. They are no longer updated."; no card; Watch's forecast points close ("ActivityInfo is archived: its forecasts are no longer followed"). The forecast job may then be switched off in Scheduled jobs: Watch does not call the forecast source stale, and a stale-source point still open closes with that reason |
 | Search | the ActivityInfo groups of every year | the same, prefixed "ActivityInfo archive:" (except *ActivityInfo indicators*) |
@@ -3215,7 +3218,7 @@ year>&scope=year`).
 
 | Block | What it shows | Who |
 |---|---|---|
-| *Partner reporting: <who>* → *Progress reports* | Progress reports' seven tiles for Home's sections, exactly as on that page (`datamart.services.reporting_figures`, which is the page's own `partner_reporting`: the running programme documents and every reporting period, the page's default, so a January keeps last year's last reports, the overdue ones; on the page's day, `reporting_today`). Each tile counts indicator reports, with the progress reports under it, and opens the page on its status. Then **Programme documents to follow up** (`reporting.pd_follow_up`): the first ten (`home.HOME_PDS`), one row per programme document with its partner, its progress reports Overdue, Sent back, Due and Submitted (awaiting acceptance), the next due date and a link to its indicators on Program Performance; the most overdue first. A row's reference opens Progress reports on that programme document (`?pd=<its number>`), whose figures are the row's. "Every report to follow up, on Progress reports →" opens the Partners tab. Then the Partners tab's three figures in one line (partners with progress reports here, reported, not yet) | everyone |
+| *Partner reporting: <who>* → *Progress reports* | Progress reports' seven tiles for Home's sections, exactly as on that page (`datamart.services.reporting_figures`, which is the page's own `partner_reporting`: the running programme documents and every reporting period, the page's default, so a January keeps last year's last reports, the overdue ones; on the page's day, `reporting_today`). Each tile counts indicator reports, with the progress reports under it, and opens the page on its status. Then **Programme documents to follow up** (`reporting.pd_follow_up`): the first ten (`home.HOME_PDS`; with more, the hint reads "The first 10 of <n> programme documents, the most overdue first"), one row per programme document with its partner, its progress reports Overdue, Sent back, Due and Submitted (awaiting acceptance), the oldest due date of its Due or Overdue reports (a past date as soon as one is overdue) and a link to its indicators on Program Performance (every section, `section=`: Progress reports counts a programme document under every section its reports or the PD name, while Partner monitoring keeps the indicators of the sections chosen, and a PD of two sections may hold its indicators in one); the most overdue first. A row's reference opens Progress reports on that programme document (`?pd=<its number>`), whose figures are the row's. "Every report to follow up, on Progress reports →" opens the Partners tab. Then the Partners tab's three figures in one line (partners with progress reports here, reported, not yet). Sections with no progress report at all read "No progress reports here." and no partners line; "Nothing to follow up" is for reports that are all Accepted or not yet due | everyone |
 | *Partner reporting: <who>* → *Indicator progress in <year>* | Partner monitoring's tiles for Home's sections and this year (every programme document running in it): indicators, on track, off track, not reported, programme documents, partners. They are the grid's own `summary` at the same address (`/partner-monitoring/?section=…&year=…&scope=year`), from the same stored indicators (the `pm-rows` key), so the two never differ; the grid's *Overdue reports* tile is left out (Home's Overdue is Progress reports', which counts it another way). On track, Off track and Not reported open the grid on that status; "Program Performance table →" opens `view=table` with the same filter | everyone |
 | *More on Home* (folded) | Everything below, behind one click, with the old purpose line and its links to the Country overview and the management brief. Open for superusers and for a role whose menu shows *For you* or *Daily review* (Users and access → *Menu*); folded, its blocks are not loaded until it opens | everyone |
 | *Needs you today*: For you | The NeuroDB Watch card (not drawn while Watch is switched off: the block says "NeuroDB is not checking at the moment: an administrator switched these checks off."). An account without a role is told "For you is for people with a role…", one without a section that For you shows only whole-country points. When the morning check is late (26 hours), the card shows a warning box ("NeuroDB has not checked since Monday. Ask an administrator to look at Scheduled jobs."; before the first check, an administrator is told to open For you and press *Check now*, with a link) and its title is just "For you" | everyone |

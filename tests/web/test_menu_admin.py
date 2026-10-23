@@ -1,7 +1,7 @@
 """The administration's Menu page (SPEC_focus_menu §1.5, §4.2): superusers only tick, per role, the entries its
 sidebar shows; a save that ticks exactly the focused menu keeps no row; Reset removes every row; each change is
-in the audit trail. Administrators hold every permission, so the page checks for a superuser itself, and only a
-superuser can make one."""
+in the audit trail. Administrators hold every permission, so the page checks for a superuser itself, only a
+superuser can make one, and only a superuser changes a superuser's account."""
 
 from __future__ import annotations
 
@@ -81,12 +81,15 @@ def test_a_superuser_gets_the_grid_every_tick_labelled(client_super):
     # no row saved: every role's ticks are the focused menu
     for _name, value, _id, ticked in inputs:
         assert bool(ticked) == (value in navigation.FOCUSED), value
-    assert re.findall(r'<th scope="colgroup" colspan="4">([^<]+)</th>', html)[:4] == [
+    # each group's title heads the rows of its own tbody: the grid has no column group to head
+    assert re.findall(r'<th scope="rowgroup" colspan="4">([^<]+)</th>', html)[:4] == [
         "Top of the menu",
         "Partner reporting (PRP)",
         "Below Partner reporting",
         "Programme results",
     ]
+    grid = html.split('<table class="nd-jobs nd-menu__grid">', 1)[1].split("</table>", 1)[0]
+    assert 'scope="colgroup"' not in grid and "<colgroup" not in grid
     assert "<script" not in html.split('id="content-main"', 1)[1].split("</form>", 1)[0]  # no script
 
 
@@ -111,6 +114,10 @@ def test_the_hidden_label_rule_is_in_admin_css():
     css = CSS.read_text()
     rule = css.split(".nd-sr {", 1)[1].split("}", 1)[0]
     assert "position: absolute" in rule and "clip: rect(0, 0, 0, 0)" in rule and "width: 1px" in rule
+    # the grid's group titles are styled by the scope they carry, in both themes
+    assert '.nd-menu__grid th[scope="rowgroup"] {' in css
+    assert '.dark .nd-menu__grid th[scope="rowgroup"]' in css
+    assert '.nd-menu__grid th[scope="colgroup"]' not in css
 
 
 @pytest.mark.parametrize("who", ["staff_admin", "staff_viewer"])
@@ -287,6 +294,60 @@ def test_only_a_superuser_makes_a_superuser(client, roles, superuser):
     assert response.status_code == 302
     other.refresh_from_db()
     assert other.is_superuser
+
+
+def test_only_a_superuser_changes_a_superuser_s_account(client, roles, superuser):
+    """An Administrator who could set a superuser's password, e-mail or Active status could sign in as them
+    and open the Menu page, or leave nobody able to open it: a superuser's account is read only to anyone
+    else, in its form, its password form, its delete page and the list's actions. A superuser still changes
+    another superuser."""
+    User.objects.filter(pk=superuser.pk).update(email="menu-root@example.org")
+    superuser.refresh_from_db()
+    admin = _person("plain-admin", ADMIN)
+    viewer = _person("plain-viewer", VIEWER)
+    client.force_login(admin)
+    password = reverse("admin:auth_user_password_change", args=[superuser.pk])
+    assert client.get(password).status_code == 403
+    new = {"password1": "taken-over-654321", "password2": "taken-over-654321"}
+    assert client.post(password, new).status_code == 403
+    change = reverse("admin:users_user_change", args=[superuser.pk])
+    form = client.get(change)
+    assert form.status_code == 200  # shown, read only
+    assert 'name="email"' not in form.content.decode() and 'name="is_active"' not in form.content.decode()
+    data = _user_form(superuser, email="taken-over@example.org")
+    data.pop("is_active")
+    assert client.post(change, data).status_code == 403
+    assert client.get(reverse("admin:users_user_delete", args=[superuser.pk])).status_code == 403
+    changelist = reverse("admin:users_user_changelist")
+    for action in ("deactivate", "make_administrator"):
+        response = client.post(
+            changelist, {"action": action, "_selected_action": [superuser.pk, viewer.pk]}, follow=True
+        )
+        assert "1 superuser account(s) skipped" in response.content.decode(), action
+    response = client.post(
+        changelist, {"action": "delete_selected", "_selected_action": [superuser.pk], "post": "yes"}
+    )
+    assert response.status_code == 403
+    superuser.refresh_from_db()
+    assert superuser.check_password("pass-123456-x") and superuser.email == "menu-root@example.org"
+    assert superuser.is_active and superuser.is_staff and superuser.is_superuser
+    assert list(superuser.groups.values_list("name", flat=True)) == [VIEWER]
+    viewer.refresh_from_db()
+    assert not viewer.is_active and viewer.groups.filter(name=ADMIN).exists()  # the others are changed
+    # the Administrator still changes everyone else, themselves included
+    assert client.get(reverse("admin:auth_user_password_change", args=[viewer.pk])).status_code == 200
+    assert client.get(reverse("admin:auth_user_password_change", args=[admin.pk])).status_code == 200
+    # a superuser changes another superuser
+    other = _person("other-root", VIEWER, is_superuser=True)
+    client.force_login(superuser)
+    other_password = reverse("admin:auth_user_password_change", args=[other.pk])
+    assert client.post(other_password, new).status_code == 302
+    other.refresh_from_db()
+    assert other.check_password("taken-over-654321")
+    response = client.post(changelist, {"action": "deactivate", "_selected_action": [other.pk]}, follow=True)
+    assert "skipped" not in response.content.decode()
+    other.refresh_from_db()
+    assert not other.is_active
 
 
 # -------------------------------------------------------------------------------------------- placement

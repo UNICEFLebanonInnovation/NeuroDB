@@ -357,7 +357,7 @@ def test_home_never_dates_the_end_of_activityinfo():
     assert "until 2026" not in text
     assert (
         "Partners reported their monthly results in ActivityInfo in past years and now report progress in "
-        "eTools; the sidebar lists the years the archive holds."
+        "eTools; the full menu lists the years the archive holds."
     ) in text
 
 
@@ -539,3 +539,24 @@ def test_operations_and_the_guide_say_why_check_10_s_dates_print_whole():
         "(reference numbers, dates and counts print whole: check 10's dates are written with non-breaking "
         in (text)
     )
+
+
+def test_the_guide_and_operations_say_what_only_the_full_menu_holds():
+    """The focused menu has no ActivityInfo block, no Monitoring insights and no Data health: the guide and
+    OPERATIONS.md no longer put them in every sidebar, and Home's visits link follows Monitoring insights
+    being on, not the menu."""
+    home = " ".join(GUIDE_TEXT["home"].split())
+    assert "the sidebar lists the years the archive holds" not in home
+    assert "| Sidebar (full menu, or a menu with ActivityInfo ticked) | *Monthly results" in home
+    assert "where Monitoring insights is not in the sidebar" not in home
+    assert "(or to Field monitoring while Monitoring insights is off)" in home
+    overview = " ".join(GUIDE_TEXT["overview"].split())
+    assert "(user menu, or the sidebar)" not in overview
+    assert "The **Data health** page (user menu, or *Resources* in the full menu)" in overview
+    assert _operations_row("Sidebar (full menu)").startswith("| Sidebar (full menu) | *Monthly results")
+    # *Help* is one of the entries the focused menu leaves out, not a rule of Home
+    lines = OPERATIONS.splitlines()
+    left_out = lines.index("- **What the focused menu leaves out**, and how to get it back with a tick:")
+    home_rule = next(i for i, line in enumerate(lines) if line.startswith("- **Home follows the menu.**"))
+    help_item = next(i for i, line in enumerate(lines) if line.startswith('  - *Help*: the "?" panel'))
+    assert left_out < help_item < home_rule

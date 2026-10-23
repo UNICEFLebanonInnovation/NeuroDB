@@ -641,9 +641,10 @@ def pd_follow_up(reports: list[dict[str, Any]]) -> dict[str, Any]:
     Partner monitoring's ``pd`` reads it: "" for a PD NeuroDB does not hold), ``intervention_id``,
     ``partner_id``, ``partner_name``, ``sections`` (its reports' sections, joined), ``counts`` (its progress
     reports per status, the six of them), ``follow_up`` (Overdue, Sent back, Due and Submitted) and
-    ``next_due`` (the earliest due date of its Due or Overdue reports). Only the programme documents with a
-    report to follow up, the most pressing first: the most Overdue, then Sent back, Due and Submitted, then
-    the next due date. Counts are progress reports, as the follow-up table of the Partners tab lists them."""
+    ``oldest_due`` (the oldest due date of its Due or Overdue reports: a past one as soon as one is Overdue).
+    Only the programme documents with a report to follow up, the most pressing first: the most Overdue, then
+    Sent back, Due and Submitted, then the oldest due date. Counts are progress reports, as the follow-up
+    table of the Partners tab lists them."""
     found: dict[tuple[str, Any], dict[str, Any]] = {}
     for r in reports:
         held = r["intervention_id"]
@@ -658,7 +659,7 @@ def pd_follow_up(reports: list[dict[str, Any]]) -> dict[str, Any]:
                 "partner_name": "",
                 "_sections": [],
                 "counts": dict.fromkeys(STATUS_KEYS, 0),
-                "next_due": None,
+                "oldest_due": None,
             }
         reference = (r.get("pd_number") if r["intervention_id"] else "") or r["pd_reference_number"] or ""
         if not row["pd_reference_number"] and reference:
@@ -672,8 +673,8 @@ def pd_follow_up(reports: list[dict[str, Any]]) -> dict[str, Any]:
                 row["_sections"].append(name)
         row["counts"][r["status"]] += 1
         if r["status"] in (rc.DUE, rc.OVERDUE) and r["due_date"]:
-            if row["next_due"] is None or r["due_date"] < row["next_due"]:
-                row["next_due"] = r["due_date"]
+            if row["oldest_due"] is None or r["due_date"] < row["oldest_due"]:
+                row["oldest_due"] = r["due_date"]
     rows = []
     for row in found.values():
         row["sections"] = ", ".join(row.pop("_sections"))
@@ -683,7 +684,7 @@ def pd_follow_up(reports: list[dict[str, Any]]) -> dict[str, Any]:
     rows.sort(
         key=lambda row: (
             *(-row["counts"][key] for key in FOLLOW_UP),
-            row["next_due"] or datetime.date.max,
+            row["oldest_due"] or datetime.date.max,
             row["pd_reference_number"],
         )
     )
