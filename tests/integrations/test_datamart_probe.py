@@ -282,6 +282,39 @@ def test_the_verdict_is_on_the_runs_list_and_above_the_runs_details(client, admi
     assert found < details and shown in page[found:details]
 
 
+def test_the_run_page_says_what_a_datamart_read_found(client, admin_user):
+    """A Datamart dataset's run page says, above its details, what its read found in plain words: the business
+    area filter it took or why none, and records that came twice (21 Oct 2026: PRP's progress reports)."""
+    from html import unescape
+
+    admin_user.is_superuser = True
+    admin_user.save()
+    client.force_login(admin_user)
+    none = {"key": "", "code": "2490", "why": "none_proven", "unfiltered": 150_322,
+            "tried": [{"key": "business_area_code", "verdict": "ignored", "count": 150_322},
+                      {"key": "business_area", "verdict": "refused", "status": 400}]}  # fmt: skip
+    run = SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="prp_progress_reports")
+    run.finish(SyncRun.Status.PARTIAL, removal_skipped=True, read=150_221, datamart_count=150_295,
+               duplicates_read=74, pages_shifted={"twice": 74, "missing": 74}, twice_identical=True,
+               area_filter=none)  # fmt: skip
+    page = unescape(client.get(reverse("admin:core_syncrun_change", args=[run.pk])).content.decode())
+    found, details = page.index("What the read found"), page.index(">Details<")
+    said = " ".join(page[found:details].split())
+    assert found < details
+    assert (
+        "It was read with no business area filter: business_area_code is ignored (as many records with it as "
+        "without), business_area is refused (HTTP 400)." in said
+    )
+    assert (
+        "74 records came twice (identical) while the Datamart's pages were read: rows moved between pages, and "
+        "then as many others did not come, or the Datamart holds them twice. Nothing was removed; the next read "
+        "asks a stable order." in said
+    )
+    probed = SyncRun.objects.create(job=SyncRun.Job.DATAMART_PROBE, target="prp_progress_reports")
+    page = client.get(reverse("admin:core_syncrun_change", args=[probed.pk])).content.decode()
+    assert "What the read found" in page  # every run shows the field, "—" when it is not a Datamart read
+
+
 @responses.activate
 def test_a_country_dataset_takes_two_requests_and_a_refusal_is_kept_as_its_status(settings):
     url = f"{BASE}/api/latest/datamart/funds/grants/"
@@ -509,4 +542,37 @@ def test_a_large_read_with_no_sign_of_a_cut_asks_no_window_request(small):
     assert run.details["verdict"].endswith(
         "It announces 123 records, not a round count, and the last sync of partner_reports saw no sign of a cut: "
         "NeuroDB reads it in one answer, as the sync does (no window request asked)."
+    )
+
+
+@responses.activate
+def test_after_a_read_whose_records_came_twice_the_probe_asks_the_stable_order(small, monkeypatch):
+    """The last partner reports sync had records twice: the probe asks the ordering requests the next sync asks
+    (two pages of ordering=id, the reverse on another) and says whether the Datamart takes that order."""
+    from neurodb.integrations.etools import windows
+
+    from .fake_datamart import FakeDatamart
+
+    monkeypatch.setattr(windows, "ORDER_PAGE", 5)
+    SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="partner_reports",
+                           status=SyncRun.Status.PARTIAL,
+                           details={"removal_skipped": True, "read": 118, "duplicates_read": 2,
+                                    "datamart_count": 120, "pages_shifted": {"twice": 2, "missing": 2}})  # fmt: skip
+    FakeDatamart(small).register(REPORTS)
+    run = probe.run_job("partner_reports", client=client())
+    assert run.status == SyncRun.Status.SUCCEEDED
+    (asked,) = run.details["ordering_requests"]
+    assert (asked["key"], asked["verdict"], asked["pages"], asked["shared"]) == ("id", "proven", [5, 5, 5], 0)
+    assert (
+        "The Datamart takes ordering=id for prp/datareport (two pages in order, the reverse on another): the sync "
+        "asks for it after a read whose records came twice." in run.details["verdict"]
+    )
+
+    responses.reset()
+    FakeDatamart(small, ignore=("ordering",)).register(REPORTS)
+    run = probe.run_job("partner_reports", client=client())
+    assert run.details["ordering_requests"][0]["verdict"] == "ignored"
+    assert (
+        "The Datamart ignores ordering=id (the reverse order gives the same records): the sync reads in its own "
+        "order, and a read whose records come twice removes nothing." in run.details["verdict"]
     )

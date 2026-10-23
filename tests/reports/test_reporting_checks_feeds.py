@@ -538,6 +538,91 @@ def test_check_10_and_11_say_which_business_area_filter_the_read_took(pd):
     assert figures(found)["PRP progress reports: business area filter"] == "none"
 
 
+def _documents_run(**details):
+    """The last sync of PRP's programme documents."""
+    return SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART,
+        target="prp_programme_documents",
+        status=SyncRun.Status.SUCCEEDED,
+        started_at=timezone.make_aware(datetime.datetime(2026, 10, 14, 20, 0)),
+        details=details,
+    )
+
+
+def test_check_11_says_how_prp_progress_reports_are_linked_to_their_programme_document(pd):
+    """PRP's programme documents held for the business area and those linked to an eTools PD NeuroDB holds, a
+    warning when records of another business area name one of NeuroDB's PDs by reference number, and the key
+    pair the progress reports were linked by (with the links whose dates disagree), or why none was proven and
+    the keys the documents carry. Key names and counts only."""
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    for n, linked_to in ((1, pd), (2, None)):
+        dm.DatamartDocument.objects.create(dataset="prp_programme_documents", record_key=f"prp_id:{n}",
+                                           intervention=linked_to)  # fmt: skip
+    _documents_run(
+        business_area="2490", business_area_from="admin", linked_to_etools=1, other_code_named_here=3
+    )
+    proven = {"linked": 2, "pd_not_held": 1, "pd_not_linked": 1, "pd_not_named": 5,
+              "by": ["programme_document", "prp_id"], "proven": True,
+              "pairs": [{"report": "programme_document", "pd": "prp_id", "linked": 3, "dated": 3, "agree": 2,
+                         "verdict": "proven"}],
+              "pd_keys": {"record_key": 2, "prp_id": 2, "external_id": 2}}  # fmt: skip
+    _progress_run(business_area="2490", business_area_from="admin", progress_reports_pd_link=proven)
+    found = one("11")
+    verdict = found["verdict"]
+    assert (
+        "PRP's programme documents: 2 held for business area 2490, 1 linked to an eTools programme document "
+        "NeuroDB holds. 3 records of another business area name a programme document of Lebanon by its "
+        "reference number: the business area key may be wrong; probe the dataset (Run a job → Probe a Datamart "
+        "dataset). PRP's progress reports are linked to their programme document by programme_document = "
+        "prp_id: 2 of the 4 reports naming one (1 of those links ends outside their document's dates)."
+    ) in verdict
+    assert found["tone"] == "warning"
+    found = figures(found)
+    assert (
+        found["PRP programme document records held"],
+        found["… linked to an eTools programme document NeuroDB holds"],
+    ) == (2, 1)
+    assert found["… records of another business area naming one of NeuroDB's by reference number"] == 3
+    assert (found["PRP progress reports linked by"], found["… of the reports naming one"]) == (
+        "programme_document = prp_id",
+        2,
+    )
+
+    SyncRun.objects.filter(target="prp_progress_reports").delete()
+    none = {"pd_not_held": 2, "by": ["named", "record_key"], "proven": False, "why": "not_clear", "pairs": [],
+            "pd_keys": {"record_key": 2, "prp_id": 2, "legacy_id": 2}}  # fmt: skip
+    _progress_run(business_area="2490", business_area_from="admin", progress_reports_pd_link=none)
+    found = one("11")
+    assert (
+        "No key pair links PRP's progress reports to their programme documents clearly (two key pairs link them "
+        "otherwise, neither twice as often as the other): they are linked by the id each programme document is "
+        "held under, 0 of the 2 reports naming one. The keys PRP's programme documents carry: prp_id (2), "
+        "legacy_id (2); tell the eTools Datamart team which one holds the id the progress reports name."
+    ) in found["verdict"]
+    assert figures(found)["PRP progress reports linked by"] == "no key pair proven"
+    assert "Partner A" not in json.dumps(found) and "LEB/PD/CHK1" not in json.dumps(found)
+
+
+def test_check_10_and_11_say_when_pages_shifted_during_the_read(pd):
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    _partner_run(SyncRun.Status.PARTIAL, rows_in=9_982, datamart_count=780_905, read=780_903, removed=0,
+                 removal_skipped=True, duplicates_read=2, pages_shifted={"twice": 2, "missing": 2})  # fmt: skip
+    found = one("10")
+    assert (
+        "2 records came twice while the Datamart's pages were read: rows moved between pages, and then as many "
+        "others did not come, or the Datamart holds them twice. Nothing was removed; the next read asks a stable "
+        "order." in found["verdict"]
+    )
+    assert found["tone"] == "warning"
+    _progress_run(business_area="2490", business_area_from="admin", datamart_count=150_295, read=150_221,
+                  duplicates_read=74, held_twice=74, twice_identical=True, ordering={"key": "id"})  # fmt: skip
+    assert (
+        "PRP's progress reports, last read: The Datamart returned 74 identical records twice in a stable order "
+        "(by id): it likely holds them twice; tell the eTools Datamart team. Nothing was removed."
+        in one("11")["verdict"]
+    )
+
+
 def test_check_10_counts_history_from_the_feed_when_the_datamart_holds_no_earlier_report(pd):
     """The sync asked from 1 Nov 2018 and the rows held start on 1 Jan 2026: history is counted from 1 Jan 2026,
     information, not a warning, and a running PD that started before it (its first report held ends long after

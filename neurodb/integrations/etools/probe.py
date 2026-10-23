@@ -24,6 +24,12 @@ For a dataset whose business area filter the sync proves before using it (``cata
 partner reports, PRP's progress reports), it asks each filter key on one page of the sync's own query
 (``details.area_filters``) and judges it as the sync does (``datamart_sync.judge_area_key``): the verdict says
 which filter the Datamart applies, or that it applies none.
+
+For a dataset whose last sync had records twice, or asked a stable order (``windows.order_wanted``), it asks
+the ordering requests the sync asks before its read (``windows.prove_ordering``: two pages of ``ordering=id``
+and the reverse on another, :data:`windows.ORDER_PAGE` records each, then the dataset's record identity) and
+keeps, per key, its verdict, the page lengths and the records shared (``details.ordering_requests``): the
+verdict says whether the Datamart takes the order, which the sync then asks for.
 """
 
 from __future__ import annotations
@@ -538,6 +544,62 @@ def area_verdict(path: str, code: str, asked: list[dict[str, Any]], unfiltered: 
     )
 
 
+def order_requests(
+    client: DatamartClient, name: str, path: str, base: dict[str, Any]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The ordering requests the sync of ``name`` asks before its read (``windows.prove_ordering``, with the
+    sync's own query ``base``), only when its last finished run had records twice or asked an order: the
+    order proven or why none, and each key tried (counts only). None asked otherwise."""
+    before = sync.last_details(name)
+    if not windows.order_wanted(before):
+        return {}, []
+    keys = ("id", str(before.get("record_identity") or ""))
+    known = before.get("datamart_count")
+    return windows.prove_ordering(client, path, base, country=False, keys=keys, known=known)
+
+
+def order_verdict(path: str, tried: list[dict[str, Any]]) -> str:
+    """What the ordering requests mean (:func:`order_requests`): the stable order the Datamart takes, which
+    the sync asks for after a read whose records came twice, or that it takes none of those tried."""
+    said = []
+    for t in tried:
+        key, verdict = t.get("key"), t.get("verdict")
+        if verdict == "proven":
+            how = (
+                "two pages in order, the reverse on another"
+                if t.get("carried")
+                else "two pages that share no record, the reverse on another"
+            )
+            said.append(
+                f"The Datamart takes ordering={key} for {path} ({how}): the sync asks for it after a read "
+                "whose records came twice."
+            )
+        elif verdict in ("refused", "failed"):
+            status = f" (HTTP {t['status']})" if t.get("status") else ""
+            word = "refuses" if verdict == "refused" else "did not answer"
+            said.append(f"The Datamart {word} ordering={key}{status}: the sync does not ask it.")
+        elif verdict == "too_small":
+            said.append(
+                f"{path} holds {2 * windows.ORDER_PAGE:,} records or fewer: no stable order is asked (too "
+                "few to shift)."
+            )
+        else:
+            how = (
+                "the reverse order gives the same records"
+                if t.get("reverse_shared")
+                else "its two pages share records"
+                if t.get("shared")
+                else "a page came back empty"
+                if not all(t.get("pages") or [0])
+                else "its pages are not in order"
+            )
+            said.append(
+                f"The Datamart ignores ordering={key} ({how}): the sync reads in its own order, and a read "
+                "whose records come twice removes nothing."
+            )
+    return " ".join(said)
+
+
 def probe(name: str, run: SyncRun, *, client: DatamartClient | None = None) -> SyncRun:
     """Ask the Datamart about one dataset (:data:`NO_FILTER`, :data:`BY_BUSINESS_AREA` for a dataset filtered
     by business area, :data:`BY_COUNTRY`) and finish ``run`` with what it answered: SUCCEEDED when every
@@ -577,6 +639,7 @@ def probe(name: str, run: SyncRun, *, client: DatamartClient | None = None) -> S
         why = windows.suspected(name, count) if answered and isinstance(count, int) else ""
         looked = window_requests(client, name, path, base, count, first.get(own, [])) if why else []
         areas = area_requests(client, name, path, base, code, count) if by_area and code and answered else []
+        _, ordered = order_requests(client, name, path, base)
     except Exception as exc:
         return fail(run, exc)
     run.rows_in = sum(a.get("page", 0) for a in answers.values())
@@ -592,12 +655,15 @@ def probe(name: str, run: SyncRun, *, client: DatamartClient | None = None) -> S
     if areas:
         details["area_filters"] = areas
         details["verdict"] += " " + area_verdict(path, code, areas, count)
+    if ordered:
+        details["ordering_requests"] = ordered
+        details["verdict"] += " " + order_verdict(path, ordered)
     # a page past the count that is refused is what the probe asks (a paging limit), and a business area key
     # refused is an answer too: neither is a refusal of the probe
     refused = (
         any("error" in a for a in answers.values())
         or any("error" in a for a in looked if a["request"] != PAST_COUNT)
-        or any(a.get("verdict") == "failed" for a in areas)
+        or any(a.get("verdict") == "failed" for a in [*areas, *ordered])
     )
     run.finish(SyncRun.Status.PARTIAL if refused else SyncRun.Status.SUCCEEDED, **details)
     return run

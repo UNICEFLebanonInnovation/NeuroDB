@@ -1589,6 +1589,34 @@ what was read cannot catch a Datamart table reloaded while it is read (its ETL e
 one night's wait keeps such a read from emptying NeuroDB's copy. The records kept whole (below), the raw
 copies of the partner, programme document, location and audit records among them, follow the same rules.
 
+**Pages that shift during a read** (`windows.Reading`). A read whose records came twice
+(`details.duplicates_read`) records `details.pages_shifted` (`twice`, and `missing`: announced but not read).
+The counts cannot tell rows moving between pages (the Datamart's default order is not stable, and as many
+others then never come) from rows the Datamart holds twice, so Data health, the run's page and checks 10 and
+11 say both: "74 records came twice (identical) while the Datamart's pages were read: rows moved between
+pages, and then as many others did not come, or the Datamart holds them twice. Nothing was removed; the next
+read asks a stable order." (PRP's progress reports, 21 Oct 2026: 150,295 announced, 150,221 distinct read, 74
+identical records twice; "identical" is said for records with no id, told apart by their content). The next
+read of the dataset, and every read after one that asked an order, first proves a stable order
+(`windows.prove_ordering`, three requests of 50 records: pages 1 and 2 of `ordering=id` share no record and,
+when the records carry the key, are in order; page 1 of `ordering=-id` shares none with page 1 and is in
+descending order; then the same by the dataset's record identity, below; a dataset of 100 records or fewer is
+not asked) and asks every page of its read in that order (`details.ordering`: `{"key": "id"}`, or `{"key": "",
+"why": ...}` with `ignored`, `refused`, `failed` or `too_small`; a refused or failed request never fails the
+run, and the words then say the Datamart takes no stable order). Records that still come twice in a stable
+order are most likely held twice (a unique order does not move the rows its ETL rewrites, and with ids that
+grow a row added during the read comes last): `details.held_twice` replaces `pages_shifted`, and the words are
+"The Datamart returned 74 identical records twice in a stable order (by id): it likely holds them twice; tell
+the eTools Datamart team. Nothing was removed." Such a read stays not whole, as before, so the progress
+reports keep skipping their removal until the Datamart team removes the copies. A read in a stable order that
+comes back whole removes what the Datamart no longer returns, as any whole read; for the progress reports its
+first removal can be large (every row a changed hash-keyed record left behind since the last whole read), and
+it waits one night when it is more than half of the rows held and at least 1,000, so check 11's counts of
+progress reports held can drop on that night. Run a job → *Probe a Datamart dataset* asks the same three
+requests after such a read (below). The page of every eTools Datamart run says what its read found in plain
+words (*What the read found*, above its details: why it was read in windows, the business area filter it took
+or why none, and records that came twice); "—" for any other run.
+
 **A large read is read in windows** (`neurodb/integrations/etools/windows.py`, `Reading`) **only when a cut
 is suspected**: its first page announces 5,000 records or more (`WINDOW_RECORDS`) and either a round count
 (`details.windows_why` = `round_count`) or the dataset's previous finished run looked cut
@@ -1921,7 +1949,9 @@ before) and what they announced and read, and why a read removed nothing (a wind
 a count that changed, an answer cut that could not be read in windows, a large removal kept one more night:
 *A large read is read in windows*); the partner reports and PRP's progress reports say which business area
 filter their read took, or why none, and the records of another business area a filter let through (*A
-business area filter is proven before it is used*). Read it before trusting a number
+business area filter is proven before it is used*); a read whose records came twice says whether its pages
+shifted or, read in a stable order, the Datamart likely holds them twice (*Pages that shift during a read*).
+Read it before trusting a number
 on an eTools page; a dataset with many "not
 linked" records or an "empty response" is the first thing to fix. The latest run of every dataset is
 read in one query that takes, for each dataset, its newest run from the index `core_syncrun_job_target`
@@ -2320,7 +2350,8 @@ and business area codes at most).
   window filters are ignored), how many windows it read, why (a round count, or the cut sign of the read
   before) and whether each was whole (and that the Datamart's own count was cut), the pages that came back
   shorter than the first, a count that changed during the read, the business area filter it read with or
-  why none ("It read with no business area filter: …"), and, when the Datamart holds no report from the date
+  why none ("It read with no business area filter: …"), records that came twice (pages that shifted, or
+  records held twice in a stable order: *Pages that shift during a read*), and, when the Datamart holds no report from the date
   asked, "The Datamart holds no partner report starting before 1 Jan 2026 (NeuroDB asked from 1 Nov 2018):
   history is counted from 1 Jan 2026, and the 21 running programme documents that started before it have a
   partial history (Reached is PRP's cumulative)." (information), or, before the first sync that records
@@ -2369,7 +2400,16 @@ and business area codes at most).
   feed does not carry them; these may be the overdue reports Power BI counts, which nothing has confirmed
   yet); with none to compare, it says why (never synced,
   running, failed, none returned, none linked to a programme document NeuroDB holds, with the link's
-  counts, or none of the year).
+  counts, or none of the year). It also says how many of PRP's programme documents are held for the business
+  area and how many are linked to an eTools programme document NeuroDB holds, and warns when records of
+  another business area name one of NeuroDB's PDs by its reference number (the business area key may be
+  wrong: probe the dataset); then how PRP's progress reports were linked to them: the key pair proven
+  ("PRP's progress reports are linked to their programme document by programme_document = prp_id: N of the
+  M reports naming one"), with the links that end outside their document's dates, or why no pair was
+  proven and the keys the documents carry, what to tell the eTools Datamart team (figures *PRP programme
+  document records held*, *… linked to an eTools programme document NeuroDB holds*, *… records of another
+  business area naming one of NeuroDB's by reference number*, *PRP progress reports linked by*, *… of the
+  reports naming one*); and, when their last read had records twice, what that read found.
 * **Check 12**, *Indicator grouping*, counts for the eTools master indicators (counts only, never a title
   or a partner's or master indicator's name): the PD indicators the nightly `suggest_master_indicators` job
   reads (those of the programme documents running this year or last, per section), with and without an
@@ -2902,12 +2942,23 @@ document it names is held (those are read by business area, `details.kept_by_pro
 others are dropped as another country's (`details.unnamed_skipped` counts them apart). PRP's progress reports
 are requested with no business area filter unless one is proven that night (*A business area filter is proven
 before it is used*, above): the Datamart ignores `business_area_code` there (21 Oct 2026: 150,322 records with
-it, 150,320 without), so the request no longer sends it, and the records are kept by the code they name. Each run of the
+it, 150,320 without), so the request no longer sends it, and the records are kept by the code they name.
+A PRP programme document naming no business area is no longer kept unconfirmed: it is kept only when its
+reference number names a programme document NeuroDB holds (reference numbers carry the country's prefix;
+`details.kept_by_reference`), and linked to that PD by its reference number alone, as its eTools id is not
+proven the country's (eTools ids repeat across countries, each country's eTools having its own); the others
+are dropped as another country's (`details.unnamed_skipped`), and their rows, with the progress reports kept
+through them, leave at the next whole read. Each run of the programme documents also says whether the
+records kept are the country's: `details.linked_to_etools` (kept documents linked to an eTools PD NeuroDB
+holds, by external id or reference number) and `details.other_code_named_here` (records skipped as another
+business area whose reference number names a PD NeuroDB holds: the business area key may be wrong; check 11
+then warns and points to the probe). Each run of the
 three records, counts only: `business_area` and `business_area_from` (above), `read` (kept and skipped),
 `datamart_count`, `business_areas_seen` (the ten most frequent
 codes, `(none)` for none), `keys_seen` (how many records carry each key the sync and its readers use:
-a key the Datamart does not send reads 0) and `dated` (the records kept by the year of their date, this
-year and the years beside it, `other` and `none`); a read that kept nothing sets `empty_response`, and
+a key the Datamart does not send reads 0), `id_keys` (the ten id-like keys the records read carry most, and
+how many carry each: what a record identity or the progress reports' link can be made of) and `dated` (the
+records kept by the year of their date, this year and the years beside it, `other` and `none`); a read that kept nothing sets `empty_response`, and
 Data health then says "the Datamart returned nothing for business area N" (or that every record named
 another business area) and points to the code, never to the country name; for a code NeuroDB found it
 says so and points to the admin's code, which comes first; for a run asked with a value that is not a code
@@ -2921,13 +2972,51 @@ programme document and indicator, and check 8 counts those that name another pro
 PRP's progress reports name no eTools programme document, only PRP's own: after each sync of
 `prp_programme_documents` and of `prp_progress_reports` (the catalogue syncs them in that order), each
 progress report is linked to the programme document (and its partner) of the PRP programme document it
-names by id (`programme_document_id`, else `programme_document`: no recorded record confirms the key yet),
-that record being linked to the eTools PD by its external id or reference number. The run's details say
-how it went, counts only, under `progress_reports_pd_link`: `linked`, `pd_not_named` (the record names
-none under those keys), `pd_not_held` (a PRP programme document NeuroDB does not hold) and `pd_not_linked`
-(held, but linked to no eTools PD). Check 11 reads the linked ones as its third feed. A progress report
-the sync rewrites keeps the link it holds until that step runs, so a read that fails part-way unlinks
-none.
+names, that record being linked to the eTools PD by its external id or reference number. Which key of each
+dataset holds that id is not documented, and neither may carry an `id` (21 Oct 2026: no progress report
+carried `id` or `source_id`, and none of the 1,590 kept was linked, as the documents are held under a hash),
+so the sync proves the pair on what NeuroDB holds (`datamart_sync.prove_pd_link`). The documents' keys tried
+are the key each is held under (the lookup used until now, first), every id-like key of their records (a key
+whose last word is `id` or `pk`, or whose value is `{"id": ..}`, never one that holds a person) and
+`reference_number`, a key whose values repeat among them left out; the progress reports' keys are the
+document they name (`programme_document_id`, else `programme_document`, first) and every other key naming a
+programme document. Pairs that link the same reports to the same documents are one, named by their first key
+other than the lookup used until now. A link is dated when the report has an `end_date` and its document a
+start and an end (PRP's `start_date` and `end_date`, else its eTools PD's), and agrees when the report ends
+no earlier than 31 days before the start and no later than 365 days after the end; a pair fewer than 9 in 10
+of whose dated links agree is out (eTools ids and PRP ids are small numbers in the same range: a chance match
+links reports to documents of other dates). The pair linking the most reports is used when it links at least
+twice as many as any pair that links a report it does not, or to another document, and at least half of the
+reports naming a document under its key (9 in 10 when fewer than half of its links are dated); once proven,
+every report it matches is linked, the few whose dates disagree too (an amendment can move a document's
+dates). With none proven, the lookup used until now is kept: it links what it links. A progress report naming
+no business area is kept through the same pair, proven on what is held before the read. The run's details
+say how it went, key names and counts only, under `progress_reports_pd_link`: `linked`, `pd_not_named` (the
+record names none under the pair's key), `pd_not_held` (a PRP programme document NeuroDB does not hold under
+the pair's key), `pd_not_linked` (held, but linked to no eTools PD), `by` (`[report key, document key]`),
+`proven`, `pairs` (the five best, with the reports each links, how many of those links are dated and how many
+agree), `pd_keys` (the documents' candidate keys and the records carrying each, with `not_unique` for those
+whose values repeat) and `why` none was proven. Check 11 says which pair linked them and how many of its
+links end outside their document's dates, or why none was proven with the keys the documents carry (what to
+tell the eTools Datamart team), and reads the linked ones as its third feed. A progress report the sync
+rewrites keeps the link it holds until that step runs, so a read that fails part-way unlinks none.
+
+**A record identity for records without an id.** A dataset kept whole whose records carry no `id` was held
+under a hash of each record, so a record that changed became a new row. Each read now looks for an id-like
+key that every record read without an id carries, kept or skipped, each value once
+(`datamart_sync.IdentityTracker`: the records told apart by their content only, so two records of different
+content sharing a value drop that key for the night; at most 10 keys tracked; only a hash of each value
+kept), and holds those records under `"<key>:<value>"` (`details.record_identity`, "" for none: last night's
+first while it still qualifies, then `pk`, `source_id`, then the others by name). They are written once the
+read has ended, and the row held under a record's hash, or under last night's identity, is renamed in place
+(`DatamartDocument.record_key`, still 64 characters at most), so an unchanged record keeps its row and its
+link, and a changed one no longer becomes a new row. The first night renames the hash rows of the records
+that did not change; a changed one gets a new row, and its old one goes at the next whole read (or waits one
+night). Read country-blind, a key unique only within Lebanon (eTools' `external_id`) never passes, as other
+countries' records repeat it; under a proven business area filter no new identity is chosen (last night's is
+kept while it still qualifies), so the weekly read with no filter never renames every row. The read counts
+its records by last night's identity meanwhile. A read that fails part-way writes none of these records
+(they keep last night's rows); records with an id are written as they come, as before.
 
 To see what the Datamart holds when such a read keeps nothing, an administrator presses Run a job →
 *Probe a Datamart dataset* (`probe_datamart --dataset <name>`, `prp_indicator_reports` by default). It
@@ -2956,7 +3045,11 @@ windows, or not more than one answer gives: tell the eTools Datamart team), whet
 records to one request (a round count, with no page past it: the Datamart refuses every page past the last
 one, so a refused page says nothing of a limit when the count is not round), whether the count is cut
 (records on the page past it; a page number it ignores is said as such, never as more records), and how
-many reports it holds that end before any NeuroDB holds. A page past the
+many reports it holds that end before any NeuroDB holds. For a dataset whose last sync had records twice,
+or asked a stable order, it also asks the three ordering requests the next sync asks (*Pages that shift
+during a read*; `details.ordering_requests`: per key its verdict, the page lengths and the records shared)
+and says "The Datamart takes ordering=id for prp/datareport (two pages in order, the reverse on another): the
+sync asks for it after a read whose records came twice.", or that it ignores or refuses it. A page past the
 count that is refused is an answer (a paging limit), not a refusal. It writes nothing but
 its run (job *eTools Datamart probe*, target the dataset): per request the filter sent, the count
 announced, the records on the page, how many carry each key, and the business area codes and country

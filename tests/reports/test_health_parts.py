@@ -564,6 +564,36 @@ def test_data_health_says_why_a_read_was_windowed_a_cut_page_and_the_business_ar
     assert "read by business area 2490 (filter business_area_code)" in row
 
 
+def test_data_health_says_pages_shifted_or_records_held_twice(client_viewer, world):
+    """Records that came twice: with no stable order asked, the counts cannot tell pages that shifted from rows
+    the Datamart holds twice, so both are said (21 Oct 2026: PRP's progress reports, 74 twice and as many
+    missing); in a stable order, the Datamart likely holds them twice. A run made before it was recorded keeps
+    the older words."""
+    from html import unescape
+
+    datamart = SyncRun.Job.ETOOLS_DATAMART
+    _run(datamart, "prp_progress_reports", status=SyncRun.Status.PARTIAL, rows_in=1_590, rows_written=1_590,
+         details={"documents": 1_590, "removal_skipped": True, "read": 150_221, "datamart_count": 150_295,
+                  "duplicates_read": 74, "pages_shifted": {"twice": 74, "missing": 74}, "twice_identical": True,
+                  "business_area": "2490", "business_area_from": "admin"})  # fmt: skip
+    _run(datamart, "partner_reports", status=SyncRun.Status.PARTIAL, rows_in=9_982, rows_written=9_982,
+         details={"removed": 0, "removal_skipped": True, "read": 780_902, "datamart_count": 780_905,
+                  "duplicates_read": 3, "held_twice": 3, "ordering": {"key": "id"}})  # fmt: skip
+    datasets = " ".join(unescape(text(get_part(client_viewer, PAGE, "datasets"))).split())
+    row = _dataset(datasets, "prp_progress_reports")
+    assert (
+        "74 records came twice (identical) while the Datamart's pages were read: rows moved between pages, and "
+        "then as many others did not come, or the Datamart holds them twice. Nothing was removed; the next read "
+        "asks a stable order." in row
+    )
+    assert "(rows moving between pages)" not in row  # the older words, for runs before pages_shifted
+    row = _dataset(datasets, "partner_reports")
+    assert (
+        "The Datamart returned 3 records twice in a stable order (by id): it likely holds them twice; tell the "
+        "eTools Datamart team. Nothing was removed." in row
+    )
+
+
 @pytest.mark.parametrize("name", PARTS)
 def test_each_part_stays_within_its_query_ceiling(client_viewer, world, name, django_assert_max_num_queries):
     raw_get(client_viewer, PAGE)  # the navigation stored, as after the frame
@@ -677,9 +707,16 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
     the Datamart announced (records returned twice, an empty answer cut short, a round count) and the PRP
     records that named no business area, a code asked that is not one, the values set aside and a code NeuroDB
     found, a read in windows (how many, why, those not whole, a cut count, a changed count, a removal held), a
-    page cut, and the business area filter a read took (or why none) with the records it let through."""
+    page cut, the business area filter a read took (or why none) with the records it let through, and records
+    that came twice (pages that shifted, or records held twice in a stable order) with the order asked."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
-    from neurodb.integrations.etools.datamart_sync import FOUND, area_words, is_area_code, not_a_code
+    from neurodb.integrations.etools.datamart_sync import (
+        FOUND,
+        area_words,
+        is_area_code,
+        not_a_code,
+        shift_words,
+    )
 
     last_by_target: dict[str, SyncRun] = {}
     for run in SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_DATAMART).order_by("-started_at"):
@@ -699,6 +736,7 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
             services.NOT_LINKED_LABELS.get(k, k): v for k, v in (details.get("not_linked") or {}).items()
         }
         code = str(details.get("business_area") or "")
+        shifted, ordering = details.get("pages_shifted") or {}, details.get("ordering") or {}
         rows.append(
             {
                 "name": name,
@@ -726,6 +764,12 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
                 "datamart_count": details.get("datamart_count"),
                 "removal_skipped": bool(details.get("removal_skipped")),
                 "duplicates_read": details.get("duplicates_read"),
+                "pages_shifted_twice": shifted.get("twice"),
+                "pages_shifted_missing": shifted.get("missing"),
+                "held_twice": details.get("held_twice"),
+                "ordering_key": ordering.get("key") or "",
+                "ordering_why": ordering.get("why") or "",
+                "shift_words": shift_words(details),
                 "cap_suspected": details.get("cap_suspected") or "",
                 "windows_read": details.get("windows_read"),
                 "windows_announced": details.get("windows_announced"),

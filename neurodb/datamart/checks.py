@@ -1794,10 +1794,11 @@ def _history_words(history: rc.HistoryFrom) -> str:
 
 def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool]:
     """What the latest partner reports sync did, for check 10: its sentence (what it asked, what the Datamart
-    announced, what was read, kept and removed, then the windows and why, the limit, a page cut, and the
-    business area filter it read with or why none), its figures, the table of its windows, and whether it
-    calls for a warning (a cut answer, nothing removed, a window not whole, a page cut)."""
-    from neurodb.integrations.etools.datamart_sync import area_words, capped
+    announced, what was read, kept and removed, then the windows and why, the limit, a page cut, the business
+    area filter it read with or why none, and records that came twice: pages that shifted, or records held
+    twice), its figures, the table of its windows, and whether it calls for a warning (a cut answer, nothing
+    removed, a window not whole, a page cut)."""
+    from neurodb.integrations.etools.datamart_sync import area_words, capped, shift_words
     from neurodb.reports.services import WINDOWS_WHY
 
     details = run.details if isinstance(run.details, dict) else {}
@@ -1859,6 +1860,9 @@ def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool
     words = area_words(area)
     if words:
         said += f" It {words}."
+    shift = shift_words(details)
+    if shift:
+        said += f" {shift}"
     if details.get("changed") and isinstance(details.get("whole_count_end"), int):
         said += (
             f" The Datamart's count changed during the read ({announced:,}, then "
@@ -2218,6 +2222,7 @@ def _number_gaps(cursor, today: datetime.date) -> tuple[Counter[int], int, int]:
 
 
 PROGRESS = "prp_progress_reports"  # PRP's own progress reports (sources/prp/unicefprogressreport): check 11
+PROGRAMME_DOCS = "prp_programme_documents"  # PRP's programme documents, the progress reports' link: check 11
 AGAIN_PROGRESS = AGAIN.replace(PRP, "prp_programme_documents and prp_progress_reports")
 
 
@@ -2225,12 +2230,20 @@ def _progress_feed(cursor, today: datetime.date) -> dict[str, Any]:
     """PRP's own progress reports (``prp_progress_reports``) for check 11, as counts: per month of the year
     their period ends in, the progress reports of the running programme documents per status
     (:func:`reached.prp_document_status` over their status, end, due and submission dates), the records held,
-    those of the year by their programme document link, those with no period end, and the last sync."""
+    those of the year by their programme document link, those with no period end, and the last sync; PRP's
+    programme documents held and those linked to an eTools PD NeuroDB holds, with their last sync; and how the
+    progress reports were linked to them (``progress_reports_pd_link`` of the later of the two syncs that
+    recorded one)."""
     from neurodb.reports.services import latest_datamart_runs
 
     zero = dict.fromkeys(rc.STATUS_LABELS, 0)
     _bound(cursor)
-    run = latest_datamart_runs([PROGRESS]).get(PROGRESS)
+    runs = latest_datamart_runs([PROGRESS, PROGRAMME_DOCS])
+    run, documents_run = runs.get(PROGRESS), runs.get(PROGRAMME_DOCS)
+    _bound(cursor)
+    documents = dm.DatamartDocument.objects.filter(dataset=PROGRAMME_DOCS).aggregate(
+        held=Count("pk"), linked=Count("intervention")
+    )
     _bound(cursor)
     found = (
         dm.DatamartDocument.objects.filter(dataset=PROGRESS)
@@ -2267,7 +2280,18 @@ def _progress_feed(cursor, today: datetime.date) -> dict[str, Any]:
             counts = table.setdefault(end.month, dict(zero))
             counts[status] += g["n"]
     details = run.details if run is not None and isinstance(run.details, dict) else {}
-    link = details.get("progress_reports_pd_link")
+    documents_details = (
+        documents_run.details if documents_run is not None and isinstance(documents_run.details, dict) else {}
+    )
+    recorded = [
+        (r.started_at, r.details["progress_reports_pd_link"])
+        for r in (run, documents_run)
+        if r is not None
+        and isinstance(r.details, dict)
+        and isinstance(r.details.get("progress_reports_pd_link"), dict)
+        and r.details["progress_reports_pd_link"]
+    ]
+    link = max(recorded, key=lambda found: found[0])[1] if recorded else {}
     return {
         "run": run,
         "held": total,
@@ -2276,9 +2300,85 @@ def _progress_feed(cursor, today: datetime.date) -> dict[str, Any]:
         "running": held[LINK_RUNNING],
         "unlinked": held[LINK_NOT_HELD],
         "undated": undated,
-        "link": link if isinstance(link, dict) else {},
+        "link": link,
         "details": details,
+        "documents": documents["held"],
+        "documents_linked": documents["linked"],
+        "documents_run": documents_run,
+        "documents_details": documents_details,
     }
+
+
+def _pair(by: list[Any]) -> str:
+    """A key pair of the progress reports' link in words: "programme_document = prp_id"."""
+    from neurodb.integrations.etools.datamart_sync import PD_RECORD_KEY, PROGRESS_REPORT_PD_KEYS, REPORT_NAMED
+
+    report, document = (str(k) for k in by)
+    report = " or ".join(PROGRESS_REPORT_PD_KEYS) if report == REPORT_NAMED else report
+    return f"{report} = {'id' if document == PD_RECORD_KEY else document}"
+
+
+def _link_words(feed: dict[str, Any]) -> tuple[str, bool]:
+    """Check 11's words on how PRP's progress reports are linked to their programme document: PRP's programme
+    documents held for the business area and those linked to an eTools programme document NeuroDB holds (a
+    warning when records of another business area name one of NeuroDB's by its reference number), then the key
+    pair the last sync linked the progress reports by, with how many it links and how many of its links end
+    outside their document's dates, or why none was proven, with the keys the documents carry (what to tell
+    the Datamart team). Key names and counts only; "" for syncs made before they were recorded."""
+    from neurodb.integrations.etools.datamart_sync import LINK_WHY, PD_RECORD_KEY
+
+    said, warn = [], False
+    details = feed["documents_details"]
+    if feed["documents_run"] is not None or feed["documents"]:
+        code = str(details.get("business_area") or "")
+        area = f" for business area {code}" if code else ""
+        said.append(
+            f"PRP's programme documents: {feed['documents']:,} held{area}, {feed['documents_linked']:,} "
+            "linked to an eTools programme document NeuroDB holds."
+        )
+    stray = _count(details.get("other_code_named_here"))
+    if stray:
+        country = (settings.ETOOLS_DATAMART_COUNTRY or "").strip() or "the country"
+        said.append(
+            f"{_plural(stray, 'record', 'records')} of another business area "
+            f"{'names' if stray == 1 else 'name'} a programme document of {country} by its reference number: "
+            f"the business area key may be wrong; probe the dataset ({PROBE})."
+        )
+        warn = True
+    link = feed["link"]
+    by = link.get("by")
+    if isinstance(by, list) and len(by) == 2:
+        linked = _count(link.get("linked"))
+        naming = linked + _count(link.get("pd_not_held")) + _count(link.get("pd_not_linked"))
+        if link.get("proven"):
+            pairs = [p for p in link.get("pairs") or [] if isinstance(p, dict)]
+            used = next((p for p in pairs if p.get("verdict") == "proven"), {})
+            off = _count(used.get("dated")) - _count(used.get("agree"))
+            ends = "of those links ends" if off == 1 else "of those links end"
+            said.append(
+                f"PRP's progress reports are linked to their programme document by {_pair(by)}: {linked:,} "
+                f"of the {naming:,} reports naming one"
+                + (f" ({off:,} {ends} outside their document's dates)" if off > 0 else "")
+                + "."
+            )
+        else:
+            why = LINK_WHY.get(str(link.get("why") or ""), "")
+            keys = ", ".join(
+                f"{k} ({_count(n):,})" for k, n in (link.get("pd_keys") or {}).items() if k != PD_RECORD_KEY
+            )
+            said.append(
+                "No key pair links PRP's progress reports to their programme documents clearly"
+                + (f" ({why})" if why else "")
+                + f": they are linked by the id each programme document is held under, {linked:,} of the "
+                f"{naming:,} reports naming one."
+                + (
+                    f" The keys PRP's programme documents carry: {keys}; tell the eTools Datamart team which "
+                    "one holds the id the progress reports name."
+                    if keys
+                    else ""
+                )
+            )
+    return " ".join(said), warn
 
 
 def _progress_state(feed: dict[str, Any], year: int) -> tuple[str, str]:
@@ -2367,7 +2467,7 @@ def _progress_state(feed: dict[str, Any], year: int) -> tuple[str, str]:
 
 
 def _two_feeds(cursor) -> dict[str, Any]:
-    from neurodb.integrations.etools.datamart_sync import area_words
+    from neurodb.integrations.etools.datamart_sync import area_words, shift_words
 
     today = datetime.date.today()
     zero = dict.fromkeys(rc.STATUS_LABELS, 0)
@@ -2498,6 +2598,23 @@ def _two_feeds(cursor) -> dict[str, Any]:
             (area.get("key") or "none") if isinstance(area, dict) else "—",
         )
     )
+    # how they are linked to their programme document: PRP's programme documents held, and the key pair
+    link, documents_run = progress["link"], progress["documents_run"]
+    by = link.get("by") if isinstance(link.get("by"), list) and len(link["by"]) == 2 else None
+    named_here = _count(progress["documents_details"].get("other_code_named_here"))
+    figures += [
+        ("PRP programme document records held", progress["documents"]),
+        ("… linked to an eTools programme document NeuroDB holds", progress["documents_linked"]),
+        (
+            "… records of another business area naming one of NeuroDB's by reference number",
+            "—" if documents_run is None else named_here,
+        ),
+        (
+            "PRP progress reports linked by",
+            "—" if by is None else _pair(by) if link.get("proven") else "no key pair proven",
+        ),
+        ("… of the reports naming one", "—" if by is None else _count(link.get("linked"))),
+    ]
     if mine or ours_reports:
         ends = sorted({*mine, *ours_reports}, key=lambda m: (m is None, m or 0))
         tables.append(
@@ -2534,8 +2651,14 @@ def _two_feeds(cursor) -> dict[str, Any]:
         progress_text, progress_tone = _progress_state(progress, today.year)
     if area_words(area):  # the business area filter their last sync read with, or why none
         progress_text += f" The last sync of PRP's progress reports {area_words(area)}."
+    shift = shift_words(progress["details"])  # records that came twice: pages that shifted, or held twice
+    if shift:
+        progress_text += f" PRP's progress reports, last read: {shift}"
+    said, documents_warn = _link_words(progress)  # PRP's programme documents, and the key pair of the link
+    if said:
+        progress_text += f" {said}"
     # what the partner reports feed carries (what Progress reports counts), whatever PRP's own feed holds
-    lead, warn = [], progress_tone == WARN
+    lead, warn = [], progress_tone == WARN or documents_warn
     if ours and not ours_owed and not_yet:
         lead.append(
             "The partner reports feed (what Progress reports counts) carries no report still owed for a "
@@ -3055,7 +3178,8 @@ CHECKS: tuple[Check, ...] = (
         "Progress reports and Partner monitoring read the partner reports (prp/datareport); PRP's indicator "
         "reports (prp/indicator-report-v2) are kept whole for Ask NeuroDB and the Funds page, and PRP's own "
         "progress reports (sources/prp/unicefprogressreport) for Ask NeuroDB, each linked to its programme "
-        "document through PRP's programme documents after their sync. All are read with the same status rule "
+        "document through PRP's programme documents after their sync, by the pair of keys the data proves "
+        "(the id each programme document is held under when none is). All are read with the same status rule "
         "(PRP's word, then the dates); indicator reports are compared with indicator reports, progress "
         "reports with progress reports. A report the partner reports feed does not carry is counted nowhere "
         "else: the number gaps (a QPR2 missing between QPR1 and QPR3) are estimated here only.",

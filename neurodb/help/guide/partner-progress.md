@@ -251,7 +251,9 @@ partner reports were read (in windows when the Datamart's answer looks cut, and 
 read whole) and why running programme documents have no row, and lists, by reason, every running
 programme document with no row (its reference number, type, dates, sections, whether PRP holds it and
 its active PD indicators); checks 10 and 11 say which business area filter the partner reports and PRP's
-progress reports were read with, or why none. Check 12 counts, per section, the PD indicators with and
+progress reports were read with, or why none. Check 11 also says how PRP's own progress reports are linked
+to their programme document: by the pair of keys the data proves, with how many it links, or why no pair
+was proven and the keys PRP's programme documents carry (what to tell the eTools Datamart team). Check 12 counts, per section, the PD indicators with and
 without an eTools id and a CP output, the percentages reported with their numerator and denominator, and
 how many master indicators the next night would propose; it changes nothing. Checks 10 and 11 run first. The checks run every night as a job and the page shows their latest
 result at once, with when they were checked; **Run the checks now** runs them again in the background

@@ -79,6 +79,28 @@ def _probe_verdict(run: SyncRun) -> str:
     return str(run.details.get("verdict") or "")
 
 
+def _read_note(run: SyncRun) -> str:
+    """What an eTools Datamart read found, in plain words, for its run page: why it was read in windows, the
+    business area filter it took (or why none) and records that came twice (pages that shifted, or records
+    the Datamart likely holds twice); "" for any other run, or a read that found none of these."""
+    if run.job != SyncRun.Job.ETOOLS_DATAMART or not isinstance(run.details, dict):
+        return ""
+    from neurodb.integrations.etools.datamart_sync import area_words, shift_words
+    from neurodb.reports.services import WINDOWS_WHY
+
+    details, parts = run.details, []
+    why = WINDOWS_WHY.get(details.get("windows_why"))
+    if why:
+        parts.append(_("It was read in windows because %(why)s.") % {"why": why})
+    area = area_words(details.get("area_filter"))
+    if area:
+        parts.append(_("It was %(how)s.") % {"how": area})
+    shift = shift_words(details)
+    if shift:
+        parts.append(shift)
+    return " ".join(str(part) for part in parts)
+
+
 def error_hint(run: SyncRun) -> str:
     """What a known error means for the administrator, or "" when the raw error is all we know. A 502, 503
     or 504 is the service being unavailable; any other 5xx is an error inside the service for this one
@@ -236,11 +258,12 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
     search_fields = ("target", "error", "triggered_by")
     date_hierarchy = "started_at"
     ordering = ("-started_at",)
-    # every field, with what a probe found (its plain-words verdict) just before the details it comes from
+    # every field, with what a probe found and what a Datamart read found (in plain words) just before the
+    # details they come from
     readonly_fields = tuple(
         name
         for f in SyncRun._meta.fields
-        for name in (("probe_verdict", f.name) if f.name == "details" else (f.name,))
+        for name in (("probe_verdict", "read_note", f.name) if f.name == "details" else (f.name,))
     ) + (
         "error_meaning",
         "duration",
@@ -257,6 +280,12 @@ class SyncRunAdmin(JobActionsMixin, ReadOnlyModelAdmin):
         """A probe's verdict (``details.verdict``: what the Datamart's answers mean and what to do), in plain
         words; "—" for any other run."""
         return _probe_verdict(obj) or "—"
+
+    @admin.display(description=_("What the read found"))
+    def read_note(self, obj):
+        """An eTools Datamart read in plain words (why in windows, the business area filter, records that came
+        twice); "—" for any other run."""
+        return _read_note(obj) or "—"
 
     @admin.display(description=_("What the error means"))
     def error_meaning(self, obj):

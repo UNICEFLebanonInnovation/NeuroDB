@@ -22,6 +22,7 @@ counted, the rest are written and the run ends PARTIAL. Every request is limited
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import hashlib
 import json
 import logging
@@ -179,6 +180,14 @@ class Links:
         if pk is None and (source_id or number):
             self.missing["programme_document"] += 1
         return pk
+
+    def holds_number(self, number: Any) -> bool:
+        """Whether a programme document NeuroDB holds has this reference number: a question, never counted
+        missing (PRP's programme documents ask it of a record that names no business area)."""
+        if self._pcas_by_number is None:
+            self._load_pcas()
+        key = str(number or "").strip()
+        return bool(key) and key in self._pcas_by_number
 
     def _load_locations(self) -> None:
         self._locations_by_pcode, self._location_ids = {}, set()
@@ -1276,26 +1285,169 @@ class OfCountry:
 scrub = catalogue.scrub  # contact details are never stored in documents
 
 
-def record_key(item: dict[str, Any]) -> str:
-    """The Datamart id, or a hash of the record for the datasets without one."""
+RECORD_KEY_MAX = 64  # DatamartDocument.record_key
+ID_WORDS = frozenset({"id", "pk"})  # the last word of a key that holds an id ("prp_id", "external_id", "pk")
+ID_TEXT = 40  # an id written as text is this long at most
+IDS_TRACKED = 10  # the id-like keys a read tracks for its record identity, and its run lists, at most
+
+
+def id_value(value: Any) -> str:
+    """An id-like value as text: a whole number (77, "77" and 77.0 read "77") or a short text (at most
+    :data:`ID_TEXT` characters), ``{"id": ..}`` read as its id; "" for anything else (empty, a list, a
+    decimal, a longer text)."""
+    if isinstance(value, dict):
+        value = value.get("id")
+    if value is None or isinstance(value, bool):
+        return ""
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else ""
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        text = value.strip()
+        return text if len(text) <= ID_TEXT else ""
+    return ""
+
+
+@functools.lru_cache(maxsize=4096)
+def _id_named(key: str) -> bool:
+    """A key named as an id: its last word is in :data:`ID_WORDS` ("prp_id", "pk"), and it holds no person."""
+    words = catalogue.key_words(key)
+    return bool(words) and words[-1] in ID_WORDS and not catalogue.holds_person(key)
+
+
+def _id_like(key: Any, value: Any) -> bool:
+    """A top-level key that holds an id: named as one (:func:`_id_named`), or whose value is an ``{"id": ..}``
+    record; never a key that holds a person."""
+    key = str(key)
+    if isinstance(value, dict) and "id" in value:
+        return not catalogue.holds_person(key)
+    return _id_named(key)
+
+
+def id_keys(records: Iterable[dict[str, Any]]) -> Counter[str]:
+    """The id-like keys of ``records`` (:func:`_id_like`), with how many records carry a value under each
+    (:func:`id_value`): key names and counts only."""
+    found: Counter[str] = Counter()
+    for item in records:
+        found.update(str(k) for k, v in item.items() if _id_like(k, v) and id_value(v))
+    return found
+
+
+def content_key(item: dict[str, Any]) -> str:
+    """A hash of the record: what tells apart the records of a dataset that carry no id."""
+    return hashlib.sha256(json.dumps(item, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def record_key(item: dict[str, Any], identity: str = "") -> str:
+    """The Datamart id; else, for a record of a dataset without one, ``"<identity>:<value>"`` when
+    ``identity`` (a key the read proved unique to every record, :func:`identity_key`) is given and the record
+    carries it, the whole key :data:`RECORD_KEY_MAX` characters at most; else a hash of the record
+    (:func:`content_key`)."""
     if item.get("id") not in (None, ""):
         return str(item["id"])
-    return hashlib.sha256(json.dumps(item, sort_keys=True, default=str).encode()).hexdigest()
+    if identity:
+        value = id_value(item.get(identity))
+        if value and len(identity) + 1 + len(value) <= RECORD_KEY_MAX:
+            return f"{identity}:{value}"
+    return content_key(item)
+
+
+class IdentityTracker:
+    """The id-like keys (:func:`id_keys`) that every record a read returned without an "id", kept or skipped,
+    carries, each value once: the candidates for the dataset's record identity (:func:`identity_key`). Records
+    are told apart by their content only (one returned twice, identical, counts once), never by a key being
+    tested: two records of different content sharing a value drop that key for the night, whether they are
+    two records or one updated during the read. A key is dropped as soon as a record lacks it or repeats a
+    value; at most :data:`IDS_TRACKED` are tracked, from the first record. Only the ``hash()`` of each value
+    is kept, never its text: a collision drops a key, which never merges two records."""
+
+    def __init__(self, previous: str = "") -> None:
+        self.previous = previous
+        self.seen = 0  # the records of different content read without an id
+        self._contents: set[str] = set()
+        self._values: dict[str, set[int]] = {}
+
+    def saw(self, item: dict[str, Any], content: str) -> None:
+        """A record without an id, with its :func:`content_key`."""
+        if content in self._contents:
+            return
+        self._contents.add(content)
+        self.seen += 1
+        if self.seen == 1:  # the candidates: last night's identity, pk and source_id first, then by name
+            found = id_keys([item])
+            first = [k for k in (self.previous, "pk", "source_id") if k in found]
+            self._values = {k: set() for k in [*first, *sorted(set(found) - set(first))][:IDS_TRACKED]}
+        for key in list(self._values):
+            value = id_value(item.get(key))
+            if not value or len(key) + 1 + len(value) > RECORD_KEY_MAX or hash(value) in self._values[key]:
+                del self._values[key]
+            else:
+                self._values[key].add(hash(value))
+
+    @property
+    def keys(self) -> list[str]:
+        """The keys every record read without an id carries, each value once."""
+        return list(self._values) if self.seen else []
+
+
+def identity_key(tracker: IdentityTracker, previous: str = "", *, filtered: bool = False) -> str:
+    """The record identity of tonight's read (``details.record_identity``): among the keys the tracker
+    kept, last night's when it still qualifies, then ``pk``, ``source_id``, then the others by name; "" for
+    none (the records keep their hash). A read under a business area filter (:func:`prove_area_filter`)
+    chooses none: a key unique only within the country (eTools' ``external_id``) would pass there and fail on
+    the weekly read with no filter, every row renamed twice a week; it keeps last night's while it still
+    qualifies. With no record read without an id, last night's stays."""
+    if not tracker.seen:
+        return previous
+    left = tracker.keys
+    if filtered:
+        return previous if previous in left else ""
+    return next((k for k in (previous, "pk", "source_id", *sorted(left)) if k and k in left), "")
 
 
 class DocumentWriter:
     """Upserts the records of one catalogue dataset into ``DatamartDocument`` and, once the dataset
     was read to the end, removes the records the Datamart no longer returns. A dataset whose records name
     no partner or programme document of their own, linked after its read (:data:`AFTER_DOCUMENTS`), keeps
-    the link a record holds: a read that fails part-way never unlinks the records it rewrote."""
+    the link a record holds: a read that fails part-way never unlinks the records it rewrote.
 
-    def __init__(self, name: str, links: Links) -> None:
+    A record without an id is written under tonight's record identity (``identity``, :func:`record_key`): when
+    its key is not held yet, the row held under its hash or under last night's identity (``previous``) is
+    renamed in place, so an unchanged record keeps its row and a changed one does not become a new row.
+    ``by_number``: the records (by :func:`content_key`) linked to their eTools PD by reference number only
+    (:data:`KEPT_BY_REFERENCE`); ``linked``: the keys written linked to a programme document NeuroDB holds."""
+
+    def __init__(self, name: str, links: Links, identity: str = "", previous: str = "") -> None:
         self.name, self.spec, self.links = name, catalogue.DOCUMENTS[name], links
+        self.identity, self.previous = identity, previous
         self.seen: set[str] = set()
         self.linked_after = name in AFTER_DOCUMENTS and not any((*self.spec.partner, *self.spec.intervention))
+        self.by_number: set[str] = set()
+        self.linked: set[str] = set()
+        self.renamed: set[str] = set()  # the keys rows were held under before they were renamed tonight
+        self._held: set[str] | None = None  # the keys held, read once a record without an id is written
+
+    def _rename(self, key: str, item: dict[str, Any]) -> None:
+        """The row held under the record's hash, or under last night's identity, renamed to ``key`` in place
+        (same row, its link kept) when no row is held under ``key`` yet. This read never removes a row under
+        the old key: a write that fails undoes the renaming, and that row is kept, as any failed write's."""
+        held = dm.DatamartDocument.objects.filter(dataset=self.name)
+        if self._held is None:
+            self._held = set(held.values_list("record_key", flat=True))
+        if key not in self._held:
+            for old in dict.fromkeys((content_key(item), record_key(item, self.previous))):
+                if old != key and old in self._held:
+                    held.filter(record_key=old).update(record_key=key)
+                    self._held.discard(old)
+                    self.renamed.add(old)
+                    break
+        self._held.add(key)
 
     def write(self, item: dict[str, Any]) -> None:
-        spec, key = self.spec, record_key(item)
+        spec, key = self.spec, record_key(item, self.identity)
+        if (self.identity or self.previous) and item.get("id") in (None, ""):
+            self._rename(key, item)
         self.seen.add(key)
         partner_key, vendor_key = spec.partner
         pd_key, number_key = spec.intervention
@@ -1306,13 +1458,19 @@ class DocumentWriter:
             if partner_key or vendor_key
             else None
         )
+        # a record kept by its reference number alone: its eTools id is not proven the country's (they repeat
+        # across countries), so it is linked by that reference number only
+        by_number = bool(self.by_number) and content_key(item) in self.by_number
         intervention_id = (
             self.links.intervention(
-                item.get(pd_key) if pd_key else None, item.get(number_key) if number_key else None
+                item.get(pd_key) if pd_key and not by_number else None,
+                item.get(number_key) if number_key else None,
             )
             if pd_key or number_key
             else None
         )
+        if not self.linked_after:
+            (self.linked.add if intervention_id is not None else self.linked.discard)(key)
         if partner_id is None and intervention_id is not None:
             partner_id = PCA.objects.filter(pk=intervention_id).values_list("partner_id", flat=True).first()
         title = " · ".join(str(item[k]) for k in spec.title if item.get(k) not in (None, ""))
@@ -1336,7 +1494,7 @@ class DocumentWriter:
         if not whole:
             return {"documents": len(self.seen), "documents_removed": 0}
         held = dm.DatamartDocument.objects.filter(dataset=self.name)
-        stale = held.exclude(record_key__in=self.seen)
+        stale = held.exclude(record_key__in=self.seen | self.renamed)
         n = stale.count()
         if n and removal_waits(self.name, n, held.count()):
             return {"documents": len(self.seen), "documents_removed": 0, "removal_held": n, "partial": True}
@@ -2602,11 +2760,65 @@ def area_words(area: Any) -> str:
     return f"read with no business area filter: {reason}"
 
 
+def _order_by(keys: Any) -> str:
+    """The keys a stable order was asked by, in words: "by id", "by id and by prp_id"."""
+    keys = [str(k) for k in keys if k] if isinstance(keys, list) else []
+    return " and ".join(f"by {k}" for k in keys) or "by id"
+
+
+def shift_words(details: Any) -> str:
+    """What a read whose records came twice found (a run's details), in words for Data health, the run page
+    and checks 10 and 11; "" for a read with no record twice, or one made before it was recorded. With no
+    stable order asked, the counts cannot tell rows moving between pages (as many others then never came) from
+    rows the Datamart holds twice, so both are said; records that still came twice in a stable order are most
+    likely held twice (``held_twice``)."""
+    details = details if isinstance(details, dict) else {}
+    ordering = details.get("ordering") if isinstance(details.get("ordering"), dict) else {}
+    same = " identical" if details.get("twice_identical") else ""
+    held = _int(details.get("held_twice")) or 0
+    if held:
+        records = "record" if held == 1 else "records"
+        key = ordering.get("key") or "id"
+        return (
+            f"The Datamart returned {held:,}{same} {records} twice in a stable order (by {key}): it likely "
+            "holds them twice; tell the eTools Datamart team. Nothing was removed."
+        )
+    shifted = details.get("pages_shifted")
+    twice = _int(shifted.get("twice")) if isinstance(shifted, dict) else None
+    if not twice:
+        return ""
+    missing = _int(shifted.get("missing")) or 0
+    announced = details.get("datamart_count")
+    of = f" (of the {announced:,} it announced)" if isinstance(announced, int) and announced > 0 else ""
+    then = (
+        ", and then as many others did not come"
+        if missing == twice
+        else f", and then {missing:,} others did not come{of}"
+        if missing
+        else ""
+    )
+    said = (
+        f"{twice:,} {'record' if twice == 1 else 'records'} came twice{' (identical)' if same else ''} while "
+        f"the Datamart's pages were read: rows moved between pages{then}, or the Datamart holds them twice. "
+        "Nothing was removed"
+    )
+    why = ordering.get("why")
+    if why in ("ignored", "refused", "failed"):
+        verb = {"ignored": "is ignored", "refused": "is refused", "failed": "could not be asked"}[why]
+        by = _order_by(ordering.get("tried"))
+        return f"{said}; the Datamart takes no stable order (ordering {by} {verb})."
+    if why == "too_small" or (isinstance(announced, int) and announced <= 2 * windows.ORDER_PAGE):
+        return f"{said}."
+    return f"{said}; the next read asks a stable order."
+
+
 class Census:
     """What a read of a business-area dataset saw, as counts only (never a record's values, but for the
     business area codes): the records read, the codes they name (the most frequent), how many carry each
-    key the sync and its readers use (``keys_seen``: a key the Datamart does not send reads 0), and the
-    years of the records kept (``dated``: check 11 reads the records of the year and the years beside it)."""
+    key the sync and its readers use (``keys_seen``: a key the Datamart does not send reads 0), the id-like
+    keys they carry (``id_keys``, :func:`id_keys`, the :data:`IDS_TRACKED` most carried: what a record
+    identity or a link to the programme documents can be made of), and the years of the records kept
+    (``dated``: check 11 reads the records of the year and the years beside it)."""
 
     def __init__(self, spec: catalogue.Source, today: dt.date | None = None) -> None:
         self.spec, self.year = spec, (today or timezone.localdate()).year
@@ -2616,12 +2828,14 @@ class Census:
         keys += (*spec.intervention, *spec.title, *spec.reads)
         self.watched = tuple(dict.fromkeys(k for k in keys if k))
         self.keys: Counter[str] = Counter()
+        self.ids: Counter[str] = Counter()
         self.years: Counter[str] = Counter()
 
     def saw(self, item: dict[str, Any]) -> None:
         self.read += 1
         self.codes[area_code(item.get(self.spec.filter_key))[:20] or NO_CODE] += 1
         self.keys.update(k for k in self.watched if item.get(k) not in (None, "", [], {}))
+        self.ids.update(id_keys([item]))
 
     def kept(self, item: dict[str, Any]) -> None:
         try:
@@ -2637,6 +2851,7 @@ class Census:
             "read": self.read,
             "business_areas_seen": dict(self.codes.most_common(CODES_SEEN)),
             "keys_seen": {k: self.keys[k] for k in self.watched},
+            "id_keys": dict(self.ids.most_common(IDS_TRACKED)),
             "dated": dict(sorted(self.years.items())),
         }
 
@@ -2647,50 +2862,261 @@ PROGRESS_REPORT_PD_KEYS = ("programme_document_id", "programme_document")
 
 
 def _named_pd(data: Any) -> str:
-    """The PRP programme document a progress report names (its id as text: an id, ``{"id": ..}``), or ""."""
+    """The PRP programme document a progress report names under :data:`PROGRESS_REPORT_PD_KEYS`, the first
+    found (its id as text, :func:`id_value`: an id, ``{"id": ..}``), or ""."""
     data = data if isinstance(data, dict) else {}
-    for key in PROGRESS_REPORT_PD_KEYS:
-        value = data.get(key)
-        if isinstance(value, dict):
-            value = value.get("id")
-        if isinstance(value, float) and value.is_integer():
-            value = int(value)
-        if value not in (None, "") and not isinstance(value, bool | list):
-            return str(value).strip()
-    return ""
+    return next((v for v in (id_value(data.get(k)) for k in PROGRESS_REPORT_PD_KEYS) if v), "")
 
 
-def link_progress_reports() -> dict[str, int]:
-    """PRP's progress reports (``prp_progress_reports``) linked to their programme document and its partner,
-    through PRP's own programme documents (``prp_programme_documents``, linked to the eTools PD by its
-    external id or reference number): a progress report names its PRP programme document by id, the key that
-    record is held under. Run after each of the two datasets (the catalogue syncs the programme documents
-    first), so a link follows a change in either. Counts only, for the run's details: ``linked``;
-    ``pd_not_named`` (the record names none, under the keys tried); ``pd_not_held`` (a PRP programme
-    document NeuroDB does not hold); ``pd_not_linked`` (held, not linked to a PD NeuroDB holds)."""
-    held = dict(
-        dm.DatamartDocument.objects.filter(dataset="prp_programme_documents").values_list(
-            "record_key", "intervention_id"
+@functools.lru_cache(maxsize=4096)
+def _names_pd(key: str) -> bool:
+    """A key naming a programme document: its words hold "programme" (or "program") and "document",
+    "programmedocument" or "pd"; never one that holds a person."""
+    words = set(catalogue.key_words(key))
+    programme = bool({"programme", "program"} & words) and "document" in words
+    return (programme or "programmedocument" in words or "pd" in words) and not catalogue.holds_person(key)
+
+
+def pd_named_keys(records: Iterable[dict[str, Any]]) -> list[str]:
+    """The keys progress reports may name their PRP programme document by: those of
+    :data:`PROGRESS_REPORT_PD_KEYS` first, then every other top-level key naming a programme document
+    (:func:`_names_pd`), by name; only a key some record carries an id-like value under (:func:`id_value`)."""
+    carried: set[str] = set()
+    for item in records:
+        carried.update(str(k) for k, v in item.items() if _names_pd(str(k)) and id_value(v))
+    first = [k for k in PROGRESS_REPORT_PD_KEYS if k in carried]
+    return first + sorted(carried - set(first))
+
+
+# ----------------------------------------- PRP's progress reports and their programme document: the key pair
+# A progress report names its PRP programme document by an id. Which key of PRP's programme documents holds
+# that id is not documented, and they may carry no "id" at all (they are then held under a hash, and the
+# lookup by the key a document is held under links none: 21 Oct 2026, 1,590 progress reports, none linked):
+# the data proves the pair (:func:`prove_pd_link`).
+PROGRAMME_DOCUMENTS, PROGRESS_REPORTS = "prp_programme_documents", "prp_progress_reports"
+PD_RECORD_KEY = "record_key"  # the key a PRP programme document is held under: today's lookup
+REPORT_NAMED = "named"  # the programme document a progress report names (:func:`_named_pd`): today's lookup
+LINK_CLEAR = 2  # the pair used links at least this many times as many reports as any pair linking otherwise
+LINK_SHARE = 0.5  # and at least this share of the reports naming a programme document under its key
+LINK_SHARE_UNDATED = 0.9  # the share asked when fewer than half of its links have dates on both sides
+LINK_DATES = 0.9  # the share of its dated links that agree: the report ends within its document's dates
+LINK_BEFORE, LINK_AFTER = dt.timedelta(days=31), dt.timedelta(days=365)  # around the document's start and end
+PAIRS_KEPT = 5  # the pairs a run lists, the best first
+# why no key pair is proven (``progress_reports_pd_link.why``), in words for check 11
+LINK_WHY = {
+    "no_link": "no key of PRP's programme documents holds an id the progress reports name",
+    "dates_disagree": "every key pair that links them links reports ending outside their document's dates",
+    "not_clear": "two key pairs link them otherwise, neither twice as often as the other",
+    "few": "the best key pair links too few of the reports that name a programme document",
+}
+
+
+def _day_or_none(value: Any) -> dt.date | None:
+    try:
+        return parse_iso_date(value)
+    except ValueError:  # an impossible date: no date
+        return None
+
+
+def report_value(data: Any, key: str) -> str:
+    """A progress report's value under ``key``: today's lookup for :data:`REPORT_NAMED` (:func:`_named_pd`),
+    else :func:`id_value`."""
+    data = data if isinstance(data, dict) else {}
+    return _named_pd(data) if key == REPORT_NAMED else id_value(data.get(key))
+
+
+@dataclass
+class PDLink:
+    """How PRP's progress reports are linked to PRP's programme documents (:func:`prove_pd_link`): a
+    report's value under ``report_key`` (:func:`report_value`) is looked up in ``index``, the programme
+    documents held by their value under ``pd_key`` (each to the eTools PD it is linked to, or None).
+    ``proven``: the data proves the pair; else it is today's lookup (the document named, by the key it is held
+    under), and ``why`` says why. Key names and counts only in :meth:`details`."""
+
+    report_key: str = REPORT_NAMED
+    pd_key: str = PD_RECORD_KEY
+    index: dict[str, int | None] = field(default_factory=dict)
+    proven: bool = False
+    why: str = ""
+    pairs: list[dict[str, Any]] = field(default_factory=list)  # the best pairs, with the reports they link
+    pd_keys: dict[str, int] = field(default_factory=dict)  # the documents' candidate keys, records carrying
+    not_unique: list[str] = field(default_factory=list)  # candidate keys whose values repeat: left out
+
+    def named(self, data: Any) -> str:
+        """The value a progress report names its programme document by, under the pair's key."""
+        return report_value(data, self.report_key)
+
+    def details(self) -> dict[str, Any]:
+        found: dict[str, Any] = {
+            "by": [self.report_key, self.pd_key],
+            "proven": self.proven,
+            "pairs": list(self.pairs),
+            "pd_keys": dict(self.pd_keys),
+        }
+        if self.why:
+            found["why"] = self.why
+        if self.not_unique:
+            found["not_unique"] = list(self.not_unique)
+        return found
+
+
+def prove_pd_link(
+    pds: list[tuple[str, Any, int | None]],
+    reports: list[Any],
+    etools_dates: dict[int, tuple[dt.date | None, dt.date | None]] | None = None,
+) -> PDLink:
+    """The key pair that links PRP's progress reports (``reports``, their records) to PRP's programme
+    documents (``pds``: the key each is held under, its record, the eTools PD it is linked to), proven on the
+    data.
+
+    The documents' keys tried: the key each is held under (today's lookup, first), every id-like key of their
+    records (:func:`id_keys`), and ``reference_number``; one whose values repeat among them is left out
+    (``not_unique``). The reports' keys: the document they name (:data:`REPORT_NAMED`, today's, first), and
+    every key naming a programme document (:func:`pd_named_keys`). Pairs that link the same reports to the
+    same documents are one link, named by its first report key other than today's. A link is dated when the
+    report has an ``end_date`` and its document a start and an end (its PRP record's ``start_date`` and
+    ``end_date``, else those of its eTools PD, ``etools_dates``); it agrees when the report ends no earlier
+    than :data:`LINK_BEFORE` before the start and no later than :data:`LINK_AFTER` after the end. A pair
+    fewer than :data:`LINK_DATES` of whose dated links agree is out (``dates_disagree``: a chance match of
+    eTools ids with PRP's links reports to documents of other dates). The pair linking the most reports (ties
+    to the earlier one) is used when it links at least :data:`LINK_CLEAR` times as many as any other pair that
+    links a report it does not link, or to another document (a pair whose links are all its own agrees with
+    it), and at least :data:`LINK_SHARE` of the reports naming a document under its key
+    (:data:`LINK_SHARE_UNDATED` when fewer than half of its links are dated). With none proven, today's lookup
+    is used: it links what it links."""
+    etools_dates = etools_dates or {}
+    datas = [data if isinstance(data, dict) else {} for _, data, _ in pds]
+    reports = [data if isinstance(data, dict) else {} for data in reports]
+
+    def pd_values(key: str) -> list[str]:
+        return [
+            held if key == PD_RECORD_KEY else id_value(data.get(key))
+            for (held, _, _), data in zip(pds, datas, strict=True)
+        ]
+
+    link = PDLink()
+    indexes: dict[str, dict[str, int]] = {}  # a document key -> its values -> the document's position
+    for key in dict.fromkeys((PD_RECORD_KEY, *sorted(id_keys(datas)), "reference_number")):
+        values = pd_values(key)
+        carried = [v for v in values if v]
+        if not carried:
+            continue
+        link.pd_keys[key] = len(carried)
+        if len(set(carried)) < len(carried):
+            link.not_unique.append(key)
+            continue
+        indexes[key] = {v: i for i, v in enumerate(values) if v}
+    # each pair's links (a report's position -> its document's), the same links of two pairs one link
+    groups: dict[frozenset, dict[str, Any]] = {}
+    for report_key in (REPORT_NAMED, *pd_named_keys(reports)):
+        values = [report_value(data, report_key) for data in reports]
+        naming = sum(1 for v in values if v)
+        for pd_key, index in indexes.items():
+            links = {i: index[v] for i, v in enumerate(values) if v and v in index}
+            if not links:
+                continue
+            found = {"report": report_key, "pd": pd_key, "links": links, "naming": naming}
+            same = groups.setdefault(frozenset(links.items()), {**found, "order": len(groups)})
+            if same["report"] == REPORT_NAMED and report_key != REPORT_NAMED:
+                same.update(report=report_key, pd=pd_key, naming=naming)
+    starts_ends = []
+    for (_, _, pk), data in zip(pds, datas, strict=True):
+        start, end = _day_or_none(data.get("start_date")), _day_or_none(data.get("end_date"))
+        etools = etools_dates.get(pk) or (None, None)
+        starts_ends.append((start or etools[0], end or etools[1]))
+    ends = [_day_or_none(data.get("end_date")) for data in reports]
+    for group in groups.values():
+        dated = agree = 0
+        for report, document in group["links"].items():
+            start, end = starts_ends[document]
+            if ends[report] and start and end:
+                dated += 1
+                agree += start - LINK_BEFORE <= ends[report] <= end + LINK_AFTER
+        group.update(linked=len(group["links"]), dated=dated, agree=agree)
+        group["disagree"] = bool(dated) and agree < LINK_DATES * dated
+    ranked = sorted(groups.values(), key=lambda g: (-g["linked"], g["order"]))
+    contenders = [g for g in ranked if not g["disagree"]]
+    best = contenders[0] if contenders else None
+    if best is None:
+        link.why = "dates_disagree" if groups else "no_link"
+    else:
+        rivals = [g for g in contenders[1:] if any(best["links"].get(r) != d for r, d in g["links"].items())]
+        share = LINK_SHARE if best["dated"] * 2 >= best["linked"] else LINK_SHARE_UNDATED
+        if any(best["linked"] < LINK_CLEAR * g["linked"] for g in rivals):
+            link.why = "not_clear"
+        elif best["linked"] < share * best["naming"]:
+            link.why = "few"
+        else:
+            link.report_key, link.pd_key, link.proven = best["report"], best["pd"], True
+    link.pairs = [
+        {
+            "report": g["report"],
+            "pd": g["pd"],
+            "linked": g["linked"],
+            "dated": g["dated"],
+            "agree": g["agree"],
+            **(
+                {"verdict": "proven"}
+                if link.proven and g is best
+                else {"verdict": "dates_disagree"}
+                if g["disagree"]
+                else {}
+            ),
+        }
+        for g in ranked[:PAIRS_KEPT]
+    ]
+    link.index = {v: pds[i][2] for i, v in enumerate(pd_values(link.pd_key)) if v}
+    return link
+
+
+def held_pd_link(reports: list[Any] | None = None) -> PDLink:
+    """:func:`prove_pd_link` on what NeuroDB holds of PRP's programme documents and progress reports
+    (``reports``, the progress reports' records when they are read already)."""
+    pds = list(
+        dm.DatamartDocument.objects.filter(dataset=PROGRAMME_DOCUMENTS).values_list(
+            "record_key", "data", "intervention_id"
         )
     )
+    if reports is None:
+        held = dm.DatamartDocument.objects.filter(dataset=PROGRESS_REPORTS)
+        reports = list(held.values_list("data", flat=True))
+    dates = PCA.objects.filter(pk__in={pk for _, _, pk in pds if pk}).values_list("pk", "start", "end")
+    return prove_pd_link(pds, reports, {pk: (start, end) for pk, start, end in dates})
+
+
+def link_progress_reports() -> dict[str, Any]:
+    """PRP's progress reports (``prp_progress_reports``) linked to their programme document and its partner,
+    through PRP's own programme documents (``prp_programme_documents``, linked to the eTools PD by its
+    external id or reference number), by the key pair the data proves (:func:`held_pd_link`; with none proven,
+    the document a report names by the key it is held under). Run after each of the two datasets (the
+    catalogue syncs the programme documents first), so a link follows a change in either. Key names and counts
+    only, for the run's details: ``linked``; ``pd_not_named`` (the record names none under the pair's key);
+    ``pd_not_held`` (a PRP programme document NeuroDB does not hold under the pair's key); ``pd_not_linked``
+    (held, not linked to a PD NeuroDB holds); and the pair (:meth:`PDLink.details`: ``by``, ``proven``,
+    ``pairs``, ``pd_keys``, ``why``). Nothing when no progress report is held."""
+    reports = list(
+        dm.DatamartDocument.objects.filter(dataset=PROGRESS_REPORTS).only(
+            "pk", "data", "intervention_id", "partner_id"
+        )
+    )
+    if not reports:
+        return {}
+    link = held_pd_link([doc.data for doc in reports])
     partners = dict(
-        PCA.objects.filter(pk__in={pk for pk in held.values() if pk}).values_list("pk", "partner_id")
+        PCA.objects.filter(pk__in={pk for pk in link.index.values() if pk}).values_list("pk", "partner_id")
     )
     counts: Counter[str] = Counter()
     changed = []
-    reports = dm.DatamartDocument.objects.filter(dataset="prp_progress_reports").only(
-        "pk", "data", "intervention_id", "partner_id"
-    )
-    for doc in reports.iterator(chunk_size=2000):
-        named = _named_pd(doc.data)
-        pd_id = held.get(named) if named else None
+    for doc in reports:
+        named = link.named(doc.data)
+        pd_id = link.index.get(named) if named else None
         counts[
             "linked"
             if pd_id
             else "pd_not_named"
             if not named
             else "pd_not_held"
-            if named not in held
+            if named not in link.index
             else "pd_not_linked"
         ] += 1
         partner_id = partners.get(pd_id) if pd_id else None
@@ -2698,18 +3124,24 @@ def link_progress_reports() -> dict[str, int]:
             doc.intervention_id, doc.partner_id = pd_id, partner_id
             changed.append(doc)
     dm.DatamartDocument.objects.bulk_update(changed, ["intervention_id", "partner_id"], batch_size=2000)
-    return dict(counts)
+    return {**counts, **link.details()}
 
 
 # the link steps run after a dataset's records are written (:func:`sync_documents`)
-AFTER_DOCUMENTS: dict[str, Callable[[], dict[str, int]]] = {
-    "prp_programme_documents": link_progress_reports,
-    "prp_progress_reports": link_progress_reports,
+AFTER_DOCUMENTS: dict[str, Callable[[], dict[str, Any]]] = {
+    PROGRAMME_DOCUMENTS: link_progress_reports,
+    PROGRESS_REPORTS: link_progress_reports,
 }
 # a dataset whose records may name no business area: such a record is kept only when the PRP programme
-# document it names (:func:`_named_pd`) is held in this dataset, read by business area; the others are
-# counted as another country's (``other_country_skipped``, and ``unnamed_skipped`` apart)
-KEPT_BY_PROGRAMME_DOCUMENT = {"prp_progress_reports": "prp_programme_documents"}
+# document it names, under the key pair proven on what is held before the read (:func:`held_pd_link`), is held
+# in this dataset, read by business area; the others are counted as another country's
+# (``other_country_skipped``, and ``unnamed_skipped`` apart)
+KEPT_BY_PROGRAMME_DOCUMENT = {PROGRESS_REPORTS: PROGRAMME_DOCUMENTS}
+# a dataset whose records may name no business area: such a record is kept only when its reference number
+# names a programme document NeuroDB holds (reference numbers carry the country's prefix; eTools ids repeat
+# across countries, so an id is never compared), and linked to it by that number alone
+# (``kept_by_reference``); the others are counted as another country's (``unnamed_skipped``)
+KEPT_BY_REFERENCE = frozenset({PROGRAMME_DOCUMENTS})
 
 
 def sync_documents(name: str) -> Callable[..., SyncRun]:
@@ -2737,25 +3169,30 @@ def sync_documents(name: str) -> Callable[..., SyncRun]:
                     held_not_named=not_named,
                 )
                 params = {**params, **area.params()}
-            writer, other, unnamed = DocumentWriter(name, links), 0, 0
+            # a dataset whose records carry no id: tonight's record identity is chosen once every record is
+            # read (identity_key), so they are written after the read; last night's counts them meanwhile
+            previous = str(last_details(name).get("record_identity") or "")
+            writer, other, unnamed = DocumentWriter(name, links, previous=previous), 0, 0
             census = Census(spec) if spec.scope == "business_area" else None
-            keys: set[str] = set()  # the distinct records read, kept or skipped (record_key)
+            keys: set[str] = set()  # the distinct records read, kept or skipped (record_key, last night's)
+            tracker = IdentityTracker(previous)
+            waiting: dict[str, dict[str, Any]] = {}  # the records kept without an id, by their content
             reading = windows.Reading(client, spec.path, params, country=by_country, name=name)
             # a record naming no business area is kept only when the PRP programme document it names is held
-            # (those are read by business area): the others are counted as another country's
-            by_pd = KEPT_BY_PROGRAMME_DOCUMENT.get(name)
-            held = (
-                set(dm.DatamartDocument.objects.filter(dataset=by_pd).values_list("record_key", flat=True))
-                if by_pd
-                else set()
-            )
-            through_pd = unnamed_skipped = 0
+            # (those are read by business area), or, for PRP's programme documents, when its reference number
+            # names a programme document NeuroDB holds: the others are counted as another country's
+            link = held_pd_link() if name in KEPT_BY_PROGRAMME_DOCUMENT else None
+            by_reference = name in KEPT_BY_REFERENCE
+            through_pd = by_number = unnamed_skipped = named_here = 0
 
             def items():
-                nonlocal other, unnamed, through_pd, unnamed_skipped
+                nonlocal other, unnamed, through_pd, by_number, unnamed_skipped, named_here
                 for item in reading:
                     # a record returned again is written again (its last copy wins) and counted once
-                    key = record_key(item)
+                    content = content_key(item) if item.get("id") in (None, "") else ""
+                    if content:
+                        tracker.saw(item, content)
+                    key = record_key(item, previous) if not content or previous else content
                     first = key not in keys
                     keys.add(key)
                     if first and census:
@@ -2766,23 +3203,40 @@ def sync_documents(name: str) -> Callable[..., SyncRun]:
                             area.strays += 1
                         elif area.sees(item) is None:
                             area.unnamed += 1
-                    if kept is None and by_pd:
-                        kept = _named_pd(item) in held
-                        through_pd += first and kept
+                    if kept is None and (link or by_reference):
+                        if link:
+                            named = link.named(item)
+                            kept = bool(named) and named in link.index
+                            through_pd += first and kept
+                        else:
+                            kept = links.holds_number(item.get("reference_number"))
+                            by_number += first and kept
+                            if kept:
+                                writer.by_number.add(content or content_key(item))
                         unnamed_skipped += first and not kept
                         if not kept:
                             other += first
                             continue
                     elif kept is False:
+                        # another business area's record naming a programme document NeuroDB holds by its
+                        # reference number (it carries the country's prefix): the business area key may be off
+                        number = item.get("reference_number")
+                        named_here += first and by_reference and links.holds_number(number)
                         other += first
                         continue
                     else:
                         unnamed += first and kept is None
                     if census and first:
                         census.kept(item)
+                    if content:
+                        waiting[content] = item
+                        continue
                     yield item
 
             process_items(run, items(), writer.write, _label)
+            # the records without an id, under the key the read proved unique (none chosen under a filter)
+            writer.identity = identity_key(tracker, previous, filtered=area is not None and bool(area.key))
+            process_items(run, waiting.values(), writer.write, _label)
             whole = reading.whole and not (area and area.strays)
             details = {**links.details(), **writer.finish(whole=whole)}
             if other:
@@ -2794,6 +3248,8 @@ def sync_documents(name: str) -> Callable[..., SyncRun]:
                     details["area_strays"] = area.strays
             if area is not None:
                 details.update(area.details())
+            if tracker.seen or previous:  # the key the records without an id are held under ("": their hash)
+                details["record_identity"] = writer.identity
             if census:  # what was asked, from where, and what came back: counts and codes only
                 choice = scope.choice or AreaCode()  # resolved by the request above
                 details.update(**choice.details(), **census.details())
@@ -2803,8 +3259,13 @@ def sync_documents(name: str) -> Callable[..., SyncRun]:
                         details["partial"] = True
                 if through_pd:
                     details["kept_by_programme_document"] = through_pd
+                if by_number:
+                    details["kept_by_reference"] = by_number
                 if unnamed_skipped:
                     details["unnamed_skipped"] = unnamed_skipped
+                if by_reference:  # are the records kept the country's? linked to its PDs, and none elsewhere
+                    details["linked_to_etools"] = len(writer.linked)
+                    details["other_code_named_here"] = named_here
                 if not writer.seen:  # nothing kept: Data health warns, naming the code
                     details["empty_response"] = True
                     if choice.found:  # a code NeuroDB found may be wrong: PARTIAL, pointing to the admin's

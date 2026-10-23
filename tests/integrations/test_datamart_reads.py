@@ -1,8 +1,10 @@
 """A Datamart read is windowed only when a cut is suspected (A): a round count, or a sign of a cut in the dataset's
 previous finished run (``datamart_sync.cut_sign``). Any other read is today's, whatever its size, with the ends
-test once it is large; and the history is counted from where the rows held really start (C). The Datamart is
-the fake of ``fake_datamart`` with the small constants of ``test_datamart_windows`` (a read of 20 records or
-more is large, a round count of 20 or more a multiple of 10, pages of 5); nothing patches ``cut_sign``."""
+test once it is large; and the history is counted from where the rows held really start (C). Pages that shift
+during a read are said and remove nothing, and the next read asks a stable order when the Datamart takes one
+(G). The Datamart is the fake of ``fake_datamart`` with the small constants of ``test_datamart_windows`` (a
+read of 20 records or more is large, a round count of 20 or more a multiple of 10, pages of 5, a stable order
+proven on pages of 5); nothing patches ``cut_sign``."""
 
 import datetime as dt
 import re
@@ -30,9 +32,10 @@ ASKED = {"page_size": "5", "country_name": "Lebanon", f"{KEY}__gte": "2025-01-01
 
 @pytest.fixture(autouse=True)
 def small(settings, monkeypatch):
-    """Large from 20 records, a round count of 20 or more a multiple of 10, pages of 5, and the partner reports
-    read from 1 Jan 2025."""
+    """Large from 20 records, a round count of 20 or more a multiple of 10, pages of 5 (and of the stable order's
+    proof), and the partner reports read from 1 Jan 2025."""
     monkeypatch.setattr(windows, "WINDOW_RECORDS", 20)
+    monkeypatch.setattr(windows, "ORDER_PAGE", 5)
     monkeypatch.setattr(sync, "CAP_FLOOR", 20)
     monkeypatch.setattr(sync, "CAP_ROUND", 10)
     settings.ETOOLS_DATAMART_PAGE_SIZE = 5
@@ -256,3 +259,98 @@ def test_a_removal_held_one_night_keeps_the_history_of_the_rows_held(monkeypatch
     second = run()
     assert (second.details["removed"], second.details["feed_from"]) == (5, "2026-01-05")
     assert reached.history_from().source == reached.FEED
+
+
+# ------------------------------------------------------------------------------- pages that shift during a read
+def shifting() -> list[dict]:
+    """47 partner report rows whose default order ends with ids 45 and 46: pages that shift by two lose those two,
+    never the first or the last id, so the ends test finds nothing missing."""
+    rows = spread(47)
+    return rows[:20] + [rows[46]] + rows[20:46]
+
+
+@responses.activate
+def test_shifting_pages_are_said_and_remove_nothing():
+    """From page 2 on, the Datamart's default order starts two records early: two come twice and two never come.
+    The read is not whole, nothing is removed, and the run says so plainly."""
+    held(900)
+    FakeDatamart(shifting(), shift=2).register(REPORTS)
+    found = run()
+    details = found.details
+    assert found.status == SyncRun.Status.PARTIAL
+    assert details["pages_shifted"] == {"twice": 2, "missing": 2} and "held_twice" not in details
+    assert (details["removal_skipped"], details["removed"], details["duplicates_read"]) == (True, 0, 2)
+    assert 900 in ids() and not {45, 46} & ids() and "ordering" not in details
+    assert (
+        sync.cut_sign(details) == ""
+    )  # records twice and as many missing: no cut, the next night reads plain
+    assert sync.shift_words(details) == (
+        "2 records came twice while the Datamart's pages were read: rows moved between pages, and then as many "
+        "others did not come, or the Datamart holds them twice. Nothing was removed; the next read asks a stable "
+        "order."
+    )
+
+
+@responses.activate
+def test_after_a_shift_the_read_asks_a_stable_order():
+    """The next night proves ordering=id first (two pages in order, the reverse on another) and asks every page
+    in it: no page shifts, the read is whole, and what the Datamart no longer returns is removed."""
+    held(900)
+    FakeDatamart(shifting(), shift=2).register(REPORTS)
+    run()
+    responses.reset()
+    fake = FakeDatamart(shifting(), shift=2)
+    fake.register(REPORTS)
+    found = run()
+    details = found.details
+    assert found.status == SyncRun.Status.SUCCEEDED, details
+    order = {**ASKED, "ordering": "id"}
+    assert fake.requests[:3] == [order, {**order, "page": "2"}, {**order, "ordering": "-id"}]
+    assert details["ordering"] == {"key": "id"}
+    assert all(r["ordering"] == "id" for r in fake.requests[3:] if r["page_size"] == "5")
+    assert "pages_shifted" not in details and "duplicates_read" not in details
+    assert ids() == set(range(1, 48)) and details["removed"] == 1
+
+
+@responses.activate
+def test_an_ordering_the_datamart_ignores_is_never_asked():
+    held(900)
+    FakeDatamart(shifting(), shift=2, ignore=("ordering",)).register(REPORTS)
+    run()
+    responses.reset()
+    fake = FakeDatamart(shifting(), shift=2, ignore=("ordering",))
+    fake.register(REPORTS)
+    found = run()
+    details = found.details
+    assert found.status == SyncRun.Status.PARTIAL
+    assert details["ordering"] == {"key": "", "why": "ignored", "tried": ["id"]}
+    pages = [r for r in fake.requests[3:] if r["page_size"] == "5"]
+    assert pages and not any("ordering" in r for r in pages)  # the read's pages: in the Datamart's own order
+    assert details["pages_shifted"] == {"twice": 2, "missing": 2} and 900 in ids()
+    assert sync.shift_words(details).endswith(
+        "Nothing was removed; the Datamart takes no stable order (ordering by id is ignored)."
+    )
+
+
+@responses.activate
+def test_records_still_twice_in_a_stable_order_are_said_to_be_held_twice():
+    """The Datamart holds three rows twice: they come twice in its own order, and again under ordering=id, the
+    next night. In a stable order no row moves between pages: it likely holds them twice. The read stays not
+    whole, and nothing is removed."""
+    held(900)
+    rows = spread(47)
+    rows = rows[:20] + rows[10:13] + rows[20:]  # ids 11, 12 and 13 held twice
+    FakeDatamart(rows).register(REPORTS)
+    first = run()
+    assert first.details["pages_shifted"] == {"twice": 3, "missing": 3}
+    responses.reset()
+    FakeDatamart(rows).register(REPORTS)
+    found = run()
+    details = found.details
+    assert found.status == SyncRun.Status.PARTIAL and details["ordering"] == {"key": "id"}
+    assert details["held_twice"] == 3 and "pages_shifted" not in details
+    assert (details["removal_skipped"], details["removed"]) == (True, 0) and 900 in ids()
+    assert sync.shift_words(details) == (
+        "The Datamart returned 3 records twice in a stable order (by id): it likely holds them twice; tell the "
+        "eTools Datamart team. Nothing was removed."
+    )

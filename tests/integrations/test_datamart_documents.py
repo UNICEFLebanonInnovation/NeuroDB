@@ -692,25 +692,45 @@ def test_raw_copies_from_a_read_shorter_than_announced_are_not_removed():
 @responses.activate
 def test_prp_progress_reports_are_linked_to_their_pd_through_prp_programme_documents(linked, settings):
     """A PRP progress report names its PRP programme document by id; that record links to the eTools PD by
-    its external id: the progress report gets the PD and its partner, after either dataset's sync. Counts
-    only in the run's details."""
+    its external id: the progress report gets the PD and its partner, after either dataset's sync. The records
+    carry ids, so the key each programme document is held under (its id) is the pair the data proves: today's
+    lookup. Key names and counts only in the run's details."""
     settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
     partner, pd = linked
+    year = {"start_date": "2026-01-01", "end_date": "2026-12-31"}
     page(
         "sources/prp/unicefprogrammedocument",
         [
-            {"id": 77, "external_business_area_code": "2490", "external_id": "11", "reference_number": "X"},
-            {"id": 78, "external_business_area_code": "2490", "external_id": "999"},  # a PD NeuroDB lacks
+            {
+                "id": 77,
+                "external_business_area_code": "2490",
+                "external_id": "11",
+                "reference_number": "X",
+                **year,
+            },
+            {
+                "id": 78,
+                "external_business_area_code": "2490",
+                "external_id": "999",
+                **year,
+            },  # a PD NeuroDB lacks
         ],
         external_business_area_code="2490",
         page_size="500",
     )
+    ends = {"end_date": "2026-03-31"}
     page(
         "sources/prp/unicefprogressreport",
         [
-            {"id": 1, "business_area_code": "2490", "programme_document_id": 77, "status": "Ove"},
-            {"id": 2, "business_area_code": "2490", "programme_document": {"id": "77"}, "status": "Due"},
-            {"id": 3, "business_area_code": "2490", "programme_document_id": 78},
+            {"id": 1, "business_area_code": "2490", "programme_document_id": 77, "status": "Ove", **ends},
+            {
+                "id": 2,
+                "business_area_code": "2490",
+                "programme_document": {"id": "77"},
+                "status": "Due",
+                **ends,
+            },
+            {"id": 3, "business_area_code": "2490", "programme_document_id": 78, **ends},
             {"id": 4, "business_area_code": "2490", "programme_document_id": 55},  # not held
             {"id": 5, "business_area_code": "2490", "report_type": "QPR"},  # names none
         ],
@@ -729,12 +749,19 @@ def test_prp_progress_reports_are_linked_to_their_pd_through_prp_programme_docum
             "partner", flat=True
         )
     ) == {partner.pk}
-    assert reports.details["progress_reports_pd_link"] == {
+    link = reports.details["progress_reports_pd_link"]
+    assert {k: link[k] for k in ("linked", "pd_not_linked", "pd_not_held", "pd_not_named")} == {
         "linked": 2,
         "pd_not_linked": 1,
         "pd_not_held": 1,
         "pd_not_named": 1,
     }
+    # "named" (both keys) links more reports than either key alone, which agree with it: today's lookup, proven
+    assert (link["by"], link["proven"]) == (["named", "record_key"], True)
+    assert link["pairs"][0] == {
+        "report": "named", "pd": "record_key", "linked": 3, "dated": 3, "agree": 3, "verdict": "proven"
+    }  # fmt: skip
+    assert link["pd_keys"] == {"record_key": 2, "external_id": 2, "id": 2, "reference_number": 1}
     assert documents.details["progress_reports_pd_link"] == {}  # no progress report held yet
     # the PRP programme document now links to another PD: the next sync of either dataset follows it
     other = PCA.objects.create(etl_id="999", number="LEB/PD9", title="PD 9", partner=partner)
@@ -801,3 +828,238 @@ def test_a_progress_report_naming_no_business_area_is_kept_only_through_a_held_p
     assert (details["kept_by_programme_document"], details["unnamed_skipped"]) == (1, 2)
     assert details["other_country_skipped"] == 2 and "country_unnamed" not in details
     assert reports.status == SyncRun.Status.SUCCEEDED
+
+
+# --------------------------------------------------- PRP's records with no id: the key pair and the record identity
+def _url(path: str) -> str:
+    return f"{API}/{path}/"
+
+
+def _pd(prp_id, area="2490", **extra) -> dict:
+    """A PRP programme document as sources/prp/unicefprogrammedocument may send it: no id, its PRP id under
+    prp_id, the eTools id under external_id (eTools ids repeat across countries), the dates of 2026."""
+    found = {"prp_id": prp_id, "external_business_area_code": area, "start_date": "2026-01-01",
+             "end_date": "2026-12-31", **extra}  # fmt: skip
+    return {k: v for k, v in found.items() if v is not ...}
+
+
+def _report(pd_id, number: str, end: str = "2026-03-31", **extra) -> dict:
+    """A PRP progress report as sources/prp/unicefprogressreport sends it (21 Oct 2026): no id, no source_id."""
+    return {"business_area_code": "2490", "programme_document": pd_id, "report_type": "QPR",
+            "report_number": number, "end_date": end, **extra}  # fmt: skip
+
+
+def _held(dataset: str) -> dict[str, int | None]:
+    return dict(DatamartDocument.objects.filter(dataset=dataset).values_list("record_key", "intervention"))
+
+
+@responses.activate
+def test_progress_reports_with_no_id_link_through_a_key_the_data_proves(linked, settings):
+    """Neither dataset carries an id (21 Oct 2026: every progress report named a programme document NeuroDB did
+    not hold, as the documents are held under a hash). The reports name their document's PRP id: the pair
+    programme_document = prp_id links three of the four reports naming one, a decoy naming an eTools id that
+    equals an external_id links one, and the dates agree: the pair is proven, the decoy left unlinked."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    partner, pd = linked
+    documents = [
+        _pd(77, external_id="11", reference_number="LEB/PD1"),
+        _pd(78, external_id="999", reference_number="LEB/PD78"),  # a PD NeuroDB does not hold
+        _pd(500, "0990", external_id="11", reference_number="SYR/PD1"),  # another country's: its eTools id 11
+    ]
+    FakeDatamart(documents, ignore=("external_business_area_code",)).register(
+        _url("sources/prp/unicefprogrammedocument")
+    )
+    reports = [
+        _report(77, "QPR1"),
+        _report(77, "QPR2", "2026-06-30"),
+        _report(78, "QPR1"),
+        _report(11, "QPR3"),
+    ]
+    FakeDatamart(reports).register(_url("sources/prp/unicefprogressreport"))
+    pds, progress = run("prp_programme_documents,prp_progress_reports")
+    assert progress.status == SyncRun.Status.SUCCEEDED, progress.details
+    # external_id repeats across the countries read: the documents are held under their PRP id
+    assert pds.details["record_identity"] == "prp_id"
+    assert sorted(_held("prp_programme_documents")) == ["prp_id:77", "prp_id:78"]
+    link = progress.details["progress_reports_pd_link"]
+    assert (link["by"], link["proven"]) == (["programme_document", "prp_id"], True)
+    assert (link["linked"], link["pd_not_linked"], link["pd_not_held"]) == (2, 1, 1)
+    assert {(p["report"], p["pd"], p["linked"]) for p in link["pairs"]} >= {
+        ("programme_document", "prp_id", 3),
+        ("programme_document", "external_id", 1),
+    }
+    held = DatamartDocument.objects.filter(dataset="prp_progress_reports").values_list(
+        "data", "intervention", "partner"
+    )
+    assert {(d["report_number"], d["programme_document"]): (pk, p) for d, pk, p in held} == {
+        ("QPR1", 77): (pd.pk, partner.pk),
+        ("QPR2", 77): (pd.pk, partner.pk),
+        ("QPR1", 78): (None, None),  # its document is linked to no PD NeuroDB holds
+        ("QPR3", 11): (None, None),  # the decoy: no PRP programme document has id 11
+    }
+    # key names and counts only
+    assert "LEB/PD1" not in json.dumps(link) and "QPR" not in json.dumps(link)
+
+
+def test_a_decoy_pair_whose_dates_disagree_is_never_proven():
+    """eTools ids and PRP ids are small numbers in the same range: a pair matching them by chance links more
+    reports than the true pair, but to documents of 2018 while the reports end in 2026. It is out
+    (dates_disagree), and the true pair is used."""
+    old = {"start_date": "2018-01-01", "end_date": "2018-12-31"}
+    pds = [
+        ("h1", {"prp_id": 10, "external_id": 20, "start_date": "2026-01-01", "end_date": "2026-12-31"}, None),
+        ("h2", {"prp_id": 11, "external_id": 10, **old}, None),
+        ("h3", {"prp_id": 12, "external_id": 30, **old}, None),
+        ("h4", {"prp_id": 13, "external_id": 31, **old}, None),
+    ]
+    reports = [{"programme_document": n, "end_date": "2026-06-30"} for n in (10, 10, 10, 30, 31)]
+    link = sync.prove_pd_link(pds, reports)
+    assert (link.report_key, link.pd_key, link.proven) == ("programme_document", "prp_id", True)
+    decoy = next(p for p in link.pairs if p["pd"] == "external_id")
+    assert (decoy["linked"], decoy["dated"], decoy["agree"], decoy["verdict"]) == (5, 5, 0, "dates_disagree")
+    assert link.index == {"10": None, "11": None, "12": None, "13": None}
+    # with no dates on either side, three links of the five reports naming one are too few (nine in ten asked)
+    undated = sync.prove_pd_link([(k, {"prp_id": d["prp_id"]}, pk) for k, d, pk in pds], reports)
+    assert (undated.proven, undated.why, undated.by if hasattr(undated, "by") else None) == (
+        False,
+        "few",
+        None,
+    )
+
+
+@responses.activate
+def test_no_key_pair_links_clearly_so_today_s_lookup_is_kept(db):
+    """Two keys of the documents link the reports to other documents, as often each: neither is proven, and the
+    reports are linked as before, by the key each document is held under (here none)."""
+    for key, prp_id, legacy in (("h1", 77, 78), ("h2", 78, 77)):
+        DatamartDocument.objects.create(dataset="prp_programme_documents", record_key=key,
+                                        data={"prp_id": prp_id, "legacy_id": legacy})  # fmt: skip
+    for n, pd_id in enumerate((77, 78)):
+        DatamartDocument.objects.create(dataset="prp_progress_reports", record_key=f"r{n}",
+                                        data={"programme_document": pd_id})  # fmt: skip
+    link = sync.link_progress_reports()
+    assert (link["by"], link["proven"], link["why"]) == (["named", "record_key"], False, "not_clear")
+    assert (link["pd_not_held"], link.get("linked", 0)) == (2, 0)
+    assert link["pd_keys"] == {"record_key": 2, "legacy_id": 2, "prp_id": 2}
+
+
+@responses.activate
+def test_a_record_without_an_id_keeps_its_row_under_a_proven_key(linked, settings):
+    """A programme document the old code held under its hash is renamed in place to its PRP id (the same row,
+    no second one) once the read proves prp_id unique; changed the next night, it keeps that row."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    record = _pd(77, external_id="11", reference_number="LEB/PD1")
+    old = DatamartDocument.objects.create(dataset="prp_programme_documents", record_key=sync.record_key(record),
+                                          data=record)  # fmt: skip
+    url = _url("sources/prp/unicefprogrammedocument")
+    other = _pd(500, "0990", external_id="11", reference_number="SYR/PD1")
+    FakeDatamart([record, other], ignore=("external_business_area_code",)).register(url)
+    (first,) = run("prp_programme_documents")
+    assert first.status == SyncRun.Status.SUCCEEDED and first.details["record_identity"] == "prp_id"
+    row = DatamartDocument.objects.get(dataset="prp_programme_documents")
+    assert (row.pk, row.record_key, row.intervention) == (old.pk, "prp_id:77", linked[1])
+    assert first.details["id_keys"] == {"prp_id": 2, "external_id": 2}
+
+    responses.reset()
+    FakeDatamart([{**record, "title": "Amended"}, other], ignore=("external_business_area_code",)).register(
+        url
+    )
+    (second,) = run("prp_programme_documents")
+    assert second.status == SyncRun.Status.SUCCEEDED and second.details["record_identity"] == "prp_id"
+    row = DatamartDocument.objects.get(dataset="prp_programme_documents")
+    assert (row.pk, row.record_key, row.data["title"]) == (old.pk, "prp_id:77", "Amended")
+    assert second.details["documents_removed"] == 0
+
+
+@responses.activate
+def test_a_key_unique_only_in_one_country_is_never_an_identity(linked, settings):
+    """Read country-blind, other countries' programme documents repeat Lebanon's eTools ids: external_id is
+    never the record identity, the documents keep their hash, and the read counts no record twice."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    documents = [
+        {"external_business_area_code": "2490", "external_id": "11", "reference_number": "LEB/PD1"},
+        {"external_business_area_code": "0990", "external_id": "11", "reference_number": "SYR/PD1"},
+        {"external_business_area_code": "2340", "external_id": "11", "reference_number": "JOR/PD1"},
+    ]
+    FakeDatamart(documents, ignore=("external_business_area_code",)).register(
+        _url("sources/prp/unicefprogrammedocument")
+    )
+    (found,) = run("prp_programme_documents")
+    assert found.status == SyncRun.Status.SUCCEEDED, found.details
+    assert found.details["record_identity"] == "" and "duplicates_read" not in found.details
+    assert list(_held("prp_programme_documents")) == [sync.record_key(documents[0])]
+
+
+@responses.activate
+def test_two_records_of_different_content_sharing_a_key_are_never_merged(linked, settings):
+    """Two programme documents of Lebanon name PRP id 77 with different titles: prp_id is not unique tonight, so
+    it is no identity; both are kept, each under its hash, and neither overwrites the other."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    documents = [_pd(77, title="First"), _pd(77, title="Second")]
+    FakeDatamart(documents, ignore=("external_business_area_code",)).register(
+        _url("sources/prp/unicefprogrammedocument")
+    )
+    (found,) = run("prp_programme_documents")
+    assert found.details["record_identity"] == "" and found.details["documents"] == 2
+    held = DatamartDocument.objects.filter(dataset="prp_programme_documents")
+    assert sorted(held.values_list("data__title", flat=True)) == ["First", "Second"]
+
+
+@responses.activate
+def test_a_programme_document_naming_no_business_area_is_kept_only_by_its_reference_number(linked, settings):
+    """A PRP programme document naming no business area is kept only when its reference number names a PD
+    NeuroDB holds, and linked by that number alone (its eTools id 11 is another country's, here PD1's); one
+    naming none NeuroDB holds is left out; a record of another business area naming one of NeuroDB's PDs by its
+    reference number is counted: the business area key may be wrong."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    partner, pd1 = linked
+    pd2 = PCA.objects.create(etl_id="12", number="LEB/PD2", title="PD 2", partner=partner)
+    documents = [
+        {"id": 77, "external_business_area_code": "2490", "external_id": "11", "reference_number": "LEB/PD1"},
+        {"id": 78, "external_id": "11", "reference_number": "LEB/PD2"},  # names no business area
+        {"id": 79, "external_id": "13", "reference_number": "SYR/PD5"},  # names none, nor a PD NeuroDB holds
+        {"id": 80, "external_business_area_code": "0990", "external_id": "11", "reference_number": "LEB/PD1"},
+    ]
+    FakeDatamart(documents, ignore=("external_business_area_code",)).register(
+        _url("sources/prp/unicefprogrammedocument")
+    )
+    (found,) = run("prp_programme_documents")
+    assert found.status == SyncRun.Status.SUCCEEDED, found.details
+    details = found.details
+    assert _held("prp_programme_documents") == {"77": pd1.pk, "78": pd2.pk}
+    assert (details["kept_by_reference"], details["unnamed_skipped"], details["other_country_skipped"]) == (
+        1,
+        1,
+        2,
+    )
+    assert (details["linked_to_etools"], details["other_code_named_here"]) == (2, 1)
+    assert "country_unnamed" not in details and "record_identity" not in details
+
+
+def test_id_like_values_and_keys_are_read_as_ids_never_as_a_person():
+    assert [sync.id_value(v) for v in (77, "77", 77.0, " 77 ", {"id": 77}, "LEB/PD1")] == ["77"] * 5 + [
+        "LEB/PD1"
+    ]
+    assert [sync.id_value(v) for v in (None, "", True, 7.5, [77], "x" * 41)] == [""] * 6
+    record = {"prp_id": 1, "pk": 2, "external_id": "11", "programme_document": {"id": 3}, "focal_point_id": 4,
+              "report_number": "QPR1", "unicef_focal_point": {"id": 5}}  # fmt: skip
+    assert sync.id_keys([record]) == {"prp_id": 1, "pk": 1, "external_id": 1, "programme_document": 1}
+    reports = [
+        {"programme_document_id": 1, "pd": "2", "programmeDocument": 3, "pd_focal_point": 4, "pd_title": ""}
+    ]
+    assert sync.pd_named_keys(reports) == ["programme_document_id", "pd", "programmeDocument"]
+
+
+def test_a_read_under_a_business_area_filter_chooses_no_new_record_identity():
+    """Under a proven business area filter a key unique only within the country would pass: no new identity is
+    chosen there, last night's is kept while it still qualifies."""
+    tracker = sync.IdentityTracker()
+    for n in (1, 2):
+        tracker.saw({"external_id": str(n), "prp_id": n}, f"content {n}")
+    assert sync.identity_key(tracker) == "external_id"  # by name, with no filter
+    assert sync.identity_key(tracker, filtered=True) == ""
+    assert sync.identity_key(tracker, "prp_id", filtered=True) == "prp_id"
+    tracker.saw({"external_id": "1", "prp_id": 3}, "content 3")  # another record repeats external_id 1
+    assert (tracker.keys, sync.identity_key(tracker)) == (["prp_id"], "prp_id")
+    tracker.saw({"external_id": "4"}, "content 4")  # a record without prp_id: no key is left
+    assert (tracker.keys, sync.identity_key(tracker, "prp_id")) == ([], "")

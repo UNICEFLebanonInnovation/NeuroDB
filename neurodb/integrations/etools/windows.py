@@ -15,7 +15,14 @@ whose window filters are not proven is read once, as ever, and is not whole when
 partner reports, read country-blind, hold more records than :data:`MAX_WINDOWS` windows can: a cut sign there
 buys the proof requests and a plain read with its ends test, nothing more). A page shorter than the first one
 of its request, not the last, is a cut too (``pages_cut``): the read is not whole, and the next one is
-windowed. :meth:`Reading.details` keeps counts, dates and ids only.
+windowed.
+
+Records that come twice while the pages are read (``pages_shifted``: the Datamart's default order moved rows
+between pages, and as many others did not come, or it holds them twice) leave the read not whole. The next
+read first proves a stable order (:func:`prove_ordering`: two pages in order and the reverse on another, by
+``id`` or by the dataset's record identity) and asks every page in it; records that still come twice then are
+most likely held twice by the Datamart (``held_twice``). :meth:`Reading.details` keeps counts, dates and ids
+only.
 """
 
 from __future__ import annotations
@@ -47,6 +54,7 @@ ID_FIRST_TOP = 2**20  # the first top of the id windows, multiplied by 4 while r
 WINDOWS_KEPT = 60  # the windows listed in a run's details
 BOUNDARY = dt.timedelta(days=1)  # a date this close outside its window is a time zone, not a record outside
 ROUND_COUNT = "round_count"  # why a read is windowed when its count is a limit (``windows_why``)
+ORDER_PAGE = 50  # the records of each of the three pages a stable order is proven on (:func:`prove_ordering`)
 
 
 class _OutOfCounts(Exception):
@@ -135,6 +143,97 @@ def suspected(name: str, count: int | None) -> str:
     return _suspicion(count, lambda: sync.last_details(name))
 
 
+def order_wanted(before: dict[str, Any]) -> bool:
+    """Whether a read proves a stable order first: the previous finished run of its dataset (``before``, its
+    details) had records twice (``duplicates_read``), or asked an order (``ordering.key``)."""
+    ordering = before.get("ordering") if isinstance(before, dict) else None
+    asked = isinstance(ordering, dict) and bool(ordering.get("key"))
+    return bool(isinstance(before, dict) and before.get("duplicates_read")) or asked
+
+
+def _order_value(value: Any) -> tuple[int, Any] | None:
+    """A value as an order compares it: a number as a number, else its text; None when missing."""
+    if value in (None, "") or isinstance(value, bool | dict | list):
+        return None
+    text = str(value).strip()
+    try:
+        return (0, float(text))
+    except ValueError:
+        return (1, text)
+
+
+def _order_proof(
+    client: DatamartClient, dataset: str, params: dict[str, Any], country: bool, key: str
+) -> dict[str, Any]:
+    """One key's proof (:func:`prove_ordering`): its verdict and what its three pages showed, as counts."""
+    asked = {**params, "ordering": key, "page_size": ORDER_PAGE}
+    try:
+        count, first = client.first_page(dataset, asked, country=country)
+        if count is not None and count <= 2 * ORDER_PAGE:
+            return {"key": key, "verdict": "too_small", "count": count}
+        second = client.first_page(dataset, {**asked, "page": 2}, country=country)[1]
+        reverse = client.first_page(dataset, {**asked, "ordering": f"-{key}"}, country=country)[1]
+    except IntegrationError as exc:
+        refused = exc.status is not None and 400 <= exc.status < 500
+        return {"key": key, "verdict": "refused" if refused else "failed", "status": exc.status}
+    pages = (first, second, reverse)
+    seen = [{sync.record_key(item) for item in page} for page in pages]  # by id, else by content
+    shared, reverse_shared = len(seen[0] & seen[1]), len(seen[0] & seen[2])
+    values = [[_order_value(item.get(key)) for item in page] for page in pages]
+    carried = all(v is not None for page in values for v in page)
+    in_order = not carried or (
+        values[0] == sorted(values[0])
+        and values[1] == sorted(values[1])
+        and values[2] == sorted(values[2], reverse=True)
+        and (not values[0] or not values[1] or values[0][-1] <= values[1][0])
+    )
+    proven = all(pages) and not shared and not reverse_shared and in_order
+    return {
+        "key": key,
+        "verdict": "proven" if proven else "ignored",
+        "count": count,
+        "pages": [len(page) for page in pages],
+        "shared": shared,
+        "reverse_shared": reverse_shared,
+        "carried": carried,
+        "in_order": in_order,
+    }
+
+
+def prove_ordering(
+    client: DatamartClient,
+    dataset: str,
+    params: dict[str, Any],
+    *,
+    country: bool = True,
+    keys: tuple[str, ...] = ("id",),
+    known: Any = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Whether the Datamart reads ``dataset`` (``params``, the read's own query) in a stable order, proven
+    as the probe proves a filter, on one key after another (``keys``, the empty ones left out): page 1 and
+    page 2 of ``ordering=<key>`` (:data:`ORDER_PAGE` records each) share no record and, when the records carry
+    the key, each is in order and page 1 ends at or before page 2's start; page 1 of ``ordering=-<key>``
+    shares no record with page 1 and, with the key, is in descending order (records with no id are told apart
+    by their content). A dataset of ``2 × ORDER_PAGE`` records or fewer (``known``, the last read's count, or
+    the first proof page's) is not asked: too small to prove, and to shift. A refused or failed request never
+    fails the read: that key is not proven. Returns ``{"key": key}``, or ``{"key": "", "why": ..., "tried":
+    keys}`` (``ignored``, ``refused``, ``failed`` or ``too_small``), and each key tried with what its pages
+    showed (counts only)."""
+    if isinstance(known, int) and not isinstance(known, bool) and known <= 2 * ORDER_PAGE:
+        return {"key": "", "why": "too_small"}, []
+    tried: list[dict[str, Any]] = []
+    for key in dict.fromkeys(k for k in keys if k):
+        found = _order_proof(client, dataset, params, country, key)
+        tried.append(found)
+        if found["verdict"] == "proven":
+            return {"key": key}, tried
+        if found["verdict"] == "too_small":
+            return {"key": "", "why": "too_small"}, tried
+    verdicts = [t["verdict"] for t in tried]
+    why = "ignored" if "ignored" in verdicts or not verdicts else verdicts[0]
+    return {"key": "", "why": why, "tried": [t["key"] for t in tried]}, tried
+
+
 def _next_year(day: dt.date) -> dt.date:
     try:
         return day.replace(year=day.year + 1)
@@ -145,8 +244,10 @@ def _next_year(day: dt.date) -> dt.date:
 class Reading:
     """The records of one dataset query (as :meth:`DatamartClient.list` yields them), read in windows when a
     cut is suspected (:attr:`why`), and whether the read is :attr:`whole`. ``name``, the dataset's sync
-    target: its previous finished run says whether the last read looked cut. Iterate it once; read
-    :attr:`whole` and :meth:`details` after."""
+    target: its previous finished run says whether the last read looked cut, whether to ask a stable order
+    first (:func:`order_wanted`, :attr:`ordering`) and the record identity its records without an id are told
+    apart by (``record_identity``, ``datamart_sync.record_key``). Iterate it once; read :attr:`whole` and
+    :meth:`details` after."""
 
     def __init__(
         self,
@@ -162,11 +263,15 @@ class Reading:
         self.client, self.dataset, self.params = client, dataset, dict(params or {})
         self.country, self.date_key, self.name = country, date_key, name
         self.before: dict[str, Any] = {}  # the details of the previous finished run of ``name``, once read
+        self.identity = ""  # the previous run's record identity: the records without an id counted by it
+        self.ordering: dict[str, Any] = {}  # the stable order asked (``{"key": "id"}``), or why none
+        self.order_tried: list[dict[str, Any]] = []
         self.why = ""  # why the read is windowed (``windows_why``): "" for a plain read
         self.today = today or timezone.localdate()
         self.announced: int | None = None  # C, the count of the first page
         self.keys: set[str] = set()
         self.repeated = 0
+        self.repeated_same = 0  # records again that carry no id: identical to their first copy (their hash)
         self.windowed = False
         self.windows: list[Window] = []
         self.bound = ""  # the filter the windows are made of: date_key, "id" or "" (none proven)
@@ -185,6 +290,15 @@ class Reading:
     # ----------------------------------------------------------------------------------------- reading
     def __iter__(self) -> Iterator[dict[str, Any]]:
         self.before = sync.last_details(self.name) if self.name else {}
+        self.identity = str(self.before.get("record_identity") or "")
+        if order_wanted(self.before):  # the last read's records came twice: ask a stable order, once proven
+            keys = ("id", self.identity)
+            known = self.before.get("datamart_count")
+            self.ordering, self.order_tried = prove_ordering(
+                self.client, self.dataset, self.params, country=self.country, keys=keys, known=known
+            )
+            if self.ordering.get("key"):
+                self.params["ordering"] = self.ordering["key"]
         pages = self.client.pages(self.dataset, self.params, country=self.country)
         count, first = next(pages)
         self.announced = count
@@ -228,10 +342,11 @@ class Reading:
         return count is not None and (count >= WINDOW_RECORDS or sync.capped(count))
 
     def _take(self, window: Window, item: dict[str, Any]) -> None:
-        key = sync.record_key(item)
+        key = sync.record_key(item, self.identity)
         if key in self.keys:
             window.repeated += 1
             self.repeated += 1
+            self.repeated_same += item.get("id") in (None, "") and key == sync.content_key(item)
         else:
             self.keys.add(key)
             window.read += 1
@@ -535,11 +650,13 @@ class Reading:
         return None if failed else since
 
     def details(self) -> dict[str, Any]:
-        """For the run: ``datamart_count`` (the first page's count, C), ``pages_cut`` when a page was cut and,
-        when windowed, why (``windows_why``), the windows (the first :data:`WINDOWS_KEPT`), what was read and
-        announced, the filter proven, the checks and their outcome (``windows_cut``: windows read to their end
-        holding fewer than they announced); ``cap_suspected`` when the answer looks cut. Counts, dates and ids
-        only."""
+        """For the run: ``datamart_count`` (the first page's count, C), ``pages_cut`` when a page was cut, the
+        stable order asked (``ordering``) and, for records that came twice, ``pages_shifted`` (``twice``, and
+        ``missing``: announced, not read) or, under a stable order, ``held_twice`` (``twice_identical`` when
+        every one carries no id and came identical); when windowed, why (``windows_why``), the windows (the
+        first :data:`WINDOWS_KEPT`), what was read and announced, the filter proven, the checks and their
+        outcome (``windows_cut``: windows read to their end holding fewer than they announced);
+        ``cap_suspected`` when the answer looks cut. Counts, dates and ids only."""
         found: dict[str, Any] = {}
         if self.announced is not None:
             found["datamart_count"] = self.announced
@@ -549,6 +666,15 @@ class Reading:
             found["ends_missing"] = self.ends_missing
         if self.pages_cut:
             found["pages_cut"] = self.pages_cut
+        if self.ordering:
+            found["ordering"] = dict(self.ordering)
+        if self.repeated and self.ordering.get("key"):  # twice in a stable order: likely held twice
+            found["held_twice"] = self.repeated
+        elif self.repeated:
+            missing = max((self.announced or 0) - self.read, 0)
+            found["pages_shifted"] = {"twice": self.repeated, "missing": missing}
+        if self.repeated and self.repeated_same == self.repeated:
+            found["twice_identical"] = True
         if not self.windowed:
             return found
         found.update(

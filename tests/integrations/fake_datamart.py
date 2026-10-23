@@ -40,8 +40,10 @@ class FakeDatamart:
     only); ``refuse``: keys answered 400; ``matches``: a filter key compared with another record key (a filter
     on the wrong field: ``{"business_area": "office_code"}``); ``page_limit``: a page past it answers 404
     "Invalid page"; ``cut_pages``: those page numbers lose their last record (a page the Datamart cut, its
-    count and its ``next`` link unchanged); ``changes``: (n, records) added after the n-th request.
-    ``requests``: the queries asked, for assertions."""
+    count and its ``next`` link unchanged); ``changes``: (n, records) added after the n-th request; ``shift``: an
+    unstable default order (from page 2 on, a request with no ordering it applies starts ``shift`` records
+    early, so ``shift`` records come twice and as many never come), and ``ordering`` is ignorable like a filter
+    (``ignore=("ordering",)``). ``requests``: the queries asked, for assertions."""
 
     def __init__(
         self,
@@ -56,11 +58,13 @@ class FakeDatamart:
         page_limit: int | None = None,
         cut_pages: tuple[int, ...] = (),
         changes: tuple[int, list[dict[str, Any]]] | None = None,
+        shift: int = 0,
     ) -> None:
         self.records, self.ignore = list(records), set(ignore)
         self.cap, self.cut_count = cap, cut_count
         self.ignore_on_next, self.refuse, self.matches = set(ignore_on_next), set(refuse), dict(matches or {})
         self.page_limit, self.cut_pages, self.changes = page_limit, set(cut_pages), changes
+        self.shift = shift
         self.requests: list[dict[str, str]] = []
         self.url = ""
 
@@ -93,7 +97,7 @@ class FakeDatamart:
         found = [
             record for record in self.records if all(self._keeps(record, k, v) for k, v in query.items())
         ]
-        order = query.get("ordering", "")
+        order = "" if "ordering" in self.ignore else query.get("ordering", "")
         if order:
             found.sort(key=lambda r: _point(r.get(order.lstrip("-"))) or 0, reverse=order.startswith("-"))
         count = len(found)
@@ -106,7 +110,10 @@ class FakeDatamart:
         )  # a list that ignores the page number
         if self.page_limit is not None and page > self.page_limit:
             return 404, {}, json.dumps({"detail": "Invalid page."})
-        results = found[(page - 1) * size : page * size]
+        start, end = (page - 1) * size, page * size
+        if self.shift and not order and page > 1:  # rows moved between pages: the pages start early
+            start, end = start - self.shift, min(end, len(found)) - self.shift
+        results = found[start:end]
         more = page * size < len(found)
         if page in self.cut_pages:
             results = results[:-1]

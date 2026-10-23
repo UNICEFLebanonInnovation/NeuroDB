@@ -655,9 +655,10 @@ class DatamartDocument(models.Model):
     Every dataset of ``neurodb.datamart.catalogue`` that has no table of its own lands here (the
     PD ePD narratives, reviews, locations of PDs, attachments, FM questions, PRP reports...), plus a
     raw copy of the records that update the eTools tables (partners, programme documents, budgets,
-    agreements) and of the per-type audit records. ``record_key`` is the Datamart id, or a hash of the
-    record for the few datasets without one. Contact details (e-mail addresses, phone numbers) are
-    removed before storing.
+    agreements) and of the per-type audit records. ``record_key`` is the Datamart id; for the few datasets
+    whose records carry none, a key the data proves unique (``"prp_id:77"``, ``datamart_sync.identity_key``)
+    or else a hash of the record. Contact details (e-mail addresses, phone numbers) are removed before
+    storing.
     """
 
     dataset = models.CharField(max_length=64, db_index=True)

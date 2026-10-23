@@ -652,7 +652,9 @@ def datamart_quality() -> list[dict[str, Any]]:
     nothing. A large dataset read in windows says how many, why, what they announced and read, those not read
     whole (the first three), a count that changed during the read, and a removal held one night; a page cut
     short says so. The partner reports and PRP's progress reports say which business area filter their read
-    took, or why none, and the records of another business area a filter let through."""
+    took, or why none, and the records of another business area a filter let through. Records that came twice
+    say whether the pages shifted (and as many others did not come) or, in a stable order, the Datamart likely
+    holds them twice, and the stable order asked or why none."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.etools.datamart_sync import (
         ENTITY_SYNCS,
@@ -660,6 +662,7 @@ def datamart_quality() -> list[dict[str, Any]]:
         area_words,
         is_area_code,
         not_a_code,
+        shift_words,
     )
 
     last_by_target = latest_datamart_runs(ENTITY_SYNCS)
@@ -674,6 +677,8 @@ def datamart_quality() -> list[dict[str, Any]]:
         code = str(details.get("business_area") or "")
         aside = details.get("business_area_set_aside")
         aside = aside if isinstance(aside, dict) else {}
+        shifted = details.get("pages_shifted") if isinstance(details.get("pages_shifted"), dict) else {}
+        ordering = details.get("ordering") if isinstance(details.get("ordering"), dict) else {}
         rows.append(
             {
                 "name": name,
@@ -707,6 +712,14 @@ def datamart_quality() -> list[dict[str, Any]]:
                 "datamart_count": details.get("datamart_count"),
                 "removal_skipped": bool(details.get("removal_skipped")),
                 "duplicates_read": details.get("duplicates_read"),
+                # records that came twice: pages that shifted (others then missing) or, in a stable order,
+                # records the Datamart likely holds twice; the stable order asked or why none; in words
+                "pages_shifted_twice": shifted.get("twice"),
+                "pages_shifted_missing": shifted.get("missing"),
+                "held_twice": details.get("held_twice"),
+                "ordering_key": ordering.get("key") or "",
+                "ordering_why": ordering.get("why") or "",
+                "shift_words": shift_words(details),
                 # why the answer looks cut (a round count read in one answer, a cut the ends test found...)
                 "cap_suspected": details.get("cap_suspected") or "",
                 # read in windows: how many, what they announced (the Datamart's own count may be cut), those
