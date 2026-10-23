@@ -2101,34 +2101,41 @@ left out), the one rule checks 10 and 11 read too. `other_country_skipped` holds
 country (`unnamed_skipped`, shown on their own line) and those a business area filter let through
 (`area_strays`, an "of which"); records sent twice are a note. "Updated by the sync" is counted in the table
 (`synced_at` within the run). For the raw copies of the sources written by another sync, "could not be saved"
-is `details.documents_failed`. A remainder the counts do not explain shows in red. **Complete?** is *Yes* when
-the run succeeded, NeuroDB received at least what eTools said it had, nothing failed and nothing is unexplained;
-otherwise the first reason. An error is shown by its kind only (`runs._error_key`). On 21 Oct, PRP's progress
-reports: received 150,221 − of another country 148,631 − could not be saved 0 = 1,590 updated by the sync;
-eTools said it had 74 more.
+is `details.documents_failed`; the records that could not be saved into the partners, programme documents,
+agreements, engagements, locations or sites the pages read (the run's `rows_failed`) are a line of their own,
+on the source's page and in the first page's *Not kept* column. A remainder the counts do not explain shows in
+red. **Complete?** is *Yes* when the run succeeded, NeuroDB received at least what eTools said it had, nothing
+failed (a raw copy, or a partner, programme document, location... of a source written by another sync) and
+nothing is unexplained; otherwise the first reason. An error is shown by its kind only (`runs._error_key`). On
+21 Oct, PRP's progress reports: received 150,221 − of another country 148,631 − could not be saved 0 = 1,590
+updated by the sync; eTools said it had 74 more.
 
 **The people rule** (`datamart/raw_people.py`, `public_record`): every record on screen and in every CSV goes
 through it, nothing else writes a raw record out. Contact fields are dropped at any depth; the answers of PSEA
 assessments keep only their safeguarding fields (the others one count, `withheld_keys`); a field whose name is
 not an identifier (a space, an `@`, longer than 64 characters, shaped like an e-mail, a link or a phone, or a
-person's name) is never a column (`(fields naming a person)`); a field that names people (`query._person`, Ask's
-rule: the new words participants, attendees, interviewees, informants, beneficiaries, visitors, guests,
-companions, recipients and `pme` among them; `participants_count` stays a number) shows how many; a text a person
-wrote (comments, notes) is withheld; every other text is cleaned by Ask's own `query._safe` with the record's
-own names. People inside a field shown are counted under their dotted path, and in a CSV's `people_inside`.
-NeuroDB's own columns go through pinned lists: `PERSON_COLUMNS` (shown as a count), `NEVER_COLUMNS`,
-`TEXT_COLUMNS` (cleaned like a text of the record; a field monitoring narrative over 80 characters withheld
-whole; titles with the record's own names) and `JSON_COLUMNS`. A search or partner word that names a person is
-refused ("eTools records cannot be searched for a person.").
+person's name) is never a column (`(fields naming a person)`), and inside a field, at any depth, a name with a
+letter that is not an identifier is dropped and counted the same way (PRP's `"(12, 31)"` stays); a field that
+names people (`query._person`, Ask's rule: the new words participants, attendees, interviewees, informants,
+beneficiaries, visitors, guests, companions, recipients and `pme` among them; `participants_count` stays a
+number) shows how many; a text a person wrote (comments, notes) is withheld; every other text is cleaned by
+Ask's own `query._safe` with the record's own names. People inside a field shown are counted under their
+dotted path, and in a CSV's `people_inside`. NeuroDB's own columns go through pinned lists: `PERSON_COLUMNS`
+(shown as a count), `NEVER_COLUMNS`, `TEXT_COLUMNS` (the free texts, never searched) and `JSON_COLUMNS`; every
+text column is cleaned like a text of the record under its own name (a reference, a code or an amount keeps
+its value; a field monitoring narrative over 80 characters withheld whole; titles with the record's own
+names). A search or partner word that names a person is refused ("eTools records cannot be searched for a
+person.").
 
 **Fields not reviewed.** A top-level field is shown as received (through the rule) when it is reviewed: in
-`raw.REVIEWED_KEYS` (the test payloads' fields whose words cannot hold a name, pinned by a test), a country field
-(`country_name`, `business_area`, `business_area_code`), a field NeuroDB reads (`raw.read_into`: the sync's
-fields maps), or a superuser's review (`datamart.RawFieldReview`, migration 0017: a new, empty table). Any
-other field shows only numbers, yes/no, dates and times; a text in it reads "N values (not reviewed)". On a
-source's page, *Fields this source sends* (counted with one query from the newest 2,000 records NeuroDB holds)
-gives a superuser *Look at its values* (the developer table, filtered on records carrying the field) and
-*Reviewed: show it*; *Hide again* takes it back. Review a field after reading a few of its values.
+`raw.REVIEWED_KEYS` (the test payloads' fields whose words cannot hold a name, pinned by a test), a country
+field (`country_name`, `business_area`, `business_area_code`), a field NeuroDB reads (`raw.read_into`: the
+sync's fields maps), or a superuser's review (`datamart.RawFieldReview`, migration 0017: a new, empty table).
+Any other field shows only numbers, yes/no, dates and times, under names that may be shown; a text in it, or a
+name such as `"Test Person": 4`, makes it read "N values (not reviewed)". On a source's page, *Fields this
+source sends* (counted with one query from the newest 2,000 records NeuroDB holds) gives a superuser *Look at
+its values* (the developer table, filtered on records carrying the field) and *Reviewed: show it*; *Hide
+again* takes it back. Review a field after reading a few of its values.
 
 **The filter and the list.** Programme document, partner, section (Partner reports: `reporting.section_q`), status,
 year and dates, search (references and numbers, never a person, a text or a trip's title), record id, updated by

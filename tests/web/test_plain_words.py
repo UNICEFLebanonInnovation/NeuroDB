@@ -47,7 +47,19 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         raw.too_many("partner_reports", 30_000),
         *raw.NAMES.values(),
     ]
-    facts = {"run": object(), "newer_failed": None, "never_came": 74, "not_saved": 0, "unexplained": 0}
+    facts = {
+        "run": object(),
+        "newer_failed": None,
+        "never_came": 74,
+        "not_saved": 0,
+        "not_written": 0,
+        "written_into": "",
+        "error_lines": (),
+        "unexplained": 0,
+    }
     sentences.append(runfacts._verdict(facts)[1])
+    sentences.append(
+        runfacts._verdict({**facts, "never_came": 0, "not_written": 3, "written_into": "locations"})[1]
+    )
     for sentence in sentences:
         assert not NEVER.findall(sentence), sentence

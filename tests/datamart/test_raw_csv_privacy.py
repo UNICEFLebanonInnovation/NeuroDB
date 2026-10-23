@@ -1,5 +1,6 @@
-"""The privacy sweep of every download Raw eTools data writes, and of the two exports the standing rule changed:
-people planted in a record of every source never reach a cell or a column's name. Synthetic people only."""
+"""The privacy sweep of every download and every page Raw eTools data writes, and of the two exports the
+standing rule changed: people planted in a record of every source, and in every text column of NeuroDB's own
+tables, never reach a cell, a column's name, a source's list or a record's page. Synthetic people only."""
 
 from __future__ import annotations
 
@@ -9,6 +10,7 @@ import io
 
 import pytest
 from django.contrib.auth.models import Group
+from django.db import models
 from django.urls import reverse
 
 from neurodb.accounts.models import User
@@ -23,6 +25,7 @@ pytestmark = pytest.mark.django_db
 NAME, EMAIL = "Person One", "person.one@example.org"
 PHONES = ("+961 3 123 457", "03 123 457")
 UNKNOWN = "Zorba Quintel"
+STRANGER = "Test Stranger"  # a name the record holds nowhere else: only the field name rule finds it
 # a record naming people every way eTools does; the unknown name only where a person or a field's name is, since
 # no rule can know it inside a text
 PLANTED = {
@@ -50,10 +53,13 @@ PLANTED = {
     "comments": f"Called {UNKNOWN} at {PHONES[1]}",
     "narrative": f"Visit with {NAME} ({EMAIL}), call {PHONES[0]} or {PHONES[1]}; Mrs Person One agreed.",
     "location": {"name": "Tripoli", "focal_point": UNKNOWN},
+    "scores": {STRANGER: 4},
     "participants_count": 12,
     "status": "Accepted",
 }
-FORBIDDEN = (NAME, EMAIL, UNKNOWN, *PHONES, "Quintel", "123 457")
+FORBIDDEN = (NAME, EMAIL, UNKNOWN, STRANGER, *PHONES, "Quintel", "123 457")
+# what every text column of NeuroDB's own tables holds (cut to the column's length)
+TYPED_TEXT = f"Note by {NAME} ({EMAIL}) call {PHONES[0]} or {PHONES[1]}"
 CONTACT = ("email", "phone", "mobile")
 
 
@@ -66,19 +72,20 @@ def client_validator(client, roles):
     return client
 
 
-def _plant(name: str) -> None:
+def _plant(name: str) -> int:
+    """A record of ``name`` naming people every way, in its data and in each of its text columns: its pk."""
     if raw.typed(name):
         model = raw.model_of(name)
         fields = {"datamart_id": 4242, "data": PLANTED}
         if model is dm.HACTAggregate:
             fields["year"] = 2026
-        if model is dm.Grant:
-            fields["name"] = "Grant 1"
-        model.objects.create(**fields)
-    else:
-        dm.DatamartDocument.objects.create(
-            dataset=name, record_key="4242", title=f"Report · {NAME}", data=PLANTED
-        )
+        for f in model._meta.concrete_fields:
+            if isinstance(f, models.CharField | models.TextField) and not f.is_relation:
+                fields[f.name] = TYPED_TEXT[: f.max_length] if f.max_length else TYPED_TEXT
+        return model.objects.create(**fields).pk
+    return dm.DatamartDocument.objects.create(
+        dataset=name, record_key="4242", title=f"Report · {NAME}", data=PLANTED
+    ).pk
 
 
 def _download(client, name: str) -> tuple[list[str], list[list[str]]]:
@@ -117,6 +124,20 @@ def test_no_person_reaches_a_raw_csv(client_validator, name):
         assert row["participants_count"] == "12"
         assert row["submitted_by (people)"] == "1" and row["team_members (people)"] == "2"
         assert row["people_inside"] in ("0", "1")  # the location's focal point, when the location is shown
+
+
+@pytest.mark.parametrize("name", list(ENTITY_SYNCS))
+def test_no_person_reaches_a_source_s_list_or_a_record_s_page(client_validator, name):
+    pk = _plant(name)
+    for url in (
+        reverse("admin:datamart_raw_source", args=[name]),
+        reverse("admin:datamart_raw_record", args=[name, pk]),
+    ):
+        response = client_validator.get(url)
+        assert response.status_code == 200, url
+        html = response.content.decode()
+        for planted in FORBIDDEN:
+            assert planted not in html, (url, planted)
 
 
 def test_the_progress_reports_export_counts_the_focal_points(client_viewer):

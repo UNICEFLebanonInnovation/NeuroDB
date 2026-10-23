@@ -12,8 +12,11 @@ it. Counted on distinct records, the same for the datasets in their own table an
 ``other_country_skipped`` already holds the records that named no country (``unnamed_skipped``) and those of
 another business area a filter let through (``area_strays``): "of another country" is shown without the first,
 the second as an "of which". Records sent twice are a note, each already counted once in what NeuroDB
-received. A remainder the counts do not explain is shown, never hidden. An error is shown by its kind only
-(``runs._error_key``): its text can hold a value of the record. Counts only: no record's value is read here.
+received. A remainder the counts do not explain is shown, never hidden. For a source written by another sync
+(``WRITTEN_BY``) the equation counts its raw copies; the records that could not be saved into the partners,
+programme documents, locations... the pages read (the run's ``rows_failed``) are a line of their own, and make
+"Complete?" No. An error is shown by its kind only (``runs._error_key``): its text can hold a value of the
+record. Counts only: no record's value is read here.
 """
 
 from __future__ import annotations
@@ -31,6 +34,20 @@ from . import catalogue
 # Sources written by another sync: their records also update the partners, programme documents, agreements,
 # engagements, locations or sites, and a raw copy is kept of each one (``datamart_sync._write_documents``)
 WRITTEN_BY = frozenset(name for name, spec in catalogue.DOCUMENTS.items() if spec.scope == "written_by")
+# What each of them updates, which the pages read: the run's ``rows_failed`` could not be saved there
+WRITTEN_INTO = {
+    "partners": "partners",
+    "interventions": "programme documents",
+    "intervention_budgets": "programme documents",
+    "agreements": "agreements",
+    "audits": "engagements",
+    "audit_results": "engagements",
+    "spot_checks": "engagements",
+    "micro_assessments": "engagements",
+    "special_audits": "engagements",
+    "locations": "locations",
+    "location_sites": "sites",
+}
 
 
 def _count(value: Any) -> int:
@@ -75,7 +92,9 @@ class RunFacts:
     other_country: int  # other_country_skipped - unnamed_skipped
     through_area_filter: int  # area_strays: an "of which", inside other_country
     unnamed: int  # unnamed_skipped
-    not_saved: int
+    not_saved: int  # the records (of a source written by another sync: the raw copies) that failed
+    not_written: int  # a source written by another sync: run.rows_failed, not saved into WRITTEN_INTO
+    written_into: str  # WRITTEN_INTO's words, or ""
     error_lines: tuple[ErrorLine, ...]
     held: int  # in NeuroDB now
     updated_by_sync: int  # started_at <= synced_at <= finished_at
@@ -105,7 +124,8 @@ def _error_lines(details: dict[str, Any]) -> tuple[ErrorLine, ...]:
 
 def _verdict(facts: dict[str, Any]) -> tuple[bool, str]:
     """ "Complete?": yes when the last sync succeeded, NeuroDB received at least what eTools said it had, no
-    record failed and none is unexplained; otherwise the first reason, in plain words."""
+    record failed (nor, for a source written by another sync, its partner, programme document, location...)
+    and none is unexplained; otherwise the first reason, in plain words."""
     run = facts["run"]
     if run is None:
         return False, "No: never synced"
@@ -115,6 +135,14 @@ def _verdict(facts: dict[str, Any]) -> tuple[bool, str]:
         return False, f"No: eTools said it had {facts['never_came']:,} more"
     if facts["not_saved"]:
         return False, f"No: {facts['not_saved']:,} could not be saved"
+    if facts["not_written"]:
+        return (
+            False,
+            f"No: {facts['not_written']:,} could not be saved into NeuroDB's {facts['written_into']}",
+        )
+    failed = sum(line.count for line in facts["error_lines"])
+    if failed and run.status != SyncRun.Status.SUCCEEDED:  # errors the counts above do not hold
+        return False, f"No: {failed:,} could not be saved"
     if facts["unexplained"]:
         return False, f"No: {facts['unexplained']:,} records are not explained by the sync's counts"
     return True, "Yes"
@@ -133,9 +161,8 @@ def build(
     said = _given(row["datamart_count"])
     received = records_read(run) if run else None
     skipped, unnamed = _count(row["other_country_skipped"]), _count(row["unnamed_skipped"])
-    not_saved = (
-        _count(details.get("documents_failed")) if name in WRITTEN_BY else (run.rows_failed if run else 0)
-    )
+    failed = run.rows_failed if run else 0
+    not_saved = _count(details.get("documents_failed")) if name in WRITTEN_BY else failed
     facts: dict[str, Any] = {
         "source": name,
         "run": run,
@@ -150,6 +177,8 @@ def build(
         "through_area_filter": _count(row["area_strays"]),
         "unnamed": unnamed,
         "not_saved": not_saved,
+        "not_written": failed if name in WRITTEN_BY else 0,
+        "written_into": WRITTEN_INTO.get(name, ""),
         "error_lines": _error_lines(details),
         "held": held,
         "updated_by_sync": by_sync,

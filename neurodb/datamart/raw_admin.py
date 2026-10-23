@@ -68,10 +68,13 @@ def _status_word(run: SyncRun | None) -> str:
 
 
 def _not_kept(facts: runfacts.RunFacts) -> str:
-    return (
+    words = (
         f"{facts.other_country:,} of another country; {facts.unnamed:,} named no country; "
         f"{facts.not_saved:,} could not be saved"
     )
+    if facts.not_written:
+        words += f"; {facts.not_written:,} could not be saved into NeuroDB's {facts.written_into}"
+    return words
 
 
 def _row(request, name: str, facts: runfacts.RunFacts) -> dict[str, Any]:
@@ -297,21 +300,23 @@ def _typed_fields(name: str, row: Any, names: frozenset[str], own: frozenset[str
     return out
 
 
-def _report_status(row: Any) -> dict[str, Any]:
-    """A partner report row's progress report and indicator report ids, and its progress report's status as
-    every page reads it (``reporting.progress_reports``: the word of the report's rows changed last)."""
-    from . import reached as rc
+def _report_status(row: Any, names: frozenset[str], own: frozenset[str]) -> dict[str, Any]:
+    """A partner report row's progress report and indicator report ids (``raw.report_keys``), and its progress
+    report's status as every page reads it (``reporting.progress_reports``: the word of the report's rows
+    changed last)."""
     from . import reporting
     from .services import reporting_today
 
     found = reporting.progress_reports(dm.ReportedIndicator.objects.filter(pk=row.pk), reporting_today())
-    values = {f: getattr(row, f) for f in rc.ROW_FIELDS if hasattr(row, f)}
+    keys = raw.report_keys(row, names, own)
     report = found[0] if found else {}
     return {
-        "report_key": rc.report_key(values),
-        "indicator_report_key": rc.indicator_report_key(values),
+        "report_key": keys["progress_report_key"],
+        "indicator_report_key": keys["indicator_report_key"],
         "status": report.get("status_label", ""),
-        "word": report.get("report_status", ""),
+        "word": raw_people.text(
+            report.get("report_status", ""), "partner_reports", "report_status", names, own
+        ),
     }
 
 
@@ -384,7 +389,7 @@ def record_view(request, source: str, pk: int):
         pd_words=raw.pd_words(row),
         partner=partner,
         location=location,
-        report=_report_status(row) if name == "partner_reports" else None,
+        report=_report_status(row, names, own) if name == "partner_reports" else None,
         written=_written_by(name, row, run),
         content_hash=not raw.typed(name) and bool(CONTENT_HASH.fullmatch(row.record_key or "")),
         field_count=len(data),

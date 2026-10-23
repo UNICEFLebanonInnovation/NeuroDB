@@ -92,6 +92,7 @@ follow-up read it at once.
 
 The toolbar's **CSV** copies the rows on screen; **CSV of the filter** downloads every action point of
 the filter and **CSV of every action point** all of them. **Excel of the filter** and **Excel of every
-action point** hold the same columns without *assigned to*, with the description and the action taken
-cleaned of names, e-mail addresses, links and phone numbers. **PDF report** prints the filter, the key
+action point** hold the same columns. Both kinds of file say whether an action point is assigned
+(*assigned_to_count*: 1 when it is, else 0), never to whom, and clean the description and the action
+taken of names, e-mail addresses, links and phone numbers. **PDF report** prints the filter, the key
 figures, the charts and the action points by module (see [Exports](/help/exports/)).

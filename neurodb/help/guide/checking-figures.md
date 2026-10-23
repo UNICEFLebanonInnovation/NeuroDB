@@ -34,8 +34,11 @@ reports and PRP's own datasets among them.
   received, less the records of another country, those naming no country and those that could not be
   saved, is what the sync updated. The records in NeuroDB are those the last sync updated, those updated
   since (a sync is running) and those kept from an earlier sync. A remainder the counts do not explain is
-  shown in red: tell the NeuroDB team. For the partner reports it also says from which date NeuroDB holds
-  them, and how many running programme documents have no report row (check 10).
+  shown in red: tell the NeuroDB team. For the partners, programme documents, agreements, audits and
+  locations, the line counts the copies kept here, and another line says how many records could not be
+  saved into NeuroDB's own partners, programme documents, locations...: the ones the pages read. Then
+  **Complete?** says *No*. For the partner reports it also says from which date NeuroDB holds them, and
+  how many running programme documents have no report row (check 10).
 - **Fields this source sends** (folded) lists each field of the newest 2,000 records in NeuroDB: how many
   records carry it, how many hold a value, and how NeuroDB uses it (read into one of its columns, names
   people, written by a person, a text, shown as received, or a new field).
@@ -54,8 +57,8 @@ People's names, e-mail addresses and phone numbers are never shown, on the pages
 that names people shows how many ("3 people (not shown)"); a text a person wrote (comments, notes) reads
 "text withheld (written by a person)"; every other text is shown without the names NeuroDB knows, e-mail
 addresses, links and phone numbers. A field whose own name is a person's, an e-mail or a phone is never
-shown: it adds to a count. Partner names, vendor numbers and programme document numbers stay, so a row can
-always be matched.
+shown, nor is such a name inside a field: it adds to a count. Partner names, vendor numbers and programme
+document numbers stay, so a row can always be matched.
 
 A search for a person's name is refused: "eTools records cannot be searched for a person."
 

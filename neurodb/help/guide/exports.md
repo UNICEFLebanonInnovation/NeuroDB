@@ -92,8 +92,10 @@ never shows one.
 ## Action points exports
 
 On the [action points page](/action-points/): *CSV of the filter*, *CSV of every action point*, *Excel of
-the filter*, *Excel of every action point* (without who an action point is assigned to, texts cleaned)
-and a *PDF report* of the filter (see [Action points](/help/action-points/#exports)).
+the filter*, *Excel of every action point* (the same columns: whether an action point is assigned,
+*assigned_to_count*, never to whom; the description and the action taken cleaned of names, e-mail
+addresses, links and phone numbers) and a *PDF report* of the filter (see
+[Action points](/help/action-points/#exports)).
 
 ## Partner progress and funds exports
 

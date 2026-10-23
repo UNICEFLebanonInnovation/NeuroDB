@@ -890,11 +890,20 @@ CHOICES_TTL = 10 * 60
 
 def choices(name: str, run: SyncRun | None) -> dict[str, list[str]]:
     """The status and section values a source's filters offer, kept :data:`CHOICES_TTL` seconds per source and
-    run (one read of the shared cache)."""
+    run (one read of the shared cache). A value the people rule would change (a name, an e-mail address or a
+    phone where a status or a section is) is never offered."""
     from neurodb.core import compute
     from neurodb.partnerships.models import PCA
+    from neurodb.watch import people
 
     def read() -> dict[str, list[str]]:
+        known = people.known_names()
+
+        def offered(values: Any, key: str) -> list[str]:
+            found = {str(v) for v in values if v not in (None, "")}
+            kept = (v for v in found if raw_people.text(v, name, key, known, frozenset()) == v)
+            return sorted(kept, key=str.lower)
+
         rows = base(name).order_by()
         status = status_field(name)
         found: dict[str, list[str]] = {"status": [], "section": [], "report_type": []}
@@ -905,16 +914,16 @@ def choices(name: str, run: SyncRun | None) -> dict[str, list[str]]:
                 else rows.values_list(KT(f"data__{status}"))
             )
             values = [v[0] if isinstance(v, tuple) else v for v in column.distinct()[:200]]
-            found["status"] = sorted({str(v) for v in values if v not in (None, "")}, key=str.lower)
+            found["status"] = offered(values, status)
         if name == "pd_indicators":
-            values = rows.values_list("section_name", flat=True).distinct()
-            found["section"] = sorted({v for v in values if v}, key=str.lower)
+            found["section"] = offered(rows.values_list("section_name", flat=True).distinct(), "section_name")
         elif filters_shown(name)["section"]:
             names = PCA.objects.order_by().exclude(section_names=None).values_list("section_names", flat=True)
-            found["section"] = sorted({s for row in names.distinct() for s in row or [] if s}, key=str.lower)
+            found["section"] = offered((s for row in names.distinct() for s in row or []), "section")
         if name == "partner_reports":
-            values = rows.values_list("report_type", flat=True).distinct()
-            found["report_type"] = sorted({v for v in values if v})
+            found["report_type"] = offered(
+                rows.values_list("report_type", flat=True).distinct(), "report_type"
+            )
         return found
 
     key = f"raw:choices:{name}:{run.pk if run else '-'}"
@@ -948,9 +957,10 @@ def columns_of(name: str, counted: list[FieldCount]) -> list[tuple[str, str]]:
 
 
 def related(name: str, rows: QuerySet) -> QuerySet:
-    """``rows`` with the partner and programme document they link to, in the same query."""
+    """``rows`` with the partner and programme document they link to, and the programme document's partner
+    (:func:`partner_of` reads it when a record names no partner), in the same query."""
     joins = [f for f in ("partner", "intervention") if has(name, f)]
-    if name == "pd_indicators":
+    if "intervention" in joins:
         joins.append("intervention__partner")
     return rows.select_related(*joins) if joins else rows
 
@@ -989,6 +999,20 @@ def partner_of(row: Any) -> Any:
     return partner
 
 
+def report_keys(row: Any, names: frozenset[str], own: frozenset[str]) -> dict[str, str]:
+    """A partner report row's progress report and indicator report keys (``reached``: every page groups its
+    rows by them), each cleaned as a text of the record would be: the same key, unless a name, an e-mail
+    address or a phone was copied into it."""
+    from . import reached as rc
+
+    values = {f: getattr(row, f) for f in rc.ROW_FIELDS if hasattr(row, f)}
+    found = {
+        "progress_report_key": rc.report_key(values),
+        "indicator_report_key": rc.indicator_report_key(values),
+    }
+    return {k: raw_people.text(v, "partner_reports", k, names, own) for k, v in found.items()}
+
+
 def record_id(name: str, row: Any) -> str:
     return str(row.datamart_id) if typed(name) else row.record_key
 
@@ -997,6 +1021,9 @@ def updated_by_last(row: Any, run: SyncRun | None) -> bool:
     if run is None or run.finished_at is None or row.synced_at is None:
         return False
     return run.started_at <= row.synced_at <= run.finished_at
+
+
+REPORT_COLUMNS = ("report_type", "report_number")  # the list's "Report" column
 
 
 def cells(
@@ -1010,7 +1037,7 @@ def cells(
     """A record's cells for the list, cleaned with only the fields shown (``raw_people``)."""
     fields = [what[2:] for _, what in columns if what.startswith("d:")]
     if not typed(name) and any(what == "report" for _, what in columns):
-        fields += ["report_type", "report_number"]
+        fields += list(REPORT_COLUMNS)
     shown, withheld = raw_people.public_record(row.data, name, names, fields=fields, reviewed=reviewed)
     own = dmq._own_names(catalogue.scrub(row.data if isinstance(row.data, dict) else {}))
     out: list[Any] = []
@@ -1032,11 +1059,10 @@ def cells(
             out.append(getattr(row, date_column(name), None) if date_column(name) else None)
         elif what == "report":
             if typed(name):
-                out.append(" ".join(x for x in (row.report_type, row.report_number) if x))
+                found = (raw_people.column(name, f, getattr(row, f), names, own) for f in REPORT_COLUMNS)
+                out.append(" ".join(x for x in found if x))
             else:
-                out.append(
-                    " ".join(str(shown.get(k) or "") for k in ("report_type", "report_number")).strip()
-                )
+                out.append(" ".join(str(shown.get(k) or "") for k in REPORT_COLUMNS).strip())
         elif what == "updated":
             out.append("yes" if updated_by_last(row, run) else "no")
         elif what.startswith("t:"):
@@ -1220,8 +1246,6 @@ def csv_rows(
     """The download's rows, read :data:`CSV_CHUNK` records at a time inside one snapshot, each through the
     people
     rule. A query that takes longer than :data:`STREAM_TIMEOUT_MS` ends the file where it is."""
-    from . import reached as rc
-
     reviewed = reviewed_keys(name)
     as_of = local_moment(run.finished_at if run else None)
     wanted = set(keys)
@@ -1242,12 +1266,8 @@ def csv_rows(
                     "vendor_number": partner.vendor_number if partner is not None else "",
                 }
                 if name == "partner_reports":
-                    values = {f: getattr(row, f) for f in rc.ROW_FIELDS if hasattr(row, f)}
-                    out.update(
-                        pd_link=pd_link(row),
-                        progress_report_key=rc.report_key(values),
-                        indicator_report_key=rc.indicator_report_key(values),
-                    )
+                    own = dmq._own_names(catalogue.scrub(row.data if isinstance(row.data, dict) else {}))
+                    out.update(pd_link=pd_link(row), **report_keys(row, names, own))
                 other: dict[str, Any] = {}
                 for key, value in shown.items():
                     if key in wanted:

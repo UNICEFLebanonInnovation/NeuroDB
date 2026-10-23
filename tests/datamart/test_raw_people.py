@@ -180,6 +180,47 @@ def test_typed_texts_and_titles_follow_the_payload_rule():
         assert UNKNOWN not in cleaned and "Zorba" not in cleaned, (source, cleaned)
 
 
+def test_every_text_column_is_cleaned_and_codes_and_amounts_keep_their_values():
+    """Not only the free texts of TEXT_COLUMNS: a name, an e-mail address or a phone in any of NeuroDB's own
+    text columns (a funds reservation's text, a grant's description, an indicator's means of verification) is
+    never shown."""
+    planted = f"Advance for {NAME}, {EMAIL}, {PHONES[0]}"
+    for name in catalogue.TYPED:
+        for f in raw.model_of(name)._meta.concrete_fields:
+            if f.is_relation or not isinstance(f, models.CharField | models.TextField):
+                continue
+            if (name, f.name) in raw_people.NEVER_COLUMNS | raw_people.PERSON_COLUMNS:
+                continue
+            _assert_no_people(raw_people.column(name, f.name, planted, NAMES, frozenset()))
+    for name, column, value in (
+        ("funds_reservations", "fr_number", "0400051234"),
+        ("funds_reservations", "pd_reference_number", "LEB/PCA2020123/PD2021456"),
+        ("funds_reservations", "wbs", "0810/A0/05/882/002/001"),
+        ("funds_reservations", "line_item_text", "Advance, second tranche"),
+        ("partner_reports", "total_cumulative_progress", "3000000"),
+        ("partner_reports", "vendor_number", "2500212345"),
+        ("pd_indicators", "means_of_verification", "Attendance sheets"),
+        ("action_points", "status", "open"),
+    ):
+        assert raw_people.column(name, column, value, NAMES, frozenset()) == value, (name, column)
+
+
+def test_a_name_used_as_a_field_name_inside_a_field_is_never_shown():
+    record = {"id": 1, "scores": {UNKNOWN: 4, "Other Person": 2}, "disaggregation": {"()": 3, "(12, 31)": 1}}
+    # a field nobody reviewed: numbers alone are not enough, the names inside it must pass too
+    shown, withheld = public_record(record, "fm_options", NAMES)
+    assert "scores" not in shown and withheld["scores"] == raw_people.Withheld(NOT_REVIEWED, 2)
+    assert shown["disaggregation"] == {"()": 3, "(12, 31)": 1}  # PRP's ids hold no letter: they stay
+    # a field reviewed: the names inside it are dropped, at any depth, and counted
+    dm.RawFieldReview.objects.create(source="fm_options", key="scores")
+    dm.RawFieldReview.objects.create(source="fm_options", key="marks")
+    record["marks"] = [{"by_site": {UNKNOWN: 3, "Tripoli": 2}, "size": 3}]
+    shown, withheld = public_record(record, "fm_options", NAMES)
+    assert shown["scores"] == {} and shown["marks"] == [{"by_site": {"Tripoli": 2}, "size": 3}]
+    assert withheld[raw_people.FIELDS_NAMING] == raw_people.Withheld(raw_people.FIELD_NAMES, 3)
+    assert UNKNOWN not in _text_of(shown) and "Other Person" not in _text_of(shown)
+
+
 def test_psea_answers_keep_only_the_safeguarding_fields():
     record = {
         "id": 1,

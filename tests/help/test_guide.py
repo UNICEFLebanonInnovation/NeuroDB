@@ -590,3 +590,19 @@ def test_checking_the_figures_is_for_validators(client, roles):
     )
     # never in the search's text for anyone else: the line is no section's
     assert all("For validators:" not in s.text for p in guide.pages().values() for s in p.sections)
+
+
+def test_the_guide_says_the_action_points_files_name_no_one_and_clean_their_texts():
+    from neurodb.datamart.services import AP_EXPORT_COLUMNS
+    from neurodb.reports.ap_views import CLEANED
+
+    assert "assigned_to_count" in AP_EXPORT_COLUMNS and "assigned_to" not in AP_EXPORT_COLUMNS
+    assert CLEANED == ("description", "action_taken")
+    for key in ("action-points", "exports"):
+        text = " ".join(GUIDE_TEXT[key].split())
+        assert (
+            "without *assigned to*" not in text and "without who an action point is assigned to" not in text
+        )
+        assert "*assigned_to_count*" in text and "never to whom" in text, key
+        assert "the description and the action taken" in text, key
+        assert "names, e-mail addresses, links and phone numbers" in text, key

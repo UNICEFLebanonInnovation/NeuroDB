@@ -14,10 +14,11 @@ after a title), so the rule is the same on every screen, every file and in what 
    others are one count, never named;
 3. a field whose name is not an identifier (a space or an ``@``, longer than 64 characters, shaped like an
    e-mail, a link or a phone, or a person's name NeuroDB knows or the record holds) is never a column nor a
-   row: it adds to ``(fields naming a person)``;
+   row: it adds to ``(fields naming a person)``. Inside a field, at any depth, so does a name with a letter
+   that is not an identifier ("Zorba Quintel": 4); a name without a letter stays (PRP's "(12, 31)");
 4. a top-level field nobody reviewed (``raw.REVIEWED_KEYS``, the fields the pages read, or a superuser's
-   ``RawFieldReview``) is shown only when every value in it is a number, yes/no, empty, a date or a time;
-   otherwise it reads "N values (not reviewed)";
+   ``RawFieldReview``) is shown only when every value in it is a number, yes/no, empty, a date or a time, and
+   every name inside it passes step 3; otherwise it reads "N values (not reviewed)";
 5. the values are cleaned by Ask's rule (``query._safe``, with the record's own names learnt from the whole
    record before it is narrowed to the fields shown);
 6. what was dropped is counted: people, texts people wrote, and the fields dropped inside a field shown, under
@@ -25,6 +26,8 @@ after a title), so the rule is the same on every screen, every file and in what 
 
 NeuroDB's own columns are read through pinned lists (:data:`PERSON_COLUMNS`, :data:`NEVER_COLUMNS`,
 :data:`TEXT_COLUMNS`, :data:`JSON_COLUMNS`): a test fails on a new JSON or person column until it is listed.
+Every other text column is cleaned by the payload's rule under its own name, so a reference, a code or an
+amount keeps its value and a name, an e-mail address or a phone in a description does not.
 """
 
 from __future__ import annotations
@@ -94,7 +97,7 @@ NEVER_COLUMNS = frozenset(  # never shown, never downloaded: contacts, and the t
         ("actionpoint", "comments"),
     }
 )
-TEXT_COLUMNS = frozenset(  # cleaned like a text of the record (the payload's rule)
+TEXT_COLUMNS = frozenset(  # the free texts: never searched, cleaned like a text of the record (as every text)
     {
         ("partner_reports", "narrative"),
         ("partner_reports", "narrative_assessment"),
@@ -218,12 +221,33 @@ _DATE = re.compile(dmq.DATE_VALUE)
 _TIME = re.compile(r"^\d{2}:\d{2}(:\d{2}(\.\d+)?)?$")
 
 
-def plain(value: Any) -> bool:
-    """Every value inside is a number, yes/no, empty, a date or a time: no text that could name anyone."""
+def inner_key(key: Any, fm: bool = False) -> bool:
+    """A field name inside a field that may be shown: an identifier, or a name without a letter (PRP's
+    disaggregation ids "(12, 31)", a date). A name with a letter that is no identifier ("Zorba Quintel")
+    never is."""
+    return identifier(key, fm) or not any(c.isalpha() for c in str(key))
+
+
+def _inner(value: Any, fm: bool) -> Any:
+    """A cleaned value without the field names inside it that :func:`inner_key` refuses, at any depth."""
     if isinstance(value, dict):
-        return all(plain(v) for v in value.values())
+        return {k: _inner(v, fm) for k, v in value.items() if inner_key(k, fm)}
     if isinstance(value, list):
-        return all(plain(v) for v in value)
+        return [_inner(v, fm) for v in value]
+    return value
+
+
+def plain(value: Any, rules: dmq.Rules, own: frozenset[str] = frozenset()) -> bool:
+    """Every value inside is a number, yes/no, empty, a date or a time, and every field name inside it may be
+    shown (:func:`inner_key`, and no person's name, address or phone: ``query._key_withheld``): no text that
+    could name anyone."""
+    if isinstance(value, dict):
+        return all(
+            inner_key(k, rules.fm) and not dmq._key_withheld(k, rules, own) and plain(v, rules, own)
+            for k, v in value.items()
+        )
+    if isinstance(value, list):
+        return all(plain(v, rules, own) for v in value)
     if value is None or isinstance(value, bool | int | float):
         return True
     if isinstance(value, str):
@@ -313,11 +337,11 @@ def public_record(
                 withheld[key] = Withheld(TEXT, _texts(value))
             else:
                 withheld[key] = Withheld(PEOPLE, people_count(value))
-        elif key not in reviewed and not plain(value):
+        elif key not in reviewed and not plain(value, rules, own):
             withheld[key] = Withheld(NOT_REVIEWED, _values(value))
         else:
-            shown[key] = cleaned[key]
-            _inside(value, cleaned[key], str(key), withheld, rules, own)
+            shown[key] = _inner(cleaned[key], rules.fm)
+            _inside(value, shown[key], str(key), withheld, rules, own)
     return shown, withheld
 
 
@@ -337,16 +361,17 @@ def text(value: Any, source: str, column: str, names: frozenset[str], own: froze
 
 def column(source: str, name: str, value: Any, names: frozenset[str], own: frozenset[str]) -> Any:
     """One of NeuroDB's own columns as shown and downloaded: a count of the people a person column names, a
-    text cleaned, a JSON column through :func:`public_record`, anything else as it is. A column of
-    :data:`NEVER_COLUMNS` is never asked for."""
+    JSON column through :func:`public_record`, a text cleaned under its own name (a free text of
+    :data:`TEXT_COLUMNS`, and every other text: a reference, a code or an amount keeps its value), anything
+    else as it is. A column of :data:`NEVER_COLUMNS` is never asked for."""
     if (source, name) in NEVER_COLUMNS:
         raise ValueError(f"{source}.{name} is never shown")
     if (source, name) in PERSON_COLUMNS:
         return people_count(value)
-    if (source, name) in TEXT_COLUMNS or ("*", name) in TEXT_COLUMNS:
-        return text(value, source, name, names, own)
     if (source, name) in JSON_COLUMNS:
         if isinstance(value, dict):
             return public_record(value, source, names, reviewed=EVERY)[0]
         return dmq._safe({name: value}, dmq.Rules(names, source), own).get(name)
+    if (source, name) in TEXT_COLUMNS or ("*", name) in TEXT_COLUMNS or isinstance(value, str):
+        return text(value, source, name, names, own)
     return value

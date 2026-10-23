@@ -283,6 +283,42 @@ def test_a_newer_failed_sync_is_named_and_complete_says_why(client_validator, wo
     assert "failed: the records in NeuroDB come from the sync of" in html
 
 
+def test_what_could_not_be_saved_into_neurodb_s_own_tables_says_complete_no(client_validator, world):
+    """A source written by another sync: its raw copies add up, but 3 locations, which the pages read, could
+    not be saved."""
+    assert set(runfacts.WRITTEN_INTO) == runfacts.WRITTEN_BY
+    error = {
+        "error": "DataError: value too long for type character varying(100)",
+        "count": 3,
+        "examples": ["1"],
+    }
+    _run(
+        "locations",
+        status=SyncRun.Status.PARTIAL,
+        rows_in=10,
+        rows_written=7,
+        rows_failed=3,
+        details={"read": 10, "datamart_count": 10, "errors": [error]},
+    )
+    dm.DatamartDocument.objects.bulk_create(
+        dm.DatamartDocument(dataset="locations", record_key=str(n)) for n in range(10)
+    )
+    facts = runfacts.facts("locations")
+    assert (facts.received, facts.not_saved, facts.updated_by_sync, facts.unexplained) == (10, 0, 10, 0)
+    assert facts.not_written == 3
+    assert facts.complete == (False, "No: 3 could not be saved into NeuroDB's locations")
+    page = client_validator.get(f"{INDEX}locations/").content.decode()
+    assert "3 could not be saved into NeuroDB's locations, which the pages read." in page
+    assert escape("No: 3 could not be saved into NeuroDB's locations") in page
+    index = client_validator.get(INDEX).content.decode()
+    assert escape("0 could not be saved; 3 could not be saved into NeuroDB's locations") in index
+    # a run that did not succeed and met errors its counts do not hold is never complete either
+    run = _run(
+        "tpm_visits", status=SyncRun.Status.PARTIAL, details={"read": 5, "errors": [{**error, "count": 2}]}
+    )
+    assert runfacts.build("tpm_visits", run, None, (5, 5, 0)).complete == (False, "No: 2 could not be saved")
+
+
 def test_an_unexplained_remainder_is_shown_in_red(client_validator, world):
     SyncRun.objects.filter(pk=world["run"].pk).update(details={"read": 14, "other_country_skipped": 4})
     html = client_validator.get(f"{INDEX}partner_reports/").content.decode()
@@ -530,6 +566,34 @@ def test_a_source_page_makes_as_many_queries_for_5_or_500_records(client_validat
     assert _queries(client_validator, url) == few <= ADMIN_OWN + PAGE_QUERIES + PARTNER_REPORTS_MORE
     dm.TPMVisit.objects.bulk_create(dm.TPMVisit(datamart_id=n) for n in range(60))
     assert _queries(client_validator, f"{INDEX}tpm_visits/") <= ADMIN_OWN + PAGE_QUERIES
+
+
+def test_records_linked_to_a_programme_document_alone_cost_no_query_each(client_validator, world):
+    """Their partner is the programme document's, read in the same query, on the page and in the CSV."""
+    pd = world["running"]
+
+    def add(name: str, start: int, n: int) -> None:
+        if raw.typed(name):
+            model = raw.model_of(name)
+            model.objects.bulk_create(
+                model(datamart_id=start + i, intervention=pd, data={"id": start + i}) for i in range(n)
+            )
+        else:
+            dm.DatamartDocument.objects.bulk_create(
+                dm.DatamartDocument(
+                    dataset=name, record_key=str(start + i), intervention=pd, data={"id": start + i}
+                )
+                for i in range(n)
+            )
+
+    for name in ("funds_reservations", "pd_activities", "intervention_epd"):
+        page, download = f"{INDEX}{name}/", f"{INDEX}{name}/rows.csv"
+        add(name, 0, 5)
+        few = (_queries(client_validator, page), _queries(client_validator, download))
+        add(name, 100, 45)
+        assert (_queries(client_validator, page), _queries(client_validator, download)) == few, name
+        rows = _csv(client_validator.get(download))
+        assert len(rows) == 50 and {r["partner_in_neurodb"] for r in rows} == {"Amel Association"}, name
 
 
 def test_the_csv_and_the_record_page_make_a_fixed_number_of_queries(client_validator, world, monkeypatch):
