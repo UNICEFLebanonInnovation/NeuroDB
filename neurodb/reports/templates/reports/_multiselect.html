@@ -1,7 +1,9 @@
-{% load i18n %}
+{% load i18n %}{% comment %}A filter bar's multiple choice. keep_chosen: a value chosen in the address that is not among the options
+is drawn too, chosen, so Apply keeps it (Progress reports' Section, which Home opens with the eTools section names
+of the PD indicators).{% endcomment %}
 <div class="filter-bar__field">
   <label class="form-label" for="f-{{ name }}">{{ label }}</label>
   <select class="form-select form-select-sm" id="f-{{ name }}" name="{{ name }}" multiple data-tom placeholder="{% trans 'All' %}">
-    {% for opt in options %}<option value="{{ opt }}" {% if opt|stringformat:"s" in values %}selected{% endif %}>{{ opt }}</option>{% endfor %}
+    {% for opt in options %}<option value="{{ opt }}" {% if opt|stringformat:"s" in values %}selected{% endif %}>{{ opt }}</option>{% endfor %}{% if keep_chosen %}{% for value in values %}{% if value not in options %}<option value="{{ value }}" selected>{{ value }}</option>{% endif %}{% endfor %}{% endif %}
   </select>
 </div>

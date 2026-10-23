@@ -2,18 +2,7 @@
 the tiles, the status donut and the indicators by section, with their chart JSON (pm-summary-data). Context: data =
 monitoring.summary of the filter's indicators (stored for every worker), chart_data, and labels and filters (the
 page's scope).{% endcomment %}
-<div class="kpi-grid">
-  {% blocktrans asvar h1 with n=data.with_target %}{{ n }} with a target{% endblocktrans %}
-  {% trans "Indicators" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.indicators|intcomma hint=h1 %}
-  {% blocktrans asvar h2 with n=data.status_counts.over_target %}and {{ n }} ahead of schedule{% endblocktrans %}
-  {% trans "On track" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=data.status_counts.on_track status="on_track" hint=h2 %}
-  {% trans "Off track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=data.status_counts.off_track status="off_track" %}
-  {% trans "Not reported" as l7 %}{% include "components/kpi_tile.html" with label=l7 value=data.status_counts.not_reported hint=_("no counted report yet (Accepted or Submitted)") %}
-  {% blocktrans asvar h4 with n=data.with_reached %}{{ n }} indicators with Reached{% endblocktrans %}
-  {% trans "Programme documents" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.programme_documents hint=h4 %}
-  {% trans "Partners" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=data.partners %}
-  {% trans "Overdue reports" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=data.overdue_reports status=data.overdue_reports|yesno:"off_track," %}
-</div>
+{% include "reports/partials/_pm_tiles.html" with pm=data overdue=True %}
 <div class="grid grid--2 mb-3">
   <section class="panel">
     <div class="panel__header"><h2 class="panel__title">{% trans "Tracking status" %}</h2><span class="panel__hint">{% trans "Reached vs share of the PD period elapsed" %}</span></div>

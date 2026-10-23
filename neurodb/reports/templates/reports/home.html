@@ -4,27 +4,45 @@
 {% block page_header %}{% include "reports/partials/_home_header.html" %}{% endblock %}
 {% block content %}
 {% comment %}Home (reports.home_views.home_page): the frame comes at once (title, date and scope line, purpose, freshness
-strip: no figure work, no watch_ table) and each block below is a part. Today's work first (For you, decisions, the
-daily review, what changed), then where the section or the country stands (the Country overview's own key figures,
-"standing", drawn inline when its build is already stored), then the sources.
+strip: no figure work, no watch_ table) and each block below is a part. Partner reporting first (SPEC_focus_menu §2):
+Progress reports' own figures ("reporting") and Partner monitoring's for this year ("indicators"), numbers and a
+table, every link carrying Home's filter. Then "More on Home": today's work (For you, decisions, the daily review,
+what changed), where the section or the country stands (the Country overview's own key figures, "standing", drawn
+inline when its build is already stored), and the sources. The fold is open for a superuser and for a role whose
+menu shows For you or the daily review (home_views.more_open); closed, its parts are asked for only when it opens
+(lazy="strict").
 Each placeholder keeps the room of what it will hold, as measured on the x20 parity world (an administrator, a
 Management member and the Education viewer, at 1440, 768 and 390 px; the largest of the three, so that nothing
 below moves down when a part arrives): height where the part is at least 856 px wide (app.css), height_md where it
 is narrower (the "Needs you today" column at 1440 too), height_sm on a phone. For you keeps the room of a card with
 nothing to say (its points vary by person). Measured in px, tasks 321/321/504 (an Administrator; a viewer 188/188/
 290), since 114 (the x20 world has no change since yesterday), standing 260/545/685, programmes 154/154/236 (an
-Administrator's setup lines; others 99).{% endcomment %}
+Administrator's setup lines; others 99). The partner reporting blocks, measured on the same world (a superuser, a
+staff Administrator, a viewer and a section editor alike): reporting 916/1069/1383 with its ten rows (fewer rows
+only leave room below), indicators 168/343/516.{% endcomment %}
 {% url 'reports:country_overview' as overview_url %}{% url 'reports:brief' as brief_url %}
-<p class="page-purpose">{% blocktrans with who=who y=year q=scope_query %}What needs you today, what changed, and where {{ who }} stands in {{ y }}. Every figure of the year is on the <a href="{{ overview_url }}?{{ q }}">Country overview</a>; what to decide is in the <a href="{{ brief_url }}?{{ q }}">management brief</a>.{% endblocktrans %}</p>
-<div class="home-row">
-  <section class="home-today" aria-labelledby="home-today-title">
-    <h2 class="home-heading" id="home-today-title">{% trans "Needs you today" %}</h2>
-    {% if watch_enabled %}{% url 'watch:card' as watch_card_url %}{% url 'watch:for_you' as for_you_url %}{% part "for-you" kind="card" url=watch_card_url page=for_you_url priority="high" height="3.5rem" height_sm="5rem" %}{% else %}<p class="home-note" role="status">{{ watch_off }}</p>{% endif %}
-    {% part "tasks" kind="list" priority="high" height="20rem" height_md="20rem" height_sm="31.5rem" %}
-  </section>
-  {% part "since" kind="list" height="7.5rem" height_md="7.5rem" height_sm="7.5rem" %}
-</div>
-{% part "standing" kind="tiles" tiles=5 priority="high" height="16.5rem" height_md="34rem" height_sm="43rem" %}
-{% part "programmes" kind="list" priority="low" height="9.75rem" height_md="9.75rem" height_sm="15rem" %}
+<p class="page-purpose">{% if more_open %}{% blocktrans with who=who y=year %}How your partners are reporting, then what needs you today, what changed, and where {{ who }} stands in {{ y }}.{% endblocktrans %}{% else %}{% blocktrans with who=who %}How your partners are reporting, for {{ who }}: their progress reports first, then how their indicators stand this year. The rest of Home is under <em>More on Home</em>.{% endblocktrans %}{% endif %}</p>
+<section class="home-prp" aria-labelledby="home-prp-title">
+  <div class="home-prp__header">
+    <h2 class="home-heading" id="home-prp-title">{% blocktrans with who=who %}Partner reporting: {{ who }}{% endblocktrans %}</h2>
+    <p class="home-prp__links"><a class="home-more" href="{{ progress_url }}">{% trans "Progress reports" %} →</a> <a class="home-more" href="{{ monitoring_url }}">{% trans "Partner monitoring" %} →</a></p>
+  </div>
+  {% part "reporting" kind="table" priority="high" height="57.5rem" height_md="67rem" height_sm="86.5rem" %}
+  {% part "indicators" kind="tiles" tiles=6 priority="high" height="10.5rem" height_md="21.5rem" height_sm="32.5rem" %}
+</section>
+<details class="home-fold"{% if more_open %} open{% endif %}>
+  <summary class="home-fold__summary">{% trans "More on Home: today's tasks, what changed, the year's key figures" %}</summary>
+  <p class="home-fold__purpose">{% blocktrans with who=who y=year q=scope_query %}What needs you today, what changed, and where {{ who }} stands in {{ y }}. Every figure of the year is on the <a href="{{ overview_url }}?{{ q }}">Country overview</a>; what to decide is in the <a href="{{ brief_url }}?{{ q }}">management brief</a>.{% endblocktrans %}</p>
+  <div class="home-row">
+    <section class="home-today" aria-labelledby="home-today-title">
+      <h2 class="home-heading" id="home-today-title">{% trans "Needs you today" %}</h2>
+      {% if watch_enabled %}{% url 'watch:card' as watch_card_url %}{% url 'watch:for_you' as for_you_url %}{% part "for-you" kind="card" url=watch_card_url page=for_you_url priority="high" lazy=fold_lazy height="3.5rem" height_sm="5rem" %}{% else %}<p class="home-note" role="status">{{ watch_off }}</p>{% endif %}
+      {% part "tasks" kind="list" priority="high" lazy=fold_lazy height="20rem" height_md="20rem" height_sm="31.5rem" %}
+    </section>
+    {% part "since" kind="list" lazy=fold_lazy height="7.5rem" height_md="7.5rem" height_sm="7.5rem" %}
+  </div>
+  {% part "standing" kind="tiles" tiles=5 priority="high" lazy=fold_lazy height="16.5rem" height_md="34rem" height_sm="43rem" %}
+  {% part "programmes" kind="list" priority="low" lazy=fold_lazy height="9.75rem" height_md="9.75rem" height_sm="15rem" %}
+</details>
 {% include "reports/partials/_overview_freshness.html" %}
 {% endblock %}

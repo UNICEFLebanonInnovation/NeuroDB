@@ -51,4 +51,6 @@ def test_home_times_its_first_load_and_the_review_page():
     from scripts.parity import home
 
     assert home.TIMED[0] == "home first load" and "review first load" in home.TIMED
-    assert home.first_figure("/") == "standing" and home.first_figure("/daily-review/?section=") == "review"
+    assert home.first_figure("/") == "reporting" and home.first_figure("/daily-review/?section=") == "review"
+    # each part's own figures, under its own name (the overview build is standing's "data")
+    assert {"reporting", "indicators", "data"} <= set(home.CONTEXT_KEYS)

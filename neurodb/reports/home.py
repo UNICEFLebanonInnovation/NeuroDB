@@ -1,6 +1,7 @@
-"""Home (``/`` once signed in): what needs the person today, what changed since the last working day, and
-where their section (or the country) stands this year. The page is ``reports.home_views.home_page``; this
-module holds what its parts read besides the Country overview's own build.
+"""Home (``/`` once signed in): how partners are reporting (the Progress reports and Partner monitoring pages'
+own figures), then what needs the person today, what changed since the last working day, and where their
+section (or the country) stands this year. The page is ``reports.home_views.home_page``; this module holds
+what its parts read besides the Country overview's own build and the two eTools pages' services.
 
 **First-load scope, one rule for Home, the Country overview and the daily review** (:func:`default_sections`):
 every section for Management members and for people without a section, else the person's own section, as the
@@ -38,6 +39,10 @@ DECISIONS_SHOWN = 2  # rows of "Needs a decision" on the first screen
 REVIEW_ROWS = 2  # rows of the daily review's digest
 CHANGED_SHOWN = 2  # of the review's "changed" sentences
 REVIEW_STALE_DAYS = 2  # an older review is introduced with its date
+# "Programme documents to follow up" (Home's Progress reports block): the rows of the first screen under the
+# seven tiles; the others are one link away, on Progress reports (its Partners tab lists every report to
+# follow up)
+HOME_PDS = 10
 NAME_MATCH = 3  # letters a name needs before "contained either way" counts (monitoring.default_sections)
 
 
@@ -368,6 +373,7 @@ def _databases_url(name: str) -> str:
 
 
 __all__ = [
+    "HOME_PDS",
     "WELLBEING_SECTIONS",
     "decisions",
     "default_sections",

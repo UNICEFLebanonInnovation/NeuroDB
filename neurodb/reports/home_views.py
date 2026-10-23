@@ -1,21 +1,32 @@
 """Home: the site root once signed in (``reports.views.home`` dispatches to :func:`home_page`).
 
-What needs the person today, what changed since the last working day, and where their section (or the
-country) stands this year, in that order (SPEC_HOME §3.1). The page loads in parts
+How partners are reporting first, in numbers and tables (SPEC_focus_menu §2): management asked for a Home
+that is straightforward, with the figures PD managers read on Progress reports and Partner monitoring. Then,
+under *More on Home*, what needs the person today, what changed since the last working day, and where their
+section (or the country) stands this year (SPEC_HOME §3.1). The page loads in parts
 (:mod:`neurodb.web.parts`): this view answers the frame at once (title, date and scope line, purpose, the
 freshness strip; no figure work and no ``watch_`` table) with a placeholder for each block:
 
-- ``for-you``: the NeuroDB Watch card, from its own address (``watch:card``); not drawn while Watch is off;
-- ``tasks``: "Needs a decision" (Administrators and Management) and the daily review's digest (everyone);
-- ``since``: what changed since the previous working day, then "Your tasks" (counts only);
-- ``standing``: the Country overview's own five key figures for this year (the same build, key and template,
-  :func:`neurodb.reports.overview.build`), drawn inline when that build is already stored, and the "Also"
-  line;
-- ``programmes``: the country programme, the Compiler figures and ActivityInfo, one line each.
+- ``reporting``: Progress reports' seven tiles, the programme documents to follow up and the partners line,
+  the page's own computation for Home's sections (:func:`neurodb.datamart.services.reporting_figures`: the
+  running programme documents, every reporting period, as the page opens), computed at each request as the
+  page computes them, so never drawn inline by the frame;
+- ``indicators``: Partner monitoring's tiles for this year (the grid's own ``summary`` of its stored
+  indicators, :func:`neurodb.datamart.monitoring.stored_indicators`, for the filter of Home's links: the
+  sections, this year, every programme document running in it), drawn inline when they are stored;
+- in *More on Home* (a ``<details>``, open for a superuser and for a role whose menu shows For you or the
+  daily review, :func:`more_open`; closed, its parts wait until it opens):
+  - ``for-you``: the NeuroDB Watch card, from its own address (``watch:card``); not drawn while Watch is off;
+  - ``tasks``: "Needs a decision" (Administrators and Management) and the daily review's digest (everyone);
+  - ``since``: what changed since the previous working day, then "Your tasks" (counts only);
+  - ``standing``: the Country overview's own five key figures for this year (the same build, key and
+    template, :func:`neurodb.reports.overview.build`), drawn inline when that build is already stored, and the
+    "Also" line;
+  - ``programmes``: the country programme, the Compiler figures and ActivityInfo, one line each.
 
 The first load shows the person's own section by the rule the Country overview and the daily review share
-(:func:`neurodb.reports.home.default_sections`); every link Home draws to those pages and the brief carries
-Home's scope written out, so they show the same figures.
+(:func:`neurodb.reports.home.default_sections`); every link Home draws to those pages, to the two eTools pages
+and to the brief carries Home's scope written out, so they show the same figures.
 """
 
 from __future__ import annotations
@@ -25,13 +36,15 @@ from typing import Any
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, QueryDict
+from django.urls import reverse
 from django.utils.formats import date_format
 from django.utils.translation import gettext as _
 
 from neurodb.accounts.roles import ADMIN, SECTION_EDITOR, in_management, role_of
 from neurodb.core import years
 from neurodb.datamart import monitoring as pd_monitoring_service
-from neurodb.indicators.services import activityinfo
+from neurodb.datamart import services as datamart
+from neurodb.indicators.services import activityinfo, navigation
 from neurodb.reports import home
 from neurodb.reports import overview as overview_service
 from neurodb.web.parts import Part, first_load, render_page
@@ -46,6 +59,36 @@ def _query(sections: list[str], year: int | None = None, **extra: str) -> str:
     for key, value in extra.items():
         query[key] = value
     return query.urlencode()
+
+
+def _url(name: str, query: QueryDict, **extra: str) -> str:
+    """The page ``name`` with ``query`` and ``extra`` written out (no ``?`` for an empty query)."""
+    params = query.copy()
+    for key, value in extra.items():
+        params[key] = value
+    encoded = params.urlencode()
+    return reverse(name) + (f"?{encoded}" if encoded else "")
+
+
+def _pd_row(row: dict[str, Any], progress: QueryDict, keep: QueryDict) -> dict[str, Any]:
+    """A row of "Programme documents to follow up" with its links: Progress reports on its reports (``pd=``:
+    its number, or the reports' own reference; none for a row with neither), and Program Performance on its
+    indicators (only for a programme document NeuroDB holds with a number: Partner monitoring's ``pd=`` reads
+    that number)."""
+    ref, number = row["pd_reference_number"], row["pd_number"]
+    return {
+        **row,
+        "reports_url": _url("reports:partner_reporting", progress, pd=ref) if ref else "",
+        "indicators_url": _url("reports:pd_monitoring", keep, view="table", pd=number) if number else "",
+    }
+
+
+def more_open(user) -> bool:
+    """Whether *More on Home* opens unfolded: for a superuser (the full menu), and for a role whose menu shows
+    For you or the daily review (the administration's Menu page), so the menu and Home agree. Folded for every
+    role by default: Home leads with partner reporting."""
+    shown = navigation.shown(user)
+    return shown is None or bool({"watch:for_you", "reports:daily_review"} & shown)
 
 
 def home_page(request: HttpRequest) -> HttpResponse:
@@ -67,6 +110,10 @@ def home_page(request: HttpRequest) -> HttpResponse:
     keep.setlist("section", sections)
     keep["year"] = str(year)
     keep["scope"] = "year"
+    # Progress reports' own default for Home's sections: no year and no PD status, so the running programme
+    # documents and every reporting period (a January keeps last year's last reports, the overdue ones)
+    progress = QueryDict(mutable=True)
+    progress.setlist("section", sections)
     programmes = QueryDict(mutable=True)
     programmes.setlist("section", sections)
     previous = QueryDict(mutable=True)
@@ -101,7 +148,12 @@ def home_page(request: HttpRequest) -> HttpResponse:
         "month_names": _month_names(),
         "who": who,
         "is_editor": role in (ADMIN, SECTION_EDITOR),
+        "progress_url": _url("reports:partner_reporting", progress),
+        "monitoring_url": _url("reports:pd_monitoring", keep),
+        "more_open": more_open(user),
     }
+    # a closed fold's parts are asked for only when it opens (parts.js: a strict part, bumped by the toggle)
+    scope["fold_lazy"] = "" if scope["more_open"] else "strict"
 
     def shell() -> dict[str, Any]:
         jobs = overview_service.freshness(overview_service.freshness_jobs())
@@ -175,11 +227,54 @@ def home_page(request: HttpRequest) -> HttpResponse:
             "your_tasks": home.your_tasks(user, year),
         }
 
+    def reporting() -> dict[str, Any]:
+        figures = datamart.reporting_figures(progress)  # on the page's day (datamart.reporting_today)
+        rows = [_pd_row(row, progress, keep) for row in figures["pds"]["rows"][: home.HOME_PDS]]
+        return {
+            "reporting": figures,
+            "pd_rows": rows,
+            "tile_urls": {
+                "total": _url("reports:partner_reporting", progress),
+                **{
+                    s["key"]: _url("reports:partner_reporting", progress, status=s["key"])
+                    for s in figures["counts"]["statuses"]
+                },
+            },
+            "partners_url": _url("reports:partner_reporting", progress, tab="partners"),
+            "no_etools": not figures["counts"]["indicator_reports"] and _no_etools_at_all(),
+        }
+
+    pm_filters = functools.cache(lambda: pd_monitoring_service.Filters.from_params(keep))
+    pm_day = pd_monitoring_service.today()
+
+    def indicators() -> dict[str, Any]:
+        # the grid's own figures for the filter of Home's links (its ``summary`` part, the same stored rows):
+        # their current moment, never Home's ``as_of`` (the overview's fingerprint)
+        filters = pm_filters()
+        summary = pd_monitoring_service.summary(
+            pd_monitoring_service.stored_indicators(filters, pm_day), filters, pm_day
+        )
+        return {
+            "indicators": summary,
+            "status_urls": {
+                key: _url("reports:pd_monitoring", keep, status=key)
+                for key in ("on_track", "off_track", "not_reported")
+            },
+            "table_url": _url("reports:pd_monitoring", keep, view="table"),
+            "no_etools": not summary["indicators"] and _no_etools_at_all(),
+        }
+
     def standing() -> dict[str, Any]:
         built = data()
         return {"data": built, "overview_query": scope_query, "no_etools": _no_etools(built)}
 
     parts = {
+        "reporting": Part("reports/parts/home_reporting.html", reporting),
+        "indicators": Part(
+            "reports/parts/home_indicators.html",
+            indicators,
+            ready=lambda: pd_monitoring_service.indicators_stored(pm_filters(), pm_day),
+        ),
         "tasks": Part("reports/parts/home_tasks.html", tasks),
         "since": Part("reports/parts/home_since.html", since),
         "standing": Part("reports/parts/home_standing.html", standing, ready=stored),
@@ -197,6 +292,12 @@ def _no_etools(data: dict[str, Any]) -> bool:
     Looked up only when this year's figures are all 0."""
     if data["impact"].get("children_reached") or data["delivery"].get("programme_documents"):
         return False
+    return _no_etools_at_all()
+
+
+def _no_etools_at_all() -> bool:
+    """No programme document of any year, and the eTools Datamart sync never succeeded (:func:`_no_etools`;
+    Home's two partner reporting blocks look it up only when their figures are all 0)."""
     from neurodb.core.models import SyncRun
     from neurodb.partnerships.models import PCA
 
@@ -209,4 +310,4 @@ def _month_names() -> dict[int, str]:
     return names()
 
 
-__all__ = ["home_page"]
+__all__ = ["home_page", "more_open"]

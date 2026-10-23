@@ -4,7 +4,9 @@ together from its parts against the page drawn at once.
 Home answers its frame at once (title, date and scope line, purpose, freshness strip; no figure work and no
 ``watch_`` table) with a placeholder per block: ``for-you`` (the NeuroDB Watch card, from its own address),
 ``tasks`` (decisions and the daily review's digest), ``since`` (what changed since the previous working day, and
-"Your tasks"), ``standing`` (the Country overview's own key figures) and ``programmes``.
+"Your tasks"), ``standing`` (the Country overview's own key figures) and ``programmes``, after the two partner
+reporting blocks that lead it (SPEC_focus_menu §2): ``reporting`` (Progress reports' figures) and ``indicators``
+(Partner monitoring's). tests/reports/test_home_reporting.py checks their figures against the two pages.
 
 On ``overview_fixture``: one programme document (Amel, Child Protection) with 500 children reached in 2026, plus the
 ActivityInfo hierarchy (2026 records of January and February: archived on the suite's day, 15 October 2026); a daily
@@ -25,6 +27,8 @@ from django.urls import reverse
 
 from neurodb.accounts.models import User
 from neurodb.accounts.roles import SECTION_EDITOR, VIEWER, role_of
+from neurodb.datamart import monitoring
+from neurodb.datamart import services as datamart
 from neurodb.donors.models import DonorAccount
 from neurodb.graph import news
 from neurodb.reports import brief as brief_service
@@ -50,20 +54,33 @@ from tests.web.parts import (
 pytestmark = pytest.mark.django_db
 
 PAGE = "/"  # reports:overview: Home once signed in
-PARTS = ("for-you", "tasks", "since", "standing", "programmes")  # the frame's placeholders, in page order
-OWN_PARTS = ("tasks", "since", "standing", "programmes")  # the parts Home itself answers
+# the frame's placeholders, in page order: partner reporting first, then "More on Home"
+PARTS = ("reporting", "indicators", "for-you", "tasks", "since", "standing", "programmes")
+OWN_PARTS = (
+    "reporting",
+    "indicators",
+    "tasks",
+    "since",
+    "standing",
+    "programmes",
+)  # those Home answers itself
+FOLDED = ("for-you", "tasks", "since", "standing", "programmes")  # in "More on Home", closed for every role
 LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # Query ceilings: what was measured on this world, plus 2 (the codebase rule; SPEC_HOME §3.1). The frame warm
-# (filter sections, freshness strip, ActivityInfo state, menu sources and navigation stored) is 9: the request's
-# floor (session, user, donor check), the cache stamp (last sync run, flags), the person's role (read once per
-# request) and Management membership, their section, and the reporting year whose ActivityInfo records count for
-# this year (the stored build's key); a page without a year reads the kept navigation, with no query. Cold (19,
-# the ActivityInfo state already read by the daily review of the fixture) it also reads the filter sections (1),
-# the freshness strip (3), the menu sources (2) and the navigation (4). Each part is measured with nothing stored:
-# tasks 10, since 8, standing 42 (the whole overview build), programmes 16 (no country programme cycle here).
-SHELL_QUERIES_WARM = 11
-SHELL_QUERIES_COLD = 21
-PART_QUERIES = {"tasks": 12, "since": 10, "standing": 44, "programmes": 18}
+# (filter sections, freshness strip, ActivityInfo state and menu sources stored) is 11: the request's floor
+# (session, user, donor check), the cache stamp (last sync run, flags), the person's role (read once per request)
+# and Management membership, their section, the reporting year whose ActivityInfo records count for this year (the
+# stored build's key), and the moment of the eTools figures (their latest jobs and the flags: the key of Partner
+# monitoring's stored indicators, which the frame looks up to draw "indicators" inline; SPEC_focus_menu §2.5). Cold
+# (17, the ActivityInfo state already read by the daily review of the fixture) it also reads the filter sections
+# (1), the freshness strip (3) and the menu sources (2); a viewer's focused menu has no ActivityInfo block, so the
+# archive's navigation is not read. Each part is measured with nothing stored: reporting 7 (Progress reports' own
+# computation: its grouped rows, the status words, the PDs' details), indicators 15 (the grid's indicators and the
+# overdue reports of its summary), tasks 10, since 8, standing 42 (the whole overview build), programmes 16 (no
+# country programme cycle here).
+SHELL_QUERIES_WARM = 13
+SHELL_QUERIES_COLD = 19
+PART_QUERIES = {"reporting": 9, "indicators": 17, "tasks": 12, "since": 10, "standing": 44, "programmes": 18}
 WATCH_CARD_QUERIES = 11  # the for-you part, at watch:card: measured 9 (SPEC_HOME §3.1 allows 12)
 
 
@@ -108,6 +125,10 @@ def _figure_services_refuse(monkeypatch):
     monkeypatch.setattr(home_service, "programmes", refuse)
     monkeypatch.setattr(news, "recent", refuse)
     monkeypatch.setattr(watch_page, "card", refuse)
+    monkeypatch.setattr(datamart, "partner_reporting", refuse)
+    monkeypatch.setattr(datamart, "reporting_figures", refuse)
+    monkeypatch.setattr(monitoring, "stored_indicators", refuse)
+    monkeypatch.setattr(monitoring, "summary", refuse)
 
 
 # ------------------------------------------------------------------------------------------------- the frame
@@ -124,8 +145,16 @@ def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, rev
     assert 'aria-labelledby="home-today-title"' in html and "Needs you today" in html
     assert "Data freshness" in html  # the freshness strip, in the frame
     assert list(placeholders(html)) == list(PARTS)
-    for figure in ("Children reached", "Needs a decision", "Daily review ·", "Since "):
+    for figure in (
+        "Children reached",
+        "Needs a decision",
+        "Daily review ·",
+        "Since ",
+        "Indicator reports",
+        "On track",
+    ):
         assert figure not in html, figure
+    assert "Partner reporting: the country" in html  # the heading and its two links, in the frame
 
 
 @pytest.mark.shell
@@ -141,6 +170,8 @@ def test_the_placeholders_carry_the_resolved_filter(client_viewer, reviewed):
         assert _query(url) == {"section": [""], "as_of": [stamp], "_part": [name]}, url
     assert found["for-you"]["hx-get"] == reverse("watch:card")
     assert {name: found[name]["data-part-priority"] for name in PARTS} == {
+        "reporting": "high",
+        "indicators": "high",
         "for-you": "high",
         "tasks": "high",
         "since": "normal",
@@ -150,6 +181,14 @@ def test_the_placeholders_carry_the_resolved_filter(client_viewer, reviewed):
     assert found["standing"]["class"] == "part part--tiles"
     standing = html[html.index('id="part-standing"') : html.index('id="part-programmes"')]
     assert standing.count("skeleton__block--tile") == 5  # the five key figure tiles
+    indicators = html[html.index('id="part-indicators"') : html.index('class="home-fold"')]
+    assert indicators.count("skeleton__block--tile") == 6  # Partner monitoring's six tiles on Home
+    assert found["reporting"]["class"] == "part part--table"
+    # the fold is closed for a viewer: its parts are asked for only when it opens
+    assert {name: found[name].get("data-part-lazy") for name in PARTS} == {
+        **{name: None for name in ("reporting", "indicators")},
+        **{name: "strict" for name in FOLDED},
+    }
 
 
 @pytest.mark.shell
@@ -207,6 +246,8 @@ def test_each_part_answers_its_wrapper(client, admin_user, reviewed, name):
     assert response["Cache-Control"] == "no-store" and response["X-NeuroDB-Part"] == name
     assert "<html" not in html and 'id="sidebar"' not in html
     expected = {
+        "reporting": "Programme documents to follow up",
+        "indicators": "Indicator progress in 2026",
         "tasks": "Needs a decision",
         "since": 'id="home-since-title"',
         "standing": "Children reached",

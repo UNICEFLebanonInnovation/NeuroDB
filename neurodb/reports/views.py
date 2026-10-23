@@ -1901,7 +1901,8 @@ def partner_reporting(request: HttpRequest) -> HttpResponse:
     tab = request.GET.get("tab") if request.GET.get("tab") in REPORTING_TABS else "reports"
     if tab in datamart.REPORTING_TABLES:
         return _reporting_table_tab(request, tab)
-    data = datamart.partner_reporting(request.GET)
+    # the day of every tab and of Home's figures (datamart.reporting_today), never a clock of its own
+    data = datamart.partner_reporting(request.GET, datamart.reporting_today())
     export = request.GET.get("export")
     if export in exports.FORMATS:
         return _reporting_export(data, tab, export, request.GET)
@@ -1941,6 +1942,8 @@ def _reporting_frame(request: HttpRequest, tab: str, filters) -> dict[str, Any]:
         "year": request.GET.get("year", ""),
         "q": request.GET.get("q", ""),
         "overdue": request.GET.get("overdue") == "1",
+        # Home's rows open the page on one programme document (pd=): the same address without it
+        "every_pd_url": request.path + "?" + _query_with(params, ("pd", "export")) if filters.pds else "",
         "tab_urls": {
             name: request.path + "?" + _query_with(params, ("tab", "export"), tab=name)
             for name in REPORTING_TABS
@@ -1969,7 +1972,8 @@ def _reporting_table_tab(request: HttpRequest, tab: str) -> HttpResponse:
     exports are answered first, whole, as before."""
     export = request.GET.get("export")
     if export in exports.FORMATS:
-        return _reporting_export(datamart.partner_reporting(request.GET), tab, export, request.GET)
+        data = datamart.partner_reporting(request.GET, datamart.reporting_today())
+        return _reporting_export(data, tab, export, request.GET)
     filters = reporting_service.ReportFilters.from_params(request.GET)
     params = request.GET.copy()
     query = params.copy()

@@ -16,8 +16,8 @@ first load shows the viewer's section, the country to the others.
 data. The daily review: first load, every section, the day before, the last seven days, a date with a review and a
 date without one.
 
-**What is compared.** The figures each block was drawn from (the key figures' build, the decisions, the review's
-digest, what changed, "Your tasks", the sources' lines, the review card), the visible text and links of each block,
+**What is compared.** The figures each block was drawn from (partner reporting's two blocks, the key figures'
+build, the decisions, the review's digest, what changed, "Your tasks", the sources' lines, the review card), the visible text and links of each block,
 the JSON payloads and the element ids. The For you card is left out on both sides: it comes from another view,
 which the page drawn at once leaves to the browser (a quiet slot). So are the ids of the parts' wrappers, which a
 part drawn at once keeps and a part put in place of its placeholder does not.
@@ -38,8 +38,13 @@ PART_ID = re.compile(r' id="part-[a-z][a-z0-9-]*"')  # a part's wrapper: drawn a
 NO_SUCH_SECTION = "No such section"
 # timing.py times these rows of matrix() (its labels, exactly)
 TIMED = ("home first load", "home every section", "home one section", "review first load")
-FIRST_FIGURE = "standing"  # the part whose arrival shows Home's first figure
+# the part whose arrival shows Home's first figure: partner reporting (SPEC_focus_menu §2.5; "standing" waits in
+# the folded "More on Home" for every role but superusers, and would never arrive)
+FIRST_FIGURE = "reporting"
 CONTEXT_KEYS = (
+    "reporting",  # Progress reports' figures for Home's sections (tiles, programme documents, partners)
+    "pd_rows",  # the programme documents to follow up shown, with their links
+    "indicators",  # Partner monitoring's summary for this year
     "data",  # standing: the overview build (the key figures and the "Also" line)
     "decisions",
     "digest",
@@ -51,7 +56,8 @@ CONTEXT_KEYS = (
 
 
 def first_figure(url: str) -> str | None:
-    """The part whose arrival is ``url``'s first figure (timing.py): Home's key figures, the review's card."""
+    """The part whose arrival is ``url``'s first figure (timing.py): Home's partner reporting, the review's
+    card."""
     return "review" if url.startswith("/daily-review/") else FIRST_FIGURE
 
 
