@@ -2,7 +2,8 @@
 
 The partners' progress reports in the Partner Reporting Portal (PRP) reach NeuroDB through the eTools
 Datamart every night. Four places read them: [Partner monitoring](/partner-monitoring/) (what each
-programme document indicator reached), [Progress reports](/partner-reporting/) (who reported, and what),
+programme document indicator reached), [Progress reports](/partner-reporting/) (who reported, and what;
+the two are the sidebar's *Partner reporting (PRP)*),
 the programme document and partner pages, and the [Funds](/funds/) page (budgets, funds reservations
 and what partners contributed). They show the views of the eTools Power BI report, with the same
 figures on every page for the same filter.

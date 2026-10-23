@@ -94,18 +94,22 @@ def _can_set_up(user) -> bool:
 
 
 def _menu(request, ai) -> dict:
-    """The menu as this person sees it on this page (:func:`neurodb.indicators.services.navigation.menu`):
-    every row marked ``active`` (and ``current``: ``aria-current="page"``) on the pages it stands for,
-    sub-pages included. Only the most specific link of a page is the current one: on ``/databases/?year=2025``
-    the 2025 row of the ActivityInfo archive, not "ActivityInfo databases", which stays active only."""
+    """The menu as this person sees it on this page (:func:`neurodb.indicators.services.navigation.sidebar`:
+    the full menu for a superuser, their role's entries for anyone else): ``{"groups", "help", "archive"}``,
+    ``help`` and ``archive`` None when the person's menu leaves them out. Every row is marked ``active`` (and
+    ``current``: ``aria-current="page"``) on the pages it stands for, sub-pages included. Only the most
+    specific link of a page is the current one: on ``/databases/?year=2025`` the 2025 row of the ActivityInfo
+    archive, not "ActivityInfo databases", which stays active only."""
     from neurodb.indicators.services import navigation
 
     match = getattr(request, "resolver_match", None)
     route = match.view_name if match else ""
-    groups = navigation.menu(request.user, can_set_up=lambda: _can_set_up(request.user))
-    help_item = navigation.help_entry()
-    for item in [i for g in groups for i in g["items"]] + [help_item]:
+    drawn = navigation.sidebar(request.user, can_set_up=lambda: _can_set_up(request.user))
+    groups, help_item = drawn["groups"], drawn["help"]
+    for item in [i for g in groups for i in g["items"]] + ([help_item] if help_item else []):
         item["active"] = item["current"] = route in item["routes"]
+    if not drawn["archive"]:  # not in the person's menu: the ActivityInfo state is not read for it
+        return {"groups": groups, "help": help_item, "archive": None}
     links = navigation.archive(ai)
     on_databases = route == "reports:databases"
     shown_year = request.GET.get("year", "").strip()

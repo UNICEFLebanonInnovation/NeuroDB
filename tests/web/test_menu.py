@@ -1,8 +1,12 @@
-"""The left menu (SPEC_HOME §4): one tree for everyone, daily entries first, then the figures management reads,
-the eTools pages, money and assurance, Makani, Dirasa and youth while Compiler is live, the resources, and the
-ActivityInfo archive at the bottom. Rows of a source that is not live show only to the people who can set it up,
-as muted "Set up" rows; the current page is marked on its most specific link; counts say what they count; the
-script that remembers which blocks a reader opened stores only the reader's own choices."""
+"""The full menu (SPEC_HOME §4): daily entries first, then the figures management reads, the eTools pages, money
+and assurance, Makani, Dirasa and youth while Compiler is live, the resources, and the ActivityInfo archive at the
+bottom. Rows of a source that is not live show only to the people who can set it up, as muted "Set up" rows; the
+current page is marked on its most specific link; counts say what they count; the script that remembers which
+blocks a reader opened stores only the reader's own choices.
+
+Superusers see the full menu; every role sees it too here (``full_menu``: every entry ticked in the Menu page),
+laid out focus first, so the tests of the tree's order run as a superuser. The focused menu itself is in
+test_focus_menu.py."""
 
 from __future__ import annotations
 
@@ -26,8 +30,11 @@ from neurodb.education.models import EducationFigures
 from neurodb.indicators.models import Database, ReportingYear
 from neurodb.indicators.services import activityinfo, navigation
 from neurodb.knowledge.models import DocumentReviewSettings
+from tests.web.menu_rows import groups as _groups
+from tests.web.menu_rows import rows as _rows
+from tests.web.menu_rows import sidebar as _sidebar
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("full_menu")]
 
 TEMPLATES = Path(django_settings.BASE_DIR) / "neurodb" / "web" / "templates"
 NODE = shutil.which("node")
@@ -49,42 +56,6 @@ FULL_TREE = [
     ("Resources", [("Knowledge base", "layers"), ("Periodic reports", "trend"), ("Document review", "zap"),
                    ("Library", "book"), ("Maps", "map"), ("Population", "chart"), ("Data health", "pulse")]),
 ]  # fmt: skip
-ROW = re.compile(
-    r'<a class="nav-item-link([^"]*)" href="([^"]*)"([^>]*)>'
-    r'<svg class="icon" aria-hidden="true" focusable="false"><use href="#i-([\w-]+)"></use></svg>\s*'
-    r"<span>([^<]+)</span>(.*?)</a>",
-    re.S,
-)
-
-
-def _sidebar(html: str) -> str:
-    return html.split('id="sidebar"', 1)[1].split("</nav>", 1)[0]
-
-
-def _rows(html: str) -> list[dict]:
-    """The menu's rows with an icon (the archive's own rows have none), in order."""
-    return [
-        {
-            "css": css.split(),
-            "href": href.replace("&amp;", "&"),
-            "attrs": attrs,
-            "icon": icon,
-            "label": label.replace("&#x27;", "'"),
-            "rest": rest,
-        }
-        for css, href, attrs, icon, label, rest in ROW.findall(_sidebar(html))
-    ]
-
-
-def _groups(html: str) -> list[tuple[str, str]]:
-    """(key, title) of every titled group, in order."""
-    side = _sidebar(html)
-    found = re.findall(
-        r'<div class="nav-group" role="group" aria-labelledby="nav-title-([\w-]+)">\s*'
-        r'<div class="sidebar__section-title" id="nav-title-\1">([^<]+)</div>',
-        side,
-    )
-    return found
 
 
 def _person(username: str, role: str, *, is_staff=False, is_superuser=False) -> User:
@@ -120,8 +91,8 @@ def everything_live(settings, no_compiler):
 
 # --------------------------------------------------------------------------------------------- the tree
 def test_the_tree_its_order_labels_groups_and_icons(client, roles, everything_live):
-    viewer = _person("tree-viewer", VIEWER)
-    html = _page(client, viewer, reverse("reports:library"))
+    superuser = _person("tree-superuser", VIEWER, is_staff=True, is_superuser=True)
+    html = _page(client, superuser, reverse("reports:library"))
     rows = _rows(html)
     expected = [row for _title, items in FULL_TREE for row in items] + [("Help", "info")]
     assert [(r["label"], r["icon"]) for r in rows] == expected
@@ -140,6 +111,8 @@ def test_the_tree_its_order_labels_groups_and_icons(client, roles, everything_li
     # the tree in the code is the tree on the page (the search's Pages group reads it too)
     assert [(str(g.title) if g.title else None) for g in navigation.MENU] == [t for t, _ in FULL_TREE]
     assert [(str(i.label), i.icon) for g in navigation.MENU for i in g.items] == expected[:-1]
+    # every entry has a name of its own in the Menu page's choices (its route)
+    assert len(navigation.keys()) == len(set(navigation.keys()))
     # each row links to its page; Help is last, after the ActivityInfo archive when there is one
     by_label = {r["label"]: r["href"] for r in rows}
     assert by_label["Daily review"] == reverse("reports:daily_review")
@@ -150,8 +123,9 @@ def test_the_tree_its_order_labels_groups_and_icons(client, roles, everything_li
 
 def test_the_first_screen_holds_every_etools_and_field_monitoring_page(client, roles, everything_live):
     """At 1440 x 900 (the sidebar shows 844 px; a row is 32.6 px, a group title 41 px) Progress reports and
-    Action points are on the first screen, even for an Administrator with Ask and a country programme cycle."""
-    admin = _person("first-screen", ADMIN, is_staff=True)
+    Action points are on the first screen of the full menu, even with Ask and a country programme cycle (a
+    superuser: the full menu in its own order)."""
+    admin = _person("first-screen", ADMIN, is_staff=True, is_superuser=True)
     html = _page(client, admin, reverse("reports:library"))
     labels = [r["label"] for r in _rows(html)]
     through = labels.index("Action points") + 1

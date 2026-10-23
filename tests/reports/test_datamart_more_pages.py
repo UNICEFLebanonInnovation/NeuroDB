@@ -257,7 +257,7 @@ def test_monitoring_page_lists_tpm_activities(client_viewer, data):
     assert "TPM/1/1" in text and "Programmatic Visit 1" in text
 
 
-def test_sidebar_links_funds_and_reporting(client_viewer):
+def test_sidebar_links_funds_and_reporting(client_viewer, full_menu):
     text = client_viewer.get(reverse("reports:partners")).text
     assert (
         f'href="{reverse("reports:funds")}"' in text

@@ -129,9 +129,11 @@
       {% elif is_donor %}
       <a class="nav-item-link" href="{% url 'donors:page' %}">{% include "components/icon.html" with name="home" %}<span>{% trans "Your dashboard" %}</span></a>
       {% else %}
-      {% comment %}The menu (indicators.services.navigation.MENU, the same tree for everyone): its rows, the conditions of
-      the few that show only while their source is live (a muted "Set up" row for the people who can set it up), the
-      current page (aria-current on the most specific link only), then the ActivityInfo archive and Help.{% endcomment %}
+      {% comment %}The menu (indicators.services.navigation.sidebar): the full tree for a superuser, the focused menu or the
+      entries a superuser ticked for the role (the administration's Menu page) for anyone else. Its rows, the conditions
+      of the few that show only while their source is live (a muted "Set up" row for the people who can set it up), the
+      current page (aria-current on the most specific link only), then the ActivityInfo archive and Help when the
+      person's menu has them.{% endcomment %}
       {% for group in nav_menu.groups %}
       {% if group.title %}<div class="nav-group" role="group" aria-labelledby="nav-title-{{ group.key }}">
         <div class="sidebar__section-title" id="nav-title-{{ group.key }}">{{ group.title }}</div>{% endif %}
@@ -140,7 +142,7 @@
         {% endfor %}
       {% if group.title %}</div>{% endif %}
       {% endfor %}
-      {% if ai.years or nav.years %}{% with archive=nav_menu.archive %}
+      {% if nav_menu.archive %}{% if ai.years or nav.years %}{% with archive=nav_menu.archive %}
       {% comment %}ActivityInfo: "Monthly results" while in use, an archive otherwise, at the bottom either way. Open on an
       ActivityInfo page; while in use it opens unless the reader closed it (data-nav-default, the script below);
       else closed.{% endcomment %}
@@ -208,8 +210,8 @@
         {% endif %}
         </div>
       </details>
-      {% endwith %}{% endif %}
-      {% with item=nav_menu.help %}<a class="nav-item-link {{ item.css }}{% if item.active %} active{% endif %}" href="{{ item.url }}"{% if item.current %} aria-current="page"{% endif %}>{% include "components/icon.html" with name=item.icon %}<span>{{ item.label }}</span></a>{% endwith %}
+      {% endwith %}{% endif %}{% endif %}
+      {% if nav_menu.help %}{% with item=nav_menu.help %}<a class="nav-item-link {{ item.css }}{% if item.active %} active{% endif %}" href="{{ item.url }}"{% if item.current %} aria-current="page"{% endif %}>{% include "components/icon.html" with name=item.icon %}<span>{{ item.label }}</span></a>{% endwith %}{% endif %}
       {% endif %}
     </div>
   </nav>

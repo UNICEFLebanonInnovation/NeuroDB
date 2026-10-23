@@ -130,7 +130,7 @@ def test_a_signed_out_visitor_is_sent_to_sign_in(db, client):
     assert response.status_code == 302 and "/accounts/login/" in response["Location"]
 
 
-def test_the_menu_item_equals_the_page_title(built, client_viewer, settings):
+def test_the_menu_item_equals_the_page_title(built, client_viewer, settings, full_menu):
     settings.FMM_AI = True  # its "AI" badge shows only while its AI is on (SPEC_HOME §4)
     html = client_viewer.get(reverse("reports:overview")).content.decode()
     sidebar = html.split('id="sidebar"', 1)[1]
@@ -141,7 +141,8 @@ def test_the_menu_item_equals_the_page_title(built, client_viewer, settings):
     assert 'href="#i-ruler"' in item.group(1)
     page = client_viewer.get(PAGE).content.decode()
     assert re.search(r"<title>(.*?) · ", page).group(1) == label
-    # the item comes right after Field monitoring
+    # the item comes after Field monitoring (right after it in the full menu; Field monitoring is at the top
+    # of a role's menu)
     assert sidebar.index('href="/field-monitoring/"') < sidebar.index('href="/fmm/"')
 
 
@@ -156,7 +157,7 @@ def test_the_crumbs_name_the_menu_group_of_the_page(built, client_viewer):
         assert "Partnerships" not in crumbs and reverse("reports:partners") not in crumbs
 
 
-def test_switched_off_every_view_is_404_and_the_menu_item_hidden(built, client_viewer, settings):
+def test_switched_off_every_view_is_404_and_the_menu_item_hidden(built, client_viewer, settings, full_menu):
     settings.FMM_ENABLED = False
     for url in (
         PAGE,

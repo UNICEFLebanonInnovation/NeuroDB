@@ -90,7 +90,9 @@ def _menu_rows(client) -> str:
     return html[start : html.index("</nav>", start)]
 
 
-def test_an_administrator_switching_the_document_review_on_or_off_shows_in_the_menu_at_once(client, roles):
+def test_an_administrator_switching_the_document_review_on_or_off_shows_in_the_menu_at_once(
+    client, roles, full_menu
+):
     """Fresh after edit (privacy_cache PC-1): the document review's settings are edited by hand in the admin,
     so saving or deleting them drops the menu's sources on that worker at once, not two minutes later."""
     editor = User.objects.create_user(username="editor", password="x-pass-123456")

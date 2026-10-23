@@ -2,9 +2,9 @@
 
 ## The knowledge base
 
-The [knowledge base](/knowledge/) (sidebar: Resources › Knowledge base) holds documents and texts Ask
-NeuroDB answers from: reports, evaluations, meeting minutes, guidance and notes. Every signed-in person
-reads and searches them.
+The [knowledge base](/knowledge/) (in the full menu: Resources › Knowledge base; the search finds it for
+everyone) holds documents and texts Ask NeuroDB answers from: reports, evaluations, meeting minutes,
+guidance and notes. Every signed-in person reads and searches them.
 
 - **Adding**: Administrators and Section editors use **Add a document or text** (on Ask NeuroDB or on
   the knowledge base page): a file (PDF with a text layer, Word, PowerPoint, Excel, CSV, Markdown or

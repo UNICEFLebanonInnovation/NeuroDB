@@ -55,6 +55,48 @@ All settings are environment variables (`.env.example`). In Azure they are set b
 is no configuration file in the image. Change a non-secret setting by editing the Bicep parameters
 and re-running the deployment.
 
+## The menu: focused for every role, full for superusers
+
+Management found the full sidebar too long for most people, PD managers above all, who want partner reporting
+in numbers and tables in as few taps as possible. So every role sees a **focused menu** by default:
+*Home*, *Partner reporting (PRP)* (*Progress reports* and *Partner monitoring*), *Field monitoring* and
+*Ask NeuroDB* (`navigation.FOCUS`, `navigation.FOCUSED`). That is Administrators, Section editors and
+Viewers, with or without staff status, and the members of the Management group (a group, not a role).
+**Superusers** always see the full menu (`navigation.MENU`). Donor accounts are unchanged: they see their
+own page only. Visitors are unchanged.
+
+**Choosing what a role sees: Users and access → *Menu*** (`/manage/web/menuchoice/`, also a Quick action on
+the dashboard: *Choose what each role sees in the menu*). One tick per entry and role, the entries in the
+order a role's sidebar draws them: the focused part first, then the rest of the full menu under its usual
+group titles, then *ActivityInfo* (the monthly results or the archive) and *Help*. **Save** stores the
+ticks; **Reset every role to the focused menu** removes every saved choice. Each role that changed is in
+the audit trail (the entries added and removed), and the page links each saved role's *History*. A role
+cannot be saved with nothing ticked. The page is for a **superuser with staff status** (a superuser without
+staff status cannot open the administration at all); an Administrator gets a 403 there even though the
+Administrator group holds every permission, and only a superuser can make someone a superuser or give a
+permission one by one in Users (both are read only to anyone else).
+
+- **No row for a role means the focused menu.** A save that ticks exactly the focused menu for a role removes
+  that role's row, so a later change of the focused menu in code reaches every role that was never
+  customised. A page added to NeuroDB later shows to superusers at once and stays out of every role's menu
+  until a superuser ticks it.
+- **A save shows at once** on the worker that saved it, and **within 10 seconds on every other worker**
+  (`neurodb.web.menu_choices`: kept in memory 10 s, shared through the database cache, like the AI
+  settings). A warm page makes no query for the menu; a worker reads the shared cache at most once every
+  10 seconds. Before the release's migration has run, every role gets the focused menu.
+- **Nothing is blocked.** Only the sidebar is shorter: every page still opens from links, bookmarks and the
+  search, whose *Pages* group lists every page of the full menu under its usual conditions. A row that shows
+  only while its source is live (Ask NeuroDB, Monitoring insights, Country programme, the Compiler pages,
+  Document review) follows the same rule in a role's menu.
+- **What the focused menu leaves out**, and how to get it back with a tick:
+  - *ActivityInfo* holds the only menu links to the year's **Neuro reports** and **HPM reports**, where
+    section editors write their section comments. While ActivityInfo is in use, tick *ActivityInfo* for
+    Section editors; otherwise they find a report by its name in the search.
+  - *For you* and *Daily review*: NeuroDB Watch reaches people through For you's count in the sidebar and
+    its card on Home. Tick *For you* for a role that should keep the count.
+  - *Help*: the "?" panel links to the Help pages (*Help pages*), and the search finds them.
+- Quick migration `web 0001_menu_choice` (a new, empty table of at most three rows).
+
 ## Secrets rotation
 Key Vault secrets: `django-secret-key`, `database-url`, `activityinfo-username` and
 `activityinfo-password` (the ActivityInfo account's email and password; or `activityinfo-token` with
@@ -592,7 +634,7 @@ category, topic, quote, evidence and verdict and a link to the document's file a
 (`/knowledge/<id>/file/#page=n`, for a PDF) or to the document's findings on the review page. Its
 answers cite them as "(Document title, p. n)".
 
-**The review page** (`/knowledge/review/`, sidebar → Resources → *Document review*). Every signed-in
+**The review page** (`/knowledge/review/`, full menu → Resources → *Document review*). Every signed-in
 user reads it (Viewers read only; donor accounts never reach it). Administrators and Section editors
 (`knowledge.access.can_add`) create, rename and archive batches, add documents, start an analysis, mark a
 document as reference or take it out, accept or reject findings and statements, edit, add or delete a
@@ -738,7 +780,7 @@ tracked yet (their lookups give them live).
 
 Where it shows:
 
-- **The What's new page** (sidebar, every signed-in user; donor accounts cannot): the last 24 hours,
+- **The What's new page** (in the full menu; every signed-in user opens it, donor accounts cannot): the last 24 hours,
   7 or 30 days, by section (the user's own first), kind of thing, with or without minor changes; each
   line links to the page of the thing. Above the list, the latest daily note of the chosen section.
 - **The overview**: a *What's new* card with the notable changes of the last two days in the chosen
@@ -826,7 +868,7 @@ beats the straight line and its range held the real result at least 70% of the t
 administrators only, for review.
 
 **Where it shows**: the *Year-end forecasts* page (in the ActivityInfo group at the bottom of the
-sidebar, under *ActivityInfo databases*, once forecasts were made; the user's section first; filter by
+full menu, under *ActivityInfo databases*, once forecasts were made; the user's section first; filter by
 section and status), a *Likely to fall short by December* card on the Country overview and on this year's
 database dashboards (this year only, while ActivityInfo is in use; the overview's for the chosen sections),
 and Ask NeuroDB
@@ -849,7 +891,8 @@ number comes from, why a visit scored what it scored, which job refreshes a page
 questions about the programme data: those go to Ask NeuroDB and Chat with Data, and the panel says so
 with a link. Every signed-in person but a donor has it. The code is in `neurodb/help`.
 
-- **The help pages** (`/help/`, sidebar: *Help*, at the bottom): the help guide, written for staff (not
+- **The help pages** (`/help/`, *Help* at the bottom of the full menu; *Help pages* in the "?" panel for
+  everyone): the help guide, written for staff (not
   this runbook), one page per area: *Getting around NeuroDB* (the sidebar, roles, data sources and refresh
   times), *Home* (what it shows, the first load, ActivityInfo in use or archive), *Monitoring insights* (filters, every tab and card and what it counts from which eTools data,
   Not monitored, the quality score's categories, weights and bands, the rules switched on and what each
@@ -988,7 +1031,7 @@ stopped run.
 ## ActivityInfo: in use or archive
 
 Partners reported their monthly results in ActivityInfo in past years and now report progress in
-eTools/PRP; the sidebar lists the years the archive holds. NeuroDB keeps every ActivityInfo year
+eTools/PRP; the full menu lists the years the archive holds. NeuroDB keeps every ActivityInfo year
 (databases, dashboards, analytical views, maps, Neuro and HPM reports, the import runs): nothing is
 deleted. One state says whether ActivityInfo is still **in use** or an **archive**; the sidebar, Home,
 the alarms, the forecasts, search, the landing page and Ask NeuroDB all read it
@@ -2868,9 +2911,10 @@ TPM activities, field-monitoring findings and open action points recorded at the
 
 Partners reported in ActivityInfo in past years and now report progress in eTools/PRP. Both stay:
 the ActivityInfo databases keep their dashboards, analytical views, maps and Neuro/HPM reports
-(the ActivityInfo group at the bottom of the sidebar: *Monthly results (ActivityInfo)* while ActivityInfo
+(the ActivityInfo group at the bottom of the full menu: *Monthly results (ActivityInfo)* while ActivityInfo
 is in use, *ActivityInfo archive* once it is not), the eTools reporting has its own pages (sidebar
-*Partner progress (eTools)*: *Partner monitoring*, *Progress reports*), and the **partner page** brings the two together
+*Partner reporting (PRP)*: *Progress reports*, *Partner monitoring*; in the full menu under *Partner
+progress (eTools)*), and the **partner page** brings the two together
 under *Partner reporting*: the eTools implementation monitoring on one side, the ActivityInfo
 history per year and database on the other (each database opens the partner's master indicators by
 month; *map* shows its sites).
@@ -3178,8 +3222,8 @@ work and reads no Watch table; then each block is a part:
 | `programmes` | *Programmes and sources* (the country programme build is shared 10 minutes with its page) | After the visible ones | 18 (no cycle) |
 
 The frame stays within 21 queries cold and 11 warm (`tests/reports/test_home_parts.py`; the cold count
-includes the menu's sources and the sidebar; the person's role is read once per request, and a page without a
-year reads the sidebar kept for two minutes). *Since*, *Your tasks* and the decisions are
+includes the menu's sources and the sidebar; the person's role is read once per request, the menu's choices
+are kept in memory, and a page without a year reads the sidebar kept for two minutes). *Since*, *Your tasks* and the decisions are
 computed at each request (small); nothing Home stores holds a person, a name or anything about a child.
 **Privacy**: Home never shows who owns a decision or a finding (no owner, no "who", no assignment link), no
 e-mail address, and the wellbeing and document review counts only to the roles above.
@@ -3191,7 +3235,7 @@ tables and, in a year with ActivityInfo records (rule 1 of *ActivityInfo: in use
 ActivityInfo history. Three rows answer three questions, then two progress blocks; the daily review has
 its own page now, and the For you card is on Home. The ActivityInfo database cards (one per database:
 indicators, status, records, partners, last import) have their own page, `/databases/?year=<name>`, in
-the ActivityInfo group at the bottom of the sidebar (*ActivityInfo databases*, under *Monthly results
+the ActivityInfo group at the bottom of the full menu (*ActivityInfo databases*, under *Monthly results
 (ActivityInfo)* or *ActivityInfo archive*), with the year's totals and the import runs; the overview links
 them ("ActivityInfo databases of the year →") only in an ActivityInfo year:
 
@@ -3337,7 +3381,7 @@ morning at <time>." Ceilings: frame 18 queries cold and 13 warm, each part 8. Ad
 ## Management brief (`/brief/`)
 
 The overview read for decisions: one page for senior management and the Country Management Team,
-in the sidebar under *Management brief* (Programme results › Management brief). It reuses the overview service (same programme documents,
+in the full menu under *Management brief* (Programme results › Management brief). It reuses the overview service (same programme documents,
 same children rule, same cache) for the selected year **and for the year before**, and adds what a
 management meeting asks for. Eight blocks, one tab each:
 
@@ -3476,7 +3520,7 @@ is in.
 
 Every morning the `daily-review` job (`manage daily_review`) runs fourteen fixed checks over the
 synced data and stores the result as a dated review with its findings (admin → Daily review). Its own
-page, **Daily review** (`/daily-review/`, third in the sidebar; see *Daily review page*), shows the latest
+page, **Daily review** (`/daily-review/`, third in the full menu; see *Daily review page*), shows the latest
 one in its card, with tabs for the day before and the last seven days; the card follows the page's section
 filter (country-wide findings always show). Home shows a digest of it (counts by severity, the findings
 that matter most grouped by check, what changed) with a link to the page. The
@@ -3550,7 +3594,8 @@ you** page. The AI only writes a short morning note and looks into a few critica
 never decides what is followed, how serious it is, when it is due or who is told. The code is in
 `neurodb/watch` (one module per step, each with notes at its top).
 
-**What staff see.** *For you* (second in the sidebar, under Home), with the number of "Needs you"
+**What staff see.** *For you* (second in the full menu, under Home; in a role's menu once a superuser ticks
+it in *Menu*), with the number of "Needs you"
 points told today and not yet seen, and a *For you* card on Home (not drawn while Watch is switched off;
 an account without a role is told "For you is for people with a role. Your account has none yet, so it
 opens with the Viewer's pages only. Ask an administrator to give you a role."). The page shows, in order:

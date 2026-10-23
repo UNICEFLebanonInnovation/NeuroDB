@@ -1,0 +1,67 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% comment %}
+  Menu (context: web.admin.MenuChoiceAdmin.changelist_view, superusers only): one tick per menu entry and role,
+  the entries in the order a role's sidebar draws them, the number ticked per role with the history of its saved
+  choice; Save, and Reset every role to the focused menu. A plain form: no script.
+{% endcomment %}
+
+{% block content %}
+<div id="content-main" class="nd-menu">
+  <p class="nd-list-note">
+    <span class="material-symbols-outlined" aria-hidden="true">info</span>
+    <span>{% blocktrans trimmed %}
+      Tick the entries each role sees in the sidebar. Superusers always see the whole menu. A page left out of a
+      role's menu still opens from links, the search and bookmarks: only the menu is shorter. Until you save a
+      choice, every role sees the focused menu: Home, Partner reporting (Progress reports and Partner monitoring),
+      Field monitoring and Ask NeuroDB. A page added to NeuroDB later stays out of every role's menu until you
+      tick it here. A save shows on every page within ten seconds.
+    {% endblocktrans %}</span>
+  </p>
+
+  <form method="post">
+    {% csrf_token %}
+    {% for error in errors %}{% include "unfold/helpers/messages/error.html" with error=error %}{% endfor %}
+    {% component "unfold/components/card.html" %}
+      <div class="nd-scroll">
+        <table class="nd-jobs nd-menu__grid">
+          <caption>{% trans "What each role sees in the menu" %}</caption>
+          <thead>
+            <tr>
+              <th scope="col">{% trans "Entry" %}</th>
+              {% for role in roles %}<th scope="col">{{ role.name }}</th>{% endfor %}
+            </tr>
+          </thead>
+          {% for section in sections %}
+            <tbody>
+              <tr><th scope="colgroup" colspan="{{ columns }}">{{ section.title }}</th></tr>
+              {% for row in section.rows %}
+                <tr>
+                  <th scope="row">{{ row.label }}{% if row.note %}<small class="nd-menu__note">{{ row.note }}</small>{% endif %}</th>
+                  {% for cell in row.cells %}
+                    <td><input type="checkbox" name="{{ cell.name }}" value="{{ row.key }}" id="{{ cell.id }}"{% if cell.ticked %} checked{% endif %}><label class="nd-sr" for="{{ cell.id }}">{{ cell.label }}</label></td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          {% endfor %}
+          <tfoot>
+            <tr>
+              <th scope="row">{% trans "Entries ticked" %}</th>
+              {% for role in roles %}
+                <td>{{ role.count }}{% if role.history %} · <a class="nd-link" href="{{ role.history }}">{% trans "History" %}<span class="nd-sr"> {% blocktrans with role=role.name %}of the {{ role }} menu{% endblocktrans %}</span></a>{% endif %}</td>
+              {% endfor %}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    {% endcomponent %}
+    <div class="nd-menu__actions">
+      {% component "unfold/components/button.html" with submit=1 name="save" value="1" %}{% trans "Save" %}{% endcomponent %}
+      {% component "unfold/components/button.html" with submit=1 name="reset" value="1" variant="secondary" %}{% trans "Reset every role to the focused menu" %}{% endcomponent %}
+      <span class="nd-found__hint">{% trans "This removes every choice saved here." %}</span>
+    </div>
+  </form>
+</div>
+{% endblock %}

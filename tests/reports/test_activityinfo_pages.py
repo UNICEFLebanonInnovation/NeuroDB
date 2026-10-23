@@ -131,7 +131,11 @@ def test_donors_api_counts_records_per_programme(client_viewer, hierarchy):
     assert [p["interventions"] for p in data["programmes"]] == [4]
 
 
-def test_sidebar_badge_counts_databases_and_topbar_marks_the_page_year(client_viewer, hierarchy, section):
+def test_sidebar_badge_counts_databases_and_topbar_marks_the_page_year(
+    client_viewer, hierarchy, section, full_menu
+):
+    """The ActivityInfo block's count, in a menu that has the block (every role's here, full_menu), and the
+    year menu of an ActivityInfo page."""
     Database.objects.create(
         ai_id=202619, db_id="cp2", name="CP emergency 2026", label="CP emergency", username="", password="",
         section=section, reporting_year=hierarchy["database"].reporting_year, display=True,

@@ -155,16 +155,26 @@ def test_the_rendered_guide_keeps_only_links_to_neurodb():
 
 
 # ------------------------------------------------------------------------------------------ the shell
-def test_the_help_link_and_the_panel_frame_are_on_every_page_for_staff(client_viewer):
+def test_the_help_link_and_the_panel_frame_are_on_every_page_for_staff(client_viewer, menu_choice):
+    """The "?" panel's frame and its link to the Help pages are on every page; the menu's Help row is there
+    when the person's menu has it (not in the focused menu, a tick in the Menu page)."""
+    from neurodb.accounts.roles import VIEWER
+    from neurodb.indicators.services import navigation
+
     for name in ("reports:overview", "help:index", "reports:action_points"):
         html = client_viewer.get(reverse(name)).content.decode()
         assert 'id="help-panel"' in html and 'data-src="/help/panel/"' in html, name
         assert 'id="help-trigger"' in html and 'aria-controls="help-panel"' in html, name
-        assert 'href="/help/"' in html and "nav-item-link--help" in html, name
+        panel = html.split('id="help-panel"', 1)[1].split("</header>", 1)[0]
+        assert 'href="/help/"' in panel and "Help pages" in panel, name
+        assert "nav-item-link--help" not in html, name  # the focused menu
         assert 'role="dialog"' in html and 'aria-modal="true"' in html
         assert (
             "<script>" not in html.split('id="help-panel"', 1)[1].split("</section>", 1)[0]
         )  # CSP: none inline
+    menu_choice(VIEWER, [*navigation.FOCUSED, navigation.HELP_KEY])  # Help ticked for Viewers
+    html = client_viewer.get(reverse("reports:overview")).content.decode()
+    assert 'href="/help/"' in html.split('id="sidebar"', 1)[1] and "nav-item-link--help" in html
 
 
 def test_donors_get_no_help(client, db, roles):
@@ -244,10 +254,32 @@ def test_the_guide_states_the_archive_rules_and_who_sets_them():
     assert "Show on dashboard" not in text  # never offered as a way to drop a year's figures
 
 
-def test_the_guide_lists_the_sidebar_as_it_is_drawn():
-    """The sidebar of "Getting around NeuroDB" names the groups and rows of the menu (SPEC_HOME §4), in its
-    order."""
-    sidebar = guide.section("overview", "the-sidebar").text
+def test_the_guide_lists_the_focused_menu_as_it_is_drawn():
+    """The sidebar of "Getting around NeuroDB" names the focused menu's rows first, in its order
+    (SPEC_focus_menu §1.2), and says who sees the full menu and that a page left out still opens."""
+    from neurodb.indicators.services import navigation
+
+    sidebar = " ".join(guide.section("overview", "the-sidebar").text.split())
+    order = [
+        "**Home**",
+        "**Partner reporting (PRP)**",
+        "**Progress reports**",
+        "**Partner monitoring**",
+        "**Field monitoring**",
+        "**Ask NeuroDB**",
+    ]
+    places = [sidebar.index(label) for label in order]
+    assert places == sorted(places)
+    assert str(navigation.PRP.title) == "Partner reporting (PRP)"
+    assert "Superusers see the full menu" in sidebar and "administration's *Menu* page" in sidebar
+    assert "still opens from the search, from links and from bookmarks" in sidebar
+    assert "**For you**" not in sidebar and "**Funds**" not in sidebar  # the full menu is its own section
+
+
+def test_the_guide_lists_the_full_menu_as_it_is_drawn():
+    """The full menu of "Getting around NeuroDB" names the groups and rows of the menu (SPEC_HOME §4), in
+    its order."""
+    sidebar = guide.section("overview", "the-full-menu").text
     order = [
         "**Home**",
         "**For you**",
@@ -311,8 +343,9 @@ def test_the_refresh_table_says_the_activityinfo_import_follows_its_scheduled_jo
 
 def test_the_guide_says_who_sees_the_set_up_rows():
     """Only superusers and staff Administrators (who can open the administration) see the greyed *Set up*
-    rows (``roles.can_set_up``), not every administrator (R1 spec_shell-5)."""
-    text = " ".join(guide.section("overview", "the-sidebar").text.split())
+    rows (``roles.can_set_up``), not every administrator (R1 spec_shell-5); said under the full menu, which
+    holds those rows."""
+    text = " ".join(guide.section("overview", "the-full-menu").text.split())
     assert "administrators who can open the administration see it greyed, marked *Set up*" in text
     assert "out of the sidebar; administrators see it greyed" not in text
 

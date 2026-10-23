@@ -71,9 +71,13 @@ LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # jobs; datasets the latest run of every dataset (one query), the key of the stored row counts, the counts of the
 # datasets that have a table, and the gazetteer's; power-bi the comparisons with Power BI's views, the views they
 # name and the card versions (three queries, whatever the number of periods; two in this world, which has none).
-SHELL_QUERIES_COLD = 16  # 14 measured: the menu also reads the ActivityInfo state (3) and the sources (2)
+# The focused menu has no ActivityInfo block, so its frame does not read the ActivityInfo state: jobs and
+# databases then read it themselves (3: the setting, the scheduled jobs, the reporting years), counted here.
+SHELL_QUERIES_COLD = (
+    16  # 14 measured: a menu with the ActivityInfo block reads its state (3) and the sources (2)
+)
 SHELL_QUERIES_WARM = 7
-PART_QUERIES = {"jobs": 31, "databases": 7, "runs": 6, "datasets": 60, "power-bi": 7, "readiness": 6}
+PART_QUERIES = {"jobs": 34, "databases": 10, "runs": 6, "datasets": 60, "power-bi": 7, "readiness": 6}
 
 
 def _place(pk: int, name: str, kind: LocationType) -> Location:

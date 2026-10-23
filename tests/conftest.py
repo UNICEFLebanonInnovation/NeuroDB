@@ -93,11 +93,13 @@ def _no_anthropic_key():
     included): the SDK would read them, and settings, computed before any fixture runs, would count the key
     in AI_ASSISTANT_ENABLED. The tests run on OpenAI unless a test chooses Claude (``claude``). The AI
     settings snapshot is pinned for the run (no 10-second expiry): a page never reads the row at a random
-    test, whose query counts or lack of a database would then fail."""
+    test, whose query counts or lack of a database would then fail. So are the menu's choices
+    (``neurodb.web.menu_choices``), for the same reason."""
     from django.conf import settings
     from django.test import override_settings
 
     from neurodb.assistant import llm
+    from neurodb.web import menu_choices
 
     for var in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
         os.environ.pop(var, None)
@@ -108,8 +110,10 @@ def _no_anthropic_key():
     )
     overrides.enable()
     llm._pinned = True
+    menu_choices._pinned = True
     yield
     llm._pinned = False
+    menu_choices._pinned = False
     overrides.disable()
 
 
@@ -121,6 +125,46 @@ def _ai_settings_defaults():
 
     llm._memo = (0.0, llm.Snapshot())
     yield
+
+
+@pytest.fixture(autouse=True)
+def _menu_defaults():
+    """Every test starts with no menu choice saved (no row), held in memory: every role sees the focused
+    menu (navigation.FOCUSED), a superuser the full one."""
+    from neurodb.web import menu_choices
+
+    menu_choices._memo = (0.0, {})
+    yield
+
+
+@pytest.fixture
+def menu_choice(db):
+    """For a test that saves menu choices: the choices are read afresh from the table (its saves clear
+    them), and the next test starts with none again. ``menu_choice(role, keys)`` saves a role's row."""
+    from neurodb.web import menu_choices
+    from neurodb.web.models import MenuChoice
+
+    def save(role, keys):
+        return MenuChoice.objects.update_or_create(role=role, defaults={"shown": list(keys)})[0]
+
+    menu_choices.forget()
+    yield save
+    menu_choices.forget()
+    menu_choices._memo = (0.0, {})
+
+
+@pytest.fixture
+def full_menu():
+    """Every role's menu shows every entry (as if a superuser ticked them all in the Menu page), for a test
+    about the rows, their conditions and the archive rather than about the focused menu. The layout is still
+    a role's (the focused part first): a test of the full menu's order runs as a superuser."""
+    from neurodb.accounts.roles import ALL_ROLES
+    from neurodb.indicators.services import navigation
+    from neurodb.web import menu_choices
+
+    menu_choices._memo = (0.0, {role: list(navigation.keys()) for role in ALL_ROLES})
+    yield
+    menu_choices._memo = (0.0, {})
 
 
 @pytest.fixture

@@ -1,10 +1,10 @@
 # Field monitoring and the HACT visit plan
 
-[Field monitoring](/field-monitoring/) (sidebar: Funds and assurance › Field monitoring) shows what eTools
-holds about monitoring the partners: the findings of field monitoring visits, the third-party
-monitoring (TPM) visits and activities, the UNICEF staff trips, and the **HACT visit plan**: for each
-programme document, the programmatic visits planned for the year, those completed and those still
-needed. Every figure comes from the eTools Datamart, synced every night at 20:30.
+[Field monitoring](/field-monitoring/) (sidebar: Field monitoring; in the full menu, under Funds and
+assurance) shows what eTools holds about monitoring the partners: the findings of field monitoring visits,
+the third-party monitoring (TPM) visits and activities, the UNICEF staff trips, and the **HACT visit
+plan**: for each programme document, the programmatic visits planned for the year, those completed and
+those still needed. Every figure comes from the eTools Datamart, synced every night at 20:30.
 
 The HACT visit plan answers the programme monitoring team's HACT FMM plan e-mail from NeuroDB
 itself: the programme documents not visited since 1 January, the visits still needed for the

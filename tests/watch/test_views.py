@@ -196,7 +196,9 @@ def test_a_donor_is_sent_to_the_donor_page_and_the_htmx_parts_are_refused(team, 
     assert reverse("watch:for_you") not in page_html
 
 
-def test_the_sidebar_link_and_the_lazy_count_are_on_staff_pages(team):
+def test_the_sidebar_link_and_the_lazy_count_are_on_staff_pages(team, full_menu):
+    """For you and its count in the menu of a role that has it (every role's menu here, full_menu; the focused
+    menu has no For you, and draws no count)."""
     html = login(team.edu).get(FOR_YOU).content.decode()
     side = html.split('class="sidebar', 1)[1].split("</nav>", 1)[0]
     assert 'href="/for-you/"' in side and "For you" in side

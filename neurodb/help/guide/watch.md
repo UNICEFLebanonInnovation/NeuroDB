@@ -2,11 +2,12 @@
 
 ## For you (NeuroDB Watch)
 
-[For you](/for-you/) (sidebar) is NeuroDB Watch: every morning at 07:45, and shortly after new data
-arrives, it asks fixed questions of NeuroDB's own tables (rules, no AI): what falls due soon, what is
-still open, how these things connect. It remembers each thing it follows from one day to the next and
-tells each person once, at the right moment. The sidebar shows the number of points that need you today
-and that you have not seen yet; [Home](/help/home/) has a *For you* card.
+[For you](/for-you/) (in the full menu; the search finds it for everyone) is NeuroDB Watch: every morning
+at 07:45, and shortly after new data arrives, it asks fixed questions of NeuroDB's own tables (rules, no
+AI): what falls due soon, what is still open, how these things connect. It remembers each thing it follows
+from one day to the next and tells each person once, at the right moment. When your menu has For you, the
+sidebar shows the number of points that need you today and that you have not seen yet; [Home](/help/home/)
+has a *For you* card.
 
 The page shows, in order: today's note (your section's, and the whole country's for the country view),
 *Needs you today* (at most 5 points), *Coming up (next 30 days)*, *How things connect* (open points that
@@ -56,7 +57,7 @@ decides what is followed, how serious it is, when it is due or who is told.
 
 ## What's new
 
-[What's new](/whats-new/) (sidebar) lists what changed in any source: new things (a partner, programme
+[What's new](/whats-new/) (in the full menu) lists what changed in any source: new things (a partner, programme
 document, donor, grant, database, document...), changes (a status, end date, budget, risk rating, an
 indicator's value), new or ended links (a programme document newly funded by a donor), and things gone.
 

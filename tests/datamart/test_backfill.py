@@ -316,6 +316,9 @@ QUICK_MIGRATIONS = {
     # choice label only, no code runs and nothing in the database changes; listed so that the migration is
     # accounted for here)
     ("watch", "0002_quota_label", "AlterField"),
+    # the menu each role sees (the superusers' Menu page): a new, empty table of at most three rows (CreateModel
+    # only, no code runs; listed so that the migration is accounted for here)
+    ("web", "0001_menu_choice", "CreateModel"),
 }
 
 

@@ -28,7 +28,26 @@ are answered by [Ask NeuroDB](/ask/) and, for the visits of a filter, by Chat wi
 
 ## The sidebar
 
-The sidebar puts the pages of every day first and the ActivityInfo history last. It is the same for
+Most people see a short menu, the pages of partner reporting and field monitoring first:
+
+- **Home**, the first page after you sign in ([Home](/help/home/)).
+- **Partner reporting (PRP)**: **Progress reports**, how partners report on their programme documents
+  (due, submitted, accepted, sent back and overdue reports), and **Partner monitoring**, what each
+  programme document indicator reached, with Program Performance one tab away
+  ([Partner progress](/help/partner-progress/)).
+- **Field monitoring**, with the HACT visit plan
+  ([Field monitoring and the HACT visit plan](/help/field-monitoring/)).
+- **Ask NeuroDB** (marked AI), questions in plain language answered from the data
+  ([Ask NeuroDB](/help/ask-neurodb/)).
+
+Superusers see the full menu below, and choose in the administration's *Menu* page what each role sees:
+any page of the full menu can be added to a role's sidebar there. A page left out of your menu still opens
+from the search, from links and from bookmarks: only the menu is shorter. Find a Neuro or HPM report by
+its name in the search, and the Help pages from the **?** button (*Help pages*).
+
+### The full menu
+
+The full menu puts the pages of every day first and the ActivityInfo history last. It is the same for
 every section:
 
 - At the top, without a title: **Home**, the first page after you sign in ([Home](/help/home/));
@@ -63,7 +82,7 @@ every section:
 
 A page that is not set up yet (the country programme, the Compiler pages, the document review) is left
 out of the sidebar; administrators who can open the administration see it greyed, marked *Set up*,
-and its page says how to set it up.
+and its page says how to set it up. A role whose menu has such a page added follows the same rule.
 
 ## Pages that open at once
 
@@ -125,6 +144,10 @@ Every signed-in person has one role:
 | Viewer | Reads every page, asks Ask NeuroDB, the Help assistant and Chat with Data, and exports. Nothing is changed. |
 | Section editor | Adds documents to the knowledge base; marks the visits of their section reviewed; verifies the action points of their section; adds NeuroDB action points; writes the section comments of the HACT visit plan on the programme documents of their section. |
 | Administrator | Everything a section editor does, for every section, plus the administration pages: settings, quality rules, prompt versions, scheduled jobs and the buttons that run them, and the card versions compared with Power BI. |
+
+Every role sees the short menu of [The sidebar](/help/overview/#the-sidebar) unless a superuser chose
+other pages for it in the administration's *Menu* page; superusers see the full menu. The menu only
+changes what the sidebar lists: what a role may read or change is the table above.
 
 Your **section** (set on your user by an administrator) is what several pages show first: Home, the
 country overview, the daily review, Monitoring insights and the action points page open on your

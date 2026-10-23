@@ -881,7 +881,7 @@ def _add(document: Document, topic: Topic, text: str, year: int | None = None, *
     )  # fmt: skip
 
 
-def test_every_tab_renders_for_a_viewer_read_only(analysed, client_viewer, editor, client):
+def test_every_tab_renders_for_a_viewer_read_only(analysed, client_viewer, editor, client, full_menu):
     for tab in TABS:
         full = client_viewer.get(REVIEW_URL, {"tab": tab})
         assert full.status_code == 200, tab

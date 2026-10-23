@@ -176,7 +176,7 @@ def test_donors_page_lists_grants_with_expiry(client_viewer, datamart):
     assert "SC001" in text and "Expires within 6 months" in text
 
 
-def test_sidebar_links_the_new_pages(client_viewer):
+def test_sidebar_links_the_new_pages(client_viewer, full_menu):
     text = client_viewer.get(reverse("reports:partners")).text
     for name in ("reports:assurance", "reports:monitoring", "reports:action_points"):
         assert f'href="{reverse(name)}"' in text
