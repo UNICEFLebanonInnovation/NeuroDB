@@ -17,14 +17,7 @@ parity world (an administrator's and a viewer's are the same): height at 1366 px
 {% else %}{% part "table" kind="table" priority="high" rows=20 height="828px" height_md="848px" height_sm="1134px" %}{% endif %}
 {% else %}
 {% with c=data.counts %}
-<div class="kpi-grid kpi-grid--7">
-  {% blocktrans asvar h0 count counter=c.progress_reports %}in {{ counter }} progress report{% plural %}in {{ counter }} progress reports{% endblocktrans %}
-  {% trans "Indicator reports" as l0 %}{% include "components/kpi_tile.html" with label=l0 value=c.indicator_reports|intcomma hint=h0 %}
-  {% for s in c.statuses %}
-  {% blocktrans asvar hint count counter=s.progress_reports %}{{ counter }} progress report{% plural %}{{ counter }} progress reports{% endblocktrans %}
-  {% if s.key == "overdue" %}{% include "components/kpi_tile.html" with label=s.label value=s.indicator_reports|intcomma hint=hint status=s.indicator_reports|yesno:"off_track," %}{% elif s.key == "sent_back" %}{% include "components/kpi_tile.html" with label=s.label value=s.indicator_reports|intcomma hint=hint status=s.indicator_reports|yesno:"over_target," %}{% else %}{% include "components/kpi_tile.html" with label=s.label value=s.indicator_reports|intcomma hint=hint %}{% endif %}
-  {% endfor %}
-</div>
+{% include "reports/partials/_reporting_tiles.html" with counts=c %}
 <p class="small text-muted mb-3">{% blocktrans with late=data.summary.late|intcomma %}Each tile counts indicator reports: one indicator in one progress report, as the eTools Power BI report counts them; the number of progress reports is under it. Every report has one status, so the tiles add up to the total. Submitted means awaiting acceptance; Not yet due, that the reporting period is still running. {{ late }} progress reports were submitted after their due date.{% endblocktrans %}</p>
 {% endwith %}
 {% with lo=data.left_out %}{% if lo.by_pd_status or lo.no_pd %}

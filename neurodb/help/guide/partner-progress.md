@@ -6,7 +6,8 @@ programme document indicator reached), [Progress reports](/partner-reporting/) (
 the two are the sidebar's *Partner reporting (PRP)*),
 the programme document and partner pages, and the [Funds](/funds/) page (budgets, funds reservations
 and what partners contributed). They show the views of the eTools Power BI report, with the same
-figures on every page for the same filter.
+figures on every page for the same filter. [Home](/help/home/) starts with the tiles of the first two
+for your section, and the programme documents whose reports need following up.
 
 ## Reached: one rule for every page
 

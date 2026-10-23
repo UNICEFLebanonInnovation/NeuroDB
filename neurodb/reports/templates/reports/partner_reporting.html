@@ -5,6 +5,7 @@
 <form method="get" class="filter-bar" data-filter-bar data-hx-target="#reporting-results" role="search" aria-label="{% trans 'Partner reporting filters' %}">
   {% if tab != "reports" %}<input type="hidden" name="tab" value="{{ tab }}">{% endif %}
   {% if overdue %}<input type="hidden" name="overdue" value="1">{% endif %}
+  {% for ref in f.pds %}<input type="hidden" name="pd" value="{{ ref }}">{% endfor %}
   <div class="filter-bar__field">
     <label class="form-label" for="f-q">{% trans "Search" %}</label>
     <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ q }}" placeholder="{% trans 'Partner, vendor, PD reference or indicator' %}">
@@ -23,7 +24,7 @@
       {% for y in data.options.years %}<option value="{{ y }}" {% if y|stringformat:"s" == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
     </select>
   </div>
-  {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=data.options.sections values=selected.section %}
+  {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=data.options.sections values=selected.section keep_chosen=True %}
   {% trans "Report #" as l %}{% include "reports/_multiselect.html" with name="report_number" label=l options=data.options.report_numbers values=selected.report_number %}
   <div class="filter-bar__field">
     <label class="form-label" for="f-partner">{% trans "Partner" %}</label>
@@ -79,6 +80,7 @@
   </div>
 </form>
 </div>
+{% if f.pds %}<p class="small mb-2" id="reporting-pd-note">{% blocktrans with refs=f.pds|join:", " count counter=f.pds|length %}Programme document {{ refs }} only{% plural %}Programme documents {{ refs }} only{% endblocktrans %} · <a href="{{ every_pd_url }}">{% trans "Show every programme document" %}</a></p>{% endif %}
 {% comment %}The filter bar and the page links swap #reporting-results. Report/Location and Report/Disaggregation receive their
 table in it as a part, so it is not aria-live on any tab (each arriving part would be read out, and a frame drawn on one
 tab behaves as on the others): parts.js says the words of data-results-updated after each such swap (review R3).{% endcomment %}

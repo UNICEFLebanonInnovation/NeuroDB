@@ -171,6 +171,8 @@ class ReportFilters:
     report_types: list[str] = field(default_factory=list)
     sections: list[str] = field(default_factory=list)
     report_numbers: list[str] = field(default_factory=list)
+    # programme documents by number, exactly: the report's own reference or its PD's number (Home's rows)
+    pds: list[str] = field(default_factory=list)
     partners: list[str] = field(default_factory=list)  # partner ids as text
     partner_types: list[str] = field(default_factory=list)  # partner type or CSO type
     # eTools PD statuses chosen: None (no choice made) the running PDs, as on Partner monitoring and in
@@ -194,6 +196,7 @@ class ReportFilters:
             report_types=[x.upper() for x in _getlist(params, "report_type")],
             sections=_getlist(params, "section"),
             report_numbers=_getlist(params, "report_number"),
+            pds=_getlist(params, "pd"),
             partners=[x for x in _getlist(params, "partner") if re.fullmatch(r"[0-9]{1,18}", x)],
             partner_types=_getlist(params, "partner_type"),
             # "pd_status=" alone (nothing chosen) is every status; no key at all, the running PDs
@@ -246,6 +249,10 @@ class ReportFilters:
             rows = rows.filter(section_q(self.sections))
         if self.report_numbers:
             rows = rows.filter(report_number__in=self.report_numbers)
+        if self.pds:
+            # the report's own reference, or the number of the PD the sync linked it to (by its eTools id
+            # first: the reference can differ from that number, or be blank)
+            rows = rows.filter(Q(pd_reference_number__in=self.pds) | Q(intervention__number__in=self.pds))
         if self.partners:
             rows = rows.filter(partner_id__in=[int(p) for p in self.partners])
         if self.partner_types:
@@ -423,14 +430,15 @@ def focal_point_names(values: Any) -> list[str]:
 
 
 def pd_details(pd_ids: set[int]) -> dict[int, dict[str, Any]]:
-    """Status, document type, sections and UNICEF focal points (names only) of these PDs."""
+    """Number, status, document type, sections and UNICEF focal points (names only) of these PDs."""
     out: dict[int, dict[str, Any]] = {}
     ids = sorted(i for i in pd_ids if i)
     for start in range(0, len(ids), 5000):
-        for pk, status, kind, names, focal in PCA.objects.filter(
+        for pk, number, status, kind, names, focal in PCA.objects.filter(
             pk__in=ids[start : start + 5000]
-        ).values_list("pk", "status", "document_type", "section_names", "unicef_focal_points"):
+        ).values_list("pk", "number", "status", "document_type", "section_names", "unicef_focal_points"):
             out[pk] = {
+                "number": number or "",
                 "status": status or "",
                 "status_label": pd_statuses.label(status),
                 "document_type": kind or "",
@@ -441,12 +449,13 @@ def pd_details(pd_ids: set[int]) -> dict[int, dict[str, Any]]:
 
 
 def with_pd_details(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The reports with their PD's status, document type and UNICEF focal points (names). An indicator
-    report whose rows name no section is in its PD's sections (joined, one entry: never counted twice),
-    in the table and in the counts by section alike."""
+    """The reports with their PD's number (``pd_number``), status, document type and UNICEF focal points
+    (names). An indicator report whose rows name no section is in its PD's sections (joined, one entry:
+    never counted twice), in the table and in the counts by section alike."""
     details = pd_details({r["intervention_id"] for r in reports if r["intervention_id"]})
     for report in reports:
         pd = details.get(report["intervention_id"]) or {}
+        report["pd_number"] = pd.get("number", "")
         report["pd_status"] = pd.get("status", "")
         report["pd_status_label"] = pd.get("status_label", "") if pd else ""
         report["document_type"] = pd.get("document_type", "")
@@ -622,6 +631,63 @@ def partner_performance(reports: list[dict[str, Any]]) -> dict[str, Any]:
         ],
         "follow_up": follow_up,
     }
+
+
+def pd_follow_up(reports: list[dict[str, Any]]) -> dict[str, Any]:
+    """Home's "Programme documents to follow up": one row per programme document of ``reports`` (those of
+    :func:`neurodb.datamart.services.partner_reporting`, with their PD's details), by NeuroDB's link to it,
+    else by the reports' own reference number. Each row: ``pd_reference_number`` (the PD's number when
+    NeuroDB holds it; else the reports' reference; "" for neither), ``pd_number`` (the PD's number alone, as
+    Partner monitoring's ``pd`` reads it: "" for a PD NeuroDB does not hold), ``intervention_id``,
+    ``partner_id``, ``partner_name``, ``sections`` (its reports' sections, joined), ``counts`` (its progress
+    reports per status, the six of them), ``follow_up`` (Overdue, Sent back, Due and Submitted) and
+    ``next_due`` (the earliest due date of its Due or Overdue reports). Only the programme documents with a
+    report to follow up, the most pressing first: the most Overdue, then Sent back, Due and Submitted, then
+    the next due date. Counts are progress reports, as the follow-up table of the Partners tab lists them."""
+    found: dict[tuple[str, Any], dict[str, Any]] = {}
+    for r in reports:
+        held = r["intervention_id"]
+        key = ("pd", held) if held else ("ref", r["pd_reference_number"] or "")
+        row = found.get(key)
+        if row is None:
+            row = found[key] = {
+                "pd_reference_number": "",
+                "pd_number": (r.get("pd_number") or "") if held else "",
+                "intervention_id": r["intervention_id"],
+                "partner_id": None,
+                "partner_name": "",
+                "_sections": [],
+                "counts": dict.fromkeys(STATUS_KEYS, 0),
+                "next_due": None,
+            }
+        reference = (r.get("pd_number") if r["intervention_id"] else "") or r["pd_reference_number"] or ""
+        if not row["pd_reference_number"] and reference:
+            row["pd_reference_number"] = reference
+        if row["partner_id"] is None and r["partner_id"]:
+            row["partner_id"] = r["partner_id"]
+        if not row["partner_name"] and r["partner_name"]:
+            row["partner_name"] = r["partner_name"]
+        for name in r["sections"]:  # as the page's Section column names them
+            if name != NO_SECTION and name not in row["_sections"]:
+                row["_sections"].append(name)
+        row["counts"][r["status"]] += 1
+        if r["status"] in (rc.DUE, rc.OVERDUE) and r["due_date"]:
+            if row["next_due"] is None or r["due_date"] < row["next_due"]:
+                row["next_due"] = r["due_date"]
+    rows = []
+    for row in found.values():
+        row["sections"] = ", ".join(row.pop("_sections"))
+        row["follow_up"] = sum(row["counts"][key] for key in FOLLOW_UP)
+        if row["follow_up"]:
+            rows.append(row)
+    rows.sort(
+        key=lambda row: (
+            *(-row["counts"][key] for key in FOLLOW_UP),
+            row["next_due"] or datetime.date.max,
+            row["pd_reference_number"],
+        )
+    )
+    return {"rows": rows, "count": len(rows)}
 
 
 # ---------------------------------------------------------------------------------- Report/Location

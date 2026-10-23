@@ -1,16 +1,43 @@
 # Home
 
-[Home](/) is the first page after you sign in. It answers three questions, in this order: what needs
-you today, what changed since the previous working day, and where your section (or the country) stands
-this year. Every figure of the year is on the [country overview](/country-overview/); what to decide is
-in the [management brief](/brief/); the findings of the morning check are on the
-[daily review](/daily-review/). Home opens at once and each block fills in as it is ready (see
-[Pages that open at once](/help/overview/#pages-that-open-at-once)).
+[Home](/) is the first page after you sign in. It starts with how partners are reporting, in numbers
+and a table: the figures of [Progress reports](/partner-reporting/) and
+[Partner monitoring](/partner-monitoring/), for your section (or the country). Below them, under *More on
+Home*, it answers three more questions: what needs you today, what changed since the previous working
+day, and where your section stands this year. Every figure of the year is on the
+[country overview](/country-overview/); what to decide is in the [management brief](/brief/); the
+findings of the morning check are on the [daily review](/daily-review/). Home opens at once and each
+block fills in as it is ready (see [Pages that open at once](/help/overview/#pages-that-open-at-once)).
 
 ## What Home shows
 
 Under the title: today's date and the sections the page shows (see
 [Your section or every section](#your-section-or-every-section)).
+
+**Partner reporting**, first, with links to *Progress reports* and *Partner monitoring* that open those
+pages on the same sections:
+
+- **Progress reports**: the seven tiles of the Progress reports page, for the running programme documents
+  and every reporting period, exactly the figures that page shows for the same sections. Each tile counts
+  indicator reports (one indicator in one progress report), with the number of progress reports under
+  it, and opens the page on that status.
+- **Programme documents to follow up**: one row per programme document with progress reports that are
+  Overdue, Sent back, Due or Submitted (awaiting acceptance), the most overdue first: its partner, how
+  many of its progress reports are in each of those statuses, and the next due date. Its reference opens
+  Progress reports on that programme document alone, with the same counts; *Indicators* opens its
+  indicators on Program Performance. Home lists the first ten; *Every report to follow up, on Progress
+  reports* opens the full list there.
+- One line with the partners that have progress reports here, how many have reported (Submitted or
+  Accepted) and how many have not yet: the figures of the Partners tab of Progress reports.
+- **Indicator progress** this year: the tiles of Partner monitoring for every programme document running
+  this year (indicators, on track, off track, not reported, programme documents, partners), exactly the
+  figures that page shows at the same link. *On track*, *Off track* and *Not reported* open the indicators
+  in that status; *Program Performance table* opens the table. Overdue reports are counted once on Home,
+  on the Progress reports tiles: Partner monitoring counts them its own way.
+
+**More on Home**, below, opens with one click. It is open from the start for superusers, and for
+everyone whose menu shows *For you* or *Daily review*; otherwise its blocks load when you open it. It
+holds:
 
 - **Needs you today**, on the left:
   - the **For you** card: what NeuroDB Watch asks you to look at today ([For you](/help/watch/)). When
@@ -53,7 +80,9 @@ Under the title: today's date and the sections the page shows (see
   ActivityInfo (while it is in use, its year and last import; once it is an archive, a link to the
   archive of its years). A source that is not set up is left out; administrators read a short line
   saying where it is set up.
-- **Data freshness**, at the bottom: when each source last changed, with a link to Data health.
+
+**Data freshness**, at the bottom of Home (outside *More on Home*): when each source last changed, with a
+link to Data health.
 
 ## Your section or every section
 
@@ -63,8 +92,9 @@ Home, the country overview and the daily review open the same way:
   default*), with *every section* one click away.
 - Members of the Management group, and Administrators without a section, open on the whole country
   (*Every section*), with *only* their section one click away when they have one.
-- Every link Home draws to the country overview, the daily review and the management brief carries the
-  sections Home shows, so the next page shows the same figures.
+- Every link Home draws to Progress reports, Partner monitoring, the country overview, the daily review
+  and the management brief carries the sections Home shows, so the next page shows the same figures. (The
+  menu's own *Progress reports* and *Partner monitoring* open those pages as they always open.)
 - *Programmes and sources* is always for the whole country, and says so when a section is chosen.
 
 ## ActivityInfo: in use or archive

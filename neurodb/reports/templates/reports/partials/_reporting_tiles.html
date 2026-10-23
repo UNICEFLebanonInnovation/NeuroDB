@@ -1,0 +1,13 @@
+{% load i18n humanize ui %}{% comment %}The seven tiles of Progress reports (its main tab) and of Home's Progress reports block: one template, so
+both draw the same figures the same way. Each value counts indicator reports, its hint progress reports; Overdue is
+marked off track and Sent back over target, as on the page. Context: counts (datamart.partner_reporting's "counts");
+tile_urls (Home only: the Progress reports page with Home's filter, "total" and one per status key) makes each value
+a link.{% endcomment %}
+<div class="kpi-grid kpi-grid--7">
+  {% blocktrans asvar h0 count counter=counts.progress_reports %}in {{ counter }} progress report{% plural %}in {{ counter }} progress reports{% endblocktrans %}
+  {% trans "Indicator reports" as l0 %}{% include "components/kpi_tile.html" with label=l0 value=counts.indicator_reports|intcomma hint=h0 href=tile_urls.total %}
+  {% for s in counts.statuses %}
+  {% blocktrans asvar hint count counter=s.progress_reports %}{{ counter }} progress report{% plural %}{{ counter }} progress reports{% endblocktrans %}
+  {% with href=tile_urls|get_item:s.key %}{% if s.key == "overdue" %}{% include "components/kpi_tile.html" with label=s.label value=s.indicator_reports|intcomma hint=hint status=s.indicator_reports|yesno:"off_track," href=href %}{% elif s.key == "sent_back" %}{% include "components/kpi_tile.html" with label=s.label value=s.indicator_reports|intcomma hint=hint status=s.indicator_reports|yesno:"over_target," href=href %}{% else %}{% include "components/kpi_tile.html" with label=s.label value=s.indicator_reports|intcomma hint=hint href=href %}{% endif %}{% endwith %}
+  {% endfor %}
+</div>

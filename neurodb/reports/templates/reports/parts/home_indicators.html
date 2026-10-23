@@ -1,0 +1,18 @@
+{% load i18n %}{% comment %}Home's "indicators" part (reports.home_views.home_page): Partner monitoring's own tiles for the filter of
+Home's links (the sections, this year, every programme document running in it: keep_query), from the grid's stored
+indicators and its summary (the same key and figures as the grid's "summary" part at that address), without the
+grid's Overdue reports tile: Home's Overdue is Progress reports' (the two pages count it differently). On track, Off
+track and Not reported link to the grid with that status. Drawn inline by the frame when the indicators are stored.
+Context: indicators, status_urls, table_url, no_etools, year.{% endcomment %}
+<div class="home-prp__block">
+  <div class="home-prp__title">
+    <h3 class="home-block__title" id="home-pm-title">{% blocktrans with y=year %}Indicator progress in {{ y }}{% endblocktrans %}</h3>
+    <span class="home-prp__hint">{% blocktrans with y=year %}Partner monitoring: every programme document running in {{ y }}{% endblocktrans %}</span>
+    <a class="home-more" href="{{ table_url }}">{% trans "Program Performance table" %} →</a>
+  </div>
+  {% if no_etools %}
+  <p class="home-empty">{% trans "No eTools data yet: the eTools Datamart sync has not run on this server." %}</p>
+  {% else %}
+  {% include "reports/partials/_pm_tiles.html" with pm=indicators %}
+  {% endif %}
+</div>

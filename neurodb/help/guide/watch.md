@@ -7,7 +7,7 @@ at 07:45, and shortly after new data arrives, it asks fixed questions of NeuroDB
 AI): what falls due soon, what is still open, how these things connect. It remembers each thing it follows
 from one day to the next and tells each person once, at the right moment. When your menu has For you, the
 sidebar shows the number of points that need you today and that you have not seen yet; [Home](/help/home/)
-has a *For you* card.
+has a *For you* card, under *More on Home* (open from the start when your menu has For you).
 
 The page shows, in order: today's note (your section's, and the whole country's for the country view),
 *Needs you today* (at most 5 points), *Coming up (next 30 days)*, *How things connect* (open points that

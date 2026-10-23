@@ -2,6 +2,35 @@
    dark mode follows ([data-bs-theme="dark"] redefines them). The key figures' shared classes (.kpi__how,
    .kpi--wide-sm) belong to app.css, which the Country overview reads too. */
 
+/* Partner reporting first (SPEC_focus_menu §2): its heading with the two pages' links, then Progress reports' block
+   (tiles, the programme documents to follow up, the partners line) and Partner monitoring's tiles */
+.home-prp { margin-bottom: 1.25rem; }
+.home-prp__header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 1rem; margin-bottom: 0.6rem; }
+.home-prp__header .home-heading { margin: 0; }
+.home-prp__links { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin: 0; }
+.home-prp__block { margin-bottom: 1rem; }
+.home-prp__title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.75rem; margin-bottom: 0.5rem; }
+.home-prp__title .home-block__title { margin: 0; }
+.home-prp__title--split { margin-top: 0.75rem; }
+.home-prp__hint { color: var(--nd-muted); font-size: 0.82rem; }
+.home-prp .kpi-grid { margin-bottom: 0.4rem; }
+.home-prp__partners { margin: 0.4rem 0 0; font-size: 0.88rem; font-weight: 600; }
+/* the programme documents to follow up: the four counts under one heading (they count progress reports) */
+.home-pds { margin-bottom: 0.3rem; }
+/* positioned, so the hidden words of the Indicators links (.visually-hidden is absolute) stay inside the scrolling
+   box: placed at their column, a phone's page would scroll sideways */
+.home-prp .table-wrap { position: relative; }
+.home-pds thead td { background: var(--nd-surface-2); border-bottom: 0; }
+.home-pds .home-pds__group { text-align: center; border-bottom: 1px solid var(--nd-border); }
+.home-pds .home-pds__sub { display: block; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.home-pds .pill { white-space: nowrap; }
+
+/* "More on Home": the rest of the page, folded for the roles whose menu is the focused one */
+.home-fold { margin-bottom: 1rem; border-top: 1px solid var(--nd-border); padding-top: 0.75rem; }
+.home-fold__summary { width: fit-content; cursor: pointer; font-weight: 650; color: var(--nd-primary); margin-bottom: 0.75rem; }
+.home-fold__summary:hover { text-decoration: underline; text-underline-offset: 2px; }
+.home-fold__purpose { color: var(--nd-muted); font-size: 0.88rem; margin: 0 0 0.75rem; }
+
 /* Row 1: "Needs you today" (For you, decisions, the daily review) beside "Since {weekday}"; one column below 992 px */
 .home-row { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; margin-bottom: 1rem; }
 @media (min-width: 992px) { .home-row { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); } }

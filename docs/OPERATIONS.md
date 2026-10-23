@@ -94,6 +94,11 @@ permission one by one in Users (both are read only to anyone else).
     Section editors; otherwise they find a report by its name in the search.
   - *For you* and *Daily review*: NeuroDB Watch reaches people through For you's count in the sidebar and
     its card on Home. Tick *For you* for a role that should keep the count.
+- **Home follows the menu.** Home leads with partner reporting for everyone (see *Home (`/`)*); the rest of
+  Home (the Watch card, *Needs a decision*, the daily review, *Since*, the key figures, the sources) is under
+  *More on Home*, folded for a role whose menu shows neither *For you* nor *Daily review* (every role by
+  default: Administrators and Management members, too, open it for *Needs a decision* and the Watch card)
+  and open for superusers. Ticking *For you* or *Daily review* for a role opens it for that role.
   - *Help*: the "?" panel links to the Help pages (*Help pages*), and the search finds them.
 - Quick migration `web 0001_menu_choice` (a new, empty table of at most three rows).
 
@@ -1387,7 +1392,7 @@ more.
 
 | Page | The frame (at once) | Its parts | What it stores in the shared page figures, and when that changes |
 |---|---|---|---|
-| Home, `/` (signed in) | Title, date and scope line, purpose line, freshness strip; no figure work and no Watch table | `for-you` (at once, from Watch's own address; not drawn while Watch is off): the NeuroDB Watch card. `tasks` (at once): *Needs a decision* (Administrators and Management) and the daily review's digest. `since` (when near the screen): *Since <weekday>* and *Your tasks*. `standing` (at once): the Country overview's five key figures for this year and Home's sections, and the *Also* line. `programmes` (after the visible ones): *Programmes and sources* | Nothing of its own: `standing` is the Country overview's build (same key), drawn by the frame when stored; *Programmes and sources* reads the country programme's build (10 minutes) and Compiler's summary. *Needs a decision*, the digest, *Since* and *Your tasks* are computed at each request. See *Home and the country overview* |
+| Home, `/` (signed in) | Title, date and scope line, purpose line, the partner reporting heading and its links, freshness strip; no figure work and no Watch table | `reporting` (at once): Progress reports' tiles, the programme documents to follow up and the partners line. `indicators` (at once): Partner monitoring's tiles for this year. In *More on Home* (when it opens; open for superusers): `for-you` (at once, from Watch's own address; not drawn while Watch is off): the NeuroDB Watch card. `tasks` (at once): *Needs a decision* (Administrators and Management) and the daily review's digest. `since` (when near the screen): *Since <weekday>* and *Your tasks*. `standing` (at once): the Country overview's five key figures for this year and Home's sections, and the *Also* line. `programmes` (after the visible ones): *Programmes and sources* | Nothing of its own: `reporting` is computed at each request, as Progress reports computes it; `indicators` reads Partner monitoring's stored indicators (same key), drawn by the frame when stored; `standing` is the Country overview's build (same key), drawn by the frame when stored; *Programmes and sources* reads the country programme's build (10 minutes) and Compiler's summary. *Needs a decision*, the digest, *Since* and *Your tasks* are computed at each request. See *Home and the country overview* |
 | Country overview, `/country-overview/` | Purpose line, filter bar, subtitle, freshness strip, in an ActivityInfo year the link to its databases | `kpis` (at once; first of the group `overview`): the key figure tiles. `figures` (when near the screen, once `kpis` is in): impact, value for money, delivery and assurance and the two progress blocks. `news` (after the visible ones): What's new and the forecast risk card | The overview build, 2 minutes per year, its ActivityInfo reporting year, sections, governorate and day, the same in every language; the filter bar's section names, 10 minutes; the freshness strip, 2 minutes. Each key holds the last finished sync run and the indicator flags, so a sync or a flag changes it at once. When the build is stored, the frame draws `kpis` and `figures` itself. See *Home and the country overview* |
 | Daily review, `/daily-review/` | Title, scope line, purpose line with the review's time (from its schedule), section chips | `review` (at once, only when a daily review ever succeeded): the *Daily review* card. `review-more` (only when *Show N more findings* is opened): its folded findings, always those of the card above them | Nothing: the review's findings are read at each request. See *Daily review page* |
 | Management brief, `/brief/` | Purpose line, filter bar with *Figures as of* and **Print**, the tab bar, the *Reference* block (lineage and data dictionary) | `brief` (at once; first of the group `brief`): the five tiles, *Things to decide* with the *Assign* links for staff, *Sections at a glance* and *Copy summary*. `sections` (when near the screen, once `brief` is in): ahead or behind, how sure, who and where, partners, money and action, with every chart of the page | The brief build, 2 minutes per year, sections, day and language (its labels are translated as it is computed), under the brief's own key: the section plans, the finding assignments and the ActivityInfo partner links (how many, and the last change), the latest daily review, the last finished sync run and the indicator flags, so an entry in the admin, a new review, a sync or a flag shows at once. It reads two overview builds, each stored as an overview build: the year's, the very one the overview stores for the same year and sections without a governorate, and the year before's, for the comparisons. The frame's lineage, 2 minutes, the same in every language, under the last finished sync run, the flags and the latest daily review; the filter bar's section names are the overview's. When the build is stored, the frame draws both parts itself: a brief opened again within two minutes is one request. See *Management brief* |
@@ -2411,7 +2416,12 @@ figures as everywhere else (they read the rule above; nothing is added across in
   year, section, report #, partner, partner type, PD status, emergency indicator, period start and
   period end between). The Section list offers each section name once: a report row whose section is a
   list ("Child Protection, Adolescent & Youth") gives each of its names, and a name chosen keeps the rows
-  that list it (`reporting.section_names`, `section_q`). The PD status filter opens on the running programme documents (active, signed,
+  that list it (`reporting.section_names`, `section_q`); a section chosen in the address that the list does
+  not hold (Home writes the eTools section names of the PD indicators) stays chosen. `pd=<number>` (Home's
+  programme document rows) keeps one programme document exactly: the reports whose reference is that
+  number, or that are linked to the programme document of that number (the sync links a report by its
+  eTools id first, so its reference can differ, or be blank); the page says "Programme document … only ·
+  Show every programme document", and its tabs and exports keep it. The PD status filter opens on the running programme documents (active, signed,
   suspended), as Partner monitoring does; with every status chosen, the reports of programme
   documents NeuroDB does not hold are listed too. A report row that names no programme document (no
   link, no PD reference number, no eTools PD id: PRP's reports outside programme documents) is never
@@ -2939,8 +2949,10 @@ Datamart sync (one entry per donor and grant), so running it does not blank the 
 
 ## Home and the country overview
 
-`/` for a signed-in user is **Home** (`reports/home_views.py`): what needs the person today, what changed
-since the previous working day, and where their section (or the country) stands this year. Every figure
+`/` for a signed-in user is **Home** (`reports/home_views.py`): how partners are reporting first, in numbers
+and tables (Progress reports' and Partner monitoring's own figures: management asked for a Home that PD
+managers read at a glance), then, under *More on Home*, what needs the person today, what changed since the
+previous working day, and where their section (or the country) stands this year. Every figure
 of the year is on the **Country overview** (`/country-overview/`), the findings of the morning check on
 the **Daily review** page (`/daily-review/`). Visitors get the landing page at `/`; donor accounts never
 reach these pages. Old links keep working: `/?year=…` and `/?governorate=…` are sent on to
@@ -2953,12 +2965,17 @@ group and people without a section see every section; everyone else sees their o
 section matched to the eTools section names, as on partner monitoring), with *every section* one click
 away. Every link Home draws to the Country overview, the daily review and the brief carries Home's
 sections (`?section=…`, or `?year=<this year>` for every section), so the next page never applies a first
-load default of its own and shows the same figures.
+load default of its own and shows the same figures. So does every link to Progress reports (`?section=…`;
+none for every section, the page's own default) and to Partner monitoring (`?section=…&year=<this
+year>&scope=year`).
 
 ### Home (`/`)
 
 | Block | What it shows | Who |
 |---|---|---|
+| *Partner reporting: <who>* → *Progress reports* | Progress reports' seven tiles for Home's sections, exactly as on that page (`datamart.services.reporting_figures`, which is the page's own `partner_reporting`: the running programme documents and every reporting period, the page's default, so a January keeps last year's last reports, the overdue ones; on the page's day, `reporting_today`). Each tile counts indicator reports, with the progress reports under it, and opens the page on its status. Then **Programme documents to follow up** (`reporting.pd_follow_up`): the first ten (`home.HOME_PDS`), one row per programme document with its partner, its progress reports Overdue, Sent back, Due and Submitted (awaiting acceptance), the next due date and a link to its indicators on Program Performance; the most overdue first. A row's reference opens Progress reports on that programme document (`?pd=<its number>`), whose figures are the row's. "Every report to follow up, on Progress reports →" opens the Partners tab. Then the Partners tab's three figures in one line (partners with progress reports here, reported, not yet) | everyone |
+| *Partner reporting: <who>* → *Indicator progress in <year>* | Partner monitoring's tiles for Home's sections and this year (every programme document running in it): indicators, on track, off track, not reported, programme documents, partners. They are the grid's own `summary` at the same address (`/partner-monitoring/?section=…&year=…&scope=year`), from the same stored indicators (the `pm-rows` key), so the two never differ; the grid's *Overdue reports* tile is left out (Home's Overdue is Progress reports', which counts it another way). On track, Off track and Not reported open the grid on that status; "Program Performance table →" opens `view=table` with the same filter | everyone |
+| *More on Home* (folded) | Everything below, behind one click, with the old purpose line and its links to the Country overview and the management brief. Open for superusers and for a role whose menu shows *For you* or *Daily review* (Users and access → *Menu*); folded, its blocks are not loaded until it opens | everyone |
 | *Needs you today*: For you | The NeuroDB Watch card (not drawn while Watch is switched off: the block says "NeuroDB is not checking at the moment: an administrator switched these checks off."). An account without a role is told "For you is for people with a role…", one without a section that For you shows only whole-country points. When the morning check is late (26 hours), the card shows a warning box ("NeuroDB has not checked since Monday. Ask an administrator to look at Scheduled jobs."; before the first check, an administrator is told to open For you and press *Check now*, with a link) and its title is just "For you" | everyone |
 | *Needs a decision* | The first decisions of the latest daily review in the sections (`brief.decisions`, as the brief's *Things to decide*): severity, title, section, status and due date; never the owner or who should act. "All decisions: Management brief →" | Administrators and Management members |
 | *Daily review · <day, time>* | Counts by severity (Critical, Warning, To note), the open findings that matter most, each with its severity as a worded pill, grouped by check ("and 4 more like it"; those already under *Needs a decision* left out), up to two of the review's "changed" sentences ("Since the review before: 240 new findings, 30 still open."), "Open the daily review →". A review more than two days old starts with its date; before the first review, when it runs (read from the *daily-review* schedule) or that it is switched off | everyone |
@@ -2968,23 +2985,35 @@ load default of its own and shows the same figures.
 | *Programmes and sources* (whole country) | The country programme cycle (year k of n, indicators on track; or ended, or not started), Compiler's Makani, Dirasa and youth registrations, and ActivityInfo (in use: its year, results and last import, "records imported" while no result is tracked yet, or "in use, waiting for its first records" while the reporting year ticked current has none, a ticked year with records having its own line; archive: "ActivityInfo archive 2019–2026: every database and report, kept as it was"). A source not set up is left out, except for people who can set it up (superusers, and Administrators with *Staff status*), who read a muted line saying where | everyone |
 | Data freshness strip | When each source last changed, "Data health →" (ActivityInfo only while its import is followed) | everyone |
 
-**Loads in parts.** The frame (title, date and scope line, purpose, the freshness strip) does no figure
-work and reads no Watch table; then each block is a part:
+**Loads in parts.** The frame (title, date and scope line, purpose, the partner reporting heading and its
+links, the freshness strip) does no figure work and reads no Watch table; then each block is a part. The
+blocks inside *More on Home* load when it opens (at once for the roles that see it open):
 
 | Part | What it holds | When it loads | Query ceiling (tests) |
 |---|---|---|---|
+| `reporting` | Progress reports' tiles, the programme documents to follow up and the partners line. Computed at each request, as the page computes its main tab (0.06 s on the x20 parity world, about a tenth of a second on production's ten thousand report rows), and never stored: Home always shows the page's figure of the moment, also while an eTools sync writes | At once | 9 cold |
+| `indicators` | Partner monitoring's tiles for this year: the grid's stored indicators of that filter (2 minutes, shared with the page). When they are stored, the frame draws them itself | At once | 17 cold |
 | `for-you` | The Watch card, from Watch's own address (`watch:card`) | At once | 11 |
 | `tasks` | *Needs a decision* and the daily review's digest | At once | 12 |
 | `since` | *Since <weekday>* and *Your tasks* | When near the screen | 10 |
 | `standing` | The five key figures and the *Also* line: the overview build of this year and Home's sections. When that build is stored (2 minutes, shared with the Country overview), the frame draws it itself | At once | 44 cold |
 | `programmes` | *Programmes and sources* (the country programme build is shared 10 minutes with its page) | After the visible ones | 18 (no cycle) |
 
-The frame stays within 21 queries cold and 11 warm (`tests/reports/test_home_parts.py`; the cold count
-includes the menu's sources and the sidebar; the person's role is read once per request, the menu's choices
-are kept in memory, and a page without a year reads the sidebar kept for two minutes). *Since*, *Your tasks* and the decisions are
-computed at each request (small); nothing Home stores holds a person, a name or anything about a child.
+The frame stays within 19 queries cold and 13 warm (`tests/reports/test_home_parts.py`; the cold count
+includes the menu's sources; the person's role is read once per request, the menu's choices are kept in
+memory, and a focused menu has no ActivityInfo block to read). Two of them are the moment of the eTools
+figures (their latest jobs and the indicator flags), the key under which the frame looks for Partner
+monitoring's stored indicators. **Cost with nothing stored** (x20 parity world): `indicators` 0.4-0.5 s,
+`standing` 0.6 s (the overview build, which computes the indicators of its own), `reporting` 0.06 s. A
+focused person pays the first and the last only, since *standing* waits in the folded *More on Home*; a
+superuser, whose fold is open, pays all three (two indicator computations, one for each block), about a
+second of work spread over the parallel part requests, then nothing while they are stored. *Since*, *Your
+tasks* and the decisions are computed at each request (small); nothing Home stores holds a person, a name or
+anything about a child.
 **Privacy**: Home never shows who owns a decision or a finding (no owner, no "who", no assignment link), no
-e-mail address, and the wellbeing and document review counts only to the roles above.
+e-mail address, and the wellbeing and document review counts only to the roles above. The partner reporting
+blocks show partners and programme documents, never a UNICEF or partner focal point, and nothing of them
+reaches Ask NeuroDB (its tools are unchanged).
 
 ### Country overview (`/country-overview/`)
 
