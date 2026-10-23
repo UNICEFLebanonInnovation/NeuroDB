@@ -464,6 +464,16 @@ BUSINESS_AREA_FROM = {
 }
 # Where a value set aside as not a business area code came from (details.business_area_set_aside)
 SET_ASIDE_FROM = {"environment": "ETOOLS_DATAMART_BUSINESS_AREA", "admin": _("the code entered in the admin")}
+# Why a read was made in windows (details.windows_why, windows.Reading): a round count, or a cut sign of the
+# dataset's previous finished run (datamart_sync.cut_sign), in words (Data health and check 10)
+WINDOWS_WHY = {
+    "round_count": _("the Datamart announced a round count, a limit of its answer"),
+    "cap_suspected": _("the last read looked cut"),
+    "whole_count_capped": _("the last read's windows held more than the Datamart's count"),
+    "pages_cut": _("a page of the last read came back shorter than the first"),
+    "windows_cut": _("a window of the last read held fewer records than it announced"),
+    "read_short": _("the last read returned fewer records than announced"),
+}
 # The rows each dataset holds are counted once an hour at most, and again as soon as one of the jobs that
 # write those tables starts or ends a run (the eTools Datamart sync above all). The gazetteer is the one
 # table staff also change by hand (Admin → Locations), outside any job: it is counted at each visit.
@@ -639,10 +649,18 @@ def datamart_quality() -> list[dict[str, Any]]:
     with and where the code came from (a value that is not a code, a code NeuroDB found, the values set
     aside), and the records that named no business area; a run that read fewer records than the Datamart
     announced, some twice, or a round count (a limit of the Datamart's answer), says that it removed
-    nothing. A large dataset read in windows says how many, what they announced and read, those not read
-    whole (the first three), a count that changed during the read, and a removal held one night."""
+    nothing. A large dataset read in windows says how many, why, what they announced and read, those not read
+    whole (the first three), a count that changed during the read, and a removal held one night; a page cut
+    short says so. The partner reports and PRP's progress reports say which business area filter their read
+    took, or why none, and the records of another business area a filter let through."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
-    from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS, FOUND, is_area_code, not_a_code
+    from neurodb.integrations.etools.datamart_sync import (
+        ENTITY_SYNCS,
+        FOUND,
+        area_words,
+        is_area_code,
+        not_a_code,
+    )
 
     last_by_target = latest_datamart_runs(ENTITY_SYNCS)
     counts = dataset_row_counts()
@@ -710,6 +728,17 @@ def datamart_quality() -> list[dict[str, Any]]:
                 "whole_count_end": details.get("whole_count_end"),
                 "changed": details.get("whole_count_end") is not None
                 and details.get("whole_count_end") != details.get("datamart_count"),
+                # why the read was made in windows (a round count, a cut sign of the last read), in words,
+                # and the pages that came back shorter than the first (the answer was cut)
+                "windows_why": WINDOWS_WHY.get(details.get("windows_why"), ""),
+                "pages_cut": details.get("pages_cut"),
+                # the business area filter the read took, or why none (catalogue.AREA_FILTERS), and the
+                # records of another business area it let through
+                "area_filter": details.get("area_filter")
+                if isinstance(details.get("area_filter"), dict)
+                else {},
+                "area_words": area_words(details.get("area_filter")),
+                "area_strays": details.get("area_strays"),
                 # a whole read that would remove more than half of the rows held waits one night
                 "removal_held": details.get("removal_held"),
                 # an empty read the Datamart announced records for: its answer was cut short

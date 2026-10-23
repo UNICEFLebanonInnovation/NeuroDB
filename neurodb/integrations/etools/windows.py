@@ -1,25 +1,28 @@
 """A large eTools Datamart read in windows, each proven whole before the sync removes anything.
 
-The Datamart likely answers at most about 10,000 records to one query, and may cut its ``count`` with them
-(the partner reports read on 20 Oct 2026 kept 9,970 rows, none of a period ending before 28 Feb 2026, for a
-read from 1 Nov 2018): every page of such an answer is read, the count is met, and the read looks whole
-while the records past the limit never arrive. :class:`Reading` reads a dataset exactly as
-:meth:`DatamartClient.list` does while its first page announces fewer than :data:`WINDOW_RECORDS` records
-(the same requests as ever). A larger answer, or a round count (``datamart_sync.capped``), is read in
-windows: ranges of reporting period start (``date_key``, the partner reports) or of id, each announcing
-fewer than :data:`WINDOW_RECORDS`, once a request that should find nothing proves the Datamart applies
-the window's filter. Every record must fall in its window, every window give what it announced, each
-record once, and the whole count is asked again at the end: only then is the read :attr:`Reading.whole`
-and may the sync remove what it no longer returns. A dataset whose window filters are not proven is read
-once, as ever, and is not whole when its count is round. :meth:`Reading.details` keeps counts, dates and
-ids only.
+A read is windowed only when a cut is suspected: its first page announces 5,000 records or more and a round
+count, or the dataset's previous finished run looked cut (``datamart_sync.cut_sign``). Every other read is
+today's: the first page, then every ``next`` link. (The partner reports read on 20 and 21 Oct 2026 were whole:
+777,535 and 780,905 announced, every one read, every country's rows; no limit near 10,000.) :class:`Reading`
+reads a dataset exactly as :meth:`DatamartClient.list` does then, and a plain read of 5,000 records or more
+asks the first and the last record by id before the rest of its pages (the *ends test*: one missing means the
+answer was cut with its count). A read suspected cut is read in windows: ranges of reporting period start
+(``date_key``, the partner reports) or of id, each announcing fewer than :data:`WINDOW_RECORDS`, once a
+request that should find nothing proves the Datamart applies the window's filter. Every record must fall in
+its window, every window give what it announced, each record once, and the whole count is asked again at the
+end: only then is the read :attr:`Reading.whole` and may the sync remove what it no longer returns. A dataset
+whose window filters are not proven is read once, as ever, and is not whole when its count is round (the
+partner reports, read country-blind, hold more records than :data:`MAX_WINDOWS` windows can: a cut sign there
+buys the proof requests and a plain read with its ends test, nothing more). A page shorter than the first one
+of its request, not the last, is a cut too (``pages_cut``): the read is not whole, and the next one is
+windowed. :meth:`Reading.details` keeps counts, dates and ids only.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,13 +33,11 @@ from neurodb.integrations.etools.datamart import DatamartClient
 from neurodb.integrations.etools.fields import parse_iso_date
 from neurodb.integrations.http import IntegrationError
 
-# Code, not settings: the administrators have no command line, and these follow from the Datamart's limit.
+# Code, not settings: the administrators have no command line.
 WINDOW_RECORDS = (
-    5_000  # a window is split while it announces this many or more: half the limit seen on 20 Oct 2026
+    5_000  # a read suspected cut is windowed from this many records, a window split while it has more
 )
-MAX_WINDOWS = (
-    100  # 100 windows below 5,000 records hold up to 500,000, ten times what any Lebanon dataset can
-)
+MAX_WINDOWS = 100  # 100 windows below 5,000 records hold up to 500,000
 MAX_COUNTS = (
     250  # the one-record requests of one read (proofs, id top search, plan and splits), then it stops
 )
@@ -45,6 +46,7 @@ ID_TOP = 10**15  # an id no record has
 ID_FIRST_TOP = 2**20  # the first top of the id windows, multiplied by 4 while records lie above it
 WINDOWS_KEPT = 60  # the windows listed in a run's details
 BOUNDARY = dt.timedelta(days=1)  # a date this close outside its window is a time zone, not a record outside
+ROUND_COUNT = "round_count"  # why a read is windowed when its count is a limit (``windows_why``)
 
 
 class _OutOfCounts(Exception):
@@ -66,6 +68,7 @@ class Window:
     outside: int = 0  # records whose date or id is not in the window
     pages: int = 0
     last_page: int = 0
+    short_pages: int = 0  # pages, not the last, holding fewer records than the first page of its read
     too_large: bool = False  # could not be split below WINDOW_RECORDS
     done: bool = False  # read to its last page
 
@@ -109,6 +112,29 @@ class Window:
         }
 
 
+def _page(length: int, first_length: int) -> int:
+    """1 for a page followed by another that holds fewer records than the first page of its request (a page
+    the Datamart cut), else 0. The last page is never one: it holds what is left."""
+    return 1 if length < first_length else 0
+
+
+def _suspicion(count: int | None, before: Callable[[], dict[str, Any]]) -> str:
+    """Why a read whose first page announces ``count`` is windowed (``windows_why``): a round count (a limit
+    of the answer), else, from :data:`WINDOW_RECORDS` records, the cut sign of the previous finished run
+    (``before``, its details, read only then: ``datamart_sync.cut_sign``); "" for a plain read."""
+    if count is not None and sync.capped(count):
+        return ROUND_COUNT
+    if count is None or count < WINDOW_RECORDS:
+        return ""
+    return sync.cut_sign(before())
+
+
+def suspected(name: str, count: int | None) -> str:
+    """Why the sync would window the read of ``name`` whose first page announces ``count`` tonight, as
+    :class:`Reading` decides it ("" when it reads it plain): for the probe."""
+    return _suspicion(count, lambda: sync.last_details(name))
+
+
 def _next_year(day: dt.date) -> dt.date:
     try:
         return day.replace(year=day.year + 1)
@@ -117,9 +143,10 @@ def _next_year(day: dt.date) -> dt.date:
 
 
 class Reading:
-    """The records of one dataset query (as :meth:`DatamartClient.list` yields them), read in windows when it
-    is large, and whether the read is :attr:`whole`. Iterate it once; read :attr:`whole` and
-    :meth:`details` after."""
+    """The records of one dataset query (as :meth:`DatamartClient.list` yields them), read in windows when a
+    cut is suspected (:attr:`why`), and whether the read is :attr:`whole`. ``name``, the dataset's sync
+    target: its previous finished run says whether the last read looked cut. Iterate it once; read
+    :attr:`whole` and :meth:`details` after."""
 
     def __init__(
         self,
@@ -130,9 +157,12 @@ class Reading:
         country: bool = True,
         date_key: str = "",
         today: dt.date | None = None,
+        name: str = "",
     ) -> None:
         self.client, self.dataset, self.params = client, dataset, dict(params or {})
-        self.country, self.date_key = country, date_key
+        self.country, self.date_key, self.name = country, date_key, name
+        self.before: dict[str, Any] = {}  # the details of the previous finished run of ``name``, once read
+        self.why = ""  # why the read is windowed (``windows_why``): "" for a plain read
         self.today = today or timezone.localdate()
         self.announced: int | None = None  # C, the count of the first page
         self.keys: set[str] = set()
@@ -146,6 +176,7 @@ class Reading:
         self.plan_complete = True
         self.short = False  # two halves announced fewer than their window
         self.cap_suspected = ""
+        self.ends: list[str] = []  # the first and the last id, asked before the read (the ends test)
         self.ends_missing = 0
         self.whole_count_end: int | None = None
         self.end_check_failed = False
@@ -153,11 +184,16 @@ class Reading:
 
     # ----------------------------------------------------------------------------------------- reading
     def __iter__(self) -> Iterator[dict[str, Any]]:
+        self.before = sync.last_details(self.name) if self.name else {}
         pages = self.client.pages(self.dataset, self.params, country=self.country)
         count, first = next(pages)
         self.announced = count
-        if not self._large(count):
+        self.why = self._why(count)
+        if not self.why:  # no cut suspected: today's read, with the ends test when it is large
+            if count is not None and count >= WINDOW_RECORDS:
+                self._ask_ends()
             yield from self._plain(count, first, pages)
+            self._ends_test()
             return
         self.windowed = True
         try:
@@ -165,6 +201,7 @@ class Reading:
         except _OutOfCounts:  # spent on the proofs: no window to read
             plan, self.bound = None, ""
         if plan is None:  # no window filter proven: one read as ever, the first page's records included
+            self._ask_ends()
             yield from self._plain(count, first, pages)
             if sync.capped(count):
                 self.cap_suspected = self.cap_suspected or "windows_unproven"
@@ -182,7 +219,12 @@ class Reading:
             self.end_check_failed = True
         self.done = True
 
+    def _why(self, count: int | None) -> str:
+        """Why this read is windowed: :func:`_suspicion` over the previous run's details (:attr:`before`)."""
+        return _suspicion(count, lambda: self.before)
+
     def _large(self, count: int | None) -> bool:
+        """A window to split: it announces :data:`WINDOW_RECORDS` or more, or a round count."""
         return count is not None and (count >= WINDOW_RECORDS or sync.capped(count))
 
     def _take(self, window: Window, item: dict[str, Any]) -> None:
@@ -204,6 +246,8 @@ class Reading:
             self._take(window, item)
             yield item
         for _, results in pages:
+            if window.pages > 1:  # the page before this one is not the last: was it cut?
+                window.short_pages += _page(window.last_page, len(first))
             window.pages, window.last_page = window.pages + 1, len(results)
             for item in results:
                 self._take(window, item)
@@ -217,11 +261,14 @@ class Reading:
                 self.cap_suspected = "no_count"
 
     def _read(self, window: Window) -> Iterator[dict[str, Any]]:
+        first = 0  # the records on the first page of the window's read
         for count, results in self.client.pages(
             self.dataset, {**self.params, **self._filters(window)}, country=self.country
         ):
             if not window.pages:
-                window.announced = count
+                window.announced, first = count, len(results)
+            elif window.pages > 1:  # the page before this one is not the last: was it cut?
+                window.short_pages += _page(window.last_page, first)
             window.pages, window.last_page = window.pages + 1, len(results)
             for item in results:
                 self._take(window, item)
@@ -243,9 +290,11 @@ class Reading:
                 return False
         return True
 
-    def _ends_test(self) -> None:
-        """With no window filter: the first record by id and the last; when the Datamart takes the ordering
-        (the two differ) and either was not returned, the read was cut."""
+    def _ask_ends(self) -> None:
+        """The ends test's requests, asked once the first page is read and before the rest: the first record
+        by id and the last (one record each). Only records that already exist are asked, so a record added
+        during the read is never taken for one missing. No verdict when the records carry no id or the
+        Datamart ignores the ordering (both ends are then the same record), nor when a request fails."""
         try:
             ends = [
                 self.client.first_page(
@@ -257,9 +306,13 @@ class Reading:
             return
         firsts = [str(page[0].get("id")) for page in ends if page and page[0].get("id") not in (None, "")]
         if len(firsts) == 2 and firsts[0] != firsts[1]:
-            self.ends_missing = sum(1 for pk in firsts if pk not in self.keys)
-            if self.ends_missing:
-                self.cap_suspected = self.cap_suspected or "ends_missing"
+            self.ends = firsts
+
+    def _ends_test(self) -> None:
+        """Once read: when either end asked (:meth:`_ask_ends`) was not returned, the answer was cut."""
+        self.ends_missing = sum(1 for pk in self.ends if pk not in self.keys)
+        if self.ends_missing:
+            self.cap_suspected = self.cap_suspected or "ends_missing"
 
     # ------------------------------------------------------------------------------------------ planning
     def _count(self, filters: dict[str, Any]) -> int | None:
@@ -417,6 +470,23 @@ class Reading:
         return self.whole_count_end is not None and self.whole_count_end != self.announced
 
     @property
+    def pages_cut(self) -> int:
+        """The pages, not the last of their request, that held fewer records than its first page."""
+        return sum(w.short_pages for w in self.windows)
+
+    @property
+    def windows_cut(self) -> int:
+        """The windows read to their end that held fewer records than they announced (each record once, or
+        again)."""
+        if not self.bound:
+            return 0
+        return sum(
+            1
+            for w in self.windows
+            if w.done and w.announced is not None and w.read + w.repeated < w.announced
+        )
+
+    @property
     def windows_short(self) -> bool:
         """The windows' counts add up to less than the whole count, or two halves to less than their own."""
         planned = sum(w.planned or 0 for w in self.windows)
@@ -424,8 +494,9 @@ class Reading:
 
     @property
     def whole(self) -> bool:
-        """Whether the sync may remove what the read did not return."""
-        if not self.done or self.cap_suspected:
+        """Whether the sync may remove what the read did not return: never after a cut page
+        (:attr:`pages_cut`), a record lost whatever the counts say."""
+        if not self.done or self.cap_suspected or self.pages_cut:
             return False
         if not self.windowed or not self.bound:
             return sync.read_whole(self.announced, self.read, self.repeated)
@@ -464,9 +535,11 @@ class Reading:
         return None if failed else since
 
     def details(self) -> dict[str, Any]:
-        """For the run: ``datamart_count`` (the first page's count, C) and, when windowed, the windows (the
-        first :data:`WINDOWS_KEPT`), what was read and announced, the filter proven, the checks and their
-        outcome; ``cap_suspected`` when the answer looks cut. Counts, dates and ids only."""
+        """For the run: ``datamart_count`` (the first page's count, C), ``pages_cut`` when a page was cut and,
+        when windowed, why (``windows_why``), the windows (the first :data:`WINDOWS_KEPT`), what was read and
+        announced, the filter proven, the checks and their outcome (``windows_cut``: windows read to their end
+        holding fewer than they announced); ``cap_suspected`` when the answer looks cut. Counts, dates and ids
+        only."""
         found: dict[str, Any] = {}
         if self.announced is not None:
             found["datamart_count"] = self.announced
@@ -474,9 +547,13 @@ class Reading:
             found["cap_suspected"] = self.cap_suspected
         if self.ends_missing:
             found["ends_missing"] = self.ends_missing
+        if self.pages_cut:
+            found["pages_cut"] = self.pages_cut
         if not self.windowed:
             return found
-        found.update(read=self.read, window_bound=self.bound, count_requests=self.count_requests)
+        found.update(
+            read=self.read, window_bound=self.bound, count_requests=self.count_requests, windows_why=self.why
+        )
         if not self.bound:
             return found
         not_whole = [w.summary() for w in self.windows if not w.whole]
@@ -495,6 +572,8 @@ class Reading:
         )
         if self.announced is not None and planned > self.announced and not found["outside_window"]:
             found["whole_count_capped"] = True  # the Datamart's own count was cut; the windows hold more
+        if self.windows_cut:
+            found["windows_cut"] = self.windows_cut
         for flag, on in (
             ("windows_short", self.windows_short),
             ("changed", self.changed),

@@ -69,7 +69,7 @@ OK, WARN, INFO = "ok", "warning", "info"
 PRP = "prp_indicator_reports"  # PRP's indicator reports (prp/indicator-report-v2): checks 8, 9 and 11
 CHUNK = 2000  # report rows a check reads at a time in Python (:func:`_each`)
 STEP_MONTHS = {"QPR": 3, "HR": 1}  # how far apart two reports of a type end (checks 10 and 11)
-LATE_FIRST_DAYS = 100  # a running PD whose first report held ends this long after its start (check 10)
+LATE_FIRST_DAYS = rc.LATE_FIRST_DAYS  # a running PD whose first report held ends this long after its start
 SECTIONS_SHOWN = 5  # the section names check 10 shows per row of its table
 KEYS_LISTED = 150  # the record keys check 7 lists at most
 
@@ -853,7 +853,13 @@ def _cumulative(cursor) -> dict[str, Any]:
             )
     else:
         verdict += "; no indicator of a running programme document has both a Reached and PRP's cumulative"
-    if c.partial:
+    history = rc.history_from() if c.partial else None
+    if history and history.source == rc.FEED:  # the Datamart holds no earlier report than the first held
+        verdict += (
+            f"; {c.partial:,} more have a partial history (their Reached is PRP's cumulative: the Datamart "
+            f"holds no partner report starting before {_day(history.date)})"
+        )
+    elif c.partial:
         verdict += f"; {c.partial:,} more have a partial history (their Reached is PRP's cumulative)"
     out = {
         "tone": WARN if c.differ else (INFO if not c.compared or not c.several else OK),
@@ -1692,8 +1698,10 @@ def _no_row_reasons(
 def _coverage(cursor) -> dict[str, Any]:
     """How much of the running programme documents' reporting the partner reports hold (check 10), as
     counts: the PDs with no row (and why, :func:`_no_row_reasons`), those whose first report held ends long
-    after their start, and those whose lowest report number of a type is above 1; the earliest period start
-    held and the running PDs that started before it; and the latest partner reports sync that finished."""
+    after their start, and those whose lowest report number of a type is above 1 (both of the PDs that
+    started on or after the date the history is counted from, ``reached.history_from``: the partial-history
+    rule covers the others); the earliest period start held and the running PDs that started before it; and
+    the latest partner reports sync that finished."""
     from neurodb.reports.services import latest_datamart_runs
 
     _bound(cursor)
@@ -1722,6 +1730,10 @@ def _coverage(cursor) -> dict[str, Any]:
     _bound(cursor)
     reasons = _no_row_reasons([pd for pd in pds if pd[0] not in first], earliest, today)
     _bound(cursor)
+    history = rc.history_from(today)
+    # a PD that started before the history counted has a partial history: its Reached is PRP's cumulative
+    whole = {pk for pk, start in starts.items() if start is None or start >= history.date}
+    _bound(cursor)
     prp = set(
         dm.DatamartDocument.objects.filter(dataset="prp_programme_documents")
         .exclude(intervention=None)
@@ -1735,22 +1747,45 @@ def _coverage(cursor) -> dict[str, Any]:
         "late": sum(
             1
             for pk, start in starts.items()
-            if start and first.get(pk) and (first[pk] - start).days > LATE_FIRST_DAYS
+            if pk in whole and start and first.get(pk) and (first[pk] - start).days > LATE_FIRST_DAYS
         ),
-        "no_first": sum(1 for kinds in lowest.values() if any(n > 1 for n in kinds.values())),
+        "no_first": sum(
+            1 for pk, kinds in lowest.items() if pk in whole and any(n > 1 for n in kinds.values())
+        ),
         "earliest": earliest,
         "before_earliest": sum(1 for start in starts.values() if start and earliest and start < earliest),
+        "history": history,
+        "before_history": len(starts) - len(whole),
         "reasons": reasons,
         "prp": prp if prp_held else None,  # None: PRP's programme documents hold no record (check 8)
         "run": run,
     }
 
 
+# where the history check 10 counts from comes from (``reached.history_from``), in words
+HISTORY_FROM = {
+    rc.FEED: "the earliest report the Datamart holds; asked from {asked}",
+    rc.READ_FROM: "the date the sync read from",
+    rc.WHOLE_FROM: "the first start held whole",
+    rc.CUT: "the earliest report held: the last read's answer was cut",
+    rc.NEXT_SYNC: "the date the next sync reads from",
+}
+
+
+def _history_words(history: rc.HistoryFrom) -> str:
+    """Check 10's figure "History counted from": "1 Jan 2026 (the earliest report the Datamart holds; asked
+    from 1 Nov 2018)"."""
+    words = HISTORY_FROM.get(history.source, history.source).format(asked=_day(history.asked) or "—")
+    return f"{_day(history.date)} ({words})"
+
+
 def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool]:
     """What the latest partner reports sync did, for check 10: its sentence (what it asked, what the Datamart
-    announced, what was read, kept and removed, then the windows or the limit), its figures, the table of its
-    windows, and whether it calls for a warning (a cut answer, nothing removed, a window not whole)."""
-    from neurodb.integrations.etools.datamart_sync import capped
+    announced, what was read, kept and removed, then the windows and why, the limit, a page cut, and the
+    business area filter it read with or why none), its figures, the table of its windows, and whether it
+    calls for a warning (a cut answer, nothing removed, a window not whole, a page cut)."""
+    from neurodb.integrations.etools.datamart_sync import area_words, capped
+    from neurodb.reports.services import WINDOWS_WHY
 
     details = run.details if isinstance(run.details, dict) else {}
     try:
@@ -1789,16 +1824,28 @@ def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool
         said += " The Datamart's last record by id was never returned: its answer was cut."
     elif cut == "no_count":
         said += " The Datamart gave no count and stopped on a full page: its answer may be cut."
+    why = str(WINDOWS_WHY.get(details.get("windows_why"), ""))
     if bound:
         by = "reporting period start" if bound != "id" else "id"
         n = _count(details.get("windows_read")) or len(windows)
         said += f" It read them in {_plural(n, 'window', 'windows')} by {by}"
-        said += ", every one whole" if not not_whole else ""
+        said += f", because {why}" if why else ""
+        said += ("; every one was read whole" if why else ", every one whole") if not not_whole else ""
         if details.get("whole_count_capped") and isinstance(announced, int):
             said += f" (the Datamart's own count, {announced:,}, was cut)"
         said += "."
         if not_whole:
             said += f" {_plural(not_whole, 'window was', 'windows were')} not read whole: none was removed."
+    pages_cut = _count(details.get("pages_cut"))
+    if pages_cut:
+        said += (
+            f" {_plural(pages_cut, 'page', 'pages')} came back shorter than the first: the answer was cut, "
+            "none was removed."
+        )
+    area = details.get("area_filter")
+    words = area_words(area)
+    if words:
+        said += f" It {words}."
     if details.get("changed") and isinstance(details.get("whole_count_end"), int):
         said += (
             f" The Datamart's count changed during the read ({announced:,}, then "
@@ -1819,7 +1866,9 @@ def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool
         ("… rows held before", _count(details.get("held_before"))),
         ("… windows read", _count(details.get("windows_read"))),
         ("… windows not read whole", not_whole),
+        ("… pages shorter than the first", pages_cut),
         ("… history held whole from", whole_from or "—"),
+        ("… business area filter", (area.get("key") or "none") if isinstance(area, dict) else "—"),
     ]
     table = {
         "title": "The latest partner reports read, window by window",
@@ -1838,7 +1887,7 @@ def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool
             if isinstance(w, dict)
         ],
     }
-    warn = bool(cut or skipped or not_whole or details.get("changed"))
+    warn = bool(cut or skipped or not_whole or details.get("changed") or pages_cut)
     return said, figures, table, warn
 
 
@@ -1953,10 +2002,30 @@ def _country_and_link(cursor) -> dict[str, Any]:
             since = datetime.date.fromisoformat(str((run.details or {}).get("read_from") or "")[:10])
         except ValueError:
             since = None
-        earliest = cover["earliest"]
+        earliest, history = cover["earliest"], cover["history"]
+        if history.source == rc.FEED:  # information: the partial-history rule covers the PDs before it
+            n, day = cover["before_history"], _day(history.date)
+            before = (
+                ""
+                if not n
+                else ", and the running programme document that started before it has"
+                if n == 1
+                else f", and the {n:,} running programme documents that started before it have"
+            )
+            verdict += (
+                f" The Datamart holds no partner report starting before {day} (NeuroDB asked from "
+                f"{_day(history.asked)}): history is counted from {day}"
+                + (f"{before} a partial history (Reached is PRP's cumulative)." if n else ".")
+            )
         # the earliest report held starts more than a year after the date asked, while running PDs started
         # before it: their early reports did not arrive
-        late_history = bool(since and earliest and (earliest - since).days > 365 and cover["before_earliest"])
+        late_history = bool(
+            history.source != rc.FEED
+            and since
+            and earliest
+            and (earliest - since).days > 365
+            and cover["before_earliest"]
+        )
         if late_history:
             before = _plural(
                 cover["before_earliest"], "running programme document", "running programme documents"
@@ -2025,6 +2094,7 @@ def _country_and_link(cursor) -> dict[str, Any]:
             (f"… whose first report held ends over {LATE_FIRST_DAYS} days after their start", cover["late"]),
             ("… without their first report (QPR1 or HR1)", cover["no_first"]),
             ("Earliest period start held", _day(cover["earliest"]) or "—"),
+            ("History counted from", _history_words(cover["history"])),
             *read_figures,
         ],
         "tables": tables,
@@ -2249,6 +2319,8 @@ def _progress_state(feed: dict[str, Any], year: int) -> tuple[str, str]:
 
 
 def _two_feeds(cursor) -> dict[str, Any]:
+    from neurodb.integrations.etools.datamart_sync import area_words
+
     today = datetime.date.today()
     zero = dict.fromkeys(rc.STATUS_LABELS, 0)
     _bound(cursor, statements=2)  # the two queries of progress_reports share the time left
@@ -2371,6 +2443,13 @@ def _two_feeds(cursor) -> dict[str, Any]:
         ("PRP progress reports of the year linked to none", progress["unlinked"]),
         ("PRP progress report records with no period end", progress["undated"]),
     ]
+    area = progress["details"].get("area_filter")
+    figures.append(
+        (
+            "PRP progress reports: business area filter",
+            (area.get("key") or "none") if isinstance(area, dict) else "—",
+        )
+    )
     if mine or ours_reports:
         ends = sorted({*mine, *ours_reports}, key=lambda m: (m is None, m or 0))
         tables.append(
@@ -2405,6 +2484,8 @@ def _two_feeds(cursor) -> dict[str, Any]:
         progress_tone = WARN if owed_more else OK
     else:
         progress_text, progress_tone = _progress_state(progress, today.year)
+    if area_words(area):  # the business area filter their last sync read with, or why none
+        progress_text += f" The last sync of PRP's progress reports {area_words(area)}."
     # what the partner reports feed carries (what Progress reports counts), whatever PRP's own feed holds
     lead, warn = [], progress_tone == WARN
     if ours and not ours_owed and not_yet:
@@ -2913,7 +2994,8 @@ CHECKS: tuple[Check, ...] = (
         "the reports held: a running programme document whose first reports are not in the feed has a "
         "partial sum (the partial history rule covers only a PD that started before the first period the "
         "sync holds whole: the window it read, the first one held whole when read in windows, or the "
-        "earliest report held when its answer was cut).",
+        "earliest report held when its answer was cut, or when the Datamart holds none from the date "
+        "asked).",
         _country_and_link,
     ),
     Check(

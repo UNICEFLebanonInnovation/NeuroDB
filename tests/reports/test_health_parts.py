@@ -514,6 +514,56 @@ def test_data_health_shows_windows_and_a_cap(client_viewer, world):
     )
 
 
+def test_data_health_says_why_a_read_was_windowed_a_cut_page_and_the_business_area_filter(
+    client_viewer, world
+):
+    """A read windowed because the last one looked cut says why; a page that came back shorter than the first says
+    the answer was cut; the partner reports and PRP's progress reports say which business area filter they were
+    read with, or why none, and the records of another business area a filter let through."""
+    from html import unescape
+
+    datamart = SyncRun.Job.ETOOLS_DATAMART
+    proven = {
+        "key": "business_area",
+        "code": "2490",
+        "why": "proven",
+        "unfiltered": 780_905,
+        "held": 9_982,
+        "tried": [{"key": "business_area", "verdict": "proven", "count": 9_990}],
+        "strays": 0,
+    }
+    _run(datamart, "partner_reports", rows_in=9_990, rows_written=9_990,
+         details={"removed": 0, "read": 9_990, "datamart_count": 9_990, "window_bound": "reporting_period_start_date",
+                  "windows_read": 3, "windows_announced": 9_990, "windows_not_whole": 0, "windows_why": "pages_cut",
+                  "area_filter": proven})  # fmt: skip
+    _run(datamart, "pd_indicators", status=SyncRun.Status.PARTIAL, rows_in=98, rows_written=98,
+         details={"removed": 0, "removal_skipped": True, "read": 98, "datamart_count": 100, "pages_cut": 2})  # fmt: skip
+    strays = {"key": "business_area_code", "code": "2490", "why": "proven", "strays": 3, "tried": []}
+    _run(datamart, "prp_progress_reports", status=SyncRun.Status.PARTIAL, rows_in=1_590, rows_written=1_590,
+         details={"documents": 1_590, "documents_removed": 0, "removal_skipped": True, "read": 1_593,
+                  "datamart_count": 1_593, "area_filter": strays, "area_strays": 3, "business_area": "2490",
+                  "business_area_from": "admin"})  # fmt: skip
+    datasets = " ".join(unescape(text(get_part(client_viewer, PAGE, "datasets"))).split())
+    row = _dataset(datasets, "partner_reports")
+    assert (
+        "read in 3 windows: the Datamart announced 9,990, NeuroDB read 9,990 (a page of the last read came back "
+        "shorter than the first)" in row
+    )
+    assert "read by business area 2490 (filter business_area: 9,990 records with it, 780,905 without)" in row
+    row = _dataset(datasets, "pd_indicators")
+    assert (
+        "2 pages came back shorter than the first while the Datamart's answer was read: it was cut, none was "
+        "removed, and the next read is made in windows" in row
+    )
+    assert "read 98 records of the 100" not in row  # the cut page says why nothing was removed
+    row = _dataset(datasets, "prp_progress_reports")
+    assert (
+        "3 records of another business area came through the business_area_code filter: none was written and none "
+        "removed; the next read tries the next filter" in row
+    )
+    assert "read by business area 2490 (filter business_area_code)" in row
+
+
 @pytest.mark.parametrize("name", PARTS)
 def test_each_part_stays_within_its_query_ceiling(client_viewer, world, name, django_assert_max_num_queries):
     raw_get(client_viewer, PAGE)  # the navigation stored, as after the frame
@@ -626,9 +676,10 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
     diagnostic mark, a PRP dataset's business area code and its source, what a read got against the count
     the Datamart announced (records returned twice, an empty answer cut short, a round count) and the PRP
     records that named no business area, a code asked that is not one, the values set aside and a code NeuroDB
-    found, and a read in windows (how many, those not whole, a cut count, a changed count, a removal held)."""
+    found, a read in windows (how many, why, those not whole, a cut count, a changed count, a removal held), a
+    page cut, and the business area filter a read took (or why none) with the records it let through."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
-    from neurodb.integrations.etools.datamart_sync import FOUND, is_area_code, not_a_code
+    from neurodb.integrations.etools.datamart_sync import FOUND, area_words, is_area_code, not_a_code
 
     last_by_target: dict[str, SyncRun] = {}
     for run in SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_DATAMART).order_by("-started_at"):
@@ -692,6 +743,13 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
                 "whole_count_end": details.get("whole_count_end"),
                 "changed": details.get("whole_count_end") is not None
                 and details.get("whole_count_end") != details.get("datamart_count"),
+                "windows_why": services.WINDOWS_WHY.get(details.get("windows_why"), ""),
+                "pages_cut": details.get("pages_cut"),
+                "area_filter": details.get("area_filter")
+                if isinstance(details.get("area_filter"), dict)
+                else {},
+                "area_words": area_words(details.get("area_filter")),
+                "area_strays": details.get("area_strays"),
                 "removal_held": details.get("removal_held"),
                 "cut_short": bool(details.get("empty_response"))
                 and isinstance(details.get("datamart_count"), int)

@@ -475,13 +475,15 @@ def test_a_page_number_the_datamart_ignores_is_not_read_as_more_records(small):
 
 
 @responses.activate
-def test_a_true_count_past_the_limit_is_never_said_cut(small, monkeypatch):
-    """123 reports, a true count, no limit: the first page wholly past them is 26 (records 121 to 123 are on
+def test_a_true_count_past_the_limit_is_never_said_cut(small):
+    """123 reports, a true count, no limit, after a sync whose page came back short (the sync windows the read,
+    so the probe asks the window requests): the first page wholly past them is 26 (records 121 to 123 are on
     page 25), which the Datamart refuses as DRF refuses every page past the last. Its paging says nothing of a
     limit, and no record past the count means the count is not cut."""
     from .fake_datamart import FakeDatamart, report
 
-    monkeypatch.setattr(probe, "CUT_PAGE", 100)
+    SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="partner_reports",
+                           status=SyncRun.Status.PARTIAL, details={"pages_cut": 1})  # fmt: skip
     FakeDatamart(small + [report(pk, "2026-08-01") for pk in (121, 122, 123)], page_limit=25).register(
         REPORTS
     )
@@ -490,3 +492,21 @@ def test_a_true_count_past_the_limit_is_never_said_cut(small, monkeypatch):
     assert (asked["past the count"]["filter"]["page"], asked["past the count"]["status"]) == (26, 404)
     verdict = run.details["verdict"]
     assert "count is cut" not in verdict and "returns at most" not in verdict
+
+
+@responses.activate
+def test_a_large_read_with_no_sign_of_a_cut_asks_no_window_request(small):
+    """123 reports, a true count, and no sync yet: the sync reads them in one answer (A), so the probe asks no
+    window request and says so."""
+    from .fake_datamart import FakeDatamart, report
+
+    fake = FakeDatamart(small + [report(pk, "2026-08-01") for pk in (121, 122, 123)])
+    fake.register(REPORTS)
+    run = probe.run_job("partner_reports", client=client())
+    assert run.status == SyncRun.Status.SUCCEEDED
+    assert "windows" not in run.details and "windows_why" not in run.details
+    assert len(fake.requests) == 3  # no filter, the country, the sync's own query
+    assert run.details["verdict"].endswith(
+        "It announces 123 records, not a round count, and the last sync of partner_reports saw no sign of a cut: "
+        "NeuroDB reads it in one answer, as the sync does (no window request asked)."
+    )

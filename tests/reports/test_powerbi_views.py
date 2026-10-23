@@ -231,11 +231,31 @@ def test_data_quality_neurodb_checks(client_viewer, more, frozen, monkeypatch):
     assert (twice["title"], twice["count"], twice["pd"]) == (more["boys"], 2, more["pd"])
     assert q["partial"] == []
     # reports held only from March 2026: the PD (started January) has a partial history
-    monkeypatch.setattr(monitoring.rc, "reports_read_from", lambda today=None: datetime.date(2026, 3, 1))
+    march = datetime.date(2026, 3, 1)
+    monkeypatch.setattr(
+        monitoring.rc, "history_from", lambda today=None: monitoring.rc.HistoryFrom(march, "read_from")
+    )
     q = monitoring.data_quality(_rows(), monitoring.Filters(), TODAY)
-    assert q["partial"] == [more["pd"]] and q["read_from"] == datetime.date(2026, 3, 1)
+    assert q["partial"] == [more["pd"]] and (q["read_from"], q["read_from_source"]) == (march, "read_from")
     page = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "quality"})
     assert "Partial history" in page.text and "Same title twice" in page.text
+    assert (
+        "These programme documents started before 1 Mar 2026, the first reporting period NeuroDB holds: their"
+        in (" ".join(page.text.split()))
+    )
+    # the Datamart holds no earlier report than March 2026, although the sync asked from 1 Jan 2025: said so
+    asked = datetime.date(2025, 1, 1)
+    monkeypatch.setattr(
+        monitoring.rc, "history_from", lambda today=None: monitoring.rc.HistoryFrom(march, "feed", asked)
+    )
+    q = monitoring.data_quality(_rows(), monitoring.Filters(), TODAY)
+    assert (q["read_from"], q["read_from_source"], q["read_from_asked"]) == (march, "feed", asked)
+    page = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "quality"})
+    assert (
+        "These programme documents started before 1 Mar 2026, the first reporting period NeuroDB holds: the "
+        "Datamart holds no earlier partner report (NeuroDB asked from 1 Jan 2025), so their Reached is PRP's own "
+        "cumulative when PRP gives one." in " ".join(page.text.split()).replace("&#x27;", "'")
+    )
 
 
 def test_data_quality_in_a_year_reads_reached_in_that_year(more, frozen):

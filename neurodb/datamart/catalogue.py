@@ -336,6 +336,25 @@ DOCUMENTS: dict[str, Source] = {
 # workspaces stays out: its endpoint is also the live business-area lookup of the PRP datasets.
 DIAGNOSTIC = frozenset({"datamart_etl_status", "etools_usage"})
 
+
+@dataclass(frozen=True)
+class AreaFilters:
+    """The business area filters a dataset is read with once the Datamart proves it applies one
+    (``datamart_sync.prove_area_filter``): the key its records name their business area code by, and the
+    filter keys tried, in turn, on one page each."""
+
+    named_by: str
+    keys: tuple[str, ...]
+
+
+# ---- the datasets whose business area filter is proven every night before it is used: the Datamart ignores
+# country_name on prp/datareport (every country's rows are read) and business_area_code on PRP's progress
+# reports. prp_indicator_reports keeps its proven business_area, prp_programme_documents today's request.
+AREA_FILTERS: dict[str, AreaFilters] = {
+    "partner_reports": AreaFilters("business_area", ("business_area", "business_area_code")),
+    "prp_progress_reports": AreaFilters("business_area_code", ("business_area_code", "business_area")),
+}
+
 # Datasets in their own tables (datamart.models): description for the assistant, model name, main date.
 TYPED: dict[str, tuple[str, str, str]] = {
     "funds_reservations": (

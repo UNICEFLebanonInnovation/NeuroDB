@@ -24,7 +24,8 @@ progress report and location, and repeat report-level fields on each of them. Th
 * Different indicators, quarterly and humanitarian reports, and percentages are never added.
 
 A programme document that started before the partner reports NeuroDB holds were read from
-(:func:`reports_read_from`) has a partial history: its Reached is PRP's own cumulative from the
+(:func:`reports_read_from`), or before the earliest report the Datamart holds, when it holds none from the
+date asked (:func:`history_from`), has a partial history: its Reached is PRP's own cumulative from the
 latest counted report.
 """
 
@@ -75,6 +76,11 @@ REPORTED = "reported"
 VALUE_LABELS = {NOT_REPORTED: "Not reported", REPORTED_ZERO: "Reported zero", REPORTED: "Reported"}
 
 MAX_HISTORY_YEARS = 10  # the sync window never reaches further back than this, whatever a PD's start
+# a PD's first report ends within about this many days of its start: a feed whose earliest report starts later
+# than this after the date asked holds no report of that time (history_from; check 10's late first reports)
+LATE_FIRST_DAYS = 100
+# where the history NeuroDB holds is counted from (HistoryFrom.source)
+WHOLE_FROM, READ_FROM, FEED, CUT, NEXT_SYNC = "whole_from", "read_from", "feed", "cut", "next_sync"
 
 
 def status_of(
@@ -1095,18 +1101,40 @@ def history_start(today: datetime.date | None = None) -> datetime.date:
     return since
 
 
-def reports_read_from(today: datetime.date | None = None) -> datetime.date:
-    """The first period start NeuroDB holds partner reports from: of the latest partner reports sync that
-    finished, the first start it holds whole when it was read in windows (``whole_from``: a window not read
-    whole moves it on, ``windows.Reading.whole_from``), else the window it read (``read_from``; a run made
-    before that was recorded read the last ``ETOOLS_DATAMART_REPORTING_YEARS`` years of its day), else
-    :func:`history_start`. A run that proves no history whole from the window it read (``datamart_sync.
-    history_cut``: an answer cut at a round count, date windows that proved none, an id window not read
-    whole) gives the earliest period start held in that window instead: a cut that drops the oldest reports
-    is seen, one in the middle of the history is not. A PD that started before it has a partial history. It
-    is the window actually read, not the one the next sync will read: when the window is widened (a new
-    running PD, the setting turned on, a deployment), the early reports count only once a sync has read
-    them."""
+@dataclass(frozen=True)
+class HistoryFrom:
+    """The first period start NeuroDB holds partner reports from (``date``), where it comes from (``source``:
+    :data:`CUT`, :data:`WHOLE_FROM`, :data:`FEED`, :data:`READ_FROM` or :data:`NEXT_SYNC`) and the date the
+    latest sync asked from (``asked``, None before a sync)."""
+
+    date: datetime.date
+    source: str
+    asked: datetime.date | None = None
+
+
+def _day_of(text: Any) -> datetime.date | None:
+    try:
+        return datetime.date.fromisoformat(str(text or "")[:10])
+    except ValueError:
+        return None
+
+
+def history_from(today: datetime.date | None = None) -> HistoryFrom:
+    """Where NeuroDB holds the partner reports' history from, of the latest partner reports sync that finished
+    and read something, the first rule that applies: a run that proves no history whole from the window it
+    read (``datamart_sync.history_cut``: an answer cut at a round count, date windows that proved none, an id
+    window not read whole) gives the earliest period start held in that window (:data:`CUT`: a cut that drops
+    the oldest reports is seen, one in the middle of the history is not); a run whose rows held start more
+    than :data:`LATE_FIRST_DAYS` after the date it holds whole from (``feed_from``, after its removal) gives
+    that start (:data:`FEED`: the Datamart holds no earlier report, whichever way it is read, and a read not
+    whole removed nothing, so it still counts); else the first start it holds whole when read in windows
+    (:data:`WHOLE_FROM`: a window not read whole moves it on, ``windows.Reading.whole_from``), else the window
+    it read (:data:`READ_FROM`; a run made before that was recorded read the last
+    ``ETOOLS_DATAMART_REPORTING_YEARS`` years of its day). With no such run, :func:`history_start`
+    (:data:`NEXT_SYNC`). A PD that started before it has a partial history. It is the window actually read,
+    not the one the next sync will read: when the window is widened (a new running PD, the setting turned
+    on, a deployment), the early reports count only once a sync has read them; a run made before
+    ``feed_from`` was recorded changes nothing until the next sync."""
     from django.conf import settings
     from django.db.models import Min
     from django.utils import timezone
@@ -1125,21 +1153,27 @@ def reports_read_from(today: datetime.date | None = None) -> datetime.date:
         details = details if isinstance(details, dict) else {}
         if details.get("empty_response"):
             continue  # nothing was read: the rows held are those of an earlier run
-        try:
-            window = datetime.date.fromisoformat(str(details.get("read_from") or "")[:10])
-        except ValueError:
+        window = _day_of(details.get("read_from"))
+        if window is None:
             day = timezone.localtime(started).date() if timezone.is_aware(started) else started.date()
             window = datetime.date(day.year - settings.ETOOLS_DATAMART_REPORTING_YEARS + 1, 1, 1)
         if history_cut(details):
             earliest = ReportedIndicator.objects.filter(period_start__gte=window).aggregate(
                 first=Min("period_start")
             )["first"]
-            return max(window, earliest) if earliest else window
-        try:
-            return datetime.date.fromisoformat(str(details.get("whole_from") or "")[:10])
-        except ValueError:
-            return window
-    return history_start(today)
+            return HistoryFrom(max(window, earliest) if earliest else window, CUT, window)
+        whole_from = _day_of(details.get("whole_from"))
+        start, feed = whole_from or window, _day_of(details.get("feed_from"))
+        if feed is not None and (feed - start).days > LATE_FIRST_DAYS:
+            return HistoryFrom(feed, FEED, window)
+        return HistoryFrom(start, WHOLE_FROM if whole_from else READ_FROM, window)
+    return HistoryFrom(history_start(today), NEXT_SYNC)
+
+
+def reports_read_from(today: datetime.date | None = None) -> datetime.date:
+    """The first period start NeuroDB holds partner reports from (:func:`history_from`): a PD that started
+    before it has a partial history."""
+    return history_from(today).date
 
 
 def report_rows(pd_ids: Iterable[int], report_types: Iterable[str]):

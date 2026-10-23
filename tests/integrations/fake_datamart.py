@@ -37,8 +37,11 @@ class FakeDatamart:
     one asked), ``__gte``/``__lt``/``__lte`` on dates and ids, ``ordering`` by a key (``-`` for the reverse).
     ``cap``: at most this many records to one query (``cut_count``: the count is cut too); ``ignore``: filter
     keys it ignores, as DRF ignores an unknown parameter (``ignore_on_next``: dropped from the ``next`` links
-    only); ``refuse``: keys answered 400; ``page_limit``: a page past it answers 404 "Invalid page";
-    ``changes``: (n, records) added after the n-th request. ``requests``: the queries asked, for assertions."""
+    only); ``refuse``: keys answered 400; ``matches``: a filter key compared with another record key (a filter
+    on the wrong field: ``{"business_area": "office_code"}``); ``page_limit``: a page past it answers 404
+    "Invalid page"; ``cut_pages``: those page numbers lose their last record (a page the Datamart cut, its
+    count and its ``next`` link unchanged); ``changes``: (n, records) added after the n-th request.
+    ``requests``: the queries asked, for assertions."""
 
     def __init__(
         self,
@@ -49,13 +52,15 @@ class FakeDatamart:
         ignore: tuple[str, ...] = (),
         ignore_on_next: tuple[str, ...] = (),
         refuse: tuple[str, ...] = (),
+        matches: dict[str, str] | None = None,
         page_limit: int | None = None,
+        cut_pages: tuple[int, ...] = (),
         changes: tuple[int, list[dict[str, Any]]] | None = None,
     ) -> None:
         self.records, self.ignore = list(records), set(ignore)
         self.cap, self.cut_count = cap, cut_count
-        self.ignore_on_next, self.refuse = set(ignore_on_next), set(refuse)
-        self.page_limit, self.changes = page_limit, changes
+        self.ignore_on_next, self.refuse, self.matches = set(ignore_on_next), set(refuse), dict(matches or {})
+        self.page_limit, self.cut_pages, self.changes = page_limit, set(cut_pages), changes
         self.requests: list[dict[str, str]] = []
         self.url = ""
 
@@ -75,7 +80,7 @@ class FakeDatamart:
                 if lookup == "__gte":
                     return have >= wanted
                 return have <= wanted if lookup == "__lte" else have < wanted
-        return str(record.get(key, "")) == value
+        return str(record.get(self.matches.get(key, key), "")) == value
 
     def _answer(self, request) -> tuple[int, dict[str, str], str]:
         query = dict(parse_qsl(urlsplit(request.url).query))
@@ -103,6 +108,8 @@ class FakeDatamart:
             return 404, {}, json.dumps({"detail": "Invalid page."})
         results = found[(page - 1) * size : page * size]
         more = page * size < len(found)
+        if page in self.cut_pages:
+            results = results[:-1]
         kept = {k: v for k, v in query.items() if k not in self.ignore_on_next}
         following = f"{self.url}?{urlencode({**kept, 'page': page + 1})}" if more else None
         return 200, {}, json.dumps({"count": count, "next": following, "results": results})

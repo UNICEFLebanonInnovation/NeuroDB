@@ -439,6 +439,98 @@ def test_check_10_explains_the_running_pds_without_rows(pd):
     assert one("10")["tone"] == "info"
 
 
+def test_check_10_says_why_the_read_was_windowed_and_counts_cut_pages(pd):
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    _partner_run(rows_in=9_990, datamart_count=9_990, read=9_990, window_bound="reporting_period_start_date",
+                 windows_read=2, windows_not_whole=0, windows_why="read_short")  # fmt: skip
+    found = one("10")
+    assert (
+        "It read them in 2 windows by reporting period start, because the last read returned fewer records than "
+        "announced; every one was read whole." in found["verdict"]
+    )
+    SyncRun.objects.all().delete()
+    _partner_run(SyncRun.Status.PARTIAL, rows_in=9_980, datamart_count=9_990, read=9_988, removed=0,
+                 removal_skipped=True, pages_cut=2)  # fmt: skip
+    found = one("10")
+    assert found["tone"] == "warning" and figures(found)["… pages shorter than the first"] == 2
+    assert (
+        "2 pages came back shorter than the first: the answer was cut, none was removed." in found["verdict"]
+    )
+
+
+def test_check_10_and_11_say_which_business_area_filter_the_read_took(pd):
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    proven = {"key": "business_area", "code": "2490", "why": "proven", "unfiltered": 780_905,
+              "tried": [{"key": "business_area", "verdict": "proven", "count": 9_990}]}  # fmt: skip
+    _partner_run(rows_in=9_990, datamart_count=9_990, area_filter=proven)
+    found = one("10")
+    assert (
+        "It read by business area 2490 (filter business_area: 9,990 records with it, 780,905 without)."
+        in found["verdict"]
+    )
+    assert figures(found)["… business area filter"] == "business_area"
+    none = {"key": "", "code": "2490", "why": "none_proven", "unfiltered": 150_322,
+            "tried": [{"key": "business_area_code", "verdict": "ignored", "count": 150_322},
+                      {"key": "business_area", "verdict": "refused", "status": 400}]}  # fmt: skip
+    _progress_run(business_area="2490", business_area_from="admin", datamart_count=150_322, read=150_322,
+                  other_country_skipped=148_631, area_filter=none)  # fmt: skip
+    found = one("11")
+    assert (
+        "The last sync of PRP's progress reports read with no business area filter: business_area_code is "
+        "ignored (as many records with it as without), business_area is refused (HTTP 400)."
+        in found["verdict"]
+    )
+    assert figures(found)["PRP progress reports: business area filter"] == "none"
+
+
+def test_check_10_counts_history_from_the_feed_when_the_datamart_holds_no_earlier_report(pd):
+    """The sync asked from 1 Nov 2018 and the rows held start on 1 Jan 2026: history is counted from 1 Jan 2026,
+    information, not a warning, and a running PD that started before it (its first report held ends long after
+    its start) is the partial-history rule's, not a late first report. Before the first sync that records where
+    the feed starts, the old words stay."""
+    report_row(pd, "QPR1", start=D(2026, 1, 1), end=D(2026, 3, 31))
+    early = other_pd("LEB/PD/EARLY")
+    PCA.objects.filter(pk=early.pk).update(start=D(2025, 6, 1))
+    report_row(early, "QPR1", start=D(2026, 1, 1), end=D(2026, 3, 31))
+    _partner_run(rows_in=2, datamart_count=2)  # a run made before feed_from was recorded
+    found = one("10")
+    numbers = figures(found)
+    assert numbers["History counted from"] == "1 Nov 2018 (the date the sync read from)"
+    assert numbers["… whose first report held ends over 100 days after their start"] == 1
+    assert "more than a year after the date asked" in found["verdict"]
+
+    SyncRun.objects.all().delete()
+    _partner_run(rows_in=2, datamart_count=2, feed_from="2026-01-01")
+    found = one("10")
+    numbers = figures(found)
+    assert (
+        numbers["History counted from"]
+        == "1 Jan 2026 (the earliest report the Datamart holds; asked from 1 Nov 2018)"
+    )
+    assert numbers["… whose first report held ends over 100 days after their start"] == 0
+    assert (
+        "The Datamart holds no partner report starting before 1 Jan 2026 (NeuroDB asked from 1 Nov 2018): history "
+        "is counted from 1 Jan 2026, and the running programme document that started before it has a partial "
+        "history (Reached is PRP's cumulative)." in found["verdict"]
+    )
+    assert "more than a year after the date asked" not in found["verdict"] and found["tone"] == "ok"
+
+
+def test_check_5_says_the_datamart_holds_no_earlier_report(pd):
+    """The PD started on 1 Jan 2026; the Datamart holds no partner report starting before 15 Apr 2026 (the sync
+    asked from 1 Jan 2025): its indicator has a partial history, and check 5 says why."""
+    report_row(
+        pd, "QPR1", start=D(2026, 4, 15), end=D(2026, 6, 30), total={"c": 50}, total_cumulative_progress="80"
+    )
+    _partner_run(rows_in=1, datamart_count=1, read_from="2025-01-01", feed_from="2026-04-15")
+    found = one("5")
+    assert figures(found)["Indicators with a partial history (Reached is PRP's cumulative)"] == 1
+    assert (
+        "1 more have a partial history (their Reached is PRP's cumulative: the Datamart holds no partner report "
+        "starting before 15 Apr 2026)" in found["verdict"]
+    )
+
+
 # ------------------------------------------------------------------------------- the section names
 def test_section_names_split_lists_and_keep_a_known_name_whole():
     assert reporting.section_names("Child Protection, Adolescent & Youth; PSEA") == [

@@ -718,3 +718,49 @@ def test_partial_history_follows_the_window_the_latest_sync_read(settings):
     # the next sync reads from the PD's start (a run with errors still wrote its rows)
     run(SyncRun.Status.PARTIAL, day=5, read_from="2021-07-01")
     assert reached.reports_read_from(TODAY) == datetime.date(2021, 7, 1)
+
+
+@pytest.mark.django_db
+def test_history_counts_from_the_feed_when_the_datamart_holds_no_earlier_report():
+    """The sync asked from 1 Jan 2025 and the rows held start on 5 Jan 2026, more than 100 days later: the
+    Datamart holds no earlier report, so the history is counted from the feed's first report, whether the read
+    was whole or not, and a running PD that started in 2025 has a partial history. A feed that starts within
+    100 days of the date asked changes nothing, and neither does a run made before feed_from was recorded."""
+    from django.utils import timezone
+
+    from neurodb.core.models import SyncRun
+    from neurodb.datamart.models import ReportedIndicator
+
+    asked, feed, started = datetime.date(2025, 1, 1), datetime.date(2026, 1, 5), datetime.date(2025, 6, 1)
+    assert reached.history_from(TODAY).source == reached.NEXT_SYNC  # no sync yet
+
+    def latest(**details) -> reached.HistoryFrom:
+        SyncRun.objects.all().delete()
+        SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="partner_reports",
+                               status=SyncRun.Status.SUCCEEDED, started_at=timezone.now(),
+                               details={"read_from": "2025-01-01", **details})  # fmt: skip
+        return reached.history_from(TODAY)
+
+    found = latest(feed_from="2026-01-05")
+    assert found == reached.HistoryFrom(feed, reached.FEED, asked) and found.date > started  # partial
+    assert reached.reports_read_from(TODAY) == feed
+    # a feed 59 days after the date asked: the reports of that time are held
+    assert latest(feed_from="2025-03-01") == reached.HistoryFrom(asked, reached.READ_FROM, asked)
+    # a read not whole removed nothing: what is held still counts, never the earliest row with no margin
+    assert (
+        latest(feed_from="2026-01-05", removal_skipped=True, read=10, datamart_count=12).source
+        == reached.FEED
+    )
+    on_a_shift = latest(feed_from="2025-03-01", removal_skipped=True, duplicates_read=3)
+    assert on_a_shift.source == reached.READ_FROM and on_a_shift.date <= started  # the PD stays whole
+    # read in date windows, every one whole from the date asked: the Datamart still holds nothing earlier
+    assert latest(window_bound="reporting_period_start_date", whole_from="2025-01-01",
+                  feed_from="2026-01-05").source == reached.FEED  # fmt: skip
+    assert latest(window_bound="reporting_period_start_date", whole_from="2025-01-01",
+                  feed_from="2025-02-01") == reached.HistoryFrom(asked, reached.WHOLE_FROM, asked)  # fmt: skip
+    # an answer cut at a round count: the earliest row held, as before
+    ReportedIndicator.objects.create(datamart_id=1, period_start=datetime.date(2025, 4, 1))
+    found = latest(datamart_count=10_000, removal_skipped=True, feed_from="2026-01-05")
+    assert found == reached.HistoryFrom(datetime.date(2025, 4, 1), reached.CUT, asked)
+    # a run made before feed_from was recorded: nothing changes until the next sync
+    assert latest() == reached.HistoryFrom(asked, reached.READ_FROM, asked)

@@ -179,8 +179,7 @@ def test_prp_datasets_use_the_business_area_found_from_the_workspaces(linked, se
                 "overall_satisfaction": "Satisfied",
             },
         ],
-        business_area_code="2490",
-        page_size="500",
+        page_size="500",  # read with no business area filter: none is proven (the first read of the week)
     )
     runs = run("prp_indicator_reports,prp_progress_reports,workspaces")
     assert [r.status for r in runs] == [SyncRun.Status.SUCCEEDED] * 3
@@ -715,8 +714,7 @@ def test_prp_progress_reports_are_linked_to_their_pd_through_prp_programme_docum
             {"id": 4, "business_area_code": "2490", "programme_document_id": 55},  # not held
             {"id": 5, "business_area_code": "2490", "report_type": "QPR"},  # names none
         ],
-        business_area_code="2490",
-        page_size="500",
+        page_size="500",  # read with no business area filter: none is proven (the first read of the week)
     )
     documents, reports = run("prp_programme_documents,prp_progress_reports")
     assert reports.status == SyncRun.Status.SUCCEEDED
@@ -765,9 +763,10 @@ def test_a_progress_report_read_that_fails_part_way_unlinks_none(linked, setting
     run("prp_programme_documents,prp_progress_reports")
     responses.reset()
     url = f"{API}/{PROGRESS_REPORTS}/"
+    # the count with no business area filter is not answered: no filter is proven, which never fails the run
     responses.get(
         url,
-        match=[responses.matchers.query_param_matcher({"page_size": "500", "business_area_code": "2490"})],
+        match=[responses.matchers.query_param_matcher({"page_size": "500"})],
         json={"count": 2, "next": f"{url}?page=2", "results": reports[:1]},
     )
     responses.get(url, match=[responses.matchers.query_param_matcher({"page": "2"})], status=500)

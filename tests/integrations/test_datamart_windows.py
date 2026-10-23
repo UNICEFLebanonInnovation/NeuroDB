@@ -1,7 +1,8 @@
 """A large eTools Datamart read in windows (``windows.Reading``): today's requests while small; above the limit,
 windows proven to filter, each read whole, before the sync removes anything. The Datamart is the fake of
 ``fake_datamart`` with small constants (a window below 20 records, a round count of 20 or more a multiple of
-10, pages of 5)."""
+10, pages of 5), and every large read here is one the sync suspects cut, A (``datamart_sync.cut_sign`` says
+the last read's page came back short): ``test_datamart_reads`` reads when it is not."""
 
 import datetime as dt
 import re
@@ -40,6 +41,12 @@ def small(settings, monkeypatch):
     monkeypatch.setattr(sync, "CAP_ROUND", 10)
     settings.ETOOLS_DATAMART_PAGE_SIZE = 5
     settings.ETOOLS_DATAMART_REPORTING_YEARS = 2
+
+
+@pytest.fixture(autouse=True)
+def suspected(monkeypatch):
+    """Every large read here is one the sync suspects cut: it is windowed from 20 records, as before A."""
+    monkeypatch.setattr(sync, "cut_sign", lambda details: "pages_cut")
 
 
 def client() -> DatamartClient:

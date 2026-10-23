@@ -25,8 +25,9 @@ reports. Every page, export and Ask NeuroDB answer reads the same rule:
 - **Different indicators are never added together**, and neither are quarterly and monthly
   humanitarian reports.
 - **PRP's own cumulative** is shown beside Reached; an indicator where the two differ is marked
-  *Differs from PRP*. A programme document that started before the reports NeuroDB holds shows
-  *Partial history*, and its Reached is PRP's cumulative.
+  *Differs from PRP*. A programme document that started before the reports NeuroDB holds (also when the
+  Datamart holds no earlier report than the first one NeuroDB has) shows *Partial history*, and its Reached
+  is PRP's cumulative.
 - **Children reached** on the overview, the brief and the donor page counts one indicator per programme
   document: its *unique beneficiaries indicator* (chosen on the programme document page), else its
   largest children indicator. See [Country overview, management brief and daily review](/help/briefs-and-overview/).
@@ -246,8 +247,9 @@ only. When PRP's indicator reports hold nothing, checks 8, 9 and 11 say what the
 to do in the administration. When the business area code the hosting team set is not a code (a country
 name), NeuroDB sets it aside, uses the code it finds, and the checks and Data health say so; an
 administrator can enter the code in the administration, where it comes first. Check 10 says how the
-partner reports were read (in windows when the Datamart answers only part of them at a time, and whether
-every window was read whole) and why running programme documents have no row. Check 12 counts, per
+partner reports were read (in windows when the Datamart's answer looks cut, and whether every window was
+read whole) and why running programme documents have no row; checks 10 and 11 say which business area
+filter the partner reports and PRP's progress reports were read with, or why none. Check 12 counts, per
 section, the PD indicators with and without an eTools id and a CP output, the percentages reported with
 their numerator and denominator, and how many master indicators the next night would propose; it changes
 nothing. Checks 10 and 11 run first. The checks run every night as a job and the page shows their latest

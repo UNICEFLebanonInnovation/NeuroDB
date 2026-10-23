@@ -1,0 +1,258 @@
+"""A Datamart read is windowed only when a cut is suspected (A): a round count, or a sign of a cut in the dataset's
+previous finished run (``datamart_sync.cut_sign``). Any other read is today's, whatever its size, with the ends
+test once it is large; and the history is counted from where the rows held really start (C). The Datamart is
+the fake of ``fake_datamart`` with the small constants of ``test_datamart_windows`` (a read of 20 records or
+more is large, a round count of 20 or more a multiple of 10, pages of 5); nothing patches ``cut_sign``."""
+
+import datetime as dt
+import re
+
+import pytest
+import responses
+
+from neurodb.core.models import SyncRun
+from neurodb.datamart import models as dm
+from neurodb.datamart import reached
+from neurodb.integrations.etools import datamart_sync as sync
+from neurodb.integrations.etools import windows
+from neurodb.integrations.etools.datamart import DatamartClient
+from neurodb.integrations.http import make_session
+
+from .fake_datamart import FakeDatamart, report
+
+pytestmark = pytest.mark.django_db
+
+BASE = "https://datamart.test"
+REPORTS = f"{BASE}/api/latest/prp/datareport/"
+KEY = "reporting_period_start_date"
+ASKED = {"page_size": "5", "country_name": "Lebanon", f"{KEY}__gte": "2025-01-01"}  # the sync's own query
+
+
+@pytest.fixture(autouse=True)
+def small(settings, monkeypatch):
+    """Large from 20 records, a round count of 20 or more a multiple of 10, pages of 5, and the partner reports
+    read from 1 Jan 2025."""
+    monkeypatch.setattr(windows, "WINDOW_RECORDS", 20)
+    monkeypatch.setattr(sync, "CAP_FLOOR", 20)
+    monkeypatch.setattr(sync, "CAP_ROUND", 10)
+    settings.ETOOLS_DATAMART_PAGE_SIZE = 5
+    settings.ETOOLS_DATAMART_REPORTING_YEARS = 2
+
+
+def client() -> DatamartClient:
+    return DatamartClient(
+        BASE, "svc-user", "not-a-real-secret", country="Lebanon", session=make_session("", backoff=0)
+    )
+
+
+def run(name: str = "partner_reports") -> SyncRun:
+    (found,) = sync.sync_all(only=[name], triggered_by="test", client=client())
+    return found
+
+
+def spread(
+    n: int, first: dt.date = dt.date(2025, 1, 3), step: int = 5, start: int = 1, **extra
+) -> list[dict]:
+    """``n`` partner report rows, one every ``step`` days from ``first``, ids from ``start``."""
+    return [report(start + i, (first + dt.timedelta(days=i * step)).isoformat(), **extra) for i in range(n)]
+
+
+def held(pk: int, start: str = "2025-06-01") -> dm.ReportedIndicator:
+    """A partner report row an earlier read wrote, in the window the sync reads."""
+    return dm.ReportedIndicator.objects.create(datamart_id=pk, period_start=start, indicator="held")
+
+
+def ids() -> set[int]:
+    return set(dm.ReportedIndicator.objects.values_list("datamart_id", flat=True))
+
+
+def _dry(records: list[dict]) -> list[dict[str, str]]:
+    """The requests tonight's read of ``records`` makes, in order (the same read gives the same requests)."""
+    fake = FakeDatamart(records)
+    with responses.RequestsMock() as mock:
+        fake.url = REPORTS
+        mock.add_callback(responses.GET, re.compile(rf"{REPORTS}(\?.*)?$"), callback=fake._answer)
+        reading = windows.Reading(
+            client(), "prp/datareport", {f"{KEY}__gte": "2025-01-01"}, date_key=KEY, name="partner_reports"
+        )
+        list(reading)
+    return fake.requests
+
+
+@responses.activate
+def test_a_large_country_blind_answer_is_read_in_one_answer():
+    """The Datamart ignores country_name on prp/datareport (20-21 Oct 2026: every country's rows, whole): 47 rows,
+    23 of Lebanon and 24 of another country, are read in one answer, with no proof or plan request. The ends
+    test asks the first and the last record by id before the rest of the pages; no business area filter is
+    asked, as no business area code is set or found."""
+    held(900)
+    rows = [
+        report(n, "2025-03-01", **({} if n % 2 == 0 else {"country_name": "Syria"})) for n in range(1, 48)
+    ]
+    fake = FakeDatamart(rows, ignore=("country_name",))
+    fake.register(REPORTS)
+    found = run()
+    details = found.details
+    assert found.status == SyncRun.Status.SUCCEEDED, details
+    assert fake.requests == [
+        ASKED,
+        {**ASKED, "ordering": "id", "page_size": "1"},
+        {**ASKED, "ordering": "-id", "page_size": "1"},
+        *({**ASKED, "page": str(n)} for n in range(2, 11)),
+    ]
+    assert "window_bound" not in details and "windows_why" not in details and "ends_missing" not in details
+    assert (details["datamart_count"], details["other_country_skipped"], details["removed"]) == (47, 24, 1)
+    assert ids() == set(range(2, 48, 2))  # the stale row of the window removed
+    assert details["area_filter"]["why"] == "no_code"
+
+
+@responses.activate
+def test_a_round_count_is_read_in_windows_and_says_why():
+    held(900)
+    FakeDatamart(spread(120), cap=50).register(REPORTS)
+    found = run()
+    details = found.details
+    assert found.status == SyncRun.Status.SUCCEEDED, details
+    assert (details["windows_why"], details["window_bound"]) == ("round_count", KEY)
+    assert ids() == set(range(1, 121)) and details["removed"] == 1
+
+
+@responses.activate
+def test_a_page_shorter_than_the_first_removes_nothing_and_windows_the_next_night():
+    """Page 3 of 10 comes back with 4 records of 5: the answer was cut, nothing is removed. The next night (no
+    page cut) is read in windows because of it, and whole; the night after reads plain again."""
+    held(900)
+    rows = spread(47)
+    FakeDatamart(rows, cut_pages=(3,)).register(REPORTS)
+    first = run()
+    details = first.details
+    assert first.status == SyncRun.Status.PARTIAL
+    assert (details["pages_cut"], details["removal_skipped"], details["removed"]) == (1, True, 0)
+    assert "windows_why" not in details and 900 in ids() and 15 not in ids()
+
+    responses.reset()
+    FakeDatamart(rows).register(REPORTS)
+    second = run()
+    details = second.details
+    assert second.status == SyncRun.Status.SUCCEEDED, details
+    assert (details["windows_why"], details["window_bound"], details["removed"]) == ("pages_cut", KEY, 1)
+    assert ids() == set(range(1, 48)) and "pages_cut" not in details
+
+    responses.reset()
+    FakeDatamart(rows).register(REPORTS)
+    third = run()
+    assert third.status == SyncRun.Status.SUCCEEDED and "window_bound" not in third.details
+
+
+@responses.activate
+def test_a_plain_read_that_came_back_short_windows_the_next_night():
+    """The Datamart announces 47 and returns 40, the 7 missing in the middle of the ids (the ends test cannot see
+    them): fewer records than announced, nothing removed; the next night is read in windows and whole."""
+    rows = spread(47)
+    rows = rows[:20] + rows[27:] + rows[20:27]  # the first 40 it returns hold the first and the last id
+    FakeDatamart(rows, cap=40, cut_count=False).register(REPORTS)
+    first = run()
+    details = first.details
+    assert first.status == SyncRun.Status.PARTIAL and "ends_missing" not in details
+    assert (details["read"], details["datamart_count"], details["removal_skipped"]) == (40, 47, True)
+    assert sync.cut_sign(details) == "read_short"
+
+    responses.reset()
+    FakeDatamart(rows, cap=40, cut_count=False).register(REPORTS)
+    second = run()
+    assert second.details["windows_why"] == "read_short"
+    assert second.status == SyncRun.Status.SUCCEEDED and ids() == set(range(1, 48))
+
+
+@responses.activate
+def test_a_windowed_night_not_whole_without_a_cut_is_followed_by_a_plain_night():
+    """The last read's page came back short: tonight is windowed, and the Datamart's count changes during the
+    read (a row added before the end check). Not whole, nothing removed, and no sign of a cut: the next night
+    reads plain."""
+    SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="partner_reports",
+                           status=SyncRun.Status.PARTIAL, details={"pages_cut": 1})  # fmt: skip
+    rows = spread(47)
+    before_end = len(_dry(rows)) - 1  # the end check is the last request
+    held(900)
+    FakeDatamart(rows, changes=(before_end, [report(500, "2025-02-01")])).register(REPORTS)
+    found = run()
+    details = found.details
+    assert found.status == SyncRun.Status.PARTIAL
+    assert (details["windows_why"], details["changed"], details["removal_skipped"]) == (
+        "pages_cut",
+        True,
+        True,
+    )
+    assert sync.cut_sign(details) == "" and 900 in ids()
+
+    responses.reset()
+    FakeDatamart([*rows, report(500, "2025-02-01")]).register(REPORTS)
+    following = run()
+    assert following.status == SyncRun.Status.SUCCEEDED and "window_bound" not in following.details
+    assert 900 not in ids()
+
+
+@pytest.mark.parametrize(
+    ("details", "sign"),
+    [
+        ({"cap_suspected": "ends_missing"}, "cap_suspected"),
+        ({"whole_count_capped": True, "window_bound": "id"}, "whole_count_capped"),
+        ({"pages_cut": 1}, "pages_cut"),
+        ({"windows_cut": 2, "window_bound": "id"}, "windows_cut"),
+        ({"read": 40, "datamart_count": 47}, "read_short"),
+        ({"read": 40, "datamart_count": 47, "window_bound": ""}, "read_short"),  # windowed, no filter proven
+        # the order: an answer that looked cut first, then the windows' count, a cut page, a window cut, short
+        ({"cap_suspected": "no_count", "pages_cut": 2, "read": 1, "datamart_count": 9}, "cap_suspected"),
+        ({"whole_count_capped": True, "pages_cut": 1, "windows_cut": 1}, "whole_count_capped"),
+        ({"windows_cut": 1, "pages_cut": 2}, "pages_cut"),
+        ({"windows_cut": 1, "read": 1, "datamart_count": 9, "window_bound": "id"}, "windows_cut"),
+        # read in windows: their own counts tell, not the read against the first count
+        ({"read": 40, "datamart_count": 47, "window_bound": "id"}, ""),
+        # records twice and as many others missing: pages shifting (the 21 Oct progress reports), not a cut
+        ({"read": 150_221, "duplicates_read": 74, "datamart_count": 150_295, "removal_skipped": True}, ""),
+        ({"datamart_count": 780_905}, ""),  # the 21 Oct partner reports: whole, no read recorded
+        (
+            {"read": 780_975, "datamart_count": 780_905, "window_bound": ""},
+            "",
+        ),  # records added during the read
+        ({"changed": True, "duplicates_read": 3, "plan_incomplete": True, "window_bound": "id"}, ""),
+        ({"pages_cut": 0, "windows_cut": 0, "cap_suspected": ""}, ""),
+        ({}, ""),
+    ],
+)
+def test_cut_sign(details, sign):
+    assert sync.cut_sign(details) == sign
+
+
+@responses.activate
+def test_a_whole_read_records_where_its_feed_starts():
+    """Read from 1 Jan 2025, the Datamart holds no report starting before 5 Jan 2026: the history is counted from
+    the feed's first report (more than 100 days after the date asked)."""
+    FakeDatamart(spread(10, dt.date(2026, 1, 5))).register(REPORTS)
+    found = run()
+    assert found.status == SyncRun.Status.SUCCEEDED
+    assert (found.details["read_from"], found.details["feed_from"]) == ("2025-01-01", "2026-01-05")
+    assert reached.reports_read_from() == dt.date(2026, 1, 5)
+    assert reached.history_from() == reached.HistoryFrom(
+        dt.date(2026, 1, 5), reached.FEED, dt.date(2025, 1, 1)
+    )
+
+
+@responses.activate
+def test_a_removal_held_one_night_keeps_the_history_of_the_rows_held(monkeypatch):
+    """The rows held start on 1 Feb 2025; tonight's whole read returns two reports from 5 Jan 2026 and holds the
+    removal one night: the rows held still count, so the history stays counted from the date asked. The next
+    night removes them, and the history is counted from the feed's first report."""
+    monkeypatch.setattr(sync, "HOLD_FLOOR", 3)
+    for pk in range(900, 905):
+        held(pk, "2025-02-01")
+    FakeDatamart(spread(2, dt.date(2026, 1, 5))).register(REPORTS)
+    first = run()
+    assert (first.details["removal_held"], first.details["feed_from"]) == (5, "2025-02-01")
+    assert reached.history_from() == reached.HistoryFrom(
+        dt.date(2025, 1, 1), reached.READ_FROM, dt.date(2025, 1, 1)
+    )
+    SyncRun.objects.filter(pk=first.pk).update(started_at=first.started_at - dt.timedelta(hours=21))
+    second = run()
+    assert (second.details["removed"], second.details["feed_from"]) == (5, "2026-01-05")
+    assert reached.history_from().source == reached.FEED

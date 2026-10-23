@@ -11,12 +11,19 @@ counts), and the business area codes and country names they name (counts): never
 record, no title, name or text. Its verdict (``details.verdict``) says in plain words what the answers mean
 and what to do from the admin.
 
-For the partner reports, and for any dataset whose sync query announces ``windows.WINDOW_RECORDS`` records or
-more, it also asks what a read in windows needs (``details.windows``, one small page each, with the sync's own
-filter): whether the Datamart applies the window filters (a request that should find nothing finds nothing),
-whether its count or its paging stops at a limit, and, for the partner reports, how many reports end before
-any NeuroDB holds. Per request it keeps the count, the page length, the page number and query keys of its
-``next`` link and the records per start year of the page: counts, dates and key names only.
+Only when the sync would window the read (``windows.suspected``: a round count of
+``windows.WINDOW_RECORDS`` records or more, or a cut sign in the dataset's last sync), it also asks what a
+read in windows needs (``details.windows``, one small page each, with the sync's own filter): whether the
+Datamart applies the window filters (a request that should find nothing finds nothing), whether its count or
+its paging stops at a limit, and, for the partner reports, how many reports end before any NeuroDB holds. Per
+request it keeps the count, the page length, the page number and query keys of its ``next`` link and the
+records per start year of the page: counts, dates and key names only. A large read with no sign of a cut asks
+none: the verdict says the sync reads it in one answer.
+
+For a dataset whose business area filter the sync proves before using it (``catalogue.AREA_FILTERS``: the
+partner reports, PRP's progress reports), it asks each filter key on one page of the sync's own query
+(``details.area_filters``) and judges it as the sync does (``datamart_sync.judge_area_key``): the verdict says
+which filter the Datamart applies, or that it applies none.
 """
 
 from __future__ import annotations
@@ -55,7 +62,6 @@ FAR_FUTURE, FAR_PAST, FAR_PAST_LTE = "far future", "far past", "far past (lte)"
 BEFORE_YEAR, FROM_YEAR = "before this year", "from this year"
 IDS_BELOW, IDS_ABOVE, IDS_BELOW_LTE = "ids below 1", "ids from 10^15", "ids below 1 (lte)"
 PAST_COUNT, END_PROOF, OLDER = "past the count", "end date far past", "older than held"
-CUT_PAGE = 10_050  # a count from this many on asks the page past it even when not round (a limit near 10,000)
 END_KEY = "reporting_period_end_date"  # the partner reports' period end, for the reports older than any held
 CODE_SETTING = "Admin → Data and sync → eTools Datamart: PRP business area code"  # as checks.CODE_SETTING
 
@@ -344,10 +350,11 @@ def window_requests(
     first: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """What a read of ``name`` in windows needs (:func:`look`, each with the sync's own query ``base``, whose
-    first page announced ``count`` and held ``first``): the date filters (partner reports: a far future and a
-    far past start, ``__lte`` when ``__lt`` is ignored, the reports before and from this year), the id
-    filters, the page past the count when the count looks like a limit, and for the partner reports the
-    reports that end before any NeuroDB holds, once the end-date filter is proven."""
+    first page announced ``count`` and held ``first``), asked only when the sync would window the read
+    (``windows.suspected``): the date filters (partner reports: a far future and a far past start, ``__lte``
+    when ``__lt`` is ignored, the reports before and from this year), the id filters, the page past the count
+    whenever the count is known, and for the partner reports the reports that end before any NeuroDB holds,
+    once the end-date filter is proven."""
     date_key = sync.DATASETS[name][1].windows if name in sync.DATASETS else ""
     asked: list[dict[str, Any]] = []
 
@@ -367,7 +374,7 @@ def window_requests(
     one(IDS_ABOVE, {"id__gte": windows.ID_TOP})
     if _n(one(IDS_BELOW, {"id__lt": 1})) != 0:
         one(IDS_BELOW_LTE, {"id__lte": 0})
-    if count is not None and (sync.capped(count) or count >= CUT_PAGE):
+    if count is not None:
         page: list[dict[str, Any]] = []
         past = one(PAST_COUNT, {"page": -(-count // PAGE) + 1}, page)  # the first page wholly past it
         past["same_as_first_page"] = bool(page) and _ids(page) == _ids(first)
@@ -469,6 +476,68 @@ def window_verdict(name: str, path: str, count: int | None, asked: list[dict[str
     return " ".join(said)
 
 
+def no_window_verdict(name: str, count: int) -> str:
+    """The verdict of a large read the sync does not window (no round count, no sign of a cut last night)."""
+    return (
+        f"It announces {count:,} records, not a round count, and the last sync of {name} saw no sign of a "
+        "cut: NeuroDB reads it in one answer, as the sync does (no window request asked)."
+    )
+
+
+def _held(name: str) -> int:
+    """The rows NeuroDB holds in the scope the sync of ``name`` replaces (the partner reports of the window it
+    reads; a dataset's records kept whole)."""
+    if name in sync.DATASETS:
+        spec = sync.DATASETS[name][1]
+        rows = spec.model.objects.all()
+        return (spec.scope(rows, spec.since()) if spec.scope and spec.since else rows).count()
+    return dm.DatamartDocument.objects.filter(dataset=name).count()
+
+
+def area_requests(
+    client: DatamartClient, name: str, path: str, base: dict[str, Any], code: str, unfiltered: int | None
+) -> list[dict[str, Any]]:
+    """Each business area filter key of ``catalogue.AREA_FILTERS[name]`` on one page of the sync's own query
+    ``base`` (:func:`ask`, its codes counted under the key the records name their code by), judged as the
+    sync judges it (``datamart_sync.judge_area_key``, against ``unfiltered``, the count with no filter, and
+    the rows NeuroDB holds): each answer with its ``key`` and ``verdict``. Counts and codes only."""
+    spec, held, asked = catalogue.AREA_FILTERS[name], _held(name), []
+    for key in spec.keys:
+        records: list[dict[str, Any]] = []
+        found = ask(client, path, f"business area: {key}", {**base, key: code}, spec.named_by, records)
+        if "error" in found:
+            status = found.get("status")
+            verdict = "refused" if status and 400 <= status < 500 else "failed"
+        else:
+            verdict = sync.judge_area_key(
+                found.get("count"),
+                records,
+                unfiltered=unfiltered,
+                held=held,
+                code=code,
+                named_by=spec.named_by,
+            )
+        asked.append({**found, "key": key, "verdict": verdict})
+    return asked
+
+
+def area_verdict(path: str, code: str, asked: list[dict[str, Any]], unfiltered: int | None) -> str:
+    """What the business area requests mean (:func:`area_requests`): the filter the Datamart applies, which
+    the sync reads by, or that it applies none of those tried, and what each did."""
+    proven = next((a for a in asked if a["verdict"] == "proven"), None)
+    if proven is not None:
+        without = f", {unfiltered:,} without" if isinstance(unfiltered, int) else ""
+        return (
+            f"The Datamart applies {proven['key']} to {path} ({proven['count']:,} records with it{without}; "
+            f"every record on its page names {code}): the sync reads by it."
+        )
+    tried = ", ".join(sync.tried_words(a) for a in asked)
+    return (
+        f"The Datamart applies none of the business area filters tried for {path}: {tried}. The sync reads "
+        f"every country's records and keeps {code}'s."
+    )
+
+
 def probe(name: str, run: SyncRun, *, client: DatamartClient | None = None) -> SyncRun:
     """Ask the Datamart about one dataset (:data:`NO_FILTER`, :data:`BY_BUSINESS_AREA` for a dataset filtered
     by business area, :data:`BY_COUNTRY`) and finish ``run`` with what it answered: SUCCEEDED when every
@@ -479,7 +548,8 @@ def probe(name: str, run: SyncRun, *, client: DatamartClient | None = None) -> S
         client = client or DatamartClient()
         country = (settings.ETOOLS_DATAMART_COUNTRY or "").strip()
         # the code as the sync resolves it, without its request to the workspaces: the probe asks nothing more
-        choice = sync.resolve_business_area() if filter_key else sync.AreaCode()
+        by_area = name in catalogue.AREA_FILTERS  # a business area filter the sync proves before it uses it
+        choice = sync.resolve_business_area() if filter_key or by_area else sync.AreaCode()
         code = choice.code
         first: dict[str, list[dict[str, Any]]] = {NO_FILTER: [], BY_BUSINESS_AREA: [], BY_COUNTRY: []}
         answers = {NO_FILTER: ask(client, path, NO_FILTER, {}, filter_key, first[NO_FILTER])}
@@ -496,19 +566,17 @@ def probe(name: str, run: SyncRun, *, client: DatamartClient | None = None) -> S
             first[AS_SYNC] = []
             answers[AS_SYNC] = ask(client, path, AS_SYNC, base, filter_key, first[AS_SYNC])
             own = AS_SYNC
+        elif by_area or (name in catalogue.DOCUMENTS and catalogue.DOCUMENTS[name].scope == "lookup"):
+            base, own = {}, NO_FILTER  # PRP's progress reports: read with no filter until one is proven
         elif filter_key:
             base, own = {filter_key: code}, BY_BUSINESS_AREA
-        elif name in catalogue.DOCUMENTS and catalogue.DOCUMENTS[name].scope == "lookup":
-            base, own = {}, NO_FILTER
         else:
             base, own = {"country_name": country}, BY_COUNTRY
         count = (answers.get(own) or {}).get("count")
-        large = isinstance(count, int) and count >= windows.WINDOW_RECORDS
-        looked = (
-            window_requests(client, name, path, base, count, first.get(own, []))
-            if own in answers and "error" not in answers[own] and (name == "partner_reports" or large)
-            else []
-        )
+        answered = own in answers and "error" not in answers[own]
+        why = windows.suspected(name, count) if answered and isinstance(count, int) else ""
+        looked = window_requests(client, name, path, base, count, first.get(own, [])) if why else []
+        areas = area_requests(client, name, path, base, code, count) if by_area and code and answered else []
     except Exception as exc:
         return fail(run, exc)
     run.rows_in = sum(a.get("page", 0) for a in answers.values())
@@ -517,11 +585,19 @@ def probe(name: str, run: SyncRun, *, client: DatamartClient | None = None) -> S
         details.update(filter_key=filter_key, **choice.details())
     details["verdict"] = verdict(name, path, filter_key, code, answers, choice)
     if looked:
-        details["windows"] = looked
+        details.update(windows=looked, windows_why=why)
         details["verdict"] += " " + window_verdict(name, path, count, looked)
-    # a page past the count that is refused is what the probe asks (a paging limit), not a refusal
-    refused = any("error" in a for a in answers.values()) or any(
-        "error" in a for a in looked if a["request"] != PAST_COUNT
+    elif isinstance(count, int) and count >= windows.WINDOW_RECORDS:
+        details["verdict"] += " " + no_window_verdict(name, count)
+    if areas:
+        details["area_filters"] = areas
+        details["verdict"] += " " + area_verdict(path, code, areas, count)
+    # a page past the count that is refused is what the probe asks (a paging limit), and a business area key
+    # refused is an answer too: neither is a refusal of the probe
+    refused = (
+        any("error" in a for a in answers.values())
+        or any("error" in a for a in looked if a["request"] != PAST_COUNT)
+        or any(a.get("verdict") == "failed" for a in areas)
     )
     run.finish(SyncRun.Status.PARTIAL if refused else SyncRun.Status.SUCCEEDED, **details)
     return run

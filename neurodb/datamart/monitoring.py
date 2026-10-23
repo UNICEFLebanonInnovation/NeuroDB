@@ -633,7 +633,7 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
             per[ident], read_from[ident] = rows, "HR"
     statuses = {key: rc.newest_status(texts) for key, texts in words.items()}
     totals = rc.progress_values(row for rows in per.values() for row in rows)
-    since = rc.reports_read_from(today)  # a PD that started before it has a partial history
+    since = rc.history_from(today).date  # a PD that started before it has a partial history
     only = location_filter(filters)
     for ident, entry in found.items():
         entry.rows_placed = len(per.get(ident, []))
@@ -1322,6 +1322,7 @@ def data_quality(
     partial = sorted(
         {r.pd.id: r.pd for r in rows if r.partial}.values(), key=lambda pd: pd.start or datetime.date.min
     )
+    history = rc.history_from(today) if partial else None
 
     def order(items: list[Indicator]) -> list[Indicator]:
         return sorted(items, key=lambda r: (norm(r.section), (r.pd.number or "").lower(), norm(r.title)))
@@ -1352,7 +1353,10 @@ def data_quality(
         "same_title_rows_unmatched": sum(g["rows_unmatched"] for g in same_title),
         "partial": partial[:QUALITY_LIMIT],
         "partial_count": len(partial),
-        "read_from": rc.reports_read_from(today) if partial else None,
+        # where the history is counted from (the feed's first report when the Datamart holds none earlier)
+        "read_from": history.date if history else None,
+        "read_from_source": history.source if history else "",
+        "read_from_asked": history.asked if history else None,
         "limit": QUALITY_LIMIT,
     }
 
