@@ -254,13 +254,14 @@ its active PD indicators); checks 10 and 11 say which business area filter the p
 progress reports were read with, or why none. Check 11 also says how PRP's own progress reports are linked
 to their programme document: by the pair of keys the data proves, with how many it links, or why no pair
 was proven and the keys PRP's programme documents carry (what to tell the eTools Datamart team), or the keys
-left out because a value repeats among the documents one read wrote; it counts each progress report once, as
-its latest version. Check 12 counts, per section, the PD indicators with and
+left out because a programme document came twice in one read (the next read's copy counts); check 11 counts
+each progress report once, as its latest version (Ask NeuroDB still lists an older version until a whole read
+removes it). Check 12 counts, per section, the PD indicators with and
 without an eTools id and a CP output, the percentages reported with their numerator and denominator, and
 how many master indicators the next night would propose; it changes nothing. Checks 10 and 11 run first. The checks run every night as a job and the page shows their latest
 result at once, with when they were checked; **Run the checks now** runs them again in the background
 (they can take several minutes on the full data), and the page shows the new result once you reload it.
 Print the page or save it as PDF from the browser to share it: every table prints whole, across the
-landscape sheet, wrapping between words (reference numbers, dates and counts print whole), with check
-10's lists open; Data health prints its tables whole too, with each period's details of Compared with
-Power BI open.
+landscape sheet, wrapping between words (reference numbers, dates and counts print whole: check 10's
+dates are written with non-breaking spaces), with check 10's lists open; Data health prints its tables
+whole too, with each period's details of Compared with Power BI open.

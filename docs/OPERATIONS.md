@@ -2422,12 +2422,13 @@ and business area codes at most).
   wrong: probe the dataset); then how PRP's progress reports were linked to them: the key pair proven
   ("PRP's progress reports are linked to their programme document by programme_document = prp_id: N of the
   M reports naming one"), with the links that end outside their document's dates, or why no pair was
-  proven and the keys the documents carry, what to tell the eTools Datamart team, or the keys left out as
-  their values repeat among the documents one read wrote; each progress report is counted once, as the latest
-  read wrote it (*… older versions of a report a later read wrote again (not counted)*) (figures *PRP programme
-  document records held*, *… linked to an eTools programme document NeuroDB holds*, *… records of another
-  business area naming one of NeuroDB's by reference number*, *PRP progress reports linked by*, *… of the
-  reports naming one*); and, when their last read had records twice, what that read found.
+  proven and the keys the documents carry, what to tell the eTools Datamart team, or the keys a programme
+  document that came twice in one read left out (the next read's copy counts); this check counts each progress
+  report once, as the latest read wrote it (*… older versions of a report a later read wrote again (not
+  counted)*) (figures *PRP programme document records held*, *… linked to an eTools programme document NeuroDB
+  holds*, *… records of another business area naming one of NeuroDB's by reference number*, *PRP progress
+  reports linked by*, *… of the reports naming one*); and, when their last read had records twice, what that
+  read found.
 * **Check 12**, *Indicator grouping*, counts for the eTools master indicators (counts only, never a title
   or a partner's or master indicator's name): the PD indicators the nightly `suggest_master_indicators` job
   reads (those of the programme documents running this year or last, per section), with and without an
@@ -2478,8 +2479,10 @@ what the eTools Datamart sync stored (Run a job → *Sync eTools (Datamart)* ref
 Print the page or save it as PDF from the browser: every table prints whole, wrapping between words (on screen
 the wide ones scroll sideways), on A4 landscape across the whole sheet (the print dialog reads the page at its
 portrait width, where the admin's container would hold it to 640 px), without the sidebar, the header or the
-run button, and check 10's folded lists print open; a reference number, a date or a count breaks only when it
-cannot fit at all, so check 10's PD reference numbers print whole (`admin.css`, `.nd-checks`).
+run button, and check 10's folded lists print open; a reference number or a count breaks only when it cannot
+fit at all, so check 10's PD reference numbers print whole (`admin.css`, `.nd-checks`), and check 10's dates
+are written with non-breaking spaces (`checks._cell_day`), so a date never prints as "1 Mar" over "2025" (a
+result stored before keeps its dates as they were until the checks next run).
 
 **The Power BI views.** The eTools Power BI report's pages live on NeuroDB's own pages, with the same
 figures as everywhere else (they read the rule above; nothing is added across indicators):
@@ -3002,8 +3005,11 @@ whose last word is `id` or `pk`, or whose value is `{"id": ..}`, never one that 
 the read that last wrote a row, by its `synced_at` and the dataset's run starts): the others are copies an
 earlier read wrote, kept while the reads were not whole, as a document that changed then got a row of its own
 (one changed copy no longer stops the link for every document). A key whose value two documents one read
-wrote carry is left out (`not_unique`: two documents share it, or one changed during that read came twice;
-`why` is then `repeated`). The progress reports' keys are the
+wrote carry is left out (`not_unique`: two documents share it, as a partner's id, or one changed during that
+read came twice, its rows agreeing on every other key tried, `came_twice`). Another key can still prove the
+pair, or fail as `few`, `not_clear` or `dates_disagree`; when no key pair left links a progress report at
+all, `why` is `repeated` if a document that came twice left a key out, else `no_link`.
+The progress reports' keys are the
 document they name (`programme_document_id`, else `programme_document`, first) and every other key naming a
 programme document. Pairs that link the same reports to the same documents are one, named by their first key
 other than the lookup used until now. A link is dated when the report has an `end_date` and its document a
@@ -3021,18 +3027,23 @@ record names none under the pair's key), `pd_not_held` (a PRP programme document
 the pair's key), `pd_not_linked` (held, but linked to no eTools PD), `by` (`[report key, document key]`),
 `proven`, `pairs` (the five best, with the reports each links, how many of those links are dated and how many
 agree), `pd_keys` (the documents' candidate keys and the records carrying each, with `not_unique` for those
-whose values repeat among the documents one read wrote), `pd_superseded` (below) and `why` none was proven.
-Check 11 says which pair linked them and how many of its links end outside their document's dates, or why none
-was proven with the keys left out as their values repeat (then it asks the eTools Datamart team nothing: the
-next read's copy counts) or else the keys the documents carry (what to tell the eTools Datamart team), and
-reads the linked ones as its third feed. A progress report the sync rewrites keeps the link it holds until
-that step runs, so a read that fails part-way unlinks none. PRP's progress reports carry no id either, so a
+whose values repeat among the documents one read wrote, and `came_twice` for those of them a document that
+came twice left out), `pd_superseded` (below) and `why` none was proven. Check 11 says which pair linked them
+and how many of its links end outside their document's dates, or why none was proven with the keys a document
+that came twice in one read left out (then it asks the eTools Datamart team nothing: the key holding the id
+may be among them, and the next read's copy counts) or else the keys the documents carry, a key two documents
+share among them (what to tell the eTools Datamart team), and reads the linked ones as its third feed. A
+progress report the sync rewrites keeps the link it holds until that step runs, so a read that fails part-way
+unlinks none. PRP's progress reports carry no id either, so a
 report that changes (its status, a date) on a night its read is not whole gets a row of its own and its old
 row is kept until a whole read: the row of a report (the programme document it names, its `report_type` and
 `report_number`) that an earlier read wrote, when a later read wrote that report again, is an older version
 (`datamart_sync.older_versions`). It is linked to none (`pd_superseded`), and check 11 counts it nowhere (its
 figure *… older versions of a report a later read wrote again (not counted)*), so a report later accepted
-is never also counted as overdue, and Ask NeuroDB's look-ups by PD find each report once.
+is never also counted as overdue there. Ask NeuroDB is not changed by this: it has no look-up by PD or partner
+for PRP's progress reports (their catalogue entry names no PD or partner key, so it lists their records and
+filters on their own fields, where `programme_document` is PRP's id, not an eTools PD), and it lists every
+row held, an older version among them, until a whole read removes it.
 
 **A record identity for records without an id.** A dataset kept whole whose records carry no `id` was held
 under a hash of each record, so a record that changed became a new row. Each read now looks for an id-like

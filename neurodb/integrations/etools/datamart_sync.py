@@ -2954,6 +2954,7 @@ class PDLink:
     pairs: list[dict[str, Any]] = field(default_factory=list)  # the best pairs, with the reports they link
     pd_keys: dict[str, int] = field(default_factory=dict)  # the documents' candidate keys, records carrying
     not_unique: list[str] = field(default_factory=list)  # candidate keys whose values repeat: left out
+    came_twice: list[str] = field(default_factory=list)  # those of them left out by a document read twice
 
     def named(self, data: Any) -> str:
         """The value a progress report names its programme document by, under the pair's key."""
@@ -2970,6 +2971,8 @@ class PDLink:
             found["why"] = self.why
         if self.not_unique:
             found["not_unique"] = list(self.not_unique)
+        if self.came_twice:
+            found["came_twice"] = list(self.came_twice)
         return found
 
 
@@ -2990,7 +2993,9 @@ def prove_pd_link(
     earlier read wrote, kept while the reads were not whole (a document that changed then got a row of its
     own). A key whose value two documents one read wrote carry is left out (``not_unique``: two documents
     share it, or one changed during that read came twice); with no ``written``, every document counts as one
-    read's. The reports' keys: the document they name (:data:`REPORT_NAMED`, today's, first), and
+    read's. A key left out only by rows that agree on every other key tried, one document that came twice, is
+    also in ``came_twice``: the key holding the id may be among them, and the next read's copy counts. The
+    reports' keys: the document they name (:data:`REPORT_NAMED`, today's, first), and
     every key naming a programme document (:func:`pd_named_keys`). Pairs that link the same reports to the
     same documents are one link, named by its first report key other than today's. A link is dated when the
     report has an ``end_date`` and its document a start and an end (its PRP record's ``start_date`` and
@@ -3002,7 +3007,8 @@ def prove_pd_link(
     links a report it does not link, or to another document (a pair whose links are all its own agrees with
     it), and at least :data:`LINK_SHARE` of the reports naming a document under its key
     (:data:`LINK_SHARE_UNDATED` when fewer than half of its links are dated). With none proven, today's lookup
-    is used: it links what it links."""
+    is used: it links what it links; when no pair links a report, ``why`` is ``repeated`` if a document that
+    came twice left a key out (``came_twice``), else ``no_link``."""
     etools_dates = etools_dates or {}
     datas = [data if isinstance(data, dict) else {} for _, data, _ in pds]
     reports = [data if isinstance(data, dict) else {} for data in reports]
@@ -3016,8 +3022,10 @@ def prove_pd_link(
     link = PDLink()
     reads = written if written is not None else [0] * len(pds)
     indexes: dict[str, dict[str, int]] = {}  # a document key -> its values -> the document's position
-    for key in dict.fromkeys((PD_RECORD_KEY, *sorted(id_keys(datas)), "reference_number")):
-        values = pd_values(key)
+    tried = list(dict.fromkeys((PD_RECORD_KEY, *sorted(id_keys(datas)), "reference_number")))
+    values_of = {key: pd_values(key) for key in tried}
+    for key in tried:
+        values = values_of[key]
         carried = [v for v in values if v]
         if not carried:
             continue
@@ -3026,8 +3034,18 @@ def prove_pd_link(
         for i, v in enumerate(values):
             if v and (v not in latest or reads[i] > reads[latest[v]]):
                 latest[v] = i
-        if any(v and i != latest[v] and reads[i] == reads[latest[v]] for i, v in enumerate(values)):
+        # two rows one read wrote carry one value: two documents share it (a partner's id), or one document
+        # came twice (its rows agree on every other key tried: came_twice)
+        twice = [
+            (i, latest[v])
+            for i, v in enumerate(values)
+            if v and i != latest[v] and reads[i] == reads[latest[v]]
+        ]
+        if twice:
             link.not_unique.append(key)
+            others = [k for k in tried if k not in (PD_RECORD_KEY, key)]
+            if all(values_of[k][i] == values_of[k][j] for i, j in twice for k in others):
+                link.came_twice.append(key)
             continue
         indexes[key] = latest
     # each pair's links (a report's position -> its document's), the same links of two pairs one link
@@ -3062,7 +3080,7 @@ def prove_pd_link(
     contenders = [g for g in ranked if not g["disagree"]]
     best = contenders[0] if contenders else None
     if best is None:
-        link.why = "dates_disagree" if groups else "repeated" if link.not_unique else "no_link"
+        link.why = "dates_disagree" if groups else "repeated" if link.came_twice else "no_link"
     else:
         rivals = [g for g in contenders[1:] if any(best["links"].get(r) != d for r, d in g["links"].items())]
         share = LINK_SHARE if best["dated"] * 2 >= best["linked"] else LINK_SHARE_UNDATED
@@ -3156,12 +3174,12 @@ def link_progress_reports() -> dict[str, Any]:
     external id or reference number), by the key pair the data proves (:func:`held_pd_link`; with none proven,
     the document a report names by the key it is held under). Run after each of the two datasets (the
     catalogue syncs the programme documents first), so a link follows a change in either. An older version
-    of a report (:func:`older_versions`) is linked to none, so no page counts a report twice. Key names and
+    of a report (:func:`older_versions`) is linked to none, so no link counts a report twice. Key names and
     counts only, for the run's details: ``linked``; ``pd_not_named`` (the record names none under the pair's
     key); ``pd_not_held`` (a PRP programme document NeuroDB does not hold under the pair's key);
     ``pd_not_linked`` (held, not linked to a PD NeuroDB holds); ``pd_superseded`` (an older version, left
-    unlinked); and the pair (:meth:`PDLink.details`: ``by``, ``proven``, ``pairs``, ``pd_keys``, ``why``).
-    Nothing when no progress report is held."""
+    unlinked); and the pair (:meth:`PDLink.details`: ``by``, ``proven``, ``pairs``, ``pd_keys``,
+    ``not_unique``, ``came_twice``, ``why``). Nothing when no progress report is held."""
     reports = list(
         dm.DatamartDocument.objects.filter(dataset=PROGRESS_REPORTS).only(
             "pk", "data", "intervention_id", "partner_id", "synced_at"

@@ -447,3 +447,62 @@ def test_operations_names_the_filter_the_masters_without_a_target_line_opens():
     for start in ("(`etools_masters_without_target`", "*Needs attention* lists it"):
         said = OPERATIONS_WORDS[OPERATIONS_WORDS.index(start) :][:220]
         assert f"*{labels['listed']}*" in said and f"*{labels['no']}*" not in said, start
+
+
+def test_operations_says_what_ask_neurodb_and_check_11_make_of_prp_progress_reports():
+    """OPERATIONS.md said Ask NeuroDB's look-ups by PD find each PRP progress report once: it has none for them
+    (their catalogue entry names no PD or partner key) and lists every version held until a whole read removes
+    the older ones; only check 11 counts each report once. It said a key left out as its value repeats makes
+    ``why`` ``repeated``: another key can still prove the pair, and only a document that came twice in one read
+    hides the key holding the id. And that check 11 then asks the eTools Datamart team nothing, which holds only
+    for such a document: a key two documents share, as a partner's id, never hides it."""
+    from neurodb.datamart import query
+
+    progress = query.dataset("prp_progress_reports")
+    assert (progress.pd_link, progress.partner_link) == ("", False)
+    assert "Ask NeuroDB's look-ups by PD find each report once" not in OPERATIONS_WORDS
+    assert (
+        "Ask NeuroDB is not changed by this: it has no look-up by PD or partner for PRP's progress reports "
+        "(their catalogue entry names no PD or partner key, so it lists their records and filters on their own "
+        "fields, where `programme_document` is PRP's id, not an eTools PD), and it lists every row held, an "
+        "older version among them, until a whole read removes it."
+    ) in OPERATIONS_WORDS
+    assert "`why` is then `repeated`" not in OPERATIONS_WORDS
+    assert (
+        "Another key can still prove the pair, or fail as `few`, `not_clear` or `dates_disagree`; when no key "
+        "pair left links a progress report at all, `why` is `repeated` if a document that came twice left a key "
+        "out, else `no_link`."
+    ) in OPERATIONS_WORDS
+    assert (
+        "with the keys left out as their values repeat (then it asks the eTools Datamart team nothing"
+        not in (OPERATIONS_WORDS)
+    )
+    assert (
+        "why none was proven with the keys a document that came twice in one read left out (then it asks the "
+        "eTools Datamart team nothing: the key holding the id may be among them, and the next read's copy counts) "
+        "or else the keys the documents carry, a key two documents share among them (what to tell the eTools "
+        "Datamart team)"
+    ) in OPERATIONS_WORDS
+    text = " ".join(GUIDE_TEXT["partner-progress"].split())
+    assert "left out because a value repeats among the documents one read wrote" not in text
+    assert (
+        "left out because a programme document came twice in one read (the next read's copy counts)" in text
+    )
+    assert "Ask NeuroDB still lists an older version until a whole read removes it" in text
+
+
+def test_operations_and_the_guide_say_why_check_10_s_dates_print_whole():
+    """break-word keeps a word whole, never a date: "1 Mar 2025" is three words, and check 10's Start and End
+    printed as "1 Mar" over "2025". Its dates are written with non-breaking spaces; the docs said the CSS did it."""
+    assert (
+        "a reference number, a date or a count breaks only when it cannot fit at all" not in OPERATIONS_WORDS
+    )
+    assert (
+        "check 10's dates are written with non-breaking spaces (`checks._cell_day`), so a date never prints as "
+        '"1 Mar" over "2025"'
+    ) in OPERATIONS_WORDS
+    text = " ".join(GUIDE_TEXT["partner-progress"].split())
+    assert (
+        "(reference numbers, dates and counts print whole: check 10's dates are written with non-breaking "
+        in (text)
+    )

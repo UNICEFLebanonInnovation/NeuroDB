@@ -121,7 +121,8 @@
    A4 landscape on this page only (a named page: admin.css is loaded on every admin page, which keep the
    browser's own), and the cards take all of it: the print dialog reads the media queries at its portrait width,
    where unfold's container holds the page to 40rem (640 px). A cell breaks inside a word only when that word
-   cannot fit at all (break-word, not anywhere), so reference numbers, dates and counts print whole. */
+   cannot fit at all (break-word, not anywhere), so reference numbers and counts print whole; a date is three
+   words, so check 10's are written with non-breaking spaces (checks._cell_day) and print whole too. */
 @media print {
   @page nd-checks { size: A4 landscape; margin: 10mm; }
   body:has(.nd-checks) { page: nd-checks; }

@@ -4,7 +4,8 @@ their wide tables scroll sideways (and Data health's inside 560 px), so a PDF co
 a named page of their own, so every other admin page keeps the browser's sheet, across the whole sheet (the
 admin's container would hold them to 640 px); check 10's folded lists, and Data health's Power BI details,
 are opened before printing by a script that carries the page's nonce. A cell breaks inside a word or a
-figure only when it cannot fit at all, so reference numbers, dates and counts print whole."""
+figure only when it cannot fit at all, so reference numbers and counts print whole (check 10's dates hold
+together by their non-breaking spaces: tests/reports/test_reporting_checks_feeds.py)."""
 
 from __future__ import annotations
 
@@ -38,7 +39,7 @@ def test_the_checks_print_every_column_wrapping_on_a_landscape_page_of_their_own
         r"overflow-wrap: break-word;",
         block,
     )
-    assert "anywhere" not in block  # a reference number, a date or a count never splits to fit a column
+    assert "anywhere" not in block  # a reference number or a count never splits to fit a column
     # the whole landscape sheet: unfold's container holds the page to 40rem at the print dialog's portrait width
     assert "body:has(.nd-checks) #content { max-width: none !important; }" in block
     assert '.nd-checks .nd-jobs th[scope="row"] { min-width: 0; }' in block

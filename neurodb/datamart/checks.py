@@ -159,6 +159,12 @@ def _day(day: datetime.date | None) -> str | None:
     return f"{day.day} {day:%b %Y}" if day else None
 
 
+def _cell_day(day: datetime.date | None) -> str | None:
+    """:func:`_day` for a table cell, its day, month and year joined by non-breaking spaces: a printed column
+    breaks between words, and "1 Mar" over "2025" read as two values."""
+    return _day(day).replace(" ", "\u00a0") if day else None
+
+
 def _local_day(moment: datetime.datetime) -> datetime.date:
     return timezone.localtime(moment).date() if timezone.is_aware(moment) else moment.date()
 
@@ -1924,7 +1930,15 @@ def _no_row_group(
         held = "unknown (check 8)" if prp is None else "yes" if pk in prp else "no"
         kind = (kind or "").strip()
         rows.append(
-            (number or None, kind or None, _day(start), _day(end), sections or None, held, active.get(pk, 0))
+            (
+                number or None,
+                kind or None,
+                _cell_day(start),
+                _cell_day(end),
+                sections or None,
+                held,
+                active.get(pk, 0),
+            )
         )
     listed = f", the first {GROUP_ROWS:,} listed" if len(pds) > GROUP_ROWS else ""
     return {
@@ -2121,8 +2135,8 @@ def _country_and_link(cursor) -> dict[str, Any]:
             g["_link"],
             g["rows"],
             g["reports"],
-            _day(g["first"]),
-            _day(g["last"]),
+            _cell_day(g["first"]),
+            _cell_day(g["last"]),
             top((g["_country"], g["_link"])),
             ", ".join(sorted(x for x in g["numbers"] or [] if x)[:3]) or None,
         )
@@ -2332,9 +2346,9 @@ def _link_words(feed: dict[str, Any]) -> tuple[str, bool]:
     documents held for the business area and those linked to an eTools programme document NeuroDB holds (a
     warning when records of another business area name one of NeuroDB's by its reference number), then the key
     pair the last sync linked the progress reports by, with how many it links and how many of its links end
-    outside their document's dates, or why none was proven, with the keys left out as a value repeats among
-    the documents one read wrote, or else the keys the documents carry (what to tell the Datamart team). Key
-    names and counts only; "" for syncs made before they were recorded."""
+    outside their document's dates, or why none was proven, with the keys a programme document that came twice
+    in one read left out (the next read's copy counts), or else the keys the documents carry (what to tell the
+    Datamart team). Key names and counts only; "" for syncs made before they were recorded."""
     from neurodb.integrations.etools.datamart_sync import LINK_WHY, PD_RECORD_KEY
 
     said, warn = [], False
@@ -2376,19 +2390,19 @@ def _link_words(feed: dict[str, Any]) -> tuple[str, bool]:
             keys = ", ".join(
                 f"{k} ({_count(n):,})" for k, n in (link.get("pd_keys") or {}).items() if k != PD_RECORD_KEY
             )
-            # keys left out as a value repeats among the documents one read wrote: the key holding the id may
-            # be among them, so the Datamart team is not asked which one it is
-            left = ", ".join(str(k) for k in link.get("not_unique") or [])
+            # keys a programme document that came twice in one read left out (its rows agree on every other
+            # key): the key holding the id may be among them and the next read's copy counts, so the Datamart
+            # team is not asked which one it is. A key two documents share (a partner's id) is no such key.
+            twice = ", ".join(str(k) for k in link.get("came_twice") or [])
             said.append(
                 "No key pair links PRP's progress reports to their programme documents clearly"
                 + (f" ({why})" if why else "")
                 + f": they are linked by the id each programme document is held under, {linked:,} of the "
                 f"{naming:,} reports naming one."
                 + (
-                    f" Left out, as a value repeats among the programme documents one read wrote: {left} (a "
-                    "document that changed during that read came twice, and the next read's copy will count, "
-                    "or two documents share the value)."
-                    if left
+                    " Left out, as a programme document that changed during the read that wrote it came "
+                    f"twice: {twice} (the next read's copy will count)."
+                    if twice
                     else f" The keys PRP's programme documents carry: {keys}; tell the eTools Datamart team "
                     "which one holds the id the progress reports name."
                     if keys
@@ -3197,12 +3211,13 @@ CHECKS: tuple[Check, ...] = (
         "reports (prp/indicator-report-v2) are kept whole for Ask NeuroDB and the Funds page, and PRP's own "
         "progress reports (sources/prp/unicefprogressreport) for Ask NeuroDB, each linked to its programme "
         "document through PRP's programme documents after their sync, by the pair of keys the data proves "
-        "(the id each programme document is held under when none is), each progress report once, as the "
-        "latest read wrote it (an older version a read not whole kept is counted nowhere). All are read with "
-        "the same status rule "
-        "(PRP's word, then the dates); indicator reports are compared with indicator reports, progress "
-        "reports with progress reports. A report the partner reports feed does not carry is counted nowhere "
-        "else: the number gaps (a QPR2 missing between QPR1 and QPR3) are estimated here only.",
+        "(the id each programme document is held under when none is). This check counts each progress report "
+        "once, as the latest read wrote it: an older version a read not whole kept is linked to none and "
+        "counted nowhere here, while Ask NeuroDB, which has no look-up by PD or partner for them, lists it "
+        "until a whole read removes it. All are read with the same status rule (PRP's word, then the dates); "
+        "indicator reports are compared with indicator reports, progress reports with progress reports. A "
+        "report the partner reports feed does not carry is counted nowhere else: the number gaps (a QPR2 "
+        "missing between QPR1 and QPR3) are estimated here only.",
         _two_feeds,
     ),
     Check(

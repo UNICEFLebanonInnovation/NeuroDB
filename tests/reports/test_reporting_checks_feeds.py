@@ -16,6 +16,7 @@ from django.utils import timezone
 from neurodb.core.models import SyncRun
 from neurodb.datamart import checks, reporting
 from neurodb.datamart import models as dm
+from neurodb.integrations.etools import datamart_sync as sync
 from neurodb.partnerships.models import PCA
 from tests.reports.test_r4_views import funded
 from tests.reports.test_reporting_checks_values import D, figures, one, other_pd, pd, report_row
@@ -45,6 +46,12 @@ def document(pd, key, end, source_id=None, **data):
 
 def table(found) -> dict:
     return {(r[0], r[1]): dict(zip(COLUMNS, r[2:], strict=True)) for r in found["table"]["rows"]}
+
+
+def cell(day: str) -> str:
+    """A date as check 10's tables write it, its day, month and year joined by non-breaking spaces: printed, a
+    column breaks between words, and "1 Mar" over "2025" read as two values."""
+    return day.replace(" ", "\u00a0")
 
 
 # ----------------------------------------------------------------------------------- checks 8 and 9
@@ -341,7 +348,10 @@ def test_check_10_says_how_much_of_the_running_pds_reporting_is_held(pd):
     assert why["rows"] == [("No active PD indicator", 1, "unknown (check 8)")]
     (group,) = found["groups"]
     assert group["summary"] == "No active PD indicator (1)"
-    assert group["rows"] == [("LEB/PD/NONE", "PD", "1 Jan 2026", "31 Dec 2027", None, "unknown (check 8)", 0)]
+    assert group["rows"] == [
+        ("LEB/PD/NONE", "PD", cell("1 Jan 2026"), cell("31 Dec 2027"), None, "unknown (check 8)", 0)
+    ]
+    assert " " not in "".join(group["rows"][0][2:4])  # each date prints on one line
 
 
 def _partner_run(status=SyncRun.Status.SUCCEEDED, rows_in=0, **details):
@@ -453,19 +463,19 @@ def test_check_10_explains_the_running_pds_without_rows(pd):
     )
     groups = {g["summary"]: g["rows"] for g in found["groups"]}
     assert groups["Left: their reports should be in the feed (2)"] == [
-        ("LEB/PD/MISSING", "PD", "1 Jan 2026", "31 Dec 2027", None, "yes", 1),
-        ("LEB/PD/MISSING2", "PD", "1 Feb 2026", "31 Dec 2027",
+        ("LEB/PD/MISSING", "PD", cell("1 Jan 2026"), cell("31 Dec 2027"), None, "yes", 1),
+        ("LEB/PD/MISSING2", "PD", cell("1 Feb 2026"), cell("31 Dec 2027"),
          "Health, Child Protection, WASH, Education, PSEA (+1 more)", "no", 1),
     ]  # fmt: skip
     assert groups["Signed, starting later (1)"] == [
-        ("LEB/PD/LATER", "PD", "1 Dec 2026", "31 Dec 2027", None, "no", 1)
+        ("LEB/PD/LATER", "PD", cell("1 Dec 2026"), cell("31 Dec 2027"), None, "no", 1)
     ]
     (ssfa,) = groups["A document type PRP does not report (not PD, SPD or SHPD) (1)"]
     assert ssfa[:2] == ("LEB/SSFA/1", "SSFA")
     assert groups["No active PD indicator (1)"] == [
-        ("LEB/PD/NOIND", "PD", "1 Jan 2026", "31 Dec 2027", None, "no", 0)
+        ("LEB/PD/NOIND", "PD", cell("1 Jan 2026"), cell("31 Dec 2027"), None, "no", 0)
     ]
-    assert groups["End passed, status still running (1)"][0][2:4] == ("1 Jun 2025", "30 Jun 2026")
+    assert groups["End passed, status still running (1)"][0][2:4] == (cell("1 Jun 2025"), cell("30 Jun 2026"))
     numbers = figures(found)
     assert numbers["… with no partner report row"] == 8 == sum(row[1] for row in why["rows"])
     assert numbers["… of which nothing explains (their reports should be in the feed)"] == 2
@@ -488,7 +498,7 @@ def test_check_10_groups_name_no_person(pd):
     (stored,) = [c for c in checks.run_job("test").details["checks"] if c["key"] == "10"]
     (group,) = stored["groups"]
     assert group["rows"] == [
-        ["LEB/PD/FOCAL", "PD", "1 Jan 2026", "31 Dec 2027", "Health", "unknown (check 8)", 0]
+        ["LEB/PD/FOCAL", "PD", cell("1 Jan 2026"), cell("31 Dec 2027"), "Health", "unknown (check 8)", 0]
     ]
     text = json.dumps(stored)
     assert "Focal Person" not in text and "Partner A" not in text and "A title of the PD" not in text
@@ -602,22 +612,80 @@ def test_check_11_says_how_prp_progress_reports_are_linked_to_their_programme_do
     assert figures(found)["PRP progress reports linked by"] == "no key pair proven"
     assert "Partner A" not in json.dumps(found) and "LEB/PD/CHK1" not in json.dumps(found)
 
-    # the keys holding the id were left out as a value repeats among the documents one read wrote: no key is
-    # missing, so the eTools Datamart team is not asked which one holds it
+    # the keys holding the id were left out as a programme document that changed during the read came twice:
+    # the next read's copy counts, so the eTools Datamart team is not asked which one holds it
     SyncRun.objects.filter(target="prp_progress_reports").delete()
     repeated = {"pd_not_held": 2, "by": ["named", "record_key"], "proven": False, "why": "repeated", "pairs": [],
                 "pd_keys": {"record_key": 3, "external_id": 3, "prp_id": 3, "reference_number": 3},
-                "not_unique": ["external_id", "prp_id", "reference_number"]}  # fmt: skip
+                "not_unique": ["external_id", "prp_id", "reference_number"],
+                "came_twice": ["external_id", "prp_id", "reference_number"]}  # fmt: skip
     _progress_run(business_area="2490", business_area_from="admin", progress_reports_pd_link=repeated)
     verdict = one("11")["verdict"]
     assert (
         "No key pair links PRP's progress reports to their programme documents clearly (no key of PRP's programme "
         "documents whose values are unique holds an id the progress reports name): they are linked by the id each "
-        "programme document is held under, 0 of the 2 reports naming one. Left out, as a value repeats among the "
-        "programme documents one read wrote: external_id, prp_id, reference_number (a document that changed "
-        "during that read came twice, and the next read's copy will count, or two documents share the value)."
+        "programme document is held under, 0 of the 2 reports naming one. Left out, as a programme document that "
+        "changed during the read that wrote it came twice: external_id, prp_id, reference_number (the next "
+        "read's copy will count)."
     ) in verdict
     assert "tell the eTools Datamart team which one" not in verdict
+
+    # a value two documents one read wrote share (their partner's id) hides no key: no next read changes it, so
+    # the eTools Datamart team is still asked which key holds the id the progress reports name
+    SyncRun.objects.filter(target="prp_progress_reports").delete()
+    pds = [
+        ("h1", {"external_id": "11", "partner_id": 5, "reference_number": "LEB/PD1"}, None),
+        ("h2", {"external_id": "12", "partner_id": 5, "reference_number": "LEB/PD2"}, None),
+    ]
+    shared = sync.prove_pd_link(pds, [{"programme_document": n} for n in (77, 78)], written=[3, 3])
+    _progress_run(business_area="2490", business_area_from="admin",
+                  progress_reports_pd_link={**shared.details(), "pd_not_held": 2})  # fmt: skip
+    verdict = one("11")["verdict"]
+    assert (
+        "No key pair links PRP's progress reports to their programme documents clearly (no key of PRP's programme "
+        "documents holds an id the progress reports name): they are linked by the id each programme document is "
+        "held under, 0 of the 2 reports naming one. The keys PRP's programme documents carry: partner_id (2), "
+        "external_id (2), reference_number (2); tell the eTools Datamart team which one holds the id the progress "
+        "reports name."
+    ) in verdict
+    assert "Left out" not in verdict and "next read" not in verdict
+
+
+def test_check_11_alone_counts_each_prp_progress_report_once(pd):
+    """Check 11's rule said PRP's progress reports were kept "for Ask NeuroDB", each counted once: Ask NeuroDB has
+    no look-up by PD or partner for them, and it lists every version held, the older one a read not whole kept
+    among them, until a whole read removes it. Counting each report once is this check's own."""
+    from neurodb.assistant import tools
+    from neurodb.datamart import query
+
+    rule = " ".join(next(c for c in checks.CHECKS if c.key == "11").neurodb.split())
+    assert (
+        "This check counts each progress report once, as the latest read wrote it: an older version a read not "
+        "whole kept is linked to none and counted nowhere here, while Ask NeuroDB, which has no look-up by PD or "
+        "partner for them, lists it until a whole read removes it."
+    ) in rule
+    progress = query.dataset("prp_progress_reports")
+    assert (progress.pd_link, progress.partner_link) == ("", False)
+    night = timezone.make_aware(datetime.datetime(2026, 10, 13, 20, 30))
+    qpr1 = {"programme_document": 77, "report_type": "QPR", "report_number": "QPR1", "end_date": "2026-03-31"}
+    for n, status in enumerate(("Overdue", "Accepted")):
+        SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="prp_progress_reports",
+                               status=SyncRun.Status.PARTIAL, started_at=night + datetime.timedelta(days=n),
+                               details={"removal_skipped": True})  # fmt: skip
+        row = dm.DatamartDocument.objects.create(dataset="prp_progress_reports", record_key=f"hash {n}",
+                                                 intervention=pd if n else None, date=D(2026, 3, 31),
+                                                 data={**qpr1, "status": status})  # fmt: skip
+        dm.DatamartDocument.objects.filter(pk=row.pk).update(
+            synced_at=night + datetime.timedelta(days=n, minutes=5)
+        )
+    figures_11 = figures(one("11"))
+    assert figures_11["PRP progress report records held"] == 2
+    assert figures_11["… older versions of a report a later read wrote again (not counted)"] == 1
+    asked = tools.run(
+        "etools_query",
+        {"dataset": "prp_progress_reports", "filters": {"programme_document": 77}, "group_by": "status"},
+    )
+    assert asked["matching_records"] == 2  # Ask NeuroDB: both versions, until a whole read removes the older
 
 
 def test_check_11_counts_each_prp_progress_report_once_whatever_versions_are_held(pd):

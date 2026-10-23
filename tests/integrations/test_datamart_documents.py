@@ -942,9 +942,52 @@ def test_two_documents_one_read_wrote_sharing_a_value_leave_that_key_out():
     reports = [{"programme_document": n} for n in (77, 77, 78)]
     one_read = sync.prove_pd_link(pds, reports, written=[5, 5, 5])
     assert (one_read.proven, one_read.not_unique, one_read.why) == (False, ["prp_id"], "repeated")
+    assert one_read.came_twice == ["prp_id"] and one_read.details()["came_twice"] == ["prp_id"]
     later = sync.prove_pd_link(pds, reports, written=[4, 5, 5])
     assert (later.proven, later.pd_key, later.not_unique) == (True, "prp_id", [])
     assert later.index == {"77": 2, "78": 3}  # 77: the row the latest read wrote
+
+
+def test_a_value_two_documents_share_hides_no_key_and_the_id_is_still_to_find():
+    """Two programme documents one read wrote share partner_id 5 and differ on every other key: two documents
+    share it, and no next read changes that. partner_id is left out (not_unique), but no document came twice, so
+    no key that could hold the id was hidden: no key holds one the progress reports name (no_link), and check 11
+    still asks the eTools Datamart team which key does. A document that came twice in that read (its rows agree
+    on every other key) hides the keys it carries (came_twice: why repeated), the shared partner_id not among
+    them."""
+    pds = [
+        ("h1", {"external_id": "11", "partner_id": 5, "reference_number": "LEB/PD1"}, None),
+        ("h2", {"external_id": "12", "partner_id": 5, "reference_number": "LEB/PD2"}, None),
+    ]
+    reports = [{"programme_document": n} for n in (77, 78)]
+    shared = sync.prove_pd_link(pds, reports, written=[3, 3])
+    assert (shared.proven, shared.why, shared.not_unique, shared.came_twice) == (
+        False,
+        "no_link",
+        ["partner_id"],
+        [],
+    )
+    assert "came_twice" not in shared.details() and shared.details()["not_unique"] == ["partner_id"]
+    changed = ("h3", {**pds[1][1], "status": "Active"}, None)  # the second document again, as it changed
+    twice = sync.prove_pd_link([*pds, changed], reports, written=[3, 3, 3])
+    assert (twice.why, twice.not_unique, twice.came_twice) == (
+        "repeated",
+        ["external_id", "partner_id", "reference_number"],
+        ["external_id", "reference_number"],
+    )
+
+
+def test_a_key_left_out_never_stops_another_from_proving_the_pair():
+    """Two documents one read wrote share a reference number: it is left out (not_unique), and the unique id
+    still proves the pair (why none). why is "repeated" only when no key pair links a report at all."""
+    pds = [
+        (f"h{n}", {"id": 100 + n, "reference_number": "LEB/PD1" if n < 3 else f"LEB/PD{n}"}, None)
+        for n in range(1, 21)
+    ]
+    reports = [{"programme_document_id": 100 + n} for n in range(1, 21)]
+    link = sync.prove_pd_link(pds, reports, written=[1] * 20)
+    assert (link.proven, link.report_key, link.pd_key, link.why) == (True, "programme_document_id", "id", "")
+    assert (link.not_unique, link.came_twice) == (["reference_number"], [])
 
 
 @responses.activate
@@ -952,7 +995,7 @@ def test_an_older_version_of_a_progress_report_is_never_linked(linked, settings)
     """PRP's progress reports carry no id: QPR1 of programme document 77 is held as "Due", then accepted on a night
     its read is not whole (another report comes twice), so its new version gets a row of its own and the old one
     stays. Only the version the latest read wrote is linked to the PD: the old one is counted apart
-    (pd_superseded), so no page counts the report twice, once as overdue."""
+    (pd_superseded), so no link counts the report twice, once as overdue."""
     settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
     _, pd = linked
     FakeDatamart([_pd(77, external_id="11", reference_number="LEB/PD1"), _pd(78, external_id="999")],

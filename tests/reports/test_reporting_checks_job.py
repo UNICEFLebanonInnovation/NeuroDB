@@ -224,7 +224,7 @@ def test_check_10_lists_each_reason_s_pds_folded_under_its_summary(client, admin
     assert "<summary>No active PD indicator (2)</summary>" in page
     folded = page.split("<summary>No active PD indicator (2)</summary>", 1)[1].split("</details>", 1)[0]
     assert "<td>LEB/PD1</td>" in folded and "<td>LEB/PD2</td>" in folded and "LEB/PD3" not in folded
-    assert "<td>1 Feb 2026</td>" in folded and "Active PD indicators" in folded
+    assert "<td>1\u00a0Feb\u00a02026</td>" in folded and "Active PD indicators" in folded  # on one line
 
 
 def _earlier_result() -> SyncRun:
@@ -461,8 +461,9 @@ def test_check_10_dates_read_the_same_on_the_page_and_in_the_stored_result(db):
     with translation.override("fr"):
         (page,) = [c for c in checks.run_all() if c["key"] == "10"]
     (stored,) = [c for c in checks.run_job("test").details["checks"] if c["key"] == "10"]
-    assert page["table"]["rows"][0][4:6] == ("31 Mar 2026", "31 Mar 2026")
-    assert stored["table"]["rows"][0][4:6] == ["31 Mar 2026", "31 Mar 2026"]
+    day = "31\u00a0Mar\u00a02026"  # a table cell's date, non-breaking spaces: printed, it stays on one line
+    assert page["table"]["rows"][0][4:6] == (day, day)
+    assert stored["table"]["rows"][0][4:6] == [day, day]
     assert checks._day(None) is None
 
 
