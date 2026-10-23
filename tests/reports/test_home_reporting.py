@@ -484,7 +484,9 @@ def test_the_table_is_labelled_its_counts_carry_their_unit_and_their_word(client
         "of LEB/PD3 on Partner monitoring",
     ]
     wrapped = html[: html.index('<table class="table table-sm home-pds"')]
-    assert wrapped.endswith('<div class="table-wrap">')  # scrolls in its box on a phone
+    # scrolls in its box on a phone, a box on a panel: the box's scroll cues are drawn in the panel's colour (on
+    # the page's background they showed as pale patches at both ends of each row)
+    assert wrapped.endswith('<div class="panel p-0 home-pds__panel"><div class="table-wrap">')
 
 
 def test_the_focused_menu_on_home_marks_home_and_groups_partner_reporting(client_viewer, world):
