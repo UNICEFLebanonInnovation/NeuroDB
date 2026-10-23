@@ -1,5 +1,6 @@
 """The sidebar's Databases, Neuro reports and HPM blocks follow the page's reporting year, and a
-new year without any keeps the menus, showing the latest year that has them."""
+new year without any keeps the menus, showing the latest year that has them (in the full menu: every entry
+ticked, ``full_menu``; the focused menu has no ActivityInfo block)."""
 
 import pytest
 from django.core.cache import cache
@@ -7,7 +8,7 @@ from django.urls import reverse
 
 from neurodb.indicators.models import Database, NeuroReport, ReportingYear
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("full_menu")]
 
 
 @pytest.fixture(autouse=True)

@@ -91,7 +91,7 @@ def test_healthz_is_public(client):
     assert client.get("/healthz/").status_code == 200
 
 
-def test_overview_page(client_viewer, hierarchy):
+def test_overview_page(client_viewer, hierarchy, full_menu):
     html = _get(client_viewer, reverse("reports:country_overview")).content.decode()
     assert "Child Protection" in html
 
@@ -288,7 +288,7 @@ def test_list_pages_with_several_pages(client_viewer, db):
 
 
 def test_sidebar_blocks_collapse_and_open_on_the_current_page(
-    client_viewer, hierarchy, section, reporting_year
+    client_viewer, hierarchy, section, reporting_year, full_menu
 ):
     import re
 
@@ -321,7 +321,7 @@ def test_sidebar_blocks_collapse_and_open_on_the_current_page(
     assert db.id != second.id
 
 
-def test_single_database_sections_link_directly(client_viewer, hierarchy):
+def test_single_database_sections_link_directly(client_viewer, hierarchy, full_menu):
     html = _get(client_viewer, reverse("reports:country_overview")).content.decode()
     url = reverse("reports:database_dashboard", args=[hierarchy["database"].id])
     assert f'href="{url}" title="Child Protection"' in html

@@ -187,8 +187,10 @@ def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, wor
     assert ("In the knowledge base" in html and "Amel field report" in html) == (who == "amel")
     assert list(placeholders(html)) == ["datamart"]
     assert f'id="{DATAMART_JSON}"' not in html and 'id="chart-data"' not in html
+    before, after = html.split('id="sidebar"', 1)
+    page = before + after.split("</nav>", 1)[1]  # the menu's own "Partner reporting (PRP)" left out
     for figure in ("Active documents", "Programmatic visits by year", "Partner reporting", "LEB/PCA-AMEL"):
-        assert figure not in html, figure
+        assert figure not in page, figure
 
 
 @pytest.mark.shell

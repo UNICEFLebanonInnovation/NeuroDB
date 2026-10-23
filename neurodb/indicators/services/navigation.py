@@ -1,12 +1,17 @@
 """Sidebar and landing-page content, generated from the database (v2 hard-coded it).
 
-The menu (:data:`MENU`) is one tree for every person and every section: the daily entries first, then the
-figures management reads, the eTools pages officers use weekly, money and assurance, Makani, Dirasa and youth
-while Compiler is live, the resources, and the ActivityInfo archive at the bottom (``base.html``). A few items
-show only while their source has something to show (:func:`sources`); the people who can set such a source
-up (:func:`neurodb.accounts.roles.can_set_up`) see a muted "Set up" row instead, which links to the item's own
-page (it says what is missing). The search's *Pages* group lists the same items under the same conditions
-(:func:`pages`).
+The full menu (:data:`MENU`) is one tree: the daily entries first, then the figures management reads, the
+eTools pages officers use weekly, money and assurance, Makani, Dirasa and youth while Compiler is live, the
+resources, and the ActivityInfo archive at the bottom (``base.html``). A few rows show only while their source
+has something to show (:func:`sources`); the people who can set such a source up
+(:func:`neurodb.accounts.roles.can_set_up`) see a muted "Set up" row instead, which links to the row's own
+page (it says what is missing).
+
+Superusers see the full menu. Everyone else sees the focused menu (:data:`FOCUS`: Home, Partner reporting
+with Progress reports and Partner monitoring, Field monitoring, Ask NeuroDB), or the entries a superuser
+ticked for their role in the administration's Menu page (:func:`shown`, :func:`sidebar`). Only the menu is
+shorter: a page left out of it still opens from links, bookmarks and the search, whose *Pages* group lists
+every page of the full menu under the same conditions (:func:`pages`).
 """
 
 from __future__ import annotations
@@ -215,6 +220,11 @@ class MenuItem:
     def routes(self) -> tuple[str, ...]:
         return (self.route, *self.also)
 
+    @property
+    def key(self) -> str:
+        """The entry's name in the Menu page's choices (web.MenuChoice): its route, unique in the menu."""
+        return self.route
+
 
 @dataclass(frozen=True)
 class MenuGroup:
@@ -225,6 +235,18 @@ class MenuGroup:
     items: tuple[MenuItem, ...]
     when: str = ""  # the whole group's condition
 
+
+# The two entries of Partner reporting (PRP): under Partner progress (eTools) in the full menu, a group of
+# their own in the focused menu (FOCUS), the same rows in both.
+PARTNER_MONITORING = MenuItem(
+    _("Partner monitoring"),
+    "reports:pd_monitoring",
+    "target",
+    ("reports:pd_monitoring_map", "reports:pd_indicator"),
+)
+PROGRESS_REPORTS = MenuItem(
+    _("Progress reports"), "reports:partner_reporting", "file", ("reports:progress_report",)
+)
 
 MENU: tuple[MenuGroup, ...] = (
     MenuGroup(
@@ -257,15 +279,8 @@ MENU: tuple[MenuGroup, ...] = (
         "etools",
         _("Partner progress (eTools)"),
         (
-            MenuItem(
-                _("Partner monitoring"),
-                "reports:pd_monitoring",
-                "target",
-                ("reports:pd_monitoring_map", "reports:pd_indicator"),
-            ),
-            MenuItem(
-                _("Progress reports"), "reports:partner_reporting", "file", ("reports:progress_report",)
-            ),
+            PARTNER_MONITORING,
+            PROGRESS_REPORTS,
             MenuItem(
                 _("Programme documents"),
                 "reports:programmes",
@@ -361,6 +376,26 @@ ARCHIVE_DATABASES = _("ActivityInfo databases")
 ARCHIVE_FORECASTS = _("Year-end forecasts")
 # Conditions whose item a person who can set the source up sees as a muted "Set up" row instead of nothing
 SETUP_CONDITIONS = frozenset({"cpd", "compiler", "doc_review"})
+# The two entries of the menu that are not a row of MENU, by their name in the Menu page's choices
+ARCHIVE_KEY = "archive"  # the ActivityInfo archive (or Monthly results) at the bottom of the menu
+HELP_KEY = HELP.route
+
+# The focused menu (SPEC_focus_menu §1.2): what every role sees until a superuser ticks otherwise in the
+# administration's Menu page, in this order. Superusers always see the full menu (MENU). Help is not in it:
+# the "?" panel links to the Help pages and the search finds them (a superuser can tick it for a role).
+PRP = MenuGroup("prp", _("Partner reporting (PRP)"), (PROGRESS_REPORTS, PARTNER_MONITORING))
+FOCUS: tuple[str | MenuGroup, ...] = ("reports:overview", PRP, "reports:monitoring", "assistant:ask")
+FOCUSED = frozenset(
+    {"reports:overview", PROGRESS_REPORTS.key, PARTNER_MONITORING.key, "reports:monitoring", "assistant:ask"}
+)
+# What the Menu page says of an entry that shows only under a condition (MenuItem.when, MenuGroup.when)
+NOTES = {
+    "ask": _("Shown while the AI is on (to staff always)."),
+    "fmm": _("Shown while Monitoring insights is switched on."),
+    "cpd": _("Shown once a country programme is uploaded."),
+    "compiler": _("Shown once Compiler's figures are there."),
+    "doc_review": _("Shown once the document review is on."),
+}
 
 
 def _flags(user) -> dict[str, bool]:
@@ -377,10 +412,11 @@ def _flags(user) -> dict[str, bool]:
 
 
 def menu(user, can_set_up: Callable[[], bool] | None = None) -> list[dict[str, Any]]:
-    """The menu's groups as ``user`` sees them, in order: ``{"key", "title", "items"}``, each item a dict
-    (:func:`_entry`) with ``muted`` set on a "Set up" row. ``can_set_up`` (asked at most once, and only when a
-    source is not live) defaults to :func:`neurodb.accounts.roles.can_set_up`. A group whose items all stay
-    hidden is left out, title and all."""
+    """The full menu's groups under their conditions for ``user``, in order: ``{"key", "title", "items"}``,
+    each item a dict (:func:`_entry`) with ``muted`` set on a "Set up" row. The sidebar draws it whole for a
+    superuser and the entries of the person's role for anyone else (:func:`sidebar`). ``can_set_up`` (asked
+    at most once, and only when a source is not live) defaults to :func:`neurodb.accounts.roles.can_set_up`.
+    A group whose items all stay hidden is left out, title and all."""
     from neurodb.accounts.roles import can_set_up as may_set_up
 
     flags = _flags(user)
@@ -416,9 +452,107 @@ def help_entry() -> dict[str, Any]:
     return _entry(HELP, muted=False)
 
 
+def keys() -> list[str]:
+    """Every entry of the full menu by its name in the Menu page's choices, in the full menu's order: the
+    rows of :data:`MENU` group by group, then the ActivityInfo archive, then Help."""
+    return [item.key for group in MENU for item in group.items] + [ARCHIVE_KEY, HELP_KEY]
+
+
+def entries() -> list[dict[str, Any]]:
+    """Every entry as the Menu page lists it, in the order a role's sidebar draws them (:func:`sidebar`): the
+    focused part first (:data:`FOCUS`), then each group of :data:`MENU` without the entries already listed,
+    then the ActivityInfo archive and Help. Each is ``{"key", "label", "group", "note"}``: ``group`` the
+    heading the page lists it under, ``note`` when it shows ("" when always)."""
+    rows = {item.key: (item, group) for group in MENU for item in group.items}
+    top, below = _("Top of the menu"), _("Below Partner reporting")
+    found: list[dict[str, Any]] = []
+    placed: set[str] = set()
+
+    def add(item: MenuItem, heading, group: MenuGroup | None = None) -> None:
+        when = item.when or (group.when if group else "")
+        found.append({"key": item.key, "label": item.label, "group": heading, "note": NOTES.get(when, "")})
+        placed.add(item.key)
+
+    for n, part in enumerate(FOCUS):
+        if isinstance(part, MenuGroup):
+            for item in part.items:
+                add(item, part.title, rows[item.key][1])
+        elif part in rows:
+            add(rows[part][0], top if n == 0 else below, rows[part][1])
+    for group in MENU:
+        for item in group.items:
+            if item.key not in placed:
+                # the untitled first group's rows follow the focused part's last rows, untitled too
+                add(item, group.title or below, group)
+    found.append(
+        {
+            "key": ARCHIVE_KEY,
+            "label": _("ActivityInfo (the monthly results or the archive)"),
+            "group": _("ActivityInfo"),
+            "note": _(
+                "Shown while there is an ActivityInfo year. Holds the only menu links to the Neuro reports "
+                "and HPM reports, where section editors write their comments."
+            ),
+        }
+    )
+    found.append({"key": HELP_KEY, "label": HELP.label, "group": _("Bottom of the menu"), "note": ""})
+    return found
+
+
+def shown(user) -> frozenset[str] | None:
+    """The entries the person's menu shows: None (every entry) for a superuser; else their role's, as a
+    superuser ticked them in the Menu page (:mod:`neurodb.web.menu_choices`), or the focused menu
+    (:data:`FOCUSED`) while no choice is saved. Never a query of its own: the role is read once per request
+    (the top bar names it), the choices once per 10 s."""
+    if getattr(user, "is_superuser", False):
+        return None
+    from neurodb.accounts.roles import role_of
+    from neurodb.web import menu_choices
+
+    return menu_choices.for_role(role_of(user))
+
+
+def sidebar(user, can_set_up: Callable[[], bool] | None = None) -> dict[str, Any]:
+    """The menu the sidebar draws for ``user``: ``{"groups", "archive", "help"}``. ``groups`` as
+    :func:`menu` gives them (its conditions and muted rows apply to every layout); ``archive`` whether the
+    ActivityInfo archive is drawn; ``help`` Help's row, or None.
+
+    A superuser gets the full menu. Anyone else gets the entries :func:`shown` names, laid out focus
+    first: the rows of :data:`FOCUS` in its order (an untitled row each, Partner reporting a group of its
+    own), then every other entry shown, in :data:`MENU`'s order under its usual title. The layout does not
+    change with what is ticked: one more tick adds a row and moves none."""
+    full = menu(user, can_set_up)
+    chosen = shown(user)
+    if chosen is None:
+        return {"groups": full, "archive": True, "help": help_entry()}
+    drawn = {item["key"]: item for group in full for item in group["items"]}  # under their conditions
+    groups: list[dict[str, Any]] = []
+    placed: set[str] = set()
+    for n, part in enumerate(FOCUS):
+        if isinstance(part, MenuGroup):
+            items = [drawn[i.key] for i in part.items if i.key in chosen and i.key in drawn]
+            placed.update(i.key for i in part.items)
+            if items:
+                groups.append({"key": part.key, "title": part.title, "items": items})
+        else:
+            placed.add(part)
+            if part in chosen and part in drawn:
+                groups.append({"key": f"focus-{n}", "title": None, "items": [drawn[part]]})
+    for group in full:
+        items = [i for i in group["items"] if i["key"] in chosen and i["key"] not in placed]
+        if items:
+            groups.append({**group, "items": items})
+    return {
+        "groups": groups,
+        "archive": ARCHIVE_KEY in chosen,
+        "help": help_entry() if HELP_KEY in chosen else None,
+    }
+
+
 def _entry(item: MenuItem, muted: bool) -> dict[str, Any]:
     ai_badge = item.badge == "ai" or (item.badge == "fmm_ai" and getattr(settings, "FMM_AI", False))
     return {
+        "key": item.key,
         "label": item.label,
         "url": reverse(item.route),
         "icon": item.icon,
@@ -452,9 +586,10 @@ def archive(state) -> dict[str, Any]:
 
 
 def pages(user, state=None, can_set_up: Callable[[], bool] | None = None) -> list[dict[str, Any]]:
-    """Every page of the menu ``user`` sees (:func:`menu`; a muted row counts as shown), the ActivityInfo
-    archive's own pages and Help, as the search's *Pages* group lists them: ``{"label", "url", "hint"}``, the
-    hint being the menu group the page sits in."""
+    """Every page of the full menu under its conditions for ``user`` (:func:`menu`; a muted row counts as
+    shown), the ActivityInfo archive's own pages and Help, as the search's *Pages* group lists them:
+    ``{"label", "url", "hint"}``, the hint being the full menu's group the page sits in. It does not follow
+    the person's own menu (:func:`sidebar`): a page left out of it is still found here."""
     from neurodb.indicators.services import activityinfo
 
     found = []

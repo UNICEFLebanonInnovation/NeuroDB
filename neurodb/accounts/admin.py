@@ -82,6 +82,15 @@ class UserAdmin(DjangoUserAdmin, ModelAdmin):
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related("groups").select_related("donor_account")
 
+    def get_readonly_fields(self, request, obj=None):
+        # Only a superuser makes a superuser, or grants a permission one by one: an Administrator holds every
+        # permission (ensure_groups) and could otherwise make themselves a superuser, who alone chooses
+        # what each role sees in the menu (Users and access > Menu).
+        fields = super().get_readonly_fields(request, obj)
+        if not request.user.is_superuser:
+            fields = (*fields, "is_superuser", "user_permissions")
+        return fields
+
     @admin.display(description=_("Name"), ordering="last_name")
     def full_name(self, obj):
         return obj.get_full_name() or "—"

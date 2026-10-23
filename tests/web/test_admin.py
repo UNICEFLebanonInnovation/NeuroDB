@@ -47,6 +47,7 @@ def test_dashboard_shows_groups_tiles_and_warnings(client_super, hierarchy, acti
     assert "1 active user has no role" in html
     assert "The last eTools sync failed." in html
     assert "Quick actions" in html
+    assert "Choose what each role sees in the menu" in html  # a superuser's (the Menu page)
 
 
 def test_dashboard_survives_a_database_error(client_super, monkeypatch):

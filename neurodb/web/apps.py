@@ -1,12 +1,17 @@
 from django.apps import AppConfig
 from django.contrib.admin import apps as admin_apps
+from django.utils.translation import gettext_lazy as _
 
 
 class WebConfig(AppConfig):
     name = "neurodb.web"
     label = "web"
+    verbose_name = _("Site")  # the administration's crumbs: Site › Menu
     default = True
     default_auto_field = "django.db.models.BigAutoField"
+
+    def ready(self):
+        from . import menu_choices  # noqa: F401 - its saves and deletes clear the menu kept in memory
 
 
 class NeuroDBAdminConfig(admin_apps.AdminConfig):

@@ -587,6 +587,6 @@ def test_the_crumbs_name_the_menu_group_of_the_page(client_viewer):
         assert items == ["Education and youth", label], name
 
 
-def test_sidebar_links_both_dashboards(client_viewer, makani):
+def test_sidebar_links_both_dashboards(client_viewer, makani, full_menu):
     html = page(client_viewer, "makani").content.decode()
     assert "Makani (MSCC)" in html and "Dirasa (Bridging)" in html and reverse("education:dirasa") in html

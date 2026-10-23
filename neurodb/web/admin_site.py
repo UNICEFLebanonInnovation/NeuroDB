@@ -86,11 +86,12 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     ),
     (
         _("Users and access"),
-        _("Accounts, roles, sections, donor access and sign-in."),
+        _("Accounts, roles, the menu each role sees, sections, donor access and sign-in."),
         [
             "users.User",
             "donors.DonorAccount",
             "auth.Group",
+            "web.MenuChoice",
             "users.Section",
             "users.Office",
             "account.EmailAddress",
@@ -293,6 +294,7 @@ ICONS = {
     "graph.DigestSubscription": "mark_email_read",
     "users.User": "person",
     "auth.Group": "badge",
+    "web.MenuChoice": "menu",
     "users.Section": "workspaces",
     "users.Office": "apartment",
     "account.EmailAddress": "mail",

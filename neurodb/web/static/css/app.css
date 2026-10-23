@@ -177,6 +177,12 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .section-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--section-color, var(--nd-primary)); flex: none; }
 /* The menu's titled groups (role="group", labelled by their title): their rows keep the sidebar's rhythm */
 .nav-group { display: flex; flex-direction: column; gap: 1px; }
+/* A row right after a titled group starts the menu's next part (the focused menu: Field monitoring after Partner
+   reporting): a line above it, like the archive's, so it does not read as one of the group's rows */
+.nav-group + .nav-item-link:not(.nav-item-link--help) { position: relative; margin-top: 1.05rem; }
+.nav-group + .nav-item-link:not(.nav-item-link--help)::before {
+  content: ""; position: absolute; left: 0; right: 0; top: -0.55rem; border-top: 1px solid var(--nd-border);
+}
 /* A source that is not live yet, shown only to the people who can set it up: a quieter row marked "Set up" */
 .nav-item-link--muted { color: var(--nd-muted); }
 .nav-item-link--muted .icon { opacity: 0.8; }
