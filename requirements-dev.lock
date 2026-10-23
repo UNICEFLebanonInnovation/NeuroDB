@@ -38,7 +38,7 @@ iniconfig==2.3.0
 isodate==0.7.2
 jiter==0.17.0
 license-expression==30.4.4
-Markdown==3.10.3
+markdown==3.10.3
 markdown-it-py==4.2.0
 mdurl==0.1.2
 msal==1.39.0
@@ -69,6 +69,7 @@ opentelemetry-semantic-conventions==0.65b0
 opentelemetry-util-http==0.65b0
 packageurl-python==0.17.6
 packaging==26.3
+pillow==11.3.0
 pip==26.2.1
 pip-api==0.0.35
 pip-audit==2.10.1
@@ -81,7 +82,7 @@ psycopg-binary==3.3.6
 py-serializable==2.1.0
 pycparser==3.0
 pydantic==2.13.5
-pydantic_core==2.46.5
+pydantic-core==2.46.5
 pygments==2.21.0
 pyjwt==2.14.0
 pyparsing==3.3.3

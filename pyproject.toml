@@ -36,6 +36,7 @@ dev = [
   "ruff~=0.12",
   "pip-audit~=2.9",
   "django-debug-toolbar~=5.0",
+  "pillow~=11.3",                        # the landing page test reads the photos' sizes
 ]
 
 [tool.ruff]
