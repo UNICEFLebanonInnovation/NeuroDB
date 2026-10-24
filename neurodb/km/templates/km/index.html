@@ -2,7 +2,12 @@
 {% load i18n humanize %}
 {% block title %}{{ words.PAGE_TITLE }}{% endblock %}
 {% block content %}
-{# the KM Database: its own tables, read by nothing else in NeuroDB. The title never holds a workbook title. #}
+{% comment %}
+  The KM Database (km.views.index and km.views.documents): its own tables, read by nothing else in NeuroDB.
+  The title never holds a workbook title. One filter bar for both tabs: the search box stays in view on a
+  phone (km-search) while the other filters fold behind "Filters"; a filter reloads the results only
+  (#km-results). The sort and the page size are links that load the page, so the bar keeps them.
+{% endcomment %}
 <p class="page-purpose">{{ words.PURPOSE }}</p>
 {% if version %}
 <p class="km-version" data-km-version>{{ version_line }}</p>
@@ -22,10 +27,52 @@
 </section>
 {% else %}
 <nav class="segmented segmented--scroll mb-3 km-tabs" aria-label="{% trans 'KM Database views' %}">
-  {% for t in tabs %}<a href="{{ t.url }}"{% if t.key == tab %} aria-current="page"{% endif %}>{{ t.label }} <span class="km-tabs__count">({{ t.count|intcomma }})</span></a>{% endfor %}
+  {% for t in tabs %}<a href="{{ t.url }}" data-current-query=""{% if t.drop %} data-drop-query="{{ t.drop }}"{% endif %}{% if t.key == tab %} aria-current="page"{% endif %}>{{ t.label }} <span class="km-tabs__count">({{ t.count|intcomma }})</span></a>{% endfor %}
 </nav>
+<div class="filters-collapse km-filters" data-filters-collapse>
+<form method="get" action="{{ request.path }}" class="filter-bar km-filter-bar" data-filter-bar data-hx-target="#km-results" role="search" aria-label="{% trans 'KM Database filters' %}">
+  {% if tab == "findings" and filters.document %}<input type="hidden" name="document" value="{{ filters.document }}">{% endif %}
+  {% if filters.sort %}<input type="hidden" name="sort" value="{{ filters.sort }}">{% endif %}
+  {% if filters.per != 25 %}<input type="hidden" name="per" value="{{ filters.per }}">{% endif %}
+  <div class="filter-bar__field km-search">
+    <label class="form-label" for="km-q">{{ words.SEARCH_LABEL }}</label>
+    <input class="form-control form-control-sm" type="search" id="km-q" name="q" value="{{ filters.q }}" maxlength="200" placeholder="{{ words.SEARCH_PLACEHOLDER }}">
+  </div>
+  {% include "km/_multiselect.html" with name="pillar" label=words.PILLAR options=form.pillars %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="km-rq">{{ words.QUESTION }}</label>
+    <select class="form-select form-select-sm" id="km-rq" name="rq" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for group in form.questions %}<optgroup label="{{ group.label }}">{% for o in group.options %}<option value="{{ o.value }}"{% if o.selected %} selected{% endif %}>{{ o.label }}</option>{% endfor %}</optgroup>{% endfor %}
+    </select>
+  </div>
+  {% include "km/_multiselect.html" with name="confidence" label=words.CONFIDENCE options=form.confidence help=form.legend %}
+  {% include "km/_multiselect.html" with name="year" label=words.YEAR options=form.years %}
+  {% include "km/_multiselect.html" with name="type" label=words.TYPE options=form.types %}
+  <details class="km-more"{% if filters.more %} open{% endif %}>
+    <summary>{{ words.MORE_FILTERS }}</summary>
+    <div class="km-more__body">
+      {% include "km/_multiselect.html" with name="domain" label=words.DOMAIN options=form.domains %}
+      {% for group in form.chips %}
+      <fieldset class="km-chips">
+        <legend class="form-label">{{ group.title }}</legend>
+        <div class="chips">{% for o in group.options %}<label class="chip km-chip"><input type="checkbox" name="{{ group.name }}" value="{{ o.value }}"{% if o.selected %} checked{% endif %}> {{ o.label }}</label>{% endfor %}</div>
+      </fieldset>
+      {% endfor %}
+      <fieldset class="km-chips">
+        <legend class="form-label">{{ words.QUALITY }}</legend>
+        <div class="chips">{% for o in form.quality %}<label class="chip km-chip"><input type="radio" name="quality" value="{{ o.value }}"{% if o.selected %} checked{% endif %}> {{ o.label }}</label>{% endfor %}</div>
+      </fieldset>
+    </div>
+  </details>
+  <div class="filter-bar__actions">
+    <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>
+  </div>
+</form>
+</div>
 <section class="panel p-0" id="km-results" aria-live="polite">
   {% if tab == "documents" %}{% include "km/partials/documents.html" %}{% else %}{% include "km/partials/findings.html" %}{% endif %}
 </section>
+<p class="km-how small">{{ words.HOW_TO_READ }} {{ form.legend }}</p>
 {% endif %}
 {% endblock %}

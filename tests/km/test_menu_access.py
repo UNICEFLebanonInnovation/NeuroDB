@@ -18,6 +18,16 @@ from tests.web.menu_rows import groups, rows
 pytestmark = pytest.mark.django_db
 
 PAGES = ("km:index", "km:documents")
+# every address of the KM Database: its tabs, a finding, a document and the downloads
+ADDRESSES = (
+    "/km/",
+    "/km/documents/",
+    f"/km/findings/{factory.finding_id(1, 1)}/",
+    f"/km/documents/{factory.record_id(1)}/",
+    "/km/?export=xlsx",
+    "/km/?export=csv",
+    "/km/documents/?export=xlsx",
+)
 
 
 def _person(username: str, role: str, *, is_staff=False, is_superuser=False) -> User:
@@ -79,13 +89,17 @@ def test_the_menu_page_lists_it_unticked_for_every_role(client, roles, menu_choi
 def test_every_signed_in_unicef_role_opens_it_ticked_or_not(client, roles, role):
     factory.load(factory.workbook())
     client.force_login(_person(f"km-open-{role[:4].lower()}", role))
-    for name in PAGES:
-        assert client.get(reverse(name)).status_code == 200, name
+    for address in ADDRESSES:
+        assert client.get(address).status_code == 200, address
 
 
 def test_donors_are_sent_to_their_page_and_htmx_is_refused(client, roles):
+    factory.load(factory.workbook())
     donor = make_donor()
     client.force_login(donor.user)
+    for address in ADDRESSES:
+        response = client.get(address)
+        assert response.status_code == 302 and response["Location"] == reverse("donors:page"), address
     for name in PAGES:
         response = client.get(reverse(name))
         assert response.status_code == 302 and response["Location"] == reverse("donors:page"), name
@@ -96,6 +110,7 @@ def test_donors_are_sent_to_their_page_and_htmx_is_refused(client, roles):
 
 
 def test_signed_out_visitors_are_sent_to_sign_in(client):
-    for name in PAGES:
-        response = client.get(reverse(name))
-        assert response.status_code == 302 and reverse("account_login") in response["Location"], name
+    factory.load(factory.workbook())
+    for address in ADDRESSES:
+        response = client.get(address)
+        assert response.status_code == 302 and reverse("account_login") in response["Location"], address

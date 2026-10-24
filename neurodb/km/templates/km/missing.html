@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}{{ words.PAGE_TITLE }}{% endblock %}
+{% block content %}
+{# A finding or a document that the version shown does not hold (km.views._missing): 404. #}
+{% url 'km:index' as table_url %}
+<section class="panel">{% include "components/empty_state.html" with icon="evidence" title=message action_url=table_url action_label=words.BACK_TO_TABLE %}</section>
+{% endblock %}

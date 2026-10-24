@@ -118,3 +118,13 @@ UNICEF focal points are shown by name on the page only: their column is never co
 the files hold how many focal points each programme document has (`unicef_focal_points_count`), never
 their names. The section comments are written with their date, never who wrote them (see
 [Export and privacy](/help/field-monitoring/#export-and-privacy)).
+
+The **KM Database** has *Excel of the filter* and *CSV of the filter* on both of its tabs (the findings,
+the documents), with every row of the filter and the search. The publishing entity or authors are shown
+on the page only: the files name the organisations an entry names, and count the individual authors
+without naming them ("UNICEF + 2 authors", "Authors: 3"). Names of people inside the texts
+(citations such as "Doe et al. (2019)", people quoted by their first name) are withheld too. The Excel
+file's *About* sheet gives the version, the filter in words and these rules; it writes your search words
+only when none of them names an author. The page's own *Copy* and *CSV* buttons are off there, and a
+printout shows the organisations only, as a download does (see
+[Downloads and printing](/help/km-database/#downloads-and-printing)).

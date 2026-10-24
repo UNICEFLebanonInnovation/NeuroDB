@@ -1,0 +1,23 @@
+{% load i18n %}{% comment %}A finding (km.views.finding), shared by its page and its quick view: the key finding first, then its groups,
+each line left out when the workbook leaves it empty. The authors are shown on screen as the workbook gives
+them; a printout shows the organisations only, as a download does.{% endcomment %}
+{% if older %}<p class="km-note km-older small" role="status">{% include "components/icon.html" with name="info" %} {{ older }}</p>{% endif %}
+<p class="km-lead"><span class="visually-hidden">{% trans "Key finding" %}: </span>{{ finding.key_finding }}</p>
+<p class="km-meta-line small">{% include "km/partials/_pill.html" with pill=pill %}{% if finding.needs_review %} <span class="pill pill--sm pill--info">{{ words.REVIEW_PILL }}</span>{% endif %}{% if finding.checks %} <span class="pill pill--sm pill--warning" title="{{ words.CHECK_TITLE }}">{{ words.CHECK_PILL }}</span>{% endif %}</p>
+<p class="km-empty-note small">{{ words.EMPTY_LEFT_OUT }}</p>
+{% for g in groups %}{% if g.rows or g.yes or g.others or g.after %}
+<section class="km-group">
+  <h2 class="km-group__title">{{ g.title }}</h2>
+  <dl class="km-dl">
+    {% for r in g.rows %}{% include "km/_row.html" %}{% endfor %}
+    {% if g.yes or g.others %}
+    <div class="km-dl__row km-dl__row--long"><dt>{% trans "Marked Yes" %}</dt><dd>
+      {% for y in g.yes %}<div class="km-marks"><span class="km-marks__title">{{ y.title }}</span><span class="chips">{% for c in y.chips %}<span class="chip">{{ c }}</span>{% endfor %}</span></div>{% empty %}<span class="text-muted">—</span>{% endfor %}
+      {% if g.to_check %}<p class="small mb-0"><span class="pill pill--sm pill--warning" title="{{ words.CHECK_TITLE }}">{{ words.CHECK_PILL }}</span> {{ g.to_check|join:", " }}</p>{% endif %}
+      {% if g.others %}<details class="km-more-text"><summary>{{ words.NOT_MARKED_YES }}</summary>{% for o in g.others %}<p class="small mb-1"><strong>{{ o.label }}:</strong> {{ o.flags|join:", " }}</p>{% endfor %}</details>{% endif %}
+    </dd></div>
+    {% endif %}
+    {% for r in g.after %}{% include "km/_row.html" %}{% endfor %}
+  </dl>
+</section>
+{% endif %}{% endfor %}

@@ -1,0 +1,13 @@
+{% load i18n %}{# A finding's quick view (the table's Open button; km.views.finding for an HTMX request). #}
+<div class="modal-header">
+  <div>
+    <div class="resource-card__type">{{ finding.finding_id }}</div>
+    <h2 class="modal-title h5" id="modal-title">{{ words.FINDING_HEADING }}</h2>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+</div>
+<div class="modal-body km-detail">{% include "km/_finding_body.html" %}</div>
+<div class="modal-footer">
+  <a class="btn btn-link btn-sm me-auto" href="{% url 'km:finding' finding.finding_id %}">{{ words.OPEN_AS_PAGE }}</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ document_url }}">{{ words.OPEN_DOCUMENT }}</a>
+</div>

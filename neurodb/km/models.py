@@ -285,3 +285,54 @@ def forget_live() -> None:
     """Read the version shown afresh at the next :func:`live` (this process only)."""
     global _live_memo
     _live_memo = (0.0, None)
+
+
+class KMOrganisation(models.Model):
+    """An administrator's correction of how downloads show an author entry: an organisation the rule
+    missed (named), a person it took for an organisation (counted, never named), or words that are no name
+    at all (left out of downloads, kept in the texts). Written as the workbook writes it; it changes
+    downloads at once."""
+
+    class Kind(models.TextChoices):
+        ORGANISATION = "organisation", _("An organisation: name it in downloads")
+        PERSON = "person", _("A person: count, never name")
+        WORDS = (
+            "words",
+            _("Not a name or an organisation: leave it out of downloads and keep it in the texts"),
+        )
+
+    name = models.CharField(
+        _("name"),
+        max_length=200,
+        help_text=_(
+            "Corrects how downloads show an author entry. Write it as the workbook does. Changes downloads "
+            "at once."
+        ),
+    )
+    folded = models.CharField(max_length=200, unique=True, editable=False)
+    kind = models.CharField(_("shown in downloads as"), max_length=12, choices=Kind.choices)
+    added_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name=_("added by"),
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    added_at = models.DateTimeField(_("added at"), auto_now_add=True)
+    changed_at = models.DateTimeField(_("changed at"), auto_now=True)
+
+    class Meta:
+        db_table = "km_organisation"
+        ordering = ("name",)
+        verbose_name = _("organisation named in downloads")
+        verbose_name_plural = _("organisations named in downloads")
+
+    def __str__(self) -> str:
+        return self.name
+
+    def save(self, *args, **kwargs):
+        from .authors import fold
+
+        self.folded = fold(self.name)[:200]
+        super().save(*args, **kwargs)

@@ -19,7 +19,7 @@ from neurodb.accounts.roles import ADMIN, VIEWER
 from neurodb.integrations import background
 from neurodb.km import admin as km_admin
 from neurodb.km import loading, workbook
-from neurodb.km.models import KMDocument, KMVersion
+from neurodb.km.models import KMDocument, KMOrganisation, KMVersion
 from neurodb.web import admin_site
 from tests.km import factory
 
@@ -257,6 +257,8 @@ def test_the_documents_list(client_super):
     html = client_super.get(reverse("admin:km_kmdocument_changelist")).content.decode()
     for label in ("Document ID", "Title", "Year", "Findings", "Fake document title 1", "TST-0002"):
         assert label in html, label
+    assert "Shown in downloads as" in html and "Fakeorg Institute + 2 authors" in html
+    assert "Doe, J." not in html  # the list shows how downloads write the authors
     document = KMDocument.objects.get(record_id=factory.record_id(1))
     assert client_super.get(reverse("admin:km_kmdocument_change", args=[document.pk])).status_code == 200
     assert client_super.get(reverse("admin:km_kmdocument_add")).status_code == 403
@@ -265,19 +267,17 @@ def test_the_documents_list(client_super):
 # ---------------------------------------------------------------------------------------------- placement
 def test_the_group_its_labels_and_icons(superuser):
     keys = next(keys for name, _description, keys in admin_site.GROUPS if str(name) == "KM Database")
-    assert keys == ["km.KMVersion", "km.KMDocument"]
+    assert keys == ["km.KMVersion", "km.KMDocument", "km.KMOrganisation"]
     names = [str(name) for name, _description, _keys in admin_site.GROUPS]
     assert names.index("KM Database") == names.index("Library and maps") + 1
-    assert (admin_site.ICONS["km.KMVersion"], admin_site.ICONS["km.KMDocument"]) == (
-        "upload_file",
-        "description",
-    )
+    assert [admin_site.ICONS[key] for key in keys] == ["upload_file", "description", "corporate_fare"]
     request = RequestFactory().get("/")
     request.user = superuser
     group = next(g for g in admin_site.sidebar_navigation(request) if str(g["title"]) == "KM Database")
     assert [(str(i["title"]), i["icon"]) for i in group["items"]] == [
         ("Versions", "upload_file"),
         ("Documents", "description"),
+        ("Organisations named in downloads", "corporate_fare"),
     ]
 
 
@@ -295,8 +295,102 @@ def test_its_migration_is_listed_as_quick():
     from tests.datamart.test_backfill import QUICK_MIGRATIONS
 
     assert ("km", "0001_initial", "CreateModel") in QUICK_MIGRATIONS
+    assert ("km", "0002_organisation", "CreateModel") in QUICK_MIGRATIONS
 
 
 def test_problem_lines_are_escaped():
     lines = km_admin.lines(["<b>fake</b> See them on the page."])
     assert "&lt;b&gt;fake&lt;/b&gt;" in str(lines[0]) and "<a href=" in str(lines[0])
+
+
+# ------------------------------------------------------------------------- the authors in downloads
+def test_the_page_of_the_version_shown_reviews_the_authors(client_super):
+    edits = {("documents", 3, "Publishing Entity / Authors"): "Fakeorg Agency; Jane Doe"}
+    shown = factory.load(factory.workbook(edits=edits))
+    html = _version_page(client_super, shown)
+    assert (
+        "Downloads name the organisations of 1 document; 0 list only authors (counted, not named); 2 mix "
+        "both; 0 give no author."
+    ) in html
+    named = html.split("data-km-named", 1)[1].split("</details>", 1)[0]
+    assert "Named as organisations in downloads (3)" in named
+    for name in ("Fakeorg Agency", "Fakeorg Institute", "Fakeorg University"):
+        assert f"<span>{name}</span>" in named
+        assert f'<input type="hidden" name="name" value="{name}">' in named
+    assert "Jane Doe" not in named and "Doe, J." not in named
+    assert named.count(">Count as a person</button>") == 3 and "csrfmiddlewaretoken" in named
+    review = reverse("admin:km_kmversion_review", args=[shown.pk])
+    assert f'action="{review}"' in named and "?name=" not in html  # the string travels in the POST body
+
+
+def test_count_as_a_person_changes_the_downloads_at_once(client_super, superuser):
+    shown = factory.load(factory.workbook())
+    review = reverse("admin:km_kmversion_review", args=[shown.pk])
+    response = client_super.post(review, {"name": "Fakeorg University", "kind": "person"}, follow=True)
+    assert response.redirect_chain[-1][0] == reverse("admin:km_kmversion_change", args=[shown.pk])
+    row = KMOrganisation.objects.get()
+    assert (row.name, row.folded, row.kind, row.added_by) == (
+        "Fakeorg University",
+        "fakeorg university",
+        "person",
+        superuser,
+    )
+    body = b"".join(client_super.get(reverse("km:documents"), {"export": "csv"}).streaming_content).decode()
+    assert "Fakeorg University" not in body and "Authors: 1" in body
+    client_super.post(review, {"name": "Fakeorg University", "kind": "words"})
+    assert KMOrganisation.objects.get().kind == "words"  # the same row, its kind changed
+    client_super.post(review, {"name": "Fakeorg Agency", "kind": "organisation"})  # not a review kind
+    assert KMOrganisation.objects.count() == 1
+    assert client_super.get(review).status_code == 302  # a POST only
+
+
+def test_the_review_is_for_those_who_set_up(client, roles):
+    shown = factory.load(factory.workbook())
+    client.force_login(_person("km-review-viewer", VIEWER))
+    response = client.post(
+        reverse("admin:km_kmversion_review", args=[shown.pk]), {"name": "x", "kind": "person"}
+    )
+    assert response.status_code in (302, 403) and not KMOrganisation.objects.exists()
+
+
+def test_entries_that_look_like_words_have_a_not_a_name_button(client_super):
+    edits = {("documents", 2, "Publishing Entity / Authors"): "Fakeword Phrase; Doe, J."}
+    edits |= {("findings", n, "Finding Analysis"): "A fakeword phrase is common." for n in range(2, 25)}
+    shown = factory.load(factory.workbook(documents=2, findings=23, edits=edits))
+    html = _version_page(client_super, shown)
+    assert "1 author entry looks like words, not a name: check it on this page." in html
+    words = html.split("data-km-words", 1)[1].split("</details>", 1)[0]
+    assert "Look like words, not names (1)" in words and "<span>Fakeword Phrase</span>" in words
+    assert words.count(">Not a name</button>") == 1
+
+
+def test_a_replaced_version_keeps_how_its_downloads_showed_the_authors(client_super):
+    old = factory.load(factory.workbook())
+    factory.load(factory.workbook(findings=5))
+    old.refresh_from_db()
+    assert old.status == "replaced"
+    assert old.download_summary == {"organisations": 2, "authors_only": 0, "mixed": 1, "empty": 0}
+    html = _version_page(client_super, old)
+    assert "Downloads name the organisations of 2 documents" in html and "data-km-named" not in html
+
+
+def test_the_organisations_admin(client_super, client, roles, superuser):
+    add = reverse("admin:km_kmorganisation_add")
+    response = client_super.post(add, {"name": "Fakeorg Collective", "kind": "organisation"})
+    assert response.status_code == 302
+    row = KMOrganisation.objects.get()
+    assert (row.folded, row.added_by) == ("fakeorg collective", superuser)
+    change = reverse("admin:km_kmorganisation_change", args=[row.pk])
+    html = client_super.get(change).content.decode()
+    assert "Corrects how downloads show an author entry." in html
+    client_super.post(change, {"kind": "person", "name": "Changed name"})
+    row.refresh_from_db()
+    assert (row.name, row.kind) == ("Fakeorg Collective", "person")  # its kind only
+    listing = client_super.get(reverse("admin:km_kmorganisation_changelist")).content.decode()
+    assert "Fakeorg Collective" in listing and "A person: count, never name" in listing
+    client_super.post(reverse("admin:km_kmorganisation_delete", args=[row.pk]), {"post": "yes"})
+    assert not KMOrganisation.objects.exists()
+    client.force_login(_person("km-org-viewer", VIEWER))
+    assert client.get(reverse("admin:km_kmorganisation_changelist")).status_code in (302, 403)
+    client.force_login(_person("km-org-admin", ADMIN))
+    assert client.get(reverse("admin:km_kmorganisation_changelist")).status_code == 200

@@ -1,20 +1,25 @@
-{% load i18n humanize %}
-{% include "km/partials/_review_line.html" %}
-<div class="table-toolbar">
-  <div class="table-toolbar__title"><h2 class="h6 mb-0">{{ words.TAB_DOCUMENTS }}</h2><span class="text-muted small">{% blocktrans with n=page_obj.paginator.count|intcomma count counter=page_obj.paginator.count %}{{ n }} document{% plural %}{{ n }} documents{% endblocktrans %}</span></div>
-</div>
+{% load i18n humanize %}{% comment %}
+  The documents table (km.views.documents). Context: page_obj, count_label, downloads, sorts, filters, how,
+  per_links. The authors are shown on screen only: never printed, never in the browser's own copy (the
+  downloads name organisations only).
+{% endcomment %}
+{% include "components/table_toolbar.html" with title=words.TAB_DOCUMENTS count_label=count_label no_copy=True downloads=downloads table_id="km-documents" %}
+{% if filters.dropped_questions or how == "letters" %}<div class="km-notes px-3 pb-2">
+  {% if filters.dropped_questions %}<p class="km-note small mb-0" role="status">{{ words.QUESTIONS_DROPPED }}</p>{% endif %}
+  {% if how == "letters" and page_obj.object_list %}<p class="km-note small mb-0" role="status">{{ words.LETTERS_FOUND_DOCUMENTS }}</p>{% endif %}
+</div>{% endif %}
 {% if page_obj.object_list %}
 <div class="table-wrap"><table class="table table-sm mb-0 km-table" id="km-documents">
   <thead><tr>
-    <th scope="col">{% trans "Document" %}</th>
+    <th scope="col"{% if filters.sort == "title" %} aria-sort="ascending"{% endif %}><a class="sort-link" href="{{ sorts.title }}">{% trans "Document" %}</a></th>
     <th scope="col" class="d-none d-md-table-cell d-print-none" data-export="no">{% trans "Publishing entity / authors" %}</th>
-    <th scope="col" class="d-none d-md-table-cell">{% trans "Year" %}</th>
+    <th scope="col" class="d-none d-md-table-cell"{% if filters.sort == "-year" %} aria-sort="descending"{% elif filters.sort == "year" %} aria-sort="ascending"{% endif %}><a class="sort-link" href="{{ sorts.year_toggle }}">{% trans "Year" %}</a></th>
     <th scope="col" class="d-none d-md-table-cell">{% trans "Type" %}</th>
     <th scope="col" class="d-none d-md-table-cell">{% trans "Confidence" %}</th>
-    <th scope="col" class="num">{% trans "Findings" %}</th>
+    <th scope="col" class="num"{% if filters.sort == "findings" %} aria-sort="descending"{% endif %}><a class="sort-link" href="{{ sorts.findings }}">{% trans "Findings" %}</a></th>
   </tr></thead>
   <tbody>{% for d in page_obj %}<tr>
-    <td class="cell-wrap"><span class="km-clamp-2">{{ d.title }}</span>
+    <td class="cell-wrap"><a class="km-clamp-2" href="{% url 'km:document' d.record_id %}">{{ d.title|default:d.record_id }}</a>
       <span class="cell-sub">{{ d.record_id }}{% if d.needs_review %} <span class="pill pill--sm pill--info">{{ words.REVIEW_PILL }}</span>{% endif %}{% if d.checks %} <span class="pill pill--sm pill--warning" title="{{ words.CHECK_TITLE }}">{{ words.CHECK_PILL }}</span>{% endif %}</span>
       <span class="cell-sub d-md-none">{{ d.year|default_if_none:d.year_text|default:"—" }} · {{ d.study_type|default:"—" }} · {% include "km/partials/_pill.html" with pill=d.pill %}</span>
     </td>
@@ -22,10 +27,10 @@
     <td class="d-none d-md-table-cell text-nowrap">{{ d.year|default_if_none:d.year_text|default:"—" }}</td>
     <td class="d-none d-md-table-cell small">{{ d.study_type|default:"—" }}</td>
     <td class="d-none d-md-table-cell">{% include "km/partials/_pill.html" with pill=d.pill %}</td>
-    <td class="num">{{ d.findings_rows|intcomma }}</td>
+    <td class="num"><a href="{% url 'km:index' %}?document={{ d.record_id|urlencode }}">{{ d.findings_rows|intcomma }}</a></td>
   </tr>{% endfor %}</tbody>
 </table></div>
-{% include "components/pagination.html" with hx_target="#km-results" %}
+{% include "km/partials/_pages.html" %}
 {% else %}
-{% include "components/empty_state.html" with icon="search" title=_("No documents match.") action_url=all_url action_label=words.SHOW_ALL %}
+{% include "components/empty_state.html" with icon="search" title=words.NO_DOCUMENTS_MATCH action_url=all_url action_label=words.CLEAR_FILTERS %}
 {% endif %}

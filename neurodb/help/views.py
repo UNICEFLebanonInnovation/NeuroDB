@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import render
+from django.urls import Resolver404, resolve
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_GET, require_POST
 
@@ -120,6 +121,17 @@ def _refused(row: HelpQuestion, reason: str) -> StreamingHttpResponse:
     return response
 
 
+KM_PAGE, KM_TITLE = "/km/", "KM Database"
+
+
+def _km_page(path: str) -> bool:
+    """Whether ``path`` is a page of the KM Database (its finding and document pages included)."""
+    try:
+        return resolve(path).namespace == "km"
+    except Resolver404:
+        return False
+
+
 @require_POST
 def stream(request: HttpRequest) -> HttpResponse:
     """A question to the Help assistant, answered as Server-Sent Events. Checked in order: the question
@@ -140,6 +152,8 @@ def stream(request: HttpRequest) -> HttpResponse:
         conversation = uuid.uuid4()
     path = urlsplit(str(request.POST.get("page") or "")[:2000]).path[: assistant.PAGE_CHARS]
     title = assistant.clean(request.POST.get("title") or "", assistant.TITLE_CHARS)
+    if _km_page(path):  # the KM Database is kept apart: no Finding ID or workbook title reaches the assistant
+        path, title = KM_PAGE, KM_TITLE
     asked = assistant.clean(question, assistant.QUESTION_CHARS)
     fields = {"user": request.user, "conversation": conversation, "page": path, "page_title": title}
 

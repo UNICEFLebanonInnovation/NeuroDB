@@ -28,8 +28,8 @@ from django.utils import timezone
 
 from neurodb.integrations import background
 
+from . import authors, words, workbook
 from . import columns as cols
-from . import words, workbook
 from .models import KMDocument, KMFinding, KMVersion, forget_live
 from .words import counted, say
 
@@ -236,6 +236,9 @@ def _peak_mb() -> int:
 
 def _replace(version: KMVersion, report: workbook.Report, content: bytes, started: float) -> None:
     with transaction.atomic():
+        shown = KMVersion.objects.defer("content").filter(status=Status.LIVE).first()
+        # the version replaced keeps how its downloads showed the authors (its rows go now)
+        replaced_summary = authors.summary(*authors.context(shown)) if shown is not None else {}
         KMFinding.objects.all().delete()
         KMDocument.objects.all().delete()
         KMDocument.objects.bulk_create(
@@ -262,7 +265,14 @@ def _replace(version: KMVersion, report: workbook.Report, content: bytes, starte
         if batch:
             KMFinding.objects.bulk_create(batch)
         _fill_vectors()
-        KMVersion.objects.filter(status=Status.LIVE).update(status=Status.REPLACED)
+        looks = authors.look_like_words(authors.known_list())
+        if looks:
+            version.warnings = [*version.warnings, say(words.WORDS_WARNING, n=len(looks))][
+                : workbook.MAX_MESSAGES
+            ]
+        KMVersion.objects.filter(status=Status.LIVE).update(
+            status=Status.REPLACED, download_summary=replaced_summary
+        )
         written = KMVersion.objects.filter(pk=version.pk, status=Status.LOADING).update(
             **{name: getattr(version, name) for name in SUMMARY_FIELDS},
             status=Status.LIVE,

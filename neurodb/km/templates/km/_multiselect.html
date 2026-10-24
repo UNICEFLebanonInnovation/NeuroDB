@@ -1,0 +1,9 @@
+{% load i18n %}{% comment %}A filter of several choices (options: value, label, selected), with an optional legend (help: the
+confidence levels'), shown when the pointer is on the filter's name and read with the field.{% endcomment %}
+<div class="filter-bar__field">
+  <label class="form-label" for="km-{{ name }}">{% if help %}<span class="has-tip" title="{{ help }}">{{ label }}</span>{% else %}{{ label }}{% endif %}</label>
+  <select class="form-select form-select-sm" id="km-{{ name }}" name="{{ name }}" multiple data-tom placeholder="{% trans 'All' %}"{% if help %} aria-describedby="km-{{ name }}-help"{% endif %}>
+    {% for o in options %}<option value="{{ o.value }}"{% if o.selected %} selected{% endif %}>{{ o.label }}</option>{% endfor %}
+  </select>
+  {% if help %}<span class="visually-hidden" id="km-{{ name }}-help">{{ help }}</span>{% endif %}
+</div>

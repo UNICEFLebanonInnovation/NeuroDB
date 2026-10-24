@@ -33,6 +33,8 @@ def _sentences() -> list[str]:
             found += _forms(value)
         elif isinstance(value, tuple):
             found += [str(v) for v in value]
+        elif isinstance(value, dict):
+            found += [str(v) for v in value.values()]
     return found
 
 

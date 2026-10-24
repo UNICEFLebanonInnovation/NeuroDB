@@ -1,0 +1,4 @@
+{% load i18n %}{% comment %}The pages of a KM table (a page link reloads results_id only) and, on the tabs, the rows a page (a link
+that loads the page, so the filter bar keeps it).{% endcomment %}
+{% include "components/pagination.html" with hx_target="#"|add:results_id %}
+{% if per_links %}<p class="km-per small px-3 py-2 mb-0"><span>{{ words.PER_PAGE_LABEL }}:</span>{% for p in per_links %} {% if p.current %}<strong aria-current="true">{{ p.n }}</strong>{% else %}<a href="{{ p.url }}">{{ p.n }}</a>{% endif %}{% endfor %}</p>{% endif %}

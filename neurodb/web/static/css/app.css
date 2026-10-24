@@ -1421,7 +1421,54 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 /* a line clamp, never nowrap: a nowrap line would widen the table to its length on a phone */
 .km-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; overflow-wrap: anywhere; }
 .km-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; overflow-wrap: anywhere; }
+.table .cell-sub.km-clamp-1 { display: -webkit-box; }  /* a table's secondary line stays one line on a phone */
 @media print { .km-clamp-1, .km-clamp-2 { display: block; -webkit-line-clamp: none; } }
+/* The filter bar: on a phone the search box stays in view while the other filters fold behind "Filters"
+   (app.js's button opens them); "More filters" folds the rest on every width. The chips are checkboxes and radio
+   buttons drawn as chips, tall enough to tap, with the focus ring kept. */
+@media (max-width: 767.98px) {
+  .km-filters.is-collapsible:not(.is-open) .filter-bar,
+  .js .km-filters:not(.is-collapsible):not(.is-open) .filter-bar { display: flex; visibility: visible; height: auto; overflow: visible; padding: 0.6rem 0.75rem; border: 1px solid var(--nd-border); margin-bottom: 1rem; }
+  .km-filters.is-collapsible:not(.is-open) .filter-bar > :not(.km-search),
+  .js .km-filters:not(.is-collapsible):not(.is-open) .filter-bar > :not(.km-search) { display: none; }
+  .km-filters .km-search { max-width: none; flex-basis: 100%; }
+}
+.km-more { flex: 1 1 100%; }
+.km-more > summary { cursor: pointer; color: var(--nd-primary); font-size: 0.85rem; font-weight: 600; min-height: 2.25rem; display: flex; align-items: center; }
+.km-more__body { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; padding-top: 0.5rem; }
+.km-chips { border: 0; margin: 0; padding: 0; min-width: 0; flex: 1 1 100%; }
+.km-chips legend { float: none; width: auto; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--nd-muted); margin-bottom: 0.25rem; }
+.km-chip { position: relative; display: inline-flex; align-items: center; min-height: 2.25rem; padding: 0.3rem 0.8rem; font-size: 0.82rem; white-space: normal; text-align: left; cursor: pointer; background: var(--nd-surface); color: var(--nd-text); }
+.km-chip input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.km-chip:has(input:checked) { background: var(--nd-primary-soft); border-color: var(--nd-primary); color: var(--nd-primary); font-weight: 600; }
+.km-chip:has(input:focus-visible) { outline: 2px solid var(--nd-primary); outline-offset: 2px; }
+.km-how { color: var(--nd-muted); margin-top: 0.75rem; }
+.km-notes { display: flex; flex-direction: column; gap: 0.35rem; }
+.km-per { color: var(--nd-muted); }
+.km-per a, .km-per strong { margin-left: 0.35rem; }
+/* under each finding, one line: "Show all" (the rest of a long key finding opens above the line), the Open button
+   (the quick view, tall enough to tap), the Finding ID and its marks */
+.km-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.15rem 0.6rem; margin-top: 0.3rem; }
+.km-row-meta .km-more-text[open] { flex: 1 1 100%; }
+.km-row-meta .cell-sub { display: inline; }
+.km-open { min-height: 2.25rem; display: inline-flex; align-items: center; }
+.km-sort-year { color: inherit; font-weight: 400; }
+th[data-km-sorted="year"] .sort-link::after { content: none; }
+th[data-km-sorted="year"][aria-sort="descending"] .km-sort-year::after { content: " ▾"; }
+th[data-km-sorted="year"][aria-sort="ascending"] .km-sort-year::after { content: " ▴"; }
+/* a finding's or a document's page (and the quick view): the key finding first, then its groups */
+.km-lead { font-size: 1.05rem; line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; margin-bottom: 0.5rem; }
+.km-empty-note { color: var(--nd-muted); }
+.km-group { margin-top: 1.25rem; }
+.km-group__title { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.5rem; }
+.km-dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 0.6rem 1.25rem; margin: 0; }
+.km-dl__row--long { grid-column: 1 / -1; }
+.km-dl dt { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--nd-muted); }
+.km-dl dd { margin: 0; font-size: 0.9rem; overflow-wrap: anywhere; }
+.km-marks { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem; margin-bottom: 0.35rem; }
+.km-marks__title { font-size: 0.78rem; color: var(--nd-muted); }
+.km-older { margin-bottom: 0.75rem; }
+@media print { .km-open, .km-per, .km-how, .km-more-text summary { display: none !important; } .km-more-text { display: block; } .km-more-text > span { display: inline; } }
 
 /* ---------------------------------------------------------------------------- pages that load in parts (parts.js)
    A placeholder ([data-part], components/part.html) keeps the height of what it will hold: --part-h by kind, or

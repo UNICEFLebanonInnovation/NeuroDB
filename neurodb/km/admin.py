@@ -26,10 +26,10 @@ from unfold.decorators import action
 from neurodb.accounts.roles import can_set_up
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
+from . import authors, loading, words, workbook
 from . import columns as cols
-from . import loading, words, workbook
 from .forms import UploadForm
-from .models import KMDocument, KMVersion, day
+from .models import KMDocument, KMOrganisation, KMVersion, day, live
 from .words import counted, quoted, say
 
 Status = KMVersion.Status
@@ -146,6 +146,11 @@ class KMVersionAdmin(ModelAdmin):
                 self.admin_site.admin_view(self.template_view),
                 name="km_kmversion_template",
             ),
+            path(
+                "<int:pk>/review/",
+                self.admin_site.admin_view(self.review_view),
+                name="km_kmversion_review",
+            ),
             *super().get_urls(),
         ]
 
@@ -168,6 +173,10 @@ class KMVersionAdmin(ModelAdmin):
                     if shown
                     else str(words.FAILED_EMPTY)
                 )
+            if version.status == Status.LIVE:
+                extra.update(review_list(version))
+            elif version.download_summary:  # a version replaced keeps how its downloads showed the authors
+                extra["download_summary"] = summary_line(version.download_summary)
             extra.update(
                 version=version,
                 failed_line=failed_line,
@@ -178,6 +187,26 @@ class KMVersionAdmin(ModelAdmin):
                 words=words,
             )
         return super().change_view(request, object_id, form_url, extra)
+
+    def review_view(self, request, pk: int):
+        """The version page's review buttons (POST): **Count as a person** and **Not a name** list an author
+        entry under Organisations named in downloads. The entry travels in the POST body, never in a URL."""
+        if not can_set_up(request.user):
+            raise PermissionDenied
+        if request.method != "POST":
+            return redirect("admin:km_kmversion_change", pk)
+        name = " ".join((request.POST.get("name") or "").split())[:200]
+        kind = request.POST.get("kind")
+        if name and kind in (KMOrganisation.Kind.PERSON, KMOrganisation.Kind.WORDS):
+            row = KMOrganisation.objects.filter(folded=authors.fold(name)[:200]).first() or KMOrganisation(
+                name=name, added_by=request.user
+            )
+            row.kind = kind
+            row.save()
+            messages.success(
+                request, say(words.REVIEW_SAVED, name=name, kind=KMOrganisation.Kind(kind).label)
+            )
+        return redirect("admin:km_kmversion_change", pk)
 
     def template_view(self, request):
         if not can_set_up(request.user):
@@ -277,6 +306,42 @@ class KMVersionAdmin(ModelAdmin):
         return redirect("admin:km_kmversion_change", version.pk)
 
 
+def summary_line(summary: dict) -> str:
+    """ "Downloads name the organisations of 146 documents; 314 list only authors (counted, not named); 61
+    mix both; 16 give no author."."""
+
+    def number(key: str) -> str:
+        return formats.number_format(summary.get(key, 0), force_grouping=True)
+
+    return say(
+        words.DOWNLOAD_SUMMARY,
+        organisations=counted(summary.get("organisations", 0), words.DOCUMENTS_N),
+        authors_only=number("authors_only"),
+        mixed=number("mixed"),
+        empty=number("empty"),
+    )
+
+
+def review_list(version: KMVersion) -> dict:
+    """What the uploader reviews on the page of the version shown: how downloads show the documents'
+    authors, every string they name as an organisation (each with **Count as a person**) and the author
+    entries that look like ordinary words (each with **Not a name**). Computed when the page is viewed."""
+    known, people = authors.context(version)
+    summary = authors.summary(known, people)
+    named = authors.named_organisations(known, people)
+    looks = authors.look_like_words(known, people)
+    return {
+        "download_summary": summary_line(summary),
+        "named_organisations": named,
+        "named_title": say(words.NAMED_AS_ORGANISATIONS, n=len(named)),
+        "look_like_words": looks,
+        "words_title": say(words.LOOK_LIKE_WORDS, n=len(looks)),
+        "review_url": reverse("admin:km_kmversion_review", args=[version.pk]),
+        "kind_person": KMOrganisation.Kind.PERSON,
+        "kind_words": KMOrganisation.Kind.WORDS,
+    }
+
+
 def shown_line(version: KMVersion) -> str:
     """The upload page's line on the version shown now: its dates (the load's in local time, with the hour),
     who uploaded it, and its documents and findings."""
@@ -311,6 +376,19 @@ class KMDocumentAdmin(ReadOnlyModelAdmin):
     def get_queryset(self, request):
         return super().get_queryset(request).defer("search_vector").annotate(findings_rows=Count("findings"))
 
+    def get_list_display(self, request):
+        """The list's columns, with how downloads show each document's authors (the people read once per
+        page)."""
+        namer = authors.Namer(*authors.context(live()))
+
+        @admin.display(description=_("Shown in downloads as"))
+        def downloads_shown(obj):
+            return namer(obj.entity) or "—"
+
+        columns = list(super().get_list_display(request))
+        columns.insert(columns.index("needs_review"), downloads_shown)
+        return columns
+
     def has_module_permission(self, request):
         return can_set_up(request.user)
 
@@ -332,3 +410,38 @@ class KMDocumentAdmin(ReadOnlyModelAdmin):
     @admin.display(description=_("Findings"), ordering="findings_rows")
     def findings_shown(self, obj):
         return obj.findings_rows
+
+
+@admin.register(KMOrganisation)
+class KMOrganisationAdmin(ModelAdmin):
+    """Corrections of how the KM Database's downloads show an author entry: an organisation (named), a
+    person (counted, never named) or words (left out). They change downloads at once."""
+
+    list_display = ("name", "kind", "added_by", "added_at")
+    list_filter = ("kind",)
+    search_fields = ("name",)
+    list_select_related = ("added_by",)
+    fields = ("name", "kind")
+
+    def has_module_permission(self, request):
+        return can_set_up(request.user)
+
+    def has_view_permission(self, request, obj=None):
+        return can_set_up(request.user)
+
+    def has_add_permission(self, request):
+        return can_set_up(request.user)
+
+    def has_change_permission(self, request, obj=None):
+        return can_set_up(request.user)
+
+    def has_delete_permission(self, request, obj=None):
+        return can_set_up(request.user)
+
+    def get_readonly_fields(self, request, obj=None):
+        return ("name",) if obj is not None else ()  # a change is of its kind only
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.added_by = request.user
+        super().save_model(request, obj, form, change)

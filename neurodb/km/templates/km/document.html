@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% load i18n humanize %}
+{% block title %}{{ words.DOCUMENT_TITLE }}{% endblock %}
+{% block content %}
+{% comment %}A document of the KM Database (km.views.document): its lines (empty ones left out), then its findings, 25 a
+page (a page link reloads them only). The title of the browser's tab stays neutral.{% endcomment %}
+<article class="panel km-detail">
+  <p class="km-empty-note small">{{ words.EMPTY_LEFT_OUT }}</p>
+  <dl class="km-dl">{% for r in rows %}{% include "km/_row.html" %}{% endfor %}</dl>
+</article>
+<h2 class="h5 mt-4">{{ words.ITS_FINDINGS }} <span class="km-tabs__count">({{ page_obj.paginator.count|intcomma }})</span></h2>
+<p class="small"><a href="{{ table_url }}">{{ words.OPEN_IN_TABLE }}</a></p>
+<section class="panel p-0" id="km-document-findings" aria-live="polite">{% include "km/partials/findings.html" %}</section>
+{% endblock %}

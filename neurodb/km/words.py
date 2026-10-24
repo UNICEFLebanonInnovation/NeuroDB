@@ -41,8 +41,8 @@ BOTH = _("{first} and {second}")
 # ------------------------------------------------------------------------------------------- the page
 PAGE_TITLE = _("KM Database")
 PURPOSE = _(
-    "Findings from research, evaluations and assessments, with the documents they come from. Each finding "
-    "is shown as the workbook gives it."
+    "Findings from research, evaluations and assessments, with the documents they come from. Search, "
+    "filter, open a finding or download what you filtered."
 )
 PREPARED_LINE = _("Prepared on {prepared} · loaded on {loaded} · {documents} · {findings}")
 LOADED_LINE = _("Loaded on {loaded} · {documents} · {findings}")
@@ -65,8 +65,6 @@ CONFIDENCE_STRONGEST = _(
     "Level A: the strongest evidence, then Level B and Level C; Level D: the weakest, as the workbook "
     "grades it."
 )
-REVIEW_SHOWN = _("Showing the findings and documents marked for review or with a value to check.")
-SHOW_ALL = _("Show all")
 
 # ------------------------------------------------------------------------- the upload (admin, in the request)
 TOO_BIG = _("This file is {size} MB; the upload takes at most 25 MB.")
@@ -202,3 +200,139 @@ FAILED_EMPTY = _(
     "Nothing was loaded. The KM Database is still empty. Correct the workbook and upload it again."
 )
 LOADING_PAGE = _("Loading… this page refreshes by itself.")
+
+# ------------------------------------------------------------------------------- searching and filtering
+SEARCH_LABEL = _("Search")
+SEARCH_PLACEHOLDER = _("Words, a phrase in quotes, or an ID")
+MORE_FILTERS = _("More filters")
+HOW_TO_READ = _(
+    "Several choices in one filter show findings that match any of them; several filters together show "
+    "findings that match all of them. Age groups and themes count a finding when the workbook marks it Yes. "
+    "Values marked “Check this value” are shown as the workbook has them."
+)
+LETTERS_FOUND = _("No exact word matches; showing findings that contain the letters you typed.")
+LETTERS_FOUND_DOCUMENTS = _("No exact word matches; showing documents that contain the letters you typed.")
+QUESTIONS_DROPPED = _("The question filter was left out: the questions you picked are in another pillar.")
+OF_ALL = _("of {total}")
+NO_FINDINGS_MATCH = _("No findings match. Try fewer words or clear a filter.")
+NO_DOCUMENTS_MATCH = _("No documents match. Try fewer words or clear a filter.")
+CLEAR_FILTERS = _("Clear filters")
+DOCUMENT_CHIP = _("Document: {title}")
+DOCUMENT_CHIP_REMOVE = _("Show the findings of every document")
+PER_PAGE_LABEL = _("Rows a page")
+ORIGIN_LABELS = {
+    "P": _("Collected by the document itself"),
+    "O": _("From other sources or the authors' own analysis"),
+    "none": _("Not given"),
+}
+QUALITY_LABELS = {
+    "": _("All"),
+    "ready": _("Ready"),
+    "review": _("Marked for review or with a value to check"),
+}
+EXCEL_OF_FILTER = _("Excel of the filter")
+CSV_OF_FILTER = _("CSV of the filter")
+OPEN = _("Open")
+
+# --------------------------------------------------------------------------- a finding and its document
+FINDING_TITLE = _("Finding · KM Database")
+DOCUMENT_TITLE = _("Document · KM Database")
+EMPTY_LEFT_OUT = _("Fields the workbook leaves empty are not shown.")
+OLDER_VERSION = _("This answer was written from the version {label}; this finding may have changed since.")
+MISSING_FINDING = _(
+    "This finding is not in the version of the KM Database shown now ({label}). It may have been removed by "
+    "a newer version."
+)
+MISSING_DOCUMENT = _(
+    "This document is not in the version of the KM Database shown now ({label}). It may have been removed "
+    "by a newer version."
+)
+MISSING_EMPTY = _("The KM Database is empty: this page is not in it.")
+BACK_TO_TABLE = _("Back to the KM Database")
+TYPE_DIFFERS = _("The documents sheet gives “{type}”.")
+ROWS_DIFFER = ngettext_lazy("{count} finding in the table", "{count} findings in the table", "n")
+NOT_MARKED_YES = _("Not marked Yes")
+PRINT_AUTHORS = _("Publishing organisations")
+
+# ------------------------------------------------------------------------------------------- downloads
+ABOUT_SHEET = _("About")
+ABOUT_PREPARED = _("Prepared on")
+ABOUT_LOADED = _("Loaded on")
+ABOUT_FILTER = _("Filter")
+ABOUT_ROWS = _("Rows")
+ABOUT_AUTHORS = _("Publishing organisations")
+ABOUT_AUTHORS_RULE = _("Organisations only. Individual authors are counted, never named.")
+ABOUT_NAMES = _("Names of people")
+ABOUT_NAMES_RULE = _("Names of people inside the texts are withheld.")
+NOT_KNOWN = _("not known")
+NO_FILTER = _("None: every row")
+SEARCH_NOT_WRITTEN = _("Search: (your words are not written here: one of them names an author)")
+
+# ------------------------------------------------------------------------- the version page (the admin)
+DOWNLOAD_SUMMARY = _(
+    "Downloads name the organisations of {organisations}; {authors_only} list only authors (counted, not "
+    "named); {mixed} mix both; {empty} give no author."
+)
+AUTHORS_IN_DOWNLOADS = _("Authors in downloads")
+NAMED_AS_ORGANISATIONS = _("Named as organisations in downloads ({count})")
+NAMED_HELP = _(
+    "Each of these is written in downloads as an organisation. If one is a person, press “Count as a "
+    "person”: downloads then count it as an author, without naming it."
+)
+COUNT_AS_PERSON = _("Count as a person")
+LOOK_LIKE_WORDS = _("Look like words, not names ({count})")
+LOOK_LIKE_WORDS_HELP = _(
+    "These author entries are also ordinary words of many findings. Until you say otherwise they are "
+    "treated as names: withheld from downloads and from the assistant. Press “Not a name” for an entry that "
+    "is not a person."
+)
+NOT_A_NAME = _("Not a name")
+WORDS_WARNING = ngettext_lazy(
+    "{count} author entry looks like words, not a name: check it on this page.",
+    "{count} author entries look like words, not names: check them on this page.",
+    "n",
+)
+REVIEW_SAVED = _("“{name}” is now listed under Organisations named in downloads: {kind}.")
+
+# ------------------------------------------------------------------------ the filters' and pages' labels
+NOT_REPORTED = _("Not reported")
+ORIGIN_TITLE = _("Evidence")
+FINDING_HEADING = _("Finding")
+DOCUMENT_HEADING = _("Document")
+OPEN_DOCUMENT = _("Open its document")
+ALL_OF_DOCUMENT = _("All findings of this document")
+OPEN_IN_TABLE = _("Open in the table with filters")
+PRINT = _("Print")
+OPEN_AS_PAGE = _("Open as page")
+ITS_FINDINGS = _("Its findings")
+GROUP_FINDING = _("The finding")
+GROUP_FITS = _("Where it fits")
+GROUP_WHO = _("Who it is about")
+GROUP_EVIDENCE = _("The evidence")
+GROUP_DOCUMENT = _("Its document")
+ANALYSIS = _("Finding analysis")
+MEASURE = _("Measure")
+LIMITATIONS = _("Limitations")
+PILLAR = _("Pillar")
+DOMAIN = _("Analytical domain")
+QUESTION = _("Research question")
+SUB_QUESTION = _("Sub-question")
+SUB_SUB_QUESTION = _("Sub-sub-question")
+INDICATOR = _("Indicator or evidence asked for")
+INDICATOR_PART = _("Part of the indicator answered")
+ALSO_RELEVANT = _("Also relevant to")
+AGE_GIVEN = _("Age group (as the workbook gives it)")
+POPULATION = _("Population")
+ORIGIN = _("Evidence origin")
+CONFIDENCE = _("Confidence level")
+METHODS = _("Methods and sample")
+PERIOD = _("Study or data collection period")
+QUALITY = _("Data quality")
+DOCUMENT_TITLE_LABEL = _("Title")
+DOCUMENT_ID = _("Document ID")
+YEAR = _("Year")
+TYPE = _("Document or study type")
+TEXT_USED = _("Text used")
+LINK = _("Link")
+AUTHORS_SCREEN = _("Publishing entity / authors (as the workbook gives it)")
+NUMBER_OF_FINDINGS = _("Number of findings")

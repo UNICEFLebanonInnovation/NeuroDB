@@ -896,17 +896,22 @@ forecast points ("ActivityInfo is archived: its forecasts are no longer followed
 ## KM Database (`/km/`, admin → KM Database)
 
 The KM Database shows one evidence workbook, findings from research, evaluations and assessments with the
-documents they come from, on its own page with two tabs: **Findings** (the default) and **Documents**, 25
-rows a page. The code is in `neurodb/km`.
+documents they come from, on its own page with two tabs: **Findings** (the default) and **Documents**, with
+one search box, the filters, a page for each finding (also a quick view from each row's **Open**) and each
+document, and **Excel / CSV of the filter**. The code is in `neurodb/km`.
 
-**What keeps it apart.** It has its own app and tables (`km_version`, `km_document`, `km_finding`); their
-only relations are to each other and to the user who uploaded a version. Nothing else in NeuroDB imports
+**What keeps it apart.** It has its own app and tables (`km_version`, `km_document`, `km_finding`,
+`km_organisation`); their only relations are to each other and to the user who uploaded a version or added
+a correction. Nothing else in NeuroDB imports
 `neurodb.km` or reads its tables: it is linked to no partner, programme document, indicator or library
 resource, and Ask NeuroDB, the knowledge base, the library, NeuroDB Watch, the daily review, Data health
 and the site-wide search do not read it (the search's *Pages* group lists the page itself, like every
 page of the full menu). Its load is not an import run (`SyncRun`), so it is on no run list, freshness
-check or Data health line. The page is under *Resources* in the full menu (see the menu section above);
-every signed-in UNICEF role opens its address; donor accounts are sent to their page.
+check or Data health line. Its search uses its own search indexes only. A Help question asked from a KM
+page is stored and sent as the page `/km/` titled "KM Database", never with a Finding ID or a workbook
+title. The page is under *Resources* in the full menu (see the menu section above); every signed-in UNICEF
+role opens its address (its finding and document pages and its downloads too); donor accounts are sent to
+their page.
 
 **Uploading a new version** (superusers, and Administrators with staff status):
 
@@ -975,10 +980,73 @@ the page, so one such cell never stops the load; a row whose Data Quality Status
 **The confidence levels** are shown in one colour, as the workbook does not say which level is the
 strongest; `neurodb.km.columns.CONFIDENCE_A_STRONGEST` turns on the colours once that is confirmed.
 
+**The page** (`/km/`, `/km/documents/`, `/km/findings/<Finding ID>/`, `/km/documents/<Document ID>/`):
+
+- **Search**: PostgreSQL full text over the KM tables' own indexes (filled by the load): every word must be
+  found (English stems and the words as written); UK/US spellings and common sector acronyms are joined
+  (`neurodb.km.search.VARIANTS`: labour/labor, GBV/gender-based violence, OOSC/out of school...); quotes,
+  `-word` and `or` use the web search syntax; an exact Finding ID or Document ID shows those rows; when no
+  word matches, the letters typed are looked for (and the page says so). The authors are searched on screen
+  (as letters), never in the indexes.
+- **Filters**: pillar, research question (keyed by its pillar and wording, so a link survives a new version
+  whose wording is unchanged; a question of another pillar than the pillars chosen is left out), confidence
+  level, year, document type, document, and under *More filters* the analytical domain, the age, sex,
+  social-ecological and theme marks (a finding counts when marked Yes), the evidence origin and the data
+  quality. Values the version does not hold are ignored. The choices are read once per version (kept a
+  day under the version's own cache key).
+- **Sorting** (the column titles), **Rows a page** (25, 50 or 100). The sort and the page size are links that
+  load the page; a filter or a search reloads the table only.
+- A finding or document the version shown does not hold answers 404 with "not in the version shown now"
+  (an older link); `?v=<version>` on a finding's address says when that version is not the one shown.
+- Measured on the user's workbook (about 540 documents, 15,000 findings, in a throwaway database): a page
+  of the table, a filter, the documents tab, a finding or a document page 15-100 ms of server time, a
+  search 25-300 ms (the slowest: a word found nowhere, which then looks for the letters); Excel of every
+  finding about 6 seconds (9 MB), CSV about 5 seconds (50 MB), the documents' Excel well under a second.
+  The pages read the same number of queries whatever the number of rows (tested).
+
+**Downloads and the author rule** (the user's decision: authors on screen only):
+
+- *Excel of the filter* and *CSV of the filter* on both tabs (`?export=xlsx|csv`), with every column
+  (snake_case names, the marks as Yes / No / Not reported / Not applicable). The Excel file has an *About*
+  sheet: prepared on, loaded on, the filter in words, the rows and the rules. The Excel file holds at most
+  20,000 findings (`neurodb.km.exports.XLSX_MAX`, a sentence otherwise); the CSV has no limit. The
+  browser's own *Copy* and *CSV* buttons are off on the KM tables.
+- `publishing_organisations` replaces the authors: the organisations an entry names ("UNICEF; WHO"),
+  "Authors: N", or both ("UNICEF + 2 authors"). The rule (`neurodb.km.authors`) classes each piece of an
+  entry: words of an organisation, acronyms and places make organisations; initials, "Surname, X.", a name in
+  capitals or capitalised words that could be a name make a person; anything else (a topic in lower case)
+  is counted as one author, never named; "Not reported" and the like give an empty cell. When unsure it
+  counts a person. An organisation string that still holds a KM author's name, a citation or a name after a
+  title is counted as an author instead.
+- **Every text column** goes through `neurodb.km.privacy.for_download` (only the Finding ID and Document ID
+  are written as they are): e-mail addresses, citation names ("Doe et al.", "(Doe, 2019)", "Roe (2018)"),
+  interview speakers ("– Fakename, 34"), the document's own authors by surname, the KM authors' full names
+  and names after a title are written "[name withheld]". Months, places, organisations, survey and plan
+  names, and acronyms are kept; links and numbers are kept. NeuroDB's own list of people (Watch's) is never
+  used and never learns these names.
+- The search box's words are written in the About sheet only when none of them names a KM author.
+- A printout of a finding or document page shows "Publishing organisations" (the download's value), never
+  the authors (screen only).
+- Measured on the user's workbook: about 145 documents name organisations only, 305 list only authors,
+  70 mix both, 16 give none; a check of the whole CSV found no KM author's name form and no citation or
+  speaker name left in any cell.
+
+**Organisations named in downloads** (admin → *KM Database*, superusers and Administrators): corrections
+of the rule, written as the workbook writes the entry, each of a kind: *An organisation* (named), *A
+person* (counted, never named; its name is then withheld in the texts too) or *Not a name or an
+organisation* (left out of downloads, kept in the texts). They change downloads at once (the people are
+read again when the list changes, with no restart). The **page of the version shown** lists how downloads
+show the documents' authors, **Named as organisations in downloads** (every string named, each with *Count
+as a person*: a POST, so the name never travels in an address) and **Look like words, not names** (author
+entries also found as a phrase in the texts of more than 20 findings, each with *Not a name*; the load
+warns about them: they stay withheld until marked). The documents list shows **Shown in downloads as**. A
+replaced version keeps its downloads summary.
+
 **Deleting.** A superuser can delete a version that is not shown and not loading, from its page. The
 version shown is replaced by uploading another.
 
-Quick migration `km 0001_initial` (new, empty tables with their search indexes; CreateModel only).
+Quick migrations `km 0001_initial` (new, empty tables with their search indexes) and `km 0002_organisation`
+(the corrections' new, empty table); CreateModel only.
 
 ## Help assistant (`/help/`, Ctrl+Shift+H)
 

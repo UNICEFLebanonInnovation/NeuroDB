@@ -332,6 +332,9 @@ QUICK_MIGRATIONS = {
     # workbook is read by the background load, never by a migration (CreateModel only, no code runs; listed
     # so that the migration is accounted for here)
     ("km", "0001_initial", "CreateModel"),
+    # the KM Database's corrections of how its downloads show an author entry (organisation, person or
+    # words): a new, empty table an administrator fills in the admin (CreateModel only, no code runs)
+    ("km", "0002_organisation", "CreateModel"),
 }
 
 

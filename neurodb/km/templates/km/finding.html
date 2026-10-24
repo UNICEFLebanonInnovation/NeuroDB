@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}{{ words.FINDING_TITLE }}{% endblock %}
+{% block content %}
+{# A finding of the KM Database (km.views.finding). The title stays neutral: never the workbook's text. #}
+<article class="panel km-detail">{% include "km/_finding_body.html" %}</article>
+{% endblock %}
