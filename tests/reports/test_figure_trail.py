@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import datetime
 import io
+import itertools
 import re
 from html.parser import HTMLParser
 
@@ -52,6 +53,8 @@ FILTERS = [
     {"pd_status": "", "overdue": "1"},
     {"pd_status": "", "start_from": "2026-01-01", "end_to": "2026-06-30"},
     {"pd": "LEB/PD1"},
+    {"pd_status": "", "status": ["submitted", "overdue"]},
+    {"pd_status": "", "q": "no report holds these words"},  # keeps nothing: the page draws no section table
 ]
 CONDITIONS = {  # a figure's conditions, read on the Kept rows CSV's columns
     "status": lambda row, v: row["report_status_neurodb"] == rc.STATUS_LABELS[v],
@@ -66,6 +69,11 @@ CONDITIONS = {  # a figure's conditions, read on the Kept rows CSV's columns
     "follow_up": lambda row, v: (
         (row["report_status_neurodb"] in {rc.STATUS_LABELS[k] for k in reporting.FOLLOW_UP}) == v
     ),
+}
+ONCE_COLUMNS = {  # the Kept rows CSV's counts_once_* columns and the figure each sums to
+    "pr.indicator_reports": "counts_once_indicator_report",
+    "pr.progress_reports": "counts_once_progress_report",
+    "pr.partners": "counts_once_partner",
 }
 UNIT_COLUMNS = {
     trail.IR: "indicator_report_unit",
@@ -310,6 +318,10 @@ def test_each_figure_is_the_page_s_rebuilt_from_the_rows_and_in_the_kept_rows(va
     for f in found.figures:
         if dict(f.select).get("set") == "chosen":
             assert evaluate(kept, f) == f.page, f.key
+    # ... and by a sum of counts_once_* over the rows of the report statuses chosen (the help's pivot table)
+    chosen = [r for r in kept if r["report_status_chosen"] == "yes"]
+    for key, column in ONCE_COLUMNS.items():
+        assert sum(int(r[column]) for r in chosen) == found.figure(key).page, key
     # ... and the figure's own CSV, by counts_once and by a distinct count of unit_key
     for f in found.figures:
         if f.key.startswith(("pr.status.", "pr.left_out.", "pr.partners", "pr.late", "pr.indicator_reports")):
@@ -452,6 +464,23 @@ def test_a_step_s_csv_counts_once_the_units_it_leaves_out_entirely(validator, wo
         assert left.partly[0] > 0  # an indicator report with rows on both sides
 
 
+def test_counts_once_partner_counts_each_partner_once_among_the_statuses_chosen(validator, world):
+    """A partner with reports of a status chosen and of one not chosen has its 1 on a row of the status chosen:
+    under every one or two report statuses, counts_once_partner summed over the rows chosen is the page's
+    Partners, and over the others the partners of the reports not chosen."""
+    for n in (1, 2):
+        for statuses in itertools.combinations(reporting.STATUS_KEYS, n):
+            params = {"pd_status": "", "status": list(statuses)}
+            found = trail.progress_trail(PR, params, TODAY)
+            kept = _csv(validator, PR, params, "kept")
+            for chosen in ("yes", "no"):
+                rows = [r for r in kept if r["report_status_chosen"] == chosen]
+                partners = {r["partner_unit"] for r in rows} - {""}
+                assert sum(int(r["counts_once_partner"]) for r in rows) == len(partners), (statuses, chosen)
+                if chosen == "yes":
+                    assert len(partners) == found.figure("pr.partners").page, statuses
+
+
 def test_the_rows_that_set_the_status_name_the_record_whose_word_the_report_took(validator, world):
     rows = dm.ReportedIndicator.objects.filter(progress_report="PR-1").order_by("datamart_id")
     older, newer = rows.first(), rows.last()
@@ -468,6 +497,34 @@ def test_the_rows_that_set_the_status_name_the_record_whose_word_the_report_took
     assert {r["status_word_from_record_id"] for r in mine} == {str(newer.datamart_id)}
     assert {r["status_word_of_this_row"] for r in mine} == {"Accepted", "Sent back"}
     assert found.rows.reports[mine[0]["progress_report_key"]].word == "Accepted"
+
+
+def test_the_rows_that_set_the_status_name_the_newest_row_not_the_highest_id(validator, world):
+    """The row that gives a report its word is the one changed last among the rows carrying that word, whatever
+    the Datamart ids of the others: here the lowest id, while the highest id carries the word too, changed
+    before the row of another word."""
+    rows = list(dm.ReportedIndicator.objects.filter(progress_report="PR-1").order_by("datamart_id"))
+    if len(rows) < 3:
+        extra = rows[0]
+        extra.pk, extra.datamart_id, extra.location = None, rows[-1].datamart_id + 1, "Zahle"
+        extra.save()
+        rows = list(dm.ReportedIndicator.objects.filter(progress_report="PR-1").order_by("datamart_id"))
+    first, middle, last = rows[0], rows[1], rows[-1]
+    stamp = timezone.now()
+    each = dm.ReportedIndicator.objects.filter
+    each(pk__in=[r.pk for r in rows]).update(
+        report_status="Accepted", last_modify_date=stamp - datetime.timedelta(days=5)
+    )
+    each(pk=first.pk).update(last_modify_date=stamp)  # the newest change: Accepted
+    each(pk=middle.pk).update(report_status="Sent back", last_modify_date=stamp - datetime.timedelta(days=1))
+    each(pk=last.pk).update(last_modify_date=stamp - datetime.timedelta(days=3))  # Accepted, before Sent back
+    status = _csv(validator, PR, {}, "status")
+    key = rc.report_key(each(pk=first.pk).values(*rc.ROW_FIELDS).first())
+    mine = [r for r in status if r["progress_report_key"] == key]
+    assert {r["status_word_used"] for r in mine} == {"Accepted"}
+    assert {r["status_word_from_record_id"] for r in mine} == {str(first.datamart_id)}
+    newest = next(r for r in mine if r["record_id"] == str(first.datamart_id))
+    assert newest["status_word_of_this_row"] == "Accepted"
 
 
 # ------------------------------------------------------------------------------------------------ Home's block
@@ -498,6 +555,18 @@ def test_home_s_block_is_home_s_tiles_rows_and_partners_line(validator, world, m
     # Home's block has no note on what the PD status filter leaves out: the trail gives it
     assert any("Home shows no note" in note for note in found.notes)
     assert found.left_out == reporting.left_out(reporting.ReportFilters.from_params({}), TODAY)
+
+
+def test_home_s_block_with_no_progress_report_has_no_partners_line(validator, world):
+    """A section with no progress report: Home draws its tiles (all 0) and no partners line, and the trail lists
+    the partners line's figures as not drawn."""
+    part = get_part(validator, "/?section=Nutrition", "reporting")
+    shown = drawn(text(part))
+    found = trail.progress_trail("home", {"section": ["Nutrition"], "block": "reporting"}, TODAY)
+    assert found.figure("pr.progress_reports").page == 0 and not found.differences
+    assert set(shown) == {f.key for f in found.figures if f.drawn}
+    for key in ("pr.partners", "pr.partners_reported", "pr.partners_not_reported"):
+        assert key not in shown and found.figure(key).note == "not drawn: no progress report", key
 
 
 def test_a_home_row_s_csv_stays_on_its_programme_document_when_the_rows_move(validator, world):

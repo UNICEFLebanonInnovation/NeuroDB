@@ -83,8 +83,9 @@ the row: `report_status_neurodb` (the report's status), `report_status_chosen`, 
 3. Put `report_status_neurodb` in Rows (or `section_counted` with it in Columns, for the section table; or
    `period_end_month`, for the month chart).
 4. Put the sum of `counts_once_indicator_report` in Values: the tiles. The sum of
-   `counts_once_progress_report` gives the progress reports under them. A distinct count of
-   `indicator_report_unit` gives the same.
+   `counts_once_progress_report` gives the progress reports under them, and the sum of
+   `counts_once_partner` the Partners tab's *Partners*. A distinct count of `indicator_report_unit`,
+   `progress_report_unit` or `partner_unit` gives the same.
 
 Each figure's own *Rows (CSV)* holds only the rows it counts, with `unit_key` (its unit) and `counts_once`:
 their sum is the figure. In a step's CSV, `counts_once` is 1 only on a unit the step leaves out entirely
@@ -114,7 +115,8 @@ The file has these sheets:
   themselves. *Notes* say why a figure can differ (a report Power BI counts that the partner reports
   feed does not carry: check 11 of the eTools reporting checks; a programme document with no indicator:
   check 10). On Progress reports, each figure's *Trail* cell opens its figure trail for the same filter
-  and day, on that figure.
+  and day, on that figure. When the search names a person or holds an e-mail or a phone number, the file
+  writes it cleaned and leaves out the addresses: open the trail from the page.
 - **Progress reports** (Progress reports): one row per progress report of the filter, with a *Match key*
   (the PD reference, a space, the report number). No focal point is written.
 - **Partners** (Progress reports): one row per partner, its progress reports per status, and a *Match key*

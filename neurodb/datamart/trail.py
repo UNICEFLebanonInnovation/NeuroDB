@@ -341,11 +341,12 @@ class TableTrail:
 # ----------------------------------------------------------------------------------------------- the recorder
 class Recorder:
     """What the page's functions tell the trail from inside (their ``record``): the status words of every
-    report read, the rows counted against a tab's limit, each indicator report or location block a tab's
-    filter leaves out, and each location line with its records."""
+    report read and the row behind each, the rows counted against a tab's limit, each indicator report or
+    location block a tab's filter leaves out, and each location line with its records."""
 
     def __init__(self) -> None:
         self.words: dict[str, dict[str, rc.Stamp]] = {}
+        self.newest: dict[str, dict[str, tuple[rc.Stamp, Any]]] = defaultdict(dict)
         self.counts: dict[str, tuple[int, int | None]] = {}
         self.dropped_rows: Counter[str] = Counter()
         self.dropped_units: dict[str, set[tuple[str, str]]] = defaultdict(set)
@@ -353,6 +354,18 @@ class Recorder:
 
     def status_words(self, found: dict[str, dict[str, rc.Stamp]]) -> None:
         self.words.update(found)
+
+    def status_rows(self, rows: Iterable[dict[str, Any]], wanted: set[str]) -> None:
+        """For each report of ``wanted`` and each word its rows carry: the row changed last, then synced last,
+        then with the highest Datamart id (the row that gives the report that word), and its Datamart id."""
+        for row in rows:
+            key = rc.report_key(row)
+            if key not in wanted:
+                continue
+            word, stamp = (row["report_status"] or "").strip(), rc.row_stamp(row)
+            held = self.newest[key].get(word)
+            if held is None or rc.stamp_order(stamp) > rc.stamp_order(held[0]):
+                self.newest[key][word] = (stamp, row["datamart_id"])
 
     def count(self, name: str, n: int, limit: int | None) -> None:
         self.counts[name] = (n, limit)
@@ -419,8 +432,7 @@ def chain(
     facts: dict[str, Report] = {}
     for r in reports:
         key, partner, word = r["key"], reporting.partner_key(r), r["report_status"] or ""
-        stamps = recorder.words.get(key, {})
-        found = [s[2] for text, s in stamps.items() if (text or "").strip() == word and s[2] is not None]
+        newest = recorder.newest.get(key, {}).get(word)
         month = reporting.report_month(r)
         facts[key] = Report(
             status=r["status"],
@@ -432,7 +444,7 @@ def chain(
             late=reporting.submitted_late(r),
             sections=dict(r["indicator_sections"]),
             word=word,
-            word_from=max(found) if found else None,
+            word_from=newest[1] if newest else None,
             rows_outside=every_row[key] - kept_rows[key],
         )
     trail_rows = TrailRows(
@@ -683,6 +695,8 @@ def _by_section(table: dict[str, Any]) -> list[Figure]:
                 select=(*CHOSEN, ("section", section)),
             )
         )
+    drawn = bool(table["rows"])  # with no row the page says "No progress reports match." instead of the table
+    note = "" if drawn else "not drawn: no progress report"
     for key, label, n in zip(reporting.STATUS_KEYS, labels, table["totals"], strict=True):
         out.append(
             Figure(
@@ -692,10 +706,21 @@ def _by_section(table: dict[str, Any]) -> list[Figure]:
                 n,
                 how=f"Every section, status {label}",
                 select=(*CHOSEN, ("status", key)),
+                drawn=drawn,
+                note=note,
             )
         )
     out.append(
-        Figure("pr.section_total.total", "Total", IR, table["total"], how="Every section", select=CHOSEN)
+        Figure(
+            "pr.section_total.total",
+            "Total",
+            IR,
+            table["total"],
+            how="Every section",
+            select=CHOSEN,
+            drawn=drawn,
+            note=note,
+        )
     )
     return out
 
@@ -769,8 +794,11 @@ def _reports(reports: list[dict[str, Any]]) -> list[Figure]:
     return out
 
 
-def _partners(partners: dict[str, Any], *, every: bool = True) -> list[Figure]:
+def _partners(partners: dict[str, Any], *, every: bool = True, drawn: bool = True) -> list[Figure]:
+    """The Partners tab's figures, or Home's partners line (``every=False``; ``drawn``: Home draws it only
+    when there is a progress report)."""
     base = (*CHOSEN, ("has_partner", True))
+    note = "" if drawn else "not drawn: no progress report"
     out = [
         Figure(
             "pr.partners",
@@ -779,6 +807,8 @@ def _partners(partners: dict[str, Any], *, every: bool = True) -> list[Figure]:
             partners["partners"],
             how="Partners with a progress report in the filter (by eTools partner, else by name)",
             select=base,
+            drawn=drawn,
+            note=note,
         ),
         Figure(
             "pr.partners_reported",
@@ -787,6 +817,8 @@ def _partners(partners: dict[str, Any], *, every: bool = True) -> list[Figure]:
             partners["reported"],
             how="Partners with at least one Submitted or Accepted report",
             select=(*base, ("reported", True)),
+            drawn=drawn,
+            note=note,
         ),
         Figure(
             "pr.partners_not_reported",
@@ -795,6 +827,8 @@ def _partners(partners: dict[str, Any], *, every: bool = True) -> list[Figure]:
             partners["not_reported"],
             how="Partners without a Submitted or Accepted report",
             select=(*base, ("reported", False)),
+            drawn=drawn,
+            note=note,
         ),
     ]
     if not every:  # Home's partners line
@@ -1218,7 +1252,9 @@ def _progress_trail(page: str, params: Any, day: datetime.date) -> Trail:
                     "partners",
                     "The partners line",
                     "home",
-                    tuple(_partners(figures["partners"], every=False)),
+                    tuple(
+                        _partners(figures["partners"], every=False, drawn=bool(counts["progress_reports"]))
+                    ),
                 ),
             ]
             notes = (

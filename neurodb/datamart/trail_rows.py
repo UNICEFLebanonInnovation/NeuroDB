@@ -267,7 +267,11 @@ def stream_rows(
                         out["counts_once_indicator_report"] = int(_first(seen["ir"], ir))
                         out["counts_once_progress_report"] = int(_first(seen["pr"], pr))
                         out["unit_partly_kept"] = out["progress_report_partly_kept"] = ""
-                    out["counts_once_partner"] = int(partner is not None and _first(seen["partner"], partner))
+                    # once per partner among the reports of the statuses chosen, and once among the others: a
+                    # sum over the rows of report_status_chosen "yes" is the page's Partners
+                    out["counts_once_partner"] = int(
+                        partner is not None and _first(seen["partner"], (report.chosen, partner))
+                    )
                     if report is not None:
                         out.update(_report_columns(report, r, names))
                     if what == "status":

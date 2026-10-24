@@ -500,6 +500,11 @@ def row_stamp(row: dict[str, Any]) -> Stamp:
     return (row.get("last_modify_date"), row.get("synced_at"), row.get("datamart_id"))
 
 
+def stamp_order(stamp: Stamp) -> tuple:
+    """A stamp as :func:`newest_status` compares them: part by part, a missing part the earliest."""
+    return tuple((part is not None, part) for part in stamp)
+
+
 def newest_status(stamps: dict[str, Stamp]) -> str:
     """The status word of a progress report whose rows disagree (a partial re-sync: some rows still
     carry the old status): the word of the rows changed last in the Datamart, then synced last, then
@@ -509,11 +514,7 @@ def newest_status(stamps: dict[str, Stamp]) -> str:
     words = {text: s for text, s in stamps.items() if (text or "").strip()}
     if not words:
         return ""
-
-    def order(item: tuple[str, Stamp]) -> tuple:
-        return tuple((part is not None, part) for part in item[1])
-
-    return max(words.items(), key=order)[0].strip()
+    return max(words.items(), key=lambda item: stamp_order(item[1]))[0].strip()
 
 
 def report_status_texts(rows: Iterable[dict[str, Any]]) -> dict[str, str]:

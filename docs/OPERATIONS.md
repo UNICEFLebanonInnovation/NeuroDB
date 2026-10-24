@@ -2195,7 +2195,11 @@ whole; its name is `powerbi-comparison-<page>_<YYYY-MM-DD>_<HHMM>.xlsx`, the end
   (the only formulas; none on a row with no NeuroDB number, such as By location over its 20,000 rows),
   *Notes* (checks 10 and 11 where they explain a difference) and *Trail*: for Progress reports, the figure's
   trail for the same filter and day (`comparison.trail_link`: `figure=<key>`, the tab of By location and By
-  disaggregation, and the figure's row as anchor); empty for Partner monitoring until its trail exists.
+  disaggregation, and the figure's row as anchor); empty for Partner monitoring until its trail exists. A
+  filter that names a person or a contact (`comparison.names_someone`: a search holding an e-mail, a phone
+  number or a known person's name, by the people rule of Raw eTools data) is written cleaned in *Clear these in
+  NeuroDB*, and none of its addresses is written: the NeuroDB filter and every *Trail* cell say "Not written:
+  the filter names a person or a contact" (open the trail from the page).
   Progress reports: the seven status cards, the section table (each section by status, its total, the column
   totals), the month chart (each month by each status drawn), the progress reports listed, the Partners
   tab's cards, the reports to follow up, the lines of By location and the location blocks of By
@@ -2256,33 +2260,40 @@ tab). Each part is computed in one `REPEATABLE READ READ ONLY` snapshot and kept
 - **The hooks rule.** The trail never filters, keys or counts a row its own way: `ReportFilters.queryset(steps=)`
   appends each filter's rows to the trail's list; `reporting.unit_rows`/`unit_key`/`units` read a row's progress
   report and indicator report by the keys `progress_reports` groups with; `progress_reports(record=)` and
-  `_status_words(record=)` hand the trail the status words read; `_location_cells`, `location_rows` and
-  `disaggregation_rows(record=)` the rows counted against the limit, what the report status and the tab's own
-  filters leave out, and each line with the Datamart ids of its rows and the one read (`reached.Cell.record`,
-  `records`). On the pages every hook is None: same code path, same SQL, same figures (tests pin it). Each
-  report's sections are `progress_reports`' `indicator_sections` (the PD's joined sections once
-  `with_pd_details` moves the indicator reports naming none), its partner `reporting.partner_key`, its programme
-  document on Home `reporting.pd_follow_up_key`.
-- **On the page and rebuilt.** *On the page* is the page's own call: `services.partner_reporting` and
-  `left_out` (Progress reports), `services.reporting_figures` and `home.follow_up_rows` (Home), the stored
-  `reporting_table` of the two tabs (or the table just computed when none is stored). *Rebuilt* counts the figure
-  again from the rows kept (`trail.TrailRows`: per row its Datamart id, progress report, indicator report, the step
-  that left it out and why; per progress report kept its status, sections, month, partner and programme document;
-  never a payload), one selection per figure. "All N figures rebuilt from the rows: the same."; a difference is
-  listed in red at the top, never hidden. Every number those pages draw carries `data-figure="<key>"` (drawn for
-  everyone: an attribute, nothing visible; the month chart's are its data), the keys the comparison sheet uses.
+  `_status_words(record=)` hand the trail the status words read and the same rows one by one (`record.status_rows`:
+  the row changed last, then synced last, then of the highest Datamart id, of each word of each report);
+  `_location_cells`, `location_rows` and `disaggregation_rows(record=)` the rows counted against the limit, what
+  the report status and the tab's own filters leave out, and each line with the Datamart ids of its rows and the
+  one read (`reached.Cell.record`, `records`). On the pages every hook is None: same code path, same SQL, same
+  figures (tests pin it). Each report's sections are `progress_reports`' `indicator_sections` (the PD's joined
+  sections once `with_pd_details` moves the indicator reports naming none), its partner `reporting.partner_key`,
+  its programme document on Home `reporting.pd_follow_up_key`.
+- **On the page and rebuilt.** *On the page* is the page's own call: `services.partner_reporting` and `left_out`
+  (Progress reports), `services.reporting_figures` and `home.follow_up_rows` (Home), the stored `reporting_table`
+  of the two tabs (or the table just computed when none is stored). *Rebuilt* counts the figure again from the rows
+  kept (`trail.TrailRows`: per row its Datamart id, progress report, indicator report, the step that left it out
+  and why; per progress report kept its status, sections, month, partner and programme document; never a payload),
+  one selection per figure. "All N figures rebuilt from the rows: the same."; a difference is listed in red at the
+  top, never hidden. A figure the page does not draw for the filter says why ("not drawn: none left out", "not
+  drawn: no progress report": the section table's totals when the page says "No progress reports match.", Home's
+  partners line when its scope has no progress report). Every number those pages draw carries `data-figure="<key>"`
+  (drawn for everyone: an attribute, nothing visible; the month chart's are its data), the keys the comparison
+  sheet uses.
 - **CSVs** (`trail_rows`, `what`): `kept` (one pivot table rebuilds the tiles, the section table and the month
   chart), `step:<filter>`, `step:start`, `step:history`, `step:S`, `reason:<why>`, `figure:<key>`, `no_partner`,
-  `status` (every row of the reports kept, which set their status: `status_word_from_record_id` names the newest
-  record carrying the report's word), `reports` and `follow_up` (one row per progress report: the export's
-  columns, the vendor number, the match key), `lines` and `blocks` (By location's lines and By disaggregation's
-  blocks, computed again with their record ids). A row CSV starts with `figures_as_of`, `step`, `reason`, then the
-  units (`unit_key`, `indicator_report_unit`, `progress_report_unit`, `partner_unit`, `pd_unit`) and `counts_once*`
-  (by a seen-set on the unit, never by row order; in a step's CSV only on a unit the step leaves out entirely,
-  `unit_partly_kept` and `progress_report_partly_kept` marking the others), what NeuroDB read of the report, then
-  the record through `raw.csv_record` (the people rule). Streamed in one snapshot 2,000 records at a time, at most
-  `raw.csv_limit("partner_reports")` records (400 above), one of the two download slots (503); file
-  `trail_<page>_<what>_<YYYY-MM-DD>_<HHMM>.csv`, the end of the last partner reports sync.
+  `status` (every row of the reports kept, which set their status: `status_word_from_record_id` names the row that
+  gave the report its word: of the rows carrying it, the one changed last, then synced last, then of the highest
+  Datamart id), `reports` and `follow_up` (one row per progress report: the export's columns, the vendor number,
+  the match key), `lines` and `blocks` (By location's lines and By disaggregation's blocks, computed again with
+  their record ids). A row CSV starts with `figures_as_of`, `step`, `reason`, then the units (`unit_key`,
+  `indicator_report_unit`, `progress_report_unit`, `partner_unit`, `pd_unit`) and `counts_once*` (by a seen-set on
+  the unit, never by row order; in a step's CSV only on a unit the step leaves out entirely, `unit_partly_kept` and
+  `progress_report_partly_kept` marking the others; `counts_once_partner` once per partner among the reports of the
+  statuses chosen and once among the others, so its sum over `report_status_chosen` *yes* is the page's Partners),
+  what NeuroDB read of the report, then the record through `raw.csv_record` (the people rule). Streamed in one
+  snapshot 2,000 records at a time, at most `raw.csv_limit("partner_reports")` records (400 above), one of the two
+  download slots (503); file `trail_<page>_<what>_<YYYY-MM-DD>_<HHMM>.csv`, the end of the last partner reports
+  sync.
 
 **Tests.** `tests/accounts/test_validators.py` (who validates, one groups query, the pages' queries),
 `tests/datamart/test_raw_people.py` (the rule, the pinned lists, `REVIEWED_KEYS`),

@@ -257,6 +257,40 @@ def test_the_lists_hold_every_report_and_partner_and_no_person(validator, more, 
         assert person not in text
 
 
+@pytest.mark.parametrize(
+    ("q", "cleaned"),
+    [
+        ("Test Person", "[name withheld]"),  # a known person
+        ("test.person@example.org", "[email withheld]"),
+        ("+961 3 123 457", "[phone withheld]"),
+        ("call 03 123 457 now", "call [phone withheld] now"),
+    ],
+)
+def test_a_search_naming_a_person_or_a_contact_never_reaches_the_sheet(validator, more, frozen, q, cleaned):
+    """A search can name anyone: the people rule cleans it in the filters to clear, and the sheet writes no
+    address of that filter (the page's, every Trail link)."""
+    User.objects.create_user(username="known", first_name="Test", last_name="Person", password="pw-123456-x")
+    for page, params in ((PR, {"pd_status": ""}), (PM, {"view": "table", "year": "all"})):
+        book = _book(validator, page, {**params, "q": q})
+        for sheet in book.worksheets:
+            for row in sheet.iter_rows(values_only=True):
+                for cell in row:
+                    if isinstance(cell, str):
+                        for found in (cell, unquote_plus(cell)):
+                            assert q.lower() not in found.lower(), (page, sheet.title, cell)
+                            assert "123 457" not in found and "123457" not in found, (page, sheet.title, cell)
+        compare = book["Compare"]
+        clear = _block(compare, "Clear these in NeuroDB before comparing")
+        assert clear[comparison.NEURODB_ONLY[page]["q"]] == cleaned
+        address = next(r[2] for r in compare.iter_rows(values_only=True) if r[1:2] == ("NeuroDB filter",))
+        assert address == comparison.ADDRESS_WITHHELD
+        if page == PR:
+            assert {r[11] for r in _table(compare)} == {comparison.TRAIL_WITHHELD}
+    # a search that names no one keeps its addresses
+    compare = _book(validator, PR, {"pd_status": "", "q": "girls"})["Compare"]
+    assert all("q=girls" in r[11] for r in _table(compare))
+
+
 # ------------------------------------------------------------------------------------------- the filter blocks
 def test_every_filter_field_is_a_slicer_or_a_neurodb_filter():
     for page in comparison.PAGES:

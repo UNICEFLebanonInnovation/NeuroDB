@@ -15,8 +15,10 @@ person types Power BI's numbers in.
 * **The filter.** Every field of the page's filter is a Power BI slicer to set (:data:`POWERBI_SLICERS`) or a
   NeuroDB filter to clear before comparing (:data:`NEURODB_ONLY`); a new field in neither stops the sheet.
 * **People** never reach the file: partners, programme documents and sections only; the progress reports'
-  sheet is the export's row without its focal points. Every text from the data is written as a text, never a
-  formula; the only formulas are the two difference columns of a sheet, written by NeuroDB.
+  sheet is the export's row without its focal points. A filter that names a person or a contact (a search
+  holding an e-mail, a phone number or a known person's name) is cleaned as Raw eTools data cleans a text, and
+  its addresses (the page's and every *Trail* link) are not written. Every text from the data is written as a
+  text, never a formula; the only formulas are the two difference columns of a sheet, written by NeuroDB.
 
 The *Trail* column of Progress reports opens each figure on its figure trail (``datamart.trail``), for the
 same filter and day; Partner monitoring's stays empty until its trail exists.
@@ -167,6 +169,9 @@ TITLES = {"progress-reports": "Progress reports", "partner-monitoring": "Partner
 DAYS_BACK = 14  # "statuses read for": the page's day or Power BI's refresh, at most this many days before
 NOT_THE_FILTER = ("page", "sort", "export", "tab", "_part", "_eager", "as_of", "day")  # keys of an address
 REFUSED_DAY = "Choose a day in the last 14 days: the day of Power BI's refresh, or today."
+# written instead of an address whose filter names a person or a contact (:func:`names_someone`)
+ADDRESS_WITHHELD = "Not written: the filter names a person or a contact. Copy it from the page."
+TRAIL_WITHHELD = "Not written: the filter names a person or a contact. Open the trail from the page."
 NO_SECTION = "(no section)"
 IR, PR = "indicator reports", "progress reports"
 OVERDUE_NOTE = (
@@ -593,6 +598,20 @@ def settings_rows(found: Read) -> tuple[list[tuple[str, str]], list[tuple[str, s
     return slicers, clear
 
 
+def _clean(text: str, names: frozenset[str]) -> str:
+    """A text of the filter cleaned by the people rule of Raw eTools data (e-mails, phone numbers and known
+    person names withheld), as the figure trail's CSVs clean the filter's words."""
+    from . import raw_people
+
+    return raw_people.text(text, "partner_reports", "partner_name", names, frozenset())
+
+
+def names_someone(params: QueryDict, names: frozenset[str]) -> bool:
+    """Whether a value of the filter names a person or a contact (a search can name anyone): the sheet then
+    writes none of the filter's addresses."""
+    return any(_clean(value, names) != value for _key, values in params.lists() for value in values)
+
+
 # ----------------------------------------------------------------------------------------------- the workbook
 class Formula(str):
     """A formula NeuroDB writes (only the difference columns hold one)."""
@@ -687,12 +706,17 @@ def _history(day: datetime.date) -> tuple[datetime.date, str]:
 
 
 def _compare_sheet(book: Workbook, found: Read, base_url: str) -> None:
+    from neurodb.watch import people
+
     page, day = found.page, found.day
+    names = people.known_names()
+    withheld = names_someone(found.params, names)
     sheet = Sheet(book, "Compare", (5, 26, 28, 34, 46, 14, 18, 16, 12, 10, 60, 30))
     sheet.title(f"NeuroDB figures for Power BI: {TITLES[page]}")
     path = reverse("reports:partner_reporting" if page == "progress-reports" else "reports:pd_monitoring")
     query = found.params.urlencode()
-    sheet.add(None, Bold("NeuroDB filter"), base_url + path + (f"?{query}" if query else ""))
+    address = base_url + path + (f"?{query}" if query else "")
+    sheet.add(None, Bold("NeuroDB filter"), ADDRESS_WITHHELD if withheld else address)
     if day == page_today(page):
         reads = (
             "The page reads today, as this file does: for the day of Power BI's refresh, choose it beside "
@@ -721,7 +745,7 @@ def _compare_sheet(book: Workbook, found: Read, base_url: str) -> None:
     if clear:
         sheet.header("", "NeuroDB filter", "Value")
         for label, words in clear:
-            sheet.add(None, label, words)
+            sheet.add(None, label, _clean(words, names))
     else:
         sheet.add(None, "Nothing to clear: Power BI has a slicer for every filter set.")
     sheet.add()
@@ -745,6 +769,8 @@ def _compare_sheet(book: Workbook, found: Read, base_url: str) -> None:
         difference = Formula(f'=IF(ISNUMBER(H{row}),H{row}-F{row},"")') if numeric else None
         same = Formula(f'=IF(ISNUMBER(H{row}),IF(H{row}=F{row},"Same","Differs"),"")') if numeric else None
         trail = trail_link(found, base_url, figure.key)
+        if trail and withheld:
+            trail = TRAIL_WITHHELD
         sheet.add(
             n,
             figure.powerbi_page,

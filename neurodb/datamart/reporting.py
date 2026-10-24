@@ -465,16 +465,17 @@ def _status_words(
     """Each status word of every row of the progress reports ``keys`` of ``queryset`` (all their rows, not
     only the filter's: the rows of the same programme documents and period ends) with the latest stamp of
     its rows (:func:`neurodb.datamart.reached.newest_status`). ``record``: the figure trail's, which receives
-    what was read (``record.status_words``); None on the pages."""
+    what was read (``record.status_words``) and the same rows one by one (``record.status_rows``: which row
+    gave each report its word); None on the pages."""
     held = queryset.exclude(intervention=None)
     named = queryset.filter(intervention=None)
+    rows = dm.ReportedIndicator.objects.filter(
+        Q(intervention_id__in=held.values("intervention_id"))
+        | Q(intervention=None, pd_reference_number__in=named.values("pd_reference_number")),
+        Q(period_end__in=queryset.values("period_end")) | Q(period_end=None),
+    )
     every = (
-        dm.ReportedIndicator.objects.filter(
-            Q(intervention_id__in=held.values("intervention_id"))
-            | Q(intervention=None, pd_reference_number__in=named.values("pd_reference_number")),
-            Q(period_end__in=queryset.values("period_end")) | Q(period_end=None),
-        )
-        .values(*rc.IDENTITY_FIELDS, "progress_report", "report_status")
+        rows.values(*rc.IDENTITY_FIELDS, "progress_report", "report_status")
         .annotate(_changed=Max("last_modify_date"), _synced=Max("synced_at"), _id=Max("datamart_id"))
         .order_by()
     )
@@ -487,6 +488,10 @@ def _status_words(
         mine[text] = rc.stamp(mine.get(text), (row["_changed"], row["_synced"], row["_id"]))
     if record is not None:
         record.status_words(out)
+        stamps = ("last_modify_date", "synced_at", "datamart_id")  # reached.row_stamp
+        record.status_rows(
+            rows.values(*rc.IDENTITY_FIELDS, "progress_report", "report_status", *stamps).order_by(), keys
+        )
     return out
 
 
