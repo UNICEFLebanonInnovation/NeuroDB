@@ -313,6 +313,7 @@ def test_the_reached_fold_adds_up_and_says_why_rows_are_left_out(validator, worl
     assert fold["R3"].kept == fold["R2"].kept == held - fold["R0"].out - fold["R1"].out - fold["R2"].out
     # R3 = placed to an indicator of the filter + placed to one it leaves out + left out
     assert fold["R3"].kept == fold["R4"].kept + fold["R5"].out + fold["R6"].out
+    assert fold["R6"].title.startswith("Quarterly pass: left out, and why (")
     reasons = " ".join(line.words for line in fold["R6"].lines)
     assert "left out: no indicator of the PD has the title: 1 report row" in reasons
     assert (
@@ -320,13 +321,10 @@ def test_the_reached_fold_adds_up_and_says_why_rows_are_left_out(validator, worl
     )
     assert "by PD output 1" in fold["R4"].lines[0].words
     # the monthly pass: the girls' HR rows are read for the indicator with no quarterly report, and not used
-    assert "read, not used) 2" in fold["R7"].lines[0].words
+    assert "read, not used) 2" in fold["R7"].lines[0].words and fold["R7"].added == 0
     # R10: the overdue report and the due one do not count; R12: PRP's own total found and kept
     assert "Overdue 1" in fold["R10"].lines[0].words and "Not yet due 1" in fold["R10"].lines[0].words
-    assert (
-        fold["R12"].kept == 1
-        and "Found for these reports with a value: 1; kept 1" in fold["R12"].lines[0].words
-    )
+    assert "Found with a value for the rows these indicators read: 1; kept 1" in fold["R12"].lines[0].words
     assert fold["R14"].kept == found.figure("pm.with_reached").page
     # the rows of the used reports add up: left out by a report's status, with no value, or counted
     used = sum(1 for p in found.rows.fold.placed.values() if p[3])
@@ -337,6 +335,100 @@ def test_the_reached_fold_adds_up_and_says_why_rows_are_left_out(validator, worl
     assert len(r6) == fold["R6"].out and all(r["how"].startswith("left out:") for r in r6)
     r13 = _csv(validator, {"year": "2026", "section": ""}, "reached:R13")
     assert r13 and all(r["counted"] == "yes" and r["placed_to"] for r in r13)
+
+
+REACHED_FILTERS = [
+    {"year": "2026"},
+    {"year": "2026", "status": "not_reported"},
+    {"year": "2026", "status": "on_track"},
+    {"year": "2026", "location": "Bekaa"},
+    {"year": "2026", "report_type": "HR"},
+]
+
+
+@pytest.mark.parametrize("params", REACHED_FILTERS)
+def test_every_step_of_the_reached_fold_is_the_one_before_less_what_it_leaves_out(validator, world, params):
+    """SPEC_validation §3.4.4 and §3.8: one chain, in report rows and in indicator reports, from every row in
+    NeuroDB to the reports that count, which are those of the indicators kept (the ones behind R14)."""
+    params = _params(params, world)
+    found = tm.monitoring_trail(params, TODAY)
+    stages = [s for s in found.reached if isinstance(s, tm.Stage)]
+    assert [s.key for s in stages if s.unit == trail.ROW][:4] == ["R0", "R1", "R2", "R3"]
+    before = None
+    for stage in stages:
+        if stage.unit == trail.ROW:
+            assert stage.irs_kept is not None, stage.key
+        if before is not None and stage.unit == before.unit:
+            assert stage.kept == before.kept - (stage.out or 0) + (stage.added or 0), stage.key
+            assert stage.irs_kept == before.irs_kept - stage.irs_out + stage.irs_added, stage.key
+        before = stage
+    assert not [line.words for s in found.reached for line in s.lines if line.alert]
+    fold = {s.key: s for s in found.reached}
+    placed = found.rows.fold.placed.values()
+    behind = {found.rows.kept[p[1]] for p in placed if p[1] >= 0 and p[4].startswith("counted:")}
+    assert len(behind) == fold["R14"].kept == found.figure("pm.with_reached").page
+    if params.get("status") == "not_reported":  # every indicator kept is without Reached
+        assert fold["R4"].kept == fold["R13"].kept == fold["R13"].irs_kept == fold["R14"].kept == 0
+    # a step's CSV holds the rows it leaves out, and their indicator reports, entirely or partly left out
+    for stage in stages:
+        if stage.what and stage.out and stage.added is None:
+            rows = _csv(validator, params, stage.what)
+            assert len(rows) == stage.out, stage.key
+            units = {r["indicator_report_unit"] for r in rows}
+            assert len(units) == stage.irs_out + stage.irs_partly, stage.key
+
+
+def test_a_step_that_does_not_add_up_shows_a_red_line():
+    def stage(key, kept, irs, out=None, irs_out=0):
+        return tm.Stage(key, key, trail.ROW, kept=kept, out=out, irs_kept=irs, irs_out=irs_out)
+
+    chained = tm.adds_up([stage("a", 10, 5), stage("b", 8, 4, out=2, irs_out=1), stage("c", 8, 4)])
+    assert not [line for s in chained for line in s.lines]
+    broken = tm.adds_up([stage("a", 10, 5), stage("b", 8, 5, out=1), stage("c", 8, 3), stage("d", 2, 1)])
+    assert [s.key for s in broken if any(line.alert for line in s.lines)] == ["b", "c", "d"]
+    assert trail.DIFFERS in broken[1].lines[0].words
+
+
+def test_prp_s_report_totals_and_every_partner_report_row_have_their_dataset_steps(validator, world):
+    params = {"year": "2026", "section": ""}
+    found = tm.monitoring_trail(params, TODAY)
+    keys = [s.key for s in found.reached]
+    assert keys.index("R12-D1") < keys.index("R12-D4") < keys.index("R12") < keys.index("R13")
+    d4 = found.step("R12-D4")
+    assert d4.title == "PRP's report totals: what is in NeuroDB" and d4.what == "reached:totals"
+    totals = _csv(validator, params, "reached:totals")
+    assert [r["record_id"] for r in totals] == ["5001"] and totals[0]["progress_value"] == "20"
+    # the partner reports' D4: every row in NeuroDB, as CSV
+    (reports,) = [s for s in found.reached if s.key == "D4"]
+    assert reports.what == "reached:all"
+    rows = _csv(validator, params, "reached:all")
+    assert len(rows) == dm.ReportedIndicator.objects.count() == found.step("R0").kept + found.step("R0").out
+
+
+def test_a_step_holding_more_than_a_download_links_to_raw_etools_data(validator, world, monkeypatch):
+    """SPEC_validation §1.3: above the limit, the trail says so instead of a link, with Raw eTools data."""
+    from neurodb.datamart import raw
+
+    monkeypatch.setitem(raw.CSV_LIMIT, "other", 3)
+    monkeypatch.setitem(raw.CSV_LIMIT, "long_texts", 3)
+    params = {"year": "2026", "section": "", "pd_status": ""}
+    found = tm.monitoring_trail(params, TODAY)
+    m11 = found.step("M11")
+    assert m11.kept > 3 and not m11.what
+    (line,) = [x for x in m11.lines if x.raw]
+    assert line.raw == "pd_indicators" and line.words == raw.too_many("pd_indicators", m11.kept)
+    r3 = found.step("R3")
+    assert r3.kept > 3 and not r3.what and [x.raw for x in r3.lines] == ["partner_reports"]
+    whats = []
+    for step in (*found.steps, *found.reached, *found.overdue):
+        whats += [step.what, *(x.what for x in step.lines)]
+    links = [w for w in dict.fromkeys(whats) if w]
+    assert links and "step:M11" not in links and "reached:R3" not in links
+    for what in links:  # every link a step shows is a download that answers, of at most 3 records
+        assert len(_csv(validator, params, what)) <= 3, what
+    part = get_part(validator, reverse("reports:check_figures", args=[PM]) + "?" + _query(params), "figures")
+    assert "what=step%3AM11" not in text(part) and line.words in text(part)
+    assert "Raw data: ask for staff status" in text(part)  # the validator has no staff status
 
 
 def test_the_same_title_rows_left_out_are_data_quality_s(validator, world):
@@ -385,6 +477,34 @@ def test_overdue_reports_step_by_step(validator, world):
 
 
 # ------------------------------------------------------------------------------------- Program Performance
+@pytest.mark.parametrize(("section", "builds"), [("", 1), ("Education", 2)])
+def test_program_performance_without_a_section_reads_the_trail_s_one_build(
+    validator, world, monkeypatch, section, builds
+):
+    """SPEC_validation §3.5 and §3.9: with no section chosen, Program Performance's filter is the trail's, so
+    its part reads the trail's one recorded build (and the page's indicators that build stored); with one, it
+    reads the filter without it, a build of its own."""
+    found = []
+    real = monitoring.indicators
+
+    def counting(*args, **kwargs):
+        found.append(kwargs.get("steps") is not None)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(monitoring, "indicators", counting)
+    compute.clear()
+    url = (
+        reverse("reports:check_figures", args=[PM])
+        + "?"
+        + _query({"view": "table", "year": "all", "section": section})
+    )
+    get_part(validator, url, "figures")
+    table = get_part(validator, url, "performance")
+    assert found == [True] * builds
+    figures = table.context["table"].block.figures
+    assert figures and all(f.page == f.rebuilt for f in figures)
+
+
 def test_program_performance_s_indicators_are_the_sum_of_its_section_tiles(validator, world, monkeypatch):
     monkeypatch.setattr(monitoring, "MAX_INDICATORS", 2)  # Program Performance lists 2, counts them all
     params = {"view": "table", "year": "all", "section": ""}

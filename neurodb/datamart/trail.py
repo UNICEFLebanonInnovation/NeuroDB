@@ -370,7 +370,7 @@ class Recorder:
         self.report_type = ""
         self.placements: dict[Any, list] = {}  # Datamart id -> [pass, indicator, way, read, progress report]
         self.shared: Counter[tuple[int, str, str]] = Counter()  # (PD, title, way) of a shared title left out
-        self.totals: tuple[int, int] = (0, 0)
+        self.totals: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset())
         self.left: dict[tuple[int, str], dict[str, list[Any]]] = defaultdict(lambda: defaultdict(list))
         self.reports: dict[tuple[int, str], tuple[tuple[str, str, bool, bool, str], ...]] = {}
         self.values: dict[tuple[int, str], tuple[Any, bool, str, str]] = {}
@@ -387,8 +387,9 @@ class Recorder:
     def used(self, row: dict[str, Any]) -> None:
         self.placements[row["datamart_id"]][3] = True
 
-    def prp_totals(self, found: int, kept: int) -> None:
-        self.totals = (found, kept)
+    def prp_totals(self, found: Iterable[str], kept: Iterable[str]) -> None:
+        """PRP's report totals read: the ids of those found with a value, and of those kept."""
+        self.totals = (frozenset(found), frozenset(kept))
 
     def left_out(self, ident: tuple[int, str]) -> Callable[[str, list[Any]], None]:
         """``reached.compute``'s record for one indicator: the rows it leaves out, by why."""

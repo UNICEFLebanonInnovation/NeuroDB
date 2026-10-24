@@ -450,6 +450,7 @@ PD_COLUMNS = (
     "indicators_kept",
 )
 PD_ROW_HEAD = ("figures_as_of", "step", "reason", "indicator_key", "unit_key", "counts_once")
+DOCUMENT_HEAD = ("figures_as_of", "step", "reason")
 REPORT_ROW_HEAD = (
     "figures_as_of",
     "step",
@@ -485,7 +486,8 @@ PLACE_COLUMNS = (
 @dataclass(frozen=True)
 class Selection:
     """What a Partner monitoring CSV holds: its ``kind`` (``indicators``, ``pds``, ``pd_rows``,
-    ``report_rows`` or ``places``), its records (idents, PD ids, pks), its step and its reason in words."""
+    ``report_rows``, ``places`` or ``documents``: every record of a source NeuroDB keeps whole), its records
+    (idents, PD ids, pks, the source), its step and its reason in words."""
 
     kind: str
     items: tuple
@@ -536,11 +538,17 @@ def pm_selection(found: Any, what: str) -> Selection | None:
         if figure is None or not figure.select:
             return None
         return _figure_selection(found, figure)
+    if what == "reached:all" and isinstance(found, tm.MonitoringTrail):
+        return Selection(
+            "report_rows", tuple(tm.reached_rows(rows.fold, "all")), "Partner report rows in NeuroDB"
+        )
+    if what == "reached:totals" and isinstance(found, tm.MonitoringTrail):
+        return Selection("documents", (tm.TOTALS,), "PRP indicator reports in NeuroDB")
     if what.startswith("reached:") and isinstance(found, tm.MonitoringTrail):
         step = found.step(what[8:])
         if step is None:
             return None
-        return Selection("report_rows", tuple(_reached_rows(rows.fold, step.key)), step.title)
+        return Selection("report_rows", tuple(tm.reached_rows(rows.fold, step.key)), step.title)
     if what.startswith("overdue:") and isinstance(found, tm.MonitoringTrail):
         step = found.step(what[8:])
         if step is None:
@@ -632,37 +640,26 @@ def _figure_selection(found: Any, figure: Any) -> Selection | None:
     return None
 
 
-def _reached_rows(fold: tm.Fold, key: str) -> list[int]:
-    """The partner report rows of a step of the Reached fold."""
-    read = fold.report_type
-    if key in ("R0", "R1", "R2", "R3"):
-        return sorted(pk for pk, (kind, _unit) in fold.rows.items() if kind == key)
-    tests: dict[str, Callable[[tuple], bool]] = {
-        "R4": lambda p: p[0] == read and p[1] >= 0,
-        "R5": lambda p: p[0] == read and p[1] == -2,
-        "R6": lambda p: p[0] == read and p[1] == -1,
-        "R7": lambda p: p[0] != read,
-        "R8": lambda p: p[4] == "one_indicator",
-        "R9": lambda p: p[4] == "other_place",
-        "R10": lambda p: p[4].startswith("status:"),
-        "R11": lambda p: p[4] == "no_value",
-        "R13": lambda p: p[4].startswith("counted:"),
-    }
-    test = tests.get(key)
-    return sorted(pk for pk, p in fold.placed.items() if test(p)) if test else []
-
-
 def pm_count(selection: Selection) -> int:
-    """The records a CSV would write (the PD indicator rows in NeuroDB, or those naming no PD, counted)."""
+    """The records a CSV would write (the PD indicator rows in NeuroDB, those naming no PD, or the records of
+    a source, counted)."""
+    if selection.kind == "documents":
+        return raw.base(selection.items[0]).count()
     if selection.items in (("all",), ("orphans",)):
         rows = dm.PDIndicator.objects.all()
         return (rows if selection.items == ("all",) else rows.filter(intervention=None)).count()
     return len(selection.items)
 
 
+def _source(selection: Selection) -> str:
+    if selection.kind == "documents":
+        return selection.items[0]
+    return tm.REPORTS if selection.kind == "report_rows" else tm.SOURCE
+
+
 def pm_limit(selection: Selection) -> tuple[str, int]:
     """The source a CSV's records come from, and how many a download holds (``raw.csv_limit``)."""
-    source = tm.REPORTS if selection.kind == "report_rows" else tm.SOURCE
+    source = _source(selection)
     return source, raw.csv_limit(source)
 
 
@@ -674,9 +671,12 @@ def pm_columns(selection: Selection, names: frozenset[str]) -> tuple[list[str], 
         return list(PD_COLUMNS), []
     if selection.kind == "places":
         return list(PLACE_COLUMNS), []
-    source = tm.REPORTS if selection.kind == "report_rows" else tm.SOURCE
-    model = dm.ReportedIndicator if selection.kind == "report_rows" else dm.PDIndicator
+    source = _source(selection)
     counted, _left_out = raw.field_counts(source, names)
+    if selection.kind == "documents":
+        keys = raw.header_keys(source, raw.base(source), counted)
+        return [*DOCUMENT_HEAD, *raw.csv_columns(source, keys)[1:]], keys
+    model = dm.ReportedIndicator if selection.kind == "report_rows" else dm.PDIndicator
     if selection.items:
         keys = raw.header_keys(source, _pd_rows(selection, model), counted)
     else:  # no record: the fields NeuroDB counted
@@ -717,13 +717,15 @@ def pm_rows(
         "reason": clean(selection.reason),
     }
     if selection.kind == "indicators":
-        yield from _indicator_rows(found.rows, selection, head, page)
+        yield from _indicator_rows(found.rows, selection, head, page, names)
     elif selection.kind == "pds":
         yield from _pd_csv_rows(found.rows, selection, head, names)
     elif selection.kind == "places":
         yield from _place_rows(page.points(), head)
     elif selection.kind == "pd_rows":
         yield from _pd_indicator_rows(found.rows, selection, head, keys, names)
+    elif selection.kind == "documents":
+        yield from _document_rows(selection.items[0], head, keys, names)
     else:
         yield from _report_rows(found.rows, selection, head, keys, names)
 
@@ -732,7 +734,20 @@ def found_moment(found: Any) -> Any:
     return getattr(found, "as_of", None) or tm.moment()
 
 
-def _indicator_rows(rows, selection, head, page: PageReads) -> Iterator[dict[str, Any]]:
+# the texts of an indicators CSV, each cleaned as the PD indicators' column it comes from (as the PD indicator
+# rows' CSVs clean them)
+INDICATOR_TEXTS = {
+    "indicator": "title",
+    "pd_output": "lower_result_name",
+    "cp_output": "cp_output",
+    "section": "section_name",
+    "partner": "partner_name",
+}
+
+
+def _indicator_rows(
+    rows, selection, head, page: PageReads, names: frozenset[str]
+) -> Iterator[dict[str, Any]]:
     by_key = {(r.pd.id, r.key): r for r in page.rows()}
     seen: set = set()
     for ident in selection.items:
@@ -757,6 +772,9 @@ def _indicator_rows(rows, selection, head, page: PageReads) -> Iterator[dict[str
                 indicator=k.title,
                 programme_document=k.pd_number,
             )
+        for column, name in INDICATOR_TEXTS.items():
+            if column in out:
+                out[column] = raw_people.text(out[column], tm.SOURCE, name, names, frozenset())
         yield out
 
 
@@ -844,6 +862,8 @@ def _pd_indicator_rows(rows, selection, head, keys, names) -> Iterator[dict[str,
                 for row in chunk:
                     ident = monitoring.ident_of(row.intervention_id, row.source_id, row.title)
                     key = indicator_key(rows, ident) if row.intervention_id else ""
+                    if ident not in rows.indicators and ident[1].startswith("t"):  # by its title
+                        key = raw_people.text(key, tm.SOURCE, "title", names, frozenset())
                     record = raw.csv_record(
                         tm.SOURCE, row, wanted, run, names, reviewed, head["figures_as_of"]
                     )
@@ -858,6 +878,23 @@ def _pd_indicator_rows(rows, selection, head, keys, names) -> Iterator[dict[str,
         logger.warning(
             "figure trail: the download of %s stopped (took too long)", selection.step, exc_info=True
         )
+
+
+def _document_rows(source: str, head, keys, names) -> Iterator[dict[str, Any]]:
+    """Every record of a source NeuroDB keeps whole (PRP's report totals), as Raw eTools data writes it."""
+    run = runfacts.runs([source])[source][0]
+    reviewed = raw.reviewed_keys(source)
+    wanted = set(keys)
+    try:
+        with raw.snapshot(raw.STREAM_TIMEOUT_MS):
+            rows = raw.related(source, raw.base(source)).order_by("pk")
+            for row in rows.iterator(chunk_size=raw.CSV_CHUNK):
+                yield {
+                    **raw.csv_record(source, row, wanted, run, names, reviewed, head["figures_as_of"]),
+                    **head,
+                }
+    except DatabaseError:
+        logger.warning("figure trail: the download of %s stopped (took too long)", source, exc_info=True)
 
 
 def _report_rows(rows, selection, head, keys, names) -> Iterator[dict[str, Any]]:

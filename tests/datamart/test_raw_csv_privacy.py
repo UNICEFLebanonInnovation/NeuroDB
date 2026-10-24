@@ -345,7 +345,8 @@ def test_no_person_reaches_a_partner_monitoring_trail_or_its_csvs(client_validat
     """Every CSV of the Partner monitoring trail, Program Performance's, the map's and Home's Indicator progress
     block's (kept indicators, each step's programme documents, PD indicator rows and indicators, each figure's,
     the Reached and Overdue reports folds' partner report rows, the map's places) and the trail pages: no
-    planted name, e-mail or phone; the programme documents' focal points as a count."""
+    planted name, e-mail or phone, in a record or in an indicator's title, PD output, CP output or unlinked
+    partner; the programme documents' focal points as a count."""
     from neurodb.datamart import trail_monitoring as tm
 
     partner = PartnerOrganization.objects.create(etl_id="1", name="Amel Association", vendor_number="V1")
@@ -372,6 +373,32 @@ def test_no_person_reaches_a_partner_monitoring_trail_or_its_csvs(client_validat
         data=PLANTED,
     )
     dm.PDIndicator.objects.create(datamart_id=2, source_id=200, title="# elsewhere", data=PLANTED)
+    # an indicator of the programme document kept whose own texts name a person, an e-mail and phones, and a
+    # programme document with no linked partner, named after a person
+    dm.PDIndicator.objects.create(
+        datamart_id=3,
+        source_id=300,
+        intervention=pd,
+        pd_reference_number=pd.number,
+        title=f"# of sessions (contact {EMAIL}, {PHONES[1]})",
+        lower_result_name=f"Output led by {NAME} {PHONES[0]}",
+        cp_output=f"CP output of {NAME}",
+        section_name="Education",
+        location_name="Akkar",
+        target_numerator=5,
+    )
+    unlinked = PCA.objects.create(
+        etl_id="12",
+        partner_name=f"Group of {NAME}",
+        number="LEB/PD2",
+        title="Water",
+        status="active",
+        start=datetime.date(2026, 1, 1),
+        end=datetime.date(2026, 12, 31),
+    )
+    dm.PDIndicator.objects.create(
+        datamart_id=4, source_id=400, intervention=unlinked, title="# of wells", location_name="Akkar"
+    )
     for n, (status, due, title) in enumerate(
         (
             ("Accepted", datetime.date(2026, 4, 15), "# reached"),
@@ -429,6 +456,11 @@ def test_no_person_reaches_a_partner_monitoring_trail_or_its_csvs(client_validat
         if what == "step:M1":
             row = next(csv.DictReader(io.StringIO(text)))
             assert row["unicef_focal_points (people)"] == "3" and "Shelter with" in row["title"]
+        if what == "kept":  # the indicators' own texts, cleaned: what is left of them is still there
+            rows = {r["indicator_key"]: r for r in csv.DictReader(io.StringIO(text))}
+            assert rows[f"{pd.pk}|300"]["indicator"].startswith("# of sessions (contact")
+            assert rows[f"{pd.pk}|300"]["pd_output"].startswith("Output led by")
+            assert rows[f"{unlinked.pk}|400"]["indicator"] == "# of wells"
     home = reverse("reports:check_rows", args=["home"])
     response = client_validator.get(home, {**params, "scope": "year", "block": "indicators", "what": "kept"})
     assert response.status_code == 200

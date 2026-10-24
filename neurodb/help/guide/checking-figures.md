@@ -96,14 +96,17 @@ same."** Below, **Where the indicators come from**:
    figure of programme documents. It is the difference a Power BI count of running programme documents
    can show (see check 10).
 
-**Where Reached comes from** (folded) follows every partner report row in NeuroDB: those of a programme
-document NeuroDB does not hold, of one the filter does not keep, of the other report type; the rows read,
-placed to an indicator of the filter (by its eTools id, title, PD output or a tie-breaker), placed to one the
-filter leaves out, or left out, each reason in check 7's words; the monthly pass for the indicators with no
-quarterly report; the rows left out because two indicator reports of one progress report share the
-indicator's title; under a location filter, the rows at other places; then the reports that do not count by
-status, those counted with no value, PRP's own report totals, the reports that count, and the indicators with
-Reached. Each step's count is the one before less what it leaves out. **Overdue reports, step by step**
+**Where Reached comes from** (folded) follows every partner report row in NeuroDB, in rows and in indicator
+reports: those of a programme document NeuroDB does not hold, of one the filter does not keep, of the other
+report type; of the rows read, those placed to an indicator the filter leaves out and those left out, each
+reason in check 7's words, then those placed to an indicator of the filter (by its eTools id, title, PD
+output or a tie-breaker); the monthly pass, which adds the rows it reads for the indicators with no quarterly
+report; the rows left out because two indicator reports of one progress report share the indicator's title;
+under a location filter, the rows at other places; then the reports that do not count by status, those
+counted with no value, PRP's own report totals (with what eTools said it had of them), the reports that
+count, and the indicators with Reached. Each step's count is the one before less what it leaves out (plus
+what the monthly pass adds), and from the rows read on only the rows of the indicators kept go on: a step
+that does not follow says so in red. **Overdue reports, step by step**
 (folded) gives the rows of these programme documents and report type, those not submitted, those due before
 the day, and the progress reports they make: this is not Progress reports' *Overdue* tile.
 
@@ -119,7 +122,9 @@ The map's tiles and its line "N on the map (M approximate) · K without coordina
 columns. In Excel, filter a column on *yes* and count the rows (or add up `counts_once`): it gives the
 figure. Each step's and each figure's CSV holds the programme documents, the PD indicator rows, the
 indicators or the partner report rows it names, with `unit_key` and `counts_once` (1 once per unit: for
-*Partners*, `counts_once_partner`); a programme document's focal points as a count.
+*Partners*, `counts_once_partner`); a programme document's focal points as a count. A step holding more
+than a download allows (100,000 PD indicator rows, 25,000 partner report rows) says so instead, with a link
+to Raw eTools data.
 
 **A worked example** (the numbers are an example). The tile *Off track* on Partner monitoring's grid, section
 Education, 2026:

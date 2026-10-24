@@ -14,7 +14,8 @@ what the page shows, each step with its count and the records it leaves out (as 
 * **One build, not two.** When the page's indicators are not stored, the trail's recorded build is the page's:
   it is stored for the page under its own key once the trail's snapshot closes. Only a warm stored value makes
   the trail build them a second time (recorded); a figure whose two values then differ (a sync ended in
-  between) is listed in red, never hidden.
+  between) is listed in red, never hidden. Program Performance with no section chosen reads that trail's
+  build; with sections, it records the filter without them.
 * **One state of the data.** A trail is read in one ``REPEATABLE READ READ ONLY`` snapshot and kept two
   minutes for every worker (``compute.once``), keyed on the filter, the day and the moment of the eTools
   figures. What is kept is ids, keys, counts and each indicator's tests, never a record's payload.
@@ -59,9 +60,10 @@ from .trail import (
 
 PAGE = "partner-monitoring"
 SOURCE = "pd_indicators"  # the Datamart dataset the indicators are read from
+PDS = "interventions"  # and their programme documents (Raw eTools data's, for a download too large)
 REPORTS = "partner_reports"  # and what partners reached on them
 TOTALS = "prp_indicator_reports"  # PRP's own report totals
-CACHE_VERSION = 1
+CACHE_VERSION = 2  # 2: the Reached fold is one chain, in report rows and indicator reports
 # the folded parts of the page's trail, each its own computation: Program Performance reads the filter without
 # its sections, the map its places
 TABLES = ("performance", "map")
@@ -122,8 +124,10 @@ def filters_of(params: Any) -> monitoring.Filters:
 @dataclass(frozen=True)
 class Stage:
     """One step of the chain: what it counts (``unit``), what is ``kept`` after it and what it leaves ``out``
-    (None: nothing, the chain's first step), the PD indicator rows it keeps and leaves out (the programme
-    documents' steps), its lines and the CSV of what it leaves out (``what``)."""
+    (None: nothing, a step that only says what the one before it kept), the PD indicator rows it keeps and
+    leaves out (the programme documents' steps), its lines and the CSV of what it leaves out (``what``). The
+    Reached fold's steps count indicator reports too (``irs_kept``; those left out entirely, and partly: some
+    of their rows kept), and its monthly pass the rows it adds (``added``, None for every other step)."""
 
     key: str
     title: str
@@ -135,23 +139,36 @@ class Stage:
     lines: tuple[Line, ...] = ()
     what: str = ""
     counts_only: bool = False
+    irs_kept: int | None = None
+    irs_out: int = 0
+    irs_partly: int = 0
+    added: int | None = None
+    irs_added: int = 0
 
     @property
     def kept_words(self) -> str:
         found = words(self.kept, self.unit)
         if self.rows_kept is not None:
             found += f" ({words(self.rows_kept, PD_ROW)})"
+        if self.irs_kept is not None:
+            found += f", {words(self.irs_kept, IR)}"
         return found
 
     @property
     def out_words(self) -> str:
         if self.out is None:
             return ""
+        if self.added is not None:
+            return f"Added: {words(self.added, self.unit)}, {words(self.irs_added, IR)}."
         if not self.out and not self.rows_out:
             return "Nothing left out."
         found = "Left out: " + words(self.out, self.unit)
         if self.rows_kept is not None:
             found += f" ({words(self.rows_out, PD_ROW)})"
+        if self.irs_kept is not None:
+            found += f"; {words(self.irs_out, IR)} left out entirely"
+            if self.irs_partly:
+                found += f", {self.irs_partly:,} partly (some of their rows kept)"
         return found + "."
 
 
@@ -228,7 +245,7 @@ class Fold:
     filter leaves out, the way, whether the indicator read it, what became of it), ``reports`` each
     indicator's reports (status, counted, with a value, where the value came from), ``values`` each
     indicator's (Reached, partial history, from PRP's cumulative), ``shared`` the rows of a shared title left
-    out, ``totals`` PRP's report totals found and kept."""
+    out, ``totals`` PRP's report totals found with a value and kept for the rows the indicators kept read."""
 
     report_type: str
     rows: dict[int, tuple[str, int]]
@@ -459,8 +476,12 @@ def _fold(recorder: trail.Recorder, kept: tuple[tuple[int, str], ...]) -> Fold:
     by_id: dict[Any, int] = {}
     units: dict[tuple[str, str], int] = {}
     rows: dict[int, tuple[str, int]] = {}
+    totals_of: dict[int, str] = {}  # a row's PRP indicator report id, which its report total is found by
     for row in reporting.unit_rows(dm.ReportedIndicator.objects.all()):
         unit = units.setdefault(reporting.unit_key(row), len(units))
+        ir = str(row["_ir"] or "")
+        if ir.isdigit() and len(ir) <= 18:  # as reached.progress_values reads it
+            totals_of[row["pk"]] = str(int(ir))
         if row["intervention_id"] is None:
             kind = "R0"
         elif row["intervention_id"] not in recorder.pd_ids:
@@ -493,6 +514,8 @@ def _fold(recorder: trail.Recorder, kept: tuple[tuple[int, str], ...]) -> Fold:
         # the indicator's number among those kept; -1: none (left out), -2: one this filter leaves out
         number = -1 if ident is None else numbers.get(ident, -2)
         placed[by_id[datamart_id]] = (kind, number, way, used, outcome)
+    found, kept_totals = recorder.totals
+    read = {totals_of[pk] for pk, p in placed.items() if p[1] >= 0 and p[3] and pk in totals_of}
     return Fold(
         report_type=recorder.report_type,
         rows=rows,
@@ -500,7 +523,7 @@ def _fold(recorder: trail.Recorder, kept: tuple[tuple[int, str], ...]) -> Fold:
         reports=dict(recorder.reports),
         values=dict(recorder.values),
         shared=dict(recorder.shared),
-        totals=recorder.totals,
+        totals=(len(found & read), len(kept_totals & read)),
         pd_ids=recorder.pd_ids,
     )
 
@@ -599,6 +622,7 @@ def chain_steps(rows: Chain, filters: monitoring.Filters) -> list[Stage]:
                         alert=True,
                     )
                 )
+            what, more = _csv("step:M1" if held else "", len(held), PDS)
             out.append(
                 Stage(
                     "M1",
@@ -606,13 +630,14 @@ def chain_steps(rows: Chain, filters: monitoring.Filters) -> list[Stage]:
                     PD,
                     kept=len(held),
                     rows_kept=sum(rows.pds[pk][3] for pk in held),
-                    lines=tuple(lines),
-                    what="step:M1" if held else "",
+                    lines=(*lines, *more),
+                    what=what,
                 )
             )
             continue
         kept = [pk for pk, f in rows.pds.items() if f[0] > index]
         dropped = [pk for pk, f in rows.pds.items() if f[0] == index]
+        what, more = _csv(f"step:{name}" if dropped else "", len(dropped), PDS)
         stage = Stage(
             name,
             stage_title(name, filters),
@@ -621,7 +646,8 @@ def chain_steps(rows: Chain, filters: monitoring.Filters) -> list[Stage]:
             out=len(dropped),
             rows_kept=sum(rows.pds[pk][3] for pk in kept),
             rows_out=sum(rows.pds[pk][3] for pk in dropped),
-            what=f"step:{name}" if dropped else "",
+            lines=more,
+            what=what,
         )
         out.append(_broken(stage, rows))
     for index, name in rows.stage_of("rows"):
@@ -636,14 +662,15 @@ def chain_steps(rows: Chain, filters: monitoring.Filters) -> list[Stage]:
                         alert=True,
                     )
                 )
+            what, more = _csv("step:M11" if rows.rows else "", len(rows.rows), SOURCE)
             out.append(
                 Stage(
                     "M11",
                     stage_title(name, filters),
                     PD_ROW,
                     kept=len(rows.rows),
-                    lines=tuple(lines),
-                    what="step:M11" if rows.rows else "",
+                    lines=(*lines, *more),
+                    what=what,
                 )
             )
             continue
@@ -651,6 +678,7 @@ def chain_steps(rows: Chain, filters: monitoring.Filters) -> list[Stage]:
         before = {r[0] for r in rows.rows.values() if r[1] >= index}
         after = {r[0] for r in rows.rows.values() if r[1] > index}
         gone = {r[0] for r in dropped}
+        what, more = _csv(f"step:{name}" if dropped else "", len(dropped), SOURCE)
         stage = Stage(
             name,
             stage_title(name, filters),
@@ -662,8 +690,9 @@ def chain_steps(rows: Chain, filters: monitoring.Filters) -> list[Stage]:
                     f"{words(len(before - after), INDICATOR)} left out entirely, {len(gone & after):,} "
                     "partly (some of their rows kept)."
                 ),
+                *more,
             ),
-            what=f"step:{name}" if dropped else "",
+            what=what,
         )
         out.append(_broken(stage, rows))
     for index, name in rows.stage_of("indicators"):
@@ -681,6 +710,7 @@ def chain_steps(rows: Chain, filters: monitoring.Filters) -> list[Stage]:
             out.append(Stage("M16", stage_title(name, filters), INDICATOR, kept=n, lines=tuple(lines)))
             continue
         dropped = [i for i in rows.indicators.values() if i.stage == index]
+        what, more = _csv(f"step:{name}" if dropped else "", len(dropped), SOURCE)
         out.append(
             Stage(
                 name,
@@ -688,16 +718,18 @@ def chain_steps(rows: Chain, filters: monitoring.Filters) -> list[Stage]:
                 INDICATOR,
                 kept=sum(1 for i in rows.indicators.values() if i.stage > index),
                 out=len(dropped),
-                what=f"step:{name}" if dropped else "",
+                lines=more,
+                what=what,
             )
         )
     kept = rows.kept_indicators
-    lines = ()
+    what, lines = _csv("kept", len(kept), SOURCE)
     if "kept" in rows.broken:
-        lines = (Line(f"These are not the indicators the steps keep. {DIFFERS}", alert=True),)
-    out.append(Stage("K", "Kept: the page's indicators", INDICATOR, kept=len(kept), lines=lines, what="kept"))
+        lines += (Line(f"These are not the indicators the steps keep. {DIFFERS}", alert=True),)
+    out.append(Stage("K", "Kept: the page's indicators", INDICATOR, kept=len(kept), lines=lines, what=what))
     none = sorted(rows.pds_kept - {i.pd for i in kept})
     no_row = sum(1 for pk in none if not rows.pds[pk][3])
+    what, more = _csv("step:K2" if none else "", len(none), PDS)
     out.append(
         Stage(
             "K2",
@@ -710,11 +742,12 @@ def chain_steps(rows: Chain, filters: monitoring.Filters) -> list[Stage]:
                     f"{len(none) - no_row:,}. They are in no figure of programme documents (see check 10 of "
                     "the eTools reporting checks: running programme documents with no report row)."
                 ),
+                *more,
             ),
-            what="step:K2" if none else "",
+            what=what,
         )
     )
-    return out
+    return adds_up(out)
 
 
 def pd_steps(facts: runfacts.RunFacts, rows: Chain) -> list[Any]:
@@ -722,17 +755,13 @@ def pd_steps(facts: runfacts.RunFacts, rows: Chain) -> list[Any]:
     (the eTools Datamart's programme documents and the eTools REST sync both write them; none is ever
     removed)."""
     out: list[Any] = trail.source_steps(facts, SOURCE, "PD indicator rows", rows.held, what="step:D4")
+    what, more = _csv("step:D5" if rows.orphans else "", rows.orphans, SOURCE)
     out.append(
         trail.Step(
             "D5",
             "dataset",
             "PD indicator rows naming no programme document NeuroDB holds",
-            (
-                Line(
-                    f"{words(rows.orphans, PD_ROW)}: never read by Partner monitoring.",
-                    what="step:D5" if rows.orphans else "",
-                ),
-            ),
+            (Line(f"{words(rows.orphans, PD_ROW)}: never read by Partner monitoring.", what=what), *more),
         )
     )
     out.append(trail.Step("PD", "dataset", "Programme documents in NeuroDB", (Line(pd_writers()),)))
@@ -798,20 +827,86 @@ def outcome_words(outcome: str) -> str:
     return OUTCOME_WORDS.get(outcome, outcome)
 
 
-def reached_steps(rows: Chain, filters: monitoring.Filters, totals: runfacts.RunFacts) -> list[Stage]:
+def reached_tests(read: str) -> dict[str, Callable[[tuple], bool]]:
+    """Which partner report rows each step of the Reached fold names after the rows read (its CSV), a row
+    as :attr:`Fold.placed` holds it (its pass, the indicator's number among those kept, the way, read, what
+    became of it); ``read``: the report type read first. From R8 on, the rows of the indicators kept only."""
+    return {
+        "R5": lambda p: p[0] == read and p[1] == -2,
+        "R6": lambda p: p[0] == read and p[1] == -1,
+        "R4": lambda p: p[0] == read and p[1] >= 0,
+        "R7": lambda p: p[0] != read,
+        "R8": lambda p: p[1] >= 0 and p[4] == "one_indicator",
+        "R9": lambda p: p[1] >= 0 and p[4] == "other_place",
+        "R10": lambda p: p[1] >= 0 and p[4].startswith("status:"),
+        "R11": lambda p: p[1] >= 0 and p[4] == "no_value",
+        "R13": lambda p: p[1] >= 0 and p[4].startswith("counted:"),
+    }
+
+
+def reached_rows(fold: Fold, key: str) -> list[int]:
+    """The partner report rows of a step of the Reached fold (its CSV): every row in NeuroDB (``all``), a
+    class of them (R0 to R3), or those of :func:`reached_tests`."""
+    if key == "all":
+        return sorted(fold.rows)
+    if key in ("R0", "R1", "R2", "R3"):
+        return sorted(pk for pk, (kind, _unit) in fold.rows.items() if kind == key)
+    test = reached_tests(fold.report_type).get(key)
+    return sorted(pk for pk, p in fold.placed.items() if test(p)) if test else []
+
+
+def _fold_stage(
+    key: str,
+    title: str,
+    before: set[int],
+    after: set[int],
+    unit_of: dict[int, int],
+    *,
+    out: int | None = None,
+    added: int | None = None,
+    listed: int = 0,
+    lines: tuple[Line, ...] = (),
+) -> Stage:
+    """A step of the Reached fold, from the report rows still read before it and after it: what it leaves out
+    (``out``, the rows of its CSV; None for a step that only says what the step before it kept) or adds (the
+    monthly pass), in report rows and in indicator reports, left out entirely or partly (some of their rows
+    kept). ``listed``: the rows of its CSV, which a download holds or not."""
+    irs_before = {unit_of[pk] for pk in before}
+    irs_after = {unit_of[pk] for pk in after}
+    what, more = _csv(f"reached:{key}" if listed else "", listed, REPORTS)
+    stage = Stage(key, title, ROW, kept=len(after), irs_kept=len(irs_after), lines=(*lines, *more), what=what)
+    if added is not None:
+        return dataclasses.replace(stage, out=0, added=added, irs_added=len(irs_after - irs_before))
+    if out is None:
+        return stage
+    gone = {unit_of[pk] for pk in before - after}
+    return dataclasses.replace(
+        stage, out=out, irs_out=len(irs_before - irs_after), irs_partly=len(gone & irs_after)
+    )
+
+
+def reached_steps(
+    rows: Chain, filters: monitoring.Filters, totals: runfacts.RunFacts, totals_held: int
+) -> list[Any]:
     """The Reached fold, R0 to R14 (SPEC_validation §3.4.4), after D1 to D4 of the partner reports: where
     every partner report row in NeuroDB went, from the rows Partner monitoring never reads to the reports
-    that count, in rows and indicator reports; then the indicators with Reached. Each step's count is the step
-    before minus what it leaves out."""
+    that count, in report rows and indicator reports, then the indicators with Reached. One chain: each step
+    keeps what the step before it kept, less what it leaves out (the monthly pass adds the rows it reads for
+    the indicators kept), and from the rows read on, only the rows of the indicators kept go on. PRP's report
+    totals come with D1 to D4 of their dataset (``totals``; ``totals_held``: its records, counted in the
+    trail's snapshot)."""
     fold = rows.fold
     read = fold.report_type or filters.report_type
     kind = "quarterly" if read == "QPR" else "monthly"
     other = "monthly" if read == "QPR" else "quarterly"
-    by_kind: dict[str, list[int]] = defaultdict(list)
-    for k, unit in fold.rows.values():
-        by_kind[k].append(unit)
-    out: list[Stage] = []
-    left = len(fold.rows)
+    tests = reached_tests(read)
+    unit_of = {pk: unit for pk, (_kind, unit) in fold.rows.items()}
+
+    def of(key: str) -> set[int]:
+        return {pk for pk, p in fold.placed.items() if tests[key](p)}
+
+    out: list[Any] = []
+    kept = set(fold.rows)
     titles = {
         "R0": "Partner report rows of a programme document NeuroDB does not hold, or naming none (never read "
         "by Partner monitoring)",
@@ -820,207 +915,144 @@ def reached_steps(rows: Chain, filters: monitoring.Filters, totals: runfacts.Run
         "R2": f"Rows of the other report type ({other} reports: {kind} reports are read)",
     }
     for key, title in titles.items():
-        n, irs = len(by_kind[key]), len(set(by_kind[key]))
-        left -= n
-        out.append(
-            Stage(
-                key,
-                title,
-                ROW,
-                kept=left,
-                out=n,
-                lines=(Line(f"{words(n, ROW)} ({words(irs, IR)}) left out."),),
-                what=f"reached:{key}" if n else "",
-            )
-        )
-    n, irs = len(by_kind["R3"]), len(set(by_kind["R3"]))
-    first = [p for p in fold.placed.values() if p[0] == read]
-    lines = [Line(f"{words(n, ROW)}, {words(irs, IR)}.")]
-    if len(first) != n:
-        lines.append(
-            Line(f"Partner monitoring placed {len(first):,} rows: they are not these. {DIFFERS}", alert=True)
-        )
-    out.append(
-        Stage(
-            "R3",
-            f"Rows read for these programme documents, {kind} reports",
-            ROW,
-            kept=n,
-            lines=tuple(lines),
-            what="reached:R3" if n else "",
-        )
-    )
-    ways = Counter(p[2] for p in first if p[1] >= 0)
-    placed = sum(ways.values())
-    breakers = ", ".join(f"{identity.LABELS[w].lower()} {ways[w]:,}" for w in identity.BREAKERS if ways[w])
+        gone = {pk for pk, (k, _unit) in fold.rows.items() if k == key}
+        out.append(_fold_stage(key, title, kept, kept - gone, unit_of, out=len(gone), listed=len(gone)))
+        kept -= gone
+    read_rows = {pk for pk, (k, _unit) in fold.rows.items() if k == "R3"}
+    first = {pk for pk, p in fold.placed.items() if p[0] == read}
+    lines: tuple[Line, ...] = ()
+    if first != read_rows:
+        alert = f"Partner monitoring placed {len(first):,} rows: they are not these. {DIFFERS}"
+        lines = (Line(alert, alert=True),)
+    title = f"Rows read for these programme documents, {kind} reports"
+    out.append(_fold_stage("R3", title, kept, read_rows, unit_of, listed=len(read_rows), lines=lines))
+    kept = read_rows
     pass_words = "Quarterly pass: " if read == "QPR" else ""
-    out.append(
-        Stage(
-            "R4",
-            f"{pass_words}placed to an indicator of this filter",
-            ROW,
-            kept=placed,
-            lines=(
-                Line(
-                    f"By its eTools id {ways['id']:,}, by title {ways['title']:,}, by PD output "
-                    f"{ways['output']:,}, by a tie-breaker {sum(ways[w] for w in identity.BREAKERS):,}"
-                    + (f" ({breakers})" if breakers else "")
-                    + "."
-                ),
-            ),
-            what="reached:R4" if placed else "",
-        )
+    # placed to an indicator this filter leaves out, then left out by why: what is left is placed to the
+    # indicators kept (R4, last)
+    elsewhere = of("R5")
+    title = (
+        f"{pass_words}placed to an indicator this filter leaves out (another section, a search, a status…)"
     )
-    elsewhere = sum(1 for p in first if p[1] == -2)
     out.append(
-        Stage(
-            "R5",
-            f"{pass_words}placed to an indicator this filter leaves out (another section, a search, a "
-            "status…)",
-            ROW,
-            kept=placed,
-            out=elsewhere,
-            what="reached:R5" if elsewhere else "",
-        )
+        _fold_stage("R5", title, kept, kept - elsewhere, unit_of, out=len(elsewhere), listed=len(elsewhere))
     )
-    reasons = Counter(p[2] for p in first if p[1] == -1)
-    lines = [Line(f"{_way_words(way)}: {words(n, ROW)}.") for way, n in sorted(reasons.items())]
-    if len(first) != placed + elsewhere + sum(reasons.values()):
-        lines.append(Line(f"These do not add up to the rows read. {DIFFERS}", alert=True))
+    kept -= elsewhere
+    left = of("R6")
+    reasons = Counter(fold.placed[pk][2] for pk in left)
+    lines = tuple(Line(f"{_way_words(way)}: {words(n, ROW)}.") for way, n in sorted(reasons.items()))
+    title = (
+        f"{pass_words}left out, and why (check 7 of the eTools reporting checks counts them for the running "
+        "programme documents)"
+    )
     out.append(
-        Stage(
-            "R6",
-            f"{pass_words}left out, by why (check 7 of the eTools reporting checks counts them for the "
-            "running programme documents)",
-            ROW,
-            kept=placed,
-            out=sum(reasons.values()),
-            lines=tuple(lines),
-            what="reached:R6" if reasons else "",
-        )
+        _fold_stage("R6", title, kept, kept - left, unit_of, out=len(left), listed=len(left), lines=lines)
     )
-    second = [p for p in fold.placed.values() if p[0] != read]
+    kept -= left
+    placed = of("R4")
+    ways = Counter(fold.placed[pk][2] for pk in placed)
+    breakers = ", ".join(f"{identity.LABELS[w].lower()} {ways[w]:,}" for w in identity.BREAKERS if ways[w])
+    line = Line(
+        f"By its eTools id {ways['id']:,}, by title {ways['title']:,}, by PD output {ways['output']:,}, by a "
+        f"tie-breaker {sum(ways[w] for w in identity.BREAKERS):,}"
+        + (f" ({breakers})" if breakers else "")
+        + "."
+    )
+    title = f"{pass_words}placed to an indicator of this filter"
+    out.append(_fold_stage("R4", title, kept, placed, unit_of, listed=len(placed), lines=(line,)))
+    kept = placed
+    second = of("R7")
     if second:
-        used = sum(1 for p in second if p[3])
-        not_used = sum(1 for p in second if not p[3] and p[1] != -1)
-        reasons = Counter(p[2] for p in second if p[1] == -1)
-        out.append(
-            Stage(
-                "R7",
-                "Monthly pass (indicators with no quarterly report)",
-                ROW,
-                kept=used,
-                lines=(
-                    Line(
-                        f"Of the {other} rows (R2), {words(len(second), ROW)} are read for the indicators "
-                        f"with no quarterly report: placed to one of them {used:,}; placed to an indicator "
-                        "that has quarterly reports, or that this filter leaves out (read, not used) "
-                        f"{not_used:,}."
-                    ),
-                    *(Line(f"{_way_words(way)}: {words(n, ROW)}.") for way, n in sorted(reasons.items())),
-                ),
-                what="reached:R7",
-            )
+        mine = {pk for pk in second if fold.placed[pk][1] >= 0 and fold.placed[pk][3]}
+        later = sum(1 for pk in second if fold.placed[pk][1] == -2 and fold.placed[pk][3])
+        not_used = sum(1 for pk in second if not fold.placed[pk][3] and fold.placed[pk][1] != -1)
+        reasons = Counter(fold.placed[pk][2] for pk in second if fold.placed[pk][1] == -1)
+        found = (
+            f"{words(len(second), ROW)} of the {other} reports left out above are read for the indicators "
+            f"with no {kind} report: placed to one this filter keeps {len(mine):,}"
         )
-    used = [p for p in fold.placed.values() if p[3]]
-    outcome = Counter(p[4] for p in used)
-    reports = [r for found in fold.reports.values() for r in found]
-    left = len(used)
-    for key, why, title in (
+        if later:
+            found += f"; to one the tracking status then leaves out {later:,}"
+        found += (
+            f"; to an indicator that has {kind} reports, or that this filter leaves out (read, not used) "
+            f"{not_used:,}."
+        )
+        lines = (
+            Line(found),
+            *(Line(f"{_way_words(way)}: {words(n, ROW)}.") for way, n in sorted(reasons.items())),
+        )
+        title = "Monthly pass (indicators with no quarterly report)"
+        stage = _fold_stage(
+            "R7", title, kept, kept | mine, unit_of, added=len(mine), listed=len(second), lines=lines
+        )
+        out.append(stage)
+        kept |= mine
+    statuses = (rc.SENT_BACK, rc.DUE, rc.OVERDUE, rc.NOT_YET_DUE)
+    for key, title in (
         (
             "R8",
-            "one_indicator",
-            "Left out because two indicator reports of one progress report carry the "
-            "indicator's title, and its PD output does not say which is this one",
+            "Left out because two indicator reports of one progress report carry the indicator's title, and "
+            "its PD output does not say which is this one",
         ),
         (
             "R9",
-            "other_place",
-            "Under the location filter: rows at other places (the chosen locations' cells "
-            "only; PRP's report totals and cumulative are not read)",
+            "Under the location filter: rows at other places (the chosen locations' cells only; PRP's report "
+            "totals and cumulative are not read)",
         ),
+        ("R10", "Reports that do not count, by status (only Accepted and Submitted reports count)"),
+        ("R11", "Accepted or Submitted with no value"),
     ):
         if key == "R9" and not filters.locations:
             continue
-        left -= outcome[why]
+        gone = of(key)
+        lines = ()
+        if key == "R10":
+            irs = {s: {unit_of[pk] for pk in gone if fold.placed[pk][4] == f"status:{s}"} for s in statuses}
+            lines = (
+                Line(
+                    "By status, in indicator reports: "
+                    + "; ".join(f"{rc.STATUS_LABELS[s]} {len(irs[s]):,}" for s in statuses)
+                    + "."
+                ),
+            )
         out.append(
-            Stage(key, title, ROW, kept=left, out=outcome[why], what=f"reached:{key}" if outcome[why] else "")
+            _fold_stage(key, title, kept, kept - gone, unit_of, out=len(gone), listed=len(gone), lines=lines)
         )
-    by_status = Counter(r[1] for r in reports if not r[2])
-    status_rows = sum(n for o, n in outcome.items() if o.startswith("status:"))
-    statuses = (rc.SENT_BACK, rc.DUE, rc.OVERDUE, rc.NOT_YET_DUE)
-    out.append(
-        Stage(
-            "R10",
-            "Reports that do not count, by status (only Accepted and Submitted reports count)",
-            IR,
-            kept=len(reports) - sum(by_status.values()),
-            out=sum(by_status.values()),
-            lines=(
-                Line(
-                    "; ".join(f"{rc.STATUS_LABELS[s]} {by_status[s]:,}" for s in statuses)
-                    + f" ({words(status_rows, ROW)})."
-                ),
-            ),
-            what="reached:R10" if status_rows else "",
-        )
-    )
-    no_value = sum(1 for r in reports if r[2] and not r[3])
-    out.append(
-        Stage(
-            "R11",
-            "Accepted or Submitted with no value",
-            IR,
-            kept=len(reports) - sum(by_status.values()) - no_value,
-            out=no_value,
-            lines=(Line(f"{words(outcome['no_value'], ROW)}."),),
-            what="reached:R11" if outcome["no_value"] else "",
-        )
-    )
+        kept -= gone
+    counted = of("R13")
+    prp = {unit_of[pk] for pk in counted if fold.placed[pk][4] == "counted:prp"}
+    total = {unit_of[pk] for pk in counted if fold.placed[pk][4] == "counted:report_total"}
+    # D1 to D4 of PRP's report totals: "PRP's report totals: what eTools said it had", …
+    for step in trail.source_steps(
+        totals, TOTALS, "PRP indicator reports", totals_held, what="reached:totals"
+    ):
+        title = f"PRP's report totals: {step.title[0].lower()}{step.title[1:]}"
+        out.append(dataclasses.replace(step, key=f"R12-{step.key}", title=title))
     found, kept_totals = fold.totals
-    prp = sum(1 for r in reports if r[3] and r[4] == "prp")
-    said = (
-        f" (eTools said it had {totals.said_it_had:,}; NeuroDB received {totals.received or 0:,})"
-        if totals.said_it_had is not None
-        else ""
-    )
-    out.append(
-        Stage(
-            "R12",
-            "PRP's report totals (the PRP indicator reports dataset)",
-            IR,
-            kept=kept_totals,
-            out=found - kept_totals,
-            lines=(
-                Line(
-                    f"In NeuroDB: {totals.held:,} PRP indicator reports{said}. Found for these reports with "
-                    f"a value: {found:,}; kept {kept_totals:,}; not kept (about another programme document "
-                    f"or indicator) {found - kept_totals:,}. A report's value is PRP's own total where its "
-                    f"locations give none: {prp:,}."
-                ),
-            ),
-            counts_only=True,
-        )
-    )
-    counted = [r for r in reports if r[3]]
-    counted_rows = sum(n for o, n in outcome.items() if o.startswith("counted:"))
-    total = sum(1 for r in counted if r[4] == "report_total")
     lines = [
         Line(
-            f"{words(len(counted), IR)} in {words(counted_rows, ROW)}; of them read from PRP's report total "
-            f"{prp:,}, or a total repeated on every location {total:,}."
+            f"Found with a value for the rows these indicators read: {found:,}; kept {kept_totals:,}; not "
+            f"kept (about another programme document or indicator) {found - kept_totals:,}. A report's value "
+            f"is PRP's own total where its locations give none: {words(len(prp), IR)}."
         )
     ]
-    if outcome["unexplained"]:
-        lines.append(Line(f"{words(outcome['unexplained'], ROW)} are not explained. {DIFFERS}", alert=True))
+    if filters.locations:
+        lines.append(Line("Under the location filter, they are not read."))
     out.append(
-        Stage(
-            "R13",
-            "Reports that count",
-            IR,
-            kept=len(counted),
-            lines=tuple(lines),
-            what="reached:R13" if counted_rows else "",
+        trail.Step("R12", "dataset", "PRP's report totals (the PRP indicator reports dataset)", tuple(lines))
+    )
+    lines = [
+        Line(
+            f"Of them, read from PRP's report total: {words(len(prp), IR)}; from a total repeated on every "
+            f"location, read once for the report: {len(total):,}."
+        )
+    ]
+    unexplained = sum(1 for pk in kept if fold.placed[pk][4] == "unexplained")
+    if unexplained:
+        lines.append(Line(f"{words(unexplained, ROW)} are not explained. {DIFFERS}", alert=True))
+    out.append(
+        _fold_stage(
+            "R13", "Reports that count", kept, counted, unit_of, listed=len(counted), lines=tuple(lines)
         )
     )
     values = [fold.values[i] for i in rows.kept if i in fold.values]
@@ -1041,7 +1073,46 @@ def reached_steps(rows: Chain, filters: monitoring.Filters, totals: runfacts.Run
             ),
         )
     )
+    return adds_up(out)
+
+
+def adds_up(steps: list[Any]) -> list[Any]:
+    """SPEC_validation §3.8: each step of a chain keeps what the step before it kept, less what it leaves
+    out (plus what the monthly pass adds), in its unit and in indicator reports; a step that does not says so
+    in red. A step of another unit starts again; the dataset steps are not in the chain."""
+    out: list[Any] = []
+    before: Stage | None = None
+    for step in steps:
+        if isinstance(step, Stage):
+            if before is not None and step.unit == before.unit and not _follows(before, step):
+                if not any(line.alert for line in step.lines):
+                    alert = Line(
+                        f"This step's count is not the step before less what it leaves out. {DIFFERS}",
+                        alert=True,
+                    )
+                    step = dataclasses.replace(step, lines=(*step.lines, alert))
+            before = step
+        out.append(step)
     return out
+
+
+def _follows(before: Stage, step: Stage) -> bool:
+    if step.kept != before.kept - (step.out or 0) + (step.added or 0):
+        return False
+    if step.irs_kept is None or before.irs_kept is None:
+        return True
+    return step.irs_kept == before.irs_kept - step.irs_out + step.irs_added
+
+
+def _csv(what: str, n: int, source: str) -> tuple[str, tuple[Line, ...]]:
+    """A step's CSV (``what``) when a download holds its ``n`` records; past that none, and the sentence that
+    says so, with Raw eTools data of the source, whose filters make a download smaller (SPEC_validation
+    §1.3)."""
+    from . import raw
+
+    if not what or n <= raw.csv_limit(source):
+        return what, ()
+    return "", (Line(raw.too_many(source, n), raw=source),)
 
 
 def overdue_steps(rows: Chain, filters: monitoring.Filters, day: datetime.date) -> list[Stage]:
@@ -1059,19 +1130,13 @@ def overdue_steps(rows: Chain, filters: monitoring.Filters, day: datetime.date) 
         kept = sum(1 for s in rows.overdue.values() if s > index)
         dropped = sum(1 for s in rows.overdue.values() if s == index)
         if index == 0:
-            out.append(Stage("O1", title, ROW, kept=total, what="overdue:O1" if total else ""))
+            what, more = _csv("overdue:O1" if total else "", total, REPORTS)
+            out.append(Stage("O1", title, ROW, kept=total, lines=more, what=what))
             continue
-        out.append(
-            Stage(
-                f"O{index + 1}",
-                title,
-                ROW,
-                kept=kept,
-                out=dropped,
-                what=f"overdue:O{index + 1}" if dropped else "",
-            )
-        )
+        what, more = _csv(f"overdue:O{index + 1}" if dropped else "", dropped, REPORTS)
+        out.append(Stage(f"O{index + 1}", title, ROW, kept=kept, out=dropped, lines=more, what=what))
     kept = sum(1 for s in rows.overdue.values() if s == 3)
+    what, more = _csv("overdue:O4" if kept else "", kept, REPORTS)
     out.append(
         Stage(
             "O4",
@@ -1082,11 +1147,12 @@ def overdue_steps(rows: Chain, filters: monitoring.Filters, day: datetime.date) 
                 Line(
                     f"{words(kept, ROW)} make them. This is not Progress reports' Overdue tile (see Notes)."
                 ),
+                *more,
             ),
-            what="overdue:O4" if kept else "",
+            what=what,
         )
     )
-    return out
+    return adds_up(out)
 
 
 # ------------------------------------------------------------------------------------------------ the figures
@@ -1383,7 +1449,7 @@ def quality_figures(quality: dict[str, Any], rows: Chain) -> tuple[list[Figure],
     for g in quality["same_title"]:  # the titles the list shows (at most monitoring.QUALITY_LIMIT)
         key = (g["pd"].id, rc.norm(g["title"]))
         mine = shared.get(key, [])
-        name = f"{g['pd'].number or '—'}: {g['title']}"
+        name = f"{g['pd'].number or '—'}: {title_words(g['title'])}"
         lists += [
             Figure(
                 f"dq.same_title.{key[0]}.{key[1]}.count",
@@ -1406,6 +1472,15 @@ def quality_figures(quality: dict[str, Any], rows: Chain) -> tuple[list[Figure],
             ),
         ]
     return tiles, lists
+
+
+def title_words(title: str) -> str:
+    """An indicator's title as the trail names a figure with it: an e-mail address or a phone number copied
+    into it withheld. A name stays, as on the page (the CSVs withhold it: they clean the step's words with the
+    names NeuroDB knows, read for each download, never in the trail's build)."""
+    from . import raw_people
+
+    return raw_people.text(title, SOURCE, "title", frozenset(), frozenset())
 
 
 def filter_words(filters: monitoring.Filters) -> tuple[str, ...]:
@@ -1503,9 +1578,18 @@ def _monitoring_trail(
         dataset = pd_steps(runfacts.facts(SOURCE), rows)
         reached = [
             *trail.source_steps(
-                runfacts.facts(REPORTS), REPORTS, "partner report rows", len(rows.fold.rows), what=""
+                runfacts.facts(REPORTS),
+                REPORTS,
+                "partner report rows",
+                len(rows.fold.rows),
+                what="reached:all",
             ),
-            *reached_steps(rows, filters, runfacts.facts(TOTALS)),
+            *reached_steps(
+                rows,
+                filters,
+                runfacts.facts(TOTALS),
+                dm.DatamartDocument.objects.filter(dataset=TOTALS).count(),
+            ),
         ]
         overdue = overdue_steps(rows, filters, day)
         tiles = tile_figures(summary, rows, home=home)
@@ -1561,8 +1645,9 @@ def _monitoring_trail(
 
 def performance_trail(params: Any, day: datetime.date) -> TableTrail:
     """The trail of Program Performance: the trail of the filter without its sections (Reached computed for
-    every section, then the tracking status), then the sections chosen kept, by the page's own function
-    (``program_performance_rows``); kept two minutes."""
+    every section, then the tracking status; with no section chosen, the grid's trail of the same filter),
+    then the sections chosen kept, by the page's own function (``program_performance_rows``); kept two
+    minutes."""
     params = trail.filter_query(params)
     filters = filters_of(params)
     key = f"trail-pp:v{CACHE_VERSION}:{filters.cache_key()}:{day}:{keys.fingerprint()}"
@@ -1573,21 +1658,33 @@ def _performance_trail(params: Any, filters: monitoring.Filters, day: datetime.d
     from .raw import STREAM_TIMEOUT_MS, snapshot
 
     every_filter = dataclasses.replace(filters, sections=[])
-    with snapshot(STREAM_TIMEOUT_MS):
-        steps, recorder, found, every, warm = _recorded(every_filter, day)
-        rows = chain(every_filter, day, steps, recorder, found)
+    if not filters.sections:
+        # the filter is the grid's and Data quality's trail's (no section to take out): its one recorded
+        # build, and the page's indicators it stored for the page when they were not
+        rows = monitoring_trail(params, day).rows
+        every = monitoring.stored_indicators(every_filter, day)
         page = monitoring.program_performance_rows(filters, day, every=every)
         tiles = monitoring.section_counts(every)
-        # the sections step, after the tracking status: the page's own rows of the sections chosen
-        recorded = monitoring.program_performance_rows(filters, day, every=monitoring.as_rows(found))
-    if not warm:
-        _store_page(every_filter, day, every)
-    chosen = {(r.pd.id, r.key) for r in recorded}
+        chosen = {(i.pd, i.key) for i in rows.kept_indicators}
+    else:
+        with snapshot(STREAM_TIMEOUT_MS):
+            steps, recorder, found, every, warm = _recorded(every_filter, day)
+            rows = chain(every_filter, day, steps, recorder, found)
+            page = monitoring.program_performance_rows(filters, day, every=every)
+            tiles = monitoring.section_counts(every)
+            # the sections step, after the tracking status: the page's own rows of the sections chosen
+            recorded = monitoring.program_performance_rows(filters, day, every=monitoring.as_rows(found))
+        if not warm:
+            _store_page(every_filter, day, every)
+        chosen = {(r.pd.id, r.key) for r in recorded}
     kept = [i for i in rows.kept_indicators if (i.pd, i.key) in chosen]
     sections = Counter(i.section or monitoring.NO_SECTION for i in rows.kept_indicators)
     # the steps of the filter without its sections, then the sections chosen, after the tracking status
     stages = [s for s in chain_steps(rows, every_filter) if s.key not in ("K", "K2")]
     if filters.sections:
+        what, more = _csv(
+            "step:sections" if len(rows.kept) > len(kept) else "", len(rows.kept) - len(kept), SOURCE
+        )
         stages.append(
             Stage(
                 "sections",
@@ -1595,12 +1692,15 @@ def _performance_trail(params: Any, filters: monitoring.Filters, day: datetime.d
                 INDICATOR,
                 kept=len(kept),
                 out=len(rows.kept) - len(kept),
-                what="step:sections" if len(rows.kept) > len(kept) else "",
+                lines=more,
+                what=what,
             )
         )
+    what, more = _csv("kept", len(kept), SOURCE)
     stages.append(
-        Stage("K", "Kept: Program Performance's indicators", INDICATOR, kept=len(kept), what="kept")
+        Stage("K", "Kept: Program Performance's indicators", INDICATOR, kept=len(kept), lines=more, what=what)
     )
+    stages = adds_up(stages)
     out = [
         Figure(
             "pp.indicators",
@@ -1656,7 +1756,7 @@ def _performance_trail(params: Any, filters: monitoring.Filters, day: datetime.d
         out.append(
             Figure(
                 f"pp.reached.{r.pd.id}.{r.key}",
-                f"{r.pd.number or '—'}: {r.title}",
+                f"{r.pd.number or '—'}: {title_words(r.title)}",
                 INDICATOR,
                 value,
                 rebuilt,

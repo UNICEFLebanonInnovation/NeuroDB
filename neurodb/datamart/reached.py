@@ -1213,14 +1213,14 @@ def report_rows(pd_ids: Iterable[int], report_types: Iterable[str]):
 
 
 def progress_values(
-    rows: Iterable[dict[str, Any]], record: Callable[[int, int], None] | None = None
+    rows: Iterable[dict[str, Any]], record: Callable[[list[str], list[str]], None] | None = None
 ) -> dict[str, Any]:
     """PRP's own report totals (``progress_value`` of ``prp/indicator-report-v2``) by indicator report,
     for these report rows. A v2 record is found by its id and kept only when it is about the same
     programme document and indicator as the rows (its PD link, its ``performance_indicator``): that the
     two datasets share their ids is not confirmed, and another indicator's total must never stand in
-    for this one's. ``record``: the figure trail's, told how many totals were found and how many kept (the
-    others are about another programme document or indicator); None on the pages."""
+    for this one's. ``record``: the figure trail's, told the ids of the totals found with a value and of those
+    kept (the others are about another programme document or indicator); None on the pages."""
     from django.db.models.fields.json import KT
 
     from .models import DatamartDocument
@@ -1237,7 +1237,7 @@ def progress_values(
             titles.add(norm(row.get("indicator")))
     ids = sorted(expected)
     out: dict[str, Any] = {}
-    given = 0  # the totals found with a value
+    given: list[str] = []  # the totals found with a value
     for start in range(0, len(ids), 5000):
         found = (
             DatamartDocument.objects.filter(
@@ -1249,7 +1249,7 @@ def progress_values(
         for source_id, pd_id, title, value in found:
             if value in (None, ""):
                 continue
-            given += 1
+            given.append(str(source_id))
             pds, titles = expected[source_id]
             title = norm(title)
             same = (pd_id is not None and pd_id in pds) or (bool(title) and title in titles)
@@ -1258,5 +1258,5 @@ def progress_values(
             if same and not other_pd and not other_title:
                 out[str(source_id)] = value
     if record is not None:
-        record(given, len(out))
+        record(given, list(out))
     return out
