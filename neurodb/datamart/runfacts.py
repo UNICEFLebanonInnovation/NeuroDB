@@ -9,6 +9,9 @@ it. Counted on distinct records, the same for the datasets in their own table an
     received − of another country − named no country − could not be saved = updated by the sync
     in NeuroDB = updated by the sync + updated since (a later sync under way) + kept from an earlier sync
 
+A record a later run rewrote (one running, or one that failed after writing) is counted updated since, not by
+the sync: up to the remainder, those are explained too.
+
 ``other_country_skipped`` already holds the records that named no country (``unnamed_skipped``) and those of
 another business area a filter let through (``area_strays``): "of another country" is shown without the first,
 the second as an "of which". Records sent twice are a note, each already counted once in what NeuroDB
@@ -105,7 +108,7 @@ class RunFacts:
     updated_by_sync: int  # started_at <= synced_at <= finished_at
     updated_since: int  # synced_at > finished_at: a later run under way
     from_earlier: int  # last updated before run.started_at
-    unexplained: int  # received - other_country_skipped - not_saved - updated_by_sync
+    unexplained: int  # received - other_country_skipped - not_saved - updated_by_sync, less updated_since
     removed: int
     removal_skipped: bool
     removal_held: int
@@ -126,6 +129,13 @@ def _error_lines(details: dict[str, Any]) -> tuple[ErrorLine, ...]:
             ErrorLine(_error_key(str(entry.get("error") or "")), _count(entry.get("count")), examples)
         )
     return tuple(lines)
+
+
+def _unexplained(rest: int, since: int) -> int:
+    """What the counts leave unexplained: the remainder (received less what was left out and what the sync
+    updated), less the records a later run rewrote since, at most the remainder: a negative remainder, or one
+    larger than what the later run rewrote, stays shown."""
+    return rest - min(max(rest, 0), since)
 
 
 def _verdict(facts: dict[str, Any]) -> tuple[bool, str]:
@@ -197,7 +207,9 @@ def build(
         "updated_by_sync": by_sync,
         "updated_since": since,
         "from_earlier": max(held - by_sync - since, 0),
-        "unexplained": (received - skipped - not_saved - by_sync) if received is not None else 0,
+        "unexplained": _unexplained(received - skipped - not_saved - by_sync, since)
+        if received is not None
+        else 0,
         "removed": _count(details.get("removed")) or _count(details.get("documents_removed")),
         "removal_skipped": row["removal_skipped"],
         "removal_held": _count(row["removal_held"]),
@@ -243,7 +255,7 @@ def _rest_build(
         "updated_by_sync": by_sync,
         "updated_since": since,
         "from_earlier": max(held - by_sync - since, 0),
-        "unexplained": (received - not_saved - by_sync) if received is not None else 0,
+        "unexplained": _unexplained(received - not_saved - by_sync, since) if received is not None else 0,
         "removed": _count(details.get("removed")),
         "removal_skipped": bool(details.get("removal_skipped")),
         "removal_held": 0,

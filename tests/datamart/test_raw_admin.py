@@ -20,7 +20,7 @@ from django.utils import timezone
 from django.utils.html import escape
 
 from neurodb.accounts.models import User
-from neurodb.accounts.roles import VALIDATORS, VIEWER
+from neurodb.accounts.roles import ADMIN, SECTION_EDITOR, VALIDATORS, VIEWER
 from neurodb.core.models import SyncRun
 from neurodb.datamart import catalogue, raw, reporting, runfacts
 from neurodb.datamart import models as dm
@@ -171,13 +171,100 @@ def test_the_sidebar_quick_action_and_data_health_link_are_for_validators(
     assert 'id="raw-data-link"' not in client.get(reverse("reports:data_health")).content.decode()
 
 
-def test_a_validator_reads_the_reporting_checks_and_cannot_run_them(client_validator, monkeypatch):
+def test_a_validator_reads_the_reporting_checks_and_cannot_run_them(
+    client, roles, client_validator, admin_user, monkeypatch
+):
+    """Read-only for validators, with no link that refuses them (the rows' table, the failed run, the Datamart's
+    tables in the header); an Administrator keeps them all."""
     from neurodb.datamart import checks
 
     monkeypatch.setattr(checks, "run_all", lambda: [])
-    page = client_validator.get(reverse("admin:datamart_reporting_checks"))
-    assert page.status_code == 200 and "Run the checks now" not in page.content.decode()
-    assert client_validator.post(reverse("admin:datamart_reporting_checks")).status_code == 403
+    failed = SyncRun.objects.create(job=SyncRun.Job.REPORTING_CHECKS, status=SyncRun.Status.RUNNING)
+    failed.finish(SyncRun.Status.FAILED)
+    url = reverse("admin:datamart_reporting_checks")
+    administrators_only = (
+        reverse("admin:datamart_reportedindicator_changelist"),
+        reverse("admin:core_syncrun_change", args=[failed.pk]),
+        reverse("admin:app_list", args=["datamart"]),
+    )
+    page = client_validator.get(url)
+    html = page.content.decode()
+    assert page.status_code == 200 and "Run the checks now" not in html
+    assert "failed" in html and not [link for link in administrators_only if f'href="{link}"' in html]
+    assert client_validator.post(url).status_code == 403
+    for groups in ((VIEWER, VALIDATORS), (SECTION_EDITOR, VALIDATORS)):  # every link it shows opens
+        client.force_login(_user(f"reader-{len(groups[0])}", staff=True, groups=groups))
+        html = client.get(url).content.decode()
+        content = html.split('id="content-main"', 1)[1]
+        for link in set(re.findall(r'href="(/manage/[^"#]*)"', _header(html) + content)):
+            assert client.get(link.replace("&amp;", "&")).status_code == 200, (groups, link)
+    client.force_login(admin_user)
+    html = client.get(url).content.decode()
+    assert all(f'href="{link}"' in html for link in administrators_only)
+
+
+def _header(html: str) -> str:
+    """The admin page's own header: its title, and the links Unfold puts before it."""
+    return re.search(r"<h1\b.*?</h1>", html, re.S).group(0)
+
+
+def test_the_raw_pages_head_with_their_title_and_no_link_to_a_developer_table(client, roles, world):
+    """Raw eTools data's pages say what they are in their header (the page's title), never a link to the
+    Datamart's tables: a Viewer or Section editor validator could not open them, an Administrator would land in
+    the table that shows people."""
+    record = dm.ReportedIndicator.objects.order_by("pk").first()
+    pages = (
+        (INDEX, "Raw eTools data"),
+        (f"{INDEX}partner_reports/", raw.NAMES["partner_reports"]),
+        (
+            reverse("admin:datamart_raw_record", args=["partner_reports", record.pk]),
+            raw.NAMES["partner_reports"],
+        ),
+    )
+    developer = (
+        reverse("admin:app_list", args=["datamart"]),
+        reverse("admin:datamart_datamartdocument_changelist"),
+        reverse("admin:datamart_reportedindicator_changelist"),
+    )
+    for n, groups in enumerate(((VIEWER, VALIDATORS), (SECTION_EDITOR, VALIDATORS), (ADMIN, VALIDATORS))):
+        client.force_login(_user(f"reader-{n}", staff=True, groups=groups))
+        for url, title in pages:
+            header = _header(client.get(url).content.decode())
+            assert title in header, (groups, url, header)
+            assert not [link for link in developer if link in header], (groups, url, header)
+
+
+def test_data_health_offers_the_reporting_checks_to_validators_with_staff_status(client, roles):
+    url = reverse("admin:datamart_reporting_checks")
+    client.force_login(_user("plain-validator", staff=False, groups=(VIEWER, VALIDATORS)))
+    html = client.get(reverse("reports:data_health")).content.decode()
+    assert f'href="{url}"' not in html and "eTools reporting checks: ask for staff status." in html
+    client.force_login(_user("staff-validator", staff=True, groups=(VIEWER, VALIDATORS)))
+    html = client.get(reverse("reports:data_health")).content.decode()
+    assert f'href="{url}"' in html and "ask for staff status" not in html
+
+
+def test_the_admin_home_links_a_staff_validator_only_where_they_may_go(client, roles, world, monkeypatch):
+    """The admin home a validator with staff status lands on: its tiles, its lines to look at and its jobs link
+    only to the pages the reader may open, the others read as plain text."""
+    from neurodb.web import health
+
+    lines = [
+        health.Warning(
+            key="no_role", text="Active users without a role", url=reverse("admin:users_user_changelist")
+        ),
+        health.Warning(key="raw", text="Raw eTools data", url=INDEX),
+    ]
+    monkeypatch.setattr(health, "warnings", lambda now=None: lines)
+    for n, groups in enumerate(((VIEWER, VALIDATORS), (SECTION_EDITOR, VALIDATORS))):
+        client.force_login(_user(f"reader-{n}", staff=True, groups=groups))
+        html = client.get(reverse("admin:index")).content.decode()
+        assert "Active users without a role" in html and "eTools Datamart" in html  # a line, a job: as text
+        for link in sorted(set(re.findall(r'href="(/manage/[^"#]*)"', html))):
+            if "logout" in link:
+                continue
+            response = client.get(link.replace("&amp;", "&"))
+            assert response.status_code not in (403, 404), (groups, link, response.status_code)
 
 
 # ------------------------------------------------------------------------------------------- the first page
@@ -281,6 +368,61 @@ def test_a_newer_failed_sync_is_named_and_complete_says_why(client_validator, wo
     assert facts.complete == (False, "No: the last sync failed")
     html = client_validator.get(f"{INDEX}partner_reports/").content.decode()
     assert "failed: the records in NeuroDB come from the sync of" in html
+
+
+@pytest.mark.parametrize("later", [SyncRun.Status.RUNNING, SyncRun.Status.FAILED])
+def test_the_records_a_later_sync_rewrote_are_explained(client_validator, world, later):
+    """Tonight's sync of the dataset is running, or failed after rewriting rows: the rows it rewrote are updated
+    since, no longer by the last sync, and the counts still explain them; a real gap stays shown."""
+    from neurodb.datamart import trail
+
+    run = world["run"]
+    after = run.finished_at + datetime.timedelta(minutes=10)
+    SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART,
+        target="partner_reports",
+        status=later,
+        started_at=after,
+        finished_at=None if later == SyncRun.Status.RUNNING else after + datetime.timedelta(minutes=30),
+    )
+    rewritten = list(dm.ReportedIndicator.objects.order_by("pk").values_list("pk", flat=True)[:5])
+    dm.ReportedIndicator.objects.filter(pk__in=rewritten).update(
+        synced_at=after + datetime.timedelta(minutes=5)
+    )
+    facts = runfacts.facts("partner_reports")
+    assert (facts.received, facts.updated_by_sync, facts.updated_since, facts.unexplained) == (10, 1, 5, 0)
+    running = later == SyncRun.Status.RUNNING
+    assert facts.complete == ((True, "Yes") if running else (False, "No: the last sync failed"))
+    html = client_validator.get(f"{INDEX}partner_reports/").content.decode()
+    steps = trail.source_steps(facts, "partner_reports", "partner report rows", facts.held)
+    words = [line.words for step in steps for line in step.lines]
+    assert "not explained by the sync's counts" not in html + " ".join(words)
+    # 3 more received than the counts and the later sync explain: still shown
+    run.details = {**run.details, "read": 13}
+    run.save(update_fields=["details"])
+    facts = runfacts.facts("partner_reports")
+    assert facts.unexplained == 3
+    if running:
+        assert facts.complete == (False, "No: 3 records are not explained by the sync's counts")
+
+
+def test_the_rest_records_a_later_sync_rewrote_are_explained(world):
+    from neurodb.integrations.etools import rest_raw
+
+    run = _rest_world()
+    after = run.finished_at + datetime.timedelta(minutes=10)
+    SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS,
+        target=rest_raw.SYNC_TARGETS["rest_partners"],
+        status=SyncRun.Status.RUNNING,
+        started_at=after,
+    )
+    dm.RestRecord.objects.filter(entity="rest_partners").update(
+        synced_at=after + datetime.timedelta(minutes=5)
+    )
+    facts = runfacts.facts("rest_partners")
+    assert (facts.received, facts.updated_by_sync, facts.updated_since, facts.unexplained) == (2, 0, 2, 0)
+    assert facts.complete == (True, "Yes")
 
 
 def test_what_could_not_be_saved_into_neurodb_s_own_tables_says_complete_no(client_validator, world):
@@ -633,12 +775,32 @@ def test_a_count_that_takes_too_long_says_so(client_validator, world, monkeypatc
     assert page.status_code == 200 and "This filter takes too long on" in page.content.decode()
 
 
-def test_a_download_that_takes_too_long_stops_cleanly(client_validator, world, monkeypatch):
+def test_a_download_that_takes_too_long_stops_cleanly_and_says_so(client_validator, world, monkeypatch):
     _slow(monkeypatch)
     monkeypatch.setattr(raw, "STREAM_TIMEOUT_MS", 1)
     response = client_validator.get(f"{INDEX}partner_reports/rows.csv")
-    assert response.status_code == 200 and _csv(response) == []
+    assert response.status_code == 200
+    (row,) = _csv(response)  # never a file that looks complete: its last row says it stopped
+    assert row["figures_as_of"] == raw.STOPPED and not any(v for k, v in row.items() if k != "figures_as_of")
     assert dm.ReportedIndicator.objects.count() == 6  # the connection works on
+
+
+def test_a_download_cut_part_way_holds_the_records_read_then_says_so(client_validator, world, monkeypatch):
+    """Only the older records are slow: the file holds the newer ones, read before the cut, then the row saying
+    it stopped there."""
+    original = raw.base
+    slow = (
+        "CASE WHEN datamart_reportedindicator.datamart_id >= 5 THEN true ELSE pg_sleep(0.5) IS NOT NULL END"
+    )
+    monkeypatch.setattr(raw, "base", lambda name: original(name).extra(where=[slow]))
+    monkeypatch.setattr(raw, "CSV_CHUNK", 2)
+    monkeypatch.setattr(raw, "STREAM_TIMEOUT_MS", 300)
+    response = client_validator.get(f"{INDEX}partner_reports/rows.csv")
+    assert response.status_code == 200
+    rows = _csv(response)
+    assert [r["record_id"] for r in rows] == ["6", "5", ""]  # the newest first, then the cut
+    assert rows[-1]["figures_as_of"] == raw.STOPPED
+    assert dm.ReportedIndicator.objects.count() == 6
 
 
 # ----------------------------------------------------------------------------------------------- queries

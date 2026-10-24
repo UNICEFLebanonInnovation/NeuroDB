@@ -3,7 +3,7 @@
 
 {% comment %}
   eTools reporting checks (context: datamart.admin.reporting_checks_view, Administrators; validators read it,
-  without the run button: can_run): how the partner report data NeuroDB holds answers the questions the
+  without the run button, can_run, and without the links to the rows' table and the run, rows_url and failed_url): how the partner report data NeuroDB holds answers the questions the
   "Reached" rule depends on, each with a plain verdict and what NeuroDB does whatever the answer. Read-only. The cards are the result the last
   run of the job stored (stored: every night, or "Run the checks now", which posts here); with none
   stored and none running, the page ran them itself (stored is None, checked_at now). A result an earlier
@@ -19,9 +19,11 @@
 <div id="content-main" class="nd-found nd-checks">
   <p class="nd-list-note">
     <span class="material-symbols-outlined" aria-hidden="true">info</span>
-    <span>{% blocktrans trimmed with rows_url=rows_url health_url=health_url %}
+    <span>{% if rows_url %}{% blocktrans trimmed with rows_url=rows_url health_url=health_url %}
       Partner monitoring's "Reached" adds up the Accepted and Submitted reports of each indicator without ever adding a value the reports repeat. These checks show how the eTools partner reports NeuroDB holds look, so the rule can be confirmed on real data, and why Power BI's Reporting Progress may differ. Check 12 counts what the eTools master indicators can group. They only read counts. Checks 10 and 11 run first; the cards are listed in their order. Back to <a class="nd-link" href="{{ health_url }}">Data health</a> · <a class="nd-link" href="{{ rows_url }}">Reported indicators</a>.
-    {% endblocktrans %}</span>
+    {% endblocktrans %}{% else %}{% blocktrans trimmed with health_url=health_url %}
+      Partner monitoring's "Reached" adds up the Accepted and Submitted reports of each indicator without ever adding a value the reports repeat. These checks show how the eTools partner reports NeuroDB holds look, so the rule can be confirmed on real data, and why Power BI's Reporting Progress may differ. Check 12 counts what the eTools master indicators can group. They only read counts. Checks 10 and 11 run first; the cards are listed in their order. Back to <a class="nd-link" href="{{ health_url }}">Data health</a>.
+    {% endblocktrans %}{% endif %}</span>
   </p>
 
   <div class="nd-found__actions mb-4" id="reporting-checks-run">
@@ -62,9 +64,11 @@
   </div>
   {% if failed %}
     <p class="mb-4 nd-found__warn">
-      {% blocktrans trimmed with when=failed.finished_at|date:"j M Y, H:i" url=failed_url %}
+      {% if failed_url %}{% blocktrans trimmed with when=failed.finished_at|date:"j M Y, H:i" url=failed_url %}
         The run of the checks of {{ when }} failed (<a class="nd-link" href="{{ url }}">open the run</a>).
-      {% endblocktrans %}
+      {% endblocktrans %}{% else %}{% blocktrans trimmed with when=failed.finished_at|date:"j M Y, H:i" %}
+        The run of the checks of {{ when }} failed.
+      {% endblocktrans %}{% endif %}
       {% if stored %}{% blocktrans trimmed with when=checked_at|date:"j M Y, H:i" %}The cards below are those of the last run that stored a result ({{ when }}).{% endblocktrans %}{% endif %}
     </p>
   {% endif %}

@@ -36,6 +36,7 @@ from tests.web.test_plain_words import NEVER
 
 pytestmark = pytest.mark.django_db
 PM = "partner-monitoring"
+TRAIL_GRID = "reports:pd_monitoring"
 PARTNER = "{partner}"  # the partner's id, filled in by the test
 CAREGIVERS = "# of caregivers trained"
 FILTERS = [
@@ -520,6 +521,95 @@ def test_program_performance_s_indicators_are_the_sum_of_its_section_tiles(valid
     assert {r["counted"] for r in rows} >= {"yes"}
 
 
+def test_the_trail_writes_a_reached_as_the_table_draws_it(validator, world):
+    """A Reached that is not a whole number (a percentage at 1 of 3): the trail's On the page and Rebuilt cells
+    read as Program Performance draws it (number:0), the exact value in their title."""
+    pd, partner, title = world["pd"], world["partner"], "% of sessions held"
+    dm.PDIndicator.objects.create(
+        datamart_id=50,
+        source_id=950,
+        intervention=pd,
+        title=title,
+        display_type="percentage",
+        section_name="Education",
+        target_numerator=50,
+        location_name="Akkar",
+    )
+    rows = report_rows(
+        pd, partner, title, "PR-1", "QPR1", "QPR", datetime.date(2026, 3, 31), {"Akkar": 1, "Zahle": 1}, 1
+    )
+    dm.ReportedIndicator.objects.filter(pk__in=[r.pk for r in rows]).update(
+        disaggregation={"()": {"v": 1, "d": 3}}, calculation_across_locations="ratio"
+    )
+    compute.clear()
+    params = {"view": "table", "year": "all", "section": ""}
+    (figure,) = [f for f in tm.performance_trail(params, TODAY).block.figures if f.label.endswith(title)]
+    assert isinstance(figure.page, float) and not figure.page.is_integer() and figure.page == figure.rebuilt
+    table = text(get_part(validator, reverse("reports:pd_monitoring") + "?" + _query(params), "table"))
+    shown = re.search(rf'data-figure="{re.escape(figure.key)}"[^>]*>([^<]*)<', table).group(1).strip()
+    trail_url = reverse("reports:check_figures", args=[PM]) + "?" + _query(params)
+    part = text(get_part(validator, trail_url, "performance"))
+    row = re.search(rf'<tr id="{figure.anchor}".*?</tr>', part, re.S).group(0)
+    cells = re.findall(r'<td class="num"([^>]*)>([^<]*)</td>', row)
+    assert [value for _attrs, value in cells] == [shown, shown], (shown, cells)
+    assert all(f'title="{figure.page}"' in attrs for attrs, _value in cells)
+
+
+def test_the_programme_documents_line_credits_each_sync_with_what_it_saved_after(db):
+    """Each sync saves its programme documents twice: the Datamart's again with their budgets
+    (``intervention_budgets``), the eTools REST sync's with their details (``intervention_details``), straight
+    after its ``interventions``. The line credits the sync with all of them, never "earlier"."""
+    from neurodb.core.models import SyncRun
+    from neurodb.integrations.etools import datamart_sync
+
+    pds = [
+        PCA.objects.create(etl_id=str(n), number=f"LEB/PD{n}", title="A", status="active") for n in (1, 2, 3)
+    ]
+    assert "earlier: 3" in tm.pd_writers()  # no sync yet: each reads "never ran"
+
+    def sync(job, then, write):
+        first = SyncRun.objects.create(job=job, target="interventions", status=SyncRun.Status.RUNNING)
+        for pd in PCA.objects.filter(pk__in=[p.pk for p in pds]):
+            pd.save()
+        first.finish(SyncRun.Status.SUCCEEDED)
+        second = SyncRun.objects.create(job=job, target=then, status=SyncRun.Status.RUNNING)
+        write()
+        second.finish(SyncRun.Status.SUCCEEDED)
+
+    links = datamart_sync.Links()
+
+    def budgets() -> None:  # as the dataset's sync does: each programme document saved with its budget
+        for p in pds:
+            datamart_sync.update_budget({"source_id": p.etl_id, "budget_total": "10"}, links)
+
+    def details() -> None:  # as the REST sync's details do
+        for p in pds:
+            PCA.objects.get(pk=p.pk).save()
+
+    sync(SyncRun.Job.ETOOLS_DATAMART, "intervention_budgets", budgets)
+    line = tm.pd_writers()
+    assert "Datamart sync of programme documents" in line and "earlier: 0" in line, line
+    assert re.search(r"Datamart sync of programme documents \([^)]*\): 3", line), line
+    sync(SyncRun.Job.ETOOLS, "intervention_details", details)
+    line = tm.pd_writers()
+    assert re.search(r"REST sync of programme documents \([^)]*\): 3", line) and "earlier: 0" in line, line
+
+
+def test_a_csv_cut_by_a_slow_query_says_so_in_its_last_row(validator, world, monkeypatch):
+    """The PD indicator rows, the partner report rows and a source kept whole: a query that takes too long ends
+    each file with one row saying so."""
+    from neurodb.datamart import raw
+
+    original = raw.related  # only the CSVs' records are slow: the trail itself reads on in its time
+    slow = ["pg_sleep(1) IS NOT NULL"]
+    monkeypatch.setattr(raw, "related", lambda name, rows: original(name, rows).extra(where=slow))
+    monkeypatch.setattr(raw, "STREAM_TIMEOUT_MS", 500)
+    params = {"year": "2026", "section": ""}
+    for what in ("step:D4", "reached:all", "reached:totals"):
+        rows = _csv(validator, params, what)
+        assert rows and rows[-1]["figures_as_of"] == raw.STOPPED, what
+
+
 # ------------------------------------------------------------------------------------------------- the map
 def test_the_map_s_figures_are_its_stored_places_and_the_trail_s(validator, world):
     params = {"year": "2026", "section": ""}
@@ -542,6 +632,24 @@ def test_the_map_s_figures_are_its_stored_places_and_the_trail_s(validator, worl
     script = (Path(__file__).parents[2] / "neurodb/web/static/js/pdmap.js").read_text()
     lines = set(re.findall(r'figure\("(map\.[a-z_.]+)"', script))
     assert tiles | lines == set(figures)
+
+
+def test_the_map_s_trail_opens_on_the_map_and_goes_back_to_it(validator, world):
+    """ "Check these figures" on the map: its trail opens its Map part at once, and "Open the page" is the map."""
+    from tests.web.parts import raw_get
+
+    link = validator.get(reverse("reports:pd_monitoring_map"), {"year": "2026"}).context["check_trail"]
+    assert "view=map" in link
+    shell = raw_get(validator, link)
+    assert shell.status_code == 200 and shell.context["trail_view"] == "map"
+    page_url = shell.context["page_url"]
+    assert page_url.startswith(reverse("reports:pd_monitoring_map")) and "view=" not in page_url
+    assert re.search(r'<details class="panel mt-3" id="trail-map" open>', text(shell))
+    assert not re.search(r'<details class="panel mt-3" id="trail-performance" open>', text(shell))
+    # the grid's own trail: the grid, the Map folded
+    shell = raw_get(validator, reverse("reports:check_figures", args=[PM]), {"year": "2026"})
+    assert shell.context["trail_view"] == "grid" and shell.context["page_url"].startswith(reverse(TRAIL_GRID))
+    assert not re.search(r'id="trail-map" open', text(shell))
 
 
 # ------------------------------------------------------------------------------------------------ Home's block

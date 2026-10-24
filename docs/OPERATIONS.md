@@ -2067,13 +2067,19 @@ start by `ensure_groups`, with no permission; setting a role never takes a perso
 Administrator is a validator only when ticked, like anyone else. `roles.can_validate(user)` reads the group in
 the one groups query `role_of` already makes (`_groups_held`, per request under `groups:<pk>`), so a page that
 asks costs no query more; the context processor gives templates `can_validate` (lazy). To give the right:
-*Users and access → Users*, the person, *Groups*: tick **Validators**; Raw eTools data is in the admin, so the
-person also needs *Staff status*.
+*Users and access → Users*, the person, *Groups*: tick **Validators**; Raw eTools data and the eTools reporting
+checks are in the admin, so the person also needs *Staff status*.
 
 **Where.** Admin → *Data and sync* → **Raw eTools data** (and a Quick action on the admin home; a staff validator
-who holds no table of *Data and sync* still gets the group, with these pages only). *eTools reporting checks*
-opens for validators too, read-only: its *Run the checks now* is for Administrators (a validator's POST answers
-403). Data health's datasets panel links Raw eTools data for validators. Under the tabs of Progress reports,
+who holds no table of *Data and sync* still gets the group, with these pages only). Raw eTools data's pages
+head with their own title (no `opts`: no link to the Datamart's developer tables, which a Viewer or Section
+editor cannot open and which show people). *eTools reporting checks* opens for validators too, read-only: its
+*Run the checks now* is for Administrators (a validator's POST answers 403), and so are its links to the
+*Reported indicators* table, to a failed run and, in its header, to the Datamart's tables. Data health's datasets
+panel links Raw eTools data and the reporting checks for validators with staff status ("eTools reporting checks:
+ask for staff status" without it). The admin home a staff validator lands on links its tiles, its *Needs
+attention* lines and its *Data jobs* only where the reader may go (`admin_site._opens`: the model admin's view
+permission); the others read as plain text. Under the tabs of Progress reports,
 Partner monitoring (and its map), Field monitoring and under *Partner reporting* on Home, a validator sees
 **Raw data behind this page** (`reports/partials/_check_link.html`), which opens Raw eTools data on that page's
 sources (`?page=<navigation key>`, `datamart.raw.PAGE_SOURCES`); without staff status it says "Raw data: ask
@@ -2111,6 +2117,9 @@ a newer run that failed is named beside it. On distinct records:
     received − of another country − named no country − could not be saved = updated by the sync
     in NeuroDB = updated by the sync + updated since (a later sync under way) + kept from an earlier sync
 
+A record a later run rewrote (one running now, or one that failed after writing) is counted updated since, no
+longer by the sync: up to the remainder it is explained too (`runfacts._unexplained`), so a sync under way never
+shows a red line or *Complete? No* of its own; a remainder larger than what the later run rewrote stays shown.
 "Received" is `runfacts.records_read(run)` (`details.read`, else the rows written and those of another country
 left out), the one rule checks 10 and 11 read too. `other_country_skipped` holds the records that named no
 country (`unnamed_skipped`, shown on their own line) and those a business area filter let through
@@ -2141,7 +2150,9 @@ beneficiaries, visitors, guests, companions, recipients and `pme` among them; `p
 number) shows how many; a text a person wrote (comments, notes) is withheld; every other text is cleaned by
 Ask's own `query._safe` with the record's own names. People inside a field shown are counted under their
 dotted path, and in a CSV's `people_inside`. NeuroDB's own columns go through pinned lists: `PERSON_COLUMNS`
-(shown as a count), `NEVER_COLUMNS`, `TEXT_COLUMNS` (the free texts, never searched) and `JSON_COLUMNS`; every
+(shown as a count), `NEVER_COLUMNS`, `TEXT_COLUMNS` (the free texts, never searched) and `JSON_COLUMNS` (an
+engagement's `details`, which holds its audit, spot check... records whole, `RECORD_COLUMNS`: each record read
+as its own source's page reads it, a field nobody reviewed as "N values (not reviewed)"); every
 text column is cleaned like a text of the record under its own name (a reference, a code or an amount keeps
 its value; a field monitoring narrative over 80 characters withheld whole; titles with the record's own
 names). A search or partner word that names a person is refused ("eTools records cannot be searched for a
@@ -2236,7 +2247,9 @@ whole site (`RAW_CSV_MAX_RUNNING`, advisory locks from 7150000; a third answers 
 being prepared"), freed when the download ends or its response is closed. The count runs in one snapshot
 with a 15-second statement limit (400 "This filter takes too long"); the download reads 2,000 records at a time
 inside one `REPEATABLE READ READ ONLY` snapshot with a 120-second limit per statement, and a statement that
-takes longer ends the file where it is. No background job.
+takes longer ends the file where it is, with one last row whose `figures_as_of` says "The download stopped here:
+the database took too long. Download again or narrow the filter." (`raw.STOPPED`, its other cells empty; the
+trail's CSVs of records end the same way), so a cut file never looks complete. No background job.
 
 **The Power BI comparison sheet** (`datamart/comparison.py`, `reports/check_views.py`). NeuroDB never reads
 Power BI: a validator compares by hand. `/check/progress-reports/compare.xlsx` and
@@ -2267,8 +2280,8 @@ whole; its name is `powerbi-comparison-<page>_<YYYY-MM-DD>_<HHMM>.xlsx`, the end
   Partner monitoring `view=table` for Program Performance's figures, `view=quality` for Data quality's, and
   the year the sheet read written out; the figure's row as anchor). A
   filter that names a person or a contact (`comparison.names_someone`: a search holding an e-mail, a phone
-  number or a known person's name, by the people rule of Raw eTools data) is written cleaned in *Clear these in
-  NeuroDB*, and none of its addresses is written: the NeuroDB filter and every *Trail* cell say "Not written:
+  number or a known person's name, by the people rule of Raw eTools data) is written cleaned in *Set these in
+  Power BI* and *Clear these in NeuroDB*, and none of its addresses is written: the NeuroDB filter and every *Trail* cell say "Not written:
   the filter names a person or a contact" (open the trail from the page).
   Progress reports: the seven status cards, the section table (each section by status, its total, the column
   totals), the month chart (each month by each status drawn), the progress reports listed, the Partners
@@ -2281,7 +2294,13 @@ whole; its name is `powerbi-comparison-<page>_<YYYY-MM-DD>_<HHMM>.xlsx`, the end
   "vendor number, else name"); for Partner monitoring *Program Performance rows* (every indicator, as its export
   writes it, NeuroDB's Reached and % Reached, yellow cells for Power BI's, two difference formulas, the match
   key "PD number | indicator | PD output", ending in #1, #2... for indicators of one PD sharing their title and
-  PD output, check 7; a *Trail* cell per indicator: its Reached on the trail, `pp.reached.<PD id>.<key>`).
+  PD output, check 7; a *Trail* cell per indicator: its Reached on the trail, `pp.reached.<PD id>.<key>`). The
+  lists' texts (partner, PD reference, report #, section, CP output, indicator, PD output) are cleaned as the
+  trail's CSVs clean them (`trail_rows.cleaned` with `REPORT_TEXTS` or `INDICATOR_TEXTS`: a person named as a
+  partner, an e-mail or a phone in a title withheld), and each match key is built from the cleaned texts; a
+  Program Performance row whose title or PD output lost one says "match this row by PD and target"
+  (`comparison.KEY_WITHHELD`): Power BI's own export holds the raw title. The page's own Program Performance
+  export (`views._monitoring_export`) still writes these texts as stored.
 - *Why they can differ*: seven reasons, each with where to see it.
 
 Every text from the data is written as a text (`data_type = "s"`), never a formula; no person is written
@@ -2344,7 +2363,9 @@ tab). Each part is computed in one `REPEATABLE READ READ ONLY` snapshot and kept
   kept (`trail.TrailRows`: per row its Datamart id, progress report, indicator report, the step that left it out
   and why; per progress report kept its status, sections, month, partner and programme document; never a payload),
   one selection per figure. "All N figures rebuilt from the rows: the same."; a difference is listed in red at the
-  top, never hidden. A figure the page does not draw for the filter says why ("not drawn: none left out", "not
+  top, never hidden. Both cells are written as the page writes its numbers (`ui.number:0`: Program Performance's
+  Reached of a percentage, 33.33, reads 33), the unrounded value in the cell's title; *Same?* compares the
+  unrounded values. A figure the page does not draw for the filter says why ("not drawn: none left out", "not
   drawn: no progress report": the section table's totals when the page says "No progress reports match.", Home's
   partners line when its scope has no progress report). Every number those pages draw carries `data-figure="<key>"`
   (drawn for everyone: an attribute, nothing visible; the month chart's are its data), the keys the comparison
@@ -2355,7 +2376,9 @@ tab). Each part is computed in one `REPEATABLE READ READ ONLY` snapshot and kept
   gave the report its word: of the rows carrying it, the one changed last, then synced last, then of the highest
   Datamart id), `reports` and `follow_up` (one row per progress report: the export's columns, the vendor number,
   the match key), `lines` and `blocks` (By location's lines and By disaggregation's blocks, computed again with
-  their record ids). A row CSV starts with `figures_as_of`, `step`, `reason`, then the units (`unit_key`,
+  their record ids); the texts of these four (partner, PD reference, report #, section, CP output, indicator,
+  location, progress report key) are cleaned by the people rule as the partner reports' columns they come from
+  (`trail_rows.REPORT_TEXTS`), and the match key is built from them. A row CSV starts with `figures_as_of`, `step`, `reason`, then the units (`unit_key`,
   `indicator_report_unit`, `progress_report_unit`, `partner_unit`, `pd_unit`) and `counts_once*` (by a seen-set on
   the unit, never by row order; in a step's CSV only on a unit the step leaves out entirely, `unit_partly_kept` and
   `progress_report_partly_kept` marking the others; `counts_once_partner` once per partner among the reports of the
@@ -2373,12 +2396,15 @@ note's two counts, each same-title row), the map (its seven tiles and its totals
 progress block (its nine figures: `/check/home/?block=indicators&<keep>`, `home.figure_queries`' `keep`). The
 check line carries the resolved filter (`views.monitoring_filters`, which the page reads too: the sections
 written out, the year always) and `view=`. Parts: `figures` (the grid, Data quality and the folds), then, folded,
-`performance` and `map` (open when the trail was opened from them).
+`performance` and `map` (open when the trail was opened from them: `check_views._monitoring_params` keeps the
+map's `view=map`, which the page's own views do not know, so its trail opens the Map part and *Open the page*
+goes back to the map).
 
 - **Steps.** D1 to D4 of `pd_indicators`, D5 (its rows naming no programme document NeuroDB holds) and the
-  programme documents in NeuroDB by the sync that last wrote them (`updated_at` within the last Datamart
-  `interventions` run, else the last REST `interventions` run, else earlier; none is ever removed; the REST sync
-  writes PCA, whose status decides "running"); M1 the programme documents NeuroDB holds and M2 to M10 each filter
+  programme documents in NeuroDB by the sync that last wrote them (`updated_at` from the start of the last
+  Datamart `interventions` run to the end of the `intervention_budgets` run after it, which saves each programme
+  document again with its budget; else the same for the REST sync's `interventions` and `intervention_details`;
+  else earlier; none is ever removed; the REST sync writes PCA, whose status decides "running"); M1 the programme documents NeuroDB holds and M2 to M10 each filter
   of `monitoring._pd_queryset` that applies, with their PD indicator rows (`D4 − D5 − the PD steps' rows = M11`,
   a red line if not); M11 the rows of the PDs kept and each filter of `_indicator_rows` (search, tags,
   emergency, the HR-only rule), with the indicators left out entirely and partly; M16 one per indicator; the
@@ -2419,7 +2445,8 @@ written out, the year always) and `view=`. Parts: `figures` (the grid, Data qual
   number, status, type, dates, sections, offices, `unicef_focal_points (people)` as a count, PD indicator rows,
   indicators kept; PD indicator rows for D4, D5, M11 and the rows' steps, through `raw.csv_record`; indicators for
   the indicators' steps), `figure:<key>` (the indicators, programme documents, partners, partner report rows or
-  places a figure counts; `counts_once_partner` for *Partners*; the same-title count by title), `reached:<R>` and
+  places a figure counts; `counts_once_partner` for *Partners*; the same-title count by title, its `unit_key`
+  the PD and a digest of the title, never its words), `reached:<R>` and
   `overdue:<O>` (partner report rows with `placed_to`, `how`, `counted`, through `raw.csv_record`), `no_partner`,
   and with `of=map` the places (one row per place and indicator, from the stored places). Limits: 100,000 PD
   indicator rows, 25,000 partner report rows; the same slots and snapshot as above.

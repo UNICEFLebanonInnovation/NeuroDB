@@ -16,7 +16,7 @@ from django.urls import reverse
 
 from neurodb.accounts.models import User
 from neurodb.accounts.roles import VALIDATORS, VIEWER
-from neurodb.datamart import catalogue, raw, raw_people
+from neurodb.datamart import catalogue, comparison, raw, raw_people
 from neurodb.datamart import models as dm
 from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
 from neurodb.partnerships.models import PCA, PartnerOrganization
@@ -153,6 +153,42 @@ def test_no_person_reaches_a_source_s_list_or_a_record_s_page(client_validator, 
             assert planted not in html, (url, planted)
 
 
+def test_an_engagement_s_records_are_read_by_their_own_source_s_rule(client_validator):
+    """An engagement's ``details`` holds its audit, spot check... records whole, as eTools sent them: on the
+    engagement's page and in its CSV each is read as its own source's page reads it, so a field nobody reviewed
+    (an interlocutor, a consultant, enumerators, a rating in words) reads "not reviewed", a reviewed one keeps
+    its value, and a superuser's review of a field shows it on both pages alike."""
+    audit = {
+        **PLANTED,
+        "audited_expenditure": 1200,
+        "interlocutor": UNKNOWN,
+        "consultant": f"{UNKNOWN} (lead)",
+        "enumerators": [UNKNOWN, STRANGER],
+        "visit_rating": "Good",
+    }
+    pk = _plant("engagements")
+    dm.AuditEngagement.objects.filter(pk=pk).update(
+        details={"audits": catalogue.scrub(audit), "not_a_source": {"note": UNKNOWN}}
+    )
+    own = dm.DatamartDocument.objects.create(dataset="audits", record_key="4243", data=audit).pk
+    page = reverse("admin:datamart_raw_record", args=["engagements", pk])
+    audits_page = reverse("admin:datamart_raw_record", args=["audits", own])
+
+    def details(html: str) -> str:
+        return html.split("visit_rating", 1)[1][:200] if "visit_rating" in html else ""
+
+    for reviewed in (False, True):
+        if reviewed:
+            dm.RawFieldReview.objects.create(source="audits", key="visit_rating")
+        html = client_validator.get(page).content.decode()
+        _header, rows = _download(client_validator, "engagements")
+        for planted in FORBIDDEN:
+            assert planted not in html and planted not in repr(rows), (reviewed, planted)
+        assert "1200" in html and "not reviewed" in html  # a field the page reads, and those nobody reviewed
+        assert ("Good" in details(html)) is reviewed, reviewed
+        assert ("Good" in details(client_validator.get(audits_page).content.decode())) is reviewed
+
+
 def test_the_progress_reports_export_counts_the_focal_points(client_viewer):
     partner = PartnerOrganization.objects.create(etl_id="1", name="Amel Association", vendor_number="V1")
     pd = PCA.objects.create(
@@ -201,6 +237,9 @@ def test_the_action_points_csv_says_whether_one_is_assigned_never_to_whom(client
     [("progress-reports", {"pd_status": ""}), ("partner-monitoring", {"view": "table", "year": "all"})],
 )
 def test_no_person_reaches_the_power_bi_comparison_sheet(client_validator, page, params):
+    """Every sheet of the comparison sheet, its lists' match keys among them: no planted name, e-mail or phone,
+    in a record, a programme document's focal points, an indicator's title, PD output or CP output, an unlinked
+    programme document's partner or a person named as a report's partner."""
     from openpyxl import load_workbook
 
     partner = PartnerOrganization.objects.create(etl_id="1", name="Amel Association", vendor_number="V1")
@@ -211,6 +250,8 @@ def test_no_person_reaches_the_power_bi_comparison_sheet(client_validator, page,
         number="LEB/PD1",
         title="A",
         status="active",
+        start=datetime.date(2026, 1, 1),
+        end=datetime.date(2026, 12, 31),
         unicef_focal_points=[NAME, EMAIL, f"{UNKNOWN} ({EMAIL})"],
     )
     dm.PDIndicator.objects.create(
@@ -222,24 +263,49 @@ def test_no_person_reaches_the_power_bi_comparison_sheet(client_validator, page,
         section_name="Education",
         data=PLANTED,
     )
-    dm.ReportedIndicator.objects.create(
-        datamart_id=1,
-        partner=partner,
+    # an indicator whose own texts name a person, an e-mail and phones, and a programme document with no linked
+    # partner, named after a person (as the Partner monitoring trail's privacy test plants them)
+    dm.PDIndicator.objects.create(
+        datamart_id=3,
+        source_id=300,
         intervention=pd,
-        partner_name=partner.name,
         pd_reference_number=pd.number,
-        progress_report="PR-1",
-        report_number="QPR1",
-        report_type="QPR",
-        report_status="Accepted",
-        period_end=datetime.date(2026, 3, 31),
-        indicator="# reached",
-        section="Education",
-        submitted_by=NAME,
-        narrative=TYPED_TEXT,
-        narrative_assessment=TYPED_TEXT,
-        data=PLANTED,
+        title=f"# of sessions (contact {EMAIL}, {PHONES[1]})",
+        lower_result_name=f"Output led by {NAME} {PHONES[0]}",
+        cp_output=f"CP output of {NAME}",
+        section_name="Education",
+        target_numerator=5,
     )
+    unlinked = PCA.objects.create(
+        etl_id="12",
+        partner_name=f"Group of {NAME}",
+        number="LEB/PD2",
+        title="Water",
+        status="active",
+        start=datetime.date(2026, 1, 1),
+        end=datetime.date(2026, 12, 31),
+    )
+    dm.PDIndicator.objects.create(datamart_id=4, source_id=400, intervention=unlinked, title="# of wells")
+    # two report rows: the partner's, and one naming a person as its partner (no eTools partner)
+    for n, (held, name) in enumerate(((partner, partner.name), (None, NAME)), start=1):
+        dm.ReportedIndicator.objects.create(
+            datamart_id=n,
+            partner=held,
+            intervention=pd,
+            partner_name=name,
+            pd_reference_number=pd.number,
+            progress_report=f"PR-{n}",
+            report_number=f"QPR{n}",
+            report_type="QPR",
+            report_status="Accepted",
+            period_end=datetime.date(2026, 3, 31),
+            indicator="# reached",
+            section="Education",
+            submitted_by=NAME,
+            narrative=TYPED_TEXT,
+            narrative_assessment=TYPED_TEXT,
+            data=PLANTED,
+        )
     response = client_validator.get(reverse("reports:check_compare", args=[page]), params)
     assert response.status_code == 200
     book = load_workbook(io.BytesIO(response.content))
@@ -248,6 +314,17 @@ def test_no_person_reaches_the_power_bi_comparison_sheet(client_validator, page,
     for planted in FORBIDDEN:
         assert planted not in text, (page, planted)
     assert "@" not in text
+    if page == "progress-reports":  # the report of the person named as a partner is still listed
+        reports = list(book["Progress reports"].iter_rows(values_only=True))
+        assert any(r[0] == "LEB/PD1" and r[3] == "QPR2" for r in reports)
+        assert (
+            len(list(book["Partners"].iter_rows(values_only=True))) == 4
+        )  # a note, the header, two partners
+    else:  # the indicator whose title named a contact: its texts cleaned, its row says to match it by hand
+        rows = list(book["Program Performance rows"].iter_rows(values_only=True))
+        (row,) = [r for r in rows if str(r[2]).startswith("# of sessions (contact")]
+        assert row[4] == "LEB/PD1" and row[15] == comparison.KEY_WITHHELD
+        assert any(r[4] == "LEB/PD2" and r[2] == "# of wells" for r in rows)
 
 
 def test_no_person_reaches_a_figure_trail_or_its_csvs(client_validator):
@@ -288,6 +365,25 @@ def test_no_person_reaches_a_figure_trail_or_its_csvs(client_validator):
             disaggregation={"()": {"v": 3, "d": 1, "c": 3}},
             data=PLANTED,
         )
+    # a row whose own texts name a person, an e-mail and phones: its indicator, CP output and location
+    dm.ReportedIndicator.objects.create(
+        datamart_id=4,
+        partner=partner,
+        intervention=pd,
+        partner_name=partner.name,
+        pd_reference_number="LEB/PD1",
+        progress_report="PR-4",
+        report_number="QPR4",
+        report_type="QPR",
+        report_status="Submitted",
+        period_start=datetime.date(2026, 1, 1),
+        period_end=datetime.date(2026, 3, 31),
+        indicator=f"# of sessions with {NAME} ({EMAIL}, {PHONES[1]})",
+        cp_output=f"CP output of {NAME}",
+        section="Education",
+        location=f"Akkar, near {NAME}'s house {PHONES[0]}",
+        disaggregation={"()": {"v": 2, "d": 1, "c": 2}},
+    )
     params = {"pd_status": "", "section": "Education"}
     found = trail.progress_trail("progress-reports", params, datetime.date.today())
     whats = ["kept", "status", "reports", "follow_up", "lines", "blocks", "step:start", "reason:no_pd"]
@@ -338,11 +434,13 @@ def test_a_person_named_as_a_partner_or_searched_never_reaches_a_trail_csv(clien
             indicator="# reached",
             section="Education",
             location="Akkar",
+            disaggregation={"()": {"v": 3, "d": 1, "c": 3}},
         )
     url = reverse("reports:check_rows", args=["progress-reports"])
     for params in ({"pd_status": ""}, {"pd_status": "", "q": NAME}):
         found = trail.progress_trail("progress-reports", params, datetime.date.today())
-        whats = ["kept", "status", *(s.what for s in found.steps if s.what), *(f.what for f in found.figures)]
+        whats = ["kept", "status", "reports", "follow_up", "lines", "blocks"]
+        whats += [*(s.what for s in found.steps if s.what), *(f.what for f in found.figures)]
         if "q" not in params:  # the person's figures are there, by the partner's name
             assert any(w.startswith("figure:pr.partner.") for w in whats)
         for what in dict.fromkeys(w for w in whats if w):
@@ -351,6 +449,9 @@ def test_a_person_named_as_a_partner_or_searched_never_reaches_a_trail_csv(clien
             assert "person" not in response["Content-Disposition"].lower(), what
             text = b"".join(response.streaming_content).decode("utf-8-sig")
             assert NAME.lower() not in text.lower(), what
+            if what in ("reports", "follow_up", "lines", "blocks") and "q" not in params:
+                assert "LEB/PD1" in text, what  # the rows are there, cleaned
+                assert ("Org One" in text) == (what != "follow_up"), what  # Org One's report is accepted
 
 
 def test_no_person_reaches_a_partner_monitoring_trail_or_its_csvs(client_validator):
@@ -411,6 +512,21 @@ def test_no_person_reaches_a_partner_monitoring_trail_or_its_csvs(client_validat
     dm.PDIndicator.objects.create(
         datamart_id=4, source_id=400, intervention=unlinked, title="# of wells", location_name="Akkar"
     )
+    # two indicators of the programme document kept sharing a title that holds an e-mail and a phone (Data
+    # quality's "Same title twice in one PD"; the trail's pages name a figure by the title as the page does)
+    shared = f"# of visits (contact {EMAIL}, {PHONES[1]})"
+    for n, output in ((5, "1.1 Visits"), (6, "1.2 Visits")):
+        dm.PDIndicator.objects.create(
+            datamart_id=n,
+            source_id=n * 100,
+            intervention=pd,
+            pd_reference_number=pd.number,
+            title=shared,
+            lower_result_name=output,
+            section_name="Education",
+            location_name="Akkar",
+            target_numerator=5,
+        )
     for n, (status, due, title) in enumerate(
         (
             ("Accepted", datetime.date(2026, 4, 15), "# reached"),
@@ -473,6 +589,17 @@ def test_no_person_reaches_a_partner_monitoring_trail_or_its_csvs(client_validat
             assert rows[f"{pd.pk}|300"]["indicator"].startswith("# of sessions (contact")
             assert rows[f"{pd.pk}|300"]["pd_output"].startswith("Output led by")
             assert rows[f"{unlinked.pk}|400"]["indicator"] == "# of wells"
+    # Data quality's titles shared in one programme document: a unit per title, never the title's words
+    quality = {**params, "view": "quality"}
+    figure = tm.monitoring_trail(quality, datetime.date.today()).figure("dq.list.same_title")
+    assert figure.page == 1
+    response = client_validator.get(url, {**quality, "what": figure.what})
+    text = b"".join(response.streaming_content).decode("utf-8-sig")
+    for planted in FORBIDDEN:
+        assert planted not in text, ("same_title", planted)
+    rows = list(csv.DictReader(io.StringIO(text)))
+    assert len(rows) == 2 and len({r["unit_key"] for r in rows}) == figure.page
+    assert sum(int(r["counts_once"]) for r in rows) == figure.page
     home = reverse("reports:check_rows", args=["home"])
     response = client_validator.get(home, {**params, "scope": "year", "block": "indicators", "what": "kept"})
     assert response.status_code == 200

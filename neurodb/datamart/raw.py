@@ -1363,6 +1363,8 @@ TOO_SLOW = (
     "This filter takes too long on {n} records: add a date range or a programme document NeuroDB holds."
 )
 BUSY = "Another large download is being prepared: try again in a minute."
+# the last row of a download a query cut (in its first column, figures_as_of): the file is not complete
+STOPPED = "The download stopped here: the database took too long. Download again or narrow the filter."
 
 
 def csv_limit(name: str) -> int:
@@ -1560,8 +1562,8 @@ def csv_rows(
     name: str, rows: QuerySet, keys: list[str], run: SyncRun | None, names: frozenset[str]
 ) -> Iterator[dict[str, Any]]:
     """The download's rows, read :data:`CSV_CHUNK` records at a time inside one snapshot, each through the
-    people
-    rule. A query that takes longer than :data:`STREAM_TIMEOUT_MS` ends the file where it is."""
+    people rule. A query that takes longer than :data:`STREAM_TIMEOUT_MS` ends the file where it is, with one
+    last row saying so (:data:`STOPPED`)."""
     reviewed = reviewed_keys(name)
     as_of = local_moment(run.finished_at if run else None)
     wanted = set(keys)
@@ -1575,6 +1577,7 @@ def csv_rows(
                 yield csv_record(name, row, wanted, run, names, reviewed, as_of)
     except DatabaseError:
         logger.warning("raw eTools data: the download of %s stopped (took too long)", name, exc_info=True)
+        yield {"figures_as_of": STOPPED}  # after the snapshot: the cut is in the file, never a complete one
 
 
 def filename(name: str, run: SyncRun | None) -> str:

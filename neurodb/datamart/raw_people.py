@@ -116,6 +116,9 @@ JSON_COLUMNS = frozenset(  # JSON columns other than ``data``: written out throu
         ("tpm_activities", "location_pcodes"),
     }
 )
+# the JSON columns holding whole eTools records by the source each came from (``enrich_engagement``): each
+# record read by its own source's rule, its reviewed fields among it; the others have a fixed shape (EVERY)
+RECORD_COLUMNS = frozenset({("engagements", "details")})
 
 
 @dataclass(frozen=True)
@@ -150,7 +153,8 @@ class Withheld:
 
 
 class _Every(frozenset):
-    """Every field counts as reviewed: the JSON columns of NeuroDB's own tables."""
+    """Every field counts as reviewed: the JSON columns of NeuroDB's own tables whose shape is fixed (a
+    disaggregation's values, a list of P-codes), never one holding eTools records (:data:`RECORD_COLUMNS`)."""
 
     def __contains__(self, item: object) -> bool:
         return True
@@ -350,6 +354,25 @@ def people_inside(withheld: dict[str, Withheld]) -> int:
     return sum(w.count for w in withheld.values() if w.inside and w.kind == PEOPLE)
 
 
+def records(value: Any, names: frozenset[str]) -> Any:
+    """A column of :data:`RECORD_COLUMNS` as shown and downloaded: each record under the name of the source it
+    came from, read as that source's own page reads it (``public_record`` with its reviewed fields: a field
+    nobody reviewed reads "N values (not reviewed)", a person as a count), what was withheld in words after
+    the fields shown; anything else, a value under a name that is no source, as "N values (not reviewed)"."""
+    from . import raw
+
+    if not isinstance(value, dict):
+        return Withheld(NOT_REVIEWED, _values(value)).words if _values(value) else value
+    out: dict[str, Any] = {}
+    for key, record in value.items():
+        if not (isinstance(record, dict) and raw.known(str(key))):
+            out[str(key)] = Withheld(NOT_REVIEWED, _values(record)).words
+            continue
+        shown, withheld = public_record(record, str(key), names, reviewed=raw.reviewed_keys(str(key)))
+        out[str(key)] = {**shown, **{field: w.words for field, w in withheld.items()}}
+    return out
+
+
 def text(value: Any, source: str, column: str, names: frozenset[str], own: frozenset[str]) -> Any:
     """A text of NeuroDB's own columns, cleaned as the same text in the record would be (``query._safe``: a
     field monitoring text over 80 characters is withheld whole)."""
@@ -361,13 +384,16 @@ def text(value: Any, source: str, column: str, names: frozenset[str], own: froze
 
 def column(source: str, name: str, value: Any, names: frozenset[str], own: frozenset[str]) -> Any:
     """One of NeuroDB's own columns as shown and downloaded: a count of the people a person column names, a
-    JSON column through :func:`public_record`, a text cleaned under its own name (a free text of
+    JSON column through :func:`public_record` (one holding eTools records, each by its own source's rule:
+    :func:`records`), a text cleaned under its own name (a free text of
     :data:`TEXT_COLUMNS`, and every other text: a reference, a code or an amount keeps its value), anything
     else as it is. A column of :data:`NEVER_COLUMNS` is never asked for."""
     if (source, name) in NEVER_COLUMNS:
         raise ValueError(f"{source}.{name} is never shown")
     if (source, name) in PERSON_COLUMNS:
         return people_count(value)
+    if (source, name) in RECORD_COLUMNS:
+        return records(value, names)
     if (source, name) in JSON_COLUMNS:
         if isinstance(value, dict):
             return public_record(value, source, names, reviewed=EVERY)[0]

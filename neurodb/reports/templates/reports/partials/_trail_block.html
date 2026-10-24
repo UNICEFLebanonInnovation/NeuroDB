@@ -1,5 +1,6 @@
-{% load i18n humanize %}{% comment %}One block of a figure trail (datamart.trail.Block), laid out as the page draws it: each figure as the page names
-it, its value on the page and rebuilt from the rows, whether they are the same, how it is counted and its rows as CSV.
+{% load i18n ui %}{% comment %}One block of a figure trail (datamart.trail.Block), laid out as the page draws it: each figure as the page names
+it, its value on the page and rebuilt from the rows (written as the page writes them, number:0; a value that is not a
+whole number unrounded in its title), whether they are the same, how it is counted and its rows as CSV.
 Context: block, rows_url, rows_query, trail_figure (a figure shown open: the comparison sheet's Trail links), open_block, of
 (the trail's part the rows are of: Partner monitoring's Program Performance or map).{% endcomment %}
 <details class="trail-block mb-2" id="trail-block-{{ block.key }}"{% if open_block == block.key or block.figures|length <= 16 %} open{% endif %}>
@@ -9,8 +10,8 @@ Context: block, rows_url, rows_query, trail_figure (a figure shown open: the com
     <thead><tr><th scope="col">{% trans "Figure" %}</th><th scope="col" class="num">{% trans "On the page" %}</th><th scope="col" class="num">{% trans "Rebuilt from the rows" %}</th><th scope="col">{% trans "Same?" %}</th><th scope="col">{% trans "How it is counted" %}</th><th scope="col">{% trans "Rows (CSV)" %}</th></tr></thead>
     <tbody>{% for f in block.figures %}<tr id="{{ f.anchor }}"{% if f.key == trail_figure %} class="table-active"{% endif %}>
       <th scope="row" class="fw-normal small">{{ f.label }}{% if f.note %}<span class="cell-sub">{{ f.note }}</span>{% endif %}</th>
-      <td class="num">{{ f.page|default_if_none:"—"|intcomma }}</td>
-      <td class="num">{{ f.rebuilt|default_if_none:"—"|intcomma }}</td>
+      <td class="num"{% if f.page|number:0 != f.page|number:2 %} title="{{ f.page }}"{% endif %}>{{ f.page|number:0 }}</td>
+      <td class="num"{% if f.rebuilt|number:0 != f.rebuilt|number:2 %} title="{{ f.rebuilt }}"{% endif %}>{{ f.rebuilt|number:0 }}</td>
       <td class="small">{% if f.same %}{% trans "Same" %}{% else %}<strong class="text-danger">{% trans "Differs" %}</strong>{% endif %}</td>
       <td class="small cell-wrap">{{ f.how }}</td>
       <td class="small text-nowrap">{% if f.what %}<a href="{{ rows_url }}?{{ rows_query }}{% if rows_query %}&amp;{% endif %}{% if of %}of={{ of }}&amp;{% endif %}what={{ f.what|urlencode:'' }}">{% trans "Rows (CSV)" %}</a>{% else %}—{% endif %}</td>

@@ -800,3 +800,18 @@ def _encode(params: dict) -> str:
     for key, value in params.items():
         query.setlist(key, value if isinstance(value, list) else [value])
     return query.urlencode()
+
+
+def test_a_csv_cut_by_a_slow_query_says_so_in_its_last_row(validator, world, monkeypatch):
+    """A query of a trail's CSV that takes too long ends the file with one row saying so, never a file that
+    looks complete: its counts_once left empty, so a sum stays the rows read."""
+    from neurodb.datamart import raw
+
+    original = raw.related  # only the CSV's records are slow: the trail itself reads on in its time
+    monkeypatch.setattr(
+        raw, "related", lambda name, rows: original(name, rows).extra(where=["pg_sleep(1) IS NOT NULL"])
+    )
+    monkeypatch.setattr(raw, "STREAM_TIMEOUT_MS", 500)
+    rows = _csv(validator, "progress-reports", {"pd_status": ""}, "kept")
+    assert rows[-1]["figures_as_of"] == raw.STOPPED and rows[-1]["counts_once"] == ""
+    assert all(r["figures_as_of"] != raw.STOPPED for r in rows[:-1])

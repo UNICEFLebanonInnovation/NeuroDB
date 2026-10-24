@@ -18,12 +18,14 @@
   export columns with the Datamart ids of each location's rows and the one read.
 
 Every CSV streams (``exports.stream_csv``) inside one read-only snapshot, 2,000 records at a time, takes one
-of the site's two large download slots and holds at most ``raw.csv_limit("partner_reports")`` records.
+of the site's two large download slots and holds at most ``raw.csv_limit("partner_reports")`` records. A query
+that takes too long ends a file of records with one last row saying so (``raw.STOPPED``).
 """
 
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import logging
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterator
@@ -287,6 +289,7 @@ def stream_rows(
                     yield out
     except DatabaseError:
         logger.warning("figure trail: the download of %s stopped (took too long)", what, exc_info=True)
+        yield {"figures_as_of": raw.STOPPED}
 
 
 def _run():
@@ -344,9 +347,35 @@ def _report_columns(report: trail.Report, r: tuple, names: frozenset[str]) -> di
 
 
 # ------------------------------------------------------------------------------------------ progress reports
-def report_rows(found: trail.Trail, what: str, params: Any) -> Iterator[dict[str, Any]]:
+# the texts of a progress report's row and of a tab's line (the exports' rows: views._report_row and
+# _location_row), each cleaned as the partner reports' column it comes from, as the kept rows' CSV cleans them
+REPORT_TEXTS = {
+    "programme_document": "pd_reference_number",
+    "partner": "partner_name",
+    "section": "section",
+    "cp_output": "cp_output",
+    "indicator": "indicator",
+    "report": "report_number",
+    "location": "location",
+    "progress_report_key": "progress_report_key",
+}
+
+
+def cleaned(row: dict[str, Any], texts: dict[str, str], source: str, names: frozenset[str]) -> dict[str, Any]:
+    """``row`` with each of its ``texts`` (its column -> the record's column it comes from) cleaned by the
+    people rule (``raw_people.text``): a name, an e-mail address or a phone in it is withheld."""
+    out = dict(row)
+    for column, name in texts.items():
+        if column in out:
+            out[column] = raw_people.text(out[column], source, name, names, frozenset())
+    return out
+
+
+def report_rows(
+    found: trail.Trail, what: str, params: Any, names: frozenset[str]
+) -> Iterator[dict[str, Any]]:
     """One row per progress report of the table (``reports``) or of the reports to follow up
-    (``follow_up``), as the page lists them, with the comparison sheet's match key."""
+    (``follow_up``), as the page lists them, with the comparison sheet's match key; people never written."""
     from neurodb.reports.views import _report_row
 
     from . import services
@@ -358,14 +387,13 @@ def report_rows(found: trail.Trail, what: str, params: Any) -> Iterator[dict[str
         vendors = _vendor_numbers({r["partner_id"] for r in reports})
         rows = []
         for r in reports:
-            row = _report_row(r)
+            row = cleaned({**_report_row(r), "progress_report_key": r["key"]}, REPORT_TEXTS, SOURCE, names)
             rows.append(
                 {
                     **row,
                     "figures_as_of": raw.local_moment(found.as_of),
                     "step": "The table's progress reports" if what == "reports" else "Reports to follow up",
                     "reason": "",
-                    "progress_report_key": r["key"],
                     "vendor_number": vendors.get(r["partner_id"], ""),
                     "match_key": f"{row['programme_document']} {row['report']}",
                 }
@@ -383,9 +411,9 @@ def line_columns(tab: str) -> list[str]:
     return [*head, *DISAGGREGATION_BLOCK_COLUMNS, "location_total", *LINE_TAIL]
 
 
-def line_rows(tab: str, params: Any, day, as_of) -> Iterator[dict[str, Any]]:
+def line_rows(tab: str, params: Any, day, as_of, names: frozenset[str]) -> Iterator[dict[str, Any]]:
     """By location's lines or By disaggregation's location blocks, computed as the tab computes them, with
-    their records (``record``)."""
+    their records (``record``); people never written."""
     from neurodb.reports.views import DISAGGREGATION_BLOCK_COLUMNS, _location_row
 
     with raw.snapshot(raw.STREAM_TIMEOUT_MS):
@@ -402,14 +430,15 @@ def line_rows(tab: str, params: Any, day, as_of) -> Iterator[dict[str, Any]]:
             "chosen_record_id": item.get("chosen_record_id"),
         }
         if tab == "locations":
-            yield {**head, **_location_row(item), **tail}
+            line = {**head, **_location_row(item), **tail}
         else:
-            yield {
+            line = {
                 **head,
                 **{k: item.get(k) for k in DISAGGREGATION_BLOCK_COLUMNS},
                 "location_total": item["total"],
                 **tail,
             }
+        yield cleaned(line, REPORT_TEXTS, SOURCE, names)
 
 
 # ----------------------------------------------------------------------------------------- Partner monitoring
@@ -745,6 +774,12 @@ INDICATOR_TEXTS = {
 }
 
 
+def _title_unit(pd: int, title: str) -> str:
+    """A title of one programme document as a CSV's unit: the programme document and a digest of the title as
+    Data quality groups it (``reached.norm``), never its words (a title can name a person or a contact)."""
+    return f"{pd}|title-{hashlib.blake2b(rc.norm(title).encode(), digest_size=6).hexdigest()}"
+
+
 def _indicator_rows(
     rows, selection, head, page: PageReads, names: frozenset[str]
 ) -> Iterator[dict[str, Any]]:
@@ -753,7 +788,7 @@ def _indicator_rows(
     for ident in selection.items:
         k = rows.indicators[ident]
         row = by_key.get((k.pd, k.key)) if k.stage == rows.kept_at else None
-        unit = f"{k.pd}|{rc.norm(k.title)}" if selection.unit == "title" else indicator_key(rows, ident)
+        unit = _title_unit(k.pd, k.title) if selection.unit == "title" else indicator_key(rows, ident)
         out = {
             **head,
             "indicator_key": indicator_key(rows, ident),
@@ -772,10 +807,7 @@ def _indicator_rows(
                 indicator=k.title,
                 programme_document=k.pd_number,
             )
-        for column, name in INDICATOR_TEXTS.items():
-            if column in out:
-                out[column] = raw_people.text(out[column], tm.SOURCE, name, names, frozenset())
-        yield out
+        yield cleaned(out, INDICATOR_TEXTS, tm.SOURCE, names)
 
 
 def _pd_csv_rows(rows, selection, head, names) -> Iterator[dict[str, Any]]:
@@ -878,6 +910,7 @@ def _pd_indicator_rows(rows, selection, head, keys, names) -> Iterator[dict[str,
         logger.warning(
             "figure trail: the download of %s stopped (took too long)", selection.step, exc_info=True
         )
+        yield {"figures_as_of": raw.STOPPED}
 
 
 def _document_rows(source: str, head, keys, names) -> Iterator[dict[str, Any]]:
@@ -895,6 +928,7 @@ def _document_rows(source: str, head, keys, names) -> Iterator[dict[str, Any]]:
                 }
     except DatabaseError:
         logger.warning("figure trail: the download of %s stopped (took too long)", source, exc_info=True)
+        yield {"figures_as_of": raw.STOPPED}
 
 
 def _report_rows(rows, selection, head, keys, names) -> Iterator[dict[str, Any]]:
@@ -935,3 +969,4 @@ def _report_rows(rows, selection, head, keys, names) -> Iterator[dict[str, Any]]
         logger.warning(
             "figure trail: the download of %s stopped (took too long)", selection.step, exc_info=True
         )
+        yield {"figures_as_of": raw.STOPPED}

@@ -15,10 +15,13 @@ person types Power BI's numbers in.
 * **The filter.** Every field of the page's filter is a Power BI slicer to set (:data:`POWERBI_SLICERS`) or a
   NeuroDB filter to clear before comparing (:data:`NEURODB_ONLY`); a new field in neither stops the sheet.
 * **People** never reach the file: partners, programme documents and sections only; the progress reports'
-  sheet is the export's row without its focal points. A filter that names a person or a contact (a search
-  holding an e-mail, a phone number or a known person's name) is cleaned as Raw eTools data cleans a text, and
-  its addresses (the page's and every *Trail* link) are not written. Every text from the data is written as a
-  text, never a formula; the only formulas are the two difference columns of a sheet, written by NeuroDB.
+  sheet is the export's row without its focal points. Every text of the lists (a partner, a PD reference, a
+  report #, an indicator, its outputs and section) and every value of the filter is cleaned as Raw eTools
+  data cleans that column (e-mails, phone numbers and known person names withheld), as the figure trail's
+  CSVs clean them; a filter that names a person or a contact (a search holding an e-mail, a phone number or a
+  known person's name) has its addresses (the page's and every *Trail* link) not written. Every text from the
+  data is written as a text, never a formula; the only formulas are the two difference columns of a sheet,
+  written by NeuroDB.
 
 The *Trail* column opens each figure on its figure trail (``datamart.trail``, ``datamart.trail_monitoring``),
 for the same filter and day; on the Program Performance rows sheet, each indicator's Reached.
@@ -172,6 +175,8 @@ REFUSED_DAY = "Choose a day in the last 14 days: the day of Power BI's refresh, 
 # written instead of an address whose filter names a person or a contact (:func:`names_someone`)
 ADDRESS_WITHHELD = "Not written: the filter names a person or a contact. Copy it from the page."
 TRAIL_WITHHELD = "Not written: the filter names a person or a contact. Open the trail from the page."
+# a row of a list whose match key lost a name, an e-mail or a phone: Power BI's own export holds them
+KEY_WITHHELD = "A name, e-mail or phone is withheld here: match this row by PD and target."
 NO_SECTION = "(no section)"
 IR, PR = "indicator reports", "progress reports"
 OVERDUE_NOTE = (
@@ -739,7 +744,7 @@ def _compare_sheet(book: Workbook, found: Read, base_url: str) -> None:
     sheet.add(None, Bold("Set these in Power BI"))
     sheet.header("", "Power BI slicer", "Value", "Done?")
     for slicer, words in slicers:
-        sheet.add(None, slicer, words, INPUT)
+        sheet.add(None, slicer, _clean(words, names), INPUT)
     sheet.add()
     sheet.add(None, Bold("Clear these in NeuroDB before comparing"))
     if clear:
@@ -851,9 +856,14 @@ def _everything(sheet: Sheet, found: Read) -> None:
 
 def _reports_sheet(book: Workbook, found: Read) -> None:
     """One row per progress report of the filter, as the Progress reports export writes it (without its focal
-    points), with the key to match the rows of Power BI's report list (``report_list``)."""
+    points, people cleaned as the trail's CSV of the same rows cleans them), with the key to match the rows of
+    Power BI's report list (``report_list``)."""
     from neurodb.reports.views import _report_row
+    from neurodb.watch import people
 
+    from .trail_rows import REPORT_TEXTS, cleaned
+
+    names = people.known_names()
     reports = found.data["page"]["reports"]
     vendors = _vendor_numbers({r["partner_id"] for r in reports})
     sheet = Sheet(book, "Progress reports", (18, 36, 14, 10, 10, 12, 12, 12, 14, 12, 26), freeze="A3")
@@ -876,7 +886,7 @@ def _reports_sheet(book: Workbook, found: Read) -> None:
         "Match key",
     )
     for report in reports:
-        row = _report_row(report)
+        row = cleaned(_report_row(report), REPORT_TEXTS, "partner_reports", names)
         sheet.add(
             row["programme_document"],
             row["partner"],
@@ -899,10 +909,11 @@ def _vendor_numbers(ids: set[Any]) -> dict[int, str]:
     return dict(PartnerOrganization.objects.filter(pk__in=wanted).values_list("pk", "vendor_number"))
 
 
-def partner_rows(reports: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+def partner_rows(reports: list[dict[str, Any]], names: frozenset[str]) -> tuple[list[dict[str, Any]], int]:
     """One row per partner of the reports, as the Partners tab counts them (``reporting.partner_key``): its
-    name, vendor number, progress reports per status, and the match key (the vendor number, else the name);
-    and the number of reports naming no partner (in no Partners figure)."""
+    name (a person named as a partner withheld, as the trail's CSVs withhold it), vendor number, progress
+    reports per status, and the match key (the vendor number, else the name); and the number of reports naming
+    no partner (in no Partners figure)."""
     found: dict[Any, dict[str, Any]] = {}
     nameless = 0
     for r in reports:
@@ -910,7 +921,10 @@ def partner_rows(reports: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], i
         if key is None:
             nameless += 1
             continue
-        row = found.setdefault(key, {"partner_id": r["partner_id"], "name": r["partner_name"] or ""})
+        if key not in found:
+            name = _clean(r["partner_name"] or "", names)
+            found[key] = {"partner_id": r["partner_id"], "name": name}
+        row = found[key]
         row.setdefault("counts", Counter())[r["status"]] += 1
     vendors = _vendor_numbers({row["partner_id"] for row in found.values()})
     rows = []
@@ -922,7 +936,9 @@ def partner_rows(reports: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], i
 
 
 def _partners_sheet(book: Workbook, found: Read) -> None:
-    rows, nameless = partner_rows(found.data["page"]["reports"])
+    from neurodb.watch import people
+
+    rows, nameless = partner_rows(found.data["page"]["reports"], people.known_names())
     labels = [rc.STATUS_LABELS[k] for k in reporting.STATUS_KEYS]
     sheet = Sheet(book, "Partners", (36, 14, *([12] * len(labels)), 10, 26), freeze="A3")
     note = (
@@ -943,11 +959,16 @@ def _match_key(row: dict[str, Any]) -> str:
 
 
 def _program_performance_sheet(book: Workbook, found: Read, base_url: str) -> None:
-    """Every indicator of Program Performance, as its export writes it, with the key to match Power BI's rows.
-    Two indicators of one programme document can share their title and PD output (check 7): their keys then
-    end in #1, #2..., and a note says so."""
+    """Every indicator of Program Performance, as its export writes it (people cleaned as the trail's
+    indicators CSV cleans them), with the key to match Power BI's rows. Two indicators of one programme
+    document can share their title and PD output (check 7): their keys then end in #1, #2..., and a note says
+    so; a row whose title or PD output lost a name, an e-mail or a phone says it is matched by hand."""
     from neurodb.watch import people
 
+    from . import trail_monitoring as tm
+    from .trail_rows import INDICATOR_TEXTS, cleaned
+
+    names = people.known_names()
     filters, year = found.filters, found.filters.year
     ordered, _sort = monitoring.sorted_rows(found.data["program_performance"], "", year)
     widths = (22, 30, 44, 30, 18, 32, 12, 14, 12, 14, 12, 12, 12, 60, 30, 40)
@@ -974,19 +995,25 @@ def _program_performance_sheet(book: Workbook, found: Read, base_url: str) -> No
         "Trail",
         "Note",
     )
-    rows = list(monitoring.table_rows(ordered, filters, base_url))
+    written = list(monitoring.table_rows(ordered, filters, base_url))
+    rows = [cleaned(row, INDICATOR_TEXTS, tm.SOURCE, names) for row in written]
     shared = Counter(_match_key(row) for row in rows)
     seen: Counter[str] = Counter()
-    withheld = names_someone(found.params, people.known_names())
-    for indicator, row in zip(ordered, rows, strict=True):
-        key, note = _match_key(row), ""
+    withheld = names_someone(found.params, names)
+    for indicator, row, before in zip(ordered, rows, written, strict=True):
+        key, notes = _match_key(row), []
         trail = trail_link(found, base_url, f"pp.reached.{indicator.pd.id}.{indicator.key}")
         if trail and withheld:
             trail = TRAIL_WITHHELD
         if shared[key] > 1:
             seen[key] += 1
-            note = f"{shared[key]} indicators of this PD share its title and PD output: match them by target."
+            notes.append(
+                f"{shared[key]} indicators of this PD share its title and PD output: match them by target."
+            )
             key = f"{key} #{seen[key]}"
+        if (row["indicator"], row["pd_output"]) != (before["indicator"], before["pd_output"]):
+            notes.append(KEY_WITHHELD)
+        note = " ".join(notes)
         n = sheet.row + 1
         sheet.add(
             row["section"],

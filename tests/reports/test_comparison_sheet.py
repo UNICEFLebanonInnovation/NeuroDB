@@ -187,7 +187,7 @@ def test_the_compare_sheet_leaves_power_bi_s_cells_empty_and_writes_two_formula_
         assert row[11].endswith("#" + trail.anchor(figure.key))
     assert any(r[3] == "=HYPERLINK(1) · Accepted" for r in rows)
     hr4 = next(r for r in book["Progress reports"].iter_rows(min_row=3, values_only=True) if r[3] == "HR4")
-    assert hr4[1] == "AmelAssociation"
+    assert hr4[1] == "Amel Association"  # cleaned by the people rule, which reads the control code as a space
     for sheet in book.worksheets:
         for row in sheet.iter_rows():
             for cell in row:
@@ -289,6 +289,36 @@ def test_a_search_naming_a_person_or_a_contact_never_reaches_the_sheet(validator
     # a search that names no one keeps its addresses
     compare = _book(validator, PR, {"pd_status": "", "q": "girls"})["Compare"]
     assert all("q=girls" in r[11] for r in _table(compare))
+
+
+@pytest.mark.parametrize(
+    ("value", "cleaned"),
+    [
+        ("Test Person", "[name withheld]"),
+        ("test.person@example.org", "[email withheld]"),
+        ("+961 3 123 457", "[phone withheld]"),
+    ],
+)
+def test_a_slicer_s_value_naming_a_person_or_a_contact_is_cleaned(validator, more, frozen, value, cleaned):
+    """A field Power BI has a slicer for can name anyone too (a section or a report type typed in the address):
+    the slicer's value to set is cleaned as the filters to clear are, and no cell holds it."""
+    User.objects.create_user(username="known", first_name="Test", last_name="Person", password="pw-123456-x")
+    cases = (
+        (PR, {"pd_status": ""}, "section", "sections"),
+        (PR, {"pd_status": ""}, "report_type", "report_types"),
+        (PM, {"view": "table", "year": "all"}, "section", "sections"),
+    )
+    for page, params, key, field in cases:
+        book = _book(validator, page, {**params, key: value})
+        for sheet in book.worksheets:
+            for row in sheet.iter_rows(values_only=True):
+                for cell in row:
+                    if isinstance(cell, str):
+                        for found in (cell, unquote_plus(cell)):
+                            assert value.lower() not in found.lower(), (page, key, sheet.title, cell)
+                            assert "123 457" not in found, (page, key, sheet.title, cell)
+        slicers = _block(book["Compare"], "Set these in Power BI")
+        assert slicers[comparison.POWERBI_SLICERS[page][field]].lower() == cleaned.lower(), (page, key)
 
 
 # ------------------------------------------------------------------------------------------- the filter blocks

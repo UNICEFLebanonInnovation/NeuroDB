@@ -550,7 +550,26 @@ def dashboard(request) -> dict[str, Any]:
         return {"error": True}
 
 
+def _opens(request, url: str | None) -> str | None:
+    """``url`` when the reader may open it (an admin page of a model: the model's view permission), else None:
+    a staff reader without it (a validator with staff status) reads the tile or the line as plain text."""
+    from urllib.parse import urlsplit
+
+    from django.urls import Resolver404, resolve
+
+    if not url:
+        return None
+    try:
+        found = resolve(urlsplit(url).path)
+    except Resolver404:
+        return url
+    model_admin = getattr(found.func, "model_admin", None)
+    return url if model_admin is None or model_admin.has_view_permission(request) else None
+
+
 def _dashboard(request) -> dict[str, Any]:
+    import dataclasses
+
     from django.contrib.auth import get_user_model
 
     from neurodb.core import years
@@ -588,8 +607,8 @@ def _dashboard(request) -> dict[str, Any]:
             entry.update(status=datamart.status, status_label=datamart.label, datasets=datamart)
         jobs.append(entry)
 
-    # The same lines NeuroDB Watch tells the administrators (web/health.py)
-    warnings = health.warnings(now)
+    # The same lines NeuroDB Watch tells the administrators (web/health.py), linked where the reader may go
+    warnings = [dataclasses.replace(w, url=_opens(request, w.url) or "") for w in health.warnings(now)]
 
     return {
         "year": year,
@@ -598,18 +617,21 @@ def _dashboard(request) -> dict[str, Any]:
                 "label": _("This year"),
                 "value": years.this_year(),
                 "hint": activityinfo.explain()[0],  # whether ActivityInfo is in use, and why
-                "url": _admin_url("core_activityinfosetting"),
+                "url": _opens(request, _admin_url("core_activityinfosetting")),
             },
             {
                 "label": _("Databases shown"),
                 "value": shown.count(),
-                "url": _admin_url("pivoting_database")
-                + (f"?reporting_year__id__exact={year.id}&display__exact=1" if year else ""),
+                "url": _opens(
+                    request,
+                    _admin_url("pivoting_database")
+                    + (f"?reporting_year__id__exact={year.id}&display__exact=1" if year else ""),
+                ),
             },
             {
                 "label": _("Active master indicators"),
                 "value": masters.count(),
-                "url": _admin_url("pivoting_masterindicator") + "?is_active__exact=1",
+                "url": _opens(request, _admin_url("pivoting_masterindicator") + "?is_active__exact=1"),
             },
             {
                 "label": _("Activity records"),
@@ -619,15 +641,16 @@ def _dashboard(request) -> dict[str, Any]:
             {
                 "label": _("Active users"),
                 "value": user_model.objects.filter(is_active=True).count(),
-                "url": _admin_url("users_user") + "?is_active__exact=1",
+                "url": _opens(request, _admin_url("users_user") + "?is_active__exact=1"),
             },
             {
                 "label": _("Published resources"),
                 "value": Resource.objects.filter(published=True).count(),
-                "url": _admin_url("pivoting_resource") + "?published__exact=1",
+                "url": _opens(request, _admin_url("pivoting_resource") + "?published__exact=1"),
             },
         ],
         "jobs": jobs,
+        "runs_url": _opens(request, _admin_url("core_syncrun")),  # each job's runs, for those who open them
         "warnings": warnings,
     }
 

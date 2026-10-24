@@ -204,10 +204,12 @@ def _monitoring_params(request: HttpRequest, page: str) -> tuple[QueryDict, str]
     found = monitoring_filters(request)
     if found.view == "masters":
         raise Http404
+    # the map is not one of the page's views: its filter is the grid's (its link always writes the year)
+    view = "map" if request.GET.get("view") == "map" else found.view
     params = trail.filter_query(found.resolved)
-    if found.view != "grid":
-        params["view"] = found.view
-    return params, found.view
+    if view != "grid":
+        params["view"] = view
+    return params, view
 
 
 def _monitoring_figures(request: HttpRequest, page: str, block: str) -> HttpResponse:
@@ -312,16 +314,17 @@ def check_rows(request: HttpRequest, page: str) -> HttpResponse:
     if slot is None:
         return _plain(raw.BUSY, 503)
     try:
+        names = people.known_names()
         if kind == "rows":
-            names = people.known_names()
             columns, keys = trail_rows.row_columns(names, pks)
             rows = trail_rows.stream_rows(found, what, pks, keys, names)
         elif kind == "reports":
-            columns, rows = list(trail_rows.REPORT_COLUMNS), trail_rows.report_rows(found, what, params)
+            columns = list(trail_rows.REPORT_COLUMNS)
+            rows = trail_rows.report_rows(found, what, params, names)
         else:
             tab = "locations" if what == "lines" else "disaggregations"
             columns = trail_rows.line_columns(tab)
-            rows = trail_rows.line_rows(tab, params, day, found.as_of)
+            rows = trail_rows.line_rows(tab, params, day, found.as_of, names)
     except Exception:
         slot.free()
         raise

@@ -65,7 +65,7 @@ def _context(request, title: str, **extra: Any) -> dict[str, Any]:
         "title": title,
         "subtitle": None,
         "index_url": reverse("admin:datamart_raw"),
-        "opts": dm.DatamartDocument._meta,
+        # no "opts": the header is the page's title, never a link to the developer tables
         **extra,
     }
 

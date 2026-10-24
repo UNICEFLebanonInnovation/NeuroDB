@@ -283,15 +283,19 @@ def reporting_checks_view(request):
         "outdated": outdated,
         "outdated_missing": get_text_list(outdated.missing, _("and")) if outdated else "",
         "outdated_changed": get_text_list(outdated.changed, _("and")) if outdated else "",
-        "failed_url": reverse("admin:core_syncrun_change", args=[failed.pk]) if failed else None,
+        # the run and the rows' table open for Administrators only: a validator gets no link that refuses them
+        "failed_url": reverse("admin:core_syncrun_change", args=[failed.pk])
+        if failed and administrator
+        else None,
         "run_url": here,
         "can_run": administrator,
         "page_seconds": int(checks.PAGE_BUDGET_S),
         "job_minutes": int(checks.JOB_BUDGET_S // 60),
-        "rows_url": reverse("admin:datamart_reportedindicator_changelist"),
+        "rows_url": reverse("admin:datamart_reportedindicator_changelist") if administrator else "",
         "health_url": reverse("reports:data_health"),
-        "opts": dm.ReportedIndicator._meta,
     }
+    if administrator:  # the header's links to the Datamart's tables
+        context["opts"] = dm.ReportedIndicator._meta
     return render(request, "admin/datamart/reporting_checks.html", context)
 
 

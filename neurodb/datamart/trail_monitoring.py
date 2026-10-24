@@ -769,14 +769,21 @@ def pd_steps(facts: runfacts.RunFacts, rows: Chain) -> list[Any]:
 
 
 def pd_writers() -> str:
-    """The programme documents in NeuroDB by the sync that last wrote them, in one line."""
+    """The programme documents in NeuroDB by the sync that last wrote them, in one line. Each sync writes them
+    twice: its ``interventions``, then straight after their budgets (the Datamart's
+    ``intervention_budgets``) or details (the REST sync's ``intervention_details``), which save them again: a
+    sync's window runs from the start of its ``interventions`` to the end of the first of those after it."""
     from neurodb.core.models import SyncRun
 
     held = PCA.objects.count()
     found, taken = [], set()
-    for job, words_of in (
-        (SyncRun.Job.ETOOLS_DATAMART, "the last eTools Datamart sync of programme documents"),
-        (SyncRun.Job.ETOOLS, "the last eTools REST sync of programme documents"),
+    for job, then, words_of in (
+        (
+            SyncRun.Job.ETOOLS_DATAMART,
+            "intervention_budgets",
+            "the last eTools Datamart sync of programme documents",
+        ),
+        (SyncRun.Job.ETOOLS, "intervention_details", "the last eTools REST sync of programme documents"),
     ):
         run = (
             SyncRun.objects.filter(
@@ -789,7 +796,15 @@ def pd_writers() -> str:
         if run is None:
             found.append(f"{words_of}: never ran")
             continue
-        window = PCA.objects.filter(updated_at__gte=run.started_at, updated_at__lte=run.finished_at)
+        after = (
+            SyncRun.objects.filter(job=job, target=then, started_at__gte=run.started_at)
+            .exclude(finished_at=None)
+            .order_by("started_at")
+            .values_list("finished_at", flat=True)
+            .first()
+        )
+        end = max(run.finished_at, after) if after is not None else run.finished_at
+        window = PCA.objects.filter(updated_at__gte=run.started_at, updated_at__lte=end)
         mine = set(window.values_list("pk", flat=True)) - taken
         found.append(f"{words_of} ({trail._day(run.finished_at)}): {len(mine):,}")
         taken |= mine

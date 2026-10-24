@@ -9,8 +9,9 @@ A superuser or an Administrator ticks the group in the administration: *Users an
 the person, then *Groups*: tick **Validators** and save. Administrators are validators only when they are
 ticked too, like anyone else; superusers always are.
 
-Raw eTools data is in the administration, which also asks for **Staff status** (on the same form). A
-validator without it sees "Raw data: ask for staff status" where the link would be.
+Raw eTools data and the eTools reporting checks are in the administration, which also asks for **Staff
+status** (on the same form). A validator without it sees "Raw data: ask for staff status" where the link
+would be.
 
 A validator sees one more line under the tabs of [Progress reports](/partner-reporting/),
 [Partner monitoring](/partner-monitoring/) (and its map) and [Field monitoring](/field-monitoring/), and on
@@ -20,7 +21,7 @@ and Data quality) and its map, the line also offers **Check these figures** (the
 does a line of its own under the title of each of Home's two blocks, Progress reports and Indicator progress.
 On Progress reports and Partner monitoring, the line offers the **Power BI comparison sheet (Excel)** (below).
 The master indicators have neither. The *eTools reporting checks* (*Data and sync*) open read-only for
-validators: only an Administrator runs them.
+validators with Staff status: only an Administrator runs them.
 
 ## The figure trail
 
@@ -32,7 +33,8 @@ At the top: the filter in words, the day the statuses are read for (the page's d
 Trail links open it on the sheet's day), when the eTools figures are from (the end of the last partner reports
 sync) and, while an eTools sync runs, a note: the figures can move until it ends. Then the page's own tiles,
 drawn as on the page, and one line: **"All N figures rebuilt from the rows: the same."** A figure whose value
-on the page and value rebuilt from the rows differ is listed in red above it: tell the NeuroDB team.
+on the page and value rebuilt from the rows differ is listed in red above it: tell the NeuroDB team. Each value
+is written as the page writes it (a Reached of 33.33% reads 33); point at it to see the exact value.
 
 **Where the rows come from** lists the steps:
 
@@ -163,6 +165,9 @@ Each figure's own *Rows (CSV)* holds only the rows it counts, with `unit_key` (i
 their sum is the figure. In a step's CSV, `counts_once` is 1 only on a unit the step leaves out entirely
 (`unit_partly_kept` marks the others), so its sum is what the step leaves out entirely.
 
+When the database takes too long, a file ends with the row "The download stopped here: the database took too
+long. Download again or narrow the filter." That file is not complete: do not compare it.
+
 ## The Power BI comparison sheet
 
 NeuroDB never reads Power BI: you compare by hand, and the sheet does the rest. *Power BI comparison sheet
@@ -191,13 +196,16 @@ The file has these sheets:
   the search names a person or holds an e-mail or a phone number, the file writes it cleaned and leaves
   out the addresses: open the trail from the page.
 - **Progress reports** (Progress reports): one row per progress report of the filter, with a *Match key*
-  (the PD reference, a space, the report number). No focal point is written.
+  (the PD reference, a space, the report number). No focal point is written, and a person named as a partner
+  is withheld.
 - **Partners** (Progress reports): one row per partner, its progress reports per status, and a *Match key*
   (the vendor number, else the partner's name).
 - **Program Performance rows** (Partner monitoring): every indicator of the filter, not only the first
   2,000 the page lists, with NeuroDB's Reached and % Reached, yellow cells for Power BI's, their
   differences, and a *Match key* (PD number | indicator | PD output). Two indicators of one programme
-  document with the same title and PD output end in #1, #2: match them by their target. Each row's *Trail*
+  document with the same title and PD output end in #1, #2: match them by their target. A title or PD output
+  that holds a name, an e-mail or a phone is written without it, and the row's note says to match it by PD
+  and target. Each row's *Trail*
   cell opens the indicator's Reached on its trail: the partner report rows placed to it, used or not.
 - **Why they can differ**: seven reasons, each with where to see it.
 
@@ -233,7 +241,8 @@ programme documents, trips, engagements, action points and their details).
   received, less the records of another country, those naming no country and those that could not be
   saved, is what the sync updated. The records in NeuroDB are those the last sync updated, those updated
   since (a sync is running) and those kept from an earlier sync. A remainder the counts do not explain is
-  shown in red: tell the NeuroDB team. For the partners, programme documents, agreements, audits and
+  shown in red: tell the NeuroDB team. Records a sync running now (or one that failed) rewrote count as
+  updated since: they are explained. For the partners, programme documents, agreements, audits and
   locations, the line counts the copies kept here, and another line says how many records could not be
   saved into NeuroDB's own partners, programme documents, locations...: the ones the pages read. Then
   **Complete?** says *No*. For the partner reports it also says from which date NeuroDB holds them, and
@@ -248,8 +257,9 @@ programme documents, trips, engagements, action points and their details).
   cancelled, not in NeuroDB, or names none. These five choices add up to every partner report row.
 - **The list** shows 50 records a page, the newest first, each linked to its own page: every field as
   received, then what NeuroDB made of it (its columns, the programme document, partner and location it
-  links to; for a partner report row its progress report and the status every page reads for it) and
-  the sync that last updated it.
+  links to; for a partner report row its progress report and the status every page reads for it; for an
+  engagement, its audit, spot check... records, each shown as its own source's page shows it) and the sync
+  that last updated it.
 
 ## The eTools REST API
 
