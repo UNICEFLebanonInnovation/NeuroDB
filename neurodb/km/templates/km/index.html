@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}{{ words.PAGE_TITLE }}{% endblock %}
+{% block content %}
+{# the KM Database: its own tables, read by nothing else in NeuroDB. The title never holds a workbook title. #}
+<p class="page-purpose">{{ words.PURPOSE }}</p>
+{% if version %}
+<p class="km-version" data-km-version>{{ version_line }}</p>
+{% endif %}
+{% if loading %}
+<p class="km-note small" role="status">{% include "components/icon.html" with name="info" %} {{ words.LOADING_INFO }}</p>
+{% endif %}
+{% if not version %}
+<section class="panel">
+  {% if can_set_up %}
+  {% include "components/empty_state.html" with icon="evidence" title=words.EMPTY_TITLE message=words.EMPTY_SETUP action_url=upload_url action_label=words.UPLOAD_ACTION %}
+  {% else %}
+  {% include "components/empty_state.html" with icon="evidence" title=words.EMPTY_TITLE message=words.EMPTY_OTHERS %}
+  {% endif %}
+</section>
+{% else %}
+<nav class="segmented segmented--scroll mb-3 km-tabs" aria-label="{% trans 'KM Database views' %}">
+  {% for t in tabs %}<a href="{{ t.url }}"{% if t.key == tab %} aria-current="page"{% endif %}>{{ t.label }} <span class="km-tabs__count">({{ t.count }})</span></a>{% endfor %}
+</nav>
+<section class="panel p-0" id="km-results" aria-live="polite">
+  {% if tab == "documents" %}{% include "km/partials/documents.html" %}{% else %}{% include "km/partials/findings.html" %}{% endif %}
+</section>
+{% endif %}
+{% endblock %}

@@ -1409,6 +1409,20 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 .date-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.25rem; }
 .date-range input { min-width: 0; padding-left: 0.4rem; padding-right: 0.25rem; }
 
+/* ---------------------------------------------------------------------------- KM Database (/km/) */
+/* The version line under the page's purpose; the findings table's long text wraps, the rest of a long key
+   finding folds under "Show all"; titles are cut to one line (phones) or two (wider screens). */
+.km-version { margin: -0.5rem 0 0.9rem; font-size: 0.82rem; color: var(--nd-muted); }
+.km-note { display: flex; gap: 0.4rem; align-items: center; color: var(--nd-muted); }
+.km-tabs__count { color: var(--nd-muted); font-variant-numeric: tabular-nums; }
+.km-table .km-finding { min-width: 14rem; max-width: 46rem; white-space: normal; overflow-wrap: anywhere; }
+.km-text { white-space: pre-line; }
+.km-more-text summary { cursor: pointer; color: var(--nd-primary); font-size: 0.8rem; }
+/* a line clamp, never nowrap: a nowrap line would widen the table to its length on a phone */
+.km-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; overflow-wrap: anywhere; }
+.km-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; overflow-wrap: anywhere; }
+@media print { .km-clamp-1, .km-clamp-2 { display: block; -webkit-line-clamp: none; } }
+
 /* ---------------------------------------------------------------------------- pages that load in parts (parts.js)
    A placeholder ([data-part], components/part.html) keeps the height of what it will hold: --part-h by kind, or
    the tag's height= (inline --part-h) and rows= (inline --part-rows); an optional inline --part-h-md (height_md=)

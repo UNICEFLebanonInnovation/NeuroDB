@@ -44,6 +44,8 @@ DATAMART_PROBE_LOCK_ID = 7140439  # neurodb.integrations.etools.probe.LOCK_ID: o
 ETOOLS_MASTERS_LOCK_ID = 7140440
 # neurodb.integrations.etools.rest_raw.LOCK_ID: one read of the eTools REST API into Raw eTools data at a time
 ETOOLS_REST_RAW_LOCK_ID = 7140441
+# neurodb.km.loading.LOCK_ID: one load of the KM Database at a time (not a SyncRun job: not in LOCK_IDS)
+KM_LOAD_LOCK_ID = 7140442
 LOCK_IDS = {
     SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID,
     SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID,

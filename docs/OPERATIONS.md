@@ -98,6 +98,7 @@ superuser's password and sign in as them, or deactivate every superuser and leav
   - *For you* and *Daily review*: NeuroDB Watch reaches people through For you's count in the sidebar and
     its card on Home. Tick *For you* for a role that should keep the count.
   - *Help*: the "?" panel links to the Help pages (*Help pages*), and the search finds them.
+  - *KM Database* is in the full menu only: tick it for a role on the Menu page.
 - **Home follows the menu.** Home leads with partner reporting for everyone (see *Home (`/`)*); the rest of
   Home (the Watch card, *Needs a decision*, the daily review, *Since*, the key figures, the sources) is under
   *More on Home*, folded for a role whose menu shows neither *For you* nor *Daily review* (every role by
@@ -892,6 +893,90 @@ that forecast, never a skipped one) then say "These forecasts were made for <yea
 in use. They are no longer updated."; Ask's `indicator_forecasts` adds the same note, and Watch closes its
 forecast points ("ActivityInfo is archived: its forecasts are no longer followed").
 
+## KM Database (`/km/`, admin → KM Database)
+
+The KM Database shows one evidence workbook, findings from research, evaluations and assessments with the
+documents they come from, on its own page with two tabs: **Findings** (the default) and **Documents**, 25
+rows a page. The code is in `neurodb/km`.
+
+**What keeps it apart.** It has its own app and tables (`km_version`, `km_document`, `km_finding`); their
+only relations are to each other and to the user who uploaded a version. Nothing else in NeuroDB imports
+`neurodb.km` or reads its tables: it is linked to no partner, programme document, indicator or library
+resource, and Ask NeuroDB, the knowledge base, the library, NeuroDB Watch, the daily review, Data health
+and the site-wide search do not read it (the search's *Pages* group lists the page itself, like every
+page of the full menu). Its load is not an import run (`SyncRun`), so it is on no run list, freshness
+check or Data health line. The page is under *Resources* in the full menu (see the menu section above);
+every signed-in UNICEF role opens its address; donor accounts are sent to their page.
+
+**Uploading a new version** (superusers, and Administrators with staff status):
+
+1. Admin → *KM Database* → *Versions* → **Upload a new version** (or *Upload the KM Database* in the admin
+   home's *Quick actions*).
+2. Choose the workbook (.xlsx, 25 MB at most) and press **Upload**. *Download the Excel template* on the
+   same page gives every column the check expects (required ones in bold) and the Read Me labels it
+   reads.
+3. The quick check runs at once. If it finds a problem, the page lists it and nothing is saved. If it
+   passes, the version's page opens; it refreshes by itself every 5 seconds while the version waits and
+   loads.
+4. Wait for the status **Shown now** (about a minute; the version page shows the time it took), then open
+   the KM Database page.
+
+The same file as the version shown is refused unless *Load it even if it is the version shown now* is
+ticked. An upload while another version waits or loads is refused, with a link to that version.
+
+**What the check refuses** (nothing is loaded and the version shown stays; each message names the column
+as the workbook writes it and the sheet as the file names it, with the row numbers Excel shows: the header
+is row 1):
+
+- in the request: a file over 25 MB; a file that is not .xlsx (named by its type, e.g. CSV); a protected
+  workbook (a password, or a sensitivity label that encrypts it: save a copy without the protection); a
+  file that is not a workbook (or a zip of over 500 parts or 300 MB unpacked); no sheet whose name ends
+  with "Documents" or "Findings", or two of them; a required column missing (findings: Finding ID, Record
+  ID, Document Title, Pillar, Research Question, Key Finding, Evidence Confidence Level, Data Quality
+  Status; documents: Record ID, Document Title, Data Quality Status); the column names in another row
+  than the first; a column twice; a sheet with no rows;
+- by the load: rows with no Finding ID or Record ID, an ID repeated, an ID with characters other than
+  letters, digits, ".", "_" and "-" (at most 40), a finding whose Record ID is not in the documents sheet
+  (each kind once, with its count and at most five example rows); more than 5,000 documents or 100,000
+  findings;
+- **the fewer-rows guard**: a workbook with under 90% of the findings or documents of the version shown,
+  or fewer rows than its Read Me sheet states, is refused unless the uploader ticks *It has fewer findings
+  on purpose* and uploads it again.
+
+An optional column that is missing loads empty, with a note on the version's page; columns the KM
+Database does not know are named and not read; without a Read Me sheet the prepared-on date is not known.
+
+**What the load does** (`load_km_database --version-id <pk>`, started in the background by the upload;
+one at a time, advisory lock `7140442`):
+
+- pass 1 reads every row once and checks it, with no database access; pass 2 reads the findings again
+  and writes them 1,000 at a time; one transaction replaces every document and finding (the old rows stay
+  visible until it commits), fills the search indexes and makes the version live. The version it
+  replaces keeps its summary only;
+- a failed load, or one that stops (the container restarted), leaves the version shown as it was; a
+  version left *Loading* while no load holds the lock, or *Waiting to load* for over 2 minutes, is marked
+  *Not loaded* at the next view of the versions, with what to do;
+- the uploaded file is kept only until its load ends (loaded or not); of the Read Me's source workbook
+  only the file name is kept, never its folder;
+- measured on the user's workbook (8 MB: about 540 documents and 15,000 findings): about 30 seconds and
+  a peak of about 230 MB of memory for the whole process into an empty KM Database, about 35 seconds and
+  280 MB when it replaces a version of the same size. The version page shows both for each load.
+
+**Values to check and rows marked for review.** A value that is not one of the expected ones (a
+confidence level other than Level A to D, a mark other than Yes, No, Not reported or Not applicable, a
+year that is not a year, a value of 100 characters or more in a short column) is kept as the workbook
+gives it and marked *Check this value* on the page; a row whose Data Quality Status does not start with
+"Ready" is marked *Marked for review*. Neither is hidden. The version page's notes count them, name up to
+20 IDs and link the page's list of them (`/km/?quality=review`).
+
+**The confidence levels** are shown in one colour, as the workbook does not say which level is the
+strongest; `neurodb.km.columns.CONFIDENCE_A_STRONGEST` turns on the colours once that is confirmed.
+
+**Deleting.** A superuser can delete a version that is not shown and not loading, from its page. The
+version shown is replaced by uploading another.
+
+Quick migration `km 0001_initial` (new, empty tables with their search indexes; CreateModel only).
+
 ## Help assistant (`/help/`, Ctrl+Shift+H)
 
 An in-app help chat that answers **how NeuroDB works** (what a page shows, what a rule checks, where a
@@ -1198,6 +1283,7 @@ button on Raw eTools data (and in Run a job); the fields count is written by the
 | Run a job → *eTools master indicators* (also *Suggest now* on *Reporting setup* → *Master indicators (eTools)*) | `suggest_master_indicators` | background |
 | *Reporting setup* → *Master indicators (eTools)*: actions *Accept the proposed master indicators*, *Dismiss the proposed master indicators*, *Confirm all suggestions*, *Confirm suggestions scoring 0.9 or more*, *Merge the selected master indicators*, *Change section (after an eTools rename)*, and *Add PD indicators* on a master's page; *Master indicator links (eTools)*: *Confirm*, *Reject*, *Make "Shown only"*; the same decisions on Partner monitoring's *Master indicators* tab | (no command: they change the master indicators and their links) | in the request |
 | *Reporting setup* → *Master indicators* (ActivityInfo): action *Create eTools master indicators from these* | (no command: writes eTools master indicators only, never an ActivityInfo row) | in the request |
+| Admin → *KM Database* → *Versions* → **Upload a new version** (superusers and Administrators) | `load_km_database` (reads the uploaded workbook into the KM Database; writes only the KM tables) | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | *Data and sync* → *Raw eTools data* (validators) | (no command: pages and a streamed CSV; the fields of each source are counted by the existing syncs as they write, `details.keys_kept`; a superuser's *Reviewed: show it* writes one row) | in the request |
 | *Raw eTools data* → **Read the eTools REST API now** (superusers and Administrators who are validators), or Run a job → *eTools REST raw copy* | `read_etools_rest_raw` (the raw copy of the eTools REST records; writes no other table) | background |

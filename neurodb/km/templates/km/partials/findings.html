@@ -1,0 +1,30 @@
+{% load i18n humanize %}
+{% include "km/partials/_review_line.html" %}
+<div class="table-toolbar">
+  <div class="table-toolbar__title"><h2 class="h6 mb-0">{{ words.TAB_FINDINGS }}</h2><span class="text-muted small">{% blocktrans with n=page_obj.paginator.count|intcomma count counter=page_obj.paginator.count %}{{ n }} finding{% plural %}{{ n }} findings{% endblocktrans %}</span></div>
+</div>
+{% if page_obj.object_list %}
+<div class="table-wrap"><table class="table table-sm mb-0 km-table" id="km-findings">
+  <thead><tr>
+    <th scope="col">{% trans "Finding" %}</th>
+    <th scope="col" class="d-none d-md-table-cell">{% trans "Pillar" %}</th>
+    <th scope="col" class="d-none d-md-table-cell">{% trans "Question" %}</th>
+    <th scope="col" class="d-none d-md-table-cell">{% trans "Document" %}</th>
+    <th scope="col" class="d-none d-md-table-cell">{% trans "Confidence" %}</th>
+  </tr></thead>
+  <tbody>{% for f in page_obj %}<tr>
+    <td class="km-finding">
+      <span class="km-text">{{ f.shown }}</span>{% if f.rest %}<details class="km-more-text"><summary>{% trans "Show all" %}</summary><span class="km-text">{{ f.rest }}</span></details>{% endif %}
+      <span class="cell-sub">{{ f.finding_id }}{% if f.needs_review %} <span class="pill pill--sm pill--info">{{ words.REVIEW_PILL }}</span>{% endif %}{% if f.checks %} <span class="pill pill--sm pill--warning" title="{{ words.CHECK_TITLE }}">{{ words.CHECK_PILL }}</span>{% endif %}</span>
+      <span class="cell-sub d-md-none"><span class="km-clamp-1">{{ f.document_title_shown }}</span>{{ f.pillar_code|default:"—" }} · {{ f.rq_code|default:"—" }} · {% include "km/partials/_pill.html" with pill=f.pill %}</span>
+    </td>
+    <td class="d-none d-md-table-cell text-nowrap"><span class="has-tip" title="{{ f.pillar }}">{{ f.pillar_code|default:"—" }}</span></td>
+    <td class="d-none d-md-table-cell text-nowrap"><span class="has-tip" title="{{ f.research_question }}">{{ f.rq_code|default:"—" }}</span></td>
+    <td class="d-none d-md-table-cell cell-wrap"><span class="km-clamp-2">{{ f.document_title_shown }}</span><span class="cell-sub">{{ f.year|default_if_none:f.year_text|default:"—" }}</span></td>
+    <td class="d-none d-md-table-cell">{% include "km/partials/_pill.html" with pill=f.pill %}</td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+{% include "components/pagination.html" with hx_target="#km-results" %}
+{% else %}
+{% include "components/empty_state.html" with icon="search" title=_("No findings match.") action_url=all_url action_label=words.SHOW_ALL %}
+{% endif %}

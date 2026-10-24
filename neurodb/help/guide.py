@@ -36,6 +36,7 @@ ORDER = (
     "checking-figures",
     "exports",
     "knowledge-and-documents",
+    "km-database",
     "ask-neurodb",
     "watch",
     "briefs-and-overview",

@@ -312,6 +312,7 @@ def test_the_guide_lists_the_full_menu_as_it_is_drawn():
         "**Periodic reports**",
         "**Document review**",
         "**Library**",
+        "**KM Database**",
         "**Maps**",
         "**Population**",
         "**Data health**",

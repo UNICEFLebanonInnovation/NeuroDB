@@ -24,6 +24,7 @@ urlpatterns = [
     path("makani/wellbeing/", include("neurodb.wellbeing.urls")),
     path("fmm/", include("neurodb.fmm.urls")),
     path("help/", include("neurodb.help.urls")),
+    path("km/", include("neurodb.km.urls")),
     # read with a Power BI key, never a session (fmm.powerbi): the only addresses left out of sign-in
     path("powerbi/fmm/<slug:dataset>.csv", powerbi_feed, name="fmm_powerbi_feed"),
     path("", include("neurodb.reports.urls")),

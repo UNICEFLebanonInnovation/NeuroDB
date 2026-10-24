@@ -1,0 +1,38 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+{% comment %}
+  A version of the KM Database (read only; context: km.admin.KMVersionAdmin.change_view). While it waits or
+  loads, the page refreshes itself every 5 seconds (no script). A version that did not load says that the
+  version shown stays, with why, and offers the upload again.
+{% endcomment %}
+{% block extrahead %}
+  {{ block.super }}
+  {% if version.busy %}<meta http-equiv="refresh" content="5">{% endif %}
+{% endblock %}
+{% block form_top %}
+  {{ block.super }}
+  {% if version %}
+  <div class="flex flex-col gap-4 mb-6 max-w-4xl" data-km-version-page>
+    {% if version.busy %}<p class="nd-fixed__note" role="status">{{ words.LOADING_PAGE }}</p>{% endif %}
+    {% if failed_line %}
+    <div class="nd-scheduler nd-scheduler--warn" role="alert">
+      <span class="material-symbols-outlined" aria-hidden="true">error</span>
+      <div class="flex flex-col gap-2"><p>{{ failed_line }}</p>{% if version.error %}<p>{{ version.error }}</p>{% endif %}
+        {% if can_upload %}<p><a class="nd-found__button inline-block" href="{{ upload_url }}">{{ words.UPLOAD_ACTION }}</a></p>{% endif %}</div>
+    </div>
+    {% endif %}
+    {% if problems %}
+    <div data-km-problems>
+      <h2 class="font-semibold mb-2">{% trans "Why it was not loaded" %}</h2>
+      <ul class="list-disc ml-6 flex flex-col gap-1">{% for line in problems %}<li>{{ line }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    {% if warnings %}
+    <div data-km-warnings>
+      <h2 class="font-semibold mb-2">{% if version.status == "failed" %}{% trans "Also found" %}{% else %}{% trans "Notes on this version" %}{% endif %}</h2>
+      <ul class="list-disc ml-6 flex flex-col gap-1">{% for line in warnings %}<li>{{ line }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+{% endblock %}

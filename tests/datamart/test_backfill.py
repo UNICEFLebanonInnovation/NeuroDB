@@ -328,6 +328,10 @@ QUICK_MIGRATIONS = {
     # the choice of the job that reads the eTools REST API into Raw eTools data (AlterField of the job's choices
     # only, no code runs and nothing in the database changes; listed so that the migration is accounted for here)
     ("core", "0033_etools_rest_raw_job", "AlterField"),
+    # the KM Database's versions, documents and findings: new, empty tables with their search indexes; the
+    # workbook is read by the background load, never by a migration (CreateModel only, no code runs; listed
+    # so that the migration is accounted for here)
+    ("km", "0001_initial", "CreateModel"),
 }
 
 

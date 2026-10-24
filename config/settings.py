@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     "neurodb.insights",
     "neurodb.watch",
     "neurodb.help",
+    "neurodb.km",  # the KM Database: its own tables, read by nothing else in NeuroDB
     "neurodb.fmm",
     "neurodb.web",
 ]

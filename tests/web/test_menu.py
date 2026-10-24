@@ -54,7 +54,8 @@ FULL_TREE = [
     ("Education and youth", [("Makani (MSCC)", "child"), ("Makani wellbeing", "shield-plus"),
                              ("Dirasa (Bridging)", "school"), ("Youth programmes", "teacher")]),
     ("Resources", [("Knowledge base", "layers"), ("Periodic reports", "trend"), ("Document review", "zap"),
-                   ("Library", "book"), ("Maps", "map"), ("Population", "chart"), ("Data health", "pulse")]),
+                   ("Library", "book"), ("KM Database", "evidence"), ("Maps", "map"), ("Population", "chart"),
+                   ("Data health", "pulse")]),
 ]  # fmt: skip
 
 

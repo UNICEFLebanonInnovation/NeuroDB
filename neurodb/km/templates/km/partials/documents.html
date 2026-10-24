@@ -1,0 +1,31 @@
+{% load i18n humanize %}
+{% include "km/partials/_review_line.html" %}
+<div class="table-toolbar">
+  <div class="table-toolbar__title"><h2 class="h6 mb-0">{{ words.TAB_DOCUMENTS }}</h2><span class="text-muted small">{% blocktrans with n=page_obj.paginator.count|intcomma count counter=page_obj.paginator.count %}{{ n }} document{% plural %}{{ n }} documents{% endblocktrans %}</span></div>
+</div>
+{% if page_obj.object_list %}
+<div class="table-wrap"><table class="table table-sm mb-0 km-table" id="km-documents">
+  <thead><tr>
+    <th scope="col">{% trans "Document" %}</th>
+    <th scope="col" class="d-none d-md-table-cell d-print-none" data-export="no">{% trans "Publishing entity / authors" %}</th>
+    <th scope="col" class="d-none d-md-table-cell">{% trans "Year" %}</th>
+    <th scope="col" class="d-none d-md-table-cell">{% trans "Type" %}</th>
+    <th scope="col" class="d-none d-md-table-cell">{% trans "Confidence" %}</th>
+    <th scope="col" class="num">{% trans "Findings" %}</th>
+  </tr></thead>
+  <tbody>{% for d in page_obj %}<tr>
+    <td class="cell-wrap"><span class="km-clamp-2">{{ d.title }}</span>
+      <span class="cell-sub">{{ d.record_id }}{% if d.needs_review %} <span class="pill pill--sm pill--info">{{ words.REVIEW_PILL }}</span>{% endif %}{% if d.checks %} <span class="pill pill--sm pill--warning" title="{{ words.CHECK_TITLE }}">{{ words.CHECK_PILL }}</span>{% endif %}</span>
+      <span class="cell-sub d-md-none">{{ d.year|default_if_none:d.year_text|default:"—" }} · {{ d.study_type|default:"—" }} · {% include "km/partials/_pill.html" with pill=d.pill %}</span>
+    </td>
+    <td class="d-none d-md-table-cell d-print-none small cell-wrap" data-export="no"{% if d.entity_shown != d.entity %} title="{{ d.entity }}"{% endif %}>{{ d.entity_shown|default:"—" }}</td>
+    <td class="d-none d-md-table-cell text-nowrap">{{ d.year|default_if_none:d.year_text|default:"—" }}</td>
+    <td class="d-none d-md-table-cell small">{{ d.study_type|default:"—" }}</td>
+    <td class="d-none d-md-table-cell">{% include "km/partials/_pill.html" with pill=d.pill %}</td>
+    <td class="num">{{ d.findings_rows|intcomma }}</td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+{% include "components/pagination.html" with hx_target="#km-results" %}
+{% else %}
+{% include "components/empty_state.html" with icon="search" title=_("No documents match.") action_url=all_url action_label=words.SHOW_ALL %}
+{% endif %}

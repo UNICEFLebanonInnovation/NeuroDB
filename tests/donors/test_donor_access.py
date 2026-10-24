@@ -202,6 +202,8 @@ STAFF_PAGES = [
     "fmm:lookup",
     "fmm:drill",
     "reports:monitoring",
+    "km:index",
+    "km:documents",
 ]
 
 

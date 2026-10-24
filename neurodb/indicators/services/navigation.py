@@ -363,6 +363,13 @@ MENU: tuple[MenuGroup, ...] = (
                 badge="ai",
             ),
             MenuItem(_("Library"), "reports:library", "book", ("reports:library_item",)),
+            # the KM Database (neurodb.km): in no focused menu, so a superuser ticks it for a role (Menu page)
+            MenuItem(
+                _("KM Database"),
+                "km:index",
+                "evidence",
+                ("km:documents", "km:finding", "km:document", "km:ask"),
+            ),
             MenuItem(_("Maps"), "reports:maps", "map", ("reports:map_item",)),
             MenuItem(_("Population"), "reports:population", "chart"),
             MenuItem(_("Data health"), "reports:data_health", "pulse"),

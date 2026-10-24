@@ -16,8 +16,9 @@ are answered by [Ask NeuroDB](/ask/) and, for the visits of a filter, by Chat wi
 
 - **Search** (Ctrl K, or the slash key): finds pages, partners, programme documents, country programme
   indicators, knowledge base documents and the ActivityInfo archive of every year (its databases, Neuro
-  and HPM reports and indicators, each with its year). When Ask NeuroDB is switched on, the search box
-  also offers to ask your words as a question; nothing is sent until you press Ask.
+  and HPM reports and indicators, each with its year). It does not look into the KM Database, which is
+  kept apart (its page is found under Pages). When Ask NeuroDB is switched on, the search box also offers
+  to ask your words as a question; nothing is sent until you press Ask.
 - **Year menu**: the calendar year the page shows, on pages that show one year; ActivityInfo pages list
   ActivityInfo years; pages with a period of their own keep their own choice.
 - **Dark mode** switch, and your **user menu** (your role and section, Data health, sign out;
@@ -70,8 +71,8 @@ every section:
 - **Education and youth**: **Makani (MSCC)**, **Makani wellbeing**, **Dirasa (Bridging)** and **Youth
   programmes**, once Compiler's figures are there.
 - **Resources**: **Knowledge base**, **Periodic reports**, **Document review** (marked AI, once it is
-  on), **Library**, **Maps**, **Population** and **Data health**
-  ([Knowledge base and documents](/help/knowledge-and-documents/)).
+  on), **Library**, **KM Database** ([KM Database](/help/km-database/)), **Maps**, **Population** and
+  **Data health** ([Knowledge base and documents](/help/knowledge-and-documents/)).
 - At the bottom, ActivityInfo: **Monthly results (ActivityInfo)** while ActivityInfo is in use, open by
   default; **ActivityInfo archive**, with the years it holds, once it is no longer used, closed until you
   open it ([ActivityInfo: in use or archive](/help/home/#activityinfo-in-use-or-archive)). Inside:
@@ -165,6 +166,7 @@ pages in this guide, and not the Help assistant.
 | Compiler | Makani and Dirasa figures, youth programme figures and the Makani wellbeing flags (counts only, never a child). |
 | Country programme | The results framework and its progress, added by an administrator in the administration (Country programme cycles) and shown on the country programme page. |
 | Knowledge base and library | Documents people add, library publications and country programme documents. |
+| KM Database | The evidence workbook an administrator uploads in the administration (KM Database → Versions): it changes only when a new version is uploaded, and only the KM Database page shows it ([KM Database](/help/km-database/)). |
 
 ## Why NeuroDB's figures may differ from Power BI
 

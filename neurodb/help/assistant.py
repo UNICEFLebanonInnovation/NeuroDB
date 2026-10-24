@@ -240,6 +240,7 @@ GUIDE_FOR = {
     "watch": "watch",
     "graph": "watch",
     "knowledge": "knowledge-and-documents",
+    "km": "km-database",
     "reports:overview": "home",
     "reports:country_overview": "briefs-and-overview",
     "reports:daily_review": "briefs-and-overview",

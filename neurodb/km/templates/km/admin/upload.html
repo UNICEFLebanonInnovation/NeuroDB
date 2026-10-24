@@ -1,0 +1,69 @@
+{% extends "admin/base_site.html" %}
+{% load i18n humanize unfold %}
+{% comment %}
+  Upload a new version of the KM Database (context: km.admin.KMVersionAdmin.upload; superusers and
+  Administrators with staff status). The quick checks run in the request; a workbook that passes is loaded in
+  the background and its version's page shows when it is ready. The column names come from km.columns.
+{% endcomment %}
+{% block content %}
+<div id="content-main" class="max-w-4xl flex flex-col gap-6">
+  {% trans "The version shown now" as shown_title %}
+  {% component "unfold/components/card.html" with title=shown_title %}
+    {% if shown %}
+      <p data-km-shown>{% blocktrans trimmed with label=shown.label when=shown.finished_at|date:"j M Y, H:i" who=shown.uploaded_by|default:"—" documents=shown.documents_count|intcomma findings=shown.findings_count|intcomma %}
+        The version {{ label }}, loaded on {{ when }} (uploaded by {{ who }}): {{ documents }} documents and {{ findings }} findings.
+      {% endblocktrans %} <a class="nd-link" href="{% url 'admin:km_kmversion_change' shown.pk %}">{% trans "Open its page" %}</a></p>
+    {% else %}
+      <p data-km-shown>{% trans "None yet: the KM Database is empty until a workbook is loaded." %}</p>
+    {% endif %}
+    {% if running %}
+      <p class="nd-fixed__note mt-3" role="status">{{ words.BUSY }} <a class="nd-link" href="{% url 'admin:km_kmversion_change' running.pk %}">{{ words.BUSY_LINK }}</a></p>
+    {% endif %}
+  {% endcomponent %}
+
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {% trans "Upload a new version" as form_title %}
+    {% component "unfold/components/card.html" with title=form_title %}
+      <div class="flex flex-col gap-4">
+        <p>{% trans "The new version replaces every document and finding of the version shown now once it has loaded. Until then, and if it does not load, the version shown stays." %}</p>
+        <div>
+          <p class="font-semibold">{% trans "What the check asks for:" %}</p>
+          <ul class="list-disc ml-6" data-km-asks>{% for line in asks %}<li>{{ line }}</li>{% endfor %}</ul>
+          <p class="mt-2"><a class="nd-link" href="{{ template_url }}">{{ template_link }}</a></p>
+        </div>
+        {% if problems %}
+        <div class="text-red-600 dark:text-red-500" role="alert" data-km-problems>
+          <ul class="list-disc ml-6">{% for p in problems %}<li>{{ p }}</li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+        <div class="flex flex-col gap-2">
+          <label class="font-semibold text-important" for="{{ form.workbook.id_for_label }}">{{ form.workbook.label }}</label>
+          {% if form.workbook.errors %}<div class="text-red-600 dark:text-red-500">{{ form.workbook.errors }}</div>{% endif %}
+          {{ form.workbook }}
+        </div>
+        <label class="flex gap-2 items-center" for="{{ form.again.id_for_label }}">{{ form.again }} <span>{{ form.again.label }}</span></label>
+        <label class="flex gap-2 items-center" for="{{ form.fewer.id_for_label }}">{{ form.fewer }} <span>{{ form.fewer.label }}</span></label>
+      </div>
+    {% endcomponent %}
+    <div class="flex justify-end gap-4 mt-6">
+      <a class="px-3 py-2" href="{% url 'admin:km_kmversion_changelist' %}">{% trans "Cancel" %}</a>
+      {% component "unfold/components/button.html" with submit=1 %}{% trans "Upload" %}{% endcomponent %}
+    </div>
+  </form>
+
+  {% if recent %}
+  {% trans "The last versions" as recent_title %}
+  {% component "unfold/components/card.html" with title=recent_title %}
+    <div class="nd-scroll"><table class="nd-jobs" data-km-recent>
+      <thead><tr><th scope="col">{% trans "Version" %}</th><th scope="col">{% trans "Status" %}</th><th scope="col">{% trans "Uploaded" %}</th></tr></thead>
+      <tbody>{% for v in recent %}<tr>
+        <th scope="row"><a class="nd-link" href="{% url 'admin:km_kmversion_change' v.pk %}">{{ v.file_name }}</a></th>
+        <td>{{ v.get_status_display }}</td>
+        <td>{{ v.uploaded_at|date:"j M Y, H:i" }}{% if v.uploaded_by %} · {{ v.uploaded_by }}{% endif %}</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+  {% endcomponent %}
+  {% endif %}
+</div>
+{% endblock %}

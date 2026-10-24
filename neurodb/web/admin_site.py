@@ -85,6 +85,14 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         ],
     ),
     (
+        _("KM Database"),
+        _(
+            "The evidence workbook shown on the KM Database page: its versions (upload a new one here) and "
+            "its documents. Kept apart from the rest of NeuroDB."
+        ),
+        ["km.KMVersion", "km.KMDocument"],
+    ),
+    (
         _("Users and access"),
         _("Accounts, roles, the menu each role sees, sections, donor access and sign-in."),
         [
@@ -292,6 +300,8 @@ ICONS = {
     "graph.Change": "update",
     "graph.Digest": "campaign",
     "graph.DigestSubscription": "mark_email_read",
+    "km.KMVersion": "upload_file",
+    "km.KMDocument": "description",
     "users.User": "person",
     "auth.Group": "badge",
     "web.MenuChoice": "menu",
