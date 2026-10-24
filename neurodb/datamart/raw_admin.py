@@ -17,6 +17,7 @@ Every record goes through the people rule (``raw_people``). Read-only, but for t
 
 from __future__ import annotations
 
+import datetime
 import json
 import re
 import time
@@ -123,13 +124,22 @@ def _rest_reading(request) -> dict[str, Any]:
             SyncRun.objects.filter(job=job, status=SyncRun.Status.RUNNING).order_by("-started_at").first()
         )
     asked = background.started_at(rest_raw.COMMAND)
+    if asked is not None and (
+        running  # its run is there: the page follows the run itself
+        or time.time() - asked > STARTING_S
+        or SyncRun.objects.filter(  # a run started after it: it already ended
+            job=job, started_at__gte=datetime.datetime.fromtimestamp(asked, datetime.UTC)
+        ).exists()
+    ):
+        background.forget_started(rest_raw.COMMAND)
+        asked = None
     return {
         "rest": rows,
         "rest_token": rest_raw.token_set(),
         "rest_can_read": _sees_runs(request.user),
         "rest_read_url": reverse("admin:datamart_raw_rest_read"),
         "rest_running": running,
-        "rest_starting": running is None and asked is not None and time.time() - asked < STARTING_S,
+        "rest_starting": running is None and asked is not None,
     }
 
 
@@ -395,6 +405,8 @@ def record_view(request, source: str, pk: int):
     _guard(request)
     name = _source(source)
     row = get_object_or_404(raw.related(name, raw.base(name)), pk=pk)
+    if raw.rest(name):  # the programme document or partner NeuroDB holds under its eTools ids
+        raw.link_rest(name, [row])
     run = runfacts.runs([name])[name][0]
     names = people.known_names()
     data = catalogue.scrub(row.data if isinstance(row.data, dict) else {})
@@ -416,6 +428,7 @@ def record_view(request, source: str, pk: int):
     ]
     pd = getattr(row, "intervention", None)
     partner = raw.partner_of(row)
+    pd_line, partner_line = raw.rest_linked(name) if raw.rest(name) else (True, True)
     location = getattr(row, "location", None) if raw.has(name, "location") else None
     if location is not None and not hasattr(location, "p_code"):
         location = None
@@ -452,6 +465,8 @@ def record_view(request, source: str, pk: int):
         pd_url=reverse("reports:programme_detail", args=[pd.pk]) if pd is not None else "",
         pd_words=raw.pd_words(row),
         partner=partner,
+        pd_line=pd_line,
+        partner_line=partner_line,
         location=location,
         report=_report_status(row, names, own) if name == "partner_reports" else None,
         written=_written_by(name, row, run),

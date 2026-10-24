@@ -263,6 +263,47 @@ def test_a_failed_or_short_read_removes_nothing():
     assert runfacts.facts("rest_partners").newer_failed is not None
 
 
+@responses.activate
+def test_a_list_that_came_back_empty_is_not_the_read_the_records_come_from():
+    """eTools answers a list with nothing (it is down, or the token's user lost the country): the copy keeps
+    the records of the read before, and so does what the page says of them, whichever job read the list."""
+    responses.get(f"{BASE}/api/v2/partners/", json=[partner(1), partner(2)])
+    (full,) = rest_raw.read_all(only=["rest_partners"], triggered_by="test", client=rest_client())
+    responses.replace(responses.GET, f"{BASE}/api/v2/partners/", json=[])
+    (empty,) = rest_raw.read_all(only=["rest_partners"], triggered_by="test", client=rest_client())
+    assert empty.status == SyncRun.Status.SUCCEEDED and empty.details["read"] == 0
+    assert empty.details["removal_skipped_why"] == "eTools listed nothing" and held("rest_partners") == {
+        "1",
+        "2",
+    }
+    facts = runfacts.facts("rest_partners")
+    assert facts.run == full
+    assert (facts.received, facts.held, facts.updated_by_sync, facts.from_earlier) == (2, 2, 2, 0)
+    assert facts.complete == (True, "Yes")
+    # the eTools REST sync's copy: the same
+    responses.replace(responses.GET, f"{BASE}/api/v2/partners/", json=[partner(1), partner(2)])
+    (synced,) = sync.sync_all(only=["partners"], client=rest_client(), triggered_by="test")
+    responses.replace(responses.GET, f"{BASE}/api/v2/partners/", json=[])
+    (after,) = sync.sync_all(only=["partners"], client=rest_client(), triggered_by="test")
+    assert after.details["raw_copies"]["rest_partners"]["read"] == 0
+    assert runfacts.rest_runs(["rest_partners"])["rest_partners"] == (synced, None)
+    # a list read that received nothing is never complete, wherever it comes from
+    assert runfacts.build("rest_partners", empty, None, (2, 0, 0)).complete == (
+        False,
+        "No: eTools sent nothing",
+    )
+    # a detail asks for the records of its list's copy: none asked is no outage
+    details = SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_REST_RAW,
+        target="rest_travel_details",
+        status=SyncRun.Status.SUCCEEDED,
+        details={"read": 0, "kept": 0},
+    )
+    details.finish(SyncRun.Status.SUCCEEDED)
+    assert runfacts.facts("rest_travel_details").run == details
+    assert runfacts.facts("rest_travel_details").complete == (True, "Yes")
+
+
 def test_without_the_token_the_read_records_why(settings):
     settings.ETOOLS_TOKEN = ""
     (run,) = rest_raw.read_all(triggered_by="test")
@@ -311,6 +352,25 @@ def test_an_administrator_validator_starts_the_read_from_raw_etools_data(client,
     response = client.post(reverse("admin:datamart_raw_rest_read"))
     assert response.status_code == 302
     assert started == [(rest_raw.COMMAND, "--triggered-by", "checker")]
+
+
+def test_a_read_that_already_ended_is_no_longer_shown_as_starting(client, roles, settings, monkeypatch):
+    """Pressed, the read is "starting" until its process writes a run; once a run started after the press is
+    there (here, already ended), the page follows the runs and shows the button again."""
+    settings.ETOOLS_TOKEN = "abc"
+    monkeypatch.setattr(background, "start_command", lambda *args: background._note_started(args[0]) or 1)
+    client.force_login(_staff("checker", (ADMIN, VALIDATORS)))
+    client.post(reverse("admin:datamart_raw_rest_read"))
+    page = client.get(INDEX).content.decode()
+    assert "is starting" in page and "Read the eTools REST API now" not in page
+    for entity in rest_raw.ENTITIES:
+        run = SyncRun.objects.create(
+            job=SyncRun.Job.ETOOLS_REST_RAW, target=entity, details={"read": 0, "kept": 0}
+        )
+        run.finish(SyncRun.Status.SUCCEEDED)
+    page = client.get(INDEX).content.decode()
+    assert "is starting" not in page and "Read the eTools REST API now" in page
+    assert background.started_at(rest_raw.COMMAND) is None  # the note is forgotten
 
 
 def test_without_the_token_the_page_says_so_and_shows_no_button(client, roles, settings, started):

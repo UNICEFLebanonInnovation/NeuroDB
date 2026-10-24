@@ -420,9 +420,59 @@ def test_the_rest_entities_are_listed_once_each_and_filter_as_their_page_says(cl
     assert client_validator.get(f"{INDEX}rest_unknown/").status_code == 404
     rows = _csv(client_validator.get(f"{INDEX}rest_partners/rows.csv"))
     assert {r["record_id"] for r in rows} == {"1", "2"}
-    # the record's own vendor number beside the one of the partner NeuroDB links it to (none: a raw copy)
-    assert {r["vendor_number (as received)"] for r in rows} == {"V1", "V2"}
-    assert {r["vendor_number"] for r in rows} == {""}
+    # the record's own vendor number beside the one of the partner NeuroDB holds under its eTools id
+    assert {(r["vendor_number (as received)"], r["vendor_number"]) for r in rows} == {
+        ("V1", "V1"),
+        ("V2", ""),
+    }
+
+
+def test_a_rest_record_says_what_neurodb_holds_under_its_etools_id(client_validator, world):
+    """A programme document's record: the programme document NeuroDB holds under its eTools id, with the
+    status the pages read (the REST sync writes it) and its partner; a partner's record: that partner; an
+    agreement's, an engagement's or an action point's: the partner it names. One query a page or a chunk of the
+    CSV, whatever the number of records."""
+    ended = world["ended"]  # eTools id 12; its partner's is 1
+
+    def add(entity: str, key: str, data: dict) -> dm.RestRecord:
+        return dm.RestRecord.objects.create(entity=entity, record_key=key, source_id=key, data=data)
+
+    pd_row = add("rest_interventions", "12", {"id": 12, "number": "LEB/PD2", "status": "active"})
+    add("rest_interventions", "999", {"id": 999, "number": "LEB/PD9"})
+    partner_row = add("rest_partners", "1", {"id": 1, "vendor_number": "V1"})
+    add("rest_agreements", "10", {"id": 10, "partner": 1})
+    add("rest_engagements", "7", {"id": 7, "partner": {"id": 1, "name": "Amel Association"}})
+    add("rest_travels", "5", {"id": 5})
+    page = client_validator.get(f"{INDEX}rest_interventions/{pd_row.pk}/").content.decode()
+    pd_url = reverse("reports:programme_detail", args=[ended.pk])
+    assert f'Programme document: <a class="nd-link" href="{pd_url}">LEB/PD2</a> (ended)' in page
+    assert "Partner: Amel Association (vendor number V1)" in page
+
+    def links(entity: str) -> dict[str, tuple[str, ...]]:
+        columns = ("pd_number_in_neurodb", "pd_status_in_neurodb", "partner_in_neurodb", "vendor_number")
+        rows = _csv(client_validator.get(f"{INDEX}{entity}/rows.csv"))
+        return {r["record_id"]: tuple(r[c] for c in columns) for r in rows}
+
+    assert links("rest_interventions") == {
+        "12": ("LEB/PD2", "ended", "Amel Association", "V1"),
+        "999": ("not in NeuroDB", "", "", ""),
+    }
+    assert links("rest_partners") == {"1": ("", "", "Amel Association", "V1")}
+    assert links("rest_agreements") == {"10": ("", "", "Amel Association", "V1")}
+    assert links("rest_engagements") == {"7": ("", "", "Amel Association", "V1")}
+    assert links("rest_travels") == {"5": ("", "", "", "")}
+    page = client_validator.get(f"{INDEX}rest_partners/{partner_row.pk}/").content.decode()
+    assert "Programme document:" not in page and "Partner: Amel Association (vendor number V1)" in page
+    trip = dm.RestRecord.objects.get(entity="rest_travels")
+    page = client_validator.get(f"{INDEX}rest_travels/{trip.pk}/").content.decode()
+    assert "Programme document:" not in page and "Partner:" not in page
+    download = f"{INDEX}rest_interventions/rows.csv"
+    few = _queries(client_validator, download)
+    dm.RestRecord.objects.bulk_create(
+        dm.RestRecord(entity="rest_interventions", record_key=str(n), source_id=str(n), data={"id": n})
+        for n in range(2000, 2060)
+    )
+    assert _queries(client_validator, download) == few
 
 
 def test_a_search_for_a_person_is_refused(client_validator, world):
@@ -604,7 +654,9 @@ PARTNER_REPORTS_MORE = 3  # the partner reports' page also says from when NeuroD
 
 
 def _queries(client, url: str, **params) -> int:
-    client.get(url, params)  # warm: the names, the choices
+    warm = client.get(url, params)  # warm: the names, the choices
+    if warm.streaming:
+        b"".join(warm.streaming_content)  # read whole: its download slot is freed
     with CaptureQueriesContext(connection) as found:
         response = client.get(url, params)
         if response.streaming:
@@ -676,3 +728,8 @@ def test_the_csv_and_the_record_page_make_a_fixed_number_of_queries(client_valid
     # every source: their runs (2) and the moment of the counts kept for an hour; the eTools REST entities:
     # their runs (2), their counts (1) and whether a read of the eTools REST API is running (1)
     assert _queries(client_validator, INDEX) <= ADMIN_OWN + 3 + 4
+    with connection.cursor() as cursor:  # every download counted here freed its slot, the warm-up's too
+        cursor.execute(
+            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = %s", [raw.RAW_CSV_LOCK]
+        )
+        assert cursor.fetchone()[0] == 0

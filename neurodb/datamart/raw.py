@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import itertools
 import json
 import logging
 from collections import Counter
@@ -35,6 +36,7 @@ from django.utils import timezone
 
 from neurodb.core.models import SyncRun
 from neurodb.partnerships import statuses as pd_statuses
+from neurodb.partnerships.models import PCA, PartnerOrganization
 
 from . import catalogue, raw_people, reporting
 from . import query as dmq
@@ -1177,13 +1179,15 @@ def related(name: str, rows: QuerySet) -> QuerySet:
 
 
 def pd_words(row: Any) -> str:
-    """A record's programme document in NeuroDB: its number, else why none ("" for an eTools REST record: its
-    reference is the programme document's number, as eTools gives it)."""
-    if isinstance(row, RestRecord):
+    """A record's programme document in NeuroDB: its number, else why none ("" for an eTools REST record that
+    is not a programme document's; :func:`link_rest` gives the others theirs)."""
+    if isinstance(row, RestRecord) and row.entity not in REST_PCA:
         return ""
     pd = getattr(row, "intervention", None)
     if pd is not None:
         return pd.number or f"PD {pd.pk}"
+    if isinstance(row, RestRecord):
+        return "not in NeuroDB" if row.source_id else "names none"
     data = getattr(row, "data", None) or {}
     named = (getattr(row, "pd_reference_number", "") or "") or data.get("etools_intervention_id") not in (
         None,
@@ -1211,6 +1215,51 @@ def partner_of(row: Any) -> Any:
     if partner is None and getattr(row, "intervention", None) is not None:
         partner = row.intervention.partner if row.intervention.partner_id else None
     return partner
+
+
+# What NeuroDB holds under an eTools REST record's eTools ids: a programme document's record is the programme
+# document of its id (its partner, the programme document's); a partner's record, the partner of its id; an
+# agreement's, an engagement's or an action point's, the partner whose id it names (REST_PARTNER_KEYS)
+REST_PCA = frozenset({"rest_interventions", "rest_intervention_details"})
+
+
+def rest_linked(name: str) -> tuple[bool, bool]:
+    """Whether the records of an eTools REST entity link to a programme document, and to a partner."""
+    return name in REST_PCA, name in REST_PCA or name in REST_PARTNERS or name in REST_PARTNER_KEYS
+
+
+def _named_id(data: Any, key: str) -> str:
+    """The eTools id a record names under ``key`` ("partner__id": the id of its partner object)."""
+    from neurodb.integrations.etools.datamart_sync import id_value  # lazy: the Datamart sync
+
+    for part in key.split("__"):
+        data = data.get(part) if isinstance(data, dict) else None
+    return id_value(data)
+
+
+def link_rest(name: str, rows: list[Any]) -> list[Any]:
+    """``rows`` (records of the eTools REST entity ``name``), each given the programme document and the
+    partner NeuroDB holds under the eTools ids it carries, as ``intervention`` and ``partner``: what
+    :func:`pd_words`, :func:`partner_of` and a CSV's row read on the records of a Datamart dataset. One query
+    for them all."""
+    if name in REST_PCA:
+        ids = {row.source_id for row in rows if row.source_id}
+        held = PCA.objects.select_related("partner").filter(etl_id__in=ids) if ids else []
+        found = {pd.etl_id: pd for pd in held}
+        for row in rows:
+            row.intervention = found.get(row.source_id) if row.source_id else None
+        return rows
+    if name in REST_PARTNERS:
+        keys = [row.source_id for row in rows]
+    elif name in REST_PARTNER_KEYS:
+        keys = [_named_id(row.data, REST_PARTNER_KEYS[name]) for row in rows]
+    else:
+        return rows
+    ids = {key for key in keys if key}
+    found = {p.etl_id: p for p in PartnerOrganization.objects.filter(etl_id__in=ids)} if ids else {}
+    for row, key in zip(rows, keys, strict=True):
+        row.partner = found.get(key) if key else None
+    return rows
 
 
 def report_keys(row: Any, names: frozenset[str], own: frozenset[str]) -> dict[str, str]:
@@ -1518,7 +1567,11 @@ def csv_rows(
     wanted = set(keys)
     try:
         with snapshot(STREAM_TIMEOUT_MS):
-            for row in related(name, rows).order_by("-pk").iterator(chunk_size=CSV_CHUNK):
+            found = related(name, rows).order_by("-pk").iterator(chunk_size=CSV_CHUNK)
+            if rest(name):  # what NeuroDB holds under their eTools ids: one query a chunk
+                chunks = itertools.batched(found, CSV_CHUNK)
+                found = (row for chunk in chunks for row in link_rest(name, list(chunk)))
+            for row in found:
                 yield csv_record(name, row, wanted, run, names, reviewed, as_of)
     except DatabaseError:
         logger.warning("raw eTools data: the download of %s stopped (took too long)", name, exc_info=True)

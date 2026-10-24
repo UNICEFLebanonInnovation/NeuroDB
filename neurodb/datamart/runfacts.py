@@ -19,7 +19,8 @@ programme documents, locations... the pages read (the run's ``rows_failed``) are
 record. Counts only: no record's value is read here.
 
 An eTools REST entity's records come from the latest run that kept its raw copy: of the job "Read the eTools
-REST API into Raw eTools data" (one run per entity), or of the eTools REST sync (its ``details.raw_copies``).
+REST API into Raw eTools data" (one run per entity), or of the eTools REST sync (its ``details.raw_copies``);
+for a list, the latest that received something (a list eTools answered empty removes nothing from the copy).
 The same equation holds, with nothing of another country: received − could not be saved = updated by the sync.
 """
 
@@ -108,6 +109,7 @@ class RunFacts:
     removed: int
     removal_skipped: bool
     removal_held: int
+    sent_nothing: bool = False  # an eTools REST list whose read received nothing
     not_linked: dict[str, int] = field(default_factory=dict)
     complete: tuple[bool, str] = (False, "")
 
@@ -127,14 +129,17 @@ def _error_lines(details: dict[str, Any]) -> tuple[ErrorLine, ...]:
 
 
 def _verdict(facts: dict[str, Any]) -> tuple[bool, str]:
-    """ "Complete?": yes when the last sync succeeded, NeuroDB received at least what eTools said it had, no
-    record failed (nor, for a source written by another sync, its partner, programme document, location...)
-    and none is unexplained; otherwise the first reason, in plain words."""
+    """ "Complete?": yes when the last sync succeeded, NeuroDB received at least what eTools said it had (an
+    eTools REST list, at least one record), no record failed (nor, for a source written by another sync, its
+    partner, programme document, location...) and none is unexplained; otherwise the first reason, in plain
+    words."""
     run = facts["run"]
     if run is None:
         return False, "No: never synced"
     if facts["newer_failed"] is not None:
         return False, "No: the last sync failed"
+    if facts.get("sent_nothing"):
+        return False, "No: eTools sent nothing"
     if facts["never_came"]:
         return False, f"No: eTools said it had {facts['never_came']:,} more"
     if facts["not_saved"]:
@@ -207,6 +212,8 @@ def _rest_build(
 ) -> RunFacts:
     """The facts of an eTools REST entity: what the read that kept its copy received and kept
     (``rest_raw.RestCopy.finish``), and ``counts``."""
+    from neurodb.integrations.etools import rest_raw
+
     from . import raw
 
     held, by_sync, since = counts
@@ -240,6 +247,7 @@ def _rest_build(
         "removed": _count(details.get("removed")),
         "removal_skipped": bool(details.get("removal_skipped")),
         "removal_held": 0,
+        "sent_nothing": name in rest_raw.LISTS and received == 0,
     }
     facts["complete"] = _verdict(facts)
     return RunFacts(**facts)
@@ -303,19 +311,30 @@ def rest_jobs(name: str) -> list[tuple[str, str]]:
     ]
 
 
+# What a run's copy of an eTools REST entity received: the read's ``details.read``, or the eTools REST sync's
+# ``details.raw_copies.<entity>.read``
+_REST_READ = "(COALESCE(s.details -> 'raw_copies' -> t.entity, s.details) -> 'read')"
+
+
 def rest_runs(names: list[str]) -> dict[str, tuple[SyncRun | None, SyncRun | None]]:
     """For each eTools REST entity of ``names``: the latest run that kept its copy (succeeded, or succeeded
-    with errors: of the read into Raw eTools data, or of the eTools REST sync when its details hold the copy),
-    and a newer run of either that failed; in two queries, each the latest run of every (job, target) on the
-    index ``core_syncrun_job_target``."""
+    with errors: of the read into Raw eTools data, or of the eTools REST sync when its details hold the copy)
+    and, for a list, received something (a list eTools answered empty, when it is down or the token's user
+    lost the country, removed nothing: the records come from the read before), and a newer run of either
+    that failed; in two queries, each the latest run of every (job, target) on the index
+    ``core_syncrun_job_target``."""
+    from neurodb.integrations.etools import rest_raw
+
     table = connection.ops.quote_name(SyncRun._meta.db_table)
-    pairs = [(name, job, target) for name in names for job, target in rest_jobs(name)]
-    columns = [list(column) for column in zip(*pairs, strict=True)] if pairs else [[], [], []]
+    pairs = [(name, job, target, name in rest_raw.LISTS) for name in names for job, target in rest_jobs(name)]
+    columns = [list(column) for column in zip(*pairs, strict=True)] if pairs else [[], [], [], []]
     copied = (
         "SELECT t.entity AS rest_entity, r.* "  # noqa: S608 - the model's table
-        "FROM unnest(%s::text[], %s::text[], %s::text[]) AS t(entity, job, target) CROSS JOIN LATERAL ("
-        f"SELECT s.* FROM {table} s WHERE s.job = t.job AND s.target = t.target AND s.status IN (%s, %s) "
+        "FROM unnest(%s::text[], %s::text[], %s::text[], %s::boolean[]) AS t(entity, job, target, is_list) "
+        f"CROSS JOIN LATERAL (SELECT s.* FROM {table} s WHERE s.job = t.job AND s.target = t.target "
+        "AND s.status IN (%s, %s) "
         "AND (s.job <> %s OR jsonb_exists(COALESCE(s.details -> 'raw_copies', '{}'::jsonb), t.entity)) "
+        f"AND (NOT t.is_list OR (jsonb_typeof({_REST_READ}) = 'number' AND {_REST_READ} > '0'::jsonb)) "
         "ORDER BY s.started_at DESC, s.id DESC LIMIT 1) r"
     )
     finished = (
@@ -337,7 +356,7 @@ def rest_runs(names: list[str]) -> dict[str, tuple[SyncRun | None, SyncRun | Non
         if run.rest_entity not in used or run.started_at > used[run.rest_entity].started_at:
             used[run.rest_entity] = run
     failed: dict[str, SyncRun] = {}
-    for run in SyncRun.objects.raw(finished, [*columns, SyncRun.Status.RUNNING.value]):
+    for run in SyncRun.objects.raw(finished, [*columns[:3], SyncRun.Status.RUNNING.value]):
         before = used.get(run.rest_entity)
         if run.status == SyncRun.Status.FAILED and (before is None or run.started_at > before.started_at):
             if run.rest_entity not in failed or run.started_at > failed[run.rest_entity].started_at:

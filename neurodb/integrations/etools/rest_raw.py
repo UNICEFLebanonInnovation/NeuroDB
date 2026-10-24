@@ -65,6 +65,7 @@ ENTITIES: dict[str, tuple[str, str]] = {
     "rest_action_points": ("/api/action-points/action-points/", ""),
 }
 DETAILS = {parent: entity for entity, (_path, parent) in ENTITIES.items() if parent}  # list -> its details
+LISTS = frozenset(entity for entity, (_path, parent) in ENTITIES.items() if not parent)  # the lists
 # entity -> the run of the eTools REST sync that keeps its copy too (its target: sync.ENTITY_SYNCS)
 SYNC_TARGETS = {
     "rest_partners": "partners",
@@ -234,10 +235,6 @@ def _run(run: SyncRun, copy: RestCopy, read: Callable[[], None]) -> SyncRun:
     except Exception as exc:
         return fail(run, exc, **copy.finish(whole=False))
     return finish_by_counts(run, **copy.finish(whole=True))
-
-
-def _held(entity: str) -> Iterator[RestRecord]:
-    return RestRecord.objects.filter(entity=entity).order_by("pk").iterator()
 
 
 def read_list(run: SyncRun, entity: str, client: EToolsClient) -> SyncRun:

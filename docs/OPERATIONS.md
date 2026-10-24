@@ -2125,8 +2125,10 @@ nothing is unexplained; otherwise the first reason. An error is shown by its kin
 21 Oct, PRP's progress reports: received 150,221 − of another country 148,631 − could not be saved 0 = 1,590
 updated by the sync; eTools said it had 74 more. An eTools REST entity's records come from the latest run that
 kept its copy (the read below, one run per entity, or the eTools REST sync, `details.raw_copies`; a newer run of
-either that failed is named), and nothing is of another country: received − could not be saved = updated by
-the sync.
+either that failed is named) and, for a list, received something: a list eTools answered empty (eTools down, or
+a token whose user lost the country) removes nothing, so the records and the page's counts come from the read
+before it; a list read that received nothing is never complete ("No: eTools sent nothing"). Nothing is of
+another country: received − could not be saved = updated by the sync.
 
 **The people rule** (`datamart/raw_people.py`, `public_record`): every record on screen and in every CSV goes
 through it, nothing else writes a raw record out. Contact fields are dropped at any depth; the answers of PSEA
@@ -2185,7 +2187,8 @@ write it:
   `keys.ETOOLS_JOBS` (the trail's "a sync is running" note). The button **Read the eTools REST API now** is on
   Raw eTools data, under *eTools REST API*, for superusers and Administrators (who are validators); a validator
   who is not one sees the reads and no button (its POST answers 403); *Run a job → eTools REST raw copy* starts
-  it too, for any Administrator. Without `ETOOLS_TOKEN` the page says "The eTools REST API token is not set on
+  it too, for any Administrator. Once pressed, the page says the read is starting until a run of it started
+  after the press is there, or for two minutes at most (as the reporting checks' page). Without `ETOOLS_TOKEN` the page says "The eTools REST API token is not set on
   this server: ask the NeuroDB team." and shows no button; started from Run a job, it records one failed run
   saying so.
 - **The eTools REST sync** (`sync.py`) keeps the same copy as it reads: `RestCopy.keep` is the last step of each
@@ -2211,7 +2214,13 @@ the last sync or an earlier one; for the partner reports also the report type an
 whose five choices are the rules the pages use (`pd_statuses.RUNNING`, `NOT_A_PARTNERSHIP`,
 `reporting.LEFT_OUT_REASONS`) and add up to every row. 50 records a page, newest first; each record's page
 shows its fields as received, NeuroDB's columns, its links, for a partner report row its progress report id and
-the status every page reads for it (`reporting.progress_reports`), and the sync that last updated it.
+the status every page reads for it (`reporting.progress_reports`), and the sync that last updated it. An eTools
+REST record's links are what NeuroDB holds under its eTools ids (`raw.link_rest`, one query for a record page or
+a chunk of the CSV): a programme document's record (list or details), the `PCA` of its id, with its status (the
+one the REST sync writes, which decides "running") and its partner; a partner's record, the partner of its id;
+an agreement's, an engagement's or an action point's, the partner whose id it names. They fill the record page's
+*Programme document* and *Partner* lines and the CSV's `pd_number_in_neurodb`, `pd_status_in_neurodb`,
+`partner_in_neurodb` and `vendor_number`; a programme document NeuroDB does not hold reads "not in NeuroDB".
 
 **Downloads.** `rows.csv` streams the filter (`exports.stream_csv`: BOM, an apostrophe before a text a
 spreadsheet would run), NeuroDB's columns first (`figures_as_of`, the record id, `synced_at`,

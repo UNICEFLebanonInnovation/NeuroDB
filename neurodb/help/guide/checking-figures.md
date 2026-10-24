@@ -261,7 +261,11 @@ The eTools REST sync itself also updates the programme documents, whose status d
 running on the partner reporting pages.
 
 - A record eTools no longer lists goes from the copy, with its details, after a read that went to the end.
-  A read that stopped, or that received fewer records than eTools said it had, removes nothing.
+  A read that stopped, that received nothing, or that received fewer records than eTools said it had,
+  removes nothing. When eTools sends nothing, the page goes on showing the read before it.
+- A record's page and its CSV say what NeuroDB holds under the same eTools id: for a programme document,
+  NeuroDB's programme document, its status (the one the pages read to decide which are running) and its
+  partner; for a partner, an agreement, an engagement or an action point, the partner.
 - The details of trips started more than a year ago stay as they were last read.
 - If the page says "The eTools REST API token is not set on this server: ask the NeuroDB team.", the copy
   cannot be read until the NeuroDB team sets it.
