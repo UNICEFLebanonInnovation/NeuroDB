@@ -14,6 +14,7 @@ from neurodb.core.models import SyncRun
 from neurodb.datamart import catalogue, raw, raw_people, runfacts
 from neurodb.datamart import models as dm
 from neurodb.datamart.raw_people import NOT_REVIEWED, PEOPLE, TEXT, public_record
+from neurodb.integrations.etools import rest_raw
 from neurodb.partnerships import models as legacy
 from neurodb.watch import people
 
@@ -269,6 +270,7 @@ def _models() -> dict[str, type[models.Model]]:
     """Every model a raw page, a record page or a raw CSV reads, by the name the pinned lists use."""
     found = {name: raw.model_of(name) for name in catalogue.TYPED}
     found["*documents"] = dm.DatamartDocument
+    found["*rest"] = dm.RestRecord  # the eTools REST records
     for model, name in LEGACY.items():
         found[name] = model
     return found
@@ -336,9 +338,11 @@ def test_the_reviewed_fields_are_pinned_and_none_names_a_person():
 
 
 def test_no_search_reads_a_person_or_a_text():
-    for name in catalogue.dataset_names():
+    for name in [*catalogue.dataset_names(), *raw.REST_ENTITIES]:
         for column in raw.view(name).search:
             for pinned in (raw_people.PERSON_COLUMNS, raw_people.TEXT_COLUMNS, raw_people.NEVER_COLUMNS):
                 assert (name, column) not in pinned and ("*", column) not in pinned, (name, column)
             assert not raw_people.names_people(column), (name, column)
-    assert raw.TITLE_NOT_SEARCHED == {"staff_trips", "attachments"}
+    assert raw.TITLE_NOT_SEARCHED == {"staff_trips", "attachments", "rest_travels", "rest_travel_details"}
+    # an eTools REST trip's title is its reference number, never its purpose
+    assert rest_raw.TITLE["rest_travels"] == rest_raw.TITLE["rest_travel_details"] == "reference_number"

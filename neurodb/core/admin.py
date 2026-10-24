@@ -62,6 +62,7 @@ SOURCES = {
     SyncRun.Job.ACTIVITYINFO_STRUCTURE: "ActivityInfo",
     SyncRun.Job.ACTIVITYINFO_DATA: "ActivityInfo",
     SyncRun.Job.ETOOLS: "eTools",
+    SyncRun.Job.ETOOLS_REST_RAW: "eTools",
     SyncRun.Job.ETOOLS_DATAMART: "eTools Datamart",
     SyncRun.Job.LOCATIONS: "eTools",
     SyncRun.Job.PARTNER_LINKS: "eTools",

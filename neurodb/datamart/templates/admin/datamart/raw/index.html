@@ -6,7 +6,9 @@
   each. First the pages and the sources each reads (raw.PAGE_SOURCES: a page's "Raw data behind this page" line opens
   this page with ?page=, which keeps only its sources); then what Progress reports and Partner monitoring read, the
   other Datamart datasets (each row: what its last sync received and kept, datamart.runfacts), the eTools REST API
-  (not read yet), and what NeuroDB does not read. Counts only; a plain page, no script.
+  (each entity: what the last read that kept its copy received and kept; "Read the eTools REST API now" for superusers
+  and Administrators, a POST to datamart_raw_rest_read, or the sentence saying the token is not set), and what NeuroDB
+  does not read. Counts only; a plain page, no script.
 {% endcomment %}
 
 {% block content %}
@@ -78,14 +80,55 @@
   {% if not page %}
   {% trans "eTools REST API" as rest_title %}
   {% component "unfold/components/card.html" with title=rest_title title_icon="api" %}
-    <p class="mb-3">{% trans "The records the eTools REST sync reads (partners, programme documents, trips, engagements, action points) are not kept here yet: a later release adds them." %}</p>
+    <div id="rest">
+    <p class="mb-3">{% trans "The partners, agreements, programme documents, trips, engagements and action points as the eTools REST API sends them. The eTools REST sync keeps this copy as it reads; the read below fills it without changing anything else." %}</p>
+    {% if not rest_token %}
+      <p class="mb-3 nd-found__warn">{% trans "The eTools REST API token is not set on this server: ask the NeuroDB team." %}</p>
+    {% elif rest_running %}
+      <p class="mb-3">{% blocktrans with since=rest_running.started_at|date:"H:i" %}Reading the eTools REST API (since {{ since }}): reload this page when it ends.{% endblocktrans %}</p>
+    {% elif rest_starting %}
+      <p class="mb-3">{% trans "The read of the eTools REST API is starting: reload this page in a minute." %}</p>
+    {% elif rest_can_read %}
+      <form method="post" action="{{ rest_read_url }}" class="mb-3">
+        {% csrf_token %}
+        <button type="submit" class="nd-found__button">{% trans "Read the eTools REST API now" %}</button>
+        <small class="nd-menu__note">{% trans "In the background, a few minutes or more. No page figure changes." %}</small>
+      </form>
+    {% endif %}
     <div class="nd-scroll">
       <table class="nd-jobs nd-found__table">
-        <thead><tr><th scope="col">{% trans "Source" %}</th><th scope="col">{% trans "In NeuroDB" %}</th></tr></thead>
+        <thead>
+          <tr>
+            <th scope="col">{% trans "Source" %}</th>
+            <th scope="col">{% trans "In NeuroDB" %}</th>
+            <th scope="col">{% trans "Last sync" %}</th>
+            <th scope="col">{% trans "eTools said it had" %}</th>
+            <th scope="col">{% trans "NeuroDB received" %}</th>
+            <th scope="col">{% trans "Not kept" %}</th>
+            <th scope="col">{% trans "Updated by the last sync" %}</th>
+            <th scope="col">{% trans "Complete?" %}</th>
+          </tr>
+        </thead>
         <tbody>
-          {% for r in rest %}<tr><th scope="row">{{ r.label }}<small class="nd-menu__note"><code>{{ r.path }}</code></small></th><td>{% trans "Not read yet." %}</td></tr>{% endfor %}
+          {% for r in rest %}
+            <tr>
+              <th scope="row"><a class="nd-link" href="{{ r.url }}">{{ r.label }}</a><small class="nd-menu__note"><code>{{ r.path }}</code></small></th>
+              <td>{{ r.facts.held|intcomma }}</td>
+              {% if r.facts.run %}
+                <td>{% if r.run_url %}<a class="nd-link" href="{{ r.run_url }}">{{ r.facts.run.finished_at|date:"j M Y, H:i" }}</a>{% else %}{{ r.facts.run.finished_at|date:"j M Y, H:i" }}{% endif %}<small class="nd-menu__note">{{ r.job }}: {{ r.status }}</small>{% if r.facts.newer_failed %}<small class="nd-menu__note nd-found__warn">{% blocktrans with when=r.facts.newer_failed.started_at|date:"j M Y" %}the sync of {{ when }} failed{% endblocktrans %}</small>{% endif %}</td>
+                <td>{% if r.facts.said_it_had is None %}—{% else %}{{ r.facts.said_it_had|intcomma }}{% endif %}</td>
+                <td>{{ r.facts.received|intcomma }}</td>
+                <td>{{ r.not_kept }}</td>
+                <td>{{ r.facts.updated_by_sync|intcomma }}</td>
+                <td>{% if r.facts.complete.0 %}{{ r.facts.complete.1 }}{% else %}<span class="nd-found__warn">{{ r.facts.complete.1 }}</span>{% endif %}</td>
+              {% else %}
+                <td colspan="6">{% trans "Not read yet." %}{% if r.facts.newer_failed %} <span class="nd-found__warn">{% blocktrans with when=r.facts.newer_failed.started_at|date:"j M Y" %}The read of {{ when }} failed.{% endblocktrans %}</span>{% endif %}</td>
+              {% endif %}
+            </tr>
+          {% endfor %}
         </tbody>
       </table>
+    </div>
     </div>
   {% endcomponent %}
 

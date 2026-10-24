@@ -1171,10 +1171,15 @@ def _stored(item: dict[str, Any]) -> dict[str, Any]:
     return catalogue.scrub(item)
 
 
-def upsert_record(spec: Dataset, item: dict[str, Any], links: Links, seen: set[int]) -> None:
+def upsert_record(
+    spec: Dataset, item: dict[str, Any], links: Links, seen: set[int], fields: Any = None
+) -> None:
+    """Write one record of a dataset kept in a table of its own. ``fields``: the run's count of the fields of
+    the records it keeps (``raw.KeyCount``), each record once (a record returned again is written again)."""
     datamart_id = _int(item.get("id"))
     if datamart_id is None:
         raise ValueError("record without id")
+    first = datamart_id not in seen
     seen.add(datamart_id)  # before writing: a record that fails to update keeps its previous row
     row = spec.model.objects.filter(datamart_id=datamart_id).first() or spec.model(datamart_id=datamart_id)
     row.source_id = _int(item.get("source_id"))
@@ -1186,6 +1191,8 @@ def upsert_record(spec: Dataset, item: dict[str, Any], links: Links, seen: set[i
     row.save()
     if spec.after:
         spec.after(row, item, links)
+    if fields is not None and first:
+        fields.add(row.data)
 
 
 # ------------------------------------------------------------------------------------ runners
@@ -1428,6 +1435,9 @@ class DocumentWriter:
         self.linked: set[str] = set()
         self.renamed: set[str] = set()  # the keys rows were held under before they were renamed tonight
         self._held: set[str] | None = None  # the keys held, read once a record without an id is written
+        from neurodb.datamart import raw  # lazy: Raw eTools data reads what this sync writes
+
+        self.fields = raw.KeyCount(name)  # the fields of the records kept, each once (details.keys_kept)
 
     def _rename(self, key: str, item: dict[str, Any]) -> None:
         """The row held under the record's hash, or under last night's identity, renamed to ``key`` in place
@@ -1449,6 +1459,7 @@ class DocumentWriter:
         spec, key = self.spec, record_key(item, self.identity)
         if (self.identity or self.previous) and item.get("id") in (None, ""):
             self._rename(key, item)
+        first = key not in self.seen
         self.seen.add(key)
         partner_key, vendor_key = spec.partner
         pd_key, number_key = spec.intervention
@@ -1485,22 +1496,25 @@ class DocumentWriter:
         if not self.linked_after:  # else the link step after the read sets them
             defaults.update(partner_id=partner_id, intervention_id=intervention_id)
         dm.DatamartDocument.objects.update_or_create(dataset=self.name, record_key=key, defaults=defaults)
+        if first:
+            self.fields.add(defaults["data"])
 
     def finish(self, *, whole: bool = True) -> dict[str, Any]:
         """Remove the records the Datamart no longer returns, after a ``whole`` read that returned some: an
         empty answer, or a read not whole, removes nothing; a large removal waits one night
-        (:func:`removal_waits`)."""
+        (:func:`removal_waits`). With the fields of the records kept (``keys_kept``)."""
         if not self.seen:  # an empty answer never empties the dataset
             return {"documents": 0}
+        kept = {"documents": len(self.seen), "keys_kept": self.fields.details()}
         if not whole:
-            return {"documents": len(self.seen), "documents_removed": 0}
+            return {**kept, "documents_removed": 0}
         held = dm.DatamartDocument.objects.filter(dataset=self.name)
         stale = held.exclude(record_key__in=self.seen | self.renamed)
         n = stale.count()
         if n and removal_waits(self.name, n, held.count()):
-            return {"documents": len(self.seen), "documents_removed": 0, "removal_held": n, "partial": True}
+            return {**kept, "documents_removed": 0, "removal_held": n, "partial": True}
         removed, _ = stale.delete() if n else (0, {})
-        return {"documents": len(self.seen), "documents_removed": removed}
+        return {**kept, "documents_removed": removed}
 
 
 def _write_documents(
@@ -1915,7 +1929,10 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
                 params = {**(params or {}), **area.params()}
             reading = windows.Reading(client, dataset, params, date_key=spec.windows, name=name)
             found = OfCountry(reading, area)
-            process_items(run, found, lambda item: upsert_record(spec, item, links, seen), _label)
+            from neurodb.datamart import raw  # lazy: Raw eTools data reads what this sync writes
+
+            fields = raw.KeyCount(name)  # the fields of the records kept (details.keys_kept)
+            process_items(run, found, lambda item: upsert_record(spec, item, links, seen, fields), _label)
             if seen:
                 # another country's rows first (every one, whatever its date), then the rest of the scope
                 # the Datamart no longer returns
@@ -1937,6 +1954,8 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
             else:  # an empty answer (a wrong country name?) never empties the table
                 details = {"removed": 0, "empty_response": True, **links.details()}
             details.update(found.details(), held_before=held_before)
+            if seen:
+                details["keys_kept"] = fields.details()
             if area is not None:
                 details.update(area.details())
             # the count of the first page (never the last window's), and the windows when read in windows

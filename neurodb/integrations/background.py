@@ -42,6 +42,8 @@ REPORTING_CHECKS_LOCK_ID = 7140438  # neurodb.datamart.checks.LOCK_ID: one run o
 DATAMART_PROBE_LOCK_ID = 7140439  # neurodb.integrations.etools.probe.LOCK_ID: one probe at a time
 # neurodb.datamart.master_links.LOCK_ID: one run of the master indicators' suggestions at a time
 ETOOLS_MASTERS_LOCK_ID = 7140440
+# neurodb.integrations.etools.rest_raw.LOCK_ID: one read of the eTools REST API into Raw eTools data at a time
+ETOOLS_REST_RAW_LOCK_ID = 7140441
 LOCK_IDS = {
     SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID,
     SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID,
@@ -55,6 +57,7 @@ LOCK_IDS = {
     SyncRun.Job.REPORTING_CHECKS: REPORTING_CHECKS_LOCK_ID,
     SyncRun.Job.DATAMART_PROBE: DATAMART_PROBE_LOCK_ID,
     SyncRun.Job.ETOOLS_MASTERS: ETOOLS_MASTERS_LOCK_ID,
+    SyncRun.Job.ETOOLS_REST_RAW: ETOOLS_REST_RAW_LOCK_ID,
 }
 
 

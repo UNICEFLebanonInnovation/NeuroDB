@@ -1144,11 +1144,12 @@ def datamart_people() -> list[str]:
     """The person names the eTools records hold under their keys that name a person, in every dataset
     (one of NeuroDB Watch's ``people.EXTRA_SOURCES``), so that a name held in one dataset (a trip's
     supervisor, an action point's location focal point, an intervention's split signatory) is also taken
-    out of the texts of another (an audit's remarks). Read from every record at the end of each eTools
-    Datamart sync (:func:`remember_people`) and stored in a table of their own (``RecordPeople``: no cull
-    of the page-figure cache, no emptied figure and no restart loses them); while none are stored (before
-    the first sync after a release), read from the latest ``PEOPLE_LATEST`` records of each dataset (kept
-    an hour), so that no request waits long."""
+    out of the texts of another (an audit's remarks), and in the eTools REST records kept for Raw eTools
+    data. Read from every record at the end of each eTools Datamart sync, eTools REST sync and read of the
+    eTools REST API into Raw eTools data (:func:`remember_people`) and stored in a table of their own
+    (``RecordPeople``: no cull of the page-figure cache, no emptied figure and no restart loses them); while
+    none are stored (before the first sync after a release), read from the latest ``PEOPLE_LATEST`` records
+    of each dataset (kept an hour), so that no request waits long."""
     from django.core.cache import caches
     from django.db import DatabaseError, transaction
 
@@ -1178,11 +1179,19 @@ def remember_people() -> list[str]:
 
 
 def _read_datamart_people(latest: int | None = None) -> set[str]:
+    """The names of every dataset's records, and of the eTools REST records kept for Raw eTools data
+    (``RestRecord``: a partner's staff named in its details is then also taken out of an engagement's texts;
+    Ask never reads those records)."""
+    from .models import RestRecord
+
     found: set[str] = set()
-    for name in catalogue.dataset_names():
-        if name in catalogue.SAFEGUARDING:
-            continue
-        rows = dataset(name).base.order_by("-pk").values_list("data", flat=True)
+    queries = [
+        dataset(name).base.order_by("-pk").values_list("data", flat=True)
+        for name in catalogue.dataset_names()
+        if name not in catalogue.SAFEGUARDING
+    ]
+    queries.append(RestRecord.objects.order_by("-pk").values_list("data", flat=True))
+    for rows in queries:
         for data in (rows[:latest] if latest else rows).iterator(chunk_size=2000):
             found |= _own_names(catalogue.scrub(data or {}), subtract=False)
     return found

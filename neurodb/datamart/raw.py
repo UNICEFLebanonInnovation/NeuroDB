@@ -1,11 +1,14 @@
 """Raw eTools data (Admin → Data and sync): every eTools source NeuroDB reads, record by record, as it came,
 for the people who check a page's figures against it (the Validators group, superusers). The pages are
-``datamart.raw_admin``; this module holds what they read.
+``datamart.raw_admin``; this module holds what they read. The sources are the eTools Datamart's datasets
+(their own tables, or ``DatamartDocument``) and the eTools REST API's entities (``RestRecord``, written by
+``integrations.etools.rest_raw`` and the eTools REST sync: :data:`REST_ENTITIES`).
 
 * which page reads which source (:data:`PAGE_SOURCES`, :data:`USED_BY`);
 * the fields of each source a person reviewed (:data:`REVIEWED_KEYS`, the fields NeuroDB reads, and
   ``RawFieldReview``): any other field shows only numbers, yes/no and dates (``raw_people``);
-* the fields each source sends, counted from the newest :data:`FIELDS_COUNTED` records NeuroDB holds;
+* the fields each source sends, counted by its last sync on every record it kept (:class:`KeyCount`), or
+  from the newest :data:`FIELDS_COUNTED` records NeuroDB holds before a sync counted them;
 * how each source is listed and filtered (:data:`VIEWS`, :class:`Filters`);
 * its CSV: streamed inside one snapshot of the data, at most :data:`CSV_LIMIT` records, at most
   ``settings.RAW_CSV_MAX_RUNNING`` large downloads at once on the whole site (advisory locks).
@@ -19,6 +22,7 @@ import contextlib
 import datetime
 import json
 import logging
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -34,7 +38,7 @@ from neurodb.partnerships import statuses as pd_statuses
 
 from . import catalogue, raw_people, reporting
 from . import query as dmq
-from .models import DatamartDocument, RawFieldReview
+from .models import DatamartDocument, RawFieldReview, RestRecord
 
 logger = logging.getLogger(__name__)
 
@@ -107,19 +111,21 @@ PRP_SOURCES = (
     "intervention_budgets",
     "locations",
 )
-# Index table 3: the eTools REST API entities, read into Raw eTools data by a later release
+# Index table 3: the eTools REST API entities (integrations.etools.rest_raw.ENTITIES: the same, in that
+# order), with the address each is read from
 REST_ENTITIES: dict[str, tuple[str, str]] = {
-    "rest_partners": ("Partners", "partners/partners/"),
-    "rest_partner_details": ("Partner details", "partners/partners/<id>/"),
-    "rest_agreements": ("Agreements", "partners/agreements/"),
-    "rest_interventions": ("Programme documents", "partners/interventions/"),
-    "rest_intervention_details": ("Programme document details", "partners/interventions/<id>/"),
-    "rest_travels": ("Trips", "t2f/travels/"),
-    "rest_travel_details": ("Trip details", "t2f/travels/<id>/"),
-    "rest_engagements": ("Engagements", "audit/engagements/"),
-    "rest_engagement_details": ("Engagement details", "audit/engagements/<id>/"),
-    "rest_action_points": ("Action points", "action-points/action-points/"),
+    "rest_partners": ("Partners", "/api/v2/partners/"),
+    "rest_partner_details": ("Partner details", "/api/v2/partners/<id>/"),
+    "rest_agreements": ("Agreements", "/api/v2/agreements/"),
+    "rest_interventions": ("Programme documents", "/api/v2/interventions/"),
+    "rest_intervention_details": ("Programme document details", "/api/v2/interventions/<id>/"),
+    "rest_travels": ("Trips", "/api/t2f/travels/"),
+    "rest_travel_details": ("Trip details", "/api/t2f/travels/<id>/"),
+    "rest_engagements": ("Engagements", "/api/audit/engagements/"),
+    "rest_engagement_details": ("Engagement details", "/api/audit/<type>/<id>/"),
+    "rest_action_points": ("Action points", "/api/action-points/action-points/"),
 }
+NAMES.update({name: f"{label} (eTools REST API)" for name, (label, _path) in REST_ENTITIES.items()})
 
 PAGES: dict[str, str] = {
     "reports:overview": "Home",
@@ -192,10 +198,22 @@ def other_sources() -> tuple[str, ...]:
     return tuple(name for name in sources() if name not in PRP_SOURCES)
 
 
+def rest(name: str) -> bool:
+    """An entity of the eTools REST API (kept in ``RestRecord``), not a Datamart dataset."""
+    return name in REST_ENTITIES
+
+
+def known(name: str) -> bool:
+    """A source of Raw eTools data: a Datamart dataset NeuroDB syncs, or an eTools REST entity."""
+    return name in sources() or rest(name)
+
+
 def path_of(name: str) -> str:
-    """The Datamart path a source is read from."""
+    """The Datamart path, or the eTools REST address, a source is read from."""
     from neurodb.integrations.etools import datamart_sync
 
+    if rest(name):
+        return REST_ENTITIES[name][1]
     if name in datamart_sync.DATASETS:
         return datamart_sync.DATASETS[name][0]
     if name in datamart_sync.ENRICHMENTS:
@@ -210,11 +228,13 @@ def typed(name: str) -> bool:
 
 def base(name: str) -> QuerySet:
     """The records NeuroDB holds of a source."""
+    if rest(name):
+        return RestRecord.objects.filter(entity=name)
     return dmq.dataset(name).base
 
 
 def model_of(name: str):
-    return dmq.dataset(name).model
+    return RestRecord if rest(name) else dmq.dataset(name).model
 
 
 def has(name: str, column: str) -> bool:
@@ -264,6 +284,9 @@ def read_into(name: str) -> dict[str, str]:
     from neurodb.integrations.etools import datamart_sync
 
     found: dict[str, str] = {"id": "the record id", "source_id": "the eTools id"}
+    if rest(name):
+        found.update(rest_reads(name))
+        return found
     if name in datamart_sync.DATASETS:
         spec = datamart_sync.DATASETS[name][1]
         found["last_modify_date"] = "last_modify_date"
@@ -308,6 +331,41 @@ def read_into(name: str) -> dict[str, str]:
             if key:
                 found.setdefault(key, into)
     return found
+
+
+def rest_reads(name: str) -> dict[str, str]:
+    """The fields the eTools REST sync reads of an entity (``integrations.etools.sync``'s fields), and what it
+    reads them into."""
+    from neurodb.integrations.etools import sync
+
+    into = {
+        "rest_partners": ("the partner", ("name", "partner_type", *sync.PARTNER_FIELDS)),
+        "rest_partner_details": ("the partner", sync.PARTNER_DETAIL_FIELDS),
+        "rest_agreements": ("the agreement", ("partner", *sync.AGREEMENT_FIELDS)),
+        "rest_interventions": (
+            "the programme document",
+            (*sync.INTERVENTION_FIELDS, "end", "offices_names", "unicef_focal_points", "location_p_codes"),
+        ),
+        "rest_intervention_details": (
+            "the programme document",
+            ("partner_id", "agreement", *sync.INTERVENTION_DETAIL_FIELDS),
+        ),
+        "rest_travels": ("the trip", (*sync.TRAVEL_FIELDS.values(), "status", "section", "office")),
+        "rest_travel_details": ("the trip", (*sync.TRAVEL_DETAIL_FIELDS, "attachments", "activities")),
+        "rest_engagements": (
+            "the engagement",
+            (*sync.ENGAGEMENT_FIELDS.values(), *sync.ENGAGEMENT_LIST_FIELDS, "partner"),
+        ),
+        "rest_engagement_details": (
+            "the engagement",
+            (*sync.ENGAGEMENT_DETAIL_FIELDS, "findings", "active_pd"),
+        ),
+        "rest_action_points": (
+            "the action point",
+            (*sync.ACTION_POINT_FIELDS, "related_module", "category", "section", "office", "partner"),
+        ),
+    }[name]
+    return {key: into[0] for key in into[1]}
 
 
 # The fields reviewed in the code, per source: the fields of the repository's test payloads for that source
@@ -384,6 +442,81 @@ def reviewed_keys(name: str) -> frozenset[str]:
 
 # --------------------------------------------------------------------------------------- the fields counted
 FIELDS_COUNTED = 2000  # the newest records the fields of a source are counted from
+KEYS_KEPT = 400  # the fields a sync's count keeps (details.keys_kept), the most carried first
+MORE_FIELDS = "(more fields)"  # the fields past the 400th: their counts summed
+OTHER_FIELDS = "(other fields)"  # records carrying a field whose name is never stored; with a value in one
+_EMPTY = (None, "", [], {})
+
+
+class KeyCount:
+    """The top-level fields of the records a sync keeps, counted as it writes them: for each field, the
+    records carrying it and those where it holds a value (anything but empty, ``[]`` or ``{}``), into the
+    run's ``details.keys_kept`` (:meth:`details`). Counted on the record as stored (``catalogue.scrub``: no
+    contact field). A field whose name is not an identifier (a space or an ``@``, longer than 64 characters,
+    shaped like an e-mail address, a link or a phone: ``raw_people.identifier``) is never stored by name: it
+    adds to :data:`OTHER_FIELDS`, as does any field of a PSEA answer outside the safeguarding fields. The
+    run's details are shown to Administrators as they are, hence the names are sorted out before they are
+    kept."""
+
+    def __init__(self, source: str) -> None:
+        self.source = source
+        self.carrying: Counter[str] = Counter()
+        self.with_value: Counter[str] = Counter()
+        self.other = [0, 0]  # records carrying a field never stored by name, and with a value in one
+        self._fm = source in catalogue.FM_PRIVATE
+        self._safeguarding = source in catalogue.SAFEGUARDING
+        self._named: dict[Any, bool] = {}  # a field name: may it be stored (looked at once per run)
+
+    def _stored(self, key: Any) -> bool:
+        found = self._named.get(key)
+        if found is None:
+            found = self._named[key] = (
+                isinstance(key, str)
+                and (not self._safeguarding or key in catalogue.SAFEGUARDING_KEYS)
+                and raw_people.identifier(key, self._fm)
+            )
+        return found
+
+    def add(self, data: Any) -> None:
+        """Count one record kept (as stored)."""
+        if not isinstance(data, dict):
+            return
+        named = [k for k in data if self._stored(k)]
+        self.carrying.update(named)
+        self.with_value.update(k for k in named if data[k] not in _EMPTY)
+        if len(named) < len(data):
+            self.other[0] += 1
+            self.other[1] += any(data[k] not in _EMPTY for k in data if not self._stored(k))
+
+    def details(self) -> dict[str, list[int]]:
+        """``{"<field>": [records carrying it, records where it holds a value]}``, the most carried first, at
+        most :data:`KEYS_KEPT` fields; the others summed under :data:`MORE_FIELDS`; :data:`OTHER_FIELDS`."""
+        ranked = sorted(self.carrying.items(), key=lambda kv: (-kv[1], kv[0]))
+        found = {key: [n, self.with_value[key]] for key, n in ranked[:KEYS_KEPT]}
+        rest = ranked[KEYS_KEPT:]
+        if rest:
+            found[MORE_FIELDS] = [sum(n for _, n in rest), sum(self.with_value[k] for k, _ in rest)]
+        if self.other[0]:
+            found[OTHER_FIELDS] = list(self.other)
+        return found
+
+
+def run_details(run: SyncRun | None, name: str = "") -> dict[str, Any]:
+    """The details of ``run`` that are about the source ``name``: a run of the eTools REST sync keeps those of
+    each raw copy it wrote under ``raw_copies`` (one run reads a list and its details)."""
+    details = run.details if run is not None and isinstance(run.details, dict) else {}
+    if run is not None and run.job == SyncRun.Job.ETOOLS:
+        found = (details.get("raw_copies") or {}).get(name)
+        return found if isinstance(found, dict) else {}
+    return details
+
+
+def keys_kept(run: SyncRun | None, name: str = "") -> dict[str, list[int]]:
+    """The fields a run counted as it wrote (:class:`KeyCount`), or {} for a run before they were counted."""
+    found = run_details(run, name).get("keys_kept")
+    return found if isinstance(found, dict) else {}
+
+
 _NUMBER = dmq.NUMBER
 _DATE = dmq.DATE_VALUE
 _TIME = r"^\d{2}:\d{2}(:\d{2}(\.\d+)?)?$"
@@ -411,15 +544,34 @@ USES = {
 def _table_and_where(name: str) -> tuple[str, str, list[Any]]:
     if typed(name):
         return connection.ops.quote_name(model_of(name)._meta.db_table), "", []
+    if rest(name):
+        return connection.ops.quote_name(RestRecord._meta.db_table), "AND entity = %s", [name]
     return connection.ops.quote_name(DatamartDocument._meta.db_table), "AND dataset = %s", [name]
 
 
-def field_counts(name: str, names: frozenset[str] | None = None) -> tuple[list[FieldCount], int]:
-    """The top-level fields of the newest :data:`FIELDS_COUNTED` records NeuroDB holds of a source, in one
-    query:
-    how many carry each, hold a value in it, and hold a text in it; and how many fields are left out because
-    their names are not identifiers or name a person (``raw_people``). The answers of PSEA assessments list
-    only their safeguarding fields. Most carried first."""
+def field_counts(
+    name: str, names: frozenset[str] | None = None, run: SyncRun | None = None
+) -> tuple[list[FieldCount], int]:
+    """The top-level fields of a source: how many records carry each, hold a value in it, and hold a text in
+    it; and how many fields are left out because their names are not identifiers or name a person
+    (``raw_people``). The answers of PSEA assessments list only their safeguarding fields. Most carried first.
+
+    Counted from the newest :data:`FIELDS_COUNTED` records NeuroDB holds, in one query; when ``run`` counted
+    the fields of every record it kept (:func:`keys_kept`), its counts are the ones given, and the query only
+    says which fields hold a text (a field none of those records carries is taken to hold one)."""
+    found = _sampled(name)
+    kept = {k: v for k, v in keys_kept(run, name).items() if k not in (MORE_FIELDS, OTHER_FIELDS)}
+    if kept:
+        texts = {key: n for key, _carrying, _value, n in found}
+        found = [
+            (key, int(counts[0]), int(counts[1]), texts.get(key, int(counts[1])))
+            for key, counts in kept.items()
+            if isinstance(counts, list) and len(counts) == 2
+        ]
+    return _described(name, found, names)
+
+
+def _sampled(name: str) -> list[tuple[str, int, int, int]]:
     table, where, params = _table_and_where(name)
     query = (
         "SELECT k, count(*), "  # noqa: S608 - the model's table
@@ -434,8 +586,7 @@ def field_counts(name: str, names: frozenset[str] | None = None) -> tuple[list[F
     )
     with connection.cursor() as cursor:
         cursor.execute(query, [_DATE, _NUMBER, _TIME, *params, FIELDS_COUNTED])
-        found = cursor.fetchall()
-    return _described(name, found, names)
+        return cursor.fetchall()
 
 
 def _described(
@@ -620,8 +771,9 @@ TITLES: dict[str, str] = {
     "pd_activities": "code",
     "audit_findings": "reference_number",
 }
-# A record kept whole whose title can name a person (a trip's purpose, a file's name) is never searched by it
-TITLE_NOT_SEARCHED = frozenset({"staff_trips", "attachments"})
+# A record kept whole whose title can name a person (a trip's purpose, a file's name) is never searched by it;
+# nor a trip of the eTools REST API (its title is its reference number, searched as such)
+TITLE_NOT_SEARCHED = frozenset({"staff_trips", "attachments", "rest_travels", "rest_travel_details"})
 _PD_COLUMNS = ("pd_reference_number", "intervention_number", "partnership_number")
 _PARTNER_COLUMNS = ("partner_name", "vendor_number")
 _SEARCHED = (  # the typed columns a search reads where a source has them: references and numbers only
@@ -639,10 +791,35 @@ _SEARCHED = (  # the typed columns a search reads where a source has them: refer
 )
 
 
+# The eTools REST entities: their reference is a programme document's or an agreement's number, a partner's
+# vendor number, a trip's, an engagement's or an action point's reference number; the field naming a partner
+# by its eTools id ("partner__id": the id of the partner object a record holds)
+REST_PD = frozenset({"rest_interventions", "rest_intervention_details", "rest_agreements"})
+REST_PARTNERS = frozenset({"rest_partners", "rest_partner_details"})
+REST_PARTNER_KEYS = {
+    "rest_agreements": "partner",
+    "rest_intervention_details": "partner_id",
+    "rest_engagements": "partner__id",
+    "rest_action_points": "partner__id",
+}
+REST_VIEW = RawView(
+    columns=(
+        ("Record id", "id"),
+        ("Reference", "t:reference"),
+        ("Title", "title"),
+        ("Updated by the last sync", "updated"),
+    ),
+    search=("reference", "record_key"),  # and the title, but a trip's (_search_q)
+    title="title",
+)
+
+
 def view(name: str) -> RawView:
     """How a source is listed and filtered: its own :data:`VIEWS` entry, else one built from its table."""
     if name in VIEWS:
         return VIEWS[name]
+    if rest(name):
+        return REST_VIEW
     if not typed(name):
         return RawView()
     status = next((c for c in ("status", "report_status") if has(name, c)), "")
@@ -658,7 +835,10 @@ def view(name: str) -> RawView:
 
 
 def date_column(name: str) -> str:
-    """The column a source's year and dates filter reads: its main date (``date`` for a record kept whole)."""
+    """The column a source's year and dates filter reads: its main date (``date`` for a record kept whole; the
+    day an eTools REST record was last updated)."""
+    if rest(name):
+        return "synced_at__date"
     if not typed(name):
         return "date" if catalogue.DOCUMENTS[name].date else ""
     return view(name).date or catalogue.TYPED[name][2]
@@ -666,9 +846,9 @@ def date_column(name: str) -> str:
 
 def status_field(name: str) -> str:
     """The field the status filter reads: a typed record's status column, or the reviewed status field of a
-    record kept whole ("" when it has none)."""
+    record kept whole ("" when it has none, as an eTools REST record)."""
     found = view(name).status_key
-    if typed(name) or not found:
+    if typed(name) or not found or rest(name):
         return found
     return found if found in reviewed_keys(name) else ""
 
@@ -774,7 +954,9 @@ class Filters:
         spec = view(name)
         if self.pd:
             rows = rows.filter(_pd_q(name, spec, self.pd))
-        if self.partner:
+        if self.partner and rest(name):
+            rows = _rest_partner(name, rows, self.partner)
+        elif self.partner:
             rows = rows.filter(_partner_q(name, spec, self.partner))
         if self.section:
             rows = rows.filter(_section_q(name, spec, self.section))
@@ -805,7 +987,20 @@ class Filters:
         return rows
 
 
+def _rest_partner(name: str, rows: QuerySet, value: str) -> QuerySet:
+    """An eTools REST entity's records of a partner: by its vendor number or eTools id (a partner's record),
+    else by the eTools id of the partner a record names; never by a name or a title."""
+    if name in REST_PARTNERS:
+        return rows.filter(Q(reference=value) | Q(source_id=value))
+    key = REST_PARTNER_KEYS.get(name)
+    if not key:
+        return rows.none()
+    return rows.annotate(_partner=KT(f"data__{key}")).filter(_partner=value)
+
+
 def _pd_q(name: str, spec: RawView, value: str) -> Q:
+    if rest(name):
+        return Q(reference=value) if name in REST_PD else Q(pk__in=[])
     if typed(name):
         found = Q()
         for column in spec.pd:
@@ -848,6 +1043,9 @@ def _section_q(name: str, spec: RawView, value: str) -> Q:
 
 def _search_q(name: str, spec: RawView, value: str) -> Q:
     found = Q()
+    if rest(name):
+        found = Q(reference__icontains=value) | Q(record_key__icontains=value)
+        return found if name in TITLE_NOT_SEARCHED else found | Q(title__icontains=value)
     if typed(name):
         for column in spec.search:
             found |= Q(**{f"{column}__icontains": value})
@@ -859,6 +1057,8 @@ def _search_q(name: str, spec: RawView, value: str) -> Q:
 
 
 def _record_q(name: str, value: str) -> Q:
+    if rest(name):
+        return Q(record_key=value) | Q(source_id=value)
     number = int(value) if value.isdigit() and len(value) < 19 else None
     if typed(name):
         return Q(datamart_id=number) | Q(source_id=number) if number is not None else Q(pk__in=[])
@@ -868,6 +1068,17 @@ def _record_q(name: str, value: str) -> Q:
 def filters_shown(name: str) -> dict[str, bool]:
     """Which filters a source's form shows: those it has what they need for."""
     spec = view(name)
+    if rest(name):
+        return {
+            "pd": name in REST_PD,
+            "partner": name in REST_PARTNERS or name in REST_PARTNER_KEYS,
+            "section": False,
+            "status": False,
+            "dates": True,
+            "search": True,
+            "report_type": False,
+            "pd_link": False,
+        }
     return {
         "pd": bool(spec.pd)
         or has(name, "intervention")
@@ -966,7 +1177,10 @@ def related(name: str, rows: QuerySet) -> QuerySet:
 
 
 def pd_words(row: Any) -> str:
-    """A record's programme document in NeuroDB: its number, else why none."""
+    """A record's programme document in NeuroDB: its number, else why none ("" for an eTools REST record: its
+    reference is the programme document's number, as eTools gives it)."""
+    if isinstance(row, RestRecord):
+        return ""
     pd = getattr(row, "intervention", None)
     if pd is not None:
         return pd.number or f"PD {pd.pk}"
@@ -1227,9 +1441,12 @@ def header_keys(name: str, rows: QuerySet, counted_fields: list[FieldCount]) -> 
 
 def header_name(key: str) -> str:
     """A record field as a download's column: "<field> (people)" for a field that names people, "<field> (text
-    withheld)" for one a person wrote."""
+    withheld)" for one a person wrote, "<field> (as received)" for one named as a column of NeuroDB's own
+    (a record's ``vendor_number`` beside the vendor number of the partner NeuroDB links it to)."""
     if raw_people.names_people(key):
         return f"{key} (text withheld)" if raw_people.written(key) else f"{key} (people)"
+    if key in NEURODB_COLUMNS or key in PARTNER_REPORT_COLUMNS or key in TAIL_COLUMNS:
+        return f"{key} (as received)"
     return key
 
 
@@ -1370,3 +1587,29 @@ def _counts(rows: QuerySet, run: SyncRun | None) -> tuple[int, int, int]:
         since=Count("pk", filter=Q(synced_at__gt=run.finished_at)),
     )
     return found["held"], found["by_sync"], found["since"]
+
+
+def rest_counts(runs: dict[str, tuple[SyncRun | None, SyncRun | None]]) -> dict[str, list[int]]:
+    """For every eTools REST entity of ``runs``: [in NeuroDB, updated by its last sync, updated since], in one
+    grouped query (the copies are small: no cache)."""
+    windows = [
+        (name, run.started_at if run else None, run.finished_at if run else None)
+        for name, (run, _) in runs.items()
+    ]
+    found = {name: [0, 0, 0] for name in runs}
+    if not windows:
+        return found
+    table = connection.ops.quote_name(RestRecord._meta.db_table)
+    values = ", ".join(["(%s, %s::timestamptz, %s::timestamptz)"] * len(windows))
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT d.entity, count(*), "  # noqa: S608 - the model's table
+            "count(*) FILTER (WHERE d.synced_at >= w.s AND d.synced_at <= w.e), "
+            "count(*) FILTER (WHERE d.synced_at > w.e) "
+            f"FROM {table} d JOIN (VALUES {values}) AS w(entity, s, e) ON d.entity = w.entity "
+            "GROUP BY d.entity",
+            [x for window in windows for x in window],
+        )
+        for entity, held, by_sync, since in cursor.fetchall():
+            found[entity] = [held, by_sync, since]
+    return found

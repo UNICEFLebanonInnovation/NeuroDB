@@ -17,6 +17,10 @@ received. A remainder the counts do not explain is shown, never hidden. For a so
 programme documents, locations... the pages read (the run's ``rows_failed``) are a line of their own, and make
 "Complete?" No. An error is shown by its kind only (``runs._error_key``): its text can hold a value of the
 record. Counts only: no record's value is read here.
+
+An eTools REST entity's records come from the latest run that kept its raw copy: of the job "Read the eTools
+REST API into Raw eTools data" (one run per entity), or of the eTools REST sync (its ``details.raw_copies``).
+The same equation holds, with nothing of another country: received − could not be saved = updated by the sync.
 """
 
 from __future__ import annotations
@@ -155,6 +159,10 @@ def build(
     from neurodb.integrations.etools.datamart_sync import shift_words
     from neurodb.reports.services import quality_row
 
+    from . import raw
+
+    if raw.rest(name):
+        return _rest_build(name, run, newer_failed, counts)
     held, by_sync, since = counts
     row = quality_row(name, run, held)
     details = (run.details if isinstance(run.details, dict) else {}) if run else {}
@@ -194,6 +202,49 @@ def build(
     return RunFacts(**facts)
 
 
+def _rest_build(
+    name: str, run: SyncRun | None, newer_failed: SyncRun | None, counts: tuple[int, int, int]
+) -> RunFacts:
+    """The facts of an eTools REST entity: what the read that kept its copy received and kept
+    (``rest_raw.RestCopy.finish``), and ``counts``."""
+    from . import raw
+
+    held, by_sync, since = counts
+    details = raw.run_details(run, name)
+    said = _given(details.get("announced"))
+    received = _count(details.get("read")) if run else None
+    not_saved = max(received - _count(details.get("kept")), 0) if received is not None else 0
+    errors = run.details if run is not None and isinstance(run.details, dict) else {}
+    facts: dict[str, Any] = {
+        "source": name,
+        "run": run,
+        "newer_failed": newer_failed,
+        "said_it_had": said,
+        "received": received,
+        "sent_twice": _count(details.get("duplicates_read")),
+        "never_came": max(said - received, 0) if said is not None and received is not None else 0,
+        "more_than_said": max(received - said, 0) if said is not None and received is not None else 0,
+        "shift_words": "",
+        "other_country": 0,
+        "through_area_filter": 0,
+        "unnamed": 0,
+        "not_saved": not_saved,
+        "not_written": 0,
+        "written_into": "",
+        "error_lines": _error_lines(errors),
+        "held": held,
+        "updated_by_sync": by_sync,
+        "updated_since": since,
+        "from_earlier": max(held - by_sync - since, 0),
+        "unexplained": (received - not_saved - by_sync) if received is not None else 0,
+        "removed": _count(details.get("removed")),
+        "removal_skipped": bool(details.get("removal_skipped")),
+        "removal_held": 0,
+    }
+    facts["complete"] = _verdict(facts)
+    return RunFacts(**facts)
+
+
 # ---------------------------------------------------------------------------------------------- the runs
 _READ_SOMETHING = (
     "AND s.status IN (%s, %s) AND COALESCE(s.details->>'empty_response', '') IN ('', 'false', '0', 'null') "
@@ -203,8 +254,17 @@ _READ_SOMETHING = (
 def runs(names: list[str]) -> dict[str, tuple[SyncRun | None, SyncRun | None]]:
     """For each dataset of ``names``: the run its records come from and a newer run that failed (each None
     when there is none), in two queries on the index ``core_syncrun_job_target`` (job, target, newest start
-    first), as ``reports.services.latest_datamart_runs`` reads them."""
+    first), as ``reports.services.latest_datamart_runs`` reads them. The eTools REST entities among them:
+    :func:`rest_runs`."""
     from neurodb.reports.services import latest_datamart_runs
+
+    from . import raw
+
+    entities = [name for name in names if raw.rest(name)]
+    if entities:
+        found = rest_runs(entities)
+        others = [name for name in names if not raw.rest(name)]
+        return {**(runs(others) if others else {}), **found}
 
     table = connection.ops.quote_name(SyncRun._meta.db_table)
     params = [
@@ -230,6 +290,59 @@ def runs(names: list[str]) -> dict[str, tuple[SyncRun | None, SyncRun | None]]:
         )
         out[name] = (run, last if newer else None)
     return out
+
+
+def rest_jobs(name: str) -> list[tuple[str, str]]:
+    """The (job, target) of the runs that keep an eTools REST entity's copy: the read into Raw eTools data
+    (target: the entity), and the eTools REST sync of that entity (``rest_raw.SYNC_TARGETS``)."""
+    from neurodb.integrations.etools import rest_raw
+
+    return [
+        (SyncRun.Job.ETOOLS_REST_RAW.value, name),
+        (SyncRun.Job.ETOOLS.value, rest_raw.SYNC_TARGETS[name]),
+    ]
+
+
+def rest_runs(names: list[str]) -> dict[str, tuple[SyncRun | None, SyncRun | None]]:
+    """For each eTools REST entity of ``names``: the latest run that kept its copy (succeeded, or succeeded
+    with errors: of the read into Raw eTools data, or of the eTools REST sync when its details hold the copy),
+    and a newer run of either that failed; in two queries, each the latest run of every (job, target) on the
+    index ``core_syncrun_job_target``."""
+    table = connection.ops.quote_name(SyncRun._meta.db_table)
+    pairs = [(name, job, target) for name in names for job, target in rest_jobs(name)]
+    columns = [list(column) for column in zip(*pairs, strict=True)] if pairs else [[], [], []]
+    copied = (
+        "SELECT t.entity AS rest_entity, r.* "  # noqa: S608 - the model's table
+        "FROM unnest(%s::text[], %s::text[], %s::text[]) AS t(entity, job, target) CROSS JOIN LATERAL ("
+        f"SELECT s.* FROM {table} s WHERE s.job = t.job AND s.target = t.target AND s.status IN (%s, %s) "
+        "AND (s.job <> %s OR jsonb_exists(COALESCE(s.details -> 'raw_copies', '{}'::jsonb), t.entity)) "
+        "ORDER BY s.started_at DESC, s.id DESC LIMIT 1) r"
+    )
+    finished = (
+        "SELECT t.entity AS rest_entity, r.* "  # noqa: S608 - the model's table
+        "FROM unnest(%s::text[], %s::text[], %s::text[]) AS t(entity, job, target) CROSS JOIN LATERAL ("
+        f"SELECT s.* FROM {table} s WHERE s.job = t.job AND s.target = t.target AND s.status <> %s "
+        "ORDER BY s.started_at DESC, s.id DESC LIMIT 1) r"
+    )
+    used: dict[str, SyncRun] = {}
+    for run in SyncRun.objects.raw(
+        copied,
+        [
+            *columns,
+            SyncRun.Status.SUCCEEDED.value,
+            SyncRun.Status.PARTIAL.value,
+            SyncRun.Job.ETOOLS.value,
+        ],
+    ):
+        if run.rest_entity not in used or run.started_at > used[run.rest_entity].started_at:
+            used[run.rest_entity] = run
+    failed: dict[str, SyncRun] = {}
+    for run in SyncRun.objects.raw(finished, [*columns, SyncRun.Status.RUNNING.value]):
+        before = used.get(run.rest_entity)
+        if run.status == SyncRun.Status.FAILED and (before is None or run.started_at > before.started_at):
+            if run.rest_entity not in failed or run.started_at > failed[run.rest_entity].started_at:
+                failed[run.rest_entity] = run
+    return {name: (used.get(name), failed.get(name)) for name in names}
 
 
 def counts(name: str, run: SyncRun | None) -> tuple[int, int, int]:

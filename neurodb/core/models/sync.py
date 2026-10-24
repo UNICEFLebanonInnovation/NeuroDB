@@ -37,6 +37,7 @@ class SyncRun(models.Model):
         REPORTING_CHECKS = "reporting_checks", "eTools reporting checks"
         DATAMART_PROBE = "datamart_probe", "eTools Datamart probe"
         ETOOLS_MASTERS = "etools_masters", "eTools master indicators"
+        ETOOLS_REST_RAW = "etools_rest_raw", "eTools REST API into Raw eTools data"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

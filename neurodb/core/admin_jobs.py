@@ -82,6 +82,20 @@ BACKGROUND_JOBS = [
         "sync",
     ),
     BackgroundJob(
+        "run_read_etools_rest_raw",
+        ("read_etools_rest_raw",),
+        SyncRun.Job.ETOOLS_REST_RAW,
+        _("eTools REST raw copy"),
+        _("Read the eTools REST API into Raw eTools data"),
+        _(
+            "Reads every record of the eTools REST API (partners, agreements, programme documents, trips, "
+            "engagements, action points, and their details) into Raw eTools data, as it comes, in the "
+            "background, so that validators can check them against the pages. It writes nothing else: no "
+            "page figure changes. It needs the eTools token."
+        ),
+        "dataset",
+    ),
+    BackgroundJob(
         "run_sync_locations",
         ("sync_locations",),
         SyncRun.Job.LOCATIONS,

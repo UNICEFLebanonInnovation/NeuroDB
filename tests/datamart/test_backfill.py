@@ -322,6 +322,12 @@ QUICK_MIGRATIONS = {
     # the fields a superuser reviewed on Raw eTools data: a new, empty table of a few dozen rows (CreateModel
     # only, no code runs; listed so that the migration is accounted for here)
     ("datamart", "0017_raw_field_review", "CreateModel"),
+    # the eTools REST records kept whole for Raw eTools data: a new, empty table with its key and index (CreateModel
+    # only, no code runs; listed so that the migration is accounted for here)
+    ("datamart", "0018_rest_record", "CreateModel"),
+    # the choice of the job that reads the eTools REST API into Raw eTools data (AlterField of the job's choices
+    # only, no code runs and nothing in the database changes; listed so that the migration is accounted for here)
+    ("core", "0033_etools_rest_raw_job", "AlterField"),
 }
 
 

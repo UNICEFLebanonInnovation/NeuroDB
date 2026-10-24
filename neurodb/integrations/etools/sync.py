@@ -18,6 +18,12 @@ that do not exist locally (section, office, category) -> NULL instead of an inte
 
 Each item is written in its own savepoint (``runs.process_items``) rather than one transaction
 per entity, so a late failure keeps the items already synced - the v2 loops were autocommit too.
+
+Every record read is also kept whole, as it came, in Raw eTools data (``rest_raw.RestCopy``: the last step of
+its savepoint), and a list that ended removes the copies of the records eTools no longer lists, as the job
+"Read the eTools REST API into Raw eTools data" does; each run's ``details.raw_copies`` says what was
+received and kept. The copy changes no figure; this sync's programme documents do (their status decides
+"running" on every partner reporting page).
 """
 
 from __future__ import annotations
@@ -33,8 +39,10 @@ from django.utils import timezone
 from neurodb.accounts.models import Office, Section
 from neurodb.core.models import SyncRun
 from neurodb.geo.models import Location
+from neurodb.integrations.etools import rest_raw
 from neurodb.integrations.etools.client import EToolsClient
 from neurodb.integrations.etools.fields import assign, coerce, parse_iso_date
+from neurodb.integrations.etools.rest_raw import RestCopy
 from neurodb.integrations.runs import fail, finish_by_counts, new_run, process_items
 from neurodb.partnerships.models import (
     PCA,
@@ -267,6 +275,7 @@ def _run_entity(run: SyncRun, body: Callable[[], dict[str, Any]]) -> SyncRun:
 def sync_partners(run: SyncRun, *, client: EToolsClient | None = None) -> SyncRun:
     """``/api/v2/partners/`` -> ``PartnerOrganization`` (v2 ``sync_partner_data``)."""
     client = client or EToolsClient()
+    copy = RestCopy("rest_partners")
 
     def handle(item: dict[str, Any]) -> None:
         etl_id = str(item["id"])
@@ -276,10 +285,12 @@ def sync_partners(run: SyncRun, *, client: EToolsClient | None = None) -> SyncRu
         # name and partner_type go through the same coercion as every other field (NOT NULL, max_length).
         assign(partner, item, ("name", "partner_type", *PARTNER_FIELDS))
         partner.save()
+        copy.keep(item)
 
     def body() -> dict[str, Any]:
-        process_items(run, client.list("/api/v2/partners/", page_size=None), handle, _label)
-        return {}
+        found = client.list("/api/v2/partners/", page_size=None, seen=copy.seen)
+        process_items(run, copy.offered(found), handle, _label)
+        return copy.into({})
 
     return _run_entity(run, body)
 
@@ -287,15 +298,18 @@ def sync_partners(run: SyncRun, *, client: EToolsClient | None = None) -> SyncRu
 def sync_partner_details(run: SyncRun, *, client: EToolsClient | None = None) -> SyncRun:
     """``/api/v2/partners/{id}/`` for every local partner (v2 ``sync_individual_partner_data``)."""
     client = client or EToolsClient()
+    copy = RestCopy("rest_partner_details")
 
     def handle(partner: PartnerOrganization) -> None:
         item = client.get(f"/api/v2/partners/{partner.etl_id}/")
         assign(partner, item, PARTNER_DETAIL_FIELDS)
         partner.save()
+        copy.keep(item, asked=partner.etl_id, parent=partner.etl_id)
 
     def body() -> dict[str, Any]:
-        process_items(run, PartnerOrganization.objects.all().iterator(), handle, lambda p: p.etl_id)
-        return {}
+        partners = copy.offered(PartnerOrganization.objects.all().iterator(), key=lambda p: str(p.etl_id))
+        process_items(run, partners, handle, lambda p: p.etl_id)
+        return copy.into({})
 
     return _run_entity(run, body)
 
@@ -305,6 +319,7 @@ def sync_agreements(run: SyncRun, *, client: EToolsClient | None = None) -> Sync
     """``/api/v2/agreements/`` -> ``Agreement`` (v2 ``sync_agreement_data``)."""
     client = client or EToolsClient()
     refs = References()
+    copy = RestCopy("rest_agreements")
 
     def handle(item: dict[str, Any]) -> None:
         agreement, _ = Agreement.objects.get_or_create(
@@ -313,10 +328,12 @@ def sync_agreements(run: SyncRun, *, client: EToolsClient | None = None) -> Sync
         agreement.partner = refs.by_etl_id(PartnerOrganization, item.get("partner"))
         assign(agreement, item, AGREEMENT_FIELDS)
         agreement.save()
+        copy.keep(item)
 
     def body() -> dict[str, Any]:
-        process_items(run, client.list("/api/v2/agreements/", page_size=None), handle, _label)
-        return refs.details()
+        found = client.list("/api/v2/agreements/", page_size=None, seen=copy.seen)
+        process_items(run, copy.offered(found), handle, _label)
+        return copy.into(refs.details())
 
     return _run_entity(run, body)
 
@@ -340,6 +357,7 @@ def _add_locations_by_p_code(intervention: PCA, p_codes: Iterable[str]) -> None:
 def sync_interventions(run: SyncRun, *, client: EToolsClient | None = None) -> SyncRun:
     """``/api/v2/interventions/`` -> ``PCA`` (v2 ``sync_intervention_data``)."""
     client = client or EToolsClient()
+    copy = RestCopy("rest_interventions")
 
     def handle(item: dict[str, Any]) -> None:
         intervention, _ = PCA.objects.get_or_create(etl_id=str(item["id"]), defaults={"title": ""})
@@ -350,10 +368,12 @@ def sync_interventions(run: SyncRun, *, client: EToolsClient | None = None) -> S
             intervention.unicef_focal_points = focal_points
         intervention.save()
         _add_locations_by_p_code(intervention, item.get("location_p_codes") or [])
+        copy.keep(item)
 
     def body() -> dict[str, Any]:
-        process_items(run, client.list("/api/v2/interventions/", page_size=None), handle, _label)
-        return {}
+        found = client.list("/api/v2/interventions/", page_size=None, seen=copy.seen)
+        process_items(run, copy.offered(found), handle, _label)
+        return copy.into({})
 
     return _run_entity(run, body)
 
@@ -392,6 +412,7 @@ def sync_intervention_details(run: SyncRun, *, client: EToolsClient | None = Non
     """``/api/v2/interventions/{id}/`` for PCAs with donors (v2 ``sync_intervention_individual_data``)."""
     client = client or EToolsClient()
     refs = References()
+    copy = RestCopy("rest_intervention_details")
 
     def handle(intervention: PCA) -> None:
         item = client.get(f"/api/v2/interventions/{intervention.etl_id}/")
@@ -401,11 +422,12 @@ def sync_intervention_details(run: SyncRun, *, client: EToolsClient | None = Non
         assign(intervention, item, {"end_date": "end"})
         intervention.donors_set = donors_set_of(item)
         intervention.save()
+        copy.keep(item, asked=intervention.etl_id, parent=intervention.etl_id)
 
     def body() -> dict[str, Any]:
-        queryset = PCA.objects.filter(donors__len__gt=0).iterator()
+        queryset = copy.offered(PCA.objects.filter(donors__len__gt=0).iterator(), key=lambda p: str(p.etl_id))
         process_items(run, queryset, handle, lambda p: p.etl_id)
-        return refs.details()
+        return copy.into(refs.details())
 
     return _run_entity(run, body)
 
@@ -450,6 +472,7 @@ def sync_travels(run: SyncRun, *, client: EToolsClient | None = None, days: int 
     """
     client = client or EToolsClient()
     refs = References()
+    copy, details = RestCopy("rest_travels"), RestCopy("rest_travel_details")
 
     def handle_list(item: dict[str, Any]) -> None:
         travel, _ = Travel.objects.get_or_create(id=int(item["id"]))
@@ -458,28 +481,40 @@ def sync_travels(run: SyncRun, *, client: EToolsClient | None = None, days: int 
         travel.section_id = refs.existing_id(Section, item.get("section"))
         travel.office_id = refs.existing_id(Office, item.get("office"))
         travel.save()
+        copy.keep(item)
 
     def handle_detail(travel: Travel) -> None:
-        _travel_detail(travel, client.get(f"/api/t2f/travels/{travel.id}/"), refs)
+        item = client.get(f"/api/t2f/travels/{travel.id}/")
+        _travel_detail(travel, item, refs)
+        details.keep(item, asked=travel.id, parent=travel.id)
 
     def body() -> dict[str, Any]:
-        process_items(run, client.list("/api/t2f/travels/"), handle_list, _label)
+        found = client.list("/api/t2f/travels/", seen=copy.seen)
+        process_items(run, copy.offered(found), handle_list, _label)
         listed = run.rows_in
+        copies = copy.into({})  # the list ended: the trips no longer listed go, with their details
         since = timezone.now().date() - dt.timedelta(days=days)
-        recent = Travel.objects.filter(start_date__gte=since).iterator()
+        recent = details.offered(
+            Travel.objects.filter(start_date__gte=since).iterator(), key=lambda t: str(t.id)
+        )
         process_items(run, recent, handle_detail, lambda t: str(t.id))
-        return {"travels_listed": listed, "details_fetched": run.rows_in - listed, **refs.details()}
+        details.into(copies)
+        return {"travels_listed": listed, "details_fetched": run.rows_in - listed, **refs.details(), **copies}
 
     return _run_entity(run, body)
 
 
 # ---------------------------------------------------------------------------------- engagements
-def _engagement_detail(engagement: Engagement, client: EToolsClient, refs: References) -> None:
+def _engagement_detail(
+    engagement: Engagement, client: EToolsClient, refs: References, copy: RestCopy | None = None
+) -> None:
     """v2 ``sync_audit_individual_data``; unknown engagement types had no valid endpoint in v2."""
     template = ENGAGEMENT_DETAIL_PATHS.get(engagement.engagement_type)
     if template is None:
         logger.warning("etools: engagement %s has unknown type %r", engagement.id, engagement.engagement_type)
         return
+    if copy is not None:  # asked for: a GET that fails is counted as received, not kept
+        copy.received.add(str(engagement.id))
     data = client.get(template.format(id=engagement.id))
     assign(engagement, data, ENGAGEMENT_DETAIL_FIELDS)
     if "findings" in data:
@@ -489,12 +524,15 @@ def _engagement_detail(engagement: Engagement, client: EToolsClient, refs: Refer
         intervention = refs.by_etl_id(PCA, pd.get("id") if isinstance(pd, dict) else pd)
         if intervention is not None:
             engagement.active_pd.add(intervention)
+    if copy is not None:
+        copy.keep(data, asked=engagement.id, parent=engagement.id)
 
 
 def sync_engagements(run: SyncRun, *, client: EToolsClient | None = None) -> SyncRun:
     """``/api/audit/engagements/`` + per-type detail -> ``Engagement`` (v2 ``sync_audit_data``)."""
     client = client or EToolsClient()
     refs = References()
+    copy, details = RestCopy("rest_engagements"), RestCopy("rest_engagement_details")
 
     def handle(item: dict[str, Any]) -> None:
         engagement, _ = Engagement.objects.get_or_create(id=int(item["id"]), defaults={"description": ""})
@@ -505,11 +543,13 @@ def sync_engagements(run: SyncRun, *, client: EToolsClient | None = None) -> Syn
             PartnerOrganization, partner.get("id") if isinstance(partner, dict) else partner
         )
         engagement.save()
-        _engagement_detail(engagement, client, refs)
+        _engagement_detail(engagement, client, refs, details)
+        copy.keep(item)
 
     def body() -> dict[str, Any]:
-        process_items(run, client.list("/api/audit/engagements/"), handle, _label)
-        return refs.details()
+        found = client.list("/api/audit/engagements/", seen=copy.seen)
+        process_items(run, copy.offered(found), handle, _label)
+        return details.into(copy.into(refs.details()))
 
     return _run_entity(run, body)
 
@@ -519,6 +559,7 @@ def sync_action_points(run: SyncRun, *, client: EToolsClient | None = None) -> S
     """``/api/action-points/action-points/?engagement=<id>`` for final engagements (v2)."""
     client = client or EToolsClient()
     refs = References()
+    copy = RestCopy("rest_action_points")
 
     def handle(pair: tuple[Engagement, dict[str, Any]]) -> None:
         engagement, item = pair
@@ -538,15 +579,22 @@ def sync_action_points(run: SyncRun, *, client: EToolsClient | None = None) -> S
         point.engagement = engagement
         point.partner = refs.by_etl_id(PartnerOrganization, (item.get("partner") or {}).get("id"))
         point.save()
+        copy.keep(item, parent=engagement.id)
 
     def items() -> Iterable[tuple[Engagement, dict[str, Any]]]:
         for engagement in Engagement.objects.filter(status=ENGAGEMENT_FINAL).iterator():
-            for item in client.list("/api/action-points/action-points/", {"engagement": engagement.id}):
+            said: dict[str, Any] = {}
+            for item in client.list(
+                "/api/action-points/action-points/", {"engagement": engagement.id}, seen=said
+            ):
                 yield engagement, item
+            if isinstance(said.get("count"), int):
+                copy.seen["count"] = copy.seen.get("count", 0) + said["count"]
 
     def body() -> dict[str, Any]:
-        process_items(run, items(), handle, lambda pair: _label(pair[1]))
-        return refs.details()
+        found = copy.offered(items(), key=lambda pair: rest_raw.record_key(pair[1]))
+        process_items(run, found, handle, lambda pair: _label(pair[1]))
+        return copy.into(refs.details())
 
     return _run_entity(run, body)
 
@@ -590,4 +638,5 @@ def sync_all(
         except Exception:
             logger.error("etools %s aborted; continuing with the next entity", name)
         runs.append(run)
+    rest_raw.remember_names()  # the names the raw copies hold, taken out of texts too
     return runs

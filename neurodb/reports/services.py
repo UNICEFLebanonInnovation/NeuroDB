@@ -346,6 +346,7 @@ HEALTH_SKIPPED_JOBS = (
     SyncRun.Job.REPORTING_CHECKS,  # the eTools reporting checks: their own page says when they ran
     SyncRun.Job.DATAMART_PROBE,  # a probe of one Datamart dataset, started by hand: never stale
     SyncRun.Job.ETOOLS_MASTERS,  # the master indicators' suggestions: worked out from the synced data
+    SyncRun.Job.ETOOLS_REST_RAW,  # the raw copy of the eTools REST records, started by hand: never stale
 )
 
 

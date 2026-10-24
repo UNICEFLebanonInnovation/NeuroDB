@@ -75,6 +75,15 @@ def client_validator(client, roles):
 
 def _plant(name: str) -> int:
     """A record of ``name`` naming people every way, in its data and in each of its text columns: its pk."""
+    if raw.rest(name):  # as the eTools REST copy writes it: its title built from raw values
+        return dm.RestRecord.objects.create(
+            entity=name,
+            record_key="4242",
+            source_id="4242",
+            reference=f"REF/1 {NAME}",
+            title=f"Report · {NAME}",
+            data=catalogue.scrub(PLANTED),
+        ).pk
     if raw.typed(name):
         model = raw.model_of(name)
         fields = {"datamart_id": 4242, "data": PLANTED}
@@ -96,7 +105,10 @@ def _download(client, name: str) -> tuple[list[str], list[list[str]]]:
     return rows[0], rows[1:]
 
 
-@pytest.mark.parametrize("name", list(ENTITY_SYNCS))
+SOURCES = [*ENTITY_SYNCS, *raw.REST_ENTITIES]  # every Datamart dataset and every eTools REST entity
+
+
+@pytest.mark.parametrize("name", SOURCES)
 def test_no_person_reaches_a_raw_csv(client_validator, name):
     _plant(name)
     header, rows = _download(client_validator, name)
@@ -127,7 +139,7 @@ def test_no_person_reaches_a_raw_csv(client_validator, name):
         assert row["people_inside"] in ("0", "1")  # the location's focal point, when the location is shown
 
 
-@pytest.mark.parametrize("name", list(ENTITY_SYNCS))
+@pytest.mark.parametrize("name", SOURCES)
 def test_no_person_reaches_a_source_s_list_or_a_record_s_page(client_validator, name):
     pk = _plant(name)
     for url in (

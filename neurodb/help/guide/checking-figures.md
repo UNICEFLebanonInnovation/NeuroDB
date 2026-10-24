@@ -220,11 +220,12 @@ your dashboard names one differently, tell the NeuroDB team: they correct it in 
 
 **Raw eTools data** (in the administration, *Data and sync → Raw eTools data*) shows what NeuroDB received
 from eTools, record by record, as it came: every eTools Datamart dataset NeuroDB reads, the partner
-reports and PRP's own datasets among them.
+reports and PRP's own datasets among them, and the records of the eTools REST API (partners, agreements,
+programme documents, trips, engagements, action points and their details).
 
 - **The first page** lists the pages and the sources each reads, then every source once, in four tables:
   what Progress reports and Partner monitoring read; the other eTools Datamart datasets; the eTools REST
-  API (not kept here yet); and what NeuroDB does not read, with why. For each source: the pages that use
+  API; and what NeuroDB does not read, with why. For each source: the pages that use
   it, how many records are in NeuroDB, its last sync, what eTools said it had, what NeuroDB received, what
   was not kept (of another country, naming no country, records that could not be saved), how many
   records the last sync updated, and **Complete?**: *Yes*, or *No* with the first reason.
@@ -237,9 +238,10 @@ reports and PRP's own datasets among them.
   saved into NeuroDB's own partners, programme documents, locations...: the ones the pages read. Then
   **Complete?** says *No*. For the partner reports it also says from which date NeuroDB holds them, and
   how many running programme documents have no report row (check 10).
-- **Fields this source sends** (folded) lists each field of the newest 2,000 records in NeuroDB: how many
-  records carry it, how many hold a value, and how NeuroDB uses it (read into one of its columns, names
-  people, written by a person, a text, shown as received, or a new field).
+- **Fields this source sends** (folded) lists each field the last sync counted on every record it kept
+  (before a sync has counted them, the newest 2,000 records in NeuroDB): how many records carry it, how many
+  hold a value, and how NeuroDB uses it (read into one of its columns, names people, written by a person, a
+  text, shown as received, or a new field).
 - **The filter** keeps the records of a programme document, a partner, a section, a status, a year or a
   date range, a reference or number, a record id, and those the last sync updated or not. For the partner
   reports, also the report type and the programme document link: running, another status, draft or
@@ -248,6 +250,21 @@ reports and PRP's own datasets among them.
   received, then what NeuroDB made of it (its columns, the programme document, partner and location it
   links to; for a partner report row its progress report and the status every page reads for it) and
   the sync that last updated it.
+
+## The eTools REST API
+
+The eTools REST sync keeps a copy of every record it reads, as it came. To fill or refresh that copy without
+changing anything else, a superuser or an Administrator presses **Read the eTools REST API now** on the first
+page (also in *Import and sync runs → Run a job → eTools REST raw copy*). It runs in the background, a few
+minutes or more; reload the page to see what it received. No page figure changes: only the copy is written.
+The eTools REST sync itself also updates the programme documents, whose status decides which ones are
+running on the partner reporting pages.
+
+- A record eTools no longer lists goes from the copy, with its details, after a read that went to the end.
+  A read that stopped, or that received fewer records than eTools said it had, removes nothing.
+- The details of trips started more than a year ago stay as they were last read.
+- If the page says "The eTools REST API token is not set on this server: ask the NeuroDB team.", the copy
+  cannot be read until the NeuroDB team sets it.
 
 ## People are never shown
 
@@ -274,8 +291,9 @@ takes the review back.
 the eTools figures, the record id, when it was updated and whether by the last sync, its programme
 document and partner in NeuroDB; for the partner reports also its programme document link and its
 progress report and indicator report ids), then every field of the source, a field that names people as
-a count, and at the end the people named inside the fields shown and any field first met lower in the
-file. The file's name carries the source and the moment of the figures (day, hour and minute).
+a count (a field with the name of one of NeuroDB's columns, such as the record's own vendor number, ends in
+"(as received)"), and at the end the people named inside the fields shown and any field first met lower in
+the file. The file's name carries the source and the moment of the figures (day, hour and minute).
 
 - A download holds at most 25,000 records for the sources with long texts (partner reports, field
   monitoring findings, action points, financial findings, staff trips) and 100,000 for the others. Above

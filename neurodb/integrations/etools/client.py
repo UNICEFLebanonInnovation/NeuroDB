@@ -55,13 +55,19 @@ class EToolsClient:
         return get_json(self.session, self.url(path), **params)
 
     def list(
-        self, path: str, params: dict[str, Any] | None = None, *, page_size: int | None = DEFAULT_PAGE_SIZE
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        *,
+        page_size: int | None = DEFAULT_PAGE_SIZE,
+        seen: dict[str, Any] | None = None,
     ) -> Iterator[dict[str, Any]]:
         """Yield every item of a list endpoint across all its pages.
 
         Handles a plain JSON list, DRF page-number responses (``results`` + ``next``) and the t2f
         style (``data`` with ``page``/``page_size`` query parameters, ``page_count`` when given,
-        else until an empty page or a 404).
+        else until an empty page or a 404). ``seen``: a dict that gets the ``count`` the first DRF page
+        announces, what eTools said it had (a plain list and the t2f style give none).
         """
         query = dict(params or {})
         if page_size:
@@ -81,6 +87,8 @@ class EToolsClient:
             if not isinstance(payload, dict):
                 raise IntegrationError(f"unexpected list payload from {path}")
             if "results" in payload:
+                if seen is not None and page == 1 and isinstance(payload.get("count"), int):
+                    seen["count"] = payload["count"]
                 yield from payload["results"]
                 next_url = payload.get("next")
                 if not next_url:

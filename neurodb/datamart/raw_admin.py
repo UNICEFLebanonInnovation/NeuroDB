@@ -7,19 +7,24 @@ status). Anyone else gets a 404.
   50 a page) and the CSV of the filter;
 * ``datamart/raw/<source>/<pk>/``: one record, as received and as NeuroDB read it;
 * ``datamart/raw/<source>/rows.csv``: the CSV of the filter (streamed, capped, two at once on the site);
-* ``datamart/raw/<source>/fields/`` (POST, superusers): a field reviewed, or hidden again.
+* ``datamart/raw/<source>/fields/`` (POST, superusers): a field reviewed, or hidden again;
+* ``datamart/raw/rest/read/`` (POST, superusers and Administrators): "Read the eTools REST API now" starts the
+  job that reads the eTools REST API into Raw eTools data (``integrations.etools.rest_raw``), in the
+  background; without the eTools token the page says so and shows no button.
 
-Every record goes through the people rule (``raw_people``). Read-only, but for the reviews.
+Every record goes through the people rule (``raw_people``). Read-only, but for the reviews and the button.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any
 from urllib.parse import urlencode
 
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -34,6 +39,7 @@ from . import catalogue, raw, raw_people, runfacts
 from . import models as dm
 
 CONTENT_HASH = re.compile(r"[0-9a-f]{64}")
+STARTING_S = 120  # how long a read started counts as starting while its process has written no run yet
 
 
 def _guard(request) -> None:
@@ -42,7 +48,7 @@ def _guard(request) -> None:
 
 
 def _source(name: str) -> str:
-    if name not in raw.sources():
+    if not raw.known(name):
         raise Http404
     return name
 
@@ -68,6 +74,8 @@ def _status_word(run: SyncRun | None) -> str:
 
 
 def _not_kept(facts: runfacts.RunFacts) -> str:
+    if raw.rest(facts.source):  # the eTools REST API sends this country's records only
+        return f"{facts.not_saved:,} could not be saved"
     words = (
         f"{facts.other_country:,} of another country; {facts.unnamed:,} named no country; "
         f"{facts.not_saved:,} could not be saved"
@@ -88,9 +96,40 @@ def _row(request, name: str, facts: runfacts.RunFacts) -> dict[str, Any]:
         "facts": facts,
         "not_kept": _not_kept(facts),
         "status": _status_word(run),
+        "job": run.get_job_display() if run is not None and raw.rest(name) else "",
         "run_url": reverse("admin:core_syncrun_change", args=[run.pk])
         if run is not None and _sees_runs(request.user)
         else "",
+    }
+
+
+def _rest_reading(request) -> dict[str, Any]:
+    """The eTools REST API part of the first page: its entities (what the last read that kept each copy
+    received and kept), and "Read the eTools REST API now" for superusers and Administrators, or why not."""
+    from neurodb.integrations import background
+    from neurodb.integrations.etools import rest_raw
+
+    names = list(raw.REST_ENTITIES)
+    runs = runfacts.rest_runs(names)
+    counts = raw.rest_counts(runs)
+    rows = [
+        _row(request, name, runfacts.build(name, run, newer, tuple(counts[name])))
+        for name, (run, newer) in runs.items()
+    ]
+    job = SyncRun.Job.ETOOLS_REST_RAW
+    running = None
+    if background.is_running(job):  # a row left running by a stopped process is closed there
+        running = (
+            SyncRun.objects.filter(job=job, status=SyncRun.Status.RUNNING).order_by("-started_at").first()
+        )
+    asked = background.started_at(rest_raw.COMMAND)
+    return {
+        "rest": rows,
+        "rest_token": rest_raw.token_set(),
+        "rest_can_read": _sees_runs(request.user),
+        "rest_read_url": reverse("admin:datamart_raw_rest_read"),
+        "rest_running": running,
+        "rest_starting": running is None and asked is not None and time.time() - asked < STARTING_S,
     }
 
 
@@ -146,7 +185,7 @@ def index_view(request):
         request,
         _("Raw eTools data"),
         tables=tables,
-        rest=[{"name": k, "label": label, "path": path} for k, (label, path) in raw.REST_ENTITIES.items()],
+        **(_rest_reading(request) if not page else {}),
         excluded=sorted(catalogue.EXCLUDED.items()),
         by_page=by_page,
         page=page,
@@ -196,7 +235,8 @@ def source_view(request, source: str):
     rows = filters.apply(name, raw.base(name), run)
     n = raw.counted(name, rows)
     names = people.known_names()
-    counted, left_out = raw.field_counts(name, names)
+    counted, left_out = raw.field_counts(name, names, run)
+    kept = raw.keys_kept(run, name)
     columns = raw.columns_of(name, counted)
     reviewed = raw.reviewed_keys(name)
     records: list[dict[str, Any]] = []
@@ -250,6 +290,9 @@ def source_view(request, source: str):
         left_out=left_out,
         unsent=raw.unsent(name, counted),
         fields_counted=raw.FIELDS_COUNTED,
+        fields_by_sync=bool(kept),
+        other_fields=(kept.get(raw.OTHER_FIELDS) or [0])[0] if kept else 0,
+        more_fields=bool(kept.get(raw.MORE_FIELDS)) if kept else False,
         superuser=request.user.is_superuser,
         by_hand=raw.reviewed_by_hand(name),
         reviewable=name not in catalogue.SAFEGUARDING,
@@ -257,13 +300,17 @@ def source_view(request, source: str):
         developer_url=_developer_url(name),
         checks_url=reverse("admin:datamart_reporting_checks"),
         typed=raw.typed(name),
+        rest=raw.rest(name),
         **extra,
     )
     return render(request, "admin/datamart/raw/source.html", context)
 
 
 def _developer_url(name: str) -> str:
-    """The developer table of a source (superusers only), where a field's values are read before a review."""
+    """The developer table of a source (superusers only), where a field's values are read before a review
+    ("" for an eTools REST entity: its copy has no developer table)."""
+    if raw.rest(name):
+        return ""
     if raw.typed(name):
         model = raw.model_of(name)._meta
         return reverse(f"admin:{model.app_label}_{model.model_name}_changelist") + "?"
@@ -322,10 +369,17 @@ def _report_status(row: Any, names: frozenset[str], own: frozenset[str]) -> dict
 
 def _written_by(name: str, row: Any, run: SyncRun | None) -> dict[str, Any]:
     """The sync that last updated a record: the last one, or an earlier one (its date)."""
+    from django.db.models import Q
+
     if run is not None and raw.updated_by_last(row, run):
         return {"last": True, "when": run.finished_at}
+    jobs = Q(job=SyncRun.Job.ETOOLS_DATAMART, target=name)
+    if raw.rest(name):  # the read into Raw eTools data, or the eTools REST sync
+        jobs = Q()
+        for job, target in runfacts.rest_jobs(name):
+            jobs |= Q(job=job, target=target)
     earlier = (
-        SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_DATAMART, target=name, started_at__lte=row.synced_at)
+        SyncRun.objects.filter(jobs, started_at__lte=row.synced_at)
         .order_by("-started_at", "-pk")
         .values_list("started_at", flat=True)
         .first()
@@ -366,7 +420,17 @@ def record_view(request, source: str, pk: int):
     if location is not None and not hasattr(location, "p_code"):
         location = None
     made = _typed_fields(name, row, names, own) if raw.typed(name) else []
-    if not raw.typed(name):
+    if raw.rest(name):
+        made = [
+            {
+                "label": "reference",
+                "value": raw_people.column(name, "reference", row.reference, names, own) or "—",
+            },
+            {"label": "title", "value": raw_people.column(name, "title", row.title, names, own) or "—"},
+            {"label": "source_id", "value": row.source_id or "—"},
+            {"label": "parent_key", "value": row.parent_key or "—"},
+        ]
+    elif not raw.typed(name):
         title = raw_people.column(name, "title", row.title, names, own)
         made = [
             {"label": "title", "value": title or "—"},
@@ -393,6 +457,7 @@ def record_view(request, source: str, pk: int):
         written=_written_by(name, row, run),
         content_hash=not raw.typed(name) and bool(CONTENT_HASH.fullmatch(row.record_key or "")),
         field_count=len(data),
+        rest=raw.rest(name),
     )
     return render(request, "admin/datamart/raw/record.html", context)
 
@@ -425,7 +490,7 @@ def csv_view(request, source: str):
         return _plain(raw.BUSY, 503)
     try:
         names = people.known_names()
-        counted, _left_out = raw.field_counts(name, names)
+        counted, _left_out = raw.field_counts(name, names, run)
         keys = raw.header_keys(name, rows, counted)
         columns = raw.csv_columns(name, keys)
     except Exception:
@@ -476,5 +541,34 @@ def field_view(request, source: str):
         )
         messages.success(
             request, _("%(key)s is reviewed: its values are shown, without people.") % {"key": key}
+        )
+    return redirect(back)
+
+
+# ------------------------------------------------------------------------------------------ the REST API read
+@require_POST
+def rest_read_view(request):
+    """ "Read the eTools REST API now": the job that reads the eTools REST API into Raw eTools data, started
+    in the background (superusers and Administrators who open Raw eTools data; anyone else may not). Refused
+    without the eTools token, and while a read is running."""
+    from neurodb.integrations import background
+    from neurodb.integrations.etools import rest_raw
+
+    _guard(request)
+    if not _sees_runs(request.user):
+        raise PermissionDenied
+    back = reverse("admin:datamart_raw") + "#rest"
+    if not rest_raw.token_set():
+        messages.error(request, rest_raw.NO_TOKEN)
+    elif background.is_running(SyncRun.Job.ETOOLS_REST_RAW):
+        messages.warning(request, _("The eTools REST API is already being read into Raw eTools data."))
+    else:
+        background.start_command(rest_raw.COMMAND, "--triggered-by", request.user.get_username())
+        messages.success(
+            request,
+            _(
+                "The eTools REST API is being read into Raw eTools data, in the background. Reload this page "
+                "in a few minutes to see what it received."
+            ),
         )
     return redirect(back)

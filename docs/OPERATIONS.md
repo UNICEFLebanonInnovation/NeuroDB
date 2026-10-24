@@ -1164,7 +1164,8 @@ release (`migrate core 0027` drops the empty setting table).
 
 Everything an operator runs with `manage.py` has a button in the admin, for administrators, each
 with a confirmation step. Admin → *Data and sync* → *Import and sync runs* (also linked from the
-admin home page, *Quick actions*):
+admin home page, *Quick actions*). Raw eTools data and the figure trails are pages; the REST raw copy is a
+button on Raw eTools data (and in Run a job); the fields count is written by the existing syncs.
 
 | Button | Command it runs | How |
 |---|---|---|
@@ -1198,7 +1199,8 @@ admin home page, *Quick actions*):
 | *Reporting setup* → *Master indicators (eTools)*: actions *Accept the proposed master indicators*, *Dismiss the proposed master indicators*, *Confirm all suggestions*, *Confirm suggestions scoring 0.9 or more*, *Merge the selected master indicators*, *Change section (after an eTools rename)*, and *Add PD indicators* on a master's page; *Master indicator links (eTools)*: *Confirm*, *Reject*, *Make "Shown only"*; the same decisions on Partner monitoring's *Master indicators* tab | (no command: they change the master indicators and their links) | in the request |
 | *Reporting setup* → *Master indicators* (ActivityInfo): action *Create eTools master indicators from these* | (no command: writes eTools master indicators only, never an ActivityInfo row) | in the request |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
-| *Data and sync* → *Raw eTools data* (validators) | (no command: pages and a streamed CSV; the fields of each source are counted on the page; a superuser's *Reviewed: show it* writes one row) | in the request |
+| *Data and sync* → *Raw eTools data* (validators) | (no command: pages and a streamed CSV; the fields of each source are counted by the existing syncs as they write, `details.keys_kept`; a superuser's *Reviewed: show it* writes one row) | in the request |
+| *Raw eTools data* → **Read the eTools REST API now** (superusers and Administrators who are validators), or Run a job → *eTools REST raw copy* | `read_etools_rest_raw` (the raw copy of the eTools REST records; writes no other table) | background |
 | *Check these figures* under Progress reports' tabs, Partner monitoring's views and map, and Home's two partner reporting blocks (validators) | (no command: the figure trail is a page in parts, its rows streamed CSVs; it writes nothing but the shared page figures) | in the request |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
@@ -2092,12 +2094,15 @@ Anyone else sees the pages as before; the addresses answer 404.
 | One record | `datamart/raw/<source>/<pk>/` | `admin:datamart_raw_record` |
 | CSV of the filter | `datamart/raw/<source>/rows.csv` | `admin:datamart_raw_csv` |
 | Review a field (POST, superusers) | `datamart/raw/<source>/fields/` | `admin:datamart_raw_field` |
+| Read the eTools REST API now (POST, superusers and Administrators) | `datamart/raw/rest/read/` | `admin:datamart_raw_rest_read` |
 
 `<source>` is a dataset of the nightly Datamart sync (`ENTITY_SYNCS`): its records are its own table
 (`catalogue.TYPED`) or `DatamartDocument` rows (the raw copies of the partners, programme documents,
-agreements, locations and engagements included). The pages are `datamart/raw_admin.py` with
-`datamart/raw.py`; templates `datamart/templates/admin/datamart/raw/`, plain pages with no script. The eTools
-REST API's entities are listed "Not read yet" until their raw copy is added.
+agreements, locations and engagements included); or an entity of the eTools REST API (`raw.REST_ENTITIES`:
+`rest_partners`, `rest_partner_details`, `rest_agreements`, `rest_interventions`, `rest_intervention_details`,
+`rest_travels`, `rest_travel_details`, `rest_engagements`, `rest_engagement_details`, `rest_action_points`),
+whose records are `RestRecord` rows (below). Any other value answers 404. The pages are `datamart/raw_admin.py`
+with `datamart/raw.py`; templates `datamart/templates/admin/datamart/raw/`, plain pages with no script.
 
 **What each sync received** (`datamart/runfacts.py`, from Data health's own row, `reports.services.quality_row`).
 The run the records come from is the latest that succeeded, or succeeded with errors, and received something;
@@ -2118,7 +2123,10 @@ red. **Complete?** is *Yes* when the run succeeded, NeuroDB received at least wh
 failed (a raw copy, or a partner, programme document, location... of a source written by another sync) and
 nothing is unexplained; otherwise the first reason. An error is shown by its kind only (`runs._error_key`). On
 21 Oct, PRP's progress reports: received 150,221 − of another country 148,631 − could not be saved 0 = 1,590
-updated by the sync; eTools said it had 74 more.
+updated by the sync; eTools said it had 74 more. An eTools REST entity's records come from the latest run that
+kept its copy (the read below, one run per entity, or the eTools REST sync, `details.raw_copies`; a newer run of
+either that failed is named), and nothing is of another country: received − could not be saved = updated by
+the sync.
 
 **The people rule** (`datamart/raw_people.py`, `public_record`): every record on screen and in every CSV goes
 through it, nothing else writes a raw record out. Contact fields are dropped at any depth; the answers of PSEA
@@ -2143,9 +2151,59 @@ field (`country_name`, `business_area`, `business_area_code`), a field NeuroDB r
 sync's fields maps), or a superuser's review (`datamart.RawFieldReview`, migration 0017: a new, empty table).
 Any other field shows only numbers, yes/no, dates and times, under names that may be shown; a text in it, or a
 name such as `"Test Person": 4`, makes it read "N values (not reviewed)". On a source's page, *Fields this
-source sends* (counted with one query from the newest 2,000 records NeuroDB holds) gives a superuser *Look at
-its values* (the developer table, filtered on records carrying the field) and *Reviewed: show it*; *Hide
-again* takes it back. Review a field after reading a few of its values.
+source sends* gives a superuser *Look at its values* (the developer table, filtered on records carrying the
+field; an eTools REST entity has none) and *Reviewed: show it*; *Hide again* takes it back. Review a field after
+reading a few of its values.
+
+**The fields each sync counts** (`raw.KeyCount`). Every write path counts the top-level fields of each record
+it keeps, on the record as stored (`catalogue.scrub`: no contact field), each record once, into the run's
+`details.keys_kept = {"<field>": [records carrying it, records where it holds a value]}` (a value: anything but
+empty, `[]` or `{}`): the datasets in their own table (`sync_dataset`, around `upsert_record`), the records kept
+whole (`DocumentWriter.write`: the raw copies of the partners, programme documents, locations... included) and
+the eTools REST copies (`RestCopy.keep`). At most 400 fields, the most carried first; the others summed under
+`(more fields)`. A field name with a space or an `@`, longer than 64 characters, or shaped like an e-mail, a link
+or a phone is never stored: it adds to `(other fields)` (the records carrying one, and with a value in one), as
+does any field of a PSEA answer outside the safeguarding fields; the run's details are shown to Administrators as
+they are. *Fields this source sends* reads them from the run the records come from ("Counted by the sync of …,
+on every record it kept"), and the newest 2,000 records only say which fields hold a text; a run before this
+release has none, and the page counts the newest 2,000 records as before. A CSV's header starts from them.
+
+**The eTools REST API's raw copy** (`integrations/etools/rest_raw.py`, `datamart.RestRecord`, migration
+datamart 0018: a new, empty table). One row per record and entity: `record_key` (its eTools id; for a detail
+that names none, the id it was asked by; else a hash of the record), `source_id`, `reference` and `title` (a
+programme document's number and title, an agreement's number, a partner's vendor number and name, a trip's
+reference number as both: never its purpose, which can name the traveller; an engagement's or an action
+point's reference number), `parent_key` (a detail: the list record it details; an action point: its
+engagement), `data` (as received, `catalogue.scrub`), `synced_at`; unique on (entity, record key). Two jobs
+write it:
+
+- **Read the eTools REST API into Raw eTools data** (`read_etools_rest_raw`, `SyncRun.Job.ETOOLS_REST_RAW`, core
+  0033: the job's choice; lock 7140441, one read at a time; one run per entity, target the entity). It reads the
+  list endpoints, then each record's detail GET (the partners and programme documents listed, the trips started
+  in the last 365 days, the engagements of a type with an endpoint), and the action points of every final
+  engagement, into the copy only: it writes no other table, so no page figure changes. It is not one of the
+  `keys.ETOOLS_JOBS` (the trail's "a sync is running" note). The button **Read the eTools REST API now** is on
+  Raw eTools data, under *eTools REST API*, for superusers and Administrators (who are validators); a validator
+  who is not one sees the reads and no button (its POST answers 403); *Run a job → eTools REST raw copy* starts
+  it too, for any Administrator. Without `ETOOLS_TOKEN` the page says "The eTools REST API token is not set on
+  this server: ask the NeuroDB team." and shows no button; started from Run a job, it records one failed run
+  saying so.
+- **The eTools REST sync** (`sync.py`) keeps the same copy as it reads: `RestCopy.keep` is the last step of each
+  record's savepoint (a record that fails is not kept, its previous copy stays), and each run's
+  `details.raw_copies.<entity>` says what it received and kept. It still writes the partners, agreements,
+  programme documents (`PCA`, whose status decides "running" on every partner reporting page), trips,
+  engagements and action points as before: that sync can move the PRP pages' figures, the copy never does.
+
+**Removal.** After a list read that ended without an exception, the records of that list entity the read did not
+receive are deleted, and the details whose `parent_key` was one of them (`details.removed`,
+`details.details_removed`). A read that failed, received nothing, or received fewer records than the first page's
+`count` said (`EToolsClient.list(..., seen=)`: "eTools said it had", `details.announced`; the t2f list gives none)
+removes nothing (`removal_skipped`, `removal_skipped_why`). A detail entity is never removed on its own: the
+details of trips started more than a year ago stay. **Names.** At the end of either job the names the copies hold
+(`query._own_names`) are read with the Datamart's into `RecordPeople` (`query.remember_people`, which reads
+`RestRecord` too): a partner's staff named in its details is then also taken out of an engagement's texts.
+Ask NeuroDB never reads the copy (not in the catalogue, no tool queries it). The eTools update clean-up's
+contact scrub covers its `data` column (`backfill._record_columns`).
 
 **The filter and the list.** Programme document, partner, section (Partner reports: `reporting.section_q`), status,
 year and dates, search (references and numbers, never a person, a text or a trip's title), record id, updated by
@@ -2159,8 +2217,9 @@ the status every page reads for it (`reporting.progress_reports`), and the sync 
 spreadsheet would run), NeuroDB's columns first (`figures_as_of`, the record id, `synced_at`,
 `updated_by_last_sync`, the programme document and partner in NeuroDB; for the partner reports `pd_link`,
 `progress_report_key`, `indicator_report_key`), then every field (a field that names people as
-`<field> (people)`, a count), then `people_inside`, `fields_not_shown` and `other_fields` (a field first met
-after the header was made). The file is `raw_<source>_<YYYY-MM-DD>_<HHMM>.csv`, the moment being the end of
+`<field> (people)`, a count; a field named as one of NeuroDB's columns, such as a record's `vendor_number`, as
+`<field> (as received)`), then `people_inside`, `fields_not_shown` and `other_fields` (a field first met after
+the header was made). The file is `raw_<source>_<YYYY-MM-DD>_<HHMM>.csv`, the moment being the end of
 the source's last sync. Limits (`raw.CSV_LIMIT`): 25,000 records for the sources with long texts (partner
 reports, field monitoring findings, action points, financial findings, staff trips), 100,000 for the others;
 above, the page and the address (400) say which filter to choose. At most two large downloads at once on the
@@ -2358,9 +2417,12 @@ written out, the year always) and `view=`. Parts: `figures` (the grid, Data qual
 
 **Tests.** `tests/accounts/test_validators.py` (who validates, one groups query, the pages' queries),
 `tests/datamart/test_raw_people.py` (the rule, the pinned lists, `REVIEWED_KEYS`),
-`tests/datamart/test_raw_csv_privacy.py` (people planted in every source never reach a CSV; the two exports
-below), `tests/datamart/test_raw_admin.py` (access, completeness, the run facts, the filters, the CSV's limits,
-queries), `tests/datamart/test_page_sources.py` (each page reads only its sources) and
+`tests/datamart/test_raw_csv_privacy.py` (people planted in every source, the eTools REST entities included,
+never reach a CSV; the two exports below), `tests/datamart/test_raw_admin.py` (access, completeness, the run
+facts, the filters, the eTools REST entities, the CSV's limits, queries), `tests/integrations/test_raw_copies.py`
+(the fields each sync counts, never an odd name or a contact; the REST copy kept as it came, removed when eTools
+no longer lists it, nothing else written, a failed or short read removing nothing; the button and the token;
+the copy the REST sync keeps; a REST name taken out of another record's texts; checks 10 and 11's one rule), `tests/datamart/test_page_sources.py` (each page reads only its sources) and
 `tests/web/test_plain_words.py` (the pages' words), `tests/reports/test_comparison_sheet.py` (each value is the
 page's figure under several filters, Power BI's order, the formulas, the filter blocks, the day, the lists) and
 `tests/reports/test_check_access.py` (the sheet's and the trail's links and addresses: validators only),
@@ -3515,7 +3577,9 @@ records in every dataset.
 
 The older eTools REST sync (`manage sync_etools`, token `ETOOLS_TOKEN`) is still available on
 demand, for trips (`--only travels`) and the legacy engagement tables; locations come from the
-Datamart (`sync_locations`). An "Invalid token" (HTTP 403) from it means `ETOOLS_TOKEN` was revoked or
+Datamart (`sync_locations`). It keeps a raw copy of every record it reads for Raw eTools data
+(`details.raw_copies`; *Checking the figures*), and it writes the programme documents (`PCA`), whose status
+decides "running" on every partner reporting page: running it can move the PRP pages' figures. An "Invalid token" (HTTP 403) from it means `ETOOLS_TOKEN` was revoked or
 expired: ask eTools for a new token and store it in Key Vault (never in a file). Its intervention details step writes the donor amounts in the same shape as the
 Datamart sync (one entry per donor and grant), so running it does not blank the donor pages.
 

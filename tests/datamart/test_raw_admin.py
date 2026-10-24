@@ -356,6 +356,75 @@ def test_the_filters_narrow_as_the_pages_do(client_validator, world):
     assert _shown(client_validator, "partner_reports", status="Accepted") == 6
 
 
+def _rest_world() -> SyncRun:
+    """Two partners, two programme documents and a trip as the eTools REST API sent them, and the read that
+    kept them."""
+    run = SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_REST_RAW,
+        target="rest_partners",
+        status=SyncRun.Status.SUCCEEDED,
+        started_at=timezone.now() - datetime.timedelta(minutes=5),
+        finished_at=timezone.now() + datetime.timedelta(minutes=5),
+        rows_in=2,
+        rows_written=2,
+        details={"read": 2, "kept": 2, "announced": 2, "removed": 0},
+    )
+    for pk, vendor, name in ((1, "V1", "Amel Association"), (2, "V2", "Akkar Network V1")):
+        dm.RestRecord.objects.create(
+            entity="rest_partners",
+            record_key=str(pk),
+            source_id=str(pk),
+            reference=vendor,
+            title=name,
+            data={"id": pk, "vendor_number": vendor, "name": name},
+        )
+    for pk, number, partner in ((100, "LEB/PD1", 1), (101, "LEB/PD2", 2)):
+        dm.RestRecord.objects.create(
+            entity="rest_intervention_details",
+            record_key=str(pk),
+            source_id=str(pk),
+            reference=number,
+            parent_key=str(pk),
+            data={"number": number, "partner_id": partner},
+        )
+    dm.RestRecord.objects.create(
+        entity="rest_travels", record_key="5", source_id="5", reference="T5", title="T5", data={"id": 5}
+    )
+    return run
+
+
+def test_the_rest_entities_are_listed_once_each_and_filter_as_their_page_says(client_validator, world):
+    run = _rest_world()
+    html = client_validator.get(INDEX).content.decode()
+    rows = html.split('id="rest"', 1)[1]
+    for name in raw.REST_ENTITIES:
+        assert rows.count(f'<a class="nd-link" href="{INDEX}{name}/">') == 1, name
+    assert html.count("Not read yet.") == len(raw.REST_ENTITIES) - 1  # the partners were read
+    facts = runfacts.facts("rest_partners")
+    assert (facts.run, facts.said_it_had, facts.received, facts.updated_by_sync) == (run, 2, 2, 2)
+    assert facts.complete == (True, "Yes")
+    assert _shown(client_validator, "rest_partners") == 2
+    assert _shown(client_validator, "rest_partners", partner="V1") == 1  # the vendor number, never the title
+    assert _shown(client_validator, "rest_partners", partner="2") == 1  # the eTools id
+    assert _shown(client_validator, "rest_partners", q="Akkar") == 1  # a partner's name is its title
+    assert _shown(client_validator, "rest_partners", record="1") == 1
+    assert _shown(client_validator, "rest_partners", updated="last") == 2
+    assert _shown(client_validator, "rest_partners", year=str(timezone.localdate().year)) == 2
+    assert _shown(client_validator, "rest_intervention_details", pd="LEB/PD2") == 1
+    assert _shown(client_validator, "rest_intervention_details", partner="1") == 1  # the partner it names
+    assert _shown(client_validator, "rest_travels", q="T5") == 1
+    page = client_validator.get(f"{INDEX}rest_partners/").content.decode()
+    assert "Read from the eTools REST API" in page and "of another country" not in page
+    pk = dm.RestRecord.objects.get(entity="rest_partners", record_key="1").pk
+    assert client_validator.get(f"{INDEX}rest_partners/{pk}/").status_code == 200
+    assert client_validator.get(f"{INDEX}rest_unknown/").status_code == 404
+    rows = _csv(client_validator.get(f"{INDEX}rest_partners/rows.csv"))
+    assert {r["record_id"] for r in rows} == {"1", "2"}
+    # the record's own vendor number beside the one of the partner NeuroDB links it to (none: a raw copy)
+    assert {r["vendor_number (as received)"] for r in rows} == {"V1", "V2"}
+    assert {r["vendor_number"] for r in rows} == {""}
+
+
 def test_a_search_for_a_person_is_refused(client_validator, world):
     User.objects.create_user(
         username="someone", first_name="Person", last_name="One", password="pass-123456-x"
@@ -604,5 +673,6 @@ def test_the_csv_and_the_record_page_make_a_fixed_number_of_queries(client_valid
     assert _queries(client_validator, url) == few  # the records come in chunks from one cursor
     row = dm.ReportedIndicator.objects.get(datamart_id=1)
     assert _queries(client_validator, f"{INDEX}partner_reports/{row.pk}/") <= ADMIN_OWN + PAGE_QUERIES
-    # every source: their runs (2) and the moment of the counts kept for an hour
-    assert _queries(client_validator, INDEX) <= ADMIN_OWN + 3
+    # every source: their runs (2) and the moment of the counts kept for an hour; the eTools REST entities:
+    # their runs (2), their counts (1) and whether a read of the eTools REST API is running (1)
+    assert _queries(client_validator, INDEX) <= ADMIN_OWN + 3 + 4

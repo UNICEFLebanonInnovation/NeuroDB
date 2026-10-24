@@ -872,6 +872,37 @@ class RawFieldReview(models.Model):
         return f"{self.source}.{self.key}"
 
 
+class RestRecord(models.Model):
+    """A record of the eTools REST API, kept whole as it came, for Raw eTools data (Admin → Data and sync):
+    the partners, agreements, programme documents, trips, engagements and action points the eTools REST sync
+    reads, list and detail apart (``entity``: ``raw.REST_ENTITIES``). Written by the job "Read the eTools REST
+    API into Raw eTools data" (``integrations.etools.rest_raw``) and by the eTools REST sync as it reads;
+    nothing else reads it but Raw eTools data and the names NeuroDB takes out of texts
+    (``query.datamart_people``). Contact details are removed before storing (``catalogue.scrub``)."""
+
+    entity = models.CharField(max_length=32, db_index=True)
+    # the record's eTools id, else a hash of the record (``rest_raw.record_key``)
+    record_key = models.CharField(max_length=64)
+    source_id = models.CharField(max_length=64, blank=True, help_text="the eTools id")
+    reference = models.CharField(max_length=255, blank=True, help_text="its number: never a person")
+    title = models.CharField(
+        max_length=255, blank=True, help_text="its name or title: never a trip's purpose"
+    )
+    parent_key = models.CharField(max_length=64, blank=True, help_text="a detail: the list record it details")
+    data = models.JSONField(default=dict, blank=True)
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["entity", "record_key"], name="datamart_restrecord_key")
+        ]
+        indexes = [models.Index(fields=["entity", "-synced_at"], name="datamart_restrecord_synced")]
+        verbose_name = "eTools REST record"
+
+    def __str__(self):
+        return f"{self.entity}: {self.reference or self.record_key}"
+
+
 class EtoolsMaster(models.Model):
     """A section's master indicator over the partners' eTools PD indicators, like an ActivityInfo master
     indicator: one figure a year, combined from its sub-indicators (:class:`EtoolsMasterLink`, one PD

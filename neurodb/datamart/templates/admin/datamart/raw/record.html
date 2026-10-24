@@ -7,7 +7,8 @@
   how many, a text a person wrote is withheld, a field nobody reviewed shows only numbers and dates), nested values as
   indented JSON; then what NeuroDB made of it (its own columns through the pinned lists, the programme document,
   partner and location it links to, and for a partner report row its progress report and the status every page
-  reads), and the sync that last updated it. A plain page, no script.
+  reads; for an eTools REST record its reference, title, eTools id and the record it details), and the sync that
+  last updated it. A plain page, no script.
 {% endcomment %}
 
 {% block content %}
@@ -39,8 +40,12 @@
   {% trans "What NeuroDB made of it" as made_title %}
   {% component "unfold/components/card.html" with title=made_title title_icon="table_view" %}
     <ul class="nd-found__rates">
+      {% if rest %}
+      <li>{% trans "A record of the eTools REST API: its reference is the number eTools gives it; the eTools REST sync reads it into NeuroDB's own partners, programme documents, trips, engagements and action points." %}</li>
+      {% else %}
       <li>{% trans "Programme document:" %} {% if pd %}<a class="nd-link" href="{{ pd_url }}">{{ pd.number|default:pd.pk }}</a> ({{ pd.status|default:"—" }}){% else %}{{ pd_words }}{% endif %}</li>
       <li>{% trans "Partner:" %} {% if partner %}{{ partner.name }}{% if partner.vendor_number %} ({% trans "vendor number" %} {{ partner.vendor_number }}){% endif %}{% else %}—{% endif %}</li>
+      {% endif %}
       {% if location %}<li>{% trans "Location:" %} {{ location.name }}{% if location.p_code %} ({{ location.p_code }}){% endif %}</li>{% endif %}
       {% if report %}
         <li>{% trans "Progress report id:" %} <code>{{ report.report_key }}</code></li>
