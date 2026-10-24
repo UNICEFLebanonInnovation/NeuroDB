@@ -131,11 +131,11 @@
       </div>
       {% if records %}
         <div class="nd-scroll">
-          <table class="nd-jobs nd-found__table">
+          <table class="nd-jobs nd-found__table nd-raw__records">
             <thead><tr>{% for c in columns %}<th scope="col">{{ c }}</th>{% endfor %}</tr></thead>
             <tbody>
               {% for r in records %}
-                <tr>{% for cell in r.cells %}{% if forloop.first %}<th scope="row"><a class="nd-link" href="{{ r.url }}">{{ cell }}</a></th>{% else %}<td>{% if cell is None or cell == "" %}—{% else %}{{ cell }}{% endif %}</td>{% endif %}{% endfor %}</tr>
+                <tr>{% for cell in r.cells %}{% if forloop.first %}<th scope="row"><a class="nd-link" href="{{ r.url }}">{{ cell }}</a></th>{% else %}<td{% if cell|stringformat:"s"|length > 40 %} class="nd-raw__long"{% endif %}>{% if cell is None or cell == "" %}—{% else %}{{ cell }}{% endif %}</td>{% endif %}{% endfor %}</tr>
               {% endfor %}
             </tbody>
           </table>

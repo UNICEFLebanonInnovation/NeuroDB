@@ -8,9 +8,11 @@ import csv
 import datetime
 import io
 import re
+from pathlib import Path
 
 import psycopg
 import pytest
+from django.conf import settings
 from django.contrib.auth.models import Group
 from django.core.signals import request_finished
 from django.db import close_old_connections, connection
@@ -636,6 +638,24 @@ def test_the_source_page_shows_no_person(client_validator, world):
     assert "Fields this source sends" in html and "names people: shown as a count" in html
     assert (
         "LEB/PD1" in html and "Amel Association" in html and "not in NeuroDB" in html and "names none" in html
+    )
+
+
+def test_the_records_keep_short_values_on_one_line_and_wrap_long_texts(client_validator, world):
+    """A reference, a date or a status never breaks across lines (the list scrolls sideways); a long text wraps
+    in a column wide enough to read it, so a row stays a few lines high (the browser check found references cut
+    in two and rows ten lines high)."""
+    long = "# of children and caregivers reached with psychosocial support in schools"
+    dm.ReportedIndicator.objects.filter(datamart_id=1).update(indicator=long)
+    html = client_validator.get(f"{INDEX}partner_reports/").content.decode()
+    table = html.split('class="nd-jobs nd-found__table nd-raw__records"', 1)[1].split("</table>", 1)[0]
+    assert f'<td class="nd-raw__long">{escape(long)}</td>' in table
+    assert "<td>LEB/PD1</td>" in table and 'class="nd-raw__long">LEB/PD1' not in table
+    css = (Path(settings.BASE_DIR) / "neurodb" / "web" / "static" / "css" / "admin.css").read_text()
+    assert ".nd-raw__records th, .nd-raw__records td { white-space: nowrap; }" in css
+    assert '.nd-raw__records th[scope="row"] { min-width: 0; max-width: 16rem; white-space: normal;' in css
+    assert (
+        ".nd-raw__records td.nd-raw__long { white-space: normal; min-width: 16rem; max-width: 28rem; }" in css
     )
 
 

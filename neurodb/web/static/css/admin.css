@@ -162,3 +162,8 @@
 }
 .dark .nd-raw__filters input, .dark .nd-raw__filters select { border-color: var(--color-base-700); color: inherit; }
 .nd-raw__json { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-width: 60rem; }
+/* A source's records: a reference, a date or a status on one line (the list scrolls sideways); a long text (an
+   indicator, a title) wraps in a column wide enough to read; a record id made from its content wraps. */
+.nd-raw__records th, .nd-raw__records td { white-space: nowrap; }
+.nd-raw__records th[scope="row"] { min-width: 0; max-width: 16rem; white-space: normal; overflow-wrap: anywhere; }
+.nd-raw__records td.nd-raw__long { white-space: normal; min-width: 16rem; max-width: 28rem; }
