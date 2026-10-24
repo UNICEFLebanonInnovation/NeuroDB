@@ -23,13 +23,18 @@ record. Counts only: no record's value is read here.
 
 An eTools REST entity's records come from the latest run that kept its raw copy: of the job "Read the eTools
 REST API into Raw eTools data" (one run per entity), or of the eTools REST sync (its ``details.raw_copies``);
-for a list, the latest that received something (a list eTools answered empty removes nothing from the copy).
-The same equation holds, with nothing of another country: received − could not be saved = updated by the sync.
+for a list, the latest that received something (a list eTools answered empty removes nothing from the copy:
+a newer read that received nothing is named beside it, ``newer_empty``). The same equation holds, with nothing
+of another country: received − could not be saved = updated by the sync.
+
+A run that failed is said by its cause in a few plain words (:func:`failure_words`: the status eTools
+answered, no answer in time, no connection...), never by its error's text.
 """
 
 from __future__ import annotations
 
 import datetime
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -115,6 +120,10 @@ class RunFacts:
     sent_nothing: bool = False  # an eTools REST list whose read received nothing
     not_linked: dict[str, int] = field(default_factory=dict)
     complete: tuple[bool, str] = (False, "")
+    # an eTools REST entity: a newer read than ``run`` that ended without receiving anything (a list eTools
+    # answered empty; the action points with no final engagement to ask for), and what it got, in words
+    newer_empty: SyncRun | None = None
+    empty_words: str = ""
 
 
 def _error_lines(details: dict[str, Any]) -> tuple[ErrorLine, ...]:
@@ -145,6 +154,10 @@ def _verdict(facts: dict[str, Any]) -> tuple[bool, str]:
     words."""
     run = facts["run"]
     if run is None:
+        if facts["newer_failed"] is not None:
+            return False, "No: the last sync failed"
+        if facts.get("newer_empty") is not None:
+            return False, f"No: {facts['empty_words']}"
         return False, "No: never synced"
     if facts["newer_failed"] is not None:
         return False, "No: the last sync failed"
@@ -168,16 +181,22 @@ def _verdict(facts: dict[str, Any]) -> tuple[bool, str]:
 
 
 def build(
-    name: str, run: SyncRun | None, newer_failed: SyncRun | None, counts: tuple[int, int, int]
+    name: str,
+    run: SyncRun | None,
+    newer_failed: SyncRun | None,
+    counts: tuple[int, int, int],
+    *,
+    last: SyncRun | None = None,
 ) -> RunFacts:
-    """The facts of ``name`` from its run and ``counts`` (in NeuroDB, updated by the sync, updated since)."""
+    """The facts of ``name`` from its run and ``counts`` (in NeuroDB, updated by the sync, updated since);
+    for an eTools REST entity, ``last`` is its newest run that ended (:func:`rest_reads`)."""
     from neurodb.integrations.etools.datamart_sync import shift_words
     from neurodb.reports.services import quality_row
 
     from . import raw
 
     if raw.rest(name):
-        return _rest_build(name, run, newer_failed, counts)
+        return _rest_build(name, run, newer_failed, counts, last)
     held, by_sync, since = counts
     row = quality_row(name, run, held)
     details = (run.details if isinstance(run.details, dict) else {}) if run else {}
@@ -219,8 +238,34 @@ def build(
     return RunFacts(**facts)
 
 
+def empty_words(name: str, run: SyncRun) -> str:
+    """What an eTools REST read that received nothing got, in words."""
+    from neurodb.integrations.etools import rest_raw
+
+    from . import raw
+
+    if raw.run_details(run, name).get("removal_skipped_why") == rest_raw.NO_FINAL:
+        return "no final engagement to ask for"
+    return "eTools sent nothing"
+
+
+def _newer_empty(name: str, run: SyncRun | None, last: SyncRun | None) -> SyncRun | None:
+    """``last`` when it is a newer read than ``run`` that ended without failing and received nothing."""
+    from . import raw
+
+    if last is None or last.status == SyncRun.Status.FAILED or (run is not None and last.pk == run.pk):
+        return None
+    if run is not None and last.started_at <= run.started_at:
+        return None
+    return last if _given(raw.run_details(last, name).get("read")) == 0 else None
+
+
 def _rest_build(
-    name: str, run: SyncRun | None, newer_failed: SyncRun | None, counts: tuple[int, int, int]
+    name: str,
+    run: SyncRun | None,
+    newer_failed: SyncRun | None,
+    counts: tuple[int, int, int],
+    last: SyncRun | None = None,
 ) -> RunFacts:
     """The facts of an eTools REST entity: what the read that kept its copy received and kept
     (``rest_raw.RestCopy.finish``), and ``counts``."""
@@ -229,6 +274,7 @@ def _rest_build(
     from . import raw
 
     held, by_sync, since = counts
+    empty = _newer_empty(name, run, last)
     details = raw.run_details(run, name)
     said = _given(details.get("announced"))
     received = _count(details.get("read")) if run else None
@@ -260,6 +306,8 @@ def _rest_build(
         "removal_skipped": bool(details.get("removal_skipped")),
         "removal_held": 0,
         "sent_nothing": name in rest_raw.LISTS and received == 0,
+        "newer_empty": empty,
+        "empty_words": empty_words(name, empty) if empty is not None else "",
     }
     facts["complete"] = _verdict(facts)
     return RunFacts(**facts)
@@ -328,13 +376,28 @@ def rest_jobs(name: str) -> list[tuple[str, str]]:
 _REST_READ = "(COALESCE(s.details -> 'raw_copies' -> t.entity, s.details) -> 'read')"
 
 
+@dataclass(frozen=True)
+class RestReads:
+    """The runs of an eTools REST entity the pages read."""
+
+    run: SyncRun | None  # the run its records come from
+    newer_failed: SyncRun | None  # a newer run that failed
+    last: SyncRun | None  # its newest run that ended, of either job
+
+
 def rest_runs(names: list[str]) -> dict[str, tuple[SyncRun | None, SyncRun | None]]:
+    """For each eTools REST entity of ``names``: the run its records come from, and a newer run that failed
+    (:func:`rest_reads`)."""
+    return {name: (found.run, found.newer_failed) for name, found in rest_reads(names).items()}
+
+
+def rest_reads(names: list[str]) -> dict[str, RestReads]:
     """For each eTools REST entity of ``names``: the latest run that kept its copy (succeeded, or succeeded
     with errors: of the read into Raw eTools data, or of the eTools REST sync when its details hold the copy)
     and, for a list, received something (a list eTools answered empty, when it is down or the token's user
-    lost the country, removed nothing: the records come from the read before), and a newer run of either
-    that failed; in two queries, each the latest run of every (job, target) on the index
-    ``core_syncrun_job_target``."""
+    lost the country, removed nothing: the records come from the read before), a newer run of either that
+    failed, and the newest run of either that ended; in two queries, each the latest run of every (job,
+    target) on the index ``core_syncrun_job_target``."""
     from neurodb.integrations.etools import rest_raw
 
     table = connection.ops.quote_name(SyncRun._meta.db_table)
@@ -368,12 +431,15 @@ def rest_runs(names: list[str]) -> dict[str, tuple[SyncRun | None, SyncRun | Non
         if run.rest_entity not in used or run.started_at > used[run.rest_entity].started_at:
             used[run.rest_entity] = run
     failed: dict[str, SyncRun] = {}
+    last: dict[str, SyncRun] = {}
     for run in SyncRun.objects.raw(finished, [*columns[:3], SyncRun.Status.RUNNING.value]):
+        if run.rest_entity not in last or run.started_at > last[run.rest_entity].started_at:
+            last[run.rest_entity] = run
         before = used.get(run.rest_entity)
         if run.status == SyncRun.Status.FAILED and (before is None or run.started_at > before.started_at):
             if run.rest_entity not in failed or run.started_at > failed[run.rest_entity].started_at:
                 failed[run.rest_entity] = run
-    return {name: (used.get(name), failed.get(name)) for name in names}
+    return {name: RestReads(used.get(name), failed.get(name), last.get(name)) for name in names}
 
 
 def counts(name: str, run: SyncRun | None) -> tuple[int, int, int]:
@@ -386,8 +452,75 @@ def counts(name: str, run: SyncRun | None) -> tuple[int, int, int]:
 
 def facts(name: str) -> RunFacts:
     """The facts of one source (its page): its runs (two queries) and its counts (one)."""
+    from . import raw
+
+    if raw.rest(name):
+        found = rest_reads([name])[name]
+        return build(name, found.run, found.newer_failed, counts(name, found.run), last=found.last)
     run, newer = runs([name])[name]
     return build(name, run, newer, counts(name, run))
+
+
+# ------------------------------------------------------------------------------------- why a run failed
+# The words of an HTTP status eTools or the Datamart answered (none: the status alone, "eTools answered 500")
+STATUS_WORDS = {
+    400: "the request was refused",
+    401: "sign-in refused",
+    403: "not allowed",
+    404: "not found",
+    408: "no answer in time",
+    429: "too many requests",
+    502: "unavailable",
+    503: "unavailable",
+    504: "no answer in time",
+}
+NO_ANSWER = re.compile(r"Timeout|timed out", re.IGNORECASE)
+NO_CONNECTION = re.compile(r"ConnectionError|SSLError|ProxyError|NewConnectionError", re.IGNORECASE)
+UNREADABLE = re.compile(r"response is not JSON|unrecognised (list|record) payload|unexpected list payload")
+NOT_READ = "Not read: "  # the start of rest_raw.NOT_READ and NEVER_READ
+
+
+def not_read(run: SyncRun | None) -> bool:
+    """A run of an eTools REST entity that asked eTools for nothing: the list it asks for failed."""
+    return run is not None and run.status == SyncRun.Status.FAILED and (run.error or "").startswith(NOT_READ)
+
+
+def failure_words(run: SyncRun | None) -> str:
+    """Why a run failed, in a few plain words read from its error: the status the service answered ("eTools
+    answered 403: not allowed"), no answer in time, could not connect, NeuroDB restarted during the run, the
+    list an entity asks for that could not be read, the token not set; "an unexpected error" for any other.
+    Never the error's text: an answer's body comes from eTools or a proxy, and can hold a record's value."""
+    from neurodb.core.admin import HTTP_STATUS, SOURCES
+    from neurodb.core.models.sync import STOPPED
+    from neurodb.integrations.background import CUT_OFF
+    from neurodb.integrations.etools import rest_raw
+
+    if run is None:
+        return ""
+    error = run.error or ""
+    source = SOURCES.get(run.job, "the data source")
+    if error == CUT_OFF:
+        return "NeuroDB was restarted during the run"
+    if error.startswith(STOPPED):
+        return "stopped from Import and sync runs"
+    if error == rest_raw.NO_TOKEN:
+        return "the eTools REST API token is not set"
+    if error.startswith(NOT_READ):
+        return error[len(NOT_READ) :].rstrip(".")
+    if error.startswith("DatamartNotConfigured"):
+        return "the eTools Datamart sign-in is not set"
+    found = HTTP_STATUS.search(error)
+    if found:
+        status = int(found.group(1))
+        words = STATUS_WORDS.get(status)
+        return f"{source} answered {status}: {words}" if words else f"{source} answered {status}"
+    if NO_ANSWER.search(error):
+        return "no answer in time"
+    if NO_CONNECTION.search(error):
+        return "could not connect"
+    if UNREADABLE.search(error):
+        return f"{source} sent an answer NeuroDB cannot read"
+    return "an unexpected error"
 
 
 def moment(run: SyncRun | None) -> datetime.datetime | None:

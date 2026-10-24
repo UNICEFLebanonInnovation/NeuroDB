@@ -369,7 +369,88 @@ def test_a_newer_failed_sync_is_named_and_complete_says_why(client_validator, wo
     assert facts.run == world["run"] and facts.newer_failed is not None
     assert facts.complete == (False, "No: the last sync failed")
     html = client_validator.get(f"{INDEX}partner_reports/").content.decode()
-    assert "failed: the records in NeuroDB come from the sync of" in html
+    assert "failed (an unexpected error).</span>" in html and "boom" not in html
+    assert "The records in NeuroDB come from the sync of" in html
+
+
+ERRORS_SEEN = (  # what a failed run's error holds -> what Raw eTools data says of it
+    (
+        "IntegrationError: GET /api/latest/datamart/audit/financial-findings-all/: HTTP 500 Internal Server "
+        f'Error {{"detail": "{NAME} <{EMAIL}>"}}',
+        "eTools Datamart answered 500",
+    ),
+    (
+        "IntegrationError: GET /api/latest/datamart/x/: HTTP 404 Not Found",
+        "eTools Datamart answered 404: not found",
+    ),
+    (
+        "IntegrationError: GET /api/latest/datamart/x/: HTTP 503 Service Unavailable",
+        "eTools Datamart answered 503: unavailable",
+    ),
+    (
+        "IntegrationError: GET /api/latest/datamart/x/: HTTP 401 Unauthorized",
+        "eTools Datamart answered 401: sign-in refused",
+    ),
+    ("IntegrationError: GET /api/latest/datamart/x/: ReadTimeout", "no answer in time"),
+    ("IntegrationError: GET /api/latest/datamart/x/: ConnectionError", "could not connect"),
+    (
+        "IntegrationError: unrecognised list payload from datamart/x",
+        "eTools Datamart sent an answer NeuroDB cannot read",
+    ),
+    (
+        "Cut off: the sync process stopped before this run finished (the container was restarted).",
+        "NeuroDB was restarted during the run",
+    ),
+    ("KeyError: 'Person One'", "an unexpected error"),
+)
+
+
+@pytest.mark.parametrize(("error", "words"), ERRORS_SEEN)
+def test_a_failed_run_is_said_by_its_cause_never_by_its_text(error, words):
+    run = SyncRun(job=SyncRun.Job.ETOOLS_DATAMART, target="audit_findings", status="failed", error=error)
+    assert runfacts.failure_words(run) == words
+    for planted in (NAME, EMAIL, "Internal Server Error", "/api/"):
+        assert planted not in words
+    rest = SyncRun(
+        job=SyncRun.Job.ETOOLS_REST_RAW,
+        status="failed",
+        error='IntegrationError: GET /api/v2/partners/: HTTP 403 Forbidden {"detail": "Invalid token."}',
+    )
+    assert runfacts.failure_words(rest) == "eTools answered 403: not allowed"
+
+
+def test_the_first_page_says_why_a_dataset_failed_and_links_the_run_for_those_who_open_runs(
+    client, client_validator, world, admin_user
+):
+    """The print of 24 Oct: "Financial findings: Never, the sync of 21 Oct 2026 failed", with no cause and no link,
+    and the Datamart's own monitoring shown as an alarm although no page or check uses it."""
+    failed = _run(
+        "audit_findings",
+        status=SyncRun.Status.FAILED,
+        error=ERRORS_SEEN[0][0],
+    )
+    monitor = _run("datamart_etl_status", status=SyncRun.Status.FAILED, error=ERRORS_SEEN[0][0])
+    html = client_validator.get(INDEX).content.decode()
+    row = html.split(f'href="{INDEX}audit_findings/"', 1)[1].split("</tr>", 1)[0]
+    assert "failed</small>" not in row and "(eTools Datamart answered 500)</small>" in row
+    assert reverse("admin:core_syncrun_change", args=[failed.pk]) not in html  # a validator opens no run
+    assert NAME not in html and EMAIL not in html and "Internal Server Error" not in html
+    assert "No: the last sync failed" in row
+    monitor_row = html.split(f'href="{INDEX}datamart_etl_status/"', 1)[1].split("</tr>", 1)[0]
+    assert "diagnostic: no page or check uses it" in monitor_row and "nd-found__warn" not in monitor_row
+    superuser = User.objects.create_superuser(
+        username="root", email="root@example.org", password="x-123456-pw"
+    )
+    client.force_login(superuser)
+    html = client.get(INDEX).content.decode()
+    for run in (failed, monitor):
+        assert (
+            f'<a class="nd-link" href="{reverse("admin:core_syncrun_change", args=[run.pk])}">the sync of'
+            in html
+        )
+    page = client.get(f"{INDEX}audit_findings/").content.decode()
+    assert "Nothing received yet." in page and "failed</a> (eTools Datamart answered 500)." in page
+    assert NAME not in page and EMAIL not in page
 
 
 @pytest.mark.parametrize("later", [SyncRun.Status.RUNNING, SyncRun.Status.FAILED])
@@ -650,7 +731,10 @@ def test_the_records_keep_short_values_on_one_line_and_wrap_long_texts(client_va
     html = client_validator.get(f"{INDEX}partner_reports/").content.decode()
     table = html.split('class="nd-jobs nd-found__table nd-raw__records"', 1)[1].split("</table>", 1)[0]
     assert f'<td class="nd-raw__long">{escape(long)}</td>' in table
-    assert "<td>LEB/PD1</td>" in table and 'class="nd-raw__long">LEB/PD1' not in table
+    # a one-word value (a reference, a number, a date) is marked so that a print never breaks it either
+    assert '<td class="nd-raw__atom">LEB/PD1</td>' in table and 'class="nd-raw__long">LEB/PD1' not in table
+    assert '<td class="nd-raw__atom">March 31, 2026</td>' in table
+    assert "<td>Amel Association</td>" in table  # a name of several words wraps between them
     css = (Path(settings.BASE_DIR) / "neurodb" / "web" / "static" / "css" / "admin.css").read_text()
     assert ".nd-raw__records th, .nd-raw__records td { white-space: nowrap; }" in css
     assert '.nd-raw__records th[scope="row"] { min-width: 0; max-width: 16rem; white-space: normal;' in css
@@ -908,8 +992,9 @@ def test_the_csv_and_the_record_page_make_a_fixed_number_of_queries(client_valid
     row = dm.ReportedIndicator.objects.get(datamart_id=1)
     assert _queries(client_validator, f"{INDEX}partner_reports/{row.pk}/") <= ADMIN_OWN + PAGE_QUERIES
     # every source: their runs (2) and the moment of the counts kept for an hour; the eTools REST entities:
-    # their runs (2), their counts (1) and whether a read of the eTools REST API is running (1)
-    assert _queries(client_validator, INDEX) <= ADMIN_OWN + 3 + 4
+    # their runs (2), their counts (1), whether a read of the eTools REST API is running (1) and its latest
+    # read (1: what it reads, and whether it reached each entity)
+    assert _queries(client_validator, INDEX) <= ADMIN_OWN + 3 + 5
     with connection.cursor() as cursor:  # every download counted here freed its slot, the warm-up's too
         cursor.execute(
             "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = %s", [raw.RAW_CSV_LOCK]

@@ -1512,8 +1512,8 @@ hours) or *Only the datasets ticked below* (for example `locations` alone after 
 It runs in the background in the web container; each dataset appears in that list as it
 finishes. Only one Datamart sync runs at a time (a database lock), whoever starts it. A deployment
 restarts the container and kills a sync in progress: its run stays *Running* until the next
-**Sync eTools Datamart now**, which sees that nobody holds the lock, closes the run as *Failed* ("Cut off")
-and starts. The scheduled job `etools-datamart` (admin → Scheduled jobs) runs it every night.
+**Sync eTools Datamart now**, which sees that nobody holds the lock, closes the run as *Failed* ("Cut off"),
+however old it is, and starts. The scheduled job `etools-datamart` (admin → Scheduled jobs) runs it every night.
 From a shell with the same settings: `python manage.py sync_etools_datamart [--only a,b]`.
 
 **One failed dataset is not the whole sync.** Each dataset is its own run in *Import and sync runs*, and
@@ -2112,7 +2112,14 @@ with `datamart/raw.py`; templates `datamart/templates/admin/datamart/raw/`, plai
 
 **What each sync received** (`datamart/runfacts.py`, from Data health's own row, `reports.services.quality_row`).
 The run the records come from is the latest that succeeded, or succeeded with errors, and received something;
-a newer run that failed is named beside it. On distinct records:
+a newer run that failed is named beside it, with why in a few words read from its error
+(`runfacts.failure_words`: "eTools Datamart answered 500", "eTools answered 403: not allowed", "no answer in
+time", "could not connect", "NeuroDB was restarted during the run", "the partners could not be read"... and "an
+unexpected error" for any other), never the error's text (the 200 characters of an answer's body come from
+eTools or a proxy); for superusers and Administrators the words link to the run, where *What the error means*
+says what to do; for anyone else they are plain text. A diagnostic dataset (`catalogue.DIAGNOSTIC`:
+`datamart_etl_status`, whose `system/monitor` answers 500 on the Datamart's side) says so ("diagnostic: no page
+or check uses it") and is never shown as an alarm. On distinct records:
 
     received − of another country − named no country − could not be saved = updated by the sync
     in NeuroDB = updated by the sync + updated since (a later sync under way) + kept from an earlier sync
@@ -2136,8 +2143,15 @@ updated by the sync; eTools said it had 74 more. An eTools REST entity's records
 kept its copy (the read below, one run per entity, or the eTools REST sync, `details.raw_copies`; a newer run of
 either that failed is named) and, for a list, received something: a list eTools answered empty (eTools down, or
 a token whose user lost the country) removes nothing, so the records and the page's counts come from the read
-before it; a list read that received nothing is never complete ("No: eTools sent nothing"). Nothing is of
-another country: received − could not be saved = updated by the sync.
+before it, and the newer read is named beside it ("the read of …: eTools sent nothing"); a list read that
+received nothing is never complete ("No: eTools sent nothing"). Nothing is of another country: received − could
+not be saved = updated by the sync. An entity with no read of its own never reads a bare "Not read yet." once
+a read could have reached it: each run of a read names the read (`details.read_started`, `details.read_of`), so
+the row says *Being read now (since …)*, *Waiting: the read under way reaches it later*, *The read of … stopped
+before it reached it (NeuroDB was restarted during the run)*, *The read of … failed (…)*, *Not read on … (the
+partners could not be read)*, or *The read of …: no final engagement to ask for* (`runfacts.rest_reads`: the
+newest run that ended, beside the one the records come from; one query more for the read). A read asked from the
+button whose process never wrote a run says so after two minutes ("The read asked at … has not started").
 
 **The people rule** (`datamart/raw_people.py`, `public_record`): every record on screen and in every CSV goes
 through it, nothing else writes a raw record out. Contact fields are dropped at any depth; the answers of PSEA
@@ -2201,7 +2215,15 @@ write it:
   it too, for any Administrator. Once pressed, the page says the read is starting until a run of it started
   after the press is there, or for two minutes at most (as the reporting checks' page). Without `ETOOLS_TOKEN` the page says "The eTools REST API token is not set on
   this server: ask the NeuroDB team." and shows no button; started from Run a job, it records one failed run
-  saying so.
+  saying so. A detail whose list failed in the same read (and the action points, when the engagements failed),
+  or, read alone (`--only`), whose list's latest read failed or none ever ended, asks eTools for nothing: its
+  run fails with "Not read: the partners could not be read." (or "were never read"), `details.read` 0, and
+  removes nothing (`rest_raw.NEEDS`, `unread_because`; before, it succeeded having received 0, and the action
+  points ended *Succeeded* with nothing, hidden from the page). The action points record how many final
+  engagements they asked about (`details.final_engagements`; none: "no final engagement to ask for"). The read
+  closes the runs a stopped read left *Running*, whatever their age, once it holds its lock; the page closes them
+  too (`background.is_running`, which now closes every run of a job whose lock no process holds: before, one
+  older than four hours stayed *Running* for ever).
 - **The eTools REST sync** (`sync.py`) keeps the same copy as it reads: `RestCopy.keep` is the last step of each
   record's savepoint (a record that fails is not kept, its previous copy stays), and each run's
   `details.raw_copies.<entity>` says what it received and kept. It still writes the partners, agreements,
@@ -2250,6 +2272,17 @@ inside one `REPEATABLE READ READ ONLY` snapshot with a 120-second limit per stat
 takes longer ends the file where it is, with one last row whose `figures_as_of` says "The download stopped here:
 the database took too long. Download again or narrow the filter." (`raw.STOPPED`, its other cells empty; the
 trail's CSVs of records end the same way), so a cut file never looks complete. No background job.
+
+**Printing.** Printed or saved as PDF from the browser, the three pages (every source, one source, one record)
+print as the reporting checks do (`admin.css`, `.nd-raw`): every column of every table on an A4 landscape sheet of
+their own (a named page, `@page nd-raw`), across the whole sheet (the print dialog reads the page at its
+portrait width, where the admin's container would hold it to 640 px), wrapping between words, without the
+sidebar, the header, the forms (the filter, the read button, the review buttons) or the review column; *Fields
+this source sends* prints open. A number never breaks (`overflow-wrap: break-word`), nor does a date, a
+Datamart path or REST endpoint, or a record's one-word cell such as a reference `LEB/PCA2026012-1` or a period's
+date (`white-space: nowrap`, `nd-raw__atom`; the notes' dates hold together by non-breaking spaces); a source's
+records print a little smaller, so the fifteen columns of the partner reports fit the sheet; only a record id
+made from its content (64 characters) breaks where it must.
 
 **The Power BI comparison sheet** (`datamart/comparison.py`, `reports/check_views.py`). NeuroDB never reads
 Power BI: a validator compares by hand. `/check/progress-reports/compare.xlsx` and
@@ -3615,7 +3648,10 @@ The older eTools REST sync (`manage sync_etools`, token `ETOOLS_TOKEN`) is still
 demand, for trips (`--only travels`) and the legacy engagement tables; locations come from the
 Datamart (`sync_locations`). It keeps a raw copy of every record it reads for Raw eTools data
 (`details.raw_copies`; *Checking the figures*), and it writes the programme documents (`PCA`), whose status
-decides "running" on every partner reporting page: running it can move the PRP pages' figures. An "Invalid token" (HTTP 403) from it means `ETOOLS_TOKEN` was revoked or
+decides "running" on every partner reporting page: running it can move the PRP pages' figures. When the partners,
+programme documents or engagements list fails, the partner details, programme document details or action points
+of the same sync are not read (their runs fail: "Not read: the partners could not be read.", `sync.NEEDS`)
+rather than ask for the details of what NeuroDB held before. An "Invalid token" (HTTP 403) from it means `ETOOLS_TOKEN` was revoked or
 expired: ask eTools for a new token and store it in Key Vault (never in a file). Its intervention details step writes the donor amounts in the same shape as the
 Datamart sync (one entry per donor and grant), so running it does not blank the donor pages.
 

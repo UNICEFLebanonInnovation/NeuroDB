@@ -7,7 +7,10 @@
   sync; in NeuroDB = updated by the sync + updated since + kept from an earlier sync), the fields it sends (counted from
   the newest records NeuroDB holds; a superuser reviews a new field), the filter (a GET form), the records (50 a page,
   each through the people rule: datamart.raw_people) and the CSV of the filter, or the sentence that says which filter
-  to choose first. A plain page, no script.
+  to choose first. A newer sync that failed says why in a few words and links its run for those who open runs; an
+  eTools REST entity never read says why (_notes.html). A plain page, no script. Printed or saved as PDF, it prints
+  whole on A4 landscape, without the filter and the review buttons (admin.css, nd-raw); a record's cell that is one
+  word (a reference, a number, a date: nd-raw__atom) never breaks, a long text wraps.
 {% endcomment %}
 
 {% block content %}
@@ -25,7 +28,7 @@
   {% component "unfold/components/card.html" with title=sync_title title_icon="sync" %}
     {% if facts.run %}
       <p class="mb-2">
-        {% blocktrans trimmed with when=facts.run.finished_at|date:"j M Y, H:i" word=status %}The sync of {{ when }} ({{ word }}).{% endblocktrans %}{% if rest %} {{ facts.run.get_job_display }}.{% endif %}
+        {% blocktrans trimmed with when=facts.run.finished_at|date:"j M Y, H:i" word=status %}The sync of <span class="nd-raw__when">{{ when }}</span> ({{ word }}).{% endblocktrans %}{% if rest %} {{ facts.run.get_job_display }}.{% endif %}
         {% if run_url %}<a class="nd-link" href="{{ run_url }}">{% trans "Open the run" %}</a>{% endif %}
       </p>
       <p class="mb-2">
@@ -47,11 +50,13 @@
         {% if facts.removal_skipped %}<li>{% trans "The last sync did not get every record, so records eTools may have deleted are still here." %}</li>{% endif %}
         {% if facts.removal_held %}<li>{% blocktrans with n=facts.removal_held|intcomma %}{{ n }} records eTools no longer sends are kept one more night (more than half of those in NeuroDB).{% endblocktrans %}</li>{% endif %}
       </ul>
+    {% elif notes %}
+      <p class="mb-2">{% trans "Nothing received yet." %}</p>
     {% else %}
       <p class="mb-2">{% if rest %}{% trans "Not read yet: the eTools REST sync, or Read the eTools REST API now on Raw eTools data, fills it." %}{% else %}{% trans "Never synced: nothing received yet." %}{% endif %}</p>
     {% endif %}
-    {% if facts.newer_failed %}<p class="mb-2 nd-found__warn">{% blocktrans trimmed with failed=facts.newer_failed.started_at|date:"j M Y, H:i" %}The last sync, on {{ failed }}, failed{% endblocktrans %}{% if facts.run %}{% blocktrans trimmed with used=facts.run.finished_at|date:"j M Y, H:i" %}: the records in NeuroDB come from the sync of {{ used }}.{% endblocktrans %}{% else %}.{% endif %}{% if newer_url %} <a class="nd-link" href="{{ newer_url }}">{% trans "Open the run" %}</a>{% endif %}</p>{% endif %}
-    <p class="mb-2"><strong>{% trans "Complete?" %}</strong> {% if facts.complete.0 %}{{ facts.complete.1 }}{% else %}<span class="nd-found__warn">{{ facts.complete.1 }}</span>{% endif %}</p>
+    {% if notes %}<p class="mb-2">{% include "admin/datamart/raw/_notes.html" with notes=notes as_sentences=True %}{% if facts.run %}<span class="nd-raw__line">{% blocktrans trimmed with used=facts.run.finished_at|date:"j M Y, H:i" %}The records in NeuroDB come from the sync of {{ used }}.{% endblocktrans %}</span>{% endif %}</p>{% endif %}
+    <p class="mb-2"><strong>{% trans "Complete?" %}</strong> {% if facts.complete.0 or diagnostic %}{{ facts.complete.1 }}{% else %}<span class="nd-found__warn">{{ facts.complete.1 }}</span>{% endif %}</p>
     <p class="mb-2">{% blocktrans trimmed with n=facts.held|intcomma by=facts.updated_by_sync|intcomma since=facts.updated_since|intcomma earlier=facts.from_earlier|intcomma %}
       In NeuroDB now: {{ n }} records: {{ by }} updated by the sync, {{ since }} updated since (a sync is running), {{ earlier }} kept from an earlier sync.
     {% endblocktrans %}</p>
@@ -66,7 +71,7 @@
     <p class="my-2">{% if fields_by_sync %}{% blocktrans with when=facts.run.finished_at|date:"j M Y, H:i" %}Counted by the sync of {{ when }}, on every record it kept.{% endblocktrans %}{% else %}{% blocktrans with n=fields_counted|intcomma %}Counted from the newest {{ n }} records in NeuroDB.{% endblocktrans %}{% endif %}{% if superuser and reviewable %} {% trans "Read a few of a new field's values in the developer table before you review it." %}{% endif %}</p>
     <div class="nd-scroll">
       <table class="nd-jobs nd-found__table">
-        <thead><tr><th scope="col">{% trans "Field" %}</th><th scope="col">{% trans "Records carrying it" %}</th><th scope="col">{% trans "With a value" %}</th><th scope="col">{% trans "How NeuroDB uses it" %}</th>{% if superuser and reviewable %}<th scope="col">{% trans "Review" %}</th>{% endif %}</tr></thead>
+        <thead><tr><th scope="col">{% trans "Field" %}</th><th scope="col">{% trans "Records carrying it" %}</th><th scope="col">{% trans "With a value" %}</th><th scope="col">{% trans "How NeuroDB uses it" %}</th>{% if superuser and reviewable %}<th scope="col" class="nd-raw__review">{% trans "Review" %}</th>{% endif %}</tr></thead>
         <tbody>
           {% for f in counted %}
             <tr>
@@ -75,7 +80,7 @@
               <td>{{ f.with_value|intcomma }}</td>
               <td>{{ f.use }}</td>
               {% if superuser and reviewable %}
-                <td>
+                <td class="nd-raw__review">
                   {% if f.kind == "new" or f.key in by_hand %}
                     <form method="post" action="{{ field_url }}" class="flex flex-wrap gap-2">
                       {% csrf_token %}
@@ -135,7 +140,7 @@
             <thead><tr>{% for c in columns %}<th scope="col">{{ c }}</th>{% endfor %}</tr></thead>
             <tbody>
               {% for r in records %}
-                <tr>{% for cell in r.cells %}{% if forloop.first %}<th scope="row"><a class="nd-link" href="{{ r.url }}">{{ cell }}</a></th>{% else %}<td{% if cell|stringformat:"s"|length > 40 %} class="nd-raw__long"{% endif %}>{% if cell is None or cell == "" %}—{% else %}{{ cell }}{% endif %}</td>{% endif %}{% endfor %}</tr>
+                <tr>{% for cell in r.cells %}{% if forloop.first %}<th scope="row"{% if cell|stringformat:"s"|length > 40 %} class="nd-raw__long"{% endif %}><a class="nd-link" href="{{ r.url }}">{{ cell }}</a></th>{% else %}{% with text=cell|stringformat:"s" %}<td{% if text|length > 40 %} class="nd-raw__long"{% elif " " not in text %} class="nd-raw__atom"{% endif %}>{% if cell is None or cell == "" %}—{% else %}{{ cell }}{% endif %}</td>{% endwith %}{% endif %}{% endfor %}</tr>
               {% endfor %}
             </tbody>
           </table>

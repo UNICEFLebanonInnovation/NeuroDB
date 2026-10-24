@@ -1,0 +1,8 @@
+{% comment %}
+  Raw eTools data: the notes beside a source's last sync (context: notes, from datamart.raw_admin._datamart_notes or
+  _rest_notes). A newer sync or read that failed, with why in a few words (runfacts.failure_words) and a link to its
+  run for those who open runs; for an eTools REST entity also: being read now, waiting for the read under way, not
+  reached by a read that stopped, not read because its list could not be read, a newer read that received nothing.
+  Small lines under the last sync, or sentences (as_sentences: a row never read, the source's page).
+{% endcomment %}
+{% for n in notes %}{% if as_sentences %}<span class="nd-raw__line{% if n.warn %} nd-found__warn{% endif %}">{% if n.url %}<a class="nd-link" href="{{ n.url }}">{{ n.text|capfirst }}</a>{% else %}{{ n.text|capfirst }}{% endif %}{% if n.cause %} ({{ n.cause }}){% endif %}.</span>{% else %}<small class="nd-menu__note{% if n.warn %} nd-found__warn{% endif %}">{% if n.url %}<a class="nd-link" href="{{ n.url }}">{{ n.text }}</a>{% else %}{{ n.text }}{% endif %}{% if n.cause %} ({{ n.cause }}){% endif %}</small>{% endif %}{% endfor %}

@@ -167,3 +167,31 @@
 .nd-raw__records th, .nd-raw__records td { white-space: nowrap; }
 .nd-raw__records th[scope="row"] { min-width: 0; max-width: 16rem; white-space: normal; overflow-wrap: anywhere; }
 .nd-raw__records td.nd-raw__long { white-space: normal; min-width: 16rem; max-width: 28rem; }
+/* A note said as a sentence: a source never read, or a sync that failed (raw/_notes.html). */
+.nd-raw__line { display: block; }
+/* Raw eTools data printed or saved as PDF (admin/datamart/raw/: every source, one source, one record): as the eTools
+   reporting checks above, every column of every table on an A4 landscape sheet of its own (a named page), the cards
+   across all of it (the print dialog reads the media queries at its portrait width, where unfold's container holds
+   the page to 640 px), wrapping between words; the sidebar, the header, the forms (the filter, the read button, the
+   review buttons) and the review column left out; the fields a source sends printed open. A number, a date or a code
+   prints whole: a cell breaks inside a word only when that word cannot fit at all (break-word), a date, a code and a
+   record's one-word cell (nd-raw__atom: a reference, a number, a date) never break (nowrap: "LEB/PCA2026012-1" is not
+   cut at its hyphen), and only a record id made from its content (64 letters and digits) breaks where it must. A
+   source's records print a little smaller: fifteen columns of partner reports fit the sheet. */
+@media print {
+  @page nd-raw { size: A4 landscape; margin: 10mm; }
+  body:has(.nd-raw) { page: nd-raw; }
+  body:has(.nd-raw) #content { max-width: none !important; }
+  body:has(.nd-raw) #page > :not(#main), body:has(.nd-raw) #main > :has(#header-inner) { display: none !important; }
+  .nd-raw .nd-scroll { overflow: visible !important; margin: 0; }
+  .nd-raw .nd-jobs { width: 100%; table-layout: auto; font-size: 8.5pt; }
+  .nd-raw .nd-jobs th, .nd-raw .nd-jobs td { white-space: normal !important; overflow-wrap: break-word;
+    padding: 3px 6px 3px 0; vertical-align: top; }
+  .nd-raw .nd-jobs th[scope="row"], .nd-raw .nd-raw__records td.nd-raw__long { min-width: 0; max-width: none; }
+  .nd-raw .nd-jobs code, .nd-raw .nd-raw__when, .nd-raw .nd-raw__records td.nd-raw__atom { white-space: nowrap !important; }
+  .nd-raw .nd-jobs code, .nd-raw .nd-jobs .nd-menu__note, .nd-raw .nd-raw__records { font-size: 7.5pt; }
+  .nd-raw .nd-raw__records th.nd-raw__long { overflow-wrap: anywhere; }
+  .nd-raw .nd-jobs tr { break-inside: avoid; }
+  .nd-raw form, .nd-raw .nd-raw__review { display: none !important; }
+  .nd-raw details.nd-check-group::details-content { content-visibility: visible; }
+}

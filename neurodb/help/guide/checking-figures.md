@@ -237,6 +237,11 @@ programme documents, trips, engagements, action points and their details).
   it, how many records are in NeuroDB, its last sync, what eTools said it had, what NeuroDB received, what
   was not kept (of another country, naming no country, records that could not be saved), how many
   records the last sync updated, and **Complete?**: *Yes*, or *No* with the first reason.
+- **A sync that failed** says why in a few words beside the last one that worked: "the sync of 21 Oct 2026,
+  16:15 failed (eTools Datamart answered 500)", "(eTools answered 403: not allowed)", "(no answer in time)",
+  "(could not connect)", "(NeuroDB was restarted during the run)". Superusers and Administrators can click it
+  to open the run, where *What the error means* says what to do. The Datamart's own monitoring
+  (`system/monitor`) says "diagnostic: no page or check uses it": its failures are known and change nothing.
 - **A source's page** starts with what its last sync received, in one line that adds up: what NeuroDB
   received, less the records of another country, those naming no country and those that could not be
   saved, is what the sync updated. The records in NeuroDB are those the last sync updated, those updated
@@ -279,6 +284,19 @@ running on the partner reporting pages.
 - The details of trips started more than a year ago stay as they were last read.
 - If the page says "The eTools REST API token is not set on this server: ask the NeuroDB team.", the copy
   cannot be read until the NeuroDB team sets it.
+- When a list cannot be read (eTools refused it, or did not answer), its details are not asked for, and
+  neither are the action points when the engagements could not be read: their row says "Not read on 24 Oct
+  2026, 20:05 (the partners could not be read)." and nothing in the copy is removed. Read again once the list
+  works.
+- A source never read says why: being read now, waiting for the read under way, not reached by a read that
+  stopped (NeuroDB was restarted), the read failed, or no final engagement to ask for action points about.
+  "Not read yet." means no read has ever reached it.
+
+## Printing the pages
+
+Print Raw eTools data, a source or a record from the browser, or save it as PDF: every table prints whole
+on A4 landscape, wrapping between words, without the menu, the header, the filter and the buttons. Numbers,
+dates, reference numbers and eTools addresses are never cut in two. *Fields this source sends* prints open.
 
 ## People are never shown
 

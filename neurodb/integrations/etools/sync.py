@@ -582,7 +582,9 @@ def sync_action_points(run: SyncRun, *, client: EToolsClient | None = None) -> S
         copy.keep(item, parent=engagement.id)
 
     def items() -> Iterable[tuple[Engagement, dict[str, Any]]]:
+        copy.final_engagements = 0
         for engagement in Engagement.objects.filter(status=ENGAGEMENT_FINAL).iterator():
+            copy.final_engagements += 1
             said: dict[str, Any] = {}
             for item in client.list(
                 "/api/action-points/action-points/", {"engagement": engagement.id}, seen=said
@@ -610,6 +612,14 @@ ENTITY_SYNCS: dict[str, Callable[..., SyncRun]] = {
     "engagements": sync_engagements,
     "action_points": sync_action_points,
 }
+# entity -> the list read before it whose records it asks eTools for, and the copy it keeps: when that list
+# failed in the same sync, the entity is not read (its run fails and says so, rest_raw.NOT_READ) rather than
+# ask for the details of what NeuroDB held before, or succeed having asked for nothing
+NEEDS = {
+    "partner_details": ("partners", "rest_partner_details"),
+    "intervention_details": ("interventions", "rest_intervention_details"),
+    "action_points": ("engagements", "rest_action_points"),
+}
 
 
 def sync_all(
@@ -621,7 +631,8 @@ def sync_all(
     """Run the entity syncs in dependency order (the v2 ``sync_etools_data`` command order).
 
     Each entity gets its own ``SyncRun``; a crashed entity is recorded FAILED and the next one
-    still runs. Returns the runs in execution order.
+    still runs, but for those that ask for the records of a list that failed (``NEEDS``): recorded
+    FAILED, not read. Returns the runs in execution order.
     """
     client = client or EToolsClient()
     selected = set(only) if only else set(ENTITY_SYNCS)
@@ -629,14 +640,24 @@ def sync_all(
     if unknown:
         raise ValueError(f"unknown eTools entities: {', '.join(sorted(unknown))}")
     runs: list[SyncRun] = []
+    failed: set[str] = set()
     for name, sync in ENTITY_SYNCS.items():
         if name not in selected:
             continue
         run = new_run(SyncRun.Job.ETOOLS, target=name, triggered_by=triggered_by)
-        try:
-            sync(run, client=client)
-        except Exception:
-            logger.error("etools %s aborted; continuing with the next entity", name)
+        parent, entity = NEEDS.get(name, ("", ""))
+        if parent in failed:
+            what = rest_raw.LIST_WORDS[f"rest_{parent}"]
+            rest_raw.not_read(
+                run, rest_raw.NOT_READ.format(what=what), raw_copies={entity: {"read": 0, "kept": 0}}
+            )
+        else:
+            try:
+                sync(run, client=client)
+            except Exception:
+                logger.error("etools %s aborted; continuing with the next entity", name)
+        if run.status == SyncRun.Status.FAILED:
+            failed.add(name)
         runs.append(run)
     rest_raw.remember_names()  # the names the raw copies hold, taken out of texts too
     return runs

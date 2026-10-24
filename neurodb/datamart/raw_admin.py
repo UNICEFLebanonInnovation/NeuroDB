@@ -13,6 +13,10 @@ status). Anyone else gets a 404.
   background; without the eTools token the page says so and shows no button.
 
 Every record goes through the people rule (``raw_people``). Read-only, but for the reviews and the button.
+Where a sync or a read failed, the pages say why in a few words (``runfacts.failure_words``) and link the run
+for those who open runs; an eTools REST entity with no read of its own says why (being read now, waiting for
+the read under way, not reached by a read that stopped, not read because its list could not be read...).
+Printed or saved as PDF, the three pages print whole on A4 landscape (admin.css, ``nd-raw``).
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ import datetime
 import json
 import re
 import time
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
 
@@ -30,6 +35,7 @@ from django.core.paginator import Paginator
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import formats, timezone
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_POST
 
@@ -74,6 +80,136 @@ def _status_word(run: SyncRun | None) -> str:
     return run.get_status_display() if run is not None else ""
 
 
+# ------------------------------------------------------------------------------------------- the notes
+def _when(moment: datetime.datetime) -> str:
+    """A moment as a note says it (24 Oct 2026, 20:05), its words joined by non-breaking spaces: a printed
+    column breaks between words, never inside a date."""
+    return formats.date_format(timezone.localtime(moment), "j M Y, H:i").replace(" ", "\u00a0")
+
+
+def _run_url(request, run: SyncRun | None) -> str:
+    """The run's page, for those who open runs ("" for the others: the note is plain text)."""
+    if run is None or not _sees_runs(request.user):
+        return ""
+    return reverse("admin:core_syncrun_change", args=[run.pk])
+
+
+def _note(request, text: str, run: SyncRun | None = None, *, cause: str = "", warn: bool = True) -> dict:
+    return {"text": text, "cause": cause, "url": _run_url(request, run), "warn": warn}
+
+
+def _run_words(run: SyncRun) -> str:
+    """A run by its job and start: "the sync of …", "the read of …" (into Raw eTools data), "the eTools REST
+    sync of …"."""
+    if run.job == SyncRun.Job.ETOOLS_REST_RAW:
+        return f"the read of {_when(run.started_at)}"
+    if run.job == SyncRun.Job.ETOOLS:
+        return f"the eTools REST sync of {_when(run.started_at)}"
+    return f"the sync of {_when(run.started_at)}"
+
+
+def _failed_note(request, name: str, run: SyncRun) -> dict:
+    """A run that failed: when, why in a few words (``runfacts.failure_words``), linked for those who open
+    runs; an eTools REST entity whose list could not be read, "not read on …". A diagnostic dataset (no page
+    or check uses it) is no alarm."""
+    if runfacts.not_read(run):
+        text = f"not read on {_when(run.started_at)}"
+    else:
+        text = f"{_run_words(run)} failed"
+    return _note(request, text, run, cause=runfacts.failure_words(run), warn=name not in catalogue.DIAGNOSTIC)
+
+
+def _datamart_notes(request, name: str, facts: runfacts.RunFacts) -> list[dict]:
+    """What a Datamart dataset's row says beside its last sync: a newer sync that failed, and why."""
+    if facts.newer_failed is None:
+        return []
+    notes = [_failed_note(request, name, facts.newer_failed)]
+    if name in catalogue.DIAGNOSTIC:
+        notes.append(_note(request, _("diagnostic: no page or check uses it"), warn=False))
+    return notes
+
+
+@dataclass(frozen=True)
+class _Read:
+    """The latest read of the eTools REST API into Raw eTools data, from its runs' details
+    (``rest_raw.READ_STARTED``, ``READ_OF``): when it started, what it reads, its latest run, its run under
+    way."""
+
+    started: datetime.datetime
+    of: frozenset[str]
+    last: SyncRun
+    running: SyncRun | None
+
+
+def _rest_running() -> SyncRun | None:
+    """The run of the read under way, if any. Called before the runs are read: a run a stopped process left
+    running is closed there (``background.is_running``), so the page says it was cut off at once."""
+    from neurodb.integrations import background
+
+    job = SyncRun.Job.ETOOLS_REST_RAW
+    if not background.is_running(job):
+        return None
+    return (
+        SyncRun.objects.filter(job=job, status=SyncRun.Status.RUNNING).order_by("-started_at", "-pk").first()
+    )
+
+
+def _latest_read(running: SyncRun | None) -> _Read | None:
+    """The latest read (None before any, or for a read of an earlier release, whose runs do not say)."""
+    from neurodb.integrations.etools import rest_raw
+
+    last = running or (
+        SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_REST_RAW).order_by("-started_at", "-pk").first()
+    )
+    details = last.details if last is not None and isinstance(last.details, dict) else {}
+    of = details.get(rest_raw.READ_OF)
+    try:
+        started = datetime.datetime.fromisoformat(str(details.get(rest_raw.READ_STARTED)))
+    except ValueError:
+        return None
+    if last is None or not isinstance(of, list):
+        return None
+    return _Read(started, frozenset(str(entity) for entity in of), last, running)
+
+
+def _rest_notes(
+    request, name: str, facts: runfacts.RunFacts, last: SyncRun | None, read: _Read | None
+) -> list[dict]:
+    """What an eTools REST entity's row says beside its last read, or, never read, instead of it: being read
+    now, waiting for the read under way, not reached by the latest read (it stopped, or failed before any
+    source), a newer read that failed (and why) or that received nothing. None at all: "Not read yet."."""
+    from neurodb.integrations.background import CUT_OFF
+
+    notes = []
+    reached = last is not None and read is not None and last.started_at >= read.started
+    if read is not None and name in read.of and not reached:
+        if read.running is not None and read.running.target == name:
+            notes.append(
+                _note(request, f"being read now (since {_when(read.running.started_at)})", warn=False)
+            )
+        elif read.running is not None:
+            notes.append(_note(request, "waiting: the read under way reaches it later", warn=False))
+        elif not read.last.target and read.last.status == SyncRun.Status.FAILED:
+            notes.append(_failed_note(request, name, read.last))  # the read failed at its start (no token)
+        else:
+            cut = read.last.status == SyncRun.Status.FAILED and read.last.error == CUT_OFF
+            notes.append(
+                _note(
+                    request,
+                    f"the read of {_when(read.started)} stopped before it reached it",
+                    read.last,
+                    cause=runfacts.failure_words(read.last) if cut else "",
+                )
+            )
+    if facts.newer_failed is not None:
+        notes.append(_failed_note(request, name, facts.newer_failed))
+    if facts.newer_empty is not None:
+        notes.append(
+            _note(request, f"{_run_words(facts.newer_empty)}: {facts.empty_words}", facts.newer_empty)
+        )
+    return notes
+
+
 def _not_kept(facts: runfacts.RunFacts) -> str:
     if raw.rest(facts.source):  # the eTools REST API sends this country's records only
         return f"{facts.not_saved:,} could not be saved"
@@ -86,7 +222,7 @@ def _not_kept(facts: runfacts.RunFacts) -> str:
     return words
 
 
-def _row(request, name: str, facts: runfacts.RunFacts) -> dict[str, Any]:
+def _row(request, name: str, facts: runfacts.RunFacts, notes: list[dict] | None = None) -> dict[str, Any]:
     run = facts.run
     return {
         "name": name,
@@ -98,9 +234,9 @@ def _row(request, name: str, facts: runfacts.RunFacts) -> dict[str, Any]:
         "not_kept": _not_kept(facts),
         "status": _status_word(run),
         "job": run.get_job_display() if run is not None and raw.rest(name) else "",
-        "run_url": reverse("admin:core_syncrun_change", args=[run.pk])
-        if run is not None and _sees_runs(request.user)
-        else "",
+        "run_url": _run_url(request, run),
+        "notes": _datamart_notes(request, name, facts) if notes is None else notes,
+        "diagnostic": name in catalogue.DIAGNOSTIC,
     }
 
 
@@ -110,36 +246,35 @@ def _rest_reading(request) -> dict[str, Any]:
     from neurodb.integrations import background
     from neurodb.integrations.etools import rest_raw
 
-    names = list(raw.REST_ENTITIES)
-    runs = runfacts.rest_runs(names)
-    counts = raw.rest_counts(runs)
-    rows = [
-        _row(request, name, runfacts.build(name, run, newer, tuple(counts[name])))
-        for name, (run, newer) in runs.items()
-    ]
     job = SyncRun.Job.ETOOLS_REST_RAW
-    running = None
-    if background.is_running(job):  # a row left running by a stopped process is closed there
-        running = (
-            SyncRun.objects.filter(job=job, status=SyncRun.Status.RUNNING).order_by("-started_at").first()
-        )
+    running = _rest_running()  # first: a run a stopped process left running is closed before they are read
+    names = list(raw.REST_ENTITIES)
+    reads = runfacts.rest_reads(names)
+    counts = raw.rest_counts({name: (found.run, found.newer_failed) for name, found in reads.items()})
+    read = _latest_read(running)
+    rows = []
+    for name, found in reads.items():
+        facts = runfacts.build(name, found.run, found.newer_failed, tuple(counts[name]), last=found.last)
+        rows.append(_row(request, name, facts, _rest_notes(request, name, facts, found.last, read)))
     asked = background.started_at(rest_raw.COMMAND)
-    if asked is not None and (
-        running  # its run is there: the page follows the run itself
-        or time.time() - asked > STARTING_S
-        or SyncRun.objects.filter(  # a run started after it: it already ended
-            job=job, started_at__gte=datetime.datetime.fromtimestamp(asked, datetime.UTC)
-        ).exists()
-    ):
-        background.forget_started(rest_raw.COMMAND)
-        asked = None
+    not_started = ""
+    if asked is not None:
+        pressed = datetime.datetime.fromtimestamp(asked, datetime.UTC)
+        if running or SyncRun.objects.filter(job=job, started_at__gte=pressed).exists():
+            background.forget_started(rest_raw.COMMAND)  # its run is there (or ended): the page follows it
+            asked = None
+        elif time.time() - asked > STARTING_S:  # still no run: its process did not start, or stopped at once
+            not_started = _when(pressed)  # said until the note expires (background.STARTED_TTL)
+            asked = None
     return {
         "rest": rows,
         "rest_token": rest_raw.token_set(),
         "rest_can_read": _sees_runs(request.user),
         "rest_read_url": reverse("admin:datamart_raw_rest_read"),
         "rest_running": running,
+        "rest_since": read.started if read is not None and running is not None else None,
         "rest_starting": running is None and asked is not None,
+        "rest_not_started": not_started,
     }
 
 
@@ -239,7 +374,15 @@ def source_view(request, source: str):
 
     _guard(request)
     name = _source(source)
-    facts = runfacts.facts(name)
+    if raw.rest(name):
+        running = _rest_running()  # first: a run a stopped process left running is closed before it is read
+        found = runfacts.rest_reads([name])[name]
+        counts = runfacts.counts(name, found.run)
+        facts = runfacts.build(name, found.run, found.newer_failed, counts, last=found.last)
+        notes = _rest_notes(request, name, facts, found.last, _latest_read(running))
+    else:
+        facts = runfacts.facts(name)
+        notes = _datamart_notes(request, name, facts)
     run = facts.run
     filters = raw.Filters.from_params(request.GET)
     rows = filters.apply(name, raw.base(name), run)
@@ -277,12 +420,9 @@ def source_view(request, source: str):
         facts=facts,
         not_kept=_not_kept(facts),
         status=_status_word(run),
-        run_url=reverse("admin:core_syncrun_change", args=[run.pk])
-        if run and _sees_runs(request.user)
-        else "",
-        newer_url=reverse("admin:core_syncrun_change", args=[facts.newer_failed.pk])
-        if facts.newer_failed is not None and _sees_runs(request.user)
-        else "",
+        run_url=_run_url(request, run),
+        notes=notes,
+        diagnostic=name in catalogue.DIAGNOSTIC,
         filters=filters,
         shown=raw.filters_shown(name),
         choices=raw.choices(name, run),

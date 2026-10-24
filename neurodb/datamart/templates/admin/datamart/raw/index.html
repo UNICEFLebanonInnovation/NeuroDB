@@ -8,7 +8,10 @@
   other Datamart datasets (each row: what its last sync received and kept, datamart.runfacts), the eTools REST API
   (each entity: what the last read that kept its copy received and kept; "Read the eTools REST API now" for superusers
   and Administrators, a POST to datamart_raw_rest_read, or the sentence saying the token is not set), and what NeuroDB
-  does not read. Counts only; a plain page, no script.
+  does not read. Beside a last sync, a newer one that failed says why in a few words and links its run for those who
+  open runs (_notes.html); an eTools REST entity never read says why (being read now, waiting, not reached, not read
+  because its list could not be read, the read failed). Counts only; a plain page, no script. Printed or saved as
+  PDF, every table prints whole on A4 landscape (admin.css, nd-raw).
 {% endcomment %}
 
 {% block content %}
@@ -62,12 +65,12 @@
                 <th scope="row"><a class="nd-link" href="{{ r.url }}">{{ r.label }}</a><small class="nd-menu__note"><code>{{ r.path }}</code></small></th>
                 <td>{{ r.used_by|join:", "|default:"—" }}</td>
                 <td>{{ r.facts.held|intcomma }}</td>
-                <td>{% if r.facts.run %}{% if r.run_url %}<a class="nd-link" href="{{ r.run_url }}">{{ r.facts.run.finished_at|date:"j M Y, H:i" }}</a>{% else %}{{ r.facts.run.finished_at|date:"j M Y, H:i" }}{% endif %}<small class="nd-menu__note">{{ r.status }}</small>{% else %}{% trans "Never" %}{% endif %}{% if r.facts.newer_failed %}<small class="nd-menu__note nd-found__warn">{% blocktrans with when=r.facts.newer_failed.started_at|date:"j M Y" %}the sync of {{ when }} failed{% endblocktrans %}</small>{% endif %}</td>
+                <td>{% if r.facts.run %}{% if r.run_url %}<a class="nd-link" href="{{ r.run_url }}"><span class="nd-raw__when">{{ r.facts.run.finished_at|date:"j M Y, H:i" }}</span></a>{% else %}<span class="nd-raw__when">{{ r.facts.run.finished_at|date:"j M Y, H:i" }}</span>{% endif %}<small class="nd-menu__note">{{ r.status }}</small>{% else %}{% trans "Never" %}{% endif %}{% include "admin/datamart/raw/_notes.html" with notes=r.notes %}</td>
                 <td>{% if r.facts.said_it_had is None %}—{% else %}{{ r.facts.said_it_had|intcomma }}{% endif %}</td>
                 <td>{% if r.facts.received is None %}—{% else %}{{ r.facts.received|intcomma }}{% endif %}</td>
                 <td>{% if r.facts.run %}{{ r.not_kept }}{% else %}—{% endif %}</td>
                 <td>{{ r.facts.updated_by_sync|intcomma }}</td>
-                <td>{% if r.facts.complete.0 %}{{ r.facts.complete.1 }}{% else %}<span class="nd-found__warn">{{ r.facts.complete.1 }}</span>{% endif %}</td>
+                <td>{% if r.facts.complete.0 or r.diagnostic %}{{ r.facts.complete.1 }}{% else %}<span class="nd-found__warn">{{ r.facts.complete.1 }}</span>{% endif %}</td>
               </tr>
             {% endfor %}
           </tbody>
@@ -85,10 +88,12 @@
     {% if not rest_token %}
       <p class="mb-3 nd-found__warn">{% trans "The eTools REST API token is not set on this server: ask the NeuroDB team." %}</p>
     {% elif rest_running %}
-      <p class="mb-3">{% blocktrans with since=rest_running.started_at|date:"H:i" %}Reading the eTools REST API (since {{ since }}): reload this page when it ends.{% endblocktrans %}</p>
+      <p class="mb-3">{% blocktrans with since=rest_since|default:rest_running.started_at|date:"H:i" %}Reading the eTools REST API (since {{ since }}): reload this page when it ends.{% endblocktrans %}</p>
     {% elif rest_starting %}
       <p class="mb-3">{% trans "The read of the eTools REST API is starting: reload this page in a minute." %}</p>
-    {% elif rest_can_read %}
+    {% endif %}
+    {% if rest_not_started %}<p class="mb-3 nd-found__warn">{% blocktrans with when=rest_not_started %}The read asked at {{ when }} has not started: press the button again; if it does not start again, tell the NeuroDB team.{% endblocktrans %}</p>{% endif %}
+    {% if rest_token and not rest_running and not rest_starting and rest_can_read %}
       <form method="post" action="{{ rest_read_url }}" class="mb-3">
         {% csrf_token %}
         <button type="submit" class="nd-found__button">{% trans "Read the eTools REST API now" %}</button>
@@ -115,14 +120,14 @@
               <th scope="row"><a class="nd-link" href="{{ r.url }}">{{ r.label }}</a><small class="nd-menu__note"><code>{{ r.path }}</code></small></th>
               <td>{{ r.facts.held|intcomma }}</td>
               {% if r.facts.run %}
-                <td>{% if r.run_url %}<a class="nd-link" href="{{ r.run_url }}">{{ r.facts.run.finished_at|date:"j M Y, H:i" }}</a>{% else %}{{ r.facts.run.finished_at|date:"j M Y, H:i" }}{% endif %}<small class="nd-menu__note">{{ r.job }}: {{ r.status }}</small>{% if r.facts.newer_failed %}<small class="nd-menu__note nd-found__warn">{% blocktrans with when=r.facts.newer_failed.started_at|date:"j M Y" %}the sync of {{ when }} failed{% endblocktrans %}</small>{% endif %}</td>
+                <td>{% if r.run_url %}<a class="nd-link" href="{{ r.run_url }}"><span class="nd-raw__when">{{ r.facts.run.finished_at|date:"j M Y, H:i" }}</span></a>{% else %}<span class="nd-raw__when">{{ r.facts.run.finished_at|date:"j M Y, H:i" }}</span>{% endif %}<small class="nd-menu__note">{{ r.job }}: {{ r.status }}</small>{% include "admin/datamart/raw/_notes.html" with notes=r.notes %}</td>
                 <td>{% if r.facts.said_it_had is None %}—{% else %}{{ r.facts.said_it_had|intcomma }}{% endif %}</td>
                 <td>{{ r.facts.received|intcomma }}</td>
                 <td>{{ r.not_kept }}</td>
                 <td>{{ r.facts.updated_by_sync|intcomma }}</td>
                 <td>{% if r.facts.complete.0 %}{{ r.facts.complete.1 }}{% else %}<span class="nd-found__warn">{{ r.facts.complete.1 }}</span>{% endif %}</td>
               {% else %}
-                <td colspan="6">{% trans "Not read yet." %}{% if r.facts.newer_failed %} <span class="nd-found__warn">{% blocktrans with when=r.facts.newer_failed.started_at|date:"j M Y" %}The read of {{ when }} failed.{% endblocktrans %}</span>{% endif %}</td>
+                <td colspan="6">{% if r.notes %}{% include "admin/datamart/raw/_notes.html" with notes=r.notes as_sentences=True %}{% else %}{% trans "Not read yet." %}{% endif %}</td>
               {% endif %}
             </tr>
           {% endfor %}

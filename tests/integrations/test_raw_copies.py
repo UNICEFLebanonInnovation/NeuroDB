@@ -17,7 +17,7 @@ from django.utils import timezone
 from neurodb.accounts.models import User
 from neurodb.accounts.roles import ADMIN, VALIDATORS, VIEWER
 from neurodb.core.models import SyncRun
-from neurodb.datamart import catalogue, checks, raw, runfacts
+from neurodb.datamart import catalogue, checks, raw, raw_admin, runfacts
 from neurodb.datamart import models as dm
 from neurodb.integrations import background
 from neurodb.integrations.etools import datamart_sync, rest_raw, sync
@@ -292,7 +292,8 @@ def test_a_list_that_came_back_empty_is_not_the_read_the_records_come_from():
         False,
         "No: eTools sent nothing",
     )
-    # a detail asks for the records of its list's copy: none asked is no outage
+    # a detail asks for the records of its list's copy, once its list was read: none to ask for (no trip of the
+    # last year) is no outage (a detail whose list failed is not read: test_a_detail_whose_list_failed_...)
     details = SyncRun.objects.create(
         job=SyncRun.Job.ETOOLS_REST_RAW,
         target="rest_travel_details",
@@ -302,6 +303,148 @@ def test_a_list_that_came_back_empty_is_not_the_read_the_records_come_from():
     details.finish(SyncRun.Status.SUCCEEDED)
     assert runfacts.facts("rest_travel_details").run == details
     assert runfacts.facts("rest_travel_details").complete == (True, "Yes")
+
+
+# ---------------------------------------------------------------------------------- a list that failed
+LISTS = ("/api/v2/partners/", "/api/v2/agreements/", "/api/v2/interventions/", "/api/t2f/travels/")
+REFUSED = {"detail": f"Invalid token. Token abc. Asked by {NAME} ({EMAIL})"}  # a body NeuroDB never shows
+
+
+def refuse_every_list() -> None:
+    """The print of 24 Oct: eTools answers every list 403 at once (a token it does not take)."""
+    for path in (*LISTS, "/api/audit/engagements/"):
+        responses.get(f"{BASE}{path}", status=403, json=REFUSED)
+
+
+def rest_rows(html: str) -> dict[str, str]:
+    """The eTools REST API table of Raw eTools data, as a person reads it: each row's words by source."""
+    import re
+
+    part = html.split('id="rest"', 1)[1].split("</table>", 1)[0]
+    rows = {}
+    for row in re.findall(r"<tr>(.*?)</tr>", part, re.S)[1:]:
+        text = re.sub(r"<[^>]+>", " ", re.sub(r"</?a\b[^>]*>", "", row))  # a link is part of its words
+        words = " ".join(text.split()).replace("\u00a0", " ")
+        rows[words.split(" (eTools REST API)", 1)[0]] = words
+    return rows
+
+
+@responses.activate
+def test_a_detail_whose_list_failed_is_not_read_and_the_page_says_why(client, roles, settings):
+    """The print of 24 Oct: every list failed (403), yet each detail read "Succeeded" having received 0, and the
+    action points "Not read yet." with no failure. Now a detail of a list that failed, and the action points when
+    the engagements failed, ask eTools for nothing: their runs fail, saying why, and remove nothing."""
+    settings.ETOOLS_TOKEN = "abc"
+    dm.RestRecord.objects.create(entity="rest_partner_details", record_key="1", source_id="1", parent_key="1")
+    refuse_every_list()
+    runs = {r.target: r for r in rest_raw.read_all(triggered_by="test", client=rest_client())}
+    assert len(responses.calls) == 5  # the five lists: no detail, no action point asked for
+    for detail, words in (
+        ("rest_partner_details", "partners"),
+        ("rest_intervention_details", "programme documents"),
+        ("rest_travel_details", "trips"),
+        ("rest_engagement_details", "engagements"),
+        ("rest_action_points", "engagements"),
+    ):
+        run = runs[detail]
+        assert run.status == SyncRun.Status.FAILED, detail
+        assert run.error == f"Not read: the {words} could not be read.", detail
+        assert (run.details["read"], run.details["kept"], run.rows_in) == (0, 0, 0)
+        assert run.details[rest_raw.READ_OF] == list(rest_raw.ENTITIES)
+        assert runfacts.facts(detail).complete == (False, "No: the last sync failed")
+    assert held("rest_partner_details") == {"1"}  # nothing removed
+    client.force_login(_staff("root", (), superuser=True))
+    rows = rest_rows(client.get(INDEX).content.decode())
+    assert "Not read yet." not in " ".join(rows.values())
+    assert "(eTools answered 403: not allowed)." in rows["Partners"]
+    assert "The read of" in rows["Partners"] and "failed" in rows["Partners"]
+    assert (
+        "Not read on" in rows["Partner details"]
+        and "(the partners could not be read)." in rows["Partner details"]
+    )
+    assert "(the engagements could not be read)." in rows["Action points"]
+    assert "Succeeded" not in " ".join(rows.values())
+    page = client.get(INDEX).content.decode()
+    for planted in ("Invalid token", "Token abc", NAME, EMAIL):  # the answer's body: never shown
+        assert planted not in page
+    # the run is linked for those who open runs; a validator who does not reads the same words, unlinked
+    assert reverse("admin:core_syncrun_change", args=[runs["rest_partners"].pk]) in page
+    client.force_login(_staff("validator", (VIEWER, VALIDATORS)))
+    page = client.get(INDEX).content.decode()
+    assert "(eTools answered 403: not allowed)." in rest_rows(page)["Partners"]
+    assert reverse("admin:core_syncrun_change", args=[runs["rest_partners"].pk]) not in page
+    source = client.get(reverse("admin:datamart_raw_source", args=["rest_partner_details"])).content.decode()
+    assert "(the partners could not be read)." in source and "Nothing received yet." in source
+
+
+@responses.activate
+def test_a_detail_read_alone_asks_for_nothing_when_its_list_was_never_read_or_failed():
+    responses.get(f"{BASE}/api/v2/partners/1/", json=partner(1))
+    (alone,) = rest_raw.read_all(only=["rest_partner_details"], triggered_by="test", client=rest_client())
+    assert (alone.status, alone.error) == (SyncRun.Status.FAILED, "Not read: the partners were never read.")
+    responses.get(f"{BASE}/api/v2/partners/", status=500)
+    rest_raw.read_all(only=["rest_partners"], triggered_by="test", client=rest_client())
+    (alone,) = rest_raw.read_all(only=["rest_partner_details"], triggered_by="test", client=rest_client())
+    assert alone.error == "Not read: the partners could not be read."
+    assert not [c for c in responses.calls if c.request.url.endswith("/partners/1/")]
+    responses.replace(responses.GET, f"{BASE}/api/v2/partners/", json=[partner(1)])
+    rest_raw.read_all(only=["rest_partners"], triggered_by="test", client=rest_client())
+    (alone,) = rest_raw.read_all(only=["rest_partner_details"], triggered_by="test", client=rest_client())
+    assert alone.status == SyncRun.Status.SUCCEEDED and alone.details["read"] == 1  # from the list's copy
+
+
+@responses.activate
+def test_no_final_engagement_is_said_so_never_as_not_read_yet(client, roles, settings):
+    """The engagements were read, none is final: the action points ask eTools for nothing and say so."""
+    settings.ETOOLS_TOKEN = "abc"
+    register()
+    responses.replace(
+        responses.GET,
+        f"{BASE}/api/audit/engagements/?page_size=1000",
+        json={"count": 1, "next": None, "results": [{"id": 7, "engagement_type": "sc", "status": "draft"}]},
+    )
+    runs = {r.target: r for r in rest_raw.read_all(triggered_by="test", client=rest_client())}
+    points = runs["rest_action_points"]
+    assert points.status == SyncRun.Status.SUCCEEDED and points.details["final_engagements"] == 0
+    assert points.details["removal_skipped_why"] == rest_raw.NO_FINAL
+    facts = runfacts.facts("rest_action_points")
+    assert facts.run is None and facts.newer_empty == points
+    assert facts.complete == (False, "No: no final engagement to ask for")
+    client.force_login(_staff("root", (), superuser=True))
+    row = rest_rows(client.get(INDEX).content.decode())["Action points"]
+    assert (
+        row.startswith("Action points") and "The read of" in row and "no final engagement to ask for." in row
+    )
+
+
+@responses.activate
+def test_a_list_eTools_answers_empty_says_so_beside_the_read_before(client, roles, settings):
+    settings.ETOOLS_TOKEN = "abc"
+    responses.get(f"{BASE}/api/v2/partners/", json=[partner(1)])
+    rest_raw.read_all(only=["rest_partners"], triggered_by="test", client=rest_client())
+    responses.replace(responses.GET, f"{BASE}/api/v2/partners/", json=[])
+    (empty,) = rest_raw.read_all(only=["rest_partners"], triggered_by="test", client=rest_client())
+    assert runfacts.facts("rest_partners").newer_empty == empty
+    client.force_login(_staff("root", (), superuser=True))
+    row = rest_rows(client.get(INDEX).content.decode())["Partners"]
+    assert "Succeeded" in row and "the read of" in row and ": eTools sent nothing" in row
+
+
+@responses.activate
+def test_the_rest_sync_reads_no_detail_of_a_list_that_failed():
+    PartnerOrganization.objects.create(etl_id="1", name="Partner 1")  # held before: never asked for again
+    Engagement.objects.create(id=7, status="final", engagement_type="sc", description="")
+    refuse_every_list()
+    runs = {r.target: r for r in sync.sync_all(client=rest_client(), triggered_by="test")}
+    assert not [
+        c for c in responses.calls if c.request.url.rstrip("/").endswith(("/partners/1", "/spot-checks/7"))
+    ]
+    assert not [c for c in responses.calls if "action-points" in c.request.url]
+    for name, words in (("partner_details", "partners"), ("action_points", "engagements")):
+        assert runs[name].status == SyncRun.Status.FAILED, name
+        assert runs[name].error == f"Not read: the {words} could not be read.", name
+    assert runs["intervention_details"].error == "Not read: the programme documents could not be read."
+    assert runfacts.facts("rest_partner_details").newer_failed == runs["partner_details"]
 
 
 def test_without_the_token_the_read_records_why(settings):
@@ -396,6 +539,91 @@ def test_a_validator_who_is_not_an_administrator_sees_the_reads_and_no_button(
     client.force_login(_staff("admin-only", (ADMIN,)))
     assert client.post(reverse("admin:datamart_raw_rest_read")).status_code == 404
     assert started == []
+
+
+READ_AGO = dt.timedelta(hours=7)  # when the read of these runs started
+
+
+def _read_run(target: str, status=SyncRun.Status.SUCCEEDED, *, minutes: int = 10, **fields) -> SyncRun:
+    """A run, started ``minutes`` ago, of a read of every entity that started ``READ_AGO``."""
+    now = timezone.now()
+    started = now - dt.timedelta(minutes=minutes)
+    marker = {rest_raw.READ_STARTED: (now - READ_AGO).isoformat(), rest_raw.READ_OF: list(rest_raw.ENTITIES)}
+    return SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_REST_RAW,
+        target=target,
+        status=status,
+        started_at=started,
+        finished_at=None if status == SyncRun.Status.RUNNING else started + dt.timedelta(minutes=1),
+        details={**marker, "read": 3, "kept": 3},
+        **fields,
+    )
+
+
+def test_a_read_that_stopped_part_way_says_where_at_the_first_load(client, roles, settings):
+    """The process stopped (a restart) while it read the agreements: the first load already says the read was
+    cut off there (the row left running is closed before the runs are read), and that it never reached the
+    entities after it."""
+    settings.ETOOLS_TOKEN = "abc"
+    _read_run("rest_partners")
+    _read_run("rest_partner_details")
+    cut = _read_run("rest_agreements", SyncRun.Status.RUNNING)  # no process holds the lock: cut off
+    client.force_login(_staff("root", (), superuser=True))
+    rows = rest_rows(client.get(INDEX).content.decode())
+    assert SyncRun.objects.get(pk=cut.pk).error == background.CUT_OFF
+    assert "(NeuroDB was restarted during the run)" in rows["Agreements"]
+    for later in ("Programme documents", "Trips", "Engagement details", "Action points"):
+        assert "stopped before it reached it (NeuroDB was restarted during the run)." in rows[later], later
+    assert "Succeeded" in rows["Partners"] and "stopped before" not in rows["Partners"]
+    assert "Read the eTools REST API now" in client.get(INDEX).content.decode()
+
+
+def test_a_read_under_way_says_what_it_reads_now_and_what_waits(client, roles, settings, monkeypatch):
+    settings.ETOOLS_TOKEN = "abc"
+    monkeypatch.setattr(background, "lock_is_held", lambda lock_id: True)  # its process holds the lock
+    _read_run("rest_partners")
+    _read_run("rest_partner_details", SyncRun.Status.RUNNING, minutes=2)
+    client.force_login(_staff("root", (), superuser=True))
+    page = client.get(INDEX).content.decode()
+    rows = rest_rows(page)
+    assert "Reading the eTools REST API" in page and "Read the eTools REST API now" not in page
+    assert "Being read now (since" in rows["Partner details"]
+    assert "Waiting: the read under way reaches it later." in rows["Action points"]
+    assert "Succeeded" in rows["Partners"]
+
+
+def test_a_run_left_running_for_hours_is_closed_when_no_process_holds_its_lock(client, roles, settings):
+    """It counted as running for four hours, then as nothing: never closed, its entity read "Not read yet." for
+    ever. Now any run of a job whose lock is free is closed, whatever its age."""
+    settings.ETOOLS_TOKEN = "abc"
+    old = _read_run("rest_action_points", SyncRun.Status.RUNNING, minutes=5 * 60)
+    assert background.is_running(SyncRun.Job.ETOOLS_REST_RAW) is False
+    assert SyncRun.objects.get(pk=old.pk).status == SyncRun.Status.FAILED
+    client.force_login(_staff("root", (), superuser=True))
+    assert (
+        "(NeuroDB was restarted during the run)."
+        in rest_rows(client.get(INDEX).content.decode())["Action points"]
+    )
+
+
+def test_a_new_read_closes_the_runs_a_stopped_read_left_running():
+    left = _read_run("rest_travels", SyncRun.Status.RUNNING, minutes=6 * 60)
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mock:
+        mock.get(f"{BASE}/api/v2/partners/", json=[])
+        rest_raw.read_all(only=["rest_partners"], triggered_by="test", client=rest_client())
+    assert SyncRun.objects.get(pk=left.pk).error == background.CUT_OFF
+
+
+def test_a_read_asked_that_never_started_says_so(client, roles, settings, monkeypatch):
+    settings.ETOOLS_TOKEN = "abc"
+    monkeypatch.setattr(background, "start_command", lambda *args: background._note_started(args[0]) or 1)
+    client.force_login(_staff("checker", (ADMIN, VALIDATORS)))
+    client.post(reverse("admin:datamart_raw_rest_read"))
+    asked = background.started_at(rest_raw.COMMAND)
+    monkeypatch.setattr(raw_admin.time, "time", lambda: asked + raw_admin.STARTING_S + 1)
+    page = client.get(INDEX).content.decode()
+    assert "has not started: press the button again" in page and "Read the eTools REST API now" in page
+    assert "is starting" not in page
 
 
 # ------------------------------------------------------------------------------------------ the REST sync

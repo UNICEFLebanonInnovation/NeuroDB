@@ -19,8 +19,10 @@ ERROR_EXAMPLES = 5
 _VARIABLE = re.compile(r"'[^']*'|\"[^\"]*\"|\d+")
 
 
-def new_run(job: str, target: str = "", triggered_by: str = "schedule") -> SyncRun:
-    return SyncRun.objects.create(job=job, target=target, triggered_by=triggered_by)
+def new_run(
+    job: str, target: str = "", triggered_by: str = "schedule", details: dict[str, Any] | None = None
+) -> SyncRun:
+    return SyncRun.objects.create(job=job, target=target, triggered_by=triggered_by, details=details or {})
 
 
 def describe_error(exc: BaseException) -> str:

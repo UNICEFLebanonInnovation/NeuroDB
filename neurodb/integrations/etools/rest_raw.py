@@ -66,6 +66,26 @@ ENTITIES: dict[str, tuple[str, str]] = {
 }
 DETAILS = {parent: entity for entity, (_path, parent) in ENTITIES.items() if parent}  # list -> its details
 LISTS = frozenset(entity for entity, (_path, parent) in ENTITIES.items() if not parent)  # the lists
+# entity -> the list whose records it asks eTools for: a detail's list, and the engagements (the final ones)
+# of the action points. When that list could not be read, the entity is not read either: its run fails and
+# says so (NOT_READ).
+NEEDS = {
+    **{entity: parent for entity, (_path, parent) in ENTITIES.items() if parent},
+    "rest_action_points": "rest_engagements",
+}
+LIST_WORDS = {
+    "rest_partners": "partners",
+    "rest_interventions": "programme documents",
+    "rest_travels": "trips",
+    "rest_engagements": "engagements",
+}
+NOT_READ = "Not read: the {what} could not be read."  # the error of an entity whose list failed
+NEVER_READ = "Not read: the {what} were never read."  # ... or never read (a read of the entity alone)
+# In the details of every run of a read: when the read started and the entities it reads, so that Raw eTools
+# data says which ones a read under way has still to reach, and which ones a read that stopped never reached
+READ_STARTED, READ_OF = "read_started", "read_of"
+# the action points' removal_skipped_why when no engagement is final: eTools was asked nothing
+NO_FINAL = "no final engagement to ask for"
 # entity -> the run of the eTools REST sync that keeps its copy too (its target: sync.ENTITY_SYNCS)
 SYNC_TARGETS = {
     "rest_partners": "partners",
@@ -136,6 +156,7 @@ class RestCopy:
         self.written: set[str] = set()
         self.seen: dict[str, Any] = {}  # what the list's first page said it had (EToolsClient.list's seen)
         self.fields = raw.KeyCount(entity)
+        self.final_engagements: int | None = None  # the action points: the final engagements asked about
 
     @property
     def is_list(self) -> bool:
@@ -187,12 +208,14 @@ class RestCopy:
         announced = self.seen.get("count")
         if isinstance(announced, int):
             details["announced"] = announced
+        if self.final_engagements is not None:
+            details["final_engagements"] = self.final_engagements
         if self.is_list:
             why = ""
             if not whole:
                 why = "the read did not end"
             elif not self.received:
-                why = "eTools listed nothing"
+                why = NO_FINAL if self.final_engagements == 0 else "eTools listed nothing"
             elif isinstance(announced, int) and len(self.received) < announced:
                 why = f"eTools said it had {announced - len(self.received):,} more"
             if why:
@@ -262,7 +285,9 @@ def read_action_points(run: SyncRun, client: EToolsClient) -> SyncRun:
     )
 
     def items() -> Iterator[tuple[str, dict[str, Any]]]:
-        for engagement in list(final):
+        engagements = list(final)
+        copy.final_engagements = len(engagements)
+        for engagement in engagements:
             said: dict[str, Any] = {}
             for item in client.list(path, {"engagement": engagement}, seen=said):
                 yield engagement, item
@@ -332,6 +357,62 @@ def token_set() -> bool:
     return bool((settings.ETOOLS_TOKEN or "").strip())
 
 
+def _latest_list_run(entity: str) -> SyncRun | None:
+    """The latest run that ended of either job that keeps ``entity``'s copy (``runfacts.rest_jobs``): of the
+    eTools REST sync, one that kept its copy or failed."""
+    from django.db.models import Q
+
+    from neurodb.datamart import runfacts
+
+    jobs = Q()
+    for job, target in runfacts.rest_jobs(entity):
+        found = Q(job=job, target=target)
+        if job == SyncRun.Job.ETOOLS:
+            found &= Q(status=SyncRun.Status.FAILED) | Q(details__raw_copies__has_key=entity)
+        jobs |= found
+    return (
+        SyncRun.objects.filter(jobs)
+        .exclude(status=SyncRun.Status.RUNNING)
+        .order_by("-started_at", "-pk")
+        .first()
+    )
+
+
+def unread_because(entity: str, failed: set[str], plan: Iterable[str]) -> str:
+    """Why ``entity`` is not read (the error of its run), or "": the list whose records it asks for
+    (``NEEDS``) failed in this read; or, left out of this read (``plan``), its latest read failed or none ever
+    ended. Asked for nothing, it would otherwise succeed having received nothing, as if eTools had nothing."""
+    parent = NEEDS.get(entity)
+    if not parent:
+        return ""
+    what = LIST_WORDS[parent]
+    if parent in plan:
+        return NOT_READ.format(what=what) if parent in failed else ""
+    latest = _latest_list_run(parent)
+    if latest is None:
+        return NEVER_READ.format(what=what)
+    return NOT_READ.format(what=what) if latest.status == SyncRun.Status.FAILED else ""
+
+
+def not_read(run: SyncRun, why: str, **details: Any) -> SyncRun:
+    """Finish the run of an entity that was not read (:func:`unread_because`): failed, having asked eTools for
+    nothing (so it removes nothing), with why as its error."""
+    run.finish(SyncRun.Status.FAILED, error=why, **details)
+    return run
+
+
+def _close_cut_off() -> None:
+    """Close the runs of this job a stopped process left running (a restart), whatever their age: the lock is
+    held here, so no other read is under way."""
+    from neurodb.integrations import background
+
+    closed = SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_REST_RAW, status=SyncRun.Status.RUNNING).update(
+        status=SyncRun.Status.FAILED, finished_at=timezone.now(), error=background.CUT_OFF
+    )
+    if closed:
+        logger.warning("eTools REST raw copy: closed %s run(s) cut off by a stopped process", closed)
+
+
 def remember_names() -> None:
     """The names the copies hold, added to those NeuroDB takes out of texts (``query.remember_people`` reads
     them with the Datamart's records)."""
@@ -352,8 +433,11 @@ def read_all(
     client: EToolsClient | None = None,
 ) -> list[SyncRun] | str:
     """Read every entity (or ``only`` these) into Raw eTools data, in :data:`ENTITIES`' order, one run each: a
-    failed entity is recorded FAILED and the next one still reads. Returns the runs, or :data:`BUSY` when
-    another read holds the lock (nothing is recorded). Without the eTools token, one failed run says so."""
+    failed entity is recorded FAILED and the next one still reads, but for the details of a list that failed
+    (and the action points, when the engagements failed): asked for nothing, they are recorded FAILED too,
+    saying why (:func:`unread_because`). Each run's details name its read (``READ_STARTED``, ``READ_OF``).
+    Returns the runs, or :data:`BUSY` when another read holds the lock (nothing is recorded). Without the
+    eTools token, one failed run says so."""
     selected = set(only) if only else set(READS)
     unknown = selected - set(READS)
     if unknown:
@@ -361,22 +445,33 @@ def read_all(
     if not _lock():
         return BUSY
     try:
+        plan = [entity for entity in READS if entity in selected]
+        marker = {READ_STARTED: timezone.now().isoformat(), READ_OF: plan}
+        triggered_by = triggered_by[:150]
         if client is None and not token_set():
-            run = new_run(SyncRun.Job.ETOOLS_REST_RAW, target="", triggered_by=triggered_by[:150])
+            run = new_run(SyncRun.Job.ETOOLS_REST_RAW, target="", triggered_by=triggered_by, details=marker)
             run.finish(SyncRun.Status.FAILED, error=NO_TOKEN)
             return [run]
+        _close_cut_off()
         client = client or EToolsClient()
         runs: list[SyncRun] = []
-        for entity, read in READS.items():
-            if entity not in selected:
-                continue
-            run = new_run(SyncRun.Job.ETOOLS_REST_RAW, target=entity, triggered_by=triggered_by[:150])
+        failed: set[str] = set()
+        for entity in plan:
+            run = new_run(
+                SyncRun.Job.ETOOLS_REST_RAW, target=entity, triggered_by=triggered_by, details=dict(marker)
+            )
+            why = unread_because(entity, failed, plan)
             try:
-                read(run, client)
+                if why:
+                    not_read(run, why, read=0, kept=0)
+                else:
+                    READS[entity](run, client)
             except Exception as exc:  # a failure outside the read itself: recorded, the next entity reads
                 logger.exception("eTools REST raw copy: %s stopped", entity)
                 if run.status == SyncRun.Status.RUNNING:
                     run.finish(SyncRun.Status.FAILED, error=describe_error(exc))
+            if run.status == SyncRun.Status.FAILED:
+                failed.add(entity)
             runs.append(run)
         remember_names()
         return runs

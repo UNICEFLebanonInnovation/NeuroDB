@@ -103,11 +103,11 @@ def datamart_cleanup_is_running() -> bool:
 def is_running(job: str) -> bool:
     """A run of ``job`` is in progress. A ``RUNNING`` row whose process no longer holds the lock (the
     container was restarted mid-run, typically by a deployment) is closed as failed so that the next
-    sync can start instead of waiting hours for the row to age out."""
+    sync can start instead of waiting hours for the row to age out: every such row of the job, whatever
+    its age (a row older than ``RUNNING_FOR_AT_MOST`` was never closed before, and stayed "running" on
+    the pages that list runs). Otherwise a row younger than that counts as running."""
     now = timezone.now()
-    running = SyncRun.objects.filter(
-        job=job, status=SyncRun.Status.RUNNING, started_at__gte=now - RUNNING_FOR_AT_MOST
-    )
+    running = SyncRun.objects.filter(job=job, status=SyncRun.Status.RUNNING)
     if not running.exists():
         return False
     if job == SyncRun.Job.ETOOLS_DATAMART:
@@ -116,7 +116,7 @@ def is_running(job: str) -> bool:
     else:
         held = lock_is_held(LOCK_IDS[job]) if job in LOCK_IDS else None
     if held is None or held:
-        return True
+        return running.filter(started_at__gte=now - RUNNING_FOR_AT_MOST).exists()
     closed = running.update(status=SyncRun.Status.FAILED, finished_at=now, error=CUT_OFF)
     logger.warning("%s: closed %s cut-off run(s) left as running by a stopped process", job, closed)
     return False

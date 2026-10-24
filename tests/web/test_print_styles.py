@@ -50,6 +50,41 @@ def test_the_checks_print_every_column_wrapping_on_a_landscape_page_of_their_own
     assert not re.search(r"@page\s*\{", css)
 
 
+def test_raw_etools_data_prints_every_column_wrapping_on_a_landscape_page_of_its_own():
+    """The print of 24 Oct: every source table cut after "eTools said it had", rows ten lines high (the hidden
+    columns' texts wrapping in narrow cells), the header printed, the cards held to unfold's 640 px."""
+    css = (STATIC / "admin.css").read_text()
+    block = _print_block(css, "Raw eTools data printed or saved as PDF")
+    assert "@page nd-raw { size: A4 landscape; margin: 10mm; }" in block
+    assert "body:has(.nd-raw) { page: nd-raw; }" in block
+    assert "body:has(.nd-raw) #content { max-width: none !important; }" in block
+    assert "body:has(.nd-raw) #page > :not(#main), body:has(.nd-raw) #main > :has(#header-inner)" in block
+    assert ".nd-raw .nd-scroll { overflow: visible !important; margin: 0; }" in block
+    assert re.search(
+        r"\.nd-raw \.nd-jobs th, \.nd-raw \.nd-jobs td \{ white-space: normal !important; "
+        r"overflow-wrap: break-word;",
+        block,
+    )
+    # a date, a code and a record's one-word cell never break; only a record id made from its content may
+    assert (
+        ".nd-raw .nd-jobs code, .nd-raw .nd-raw__when, .nd-raw .nd-raw__records td.nd-raw__atom "
+        "{ white-space: nowrap !important; }"
+    ) in block
+    assert block.count("anywhere") == 1 and ".nd-raw .nd-raw__records th.nd-raw__long" in block
+    assert (
+        '.nd-raw .nd-jobs th[scope="row"], .nd-raw .nd-raw__records td.nd-raw__long { min-width: 0;' in block
+    )
+    assert ".nd-raw form, .nd-raw .nd-raw__review { display: none !important; }" in block
+    assert ".nd-raw details.nd-check-group::details-content { content-visibility: visible; }" in block
+    assert not re.search(r"@page\s*\{", css)  # every other admin page keeps the browser's sheet
+    raw = Path(settings.BASE_DIR) / "neurodb" / "datamart" / "templates" / "admin" / "datamart" / "raw"
+    for name in ("index.html", "source.html", "record.html"):
+        assert '<div id="content-main" class="nd-found nd-raw">' in (raw / name).read_text(), name
+    index, source = (raw / "index.html").read_text(), (raw / "source.html").read_text()
+    assert index.count('<span class="nd-raw__when">') == 4  # each last sync's moment, linked or not
+    assert source.count('class="nd-raw__review"') == 2  # the review column's heading and its cells
+
+
 def test_data_health_prints_each_table_whole():
     css = (STATIC / "app.css").read_text()
     block = _print_block(css, "Data health printed: each table whole")
