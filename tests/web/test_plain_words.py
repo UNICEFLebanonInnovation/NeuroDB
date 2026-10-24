@@ -10,7 +10,7 @@ from pathlib import Path
 from neurodb.core.models import SyncRun
 from neurodb.datamart import comparison, identity, raw, runfacts, trail, trail_monitoring
 from neurodb.integrations import background
-from neurodb.integrations.etools import rest_raw
+from neurodb.integrations.etools import datamart_sync, rest_raw
 
 ROOT = Path(__file__).resolve().parents[2] / "neurodb"
 TEMPLATES = [
@@ -92,7 +92,16 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
     )
     # why a sync or a read failed, and what an eTools REST entity never read says (raw_admin's notes)
     sentences += [*runfacts.STATUS_WORDS.values(), rest_raw.NOT_READ, rest_raw.NEVER_READ, rest_raw.NO_FINAL]
-    for error in ("HTTP 403 Forbidden", "ReadTimeout", "ConnectionError", "payload", background.CUT_OFF, "x"):
+    for error in (
+        "HTTP 403 Forbidden",
+        "ReadTimeout",
+        "ConnectTimeout",
+        "ConnectionError",
+        "payload",
+        background.CUT_OFF,
+        f"IntegrationError: {datamart_sync.ENTER_CODE}",
+        "x",
+    ):
         sentences.append(runfacts.failure_words(SyncRun(job=SyncRun.Job.ETOOLS_REST_RAW, error=error)))
     sentences.append(runfacts.empty_words("rest_partners", SyncRun(job=SyncRun.Job.ETOOLS_REST_RAW)))
     sentences += [

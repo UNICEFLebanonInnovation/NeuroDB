@@ -239,7 +239,9 @@ programme documents, trips, engagements, action points and their details).
   records the last sync updated, and **Complete?**: *Yes*, or *No* with the first reason.
 - **A sync that failed** says why in a few words beside the last one that worked: "the sync of 21 Oct 2026,
   16:15 failed (eTools Datamart answered 500)", "(eTools answered 403: not allowed)", "(no answer in time)",
-  "(could not connect)", "(NeuroDB was restarted during the run)". Superusers and Administrators can click it
+  "(could not connect)", "(NeuroDB was restarted during the run)", "(no PRP business area code is set: enter
+  it in Admin → Data and sync → eTools Datamart)". "No answer in time" means eTools took the request but did not
+  answer; "could not connect" means NeuroDB could not reach it. Superusers and Administrators can click it
   to open the run, where *What the error means* says what to do. The Datamart's own monitoring
   (`system/monitor`) says "diagnostic: no page or check uses it": its failures are known and change nothing.
 - **A source's page** starts with what its last sync received, in one line that adds up: what NeuroDB
@@ -296,7 +298,8 @@ running on the partner reporting pages.
 
 Print Raw eTools data, a source or a record from the browser, or save it as PDF: every table prints whole
 on A4 landscape, wrapping between words, without the menu, the header, the filter and the buttons. Numbers,
-dates, reference numbers and eTools addresses are never cut in two. *Fields this source sends* prints open.
+reference numbers and eTools addresses are never cut in two; a date may wrap between its words, and a field's
+name in a heading after a "_". *Fields this source sends* prints open.
 
 ## People are never shown
 

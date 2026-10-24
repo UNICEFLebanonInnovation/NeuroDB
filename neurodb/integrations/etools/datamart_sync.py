@@ -2266,6 +2266,10 @@ NO_CODE = "(none)"  # how a record that names no business area is counted among 
 AREA_CODE = re.compile(r"[0-9]{1,20}")  # a business area code is digits (2490), never a country's name
 AREA_VALUES = 10  # the distinct business_area values of the partner report rows read, the most frequent first
 SET_ASIDE = 40  # the characters kept of a value set aside (it is a setting, never a record's value)
+# The start of a PRP dataset's error when no business area code is set or found (_no_code_error), and the end
+# of the guard's when a value that is not a code reaches the request: Raw eTools data says them in its words
+ENTER_CODE = "enter the business area code in "
+NEVER_SENT = " is not a business area code: it is never sent"
 
 
 def area_code(value: Any) -> str:
@@ -2450,13 +2454,10 @@ def _no_code_error(choice: AreaCode, country: str) -> str:
     where = "Admin → Data and sync → eTools Datamart: PRP business area code"
     if choice.set_aside:
         aside = set_aside_words(choice.set_aside)
-        return (
-            f"enter the business area code in {where}: {aside} (a code is digits, as 2490), and NeuroDB "
-            f"found none in {looked}"
-        )
+        return f"{ENTER_CODE}{where}: {aside} (a code is digits, as 2490), and NeuroDB found none in {looked}"
     return (
-        f"enter the business area code in {where} (none is set for {country!r}, and NeuroDB found none in "
-        f"{looked}), or ask the hosting team to set ETOOLS_DATAMART_BUSINESS_AREA"
+        f"{ENTER_CODE}{where} (none is set for {country!r}, and NeuroDB found none in {looked}), or ask the "
+        "hosting team to set ETOOLS_DATAMART_BUSINESS_AREA"
     )
 
 
@@ -2492,7 +2493,7 @@ class CountryScope:
         if spec.scope == "business_area":
             code = self.business_area()
             if not is_area_code(code):
-                raise IntegrationError(f"{code[:SET_ASIDE]!r} is not a business area code: it is never sent")
+                raise IntegrationError(f"{code[:SET_ASIDE]!r}{NEVER_SENT}")
             return {spec.filter_key: code}, False
         if spec.scope == "lookup":
             return {}, False

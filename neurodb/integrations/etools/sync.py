@@ -612,13 +612,22 @@ ENTITY_SYNCS: dict[str, Callable[..., SyncRun]] = {
     "engagements": sync_engagements,
     "action_points": sync_action_points,
 }
-# entity -> the list read before it whose records it asks eTools for, and the copy it keeps: when that list
-# failed in the same sync, the entity is not read (its run fails and says so, rest_raw.NOT_READ) rather than
-# ask for the details of what NeuroDB held before, or succeed having asked for nothing
-NEEDS = {
-    "partner_details": ("partners", "rest_partner_details"),
-    "intervention_details": ("interventions", "rest_intervention_details"),
-    "action_points": ("engagements", "rest_action_points"),
+# entity -> the list read before it, the copy it keeps, and whether NeuroDB holds a record it asks eTools
+# about. It asks for NeuroDB's own records (not the list just read), so when that list failed in the same sync
+# it still reads them; only when NeuroDB holds none is it not read (its run fails and says so,
+# rest_raw.NOT_READ) rather than succeed having asked for nothing.
+NEEDS: dict[str, tuple[str, str, Callable[[], bool]]] = {
+    "partner_details": ("partners", "rest_partner_details", lambda: PartnerOrganization.objects.exists()),
+    "intervention_details": (
+        "interventions",
+        "rest_intervention_details",
+        lambda: PCA.objects.filter(donors__len__gt=0).exists(),
+    ),
+    "action_points": (
+        "engagements",
+        "rest_action_points",
+        lambda: Engagement.objects.filter(status=ENGAGEMENT_FINAL).exists(),
+    ),
 }
 
 
@@ -631,8 +640,8 @@ def sync_all(
     """Run the entity syncs in dependency order (the v2 ``sync_etools_data`` command order).
 
     Each entity gets its own ``SyncRun``; a crashed entity is recorded FAILED and the next one
-    still runs, but for those that ask for the records of a list that failed (``NEEDS``): recorded
-    FAILED, not read. Returns the runs in execution order.
+    still runs. An entity that asks for the records of a list that failed (``NEEDS``) is recorded
+    FAILED, not read, only when NeuroDB holds none to ask about. Returns the runs in execution order.
     """
     client = client or EToolsClient()
     selected = set(only) if only else set(ENTITY_SYNCS)
@@ -645,8 +654,8 @@ def sync_all(
         if name not in selected:
             continue
         run = new_run(SyncRun.Job.ETOOLS, target=name, triggered_by=triggered_by)
-        parent, entity = NEEDS.get(name, ("", ""))
-        if parent in failed:
+        parent, entity, held = NEEDS.get(name, ("", "", lambda: True))
+        if parent in failed and not held():
             what = rest_raw.LIST_WORDS[f"rest_{parent}"]
             rest_raw.not_read(
                 run, rest_raw.NOT_READ.format(what=what), raw_copies={entity: {"read": 0, "kept": 0}}

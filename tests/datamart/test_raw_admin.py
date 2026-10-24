@@ -8,6 +8,9 @@ import csv
 import datetime
 import io
 import re
+import socket
+import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import psycopg
@@ -391,8 +394,6 @@ ERRORS_SEEN = (  # what a failed run's error holds -> what Raw eTools data says 
         "IntegrationError: GET /api/latest/datamart/x/: HTTP 401 Unauthorized",
         "eTools Datamart answered 401: sign-in refused",
     ),
-    ("IntegrationError: GET /api/latest/datamart/x/: ReadTimeout", "no answer in time"),
-    ("IntegrationError: GET /api/latest/datamart/x/: ConnectionError", "could not connect"),
     (
         "IntegrationError: unrecognised list payload from datamart/x",
         "eTools Datamart sent an answer NeuroDB cannot read",
@@ -417,6 +418,131 @@ def test_a_failed_run_is_said_by_its_cause_never_by_its_text(error, words):
         error='IntegrationError: GET /api/v2/partners/: HTTP 403 Forbidden {"detail": "Invalid token."}',
     )
     assert runfacts.failure_words(rest) == "eTools answered 403: not allowed"
+
+
+def _server(answer: bytes | None) -> tuple[str, Callable[[], None]]:
+    """A server on this machine that takes every connection, sends ``answer`` (None: nothing), then never another
+    byte; and how to close it."""
+    listener = socket.create_server(("127.0.0.1", 0))
+    listener.settimeout(0.05)
+    stop, taken = threading.Event(), []
+
+    def serve() -> None:
+        while not stop.is_set():
+            try:
+                taken_one, _address = listener.accept()
+            except TimeoutError:
+                continue
+            taken.append(taken_one)
+            if answer:
+                taken_one.sendall(answer)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+
+    def close() -> None:
+        stop.set()
+        thread.join()
+        for taken_one in taken:
+            taken_one.close()
+        listener.close()
+
+    return f"http://127.0.0.1:{listener.getsockname()[1]}", close
+
+
+def _closed_port() -> str:
+    with socket.create_server(("127.0.0.1", 0)) as free:
+        port = free.getsockname()[1]
+    return f"http://127.0.0.1:{port}"
+
+
+def _no_connection_in_time(monkeypatch) -> str:
+    """No connection made in time (the address answers nothing): urllib3's own error, raised where it opens one."""
+    from urllib3.connection import HTTPConnection
+    from urllib3.exceptions import ConnectTimeoutError
+
+    def no_connection(self):
+        raise ConnectTimeoutError(self, f"Connection to {self.host} timed out. (connect timeout=0.3)")
+
+    monkeypatch.setattr(HTTPConnection, "_new_conn", no_connection)
+    return "http://192.0.2.1"
+
+
+@pytest.mark.parametrize(
+    ("how", "cause", "words", "hint"),
+    (
+        ("silent", "ReadTimeout", "no answer in time", "eTools did not answer in time"),
+        ("stalled", "ReadTimeout", "no answer in time", "eTools did not answer in time"),
+        ("closed", "ConnectionError", "could not connect", "eTools could not be reached"),
+        ("connect", "ConnectTimeout", "could not connect", "eTools could not be reached"),
+    ),
+)
+def test_a_request_with_no_answer_is_said_alike_on_raw_etools_data_and_on_its_run(
+    monkeypatch, how, cause, words, hint
+):
+    """The errors the eTools client really makes: a server that answers nothing in time (with the retries used
+    up, requests calls it a ConnectionError), one that stops part way through its answer, a closed port and an
+    address where no connection is made in time. Raw eTools data and the run page say the same of each."""
+    from neurodb.core.admin import error_hint
+    from neurodb.integrations.etools.client import EToolsClient
+    from neurodb.integrations.http import IntegrationError, make_session
+    from neurodb.integrations.runs import describe_error
+
+    close = lambda: None  # noqa: E731
+    if how == "silent":
+        base, close = _server(None)
+    elif how == "stalled":
+        base, close = _server(
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 50\r\n\r\n["
+        )
+    elif how == "closed":
+        base = _closed_port()
+    else:
+        base = _no_connection_in_time(monkeypatch)
+    session = make_session("Token abc", 0.3, retries=1, backoff=0)
+    session.trust_env = False  # never through a proxy: the server is this machine
+    try:
+        with pytest.raises(IntegrationError) as caught:
+            EToolsClient(base, "abc", session=session).get("/api/v2/partners/")
+    finally:
+        close()
+    error = describe_error(caught.value)
+    assert error == f"IntegrationError: GET /api/v2/partners/: {cause}"
+    run = SyncRun(job=SyncRun.Job.ETOOLS_REST_RAW, target="rest_partners", status="failed", error=error)
+    assert runfacts.failure_words(run) == words
+    assert hint in str(error_hint(run))
+
+
+def _no_code_errors() -> list[str]:
+    """The errors of a PRP dataset's run with no business area code: none set, a country's name set (set aside),
+    and the guard's, should a value that is not a code ever reach the request."""
+    from neurodb.integrations.etools import datamart_sync
+    from neurodb.integrations.http import IntegrationError
+    from neurodb.integrations.runs import describe_error
+
+    errors = [
+        describe_error(IntegrationError(datamart_sync._no_code_error(choice, "Lebanon")))
+        for choice in (datamart_sync.AreaCode(), datamart_sync.AreaCode("", "", {"environment": "Lebanon"}))
+    ]
+    scope = datamart_sync.CountryScope(client=None)
+    scope.choice = datamart_sync.AreaCode("Lebanon", datamart_sync.FROM_ADMIN)
+    with pytest.raises(IntegrationError) as caught:
+        scope.request(catalogue.DOCUMENTS["prp_indicator_reports"])
+    return [*errors, describe_error(caught.value)]
+
+
+def test_no_business_area_code_is_said_in_words_without_the_value_set_aside(client_validator, world):
+    words = "no PRP business area code is set: enter it in Admin → Data and sync → eTools Datamart"
+    for error in _no_code_errors():
+        run = SyncRun(
+            job=SyncRun.Job.ETOOLS_DATAMART, target="prp_indicator_reports", status="failed", error=error
+        )
+        assert runfacts.failure_words(run) == words, error
+    _run("prp_indicator_reports", status=SyncRun.Status.FAILED, error=_no_code_errors()[1])
+    html = client_validator.get(INDEX).content.decode()
+    row = html.split(f'<th scope="row"><a class="nd-link" href="{INDEX}prp_indicator_reports/"', 1)[1]
+    row = row.split("</tr>", 1)[0]
+    assert f"({words})</small>" in row and "Lebanon" not in row
 
 
 def test_the_first_page_says_why_a_dataset_failed_and_links_the_run_for_those_who_open_runs(
@@ -733,7 +859,9 @@ def test_the_records_keep_short_values_on_one_line_and_wrap_long_texts(client_va
     assert f'<td class="nd-raw__long">{escape(long)}</td>' in table
     # a one-word value (a reference, a number, a date) is marked so that a print never breaks it either
     assert '<td class="nd-raw__atom">LEB/PD1</td>' in table and 'class="nd-raw__long">LEB/PD1' not in table
-    assert '<td class="nd-raw__atom">March 31, 2026</td>' in table
+    assert '<td class="nd-raw__atom">12</td>' in table
+    # a date as shown is three words: it may wrap between them, so the room an indicator needs comes from it
+    assert "<td>March 31, 2026</td>" in table and 'class="nd-raw__atom">March' not in table
     assert "<td>Amel Association</td>" in table  # a name of several words wraps between them
     css = (Path(settings.BASE_DIR) / "neurodb" / "web" / "static" / "css" / "admin.css").read_text()
     assert ".nd-raw__records th, .nd-raw__records td { white-space: nowrap; }" in css
@@ -741,6 +869,28 @@ def test_the_records_keep_short_values_on_one_line_and_wrap_long_texts(client_va
     assert (
         ".nd-raw__records td.nd-raw__long { white-space: normal; min-width: 16rem; max-width: 28rem; }" in css
     )
+
+
+def test_a_field_s_key_in_a_heading_may_break_after_its_underscores(client_validator, world):
+    """PRP indicator reports printed: its headings financial_contribution_currency and the like are one long word
+    each, so the list ran past the sheet and its last columns were cut. They may now break after each "_" (in
+    print: on screen the list keeps them on one line and scrolls); a heading in words never breaks in a word."""
+    data = {
+        "pd_reference_number": "LEB/PD1",
+        "report_type": "QPR",
+        "report_number": 1,
+        "financial_contribution_to_date": 57522.5,
+        "financial_contribution_currency": "USD",
+    }
+    for pk in (1, 2):
+        dm.DatamartDocument.objects.create(dataset="prp_indicator_reports", record_key=str(pk), data=data)
+    html = client_validator.get(f"{INDEX}prp_indicator_reports/").content.decode()
+    table = html.split('class="nd-jobs nd-found__table nd-raw__records"', 1)[1].split("</table>", 1)[0]
+    heads = re.findall(r'<th scope="col">(.*?)</th>', table)
+    assert "financial_<wbr>contribution_<wbr>currency" in heads and "report_<wbr>number" in heads
+    assert "Record id" in heads and "Vendor number" in heads and "Progress value" in heads
+    assert not [h for h in heads if "<wbr>" in h and "_" not in h]
+    assert re.sub(r"<wbr>", "", " ".join(heads)).count("<") == 0  # nothing else in a heading is markup
 
 
 def test_a_partner_report_row_shows_its_report_and_the_status_the_pages_read(client_validator, world):

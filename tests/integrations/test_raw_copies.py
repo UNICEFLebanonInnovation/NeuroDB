@@ -431,19 +431,51 @@ def test_a_list_eTools_answers_empty_says_so_beside_the_read_before(client, role
 
 
 @responses.activate
-def test_the_rest_sync_reads_no_detail_of_a_list_that_failed():
-    PartnerOrganization.objects.create(etl_id="1", name="Partner 1")  # held before: never asked for again
+def test_the_rest_sync_reads_the_details_neurodb_holds_when_their_list_failed():
+    """The eTools REST sync asks for the details of NeuroDB's own records, not of the list it just read: with
+    every list at 503 tonight, partner 1's details and engagement 7's action points are still asked for and
+    saved. Only a detail with nothing held to ask about (no programme document with donors) is not read."""
+    PartnerOrganization.objects.create(etl_id="1", name="Partner 1")
     Engagement.objects.create(id=7, status="final", engagement_type="sc", description="")
+    for path in (*LISTS, "/api/audit/engagements/"):
+        responses.get(f"{BASE}{path}", status=503)
+    responses.get(f"{BASE}/api/v2/partners/1/", json=partner(1))
+    responses.get(
+        f"{BASE}/api/action-points/action-points/",
+        json={
+            "count": 1,
+            "next": None,
+            "results": [{"id": 70, "reference_number": "AP/70", "status": "open"}],
+        },
+    )
+    runs = {r.target: r for r in sync.sync_all(client=rest_client(), triggered_by="test")}
+    for name in ("partners", "interventions", "engagements"):
+        assert runs[name].status == SyncRun.Status.FAILED, name
+    for name in ("partner_details", "action_points"):
+        assert runs[name].status == SyncRun.Status.SUCCEEDED, (name, runs[name].error)
+        assert runs[name].rows_written == 1, name
+    assert PartnerOrganization.objects.get(etl_id="1").vendor_number == "V1"
+    assert ActionPoint.objects.get(id=70).reference_number == "AP/70"
+    assert held("rest_partner_details") == {"1"} and held("rest_action_points") == {"70"}
+    details = runs["intervention_details"]
+    assert details.status == SyncRun.Status.FAILED
+    assert details.error == "Not read: the programme documents could not be read."
+
+
+@responses.activate
+def test_the_rest_sync_reads_no_detail_when_its_list_failed_and_nothing_is_held():
+    """Nothing held to ask about and the list refused: the details are not read, rather than succeed having
+    received nothing (the print of 24 Oct)."""
     refuse_every_list()
     runs = {r.target: r for r in sync.sync_all(client=rest_client(), triggered_by="test")}
-    assert not [
-        c for c in responses.calls if c.request.url.rstrip("/").endswith(("/partners/1", "/spot-checks/7"))
-    ]
     assert not [c for c in responses.calls if "action-points" in c.request.url]
-    for name, words in (("partner_details", "partners"), ("action_points", "engagements")):
+    for name, words in (
+        ("partner_details", "partners"),
+        ("intervention_details", "programme documents"),
+        ("action_points", "engagements"),
+    ):
         assert runs[name].status == SyncRun.Status.FAILED, name
         assert runs[name].error == f"Not read: the {words} could not be read.", name
-    assert runs["intervention_details"].error == "Not read: the programme documents could not be read."
     assert runfacts.facts("rest_partner_details").newer_failed == runs["partner_details"]
 
 
@@ -624,6 +656,11 @@ def test_a_read_asked_that_never_started_says_so(client, roles, settings, monkey
     page = client.get(INDEX).content.decode()
     assert "has not started: press the button again" in page and "Read the eTools REST API now" in page
     assert "is starting" not in page
+    # a validator who is not an Administrator has no button to press
+    client.force_login(_staff("validator", (VIEWER, VALIDATORS)))
+    page = client.get(INDEX).content.decode()
+    assert "has not started: tell the NeuroDB team." in page
+    assert "press the button again" not in page and "Read the eTools REST API now" not in page
 
 
 # ------------------------------------------------------------------------------------------ the REST sync

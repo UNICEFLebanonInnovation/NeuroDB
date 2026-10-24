@@ -474,8 +474,6 @@ STATUS_WORDS = {
     503: "unavailable",
     504: "no answer in time",
 }
-NO_ANSWER = re.compile(r"Timeout|timed out", re.IGNORECASE)
-NO_CONNECTION = re.compile(r"ConnectionError|SSLError|ProxyError|NewConnectionError", re.IGNORECASE)
 UNREADABLE = re.compile(r"response is not JSON|unrecognised (list|record) payload|unexpected list payload")
 NOT_READ = "Not read: "  # the start of rest_raw.NOT_READ and NEVER_READ
 
@@ -488,12 +486,13 @@ def not_read(run: SyncRun | None) -> bool:
 def failure_words(run: SyncRun | None) -> str:
     """Why a run failed, in a few plain words read from its error: the status the service answered ("eTools
     answered 403: not allowed"), no answer in time, could not connect, NeuroDB restarted during the run, the
-    list an entity asks for that could not be read, the token not set; "an unexpected error" for any other.
+    list an entity asks for that could not be read, the token not set, no PRP business area code set; "an
+    unexpected error" for any other.
     Never the error's text: an answer's body comes from eTools or a proxy, and can hold a record's value."""
-    from neurodb.core.admin import HTTP_STATUS, SOURCES
+    from neurodb.core.admin import HTTP_STATUS, NOT_IN_TIME, SOURCES, unanswered
     from neurodb.core.models.sync import STOPPED
     from neurodb.integrations.background import CUT_OFF
-    from neurodb.integrations.etools import rest_raw
+    from neurodb.integrations.etools import datamart_sync, rest_raw
 
     if run is None:
         return ""
@@ -509,15 +508,18 @@ def failure_words(run: SyncRun | None) -> str:
         return error[len(NOT_READ) :].rstrip(".")
     if error.startswith("DatamartNotConfigured"):
         return "the eTools Datamart sign-in is not set"
+    if error.removeprefix("IntegrationError: ").startswith(datamart_sync.ENTER_CODE) or (
+        datamart_sync.NEVER_SENT in error
+    ):  # never the value set aside: the error names it
+        return "no PRP business area code is set: enter it in Admin → Data and sync → eTools Datamart"
     found = HTTP_STATUS.search(error)
     if found:
         status = int(found.group(1))
         words = STATUS_WORDS.get(status)
         return f"{source} answered {status}: {words}" if words else f"{source} answered {status}"
-    if NO_ANSWER.search(error):
-        return "no answer in time"
-    if NO_CONNECTION.search(error):
-        return "could not connect"
+    how = unanswered(error)  # as the run page says it (core.admin.error_hint)
+    if how:
+        return "no answer in time" if how == NOT_IN_TIME else "could not connect"
     if UNREADABLE.search(error):
         return f"{source} sent an answer NeuroDB cannot read"
     return "an unexpected error"

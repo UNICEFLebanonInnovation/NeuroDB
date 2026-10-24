@@ -36,6 +36,8 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import formats, timezone
+from django.utils.html import escape
+from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_POST
 
@@ -432,7 +434,7 @@ def source_view(request, source: str):
         too_slow=raw.TOO_SLOW.format(n=f"{facts.held:,}") if n is None else "",
         too_many=raw.too_many(name, n) if n is not None and n > limit else "",
         csv_url=csv_url,
-        columns=[label for label, _what in columns],
+        columns=[_heading(label, what) for label, what in columns],
         records=records,
         page_obj=page_obj,
         page_query=urlencode(query),
@@ -454,6 +456,15 @@ def source_view(request, source: str):
         **extra,
     )
     return render(request, "admin/datamart/raw/source.html", context)
+
+
+def _heading(label: str, what: str) -> str:
+    """A list column's heading. A field named by its key (``d:<key>``, ``raw.columns_of``) may break after
+    each "_" when printed: financial_contribution_currency is one long word, and held the list past the
+    sheet. A heading in words keeps its words whole."""
+    if what != f"d:{label}":
+        return label
+    return mark_safe(escape(label).replace("_", "_<wbr>"))  # escape() writes no "_"
 
 
 def _developer_url(name: str) -> str:

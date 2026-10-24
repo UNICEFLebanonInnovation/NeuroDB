@@ -116,6 +116,8 @@ SERVER_ERROR = (
         ("compiler_youth", "GET /x: HTTP 505 HTTP Version Not Supported", "tell the team that runs the data"),
         ("etools_datamart", "GET /api/latest/datamart/grants/: HTTP 429 Too Many Requests", "too many"),
         ("ai_data", "POST /resources/query: ReadTimeout", "ActivityInfo did not answer in time"),
+        ("etools", "GET /api/v2/partners/: ConnectionError", "eTools could not be reached"),
+        ("etools", "GET /api/v2/partners/: ConnectTimeout", "eTools could not be reached"),
         (
             "etools_datamart",
             "GET /api/latest/datamart/: HTTP 401 Unauthorized",

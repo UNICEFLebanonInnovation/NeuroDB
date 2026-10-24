@@ -23,6 +23,7 @@ import requests
 from django.conf import settings
 from requests.adapters import HTTPAdapter
 from requests.auth import HTTPBasicAuth
+from urllib3.exceptions import ReadTimeoutError
 from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,17 @@ def _path(url: str) -> str:
     return urlsplit(url).path or "/"
 
 
+def _cause(exc: requests.RequestException) -> str:
+    """The name of why a request failed. A read that timed out is a ``ReadTimeout``, though requests raises a
+    ``ConnectionError`` for it once the retries are used up (or while it reads the body); a ``ConnectTimeout``
+    or a ``ConnectionError`` is then a connection never made."""
+    if isinstance(exc, requests.ConnectionError) and not isinstance(exc, requests.ConnectTimeout):
+        arg = exc.args[0] if exc.args else None
+        if isinstance(getattr(arg, "reason", arg), ReadTimeoutError):  # MaxRetryError(reason), or the error
+            return "ReadTimeout"
+    return type(exc).__name__
+
+
 def send(
     session: requests.Session,
     method: str,
@@ -111,8 +123,9 @@ def send(
         response = session.request(method, url, params=params, json=json, stream=stream)
     except requests.RequestException as exc:
         elapsed = int((time.monotonic() - started) * 1000)
-        logger.warning("%s %s -> %s after %d ms", method, path, type(exc).__name__, elapsed)
-        raise IntegrationError(f"{method} {path}: {type(exc).__name__}", url=url) from exc
+        cause = _cause(exc)
+        logger.warning("%s %s -> %s after %d ms", method, path, cause, elapsed)
+        raise IntegrationError(f"{method} {path}: {cause}", url=url) from exc
     elapsed = int((time.monotonic() - started) * 1000)
     logger.info("%s %s -> %s in %d ms", method, path, response.status_code, elapsed)
     if not response.ok:

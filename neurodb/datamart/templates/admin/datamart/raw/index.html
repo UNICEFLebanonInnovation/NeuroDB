@@ -92,7 +92,7 @@
     {% elif rest_starting %}
       <p class="mb-3">{% trans "The read of the eTools REST API is starting: reload this page in a minute." %}</p>
     {% endif %}
-    {% if rest_not_started %}<p class="mb-3 nd-found__warn">{% blocktrans with when=rest_not_started %}The read asked at {{ when }} has not started: press the button again; if it does not start again, tell the NeuroDB team.{% endblocktrans %}</p>{% endif %}
+    {% if rest_not_started %}<p class="mb-3 nd-found__warn">{% if rest_can_read %}{% blocktrans with when=rest_not_started %}The read asked at {{ when }} has not started: press the button again; if it does not start again, tell the NeuroDB team.{% endblocktrans %}{% else %}{% blocktrans with when=rest_not_started %}The read asked at {{ when }} has not started: tell the NeuroDB team.{% endblocktrans %}{% endif %}</p>{% endif %}
     {% if rest_token and not rest_running and not rest_starting and rest_can_read %}
       <form method="post" action="{{ rest_read_url }}" class="mb-3">
         {% csrf_token %}

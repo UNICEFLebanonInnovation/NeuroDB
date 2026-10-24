@@ -71,8 +71,15 @@ def test_raw_etools_data_prints_every_column_wrapping_on_a_landscape_page_of_its
         "{ white-space: nowrap !important; }"
     ) in block
     assert block.count("anywhere") == 1 and ".nd-raw .nd-raw__records th.nd-raw__long" in block
+    assert '.nd-raw .nd-jobs th[scope="row"] { min-width: 0; max-width: none; }' in block
+    # a long text (an indicator) keeps a column to read it in: with none, partner reports with real indicator
+    # titles printed 12 to 14 lines a row, three rows a sheet
+    assert ".nd-raw .nd-raw__records td.nd-raw__long { min-width: 7rem; max-width: none; }" in block
+    # a field's key in a heading breaks after its "_" in print only (raw_admin._heading puts a <wbr> there)
+    assert ".nd-raw .nd-raw__records th wbr { display: inline; }" in block
     assert (
-        '.nd-raw .nd-jobs th[scope="row"], .nd-raw .nd-raw__records td.nd-raw__long { min-width: 0;' in block
+        ".nd-raw__records th wbr { display: none; }"
+        in css.split("Raw eTools data printed or saved as PDF")[0]
     )
     assert ".nd-raw form, .nd-raw .nd-raw__review { display: none !important; }" in block
     assert ".nd-raw details.nd-check-group::details-content { content-visibility: visible; }" in block

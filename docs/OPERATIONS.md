@@ -2114,10 +2114,14 @@ with `datamart/raw.py`; templates `datamart/templates/admin/datamart/raw/`, plai
 The run the records come from is the latest that succeeded, or succeeded with errors, and received something;
 a newer run that failed is named beside it, with why in a few words read from its error
 (`runfacts.failure_words`: "eTools Datamart answered 500", "eTools answered 403: not allowed", "no answer in
-time", "could not connect", "NeuroDB was restarted during the run", "the partners could not be read"... and "an
-unexpected error" for any other), never the error's text (the 200 characters of an answer's body come from
+time", "could not connect", "NeuroDB was restarted during the run", "the partners could not be read", "no PRP
+business area code is set"... and "an unexpected error" for any other), never the error's text (the 200 characters of an answer's body come from
 eTools or a proxy); for superusers and Administrators the words link to the run, where *What the error means*
-says what to do; for anyone else they are plain text. A diagnostic dataset (`catalogue.DIAGNOSTIC`:
+says what to do; for anyone else they are plain text. A request that got no answer reads the same on both pages
+(`core.admin.unanswered`): `integrations.http` names a read that timed out `ReadTimeout` (requests calls it a
+`ConnectionError` once the retries are used up), so "no answer in time" means eTools or the Datamart took the
+connection and did not answer, and "could not connect" (a `ConnectTimeout`, a refused connection, no secure
+connection) that no connection was made. A diagnostic dataset (`catalogue.DIAGNOSTIC`:
 `datamart_etl_status`, whose `system/monitor` answers 500 on the Datamart's side) says so ("diagnostic: no page
 or check uses it") and is never shown as an alarm. On distinct records:
 
@@ -2151,7 +2155,8 @@ the row says *Being read now (since …)*, *Waiting: the read under way reaches 
 before it reached it (NeuroDB was restarted during the run)*, *The read of … failed (…)*, *Not read on … (the
 partners could not be read)*, or *The read of …: no final engagement to ask for* (`runfacts.rest_reads`: the
 newest run that ended, beside the one the records come from; one query more for the read). A read asked from the
-button whose process never wrote a run says so after two minutes ("The read asked at … has not started").
+button whose process never wrote a run says so after two minutes ("The read asked at … has not started": to
+those with the button, press it again; to anyone else, tell the NeuroDB team).
 
 **The people rule** (`datamart/raw_people.py`, `public_record`): every record on screen and in every CSV goes
 through it, nothing else writes a raw record out. Contact fields are dropped at any depth; the answers of PSEA
@@ -2278,11 +2283,16 @@ print as the reporting checks do (`admin.css`, `.nd-raw`): every column of every
 their own (a named page, `@page nd-raw`), across the whole sheet (the print dialog reads the page at its
 portrait width, where the admin's container would hold it to 640 px), wrapping between words, without the
 sidebar, the header, the forms (the filter, the read button, the review buttons) or the review column; *Fields
-this source sends* prints open. A number never breaks (`overflow-wrap: break-word`), nor does a date, a
-Datamart path or REST endpoint, or a record's one-word cell such as a reference `LEB/PCA2026012-1` or a period's
-date (`white-space: nowrap`, `nd-raw__atom`; the notes' dates hold together by non-breaking spaces); a source's
-records print a little smaller, so the fifteen columns of the partner reports fit the sheet; only a record id
-made from its content (64 characters) breaks where it must.
+this source sends* prints open. A number never breaks (`overflow-wrap: break-word`), nor does a sync's date, a
+Datamart path or REST endpoint, or a record's cell that is one word as shown, such as a reference
+`LEB/PCA2026012-1` or an amount (`white-space: nowrap`, `nd-raw__atom`, chosen from the cell as shown; the notes'
+dates hold together by non-breaking spaces). A record's date ("Sept. 30, 2026") wraps between its words, a
+field's key in a heading (`financial_contribution_currency`) after its "_" (`raw_admin._heading`, `<wbr>`), and
+a long text such as an indicator keeps 7rem: the room comes from those, so PRP indicator reports print all 14
+columns (their last three were cut), and 50 partner reports with indicators of 130 characters print their 15 on
+11 sheets at about 8 lines a row (they ran 12 lines high, on 17 sheets). On screen a heading keeps one line
+(`wbr` is hidden there: Chrome breaks at it even under `nowrap`). A source's records print a little smaller;
+only a record id made from its content (64 characters) breaks where it must.
 
 **The Power BI comparison sheet** (`datamart/comparison.py`, `reports/check_views.py`). NeuroDB never reads
 Power BI: a validator compares by hand. `/check/progress-reports/compare.xlsx` and
@@ -3648,10 +3658,12 @@ The older eTools REST sync (`manage sync_etools`, token `ETOOLS_TOKEN`) is still
 demand, for trips (`--only travels`) and the legacy engagement tables; locations come from the
 Datamart (`sync_locations`). It keeps a raw copy of every record it reads for Raw eTools data
 (`details.raw_copies`; *Checking the figures*), and it writes the programme documents (`PCA`), whose status
-decides "running" on every partner reporting page: running it can move the PRP pages' figures. When the partners,
-programme documents or engagements list fails, the partner details, programme document details or action points
-of the same sync are not read (their runs fail: "Not read: the partners could not be read.", `sync.NEEDS`)
-rather than ask for the details of what NeuroDB held before. An "Invalid token" (HTTP 403) from it means `ETOOLS_TOKEN` was revoked or
+decides "running" on every partner reporting page: running it can move the PRP pages' figures. Its partner
+details, programme document details and action points ask eTools about the records NeuroDB already holds (its
+partners, its programme documents with donors, its final engagements), not about the list it has just read: when
+that list fails they still read them. Only when NeuroDB holds none to ask about and the list failed are they not
+read (their runs fail: "Not read: the partners could not be read.", `sync.NEEDS`), rather than succeed having
+received nothing. An "Invalid token" (HTTP 403) from it means `ETOOLS_TOKEN` was revoked or
 expired: ask eTools for a new token and store it in Key Vault (never in a file). Its intervention details step writes the donor amounts in the same shape as the
 Datamart sync (one entry per donor and grant), so running it does not blank the donor pages.
 

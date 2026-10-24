@@ -70,7 +70,23 @@ SOURCES = {
 # The HTTP status the saved error names ("... HTTP 500 Internal Server Error", "... returned 503"): a run
 # keeps only its error's text, so the status is read back from it.
 HTTP_STATUS = re.compile(r"\b(?:HTTP|returned) (\d{3})\b")
-UNREACHABLE = re.compile(r"Timeout|ConnectionError|SSLError|timed out", re.IGNORECASE)
+# A request that got no answer (integrations.http names its cause): no connection made, or no answer in time
+CONNECT_TIMEOUT = re.compile(r"ConnectTimeout", re.IGNORECASE)
+NO_ANSWER = re.compile(r"Timeout|timed out", re.IGNORECASE)
+NO_CONNECTION = re.compile(r"ConnectionError|SSLError|ProxyError", re.IGNORECASE)
+NOT_CONNECTED, NOT_IN_TIME = "not connected", "not in time"
+
+
+def unanswered(error: str) -> str:
+    """Why a request got no answer, read from a run's error: :data:`NOT_CONNECTED` (no connection was made in
+    time, refused, or no secure connection), :data:`NOT_IN_TIME` (connected, but no answer in time), or ""."""
+    if CONNECT_TIMEOUT.search(error):
+        return NOT_CONNECTED
+    if NO_ANSWER.search(error):
+        return NOT_IN_TIME
+    if NO_CONNECTION.search(error):
+        return NOT_CONNECTED
+    return ""
 
 
 def _probe_verdict(run: SyncRun) -> str:
@@ -111,6 +127,7 @@ def error_hint(run: SyncRun) -> str:
     name = SOURCES.get(run.job)
     found = HTTP_STATUS.search(error)
     status = int(found.group(1)) if found else None
+    how = unanswered(error)
     if status in (502, 503, 504):
         hint = _("%(source)s was unavailable: try again later.")
     elif status == 429:
@@ -125,8 +142,10 @@ def error_hint(run: SyncRun) -> str:
             "%(source)s answered with a server error (HTTP %(status)s). If the next run fails the same way, "
             "tell the team that runs %(team)s."
         )
-    elif UNREACHABLE.search(error):
+    elif how == NOT_IN_TIME:
         hint = _("%(source)s did not answer in time: try again later.")
+    elif how == NOT_CONNECTED:
+        hint = _("%(source)s could not be reached: try again later.")
     elif status in (401, 403):
         hint = _(
             "%(source)s refused NeuroDB's credentials: they may have expired. Ask the team that runs "

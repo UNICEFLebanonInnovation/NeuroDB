@@ -1,5 +1,5 @@
 {% extends "admin/base_site.html" %}
-{% load i18n humanize unfold %}
+{% load i18n humanize l10n unfold %}
 
 {% comment %}
   Raw eTools data, one source (context: datamart.raw_admin.source_view, validators only): what its last sync received
@@ -10,7 +10,8 @@
   to choose first. A newer sync that failed says why in a few words and links its run for those who open runs; an
   eTools REST entity never read says why (_notes.html). A plain page, no script. Printed or saved as PDF, it prints
   whole on A4 landscape, without the filter and the review buttons (admin.css, nd-raw); a record's cell that is one
-  word (a reference, a number, a date: nd-raw__atom) never breaks, a long text wraps.
+  word as shown (a reference, a number: nd-raw__atom) never breaks, a date as shown ("Sept. 30, 2026") and a long
+  text wrap between words, and a field's key in a heading breaks after its "_" (raw_admin._heading).
 {% endcomment %}
 
 {% block content %}
@@ -140,7 +141,7 @@
             <thead><tr>{% for c in columns %}<th scope="col">{{ c }}</th>{% endfor %}</tr></thead>
             <tbody>
               {% for r in records %}
-                <tr>{% for cell in r.cells %}{% if forloop.first %}<th scope="row"{% if cell|stringformat:"s"|length > 40 %} class="nd-raw__long"{% endif %}><a class="nd-link" href="{{ r.url }}">{{ cell }}</a></th>{% else %}{% with text=cell|stringformat:"s" %}<td{% if text|length > 40 %} class="nd-raw__long"{% elif " " not in text %} class="nd-raw__atom"{% endif %}>{% if cell is None or cell == "" %}—{% else %}{{ cell }}{% endif %}</td>{% endwith %}{% endif %}{% endfor %}</tr>
+                <tr>{% for cell in r.cells %}{% if forloop.first %}<th scope="row"{% if cell|stringformat:"s"|length > 40 %} class="nd-raw__long"{% endif %}><a class="nd-link" href="{{ r.url }}">{{ cell }}</a></th>{% else %}{% with text=cell|localize %}<td{% if text|length > 40 %} class="nd-raw__long"{% elif " " not in text %} class="nd-raw__atom"{% endif %}>{% if cell is None or cell == "" %}—{% else %}{{ cell }}{% endif %}</td>{% endwith %}{% endif %}{% endfor %}</tr>
               {% endfor %}
             </tbody>
           </table>
