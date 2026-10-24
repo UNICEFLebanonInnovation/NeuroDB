@@ -53,6 +53,7 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         *(words for line in comparison.WHY_THEY_DIFFER for words in line),
         *(words for page in comparison.NEURODB_ONLY.values() for words in page.values()),
         *comparison.POWERBI_ITEMS.values(),
+        *comparison.TAG_WORDS.values(),
     ]
     facts = {
         "run": object(),

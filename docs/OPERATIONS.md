@@ -2206,7 +2206,8 @@ whole; its name is `powerbi-comparison-<page>_<YYYY-MM-DD>_<HHMM>.xlsx`, the end
 Every text from the data is written as a text (`data_type = "s"`), never a formula; no person is written
 (partners, programme documents and sections only). Power BI's page, visual, card and slicer names are
 placeholders until the user confirms them: they are in one place, `comparison.POWERBI_PAGES`,
-`POWERBI_ITEMS` and `POWERBI_SLICERS`. Every field of the page's filter dataclasses (`ReportFilters`,
+`POWERBI_PD_PAGE`, `POWERBI_ITEMS` and `POWERBI_SLICERS`, and every sentence of the sheet that names one reads
+it there (a test renames them all). Every field of the page's filter dataclasses (`ReportFilters`,
 `DisaggregationFilters`, `monitoring.Filters`) is either a slicer (`POWERBI_SLICERS`) or a NeuroDB filter to
 clear (`NEURODB_ONLY`); a new field in neither stops the sheet, and a test fails.
 

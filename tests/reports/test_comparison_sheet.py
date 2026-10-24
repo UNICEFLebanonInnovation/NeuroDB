@@ -18,6 +18,7 @@ from neurodb.accounts.models import User
 from neurodb.accounts.roles import VALIDATORS, VIEWER
 from neurodb.datamart import comparison, monitoring, raw, reporting, services
 from neurodb.datamart import models as dm
+from neurodb.datamart.tags import TAG_FIELDS
 from tests.reports.test_pd_monitoring import TODAY, data, report_rows
 from tests.reports.test_powerbi_views import CLASSROOMS, frozen, more
 
@@ -294,16 +295,75 @@ def test_the_slicers_to_set_and_the_neurodb_filters_to_clear(validator, more, fr
     _slicers, clear = comparison.settings_rows(comparison.read(PR, {}, TODAY))
     assert clear == []
     pm = {"year": "2026", "scope": "year", "report_type": "HR", "status": "on_track", "cp_output": "x"}
+    pm |= {"gender": "Female", "age_group": ["12-17", "Under 5"]}
     slicers, clear = comparison.settings_rows(comparison.read(PM, pm, TODAY))
     assert dict(slicers)["Reporting year"] == "2026" and dict(slicers)["PD status"].startswith("Every status")
     assert dict(clear) == {
-        "Programme documents": "Every programme document running in 2026",
+        "Programme documents": "Every programme document running in 2026, closed ones too",
         "Report type": "Humanitarian reports (monthly): only emergency or cluster indicators",
         "Tracking status": "On track",
+        "Tags": "Gender: Female; Age group: 12-17, Under 5",  # the filter bar's words
         "CP output": "x",
     }
+    assert set(comparison.TAG_WORDS) == set(TAG_FIELDS)
     slicers, _clear = comparison.settings_rows(comparison.read(PM, {"year": "all"}, TODAY))
     assert dict(slicers)["Reporting year"] == "Every year"
+    # the programme documents the scope keeps, in words that say what the figures keep: every one with "all",
+    # the closed programme document that ran in 2024 too; only those running in the year with "year"
+    scopes = {
+        "Every programme document, of every status and year": ({"scope": "all", "year": "2026"}, 2),
+        "Every programme document running in 2026, closed ones too": ({"scope": "year", "year": "2026"}, 1),
+        "Every programme document of the PD statuses chosen, of every year": (
+            {"scope": "all", "year": "2026", "pd_status": ["active", "closed"]},
+            2,
+        ),
+        "Every programme document running in 2026, of the PD statuses chosen": (
+            {"scope": "year", "year": "2026", "pd_status": ["active", "closed"]},
+            1,
+        ),
+    }
+    for words, (params, pds) in scopes.items():
+        params = {**params, "view": "table"}
+        _slicers, clear = comparison.settings_rows(comparison.read(PM, params, TODAY))
+        assert dict(clear)["Programme documents"] == words, params
+        assert _figures(PM, params)["dq.pds"].value == pds, params
+    _slicers, clear = comparison.settings_rows(comparison.read(PM, {"scope": "all", "year": "all"}, TODAY))
+    assert dict(clear)["Programme documents"] == "Every programme document, of every status and year"
+    compare = _book(validator, PM, {**pm, "scope": "all"})["Compare"]
+    clear = _block(compare, "Clear these in NeuroDB before comparing")
+    assert clear["Programme documents"] == "Every programme document, of every status and year"
+    assert clear["Tags"] == "Gender: Female; Age group: 12-17, Under 5"
+
+
+def test_power_bi_s_names_come_from_one_place(validator, more, frozen, monkeypatch):
+    """Every Power BI page, visual and slicer either workbook names is read from POWERBI_PAGES,
+    POWERBI_PD_PAGE and POWERBI_SLICERS: renamed there, no old name is left in a cell."""
+    renamed: dict[str, str] = {}
+
+    def new(name: str) -> str:
+        return renamed.setdefault(name, f"Renamed {len(renamed) + 1:02}")
+
+    pages = {
+        page: tuple((new(name), tuple((block, new(v)) for block, v in visuals)) for name, visuals in found)
+        for page, found in comparison.POWERBI_PAGES.items()
+    }
+    slicers = {
+        page: {k: new(v) for k, v in found.items()} for page, found in comparison.POWERBI_SLICERS.items()
+    }
+    monkeypatch.setattr(comparison, "POWERBI_PAGES", pages)
+    monkeypatch.setattr(comparison, "POWERBI_SLICERS", slicers)
+    monkeypatch.setattr(comparison, "POWERBI_PD_PAGE", new(comparison.POWERBI_PD_PAGE))
+    # NeuroDB's own words too (columns of the lists, a filter, a view of Partner monitoring): not searched
+    own = {"Partner", "Section", "PD status", "Program Performance"}
+    text = ""
+    for page in comparison.PAGES:
+        book = _book(validator, page, {"pd_status": ""})
+        text += repr(
+            [cell for sheet in book.worksheets for row in sheet.iter_rows(values_only=True) for cell in row]
+        )
+    left = [old for old in renamed if old not in own and old in text]
+    assert left == []
+    assert [name for name in renamed.values() if name not in text] == []  # every name is shown
 
 
 # ------------------------------------------------------------------------------------------------- the day

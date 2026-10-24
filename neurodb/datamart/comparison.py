@@ -9,9 +9,9 @@ person types Power BI's numbers in.
   ``program_performance_rows`` and ``data_quality``), on the day the statuses are read for (Due, Overdue and
   Not yet due depend on it): the page's own day by default, or Power BI's refresh, at most :data:`DAYS_BACK`
   days before. They are read in one read-only snapshot of the data.
-* **Power BI's names** are in one place, :data:`POWERBI_PAGES`, :data:`POWERBI_ITEMS` and
-  :data:`POWERBI_SLICERS`: placeholders until the names the shared dashboard shows are confirmed (open
-  question 1 of the spec); correct them there.
+* **Power BI's names** are in one place, :data:`POWERBI_PAGES`, :data:`POWERBI_PD_PAGE`, :data:`POWERBI_ITEMS`
+  and :data:`POWERBI_SLICERS`: placeholders until the names the shared dashboard shows are confirmed (open
+  question 1 of the spec); correct them there. Every sentence of the sheet that names one reads it there.
 * **The filter.** Every field of the page's filter is a Power BI slicer to set (:data:`POWERBI_SLICERS`) or a
   NeuroDB filter to clear before comparing (:data:`NEURODB_ONLY`); a new field in neither stops the sheet.
 * **People** never reach the file: partners, programme documents and sections only; the progress reports'
@@ -71,6 +71,8 @@ POWERBI_PAGES: dict[str, tuple[tuple[str, tuple[tuple[str, str], ...]], ...]] = 
         ("Data Quality", (("dq_tiles", "Cards"),)),
     ),
 }
+# Power BI's page with no row in the sheet: NeuroDB shows it on each programme document's page
+POWERBI_PD_PAGE = "PD/SPD Indicators"
 # the items Power BI names itself (a status, a section or a month is named by the data)
 POWERBI_ITEMS: dict[str, str] = {
     "total": "Total",
@@ -146,6 +148,13 @@ NEURODB_ONLY: dict[str, dict[str, str]] = {
         "emergency": "Emergency",
         "cp_output": "CP output",
     },
+}
+# the tags of Partner monitoring's filter, as its filter bar names them
+TAG_WORDS: dict[str, str] = {
+    "gender": "Gender",
+    "age_group": "Age group",
+    "nationality": "Nationality",
+    "disability": "Disability",
 }
 # the filter dataclasses each page reads its address with
 FILTERS: dict[str, tuple[type, ...]] = {
@@ -479,6 +488,13 @@ BLOCKS = {
 }
 
 
+def visual_name(page: str, block: str) -> tuple[str, str]:
+    """The Power BI page and visual a block of figures is compared with (:data:`POWERBI_PAGES`)."""
+    return next(
+        (name, visual) for name, visuals in POWERBI_PAGES[page] for b, visual in visuals if b == block
+    )
+
+
 def figures(found: Read) -> list[Figure]:
     """The page's figures with a Power BI counterpart, in Power BI's order (:data:`POWERBI_PAGES`)."""
     out = []
@@ -526,15 +542,21 @@ def _words(page: str, name: str, value: Any, filters: Any, partners: dict[str, s
         return ", ".join(partners.get(str(p), f"partner {p}") for p in value)
     if name == "emergency":
         return {"yes": "Yes", "no": "No"}.get(value, "")
-    if name == "scope":  # the year's programme documents only with a year, else every status
-        return f"Every programme document running in {filters.year}" if filters.year else "Every status"
+    if name == "scope":  # the programme documents kept (monitoring._pd_queryset): a PD status chosen wins
+        chosen = bool(filters.pd_statuses)
+        if value == "year" and filters.year:
+            kept = "of the PD statuses chosen" if chosen else "closed ones too"
+            return f"Every programme document running in {filters.year}, {kept}"
+        if chosen:
+            return "Every programme document of the PD statuses chosen, of every year"
+        return "Every programme document, of every status and year"
     if name == "report_type":
         words = monitoring.REPORT_TYPES.get(value, value)
         return words + ": only emergency or cluster indicators" if value == "HR" else words
     if name == "status":
         return monitoring.LABELS.get(value, value)
     if name == "tags":
-        return "; ".join(f"{tag}: {', '.join(values)}" for tag, values in value.items() if values)
+        return "; ".join(f"{TAG_WORDS[tag]}: {', '.join(values)}" for tag, values in value.items() if values)
     if isinstance(value, bool):
         return "Yes" if value else ""
     if isinstance(value, datetime.date):
@@ -741,8 +763,8 @@ def _compare_sheet(book: Workbook, found: Read, base_url: str) -> None:
     sheet.add(None, "The grid, the Map and Home have no Power BI page: check them against Raw eTools data.")
     sheet.add(
         None,
-        "PD/SPD Indicators is on each programme document's page: check it there against the PD indicators of "
-        "that programme document (Raw eTools data → PD indicators, filtered by the programme document).",
+        f"{POWERBI_PD_PAGE} is on each programme document's page: check it there against the PD indicators "
+        "of that programme document (Raw eTools data → PD indicators, filtered by the programme document).",
     )
     sheet.add(None, "Why NeuroDB and Power BI can differ: the sheet Why they can differ.")
 
@@ -762,24 +784,26 @@ def _everything(sheet: Sheet, found: Read) -> None:
         held = PCA.objects.exclude(status__in=pd_statuses.NOT_A_PARTNERSHIP).count()
         sheet.add(None, "Programme documents", held)
     sheet.add(None, "Earliest reporting period", history)
+    year = POWERBI_SLICERS[found.page]["year"]
     sheet.add(
         None,
-        f"In Power BI, clear every slicer except Reporting year ≥ {first.year} to compare these. NeuroDB "
-        "never reads draft or cancelled programme documents, nor reports naming no programme document.",
+        f"In Power BI, clear every slicer except {year} ≥ {first.year} to compare these. NeuroDB never reads "
+        "draft or cancelled programme documents, nor reports naming no programme document.",
     )
 
 
 def _reports_sheet(book: Workbook, found: Read) -> None:
     """One row per progress report of the filter, as the Progress reports export writes it (without its focal
-    points), with the key to match Power BI's Report list."""
+    points), with the key to match the rows of Power BI's report list (``report_list``)."""
     from neurodb.reports.views import _report_row
 
     reports = found.data["page"]["reports"]
     vendors = _vendor_numbers({r["partner_id"] for r in reports})
     sheet = Sheet(book, "Progress reports", (18, 36, 14, 10, 10, 12, 12, 12, 14, 12, 26), freeze="A3")
+    powerbi_page, visual = visual_name(found.page, "report_list")
     sheet.add(
         f"Every progress report of the filter: {len(reports):,}. Match key: PD reference, a space, report #. "
-        "In Power BI's Report list, Export data, then one VLOOKUP on the match key."
+        f"In Power BI, {powerbi_page} → {visual}: Export data, then one VLOOKUP on the match key."
     )
     sheet.header(
         "PD reference",

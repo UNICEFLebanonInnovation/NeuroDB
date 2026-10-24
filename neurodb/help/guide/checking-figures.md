@@ -54,8 +54,8 @@ The file has these sheets:
 
 **Matching row by row** (on the Progress reports, Partners or Program Performance rows sheet):
 
-1. In Power BI, open the visual (the Report list, the partners table or Program Performance), choose
-   *Export data* and open the file in Excel.
+1. In Power BI, open the visual that lists the same rows (the sheet gives Power BI's names for its pages
+   and visuals), choose *Export data* and open the file in Excel.
 2. In Power BI's file, insert a first column holding the same match key, for instance `=B2&" "&C2` for
    the PD reference and the report number.
 3. In NeuroDB's sheet, in an empty column, look each row up in Power BI's file:
