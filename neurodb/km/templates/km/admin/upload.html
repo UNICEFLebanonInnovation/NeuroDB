@@ -1,5 +1,5 @@
 {% extends "admin/base_site.html" %}
-{% load i18n humanize unfold %}
+{% load i18n unfold %}
 {% comment %}
   Upload a new version of the KM Database (context: km.admin.KMVersionAdmin.upload; superusers and
   Administrators with staff status). The quick checks run in the request; a workbook that passes is loaded in
@@ -10,9 +10,7 @@
   {% trans "The version shown now" as shown_title %}
   {% component "unfold/components/card.html" with title=shown_title %}
     {% if shown %}
-      <p data-km-shown>{% blocktrans trimmed with label=shown.label when=shown.finished_at|date:"j M Y, H:i" who=shown.uploaded_by|default:"—" documents=shown.documents_count|intcomma findings=shown.findings_count|intcomma %}
-        The version {{ label }}, loaded on {{ when }} (uploaded by {{ who }}): {{ documents }} documents and {{ findings }} findings.
-      {% endblocktrans %} <a class="nd-link" href="{% url 'admin:km_kmversion_change' shown.pk %}">{% trans "Open its page" %}</a></p>
+      <p data-km-shown>{{ shown_line }} <a class="nd-link" href="{% url 'admin:km_kmversion_change' shown.pk %}">{% trans "Open its page" %}</a></p>
     {% else %}
       <p data-km-shown>{% trans "None yet: the KM Database is empty until a workbook is loaded." %}</p>
     {% endif %}

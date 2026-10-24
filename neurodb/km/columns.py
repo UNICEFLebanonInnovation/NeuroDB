@@ -26,6 +26,8 @@ READ_ME = "readme"  # in the Read Me sheet's name, with its spaces removed
 TEXT_MAX = 20_000  # a longer text is cut (and is a value to check)
 CHECK_MAX = 300  # a value to check is kept as given up to this many characters
 SPILL = 100  # a value this long in a short column (a level, a flag, a year, a type) is a value to check
+CODE_SIZE = 8  # a code worked out beside a label ("D3", "RQ12"): a longer one is a value to check
+COUNT_MAX = 2_147_483_647  # the largest count a column holds: a larger one is a value to check
 ID = re.compile(r"^[A-Za-z0-9._-]{1,40}$")
 
 _DASHES = re.compile(r"[‐-―−﹘﹣－]")
@@ -262,9 +264,26 @@ FLAG_WORDS = {
 _LEVEL = re.compile(r"^(?:level\s*)?([a-d])$", re.IGNORECASE)
 _PILLAR = re.compile(r"^\s*(P\d{1,2})\b", re.IGNORECASE)
 _NUMBER = re.compile(r"\d+")
-_RQ = re.compile(r"^\s*(RQ\s*\d+)", re.IGNORECASE)
+_RQ = re.compile(r"^\s*RQ\s*(\d+)", re.IGNORECASE)
 _YEAR = re.compile(r"^\d{4}$")
 NOT_REPORTED = "not reported"
+
+
+def whole(raw, text: str) -> int | None:
+    """A cell's whole number of 0 or more (12, 12.0 or "12"), or None."""
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw if raw >= 0 else None
+    if isinstance(raw, float):
+        return int(raw) if raw.is_integer() and raw >= 0 else None
+    return int(text) if text.isdecimal() and len(text) <= 18 else None
+
+
+def _code(prefix: str, digits: str) -> str:
+    """``prefix`` and the number ``digits`` ("D3", "RQ12"), or "" when that is longer than a code can be."""
+    number = digits.lstrip("0") or "0"
+    return f"{prefix}{int(number)}" if len(prefix) + len(number) <= CODE_SIZE else ""
 
 
 def question_key(pillar_code: str, wording: str) -> str:
@@ -331,29 +350,25 @@ def read(column: Column, raw, cells: Cells) -> None:
         values["pillar"] = text
     elif kind == "domain":
         found = _NUMBER.search(text)
-        if text and not found:
+        code = _code("D", found.group()) if found else ""
+        if text and not code:
             cells.check(column, raw)
-        values["domain_code"] = f"D{int(found.group())}" if found else ""
+        values["domain_code"] = code
         values["domain"] = text
     elif kind == "rq":
         found = _RQ.match(text)
-        if not found:
+        code = f"RQ{found.group(1)}" if found else ""
+        if len(code) > CODE_SIZE:
+            code = ""
+        if not code:
             cells.check(column, raw)
-        values["rq_code"] = re.sub(r"\s+", "", found.group(1)).upper() if found else ""
+        values["rq_code"] = code
         values["research_question"] = text
     elif kind == "count":
-        number = None
-        if (
-            isinstance(raw, int | float)
-            and not isinstance(raw, bool)
-            and float(raw).is_integer()
-            and raw >= 0
-        ):
-            number = int(raw)
-        elif text.isdigit():
-            number = int(text)
-        elif text:
+        number = whole(raw, text)
+        if (number is None and text) or (number is not None and number > COUNT_MAX):
             cells.check(column, raw)
+            number = None
         values[column.field] = number
     elif kind == "quality":
         values["quality"] = text

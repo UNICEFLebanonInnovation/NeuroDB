@@ -10,6 +10,7 @@ them. A value that is not one of the expected ones is kept as given in ``checks`
 
 from __future__ import annotations
 
+import datetime
 import time
 
 from django.conf import settings
@@ -17,8 +18,18 @@ from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVectorField
 from django.db import models
 from django.db.models import Q
-from django.utils import formats
+from django.utils import formats, timezone
 from django.utils.translation import gettext_lazy as _
+
+
+def day(value) -> str:
+    """A date as the KM Database writes it ("24 Oct 2026"), or "—". A moment (a load's end) is put in local
+    time first, so a load late in the evening shows its own day, not the day in UTC."""
+    if not value:
+        return "—"
+    if isinstance(value, datetime.datetime):
+        value = timezone.localtime(value)
+    return formats.date_format(value, "j M Y")
 
 
 class KMVersion(models.Model):
@@ -80,12 +91,19 @@ class KMVersion(models.Model):
     def __str__(self) -> str:
         return f"{self.label()} ({self.get_status_display()})"
 
-    def label(self) -> str:
-        """The version's date, as every sentence that names a version says it."""
-        if self.prepared_on:
-            return _("prepared on %(date)s") % {"date": formats.date_format(self.prepared_on, "j M Y")}
-        when = self.finished_at or self.uploaded_at
-        return _("loaded on %(date)s") % {"date": formats.date_format(when, "j M Y") if when else "—"}
+    def label(self, *, loaded: bool = False) -> str:
+        """The version's date, as every sentence that names a version says it: "prepared on 22 Oct 2026", or
+        "loaded on 24 Oct 2026" when the workbook does not say. ``loaded`` adds the load's date to the first
+        ("prepared on 22 Oct 2026 (loaded on 24 Oct 2026)")."""
+        when = day(self.finished_at or self.uploaded_at)
+        if not self.prepared_on:
+            return _("loaded on %(date)s") % {"date": when}
+        if loaded:
+            return _("prepared on %(date)s (loaded on %(loaded)s)") % {
+                "date": day(self.prepared_on),
+                "loaded": when,
+            }
+        return _("prepared on %(date)s") % {"date": day(self.prepared_on)}
 
     @property
     def busy(self) -> bool:

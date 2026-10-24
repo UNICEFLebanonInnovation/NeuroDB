@@ -928,7 +928,7 @@ ticked. An upload while another version waits or loads is refused, with a link t
 as the workbook writes it and the sheet as the file names it, with the row numbers Excel shows: the header
 is row 1):
 
-- in the request: a file over 25 MB; a file that is not .xlsx (named by its type, e.g. CSV); a protected
+- in the request: a file over 25 MB; a file that is not .xlsx (named by its ending, e.g. .csv); a protected
   workbook (a password, or a sensitivity label that encrypts it: save a copy without the protection); a
   file that is not a workbook (or a zip of over 500 parts or 300 MB unpacked); no sheet whose name ends
   with "Documents" or "Findings", or two of them; a required column missing (findings: Finding ID, Record
@@ -955,7 +955,8 @@ one at a time, advisory lock `7140442`):
   replaces keeps its summary only;
 - a failed load, or one that stops (the container restarted), leaves the version shown as it was; a
   version left *Loading* while no load holds the lock, or *Waiting to load* for over 2 minutes, is marked
-  *Not loaded* at the next view of the versions, with what to do;
+  *Not loaded* at the next view of the versions or of the KM Database page (so the page stops saying a new
+  version is loading), with what to do;
 - the uploaded file is kept only until its load ends (loaded or not); of the Read Me's source workbook
   only the file name is kept, never its folder;
 - measured on the user's workbook (8 MB: about 540 documents and 15,000 findings): about 30 seconds and
@@ -964,8 +965,10 @@ one at a time, advisory lock `7140442`):
 
 **Values to check and rows marked for review.** A value that is not one of the expected ones (a
 confidence level other than Level A to D, a mark other than Yes, No, Not reported or Not applicable, a
-year that is not a year, a value of 100 characters or more in a short column) is kept as the workbook
-gives it and marked *Check this value* on the page; a row whose Data Quality Status does not start with
+year that is not a year, a number of findings over 2,147,483,647, an analytical domain or research
+question whose number is too long for its code (over 8 characters with its "D" or "RQ"), a value of 100
+characters or more in a short column) is kept as the workbook gives it and marked *Check this value* on
+the page, so one such cell never stops the load; a row whose Data Quality Status does not start with
 "Ready" is marked *Marked for review*. Neither is hidden. The version page's notes count them, name up to
 20 IDs and link the page's list of them (`/km/?quality=review`).
 

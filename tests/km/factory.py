@@ -40,7 +40,7 @@ def document_row(n: int, findings: int) -> dict[str, Any]:
         "Publishing Entity / Authors": ENTITY if n == 1 else "Fakeorg University",
         "Publication Year": "2021" if n != 3 else "Not reported",
         "Document / Study Type": "Fake study",
-        "Text Used": "Full text",
+        "Text Used": "Fake text used",
         "Evidence Confidence Level": "Level B",
         "Number of Findings": findings,
         "Document Link": None,

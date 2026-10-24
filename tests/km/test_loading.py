@@ -51,11 +51,11 @@ def test_missing_repeated_and_malformed_ids_are_grouped_with_excel_rows(shown):
     version = factory.load(factory.workbook(findings=8, edits=edits))
     assert version.status == "failed" and version.content is None
     assert version.problems == [
-        f"1 values of “Record ID” are repeated in “{DOCS}”, for example TST-0001 (rows 2 and 4).",
+        f"1 value of “Record ID” is repeated in “{DOCS}”: TST-0001 (rows 2 and 4).",
         f"2 rows of “{FIND}” have no “Finding ID”, for example rows 3, 5.",
-        f"1 values of “Finding ID” in “{FIND}” hold characters an ID may not have (only letters, digits, “.”, "
-        "“_” and “-”, at most 40), for example rows 7.",
-        f"1 values of “Finding ID” are repeated in “{FIND}”, for example TST-0001-F00001 (rows 2 and 6).",
+        f"1 value of “Finding ID” in “{FIND}” holds characters an ID may not have (only letters, digits, “.”, "
+        "“_” and “-”, at most 40): row 7.",
+        f"1 value of “Finding ID” is repeated in “{FIND}”: TST-0001-F00001 (rows 2 and 6).",
         # the documents sheet's row 4 no longer gives TST-0003: its findings are in rows 4 and 7
         f"2 rows of “{FIND}” name a “Record ID” that is not in “{DOCS}”, for example rows 4, 7.",
     ]
@@ -75,7 +75,7 @@ def test_orphan_findings_name_five_rows_at_most(shown):
 
 def test_a_finding_with_no_record_id_is_named(shown):
     version = factory.load(factory.workbook(edits={("findings", 2, "Record ID"): None}))
-    assert version.problems == [f"1 rows of “{FIND}” have no “Record ID”, for example rows 2."]
+    assert version.problems == [f"1 row of “{FIND}” has no “Record ID”: row 2."]
 
 
 def test_too_many_rows_are_refused(shown, monkeypatch):
@@ -155,11 +155,10 @@ def test_warnings_name_twenty_ids_at_most_and_link_the_page():
     )
     assert check.count("TST-") == 20 and check.endswith(". See them all on the page.")
     assert (
-        "1 findings and 0 documents are marked for review in the workbook (“Data Quality Status”). See them on "
-        "the page."
+        "1 finding is marked for review in the workbook (“Data Quality Status”). See it on the page."
     ) in version.warnings
     assert (
-        f"1 documents give a “Number of Findings” different from their rows in “{FIND}”, for example TST-0001."
+        f"1 document gives a “Number of Findings” different from its rows in “{FIND}”: TST-0001."
     ) in version.warnings
     assert (version.review_count, version.check_count) == (1, 25)
     assert KMFinding.objects.exclude(checks={}).count() == 25
@@ -170,7 +169,66 @@ def test_warnings_name_twenty_ids_at_most_and_link_the_page():
 
 def test_documents_with_no_findings_are_named():
     version = factory.load(factory.workbook(documents=4, findings=3))
-    assert f"1 documents have no rows in “{FIND}”: TST-0004." in version.warnings
+    assert f"1 document has no rows in “{FIND}”: TST-0004." in version.warnings
+    version = factory.load(factory.workbook(documents=5, findings=3))
+    assert f"2 documents have no rows in “{FIND}”: TST-0004, TST-0005." in version.warnings
+
+
+def test_counts_of_one_are_said_in_the_singular():
+    review = "Review required: fake reason"
+    two = {("findings", n, "Data Quality Status"): review for n in (2, 3)}
+    one_document = {("documents", 2, "Data Quality Status"): review}
+    column = "(“Data Quality Status”)"
+    for edits, sentence in (
+        (two, f"2 findings are marked for review in the workbook {column}. See them on the page."),
+        (one_document, f"1 document is marked for review in the workbook {column}. See it on the page."),
+        (
+            {**two, **one_document},
+            f"2 findings and 1 document are marked for review in the workbook {column}. See them on the page.",
+        ),
+    ):
+        assert sentence in factory.load(factory.workbook(edits=edits)).warnings
+    check = {("findings", 2, "Evidence Confidence Level"): "Fake level"}
+    assert (
+        "1 finding holds a value to check (shown as given and marked), in “Evidence Confidence Level” (1): "
+        "TST-0001-F00001. See it on the page."
+    ) in factory.load(factory.workbook(edits=check)).warnings
+    assert f"The workbook's Read Me sheet says it has 1 finding; “{FIND}” has 4 rows." in (
+        factory.load(factory.workbook(stated=(1, 3))).warnings
+    )
+
+
+def test_one_row_or_one_finding_fewer_is_said_in_the_singular():
+    assert factory.load(factory.workbook(documents=1, findings=1, stated=(2, 1))).problems == [
+        f"This workbook's Read Me sheet says it has 2 findings, but “{FIND}” has 1 row. Nothing was loaded. If "
+        "that is expected, upload it again and tick “It has fewer findings on purpose”."
+    ]
+    factory.load(factory.workbook(documents=1, findings=2))
+    assert factory.load(factory.workbook(documents=1, findings=1)).problems == [
+        "This workbook has 1 finding; the version shown now has 2. Nothing was loaded. If fewer findings is "
+        "expected, upload it again and tick “It has fewer findings on purpose”."
+    ]
+
+
+@pytest.mark.parametrize(
+    ("sheet", "header", "value", "field"),
+    [
+        ("documents", "Number of Findings", 10**12, "findings_stated"),
+        ("findings", "Analytical Domain", "Fake domain 123456789", "domain_code"),
+        ("findings", "Research Question", "RQ1234567 - fake", "rq_code"),
+    ],
+)
+def test_a_value_too_big_for_its_column_loads_marked_to_check(sheet, header, value, field):
+    version = factory.load(factory.workbook(edits={(sheet, 2, header): value}))
+    assert version.status == "live", (version.problems, version.error)
+    row = (KMDocument if sheet == "documents" else KMFinding).objects.order_by("position").first()
+    assert getattr(row, field) in (None, "") and header in row.checks
+
+
+def test_a_read_me_count_too_big_is_not_read():
+    version = factory.load(factory.workbook(stated=(10**12, 3)))
+    assert version.status == "live", (version.problems, version.error)
+    assert (version.stated_findings, version.stated_documents) == (None, 3)
 
 
 # ---------------------------------------------------------------------------------- the replace and batches

@@ -41,5 +41,6 @@ An administrator uploads a new version of the workbook in the administration: *K
 The workbook is checked first; if something is wrong, nothing is loaded and the page says what to correct,
 with the row numbers as Excel shows them. A workbook that passes is loaded in the background (about a
 minute). Until it is ready, the page shows the version it showed before, with a line saying a new version
-is loading. Once it is ready, the page shows the new version: every document and finding of the old one
-is replaced. If the load does not finish, the version shown stays as it was.
+is loading (the very first time, it says the KM Database is being loaded). Once it is ready, the page shows
+the new version: every document and finding of the old one is replaced. If the load does not finish, the
+version shown stays as it was.

@@ -17,7 +17,7 @@ from django.db.models import Count
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import path, reverse
-from django.utils import formats
+from django.utils import formats, timezone
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
@@ -29,8 +29,8 @@ from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 from . import columns as cols
 from . import loading, words, workbook
 from .forms import UploadForm
-from .models import KMDocument, KMVersion
-from .words import quoted, say
+from .models import KMDocument, KMVersion, day
+from .words import counted, quoted, say
 
 Status = KMVersion.Status
 TONES = {Status.LIVE: "ok", Status.QUEUED: "info", Status.LOADING: "info", Status.FAILED: "bad"}
@@ -164,7 +164,7 @@ class KMVersionAdmin(ModelAdmin):
             failed_line = ""
             if version.status == Status.FAILED:
                 failed_line = (
-                    say(words.FAILED_LIVE, label=shown.label(), date=_date(shown.finished_at))
+                    say(words.FAILED_LIVE, label=shown.label(loaded=True))
                     if shown
                     else str(words.FAILED_EMPTY)
                 )
@@ -236,6 +236,7 @@ class KMVersionAdmin(ModelAdmin):
             "form": form,
             "problems": problems,
             "shown": shown,
+            "shown_line": shown_line(shown) if shown else "",
             "running": running,
             "recent": KMVersion.objects.defer("content").select_related("uploaded_by")[:RECENT],
             "asks": [
@@ -276,8 +277,19 @@ class KMVersionAdmin(ModelAdmin):
         return redirect("admin:km_kmversion_change", version.pk)
 
 
-def _date(value) -> str:
-    return formats.date_format(value, "j M Y") if value else "—"
+def shown_line(version: KMVersion) -> str:
+    """The upload page's line on the version shown now: its dates (the load's in local time, with the hour),
+    who uploaded it, and its documents and findings."""
+    when = version.finished_at or version.uploaded_at
+    values = {
+        "loaded": formats.date_format(timezone.localtime(when), "j M Y, H:i") if when else "—",
+        "who": version.uploaded_by or "—",
+        "documents": counted(version.documents_count, words.DOCUMENTS_N),
+        "findings": counted(version.findings_count, words.FINDINGS_N),
+    }
+    if version.prepared_on:
+        return say(words.SHOWN_PREPARED, prepared=day(version.prepared_on), **values)
+    return say(words.SHOWN_LOADED, **values)
 
 
 @admin.register(KMDocument)

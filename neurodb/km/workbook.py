@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime
 import io
+import math
 import re
 import zipfile
 from collections import Counter, defaultdict
@@ -21,7 +22,7 @@ from openpyxl.styles import Font
 
 from . import columns as cols
 from . import words
-from .words import quoted, say
+from .words import counted, quoted, say
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_PARTS = 500  # parts of the zip an .xlsx is (a guard against zip bombs)
@@ -200,13 +201,14 @@ def check_upload(data: bytes, name: str, size: int | None = None) -> Checked:
     size_problems = []
     size = len(data) if size is None else size
     if size > MAX_UPLOAD_BYTES:
-        size_problems.append(say(words.TOO_BIG, size=f"{size / (1024 * 1024):.1f}"))
+        # rounded up, so a file just over the limit never reads as the limit itself
+        size_problems.append(say(words.TOO_BIG, size=f"{math.ceil(size * 10 / (1024 * 1024)) / 10:.1f}"))
     base = re.split(r"[/\\]", name or "")[-1]
     ext = base.rsplit(".", 1)[1] if "." in base.strip(".") else ""
     if not ext:
         size_problems.append(str(words.NO_EXTENSION))
     elif ext.casefold() != "xlsx":
-        size_problems.append(say(words.NOT_XLSX, ext=ext.upper()))
+        size_problems.append(say(words.NOT_XLSX, ext=ext.casefold()))
     if size_problems:
         checked.problems = size_problems
         return checked
@@ -265,15 +267,9 @@ def _date(value) -> datetime.date | None:
 
 
 def _count(value) -> int | None:
-    if (
-        isinstance(value, int | float)
-        and not isinstance(value, bool)
-        and float(value).is_integer()
-        and value >= 0
-    ):
-        return int(value)
-    text = cols.as_text(value).replace(",", "")
-    return int(text) if text.isdigit() else None
+    """A row count the Read Me states ("14,869"), or None (also when it is more than a count can be)."""
+    number = cols.whole(value, cols.as_text(value).replace(",", ""))
+    return number if number is not None and number <= cols.COUNT_MAX else None
 
 
 def read_me(ws, sheets: dict[str, Sheet]) -> ReadMe:
@@ -504,11 +500,19 @@ def _warnings(report: Report, per_document: Counter, document_checks: _Tally, fi
     if report.check_documents:
         report.warnings.append(document_checks.say(words.DOCUMENTS_CHECK, report.check_documents))
     if report.review_findings or report.review_documents:
+        parts = [
+            counted(n, noun)
+            for n, noun in (
+                (report.review_findings, words.FINDINGS_N),
+                (report.review_documents, words.DOCUMENTS_N),
+            )
+            if n
+        ]
         report.warnings.append(
             say(
                 words.MARKED_FOR_REVIEW,
-                n=report.review_findings,
-                m=report.review_documents,
+                n=report.review_findings + report.review_documents,
+                what=say(words.BOTH, first=parts[0], second=parts[1]) if len(parts) == 2 else parts[0],
                 column=cols.DATA_QUALITY.header,
             )
         )

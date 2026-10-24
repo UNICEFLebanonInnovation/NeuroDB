@@ -4,6 +4,7 @@ documents list, the group, its icons and the admin home's quick action. Fake gen
 
 from __future__ import annotations
 
+import datetime
 import io
 
 import openpyxl
@@ -99,7 +100,7 @@ def test_a_workbook_with_problems_saves_nothing(client_super, started, monkeypat
     assert "Nothing was loaded. The KM Database is still empty." in html
     assert KMVersion.objects.count() == 0 and started == []
     html = _upload(client_super, b"a,b", "fake.csv").content.decode()
-    assert "This is a CSV file" in html and KMVersion.objects.count() == 0
+    assert "This is a .csv file" in html and KMVersion.objects.count() == 0
     shown = factory.load(factory.workbook())
     html = _upload(client_super, factory.workbook(header_row=2)).content.decode()
     assert f"Nothing was loaded. The KM Database still shows the version {shown.label()}." in html
@@ -170,11 +171,36 @@ def test_a_failed_version_says_what_stays_and_offers_the_upload(client_super):
         "Nothing was loaded. The KM Database is still empty. Correct the workbook and upload it again."
         in html
     )
-    assert f"1 rows of “{factory.FINDINGS_SHEET}” have no “Finding ID”, for example rows 2." in html
+    assert f"1 row of “{factory.FINDINGS_SHEET}” has no “Finding ID”: row 2." in html
     assert f'href="{reverse(UPLOAD)}"' in html and "refresh" not in html.split("<body", 1)[0]
     shown = factory.load(factory.workbook())
     html = _version_page(client_super, failed)
     assert f"Nothing was loaded. The KM Database still shows the version {shown.label()} (loaded on " in html
+
+
+def test_the_upload_page_and_a_failed_version_give_the_local_day_once(client_super, settings):
+    settings.TIME_ZONE = "Asia/Beirut"
+    late = datetime.datetime(2026, 10, 20, 22, 30, tzinfo=datetime.UTC)  # 21 Oct 2026, 01:30 in Beirut
+    shown = factory.load(factory.workbook(read_me=False))
+    KMVersion.objects.filter(pk=shown.pk).update(finished_at=late)
+    html = client_super.get(reverse(UPLOAD)).content.decode()
+    assert "The version loaded on 21 Oct 2026, 01:30 (uploaded by —): 3 documents and 4 findings." in html
+    failed = factory.load(factory.workbook(drop=("Key Finding",)))
+    html = _version_page(client_super, failed)
+    assert (
+        "Nothing was loaded. The KM Database still shows the version loaded on 21 Oct 2026. Correct the "
+        "workbook and upload it again."
+    ) in html
+    KMVersion.objects.filter(pk=shown.pk).update(prepared_on=datetime.date(2026, 10, 1), documents_count=1)
+    html = client_super.get(reverse(UPLOAD)).content.decode()
+    assert (
+        "The version prepared on 1 Oct 2026, loaded on 21 Oct 2026, 01:30 (uploaded by —): 1 document and 4 "
+        "findings."
+    ) in html
+    assert (
+        "The KM Database still shows the version prepared on 1 Oct 2026 (loaded on 21 Oct 2026). Correct"
+        in _version_page(client_super, failed)
+    )
 
 
 def test_a_version_stopped_by_an_error_says_so_too(client_super, monkeypatch):
@@ -197,7 +223,7 @@ def test_the_warnings_link_the_findings_to_review(client_super):
     edits = {("findings", 2, "Data Quality Status"): "Review required: fake reason"}
     version = factory.load(factory.workbook(edits=edits))
     html = _version_page(client_super, version)
-    assert f'<a href="{reverse("km:index")}?quality=review">See them on the page.</a>' in html
+    assert f'<a href="{reverse("km:index")}?quality=review">See it on the page.</a>' in html
     assert "fake_source.xlsx" in html and "C:" not in html  # the Read Me's source workbook: its name only
 
 

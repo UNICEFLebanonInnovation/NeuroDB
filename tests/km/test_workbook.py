@@ -39,6 +39,16 @@ def test_sheets_are_found_by_their_last_word(title, kind):
     assert cols.sheet_kind(title) == kind
 
 
+def test_the_fake_rows_write_only_fake_texts():
+    """The generated rows never borrow a text from a real workbook: every free text they write says it is
+    fake (a code the reader needs, such as "Primary", may come first)."""
+    columns = {c.header: c for c in (*cols.DOCUMENT_COLUMNS, *cols.FINDING_COLUMNS)}
+    for row in (factory.document_row(1, 1), factory.finding_row(1, 1, 1), factory.finding_row(2, 1, 2)):
+        for header, value in row.items():
+            if isinstance(value, str) and columns[header].kind in ("text", "origin", "type"):
+                assert "fake" in value.casefold(), (header, value)
+
+
 def test_a_good_workbook_passes_the_upload_check_with_no_note():
     checked = _check(factory.workbook())
     assert checked.problems == [] and checked.notes == []
@@ -49,20 +59,27 @@ def test_a_good_workbook_passes_the_upload_check_with_no_note():
 def test_too_big_and_wrong_type_are_two_sentences(monkeypatch):
     monkeypatch.setattr(workbook, "MAX_UPLOAD_BYTES", 10)
     assert _check(b"x" * 11 * 1024 * 1024 + b"x", "fake.csv").problems == [
-        "This file is 11.0 MB; the upload takes at most 25 MB.",
-        "This is a CSV file: open it in Excel and save it as Excel Workbook (.xlsx).",
+        "This file is 11.1 MB; the upload takes at most 25 MB.",
+        "This is a .csv file: open it in Excel and save it as Excel Workbook (.xlsx).",
     ]
-    assert _check(b"x" * 20).problems == ["This file is 0.0 MB; the upload takes at most 25 MB."]
+    assert _check(b"x" * 20).problems == ["This file is 0.1 MB; the upload takes at most 25 MB."]
+
+
+def test_a_file_just_over_the_limit_never_reads_as_the_limit():
+    size = workbook.MAX_UPLOAD_BYTES + 1
+    assert workbook.check_upload(b"", "fake.xlsx", size=size).problems == [
+        "This file is 25.1 MB; the upload takes at most 25 MB."
+    ]
 
 
 def test_the_extension_is_compared_without_case_and_a_missing_one_is_named():
     assert _check(factory.workbook(), "FAKE.XLSX").problems == []
     assert _check(factory.workbook(), "fake").problems == [str(words.NO_EXTENSION)]
     assert _check(b"a,b\n1,2\n", "fake.csv").problems == [
-        "This is a CSV file: open it in Excel and save it as Excel Workbook (.xlsx)."
+        "This is a .csv file: open it in Excel and save it as Excel Workbook (.xlsx)."
     ]
-    assert _check(b"a,b\n1,2\n", "C:\\fake\\folder\\fake.xls").problems == [
-        "This is a XLS file: open it in Excel and save it as Excel Workbook (.xlsx)."
+    assert _check(b"a,b\n1,2\n", "C:\\fake\\folder\\fake.XLS").problems == [
+        "This is a .xls file: open it in Excel and save it as Excel Workbook (.xlsx)."
     ]
 
 
@@ -290,6 +307,23 @@ def test_codes_are_worked_out_beside_the_labels():
     assert _read("quality", "").values["needs_review"] is True
     assert _read("count", 12).values["field"] == 12
     assert _read("count", "twelve").checks and _read("count", "twelve").values["field"] is None
+
+
+def test_a_number_too_big_for_its_column_is_a_value_to_check():
+    assert _read("count", cols.COUNT_MAX).values["field"] == cols.COUNT_MAX
+    assert _read("count", str(cols.COUNT_MAX)).values["field"] == cols.COUNT_MAX
+    for raw in (cols.COUNT_MAX + 1, 10**12, float(10**15), "9" * 30, "²"):
+        cells = _read("count", raw)
+        assert cells.values["field"] is None and cells.checks, raw
+    assert _read("domain", "Fake domain 1234567").values["domain_code"] == "D1234567"
+    assert _read("rq", "RQ123456 - fake").values["rq_code"] == "RQ123456"
+    for kind, raw, code in (
+        ("domain", "Fake domain 123456789", "domain_code"),
+        ("domain", "Fake domain " + "9" * 5_000, "domain_code"),
+        ("rq", "RQ1234567 - fake", "rq_code"),
+    ):
+        cells = _read(kind, raw)
+        assert cells.values[code] == "" and cells.checks, raw
 
 
 def test_the_question_key_is_the_pillar_and_the_wording():

@@ -2,7 +2,8 @@
 25 rows a page. Every signed-in UNICEF role opens it (sign-in and the donor lock-out are the middleware's);
 the menu shows it to superusers, and to the roles a superuser ticks on the Menu page.
 
-It reads the KM tables only. An HTMX request (a page link) gets the table only.
+It reads the KM tables only (and, while a version waits to load or loads, the load's lock: a version whose
+load stopped is marked not loaded). An HTMX request (a page link) gets the table only.
 """
 
 from __future__ import annotations
@@ -20,9 +21,9 @@ from django.views.decorators.http import require_GET
 from neurodb.accounts.roles import can_set_up
 
 from . import columns as cols
-from . import words
-from .models import KMDocument, KMFinding, KMVersion, live
-from .words import say
+from . import loading, words
+from .models import KMDocument, KMFinding, KMVersion, day, live
+from .words import counted, say
 
 PER_PAGE = 25
 KEY_FINDING_SHOWN = 220  # characters of a key finding the table shows before "Show all"
@@ -71,19 +72,15 @@ def _query_with(params: QueryDict, drop: tuple[str, ...] = (), **changes: Any) -
     return out.urlencode()
 
 
-def _date(value) -> str:
-    return formats.date_format(value, "j M Y") if value else "—"
-
-
 def version_line(version: KMVersion) -> str:
     """ "Prepared on 22 Oct 2026 · loaded on 24 Oct 2026 · 537 documents · 14,869 findings"."""
     figures = {
-        "loaded": _date(version.finished_at or version.uploaded_at),
-        "documents": formats.number_format(version.documents_count, force_grouping=True),
-        "findings": formats.number_format(version.findings_count, force_grouping=True),
+        "loaded": day(version.finished_at or version.uploaded_at),
+        "documents": counted(version.documents_count, words.DOCUMENTS_N),
+        "findings": counted(version.findings_count, words.FINDINGS_N),
     }
     if version.prepared_on:
-        line = say(words.PREPARED_LINE, prepared=_date(version.prepared_on), **figures)
+        line = say(words.PREPARED_LINE, prepared=day(version.prepared_on), **figures)
     else:
         line = say(words.LOADED_LINE, **figures)
     if version.review_count:
@@ -109,6 +106,16 @@ def confidence_pill(row) -> dict[str, str]:
     return {"label": str(words.NOT_GIVEN), "tone": "neutral", "title": ""}
 
 
+def _loading() -> bool:
+    """Whether a new version waits to load or loads. Only then is the load's lock looked at: a version whose
+    load stopped (a restart) or never started is marked not loaded here, so the page does not say a new
+    version is loading for good. With no version waiting, this is one query."""
+    busy = KMVersion.objects.filter(status__in=(KMVersion.Status.QUEUED, KMVersion.Status.LOADING))
+    if not busy.exists():
+        return False
+    return not loading.close_stale() or busy.exists()
+
+
 def _page(request: HttpRequest, tab: str) -> dict[str, Any]:
     """What both tabs show: the header, the version line, the tabs (each keeping the filter) and the state."""
     version = live()
@@ -120,9 +127,7 @@ def _page(request: HttpRequest, tab: str) -> dict[str, Any]:
         "tab": tab,
         "version": version,
         "version_line": version_line(version) if version else "",
-        "loading": KMVersion.objects.filter(
-            status__in=(KMVersion.Status.QUEUED, KMVersion.Status.LOADING)
-        ).exists(),
+        "loading": _loading(),
         "can_set_up": can_set_up(request.user),
         "upload_url": reverse("admin:km_kmversion_upload"),
         "review": review,

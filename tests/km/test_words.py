@@ -18,14 +18,36 @@ CODE_WORDS = re.compile(
 )
 
 
+def _forms(value) -> list[str]:
+    """A sentence, or both forms of a sentence with a count (``ngettext_lazy``: its count picks the form)."""
+    if isinstance(value, str):
+        return [value]
+    one, other = str(value % {"n": 1}), str(value % {"n": 2})
+    return [one] if one == other else [one, other]
+
+
 def _sentences() -> list[str]:
     found = []
     for value in vars(words).values():
         if isinstance(value, Promise | str) and not callable(value):
-            found.append(str(value))
+            found += _forms(value)
         elif isinstance(value, tuple):
             found += [str(v) for v in value]
     return found
+
+
+def test_a_sentence_with_a_count_has_a_form_for_one():
+    assert _forms(words.ROWS_WITHOUT) == [
+        "{count} row of “{sheet}” has no “{column}”: row {rows}.",
+        "{count} rows of “{sheet}” have no “{column}”, for example rows {rows}.",
+    ]
+    assert words.counted(1, words.FINDINGS_N) == "1 finding"
+    assert words.counted(14_869, words.FINDINGS_N) == "14,869 findings"
+    assert words.counted(0, words.DOCUMENTS_N) == "0 documents"
+    plural = [
+        name for name, value in vars(words).items() if isinstance(value, Promise) and len(_forms(value)) == 2
+    ]
+    assert len(plural) >= 14, plural
 
 
 def test_the_sentences_and_templates_say_none_of_the_words_of_the_code():

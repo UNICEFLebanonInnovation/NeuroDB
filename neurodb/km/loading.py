@@ -31,7 +31,7 @@ from neurodb.integrations import background
 from . import columns as cols
 from . import words, workbook
 from .models import KMDocument, KMFinding, KMVersion, forget_live
-from .words import say
+from .words import counted, say
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +148,7 @@ def _rows_of(report: workbook.Report) -> dict[str, int]:
     return {cols.DOCUMENTS: len(report.documents), cols.FINDINGS: report.findings}
 
 
-WHAT = {cols.DOCUMENTS: words.DOCUMENTS_WORD, cols.FINDINGS: words.FINDINGS_WORD}
+WHAT = {cols.DOCUMENTS: words.DOCUMENTS_N, cols.FINDINGS: words.FINDINGS_N}
 
 
 def _fewer(report: workbook.Report, fewer_ok: bool) -> list[str]:
@@ -164,17 +164,16 @@ def _fewer(report: workbook.Report, fewer_ok: bool) -> list[str]:
             (cols.DOCUMENTS, words.FEWER_DOCUMENTS, shown.documents_count),
         ):
             if rows[kind] < FEWER_SHARE * before:
-                problems.append(say(words_, n=f"{rows[kind]:,}", m=f"{before:,}", fewer=words.FEWER_LABEL))
+                problems.append(say(words_, n=rows[kind], m=f"{before:,}", fewer=words.FEWER_LABEL))
     for kind in (cols.FINDINGS, cols.DOCUMENTS):
         stated = report.read_me.stated.get(kind)
         if stated is not None and rows[kind] < stated:
             problems.append(
                 say(
                     words.FEWER_THAN_STATED,
-                    m=f"{stated:,}",
-                    what=WHAT[kind],
+                    stated=counted(stated, WHAT[kind]),
                     sheet=report.sheets[kind].title,
-                    n=f"{rows[kind]:,}",
+                    rows=counted(rows[kind], words.ROWS_N),
                     fewer=words.FEWER_LABEL,
                 )
             )
@@ -194,10 +193,9 @@ def _stated_warnings(report: workbook.Report, fewer_ok: bool) -> list[str]:
             found.append(
                 say(
                     words.STATED_DIFFERS,
-                    m=f"{stated:,}",
-                    what=WHAT[kind],
+                    stated=counted(stated, WHAT[kind]),
                     sheet=report.sheets[kind].title,
-                    n=f"{rows[kind]:,}",
+                    rows=counted(rows[kind], words.ROWS_N),
                 )
             )
     return found
