@@ -22,6 +22,21 @@ def test_default_auth_from_settings(settings):
     assert EToolsClient(BASE).session.headers["Authorization"] == "Token xyz"
 
 
+def test_an_unresolved_key_vault_reference_is_not_a_token(monkeypatch):
+    """It was sent as "Token @Microsoft.KeyVault(...)" and every eTools REST read failed with 403, while Raw
+    eTools data offered the read as if the token were set."""
+    import importlib
+
+    import config.settings as conf
+
+    monkeypatch.setenv("ETOOLS_TOKEN", "@Microsoft.KeyVault(VaultName=kv;SecretName=etools-token)")
+    try:
+        assert importlib.reload(conf).ETOOLS_TOKEN == ""
+    finally:
+        monkeypatch.delenv("ETOOLS_TOKEN")
+        importlib.reload(conf)
+
+
 @responses.activate
 def test_list_plain_json_list():
     responses.get(f"{BASE}/api/v2/partners/", json=[{"id": 1}, {"id": 2}])

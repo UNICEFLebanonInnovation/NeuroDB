@@ -367,6 +367,8 @@ if ACTIVITYINFO_USERNAME.startswith("@Microsoft.KeyVault(") or ACTIVITYINFO_PASS
     ACTIVITYINFO_USERNAME = ACTIVITYINFO_PASSWORD = ""
 ETOOLS_BASE_URL = env("ETOOLS_BASE_URL", default="https://etools.unicef.org")
 ETOOLS_TOKEN = env("ETOOLS_TOKEN", default="").strip()
+if ETOOLS_TOKEN.startswith("@Microsoft.KeyVault("):  # unresolved: not a token, so the pages say it is not set
+    ETOOLS_TOKEN = ""
 # eTools Datamart (datamart.unicef.io): the eTools data of every country office, read with HTTP basic
 # authentication. The username and password come from the environment or Key Vault only (secrets
 # etools-username / etools-password); never put them in a file that is committed. A Key Vault
