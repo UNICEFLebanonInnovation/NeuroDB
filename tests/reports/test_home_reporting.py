@@ -174,6 +174,11 @@ def _tiles(html: str, start: str, end: str | None = None) -> dict[str, str]:
     return {label.strip(): value.strip() for label, value in TILE.findall(block)}
 
 
+def _words(html: str) -> str:
+    """The text a person reads: the numbers' ``data-figure`` spans (the figure trail's keys) taken away."""
+    return re.sub(r'<span data-figure="[^"]*">([^<]*)</span>', r"\1", html)
+
+
 def _query(url: str) -> dict[str, list[str]]:
     return parse_qs(urlsplit(url).query, keep_blank_values=True)
 
@@ -281,7 +286,7 @@ def test_the_partners_line_is_the_partners_tab(client_viewer, world):
     assert (line["partners"], line["reported"], line["not_reported"]) == (3, 3, 0)
     assert (
         "3 partners have progress reports here: 3 have reported (Submitted or Accepted), 0 have not yet."
-        in (text(home))
+        in _words(text(home))
     )
 
 
@@ -503,7 +508,7 @@ def test_a_scope_whose_reports_need_no_follow_up_says_so(client_viewer, world):
     assert "Nothing to follow up: every report here is Accepted or not yet due.</p>" in block
     assert "No progress reports here." not in block
     line = "1 partner has progress reports here: 1 has reported (Submitted or Accepted), 0 has not yet."
-    assert line in block
+    assert line in _words(block)
 
 
 # ------------------------------------------------------------------------- accessibility
@@ -564,9 +569,11 @@ def test_a_staff_administrator_has_the_same_home_order(client, world, roles):
 def test_home_shows_at_most_the_first_screen_s_rows_and_says_so(client_viewer, world, monkeypatch):
     """Every row drawn: the count alone. Fewer rows than the count: the hint says they are the first ones."""
     hint = re.compile(r'id="home-pds-title">[^<]+</h3>\s*<span class="home-prp__hint">([^<]*)</span>')
-    assert hint.findall(text(_home(client_viewer))) == ["3 programme documents"]
+    assert hint.findall(_words(text(_home(client_viewer)))) == ["3 programme documents"]
     monkeypatch.setattr(home_service, "HOME_PDS", 2)
     home = _home(client_viewer)
     figures = _figures(home)
     assert len(figures["pd_rows"]) == 2 and figures["reporting"]["pds"]["count"] == 3
-    assert hint.findall(text(home)) == ["The first 2 of 3 programme documents, the most overdue first"]
+    assert hint.findall(_words(text(home))) == [
+        "The first 2 of 3 programme documents, the most overdue first"
+    ]

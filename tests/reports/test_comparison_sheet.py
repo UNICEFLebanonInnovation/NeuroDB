@@ -8,6 +8,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import io
+from urllib.parse import unquote_plus
 
 import pytest
 from django.contrib.auth.models import Group
@@ -16,7 +17,7 @@ from openpyxl import load_workbook
 
 from neurodb.accounts.models import User
 from neurodb.accounts.roles import VALIDATORS, VIEWER
-from neurodb.datamart import comparison, monitoring, raw, reporting, services
+from neurodb.datamart import comparison, monitoring, raw, reporting, services, trail
 from neurodb.datamart import models as dm
 from neurodb.datamart.tags import TAG_FIELDS
 from tests.reports.test_pd_monitoring import TODAY, data, report_rows
@@ -179,7 +180,11 @@ def test_the_compare_sheet_leaves_power_bi_s_cells_empty_and_writes_two_formula_
     figures = comparison.figures(comparison.read(PR, {"pd_status": ""}, TODAY))
     assert [r[5] for r in rows] == [f.value for f in figures]
     assert all(r[7] is None for r in rows)  # Power BI's value: typed by a person
-    assert all(r[11] is None for r in rows)  # the trail: not there yet
+    # each figure's trail: the figure trail of the same filter, open on that figure
+    for row, figure in zip(rows, figures, strict=True):
+        assert row[11].startswith("http://testserver/check/progress-reports/?pd_status=&"), row[11]
+        assert f"figure={figure.key}" in unquote_plus(row[11])
+        assert row[11].endswith("#" + trail.anchor(figure.key))
     assert any(r[3] == "=HYPERLINK(1) · Accepted" for r in rows)
     hr4 = next(r for r in book["Progress reports"].iter_rows(min_row=3, values_only=True) if r[3] == "HR4")
     assert hr4[1] == "AmelAssociation"
@@ -421,3 +426,28 @@ def test_a_third_large_download_waits(validator, more, frozen, monkeypatch):
     monkeypatch.setattr(raw, "take_slot", lambda: None)
     response = validator.get(reverse("reports:check_compare", args=[PR]))
     assert response.status_code == 503 and response.content.decode() == raw.BUSY
+
+
+@pytest.mark.parametrize("params", PR_FILTERS)
+def test_each_progress_reports_value_is_its_trail_s_figure(validator, more, frozen, params):
+    """Stage 3: every NeuroDB value of the Progress reports sheet is the figure its trail shows on the page and
+    rebuilds from the rows; its Trail link opens that trail."""
+    found = trail.progress_trail(PR, params, TODAY)
+    tables = {tab: trail.table_trail(tab, params, TODAY) for tab in trail.TABLES}
+    figures = {f.key: f for f in found.figures}
+    for t in tables.values():
+        figures.update({f.key: f for f in t.block.figures})
+    book = _book(validator, PR, params)
+    for row in _table(book["Compare"]):
+        key = unquote_plus(row[11].split("figure=", 1)[1].split("#", 1)[0].split("&", 1)[0])
+        figure = figures[key]
+        assert row[5] == figure.page == figure.rebuilt, key
+        if key.startswith(("pr.location", "pr.disaggregation")):
+            assert "tab=" in row[11]
+    link = _table(book["Compare"])[0][11].removeprefix("http://testserver")
+    assert validator.get(link).status_code == 200
+
+
+def test_partner_monitoring_s_trail_column_stays_empty_until_its_trail(validator, more, frozen):
+    book = _book(validator, PM, {"view": "table", "year": "all"})
+    assert all(r[11] is None for r in _table(book["Compare"]))

@@ -236,3 +236,106 @@ def test_no_person_reaches_the_power_bi_comparison_sheet(client_validator, page,
     for planted in FORBIDDEN:
         assert planted not in text, (page, planted)
     assert "@" not in text
+
+
+def test_no_person_reaches_a_figure_trail_or_its_csvs(client_validator):
+    """Every CSV of the Progress reports and Home trails (the kept rows, each step's rows, each figure's rows,
+    the rows that set a status, the progress reports, the lines and location blocks) and the trail pages: no
+    planted name, e-mail or phone."""
+    from neurodb.datamart import trail
+
+    partner = PartnerOrganization.objects.create(etl_id="1", name="Amel Association", vendor_number="V1")
+    pd = PCA.objects.create(
+        etl_id="11",
+        partner=partner,
+        partner_name=partner.name,
+        number="LEB/PD1",
+        title="A",
+        status="active",
+        unicef_focal_points=[NAME, EMAIL, f"{UNKNOWN} ({EMAIL})"],
+    )
+    for n, (ref, held) in enumerate((("LEB/PD1", pd), ("LEB/GONE", None), ("", None)), start=1):
+        dm.ReportedIndicator.objects.create(
+            datamart_id=n,
+            partner=partner,
+            intervention=held,
+            partner_name=partner.name,
+            pd_reference_number=ref,
+            progress_report=f"PR-{n}",
+            report_number="QPR1",
+            report_type="QPR",
+            report_status="Accepted",
+            period_start=datetime.date(2026, 1, 1),
+            period_end=datetime.date(2026, 3, 31),
+            indicator="# reached",
+            section="Education",
+            location="Akkar",
+            submitted_by=NAME,
+            narrative=TYPED_TEXT,
+            narrative_assessment=TYPED_TEXT,
+            disaggregation={"()": {"v": 3, "d": 1, "c": 3}},
+            data=PLANTED,
+        )
+    params = {"pd_status": "", "section": "Education"}
+    found = trail.progress_trail("progress-reports", params, datetime.date.today())
+    whats = ["kept", "status", "reports", "follow_up", "lines", "blocks", "step:start", "reason:no_pd"]
+    whats += [s.what for s in found.steps if s.what] + [f.what for f in found.figures if f.what]
+    url = reverse("reports:check_rows", args=["progress-reports"])
+    for what in dict.fromkeys(whats):
+        response = client_validator.get(url, {**params, "what": what})
+        assert response.status_code == 200, what
+        text = b"".join(response.streaming_content).decode("utf-8-sig")
+        header = text.splitlines()[0]
+        if what == "kept":  # the records as Raw eTools data writes them: people as counts
+            row = next(csv.DictReader(io.StringIO(text)))
+            assert row["participants_count"] == "12" and row["submitted_by (people)"] == "1"
+        for planted in FORBIDDEN:
+            assert planted not in text, (what, planted)
+        for column in header.split(","):
+            bare = column.removesuffix(" (people)").removesuffix(" (text withheld)")
+            assert "@" not in column and bare not in CONTACT, (what, column)
+    home = reverse("reports:check_rows", args=["home"])
+    response = client_validator.get(home, {"block": "reporting", "what": "kept"})
+    assert response.status_code == 200
+    assert not any(p in b"".join(response.streaming_content).decode() for p in FORBIDDEN)
+    for page, query in (("progress-reports", params), ("home", {"block": "reporting"})):
+        html = client_validator.get(reverse("reports:check_figures", args=[page]), query).content.decode()
+        for planted in FORBIDDEN:
+            assert planted not in html, (page, planted)
+
+
+def test_a_person_named_as_a_partner_or_searched_never_reaches_a_trail_csv(client_validator):
+    """A report row naming a person as its partner (no eTools partner), and a search for a person: the partner's
+    figures, the search's step and the kept rows name them in no cell and no file name."""
+    from neurodb.datamart import trail
+
+    pd = PCA.objects.create(etl_id="11", number="LEB/PD1", title="A", status="active")
+    for n, (partner, status) in enumerate(((NAME, ""), ("Org One", "Accepted")), start=1):
+        dm.ReportedIndicator.objects.create(
+            datamart_id=n,
+            intervention=pd,
+            partner_name=partner,
+            pd_reference_number="LEB/PD1",
+            progress_report=f"PR-{n}",
+            report_number=f"QPR{n}",
+            report_type="QPR",
+            report_status=status,
+            period_start=datetime.date(2026, 1, 1),
+            period_end=datetime.date(2026, 3, 31),
+            due_date=datetime.date(2026, 4, 15),
+            indicator="# reached",
+            section="Education",
+            location="Akkar",
+        )
+    url = reverse("reports:check_rows", args=["progress-reports"])
+    for params in ({"pd_status": ""}, {"pd_status": "", "q": NAME}):
+        found = trail.progress_trail("progress-reports", params, datetime.date.today())
+        whats = ["kept", "status", *(s.what for s in found.steps if s.what), *(f.what for f in found.figures)]
+        if "q" not in params:  # the person's figures are there, by the partner's name
+            assert any(w.startswith("figure:pr.partner.") for w in whats)
+        for what in dict.fromkeys(w for w in whats if w):
+            response = client_validator.get(url, {**params, "what": what})
+            assert response.status_code == 200, what
+            assert "person" not in response["Content-Disposition"].lower(), what
+            text = b"".join(response.streaming_content).decode("utf-8-sig")
+            assert NAME.lower() not in text.lower(), what

@@ -22,6 +22,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from django.db.models import Max
+from django.http import QueryDict
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.formats import date_format
@@ -47,6 +48,26 @@ NAME_MATCH = 3  # letters a name needs before "contained either way" counts (mon
 
 
 # ------------------------------------------------------------------------------------------- scope
+def figure_queries(sections: list[str], year: int) -> tuple[QueryDict, QueryDict]:
+    """Home's two partner reporting filters, which its blocks, their links and their figure trails read:
+    ``progress``, Progress reports' own default for Home's sections (no year and no PD status, so the running
+    programme documents and every reporting period: a January keeps last year's last reports, the overdue
+    ones), and ``keep``, Partner monitoring's (the sections, this year, every PD running in it)."""
+    progress = QueryDict(mutable=True)
+    progress.setlist("section", sections)
+    keep = QueryDict(mutable=True)
+    keep.setlist("section", sections)
+    keep["year"] = str(year)
+    keep["scope"] = "year"
+    return progress, keep
+
+
+def follow_up_rows(figures: dict[str, Any]) -> list[dict[str, Any]]:
+    """The rows of "Programme documents to follow up" Home shows: the first :data:`HOME_PDS` of
+    ``reporting.pd_follow_up`` (``services.reporting_figures``' ``pds``), the most pressing first."""
+    return figures["pds"]["rows"][:HOME_PDS]
+
+
 def default_sections(user, options: list[str]) -> list[str]:
     """The eTools sections a first load shows (Home, the Country overview, the daily review): every section
     (``[]``) for Management members and for people without a section, else the person's own section as
@@ -377,6 +398,8 @@ __all__ = [
     "WELLBEING_SECTIONS",
     "decisions",
     "default_sections",
+    "figure_queries",
+    "follow_up_rows",
     "own_names",
     "programmes",
     "review_schedule",

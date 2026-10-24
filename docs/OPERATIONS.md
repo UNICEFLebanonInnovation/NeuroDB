@@ -1199,6 +1199,7 @@ admin home page, *Quick actions*):
 | *Reporting setup* → *Master indicators* (ActivityInfo): action *Create eTools master indicators from these* | (no command: writes eTools master indicators only, never an ActivityInfo row) | in the request |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | *Data and sync* → *Raw eTools data* (validators) | (no command: pages and a streamed CSV; the fields of each source are counted on the page; a superuser's *Reviewed: show it* writes one row) | in the request |
+| *Check these figures* under Progress reports' tabs and Home's Progress reports block (validators) | (no command: the figure trail is a page in parts, its rows streamed CSVs; it writes nothing but the shared page figures) | in the request |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
 | Run a job → *Repair roles* | `bootstrap_roles` | in the request |
 | Run a job → *Empty the stored page figures* | (no command: empties the shared page figures, the table `neurodb_cache`, and says how many entries it removed; see *Pages that load in parts*) | in the request (a second); changes no data |
@@ -2056,7 +2057,8 @@ counts are read too, and when there are none the rows are counted there without 
 
 The management asked that every eTools figure be checked: the PRP pages against the PRP Power BI dashboard (by
 hand), and every other page against the raw data NeuroDB pulled from eTools. This section describes what is
-built for it; the figure trails follow in later releases.
+built for it: Raw eTools data, the figure trail of Progress reports and of Home's Progress reports block (Partner
+monitoring's follows in a later release) and the Power BI comparison sheet.
 
 **Who.** Superusers and the members of the **Validators** group (`accounts.roles.VALIDATORS`, made at every
 start by `ensure_groups`, with no permission; setting a role never takes a person out of it). An
@@ -2075,8 +2077,11 @@ Partner monitoring (and its map), Field monitoring and under *Partner reporting*
 sources (`?page=<navigation key>`, `datamart.raw.PAGE_SOURCES`); without staff status it says "Raw data: ask
 for staff status". On Progress reports (every tab) and Partner monitoring (the grid, Program Performance, Data
 quality and the map; not the master indicators) the line also offers the **Power BI comparison sheet (Excel)**
-with a "statuses read for" day (below). The pages draw the line with their results (Partner monitoring in
-`_monitoring_results.html`, the map in its frame), so a change of filter draws it again with the new filter.
+with a "statuses read for" day (below), and on Progress reports (every tab) **Check these figures**, the figure
+trail of the filter drawn (below); under the title of Home's Progress reports block a line of its own offers
+*Check these figures* alone (the raw data link stays under *Partner reporting*'s heading). The pages draw the
+line with their results (Partner monitoring in `_monitoring_results.html`, the map in its frame), so a change of
+filter draws it again with the new filter.
 Anyone else sees the pages as before; the addresses answer 404.
 
 | Page | Address (under the admin's path) | Name |
@@ -2188,7 +2193,9 @@ whole; its name is `powerbi-comparison-<page>_<YYYY-MM-DD>_<HHMM>.xlsx`, the end
   figure, in Power BI's page and visual order: `#`, Power BI page, visual, name in Power BI, NeuroDB page and
   figure, NeuroDB value, unit, a yellow *Power BI value*, *Difference* `=IF(ISNUMBER(H),H-F,"")` and *Same?*
   (the only formulas; none on a row with no NeuroDB number, such as By location over its 20,000 rows),
-  *Notes* (checks 10 and 11 where they explain a difference) and *Trail* (empty until the figure trails).
+  *Notes* (checks 10 and 11 where they explain a difference) and *Trail*: for Progress reports, the figure's
+  trail for the same filter and day (`comparison.trail_link`: `figure=<key>`, the tab of By location and By
+  disaggregation, and the figure's row as anchor); empty for Partner monitoring until its trail exists.
   Progress reports: the seven status cards, the section table (each section by status, its total, the column
   totals), the month chart (each month by each status drawn), the progress reports listed, the Partners
   tab's cards, the reports to follow up, the lines of By location and the location blocks of By
@@ -2211,6 +2218,72 @@ it there (a test renames them all). Every field of the page's filter dataclasses
 `DisaggregationFilters`, `monitoring.Filters`) is either a slicer (`POWERBI_SLICERS`) or a NeuroDB filter to
 clear (`NEURODB_ONLY`); a new field in neither stops the sheet, and a test fails.
 
+**The figure trail** (`datamart/trail.py`, `datamart/trail_rows.py`, `reports/check_views.py`). For every figure
+Progress reports draws (the tiles and their hints, the late sentence, the left-out note, the section table, the
+month chart, the report table's count and each row's *Indicators*, the Partners tab's tiles, table, partners not
+reported and reports to follow up, By location's lines and By disaggregation's location blocks) and every figure
+of Home's Progress reports block (the tiles, the programme documents to follow up and the rows shown, the partners
+line): where its rows come from, step by step, and the figure rebuilt from them.
+
+| Page | Address | Name |
+|---|---|---|
+| The trail | `/check/progress-reports/?<the page's filter>&tab=<the tab>`; `/check/home/?block=reporting&<Home's sections>` | `reports:check_figures` |
+| Its rows | `/check/<page>/rows.csv?<the filter>&what=<rows>` | `reports:check_rows` |
+
+Validators only (`can_validate`, no staff status needed; a 404 for anyone else, for `partner-monitoring` until its
+trail, and for Home without `block=reporting`; a donor never reaches them). `day=` is the day the statuses are read
+for (the page's `reporting_today()` by default, at most 14 days back); `figure=<key>` opens the figure's fold (the
+comparison sheet's Trail links). The page loads in parts: the frame (the filter in words, the day, the moment of
+the eTools figures, the end of the last partner reports sync, and while any `keys.ETOOLS_JOBS` job runs "An eTools
+sync is running (since 20:31): the figures can move until it ends") at once, then `figures`, and for Progress
+reports `locations` and `disaggregations`, folded (asked for when opened; open when the trail was opened from that
+tab). Each part is computed in one `REPEATABLE READ READ ONLY` snapshot and kept two minutes for every worker
+(`compute.once`, keyed on the page, the filter, the day and `keys.fingerprint()`; in DEBUG at each call).
+
+- **Steps.** D1 to D4b from the run facts of `partner_reports` (what eTools said it had, what NeuroDB received, what
+  it did not keep: counts only; what is in NeuroDB, as CSV, or past `raw.csv_limit` a link to its source on Raw
+  eTools data, whose filters make a download smaller; from which date NeuroDB holds partner reports,
+  `reached.history_from`, and the rows starting before it); then one step per filter of `ReportFilters.queryset`
+  that applies, in its order (report type, year, search, section, report #, programme document, partner, partner
+  type, draft or cancelled, emergency, the four period dates, overdue, then the PD status filter, which now comes
+  last: every filter is ANDed, so the rows and figures are the same, only the order of the SQL's terms changed), each
+  with the rows it leaves out and the indicator reports and progress reports it leaves out entirely and partly (some
+  of their rows kept); the PD status step's three lines are `left_out`'s own (another status, not in NeuroDB, names
+  no programme document), and the indicator reports it leaves out are `by_pd_status + no_pd` (a red line if not);
+  K, the rows kept; S, the report status when one is chosen. A filter that kept rows the step before had left out
+  shows a red line. Home's block has the same chain with Home's own filter (`home.figure_queries`), and the
+  left-out note Home does not draw.
+- **The hooks rule.** The trail never filters, keys or counts a row its own way: `ReportFilters.queryset(steps=)`
+  appends each filter's rows to the trail's list; `reporting.unit_rows`/`unit_key`/`units` read a row's progress
+  report and indicator report by the keys `progress_reports` groups with; `progress_reports(record=)` and
+  `_status_words(record=)` hand the trail the status words read; `_location_cells`, `location_rows` and
+  `disaggregation_rows(record=)` the rows counted against the limit, what the report status and the tab's own
+  filters leave out, and each line with the Datamart ids of its rows and the one read (`reached.Cell.record`,
+  `records`). On the pages every hook is None: same code path, same SQL, same figures (tests pin it). Each
+  report's sections are `progress_reports`' `indicator_sections` (the PD's joined sections once
+  `with_pd_details` moves the indicator reports naming none), its partner `reporting.partner_key`, its programme
+  document on Home `reporting.pd_follow_up_key`.
+- **On the page and rebuilt.** *On the page* is the page's own call: `services.partner_reporting` and
+  `left_out` (Progress reports), `services.reporting_figures` and `home.follow_up_rows` (Home), the stored
+  `reporting_table` of the two tabs (or the table just computed when none is stored). *Rebuilt* counts the figure
+  again from the rows kept (`trail.TrailRows`: per row its Datamart id, progress report, indicator report, the step
+  that left it out and why; per progress report kept its status, sections, month, partner and programme document;
+  never a payload), one selection per figure. "All N figures rebuilt from the rows: the same."; a difference is
+  listed in red at the top, never hidden. Every number those pages draw carries `data-figure="<key>"` (drawn for
+  everyone: an attribute, nothing visible; the month chart's are its data), the keys the comparison sheet uses.
+- **CSVs** (`trail_rows`, `what`): `kept` (one pivot table rebuilds the tiles, the section table and the month
+  chart), `step:<filter>`, `step:start`, `step:history`, `step:S`, `reason:<why>`, `figure:<key>`, `no_partner`,
+  `status` (every row of the reports kept, which set their status: `status_word_from_record_id` names the newest
+  record carrying the report's word), `reports` and `follow_up` (one row per progress report: the export's
+  columns, the vendor number, the match key), `lines` and `blocks` (By location's lines and By disaggregation's
+  blocks, computed again with their record ids). A row CSV starts with `figures_as_of`, `step`, `reason`, then the
+  units (`unit_key`, `indicator_report_unit`, `progress_report_unit`, `partner_unit`, `pd_unit`) and `counts_once*`
+  (by a seen-set on the unit, never by row order; in a step's CSV only on a unit the step leaves out entirely,
+  `unit_partly_kept` and `progress_report_partly_kept` marking the others), what NeuroDB read of the report, then
+  the record through `raw.csv_record` (the people rule). Streamed in one snapshot 2,000 records at a time, at most
+  `raw.csv_limit("partner_reports")` records (400 above), one of the two download slots (503); file
+  `trail_<page>_<what>_<YYYY-MM-DD>_<HHMM>.csv`, the end of the last partner reports sync.
+
 **Tests.** `tests/accounts/test_validators.py` (who validates, one groups query, the pages' queries),
 `tests/datamart/test_raw_people.py` (the rule, the pinned lists, `REVIEWED_KEYS`),
 `tests/datamart/test_raw_csv_privacy.py` (people planted in every source never reach a CSV; the two exports
@@ -2218,7 +2291,12 @@ below), `tests/datamart/test_raw_admin.py` (access, completeness, the run facts,
 queries), `tests/datamart/test_page_sources.py` (each page reads only its sources) and
 `tests/web/test_plain_words.py` (the pages' words), `tests/reports/test_comparison_sheet.py` (each value is the
 page's figure under several filters, Power BI's order, the formulas, the filter blocks, the day, the lists) and
-`tests/reports/test_check_access.py` (the sheet's link and address: validators only).
+`tests/reports/test_check_access.py` (the sheet's and the trail's links and addresses: validators only),
+`tests/reports/test_figure_trail.py` (under fifteen filters, each figure is the page's context and its
+`data-figure`, rebuilt the same, and the Kept rows CSV and its own CSV give it again; the chain adds up; the PD
+status step is the left-out note; the partly kept units of a step's CSV; Home's block and its rows; the two tabs;
+the hooks change no SQL and no figure, and no page passes one; the same queries whatever the number of figures;
+the trail's words) and the trail's part of `tests/datamart/test_raw_csv_privacy.py`.
 
 ### Recording real records as test fixtures
 
@@ -3400,6 +3478,7 @@ year>&scope=year`).
 | *Programmes and sources* (whole country) | The country programme cycle (year k of n, indicators on track; or ended, or not started), Compiler's Makani, Dirasa and youth registrations, and ActivityInfo (in use: its year, results and last import, "records imported" while no result is tracked yet, or "in use, waiting for its first records" while the reporting year ticked current has none, a ticked year with records having its own line; archive: "ActivityInfo archive 2019–2026: every database and report, kept as it was"). A source not set up is left out, except for people who can set it up (superusers, and Administrators with *Staff status*), who read a muted line saying where | everyone |
 | Data freshness strip | When each source last changed, "Data health →" (ActivityInfo only while its import is followed) | everyone |
 | *Raw data behind this page* | One line under *Partner reporting*'s heading: it opens Admin → *Raw eTools data* on the sources Home reads (*Checking the figures*); "Raw data: ask for staff status" without staff status. Drawn by the frame, read in the role's own groups query | validators |
+| *Check these figures* | One line under the Progress reports block's title: the block's figure trail, `/check/home/?block=reporting&<Home's sections>` (*Checking the figures*). Drawn by the part, read in the role's own groups query (no query more) | validators |
 
 **Loads in parts.** The frame (title, date and scope line, purpose, the partner reporting heading and its
 links, the freshness strip) does no figure work and reads no Watch table; then each block is a part. The

@@ -224,60 +224,86 @@ class ReportFilters:
         ``pd_status=`` alone (every status) keeps its own."""
         return _json_key(dataclasses.replace(self, pd_statuses=sorted(set(self.status_choice))))
 
-    def queryset(self, today: datetime.date, *, by_pd_status: bool = True) -> QuerySet[dm.ReportedIndicator]:
+    def queryset(
+        self,
+        today: datetime.date,
+        *,
+        by_pd_status: bool = True,
+        steps: list[tuple[str, QuerySet[dm.ReportedIndicator]]] | None = None,
+    ) -> QuerySet[dm.ReportedIndicator]:
         """The report rows (one per indicator, report and location) every filter but the status keeps
         (a report's status is read from all its rows, in :func:`progress_reports`); with
-        ``by_pd_status=False``, also those the PD status filter leaves out (:func:`left_out`)."""
+        ``by_pd_status=False``, also those the PD status filter leaves out (:func:`left_out`). The PD status
+        filter comes last, so :func:`left_out` reads the rows every other filter keeps.
+
+        ``steps``: the figure trail's list (:mod:`neurodb.datamart.trail`), which receives ``("start", every
+        row)`` and then ``(the filter's name, the rows it keeps)`` after each filter that applies, in their
+        order; None on the pages. Every filter is ANDed: the rows and the SQL are the same either way."""
         from .monitoring import pending_q
 
-        rows = dm.ReportedIndicator.objects.all()
+        def kept(name: str, rows: QuerySet[dm.ReportedIndicator]) -> QuerySet[dm.ReportedIndicator]:
+            if steps is not None:
+                steps.append((name, rows))
+            return rows
+
+        rows = kept("start", dm.ReportedIndicator.objects.all())
         if self.report_types:
-            rows = rows.filter(report_type__in=self.report_types)
+            rows = kept("report_type", rows.filter(report_type__in=self.report_types))
         if self.year:
-            rows = rows.filter(period_end__year=self.year)
+            rows = kept("year", rows.filter(period_end__year=self.year))
         if self.q:
-            rows = rows.filter(
-                Q(partner_name__icontains=self.q)
-                | Q(vendor_number__icontains=self.q)
-                | Q(pd_reference_number__icontains=self.q)
-                | Q(indicator__icontains=self.q)
-                | Q(partner__name__icontains=self.q)
-                | Q(partner__short_name__icontains=self.q)
-                | Q(partner__vendor_number__icontains=self.q)
+            rows = kept(
+                "q",
+                rows.filter(
+                    Q(partner_name__icontains=self.q)
+                    | Q(vendor_number__icontains=self.q)
+                    | Q(pd_reference_number__icontains=self.q)
+                    | Q(indicator__icontains=self.q)
+                    | Q(partner__name__icontains=self.q)
+                    | Q(partner__short_name__icontains=self.q)
+                    | Q(partner__vendor_number__icontains=self.q)
+                ),
             )
         if self.sections:
-            rows = rows.filter(section_q(self.sections))
+            rows = kept("section", rows.filter(section_q(self.sections)))
         if self.report_numbers:
-            rows = rows.filter(report_number__in=self.report_numbers)
+            rows = kept("report_number", rows.filter(report_number__in=self.report_numbers))
         if self.pds:
             # the report's own reference, or the number of the PD the sync linked it to (by its eTools id
             # first: the reference can differ from that number, or be blank)
-            rows = rows.filter(Q(pd_reference_number__in=self.pds) | Q(intervention__number__in=self.pds))
-        if self.partners:
-            rows = rows.filter(partner_id__in=[int(p) for p in self.partners])
-        if self.partner_types:
-            rows = rows.filter(
-                Q(partner__partner_type__in=self.partner_types) | Q(partner__cso_type__in=self.partner_types)
+            rows = kept(
+                "pds", rows.filter(Q(pd_reference_number__in=self.pds) | Q(intervention__number__in=self.pds))
             )
-        # never draft or cancelled PDs (not, or no longer, a partnership); a report of a PD NeuroDB does
-        # not hold is read only when every status is chosen, and a report that names no PD never
-        rows = rows.exclude(intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP)
-        if by_pd_status and self.status_choice:
-            rows = rows.filter(intervention__status__in=self.status_choice)
-        elif by_pd_status:
-            rows = rows.exclude(NO_PD)
+        if self.partners:
+            rows = kept("partner", rows.filter(partner_id__in=[int(p) for p in self.partners]))
+        if self.partner_types:
+            rows = kept(
+                "partner_type",
+                rows.filter(
+                    Q(partner__partner_type__in=self.partner_types)
+                    | Q(partner__cso_type__in=self.partner_types)
+                ),
+            )
+        # never draft or cancelled PDs (not, or no longer, a partnership)
+        rows = kept("not_a_partnership", rows.exclude(intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP))
         if self.emergency:
-            rows = rows.filter(high_frequency=self.emergency == "yes")
-        for name, value in (
-            ("period_start__gte", self.start_from),
-            ("period_start__lte", self.start_to),
-            ("period_end__gte", self.end_from),
-            ("period_end__lte", self.end_to),
+            rows = kept("emergency", rows.filter(high_frequency=self.emergency == "yes"))
+        for name, lookup, value in (
+            ("start_from", "period_start__gte", self.start_from),
+            ("start_to", "period_start__lte", self.start_to),
+            ("end_from", "period_end__gte", self.end_from),
+            ("end_to", "period_end__lte", self.end_to),
         ):
             if value is not None:
-                rows = rows.filter(**{name: value})
+                rows = kept(name, rows.filter(**{lookup: value}))
         if self.overdue:
-            rows = rows.filter(pending_q(), due_date__lt=today)
+            rows = kept("overdue", rows.filter(pending_q(), due_date__lt=today))
+        # a report of a PD NeuroDB does not hold is read only when every status is chosen, and a report that
+        # names no PD never
+        if by_pd_status and self.status_choice:
+            rows = kept("pd_status", rows.filter(intervention__status__in=self.status_choice))
+        elif by_pd_status:
+            rows = kept("pd_status", rows.exclude(NO_PD))
         return rows
 
 
@@ -311,7 +337,47 @@ def left_out(filters: ReportFilters, today: datetime.date) -> dict[str, int]:
     return out
 
 
+@dataclass(frozen=True)
+class Units:
+    """Report rows, and the indicator reports and progress reports they make (:func:`units`)."""
+
+    rows: int = 0
+    indicator_reports: int = 0
+    progress_reports: int = 0
+
+
+# what tells a row's progress report and indicator report apart, as progress_reports groups them
+UNIT_FIELDS = ("pk", "datamart_id", "progress_report", *rc.IDENTITY_FIELDS)
+
+
+def unit_rows(queryset: QuerySet[dm.ReportedIndicator]):
+    """One dict per report row: :data:`UNIT_FIELDS` and its indicator report (``_ir``,
+    :data:`INDICATOR_REPORT`), what :func:`unit_key` reads. No payload."""
+    return queryset.annotate(_ir=INDICATOR_REPORT).values(*UNIT_FIELDS, "_ir").order_by()
+
+
+def unit_key(row: dict[str, Any]) -> tuple[str, str]:
+    """A row's progress report and indicator report, by the keys :func:`progress_reports` groups with."""
+    return report_key(row), row["_ir"]
+
+
+def units(queryset: QuerySet[dm.ReportedIndicator]) -> Units:
+    """The rows of ``queryset``, and the indicator reports and progress reports they make, by the keys
+    :func:`progress_reports` groups with: ``units(rows).indicator_reports`` is the sum of the reports'
+    ``indicators``, whatever their status."""
+    keys = [unit_key(row) for row in unit_rows(queryset)]
+    return Units(len(keys), len(set(keys)), len({k for k, _ in keys}))
+
+
 # --------------------------------------------------------------------------------- progress reports
+def submitted_late(report: dict[str, Any]) -> bool:
+    """A progress report submitted after its due date, whatever its status (the page's "submitted after their
+    due date")."""
+    return bool(
+        report["submission_date"] and report["due_date"] and report["submission_date"] > report["due_date"]
+    )
+
+
 def report_status(report: dict[str, Any], today: datetime.date) -> str:
     """One of the six report statuses (``reached.status_of``) of a progress report row."""
     return rc.status_of(
@@ -330,11 +396,11 @@ def report_key(row: dict[str, Any]) -> str:
 
 
 def progress_reports(
-    queryset: QuerySet[dm.ReportedIndicator], today: datetime.date | None = None
+    queryset: QuerySet[dm.ReportedIndicator], today: datetime.date | None = None, *, record: Any = None
 ) -> list[dict[str, Any]]:
     """One row per progress report (the Datamart has one row per indicator and location), with its
     status, its indicator reports (``indicators``) and their sections (``sections``: section ->
-    indicator reports).
+    indicator reports; ``indicator_sections``: each indicator report and the section it counts under).
 
     A report is its programme document, type, number and period (:func:`report_key`), whatever PRP's ids
     hold. A report whose rows disagree on a field (a partial re-sync, a partner link set on some rows
@@ -342,7 +408,8 @@ def progress_reports(
     (:func:`neurodb.datamart.reached.newest_status`, as every page reads it), read from every row of
     the report, also those a filter leaves out (a section, a search, the emergency indicators: Partner
     monitoring and the pop-up read the whole report); every other field is the first non-empty value
-    of its rows, in a fixed order. ``key``: the report's key, which opens its pop-up."""
+    of its rows, in a fixed order. ``key``: the report's key, which opens its pop-up. ``record``: the figure
+    trail's (:func:`_status_words`); None on the pages."""
     today = today or datetime.date.today()
     grouped = (
         queryset.annotate(_ir=INDICATOR_REPORT)
@@ -374,14 +441,15 @@ def progress_reports(
         known = sections[key].get(row["_ir"])
         if known is None or (not known and section):
             sections[key][row["_ir"]] = section
-    words.update(_status_words(queryset, set(reports)))
+    words.update(_status_words(queryset, set(reports), record))
     out = sorted(reports.values(), key=lambda r: (r["pd_reference_number"], r["report_number"]))
     # latest period first, reports without a period end at the top (as the database sorts them)
     out.sort(key=lambda r: r["period_end"] or datetime.date.max, reverse=True)
     for report in out:  # one of the six statuses, the same on every page that lists the report
         key = report.pop("_group")
         report["report_status"] = rc.newest_status(words[key])
-        by_section = Counter(s or NO_SECTION for s in sections[key].values())
+        report["indicator_sections"] = {ir: s or NO_SECTION for ir, s in sections[key].items()}
+        by_section = Counter(report["indicator_sections"].values())
         report["indicators"] = sum(by_section.values())
         report["sections"] = dict(by_section)
         report["section"] = ", ".join(s for s in by_section if s != NO_SECTION)
@@ -391,10 +459,13 @@ def progress_reports(
     return out
 
 
-def _status_words(queryset: QuerySet[dm.ReportedIndicator], keys: set[str]) -> dict[str, dict[str, rc.Stamp]]:
+def _status_words(
+    queryset: QuerySet[dm.ReportedIndicator], keys: set[str], record: Any = None
+) -> dict[str, dict[str, rc.Stamp]]:
     """Each status word of every row of the progress reports ``keys`` of ``queryset`` (all their rows, not
     only the filter's: the rows of the same programme documents and period ends) with the latest stamp of
-    its rows (:func:`neurodb.datamart.reached.newest_status`)."""
+    its rows (:func:`neurodb.datamart.reached.newest_status`). ``record``: the figure trail's, which receives
+    what was read (``record.status_words``); None on the pages."""
     held = queryset.exclude(intervention=None)
     named = queryset.filter(intervention=None)
     every = (
@@ -414,6 +485,8 @@ def _status_words(queryset: QuerySet[dm.ReportedIndicator], keys: set[str]) -> d
             continue
         mine, text = out[key], row["report_status"] or ""
         mine[text] = rc.stamp(mine.get(text), (row["_changed"], row["_synced"], row["_id"]))
+    if record is not None:
+        record.status_words(out)
     return out
 
 
@@ -473,6 +546,9 @@ def with_pd_details(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
             sections[joined] = sections.get(joined, 0) + sections.pop(NO_SECTION)
             report["sections"] = sections
             report["section"] = ", ".join(sections)
+            report["indicator_sections"] = {
+                ir: joined if s == NO_SECTION else s for ir, s in report["indicator_sections"].items()
+            }
     return reports
 
 
@@ -546,11 +622,7 @@ def counts(reports: list[dict[str, Any]]) -> dict[str, Any]:
             for key in STATUS_KEYS
         ],
         **{key: indicator_reports.get(key, 0) for key in STATUS_KEYS},
-        "late": sum(
-            1
-            for r in reports
-            if r["submission_date"] and r["due_date"] and r["submission_date"] > r["due_date"]
-        ),
+        "late": sum(1 for r in reports if submitted_late(r)),
     }
 
 
@@ -569,6 +641,13 @@ def by_section(reports: list[dict[str, Any]]) -> dict[str, Any]:
     return {"rows": rows, "totals": totals, "total": sum(totals)}
 
 
+def report_month(report: dict[str, Any]) -> tuple[int, int] | None:
+    """The month a progress report is about (:func:`by_month`): the year and month its reporting period ends
+    in; None without a period end."""
+    end = report["period_end"]
+    return (end.year, end.month) if end else None
+
+
 def by_month(reports: list[dict[str, Any]]) -> dict[str, Any]:
     """Indicator reports by month of the end of their reporting period and status, Not yet due included
     (a chart). The month a report is about, as Power BI's "Reports over Reporting Date" places it (a
@@ -576,8 +655,7 @@ def by_month(reports: list[dict[str, Any]]) -> dict[str, Any]:
     date), and as the Reporting year filter and Partner monitoring's months read it."""
     months: dict[tuple[int, int] | None, Counter[str]] = defaultdict(Counter)
     for r in reports:
-        end = r["period_end"]
-        months[(end.year, end.month) if end else None][r["status"]] += r["indicators"]
+        months[report_month(r)][r["status"]] += r["indicators"]
     order = sorted(m for m in months if m is not None) + ([None] if None in months else [])
     labels = [datetime.date(m[0], m[1], 1).strftime("%b %Y") if m else "No period end" for m in order]
     present = [k for k in STATUS_KEYS if any(months[m].get(k) for m in order)]
@@ -631,6 +709,7 @@ def partner_performance(reports: list[dict[str, Any]]) -> dict[str, Any]:
         ],
         "not_reported_list": [
             {
+                "key": k,
                 "name": names[k] or "—",
                 "id": ids[k],
                 "pds": sorted(pds_of[k]),
@@ -642,6 +721,13 @@ def partner_performance(reports: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def pd_follow_up_key(report: dict[str, Any]) -> str:
+    """The programme document a progress report is followed up under on Home: NeuroDB's link to it
+    (``pd:<id>``), else the report's own reference number (``ref:<reference>``)."""
+    held = report["intervention_id"]
+    return f"pd:{held}" if held else f"ref:{report['pd_reference_number'] or ''}"
+
+
 def pd_follow_up(reports: list[dict[str, Any]]) -> dict[str, Any]:
     """Home's "Programme documents to follow up": one row per programme document of ``reports`` (those of
     :func:`neurodb.datamart.services.partner_reporting`, with their PD's details), by NeuroDB's link to it,
@@ -650,17 +736,19 @@ def pd_follow_up(reports: list[dict[str, Any]]) -> dict[str, Any]:
     Partner monitoring's ``pd`` reads it: "" for a PD NeuroDB does not hold), ``intervention_id``,
     ``partner_id``, ``partner_name``, ``sections`` (its reports' sections, joined), ``counts`` (its progress
     reports per status, the six of them), ``follow_up`` (Overdue, Sent back, Due and Submitted) and
-    ``oldest_due`` (the oldest due date of its Due or Overdue reports: a past one as soon as one is Overdue).
+    ``oldest_due`` (the oldest due date of its Due or Overdue reports: a past one as soon as one is Overdue)
+    and ``key`` (:func:`pd_follow_up_key`).
     Only the programme documents with a report to follow up, the most pressing first: the most Overdue, then
     Sent back, Due and Submitted, then the oldest due date. Counts are progress reports, as the follow-up
     table of the Partners tab lists them."""
-    found: dict[tuple[str, Any], dict[str, Any]] = {}
+    found: dict[str, dict[str, Any]] = {}
     for r in reports:
         held = r["intervention_id"]
-        key = ("pd", held) if held else ("ref", r["pd_reference_number"] or "")
+        key = pd_follow_up_key(r)
         row = found.get(key)
         if row is None:
             row = found[key] = {
+                "key": key,
                 "pd_reference_number": "",
                 "pd_number": (r.get("pd_number") or "") if held else "",
                 "intervention_id": r["intervention_id"],
@@ -704,13 +792,21 @@ def pd_follow_up(reports: list[dict[str, Any]]) -> dict[str, Any]:
 LOCATION_FIELDS = (*rc.ROW_FIELDS, "partner_id", "partner_name", "section", "cp_output")
 
 
-def _location_cells(rows: list[dict[str, Any]], statuses: dict[Any, str], today: datetime.date, wanted):
+def _location_cells(
+    rows: list[dict[str, Any]], statuses: dict[Any, str], today: datetime.date, wanted, record: Any = None
+):
     """Each indicator report's locations, read as :mod:`reached` reads them (one value per location:
     the disaggregation total "()", never a sum of repeated or duplicated rows): ``(fields, cell)`` per
     location, ``fields`` being what the Report/Location and Report/Disaggregation tabs show of the
     report. A report keeps its progress report's own status (``statuses``), also under a status filter
     (``wanted``: the statuses to keep, None: all). Each indicator report reads the type and unit of the PD
-    indicator its rows belong to (:func:`identity.definitions`)."""
+    indicator its rows belong to (:func:`identity.definitions`).
+
+    ``record``: the figure trail's (:mod:`neurodb.datamart.trail`), which receives each indicator report the
+    status filter leaves out (``record.dropped``) and each location (``record.line``: the report, the
+    indicator report, the place, the Datamart ids of its rows and the one read), whose ``fields`` then also
+    carry them (``indicator_report_key``, ``place``, ``record_ids``, ``chosen_record_id``); None on the
+    pages."""
     definition = identity.definitions(rows)
     details = pd_details({r["intervention_id"] for r in rows if r["intervention_id"]})
     # one group per indicator report (one indicator in one progress report, as the tiles count them):
@@ -719,7 +815,7 @@ def _location_cells(rows: list[dict[str, Any]], statuses: dict[Any, str], today:
     groups: dict[tuple, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         groups[(rc.report_key(row), rc.indicator_report_key(row))].append(row)
-    for (key, _), group in groups.items():
+    for (key, ir), group in groups.items():
         first = group[0]
         status = statuses.get(key)
         if status is None:
@@ -731,6 +827,8 @@ def _location_cells(rows: list[dict[str, Any]], statuses: dict[Any, str], today:
                 today=today,
             )
         if wanted is not None and status not in wanted:
+            if record is not None:
+                record.dropped("status", key, ir, len(group))
             continue
         pd_id = first["intervention_id"]
         display_type, unit, _ = definition(group) or ("", "", None)
@@ -742,36 +840,38 @@ def _location_cells(rows: list[dict[str, Any]], statuses: dict[Any, str], today:
         pd = details.get(pd_id) or {}
         for place, cell in report.cells.items():
             meta = report.places.get(place, {})
-            yield (
-                {
-                    "programme_document": first["pd_reference_number"],
-                    "pd_id": pd_id,
-                    "pd_status": pd.get("status_label", ""),
-                    "partner": first["partner_name"],
-                    "partner_id": first["partner_id"],
-                    "section": (first["section"] or "").strip() or ", ".join(pd.get("sections", [])),
-                    "cp_output": first["cp_output"],
-                    "indicator": first["indicator"],
-                    "emergency": "Yes" if first["high_frequency"] else "No",
-                    "report": report.number,
-                    "report_type": report.report_type,
-                    "progress_report": first["progress_report"],
-                    "report_key": key,
-                    "status": status,
-                    "report_status": rc.STATUS_LABELS[status],
-                    "counted": status in rc.COUNTED,
-                    "period_start": report.period_start,
-                    "period_end": report.period_end,
-                    "due_date": report.due_date,
-                    "location": meta.get("name") or "",
-                    "p_code": meta.get("p_code") or "",
-                    "percentage": percentage,
-                    "ratio": ratio,
-                    "repeated": cell.repeated,
-                    "rows": cell.rows,
-                },
-                cell,
-            )
+            fields = {
+                "programme_document": first["pd_reference_number"],
+                "pd_id": pd_id,
+                "pd_status": pd.get("status_label", ""),
+                "partner": first["partner_name"],
+                "partner_id": first["partner_id"],
+                "section": (first["section"] or "").strip() or ", ".join(pd.get("sections", [])),
+                "cp_output": first["cp_output"],
+                "indicator": first["indicator"],
+                "emergency": "Yes" if first["high_frequency"] else "No",
+                "report": report.number,
+                "report_type": report.report_type,
+                "progress_report": first["progress_report"],
+                "report_key": key,
+                "status": status,
+                "report_status": rc.STATUS_LABELS[status],
+                "counted": status in rc.COUNTED,
+                "period_start": report.period_start,
+                "period_end": report.period_end,
+                "due_date": report.due_date,
+                "location": meta.get("name") or "",
+                "p_code": meta.get("p_code") or "",
+                "percentage": percentage,
+                "ratio": ratio,
+                "repeated": cell.repeated,
+                "rows": cell.rows,
+            }
+            if record is not None:
+                fields["indicator_report_key"], fields["place"] = ir, place
+                fields["record_ids"], fields["chosen_record_id"] = list(cell.records), cell.record
+                record.line(key, ir, place, cell.records, cell.record)
+            yield fields, cell
 
 
 def _newest_first(item: dict[str, Any]) -> tuple:
@@ -789,13 +889,19 @@ def location_rows(
     statuses: dict[Any, str],
     today: datetime.date,
     wanted: set[str] | None = None,
+    *,
+    record: Any = None,
 ) -> dict[str, Any]:
     """Report/Location: one row per indicator report and location, with the value of the location in
     the period (the disaggregation total "()", read as :mod:`reached` reads it: a report total repeated
     on every location gives no value of its own, two rows of one location are never added) and PRP's
     figure to date there. ``statuses``: each progress report's status by its key (``progress_reports``);
-    ``wanted``: the statuses to keep (None: all). Read only below :data:`LOCATION_LIMIT` rows."""
+    ``wanted``: the statuses to keep (None: all). Read only below :data:`LOCATION_LIMIT` rows. ``record``: the
+    figure trail's (:func:`_location_cells`; ``record.count`` receives the rows counted against the limit);
+    None on the pages."""
     total = queryset.count()
+    if record is not None:
+        record.count("limit", total, LOCATION_LIMIT)
     if total > LOCATION_LIMIT:
         return {"rows": [], "too_many": total, "limit": LOCATION_LIMIT}
     # only the disaggregation total "()" of each row (the value the tab shows), never every value of
@@ -815,7 +921,7 @@ def location_rows(
             "value_in_period": None if cell.repeated else cell.value,
             "prp_to_date": cell.prp_cumulative,
         }
-        for fields, cell in _location_cells(rows, statuses, today, wanted)
+        for fields, cell in _location_cells(rows, statuses, today, wanted, record)
     ]
     out.sort(key=_newest_first)
     return {"rows": out, "too_many": 0, "limit": LOCATION_LIMIT}
@@ -878,6 +984,8 @@ def disaggregation_rows(
     today: datetime.date,
     wanted: set[str] | None = None,
     params=None,
+    *,
+    record: Any = None,
 ) -> dict[str, Any]:
     """Report/Disaggregation: per indicator report and location (a *block*), PRP's values by
     disaggregation with their labels, a subtotal per disaggregation and the location total "()"
@@ -889,24 +997,36 @@ def disaggregation_rows(
 
     Each block carries its location total; its lines (``groups``, ``untyped``, ``unlabelled``,
     ``table_lines``) are made by :func:`fill_block` for the blocks a page shows or an export writes, never
-    for every block of the filter at once (``labels`` and ``filters`` in the result are what it needs)."""
+    for every block of the filter at once (``labels`` and ``filters`` in the result are what it needs).
+
+    ``record``: the figure trail's (:func:`_location_cells`), which also receives the rows before the tab's
+    indicator words and those counted against the limit (``record.count``) and each location block the tab's
+    location, P-code and disaggregation filters leave out (``record.dropped``); None on the pages."""
     from . import disaggregation as dg
 
     tab = DisaggregationFilters.from_params(params or {})
+    if record is not None and tab.indicator:
+        record.count("before_indicator", queryset.count(), None)
     if tab.indicator:
         for word in tab.indicator.split():
             queryset = queryset.filter(indicator__icontains=word)
     total = queryset.count()
+    if record is not None:
+        record.count("limit", total, DISAGGREGATION_LIMIT)
     if total > DISAGGREGATION_LIMIT:
         return {"blocks": [], "too_many": total, "limit": DISAGGREGATION_LIMIT, "filters": tab}
     rows = list(queryset.order_by(*rc.ROW_ORDER).values(*LOCATION_FIELDS))
     keys = {k for r in rows if isinstance(r["disaggregation"], dict) for k in r["disaggregation"]}
     labels = dg.load_labels(dg.ids_in(keys))
     blocks: list[dict[str, Any]] = []
-    for fields, cell in _location_cells(rows, statuses, today, wanted):
+    for fields, cell in _location_cells(rows, statuses, today, wanted, record):
         if tab.location and not _words(tab.location, fields["location"]):
+            if record is not None:
+                record.dropped("location", fields["report_key"], fields["indicator_report_key"], 1)
             continue
         if tab.p_code and rc.norm(tab.p_code) not in rc.norm(fields["p_code"]):
+            if record is not None:
+                record.dropped("p_code", fields["report_key"], fields["indicator_report_key"], 1)
             continue
         prp_total = (
             dg.breakdown(
@@ -928,6 +1048,8 @@ def disaggregation_rows(
         }
         # the disaggregation filter needs the lines to choose: made now (within the row limit)
         if tab.disaggregation and not fill_block(block, labels, tab):
+            if record is not None:
+                record.dropped("disaggregation", fields["report_key"], fields["indicator_report_key"], 1)
             continue
         blocks.append(block)
     del rows

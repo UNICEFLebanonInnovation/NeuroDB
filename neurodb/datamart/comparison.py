@@ -18,7 +18,8 @@ person types Power BI's numbers in.
   sheet is the export's row without its focal points. Every text from the data is written as a text, never a
   formula; the only formulas are the two difference columns of a sheet, written by NeuroDB.
 
-The *Trail* columns stay empty until the figure trails exist.
+The *Trail* column of Progress reports opens each figure on its figure trail (``datamart.trail``), for the
+same filter and day; Partner monitoring's stays empty until its trail exists.
 """
 
 from __future__ import annotations
@@ -743,7 +744,7 @@ def _compare_sheet(book: Workbook, found: Read, base_url: str) -> None:
         numeric = isinstance(figure.value, int | float)
         difference = Formula(f'=IF(ISNUMBER(H{row}),H{row}-F{row},"")') if numeric else None
         same = Formula(f'=IF(ISNUMBER(H{row}),IF(H{row}=F{row},"Same","Differs"),"")') if numeric else None
-        trail = None  # the figure's trail, once the trails exist
+        trail = trail_link(found, base_url, figure.key)
         sheet.add(
             n,
             figure.powerbi_page,
@@ -767,6 +768,27 @@ def _compare_sheet(book: Workbook, found: Read, base_url: str) -> None:
         "of that programme document (Raw eTools data → PD indicators, filtered by the programme document).",
     )
     sheet.add(None, "Why NeuroDB and Power BI can differ: the sheet Why they can differ.")
+
+
+def trail_link(found: Read, base_url: str, key: str) -> str | None:
+    """The address of a figure on its figure trail, for the sheet's filter and day (the tab it is drawn on, so
+    By location's and By disaggregation's open); None for a page with no trail yet."""
+    from . import trail
+
+    if found.page not in trail.PAGES:
+        return None
+    query = found.params.copy()
+    if found.day != page_today(found.page):
+        query["day"] = found.day.isoformat()
+    tabs = {"pr.location": "locations", "pr.disaggregation": "disaggregations"}
+    tab = next((t for prefix, t in tabs.items() if key.startswith(prefix)), "")
+    if not tab and key.startswith(("pr.partner", "pr.follow_up")):
+        tab = "partners"
+    if tab:
+        query["tab"] = tab
+    query["figure"] = key
+    path = reverse("reports:check_figures", args=[found.page])
+    return f"{base_url}{path}?{query.urlencode()}#{trail.anchor(key)}"
 
 
 def _everything(sheet: Sheet, found: Read) -> None:

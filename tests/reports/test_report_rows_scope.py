@@ -6,6 +6,7 @@ show the rows by country and programme document, and the reports owed in PRP's t
 from __future__ import annotations
 
 import datetime
+import re
 
 import pytest
 from django.urls import reverse
@@ -66,12 +67,19 @@ def rows(db):
     return {"running": running, "ended": ended}
 
 
+def _note(html: str) -> str:
+    """The page's note on what the PD status filter leaves out, as a person reads it (without the figure trail's
+    keys)."""
+    note = html.split('id="reporting-left-out"', 1)[1].split("</p>", 1)[0]
+    return re.sub(r'<span data-figure="[^"]*">([^<]*)</span>', r"\1", note)
+
+
 def test_the_default_page_counts_the_running_pds_and_says_what_it_leaves_out(rows, client_viewer):
     page = client_viewer.get(reverse("reports:partner_reporting"))
     data = page.context["data"]
     assert data["counts"]["indicator_reports"] == 2
     assert data["left_out"] == {"other_status": 1, "not_held": 2, "no_pd": 2, "by_pd_status": 3}
-    note = page.text.split('id="reporting-left-out"', 1)[1].split("</p>", 1)[0]
+    note = _note(page.text)
     assert "leaves out 3 more indicator reports" in note
     assert (
         "1 of programme documents with another status, 2 of programme documents NeuroDB does not hold" in note
@@ -91,7 +99,7 @@ def test_every_pd_status_reads_the_pds_not_held_but_never_a_report_of_no_pd(rows
         r["section"] for r in data["by_section"]["rows"]
     }
     assert data["left_out"] == {"other_status": 0, "not_held": 0, "no_pd": 2, "by_pd_status": 0}
-    note = page.text.split('id="reporting-left-out"', 1)[1].split("</p>", 1)[0]
+    note = _note(page.text)
     assert (
         "leaves out" not in note and "2 indicator reports of these filters name no programme document" in note
     )

@@ -9,7 +9,7 @@ day, and where your section stands this year. Every figure of the year is on the
 findings of the morning check are on the [daily review](/daily-review/). Home opens at once and each
 block fills in as it is ready (see [Pages that open at once](/help/overview/#pages-that-open-at-once)).
 
-> **For validators:** *Raw data behind this page*, under *Partner reporting*, opens the eTools records these blocks read: see [Checking the figures](/help/checking-figures/).
+> **For validators:** *Raw data behind this page*, under *Partner reporting*, opens the eTools records these blocks read, and *Check these figures*, under the Progress reports block's title, shows where each of its figures comes from: see [Checking the figures](/help/checking-figures/).
 
 ## What Home shows
 

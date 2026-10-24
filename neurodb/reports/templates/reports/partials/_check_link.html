@@ -4,13 +4,16 @@ it reads (datamart.raw.PAGE_SOURCES). Raw eTools data is in the admin, which ask
 says so instead of linking. compare (reports.check_views.compare_link; Progress reports and Partner monitoring only):
 the page's Power BI comparison sheet for the filter drawn, with the day the statuses are read for (the page's day by
 default, or Power BI's refresh, at most 14 days before). The pages draw the line with their results, so a change of
-filter draws it again with the new filter.{% endcomment %}{% if can_validate %}
+filter draws it again with the new filter. trail (reports.check_views.trail_url): the figure trail of the figures drawn,
+"Check these figures"; trail_only: that link alone (under each block of Home, whose raw data link is under its
+heading).{% endcomment %}{% if can_validate %}
 <div class="check-line small text-muted mb-3 d-flex flex-wrap align-items-center gap-2" data-check-line="{{ page }}">
+{% if trail %}<a href="{{ trail }}" data-check-trail>{% trans "Check these figures" %}</a>{% if not trail_only %}<span aria-hidden="true">·</span>{% endif %}{% endif %}
 {% if compare %}<form method="get" action="{% url 'reports:check_compare' compare.page %}" class="d-inline-flex flex-wrap align-items-center gap-1 m-0" data-check-compare>
   {% for key, value in compare.query %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
   <button type="submit" class="btn btn-link btn-sm p-0 align-baseline">{% trans "Power BI comparison sheet (Excel)" %}</button>
   <label class="d-inline-flex align-items-center gap-1 mb-0">{% trans "statuses read for" %} <input type="date" name="day" class="form-control form-control-sm w-auto" value="{{ compare.today|date:'Y-m-d' }}" min="{{ compare.first|date:'Y-m-d' }}" max="{{ compare.today|date:'Y-m-d' }}" title="{% trans 'Due, Overdue and Not yet due depend on the day: choose the day of Power BI’s refresh' %}"></label>
 </form><span aria-hidden="true">·</span>{% endif %}
-<span>{% if user.is_staff %}<a href="{% url 'admin:datamart_raw' %}?page={{ page|urlencode }}">{% trans "Raw data behind this page" %}</a>{% else %}{% trans "Raw data: ask for staff status" %}{% endif %}</span>
+{% if not trail_only %}<span>{% if user.is_staff %}<a href="{% url 'admin:datamart_raw' %}?page={{ page|urlencode }}">{% trans "Raw data behind this page" %}</a>{% else %}{% trans "Raw data: ask for staff status" %}{% endif %}</span>{% endif %}
 </div>
 {% endif %}

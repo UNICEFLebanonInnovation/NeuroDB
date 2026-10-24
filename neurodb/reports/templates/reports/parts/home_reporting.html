@@ -9,12 +9,14 @@ reports that are all Accepted or not yet due. The tiles count indicator reports,
 progress reports (the table's column group says so). The table sits in a panel, as on Progress reports: the scroll
 cues of .table-wrap are painted in the panel's colour, and on the page's own background they showed as pale patches at
 both ends of every row. A server whose eTools Datamart sync never ran (no_etools) reads one line instead. Context:
-reporting, pd_rows, tile_urls, partners_url, no_etools.{% endcomment %}
+reporting, pd_rows, tile_urls, partners_url, no_etools, check_url (the block's figure trail: "Check these figures" under
+the hint, for the people who check the figures). Every number carries its figure trail key (data-figure).{% endcomment %}
 <div class="home-prp__block">
   <div class="home-prp__title">
     <h3 class="home-block__title" id="home-pr-title">{% trans "Progress reports" %}</h3>
     <span class="home-prp__hint">{% trans "Running programme documents, every reporting period" %}</span>
   </div>
+  {% include "reports/partials/_check_link.html" with page="reports:overview" trail=check_url trail_only=True %}
   {% if no_etools %}
   <p class="home-empty">{% trans "No eTools data yet: the eTools Datamart sync has not run on this server." %}</p>
   {% else %}
@@ -22,7 +24,7 @@ reporting, pd_rows, tile_urls, partners_url, no_etools.{% endcomment %}
   <p class="home-also">{% trans "Each tile counts indicator reports (one indicator in one progress report); the number of progress reports is under it." %}</p>
   <div class="home-prp__title home-prp__title--split">
     <h3 class="home-block__title" id="home-pds-title">{% trans "Programme documents to follow up" %}</h3>
-    <span class="home-prp__hint">{% if reporting.pds.count > pd_rows|length %}{% blocktrans with n=pd_rows|length total=reporting.pds.count|intcomma %}The first {{ n }} of {{ total }} programme documents, the most overdue first{% endblocktrans %}{% else %}{% blocktrans count counter=reporting.pds.count with n=reporting.pds.count|intcomma %}{{ n }} programme document{% plural %}{{ n }} programme documents{% endblocktrans %}{% endif %}</span>
+    <span class="home-prp__hint">{% if reporting.pds.count > pd_rows|length %}{% blocktrans with n=pd_rows|length total=reporting.pds.count|intcomma %}The first {{ n }} of <span data-figure="home.pds">{{ total }}</span> programme documents, the most overdue first{% endblocktrans %}{% else %}{% blocktrans count counter=reporting.pds.count with n=reporting.pds.count|intcomma %}<span data-figure="home.pds">{{ n }}</span> programme document{% plural %}<span data-figure="home.pds">{{ n }}</span> programme documents{% endblocktrans %}{% endif %}</span>
   </div>
   {% if pd_rows %}
   <div class="panel p-0 home-pds__panel"><div class="table-wrap"><table class="table table-sm home-pds" aria-labelledby="home-pds-title">
@@ -34,10 +36,10 @@ reporting, pd_rows, tile_urls, partners_url, no_etools.{% endcomment %}
     <tbody>{% for r in pd_rows %}<tr>
       <th scope="row" class="fw-normal small text-nowrap">{% if r.reports_url %}<a href="{{ r.reports_url }}">{{ r.pd_reference_number }}</a>{% else %}{{ r.pd_reference_number|default:"—" }}{% endif %}{% if r.sections %}<span class="cell-sub">{{ r.sections }}</span>{% endif %}</th>
       <td class="small cell-wrap">{% if r.partner_id %}<a href="{% url 'reports:partner_profile' r.partner_id %}">{{ r.partner_name|default:"—" }}</a>{% else %}{{ r.partner_name|default:"—" }}{% endif %}</td>
-      {% with n=r.counts.overdue %}<td class="num">{% if n %}{% blocktrans asvar word with n=n|intcomma %}{{ n }} overdue{% endblocktrans %}{% status_pill "overdue" word "sm" %}{% else %}<span class="home-muted">0</span>{% endif %}</td>{% endwith %}
-      {% with n=r.counts.sent_back %}<td class="num">{% if n %}{% blocktrans asvar word with n=n|intcomma %}{{ n }} sent back{% endblocktrans %}{% status_pill "sent_back" word "sm" %}{% else %}<span class="home-muted">0</span>{% endif %}</td>{% endwith %}
-      {% with n=r.counts.due %}<td class="num">{% if n %}{{ n|intcomma }}{% else %}<span class="home-muted">0</span>{% endif %}</td>{% endwith %}
-      {% with n=r.counts.submitted %}<td class="num">{% if n %}{{ n|intcomma }}{% else %}<span class="home-muted">0</span>{% endif %}</td>{% endwith %}
+      {% with n=r.counts.overdue %}<td class="num" data-figure="home.pd.{{ r.pd_reference_number|default:r.key }}.overdue">{% if n %}{% blocktrans asvar word with n=n|intcomma %}{{ n }} overdue{% endblocktrans %}{% status_pill "overdue" word "sm" %}{% else %}<span class="home-muted">0</span>{% endif %}</td>{% endwith %}
+      {% with n=r.counts.sent_back %}<td class="num" data-figure="home.pd.{{ r.pd_reference_number|default:r.key }}.sent_back">{% if n %}{% blocktrans asvar word with n=n|intcomma %}{{ n }} sent back{% endblocktrans %}{% status_pill "sent_back" word "sm" %}{% else %}<span class="home-muted">0</span>{% endif %}</td>{% endwith %}
+      {% with n=r.counts.due %}<td class="num" data-figure="home.pd.{{ r.pd_reference_number|default:r.key }}.due">{% if n %}{{ n|intcomma }}{% else %}<span class="home-muted">0</span>{% endif %}</td>{% endwith %}
+      {% with n=r.counts.submitted %}<td class="num" data-figure="home.pd.{{ r.pd_reference_number|default:r.key }}.submitted">{% if n %}{{ n|intcomma }}{% else %}<span class="home-muted">0</span>{% endif %}</td>{% endwith %}
       <td class="small text-nowrap">{{ r.oldest_due|date:"j M Y"|default:"—" }}</td>
       <td class="small text-nowrap">{% if r.indicators_url %}<a href="{{ r.indicators_url }}">{% trans "Indicators" %}<span class="visually-hidden"> {% blocktrans with ref=r.pd_reference_number %}of {{ ref }} on Partner monitoring{% endblocktrans %}</span></a>{% else %}—{% endif %}</td>
     </tr>{% endfor %}</tbody>
@@ -48,6 +50,6 @@ reporting, pd_rows, tile_urls, partners_url, no_etools.{% endcomment %}
   {% else %}
   <p class="home-empty">{% trans "Nothing to follow up: every report here is Accepted or not yet due." %}</p>
   {% endif %}
-  {% if reporting.counts.progress_reports %}{% with p=reporting.partners %}<p class="home-prp__partners"><a href="{{ partners_url }}">{% blocktrans count counter=p.partners with n=p.partners|intcomma r=p.reported|intcomma nr=p.not_reported|intcomma %}{{ n }} partner has progress reports here: {{ r }} has reported (Submitted or Accepted), {{ nr }} has not yet.{% plural %}{{ n }} partners have progress reports here: {{ r }} have reported (Submitted or Accepted), {{ nr }} have not yet.{% endblocktrans %}</a></p>{% endwith %}{% endif %}
+  {% if reporting.counts.progress_reports %}{% with p=reporting.partners %}<p class="home-prp__partners"><a href="{{ partners_url }}">{% blocktrans count counter=p.partners with n=p.partners|intcomma r=p.reported|intcomma nr=p.not_reported|intcomma %}<span data-figure="pr.partners">{{ n }}</span> partner has progress reports here: <span data-figure="pr.partners_reported">{{ r }}</span> has reported (Submitted or Accepted), <span data-figure="pr.partners_not_reported">{{ nr }}</span> has not yet.{% plural %}<span data-figure="pr.partners">{{ n }}</span> partners have progress reports here: <span data-figure="pr.partners_reported">{{ r }}</span> have reported (Submitted or Accepted), <span data-figure="pr.partners_not_reported">{{ nr }}</span> have not yet.{% endblocktrans %}</a></p>{% endwith %}{% endif %}
   {% endif %}
 </div>

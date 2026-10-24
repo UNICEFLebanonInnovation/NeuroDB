@@ -1,0 +1,8 @@
+{% load i18n %}{% comment %}A figure trail's part "locations" or "disaggregations" (reports.check_views.check_figures;
+datamart.trail.table_trail): the steps of By location or By disaggregation, recorded from inside the tab's own
+computation, each with its count, then the tab's figures on the page and rebuilt. Context: table, and the page's scope
+(rows_url, rows_query, trail_figure).{% endcomment %}
+{% with t=table %}
+<ol class="trail-steps small mb-2">{% for line in t.steps %}<li class="{% if line.alert %}text-danger{% endif %}">{{ line.words }}{% if line.what %} <a href="{{ rows_url }}?{{ rows_query }}{% if rows_query %}&amp;{% endif %}what={{ line.what|urlencode:'' }}">{% trans "Download these lines (CSV)" %}</a>{% endif %}</li>{% endfor %}</ol>
+{% with block=t.block open_block=t.block.key %}{% include "reports/partials/_trail_block.html" %}{% endwith %}
+{% endwith %}

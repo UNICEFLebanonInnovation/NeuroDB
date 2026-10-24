@@ -1943,8 +1943,11 @@ def _reporting_frame(request: HttpRequest, tab: str, filters) -> dict[str, Any]:
         "overdue": request.GET.get("overdue") == "1",
         # Home's rows open the page on one programme document (pd=): the same address without it
         "every_pd_url": request.path + "?" + _query_with(params, ("pd", "export")) if filters.pds else "",
-        # the check line's Power BI comparison sheet, for the filter drawn (validators only see it)
+        # the check line's Power BI comparison sheet and figure trail, for the filter drawn (validators only
+        # see them)
         "check_compare": check_views.compare_link("progress-reports", params, datamart.reporting_today()),
+        "check_trail": check_views.trail_url("progress-reports", params, tab=tab),
+        "status_keys": reporting_service.STATUS_KEYS,  # the section table's columns, for their figure keys
         "tab_urls": {
             name: request.path + "?" + _query_with(params, ("tab", "export"), tab=name)
             for name in REPORTING_TABS

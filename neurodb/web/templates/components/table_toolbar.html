@@ -2,7 +2,7 @@
 <div class="table-toolbar">
   <div class="table-toolbar__title">
     {% if title %}<h2 class="h6 mb-0">{{ title }}</h2>{% endif %}
-    {% if count_label %}<span class="text-muted small">{{ count_label }}</span>{% elif count is not None %}<span class="text-muted small">{% blocktrans count counter=count %}{{ counter }} row{% plural %}{{ counter }} rows{% endblocktrans %}</span>{% endif %}
+    {% if count_label %}<span class="text-muted small"{% if count_figure_key %} data-figure="{{ count_figure_key }}"{% endif %}>{{ count_label }}</span>{% elif count is not None %}<span class="text-muted small"{% if count_figure_key %} data-figure="{{ count_figure_key }}"{% endif %}>{% blocktrans count counter=count %}{{ counter }} row{% plural %}{{ counter }} rows{% endblocktrans %}</span>{% endif %}
   </div>
   <div class="table-toolbar__actions">
     {% if not no_copy %}<button type="button" class="btn btn-outline-secondary btn-sm" data-table-copy data-table-target="#{{ table_id }}">{% include "components/icon.html" with name="copy" %}<span>{% trans "Copy" %}</span></button>

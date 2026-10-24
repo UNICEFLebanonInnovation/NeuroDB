@@ -331,6 +331,8 @@ class Cell:
     repeated: bool = False  # the report total repeated on every location: no value of its own
     disaggregation: dict[str, Any] = field(default_factory=dict)  # PRP's raw values of the row read
     modified: Any = None  # the row's last change in the Datamart (when read)
+    record: Any = None  # the Datamart id of the row read
+    records: tuple = ()  # the Datamart ids of every row of the location in the report (once chosen)
 
     @property
     def item(self) -> Item:
@@ -540,6 +542,7 @@ def _cell(row: dict[str, Any], ratio: bool, percentage: bool) -> Cell:
         prp_cumulative=prp_cumulative.value(ratio, percentage) if prp_cumulative else None,
         disaggregation=disaggregation,
         modified=row.get("last_modify_date"),
+        record=row.get("datamart_id"),
     )
     total = parts(disaggregation.get("()")) if disaggregation else None
     if total is not None and total.value(ratio, percentage) is not None:
@@ -650,10 +653,10 @@ def _choose(cells: list[Cell], report: Report) -> Cell:
     row is that value; different values: the largest, with a note."""
     with_value = [c for c in cells if c.value is not None]
     if not with_value:
-        cells[0].rows = len(cells)
+        cells[0].rows, cells[0].records = len(cells), tuple(c.record for c in cells)
         return cells[0]
     chosen = max(with_value, key=lambda c: c.value)
-    chosen.rows = len(cells)
+    chosen.rows, chosen.records = len(cells), tuple(c.record for c in cells)
     if len({c.value for c in with_value}) > 1:
         report.notes.append(
             "Several rows for one location in this report carry different values: the largest is used, "

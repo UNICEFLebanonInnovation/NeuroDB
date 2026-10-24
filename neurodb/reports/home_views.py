@@ -46,7 +46,7 @@ from neurodb.core import years
 from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import services as datamart
 from neurodb.indicators.services import activityinfo, navigation
-from neurodb.reports import home
+from neurodb.reports import check_views, home
 from neurodb.reports import overview as overview_service
 from neurodb.web.parts import Part, first_load, render_page
 
@@ -111,14 +111,9 @@ def home_page(request: HttpRequest) -> HttpResponse:
     role = role_of(user)
     # Home's scope, written out on every link to the pages that would otherwise take a first-load default
     scope_query = _query(sections, year)
-    keep = QueryDict(mutable=True)  # the eTools pages: the sections, this year, every PD running in it
-    keep.setlist("section", sections)
-    keep["year"] = str(year)
-    keep["scope"] = "year"
-    # Progress reports' own default for Home's sections: no year and no PD status, so the running programme
-    # documents and every reporting period (a January keeps last year's last reports, the overdue ones)
-    progress = QueryDict(mutable=True)
-    progress.setlist("section", sections)
+    # the eTools pages: Progress reports' own default for Home's sections, and Partner monitoring's (the
+    # sections, this year, every PD running in it)
+    progress, keep = home.figure_queries(sections, year)
     programmes = QueryDict(mutable=True)
     programmes.setlist("section", sections)
     previous = QueryDict(mutable=True)
@@ -236,10 +231,12 @@ def home_page(request: HttpRequest) -> HttpResponse:
         figures = datamart.reporting_figures(progress)  # on the page's day (datamart.reporting_today)
         every_section = keep.copy()  # a row's indicators: this year, every PD running in it, every section
         every_section.setlist("section", [""])
-        rows = [_pd_row(row, progress, every_section) for row in figures["pds"]["rows"][: home.HOME_PDS]]
+        rows = [_pd_row(row, progress, every_section) for row in home.follow_up_rows(figures)]
         return {
             "reporting": figures,
             "pd_rows": rows,
+            # the block's figure trail, for the people who check the figures (the check line under its hint)
+            "check_url": check_views.trail_url("home", progress, block="reporting"),
             "tile_urls": {
                 "total": _url("reports:partner_reporting", progress),
                 **{

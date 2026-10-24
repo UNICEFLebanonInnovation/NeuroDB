@@ -203,6 +203,12 @@ def get_item(mapping: Any, key: Any) -> Any:
 
 
 @register.filter
+def paired(keys: Any, values: Any) -> list[tuple[Any, Any]]:
+    """``keys|paired:values``: each key with its value, in order (``{% for key, n in keys|paired:n %}``)."""
+    return list(zip(keys or (), values or (), strict=False))
+
+
+@register.filter
 def has_id(items, value) -> bool:
     """True when one of ``items`` has ``id == value`` (opens the sidebar group of the current database)."""
     return value is not None and any(getattr(item, "id", None) == value for item in items or [])

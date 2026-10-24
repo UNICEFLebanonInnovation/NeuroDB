@@ -15,16 +15,88 @@ validator without it sees "Raw data: ask for staff status" where the link would 
 A validator sees one more line under the tabs of [Progress reports](/partner-reporting/),
 [Partner monitoring](/partner-monitoring/) (and its map) and [Field monitoring](/field-monitoring/), and on
 [Home](/) under *Partner reporting*: **Raw data behind this page**. It opens Raw eTools data on the
-sources that page reads. On Progress reports and Partner monitoring the line also offers the
-**Power BI comparison sheet (Excel)** (below). The *eTools reporting checks* (*Data and sync*) open
-read-only for validators: only an Administrator runs them.
+sources that page reads. On Progress reports (every tab) the line also offers **Check these figures** (the
+figure trail, below), and so does a line of its own under the title of Home's Progress reports block; on
+Progress reports and Partner monitoring, the line offers the **Power BI comparison sheet (Excel)** (below). The *eTools reporting checks* (*Data and sync*)
+open read-only for validators: only an Administrator runs them.
+
+## The figure trail
+
+*Check these figures* opens the page's **figure trail** for the filter shown: where each figure comes from,
+step by step, from what eTools said it had to what the page shows. It needs no staff status. Partner
+monitoring's trail comes in a later release.
+
+At the top: the filter in words, the day the statuses are read for (the page's day; the comparison sheet's
+Trail links open it on the sheet's day), when the eTools figures are from (the end of the last partner reports
+sync) and, while an eTools sync runs, a note: the figures can move until it ends. Then the page's own tiles,
+drawn as on the page, and one line: **"All N figures rebuilt from the rows: the same."** A figure whose value
+on the page and value rebuilt from the rows differ is listed in red above it: tell the NeuroDB team.
+
+**Where the rows come from** lists the steps:
+
+1. what eTools said it had, what NeuroDB received, and what it did not keep (of another country, naming no
+   country, records that could not be saved): counts only, NeuroDB never keeps these records;
+2. what is in NeuroDB (updated by the last sync, updated since, kept from an earlier sync), and from which
+   date NeuroDB holds partner reports;
+3. what the page leaves out, filter by filter, in the order the page applies them: the rows, and the indicator
+   reports and progress reports left out entirely or partly (some of their rows kept). The PD status filter
+   gives the three lines of the page's note (another status, not in NeuroDB, names no programme document);
+4. the rows the filter keeps, then the report status when one is chosen (one status per progress report, read
+   from all its rows).
+
+Each step with rows has *Download these rows (CSV)*. A download holds at most 25,000 rows: past that, the
+step links to Raw eTools data, where choosing a year, a section, a partner or a programme document makes it
+smaller. **Each figure on the page** (folded) lists every figure as the page names it, with its value on the
+page, its value rebuilt from the rows, *Same?*, how it is counted and its rows as CSV. By location and By
+disaggregation have folds of their own: their steps (the limit of the rows the table reads, the report
+status, the tab's own filters) and their lines.
+
+**A worked example.** The tile *Overdue* on Progress reports, section Education:
+
+> Overdue: 41 indicator reports in 12 progress reports, the same as the page.
+>
+> 1. eTools said it had 780,905 partner report rows, of every country: the Datamart does not filter this
+>    list by country. NeuroDB received 780,975: 70 more than it said, records added during the sync.
+>    Counts only.
+> 2. 770,993 were of another country and were not kept; none could not be saved. Counts only.
+> 3. 9,982 rows are in NeuroDB: 9,982 updated by that sync, none kept from an earlier one. NeuroDB holds
+>    partner reports from 1 Jan 2026. [CSV]
+> 4. Left out by the page, in the order it applies them: not in the section Education (7,100 rows; 2,345
+>    indicator reports left out entirely, 3 partly); programme document is a draft or cancelled (12 rows);
+>    the PD status filter (300 rows). [CSV for each]
+> 5. Kept by the filter: 2,545 rows, 820 indicator reports in 210 progress reports. [Kept rows CSV]
+> 6. With the status Overdue: 41 indicator reports in 12 progress reports.
+
+The rows that set a report's status (its newest word, across all its rows, also those the filter leaves out)
+download beside step 5: *Rows that set the status (CSV)*.
+
+## Rebuilding a page in Excel
+
+*Kept rows (CSV)* holds one row per report row the filter keeps. Its first columns are what NeuroDB read of
+the row: `report_status_neurodb` (the report's status), `report_status_chosen`, `section_counted`,
+`period_end_month`, and one column per unit (`indicator_report_unit`, `progress_report_unit`, `partner_unit`,
+`pd_unit`) with `counts_once_*`: 1 on the first row of each unit. Then the record as Raw eTools data writes it
+(people as counts).
+
+1. Open the file in Excel and insert a pivot table.
+2. Filter `report_status_chosen` on *yes*.
+3. Put `report_status_neurodb` in Rows (or `section_counted` with it in Columns, for the section table; or
+   `period_end_month`, for the month chart).
+4. Put the sum of `counts_once_indicator_report` in Values: the tiles. The sum of
+   `counts_once_progress_report` gives the progress reports under them. A distinct count of
+   `indicator_report_unit` gives the same.
+
+Each figure's own *Rows (CSV)* holds only the rows it counts, with `unit_key` (its unit) and `counts_once`:
+their sum is the figure. In a step's CSV, `counts_once` is 1 only on a unit the step leaves out entirely
+(`unit_partly_kept` marks the others), so its sum is what the step leaves out entirely.
 
 ## The Power BI comparison sheet
 
 NeuroDB never reads Power BI: you compare by hand, and the sheet does the rest. *Power BI comparison sheet
 (Excel)*, under the tabs of Progress reports and Partner monitoring, downloads the page's figures for the
 filter shown, in the order and with the names of the PRP Power BI dashboard. Home, the grid, the map and
-the master indicators have no Power BI page: check them against Raw eTools data.
+the master indicators have no Power BI page: check Home's Progress reports block with its figure trail, and
+the others against Raw eTools data.
 
 **Statuses read for.** Due, Overdue and Not yet due depend on the day a report's status is read for.
 The page reads today; Power BI reads the day of its last refresh. Beside the link, choose the day of
@@ -41,7 +113,8 @@ The file has these sheets:
   yellow cell for Power BI's value. Type Power BI's number there: *Difference* and *Same?* fill in by
   themselves. *Notes* say why a figure can differ (a report Power BI counts that the partner reports
   feed does not carry: check 11 of the eTools reporting checks; a programme document with no indicator:
-  check 10).
+  check 10). On Progress reports, each figure's *Trail* cell opens its figure trail for the same filter
+  and day, on that figure.
 - **Progress reports** (Progress reports): one row per progress report of the filter, with a *Match key*
   (the PD reference, a space, the report number). No focal point is written.
 - **Partners** (Progress reports): one row per partner, its progress reports per status, and a *Match key*

@@ -318,11 +318,7 @@ def _status_summary(reports: list[dict[str, Any]]) -> dict[str, Any]:
         "reports": len(reports),
         "statuses": {key: statuses.get(key, 0) for key in reached.STATUS_LABELS},
         **{key: statuses.get(key, 0) for key in reached.STATUS_LABELS},
-        "late": sum(
-            1
-            for r in reports
-            if r["submission_date"] and r["due_date"] and r["submission_date"] > r["due_date"]
-        ),
+        "late": sum(1 for r in reports if reporting.submitted_late(r)),
     }
 
 

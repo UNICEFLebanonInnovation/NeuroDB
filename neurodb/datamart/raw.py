@@ -1240,6 +1240,56 @@ def csv_columns(name: str, keys: list[str]) -> list[str]:
     return head + [header_name(k) for k in keys] + list(TAIL_COLUMNS)
 
 
+def csv_record(
+    name: str,
+    row: Any,
+    wanted: set[str],
+    run: SyncRun | None,
+    names: frozenset[str],
+    reviewed: frozenset[str],
+    as_of: str,
+) -> dict[str, Any]:
+    """One record as a download's row, through the people rule: NeuroDB's columns, then the fields of
+    ``wanted`` (the header's), then the tail. The figure trail's CSVs write their records with it too."""
+    shown, withheld = raw_people.public_record(row.data, name, names, reviewed=reviewed)
+    pd = getattr(row, "intervention", None)
+    partner = partner_of(row)
+    out: dict[str, Any] = {
+        "figures_as_of": as_of,
+        "record_id": record_id(name, row),
+        "synced_at": local_moment(row.synced_at),
+        "updated_by_last_sync": "yes" if updated_by_last(row, run) else "no",
+        "pd_number_in_neurodb": pd.number if pd is not None else pd_words(row),
+        "pd_status_in_neurodb": pd.status if pd is not None else "",
+        "partner_in_neurodb": partner.name if partner is not None else "",
+        "vendor_number": partner.vendor_number if partner is not None else "",
+    }
+    if name == "partner_reports":
+        own = dmq._own_names(catalogue.scrub(row.data if isinstance(row.data, dict) else {}))
+        out.update(pd_link=pd_link(row), **report_keys(row, names, own))
+    other: dict[str, Any] = {}
+    for key, value in shown.items():
+        if key in wanted:
+            out[header_name(key)] = _shown(value)
+        else:
+            other[key] = value
+    for key, found in withheld.items():
+        if key in wanted:
+            out[header_name(key)] = found.cell
+        elif key == raw_people.WITHHELD_KEYS:
+            out[key] = found.count
+        elif not found.inside and key != raw_people.FIELDS_NAMING:
+            other[key] = found.cell
+    if name in catalogue.SAFEGUARDING:
+        out.setdefault(raw_people.WITHHELD_KEYS, 0)
+    else:
+        out["people_inside"] = raw_people.people_inside(withheld)
+        named = withheld.get(raw_people.FIELDS_NAMING)
+        out["fields_not_shown"] = named.count if named else 0
+        out["other_fields"] = _shown(other) if other else ""
+    return out
+
+
 def csv_rows(
     name: str, rows: QuerySet, keys: list[str], run: SyncRun | None, names: frozenset[str]
 ) -> Iterator[dict[str, Any]]:
@@ -1252,43 +1302,7 @@ def csv_rows(
     try:
         with snapshot(STREAM_TIMEOUT_MS):
             for row in related(name, rows).order_by("-pk").iterator(chunk_size=CSV_CHUNK):
-                shown, withheld = raw_people.public_record(row.data, name, names, reviewed=reviewed)
-                pd = getattr(row, "intervention", None)
-                partner = partner_of(row)
-                out: dict[str, Any] = {
-                    "figures_as_of": as_of,
-                    "record_id": record_id(name, row),
-                    "synced_at": local_moment(row.synced_at),
-                    "updated_by_last_sync": "yes" if updated_by_last(row, run) else "no",
-                    "pd_number_in_neurodb": pd.number if pd is not None else pd_words(row),
-                    "pd_status_in_neurodb": pd.status if pd is not None else "",
-                    "partner_in_neurodb": partner.name if partner is not None else "",
-                    "vendor_number": partner.vendor_number if partner is not None else "",
-                }
-                if name == "partner_reports":
-                    own = dmq._own_names(catalogue.scrub(row.data if isinstance(row.data, dict) else {}))
-                    out.update(pd_link=pd_link(row), **report_keys(row, names, own))
-                other: dict[str, Any] = {}
-                for key, value in shown.items():
-                    if key in wanted:
-                        out[header_name(key)] = _shown(value)
-                    else:
-                        other[key] = value
-                for key, found in withheld.items():
-                    if key in wanted:
-                        out[header_name(key)] = found.cell
-                    elif key == raw_people.WITHHELD_KEYS:
-                        out[key] = found.count
-                    elif not found.inside and key != raw_people.FIELDS_NAMING:
-                        other[key] = found.cell
-                if name in catalogue.SAFEGUARDING:
-                    out.setdefault(raw_people.WITHHELD_KEYS, 0)
-                else:
-                    out["people_inside"] = raw_people.people_inside(withheld)
-                    named = withheld.get(raw_people.FIELDS_NAMING)
-                    out["fields_not_shown"] = named.count if named else 0
-                    out["other_fields"] = _shown(other) if other else ""
-                yield out
+                yield csv_record(name, row, wanted, run, names, reviewed, as_of)
     except DatabaseError:
         logger.warning("raw eTools data: the download of %s stopped (took too long)", name, exc_info=True)
 

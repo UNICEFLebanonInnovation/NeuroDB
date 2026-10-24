@@ -7,7 +7,7 @@
     <a href="{{ tab_urls.disaggregations }}" {% if tab == "disaggregations" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="layers" %} {% trans "By disaggregation" %}</a>
   </div>
 </div>
-{% include "reports/partials/_check_link.html" with page="reports:partner_reporting" compare=check_compare %}
+{% include "reports/partials/_check_link.html" with page="reports:partner_reporting" compare=check_compare trail=check_trail %}
 {% if tab == "partners" %}{% include "reports/partials/_reporting_partners.html" %}
 {% elif tab == "locations" or tab == "disaggregations" %}{% comment %}Report/Location and Report/Disaggregation load their table as
 a part (reports.views._reporting_table_tab): drawn inline when it is stored, in a change of filter (HTMX) and on the
@@ -19,12 +19,12 @@ parity world (an administrator's and a viewer's are the same): height at 1366 px
 {% else %}
 {% with c=data.counts %}
 {% include "reports/partials/_reporting_tiles.html" with counts=c %}
-<p class="small text-muted mb-3">{% blocktrans with late=data.summary.late|intcomma %}Each tile counts indicator reports: one indicator in one progress report, as the eTools Power BI report counts them; the number of progress reports is under it. Every report has one status, so the tiles add up to the total. Submitted means awaiting acceptance; Not yet due, that the reporting period is still running. {{ late }} progress reports were submitted after their due date.{% endblocktrans %}</p>
+<p class="small text-muted mb-3">{% blocktrans with late=data.summary.late|intcomma %}Each tile counts indicator reports: one indicator in one progress report, as the eTools Power BI report counts them; the number of progress reports is under it. Every report has one status, so the tiles add up to the total. Submitted means awaiting acceptance; Not yet due, that the reporting period is still running. <span data-figure="pr.late">{{ late }}</span> progress reports were submitted after their due date.{% endblocktrans %}</p>
 {% endwith %}
 {% with lo=data.left_out %}{% if lo.by_pd_status or lo.no_pd %}
 <p class="small text-muted mb-3" id="reporting-left-out">
-  {% if lo.by_pd_status %}{% blocktrans with other=lo.other_status|intcomma not_held=lo.not_held|intcomma n=lo.by_pd_status|intcomma count counter=lo.by_pd_status %}The PD status filter leaves out {{ n }} more indicator report of these filters, whatever its report status: {{ other }} of programme documents with another status, {{ not_held }} of programme documents NeuroDB does not hold.{% plural %}The PD status filter leaves out {{ n }} more indicator reports of these filters, whatever their report status: {{ other }} of programme documents with another status, {{ not_held }} of programme documents NeuroDB does not hold.{% endblocktrans %} <a href="{{ every_pd_status_url }}">{% trans "Show every PD status" %}</a>.{% endif %}
-  {% if lo.no_pd %}{% blocktrans with n=lo.no_pd|intcomma count counter=lo.no_pd %}{{ n }} indicator report of these filters names no programme document (a PRP report outside programme documents): Progress reports never counts it, nor the partner page, the home page or the management brief.{% plural %}{{ n }} indicator reports of these filters name no programme document (PRP reports outside programme documents): Progress reports never counts them, nor the partner page, the home page or the management brief.{% endblocktrans %}{% endif %}
+  {% if lo.by_pd_status %}{% blocktrans with other=lo.other_status|intcomma not_held=lo.not_held|intcomma n=lo.by_pd_status|intcomma count counter=lo.by_pd_status %}The PD status filter leaves out <span data-figure="pr.left_out.by_pd_status">{{ n }}</span> more indicator report of these filters, whatever its report status: <span data-figure="pr.left_out.other_status">{{ other }}</span> of programme documents with another status, <span data-figure="pr.left_out.not_held">{{ not_held }}</span> of programme documents NeuroDB does not hold.{% plural %}The PD status filter leaves out <span data-figure="pr.left_out.by_pd_status">{{ n }}</span> more indicator reports of these filters, whatever their report status: <span data-figure="pr.left_out.other_status">{{ other }}</span> of programme documents with another status, <span data-figure="pr.left_out.not_held">{{ not_held }}</span> of programme documents NeuroDB does not hold.{% endblocktrans %} <a href="{{ every_pd_status_url }}">{% trans "Show every PD status" %}</a>.{% endif %}
+  {% if lo.no_pd %}{% blocktrans with n=lo.no_pd|intcomma count counter=lo.no_pd %}<span data-figure="pr.left_out.no_pd">{{ n }}</span> indicator report of these filters names no programme document (a PRP report outside programme documents): Progress reports never counts it, nor the partner page, the home page or the management brief.{% plural %}<span data-figure="pr.left_out.no_pd">{{ n }}</span> indicator reports of these filters name no programme document (PRP reports outside programme documents): Progress reports never counts them, nor the partner page, the home page or the management brief.{% endblocktrans %}{% endif %}
 </p>
 {% endif %}{% endwith %}
 {% if user_role == "Administrator" %}<p class="small text-muted mb-3" id="reporting-checks-link">{% url 'admin:datamart_reporting_checks' as checks_url %}{% blocktrans %}Administrators: <a href="{{ checks_url }}">eTools reporting checks</a> 10 and 11 show which country and programme document the report rows name, and the reports still owed in eTools' two feeds (why Power BI can count reports this page does not).{% endblocktrans %}</p>{% endif %}
@@ -33,8 +33,8 @@ parity world (an administrator's and a viewer's are the same): height at 1366 px
     {% if data.by_section.rows %}
     <div class="table-wrap"><table class="table table-sm status-matrix" id="reporting-sections">
       <thead><tr><th scope="col">{% trans "Section" %}</th>{% for s in data.counts.statuses %}<th scope="col" class="num">{{ s.label }}</th>{% endfor %}<th scope="col" class="num">{% trans "Total" %}</th></tr></thead>
-      <tbody>{% for row in data.by_section.rows %}<tr><th scope="row" class="fw-normal small">{{ row.section }}</th>{% for n in row.counts %}<td class="num">{{ n|intcomma }}</td>{% endfor %}<td class="num fw-semibold">{{ row.total|intcomma }}</td></tr>{% endfor %}</tbody>
-      <tfoot><tr><th scope="row">{% trans "Total" %}</th>{% for n in data.by_section.totals %}<td class="num">{{ n|intcomma }}</td>{% endfor %}<td class="num">{{ data.by_section.total|intcomma }}</td></tr></tfoot>
+      <tbody>{% for row in data.by_section.rows %}<tr><th scope="row" class="fw-normal small">{{ row.section }}</th>{% for key, n in status_keys|paired:row.counts %}<td class="num" data-figure="pr.section.{{ row.section }}.{{ key }}">{{ n|intcomma }}</td>{% endfor %}<td class="num fw-semibold" data-figure="pr.section.{{ row.section }}.total">{{ row.total|intcomma }}</td></tr>{% endfor %}</tbody>
+      <tfoot><tr><th scope="row">{% trans "Total" %}</th>{% for key, n in status_keys|paired:data.by_section.totals %}<td class="num" data-figure="pr.section_total.{{ key }}">{{ n|intcomma }}</td>{% endfor %}<td class="num" data-figure="pr.section_total.total">{{ data.by_section.total|intcomma }}</td></tr></tfoot>
     </table></div>
     {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "No progress reports match." %}</p>{% endif %}
 </section>
@@ -43,7 +43,7 @@ parity world (an administrator's and a viewer's are the same): height at 1366 px
   <div class="chart" data-module="charts" data-chart="grouped" data-source="reporting-chart-data" data-key="by_month" data-legend="top" data-height="300" data-empty-title="{% trans 'No progress reports' %}" aria-label="{% trans 'Indicator reports by month of the reporting period end and status' %}"></div>
 </section>
 <section class="panel p-0">
-  {% include "components/table_toolbar.html" with title=_("Progress reports") count=page_obj.paginator.count table_id="progress-reports" filename="progress-reports" downloads=downloads %}
+  {% include "components/table_toolbar.html" with title=_("Progress reports") count=page_obj.paginator.count table_id="progress-reports" filename="progress-reports" downloads=downloads count_figure_key="pr.reports_listed" %}
   {% if page_obj.object_list %}
   <div class="table-wrap"><table class="table table-hover table-sm" id="progress-reports" data-sortable>
     <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Report" %}</th><th scope="col">{% trans "Status" %}</th><th scope="col">{% trans "Document type" %}</th><th scope="col">{% trans "Due" %}</th><th scope="col">{% trans "Period start" %}</th><th scope="col">{% trans "Period end" %}</th><th scope="col">{% trans "Submitted" %}</th><th scope="col">{% trans "UNICEF focal points" %}</th><th scope="col" class="num"><span class="has-tip" title="{% trans 'Indicator reports: the indicators this progress report covers' %}">{% trans "Indicators" %}</span></th></tr></thead>
@@ -59,7 +59,7 @@ parity world (an administrator's and a viewer's are the same): height at 1366 px
       <td class="small text-nowrap" data-value="{{ r.period_end|date:'Y-m-d' }}">{{ r.period_end|date:"j M Y"|default:"—" }}</td>
       <td class="small text-nowrap" data-value="{{ r.submission_date|date:'Y-m-d' }}">{% if r.submission_date %}{{ r.submission_date|date:"j M Y" }}{% if r.due_date and r.submission_date > r.due_date %}<span class="cell-sub text-warning">{% trans "Late" %}</span>{% endif %}{% elif r.status == "overdue" %}<span class="text-danger">{% trans "Overdue" %}</span>{% else %}—{% endif %}</td>
       <td class="small cell-wrap">{{ r.focal_points|join:", "|default:"—" }}</td>
-      <td class="num">{{ r.indicators }}</td>
+      <td class="num" data-figure="pr.report.{{ r.key }}.indicators">{{ r.indicators }}</td>
     </tr>{% endfor %}</tbody>
   </table></div>
   {% include "components/pagination.html" with hx_target="#reporting-results" %}

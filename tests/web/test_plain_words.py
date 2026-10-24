@@ -1,18 +1,23 @@
-"""The words of Raw eTools data, the check line and the Power BI comparison sheet (SPEC_validation §0.1): the
-reviewers and the PD managers are not developers, so the new pages never say a record's "key", "held", "announced",
-"census", "duplicates"... nor a word of the code."""
+"""The words of Raw eTools data, the check line, the figure trail and the Power BI comparison sheet
+(SPEC_validation §0.1): the reviewers and the PD managers are not developers, so the new pages never say a
+record's "key", "held", "announced", "census", "duplicates"... nor a word of the code."""
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-from neurodb.datamart import comparison, raw, runfacts
+from neurodb.datamart import comparison, raw, runfacts, trail
 
 ROOT = Path(__file__).resolve().parents[2] / "neurodb"
 TEMPLATES = [
     *sorted((ROOT / "datamart/templates/admin/datamart/raw").glob("*.html")),
     ROOT / "reports/templates/reports/partials/_check_link.html",
+    # the figure trail (its sentences are tested on a trail: tests/reports/test_figure_trail.py)
+    ROOT / "reports/templates/reports/check_figures.html",
+    ROOT / "reports/templates/reports/parts/check_figures.html",
+    ROOT / "reports/templates/reports/parts/check_table.html",
+    ROOT / "reports/templates/reports/partials/_trail_block.html",
 ]
 NEVER = re.compile(
     r"\bkeys?\b|\bcensus\b|\bannounced\b|\bheld\b|removal skipped|record key|came twice|\bduplicates?\b"
@@ -54,6 +59,10 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         *(words for page in comparison.NEURODB_ONLY.values() for words in page.values()),
         *comparison.POWERBI_ITEMS.values(),
         *comparison.TAG_WORDS.values(),
+        # the figure trail's own words
+        *trail.NOTES,
+        trail.DIFFERS,
+        *trail.FILTER_LABELS.values(),
     ]
     facts = {
         "run": object(),

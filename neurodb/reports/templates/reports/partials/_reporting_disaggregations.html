@@ -1,9 +1,9 @@
 {% load i18n ui humanize %}
 <section class="panel p-0">
   {% blocktrans asvar count_label count counter=page_obj.paginator.count %}{{ counter }} location in a report{% plural %}{{ counter }} locations in reports{% endblocktrans %}
-  {% include "components/table_toolbar.html" with title=_("Reports by disaggregation") count_label=count_label table_id="report-disaggregations" filename="report-disaggregations" downloads=downloads no_copy=True %}
+  {% include "components/table_toolbar.html" with title=_("Reports by disaggregation") count_label=count_label table_id="report-disaggregations" filename="report-disaggregations" downloads=downloads no_copy=True count_figure_key=disaggregations.too_many|yesno:",pr.disaggregation_locations" %}
   {% if disaggregations.too_many %}
-  <p class="px-3 py-2 mb-0 text-warning small">{% blocktrans with n=disaggregations.too_many|intcomma limit=disaggregations.limit|intcomma %}The filter holds {{ n }} report rows, more than the {{ limit }} this view reads at once: choose a reporting year, a section or a partner.{% endblocktrans %}</p>
+  <p class="px-3 py-2 mb-0 text-warning small">{% blocktrans with n=disaggregations.too_many|intcomma limit=disaggregations.limit|intcomma %}The filter holds <span data-figure="pr.disaggregation_rows_held">{{ n }}</span> report rows, more than the {{ limit }} this view reads at once: choose a reporting year, a section or a partner.{% endblocktrans %}</p>
   {% elif page_obj.object_list %}
   <div class="table-wrap table-wrap--tall"><table class="table table-sm disaggregation-table" id="report-disaggregations">
     <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Indicator" %}</th><th scope="col">{% trans "Report" %}</th><th scope="col">{% trans "Status" %}</th><th scope="col">{% trans "Location" %}</th><th scope="col">{% trans "Disaggregation" %}</th><th scope="col" class="num"><span class="has-tip" title="{% trans 'What the partner reported at the location for this period, for this value of the disaggregation' %}">{% trans "In the period" %}</span></th></tr></thead>

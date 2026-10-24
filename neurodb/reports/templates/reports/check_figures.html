@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% load i18n parts %}
+{% block content %}
+{% comment %}The figure trail (reports.check_views.check_figures), for the people who check the figures: this frame
+comes at once (the filter in words, the day the statuses are read for, the moment of the eTools figures, the note
+while an eTools sync runs, the page's own address and its comparison sheet), then the part "figures": the page's
+tiles, whether every figure rebuilt from the rows is the same, the downloads, the steps and each figure. On
+Progress reports, By location and By disaggregation are folded, each its own part, asked for when opened (open
+when the trail was opened from that tab).{% endcomment %}
+<section class="panel mb-3" aria-labelledby="trail-filter-title">
+  <h2 class="panel__title" id="trail-filter-title">{% trans "The filter" %}</h2>
+  <p class="mb-1">{{ filter_words|join:" · " }}</p>
+  <p class="small text-muted mb-1">{% blocktrans with day=trail_day|date:"j M Y" %}Statuses read for {{ day }}: Due, Overdue and Not yet due depend on the day.{% endblocktrans %}{% if trail_day != today %} {% blocktrans with day=today|date:"j M Y" %}The page reads today ({{ day }}).{% endblocktrans %}{% endif %}</p>
+  <p class="small text-muted mb-1">{% if as_of %}{% blocktrans with moment=as_of|date:"j M Y H:i" %}eTools figures as of {{ moment }} (the end of the last partner reports sync).{% endblocktrans %}{% else %}{% trans "No partner reports sync has run yet." %}{% endif %}</p>
+  {% if running_since %}<p class="small text-warning mb-1" role="status" id="trail-sync-running">{% blocktrans with since=running_since|time:"H:i" %}An eTools sync is running (since {{ since }}): the figures can move until it ends. Open this page again after it.{% endblocktrans %}</p>{% endif %}
+  <p class="small mb-0"><a href="{{ page_url }}">{% trans "Open the page" %}</a>{% if check_compare %} · {% url 'reports:check_compare' check_compare.page as compare_url %}<a href="{{ compare_url }}?{{ rows_query }}">{% trans "Power BI comparison sheet (Excel)" %}</a>{% endif %}</p>
+</section>
+{% part "figures" kind="table" priority="high" rows=12 height="900px" %}
+{% if trail_page == "progress-reports" %}
+<details class="panel mt-3" id="trail-locations"{% if trail_tab == "locations" %} open{% endif %}>
+  <summary class="panel__title">{% trans "By location" %}</summary>
+  {% if trail_tab == "locations" %}{% part "locations" kind="list" height="12rem" %}{% else %}{% part "locations" kind="list" lazy="strict" height="12rem" %}{% endif %}
+</details>
+<details class="panel mt-3" id="trail-disaggregations"{% if trail_tab == "disaggregations" %} open{% endif %}>
+  <summary class="panel__title">{% trans "By disaggregation" %}</summary>
+  {% if trail_tab == "disaggregations" %}{% part "disaggregations" kind="list" height="14rem" %}{% else %}{% part "disaggregations" kind="list" lazy="strict" height="14rem" %}{% endif %}
+</details>
+{% endif %}
+{% endblock %}
