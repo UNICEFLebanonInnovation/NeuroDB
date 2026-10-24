@@ -2629,6 +2629,59 @@ def _query_with(params: QueryDict, drop: tuple[str, ...] = (), **changes: Any) -
     return out.urlencode()
 
 
+def _monitoring_view(request: HttpRequest) -> str:
+    return request.GET.get("view") if request.GET.get("view") in MONITORING_VIEWS else "grid"
+
+
+@dataclasses.dataclass(frozen=True)
+class MonitoringFilter:
+    """Partner monitoring's filter as a request gives it (:func:`monitoring_filters`)."""
+
+    view: str
+    filters: pd_monitoring_service.Filters
+    # the page's query without ``as_of``: the user's own section written out on a first load
+    params: QueryDict
+    # every part's: ``params`` with every section written as ``section=`` and the year always
+    resolved: QueryDict
+    own_section: list[str]
+
+
+def monitoring_filters(request: HttpRequest) -> MonitoringFilter:
+    """Partner monitoring's view and filter from a request, as the page and its figure trail read them: the
+    grid opens on this year (its months); Program Performance on every year, as Power BI opens it, and Data
+    quality with it (Reached to date); the master indicators on one year, this one for "All years". A first
+    load (no choice made yet) opens on the user's own section. The resolved filter is the one of every part
+    request: the page's own query, every section written as ``section=`` and the year always (the grid's
+    default, this year, or every year); ``as_of`` is added to the placeholders' addresses only
+    (_monitoring_results.html), so no link of a part carries it."""
+    view = _monitoring_view(request)
+    filters = pd_monitoring_service.Filters.from_params(request.GET, default_year=view in ONE_YEAR_VIEWS)
+    if view == "masters" and filters.year is None:
+        filters = dataclasses.replace(filters, year=pd_monitoring_service.today().year)
+    own_section: list[str] = []
+    params = request.GET.copy()
+    params.pop("as_of", None)  # the moment a part reads, never a filter of the links
+    # the master indicators also open on the user's own section from their bare address (?view=masters)
+    opening = first_load(request) or (
+        view == "masters" and set(request.GET) == {"view"} and getattr(request, "part", None) is None
+    )
+    if view == "masters":
+        params["year"] = str(filters.year)
+    if opening:  # first load, no choice made yet: the user's own section
+        options = pd_monitoring_service.stored_options(filters)
+        own_section = pd_monitoring_service.default_sections(request.user, options["sections"])
+        if own_section:
+            filters = dataclasses.replace(filters, sections=own_section)
+            params.setlist("section", own_section)
+    resolved = params.copy()
+    resolved.pop("export", None)
+    if "section" not in resolved:
+        resolved.setlist("section", [""])
+    if "year" not in resolved:
+        resolved["year"] = filters.year_param
+    return MonitoringFilter(view, filters, params, resolved, own_section)
+
+
 @require_GET
 def pd_monitoring(request: HttpRequest) -> HttpResponse:
     """Partner monitoring: the grid (indicators by section, PD and output, with their months), Program
@@ -2661,31 +2714,15 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
     address answers the area with its figures, as before the page loaded in parts. The exports are answered
     first, whole.
     """
-    view = request.GET.get("view") if request.GET.get("view") in MONITORING_VIEWS else "grid"
-    # the grid opens on this year (its months); Program Performance on every year, as Power BI opens it,
-    # and Data quality with it (Reached to date). A tab keeps the year shown (``tab_urls``)
-    filters = pd_monitoring_service.Filters.from_params(request.GET, default_year=view in ONE_YEAR_VIEWS)
+    view = _monitoring_view(request)
     this_year = pd_monitoring_service.today().year
-    if view == "masters" and filters.year is None:
+    if view == "masters" and not getattr(request, "htmx", None):
         # a master's target and status are a year's: "All years" (from another tab) is this year
-        if not getattr(request, "htmx", None):
+        if pd_monitoring_service.Filters.from_params(request.GET).year is None:
             return redirect(request.path + "?" + _query_with(request.GET, ("as_of",), year=str(this_year)))
-        filters = dataclasses.replace(filters, year=this_year)
+    found = monitoring_filters(request)
+    filters, params, resolved, own_section = found.filters, found.params, found.resolved, found.own_section
     options = functools.cache(lambda: pd_monitoring_service.stored_options(filters))  # the frame's
-    own_section: list[str] = []
-    params = request.GET.copy()
-    params.pop("as_of", None)  # the moment a part reads (below), never a filter of the links
-    # the master indicators also open on the user's own section from their bare address (?view=masters)
-    opening = first_load(request) or (
-        view == "masters" and set(request.GET) == {"view"} and getattr(request, "part", None) is None
-    )
-    if view == "masters":
-        params["year"] = str(filters.year)
-    if opening:  # first load, no choice made yet: the user's own section
-        own_section = pd_monitoring_service.default_sections(request.user, options()["sections"])
-        if own_section:
-            filters = dataclasses.replace(filters, sections=own_section)
-            params.setlist("section", own_section)
     export = request.GET.get("export")
     if export in exports.FORMATS:
         return _monitoring_export(request, filters, export, view)
@@ -2695,16 +2732,6 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
     # reads them from its address, so the parts of one view read one computation even when a sync finished
     # before or between them, while it is stored (compute.once_as_of). Any other request reads them now.
     as_of = request.GET.get("as_of", "") if is_part else etools_keys.fingerprint()
-    # The resolved filter of every part request: the page's own query (the user's own section written out on
-    # a first load), every section written as ``section=``, and the year always (the grid's default, this
-    # year, or every year). ``as_of`` is added to the placeholders' addresses only (_monitoring_results.html),
-    # so no link of a part carries it.
-    resolved = params.copy()
-    resolved.pop("export", None)
-    if "section" not in resolved:
-        resolved.setlist("section", [""])
-    if "year" not in resolved:
-        resolved["year"] = filters.year_param
     # the links the parts draw (section tiles, sorts, downloads) start from the resolved filter, as the links
     # a part builds from its request do: a part drawn inline, on the page drawn at once or on its own draws
     # the same links
@@ -2894,8 +2921,12 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
             "own_section": own_section,
             "view": view,
             "as_of": as_of,
-            # the check line's Power BI comparison sheet, for the resolved filter (Power BI has no masters)
+            # the check line's Power BI comparison sheet and figure trail, for the resolved filter (Power BI
+            # has no masters, nor has the trail)
             "check_compare": check_views.compare_link("partner-monitoring", resolved, today)
+            if view != "masters"
+            else None,
+            "check_trail": check_views.trail_url("partner-monitoring", resolved, view=view)
             if view != "masters"
             else None,
             # the tabs keep the year shown (the grid opens on this year, the others on every year: a tab
@@ -3032,6 +3063,11 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
             "partner-monitoring",
             QueryDict(_query_with(params, ("view", "sort"), year=filters.year_param)),
             pd_monitoring_service.today(),
+        ),
+        "check_trail": check_views.trail_url(
+            "partner-monitoring",
+            QueryDict(_query_with(params, ("view", "sort"), year=filters.year_param)),
+            view="map",
         ),
         "tab_urls": {
             name: reverse("reports:pd_monitoring")

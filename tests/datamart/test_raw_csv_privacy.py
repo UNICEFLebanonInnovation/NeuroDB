@@ -339,3 +339,107 @@ def test_a_person_named_as_a_partner_or_searched_never_reaches_a_trail_csv(clien
             assert "person" not in response["Content-Disposition"].lower(), what
             text = b"".join(response.streaming_content).decode("utf-8-sig")
             assert NAME.lower() not in text.lower(), what
+
+
+def test_no_person_reaches_a_partner_monitoring_trail_or_its_csvs(client_validator):
+    """Every CSV of the Partner monitoring trail, Program Performance's, the map's and Home's Indicator progress
+    block's (kept indicators, each step's programme documents, PD indicator rows and indicators, each figure's,
+    the Reached and Overdue reports folds' partner report rows, the map's places) and the trail pages: no
+    planted name, e-mail or phone; the programme documents' focal points as a count."""
+    from neurodb.datamart import trail_monitoring as tm
+
+    partner = PartnerOrganization.objects.create(etl_id="1", name="Amel Association", vendor_number="V1")
+    pd = PCA.objects.create(
+        etl_id="11",
+        partner=partner,
+        partner_name=partner.name,
+        number="LEB/PD1",
+        title=f"Shelter with {NAME} ({EMAIL})",
+        status="active",
+        start=datetime.date(2026, 1, 1),
+        end=datetime.date(2026, 12, 31),
+        unicef_focal_points=[NAME, EMAIL, f"{UNKNOWN} ({EMAIL})"],
+    )
+    dm.PDIndicator.objects.create(
+        datamart_id=1,
+        source_id=100,
+        intervention=pd,
+        pd_reference_number=pd.number,
+        title="# reached",
+        section_name="Education",
+        location_name="Akkar",
+        target_numerator=10,
+        data=PLANTED,
+    )
+    dm.PDIndicator.objects.create(datamart_id=2, source_id=200, title="# elsewhere", data=PLANTED)
+    for n, (status, due, title) in enumerate(
+        (
+            ("Accepted", datetime.date(2026, 4, 15), "# reached"),
+            ("", datetime.date(2026, 1, 15), "# unknown"),
+        ),
+        start=1,
+    ):
+        dm.ReportedIndicator.objects.create(
+            datamart_id=n,
+            partner=partner,
+            intervention=pd,
+            partner_name=partner.name,
+            pd_reference_number=pd.number,
+            progress_report=f"PR-{n}",
+            report_number=f"QPR{n}",
+            report_type="QPR",
+            report_status=status,
+            period_start=datetime.date(2026, 1, 1),
+            period_end=datetime.date(2026, 3, 31),
+            due_date=due,
+            submission_date=datetime.date(2026, 4, 10) if status else None,
+            indicator=title,
+            section="Education",
+            location="Akkar",
+            submitted_by=NAME,
+            narrative=TYPED_TEXT,
+            narrative_assessment=TYPED_TEXT,
+            disaggregation={"()": {"v": 3, "d": 1, "c": 3}},
+            data=PLANTED,
+        )
+    params = {"year": "2026", "section": ""}
+    found = tm.monitoring_trail(params, datetime.date.today())
+    table = tm.performance_trail({**params, "view": "table"}, datetime.date.today())
+    on_map = tm.map_trail(params, datetime.date.today())
+    whats: list[tuple[str, dict]] = [("kept", {}), ("no_partner", {})]
+    for step in (*found.steps, *found.reached, *found.overdue):
+        whats += [(step.what, {})] if step.what else []
+        whats += [(line.what, {}) for line in step.lines if line.what]
+    whats += [(f.what, {}) for f in found.figures if f.what]
+    whats += [(s.what, {"of": "performance"}) for s in table.steps if s.what]
+    whats += [(f.what, {"of": "performance"}) for f in table.block.figures if f.what]
+    whats += [(f.what, {"of": "map"}) for f in on_map.block.figures if f.what]
+    assert len(whats) > 20
+    url = reverse("reports:check_rows", args=["partner-monitoring"])
+    for what, extra in dict.fromkeys((w, tuple(e.items())) for w, e in whats):
+        response = client_validator.get(url, {**params, "what": what, **dict(extra)})
+        assert response.status_code == 200, what
+        text = b"".join(response.streaming_content).decode("utf-8-sig")
+        header = text.splitlines()[0]
+        for planted in FORBIDDEN:
+            assert planted not in text, (what, planted)
+        for column in header.split(","):
+            bare = column.removesuffix(" (people)").removesuffix(" (text withheld)")
+            assert "@" not in column and bare not in CONTACT, (what, column)
+        if what == "step:M1":
+            row = next(csv.DictReader(io.StringIO(text)))
+            assert row["unicef_focal_points (people)"] == "3" and "Shelter with" in row["title"]
+    home = reverse("reports:check_rows", args=["home"])
+    response = client_validator.get(home, {**params, "scope": "year", "block": "indicators", "what": "kept"})
+    assert response.status_code == 200
+    assert not any(p in b"".join(response.streaming_content).decode() for p in FORBIDDEN)
+    pages = (
+        ("partner-monitoring", params),
+        ("partner-monitoring", {**params, "view": "table"}),
+        ("partner-monitoring", {**params, "view": "map"}),
+        ("home", {**params, "scope": "year", "block": "indicators"}),
+    )
+    for page, query in pages:
+        html = client_validator.get(reverse("reports:check_figures", args=[page]), query).content.decode()
+        for planted in FORBIDDEN:
+            assert planted not in html, (page, planted)

@@ -228,7 +228,7 @@ disaggregation export, values, subtotals and location totals are in columns of t
 funds export the programme document's own amounts are on its first row only, so adding up a column
 never counts a figure twice.
 
-> **For validators:** under the tabs, *Check these figures* shows where each figure of the filter shown comes from, step by step, with the rows behind it as CSV; *Power BI comparison sheet (Excel)* downloads this page's figures for the filter shown, to compare with the PRP Power BI dashboard; and *Raw data behind this page* opens the eTools records this page reads: see [Checking the figures](/help/checking-figures/).
+> **For validators:** under the tabs of Progress reports and Partner monitoring (and on its map), *Check these figures* shows where each figure of the filter shown comes from, step by step, with the records behind it as CSV; *Power BI comparison sheet (Excel)* downloads the page's figures for the filter shown, to compare with the PRP Power BI dashboard; and *Raw data behind this page* opens the eTools records the page reads: see [Checking the figures](/help/checking-figures/).
 
 ## People and privacy
 

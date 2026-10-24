@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from neurodb.datamart import comparison, raw, runfacts, trail
+from neurodb.datamart import comparison, identity, raw, runfacts, trail, trail_monitoring
 
 ROOT = Path(__file__).resolve().parents[2] / "neurodb"
 TEMPLATES = [
@@ -18,6 +18,10 @@ TEMPLATES = [
     ROOT / "reports/templates/reports/parts/check_figures.html",
     ROOT / "reports/templates/reports/parts/check_table.html",
     ROOT / "reports/templates/reports/partials/_trail_block.html",
+    # Partner monitoring's (its sentences: tests/reports/test_figure_trail_monitoring.py)
+    ROOT / "reports/templates/reports/parts/check_monitoring.html",
+    ROOT / "reports/templates/reports/parts/check_monitoring_table.html",
+    ROOT / "reports/templates/reports/partials/_trail_stages.html",
 ]
 NEVER = re.compile(
     r"\bkeys?\b|\bcensus\b|\bannounced\b|\bheld\b|removal skipped|record key|came twice|\bduplicates?\b"
@@ -63,6 +67,11 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         *trail.NOTES,
         trail.DIFFERS,
         *trail.FILTER_LABELS.values(),
+        # Partner monitoring's, and check 7's ways a row is placed or left out (the trail's Reached fold)
+        *trail_monitoring.NOTES,
+        *trail_monitoring.TEST_WORDS.values(),
+        *trail_monitoring.OUTCOME_WORDS.values(),
+        *(trail_monitoring._way_words(way) for way in (*identity.WAY_WORDS, *identity.BREAKERS)),
     ]
     facts = {
         "run": object(),

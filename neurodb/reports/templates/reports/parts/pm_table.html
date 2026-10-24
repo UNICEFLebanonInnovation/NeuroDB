@@ -5,7 +5,7 @@ section tiles with it. Context: rows (the first MAX_INDICATORS of the filter in 
 worker), page_obj, truncated, sort, sort_key, sort_desc, table_headings, sort_urls, downloads, and filters (the
 page's scope).{% endcomment %}
 <section class="panel p-0">
-  {% include "components/table_toolbar.html" with title=_("Program Performance") count=rows|length table_id="program-performance" filename="program-performance" downloads=downloads %}
+  {% include "components/table_toolbar.html" with title=_("Program Performance") count=rows|length table_id="program-performance" filename="program-performance" downloads=downloads count_figure_key="pp.rows" %}
   {% if rows %}
   {% if truncated %}<p class="small text-warning px-3 mb-2">{% trans "Only the first 2,000 indicators are listed and sorted here: narrow the filters. The Excel and CSV files hold every indicator of the filter." %}</p>{% endif %}
   <div class="table-wrap table-wrap--tall"><table class="table table-hover table-sm" id="program-performance">
@@ -21,11 +21,11 @@ page's scope).{% endcomment %}
         <td class="cell-wrap"><a href="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-get="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-target="#modal-content" hx-push-url="false">{{ i.title }}</a>{% if i.report_type != filters.report_type or i.partial or i.mismatch or i.awaiting_reports %}<span class="cell-sub"><span class="chips">{% if i.report_type != filters.report_type %}<span class="chip">{% trans "From monthly reports" %}</span>{% endif %}{% if i.partial %}<span class="chip">{% trans "Partial history" %}</span>{% endif %}{% if i.mismatch %}<span class="chip" title="{% blocktrans with v=i.prp_cumulative|number:0 %}PRP’s own cumulative is {{ v }}{% endblocktrans %}">{% trans "Differs from PRP" %}</span>{% endif %}{% if i.awaiting_reports %}<span class="chip" title="{% trans 'Part of Reached comes from Submitted reports not yet accepted' %}">{% blocktrans with n=i.awaiting|number:0 %}{{ n }} awaiting acceptance{% endblocktrans %}</span>{% endif %}</span></span>{% endif %}</td>
         <td class="num">{{ i.target|number:0 }}{% if i.display_type == "percentage" and i.target is not None %}%{% endif %}</td>
         {% if filters.year %}
-        <td class="num">{{ i.reached_in_year|number:0 }}{% if i.display_type == "percentage" and i.reached_in_year is not None %}%{% endif %}</td>
+        <td class="num"><span data-figure="pp.reached.{{ i.pd.id }}.{{ i.key }}">{{ i.reached_in_year|number:0 }}</span>{% if i.display_type == "percentage" and i.reached_in_year is not None %}%{% endif %}</td>
         <td class="num">{% if i.achieved_in_year is not None %}{{ i.achieved_in_year|percent:0 }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
         <td class="num">{{ i.reached|number:0 }}{% if i.display_type == "percentage" and i.reached is not None %}%{% endif %}{% if i.as_of %}<span class="cell-sub">{{ i.as_of|date:"M Y" }}</span>{% endif %}{% if not i.additive and i.reached is not None %}<span class="cell-sub">{{ i.method_label }}</span>{% endif %}<span class="cell-sub">{% if i.achieved is not None %}{{ i.achieved|percent:0 }} · {% endif %}{% status_pill i.tracking i.tracking_label "sm" %}</span></td>
         {% else %}
-        <td class="num">{{ i.reached|number:0 }}{% if i.display_type == "percentage" and i.reached is not None %}%{% endif %}{% if i.as_of %}<span class="cell-sub">{{ i.as_of|date:"M Y" }}</span>{% endif %}{% if not i.additive and i.reached is not None %}<span class="cell-sub">{{ i.method_label }}</span>{% endif %}</td>
+        <td class="num"><span data-figure="pp.reached.{{ i.pd.id }}.{{ i.key }}">{{ i.reached|number:0 }}</span>{% if i.display_type == "percentage" and i.reached is not None %}%{% endif %}{% if i.as_of %}<span class="cell-sub">{{ i.as_of|date:"M Y" }}</span>{% endif %}{% if not i.additive and i.reached is not None %}<span class="cell-sub">{{ i.method_label }}</span>{% endif %}</td>
         <td class="num">{% if i.achieved is not None %}{{ i.achieved|percent:0 }}{% else %}<span class="text-muted">—</span>{% endif %}<span class="cell-sub">{% status_pill i.tracking i.tracking_label "sm" %}</span></td>
         {% endif %}
         <td class="small cell-wrap">{% if i.pd.partner %}<a href="{% url 'reports:partner_profile' i.pd.partner.id %}">{{ i.pd.partner.name }}</a>{% else %}{{ i.pd.partner_name|default:"—" }}{% endif %}</td>

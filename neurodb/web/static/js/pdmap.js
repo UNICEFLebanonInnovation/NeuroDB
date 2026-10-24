@@ -139,7 +139,9 @@ export async function init(el) {
   if (!el.isConnected) return; // swapped out while the figures loaded: nothing to fill
   const byKey = new Map(data.points.map((p) => [p.key, p]));
   kpis(data);
-  if (totals) totals.textContent = `${fmt(data.totals.located)} on the map${data.totals.approximate ? ` (${fmt(data.totals.approximate)} approximate)` : ""}${data.unlocated.length ? ` · ${fmt(data.unlocated.length)} without coordinates` : ""}`;
+  // each number carries its figure trail key (data-figure), as the server's pages draw them; numbers only
+  const figure = (key, n) => `<span data-figure="${key}">${fmt(n)}</span>`;
+  if (totals) totals.innerHTML = `${figure("map.located", data.totals.located)} on the map${data.totals.approximate ? ` (${figure("map.approximate", data.totals.approximate)} approximate)` : ""}${data.unlocated.length ? ` · ${figure("map.unlocated", data.unlocated.length)} without coordinates` : ""}`;
   const unl = document.querySelector("[data-pdmap-unlocated]");
   if (unl && data.unlocated.length) {
     unl.hidden = false;

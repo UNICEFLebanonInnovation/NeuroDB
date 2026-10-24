@@ -20,8 +20,8 @@ person types Power BI's numbers in.
   its addresses (the page's and every *Trail* link) are not written. Every text from the data is written as a
   text, never a formula; the only formulas are the two difference columns of a sheet, written by NeuroDB.
 
-The *Trail* column of Progress reports opens each figure on its figure trail (``datamart.trail``), for the
-same filter and day; Partner monitoring's stays empty until its trail exists.
+The *Trail* column opens each figure on its figure trail (``datamart.trail``, ``datamart.trail_monitoring``),
+for the same filter and day; on the Program Performance rows sheet, each indicator's Reached.
 """
 
 from __future__ import annotations
@@ -797,8 +797,9 @@ def _compare_sheet(book: Workbook, found: Read, base_url: str) -> None:
 
 
 def trail_link(found: Read, base_url: str, key: str) -> str | None:
-    """The address of a figure on its figure trail, for the sheet's filter and day (the tab it is drawn on, so
-    By location's and By disaggregation's open); None for a page with no trail yet."""
+    """The address of a figure on its figure trail, for the sheet's filter and day (the tab or the view it is
+    drawn on, so By location's, By disaggregation's and Program Performance's open); None for a page with no
+    trail."""
     from . import trail
 
     if found.page not in trail.PAGES:
@@ -806,6 +807,14 @@ def trail_link(found: Read, base_url: str, key: str) -> str | None:
     query = found.params.copy()
     if found.day != page_today(found.page):
         query["day"] = found.day.isoformat()
+    if found.page == "partner-monitoring":
+        # the year the sheet read, written out: the view chosen below opens on another year by default
+        query["year"] = found.filters.year_param
+        view = {"pp.": "table", "dq.": "quality"}.get(key[:3], "")
+        if view:
+            query["view"] = view
+        else:
+            query.pop("view", None)
     tabs = {"pr.location": "locations", "pr.disaggregation": "disaggregations"}
     tab = next((t for prefix, t in tabs.items() if key.startswith(prefix)), "")
     if not tab and key.startswith(("pr.partner", "pr.follow_up")):
@@ -937,6 +946,8 @@ def _program_performance_sheet(book: Workbook, found: Read, base_url: str) -> No
     """Every indicator of Program Performance, as its export writes it, with the key to match Power BI's rows.
     Two indicators of one programme document can share their title and PD output (check 7): their keys then
     end in #1, #2..., and a note says so."""
+    from neurodb.watch import people
+
     filters, year = found.filters, found.filters.year
     ordered, _sort = monitoring.sorted_rows(found.data["program_performance"], "", year)
     widths = (22, 30, 44, 30, 18, 32, 12, 14, 12, 14, 12, 12, 12, 60, 30, 40)
@@ -966,8 +977,12 @@ def _program_performance_sheet(book: Workbook, found: Read, base_url: str) -> No
     rows = list(monitoring.table_rows(ordered, filters, base_url))
     shared = Counter(_match_key(row) for row in rows)
     seen: Counter[str] = Counter()
-    for row in rows:
+    withheld = names_someone(found.params, people.known_names())
+    for indicator, row in zip(ordered, rows, strict=True):
         key, note = _match_key(row), ""
+        trail = trail_link(found, base_url, f"pp.reached.{indicator.pd.id}.{indicator.key}")
+        if trail and withheld:
+            trail = TRAIL_WITHHELD
         if shared[key] > 1:
             seen[key] += 1
             note = f"{shared[key]} indicators of this PD share its title and PD output: match them by target."
@@ -988,7 +1003,7 @@ def _program_performance_sheet(book: Workbook, found: Read, base_url: str) -> No
             Formula(f'=IF(ISNUMBER(J{n}),J{n}-H{n},"")'),
             Formula(f'=IF(ISNUMBER(K{n}),K{n}-I{n},"")'),
             key,
-            None,  # the indicator's trail, once the trails exist
+            trail,  # the indicator's Reached, step by step
             note,
         )
 

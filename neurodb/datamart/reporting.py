@@ -369,6 +369,12 @@ def units(queryset: QuerySet[dm.ReportedIndicator]) -> Units:
     return Units(len(keys), len(set(keys)), len({k for k, _ in keys}))
 
 
+def report_count(queryset: QuerySet[dm.ReportedIndicator]) -> int:
+    """The progress reports of these rows (``reached.report_key``, :data:`REPORT_KEY` in the database),
+    counted by the database."""
+    return queryset.annotate(_report=REPORT_KEY).values("_report").distinct().count()
+
+
 # --------------------------------------------------------------------------------- progress reports
 def submitted_late(report: dict[str, Any]) -> bool:
     """A progress report submitted after its due date, whatever its status (the page's "submitted after their

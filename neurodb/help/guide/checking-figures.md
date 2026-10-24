@@ -15,16 +15,18 @@ validator without it sees "Raw data: ask for staff status" where the link would 
 A validator sees one more line under the tabs of [Progress reports](/partner-reporting/),
 [Partner monitoring](/partner-monitoring/) (and its map) and [Field monitoring](/field-monitoring/), and on
 [Home](/) under *Partner reporting*: **Raw data behind this page**. It opens Raw eTools data on the
-sources that page reads. On Progress reports (every tab) the line also offers **Check these figures** (the
-figure trail, below), and so does a line of its own under the title of Home's Progress reports block; on
-Progress reports and Partner monitoring, the line offers the **Power BI comparison sheet (Excel)** (below). The *eTools reporting checks* (*Data and sync*)
-open read-only for validators: only an Administrator runs them.
+sources that page reads. On Progress reports (every tab), Partner monitoring (the grid, Program Performance
+and Data quality) and its map, the line also offers **Check these figures** (the figure trail, below), and so
+does a line of its own under the title of each of Home's two blocks, Progress reports and Indicator progress.
+On Progress reports and Partner monitoring, the line offers the **Power BI comparison sheet (Excel)** (below).
+The master indicators have neither. The *eTools reporting checks* (*Data and sync*) open read-only for
+validators: only an Administrator runs them.
 
 ## The figure trail
 
 *Check these figures* opens the page's **figure trail** for the filter shown: where each figure comes from,
 step by step, from what eTools said it had to what the page shows. It needs no staff status. Partner
-monitoring's trail comes in a later release.
+monitoring's trail is described below, after Progress reports'.
 
 At the top: the filter in words, the day the statuses are read for (the page's day; the comparison sheet's
 Trail links open it on the sheet's day), when the eTools figures are from (the end of the last partner reports
@@ -70,6 +72,71 @@ status, the tab's own filters) and their lines.
 The rows that set a report's status (its newest word, across all its rows, also those the filter leaves out)
 download beside step 5: *Rows that set the status (CSV)*.
 
+## Partner monitoring's figure trail
+
+On Partner monitoring the trail follows the indicators, not the report rows. Its top is the same (the filter,
+the day, when the eTools figures are from: the end of the last partner reports or PD indicators sync, the
+note while a sync runs), then the page's tiles and **"All N figures rebuilt from the indicators kept: the
+same."** Below, **Where the indicators come from**:
+
+1. what eTools said it had of the PD indicators, what NeuroDB received, did not keep and holds (eTools lists
+   an indicator once per location and disaggregation: these are rows), and the rows naming no programme
+   document NeuroDB holds (never read);
+2. the programme documents in NeuroDB, by the sync that last wrote them: the eTools Datamart's and the eTools
+   REST API's both do, and NeuroDB never removes one; a programme document's status decides whether it is
+   running;
+3. the programme documents NeuroDB holds, then those each filter leaves out (draft or cancelled, the PD
+   status or running, the year, a partner, a programme document, a document type, an office, a partner
+   type), each with its PD indicator rows;
+4. the PD indicator rows of the programme documents kept, then those each filter leaves out (a search, a
+   tag, emergency, humanitarian reports), with the indicators left out entirely or partly;
+5. one per indicator ("4 PD indicator rows are 3 indicators"), then the indicators each filter leaves out
+   (CP output, location, section, tracking status);
+6. the indicators kept, and **Programme documents kept with no indicator of this filter**: they count in no
+   figure of programme documents. It is the difference a Power BI count of running programme documents
+   can show (see check 10).
+
+**Where Reached comes from** (folded) follows every partner report row in NeuroDB: those of a programme
+document NeuroDB does not hold, of one the filter does not keep, of the other report type; the rows read,
+placed to an indicator of the filter (by its eTools id, title, PD output or a tie-breaker), placed to one the
+filter leaves out, or left out, each reason in check 7's words; the monthly pass for the indicators with no
+quarterly report; the rows left out because two indicator reports of one progress report share the
+indicator's title; under a location filter, the rows at other places; then the reports that do not count by
+status, those counted with no value, PRP's own report totals, the reports that count, and the indicators with
+Reached. Each step's count is the one before less what it leaves out. **Overdue reports, step by step**
+(folded) gives the rows of these programme documents and report type, those not submitted, those due before
+the day, and the progress reports they make: this is not Progress reports' *Overdue* tile.
+
+**Program Performance** and **Map** have folds of their own, open when the trail was opened from them.
+Program Performance reads the filter without its sections (every section's Reached, then the tracking
+status), then keeps the sections chosen: its indicators are the sum of the section tiles chosen, never cut at
+2,000. Each indicator's Reached has *Rows (CSV)*: the partner report rows placed to it, used or not, and why.
+The map's tiles and its line "N on the map (M approximate) · K without coordinates" come from its places;
+*Rows (CSV)* lists each place with its indicators.
+
+**Kept indicators (CSV)** holds one row per indicator the filter keeps: a yes or no column per figure
+(`with_target`, `with_reached`, `status_on_track`, `dq_without`, `running`...) and the Program Performance
+columns. In Excel, filter a column on *yes* and count the rows (or add up `counts_once`): it gives the
+figure. Each step's and each figure's CSV holds the programme documents, the PD indicator rows, the
+indicators or the partner report rows it names, with `unit_key` and `counts_once` (1 once per unit: for
+*Partners*, `counts_once_partner`); a programme document's focal points as a count.
+
+**A worked example** (the numbers are an example). The tile *Off track* on Partner monitoring's grid, section
+Education, 2026:
+
+> Off track: 12 indicators, the same as the page.
+>
+> 1. eTools said it had 273,253 PD indicator rows; NeuroDB received them all. Counts only.
+> 2. Programme documents NeuroDB holds: 410 (273,000 PD indicator rows). Not running: 343 left out
+>    (180,000 rows). [CSV]
+> 3. PD indicator rows of the programme documents kept: 93,000; one per indicator: 1,150 indicators.
+> 4. Not in the section Education: 1,020 indicators left out. [CSV]
+> 5. Kept: 130 indicators. [Kept indicators CSV]
+> 6. With the tracking status Off track: 12 (open *Where Reached comes from* to see which reports each
+>    indicator's Reached reads).
+
+To check it in Excel: open *Kept indicators*, filter `status_off_track` on *yes* and count the rows.
+
 ## Rebuilding a page in Excel
 
 *Kept rows (CSV)* holds one row per report row the filter keeps. Its first columns are what NeuroDB read of
@@ -96,8 +163,8 @@ their sum is the figure. In a step's CSV, `counts_once` is 1 only on a unit the 
 NeuroDB never reads Power BI: you compare by hand, and the sheet does the rest. *Power BI comparison sheet
 (Excel)*, under the tabs of Progress reports and Partner monitoring, downloads the page's figures for the
 filter shown, in the order and with the names of the PRP Power BI dashboard. Home, the grid, the map and
-the master indicators have no Power BI page: check Home's Progress reports block with its figure trail, and
-the others against Raw eTools data.
+the master indicators have no Power BI page: check Home's blocks, the grid and the map with their figure
+trail, and the master indicators against Raw eTools data.
 
 **Statuses read for.** Due, Overdue and Not yet due depend on the day a report's status is read for.
 The page reads today; Power BI reads the day of its last refresh. Beside the link, choose the day of
@@ -114,9 +181,10 @@ The file has these sheets:
   yellow cell for Power BI's value. Type Power BI's number there: *Difference* and *Same?* fill in by
   themselves. *Notes* say why a figure can differ (a report Power BI counts that the partner reports
   feed does not carry: check 11 of the eTools reporting checks; a programme document with no indicator:
-  check 10). On Progress reports, each figure's *Trail* cell opens its figure trail for the same filter
-  and day, on that figure. When the search names a person or holds an e-mail or a phone number, the file
-  writes it cleaned and leaves out the addresses: open the trail from the page.
+  check 10). Each figure's *Trail* cell opens its figure trail for the same filter and day, on that
+  figure (Partner monitoring's on Program Performance or Data quality, for the year the sheet read). When
+  the search names a person or holds an e-mail or a phone number, the file writes it cleaned and leaves
+  out the addresses: open the trail from the page.
 - **Progress reports** (Progress reports): one row per progress report of the filter, with a *Match key*
   (the PD reference, a space, the report number). No focal point is written.
 - **Partners** (Progress reports): one row per partner, its progress reports per status, and a *Match key*
@@ -124,7 +192,8 @@ The file has these sheets:
 - **Program Performance rows** (Partner monitoring): every indicator of the filter, not only the first
   2,000 the page lists, with NeuroDB's Reached and % Reached, yellow cells for Power BI's, their
   differences, and a *Match key* (PD number | indicator | PD output). Two indicators of one programme
-  document with the same title and PD output end in #1, #2: match them by their target.
+  document with the same title and PD output end in #1, #2: match them by their target. Each row's *Trail*
+  cell opens the indicator's Reached on its trail: the partner report rows placed to it, used or not.
 - **Why they can differ**: seven reasons, each with where to see it.
 
 **Matching row by row** (on the Progress reports, Partners or Program Performance rows sheet):

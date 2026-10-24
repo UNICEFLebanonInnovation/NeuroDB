@@ -2,16 +2,17 @@
 both draw the same figures the same way. Context: pm (monitoring.summary: the grid's data, Home's indicators);
 overdue (the page only: its seventh tile, Overdue reports, which Partner monitoring counts its own way: Home's
 Overdue is Progress reports'); status_urls (Home only: Partner monitoring with Home's filter and one tracking
-status, which makes On track, Off track and Not reported links).{% endcomment %}
+status, which makes On track, Off track and Not reported links). Every number carries its figure trail key
+(data-figure).{% endcomment %}
 <div class="kpi-grid">
   {% blocktrans asvar h1 with n=pm.with_target %}{{ n }} with a target{% endblocktrans %}
-  {% trans "Indicators" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=pm.indicators|intcomma hint=h1 %}
+  {% trans "Indicators" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=pm.indicators|intcomma hint=h1 figure_key="pm.indicators" hint_figure_key="pm.with_target" %}
   {% blocktrans asvar h2 with n=pm.status_counts.over_target %}and {{ n }} ahead of schedule{% endblocktrans %}
-  {% trans "On track" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=pm.status_counts.on_track status="on_track" hint=h2 href=status_urls.on_track %}
-  {% trans "Off track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=pm.status_counts.off_track status="off_track" href=status_urls.off_track %}
-  {% trans "Not reported" as l7 %}{% include "components/kpi_tile.html" with label=l7 value=pm.status_counts.not_reported hint=_("no counted report yet (Accepted or Submitted)") href=status_urls.not_reported %}
+  {% trans "On track" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=pm.status_counts.on_track status="on_track" hint=h2 href=status_urls.on_track figure_key="pm.status.on_track" hint_figure_key="pm.status.over_target" %}
+  {% trans "Off track" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=pm.status_counts.off_track status="off_track" href=status_urls.off_track figure_key="pm.status.off_track" %}
+  {% trans "Not reported" as l7 %}{% include "components/kpi_tile.html" with label=l7 value=pm.status_counts.not_reported hint=_("no counted report yet (Accepted or Submitted)") href=status_urls.not_reported figure_key="pm.status.not_reported" %}
   {% blocktrans asvar h4 with n=pm.with_reached %}{{ n }} indicators with Reached{% endblocktrans %}
-  {% trans "Programme documents" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=pm.programme_documents hint=h4 %}
-  {% trans "Partners" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=pm.partners %}
-  {% if overdue %}{% trans "Overdue reports" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=pm.overdue_reports status=pm.overdue_reports|yesno:"off_track," %}{% endif %}
+  {% trans "Programme documents" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=pm.programme_documents hint=h4 figure_key="pm.pds" hint_figure_key="pm.with_reached" %}
+  {% trans "Partners" as l5 %}{% include "components/kpi_tile.html" with label=l5 value=pm.partners figure_key="pm.partners" %}
+  {% if overdue %}{% trans "Overdue reports" as l6 %}{% include "components/kpi_tile.html" with label=l6 value=pm.overdue_reports status=pm.overdue_reports|yesno:"off_track," figure_key="pm.overdue_reports" %}{% endif %}
 </div>

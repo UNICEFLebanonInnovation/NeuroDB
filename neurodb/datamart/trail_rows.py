@@ -23,16 +23,22 @@ of the site's two large download slots and holds at most ``raw.csv_limit("partne
 
 from __future__ import annotations
 
+import dataclasses
 import logging
-from collections.abc import Iterator
+from collections import Counter, defaultdict
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from typing import Any
 
 from django.db import DatabaseError
 
-from . import catalogue, raw, raw_people, reporting, trail
+from neurodb.partnerships.models import PCA
+
+from . import catalogue, monitoring, raw, raw_people, reporting, runfacts, trail
 from . import models as dm
 from . import query as dmq
 from . import reached as rc
+from . import trail_monitoring as tm
 
 logger = logging.getLogger(__name__)
 
@@ -404,3 +410,491 @@ def line_rows(tab: str, params: Any, day, as_of) -> Iterator[dict[str, Any]]:
                 "location_total": item["total"],
                 **tail,
             }
+
+
+# ----------------------------------------------------------------------------------------- Partner monitoring
+# the CSVs of the Partner monitoring trail (datamart.trail_monitoring): indicators, programme documents, PD
+# indicator rows, partner report rows and the map's places, each starting with figures_as_of, step and reason
+TEST_HEADERS = {name: name.replace("tracking.", "status_") for name in tm.TEST_COLUMNS}
+INDICATOR_HEAD = (
+    "figures_as_of",
+    "step",
+    "reason",
+    "indicator_key",
+    "unit_key",
+    "counts_once",
+    "kept_by_the_filter",
+    *TEST_HEADERS.values(),
+)
+PD_COLUMNS = (
+    "figures_as_of",
+    "step",
+    "reason",
+    "pd_id",
+    "unit_key",
+    "counts_once",
+    "partner_unit",
+    "counts_once_partner",
+    "number",
+    "title",
+    "partner_in_neurodb",
+    "vendor_number",
+    "status",
+    "document_type",
+    "start",
+    "end",
+    "sections",
+    "offices",
+    "unicef_focal_points (people)",
+    "pd_indicator_rows",
+    "indicators_kept",
+)
+PD_ROW_HEAD = ("figures_as_of", "step", "reason", "indicator_key", "unit_key", "counts_once")
+REPORT_ROW_HEAD = (
+    "figures_as_of",
+    "step",
+    "reason",
+    "progress_report_unit",
+    "indicator_report_unit",
+    "counts_once_progress_report",
+    "counts_once_indicator_report",
+    "placed_to",
+    "how",
+    "counted",
+)
+PLACE_COLUMNS = (
+    "figures_as_of",
+    "step",
+    "reason",
+    "location_key",
+    "unit_key",
+    "counts_once",
+    "location",
+    "p_code",
+    "on_the_map",
+    "approximate",
+    "pd_id",
+    "programme_document",
+    "indicator_key",
+    "tracking",
+    "planned",
+    "reported",
+)
+
+
+@dataclass(frozen=True)
+class Selection:
+    """What a Partner monitoring CSV holds: its ``kind`` (``indicators``, ``pds``, ``pd_rows``,
+    ``report_rows`` or ``places``), its records (idents, PD ids, pks), its step and its reason in words."""
+
+    kind: str
+    items: tuple
+    step: str
+    reason: str = ""
+    unit: str = (
+        ""  # what counts_once counts, when not the record (``title``: a title of one programme document)
+    )
+
+
+def _stage_index(rows: tm.Chain, key: str) -> tuple[int, str] | None:
+    return next(((i, kind) for i, (kind, name) in enumerate(rows.stages) if name == key), None)
+
+
+def kept_of(found: Any) -> tuple[tuple[int, str], ...]:
+    """The indicators a trail keeps: Program Performance's are those of the sections chosen."""
+    kept = getattr(found, "kept", None)
+    return found.rows.kept if kept is None else kept
+
+
+def indicator_key(rows: tm.Chain, ident: tuple[int, str]) -> str:
+    """An indicator as its CSVs name it: its programme document and its key (its page's address: its eTools
+    id, else ``r`` and a Datamart id); an indicator the chain does not hold, by its eTools id (``s``) or
+    title (``t``)."""
+    found = rows.indicators.get(ident)
+    return f"{ident[0]}|{found.key if found is not None else ident[1]}"
+
+
+def pm_selection(found: Any, what: str) -> Selection | None:
+    """The records of a CSV of a Partner monitoring trail (``found``: the page's trail, or Program
+    Performance's or the map's) for ``what``; None for an address the trail does not know."""
+    rows = found.rows
+    if what == "kept":
+        return Selection("indicators", kept_of(found), "Kept: the page's indicators")
+    if what == "step:sections" and getattr(found, "kept", None) is not None:
+        chosen = set(found.kept)
+        idents = tuple(i for i in rows.kept if i not in chosen)
+        return Selection("indicators", idents, "Left out: not in the sections chosen")
+    if what == "no_partner":
+        pds = sorted({i.pd for i in rows.kept_indicators if not rows.pds[i.pd][2]})
+        return Selection(
+            "pds", tuple(pds), "Programme documents with no linked partner", "they add no partner"
+        )
+    if what.startswith("step:"):
+        return _step_selection(found, what[5:])
+    if what.startswith("figure:"):
+        figure = found.figure(what[7:])
+        if figure is None or not figure.select:
+            return None
+        return _figure_selection(found, figure)
+    if what.startswith("reached:") and isinstance(found, tm.MonitoringTrail):
+        step = found.step(what[8:])
+        if step is None:
+            return None
+        return Selection("report_rows", tuple(_reached_rows(rows.fold, step.key)), step.title)
+    if what.startswith("overdue:") and isinstance(found, tm.MonitoringTrail):
+        step = found.step(what[8:])
+        if step is None:
+            return None
+        stage = int(step.key[1:]) - 1
+        pks = sorted(pk for pk, s in rows.overdue.items() if (s >= 0 if stage == 0 else s == stage))
+        return Selection("report_rows", tuple(pks), step.title)
+    return None
+
+
+def _step_selection(found: Any, key: str) -> Selection | None:
+    rows = found.rows
+    step = next((s for s in found.steps if s.key == key), None)
+    if step is None:
+        return None
+    title = step.title
+    if key == "M1":
+        return Selection("pds", tuple(sorted(rows.pds)), title)
+    if key == "K2":
+        none = sorted(rows.pds_kept - {i.pd for i in rows.kept_indicators})
+        return Selection("pds", tuple(none), title)
+    if key == "M11":
+        return Selection("pd_rows", tuple(sorted(rows.rows)), title)
+    if key == "D4":
+        return Selection("pd_rows", ("all",), title)
+    if key == "D5":
+        return Selection("pd_rows", ("orphans",), title)
+    found_at = _stage_index(rows, key)
+    if found_at is None:
+        return None
+    index, kind = found_at
+    if kind == "pd":
+        pds = sorted(pk for pk, f in rows.pds.items() if f[0] == index)
+        return Selection("pds", tuple(pds), f"Left out: {title}")
+    if kind == "rows":
+        pks = sorted(pk for pk, r in rows.rows.items() if r[1] == index)
+        return Selection("pd_rows", tuple(pks), f"Left out: {title}")
+    idents = tuple(i for i, k in rows.indicators.items() if k.stage == index)
+    return Selection("indicators", idents, f"Left out: {title}")
+
+
+def _figure_selection(found: Any, figure: Any) -> Selection | None:
+    rows = found.rows
+    every = getattr(found, "kept", None) is not None and figure.select[0][0] == "section"  # the tiles' own
+    by_ident = {i: rows.indicators[i] for i in (rows.kept if every else kept_of(found))}
+    name, value = figure.select[0]
+    step, reason = f"Figure: {figure.label}", figure.how
+
+    def indicators(test: Callable[[Any], bool]) -> Selection:
+        return Selection("indicators", tuple(i for i, k in by_ident.items() if test(k)), step, reason)
+
+    def pds(test: Callable[[Any], bool]) -> Selection:
+        return Selection("pds", tuple(sorted({k.pd for k in by_ident.values() if test(k)})), step, reason)
+
+    groups: dict[tuple[int, str], list[Any]] = defaultdict(list)
+    for k in by_ident.values():
+        groups[(k.pd, rc.norm(k.title))].append(k)
+    shared = {key for key, group in groups.items() if len(group) > 1}
+    found_by = {
+        ("set", "kept"): lambda: indicators(lambda k: True),
+        ("set", "same_title"): lambda: dataclasses.replace(
+            indicators(lambda k: (k.pd, rc.norm(k.title)) in shared), unit="title"
+        ),
+        ("set", "same_title_left_out"): lambda: indicators(
+            lambda k: (k.pd, rc.norm(k.title)) in shared and not k.rows_placed and k.title_rows_left_out
+        ),
+        ("set", "pds"): lambda: pds(lambda k: True),
+        ("set", "partners"): lambda: pds(lambda k: k.partner is not None),
+        ("set", "overdue"): lambda: Selection(
+            "report_rows", tuple(sorted(pk for pk, s in rows.overdue.items() if s == 3)), step, reason
+        ),
+        ("set", "map"): lambda: Selection("places", (), step, reason),
+    }
+    if (name, value) in found_by:
+        return found_by[(name, value)]()
+    if name == "test":
+        return indicators(lambda k: value in k.tests)
+    if name == "not_test":
+        return indicators(lambda k: value not in k.tests)
+    if name == "section":
+        return indicators(lambda k: (k.section or monitoring.NO_SECTION) == value)
+    if name == "group":
+        return indicators(lambda k: (k.pd, rc.norm(k.title)) == tuple(value))
+    if name == "pd_test":
+        return pds(lambda k: value in k.tests)
+    if name == "indicator":
+        pks = sorted(pk for pk, p in rows.fold.placed.items() if p[1] == value)
+        return Selection("report_rows", tuple(pks), step, reason)
+    return None
+
+
+def _reached_rows(fold: tm.Fold, key: str) -> list[int]:
+    """The partner report rows of a step of the Reached fold."""
+    read = fold.report_type
+    if key in ("R0", "R1", "R2", "R3"):
+        return sorted(pk for pk, (kind, _unit) in fold.rows.items() if kind == key)
+    tests: dict[str, Callable[[tuple], bool]] = {
+        "R4": lambda p: p[0] == read and p[1] >= 0,
+        "R5": lambda p: p[0] == read and p[1] == -2,
+        "R6": lambda p: p[0] == read and p[1] == -1,
+        "R7": lambda p: p[0] != read,
+        "R8": lambda p: p[4] == "one_indicator",
+        "R9": lambda p: p[4] == "other_place",
+        "R10": lambda p: p[4].startswith("status:"),
+        "R11": lambda p: p[4] == "no_value",
+        "R13": lambda p: p[4].startswith("counted:"),
+    }
+    test = tests.get(key)
+    return sorted(pk for pk, p in fold.placed.items() if test(p)) if test else []
+
+
+def pm_count(selection: Selection) -> int:
+    """The records a CSV would write (the PD indicator rows in NeuroDB, or those naming no PD, counted)."""
+    if selection.items in (("all",), ("orphans",)):
+        rows = dm.PDIndicator.objects.all()
+        return (rows if selection.items == ("all",) else rows.filter(intervention=None)).count()
+    return len(selection.items)
+
+
+def pm_limit(selection: Selection) -> tuple[str, int]:
+    """The source a CSV's records come from, and how many a download holds (``raw.csv_limit``)."""
+    source = tm.REPORTS if selection.kind == "report_rows" else tm.SOURCE
+    return source, raw.csv_limit(source)
+
+
+def pm_columns(selection: Selection, names: frozenset[str]) -> tuple[list[str], list[str]]:
+    """The columns of a CSV, and the record fields among them (``raw.header_keys``)."""
+    if selection.kind == "indicators":
+        return [*INDICATOR_HEAD, *monitoring.TABLE_COLUMNS], []
+    if selection.kind == "pds":
+        return list(PD_COLUMNS), []
+    if selection.kind == "places":
+        return list(PLACE_COLUMNS), []
+    source = tm.REPORTS if selection.kind == "report_rows" else tm.SOURCE
+    model = dm.ReportedIndicator if selection.kind == "report_rows" else dm.PDIndicator
+    counted, _left_out = raw.field_counts(source, names)
+    if selection.items:
+        keys = raw.header_keys(source, _pd_rows(selection, model), counted)
+    else:  # no record: the fields NeuroDB counted
+        keys = [f.key for f in counted]
+    head = REPORT_ROW_HEAD if selection.kind == "report_rows" else PD_ROW_HEAD
+    return [*head, *raw.csv_columns(source, keys)[1:]], keys
+
+
+def _pd_rows(selection: Selection, model: Any) -> Any:
+    if selection.items == ("all",):
+        return model.objects.all()
+    if selection.items == ("orphans",):
+        return model.objects.filter(intervention=None)
+    return model.objects.filter(pk__in=list(selection.items[: raw.HEADER_RECORDS]))
+
+
+@dataclass(frozen=True)
+class PageReads:
+    """What a CSV of indicators or of the map's places reads of the page (each called only when needed): its
+    indicators as stored (``rows``: their Program Performance columns, for ``filters``) and the map's places
+    (``points``)."""
+
+    filters: Any
+    rows: Callable[[], list[Any]]
+    points: Callable[[], dict[str, Any]]
+    base_url: str = ""
+
+
+def pm_rows(
+    found: Any, selection: Selection, keys: list[str], names: frozenset[str], page: PageReads
+) -> Iterator[dict[str, Any]]:
+    """The rows of a Partner monitoring CSV, people never written (``raw.csv_record``; a programme document's
+    focal points as a count)."""
+    clean = lambda value: raw_people.text(value, tm.REPORTS, "partner_name", names, frozenset())  # noqa: E731
+    head = {
+        "figures_as_of": raw.local_moment(found_moment(found)),
+        "step": clean(selection.step),
+        "reason": clean(selection.reason),
+    }
+    if selection.kind == "indicators":
+        yield from _indicator_rows(found.rows, selection, head, page)
+    elif selection.kind == "pds":
+        yield from _pd_csv_rows(found.rows, selection, head, names)
+    elif selection.kind == "places":
+        yield from _place_rows(page.points(), head)
+    elif selection.kind == "pd_rows":
+        yield from _pd_indicator_rows(found.rows, selection, head, keys, names)
+    else:
+        yield from _report_rows(found.rows, selection, head, keys, names)
+
+
+def found_moment(found: Any) -> Any:
+    return getattr(found, "as_of", None) or tm.moment()
+
+
+def _indicator_rows(rows, selection, head, page: PageReads) -> Iterator[dict[str, Any]]:
+    by_key = {(r.pd.id, r.key): r for r in page.rows()}
+    seen: set = set()
+    for ident in selection.items:
+        k = rows.indicators[ident]
+        row = by_key.get((k.pd, k.key)) if k.stage == rows.kept_at else None
+        unit = f"{k.pd}|{rc.norm(k.title)}" if selection.unit == "title" else indicator_key(rows, ident)
+        out = {
+            **head,
+            "indicator_key": indicator_key(rows, ident),
+            "unit_key": unit,
+            "counts_once": int(_first(seen, unit)),
+            "kept_by_the_filter": _yes(k.stage == rows.kept_at),
+            **{column: _yes(name in k.tests) for name, column in TEST_HEADERS.items()},
+        }
+        if row is not None:
+            out.update(next(monitoring.table_rows([row], page.filters, page.base_url)))
+        else:
+            out.update(
+                section=k.section,
+                cp_output=k.cp_output,
+                pd_output=k.output,
+                indicator=k.title,
+                programme_document=k.pd_number,
+            )
+        yield out
+
+
+def _pd_csv_rows(rows, selection, head, names) -> Iterator[dict[str, Any]]:
+    kept = Counter(i.pd for i in rows.kept_indicators)
+    seen: set = set()
+    found = PCA.objects.filter(pk__in=list(selection.items)).select_related("partner").order_by("pk")
+    for pd in found.iterator(chunk_size=raw.CSV_CHUNK):
+        partner = pd.partner
+        unit = f"partner:{pd.partner_id}" if pd.partner_id else ""
+        yield {
+            **head,
+            "pd_id": pd.pk,
+            "unit_key": f"pd:{pd.pk}",
+            "counts_once": 1,
+            "partner_unit": unit,
+            "counts_once_partner": int(bool(unit) and _first(seen, unit)),
+            "number": pd.number or "",
+            "title": raw_people.text(pd.title or "", "interventions", "title", names, frozenset()),
+            "partner_in_neurodb": partner.name if partner is not None else "",
+            "vendor_number": partner.vendor_number if partner is not None else "",
+            "status": pd.status or "",
+            "document_type": pd.document_type or "",
+            "start": pd.start,
+            "end": pd.end,
+            "sections": ", ".join(pd.section_names or []),
+            "offices": ", ".join(pd.offices_set or []),
+            "unicef_focal_points (people)": raw_people.people_count(pd.unicef_focal_points or []),
+            "pd_indicator_rows": rows.pds.get(pd.pk, (0, "", None, 0))[3],
+            "indicators_kept": kept.get(pd.pk, 0),
+        }
+
+
+def _place_rows(points: dict[str, Any], head: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    for located, places in ((True, points.get("points", [])), (False, points.get("unlocated", []))):
+        for place in places:
+            for n, r in enumerate(place["rows"]):
+                yield {
+                    **head,
+                    "location_key": place["key"],
+                    "unit_key": place["key"],
+                    "counts_once": int(n == 0),
+                    "location": place.get("name") or "",
+                    "p_code": place.get("p_code") or "",
+                    "on_the_map": _yes(located),
+                    "approximate": _yes(bool(place.get("approximate"))),
+                    "pd_id": r["pd_id"],
+                    "programme_document": r["pd"] or "",
+                    "indicator_key": f"{r['pd_id']}|{r['key']}",  # as the indicators' CSV names it
+                    "tracking": monitoring.LABELS.get(r["tracking"], r["tracking"]),
+                    "planned": _yes(r["planned"]),
+                    "reported": _yes(r["reported"]),
+                }
+
+
+def _chunks(selection: Selection, model: Any) -> Iterator[list[Any]]:
+    """The records of a CSV, :data:`raw.CSV_CHUNK` at a time, with their partner and programme document."""
+    source = tm.REPORTS if model is dm.ReportedIndicator else tm.SOURCE
+    if selection.items in (("all",), ("orphans",)):
+        rows = raw.related(source, _pd_rows(selection, model)).order_by("pk")
+        chunk: list[Any] = []
+        for row in rows.iterator(chunk_size=raw.CSV_CHUNK):
+            chunk.append(row)
+            if len(chunk) == raw.CSV_CHUNK:
+                yield chunk
+                chunk = []
+        if chunk:
+            yield chunk
+        return
+    pks = list(selection.items)
+    for start in range(0, len(pks), raw.CSV_CHUNK):
+        part = pks[start : start + raw.CSV_CHUNK]
+        by_pk = {row.pk: row for row in raw.related(source, model.objects.filter(pk__in=part))}
+        yield [by_pk[pk] for pk in part if pk in by_pk]  # a record removed since the trail was read: skipped
+
+
+def _pd_indicator_rows(rows, selection, head, keys, names) -> Iterator[dict[str, Any]]:
+    run = runfacts.runs([tm.SOURCE])[tm.SOURCE][0]
+    reviewed = raw.reviewed_keys(tm.SOURCE)
+    wanted = set(keys)
+    seen: set = set()
+    try:
+        with raw.snapshot(raw.STREAM_TIMEOUT_MS):
+            for chunk in _chunks(selection, dm.PDIndicator):
+                for row in chunk:
+                    ident = monitoring.ident_of(row.intervention_id, row.source_id, row.title)
+                    key = indicator_key(rows, ident) if row.intervention_id else ""
+                    record = raw.csv_record(
+                        tm.SOURCE, row, wanted, run, names, reviewed, head["figures_as_of"]
+                    )
+                    yield {
+                        **record,
+                        **head,
+                        "indicator_key": key,
+                        "unit_key": key,
+                        "counts_once": int(bool(key) and _first(seen, key)),
+                    }
+    except DatabaseError:
+        logger.warning(
+            "figure trail: the download of %s stopped (took too long)", selection.step, exc_info=True
+        )
+
+
+def _report_rows(rows, selection, head, keys, names) -> Iterator[dict[str, Any]]:
+    run = runfacts.runs([tm.REPORTS])[tm.REPORTS][0]
+    reviewed = raw.reviewed_keys(tm.REPORTS)
+    wanted = set(keys)
+    fold = rows.fold
+    seen: dict[str, set] = {"pr": set(), "ir": set()}
+    try:
+        with raw.snapshot(raw.STREAM_TIMEOUT_MS):
+            for chunk in _chunks(selection, dm.ReportedIndicator):
+                for row in chunk:
+                    record = raw.csv_record(
+                        tm.REPORTS, row, wanted, run, names, reviewed, head["figures_as_of"]
+                    )
+                    report, ir = record["progress_report_key"], record["indicator_report_key"]
+                    placed = fold.placed.get(row.pk)
+                    to, how, counted = "", "", ""
+                    if placed is not None:
+                        if placed[1] >= 0:
+                            to = indicator_key(rows, rows.kept[placed[1]])
+                        how = tm._way_words(placed[2])
+                        if placed[3]:
+                            how += "; " + tm.outcome_words(placed[4])
+                        counted = _yes(placed[4].startswith("counted:"))
+                    yield {
+                        **record,
+                        **head,
+                        "progress_report_unit": report,
+                        "indicator_report_unit": f"{report}#{ir}",
+                        "counts_once_progress_report": int(_first(seen["pr"], report)),
+                        "counts_once_indicator_report": int(_first(seen["ir"], (report, ir))),
+                        "placed_to": to,
+                        "how": how,
+                        "counted": counted,
+                    }
+    except DatabaseError:
+        logger.warning(
+            "figure trail: the download of %s stopped (took too long)", selection.step, exc_info=True
+        )

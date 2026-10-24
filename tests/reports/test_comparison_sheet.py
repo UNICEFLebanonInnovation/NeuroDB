@@ -482,6 +482,29 @@ def test_each_progress_reports_value_is_its_trail_s_figure(validator, more, froz
     assert validator.get(link).status_code == 200
 
 
-def test_partner_monitoring_s_trail_column_stays_empty_until_its_trail(validator, more, frozen):
-    book = _book(validator, PM, {"view": "table", "year": "all"})
-    assert all(r[11] is None for r in _table(book["Compare"]))
+@pytest.mark.parametrize("params", PM_FILTERS)
+def test_each_partner_monitoring_value_is_its_trail_s_figure(validator, more, frozen, params):
+    """Stage 4: every NeuroDB value of the Partner monitoring sheet is the figure its trail shows on the page and
+    rebuilds from the indicators kept (Program Performance's from its own part); each Trail link opens that
+    trail, on Program Performance or Data quality and the year the sheet read; each indicator of the Program
+    Performance rows sheet links to its Reached."""
+    from neurodb.datamart import trail_monitoring as tm
+
+    found = tm.monitoring_trail(params, TODAY)
+    figures = {f.key: f for f in found.figures}
+    figures.update({f.key: f for f in tm.performance_trail(params, TODAY).block.figures})
+    book = _book(validator, PM, params)
+    for row in _table(book["Compare"]):
+        key = unquote_plus(row[11].split("figure=", 1)[1].split("#", 1)[0].split("&", 1)[0])
+        figure = figures[key]
+        assert row[5] == figure.page == figure.rebuilt, key
+        assert ("view=table" if key.startswith("pp.") else "view=quality") in row[11], key
+        assert "year=" in row[11]
+        link = row[11].removeprefix("http://testserver")
+        assert validator.get(link).status_code == 200
+    sheet = book["Program Performance rows"]
+    rows = list(sheet.iter_rows(min_row=3, values_only=True))
+    assert rows and all("figure=pp.reached." in r[14] for r in rows)
+    for r in rows:
+        key = unquote_plus(r[14].split("figure=", 1)[1].split("#", 1)[0].split("&", 1)[0])
+        assert key in figures, key

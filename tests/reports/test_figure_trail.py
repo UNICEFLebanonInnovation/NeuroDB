@@ -630,10 +630,9 @@ def test_a_home_row_s_csv_stays_on_its_programme_document_when_the_rows_move(val
 def test_home_needs_its_block(validator, world):
     assert validator.get(reverse("reports:check_figures", args=["home"])).status_code == 404
     assert (
-        validator.get(reverse("reports:check_figures", args=["home"]), {"block": "indicators"}).status_code
-        == 404
+        validator.get(reverse("reports:check_figures", args=["home"]), {"block": "news"}).status_code == 404
     )
-    assert validator.get(reverse("reports:check_figures", args=["partner-monitoring"])).status_code == 404
+    assert validator.get(reverse("reports:check_figures", args=["field-monitoring"])).status_code == 404
 
 
 # ------------------------------------------------------------------------------------- By location, disaggregation

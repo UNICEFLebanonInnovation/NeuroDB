@@ -10,7 +10,7 @@
   </div>
   {% if own_section %}<span class="small text-muted">{% blocktrans with section=own_section|join:", " %}Your section, {{ section }}, by default{% endblocktrans %} · <a href="?section={% if view != 'grid' and view != 'map' %}&amp;view={{ view }}{% endif %}" data-current-query="section=">{% trans "every section" %}</a></span>{% endif %}
 </div>
-{% if view == "map" %}{% include "reports/partials/_check_link.html" with page="reports:pd_monitoring" compare=check_compare %}{% endif %}{# the other views draw it with their results #}
+{% if view == "map" %}{% include "reports/partials/_check_link.html" with page="reports:pd_monitoring" compare=check_compare trail=check_trail %}{% endif %}{# the other views draw it with their results #}
 <form method="get" class="filter-bar" {% if view != "map" %}data-filter-bar data-hx-target="#monitoring-grid"{% endif %} role="search" aria-label="{% trans 'Partner monitoring filters' %}">
   {% if view != "map" and view != "grid" %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
   {% if filters.scope == "year" %}<input type="hidden" name="scope" value="year">{% endif %}

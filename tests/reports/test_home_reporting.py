@@ -40,7 +40,7 @@ pytestmark = pytest.mark.django_db
 PAGE = "/"
 CP, EDU = "Child Protection", "Education"
 TILE = re.compile(
-    r'<div class="kpi__label">([^<]+)</div>\s*<div class="kpi__value">(?:<a href="[^"]*">)?([^<]+)<'
+    r'<div class="kpi__label">([^<]+)</div>\s*<div class="kpi__value"[^>]*>(?:<a href="[^"]*">)?([^<]+)<'
 )
 _ids = itertools.count(1)
 

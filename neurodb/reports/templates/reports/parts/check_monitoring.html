@@ -1,0 +1,49 @@
+{% load i18n humanize %}{% comment %}The figure trail's part "figures" for Partner monitoring or Home's Indicator progress block
+(reports.check_views.check_figures; datamart.trail_monitoring.monitoring_trail): the page's own tiles, drawn as on the
+page; whether every figure rebuilt from the indicators kept is the page's (a difference is listed in red, never
+hidden); the Kept indicators download; where the indicators come from, step by step; where Reached comes from and,
+on the page, Overdue reports, step by step (folded); each figure on the page (folded); the notes. Context: trail,
+figure_count, open_block, and the page's scope (rows_url, rows_query, trail_figure).{% endcomment %}
+{% with t=trail %}
+<section class="mb-3" aria-labelledby="trail-tiles-title">
+  <h2 class="section-heading mt-0" id="trail-tiles-title">{% trans "The page's figures" %}</h2>
+  {% if t.home %}{% include "reports/partials/_pm_tiles.html" with pm=t.summary %}{% else %}{% include "reports/partials/_pm_tiles.html" with pm=t.summary overdue=True %}{% endif %}
+  {% if t.differences %}
+  <div class="text-danger mb-3" role="alert" id="trail-differs">
+    <p class="mb-1"><strong>{% blocktrans count counter=t.differences|length %}{{ counter }} figure rebuilt from the indicators kept is not the page's.{% plural %}{{ counter }} figures rebuilt from the indicators kept are not the page's.{% endblocktrans %}</strong> {% trans "This trail does not equal the page: tell the NeuroDB team." %}</p>
+    <ul class="mb-0">{% for f in t.differences %}<li>{% blocktrans with label=f.label page=f.page|default_if_none:"—" rebuilt=f.rebuilt|default_if_none:"—" %}{{ label }}: on the page {{ page }}, rebuilt {{ rebuilt }}.{% endblocktrans %}</li>{% endfor %}</ul>
+  </div>
+  {% else %}
+  <p class="mb-3" id="trail-same"><strong>{% blocktrans with n=figure_count|intcomma %}All {{ n }} figures rebuilt from the indicators kept: the same.{% endblocktrans %}</strong></p>
+  {% endif %}
+</section>
+<section class="panel mb-3" aria-labelledby="trail-downloads-title">
+  <h2 class="panel__title" id="trail-downloads-title">{% trans "Downloads to rebuild the page in Excel" %}</h2>
+  <p class="small mb-1"><a class="btn btn-outline-primary btn-sm" href="{{ rows_url }}?{{ rows_query }}{% if rows_query %}&amp;{% endif %}what=kept">{% trans "Kept indicators (CSV)" %}</a> {% trans "One row per indicator the filter keeps, with a yes or no column per figure (with_target, with_reached, status_on_track…) and the Program Performance columns. In Excel, filter a column on yes and count the rows, or add up counts_once." %}</p>
+  {% if not t.home %}<p class="small text-muted mb-0">{% trans "To compare with Power BI, use the comparison sheet: its Trail column opens each figure here." %}</p>{% endif %}
+</section>
+<section class="panel mb-3" aria-labelledby="trail-steps-title">
+  <h2 class="panel__title" id="trail-steps-title">{% trans "Where the indicators come from" %}</h2>
+  <ol class="trail-steps mb-0">{% include "reports/partials/_trail_stages.html" with stages=t.steps %}</ol>
+  <p class="small text-muted mt-2 mb-0">{% trans "Each figure is then counted from the indicators kept: how, under Each figure on the page." %}</p>
+</section>
+<details class="panel mb-3" id="trail-reached">
+  <summary class="panel__title">{% trans "Where Reached comes from" %}</summary>
+  <p class="small text-muted">{% trans "Every partner report row in NeuroDB, from the rows Partner monitoring never reads to the reports that count. Tracking status, With Reached and the Reached columns read it." %}</p>
+  <ol class="trail-steps mb-0">{% include "reports/partials/_trail_stages.html" with stages=t.reached %}</ol>
+</details>
+{% if not t.home %}
+<details class="panel mb-3" id="trail-overdue">
+  <summary class="panel__title">{% trans "Overdue reports, step by step" %}</summary>
+  <ol class="trail-steps mb-0">{% include "reports/partials/_trail_stages.html" with stages=t.overdue %}</ol>
+</details>
+{% endif %}
+<details class="panel mb-3" id="trail-each"{% if trail_figure %} open{% endif %}>
+  <summary class="panel__title">{% trans "Each figure on the page" %}</summary>
+  {% with open_block=open_block %}{% for block in t.blocks %}{% if block.figures %}{% include "reports/partials/_trail_block.html" %}{% endif %}{% endfor %}{% endwith %}
+</details>
+<section class="panel mb-0" aria-labelledby="trail-notes-title">
+  <h2 class="panel__title" id="trail-notes-title">{% trans "Notes" %}</h2>
+  <ul class="small mb-0">{% for note in t.notes %}<li>{{ note }}</li>{% endfor %}</ul>
+</section>
+{% endwith %}

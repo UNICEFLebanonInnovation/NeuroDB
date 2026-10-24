@@ -1,0 +1,8 @@
+{% load i18n %}{% comment %}The steps of a Partner monitoring figure trail (datamart.trail_monitoring.Stage, or trail.Step for what eTools
+said it had and what NeuroDB received), one item each: what the step leaves out and what it keeps, its lines, and the
+CSV of what it leaves out, or "Counts only". Context: stages, rows_url, rows_query, of (the trail's part the rows are
+of).{% endcomment %}
+{% for s in stages %}<li class="mb-2" id="trail-step-{{ s.key }}"><strong>{{ s.title }}</strong>{% if s.kept_words %}: <span class="small">{% if s.out is not None %}{{ s.out_words }} {% trans "Kept:" %} {% endif %}{{ s.kept_words }}.</span>{% endif %}{% if s.what %} <a class="small" href="{{ rows_url }}?{{ rows_query }}{% if rows_query %}&amp;{% endif %}{% if of %}of={{ of }}&amp;{% endif %}what={{ s.what|urlencode:'' }}">{% if s.key == "K" %}{% trans "Kept indicators (CSV)" %}{% else %}{% trans "Download these rows (CSV)" %}{% endif %}</a>{% endif %}
+  {% for line in s.lines %}<div class="small{% if line.alert %} text-danger{% else %} text-muted{% endif %}">{{ line.words }}{% if line.what %} <a href="{{ rows_url }}?{{ rows_query }}{% if rows_query %}&amp;{% endif %}{% if of %}of={{ of }}&amp;{% endif %}what={{ line.what|urlencode:'' }}">{% trans "Download these rows (CSV)" %}</a>{% endif %}{% if line.raw %} {% if user.is_staff %}<a href="{% url 'admin:datamart_raw_source' line.raw %}" data-trail-raw>{% trans "Raw eTools data" %}</a>{% else %}{% trans "Raw data: ask for staff status" %}{% endif %}{% endif %}</div>{% endfor %}
+  {% if s.counts_only %}<div class="small text-muted">{% trans "Counts only: NeuroDB never keeps these records." %}</div>{% endif %}
+</li>{% endfor %}

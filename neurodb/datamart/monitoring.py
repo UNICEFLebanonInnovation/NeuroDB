@@ -29,6 +29,7 @@ import datetime
 import json
 import re
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -246,45 +247,71 @@ def default_sections(user, options: list[str]) -> list[str]:
     return [o for o in options if any(w in norm(o) or norm(o) in w for w in wanted if len(w) >= 3)]
 
 
-def _pd_queryset(filters: Filters) -> QuerySet[PCA]:
-    qs = PCA.objects.select_related("partner").exclude(status__in=pd_statuses.NOT_A_PARTNERSHIP)
+def _stage(steps: list | None, name: str, value: Any) -> Any:
+    """``value`` (what a filter keeps), appended to ``steps`` under ``name`` when the figure trail records
+    them (``steps`` a list, :mod:`neurodb.datamart.trail_monitoring`); None on the pages, which record
+    nothing."""
+    if steps is not None:
+        steps.append((name, value))
+    return value
+
+
+def _pd_queryset(filters: Filters, steps: list | None = None) -> QuerySet[PCA]:
+    """The programme documents the filter keeps. ``steps``: the figure trail's record of each filter that
+    applies, in this order (None on the pages)."""
+    qs = _stage(steps, "start", PCA.objects.select_related("partner"))
+    qs = _stage(steps, "not_a_partnership", qs.exclude(status__in=pd_statuses.NOT_A_PARTNERSHIP))
     if filters.pd_statuses:  # the statuses chosen in the filter
-        qs = qs.filter(status__in=filters.pd_statuses)
+        qs = _stage(steps, "pd_status", qs.filter(status__in=filters.pd_statuses))
     elif filters.pd_statuses is None and filters.scope == "active":
-        qs = qs.filter(status__in=ACTIVE_PD_STATUSES)
+        qs = _stage(steps, "pd_status", qs.filter(status__in=ACTIVE_PD_STATUSES))
     if filters.scope == "year" and filters.year:  # every PD running in the year, closed ones too
         first, last = datetime.date(filters.year, 1, 1), datetime.date(filters.year, 12, 31)
-        qs = qs.filter(Q(start__isnull=True) | Q(start__lte=last), Q(end__isnull=True) | Q(end__gte=first))
+        qs = _stage(
+            steps,
+            "year_scope",
+            qs.filter(Q(start__isnull=True) | Q(start__lte=last), Q(end__isnull=True) | Q(end__gte=first)),
+        )
     if filters.partners:
-        qs = qs.filter(partner_id__in=[int(p) for p in filters.partners if re.fullmatch(r"[0-9]{1,18}", p)])
+        ids = [int(p) for p in filters.partners if re.fullmatch(r"[0-9]{1,18}", p)]
+        qs = _stage(steps, "partner", qs.filter(partner_id__in=ids))
     if filters.pds:
-        qs = qs.filter(number__in=filters.pds)
+        qs = _stage(steps, "pds", qs.filter(number__in=filters.pds))
     if filters.pd_ids:
-        qs = qs.filter(id__in=filters.pd_ids)
+        qs = _stage(steps, "pd_ids", qs.filter(id__in=filters.pd_ids))
     if filters.document_types:
-        qs = qs.filter(document_type__in=filters.document_types)
+        qs = _stage(steps, "document_type", qs.filter(document_type__in=filters.document_types))
     if filters.offices:
-        qs = qs.filter(offices_set__overlap=filters.offices)
+        qs = _stage(steps, "office", qs.filter(offices_set__overlap=filters.offices))
     if filters.partner_types:
-        qs = qs.filter(
-            Q(partner__partner_type__in=filters.partner_types)
-            | Q(partner__cso_type__in=filters.partner_types)
+        qs = _stage(
+            steps,
+            "partner_type",
+            qs.filter(
+                Q(partner__partner_type__in=filters.partner_types)
+                | Q(partner__cso_type__in=filters.partner_types)
+            ),
         )
     return qs
 
 
-def _indicator_rows(filters: Filters, pd_ids: list[int]) -> QuerySet[dm.PDIndicator]:
-    """The PD indicator rows the filters keep (the section is chosen per indicator, in :func:`indicators`)."""
-    qs = dm.PDIndicator.objects.filter(intervention_id__in=pd_ids)
+def _indicator_rows(
+    filters: Filters, pd_ids: list[int], steps: list | None = None
+) -> QuerySet[dm.PDIndicator]:
+    """The PD indicator rows the filters keep (the section is chosen per indicator, in :func:`indicators`).
+    ``steps``: as :func:`_pd_queryset`'s."""
+    qs = _stage(steps, "rows", dm.PDIndicator.objects.filter(intervention_id__in=pd_ids))
     if filters.q:
-        qs = qs.filter(Q(title__icontains=filters.q) | Q(lower_result_name__icontains=filters.q))
+        qs = _stage(
+            steps, "q", qs.filter(Q(title__icontains=filters.q) | Q(lower_result_name__icontains=filters.q))
+        )
     for tag, values in filters.tags.items():
         if values:
-            qs = qs.filter(**{f"tag_{tag}__in": values})
+            qs = _stage(steps, f"tags.{tag}", qs.filter(**{f"tag_{tag}__in": values}))
     if filters.emergency:
-        qs = qs.filter(is_high_frequency=filters.emergency == "yes")
+        qs = _stage(steps, "emergency", qs.filter(is_high_frequency=filters.emergency == "yes"))
     if filters.report_type == "HR":
-        qs = qs.filter(Q(is_high_frequency=True) | ~Q(cluster_name=""))
+        qs = _stage(steps, "hr_only", qs.filter(Q(is_high_frequency=True) | ~Q(cluster_name="")))
     return qs
 
 
@@ -452,6 +479,8 @@ def indicators(
     today: datetime.date | None = None,
     *,
     section_counts: Counter | None = None,
+    steps: list | None = None,
+    record: Any = None,
 ) -> list[Indicator]:
     """One entry per PD indicator, with its Reached from the selected report type.
 
@@ -459,15 +488,19 @@ def indicators(
     keeps (the section tiles of Program Performance, :data:`NO_SECTION` for those without one); every
     section's Reached is then computed. Every indicator of the filter is returned: the country figures,
     the counts and the exports read them all, and a page that lists them cuts the list itself
-    (:data:`MAX_INDICATORS`)."""
+    (:data:`MAX_INDICATORS`). ``steps`` and ``record``: the figure trail's record of each filter and of
+    what Reached reads (:mod:`neurodb.datamart.trail_monitoring`); None on the pages."""
     today = today or datetime.date.today()
-    found = collect(filters)
+    found = collect(filters, steps)
     # the chosen sections: NO_SECTION (the tile of the indicators that name none) keeps those
     sections = {s.strip() for s in filters.sections if s.strip()}
     if section_counts is None and sections:  # only the chosen sections' Reached is computed
         found = {k: e for k, e in found.items() if (e.section or NO_SECTION) in sections}
-    _attach_reached(found, filters, today)
+        _stage(steps, "sections", set(found))
+    _attach_reached(found, filters, today, record)
     result = [e for e in found.values() if not filters.status or e.tracking == filters.status]
+    if filters.status:
+        _stage(steps, "status", {e.ident for e in result})
     if section_counts is not None:
         section_counts.update(e.section or NO_SECTION for e in result)
         if sections:
@@ -475,15 +508,16 @@ def indicators(
     return result
 
 
-def collect(filters: Filters) -> dict[tuple[int, str], Indicator]:
+def collect(filters: Filters, steps: list | None = None) -> dict[tuple[int, str], Indicator]:
     """The PD indicators the filters keep, by identity (:func:`ident_of`), without their Reached: the
     programme documents, the indicator filters, the CP output (the PD's own when no report names one yet)
     and the locations. The sections, the status and Reached are left to :func:`indicators`
-    (:func:`_attach_reached`), so a reader that needs only which indicators there are computes nothing."""
-    pds = {pd.id: pd for pd in _pd_queryset(filters)}
+    (:func:`_attach_reached`), so a reader that needs only which indicators there are computes nothing.
+    ``steps``: as :func:`_pd_queryset`'s."""
+    pds = {pd.id: pd for pd in _pd_queryset(filters, steps)}
     if not pds:
         return {}
-    rows = _indicator_rows(filters, list(pds)).values(
+    rows = _indicator_rows(filters, list(pds), steps).values(
         "datamart_id",
         "source_id",
         "intervention_id",
@@ -539,12 +573,14 @@ def collect(filters: Filters) -> dict[tuple[int, str], Indicator]:
                     "id": row["location_id"],
                 },
             )
+    _stage(steps, "one_per_indicator", dict(found))  # the indicators themselves: their attributes
     for entry in found.values():
         if not entry.cp_output:  # not reported yet: the PD's own CP outputs, joined (as Power BI shows them)
             entry.cp_output = pd_cp_outputs(entry.pd)
     if filters.cp_output:
         words = norm(filters.cp_output)
         found = {k: e for k, e in found.items() if words in norm(e.cp_output)}
+        _stage(steps, "cp_output", set(found))
     only = location_filter(filters)
     if only is not None:  # planned at a chosen location: by its P-code, or by its name
         found = {
@@ -553,6 +589,7 @@ def collect(filters: Filters) -> dict[tuple[int, str], Indicator]:
             if any(key in only or norm(p["name"]) in only for key, p in e.planned.items())
             or any(norm(loc) in only for loc in e.locations)
         }
+        _stage(steps, "locations", set(found))
     return found
 
 
@@ -578,14 +615,20 @@ def location_filter(filters: Filters) -> set[str] | None:
     return names | keys
 
 
-def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, today: datetime.date) -> None:
+def _attach_reached(
+    found: dict[tuple[int, str], Indicator], filters: Filters, today: datetime.date, record: Any = None
+) -> None:
     """Reached for every indicator (:func:`neurodb.datamart.reached.compute`), from the selected report
     type; an indicator with no quarterly report at all is read from its humanitarian reports. An
-    indicator with no counted value is "not reported", never off track."""
+    indicator with no counted value is "not reported", never off track. ``record``: the figure trail's
+    recorder (``trail.Recorder``), told where each row went and what each indicator's Reached read; None on
+    the pages."""
     if not found:
         return
     pd_ids = sorted({ident[0] for ident in found})
     idents = identity.Idents(pd_ids)
+    if record is not None:
+        record.reading(pd_ids, filters.report_type)
     per: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
     # the tie-breakers that placed each indicator's rows (identity.BREAKERS), of the report type read
     ways: dict[tuple[int, str], set[str]] = defaultdict(set)
@@ -601,38 +644,48 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
         text, mine = row["report_status"] or "", words[rc.report_key(row)]
         mine[text] = rc.stamp(mine.get(text), rc.row_stamp(row))
 
-    def place(rows: Any) -> list[tuple[dict[str, Any], identity.Placed]]:
+    def place(rows: Any, kind: str) -> list[tuple[dict[str, Any], identity.Placed]]:
         """The rows of one report type and where each goes (identity.Idents.place: per placement group)."""
         rows = list(rows)
         out = []
         for row, spot in zip(rows, idents.place(rows), strict=True):
             note(row)
             pd, title = row["intervention_id"], row["indicator"]
-            if spot.ident is None and (pd, norm(title)) in idents.shared:
+            shared = spot.ident is None and (pd, norm(title)) in idents.shared
+            if shared:
                 unplaced[(pd, norm(title))] += 1
                 unmatched[(pd, norm(title))] += spot.way == "output_unmatched"
+            if record is not None:
+                record.placed(row, spot, kind, (pd, norm(title)) if shared else None)
             out.append((row, spot))
         return out
 
-    for row, spot in place(rc.report_rows(pd_ids, [filters.report_type])):
+    for row, spot in place(rc.report_rows(pd_ids, [filters.report_type]), filters.report_type):
         if spot.ident in found:
             per[spot.ident].append(row)
             if spot.way in identity.BREAKERS:
                 ways[spot.ident].add(spot.way)
+            if record is not None:
+                record.used(row)
     read_from = dict.fromkeys(per, filters.report_type)
     missing = [ident for ident in found if ident not in per]
     if filters.report_type == "QPR" and missing:
         humanitarian: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
         wanted = set(missing)
-        for row, spot in place(rc.report_rows(sorted({ident[0] for ident in missing}), ["HR"])):
+        for row, spot in place(rc.report_rows(sorted({ident[0] for ident in missing}), ["HR"]), "HR"):
             if spot.ident in wanted:
                 humanitarian[spot.ident].append(row)
                 if spot.way in identity.BREAKERS:
                     ways[spot.ident].add(spot.way)
+                if record is not None:
+                    record.used(row)
         for ident, rows in humanitarian.items():
             per[ident], read_from[ident] = rows, "HR"
     statuses = {key: rc.newest_status(texts) for key, texts in words.items()}
-    totals = rc.progress_values(row for rows in per.values() for row in rows)
+    totals = rc.progress_values(
+        (row for rows in per.values() for row in rows),
+        record=record.prp_totals if record is not None else None,
+    )
     since = rc.history_from(today).date  # a PD that started before it has a partial history
     only = location_filter(filters)
     for ident, entry in found.items():
@@ -651,7 +704,10 @@ def _attach_reached(found: dict[tuple[int, str], Indicator], filters: Filters, t
             partial=bool(entry.pd.start and entry.pd.start < since),
             report_status=statuses,
             output=entry.output,
+            record=record.left_out(ident) if record is not None else None,
         )
+        if record is not None:
+            record.reached(ident, result, read_from.get(ident, filters.report_type))
         if "active" in ways.get(ident, ()):
             result.notes.append(identity.ACTIVE_NOTE)
         _apply(entry, result, read_from.get(ident, filters.report_type))
@@ -1158,36 +1214,83 @@ def stored_map_points(filters: Filters, day: datetime.date | None = None) -> dic
 
 
 # ------------------------------------------------------------------------------------- summaries
+def _dq_reached(row: Any, filters: Filters) -> float | None:
+    """Reached as Data quality reads it: in the year chosen, else to date."""
+    return row.reached_in_year if filters.year else row.reached
+
+
+# What each indicator figure counts, one named test per figure (an indicator, or a row, and the filter): the
+# summary, Data quality and the figure trail count with them, so a figure and its trail never read two rules
+FIGURE_TESTS: dict[str, Callable[[Any, Filters], bool]] = {
+    "with_target": lambda r, f: bool(r.target),  # a target of 0 counts as none
+    # a counted report (Accepted or Submitted) carries a value
+    "with_reached": lambda r, f: r.reached is not None,
+    "reported_zero": lambda r, f: r.value_status == rc.REPORTED_ZERO,
+    "awaiting": lambda r, f: bool(r.awaiting_reports),
+    "differs": lambda r, f: r.mismatch,
+    "dq_without": lambda r, f: _dq_reached(r, f) is None,
+    "dq_zero": lambda r, f: _dq_reached(r, f) == 0,
+    "missing_target": lambda r, f: not r.target,
+    "no_reached": lambda r, f: _dq_reached(r, f) is None or _dq_reached(r, f) == 0,
+    "partial": lambda r, f: r.partial,
+    "running": lambda r, f: r.pd.status in pd_statuses.RUNNING,
+    "active": lambda r, f: r.pd.status in pd_statuses.ACTIVE,
+    "ended": lambda r, f: r.pd.status in pd_statuses.ENDED,
+    **{f"tracking.{key}": (lambda r, f, key=key: r.tracking == key) for key in LABELS},
+}
+# what a figure of programme documents or partners counts once: the indicator's PD, its linked partner (a PD
+# with no linked partner adds none)
+FIGURE_KEYS: dict[str, Callable[[Any], Any]] = {
+    "pds": lambda r: r.pd.id,
+    "partners": lambda r: r.pd.partner_id or None,
+}
+
+
+def counted(rows: list[Any], test: str, filters: Filters) -> int:
+    """The indicators of ``rows`` a :data:`FIGURE_TESTS` test keeps."""
+    check = FIGURE_TESTS[test]
+    return sum(1 for r in rows if check(r, filters))
+
+
+def distinct(rows: list[Any], key: str) -> int:
+    """The programme documents or partners (:data:`FIGURE_KEYS`) of ``rows``."""
+    return len({FIGURE_KEYS[key](r) for r in rows} - {None})
+
+
+def overdue_rows(
+    pd_ids: Any, report_type: str, today: datetime.date, steps: list | None = None
+) -> QuerySet[dm.ReportedIndicator]:
+    """The partner report rows behind Partner monitoring's Overdue reports: of these programme documents and
+    report type, not submitted (:func:`pending_q`), due before ``today``. ``steps``: as :func:`_pd_queryset`'s
+    (the figure trail's record of each filter)."""
+    rows = _stage(
+        steps,
+        "rows",
+        dm.ReportedIndicator.objects.filter(intervention_id__in=pd_ids, report_type=report_type),
+    )
+    rows = _stage(steps, "pending", rows.filter(pending_q()))
+    return _stage(steps, "due", rows.filter(due_date__lt=today))
+
+
 def summary(rows: list[Indicator], filters: Filters, today: datetime.date | None = None) -> dict[str, Any]:
-    from .reporting import REPORT_KEY
+    from .reporting import report_count
 
     today = today or datetime.date.today()
     counts = Counter(r.tracking for r in rows)
-    pd_ids = {r.pd.id for r in rows}
-    overdue = (  # progress reports, each its PD, type, number and period (reached.report_key)
-        dm.ReportedIndicator.objects.filter(
-            pending_q(),
-            intervention_id__in=pd_ids,
-            report_type=filters.report_type,
-            due_date__lt=today,
-        )
-        .annotate(_report=REPORT_KEY)
-        .values("_report")
-        .distinct()
-        .count()
-    )
-    with_reached = sum(1 for r in rows if r.reached is not None)
+    pd_ids = {FIGURE_KEYS["pds"](r) for r in rows}
+    # progress reports, each its PD, type, number and period (reached.report_key)
+    overdue = report_count(overdue_rows(pd_ids, filters.report_type, today))
+    with_reached = counted(rows, "with_reached", filters)
     return {
         "indicators": len(rows),
         "programme_documents": len(pd_ids),
-        "partners": len({r.pd.partner_id for r in rows if r.pd.partner_id}),
-        "with_target": sum(1 for r in rows if r.target),
-        # "with Reached": a counted report (Accepted or Submitted) carries a value
+        "partners": distinct(rows, "partners"),
+        "with_target": counted(rows, "with_target", filters),
         "with_reached": with_reached,
         "reported": with_reached,
-        "reported_zero": sum(1 for r in rows if r.value_status == rc.REPORTED_ZERO),
-        "awaiting_acceptance": sum(1 for r in rows if r.awaiting_reports),
-        "differs_from_prp": sum(1 for r in rows if r.mismatch),
+        "reported_zero": counted(rows, "reported_zero", filters),
+        "awaiting_acceptance": counted(rows, "awaiting", filters),
+        "differs_from_prp": counted(rows, "differs", filters),
         "status_counts": {key: counts.get(key, 0) for key in LABELS},
         "overdue_reports": overdue,
         "by_section": Counter(r.section or NO_SECTION for r in rows).most_common(),
@@ -1312,14 +1415,11 @@ def data_quality(
     target, and the lists to follow up. "Reached" is Reached to date, or Reached in the year when one is
     chosen; "with Reached" means a counted report (Accepted or Submitted) carries a value."""
     today = today or datetime.date.today()
-    pds = {r.pd.id: r.pd for r in rows}
-
-    def reached(row: Indicator) -> float | None:
-        return row.reached_in_year if filters.year else row.reached
-
-    without = [r for r in rows if reached(r) is None]
-    zero = [r for r in rows if reached(r) == 0]
-    missing_target = [r for r in rows if not r.target]
+    pds = {FIGURE_KEYS["pds"](r): r.pd for r in rows}
+    tests = FIGURE_TESTS
+    without = [r for r in rows if tests["dq_without"](r, filters)]
+    zero = [r for r in rows if tests["dq_zero"](r, filters)]
+    missing_target = [r for r in rows if tests["missing_target"](r, filters)]
     titles: dict[tuple[int, str], list[Indicator]] = defaultdict(list)
     for r in rows:
         titles[(r.pd.id, norm(r.title))].append(r)
@@ -1340,13 +1440,15 @@ def data_quality(
             "rows_left_out": group[0].title_rows_left_out,
             "rows_unmatched": group[0].title_rows_unmatched,
             "rows": group,
+            "figure": f"{group[0].pd.id}.{norm(group[0].title)}",  # its figures' keys (the figure trail's)
         }
         for group in titles.values()
         if len(group) > 1
     ]
     same_title.sort(key=lambda g: ((g["pd"].number or "").lower(), norm(g["title"])))
     partial = sorted(
-        {r.pd.id: r.pd for r in rows if r.partial}.values(), key=lambda pd: pd.start or datetime.date.min
+        {r.pd.id: r.pd for r in rows if tests["partial"](r, filters)}.values(),
+        key=lambda pd: pd.start or datetime.date.min,
     )
     history = rc.history_from(today) if partial else None
 
@@ -1354,12 +1456,16 @@ def data_quality(
         return sorted(items, key=lambda r: (norm(r.section), (r.pd.number or "").lower(), norm(r.title)))
 
     no_reached = order(without + zero)
-    mismatch = order([r for r in rows if r.mismatch])
+    mismatch = order([r for r in rows if tests["differs"](r, filters)])
+
+    def pds_of(test: str) -> int:  # a PD's status is each of its indicators': counted once per PD
+        return len({FIGURE_KEYS["pds"](r) for r in rows if tests[test](r, filters)})
+
     return {
         "programme_documents": len(pds),
-        "active_pds": sum(1 for pd in pds.values() if pd.status in pd_statuses.ACTIVE),
-        "running_pds": sum(1 for pd in pds.values() if pd.status in pd_statuses.RUNNING),
-        "ended_pds": sum(1 for pd in pds.values() if pd.status in pd_statuses.ENDED),
+        "active_pds": pds_of("active"),
+        "running_pds": pds_of("running"),
+        "ended_pds": pds_of("ended"),
         "indicators": len(rows),
         "with_reached": len(rows) - len(without),
         "without_reached": len(without),

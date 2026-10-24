@@ -36,7 +36,7 @@ import datetime
 import json
 import re
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
@@ -897,6 +897,7 @@ def compute(
     partial: bool = False,
     report_status: dict[str, str] | None = None,
     output: str | None = None,
+    record: Callable[[str, list[Any]], None] | None = None,
 ) -> Reached:
     """Reached for one indicator from its report rows (one report type, read in ``ROW_ORDER``).
 
@@ -904,8 +905,15 @@ def compute(
     normalised name (:func:`location_filter`): the figures are then those locations' own Reached, and
     PRP's report totals and cumulative (for the whole PD) are not used. ``report_status``: each
     progress report's status word (:func:`report_status_texts`). ``output``: the PD indicator's output,
-    which tells its rows from another indicator's of the same title in one report (:func:`one_indicator`)."""
-    rows, left_out = one_indicator(list(rows), output)
+    which tells its rows from another indicator's of the same title in one report (:func:`one_indicator`).
+    ``record``: the figure trail's, told the Datamart ids of the rows :func:`one_indicator` leaves out
+    (``"one_indicator"``) and of those at the places a location filter leaves out (``"other_places"``);
+    None on the pages."""
+    every = list(rows)
+    rows, left_out = one_indicator(every, output)
+    if record is not None and len(rows) < len(every):
+        kept = {id(row) for row in rows}
+        record("one_indicator", [row.get("datamart_id") for row in every if id(row) not in kept])
     ratio = is_ratio(
         display_type,
         unit,
@@ -947,6 +955,17 @@ def compute(
         )
 
     values = {r.key: item(r) for r in reports}
+    if record is not None and only is not None:
+        record(
+            "other_places",
+            [
+                i
+                for r in reports
+                for place, cell in r.cells.items()
+                if not wanted(place, r)
+                for i in cell.records
+            ],
+        )
     out.counted = counted = [r for r in reports if r.counted and values[r.key][0] is not None]
     out.periods = [(r.period_end, values[r.key], r.prp_cumulative if only is None else None) for r in counted]
     out.items = {r.key: values[r.key] for r in counted}
@@ -1193,12 +1212,15 @@ def report_rows(pd_ids: Iterable[int], report_types: Iterable[str]):
     )
 
 
-def progress_values(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+def progress_values(
+    rows: Iterable[dict[str, Any]], record: Callable[[int, int], None] | None = None
+) -> dict[str, Any]:
     """PRP's own report totals (``progress_value`` of ``prp/indicator-report-v2``) by indicator report,
     for these report rows. A v2 record is found by its id and kept only when it is about the same
     programme document and indicator as the rows (its PD link, its ``performance_indicator``): that the
     two datasets share their ids is not confirmed, and another indicator's total must never stand in
-    for this one's."""
+    for this one's. ``record``: the figure trail's, told how many totals were found and how many kept (the
+    others are about another programme document or indicator); None on the pages."""
     from django.db.models.fields.json import KT
 
     from .models import DatamartDocument
@@ -1215,6 +1237,7 @@ def progress_values(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
             titles.add(norm(row.get("indicator")))
     ids = sorted(expected)
     out: dict[str, Any] = {}
+    given = 0  # the totals found with a value
     for start in range(0, len(ids), 5000):
         found = (
             DatamartDocument.objects.filter(
@@ -1226,6 +1249,7 @@ def progress_values(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         for source_id, pd_id, title, value in found:
             if value in (None, ""):
                 continue
+            given += 1
             pds, titles = expected[source_id]
             title = norm(title)
             same = (pd_id is not None and pd_id in pds) or (bool(title) and title in titles)
@@ -1233,4 +1257,6 @@ def progress_values(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
             other_title = bool(title) and bool(titles) and title not in titles
             if same and not other_pd and not other_title:
                 out[str(source_id)] = value
+    if record is not None:
+        record(given, len(out))
     return out

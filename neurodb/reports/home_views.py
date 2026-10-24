@@ -266,6 +266,8 @@ def home_page(request: HttpRequest) -> HttpResponse:
             },
             "table_url": _url("reports:pd_monitoring", keep, view="table"),
             "no_etools": not summary["indicators"] and _no_etools_at_all(),
+            # the block's figure trail, for the people who check the figures (the check line under its hint)
+            "check_url": check_views.trail_url("home", keep, block="indicators"),
         }
 
     def standing() -> dict[str, Any]:

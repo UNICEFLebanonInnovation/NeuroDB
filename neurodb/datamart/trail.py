@@ -1,7 +1,8 @@
 """The figure trail (SPEC_validation §3): for each figure of Progress reports and of Home's Progress reports
 block, where its rows come from, step by step, from what eTools said it had to what the page shows, each step
 with its count and the rows it leaves out (as CSV, :mod:`neurodb.datamart.trail_rows`), for the people who
-check the figures (``roles.can_validate``). Partner monitoring's trail comes in a later release.
+check the figures (``roles.can_validate``). Partner monitoring's, its map's and Home's Indicator progress
+block's are :mod:`neurodb.datamart.trail_monitoring`, built from the pieces here.
 
 * **The page's own functions, never a copy.** The steps are the filters of ``ReportFilters.queryset``, in its
   order (its ``steps`` list); a row's progress report and indicator report are the keys ``progress_reports``
@@ -41,13 +42,15 @@ from neurodb.partnerships import statuses as pd_statuses
 from . import keys, reporting, runfacts
 from . import reached as rc
 
-PAGES = {"progress-reports": "Progress reports", "home": "Home"}  # the pages with a trail, by address
-HOME_BLOCKS = {"reporting": "Progress reports"}  # Home's blocks with a trail
+# the pages with a trail, by address
+PAGES = {"progress-reports": "Progress reports", "partner-monitoring": "Partner monitoring", "home": "Home"}
+HOME_BLOCKS = {"reporting": "Progress reports", "indicators": "Indicator progress"}  # Home's, with a trail
 TABLES = ("locations", "disaggregations")  # Progress reports' tabs with a trail of their own
 STORED_SECONDS = 120
 CACHE_VERSION = 1
 SOURCE = "partner_reports"  # the Datamart dataset the Progress reports figures are counted from
-NAMED_KEYS = ("pr.partner.", "pr.report.", "home.pd.")  # figures whose key holds a partner, a report or a PD
+# figures whose key holds a partner, a report, a PD or a title
+NAMED_KEYS = ("pr.partner.", "pr.report.", "home.pd.", "dq.same_title.", "pm.section.", "pp.section_tile.")
 NOT_THE_FILTER = (
     "page",
     "sort",
@@ -60,6 +63,7 @@ NOT_THE_FILTER = (
     "figure",
     "block",
     "what",
+    "of",
 )
 
 # the units a figure counts, in words (one, many)
@@ -72,6 +76,7 @@ IR, PR, PARTNER, PD, LINE, BLOCK, ROW = (
     "block",
     "row",
 )
+INDICATOR, PD_ROW, PLACE, SECTION, TITLE = "indicator", "pd_row", "place", "section", "title"
 UNIT_WORDS = {
     IR: ("indicator report", "indicator reports"),
     PR: ("progress report", "progress reports"),
@@ -80,6 +85,11 @@ UNIT_WORDS = {
     LINE: ("line", "lines"),
     BLOCK: ("location block", "location blocks"),
     ROW: ("report row", "report rows"),
+    INDICATOR: ("indicator", "indicators"),
+    PD_ROW: ("PD indicator row", "PD indicator rows"),
+    PLACE: ("location", "locations"),
+    SECTION: ("section", "sections"),
+    TITLE: ("title", "titles"),
 }
 # the filters of ReportFilters (and By disaggregation's), as the trail's header names them
 FILTER_LABELS = {
@@ -342,7 +352,12 @@ class TableTrail:
 class Recorder:
     """What the page's functions tell the trail from inside (their ``record``): the status words of every
     report read and the row behind each, the rows counted against a tab's limit, each indicator report or
-    location block a tab's filter leaves out, and each location line with its records."""
+    location block a tab's filter leaves out, and each location line with its records. For Partner
+    monitoring's Reached (``monitoring._attach_reached``, ``reached.compute`` and ``progress_values``): the
+    programme documents and report type read, where each partner report row went (``placed``: its pass, the
+    indicator, the way, whether the indicator read it, its progress report), the rows of a shared title left
+    out, PRP's report totals found and kept, each indicator's rows left out by ``one_indicator`` and by a
+    location filter, and its reports (key, status, counted, with a value, where the value came from)."""
 
     def __init__(self) -> None:
         self.words: dict[str, dict[str, rc.Stamp]] = {}
@@ -351,6 +366,40 @@ class Recorder:
         self.dropped_rows: Counter[str] = Counter()
         self.dropped_units: dict[str, set[tuple[str, str]]] = defaultdict(set)
         self.lines: list[tuple[str, str, str, tuple, Any]] = []
+        self.pd_ids: frozenset[int] = frozenset()
+        self.report_type = ""
+        self.placements: dict[Any, list] = {}  # Datamart id -> [pass, indicator, way, read, progress report]
+        self.shared: Counter[tuple[int, str, str]] = Counter()  # (PD, title, way) of a shared title left out
+        self.totals: tuple[int, int] = (0, 0)
+        self.left: dict[tuple[int, str], dict[str, list[Any]]] = defaultdict(lambda: defaultdict(list))
+        self.reports: dict[tuple[int, str], tuple[tuple[str, str, bool, bool, str], ...]] = {}
+        self.values: dict[tuple[int, str], tuple[Any, bool, str, str]] = {}
+
+    # ------------------------------------------------------------------------ Partner monitoring's Reached
+    def reading(self, pd_ids: Iterable[int], report_type: str) -> None:
+        self.pd_ids, self.report_type = frozenset(pd_ids), report_type
+
+    def placed(self, row: dict[str, Any], spot: Any, kind: str, shared: tuple[int, str] | None) -> None:
+        self.placements[row["datamart_id"]] = [kind, spot.ident, spot.way, False, rc.report_key(row)]
+        if shared is not None:
+            self.shared[(*shared, spot.way)] += 1
+
+    def used(self, row: dict[str, Any]) -> None:
+        self.placements[row["datamart_id"]][3] = True
+
+    def prp_totals(self, found: int, kept: int) -> None:
+        self.totals = (found, kept)
+
+    def left_out(self, ident: tuple[int, str]) -> Callable[[str, list[Any]], None]:
+        """``reached.compute``'s record for one indicator: the rows it leaves out, by why."""
+        return lambda why, ids: self.left[ident][why].extend(ids)
+
+    def reached(self, ident: tuple[int, str], result: rc.Reached, read_from: str) -> None:
+        counted = {r.key for r in result.counted}
+        self.reports[ident] = tuple(
+            (r.key, r.status, r.counted, r.key in counted, r.source) for r in result.reports
+        )
+        self.values[ident] = (result.reached, result.partial, result.source, read_from)
 
     def status_words(self, found: dict[str, dict[str, rc.Stamp]]) -> None:
         self.words.update(found)
@@ -925,8 +974,41 @@ def dataset_steps(
 ) -> list[Step]:
     """D1 to D4b (SPEC_validation §3.4.1): what eTools said it had, what NeuroDB received, what it did not
     keep, what is in NeuroDB, and from which date it holds partner reports. Counts only, but D4 and D4b."""
-    from . import raw
     from .comparison import _history
+
+    out = source_steps(facts, SOURCE, "partner report rows", held.rows, kept=held)
+    _first, history = _history(day)
+    before = len(selected(rows, (("set", "history"),)))
+    out.append(
+        Step(
+            "D4b",
+            "dataset",
+            "From which date",
+            (
+                Line(
+                    f"NeuroDB holds partner reports from {history}; rows starting before it: {before:,}.",
+                    what="step:history" if before else "",
+                ),
+            ),
+            what="step:history" if before else "",
+        )
+    )
+    return out
+
+
+def source_steps(
+    facts: runfacts.RunFacts,
+    source: str,
+    noun: str,
+    held: int,
+    *,
+    kept: reporting.Units | None = None,
+    what: str = "step:start",
+) -> list[Step]:
+    """D1 to D4 of one source (``noun``: its records in words, "partner report rows"): what eTools said it
+    had, what NeuroDB received, what it did not keep and what is in NeuroDB (``held``, counted in the trail's
+    snapshot), with the CSV of D4 (``what``), or past a download's limit Raw eTools data of the source."""
+    from . import raw
 
     run = facts.run
     when = f" (the sync of {_day(run.finished_at or run.started_at)})" if run is not None else ""
@@ -934,7 +1016,7 @@ def dataset_steps(
     if facts.said_it_had is None:
         said = "The last sync did not say how many records eTools had." if run else "No sync has run yet."
     else:
-        said = f"eTools said it had {facts.said_it_had:,} partner report rows{when}."
+        said = f"eTools said it had {facts.said_it_had:,} {noun}{when}."
         if facts.other_country:  # it sent other countries' rows: the count is every country's
             said = said[:-1] + ", of every country: the Datamart does not filter this list by country."
     out.append(Step("D1", "dataset", "What eTools said it had", (Line(said),), counts_only=True))
@@ -972,21 +1054,22 @@ def dataset_steps(
     ]
     lines += [Line(f"{e.count:,} could not be saved: {e.words}", alert=True) for e in facts.error_lines]
     out.append(Step("D3", "dataset", "What NeuroDB did not keep", tuple(lines), counts_only=True))
-    limit = raw.csv_limit(SOURCE)
+    limit = raw.csv_limit(source)
+    them = "rows" if "rows" in noun else "records"
     lines = [
         Line(
-            f"{facts.held:,} rows are in NeuroDB: {facts.updated_by_sync:,} updated by that sync, "
+            f"{facts.held:,} {them} are in NeuroDB: {facts.updated_by_sync:,} updated by that sync, "
             f"{facts.updated_since:,} updated since (a sync is running), {facts.from_earlier:,} kept from an "
             "earlier sync.",
-            what="step:start" if held.rows <= limit else "",
+            what=what if held <= limit else "",
         )
     ]
-    if held.rows > limit:  # Raw eTools data has the filters that make a download small enough
+    if held > limit:  # Raw eTools data has the filters that make a download small enough
         lines.append(
             Line(
-                f"These {held.rows:,} rows are more than the {limit:,} a download holds: download them from "
-                f"Raw eTools data, choosing {raw.CHOOSE}.",
-                raw=SOURCE,
+                f"These {held:,} {them} are more than the {limit:,} a download holds: download them from Raw "
+                f"eTools data, choosing {raw.CHOOSE}.",
+                raw=source,
             )
         )
     if facts.newer_failed is not None:
@@ -1012,34 +1095,16 @@ def dataset_steps(
                 alert=True,
             )
         )
-    if facts.held != held.rows:
-        lines.append(
-            Line(f"The rows changed while they were read: {held.rows:,} read now. {DIFFERS}", alert=True)
-        )
+    if facts.held != held:
+        lines.append(Line(f"The rows changed while they were read: {held:,} read now. {DIFFERS}", alert=True))
     out.append(
         Step(
             "D4",
             "dataset",
             "What is in NeuroDB",
             tuple(lines),
-            kept=held,
-            what="step:start" if held.rows <= limit else "",
-        )
-    )
-    _first, history = _history(day)
-    before = len(selected(rows, (("set", "history"),)))
-    out.append(
-        Step(
-            "D4b",
-            "dataset",
-            "From which date",
-            (
-                Line(
-                    f"NeuroDB holds partner reports from {history}; rows starting before it: {before:,}.",
-                    what="step:history" if before else "",
-                ),
-            ),
-            what="step:history" if before else "",
+            kept=kept,
+            what=what if held <= limit else "",
         )
     )
     return out
@@ -1216,8 +1281,8 @@ def progress_trail(page: str, params: Any, day: datetime.date) -> Trail:
     """The trail of Progress reports (``page="progress-reports"``) or of Home's Progress reports block
     (``"home"``) for the filter of ``params`` on ``day``: computed once in one snapshot of the data, kept two
     minutes for every worker."""
-    if page not in PAGES:
-        raise ValueError(f"no figure trail for the page {page!r}")
+    if page not in ("progress-reports", "home"):
+        raise ValueError(f"no Progress reports trail for the page {page!r}")
     params = filter_query(params)
     filters = reporting.ReportFilters.from_params(params)
     key = f"trail:v{CACHE_VERSION}:{page}:{filters.cache_key()}:{day}:{keys.fingerprint()}"

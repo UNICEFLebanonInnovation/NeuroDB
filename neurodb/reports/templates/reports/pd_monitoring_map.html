@@ -3,13 +3,14 @@
 {% block content %}
 <div class="filters-collapse" data-filters-collapse>{% include "reports/partials/_monitoring_filters.html" %}</div>
 <div class="kpi-grid" data-pdmap-kpis>
-  {% trans "Locations" as l1 %}{% include "components/kpi_tile.html" with label=l1 value="…" %}
-  {% trans "Indicators" as l2 %}{% include "components/kpi_tile.html" with label=l2 value="…" %}
-  {% trans "Programme documents" as l3 %}{% include "components/kpi_tile.html" with label=l3 value="…" %}
-  {% trans "Partners" as l4 %}{% include "components/kpi_tile.html" with label=l4 value="…" %}
-  {% trans "On track" as l5 %}{% include "components/kpi_tile.html" with label=l5 value="…" status="on_track" %}
-  {% trans "Off track" as l6 %}{% include "components/kpi_tile.html" with label=l6 value="…" status="off_track" %}
-  {% trans "Not reported" as l7 %}{% include "components/kpi_tile.html" with label=l7 value="…" %}
+  {% comment %}static/js/pdmap.js writes the figures in these tiles, in this order; each carries its figure trail key (data-figure){% endcomment %}
+  {% trans "Locations" as l1 %}{% include "components/kpi_tile.html" with label=l1 value="…" figure_key="map.locations" %}
+  {% trans "Indicators" as l2 %}{% include "components/kpi_tile.html" with label=l2 value="…" figure_key="map.indicators" %}
+  {% trans "Programme documents" as l3 %}{% include "components/kpi_tile.html" with label=l3 value="…" figure_key="map.pds" %}
+  {% trans "Partners" as l4 %}{% include "components/kpi_tile.html" with label=l4 value="…" figure_key="map.partners" %}
+  {% trans "On track" as l5 %}{% include "components/kpi_tile.html" with label=l5 value="…" status="on_track" figure_key="map.status.on_track" %}
+  {% trans "Off track" as l6 %}{% include "components/kpi_tile.html" with label=l6 value="…" status="off_track" figure_key="map.status.off_track" %}
+  {% trans "Not reported" as l7 %}{% include "components/kpi_tile.html" with label=l7 value="…" figure_key="map.status.not_reported" %}
 </div>
 <div class="grid grid--2">
   <section class="map-shell" data-module="pdmap" data-config="map-config" aria-label="{% trans 'Partner monitoring map' %}">

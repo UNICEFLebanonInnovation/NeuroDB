@@ -1,0 +1,9 @@
+{% load i18n %}{% comment %}A Partner monitoring figure trail's part "performance" or "map" (reports.check_views.check_figures;
+datamart.trail_monitoring.performance_trail and map_trail): Program Performance's steps (the filter without its
+sections, then the sections chosen after the tracking status), or the map's lines, then the part's figures on the page
+and rebuilt. Context: table, and the page's scope (rows_url, rows_query, trail_figure).{% endcomment %}
+{% with t=table %}
+{% for line in t.lines %}<p class="small text-muted mb-2">{{ line.words }}</p>{% endfor %}
+{% if t.steps %}<ol class="trail-steps small mb-2">{% include "reports/partials/_trail_stages.html" with stages=t.steps of=t.tab %}</ol>{% endif %}
+{% with block=t.block open_block=t.block.key of=t.tab %}{% include "reports/partials/_trail_block.html" %}{% endwith %}
+{% endwith %}

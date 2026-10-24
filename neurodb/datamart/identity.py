@@ -72,6 +72,19 @@ KEYS = {
     "section": ("section", "section_name"),
 }
 PLACED_BY_KEY = ("id", "title", "output")  # the ways today's rule places a row
+# each way a row is placed or left out (:class:`Placed`), in plain words: check 7's table and the figure trail
+WAY_WORDS = {
+    "id": "matched to a PD indicator by its id",
+    "title": "matched by title (one indicator of the PD has it)",
+    "output": "matched by PD output and title (a title several indicators of the PD share)",
+    "shared_output": "two or more indicators of the PD have the title and the output",
+    "keys_disagree": "two of the row's fields name different indicators",
+    "two_for_one": "two indicator reports would go to one indicator",
+    "side_by_side": "two rows of the report at one location carry different values (both indicators may be "
+    "in it)",
+    "output_unmatched": "a title several indicators of the PD share, and a PD output none of them has",
+    "unknown": "no indicator of the PD has the title",
+}
 CALIBRATION_MIN = 20  # placed groups a tie-breaker is compared on before it is used: a few prove nothing
 CALIBRATION_VERSION = 1  # bumped when a tie-breaker's rule, key or the gate changes: an old proof is ignored
 TARGET_TOLERANCE = 1e-6  # two targets within this (relative) are one: a decimal copy, never another target
