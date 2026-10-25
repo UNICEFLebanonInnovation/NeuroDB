@@ -120,7 +120,8 @@ class Cleaner:
         self.people = people
         self._seen: dict[tuple[str, frozenset[str]], str] = {}
 
-    def __call__(self, text: str, document: int | None) -> str:
+    def __call__(self, text: str, document: str | None) -> str:
+        """``text`` cleaned, with the surnames of the own authors of ``document`` (its Document ID)."""
         if not text:
             return ""
         own = self.people.own.get(document, frozenset()) if document is not None else frozenset()
@@ -131,7 +132,7 @@ class Cleaner:
         return found
 
 
-def _year(row, clean: Cleaner, document: int) -> Any:
+def _year(row, clean: Cleaner, document: str) -> Any:
     return row.year if row.year is not None else clean(row.year_text, document)
 
 
@@ -143,7 +144,7 @@ def finding_rows(qs, known: dict[str, str], people: privacy.People) -> Iterator[
     clean, name = Cleaner(people), authors.Namer(known, people)
     marks = {code: str(label) for code, label in FLAG_WORDS.items()}
     for row in qs:
-        document = row.document_id
+        document = row.record_id
         out: dict[str, Any] = {
             "finding_id": row.finding_id,
             "document_id": row.record_id,
@@ -164,12 +165,12 @@ def document_rows(qs, known: dict[str, str], people: privacy.People) -> Iterator
         out: dict[str, Any] = {
             "document_id": row.record_id,
             "publishing_organisations": name(row.entity),
-            "publication_year": _year(row, clean, row.pk),
+            "publication_year": _year(row, clean, row.record_id),
             "number_of_findings": row.findings_stated,
             "values_to_check": _checks(row),
         }
         for column, field_name in DOCUMENT_TEXTS.items():
-            out[column] = clean(getattr(row, field_name), row.pk)
+            out[column] = clean(getattr(row, field_name), row.record_id)
         yield out
 
 

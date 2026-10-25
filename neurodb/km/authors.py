@@ -16,19 +16,23 @@ The rule (:func:`classify`), piece by piece:
    and "&", when a person stands in it ("Jane Doe/Fakeorg", "Fakeorg Team: Jane Doe", "author Jane Doe.
    Published in ...") or the part is not an organisation as a whole: an organisation's name stays whole
    ("Fakeorg Institute for Research and Development", "Fakeorg - Lebanon").
-5. Words before a name that say what the person did are taken off ("consultant Jane Doe", "led by Jane
-   Doe"), and a piece that says where the work was published ("Published in ...") is left out. Each piece is
-   then classed by itself: listed by an administrator; a word of an organisation (:data:`ORG_WORDS`) →
-   organisation, except a person's name that holds one ("Jane Cross", "Charity Doe"); initials ("J. Doe",
-   "Doe J") → person; a name in capitals ("DOE Jane") → person; acronyms ("FAKEORG", "FaSyR") →
-   organisation; a place → joins the organisation before it; capitalised words that could be a name →
+5. Words before a name that say what the person did, or how an organisation took part, are taken off
+   ("consultant Jane Doe", "led by Jane Doe", "in partnership with the Fakeorg Fund", "on behalf of"), and
+   a piece that says where the work was published or what it was part of ("Published in ...", "as part of
+   the ... programme") is left out, as a title at the end of an entry ("Fake journal: theory and
+   practice"). Each piece is then classed by itself: listed by an administrator; a place → joins the
+   organisation before it ("Fakeorg Ministry, Lebanon"); a word of an organisation (:data:`ORG_WORDS`) →
+   organisation, except a person's name that holds one ("Jane Cross", "Charity Doe") and words all in lower
+   case ("research", counted); initials ("J. Doe", "Doe J") → person; a name in capitals ("DOE Jane") →
+   person; acronyms ("FAKEORG", "FaSyR", "F2P") → organisation; capitalised words that could be a name →
    person; anything else (a topic in lower case) → counted, never named.
 6. A downloads cell then reads: the organisations ("Fakeorg Institute; Fakeorg University"), "Authors: N",
    or both ("Fakeorg Institute + 2 authors"). An organisation whose text still holds a person's name, a
    citation or a name after "by" or "author" is counted as an author instead.
 
 When the rule is unsure, it counts the entry as a person: it never names someone by mistake. The version's
-page in the admin lists every string named as an organisation, with **Count as a person**.
+page in the admin lists every string named as an organisation, with **Count as a person** and **Not an
+organisation**, and the entries that look like ordinary words (:func:`look_like_words`).
 """
 
 from __future__ import annotations
@@ -67,6 +71,7 @@ ORG_WORDS = frozenset(
 NAME_LIKE_ORG_WORDS = frozenset({"cross", "banks", "charity"})
 NOT_NAMES = frozenset({"red", "food", "blood"})
 JOINING = frozenset({"of", "the", "for", "and", "de", "du", "des", "la", "le", "et", "&"})
+SMALL_WORDS = JOINING | {"to", "in", "on", "at", "a", "an"}  # left out of an acronym ("Fake-To-Policy (F2P)")
 PARTICLES = frozenset(
     {"de", "van", "von", "el", "al", "bin", "ibn", "abu", "abou", "bou", "al-", "di", "da", "du", "le", "la"}
     | {"ben"}
@@ -106,16 +111,29 @@ ABBREVIATIONS = frozenset(
     "dr mr mrs ms mme mlle prof st ste mt inc ltd co corp univ dept govt gov intl assoc no vol ed eds jr sr "
     "approx".split()
 )
-# the words before a name that say what the person did ("consultant Jane Doe", "lead author: Jane Doe")
-_JOIN_LEAD = re.compile(r"^(?:and|&|by|with|together\s+with|for)\s+", re.IGNORECASE)
+# the words before a name that join it ("and", "with", "in partnership with the", "on behalf of", "with
+# technical support from") or say what the person did ("consultant Jane Doe", "lead author: Jane Doe")
+_JOIN_LEAD = re.compile(
+    r"^(?:in\s+(?:close\s+)?(?:partnership|collaboration|coordination|cooperation)\s+with\s+(?:the\s+)?"
+    r"|on\s+behalf\s+of\s+(?:the\s+)?"
+    r"|(?:with\s+)?(?:the\s+)?(?:(?:technical|financial)\s+(?:(?:and|&)\s+(?:technical|financial)\s+)?)?"
+    r"support\s+(?:from|of)\s+(?:the\s+)?"
+    r"|(?:and|&|by|with|together\s+with|for)\s+)",
+    re.IGNORECASE,
+)
 _ROLE = (
     r"(?:(?:lead|main|principal|senior|junior|independent|external|local)\s+)?(?:co-?)?"
     r"(?:authors?|researchers?|consultants?|investigators?|editors?|writers?|evaluators?)\b"
 )
 _ROLE_LEAD = re.compile(rf"^{_ROLE}[\s:]*", re.IGNORECASE)
 _ROLE_ONLY = re.compile(_ROLE, re.IGNORECASE)  # "Jane Doe (consultant)": the role of the person before
-# a piece that says where the work was published, not who wrote it: left out
-_VENUE = re.compile(r"^(?:published|appeared|available|printed)\s+(?:in|on|at)\b", re.IGNORECASE)
+# a piece that says where the work was published, or what it was part of, not who wrote it: left out
+_VENUE = re.compile(
+    r"^(?:(?:published|appeared|available|printed)\s+(?:in|on|at)|as\s+part\s+of)\b", re.IGNORECASE
+)
+# a title at the end of an entry (a journal's: "Fake journal: theory, research and practice"): a colon before
+# words in lower case
+_TITLE_COLON = re.compile(r":(?!//)\s*(?=[^\W\d_A-Z])")
 
 
 def fold(text: str) -> str:
@@ -222,15 +240,23 @@ def _person_shape(piece: str) -> bool:
 
 
 def _acronym_of(content: str, before: str) -> bool:
-    """Whether a parenthesis's ``content`` is the acronym of the words ``before`` it: of their capitalised
-    words ("Fake Org (FO)"), or of every word ("Ministry of Fake Affairs (MOFA)")."""
-    letters = content.strip()
-    if not (2 <= len(letters) <= 12 and letters.isalpha() and letters.isupper()):
+    """Whether a parenthesis's ``content`` is the acronym of the words ``before`` it (the parts of a
+    hyphenated word too): of their capitalised words ("Fake Org (FO)"), of every word ("Ministry of Fake
+    Affairs (MOFA)"), or of every word but the small ones ("Fake-To-Policy (F2P)": its digit stands for
+    one)."""
+    content = content.strip()
+    if not re.fullmatch(r"[A-Z][A-Z0-9&]{1,11}", content):  # "FO", "F2P"
         return False
-    found = re.findall(r"[^\W\d_][\w'’-]*", before)
+    letters = re.sub(r"[^A-Z]", "", content)  # its letters: "F2P" is the acronym of "Fake to Policy"
+    if len(letters) < 2:
+        return False
+    found = re.findall(r"[^\W\d_][\w'’]*", before)
     capitals = "".join(w[0] for w in found if w[:1].isupper())
     every = "".join(w[0].upper() for w in found)
-    return any(len(initials) >= len(letters) and initials.endswith(letters) for initials in (capitals, every))
+    words = "".join(w[0].upper() for w in found if w.casefold() not in SMALL_WORDS)
+    return any(
+        len(initials) >= len(letters) and initials.endswith(letters) for initials in (capitals, every, words)
+    )
 
 
 def _split_parentheses(part: str) -> str:
@@ -403,6 +429,9 @@ def classify(text: str, known: dict[str, str] | None = None) -> Authors:
         if kind == WORDS:
             found.words.append(part)
             continue
+        if _title(part):  # a journal's title, not an author: left out
+            found.words.append(part)
+            continue
         last = ""  # the kind of the piece before
         for piece in pieces(part):
             if fold(piece) in EMPTY:
@@ -436,17 +465,28 @@ def _piece_kind(piece: str, known: dict[str, str], last: str) -> str:
         return WORDS
     if last == PERSON and _ROLE_ONLY.fullmatch(piece):  # "Jane Doe (consultant)": the same person
         return WORDS
+    if _is_place(piece):  # before the words of an organisation, which hold "Lebanon"
+        return "place"
     if _org_words(piece):
-        return ORGANISATION
+        # words all in lower case are no organisation's name ("research", "practice and policy"): counted
+        return ORGANISATION if any(t[:1].isupper() for t in _tokens(piece)) else ""
     if _name_with_org_word(piece):
         return PERSON
     if INITIAL.search(piece) or SURNAME_INITIAL.match(piece) or _capitals_name(piece):
         return PERSON
     if _acronyms(piece):
         return ORGANISATION
-    if _is_place(piece):
-        return "place"
     return PERSON if _person_shape(piece) else ""
+
+
+def _title(part: str) -> bool:
+    """Whether a part is a title, not an author (a journal's at the end of an entry: "Fake journal: theory,
+    research and practice"): a colon before words in lower case that say no role ("Fakeorg Team: consultant
+    Jane Doe" is a person), and no person in it."""
+    found = _TITLE_COLON.search(part)
+    if found is None or _ROLE_LEAD.match(part[found.end() :]):
+        return False
+    return not any(_holds_person(p) for p in re.split(r"[,:]", part) if p.strip())
 
 
 def cell(orgs: list[str], counted: int) -> str:
@@ -530,11 +570,13 @@ def surname(piece: str) -> str:
     return folded
 
 
-def _gather(rows, known: dict[str, str]) -> People:
-    """The People of ``rows`` ((document pk, author entry) pairs)."""
+def gather(rows, known: dict[str, str], ordinary=()) -> People:
+    """The People of ``rows`` ((Document ID, author entry) pairs). ``ordinary``: the surnames the texts also
+    write as ordinary words (:func:`ordinary_words`, kept on the version by its load)."""
     names: set[str] = set()
     surnames: set[str] = set()
-    own: dict[int, set[str]] = {}
+    own: dict[str, set[str]] = {}
+    bare: dict[str, bool] = {}  # a surname → whether every piece it comes from is one bare word
     cache: dict[str, Authors] = {}
     for document, entity in rows:
         if not entity:
@@ -548,17 +590,29 @@ def _gather(rows, known: dict[str, str]) -> People:
             if found:
                 surnames.add(found)
                 own.setdefault(document, set()).add(found)
+                listed = known.get(fold(piece)) == PERSON  # an administrator said it is a person
+                bare[found] = bare.get(found, True) and _one_bare_word(piece) and not listed
     for name, kind in known.items():
         if kind == PERSON:
             names |= watch_people.name_forms(name)
             found = surname(name)
             if found:
                 surnames.add(found)
+                bare[found] = False  # an administrator said it is a person
+    words = frozenset(ordinary) & frozenset(surnames)
     return People(
         names=frozenset(names),
         surnames=frozenset(surnames),
-        own={pk: frozenset(found) for pk, found in own.items()},
+        own={record: frozenset(found) for record, found in own.items()},
+        ordinary=words,
+        ordinary_alone=frozenset(w for w in words if bare.get(w)),
     )
+
+
+def _one_bare_word(piece: str) -> bool:
+    """ "Fakeword": an author piece of one word, with no first name and no initial."""
+    tokens = _tokens(piece)
+    return len(tokens) == 1 and not INITIAL.search(piece)
 
 
 def known_list() -> dict[str, str]:
@@ -568,13 +622,13 @@ def known_list() -> dict[str, str]:
     return dict(KMOrganisation.objects.values_list("folded", "kind"))
 
 
-def entity_rows() -> list[tuple[int, str]]:
-    """Every author entry of the KM Database, with its document: both sheets', each pair once (one
+def entity_rows() -> list[tuple[str, str]]:
+    """Every author entry of the KM Database, with its Document ID: both sheets', each pair once (one
     query)."""
     from .models import KMDocument, KMFinding
 
-    documents = KMDocument.objects.order_by().exclude(entity="").values_list("pk", "entity")
-    findings = KMFinding.objects.order_by().exclude(entity="").values_list("document_id", "entity")
+    documents = KMDocument.objects.order_by().exclude(entity="").values_list("record_id", "entity")
+    findings = KMFinding.objects.order_by().exclude(entity="").values_list("record_id", "entity")
     return list(documents.union(findings))
 
 
@@ -583,21 +637,31 @@ _MEMO: dict[tuple, tuple[dict[str, str], People]] = {}
 
 def people(version) -> People:
     """The KM Database's own people for the version shown: never None, never NeuroDB's list of the people
-    it knows. Kept in this process until the version or the administrators' list changes (one aggregate
-    query a use, so a correction changes downloads at once)."""
+    it knows. Kept in this process until the rows or the administrators' list change (two small queries a
+    use, so a correction changes downloads at once, and a new version's rows are read at once, whichever
+    process loaded them)."""
     return context(version)[1]
 
 
 def context(version) -> tuple[dict[str, str], People]:
-    """The administrators' list and the People of ``version`` (see :func:`people`)."""
-    from .models import KMOrganisation
+    """The administrators' list and the People of ``version`` (see :func:`people`). The key is read from
+    the tables each time (the newest document's pk: every load writes new rows), never from the version
+    shown, which a worker keeps 10 seconds: a version loaded by another process is never served with the
+    people of the version before it."""
+    from .models import KMDocument, KMOrganisation, KMVersion
 
     state = KMOrganisation.objects.aggregate(n=Count("pk"), last=Max("changed_at"))
-    key = (getattr(version, "pk", None), state["n"], state["last"])
+    rows = KMDocument.objects.aggregate(top=Max("pk"))["top"]
+    key = (version is not None, rows, state["n"], state["last"])
     found = _MEMO.get(key)
     if found is None:
         known = known_list()
-        found = (known, _gather(entity_rows(), known) if version is not None else privacy.NOBODY)
+        if version is None:
+            found = (known, privacy.NOBODY)
+        else:
+            shown = KMVersion.objects.filter(status=KMVersion.Status.LIVE)
+            ordinary = shown.values_list("ordinary_words", flat=True).first() or ()
+            found = (known, gather(entity_rows(), known, ordinary))
         if len(_MEMO) >= 4:
             _MEMO.clear()
         _MEMO[key] = found
@@ -658,13 +722,36 @@ def named_organisations(known: dict[str, str], people_: People) -> list[str]:
 
 
 WORDS_SEEN = 20  # a name form found in more findings than this looks like words, not a name
+LOWER_SEEN = 5  # a surname the texts write in lower case this often is also an ordinary word
+# the texts of a finding where a surname may also be an ordinary word, as the load reads them
+LOWER_FIELDS = ("key_finding", "measure", "analysis", "limitations", "population", "methods")
+_LOWER_WORD = re.compile(r"(?<![\w'’\-])[^\W\d_][\w\-]*(?![\w\-])")
 
 
-def look_like_words(known: dict[str, str], people_: People | None = None) -> list[str]:
+def lower_words(values: dict, counts: Counter) -> None:
+    """Count in ``counts`` the words that a finding's texts (``values``, by field) write in lower case."""
+    for name in LOWER_FIELDS:
+        text = values.get(name)
+        if text:
+            counts.update(w for w in _LOWER_WORD.findall(text) if w.islower())
+
+
+def ordinary_words(people_: People, counts: Counter) -> list[str]:
+    """The surnames of ``people_`` that the texts (``counts``, from :func:`lower_words`) write in lower case
+    :data:`LOWER_SEEN` times or more: ordinary words too ("inclusion"). The load keeps them on the version."""
+    folded: Counter = Counter()
+    for word, n in counts.items():
+        folded[watch_people.fold(word)] += n
+    return sorted(s for s in people_.surnames if folded[s] >= LOWER_SEEN)
+
+
+def look_like_words(known: dict[str, str], ordinary: frozenset[str] = frozenset()) -> list[str]:
     """The author pieces whose name looks like ordinary words: found as a phrase in the texts of more than
-    :data:`WORDS_SEEN` findings (one statement). They stay withheld until an administrator marks them "Not
-    a name"."""
+    :data:`WORDS_SEEN` findings (one statement), or whose surname the texts also write in lower case as an
+    ordinary word (``ordinary``: :func:`ordinary_words`, kept on the version by its load). They stay
+    withheld until an administrator marks them "Not a name" (or an organisation)."""
     pieces_of: dict[str, set[str]] = {}
+    found: dict[str, str] = {}
     cache: dict[str, Authors] = {}
     for _document, entity in entity_rows():
         authors = cache.get(entity)
@@ -673,22 +760,22 @@ def look_like_words(known: dict[str, str], people_: People | None = None) -> lis
         for piece in authors.people:
             if known.get(fold(piece)):
                 continue
+            if ordinary and surname(piece) in ordinary:
+                found.setdefault(fold(piece), piece)
             for form in watch_people.name_forms(piece):
                 # a form with an initial or a particle ("al s") is found after any "et al."
                 if all(len(w) > 1 and w not in PARTICLES for w in form.split(" ")):
                     pieces_of.setdefault(form, set()).add(piece)
     forms = sorted(pieces_of)
-    if not forms or connection.vendor != "postgresql":
-        return []
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT f, (SELECT count(*) FROM km_finding "
-            "WHERE search_vector @@ phraseto_tsquery('simple', f)) FROM unnest(%s::text[]) AS f",
-            [forms],
-        )
-        frequent = [form for form, n in cursor.fetchall() if n > WORDS_SEEN]
-    found: dict[str, str] = {}
-    for form in frequent:
-        for piece in pieces_of[form]:
-            found.setdefault(fold(piece), piece)
+    if forms and connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT f, (SELECT count(*) FROM km_finding "
+                "WHERE search_vector @@ phraseto_tsquery('simple', f)) FROM unnest(%s::text[]) AS f",
+                [forms],
+            )
+            frequent = [form for form, n in cursor.fetchall() if n > WORDS_SEEN]
+        for form in frequent:
+            for piece in pieces_of[form]:
+                found.setdefault(fold(piece), piece)
     return sorted(found.values(), key=str.casefold)

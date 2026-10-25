@@ -88,7 +88,8 @@ def test_an_htmx_request_with_nothing_shown_reloads_the_page(client_viewer):
 
 
 TABS = re.compile(
-    r'<a href="([^"]+)" data-current-query=""(?: data-drop-query="(\w+)")?( aria-current="page")?>(\w+) '
+    r'<a href="([^"]+)" data-current-query=""(?: data-drop-query="(\w+)")? data-follow-empty'
+    r'( aria-current="page")?>(\w+) '
     r'<span class="km-tabs__count">\(([\d,]+)\)'
 )
 
@@ -734,3 +735,78 @@ def test_each_page_reads_as_many_queries_for_20_or_200_findings(client_viewer):
         counts[size].append(_queries(client_viewer, "km:index", headers=HX, pillar="P1", q="fake"))
     assert counts[20] == counts[200], counts
     assert max(counts[20]) <= 16, counts
+
+
+# ------------------------------------------------------------------------------- the review's checks
+def test_the_finding_page_shows_its_confidence_level_next_to_the_key_finding(client_viewer, varied):
+    for headers in ({}, HX):  # the page and the quick view
+        html = client_viewer.get(reverse("km:finding", args=[F2]), **headers).content.decode()
+        meta = re.search(r'<p class="km-meta-line small">(.*?)</p>', html, re.S).group(1)
+        assert ">Level C</span>" in meta, meta
+        assert 'pill--"' not in html
+
+
+def test_a_confidence_level_to_check_says_so_once_next_to_the_key_finding(client_viewer):
+    factory.load(factory.workbook(edits={("findings", 2, "Evidence Confidence Level"): "Fake level"}))
+    meta = re.search(
+        r'<p class="km-meta-line small">(.*?)</p>', _html(client_viewer, "km:finding", F(1, 1)), re.S
+    )
+    assert meta.group(1).count("Check this value") == 1 and 'title="Fake level"' in meta.group(1)
+
+
+def test_a_document_without_findings_says_so(client_viewer):
+    version = factory.load(factory.workbook(documents=3, findings=2, stated=(2, 3)))
+    assert version.status == "live"
+    for headers in ({}, HX):  # the page and its findings reloaded
+        html = client_viewer.get(reverse("km:document", args=["TST-0003"]), **headers).content.decode()
+        assert "The workbook gives no findings for this document." in html
+        assert "Try fewer words" not in html and "Clear filters" not in html
+    assert "No findings match. Try fewer words or clear a filter." in _html(client_viewer, q="zqnothing")
+
+
+FOLLOW = r"""
+const src = (await import("node:fs")).readFileSync(process.argv[1], "utf8");
+const keys = src.match(/const PAGE_ONLY_KEYS = \[[^\]]*\];/)[0];
+const fn = src.match(/function followQuery\(event\) \{[\s\S]*?\n\}/)[0];
+const out = [];
+for (const [search, href, empty] of JSON.parse(process.argv[2])) {
+  const dataset = { currentQuery: "" };
+  if (empty) dataset.followEmpty = "";
+  const link = { dataset, getAttribute: () => href, href };
+  const window = { location: { search, href: "https://fake.test/km/documents/" + search } };
+  new Function("window", `${keys}\n${fn}\nreturn followQuery;`)(window)({ target: { closest: () => link } });
+  out.push(new URL(link.href, "https://fake.test").pathname + new URL(link.href, "https://fake.test").search);
+}
+console.log(JSON.stringify(out));
+"""
+
+
+def test_the_tabs_follow_a_filter_cleared_after_a_filtered_first_load(client_viewer, varied):
+    import json
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    from django.conf import settings
+
+    html = _html(client_viewer, "km:documents", q="fake")
+    tabs = {name: url for url, _, _, name, _ in TABS.findall(html)}  # each tab has data-follow-empty
+    assert tabs["Findings"] == f"{reverse('km:index')}?q=fake"
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    app = Path(settings.BASE_DIR) / "neurodb" / "web" / "static" / "js" / "app.js"
+    cases = [
+        ("", "/km/?q=fake", True),  # the search box cleared: no filter
+        ("", "/km/ask/?q=fake", True),
+        ("?pillar=P2", "/km/?q=fake", True),  # another filter: followed
+        ("", "/monitoring/?section=fake", False),  # a page's default section: the first load keeps it
+    ]
+    found = subprocess.run(
+        [node, "--input-type=module", "-e", FOLLOW, str(app), json.dumps(cases)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert found.returncode == 0, found.stderr
+    assert json.loads(found.stdout) == ["/km/", "/km/ask/", "/km/?pillar=P2", "/monitoring/?section=fake"]

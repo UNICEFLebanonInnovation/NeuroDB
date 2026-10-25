@@ -310,3 +310,74 @@ def test_a_word_the_text_also_writes_in_lower_case_is_not_a_first_name():
     text = f"Fakeword {W} lens: the fakeword evidence"
     assert privacy.for_ai(text, KM) == text
     assert privacy.for_ai(f"Fakeword {W} lens", KM) == f"{W} lens"
+
+
+# ------------------------------------------------------------------- the review's checks (questions, hyphens)
+# the KM Database's authors: "Fakeorg Institute; Vantrell, Q.; Blenkinsop Zorgwell" and a one-word entry
+# "Fairplayer"; the texts also write "fairplayer" and "inclusion" in lower case (ordinary words)
+ASKED = privacy.People(
+    names=frozenset(watch_people.name_forms("Vantrell, Q.") | watch_people.name_forms("Blenkinsop Zorgwell")),
+    surnames=frozenset({"vantrell", "zorgwell", "fairplayer", "inclusion"}),
+    ordinary=frozenset({"fairplayer", "inclusion"}),
+    ordinary_alone=frozenset({"fairplayer"}),
+)
+
+
+@pytest.mark.parametrize(
+    ("question", "sent"),
+    [
+        # a surname in lower case, as people type in a chat box
+        ("what did vantrell find about zqkmtoken?", f"what did {W} find about zqkmtoken?"),
+        ("what did vantrell's survey find?", f"what did {W}'s survey find?"),
+        ("what did q. vantrell find?", f"what did {W} find?"),
+        ("what did zorgwell find?", f"what did {W} find?"),  # the surname of a full-name author
+        ("the vantrell-led survey", f"the {W}-led survey"),
+        ("What did VANTRELL find?", f"What did {W} find?"),
+        ("what did blenkinsop zorgwell find?", f"what did {W} find?"),
+        # a surname the texts also write as an ordinary word: withheld only when capitalised
+        ("inclusion of children in schools?", "inclusion of children in schools?"),
+        ("Inclusion of children in schools?", f"{W} of children in schools?"),
+        # a surname only a one-word entry gives: kept as a word, withheld when written as a name
+        ("Fairplayer of children in schools?", "Fairplayer of children in schools?"),
+        ("fairplayer of children?", "fairplayer of children?"),
+        ("What did Fairplayer (2020) find?", f"What did {W} (2020) find?"),
+        ("What did Fairplayer 2020 find?", f"What did {W} 2020 find?"),
+        ("Fairplayer's survey?", f"{W}'s survey?"),
+        ("What did Q. Fairplayer find?", f"What did {W} find?"),
+        ("a study by Fairplayer?", f"a study by {W}?"),
+        # nothing else changes
+        ("e.g. girls' schooling in fake villages", "e.g. girls' schooling in fake villages"),
+    ],
+)
+@pytest.mark.django_db
+def test_a_question_loses_a_km_surname_in_any_case(question, sent):
+    assert privacy.typed_for_ai(question, ASKED) == sent
+    assert privacy.any_case(sent, ASKED) == sent  # run again, it changes nothing
+    assert privacy.clean_question(question, ASKED) == sent
+
+
+def test_any_case_withholds_what_a_question_kept_before_the_rule_holds():
+    assert (
+        privacy.any_case("Q: what did vantrell find? [name withheld]", ASKED) == f"Q: what did {W} find? {W}"
+    )
+    assert privacy.any_case("inclusion and Fairplayer", ASKED) == "inclusion and Fairplayer"
+
+
+@pytest.mark.parametrize(
+    ("text", "shown"),
+    [
+        ("The Vantrell-led survey found fake rates.", f"The {W}-led survey found fake rates."),
+        ("A Vantrell-based model; J. Vantrell-led work", f"A {W}-based model; {W}-led work"),
+        ("The Smith-Fakejones-led survey", f"The {W}-led survey"),  # a hyphenated surname
+        ("Vantrell’s, (Vantrell) and VANTRELL", f"{W}’s, ({W}) and {W}"),
+        # kept: an organisation, a word, a capitalised second part
+        (
+            "A Fakeorg-led and child-led survey; Vantrell-Fakeword",
+            "A Fakeorg-led and child-led survey; Vantrell-Fakeword",
+        ),
+    ],
+)
+def test_a_documents_own_author_joined_by_a_hyphen_is_withheld(text, shown):
+    own = frozenset({"vantrell", "smith-fakejones"})
+    for clean in (privacy.for_ai, privacy.for_download):
+        assert clean(text, privacy.NOBODY, own) == shown, clean.__name__

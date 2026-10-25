@@ -1,11 +1,13 @@
 """The KM Database's search box: PostgreSQL full text over the KM tables' own search vectors (filled by the
 load, :func:`neurodb.km.loading._fill_vectors`), never the authors, the marks or the IDs.
 
-- An exact Finding ID or Document ID opens those rows.
+- An exact Finding ID or Document ID (with a dash or not: "ZQ0002") opens those rows.
 - Otherwise every word must be found (English stemming, and the words as written). UK and US spellings and
   the sector's acronyms and their expansions find each other (:data:`VARIANTS`): "child labor" finds
-  "child labour", "GBV" finds "gender-based violence". A quote, a "-" before a word or the word "or" asks for
-  the web search syntax instead: a phrase in quotes, ``-word`` to leave a word out, ``or`` between words.
+  "child labour", "GBV" finds "gender-based violence"; words joined by a slash are words of their own
+  ("girls/boys") and "school-age" also finds "school age". A quote, a "-" before a word or the word "or"
+  asks for the web search syntax instead: a phrase in quotes, ``-word`` to leave a word out, ``or`` between
+  words.
 - When that finds nothing, every word typed must be found as letters in one of the texts (the authors
   included: they are on screen).
 
@@ -51,7 +53,22 @@ VARIANTS: tuple[tuple[str, ...], ...] = (
     ("centre", "center"),
     ("centres", "centers"),
     ("anaemia", "anemia"),
+    ("anaemic", "anemic"),
     ("paediatric", "pediatric"),
+    ("paediatrics", "pediatrics"),
+    ("diarrhoea", "diarrhea"),
+    ("diarrhoeal", "diarrheal"),
+    ("caesarean", "cesarean"),
+    ("caesareans", "cesareans"),
+    ("haemoglobin", "hemoglobin"),
+    ("neighbourhood", "neighborhood"),
+    ("neighbourhoods", "neighborhoods"),
+    ("gynaecology", "gynecology"),
+    ("gynaecological", "gynecological"),
+    ("anaesthesia", "anesthesia"),
+    ("oedema", "edema"),
+    ("foetal", "fetal"),
+    ("oestrogen", "estrogen"),
     ("marriage", "married"),
     ("dropout", "drop out", "dropping out", "drop-out", "dropouts"),
     ("wellbeing", "well-being", "well being"),
@@ -94,38 +111,54 @@ LETTERS_FIELDS = (
 DOCUMENT_LETTERS_FIELDS = ("title", "item_title", "entity")
 
 
-def words(query: str) -> list[str]:
-    """The words of ``query`` worth searching, in lower case (the knowledge base's rule, copied)."""
-    found = [w for w in re.findall(r"[\w][\w/.\-]*[\w]|\w", query.lower()) if len(w) >= 2 and w not in STOP]
-    return list(dict.fromkeys(found))[:20]
+MAX_WORDS = 20  # words of the search box searched (an Ask question: GROUPS_ASKED groups)
+GROUPS_ASKED = 30
+_SLASHED = re.compile(r"[^\W\d_]+(?:/[^\W\d_]+)+")  # "girls/boys": two words
+_HYPHENED = re.compile(r"[^\W\d_]+(?:-[^\W\d_]+)+")  # "school-age": also "school age"
+
+
+def words(query: str, skip: set[str] | frozenset[str] = frozenset(), limit: int = MAX_WORDS) -> list[str]:
+    """The words of ``query`` worth searching, in lower case (the knowledge base's rule, copied), the
+    first ``limit``: words of letters joined by a slash are words of their own ("girls/boys"). ``skip``: more
+    words left out, before the first ``limit`` are kept."""
+    found = []
+    for w in re.findall(r"[\w][\w/.\-]*[\w]|\w", query.lower()):
+        for part in w.split("/") if _SLASHED.fullmatch(w) else (w,):
+            if len(part) >= 2 and part not in STOP and part not in skip:
+                found.append(part)
+    return list(dict.fromkeys(found))[:limit]
 
 
 def variants(word: str) -> tuple[str, ...]:
-    """``word`` and the words that mean the same (:data:`VARIANTS`, and -ise / -ize: "organise",
-    "organize")."""
+    """``word`` and the words that mean the same (:data:`VARIANTS`, -ise / -ize: "organise", "organize";
+    and a word with hyphens written with spaces: "school-age", "school age")."""
     found = list(_BY_WORD.get(word, (word,)))
     for pattern, other in ((_ISE, "iz"), (_IZE, "is")):
         match = pattern.match(word)
         if match:
             found.append(f"{match.group(1)}{other}{match.group(2)}")
+    if word not in _BY_WORD and _HYPHENED.fullmatch(word):
+        found.append(word.replace("-", " "))
     return tuple(dict.fromkeys(found))
 
 
-def groups(text: str, stop: set[str] | frozenset[str] = frozenset()) -> list[list[str]]:
+def groups(
+    text: str, stop: set[str] | frozenset[str] = frozenset(), *, limit: int = TEXT_MAX, most: int = MAX_WORDS
+) -> list[list[str]]:
     """The groups of alternatives a search asks for, all of them: first the phrases of :data:`VARIANTS`
     found in ``text`` (the longest first, so "child marriage" is found before "child" is left out as too
     common), then each other word, with its variants. Words of ``stop`` (and of STOP and KM_STOP) are left
-    out."""
-    rest = " " + text.casefold()[:TEXT_MAX] + " "
+    out. ``limit``: the characters read (the search box's 200; an Ask question's 1,000); ``most``: the words
+    kept, the last ones when there are more (a long question's topic most often comes at its end)."""
+    rest = " " + text.casefold()[:limit] + " "
     found: list[list[str]] = []
     for phrase in _PHRASES:
         pattern = re.compile(rf"(?<![\w-]){re.escape(phrase)}(?![\w-])")
         if pattern.search(rest):
             found.append(list(_BY_WORD[phrase]))
             rest = pattern.sub(" ", rest)
-    for word in words(rest):
-        if word in KM_STOP or word in stop:
-            continue
+    kept = words(rest, KM_STOP | set(stop), limit=10_000)
+    for word in kept[-most:] if len(kept) > most else kept:
         group = list(variants(word))
         if group not in found:
             found.append(group)
@@ -155,7 +188,13 @@ def query(text: str) -> SearchQuery | None:
 
 
 def is_id(text: str) -> bool:
+    """A Finding ID or a dashed Document ID: a digit and a dash ("TST-0001-F00001", "TST-0001")."""
     return bool(ID.match(text)) and any(c.isdigit() for c in text) and "-" in text
+
+
+def looks_like_id(text: str) -> bool:
+    """What may be an ID, with a dash or not ("ZQ0002"): a letter and a digit. An exact lookup tells."""
+    return bool(ID.match(text)) and any(c.isdigit() for c in text) and any(c.isalpha() for c in text)
 
 
 def _letters(text: str, fields: tuple[str, ...]) -> Q | None:
@@ -172,7 +211,7 @@ def find(qs: QuerySet, text: str) -> tuple[QuerySet, str]:
     text = (text or "").strip()[:TEXT_MAX]
     if not text:
         return qs, ""
-    if is_id(text):
+    if looks_like_id(text):
         by_id = qs.filter(Q(finding_id__iexact=text) | Q(record_id__iexact=text))
         if by_id.exists():
             return by_id, "id"
@@ -195,7 +234,7 @@ def find_documents(qs: QuerySet, text: str) -> tuple[QuerySet, str]:
     text = (text or "").strip()[:TEXT_MAX]
     if not text:
         return qs, ""
-    if is_id(text):
+    if looks_like_id(text):
         by_id = qs.filter(record_id__iexact=text)
         if by_id.exists():
             return by_id, "id"

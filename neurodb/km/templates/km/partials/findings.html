@@ -34,5 +34,5 @@
 </table></div>
 {% include "km/partials/_pages.html" %}
 {% else %}
-{% include "components/empty_state.html" with icon="search" title=words.NO_FINDINGS_MATCH action_url=all_url action_label=words.CLEAR_FILTERS %}
+{% include "components/empty_state.html" with icon=empty_icon|default:"search" title=empty_title|default:words.NO_FINDINGS_MATCH action_url=all_url action_label=words.CLEAR_FILTERS %}
 {% endif %}

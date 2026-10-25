@@ -119,28 +119,20 @@ def test_the_people_of_a_version_are_its_own():
     assert people is not None and isinstance(people, privacy.People)
     assert {"jane doe", "doe fakefirst", "roe r", "doe j"} <= people.names
     assert {"doe", "roe"} <= people.surnames
-    assert people.own[_document_pk("TST-0001")] >= {"doe", "roe"}
-    assert (
-        people.own.get(_document_pk("TST-0002"), frozenset()) == frozenset()
-    )  # "Fakeorg University": no person
+    assert people.own["TST-0001"] >= {"doe", "roe"}  # by Document ID: the same from one version to the next
+    assert people.own.get("TST-0002", frozenset()) == frozenset()  # "Fakeorg University": no person
     assert not people.names & watch_people.known_names(refresh=True)  # never NeuroDB's own list
     assert authors.people(None) is privacy.NOBODY or authors.people(None).names == frozenset()
-
-
-def _document_pk(record_id: str) -> int:
-    from neurodb.km.models import KMDocument
-
-    return KMDocument.objects.get(record_id=record_id).pk
 
 
 @pytest.mark.django_db
 def test_the_people_are_read_once_until_the_corrections_change(django_assert_num_queries):
     version = factory.load(factory.workbook())
     authors.context(version)
-    with django_assert_num_queries(1):  # the corrections' count and latest change
+    with django_assert_num_queries(2):  # the corrections' count and latest change, the newest document
         authors.context(version)
     KMOrganisation.objects.create(name="Fakeorg Institute", kind="person")
-    with django_assert_num_queries(3):  # read again: the corrections, then both sheets' authors
+    with django_assert_num_queries(5):  # read again: the corrections, the version's words, the authors
         authors.context(version)
 
 
@@ -166,13 +158,13 @@ def test_author_entries_that_look_like_words_are_listed_and_warned():
     edits |= {("findings", n, "Finding Analysis"): "A fakeword phrase is common." for n in range(2, 25)}
     version = factory.load(factory.workbook(documents=2, findings=23, edits=edits))
     known, people = authors.context(version)
-    assert authors.look_like_words(known, people) == ["Fakeword Phrase"]
+    assert authors.look_like_words(known, people.ordinary) == ["Fakeword Phrase"]
     assert "1 author entry looks like words, not a name: check it on this page." in version.warnings
     KMOrganisation.objects.create(name="Fakeword Phrase", kind="words")
     known, people = authors.context(version)
-    assert authors.look_like_words(known, people) == []
+    assert authors.look_like_words(known, people.ordinary) == []
     assert "fakeword phrase" not in people.names
-    edits = {key: value for key, value in edits.items() if key[1] <= 6}
+    edits = {key: value for key, value in edits.items() if key[1] <= 5}  # in lower case 4 times only
     few = factory.load(factory.workbook(documents=2, findings=5, edits=edits), fewer_ok=True)
     assert not any("look like words" in w or "looks like words" in w for w in few.warnings)
 
@@ -233,11 +225,11 @@ def test_a_role_word_before_a_name_gives_the_persons_name_forms_and_surname():
     assert authors.classify("author Jane Fakename. Published in 'The Fake Monitor'").people == [
         "Jane Fakename"
     ]
-    people = authors._gather([(1, "Fakeorg Country Office; consultant John Fakeroe")], {})
-    assert "john fakeroe" in people.names and people.own[1] == {"fakeroe"}
+    people = authors.gather([("TST-0001", "Fakeorg Country Office; consultant John Fakeroe")], {})
+    assert "john fakeroe" in people.names and people.own["TST-0001"] == {"fakeroe"}
     assert (
         privacy.for_download(
-            "Done by Fakeorg Country Office and consultant John Fakeroe.", people, people.own[1]
+            "Done by Fakeorg Country Office and consultant John Fakeroe.", people, people.own["TST-0001"]
         )
         == f"Done by Fakeorg Country Office and consultant {privacy.NAME_WITHHELD}."
     )
@@ -248,3 +240,63 @@ def test_a_citation_of_a_person_whose_name_holds_a_word_of_an_organisation_is_wi
         f"as {privacy.NAME_WITHHELD} (2019) and {privacy.NAME_WITHHELD} (2020) found"
     )
     assert privacy.for_download("the Red Cross (2020) found") == "the Red Cross (2020) found"
+
+
+# ------------------------------------------------------------------------------- the review's checks
+@pytest.mark.parametrize(
+    ("entry", "shown"),
+    [
+        # a place after an organisation joins it, Lebanon too
+        ("Fakeorg Ministry of Health, Lebanon", "Fakeorg Ministry of Health, Lebanon"),
+        ("Fakeorg Ministry of Health, Beirut", "Fakeorg Ministry of Health, Beirut"),
+        # an acronym with a digit stays with the words it shortens
+        (
+            "Fake to Policy (F2P) Center, Fakeorg University",
+            "Fake to Policy (F2P) Center; Fakeorg University",
+        ),
+        (
+            "Fake-To-Policy (F2P) Center, Fakeorg University",
+            "Fake-To-Policy (F2P) Center; Fakeorg University",
+        ),
+        # a journal's title at the end of an entry is no author
+        ("Doe J; Roe R; Fakejournal trauma : theory, research, practice and policy", "Authors: 2"),
+        ("Doe J; Roe R; Fakechild: care, health and development", "Authors: 2"),
+        # words before an organisation's name that say how it took part
+        (
+            "Fakeorg Center, in partnership with the Fakeorg Ministry and Fakeorg Fund",
+            "Fakeorg Center; Fakeorg Ministry and Fakeorg Fund",
+        ),
+        ("Fakeorg Office, on behalf of the Fakeorg Ministry", "Fakeorg Office; Fakeorg Ministry"),
+        (
+            "Fakeorg Institute, with technical and financial support from Fakeorg Fund",
+            "Fakeorg Institute; Fakeorg Fund",
+        ),
+        ("Fakeorg Center, as part of the Fakeorg programme", "Fakeorg Center"),  # where, not who
+        # words in lower case are no organisation's name
+        ("Fakeorg Institute, research", "Fakeorg Institute + 1 author"),
+        # a colon before a role or a person stays what it was
+        ("Fakeorg Team: consultant Jane Doe", "Fakeorg Team + 1 author"),
+    ],
+)
+def test_downloads_name_no_scrap_of_text_as_an_organisation(entry, shown):
+    assert authors.for_downloads(entry) == shown
+
+
+def test_a_one_word_entry_the_texts_write_as_a_word_is_kept_in_a_question_as_a_word():
+    rows = [("TST-0001", "Fakeorg Institute; Fakeword; Jane Fakewing; Vantrell, Q.")]
+    people = authors.gather(rows, {}, ordinary=["fakeword", "fakewing", "notasurname"])
+    assert people.surnames >= {"fakeword", "fakewing", "vantrell"}
+    assert people.ordinary == {"fakeword", "fakewing"} and people.ordinary_alone == {"fakeword"}
+    people = authors.gather(rows, {"fakeword": "person"}, ordinary=["fakeword"])  # an administrator said so
+    assert people.ordinary_alone == frozenset()
+    from collections import Counter
+
+    counts: Counter = Counter()
+    for _ in range(5):
+        authors.lower_words(
+            {"key_finding": "The fakeword lens; Fakewing said", "analysis": "fakewing"}, counts
+        )
+    assert authors.ordinary_words(authors.gather(rows, {}), counts) == ["fakewing", "fakeword"]
+    counts = Counter()
+    authors.lower_words({"key_finding": "fakeword " * 4}, counts)
+    assert authors.ordinary_words(authors.gather(rows, {}), counts) == []  # 4 times: a name still

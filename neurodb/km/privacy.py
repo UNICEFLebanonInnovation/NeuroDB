@@ -15,8 +15,8 @@ list of the people it knows, which no KM text is compared with, and nothing is a
   year ("Since 2019") is not taken for a citation.
 - **Interview speakers** ("… – Fakename, 34", "(Fakename, 15)") lose the first name, not a role ("(Mother,
   34)").
-- **A document's own authors** by their surname ("J. Doe interviewed", "Doe's survey") are withheld in the
-  texts of that document.
+- **A document's own authors** by their surname ("J. Doe interviewed", "Doe's survey", "the Doe-led
+  survey") are withheld in the texts of that document.
 - **The KM Database's authors** by their full name, and names after a title ("Dr …"), anywhere.
 - **Other shapes** (:func:`_shapes`): reference lists ("Doe, J.", "Roe Poe, M. C."), "Doe 2020: …", "Roe 2021
   (Lebanon)", a speaker at a sentence's start ("Fakename, 11, was …"), "Fakename (20, male)", "Fakename, a
@@ -27,7 +27,8 @@ list of the people it knows, which no KM text is compared with, and nothing is a
 
 Downloads keep links and numbers; the assistant's texts also lose e-mail addresses, links and phone numbers.
 The broad phone pattern is never used: it would take sample sizes and years. A question typed on the Ask tab
-is cleaned by :func:`clean_question` (the Help assistant's rule first, then the KM Database's).
+is cleaned by :func:`clean_question` (the Help assistant's rule first, then the KM Database's, with its
+surnames in any case: :func:`typed_for_ai`).
 """
 
 from __future__ import annotations
@@ -188,11 +189,16 @@ _WORDS = re.compile(r"[\w'’]+")
 class People:
     """The KM Database's own people: the name forms of its authors (two words or more, as
     :func:`neurodb.watch.people.name_forms` writes them), their surnames, and the surnames of each
-    document's own authors (by the document's pk)."""
+    document's own authors (by its Document ID, which stays the same from one version to the next).
+    ``ordinary``: the surnames the KM Database's texts also write in lower case, as ordinary words
+    ("inclusion"); ``ordinary_alone``: of those, the ones that only an author entry of one bare word gives
+    (no first name, no initial: most often an organisation's or a title's word taken for a name)."""
 
     names: frozenset[str] = frozenset()
     surnames: frozenset[str] = frozenset()
-    own: dict[int, frozenset[str]] = field(default_factory=dict)
+    own: dict[str, frozenset[str]] = field(default_factory=dict)
+    ordinary: frozenset[str] = frozenset()
+    ordinary_alone: frozenset[str] = frozenset()
 
     @functools.cached_property
     def firsts(self) -> frozenset[str]:
@@ -352,14 +358,30 @@ OWN = re.compile(rf"(?:\b[A-Z]\.\s*)?(?<![\w'’\-])([{_CAP}][\w\-]*)(?=(?:['’
 
 
 def _own(text: str, own: frozenset[str]) -> str:
-    """Step 7: the document's own authors by their surname ("J. Doe", "Doe's"), withheld."""
+    """Step 7: the document's own authors by their surname ("J. Doe", "Doe's", "the Doe-led survey"),
+    withheld."""
     if not own:
         return text
 
     def one(match: re.Match) -> str:
-        return NAME_WITHHELD if fold(match.group(1)) in own else match.group(0)
+        word = match.group(1)
+        if fold(word) in own:
+            return NAME_WITHHELD
+        head = _hyphen_head(word, own)
+        return NAME_WITHHELD + word[head:] if head else match.group(0)
 
     return OWN.sub(one, text)
+
+
+def _hyphen_head(word: str, surnames: frozenset[str]) -> int:
+    """The length of a surname of ``surnames`` that starts ``word`` before a hyphen and a word in lower case
+    ("Doe-led", "Doe-Roe-based": the "-led" or "-based" stays), or 0."""
+    parts = word.split("-")
+    for n in range(len(parts) - 1, 0, -1):
+        head = "-".join(parts[:n])
+        if parts[n][:1].islower() and fold(head) in surnames:
+            return len(head)
+    return 0
 
 
 def _titles(text: str) -> str:
@@ -735,20 +757,75 @@ def _names_left(text: str, people: People) -> bool:
 QUESTION_CHARS = 1000
 # a capitalised word just before a name withheld: its first name ("Jane [name withheld]")
 _BEFORE_WITHHELD = re.compile(rf"(?<![\w'’\-])({WORD})\s+(?={re.escape(NAME_WITHHELD)})")
+_PLACEHOLDERS = frozenset({NAME_WITHHELD, EMAIL_WITHHELD, LINK_WITHHELD, PHONE_WITHHELD})
+_PLACEHOLDER = re.compile("(" + "|".join(re.escape(p) for p in sorted(_PLACEHOLDERS)) + ")")
+# any word, whatever its case, with an initial before it ("q. doe") and a possessive after it left out
+_ANY_WORD = re.compile(r"(?:(?<![\w.])[A-Za-z]\.\s*)?(?<![\w'’\-])([^\W\d_][\w\-]*)(?=(?:['’]s)?(?![\w\-]))")
+# a capitalised word written as a name: a possessive, an initial or "by" before it, a year or "et al."
+# after it
+_AS_NAME = re.compile(
+    rf"(?P<by>\b(?i:by)\s+)?(?P<initial>\b[A-Z]\.\s*)?(?<![\w'’\-])(?P<word>[{_CAP}][\w\-]*)"
+    rf"(?P<after>['’]s?(?![\w\-])|,?\s+\(?\s*{YEAR}\b|{ET_AL})?(?![\w\-])"
+)
 
 
 def clean_question(question: str, people: People = NOBODY) -> str:
     """A question typed on the Ask tab as it is sent and kept: the names NeuroDB knows, e-mail addresses,
     links and phone numbers removed (``fmm.privacy.clean``, the Help assistant's rule: it reads NeuroDB's
     list of people only to take names out, and adds nothing to what is sent), then the KM Database's own
-    rule (:func:`for_ai`): its authors by their full name and by their surname, citations, names after a
-    title; and a first name left before a name withheld."""
+    rule (:func:`typed_for_ai`)."""
     from neurodb.fmm import privacy as fmm_privacy
 
-    cleaned = fmm_privacy.clean(question, QUESTION_CHARS)[0]
-    cleaned = for_ai(cleaned, people, people.surnames)
+    return typed_for_ai(fmm_privacy.clean(question, QUESTION_CHARS)[0], people)
+
+
+def typed_for_ai(text: str, people: People = NOBODY) -> str:
+    """What a person typed or chose (a question, a document type chosen as a filter) as the AI may read it,
+    by the KM Database's rule (:func:`for_ai`): its authors by their full name and by their surname,
+    citations, names after a title; a surname in lower case too ("what did doe find", "doe's survey", "j.
+    doe"), but a surname the KM texts also write as an ordinary word (``people.ordinary``: "inclusion") only
+    when it is capitalised; and a first name left before a name withheld. A surname that only an author
+    entry of one bare word gives (``people.ordinary_alone``) is withheld only when it is written as a name
+    ("Doe's", "J. Doe", "by Doe", "Doe 2020", "Doe et al."): "Inclusion of children?" keeps its first
+    word."""
+    if not text:
+        return text
+    alone = people.ordinary_alone
+    cleaned = for_ai(text, people, people.surnames - alone if alone else people.surnames)
+    if alone:
+
+        def as_name(match: re.Match) -> str:
+            if fold(match.group("word")) not in alone:
+                return match.group(0)
+            if match.group("initial") or match.group("by") or match.group("after"):
+                return (match.group("by") or "") + NAME_WITHHELD + (match.group("after") or "")
+            return match.group(0)
+
+        cleaned = _AS_NAME.sub(as_name, cleaned)
+    cleaned = any_case(cleaned, people)
 
     def first_name(match: re.Match) -> str:
         return "" if not kept(match.group(1)) else match.group(0)
 
     return _BEFORE_WITHHELD.sub(first_name, cleaned) if NAME_WITHHELD in cleaned else cleaned
+
+
+def any_case(text: str, people: People = NOBODY) -> str:
+    """``text`` with the KM Database's surnames withheld whatever their case ("what did doe find", "doe's
+    survey", "j. doe", "doe-led"), except the surnames its texts also write as ordinary words
+    (``people.ordinary``). Run again on a text it cleaned, it changes nothing: what a question sent to the
+    AI is checked with (an earlier question of a conversation too)."""
+    words = people.surnames - people.ordinary
+    if not text or not words:
+        return text
+
+    def one(match: re.Match) -> str:
+        word = match.group(1)
+        if fold(word) in words:
+            return NAME_WITHHELD
+        head = _hyphen_head(word.lower(), words)  # "doe-led"
+        return NAME_WITHHELD + word[head:] if head else match.group(0)
+
+    return "".join(  # never inside a placeholder ("[name withheld]")
+        part if part in _PLACEHOLDERS else _ANY_WORD.sub(one, part) for part in _PLACEHOLDER.split(text)
+    )

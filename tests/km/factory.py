@@ -24,17 +24,21 @@ TOKEN = "zqkmtoken"
 PREPARED = datetime.datetime(2026, 10, 1)
 
 
-def record_id(n: int) -> str:
-    return f"TST-{n:04d}"
+PREFIX = "TST-"
 
 
-def finding_id(doc: int, n: int) -> str:
-    return f"TST-{doc:04d}-F{n:05d}"
+def record_id(n: int, prefix: str = PREFIX) -> str:
+    """A fake Document ID: "TST-0001", or with another prefix ("ZQ" gives "ZQ0001", with no dash)."""
+    return f"{prefix}{n:04d}"
 
 
-def document_row(n: int, findings: int) -> dict[str, Any]:
+def finding_id(doc: int, n: int, prefix: str = PREFIX) -> str:
+    return f"{record_id(doc, prefix)}-F{n:05d}"
+
+
+def document_row(n: int, findings: int, prefix: str = PREFIX) -> dict[str, Any]:
     return {
-        "Record ID": record_id(n),
+        "Record ID": record_id(n, prefix),
         "Item Title": f"Fake short title {n}",
         "Document Title": f"Fake document title {n}",
         "Publishing Entity / Authors": ENTITY if n == 1 else "Fakeorg University",
@@ -48,11 +52,11 @@ def document_row(n: int, findings: int) -> dict[str, Any]:
     }
 
 
-def finding_row(doc: int, n: int, number: int) -> dict[str, Any]:
+def finding_row(doc: int, n: int, number: int, prefix: str = PREFIX) -> dict[str, Any]:
     row: dict[str, Any] = {
-        "Finding ID": finding_id(doc, n),
+        "Finding ID": finding_id(doc, n, prefix),
         "Item Title": f"Fake short title {doc}",
-        "Record ID": record_id(doc),
+        "Record ID": record_id(doc, prefix),
         "Document Title": f"Fake document title {doc}",
         "Pillar": "P1 – Fake pillar one" if number % 2 else "P2 – Fake pillar two",
         "Analytical Domain": "1. Fake domain",
@@ -94,12 +98,14 @@ def workbook(
     stated: tuple[int | None, int | None] | None = None,
     sheet_names: tuple[str, str] = (DOCUMENTS_SHEET, FINDINGS_SHEET),
     extra_headers: dict[str, tuple[str, ...]] | None = None,
+    prefix: str = PREFIX,
 ) -> bytes:
     """An .xlsx with every column of the KM workbook and fake values: ``documents`` documents and ``findings``
     findings (spread over the documents in turn), a Read Me sheet (a prepared-on date, a fake path, the stated
     counts: ``stated`` overrides them) and a dictionary sheet. ``drop`` leaves those headers out;
     ``header_row`` puts title rows above the header; ``edits`` sets cells by (``"documents"`` or
-    ``"findings"``, Excel row, header) once the rows are written (relative to the header in row 1)."""
+    ``"findings"``, Excel row, header) once the rows are written (relative to the header in row 1);
+    ``prefix`` starts the IDs ("ZQ": Document IDs with no dash, "ZQ0001", as some workbooks write them)."""
     wb = openpyxl.Workbook()
     first = wb.active
     if read_me:
@@ -121,8 +127,8 @@ def workbook(
     for number in range(1, findings + 1):
         doc = (number - 1) % documents + 1 if documents else 1
         per_doc[doc] = per_doc.get(doc, 0) + 1
-        finding_rows.append(finding_row(doc, per_doc[doc], number))
-    document_rows = [document_row(n, per_doc[n]) for n in range(1, documents + 1)]
+        finding_rows.append(finding_row(doc, per_doc[doc], number, prefix))
+    document_rows = [document_row(n, per_doc[n], prefix) for n in range(1, documents + 1)]
     extra_headers = extra_headers or {}
     for title, kind, columns, data in (
         (sheet_names[0], "documents", cols.DOCUMENT_COLUMNS, document_rows),

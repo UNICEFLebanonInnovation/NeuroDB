@@ -215,6 +215,7 @@ LETTERS_FOUND_DOCUMENTS = _("No exact word matches; showing documents that conta
 QUESTIONS_DROPPED = _("The question filter was left out: the questions you picked are in another pillar.")
 OF_ALL = _("of {total}")
 NO_FINDINGS_MATCH = _("No findings match. Try fewer words or clear a filter.")
+NO_FINDINGS_FOR_DOCUMENT = _("The workbook gives no findings for this document.")
 NO_DOCUMENTS_MATCH = _("No documents match. Try fewer words or clear a filter.")
 CLEAR_FILTERS = _("Clear filters")
 DOCUMENT_CHIP = _("Document: {title}")
@@ -278,16 +279,19 @@ AUTHORS_IN_DOWNLOADS = _("Authors in downloads")
 NAMED_AS_ORGANISATIONS = _("Named as organisations in downloads ({count})")
 NAMED_HELP = _(
     "Each of these is written in downloads as an organisation. If one is a person, press “Count as a "
-    "person”: downloads then count it as an author, without naming it."
+    "person”: downloads then count it as an author, without naming it. If one is a piece of text that is "
+    "no organisation (a place, a journal's title), press “Not an organisation”: downloads leave it out."
 )
 COUNT_AS_PERSON = _("Count as a person")
+NOT_AN_ORGANISATION = _("Not an organisation (leave it out)")
 LOOK_LIKE_WORDS = _("Look like words, not names ({count})")
 LOOK_LIKE_WORDS_HELP = _(
-    "These author entries are also ordinary words of many findings. Until you say otherwise they are "
+    "These author entries are also ordinary words of the findings. Until you say otherwise they are "
     "treated as names: withheld from downloads and from the assistant. Press “Not a name” for an entry that "
-    "is not a person."
+    "is not a person, or “Count as an organisation” for an organisation's name."
 )
 NOT_A_NAME = _("Not a name")
+COUNT_AS_ORGANISATION = _("Count as an organisation")
 WORDS_WARNING = ngettext_lazy(
     "{count} author entry looks like words, not a name: check it on this page.",
     "{count} author entries look like words, not names: check them on this page.",

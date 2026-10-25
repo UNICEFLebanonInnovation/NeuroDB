@@ -45,8 +45,9 @@ gives it.
 - **Search** (always in view, also on a phone): type words and the table keeps the findings that hold
   them all, in their key finding, measure, analysis, population, methods, limitations or document title.
   Words are found in their other forms ("school" finds "schools"), UK and US spellings find each other
-  ("labour" and "labor", "programme" and "program") and common acronyms find what they stand for ("GBV"
-  and "gender-based violence", "OOSC" and "out of school", "MHPSS"). Put a phrase in quotes ("child
+  ("labour" and "labor", "diarrhoea" and "diarrhea") and common acronyms find what they stand for ("GBV"
+  and "gender-based violence", "OOSC" and "out of school", "MHPSS"). Words joined by a slash are looked
+  for one by one ("girls/boys"), and "school-age" also finds "school age". Put a phrase in quotes ("child
   marriage"), a minus before a word to leave it out (-camp), or "or" between words for either. A Finding ID
   or a Document ID opens that finding or that document's findings. When no word matches, the table shows
   the findings that contain the letters you typed, and says so.
@@ -61,8 +62,8 @@ gives it.
   for them. A research question picked in another pillar than the pillars picked is left out,
   and the table says so.
 - On a phone the filters fold behind **Filters**; the search box stays in view. **Reset** clears them all.
-- The two tabs keep the filter as you move between them (the Documents tab has no document filter: it
-  lists each document).
+- The two tabs keep the filter as you move between them, and a filter or search you clear stays cleared
+  (the Documents tab has no document filter: it lists each document).
 
 ## A finding and its document
 
@@ -97,7 +98,8 @@ gives it.
   people inside the texts are printed "[name withheld]". The screen still shows the texts in full.
 - An administrator can correct how an author entry is written in downloads (an organisation the rule
   missed, a person it took for an organisation, or words that are no name at all) in the administration:
-  *KM Database* → *Organisations named in downloads*, or from the version's page. Downloads change at once.
+  *KM Database* → *Organisations named in downloads*, or from the version's page (*Count as a person*,
+  *Not an organisation*, *Not a name*, *Count as an organisation*). Downloads change at once.
 
 ## Ask the KM Database
 
@@ -119,8 +121,9 @@ KM Database, and from nothing else.
 - **What is sent to the AI.** Your question, the matching findings it reads and your filters in words.
   Never the authors, never Document IDs (one you type goes as "this document"), links or phone numbers,
   and never a name of a person: names of NeuroDB's people and of the KM Database's authors are taken out
-  of your question, and names inside the findings (citations, reference lists, people quoted, people
-  named with their job) are written "[name withheld]". If a name is still found, nothing is sent.
+  of your question, in capitals or not, and names inside the findings (citations, reference lists, people
+  quoted, people named with their job) are written "[name withheld]". If a name is still found, nothing is
+  sent.
 - **The answer.** Each sentence ends with the findings it rests on, as [references]: each one opens its
   finding, in a new tab. A reference to a finding that was not read for this answer is taken out, and
   the answer says how many. Under the answer, **Findings used for this answer** lists them (with their
@@ -136,8 +139,11 @@ KM Database, and from nothing else.
   day's AI budget (see [AI limits](/help/ai-limits/)). A question counts once the AI has worked on it,
   even when no finding matches (the AI first suggests search words). A question over a limit, or one the
   AI declines, does not count.
+- **Long questions** are read whole; the findings that match the end of the question (most often its
+  topic) come first.
 - **A conversation.** A short follow-up ("and for boys?") keeps the topic of your last question and reads
-  the findings its answer cited again. **New conversation** starts afresh. **Your recent questions**
+  the findings its answer cited again; a short question on a new topic ("Child marriage?") reads its own
+  findings. **New conversation** starts afresh. **Your recent questions**
   lists your last ten; press one to ask it again. Your questions are kept 90 days.
 - The AI can be wrong: open the findings it cites before you use an answer.
 

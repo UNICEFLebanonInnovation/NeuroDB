@@ -365,11 +365,25 @@ def test_the_quorum_keeps_findings_matching_two_of_three_groups(ai):
         ("GBV", "Fake gender-based violence rose."),
         ("out of school", "Fake OOSC rose."),
         ("organize", "Fake groups organise."),
+        ("diarrhea", "Fake infants had diarrhoea."),
+        ("diarrhoea", "Fake infants had diarrhea."),
+        ("cesarean", "Fake caesarean births rose."),
+        ("hemoglobin", "Fake haemoglobin was low."),
+        ("neighborhood", "Fake neighbourhood play fell."),
+        # words joined by a slash or a hyphen
+        ("girls/boys", "Fake girls and boys left school early."),
+        ("school-age", "Fake children of school age left classes."),
+        ("low-income households", "Fake low income households struggled."),
     ],
 )
 def test_spellings_and_acronyms_find_each_other(ai, question, text):
+    from neurodb.km import search
+    from neurodb.km.models import KMFinding
+
     factory.load(key_findings(text, "Fake unrelated."))
     assert _ids(_picked(question)) == ["TST-0001-F00001"]
+    found, how = search.find(KMFinding.objects.all(), question)  # the search box too
+    assert how == "words" and [f.finding_id for f in found] == ["TST-0001-F00001"]
 
 
 def test_an_age_named_in_the_question_ranks_its_findings_first_and_never_filters(ai):
@@ -1001,3 +1015,318 @@ def test_a_finding_id_beyond_a_named_documents_findings_is_still_read(ai):
     picked = _picked("Compare TST-0001 with tst-0002-f00006 on zqkmtoken")
     assert _ids(picked)[0] == "TST-0002-F00006" and picked.codes == ["Document ID TST-0001"]
     assert set(_ids(picked)[1:]) == {f"TST-0001-F{n:05d}" for n in range(1, 7)}
+
+
+# ------------------------------------------------------------------------------- the review's checks
+AUTHORS = "Fakeorg Institute; Vantrell, Q.; Blenkinsop Zorgwell"
+
+
+def _authored(entity=AUTHORS, documents=2, findings=4, **edits_) -> bytes:
+    """A workbook whose document 1 (and its findings, 1 and 3) has ``entity`` as its authors."""
+    edits = {("documents", 2, "Publishing Entity / Authors"): entity}
+    edits |= {
+        ("findings", n + 1, "Publishing Entity / Author"): entity for n in range(1, findings + 1, documents)
+    }
+    edits |= edits_.pop("edits", {})
+    return factory.workbook(documents=documents, findings=findings, edits=edits, **edits_)
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "what did vantrell find about zqkmtoken?",
+        "what did vantrell's survey find on zqkmtoken?",
+        "what did q. vantrell find on zqkmtoken?",
+        "what did zorgwell find about zqkmtoken?",  # the surname of a full-name author
+    ],
+)
+def test_a_km_surname_in_lower_case_is_never_sent_or_kept(client_viewer, ai, question):
+    factory.load(_authored())
+    fake = ai([answer("Fake [TST-0001-F00001].")])
+    done(post(client_viewer, question))
+    row = KMQuestion.objects.get()
+    assert {r["text"]["format"]["name"] for r in fake.requests} == {"km_terms", "km_answer"}
+    for text in (row.question, *(r["input"][0]["content"] for r in fake.requests)):
+        assert "vantrell" not in text.casefold() and "zorgwell" not in text.casefold(), text
+    assert "zqkmtoken" in row.question and privacy.NAME_WITHHELD in row.question
+
+
+def test_an_earlier_question_is_never_sent_again_with_a_km_surname(client_viewer, viewer, ai):
+    factory.load(_authored())
+    conversation = uuid.uuid4()
+    fake = ai([answer("Fake [TST-0001-F00001]."), answer("Fake [TST-0001-F00002].")])
+    done(post(client_viewer, "what did vantrell find about zqkmtoken?", conversation=conversation))
+    done(post(client_viewer, "and for girls?", conversation=conversation))
+    # a question kept as typed before this rule, in another conversation
+    older = uuid.uuid4()
+    KMQuestion.objects.create(
+        user=viewer,
+        conversation=older,
+        version=_version(),
+        question="what did zorgwell find about zqkmtoken?",
+        answer="Fake [TST-0001-F00001].",
+        cited=["TST-0001-F00001"],
+        status="answered",
+    )
+    done(post(client_viewer, "and for boys?", conversation=older))
+    assert len(fake.calls()) == 3
+    for request in fake.requests:
+        text = request["input"][0]["content"]
+        assert "vantrell" not in text.casefold() and "zorgwell" not in text.casefold(), text
+    assert f"Q: what did {privacy.NAME_WITHHELD} find about zqkmtoken?" in _sent(fake)
+    terms_call = fake.calls("km_terms")[-1]["input"][0]["content"]
+    assert f"- what did {privacy.NAME_WITHHELD} find about zqkmtoken?" in terms_call
+
+
+def test_a_surname_the_texts_also_write_as_a_word(client_viewer, ai):
+    # "Fakeword": an entry of one bare word (an organisation's word taken for a name); "Jane Fakewing": a
+    # person; the findings write both words in lower case, as ordinary words
+    entity = "Fakeorg Institute; Fakeword; Jane Fakewing"
+    edits = {
+        ("findings", n, "Finding Analysis"): "The fakeword and fakewing approach helped." for n in range(2, 8)
+    }
+    version = factory.load(_authored(entity, documents=1, findings=6, edits=edits))
+    assert version.ordinary_words == ["fakewing", "fakeword"]
+    assert "2 author entries look like words, not names: check them on this page." in version.warnings
+    people = authors.people(version)
+    assert people.ordinary == {"fakeword", "fakewing"} and people.ordinary_alone == {"fakeword"}
+    w = privacy.NAME_WITHHELD
+    for asked, kept in [
+        ("Fakeword of children in schools?", "Fakeword of children in schools?"),  # a word
+        ("What did Fakeword (2020) find?", f"What did {w} (2020) find?"),  # a name
+        ("Fakewing of children?", f"{w} of children?"),  # a person's surname: withheld until marked
+        ("the fakewing approach for children?", "the fakewing approach for children?"),
+    ]:
+        assert privacy.clean_question(asked, people) == kept
+    from neurodb.km.models import KMOrganisation
+
+    KMOrganisation.objects.create(name="Jane Fakewing", kind="words")  # marked on the version's page
+    people = authors.people(version)
+    assert privacy.clean_question("Fakewing of children?", people) == "Fakewing of children?"
+    fake = ai([answer("Fake [TST-0001-F00001].")])
+    done(post(client_viewer, "Fakeword approach for children?"))
+    assert "Question: Fakeword approach for children?" in _sent(fake)
+
+
+def test_a_year_as_given_is_cleaned_before_it_is_sent(client_viewer, ai):
+    edits = {
+        ("documents", 2, "Publication Year"): "Vantrell 2020",
+        ("findings", 2, "Publication Year"): "Vantrell 2021",
+        ("documents", 3, "Publication Year"): "fake.author@example.org",
+    }
+    factory.load(_authored(edits=edits))
+    fake = ai([answer("Fake [TST-0001-F00001].")])
+    done(post(client_viewer, "zqkmtoken?"))
+    text = _sent(fake)
+    w = privacy.NAME_WITHHELD
+    assert f'<document year="{w} 2020"' in text and f'year="{w} 2021"' in text
+    assert f'<document year="{privacy.EMAIL_WITHHELD}"' in text  # the document is still read
+    assert "Vantrell" not in text and "example.org" not in text
+    assert KMQuestion.objects.get().status == "answered"
+
+
+def test_a_type_chosen_as_a_filter_never_sends_an_authors_surname(client_viewer, ai):
+    edits = {("documents", 2, "Document / Study Type"): "Fake thesis supervised by Vantrell"}
+    factory.load(_authored(edits=edits))
+    fake = ai([answer("Fake [TST-0001-F00001].")])
+    done(post(client_viewer, "zqkmtoken?", scope="type=Fake+thesis+supervised+by+Vantrell"))
+    text = _sent(fake)
+    w = privacy.NAME_WITHHELD
+    assert f"Document or study type: Fake thesis supervised by {w}" in text
+    assert f'type="Fake thesis supervised by {w}"' in text and "Vantrell" not in text
+    page = client_viewer.get(
+        reverse("km:ask"), {"type": "Fake thesis supervised by Vantrell"}
+    ).content.decode()
+    assert "Fake thesis supervised by Vantrell" in page  # on screen as the workbook gives it
+
+
+def test_the_credit_running_out_on_the_search_words_call_sends_no_answer_call(client_viewer, ai):
+    from neurodb.assistant import llm
+    from neurodb.fmm.ai import budget
+
+    factory.load(factory.workbook(documents=1, findings=2))
+    error = llm.ServiceError("insufficient_quota", "You exceeded your current quota")
+    fake = ai([answer("Fake [TST-0001-F00001].")], [error])
+    final = done(post(client_viewer, "zqkmtoken?"))
+    assert budget.paused_until() is not None and fake.calls() == []
+    assert final["html"].startswith("<p>The AI is resting until")
+    assert "Findings that match your question" in final["html"]
+    row = KMQuestion.objects.get()
+    assert (row.status, row.error) == ("limited", "paused") and ask.quota(row.user)[0] == 0
+
+
+def test_the_credit_running_out_on_claude_sends_no_answer_call(client_viewer, claude):
+    from neurodb.fmm.ai import budget
+    from tests.assistant import anthropic_mock as am
+
+    factory.load(factory.workbook(documents=1, findings=2))
+    low = am.error_body(
+        "invalid_request_error", "Your credit balance is too low to access the Anthropic API."
+    )
+    server = claude(am.http_error(400, low), am.http_error(400, low))
+    final = done(post(client_viewer, "zqkmtoken?"))
+    assert budget.paused_until() is not None and len(server.requests) == 1
+    assert final["html"].startswith("<p>The AI is resting until")
+    assert KMQuestion.objects.get().status == "limited"
+
+
+def _shaped(question, **kwargs):
+    return _picked(question, shapes=ask.document_shapes(), **kwargs)
+
+
+def test_a_document_id_without_a_dash_is_read_as_that_document(client_viewer, ai):
+    texts = (
+        "Fake rainfall fell on fake schools.",
+        "Fake rainfall flooded fake roads.",
+        "Fake teachers left.",
+    )
+    factory.load(key_findings(*texts, documents=2, prefix="ZQ"))
+    assert ask.document_shapes() == [r"ZQ\d{4}"] and ask.finding_shapes() == [r"ZQ\d{4}\-F\d{5}"]
+    picked = _shaped("What does ZQ0002 say about rainfall?")
+    assert _ids(picked) == ["ZQ0002-F00001"] and picked.codes == ["Document ID ZQ0002"]
+    assert picked.question == "What does this document say about rainfall?"
+    assert _ids(_shaped("Summarise zq0001.")) == ["ZQ0001-F00001", "ZQ0001-F00002"]
+    fake = ai([answer("Fake rainfall fell [ZQ0002-F00001].")])
+    final = done(post(client_viewer, "What does ZQ0002 say about rainfall and schools?"))
+    text = _sent(fake)
+    assert text.startswith("Question: What does this document say about rainfall and schools?")
+    assert 'id="ZQ0001-F' not in text and "/km/findings/ZQ0002-F00001/" in final["html"]
+    assert "ZQ0002" not in fake.calls("km_terms")[0]["input"][0]["content"]
+    # figures of the same letters stay as written
+    assert ask.unsent("ZQ2.5 and ZQ10 levels", ask.document_shapes()) == "ZQ2.5 and ZQ10 levels"
+    # the search box, and a word with a letter and a digit that is no ID
+    from neurodb.km import search
+    from neurodb.km.models import KMDocument, KMFinding
+
+    assert search.find(KMFinding.objects.all(), "ZQ0002")[1] == "id"
+    assert search.find_documents(KMDocument.objects.all(), "zq0002")[1] == "id"
+    assert search.find(KMFinding.objects.all(), "covid19")[1] != "id"
+
+
+def test_a_figure_with_the_letters_of_a_document_id_stays_in_the_answer(client_viewer, ai):
+    texts = ("Fake PM2.5 levels exceeded the fake limit in 2022.", "Fake PM10 rose in fake towns.")
+    factory.load(key_findings(*texts, documents=2, prefix="PM"))
+    shapes = [*ask.document_shapes(), *ask.finding_shapes()]
+    reply = (
+        "PM2.5 levels exceeded the limit in 2022 [PM0001-F00001]. PM10 rose [PM0002-F00001]. Doc PM0999 too."
+    )
+    checked = ask.finish(
+        reply,
+        ["PM0001-F00001", "PM0002-F00001"],
+        _version(),
+        _people(),
+        documents=["PM0001", "PM0002"],
+        shapes=shapes,
+    )
+    assert checked.answer == (
+        "PM2.5 levels exceeded the limit in 2022 [PM0001-F00001]. PM10 rose [PM0002-F00001]. Doc too."
+    )
+    assert checked.removed == 1  # the invented Document ID only
+    ai([answer(reply)])
+    final = done(post(client_viewer, "What about PM2.5 and PM10 in fake towns?"))
+    assert "PM2.5 levels exceeded" in final["answer"] and "PM10 rose" in final["answer"]
+    assert "PM2.5 levels exceeded" in KMQuestion.objects.get().answer
+
+
+@pytest.mark.parametrize("end", [".", ":", ")", "?"])
+def test_an_id_before_a_full_stop_is_still_read(ai, end):
+    factory.load(factory.workbook(documents=2, findings=4))
+    assert _ids(_picked(f"(Explain TST-0002-F00002{end}"))[0] == "TST-0002-F00002"
+    assert _picked(f"(Summarise TST-0002{end}").codes == ["Document ID TST-0002"]
+
+
+def test_a_finding_id_at_the_end_of_a_sentence_is_answered_with_no_search_words_call(client_viewer, ai):
+    factory.load(factory.workbook(documents=2, findings=4))
+    fake = ai([answer("Fake [TST-0002-F00002].")])
+    done(post(client_viewer, "Tell me more about TST-0002-F00002."))
+    assert fake.calls("km_terms") == [] and KMQuestion.objects.get().read == ["TST-0002-F00002"]
+
+
+def test_a_finding_id_of_another_shape_is_taken_out_and_counted(client_viewer, ai):
+    edits = {
+        ("documents", 3, "Record ID"): "ZQ0002",
+        ("findings", 3, "Record ID"): "ZQ0002",
+        ("findings", 3, "Finding ID"): "ZQ0002-F00001",
+    }
+    factory.load(factory.workbook(documents=2, findings=2, edits=edits))
+    shapes = [*ask.document_shapes(), *ask.finding_shapes()]
+    checked = ask.finish(
+        "Fake rose [TST-0001-F00001]. Fake fell [ZQ0002-F00001]. Invented [ZQ0009-F00001]. "
+        "Mixed [TST-0001-F00001, ZQ0002-F00001]. Its document ZQ0002 said so.",
+        ["TST-0001-F00001"],
+        _version(),
+        _people(),
+        documents=["TST-0001"],
+        shapes=shapes,
+    )
+    assert checked.cited == ["TST-0001-F00001"] and checked.removed == 4
+    assert "ZQ0" not in checked.answer and checked.answer.count("[TST-0001-F00001]") == 2
+    ai([answer("Fake rose [TST-0001-F00001]. Fake fell sharply in the fake villages [ZQ0002-F00001].")])
+    final = done(post(client_viewer, "zqkmtoken?", scope="document=TST-0001"))
+    assert "ZQ0002" not in final["answer"]
+    assert "1 reference to a finding that was not read for this answer was taken out." in final["notice"]
+
+
+LONG = (
+    "For our country programme mid-year review with the education, health and protection sections next "
+    "month, and keeping in mind the situation since the crisis began, could you please summarise what the "
+    "studies found on measles vaccination coverage?"
+)
+
+
+def test_a_long_question_is_searched_whole_and_its_topic_ranks_first(ai):
+    from neurodb.km import search
+
+    assert LONG.index("measles") >= search.TEXT_MAX
+    filler = ["Fake education, health and protection sections reviewed the crisis."] * 45
+    factory.load(key_findings("Fake measles vaccination coverage fell.", *filler, documents=10))
+    picked = _picked(LONG)
+    assert _ids(picked)[0] == "TST-0001-F00001"  # the topic's finding first, among many on the lead-in
+    assert ["measles"] in picked.groups
+    many = "Context: " + " ".join(f"fakeword{chr(97 + n)}" for n in range(25)) + "."
+    picked = _picked(f"{many} What did the studies find on measles vaccination coverage?")
+    assert _ids(picked) == ["TST-0001-F00001"]
+    assert ["measles"] not in search.groups(LONG)  # the search box reads its 200 characters
+
+
+@pytest.mark.parametrize(
+    "suggested", [(), ("child marriage", "early marriage", "forced marriage", "child brides")]
+)
+def test_a_short_new_question_in_a_conversation_reads_its_own_findings(client_viewer, ai, suggested):
+    texts = [
+        "Fake rainfall flooded schools.",
+        "Fake child marriage rose.",
+        "Fake early marriage fell.",
+        "Fake teachers left.",
+    ]
+    factory.load(key_findings(*texts, documents=2))
+    conversation = uuid.uuid4()
+    ai(
+        [answer("Floods closed schools [TST-0001-F00001]."), answer("Fake [TST-0002-F00001].")],
+        [terms(), terms(*suggested)],
+    )
+    done(post(client_viewer, "How did rainfall affect schools?", conversation=conversation))
+    done(post(client_viewer, "Child marriage?", conversation=conversation))
+    row = KMQuestion.objects.order_by("created_at").last()
+    assert {"TST-0002-F00001", "TST-0001-F00002"} <= set(row.read)
+
+
+def test_a_question_right_after_a_load_by_another_process_withholds_its_authors(
+    client_viewer, ai, monkeypatch
+):
+    from neurodb.km import loading, models
+
+    clock = [1000.0]
+    monkeypatch.setattr(models.time, "monotonic", lambda: clock[0])
+    entity = "Fakeorg University; Quexley, Z."
+    edits = {("findings", 2, "Key Finding"): "Quexley's survey found that fake rainfall fell."}
+    data = _authored(entity, documents=3, findings=4, edits=edits)
+    factory.load(data)
+    fake = ai([answer("Fake [TST-0001-F00001]."), answer("Fake [TST-0001-F00001].")])
+    done(post(client_viewer, "What about rainfall?"))
+    assert "Quexley" not in _sent(fake)
+    monkeypatch.setattr(loading, "forget_live", lambda: None)  # the load runs in another process
+    loading.run(factory.version(data).pk)
+    clock[0] += 5  # within the 10 seconds this worker keeps the version shown
+    done(post(client_viewer, "What about rainfall?"))
+    assert len(fake.calls()) == 2 and "Quexley" not in _sent(fake)

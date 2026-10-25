@@ -64,6 +64,9 @@ class KMVersion(models.Model):
     problems = models.JSONField(_("problems"), default=list, blank=True)
     warnings = models.JSONField(_("warnings"), default=list, blank=True)
     download_summary = models.JSONField(_("downloads summary"), default=dict, blank=True)
+    # the authors' surnames (folded) the version's texts also write in lower case as ordinary words, worked
+    # out by the load (authors.ordinary_words): a question keeps them when they are written as words
+    ordinary_words = models.JSONField(_("surnames also written as ordinary words"), default=list, blank=True)
     peak_memory_mb = models.PositiveIntegerField(_("peak memory of the load (MB)"), null=True, blank=True)
     load_seconds = models.PositiveIntegerField(_("load time (seconds)"), null=True, blank=True)
     uploaded_by = models.ForeignKey(

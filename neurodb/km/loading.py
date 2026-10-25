@@ -21,6 +21,7 @@ import datetime
 import logging
 import resource
 import time
+from collections import Counter
 
 from django.contrib.postgres.search import SearchVector
 from django.db import DatabaseError, connection, transaction
@@ -248,8 +249,10 @@ def _replace(version: KMVersion, report: workbook.Report, content: bytes, starte
         documents = dict(KMDocument.objects.values_list("record_id", "pk"))
         types = dict(KMDocument.objects.values_list("record_id", "study_type"))
         batch: list[KMFinding] = []
+        lower: Counter = Counter()  # the words the findings write in lower case (authors.ordinary_words)
         for number, cells in workbook.findings(content, report.sheets):
             record = cells.values["record_id"]
+            authors.lower_words(cells.values, lower)
             batch.append(
                 KMFinding(
                     position=number,
@@ -265,7 +268,9 @@ def _replace(version: KMVersion, report: workbook.Report, content: bytes, starte
         if batch:
             KMFinding.objects.bulk_create(batch)
         _fill_vectors()
-        looks = authors.look_like_words(authors.known_list())
+        known = authors.known_list()
+        version.ordinary_words = authors.ordinary_words(authors.gather(authors.entity_rows(), known), lower)
+        looks = authors.look_like_words(known, frozenset(version.ordinary_words))
         if looks:
             version.warnings = [*version.warnings, say(words.WORDS_WARNING, n=len(looks))][
                 : workbook.MAX_MESSAGES
@@ -275,6 +280,7 @@ def _replace(version: KMVersion, report: workbook.Report, content: bytes, starte
         )
         written = KMVersion.objects.filter(pk=version.pk, status=Status.LOADING).update(
             **{name: getattr(version, name) for name in SUMMARY_FIELDS},
+            ordinary_words=version.ordinary_words,
             status=Status.LIVE,
             problems=[],
             error="",

@@ -206,7 +206,7 @@ def test_a_download_reads_a_fixed_number_of_queries(client_viewer, loaded):
     authors.forget()
     cold = count(export="csv")
     warm = count(export="csv")
-    assert cold == warm + 2  # on a miss: the corrections, then both sheets' authors
+    assert cold == warm + 3  # on a miss: the corrections, the version's ordinary words, both sheets' authors
     assert count(export="xlsx") == warm
 
 
@@ -272,3 +272,24 @@ def test_the_about_sheet_never_writes_a_document_type_that_names_a_person(client
     assert about["Filter"] == "Document type: (not written here: one of them names a person)"
     _, body = _get(client_viewer, export="xlsx", type="Fake study")
     assert dict(_sheets(body)["About"][1:])["Filter"] == "Document type: Fake study"
+
+
+def test_a_download_right_after_a_load_by_another_process_withholds_its_authors(client_viewer, monkeypatch):
+    from neurodb.km import loading, models
+
+    clock = [1000.0]
+    monkeypatch.setattr(models.time, "monotonic", lambda: clock[0])
+    entity = "Fakeorg University; Quexley, Z."
+    edits = {
+        ("documents", 3, "Publishing Entity / Authors"): entity,  # document 2
+        ("findings", 3, "Publishing Entity / Author"): entity,  # finding 2, of document 2
+        ("findings", 3, "Finding Analysis"): "Quexley's survey found a fake thing.",
+    }
+    data = factory.workbook(documents=3, findings=4, edits=edits)
+    factory.load(data)
+    assert "Quexley" not in _get(client_viewer, export="csv")[1].decode("utf-8-sig")
+    monkeypatch.setattr(loading, "forget_live", lambda: None)  # the load runs in another process
+    loading.run(factory.version(data).pk)
+    clock[0] += 5  # within the 10 seconds this worker keeps the version shown
+    body = _get(client_viewer, export="csv")[1].decode("utf-8-sig")
+    assert "Quexley" not in body and "[name withheld]'s survey found a fake thing." in body

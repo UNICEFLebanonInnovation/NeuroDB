@@ -1057,10 +1057,17 @@ person* (counted, never named; its name is then withheld in the texts too) or *N
 organisation* (left out of downloads, kept in the texts). They change downloads at once (the people are
 read again when the list changes, with no restart). The **page of the version shown** lists how downloads
 show the documents' authors, **Named as organisations in downloads** (every string named, each with *Count
-as a person*: a POST, so the name never travels in an address) and **Look like words, not names** (author
-entries also found as a phrase in the texts of more than 20 findings, each with *Not a name*; the load
-warns about them: they stay withheld until marked). The documents list shows **Shown in downloads as**. A
-replaced version keeps its downloads summary.
+as a person* and *Not an organisation (leave it out)*: a POST, so the name never travels in an address) and
+**Look like words, not names** (author entries also found as a phrase in the texts of more than 20
+findings, or whose surname the findings write in lower case 5 times or more, as an ordinary word; each with
+*Not a name* and *Count as an organisation*; the load warns about them: they stay withheld until marked).
+The load keeps those surnames on the version (`ordinary_words`): a question keeps such a word when it is
+written in lower case, and keeps the word of an author entry of one bare word (no first name, no initial)
+when it is not written as a name ("Fakeword's", "by Fakeword", "Fakeword 2020" are withheld). The people of
+a version are read again whenever its rows change (the newest document's key is read at each use), so a
+worker never serves a new version's rows with the previous version's authors; each document's own authors
+are kept by its Document ID. The documents list shows **Shown in downloads as**. A replaced version keeps
+its downloads summary.
 
 **Ask the KM Database** (`/km/ask/`, the page's third tab; the code is `neurodb/km/ask.py`): a question
 answered from the KM Database's own findings only, by **one model call with no tools** (never Ask
@@ -1068,28 +1075,36 @@ NeuroDB's run, prompt, tools, date or year lines). In order:
 
 1. The question (1-1,000 characters) is cleaned for sending and keeping: the names NeuroDB knows (the Help
    assistant's rule; that list is only read to take names out), e-mail addresses, links and phone numbers,
-   then the KM Database's authors (full names and surnames), citations and names after a title. The
-   typed text is searched, never kept or sent.
+   then the KM Database's authors (full names and surnames, in capitals or not: "what did doe find"),
+   citations and names after a title. The typed text is searched, never kept or sent. The questions sent
+   (and earlier questions of the conversation) are checked again for a surname in any case.
 2. The filters it reads within are those of the tab's address (the Findings tab's filter, carried by the
    tab link, or *Ask about its document*): known keys only, never the search box's words, the sort or the
    page size.
-3. **Retrieval**, over the KM tables only: codes in the question ("Level A", "P2", "RQ3", a Document ID)
-   narrow the filters (a code that would leave nothing is left out and the answer says so); a Finding ID is
-   read first; the question's words (UK/US spellings and sector acronyms joined, common words left out)
+3. **Retrieval**, over the KM tables only: codes in the question ("Level A", "P2", "RQ3", a Document ID,
+   with a dash or of the shape of the version's own Document IDs, "PM0123") narrow the filters (a code that
+   would leave nothing is left out and the answer says so); a Finding ID is read first (also before a full
+   stop); the whole question's words (up to 1,000 characters, common words left out first, words joined by
+   a slash searched one by one, a hyphenated word also as two words) (UK/US spellings and sector acronyms joined, common words left out)
    are looked for in each finding's own words (`own_vector`: key finding, measure, analysis,
    limitations, the sub-questions and indicator; never the document's methods, population or titles,
    which only break ties). A finding is kept when it matches 2 of 3 or more word groups, else all of them;
    the most groups matched come first, then the findings marked Yes for an age group or girls and boys
    the question names, then the rank. At most 40 findings, 6 a document (no cap when the filters or the
    question name one document), 60,000 characters. A follow-up of under 4 words keeps the earlier
-   question's words and reads the previous answer's cited findings first. When fewer than 40 findings
+   question's words and reads the previous answer's cited findings first; when no finding matches it
+   together with the earlier topic, its own words are searched alone (a new topic). In a long question (more
+   than 8 word groups), the findings that match its last clause (after the last sentence or a comma before
+   "could", "what", "please"...) come first. When fewer than 40 findings
    match (or the question is not in Latin letters) and less than 15 seconds have passed, a small call
    (20 seconds, no retry) asks for search words from the cleaned question and the conversation's earlier
-   questions only, never any data; it fails silently.
+   questions only, never any data; it fails silently. When it finds the credit gone (the pause starts), no
+   answer call is made: the findings are listed with the pause's sentence.
 4. **The message**: the question, up to 4 earlier turns of this conversation read from the version shown
    (answers cut at 1,500 characters, citations as plain [ID]), the filters in words, a legend of the
-   pillars and research questions, and the findings read, grouped by document, every text through
-   `privacy.for_ai` and escaped (`&lt;5 years`). Each finding carries its Finding ID, its legend key, its
+   pillars and research questions, and the findings read, grouped by document, every text and attribute
+   (the year as given too) through `privacy.for_ai` and escaped (`&lt;5 years`); a document type chosen as
+   a filter is cleaned as a question is. Each finding carries its Finding ID, its legend key, its
    confidence level as "Level B" or "not given", "ready" or "marked for review", and the age and sex marks
    marked Yes. The final check (`privacy.leftover`) leaves out a document whose block still names someone
    (counted in the question's error) and sends nothing when the whole message does.
@@ -1098,9 +1113,10 @@ NeuroDB's run, prompt, tools, date or year lines). In order:
    Claude keeps nothing either), a keyed hash of the person.
 6. **The answer checked**: names withheld again (an answer that still names someone is kept back and the
    findings listed instead); the model's own links taken out; every Finding ID read linked to its finding
-   with the version it was read from (`/km/findings/<ID>/?v=<version>`), every other ID-shaped reference
-   (invented, a Document ID, not read this time) taken out and counted; the sentences citing no finding
-   counted. The rendered answer keeps only links to the findings read.
+   with the version it was read from (`/km/findings/<ID>/?v=<version>`), every other reference of the
+   shape of the version's Finding IDs or Document IDs (invented, a Document ID, not read this time) taken
+   out and counted, with as many digits as the IDs hold ("PM2.5" and "PM10" stay); the sentences citing no
+   finding counted. The rendered answer keeps only links to the findings read.
 
 | Sent to the AI provider | Never sent |
 |---|---|

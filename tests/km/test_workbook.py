@@ -380,3 +380,30 @@ def test_every_flag_has_its_model_field_and_a_plain_label():
     assert {flag.group for flag in cols.FLAGS} == set(cols.FLAG_GROUPS)
     for flag in cols.FLAGS:
         assert "SEM" not in flag.label and flag.label != "MHPSS"
+
+
+# ------------------------------------------------------------------------------- the review's checks
+def test_with_neither_data_sheet_the_sheets_are_listed_once():
+    problems = _check(factory.workbook(sheet_names=("Fake Sheet", "Fake Other"))).problems
+    assert problems == [
+        "The workbook has no sheet whose name ends with “Documents”.",
+        "The workbook has no sheet whose name ends with “Findings”.",
+        f"Its sheets are: {factory.READ_ME_SHEET}, Fake Sheet, Fake Other, {factory.DICTIONARY_SHEET}.",
+    ]
+
+
+def _damaged(cut: int = 200) -> bytes:
+    """A factory workbook whose findings sheet's XML is cut short (a damaged file)."""
+    source = zipfile.ZipFile(io.BytesIO(factory.workbook()))
+    sheets = {n for n in source.namelist() if n.startswith("xl/worksheets/sheet")}
+    findings = sorted(sheets)[2]  # the read me, the documents, the findings, the dictionary
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as archive:
+        for name in source.namelist():
+            body = source.read(name)
+            archive.writestr(name, body[:cut] if name == findings else body)
+    return out.getvalue()
+
+
+def test_a_damaged_sheet_is_refused_as_a_file_it_cannot_open():
+    assert _check(_damaged()).problems == [str(words.NOT_EXCEL)]

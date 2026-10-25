@@ -3,16 +3,18 @@ findings only, by one model call with no tools.
 
 1. **Retrieval** (:func:`retrieve`) reads only the findings of the version shown, within the filters the
    person chose (``Filters.from_query(for_ask=True)``: never the search box's words). Codes in the question
-   ("Level A", "P2", "RQ3") narrow those filters; a Finding ID or a Document ID in it is read first (a
-   Document ID is sent as "this document": :func:`unsent`). Its
+   ("Level A", "P2", "RQ3") narrow those filters; a Finding ID or a Document ID in it (with a dash, or of the
+   shape of the version's Document IDs: :func:`document_shapes`) is read first (a Document ID is sent as
+   "this document": :func:`unsent`). All its
    words, with UK/US spellings and acronyms (:func:`neurodb.km.search.groups`), are looked for in each
    finding's own words only (``own_vector``: not its document's methods, population or titles, which every
    finding of a document shares). A finding is kept when it matches 2 of 3 or more groups of words, else all
    of them; the best matches come first, and an age group or girls and boys named in the question rank the
-   findings marked Yes for them first, without leaving others out. A short follow-up keeps the earlier
-   question's words and reads the findings the previous answer cited first. When fewer than 40 match, or the
-   question is not written in Latin letters, a small call asks for search words from the question alone (it
-   holds no data).
+   findings marked Yes for them first, without leaving others out; in a long question, those that match its
+   last clause first. A short follow-up keeps the earlier question's words and reads the findings the
+   previous answer cited first (its own words alone when nothing matches both). When fewer than 40 match,
+   or the question is not written in Latin letters, a small call asks for search words from the question
+   alone (it holds no data); when it finds the credit gone, no answer call follows.
 2. **The message** (:func:`prompt`) holds the cleaned question, the conversation's earlier turns, the filters
    in words, a legend of the pillars and research questions, and the findings read (at most 40, 6 a document
    and 60,000 characters): never an author, a Document ID, a link, a person's name
@@ -50,7 +52,7 @@ import markdown
 import nh3
 from django.conf import settings
 from django.contrib.postgres.search import SearchQuery, SearchRank
-from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When, Window
+from django.db.models import Case, F, Func, IntegerField, Q, QuerySet, Value, When, Window
 from django.db.models.functions import RowNumber
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -100,6 +102,7 @@ CUTS = {  # characters of each text sent
     "title": 250,
     "type": 80,
 }
+YEAR_CHARS = 40  # a year as given ("Not reported"), the most it holds
 USED_TEXT = 160  # characters of a key finding in the list under an answer
 USED_ENTITY = 120
 
@@ -111,13 +114,14 @@ QUESTION_STOP = frozenset(
     "why when where whom whose also more else other others them they these those its can could would should "
     "will there here between compare compared versus vs much many "
     # short words of English the search would look for in vain
-    "in on of to at by or an as is it be do if so no not we my me".split()
+    "in on of to at by or an as is it be do if so no not we my me you your us".split()
 )
 AGE_SEX = tuple(f for f in cols.FLAGS if f.group in (cols.AGE, cols.SEX))
 LEVEL = re.compile(r"\b[Ll]evel\s*(?:([A-D])\b|([a-d])\b(?!\s+[a-z]))")
 PILLAR = re.compile(r"\bP([1-9])\b")
 RQ = re.compile(r"\bRQ\s?(\d+)\b", re.IGNORECASE)
-ID_TOKEN = re.compile(r"(?<![\w.-])[A-Za-z0-9][A-Za-z0-9._-]{1,39}(?![\w-])")
+# a word that may be an ID: it ends on a letter or a digit ("TST-0002." is "TST-0002" and a full stop)
+ID_TOKEN = re.compile(r"(?<![\w.-])[A-Za-z0-9](?:[A-Za-z0-9._-]{0,38}[A-Za-z0-9])(?![\w-])")
 PLACEHOLDERS = (privacy.NAME_WITHHELD, privacy.EMAIL_WITHHELD, privacy.PHONE_WITHHELD, privacy.LINK_WITHHELD)
 PICK_FIELDS = (
     "finding_id",
@@ -275,17 +279,11 @@ def reason(user) -> tuple[str, str]:
     """Why no answer is written now (the sentence and its short code), or ("", ""): switched off, the AI
     resting (the credit pause), the KM Database's share of the day used, the shared day's budget used (100%: a
     person asks), the person's quota, or as many questions declined. With a reason, Ask lists the findings."""
-    from neurodb.fmm.ai import budget
-
     if not switched_on():
         return str(words.REASON_OFF), "off"
-    until = budget.paused_until()
-    if until is not None:
-        local = timezone.localtime(until)
-        shown = formats.time_format(local, "H:i")
-        if local.date() != timezone.localdate():
-            shown = formats.date_format(local, "j M, H:i")
-        return say(words.REASON_PAUSED, time=shown), "paused"
+    paused = paused_sentence()
+    if paused:
+        return paused, "paused"
     if usage.today_total(usage.KM) + TOKENS > settings.KM_DAILY_TOKEN_CAP:
         return str(words.REASON_SHARE), "km_share"
     if usage.today_total() + TOKENS > settings.AI_DAILY_TOKEN_SOFT_CAP:
@@ -296,6 +294,21 @@ def reason(user) -> tuple[str, str]:
     if declined_today(user) >= limit:
         return say(words.REASON_QUOTA, n=limit), "declined"
     return "", ""
+
+
+def paused_sentence() -> str:
+    """The sentence of the AI resting (the credit pause: "The AI is resting until 14:05 ..."), or "" when it
+    is not paused."""
+    from neurodb.fmm.ai import budget
+
+    until = budget.paused_until()
+    if until is None:
+        return ""
+    local = timezone.localtime(until)
+    shown = formats.time_format(local, "H:i")
+    if local.date() != timezone.localdate():
+        shown = formats.date_format(local, "j M, H:i")
+    return say(words.REASON_PAUSED, time=shown)
 
 
 def prune() -> int:
@@ -457,13 +470,31 @@ def codes(text: str, filters: Filters, found: dict[str, Any]) -> tuple[Filters, 
     return filters, used, left_out, text
 
 
+def _shapes_of(model, name: str) -> list[str]:
+    """The shapes of the IDs of ``model``'s field ``name`` as patterns, longest first, at most 20 (one
+    query: the database writes every digit "9", so that the IDs themselves are never read here)."""
+    digits = Func(F(name), Value("[0-9]"), Value("9"), Value("g"), function="regexp_replace")
+    found = model.objects.order_by().annotate(km_shape=digits).values_list("km_shape", flat=True).distinct()
+    shapes = {_shape(s) for s in found if search.looks_like_id(s)}
+    return sorted(shapes, key=len, reverse=True)[:20]
+
+
 def document_shapes() -> list[str]:
-    """The shapes of the version's Document IDs as patterns ("TST-0001": "TST-" and any digits), longest
-    first: only IDs with a letter, a digit and a dash, so that no number or word of a question is ever taken
-    for one (one query)."""
-    records = KMDocument.objects.order_by().values_list("record_id", flat=True).distinct()
-    found = {_shape(r) for r in records if search.is_id(r) and any(c.isalpha() for c in r)}
-    return sorted(found, key=len, reverse=True)[:20]
+    """The shapes of the version's Document IDs as patterns ("TST-0001": "TST-" and 4 digits; "ZQ0001": "ZQ"
+    and 4 digits): only IDs with a letter and a digit, so that no number or word of a question is ever
+    taken for one, and as many digits as the IDs hold, so that "PM2.5" or "PM10" never is (one query)."""
+    return _shapes_of(KMDocument, "record_id")
+
+
+def finding_shapes() -> list[str]:
+    """The shapes of the version's Finding IDs ("TST-0001-F00001"), as :func:`document_shapes` (one
+    query)."""
+    return _shapes_of(KMFinding, "finding_id")
+
+
+def _shaped(shapes: list[str] | tuple[str, ...]) -> str:
+    """One pattern of ``shapes``: a whole word, never the start of a decimal ("PM2.5")."""
+    return rf"(?<![\w.-])(?:{'|'.join(shapes)})(?![\w-]|\.\d)"
 
 
 def unsent(text: str, shapes: list[str], document: str = "") -> str:
@@ -472,7 +503,7 @@ def unsent(text: str, shapes: list[str], document: str = "") -> str:
     else "a document". A Finding ID ("TST-0001-F00001") stays."""
     if not text or not shapes:
         return text
-    pattern = re.compile(rf"(?<![\w.-])(?:{'|'.join(shapes)})(?![\w-])", re.IGNORECASE)
+    pattern = re.compile(_shaped(shapes), re.IGNORECASE)
 
     def one(match: re.Match) -> str:
         return (
@@ -482,11 +513,19 @@ def unsent(text: str, shapes: list[str], document: str = "") -> str:
     return pattern.sub(one, text)
 
 
-def _by_ids(text: str, base: QuerySet) -> tuple[list[KMFinding], str, str]:
+def _by_ids(
+    text: str, base: QuerySet, shapes: list[str] | tuple[str, ...] = ()
+) -> tuple[list[KMFinding], str, str]:
     """The findings the Finding IDs of the question name, within the filters, in the question's order; the
     first Document ID it names (of a document with findings within the filters); and the text without those
-    IDs. One query, and one more for Document IDs."""
-    tokens = [t for t in dict.fromkeys(ID_TOKEN.findall(text)) if search.is_id(t)][:10]
+    IDs. A word is looked up when it has a letter, a digit and a dash, or the shape of one of the version's
+    Document IDs (``shapes``: "ZQ0002"). One query, and one more for Document IDs."""
+    shaped = re.compile(rf"(?:{'|'.join(shapes)})", re.IGNORECASE) if shapes else None
+    tokens = [
+        t
+        for t in dict.fromkeys(ID_TOKEN.findall(text))
+        if search.is_id(t) or (shaped is not None and shaped.fullmatch(t))
+    ][:10]
     if not tokens:
         return [], "", text
     by_finding = reduce(or_, [Q(finding_id__iexact=t) for t in tokens])
@@ -550,11 +589,19 @@ def _ones(conditions: list[Q]) -> Any:
 
 
 def quorum(
-    qs: QuerySet, found_groups: list[list[str]], boost: list[str], *, current: int = 0, loose: bool = False
+    qs: QuerySet,
+    found_groups: list[list[str]],
+    boost: list[str],
+    *,
+    current: int = 0,
+    loose: bool = False,
+    topic: int = 0,
 ) -> tuple[QuerySet, list]:
     """The findings of ``qs`` that match enough groups in their own words, with their order: matching 2 groups
     when there are 3 or more, else every group (``loose``: one). ``current``: in a follow-up, the first groups
-    are the question's own, and a finding must match one of them. The order: the groups matched, the boosted
+    are the question's own, and a finding must match one of them. ``topic``: in a long question, the first
+    groups are its last clause's (its topic), and the findings that match more of them come first. The
+    order: the topic's groups matched, the groups matched, the boosted
     marks, the rank in the finding's own words, then in all its texts (its document's methods, population and
     titles only break ties), the confidence level (only once Level A is confirmed the strongest), the newest
     year, the workbook's order."""
@@ -572,6 +619,9 @@ def quorum(
         km_all=SearchRank(F("search_vector"), reduce(or_, [search.group_query(g) for g in found_groups])),
     )
     order: list = [F("km_matched").desc(), F("km_boost").desc(), F("km_own").desc(), F("km_all").desc()]
+    if topic:
+        qs = qs.annotate(km_topic=_ones(hits[:topic]))
+        order.insert(0, F("km_topic").desc())
     if cols.CONFIDENCE_A_STRONGEST:
         qs = qs.annotate(km_level=Case(When(confidence="", then=Value(1)), default=Value(0)))
         order += [F("km_level").asc(), F("confidence").asc()]
@@ -591,6 +641,27 @@ def _top(qs: QuerySet, order, cap: int, limit: int) -> list[KMFinding]:
     return list(qs.order_by(*order)[:limit])
 
 
+TOPIC_AFTER = 8  # a question of more groups than this ranks its last clause's findings first
+# where a long question's topic starts: after a sentence, or after a comma before a request ("For our review
+# next month, could you summarise what the studies found on measles?")
+_LEAD_IN = re.compile(
+    r"[.!?;:]\s+|,\s*(?=(?:could|can|would|please|what|which|how|tell|summari[sz]e|give|list|show|explain|"
+    r"describe)\b)",
+    re.IGNORECASE,
+)
+
+
+def _groups(text: str) -> list[list[str]]:
+    """A question's groups of words: all its characters read, its common words left out first."""
+    return search.groups(text, QUESTION_STOP, limit=QUESTION_CHARS, most=search.GROUPS_ASKED)
+
+
+def _topic(text: str) -> str:
+    """The last clause of a question (:data:`_LEAD_IN`) that holds a word."""
+    parts = [p for p in _LEAD_IN.split(text or "") if re.search(r"[^\W\d_]", p)]
+    return parts[-1] if parts else ""
+
+
 def _term_groups(terms: list[str], known: list[list[str]]) -> list[list[str]]:
     """Each suggested search word as a group, with its variants; words already searched are left out."""
     found: list[list[str]] = []
@@ -605,12 +676,13 @@ def _clean_terms(raw: Any) -> list[str]:
     """The suggested search words worth searching: short, plain, not only common words."""
     stop = search.STOP | search.KM_STOP | QUESTION_STOP
     found = []
-    for term in raw if isinstance(raw, list) else []:
-        if not isinstance(term, str):
+    for raw_term in raw if isinstance(raw, list) else []:
+        if not isinstance(raw_term, str):
             continue
-        term = " ".join(re.sub(r"[^\w\s'’-]", " ", term.casefold()).split())[:60]
-        if term and not all(w in stop for w in re.findall(r"\w+", term)) and term not in found:
-            found.append(term)
+        for term in raw_term.split("/"):  # "girls/boys": two words
+            term = " ".join(re.sub(r"[^\w\s'’-]", " ", term.casefold()).split())[:60]
+            if term and not all(w in stop for w in re.findall(r"\w+", term)) and term not in found:
+                found.append(term)
     return found[:TERMS_MAX]
 
 
@@ -622,9 +694,11 @@ def suggest(
     result). Its failure is silent: the question's own words are searched."""
     from neurodb.fmm.ai import budget
 
-    text = f"Question: {question}"
+    text = f"Question: {privacy.any_case(question, people)}"
     if earlier:
-        text += "\n\nEarlier questions of this conversation:\n" + "\n".join(f"- {q}" for q in earlier)
+        text += "\n\nEarlier questions of this conversation:\n" + "\n".join(
+            f"- {privacy.any_case(q, people)}" for q in earlier
+        )
     if privacy.leftover(text, people):
         return [], [], None
     request = llm.Request(
@@ -639,9 +713,9 @@ def suggest(
     )
     try:
         result = llm.connect(TERMS_TIMEOUT, 0).complete(request)
-    except Exception as exc:  # silent: the question's own words are searched
-        budget.trip(exc)
-        logger.warning("KM Database search words: %s", type(exc).__name__)
+    except Exception as exc:  # silent: the question's own words are searched (the credit ran out: paused)
+        paused = budget.trip(exc)
+        logger.warning("KM Database search words: %s%s", type(exc).__name__, " (AI paused)" if paused else "")
         return [], [], None
     llm.record(usage.KM, result.model, result)
     parsed = result.parsed if isinstance(result.parsed, dict) else {}
@@ -669,29 +743,42 @@ def retrieve(
     text = _searchable(typed)
     scope, used, left_out, text = codes(text, filters, found)
     base = scope.apply(KMFinding.objects.all())
-    first, document, text = _by_ids(text, base)
+    shapes = list(shapes)
+    first, document, text = _by_ids(text, base, shapes)
     if document and document != scope.document:  # a Document ID: its findings, ranked by the words
         scope = replace(scope, document=document)
         base = scope.apply(KMFinding.objects.all())
         used.append(f"{words.DOCUMENT_ID} {document}")
     follow_up = bool(earlier) and len(typed.split()) < FOLLOW_UP_WORDS
-    current = search.groups(text, QUESTION_STOP)
+    current = _groups(text)
+    topic = 0
+    if not follow_up and len(current) > TOPIC_AFTER:  # a long question: its last clause ranks first
+        ending = [g for g in _groups(_topic(text)) if g in current]
+        if ending and len(ending) < len(current):
+            current = ending + [g for g in current if g not in ending]
+            topic = len(ending)
     all_groups = list(current)
     boost = boosted(text)
     if follow_up:
         before = _searchable(earlier[-1]["question"])
-        all_groups += [g for g in search.groups(before, QUESTION_STOP) if g not in all_groups]
+        all_groups += [g for g in _groups(before) if g not in all_groups]
         boost += [b for b in boosted(before) if b not in boost]
         first += [f for f in _carried(earlier[-1].get("cited") or [], base) if f not in first]
     cap = MAX_FINDINGS if scope.document else MAX_PER_DOCUMENT
-    shapes = list(shapes)
     asked = unsent(cleaned or typed, shapes, scope.document)
     picked = Picked(codes=used, left_out=left_out, groups=all_groups, filters=scope, question=asked)
     passes: list[list[KMFinding]] = []
     if all_groups:
-        qs, order = quorum(base, all_groups, boost, current=len(current) if follow_up and current else 0)
+        qs, order = quorum(
+            base, all_groups, boost, current=len(current) if follow_up and current else 0, topic=topic
+        )
         picked.matched = qs.count()
         passes.append(_top(qs, order, cap, MAX_FINDINGS))
+        if follow_up and current and len(current) < len(all_groups) and not picked.matched:
+            # no finding joins the follow-up to the earlier topic: a new topic, searched by its own words
+            qs, order = quorum(base, current, boost)
+            picked.matched = qs.count()
+            passes.append(_top(qs, order, cap, MAX_FINDINGS))
         wants_more = picked.matched < MAX_FINDINGS or not_latin(typed)
         if may_call and wants_more and remaining() >= TIME_LIMIT - TERMS_SKIP_AFTER:
             earlier_questions = [unsent(t["question"], shapes) for t in earlier]
@@ -784,18 +871,18 @@ def prompt(
     questions = _questions(found)
     pillars = dict(found.get("pillars", ()))
 
-    def clean(text: str, size: int, document: int | None = None) -> str:
+    def clean(text: str, size: int, document: str | None = None) -> str:
         own = people.own.get(document, frozenset()) if document is not None else frozenset()
         return _esc(_cut(privacy.for_ai(text or "", people, own), size))
 
-    def attr(text: str, size: int, document: int | None = None) -> str:
+    def attr(text: str, size: int, document: str | None = None) -> str:
         own = people.own.get(document, frozenset()) if document is not None else frozenset()
         return _attr(_cut(privacy.for_ai(text or "", people, own), size))
 
     # each finding's lines, cleaned once
     lines: dict[int, dict[str, str]] = {}
     for f in picked.findings:
-        d = f.document_id
+        d = f.record_id
         lines[f.pk] = {
             "key_finding": clean(f.key_finding, CUTS["key_finding"], d),
             "measure": clean(f.measure, CUTS["measure"], d),
@@ -812,10 +899,10 @@ def prompt(
         if doc.pk not in heads:
             kind = "" if (doc.checks and TYPE_HEADER in doc.checks) else doc.study_type
             heads[doc.pk] = (
-                f'<document year="{_attr(_year(doc.year, doc.year_text))}" '
-                f'type="{attr(kind, CUTS["type"], doc.pk) or "not given"}" '
+                f'<document year="{attr(_year(doc.year, doc.year_text), YEAR_CHARS, doc.record_id)}" '
+                f'type="{attr(kind, CUTS["type"], doc.record_id) or "not given"}" '
                 f'confidence="{_level(doc.confidence)}">\n'
-                f"Title: {clean(doc.title, CUTS['title'], doc.pk)}"
+                f"Title: {clean(doc.title, CUTS['title'], doc.record_id)}"
             )
         return heads[doc.pk]
 
@@ -829,7 +916,7 @@ def prompt(
         attrs.append(f'confidence="{_level(f.confidence)}"')
         attrs.append(f'quality="{"marked for review" if f.needs_review else "ready"}"')
         if f.year != f.document.year or (f.year is None and f.year_text != f.document.year_text):
-            attrs.append(f'year="{_attr(_year(f.year, f.year_text))}"')
+            attrs.append(f'year="{attr(_year(f.year, f.year_text), YEAR_CHARS, f.record_id)}"')
         if about:
             attrs.append(f'about="{_attr(about)}"')
         body = [f"<finding {' '.join(attrs)}>", f"Key finding: {own['key_finding']}"]
@@ -864,12 +951,17 @@ def prompt(
             out.append((document, [f.finding_id for f in found_], "\n".join(parts)))
         return out
 
-    question_line = f"Question: {_esc(question)}"
+    # the questions were cleaned when they were asked (privacy.clean_question): checked again for a surname
+    # in any case, which a question kept before that rule may hold
+    question_line = f"Question: {_esc(privacy.any_case(question, people))}"
     turns = []
     for turn in earlier[-HISTORY_TURNS:]:
         answer = _cut(privacy.for_ai(turn.get("answer") or "", people), HISTORY_ANSWER_CHARS)
-        turns.append(f"Q: {_esc(privacy.for_ai(turn.get('question') or '', people))}\nA: {_esc(answer)}")
+        asked = privacy.any_case(privacy.for_ai(turn.get("question") or "", people), people)
+        turns.append(f"Q: {_esc(asked)}\nA: {_esc(answer)}")
     earlier_part = ("Earlier in this conversation (for context only):\n" + "\n".join(turns)) if turns else ""
+    if filters.type:  # a type is the workbook's text: cleaned as a typed question is (every KM surname)
+        filters = replace(filters, type=[privacy.typed_for_ai(t, people) for t in filters.type])
     in_words = [privacy.for_ai(part, people) for part in scope_parts(filters, found)]
     filters_line = f"Filters the person chose on the page: {_esc('; '.join(in_words)) or 'none'}"
 
@@ -937,9 +1029,12 @@ ANSWER_TAGS = {"p", "br", "strong", "em", "code", "ul", "ol", "li", "a", "blockq
 
 
 def _shape(identifier: str) -> str:
-    """An ID's shape as a pattern: each run of digits any digits, letters and signs as written."""
+    """An ID's shape as a pattern: each run of digits as many digits ("PM0001": "PM" and 4 digits, never
+    "PM10"), letters and signs as written."""
     return "".join(
-        r"\d+" if part.isdigit() else re.escape(part) for part in re.split(r"(\d+)", identifier) if part
+        rf"\d{{{len(part)}}}" if part.isdigit() else re.escape(part)
+        for part in re.split(r"(\d+)", identifier)
+        if part
     )
 
 
@@ -1009,22 +1104,25 @@ def finish(
     people: privacy.People,
     own: frozenset[str] = frozenset(),
     documents: list[str] | tuple[str, ...] = (),
+    shapes: list[str] | tuple[str, ...] = (),
 ) -> Checked:
     """The model's answer checked (see the module's notes, step 3). ``sent``: the Finding IDs read;
-    ``documents``: their Document IDs (an ID of that shape is taken out too); ``own``: the surnames of the
-    read documents' own authors."""
+    ``documents``: their Document IDs; ``shapes``: the shapes of the version's Document IDs and Finding IDs
+    (:func:`document_shapes`, :func:`finding_shapes`). An ID of any of those shapes that was not read is taken
+    out and counted; a figure such as "PM2.5" or "PM10" never is. ``own``: the surnames of the read
+    documents' own authors."""
     text = privacy.for_ai(answer or "", people, own)
     if privacy.leftover(text, people):
         return Checked(withheld=True)
     text = text.replace("](", "] (")
     text = MODEL_TARGET.sub("]", text)  # the address of the model's own link: its text stays
     text = REF_DEFINITION.sub("", text)
-    shapes = sorted({_shape(i) for i in (*sent, *documents)}, key=len, reverse=True)
+    shapes = sorted({_shape(i) for i in (*sent, *documents)} | set(shapes), key=len, reverse=True)
     canonical = {i.casefold(): i for i in sent}
     cited: list[str] = []
     removed = 0
     if shapes:
-        one = rf"(?<![\w-])(?:{'|'.join(shapes)})(?![\w-])"
+        one = rf"(?<![\w-])(?:{'|'.join(shapes)})(?![\w-]|\.\d)"
         between = r"(?:\s*[,;/&]\s*|\s+and\s+|\s+)"
         pattern = re.compile(
             rf"(?P<group>[\[(]\s*{one}(?:{between}{one})*\s*[\])])|(?P<id>{one})", re.IGNORECASE
@@ -1086,7 +1184,7 @@ def used_html(
     for f in shown:
         doc = f.document
         text = cut(f.key_finding, USED_TEXT)
-        paper = printed(f.key_finding, people, doc.pk)
+        paper = printed(f.key_finding, people, doc.record_id)
         lines.append(
             {
                 "id": f.finding_id,
@@ -1095,7 +1193,7 @@ def used_html(
                 "text": text,
                 "paper": cut(paper, USED_TEXT) if paper else "",
                 "title": doc.title,
-                "paper_title": printed(doc.title, people, doc.pk),
+                "paper_title": printed(doc.title, people, doc.record_id),
                 "entity": cut(f.entity or doc.entity, USED_ENTITY),
                 "year": _year(f.year, f.year_text) if f.year is not None or f.year_text else "—",
                 "pill": confidence_pill(f),
@@ -1216,6 +1314,7 @@ def stream(
         yield _sse(_tool(words.STEP_SEARCHING))
         _known, people = authors.context(version)
         shapes = document_shapes()
+        known_shapes = [*shapes, *finding_shapes()]
         picked = retrieve(
             typed,
             turns,
@@ -1248,6 +1347,11 @@ def stream(
 
         if why:
             yield listed(why)
+            return
+        paused = paused_sentence()
+        if paused:  # the search-words call found the credit ran out (or another call did meanwhile)
+            row.status, row.error = S.LIMITED, "paused"
+            yield listed(paused)
             return
         # no Document ID in the question or the earlier ones (the row keeps the question as typed, cleaned)
         earlier = [{**turn, "question": unsent(turn.get("question") or "", shapes)} for turn in turns]
@@ -1308,9 +1412,9 @@ def stream(
         covered = parsed.get("covered") if parsed.get("covered") in ("yes", "partly", "no") else ""
         sent = set(message.sent)
         read = [f for f in picked.findings if f.finding_id in sent]
-        own = frozenset().union(*(people.own.get(f.document_id, frozenset()) for f in read))
+        own = frozenset().union(*(people.own.get(f.record_id, frozenset()) for f in read))
         documents = sorted({f.record_id for f in read})
-        checked = finish(answer, message.sent, version, people, own, documents)
+        checked = finish(answer, message.sent, version, people, own, documents, known_shapes)
         if checked.withheld:
             row.status, row.error = S.FAILED, "answer kept back: a name remained"
             yield listed(words.ANSWER_KEPT_BACK)

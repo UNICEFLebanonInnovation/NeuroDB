@@ -140,8 +140,9 @@ def cut(text: str, size: int) -> str:
 # ------------------------------------------------------------------------------------------- printouts
 # A printout follows the download rule: a text the download writes otherwise (a name withheld) is shown as
 # the workbook gives it on screen, and as the download writes it on paper (d-print-none / d-print-*).
-def printed(text: str, people: privacy.People, document: int | None) -> str:
-    """``text`` as a printout shows it (as a download writes it), or "" when that is ``text`` itself."""
+def printed(text: str, people: privacy.People, document: str | None) -> str:
+    """``text`` as a printout shows it (as a download writes it, with the own authors of ``document``, its
+    Document ID), or "" when that is ``text`` itself."""
     if not text or not isinstance(text, str) or isinstance(text, SafeData):
         return ""
     own = people.own.get(document, frozenset()) if document is not None else frozenset()
@@ -158,7 +159,7 @@ def screen_and_paper(text: str, paper: str):
     )
 
 
-def _paper_rows(rows: list[dict[str, Any]], people: privacy.People, document: int) -> None:
+def _paper_rows(rows: list[dict[str, Any]], people: privacy.People, document: str) -> None:
     """Each text line of a detail page with its printed copy (``printed``, and ``differs_printed`` for its
     note), when the download writes it otherwise. The authors' lines have their own (screen, paper)."""
     for r in rows:
@@ -345,8 +346,8 @@ def _findings_page(request: HttpRequest, qs, filters: Filters, how: str, people:
         row.shown = search.highlight(shown, marked)
         row.rest = search.highlight(rest, marked) if rest else ""
         row.pill = confidence_pill(row)
-        row.paper = printed(row.key_finding, people, row.document_id)
-        row.paper_title = printed(row.document_title_shown, people, row.document_id)
+        row.paper = printed(row.key_finding, people, row.record_id)
+        row.paper_title = printed(row.document_title_shown, people, row.record_id)
     return page
 
 
@@ -402,8 +403,8 @@ def documents(request: HttpRequest) -> HttpResponse:
                 row.findings_of = say(
                     words.OF_ALL, total=formats.number_format(row.findings_all, force_grouping=True)
                 )
-            row.paper_title = printed(row.title, people, row.pk)
-            row.paper_type = printed(row.study_type, people, row.pk)
+            row.paper_title = printed(row.title, people, row.record_id)
+            row.paper_type = printed(row.study_type, people, row.record_id)
         context.update(
             page_obj=page,
             count_label=count_line(page.paginator.count, version.documents_count, filters, words.DOCUMENTS_N),
@@ -596,9 +597,10 @@ def finding(request: HttpRequest, finding_id: str) -> HttpResponse:
     all_url = f"{reverse('km:index')}?document={doc.record_id}"
     groups = _groups(row, doc, print_authors)
     for group in groups:
-        _paper_rows([*group["rows"], *group["after"]], people, doc.pk)
+        _paper_rows([*group["rows"], *group["after"]], people, doc.record_id)
     crumb = cut(doc.title or doc.record_id, 60)
-    paper_title = printed(doc.title, people, doc.pk)
+    paper_title = printed(doc.title, people, doc.record_id)
+    pill = confidence_pill(row)  # next to the key finding, as in the table
     context = {
         "page_title": words.FINDING_HEADING,
         "page_subtitle": row.finding_id,
@@ -617,9 +619,12 @@ def finding(request: HttpRequest, finding_id: str) -> HttpResponse:
         ],
         "header_include": "km/_print_button.html",
         "finding": row,
+        "pill": pill,
+        # "Check this value" once: the confidence level's pill says it already when the level is the value
+        "check_pill": bool(row.checks) and pill["label"] != str(words.CHECK_PILL),
         "document": doc,
         "groups": groups,
-        "lead_paper": printed(row.key_finding, people, doc.pk),
+        "lead_paper": printed(row.key_finding, people, doc.record_id),
         "older": say(words.OLDER_VERSION, label=older.label()) if older else "",
         "document_url": document_url,
         "all_url": all_url,
@@ -676,9 +681,9 @@ def document(request: HttpRequest, record_id: str) -> HttpResponse:
         _row(words.LINK, _link(doc.link)),
     ]
     rows = [r for r in rows if r]
-    _paper_rows(rows, people, doc.pk)
+    _paper_rows(rows, people, doc.record_id)
     context = {
-        "page_title": screen_and_paper(doc.title or doc.record_id, printed(doc.title, people, doc.pk)),
+        "page_title": screen_and_paper(doc.title or doc.record_id, printed(doc.title, people, doc.record_id)),
         "page_subtitle": doc.record_id,
         "breadcrumbs": [
             {"label": words.PAGE_TITLE, "url": reverse("km:index")},
@@ -693,6 +698,8 @@ def document(request: HttpRequest, record_id: str) -> HttpResponse:
         "rows": rows,
         "page_obj": page,
         "count_label": count_line(page.paginator.count, None, filters, words.FINDINGS_N),
+        "empty_title": words.NO_FINDINGS_FOR_DOCUMENT,  # a document page has no search box or filter
+        "empty_icon": "evidence",
         "table_url": table_url,
         "results_id": "km-document-findings",
         "downloads": _downloads(reverse("km:index"), QueryDict(f"document={doc.record_id}")),

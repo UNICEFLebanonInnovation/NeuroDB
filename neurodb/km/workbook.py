@@ -114,17 +114,14 @@ def check_layout(wb, *, rows: bool = True) -> Checked:
         kind = cols.sheet_kind(title)
         if kind:
             found[kind].append(title)
+    sheet_problems = []
     for kind in (cols.DOCUMENTS, cols.FINDINGS):
         if not found[kind]:
-            checked.problems += [
-                say(words.NO_SHEET, last=LAST_WORDS[kind]),
-                say(words.SHEETS_ARE, sheets=", ".join(titles)),
-            ]
+            sheet_problems.append(say(words.NO_SHEET, last=LAST_WORDS[kind]))
         elif len(found[kind]) > 1:
-            checked.problems += [
-                say(words.TWO_SHEETS, last=LAST_WORDS[kind]),
-                say(words.SHEETS_ARE, sheets=", ".join(titles)),
-            ]
+            sheet_problems.append(say(words.TWO_SHEETS, last=LAST_WORDS[kind]))
+    if sheet_problems:  # the workbook's sheets, said once after them
+        checked.problems += [*sheet_problems, say(words.SHEETS_ARE, sheets=", ".join(titles))]
     checked.read_me = found[cols.READ_ME][0] if found[cols.READ_ME] else ""
     if checked.problems:
         return checked
@@ -225,6 +222,9 @@ def check_upload(data: bytes, name: str, size: int | None = None) -> Checked:
         return checked
     try:
         return check_layout(wb)
+    except Exception:  # noqa: BLE001 - a sheet is read only here: a damaged one is a file openpyxl cannot open
+        checked.problems = [str(words.NOT_EXCEL)]
+        return checked
     finally:
         wb.close()
 

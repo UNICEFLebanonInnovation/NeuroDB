@@ -472,12 +472,15 @@ async function startModule(el) {
 // when it is clicked: a filter bar driven by HTMX changes the address, not the links drawn with the page.
 // The attribute's value is added after the filter ("export=csv"); the page's own keys (tab, page...) are not,
 // nor the keys of data-drop-query ("document": the KM Database's Documents tab has no document filter).
+// An address with no query is the first load (the link already carries the filter shown: a default section),
+// except for a link with data-follow-empty (the KM Database's tabs, which have no default filter): there it
+// is a filter cleared, and the link follows it.
 const PAGE_ONLY_KEYS = ["tab", "page", "sort", "places", "entity_kind", "entity_all", "rule_trends", "pd_scope", "visit", "_part", "_eager"];
 function followQuery(event) {
   const link = event.target.closest?.("a[data-current-query]");
   if (!link) return;
   const params = new URLSearchParams(window.location.search);
-  if (!params.size) return; // the first load: the link already carries the filter shown (a default section)
+  if (!params.size && !("followEmpty" in link.dataset)) return; // the first load (see above)
   PAGE_ONLY_KEYS.forEach((key) => params.delete(key));
   (link.dataset.dropQuery || "").split(" ").filter(Boolean).forEach((key) => params.delete(key));
   for (const [key, value] of new URLSearchParams(link.dataset.currentQuery || "")) params.set(key, value);

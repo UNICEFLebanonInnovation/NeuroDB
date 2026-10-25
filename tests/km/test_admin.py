@@ -303,6 +303,7 @@ def test_its_migration_is_listed_as_quick():
     assert ("km", "0001_initial", "CreateModel") in QUICK_MIGRATIONS
     assert ("km", "0002_organisation", "CreateModel") in QUICK_MIGRATIONS
     assert ("km", "0003_question", "CreateModel") in QUICK_MIGRATIONS
+    assert ("km", "0004_ordinary_words", "AddField") in QUICK_MIGRATIONS
 
 
 def test_problem_lines_are_escaped():
@@ -346,7 +347,7 @@ def test_count_as_a_person_changes_the_downloads_at_once(client_super, superuser
     assert "Fakeorg University" not in body and "Authors: 1" in body
     client_super.post(review, {"name": "Fakeorg University", "kind": "words"})
     assert KMOrganisation.objects.get().kind == "words"  # the same row, its kind changed
-    client_super.post(review, {"name": "Fakeorg Agency", "kind": "organisation"})  # not a review kind
+    client_super.post(review, {"name": "Fakeorg Agency", "kind": "bogus"})  # not a kind
     assert KMOrganisation.objects.count() == 1
     assert client_super.get(review).status_code == 302  # a POST only
 
@@ -427,3 +428,45 @@ def test_the_questions_admin_is_read_only_for_those_who_set_up(client_super, cli
     assert client.get(reverse("admin:km_kmquestion_changelist")).status_code == 200
     client.force_login(_person("km-viewer-q", VIEWER))
     assert client.get(reverse("admin:km_kmquestion_changelist")).status_code in (302, 403)
+
+
+# ------------------------------------------------------------------------------- the review's checks
+def test_a_string_named_as_an_organisation_can_be_left_out(client_super):
+    edits = {("documents", 3, "Publishing Entity / Authors"): "Fakeorg Agency; Fakeorg Report Annex"}
+    shown = factory.load(factory.workbook(edits=edits))
+    named = _version_page(client_super, shown).split("data-km-named", 1)[1].split("</details>", 1)[0]
+    assert named.count(">Not an organisation (leave it out)</button>") == named.count(
+        ">Count as a person</button>"
+    )
+    assert "press “Not an organisation”: downloads leave it out." in named
+    review = reverse("admin:km_kmversion_review", args=[shown.pk])
+    client_super.post(review, {"name": "Fakeorg Report Annex", "kind": "words"})
+    assert KMOrganisation.objects.get().kind == "words"
+    body = b"".join(client_super.get(reverse("km:documents"), {"export": "csv"}).streaming_content).decode()
+    assert "Fakeorg Report Annex" not in body and "Fakeorg Agency" in body
+
+
+def test_entries_the_texts_also_write_as_words_are_listed_with_two_buttons(client_super):
+    edits = {("documents", 2, "Publishing Entity / Authors"): "Fakeorg Institute; Fakeword; Jane Fakewing"}
+    edits |= {("findings", n, "Finding Analysis"): "The fakeword and fakewing approach." for n in range(2, 8)}
+    shown = factory.load(factory.workbook(documents=1, findings=6, edits=edits))
+    html = _version_page(client_super, shown)
+    assert "2 author entries look like words, not names: check them on this page." in html
+    listed = html.split("data-km-words", 1)[1].split("</details>", 1)[0]
+    assert "<span>Fakeword</span>" in listed and "<span>Jane Fakewing</span>" in listed
+    assert (
+        listed.count(">Not a name</button>") == 2 and listed.count(">Count as an organisation</button>") == 2
+    )
+    review = reverse("admin:km_kmversion_review", args=[shown.pk])
+    client_super.post(review, {"name": "Fakeword", "kind": "organisation"})
+    assert KMOrganisation.objects.get().kind == "organisation"
+    listed = _version_page(client_super, shown).split("data-km-words", 1)[1].split("</details>", 1)[0]
+    assert "<span>Fakeword</span>" not in listed and "<span>Jane Fakewing</span>" in listed
+
+
+def test_the_upload_page_refuses_a_damaged_sheet_plainly(client_super):
+    from tests.km.test_workbook import _damaged
+
+    html = _upload(client_super, _damaged()).content.decode()
+    assert "This file is not an Excel workbook NeuroDB can open." in html
+    assert not KMVersion.objects.exists()

@@ -190,15 +190,16 @@ class KMVersionAdmin(ModelAdmin):
         return super().change_view(request, object_id, form_url, extra)
 
     def review_view(self, request, pk: int):
-        """The version page's review buttons (POST): **Count as a person** and **Not a name** list an author
-        entry under Organisations named in downloads. The entry travels in the POST body, never in a URL."""
+        """The version page's review buttons (POST): **Count as a person**, **Not an organisation**, **Not a
+        name** and **Count as an organisation** list an author entry under Organisations named in downloads.
+        The entry travels in the POST body, never in a URL."""
         if not can_set_up(request.user):
             raise PermissionDenied
         if request.method != "POST":
             return redirect("admin:km_kmversion_change", pk)
         name = " ".join((request.POST.get("name") or "").split())[:200]
         kind = request.POST.get("kind")
-        if name and kind in (KMOrganisation.Kind.PERSON, KMOrganisation.Kind.WORDS):
+        if name and kind in KMOrganisation.Kind.values:
             row = KMOrganisation.objects.filter(folded=authors.fold(name)[:200]).first() or KMOrganisation(
                 name=name, added_by=request.user
             )
@@ -325,12 +326,13 @@ def summary_line(summary: dict) -> str:
 
 def review_list(version: KMVersion) -> dict:
     """What the uploader reviews on the page of the version shown: how downloads show the documents'
-    authors, every string they name as an organisation (each with **Count as a person**) and the author
-    entries that look like ordinary words (each with **Not a name**). Computed when the page is viewed."""
+    authors, every string they name as an organisation (each with **Count as a person** and **Not an
+    organisation**) and the author entries that look like ordinary words (each with **Not a name** and
+    **Count as an organisation**). Computed when the page is viewed."""
     known, people = authors.context(version)
     summary = authors.summary(known, people)
     named = authors.named_organisations(known, people)
-    looks = authors.look_like_words(known, people)
+    looks = authors.look_like_words(known, people.ordinary)
     return {
         "download_summary": summary_line(summary),
         "named_organisations": named,
@@ -340,6 +342,7 @@ def review_list(version: KMVersion) -> dict:
         "review_url": reverse("admin:km_kmversion_review", args=[version.pk]),
         "kind_person": KMOrganisation.Kind.PERSON,
         "kind_words": KMOrganisation.Kind.WORDS,
+        "kind_organisation": KMOrganisation.Kind.ORGANISATION,
     }
 
 

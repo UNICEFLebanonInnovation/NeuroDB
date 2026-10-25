@@ -1,7 +1,8 @@
 {% load i18n humanize %}{% comment %}
   The top of every tab of the KM Database (km.views._page): the purpose, the version line, the loading line,
   the empty state when no version is shown, and the tabs (each keeps the filter, data-current-query follows the
-  address bar; data-drop-query leaves out what that tab does not read).
+  address bar, data-follow-empty also when it has no query: a filter cleared; data-drop-query leaves out what
+  that tab does not read).
 {% endcomment %}<p class="page-purpose">{{ words.PURPOSE }}</p>
 {% if version %}
 <p class="km-version" data-km-version>{{ version_line }}</p>
@@ -21,6 +22,6 @@
 </section>
 {% else %}
 <nav class="segmented segmented--scroll mb-3 km-tabs" aria-label="{% trans 'KM Database views' %}">
-  {% for t in tabs %}<a href="{{ t.url }}" data-current-query=""{% if t.drop %} data-drop-query="{{ t.drop }}"{% endif %}{% if t.key == tab %} aria-current="page"{% endif %}>{% if t.short %}<span class="d-md-none">{{ t.short }}</span><span class="d-none d-md-inline">{{ t.label }}</span>{% else %}{{ t.label }}{% endif %}{% if t.count is not None %} <span class="km-tabs__count">({{ t.count|intcomma }})</span>{% endif %}</a>{% endfor %}
+  {% for t in tabs %}<a href="{{ t.url }}" data-current-query=""{% if t.drop %} data-drop-query="{{ t.drop }}"{% endif %} data-follow-empty{% if t.key == tab %} aria-current="page"{% endif %}>{% if t.short %}<span class="d-md-none">{{ t.short }}</span><span class="d-none d-md-inline">{{ t.label }}</span>{% else %}{{ t.label }}{% endif %}{% if t.count is not None %} <span class="km-tabs__count">({{ t.count|intcomma }})</span>{% endif %}</a>{% endfor %}
 </nav>
 {% endif %}

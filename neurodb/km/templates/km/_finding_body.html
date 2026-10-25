@@ -3,7 +3,7 @@ each line left out when the workbook leaves it empty. The authors are shown on s
 them; a printout shows the organisations only, and the texts with names withheld, as a download does.{% endcomment %}
 {% if older %}<p class="km-note km-older small" role="status">{% include "components/icon.html" with name="info" %} {{ older }}</p>{% endif %}
 <p class="km-lead"><span class="visually-hidden">{% trans "Key finding" %}: </span>{% include "km/partials/_printed.html" with text=finding.key_finding paper=lead_paper %}</p>
-<p class="km-meta-line small">{% include "km/partials/_pill.html" with pill=pill %}{% if finding.needs_review %} <span class="pill pill--sm pill--info">{{ words.REVIEW_PILL }}</span>{% endif %}{% if finding.checks %} <span class="pill pill--sm pill--warning" title="{{ words.CHECK_TITLE }}">{{ words.CHECK_PILL }}</span>{% endif %}</p>
+<p class="km-meta-line small">{% include "km/partials/_pill.html" with pill=pill %}{% if finding.needs_review %} <span class="pill pill--sm pill--info">{{ words.REVIEW_PILL }}</span>{% endif %}{% if check_pill %} <span class="pill pill--sm pill--warning" title="{{ words.CHECK_TITLE }}">{{ words.CHECK_PILL }}</span>{% endif %}</p>
 <p class="km-empty-note small">{{ words.EMPTY_LEFT_OUT }}</p>
 {% for g in groups %}{% if g.rows or g.yes or g.others or g.after %}
 <section class="km-group">

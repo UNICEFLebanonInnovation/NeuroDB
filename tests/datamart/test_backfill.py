@@ -338,6 +338,9 @@ QUICK_MIGRATIONS = {
     # the questions put to the KM Database's assistant, its own log kept 90 days: a new, empty table
     # (CreateModel only, no code runs; listed so that the migration is accounted for here)
     ("km", "0003_question", "CreateModel"),
+    # the authors' surnames a KM version's texts also write as ordinary words: a column with a default on
+    # the KM Database's table of versions (a few rows; AddField only, no code runs; the next load fills it)
+    ("km", "0004_ordinary_words", "AddField"),
 }
 
 

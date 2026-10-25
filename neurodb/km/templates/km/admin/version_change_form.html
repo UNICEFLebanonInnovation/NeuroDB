@@ -48,7 +48,8 @@
       <p class="my-2">{{ words.NAMED_HELP }}</p>
       <ul class="flex flex-col gap-1">{% for name in named_organisations %}
         <li class="flex flex-wrap items-center gap-2"><span>{{ name }}</span>
-          <form method="post" action="{{ review_url }}" class="inline">{% csrf_token %}<input type="hidden" name="kind" value="{{ kind_person }}"><input type="hidden" name="name" value="{{ name }}"><button type="submit" class="nd-found__button">{{ words.COUNT_AS_PERSON }}</button></form></li>
+          <form method="post" action="{{ review_url }}" class="inline">{% csrf_token %}<input type="hidden" name="kind" value="{{ kind_person }}"><input type="hidden" name="name" value="{{ name }}"><button type="submit" class="nd-found__button">{{ words.COUNT_AS_PERSON }}</button></form>
+          <form method="post" action="{{ review_url }}" class="inline">{% csrf_token %}<input type="hidden" name="kind" value="{{ kind_words }}"><input type="hidden" name="name" value="{{ name }}"><button type="submit" class="nd-found__button">{{ words.NOT_AN_ORGANISATION }}</button></form></li>
       {% endfor %}</ul>
     </details>
     <details data-km-words{% if look_like_words %} open{% endif %}>
@@ -56,7 +57,8 @@
       <p class="my-2">{{ words.LOOK_LIKE_WORDS_HELP }}</p>
       <ul class="flex flex-col gap-1">{% for name in look_like_words %}
         <li class="flex flex-wrap items-center gap-2"><span>{{ name }}</span>
-          <form method="post" action="{{ review_url }}" class="inline">{% csrf_token %}<input type="hidden" name="kind" value="{{ kind_words }}"><input type="hidden" name="name" value="{{ name }}"><button type="submit" class="nd-found__button">{{ words.NOT_A_NAME }}</button></form></li>
+          <form method="post" action="{{ review_url }}" class="inline">{% csrf_token %}<input type="hidden" name="kind" value="{{ kind_words }}"><input type="hidden" name="name" value="{{ name }}"><button type="submit" class="nd-found__button">{{ words.NOT_A_NAME }}</button></form>
+          <form method="post" action="{{ review_url }}" class="inline">{% csrf_token %}<input type="hidden" name="kind" value="{{ kind_organisation }}"><input type="hidden" name="name" value="{{ name }}"><button type="submit" class="nd-found__button">{{ words.COUNT_AS_ORGANISATION }}</button></form></li>
       {% endfor %}</ul>
     </details>
     {% endif %}
