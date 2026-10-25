@@ -117,10 +117,10 @@ KM Database, and from nothing else.
   code in the question: "Level A", "P2" (a pillar), "RQ3" (a research question), a Finding ID or a
   Document ID.
 - **What is sent to the AI.** Your question, the matching findings it reads and your filters in words.
-  Never the authors, never Document IDs, links or phone numbers, and never a name of a person: names of
-  NeuroDB's people and of the KM Database's authors are taken out of your question, and names inside the
-  findings (citations, people quoted) are written "[name withheld]". If a name is still found, nothing
-  is sent.
+  Never the authors, never Document IDs (one you type goes as "this document"), links or phone numbers,
+  and never a name of a person: names of NeuroDB's people and of the KM Database's authors are taken out
+  of your question, and names inside the findings (citations, reference lists, people quoted, people
+  named with their job) are written "[name withheld]". If a name is still found, nothing is sent.
 - **The answer.** Each sentence ends with the findings it rests on, as [references]: each one opens its
   finding, in a new tab. A reference to a finding that was not read for this answer is taken out, and
   the answer says how many. Under the answer, **Findings used for this answer** lists them (with their
@@ -133,7 +133,9 @@ KM Database, and from nothing else.
 - **When the AI is off or a limit is reached** the tab still lists the findings that match your question,
   without a written answer, and says why. Search and the filters work as usual.
 - **Limits.** 30 questions a day per person, 2 at the same time, and the KM Database's own share of the
-  day's AI budget (see [AI limits](/help/ai-limits/)). A question with no matching finding does not count.
+  day's AI budget (see [AI limits](/help/ai-limits/)). A question counts once the AI has worked on it,
+  even when no finding matches (the AI first suggests search words). A question over a limit, or one the
+  AI declines, does not count.
 - **A conversation.** A short follow-up ("and for boys?") keeps the topic of your last question and reads
   the findings its answer cited again. **New conversation** starts afresh. **Your recent questions**
   lists your last ten; press one to ask it again. Your questions are kept 90 days.

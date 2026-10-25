@@ -190,6 +190,40 @@ def test_an_answer_cites_and_links_the_findings_it_read(client_viewer, ai):
     assert usage.today_calls(usage.KM) == 2 and usage.today_calls(usage.ASK) == 0  # search words + answer
 
 
+def test_a_word_that_starts_a_sentence_before_a_year_is_not_taken_for_a_name(client_viewer, ai):
+    factory.load(key_findings("Fake rates rose in 2021.", "Fake rates fell in 2022.", documents=1))
+    text = (
+        "However, 2021 data show fake rates rose [TST-0001-F00001]. However the 2022 figure fell "
+        "[TST-0001-F00002]. Overall, 2021 and 2022 differ [TST-0001-F00001][TST-0001-F00002]."
+    )
+    ai([answer(text)])
+    final = done(post(client_viewer, "What does the evidence say about fake rates?"))
+    assert final["answer"] == text  # shown, copied and kept as written
+    assert privacy.NAME_WITHHELD not in final["html"]
+    row = KMQuestion.objects.get()
+    assert row.status == "answered" and row.answer == text
+
+
+def test_a_question_that_finds_nothing_counts_once_the_ai_suggested_search_words(client_viewer, ai):
+    from neurodb.help import guide
+
+    factory.load(factory.workbook())
+    fake = ai()
+    final = done(post(client_viewer, "What about zqnothingword volcanoes?"))
+    row = KMQuestion.objects.get()
+    assert row.status == "no_match" and row.model and len(fake.calls("km_terms")) == 1
+    assert ask.quota(row.user)[0] == 1 and final["quota"] == "1 of 30 today"
+    # the guide says so (the help assistant reads it too)
+    limits = " ".join(guide.section("km-database", "ask-the-km-database").text.split())
+    assert "A question counts once the AI has worked on it, even when no finding matches" in limits
+    assert "no matching finding does not count" not in limits
+    table = " ".join(guide.section("ai-limits", "per-person").text.split())
+    assert (
+        "| Ask the KM Database | 30 questions a day; at most 2 at the same time. A question counts once the AI "
+        "has worked on it, even when no finding matches; one it declines does not count" in table
+    )
+
+
 def test_the_message_holds_the_template_the_legend_and_no_document_id(client_viewer, ai):
     factory.load(factory.workbook(documents=2, findings=4))
     fake = ai([answer("Fake [TST-0001-F00001].")])

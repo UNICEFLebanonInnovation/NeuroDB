@@ -3,7 +3,8 @@ findings only, by one model call with no tools.
 
 1. **Retrieval** (:func:`retrieve`) reads only the findings of the version shown, within the filters the
    person chose (``Filters.from_query(for_ask=True)``: never the search box's words). Codes in the question
-   ("Level A", "P2", "RQ3") narrow those filters; a Finding ID or a Document ID in it is read first. Its
+   ("Level A", "P2", "RQ3") narrow those filters; a Finding ID or a Document ID in it is read first (a
+   Document ID is sent as "this document": :func:`unsent`). Its
    words, with UK/US spellings and acronyms (:func:`neurodb.km.search.groups`), are looked for in each
    finding's own words only (``own_vector``: not its document's methods, population or titles, which every
    finding of a document shares). A finding is kept when it matches 2 of 3 or more groups of words, else all
@@ -62,7 +63,7 @@ from neurodb.watch import redact
 from . import authors, privacy, search, words
 from . import columns as cols
 from .filters import NONE, Filters
-from .models import KMFinding, KMQuestion, KMVersion
+from .models import KMDocument, KMFinding, KMQuestion, KMVersion
 from .words import counted, say
 
 logger = logging.getLogger(__name__)
@@ -366,7 +367,8 @@ def scope_parts(filters: Filters, found: dict[str, Any], *, document_title: str 
 class Picked:
     """What retrieval found: the findings to read, in pick order; about how many match (``matched``); the
     codes the question narrowed the filters with (and those left out); the groups of words searched; the
-    search words suggested and the call that suggested them."""
+    search words suggested and the call that suggested them; the question as it is sent (its Document IDs
+    written "this document" or "a document": :func:`unsent`)."""
 
     findings: list[KMFinding] = field(default_factory=list)
     matched: int = 0
@@ -376,6 +378,7 @@ class Picked:
     terms: list[str] = field(default_factory=list)
     result: llm.Result | None = None
     filters: Filters | None = None
+    question: str = ""
 
     @property
     def documents(self) -> int:
@@ -452,6 +455,31 @@ def codes(text: str, filters: Filters, found: dict[str, Any]) -> tuple[Filters, 
         shown = [code for code in dict.fromkeys(asked_rq) if keys]
         apply("rq", keys, shown)
     return filters, used, left_out, text
+
+
+def document_shapes() -> list[str]:
+    """The shapes of the version's Document IDs as patterns ("TST-0001": "TST-" and any digits), longest
+    first: only IDs with a letter, a digit and a dash, so that no number or word of a question is ever taken
+    for one (one query)."""
+    records = KMDocument.objects.order_by().values_list("record_id", flat=True).distinct()
+    found = {_shape(r) for r in records if search.is_id(r) and any(c.isalpha() for c in r)}
+    return sorted(found, key=len, reverse=True)[:20]
+
+
+def unsent(text: str, shapes: list[str], document: str = "") -> str:
+    """``text`` as the AI may read it: every word of a Document ID's shape (``shapes``, from
+    :func:`document_shapes`) written "this document" when it is ``document`` (the one the answer reads),
+    else "a document". A Finding ID ("TST-0001-F00001") stays."""
+    if not text or not shapes:
+        return text
+    pattern = re.compile(rf"(?<![\w.-])(?:{'|'.join(shapes)})(?![\w-])", re.IGNORECASE)
+
+    def one(match: re.Match) -> str:
+        return (
+            "this document" if document and match.group(0).casefold() == document.casefold() else "a document"
+        )
+
+    return pattern.sub(one, text)
 
 
 def _by_ids(text: str, base: QuerySet) -> tuple[list[KMFinding], str, str]:
@@ -632,10 +660,12 @@ def retrieve(
     people: privacy.People = privacy.NOBODY,
     may_call: bool = False,
     remaining: Callable[[], float] = lambda: TIME_LIMIT,
+    shapes: list[str] | tuple[str, ...] = (),
 ) -> Picked:
     """The findings to read for a question (see the module's notes), over the KM tables only and within
     ``filters``. ``typed`` is the question as typed (searched, never sent or kept); ``cleaned`` the question
-    as sent (the search-words call's); ``earlier`` the conversation's earlier turns (:func:`history`)."""
+    as kept, sent without its Document IDs (``shapes``: :func:`unsent`); ``earlier`` the conversation's
+    earlier turns (:func:`history`)."""
     text = _searchable(typed)
     scope, used, left_out, text = codes(text, filters, found)
     base = scope.apply(KMFinding.objects.all())
@@ -654,7 +684,9 @@ def retrieve(
         boost += [b for b in boosted(before) if b not in boost]
         first += [f for f in _carried(earlier[-1].get("cited") or [], base) if f not in first]
     cap = MAX_FINDINGS if scope.document else MAX_PER_DOCUMENT
-    picked = Picked(codes=used, left_out=left_out, groups=all_groups, filters=scope)
+    shapes = list(shapes)
+    asked = unsent(cleaned or typed, shapes, scope.document)
+    picked = Picked(codes=used, left_out=left_out, groups=all_groups, filters=scope, question=asked)
     passes: list[list[KMFinding]] = []
     if all_groups:
         qs, order = quorum(base, all_groups, boost, current=len(current) if follow_up and current else 0)
@@ -662,8 +694,8 @@ def retrieve(
         passes.append(_top(qs, order, cap, MAX_FINDINGS))
         wants_more = picked.matched < MAX_FINDINGS or not_latin(typed)
         if may_call and wants_more and remaining() >= TIME_LIMIT - TERMS_SKIP_AFTER:
-            earlier_questions = [t["question"] for t in earlier]
-            terms, marks, result = suggest(cleaned or typed, earlier_questions, user, people)
+            earlier_questions = [unsent(t["question"], shapes) for t in earlier]
+            terms, marks, result = suggest(asked, earlier_questions, user, people)
             picked.terms, picked.result = terms, result
             more = _term_groups(terms, all_groups)
             boost += [m for m in marks if m not in boost]
@@ -1183,6 +1215,7 @@ def stream(
     try:
         yield _sse(_tool(words.STEP_SEARCHING))
         _known, people = authors.context(version)
+        shapes = document_shapes()
         picked = retrieve(
             typed,
             turns,
@@ -1193,6 +1226,7 @@ def stream(
             people=people,
             may_call=not why,
             remaining=remaining,
+            shapes=shapes,
         )
         _booked(row, picked.result)
         row.terms = picked.terms
@@ -1215,7 +1249,9 @@ def stream(
         if why:
             yield listed(why)
             return
-        message = prompt(row.question, turns, scope, picked, people, found)
+        # no Document ID in the question or the earlier ones (the row keeps the question as typed, cleaned)
+        earlier = [{**turn, "question": unsent(turn.get("question") or "", shapes)} for turn in turns]
+        message = prompt(picked.question, earlier, scope, picked, people, found)
         if message is None:
             row.status, row.error = S.FAILED, "kept back: a name remained"
             yield listed(words.NOT_SENT)

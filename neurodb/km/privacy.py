@@ -18,6 +18,12 @@ list of the people it knows, which no KM text is compared with, and nothing is a
 - **A document's own authors** by their surname ("J. Doe interviewed", "Doe's survey") are withheld in the
   texts of that document.
 - **The KM Database's authors** by their full name, and names after a title ("Dr …"), anywhere.
+- **Other shapes** (:func:`_shapes`): reference lists ("Doe, J.", "Roe Poe, M. C."), "Doe 2020: …", "Roe 2021
+  (Lebanon)", a speaker at a sentence's start ("Fakename, 11, was …"), "Fakename (20, male)", "Fakename, a
+  boy", a name with an office ("Minister Jane Doe", "Jane Doe, Director of"); and, by the KM Database's
+  surnames, "Doe J", "(Doe, Lebanon)", "studies by Doe, Roe and Poe" and "[name withheld] Doe". A first name
+  left before a name withheld goes too ("Jane [name withheld]"). Words that start a sentence or a clause
+  ("However, 2021", "Overall, 2021") are never names.
 
 Downloads keep links and numbers; the assistant's texts also lose e-mail addresses, links and phone numbers.
 The broad phone pattern is never used: it would take sample sizes and years. A question typed on the Ask tab
@@ -57,7 +63,8 @@ GENERIC_WORDS = frozenset(
     "update edition version dataset data study evaluation review index profile brief note appeal response "
     "results volume issue part page box model toolkit guidance guidelines bulletin snapshot factsheet "
     "overview summary monitor monitoring outlook handbook pillar tool tools tracker card items field "
-    "campaign mechanism portal system systems scheme package".split()
+    "campaign mechanism portal system systems scheme package target targets achieved actual total planned "
+    "estimate estimates projection projections forecast budget appendix cohort sample".split()
 )
 PLACE_WORDS = frozenset(
     # the area and the donors' countries
@@ -70,8 +77,8 @@ PLACE_WORDS = frozenset(
     "beirut mount akkar baalbek baalbeck hermel bekaa beqaa nabatieh nabatiyeh tripoli sidon tyre zahle "
     "zahleh jbeil byblos keserwan kesrouan metn matn baabda aley chouf shouf zgharta koura batroun bcharre "
     "becharre minieh dinnieh miniyeh danniyeh rashaya rachaya hasbaya marjayoun jezzine halba jounieh arsal "
-    # camps and settlements (not the camps' own names, which are also family names)
-    "camp camps settlement settlements informal tented "
+    # camps and settlements (not the camps' own names, which are also family names), and the words of places
+    "camp camps settlement settlements informal tented nahr wadi bourj burj kfar deir jabal "
     # other countries (a citation-shaped "Chile (2011)" or "Peru, 2016" is a place, not a name)
     "afghanistan albania algeria angola argentina armenia azerbaijan bangladesh belarus benin bhutan "
     "bolivia bosnia herzegovina botswana brazil bulgaria burkina faso burundi cambodia cameroon chad "
@@ -94,11 +101,35 @@ ROLE_WORDS = frozenset(
     "mothers fathers parents caregivers teachers students participants respondents girls boys women men "
     "adolescents children workers officials grandmother grandfather sister brother daughter son wife "
     "husband widow orphan farmer midwife counsellor counselor volunteer facilitator coordinator "
-    "director manager headteacher".split()
+    "director manager headteacher adult adults infant infants toddler toddlers baby babies newborn newborns "
+    "household households people persons individuals pupils patients survivors beneficiaries".split()
 )
 STOP = frozenset(
     "the and for with what which who how did does about from that this are was were has have any all our "
     "say said tell into there their".split()
+)
+# words that start a sentence or a clause ("However, 2021 data show", "Overall, 2021"), never names
+CONNECTIVES = frozenset(
+    "however overall similarly meanwhile moreover additionally furthermore notably likewise conversely "
+    "nevertheless nonetheless consequently therefore thus hence instead finally previously currently "
+    "recently historically specifically together altogether importantly interestingly surprisingly "
+    "unfortunately fortunately generally typically usually accordingly subsequently initially firstly "
+    "secondly thirdly lastly first second third next then later earlier now today still yet indeed further "
+    "otherwise alternatively comparatively equally especially particularly mainly mostly largely partly "
+    "broadly critically crucially significantly clearly evidently apparently reportedly ultimately "
+    "eventually collectively separately respectively correspondingly simultaneously thereafter afterwards "
+    "nowadays elsewhere here nationally regionally locally globally both either neither whereas although "
+    "though because unless whether where why such so yes "
+    # prepositions that are not in the common words
+    "among amongst within beyond throughout despite following according regarding concerning including "
+    "excluding unlike like besides towards toward upon versus compared".split()
+)
+# offices written with a person's name ("Minister Jane Doe", "Jane Doe, Director of"), never names themselves
+OFFICES = frozenset(
+    "minister ministers director directors president dean chair chairman chairwoman chairperson mayor "
+    "governor ambassador head deputy secretary senator representative coordinator founder spokesperson "
+    "spokesman commissioner rapporteur ceo mp professor prof lecturer researcher advisor adviser consultant "
+    "prime general vice acting former executive assistant".split()
 )
 PARTICLES = ("de", "van", "von", "el", "al", "bin", "ibn", "abu", "abou", "bou")
 
@@ -168,6 +199,11 @@ class People:
         """The first word of every name (a text holding none of them names nobody of ``names``)."""
         return frozenset(name.split(" ", 1)[0] for name in self.names if "@" not in name)
 
+    @functools.cached_property
+    def surname_words(self) -> frozenset[str]:
+        """The words of every surname (a text holding none of them holds no surname of ``surnames``)."""
+        return frozenset(w for surname in self.surnames for w in _LETTERS.findall(surname))
+
 
 NOBODY = People()
 
@@ -191,8 +227,11 @@ def kept(name: str) -> bool:
         return True
     if any(_MIXED_CAPS.match(w) or _PLURAL_ACRONYM.match(w) for w in _WORDS.findall(name)):
         return True
-    every = MONTHS | SEASONS | TIME_WORDS | PLACE_WORDS | watch_people.COMMON_WORDS | STOP
-    return all(w in every or w.strip("'’") in every for w in found)
+    return all(w in _EVERY or w.strip("'’") in _EVERY or _POSSESSIVE.sub("", w) in _EVERY for w in found)
+
+
+_EVERY = MONTHS | SEASONS | TIME_WORDS | PLACE_WORDS | watch_people.COMMON_WORDS | STOP | CONNECTIVES
+_POSSESSIVE = re.compile(r"['’]s?$")  # "Lebanon's", "Syrians'"
 
 
 def _names(match: re.Match) -> list[tuple[int, int]]:
@@ -329,6 +368,253 @@ def _titles(text: str) -> str:
     return watch_people.HONORIFIC_NAME.sub(NAME_WITHHELD, text)
 
 
+# ------------------------------------------------------------------- step 10: names in other shapes
+# S1: a reference list's "Doe, J." or "Roe Poe, M. C." (initials with their full stop after a comma), ending
+# an item (before a comma, ";", "&", "and", "(" or the end)
+_ITEM_END = r"(?=[ \t]*(?:[,;&()]|and\b|$))"
+S1 = re.compile(rf"{_BEFORE}(?P<a>{NAME}),[ \t]+[A-Z]\.(?:[ \t]?-?[A-Z]\.){{0,2}}{_ITEM_END}", re.MULTILINE)
+_HAS_INITIAL = re.compile(r",[ \t]+[A-Z]\.")
+# S1b: "Doe J" or "(Doe JM)", initials without a full stop, when Doe is one of the KM Database's surnames
+S1B = re.compile(rf"{_BEFORE}(?P<a>{WORD})[ \t]+[A-Z]{{1,2}}\.?{_ITEM_END}", re.MULTILINE)
+_LONE_CAPITALS = re.compile(rf"[ \t][A-Z]{{1,2}}\.?{_ITEM_END}", re.MULTILINE)
+# S2: a name and a year before a colon, a ";" or a place in parentheses, the year not a date's ("Fake
+# fieldwork May-June 2020;"): "Doe 2020: 20-60y; Roe 2022: ...", "Roe 2021 (Lebanon) fits"
+S2 = re.compile(rf"{_BEFORE}(?P<a>{NAME})[ \t]+{YEAR}(?:[ \t]*[:;]|[ \t]+\((?P<place>[^()]{{2,40}})\))")
+_HAS_YEAR_STOP = re.compile(rf"{YEAR}(?:[ \t]*[:;]|[ \t]+\()")
+# S3: "(Doe, Lebanon)": a parenthesis that starts with a KM Database surname and a comma; then every other
+# parenthesis of that text written so ("(Fakename, Jordan)")
+S3 = re.compile(rf"\((?P<a>{WORD}),[ \t]+(?P<b>{NAME})\)")
+# S4: a list of names after a word that cites them ("studies by Doe, Roe and Poe") when one of them is a KM
+# Database surname
+S4 = re.compile(
+    rf"(?<![\w'’\-])(?:by|from|including|e\.g\.,?|see|cf\.?|such\s+as)[ \t]+"
+    rf"(?P<names>{NAME}(?:[ \t]*,[ \t]*{NAME})*,?[ \t]+(?:and|&)[ \t]+{NAME})"
+)
+_LIST_SPLIT = re.compile(r"[ \t]*,[ \t]*(?:(?:and|&)[ \t]+)?|[ \t]+(?:and|&)[ \t]+")
+# S5: a sentence that starts with a speaker's first name and age: "Fakename, 11, was hit ..."
+S5 = re.compile(
+    r"(?:^|(?<=[.!?…])[ \t]+|(?<=[.!?…][\"”’])[ \t]+)(?P<a>[A-Z][\w'’-]{2,}),[ \t]*(?:aged?[ \t]*)?"
+    r"\d{1,2}(?:,[ \t]|[.;)](?!\d)|$)",
+    re.MULTILINE,
+)
+_HAS_AGE = re.compile(r",[ \t]*(?:aged?[ \t]*)?\d{1,2}(?:,[ \t]|[.;)](?!\d)|$)", re.MULTILINE)
+# S5b: a first name and an age with a sex or "years" in parentheses ("Fakename (20, male)", "Fakename (15
+# years)"); S5c: a first name and a role after it ("Fakename, a boy from a camp")
+S5B = re.compile(
+    r"(?<![\w'’\-])(?P<a>[A-Z][\w'’-]{2,})[ \t]+\((?:aged?[ \t]*\d{1,2}\b[^()]{0,30}"
+    r"|\d{1,2}(?:[ \t-]*(?:years?|yrs?|y)(?:[ \t-]*old)?)?[ \t]*[,;]?[ \t]*"
+    r"(?:male|female|boy|girl|man|woman|M|F)\b[^()]{0,20})\)"
+)
+_AGE_IN_PARENTHESES = re.compile(r"\((?:aged?[ \t]*)?\d{1,2}\b")
+_ROLES = "|".join(sorted(ROLE_WORDS, key=len, reverse=True))
+S5C = re.compile(
+    rf"(?<![\w'’\-])(?P<a>[A-Z][\w'’-]{{2,}}),[ \t]+an?[ \t]+(?:\d{{1,2}}[ \t-]*years?[ \t-]*old[ \t]+)?"
+    rf"(?:(?:young|little|teenage|adolescent|syrian|lebanese|palestinian|iraqi|refugee)[ \t]+)?(?:{_ROLES})"
+    r"(?![\w\-])"  # not "Fakeword, a female-led fake trade"
+)
+# S6: a name after an office ("Minister Jane Doe", "Centre Director Jane Doe") or before one ("Jane Doe,
+# Director of the Fake Centre", "Jane Doe, the former Minister")
+_OFFICE = (
+    r"(?:Prime[ \t]+|Deputy[ \t]+|Vice[ \t]+|Acting[ \t]+)?(?:Minister|Director|President|Dean"
+    r"|Chair(?:man|woman|person)?|Mayor|Governor|Ambassador|Head|Secretary|Senator|Representative"
+    r"|Coordinator|Founder|Spokesperson|Spokesman|Commissioner|Rapporteur|CEO|MP)"
+)
+S6_BEFORE = re.compile(rf"(?<![\w'’\-]){_OFFICE}[ \t]+(?P<a>{NAME})")
+S6_AFTER = re.compile(
+    rf"{_BEFORE}(?P<a>{NAME}),[ \t]+(?i:(?:(?:the|an?)[ \t]+)?(?:(?:former|then|acting|deputy|assistant|"
+    r"executive|managing|regional|country|general)[ \t]+)?(?:minister|director|president|dean|"
+    r"chair(?:man|woman|person)?|mayor|governor|ambassador|head[ \t]+of|secretary|senator|representative|"
+    r"coordinator|founder|spokesperson|spokesman|commissioner|professor|lecturer|researcher)\b)"
+)
+_PLACE_BEFORE = frozenset("in at from across within to into near around throughout outside inside".split())
+# S7: a KM Database surname right after a name withheld ("[name withheld] Doe"); S8: a first name right
+# before one ("Jane [name withheld]")
+S7 = re.compile(rf"{re.escape(NAME_WITHHELD)}[ \t]+(?P<a>{_PARTICLE}?{WORD})")
+S8 = re.compile(rf"{_BEFORE}(?P<a>{WORD}(?:[ \t]+{WORD}){{0,2}})[ \t]+(?={re.escape(NAME_WITHHELD)})")
+_INITIALS_BEFORE = re.compile(
+    rf"(?<![\w'’\-.])(?:[A-Z]\.[ \t]?-?){{1,3}}[ \t]*(?={re.escape(NAME_WITHHELD)})"
+)
+
+
+def _not_a_name(word: str, text: str = "") -> bool:
+    """Whether one word is no person's: kept, an office or a role, or written in lower case elsewhere in
+    ``text`` (a word, then: "Fakeword" when the text also writes "fakeword")."""
+    folded = fold(_POSSESSIVE.sub("", word))
+    if kept(word) or folded in OFFICES or folded in ROLE_WORDS or any(c.isdigit() for c in word):
+        return True
+    lower = word.lower()
+    return (
+        bool(text) and lower != word and re.search(rf"(?<![\w'’]){re.escape(lower)}(?!\w)", text) is not None
+    )
+
+
+def _person(match: re.Match, group: str = "a") -> tuple[int, int] | None:
+    """The span of a match's name without its first words that are no person's ("In Fakeword" → "Fakeword",
+    "Centre Jane Doe" → "Jane Doe"), or None when nothing is left or what is left is kept."""
+    start, end = match.span(group)
+    span = match.group(group)
+    for word in _WORDS.finditer(span):
+        if not _not_a_name(word.group()):
+            begin = start + word.start()
+            rest = match.string[begin:end]
+            return None if kept(rest) else (begin, end)
+    return None
+
+
+def _surname_in(span: str, people: People) -> bool:
+    return any(fold(_POSSESSIVE.sub("", w)) in people.surnames for w in _WORDS.findall(span))
+
+
+def _listed(text: str, people: People, found: set[str], surnames: bool) -> list[tuple[int, int]]:
+    """S1, S1b, S2 and S3: their names' spans (S1's with the initials). ``surnames``: whether the text may
+    hold one of the KM Database's surnames (S1b and S3 need one)."""
+    spans: list[tuple[int, int]] = []
+    if _HAS_INITIAL.search(text):
+        for m in S1.finditer(text):
+            person = _person(m)
+            if person:
+                spans.append((person[0], m.end()))
+                found.add(text[person[0] : person[1]])
+    if surnames and _LONE_CAPITALS.search(text):
+        for m in S1B.finditer(text):
+            if fold(m.group("a")) in people.surnames:
+                spans.append(m.span("a"))
+                found.add(m.group("a"))
+    if _HAS_YEAR_STOP.search(text):
+        for m in S2.finditer(text):
+            if _not_a_name(_WORDS.findall(m.group("a"))[-1]):  # a date: "Fake fieldwork May-June 2020;"
+                continue
+            place = m.group("place")
+            if place is not None and not all(fold(w) in PLACE_WORDS for w in _WORDS.findall(place) or ["-"]):
+                continue
+            person = _person(m)
+            if person:
+                spans.append(person)
+                found.add(text[person[0] : person[1]])
+    if surnames and "(" in text and "," in text:
+        matches = list(S3.finditer(text))
+        if any(fold(m.group("a")) in people.surnames for m in matches):
+            for m in matches:
+                if not kept(m.group("a")) and (fold(m.group("a")) in people.surnames or kept(m.group("b"))):
+                    spans.append(m.span("a"))
+                    found.add(m.group("a"))
+    return spans
+
+
+def _cited_lists(text: str, people: People, found: set[str], surnames: bool) -> list[tuple[int, int]]:
+    """S4: the names of a list after a citing word, when one of them is a KM Database surname."""
+    spans: list[tuple[int, int]] = []
+    if not surnames or not (" and " in text or "&" in text):
+        return spans
+    for m in S4.finditer(text):
+        names = m.group("names")
+        if not _surname_in(names, people):
+            continue
+        offset = m.start("names")
+        position = 0
+        for part in _LIST_SPLIT.split(names):
+            at = names.index(part, position)
+            position = at + len(part)
+            if part and not kept(part):
+                spans.append((offset + at, offset + at + len(part)))
+                found.add(part)
+    return spans
+
+
+def _speakers_and_offices(text: str, found: set[str], words: list[str]) -> list[tuple[int, int]]:
+    """S5, S5b, S5c and S6: a speaker by first name and age, or by a role after the name, and a name before
+    or after an office."""
+    spans: list[tuple[int, int]] = []
+    speakers = []
+    if _HAS_AGE.search(text):
+        speakers += S5.finditer(text)
+    if "(" in text and _AGE_IN_PARENTHESES.search(text):
+        speakers += S5B.finditer(text)
+    if ", a" in text:
+        speakers += S5C.finditer(text)
+    for m in speakers:
+        if not _not_a_name(m.group("a")):
+            spans.append(m.span("a"))
+            found.add(m.group("a"))
+    if OFFICES.isdisjoint(words):
+        return spans
+    for m in S6_BEFORE.finditer(text):
+        person = _person(m)
+        if person:
+            spans.append(person)
+            found.add(text[person[0] : person[1]])
+    for m in S6_AFTER.finditer(text):
+        person = _person(m)
+        before = text[: person[0]].split() if person else []
+        if person and not (before and fold(before[-1]) in _PLACE_BEFORE):  # "In Fakeplace, the head of"
+            spans.append(person)
+            found.add(text[person[0] : person[1]])
+    return spans
+
+
+def _around(text: str, people: People, found: set[str]) -> str:
+    """S7 and S8: a KM Database surname right after a name withheld, and a first name right before one, join
+    it ("[name withheld] Doe", "Jane [name withheld]" → "[name withheld]")."""
+    if NAME_WITHHELD not in text:
+        return text
+    if people.surnames:
+
+        def after(m: re.Match) -> str:
+            word = _WORDS.findall(m.group("a"))[-1]
+            if fold(word) in people.surnames:
+                found.add(word)
+                return NAME_WITHHELD
+            return m.group(0)
+
+        text = S7.sub(after, text)
+    text = _INITIALS_BEFORE.sub("", text)  # "Jane J. [name withheld]" → "Jane [name withheld]"
+
+    def before(m: re.Match) -> str:
+        words = m.group("a").split()
+        n = 0
+        for word in reversed(words):  # the words next to the name withheld, up to one that is no person's
+            if _not_a_name(word, text):
+                break
+            n += 1
+        if not n:
+            return m.group(0)
+        found.update(words[-n:])
+        return " ".join(words[:-n]) + (" " if n < len(words) else "")
+
+    return S8.sub(before, text)
+
+
+def _shapes(text: str, people: People, words: list[str]) -> str:
+    """Step 10: names written in the shapes the citations' patterns do not take: reference lists ("Doe, J.",
+    "Doe J"), "Doe 2020: ...", "(Doe, Lebanon)", "studies by Doe, Roe and Poe", "Fakename, 11, was ...",
+    "Fakename (20, male)", "Fakename, a boy", a name with an office ("Minister Jane Doe", "Jane Doe, Director
+    of"); then the same names wherever else the text writes them, and the words of a name next to a name
+    withheld ("[name withheld] Doe", "Jane [name withheld]"). A name these shapes need a list for is one of
+    the KM Database's surnames (``people.surnames``) only."""
+    found: set[str] = set()
+    surnames = bool(people.surnames) and not people.surname_words.isdisjoint(words)
+    spans = (
+        _listed(text, people, found, surnames)
+        + _cited_lists(text, people, found, surnames)
+        + _speakers_and_offices(text, found, words)
+    )
+    if spans:
+        merged: list[tuple[int, int]] = []
+        for start, end in sorted(spans):
+            if merged and start < merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+            else:
+                merged.append((start, end))
+        text = _again(_withhold(text, merged), found)
+    for _ in range(3):  # a name withheld again may stand next to another word of a name
+        found = set()
+        joined = _again(_around(text, people, found), found)
+        if joined == text:
+            break
+        text = joined
+    return text
+
+
 _AT_SIGNS = ("@", "＠", "﹫")
 # what every spelled-out address holds: an "at" (or an at sign) and a domain's ending after a dot ("x at
 # example dot org", "x [at] example.org"): a text without both is not searched for one (most texts)
@@ -417,7 +703,7 @@ def _people(text: str, people: People, own: frozenset[str]) -> str:
         text = _own(text, own)
     if not watch_people.TITLE_WORDS.isdisjoint(found):
         text = _titles(text)
-    return text
+    return _shapes(text, people, found)
 
 
 def leftover(text: str, people: People = NOBODY) -> list[str]:
@@ -441,7 +727,9 @@ def _names_left(text: str, people: People) -> bool:
         return True
     if watch_people.PERSON_TITLE_NAME.search(text) or watch_people.HONORIFIC_NAME.search(text):
         return True
-    return _citations(text) != text or _speakers(text) != text
+    if _citations(text) != text or _speakers(text) != text:
+        return True
+    return _shapes(text, people, _LETTERS.findall(_folded(text))) != text
 
 
 QUESTION_CHARS = 1000

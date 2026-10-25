@@ -9,6 +9,7 @@ import pytest
 
 from neurodb.km import privacy
 from neurodb.km.privacy import NAME_WITHHELD as W
+from neurodb.watch import people as watch_people
 
 PEOPLE = privacy.People(names=frozenset({"jane doe", "fakefirst fakelast"}), surnames=frozenset({"doe"}))
 
@@ -110,7 +111,6 @@ def test_what_is_withheld_leaves_nothing_for_the_final_check():
 
 
 def test_names_are_never_looked_up_in_neurodbs_own_list(monkeypatch):
-    from neurodb.watch import people as watch_people
 
     def refused(*args, **kwargs):
         raise AssertionError("NeuroDB's list of the people it knows was read")
@@ -179,7 +179,6 @@ def test_citations_without_a_comma(text, shown):
 # ------------------------------------------------------------------------------ the assistant (SPEC_km §4.4)
 @pytest.mark.django_db
 def test_a_question_loses_neurodbs_known_names_and_the_km_authors(django_user_model):
-    from neurodb.watch import people as watch_people
 
     django_user_model.objects.create_user(
         username="fakeuser", first_name="Fakeneuro", last_name="Fakecolleague", password="fake-pass-123456"
@@ -220,3 +219,94 @@ def test_for_ai_withholds_what_the_final_check_looks_for():
     assert privacy.leftover(sent, PEOPLE) == []
     assert privacy.leftover("as Roe (2018) found", PEOPLE) == ["name"]
     assert privacy.leftover("“…” – Fakename, 34", PEOPLE) == ["name"]
+
+
+# ------------------------------------------------------------------------- other shapes (stage 3 check)
+# the KM Database's own authors of another document: "Doe, J." and "Roe, R." (surnames doe and roe); the
+# texts below are a second document's, where only these lists apply (not its own surnames)
+KM = privacy.People(
+    names=frozenset(watch_people.name_forms("Doe, J.") | watch_people.name_forms("Roe, R.")),
+    surnames=frozenset({"doe", "roe"}),
+)
+
+
+@pytest.mark.parametrize(
+    ("text", "shown"),
+    [
+        # a reference list: "Surname, I." items, with up to three words before the comma
+        (
+            "cited with Fakeone, P., Faketwo, M., & Roe Poe, M. C. (2020), Fake Journal",
+            f"cited with {W}, {W}, & {W} (2020), Fake Journal",
+        ),
+        # "Surname I" without a full stop: a KM surname only
+        (
+            "a fake reader (Doe M) wrote; (Appendix C) and (Type I)",
+            f"a fake reader ({W} M) wrote; (Appendix C) and (Type I)",
+        ),
+        # "Name YEAR:" and "Name YEAR;", and "Name YEAR (place)"
+        ("Doe 2020: 20-60y; Roe 2022: fake parents", f"{W} 2020: 20-60y; {W} 2022: fake parents"),
+        (
+            "Fakeone 2019 (Chile) fits, Faketwo 2021 (Lebanon) too",
+            f"{W} 2019 (Chile) fits, {W} 2021 (Lebanon) too",
+        ),
+        # "(KM surname, Word)", and the other parentheses of that text written so
+        (
+            "(Doe, Lebanon) to (Roe, Jordan) and (Fakename, Chile)",
+            f"({W}, Lebanon) to ({W}, Jordan) and ({W}, Chile)",
+        ),
+        # "by A, B and C" when one of them is a KM surname
+        ("studies by Doe, Roe and Poe found", f"studies by {W}, {W} and {W} found"),
+        # a speaker at a sentence's start, by an age in parentheses, by a role after the name
+        ("Fakename, 11, was hurt by fake debris.", f"{W}, 11, was hurt by fake debris."),
+        ("“Fake words.” Fakename, 20. (p. 5)", f"“Fake words.” {W}, 20. (p. 5)"),
+        ("so Fakename (20, male) left fake work", f"so {W} (20, male) left fake work"),
+        (
+            "Fakename, a boy of 12, left fake school; fake age for Fakename.",
+            f"{W}, a boy of 12, left fake school; fake age for {W}.",
+        ),
+        # a name with an office, before or after it
+        ("Minister Jane Fakelast signed it", f"Minister {W} signed it"),
+        ("Fake Centre Director Jane Fakelast wrote", f"Fake Centre Director {W} wrote"),
+        ("Jane Fakelast, Director of the Fake Centre, said", f"{W}, Director of the Fake Centre, said"),
+        # a KM surname right after a name withheld, a first name (and an initial) right before one
+        ("as J. Doe Roe wrote", f"as {W} wrote"),
+        ("[name withheld] Doe wrote that", f"{W} wrote that"),
+        ("Jane [name withheld] found", f"{W} found"),
+        ("Jane J. [name withheld] found", f"{W} found"),
+    ],
+)
+def test_names_in_other_shapes_are_withheld_and_found_by_the_final_check(text, shown):
+    for clean in (privacy.for_ai, privacy.for_download):
+        assert clean(text, KM) == shown, clean.__name__
+    assert privacy.leftover(shown, KM) == []
+    if W not in text:
+        assert privacy.leftover(text, KM) == ["name"]  # the final check finds the shape
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # sentence starts are not names ("However, 2021" is no citation)
+        "However, 2021 data show fake rates rose. However the 2022 figure fell.",
+        "Similarly, 2022 figures; Overall, 2021; Meanwhile, 2024; Moreover, 2023 saw; Among Syrians, 2021",
+        "Overall, 12,345 fake persons came. Finally, 23,456 children. Additionally, 34,567 children",
+        # dates, offices without a name, organisations, places, acronyms and words before a year
+        "Fake data collection: 3 March-9 April 2021; Fake fieldwork May-June 2020; fake listing",
+        "The Director General of Fake Affairs met; Head Teachers said; the Fake Programme Director",
+        "Fake Target 2021: 50; Achieved 2021: 40; Since 2019: rose; In March 2020: fell; Census 2020 (Lebanon)",
+        "In Fakeplace Hamlet, the head of the municipality said",
+        "(Appendix C), (Type I), (Path B), (Fake QQ) and (Fake-Test U)",
+        "fieldwork by Fakeorg, Fakeaid, Fakefund and Fakerelief",  # a list without a KM surname
+        "Fakeword, a female-led fake trade; Adults (aged 18+) and Score (12, 15) and Duration (12 years)",
+        "(Beirut, Lebanon) and (Doe Fakeorg Institute, Lebanon)",
+    ],
+)
+def test_words_shaped_like_these_names_are_kept(text):
+    assert privacy.for_ai(text, KM) == text
+    assert privacy.leftover(text, KM) == []
+
+
+def test_a_word_the_text_also_writes_in_lower_case_is_not_a_first_name():
+    text = f"Fakeword {W} lens: the fakeword evidence"
+    assert privacy.for_ai(text, KM) == text
+    assert privacy.for_ai(f"Fakeword {W} lens", KM) == f"{W} lens"

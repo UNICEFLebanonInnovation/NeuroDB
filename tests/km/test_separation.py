@@ -244,3 +244,95 @@ def test_the_km_assistant_sends_only_the_km_database_claude(client_viewer, other
     _never_sent(sent, None)
     for request in server.requests:
         assert "tools" not in request["body"]
+
+
+# the KM Database's authors of document 1 (Doe, Roe) and other people, written in document 2's texts in the
+# shapes the citations' patterns do not take: none of their words may reach the AI
+OTHER_SHAPES = {
+    "Key Finding": "Fake zqkmtoken rates rose. Fakechild, 11, was hurt by fake debris.",
+    "Finding Analysis": (
+        "Minister Jane Fakeminister signed it; Janet Fakedirector, Director of the Fake Centre, said "
+        "so; cited with Faketwo, P., Doe, J., & Roe Poe, M. C. (2020), Fake Journal; a fake reader (Doe M) "
+        "wrote it; as J. Doe Roe wrote; Fakefirst J. Doe found."
+    ),
+    "Methods and Sample": (
+        "Doe 2020: 20-60y; Roe 2022: fake parents. Studies by Doe, Roe and Poe; (Doe, Lebanon) and "
+        "(Fakeplaceperson, Jordan)."
+    ),
+    "Limitations": "Fakeboy (12, male) and Fakegirl, a girl of 9, spoke.",
+}
+OTHER_WORDS = (
+    "Doe",
+    "Roe",
+    "Poe",
+    "Jane",
+    "Fakechild",
+    "Fakeminister",
+    "Fakedirector",
+    "Faketwo",
+    "Fakeplaceperson",
+    "Fakefirst",
+    "Fakeboy",
+    "Fakegirl",
+)
+
+
+def test_km_authors_and_other_people_in_other_shapes_never_reach_the_ai(client_viewer, monkeypatch, settings):
+    from neurodb.assistant import agent
+    from neurodb.km.models import KMQuestion
+    from tests.km.test_ask import FakeAI, answer
+
+    for key, value in {"AI_ASSISTANT_ENABLED": True, "OPENAI_API_KEY": "test-key-not-real"}.items():
+        setattr(settings, key, value)
+    edits = {("findings", row, header): text for row in (3, 5) for header, text in OTHER_SHAPES.items()}
+    factory.load(factory.workbook(documents=2, findings=4, edits=edits))  # rows 3 and 5: document 2
+    fake = FakeAI([answer("Fake rates rose [TST-0002-F00001].")])
+    monkeypatch.setattr(agent, "client", fake.client)
+    response = client_viewer.post(
+        reverse("km:ask_stream"), {"question": "What does the evidence say about zqkmtoken rates?"}
+    )
+    assert _km_events(response)[-1]["type"] == "done"
+    row = KMQuestion.objects.get()
+    assert {"TST-0002-F00001", "TST-0002-F00002"} <= set(row.read) and row.error == ""  # read, none left out
+    sent = json.dumps(fake.requests, ensure_ascii=False)
+    for word in OTHER_WORDS:
+        assert word not in sent, word
+    _never_sent(sent, None)
+    assert "fake debris" in sent and "Director of the Fake Centre" in sent  # the rest is sent
+
+
+@pytest.mark.parametrize("asked", ["TST-0001", "tst-0001", "TST-0009"])
+def test_a_document_id_typed_in_a_question_is_never_sent(client_viewer, monkeypatch, settings, asked):
+    from neurodb.assistant import agent
+    from neurodb.km.models import KMQuestion
+    from tests.km.test_ask import FakeAI, answer
+
+    for key, value in {"AI_ASSISTANT_ENABLED": True, "OPENAI_API_KEY": "test-key-not-real"}.items():
+        setattr(settings, key, value)
+    factory.load(factory.workbook(documents=3, findings=6))
+    fake = FakeAI([answer("Fake [TST-0001-F00001]."), answer("Fake again [TST-0001-F00002].")])
+    monkeypatch.setattr(agent, "client", fake.client)
+    conversation = "6a3d9a35-8a8e-4c55-9b39-2c7f4f8f0d11"
+    for question in (f"What does {asked} say about zqkmtoken?", "zqkmtoken again?"):
+        response = client_viewer.post(
+            reverse("km:ask_stream"), {"question": question, "conversation": conversation}
+        )
+        assert _km_events(response)[-1]["type"] == "done"
+    sent = json.dumps(fake.requests, ensure_ascii=False)
+    _never_sent(sent, None)  # no Document ID, in any call
+    named = "this document" if asked != "TST-0009" else "a document"  # TST-0009 is no document
+    question = f"Question: What does {named} say about zqkmtoken?"
+    assert fake.calls("km_terms")[0]["input"][0]["content"].startswith(question)  # the search-words call
+    if asked != "TST-0009":  # the answer calls: the question, then an earlier one (its document is not kept)
+        assert fake.calls()[0]["input"][0]["content"].startswith(question)
+        assert "Q: What does a document say about zqkmtoken?" in fake.calls()[1]["input"][0]["content"]
+        assert set(KMQuestion.objects.order_by("created_at").first().read) <= {
+            f.finding_id for f in KMFinding.objects.filter(record_id="TST-0001")
+        }
+        terms = fake.calls("km_terms")[1]["input"][0]["content"]
+        assert "Earlier questions of this conversation:\n- What does a document say about zqkmtoken?" in terms
+    # the person's own log keeps the question as typed (cleaned of names)
+    assert (
+        KMQuestion.objects.order_by("created_at").first().question
+        == f"What does {asked} say about zqkmtoken?"
+    )

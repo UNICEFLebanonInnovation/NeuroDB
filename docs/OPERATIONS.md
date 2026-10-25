@@ -1027,8 +1027,13 @@ strongest; `neurodb.km.columns.CONFIDENCE_A_STRONGEST` turns on the colours once
   are written as they are): e-mail addresses, citation names ("Doe et al.", "(Doe, 2019)", "Roe (2018)",
   "(Doe 2010, Roe 2020)", "(Doe 2002 methodology)", "Doe and Roe 2020", "in Doe 2016"; then the same name
   elsewhere in that text),
-  interview speakers ("– Fakename, 34"), the document's own authors by surname, the KM authors' full names
-  and names after a title are written "[name withheld]". Months, places, organisations, survey and plan
+  interview speakers ("– Fakename, 34", "Fakename, 11, was", "Fakename (20, male)", "Fakename, a boy"),
+  reference lists ("Doe, J.", "Roe Poe, M. C."; "Doe J" for a KM author), "Doe 2020:" and "Doe 2020
+  (Lebanon)", a KM author's surname in "(Doe, Lebanon)" or "studies by Doe, Roe and Poe" (with the other
+  names of that list), a name with an office ("Minister Jane Doe", "Jane Doe, Director of"), a KM author's
+  surname after a name withheld and a first name before one, the document's own authors by surname, the
+  KM authors' full names and names after a title are written "[name withheld]". Words that start a sentence
+  ("However, 2021") are never taken for a name. Months, places, organisations, survey and plan
   names, and acronyms are kept; links and numbers are kept. NeuroDB's own list of people (Watch's) is never
   used and never learns these names.
 - The search box's words are written in the About sheet only when none of them names a KM author.
@@ -1100,13 +1105,14 @@ NeuroDB's run, prompt, tools, date or year lines). In order:
 | Sent to the AI provider | Never sent |
 |---|---|
 | The question, cleaned; up to 4 earlier questions and answers of this conversation and version; the filters in words (codes, years, types, "one document"); the legend of pillar and research question labels | Publishing entity / authors (either sheet), people's names in texts, e-mail addresses, links, phones; the search box's words |
-| Of the findings read (about 30-35, at most 40): Finding ID, legend key, confidence letter, marked for review or not, the age and sex marks marked Yes, ages, measure, key finding, analysis, limitations; of their documents: title, year, type, population, methods | Document IDs, short titles, sub-questions, indicators, evidence origin, values to check, the data quality text |
+| Of the findings read (about 30-35, at most 40): Finding ID, legend key, confidence letter, marked for review or not, the age and sex marks marked Yes, ages, measure, key finding, analysis, limitations; of their documents: title, year, type, population, methods | Document IDs (one typed in a question, or any word of their shape, goes as "this document" or "a document", in the question, the earlier questions and the search-words call; the log keeps the question as typed, cleaned of names), short titles, sub-questions, indicators, evidence origin, values to check, the data quality text |
 | The number of matching findings | Anything from another NeuroDB table: partners, programme documents, indicators, the knowledge base, the library, users, Ask NeuroDB's prompt and its date and year lines |
 | The two fixed prompts (`ask.KM_PROMPT`, `ask.TERMS_PROMPT`) | The workbook, its Read Me, the version's file name |
 
 - **Limits**: `KM_PER_USER_PER_DAY` (30) questions a day per person from local midnight: one being
-  answered and one that made a call count (a failed one with tokens too); one over a limit, with no
-  matching finding or kept back before a call does not; declined questions are free up to the same number.
+  answered and one that made a call count (a failed one with tokens too, and one with no matching finding
+  once the search-words call ran); one over a limit, with nothing to search (only common words) or kept
+  back before a call does not; declined questions are free up to the same number.
   At most 2 at once per person (429). The KM Database's share of the day, `KM_DAILY_TOKEN_CAP` (600,000
   tokens, about 25-30 questions: a question asks for 25,000 before it starts), so that a few heavy users
   cannot use up the shared `AI_DAILY_TOKEN_SOFT_CAP` (3,000,000) for Ask NeuroDB, Help and Monitoring
