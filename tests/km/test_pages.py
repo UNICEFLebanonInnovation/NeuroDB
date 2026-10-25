@@ -521,6 +521,92 @@ def test_the_finding_page_shows_the_authors_on_screen_and_the_organisations_on_p
     assert "Doe" not in paper and "Roe" not in paper
 
 
+PRINTED = {
+    # document 1's own author is "Doe" (factory.ENTITY); the download withholds these names
+    ("findings", 2, "Finding Analysis"): "As J. Doe interviewed fake people, Doe's survey found fake things.",
+    ("findings", 2, "Key Finding"): "Fake key finding (Fakecited 2010, Fakeother 2020).",
+    ("findings", 2, "Document / Study Type"): "Fake review by Dr Fakefirst Fakelast",
+    ("documents", 2, "Document Title"): "Fake title after Fakeone and Faketwo 2020",
+}
+PRINTED_NAMES = ("Doe", "Fakecited", "Fakeother", "Fakefirst", "Fakelast", "Fakeone", "Faketwo")
+
+
+def _paper(html: str) -> str:
+    """What a printout shows of ``html``: without the elements hidden on paper (d-print-none)."""
+    while True:
+        found = re.search(r'<(\w+)\b[^>]*class="[^"]*\bd-print-none\b[^"]*"[^>]*>', html)
+        if found is None:
+            return html
+        tag, depth, at = found.group(1), 1, found.end()
+        for match in re.finditer(rf"<(/?){tag}\b[^>]*>", html[at:]):
+            depth += -1 if match.group(1) else 1
+            if depth == 0:
+                html = html[: found.start()] + html[at + match.end() :]
+                break
+
+
+def test_printouts_follow_the_download_rule(client_viewer):
+    factory.load(factory.workbook(documents=3, findings=4, edits=PRINTED))
+    pages = [
+        _html(client_viewer, "km:finding", F(1, 1)),
+        client_viewer.get(reverse("km:finding", args=[F(1, 1)]), **HX).content.decode(),  # the quick view
+        _html(client_viewer, "km:index"),
+        _html(client_viewer, "km:document", "TST-0001"),
+        _html(client_viewer, "km:documents"),
+    ]
+    for html in pages:
+        paper = _paper(html.split("<main", 1)[-1])
+        for name in PRINTED_NAMES:
+            assert not re.search(rf"\b{name}\b", paper), name
+    page = pages[0]
+    assert "J. Doe interviewed" in page and "Doe&#x27;s survey" in page  # on screen, as the workbook gives it
+    paper = _paper(page)
+    assert "[name withheld] interviewed fake people, [name withheld]&#x27;s survey" in paper
+    assert "Fake key finding ([name withheld] 2010, [name withheld] 2020)." in paper
+    assert "Fake review by [name withheld]" in paper
+    assert "Jane Doe et al." in page and "[name withheld] et al. (2021) asked" in paper
+    assert "Fake key finding ([name withheld] 2010, [name withheld] 2020)." in _paper(pages[2])
+    assert "Fake title after [name withheld] and [name withheld] 2020" in _paper(pages[2])
+    assert "Fake title after [name withheld] and [name withheld] 2020" in _paper(pages[4])
+    # a text the rule leaves as it is is written once
+    assert page.count("Fake sub-question") == 1
+
+
+@pytest.mark.parametrize(
+    ("name", "args", "params"),
+    [
+        ("km:index", (), {"per": "²"}),
+        ("km:documents", (), {"per": "²"}),
+        ("km:index", (), {"per": "²", "export": "csv"}),
+        ("km:finding", (F(1, 1),), {"v": "²"}),
+        ("km:finding", (F(1, 1),), {"v": "٣"}),
+    ],
+)
+def test_digits_that_are_not_plain_digits_are_ignored(client_viewer, name, args, params):
+    factory.load(factory.workbook())
+    response = client_viewer.get(reverse(name, args=args), params)
+    assert response.status_code == 200
+    if name == "km:finding":
+        assert "may have changed since" not in response.content.decode()
+
+
+def test_the_documents_tab_counts_the_findings_of_the_filter(client_viewer):
+    factory.load(factory.workbook(documents=3, findings=9))  # each document: two findings of one pillar
+    html = _html(client_viewer, "km:documents", pillar="P1")
+    counts = re.findall(r'<td class="num"><a href="([^"]+)">(\d+)</a>(.*?)</td>', html)
+    first = counts[0]
+    assert first[1] == "2" and "of 3" in first[2]  # TST-0001: F1, F7 in P1 (and F4 in P2)
+    assert first[0] == "/km/?pillar=P1&amp;document=TST-0001"
+    shown = _ids(_html(client_viewer, "km:index", pillar="P1", document="TST-0001"))
+    assert len(shown) == 2
+    html = _html(client_viewer, "km:documents", pillar="P1", sort="findings")
+    assert [c[1] for c in re.findall(r'<td class="num"><a href="([^"]+)">(\d+)</a>', html)] == ["2", "2", "1"]
+    html = _html(client_viewer, "km:documents", q="zqkmtoken", pillar="P2")
+    assert re.search(r'<a href="/km/\?q=zqkmtoken&amp;pillar=P2&amp;document=TST-0001">1</a>', html)
+    html = _html(client_viewer, "km:documents")  # no filter: every finding, no "of"
+    assert '<td class="num"><a href="/km/?document=TST-0001">3</a></td>' in html
+
+
 def test_the_quick_view_and_the_values_to_check(client_viewer):
     edits = {
         ("findings", 2, "Evidence Confidence Level"): "Fake level",

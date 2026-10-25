@@ -215,3 +215,60 @@ def test_the_columns_name_no_flag_by_its_header():
         f.field for f in cols.FLAGS
     ]
     assert all(re.fullmatch(r"[a-z_]+", c) for c in (*exports.FINDING_COLUMNS, *exports.DOCUMENT_COLUMNS))
+
+
+INSIDE = {
+    # an author named inside an organisation part (the shape of a real entry, with fake names)
+    ("findings", 2, "Publishing Entity / Author"): (
+        "Fakeorg Institute; author Jane Fakename. Published in 'The Fake Monitor' with Fakeorg International "
+        "under the FAKE project"
+    ),
+    # a document's own author introduced by a role word
+    ("documents", 3, "Publishing Entity / Authors"): "Fakeorg Country Office; consultant John Fakeroe",
+    ("findings", 3, "Methods and Sample"): "Done by Fakeorg Country Office and consultant John Fakeroe.",
+    # citations written "Name YEAR", without a comma
+    ("findings", 5, "Methods and Sample"): (
+        "Trials in Lebanon (Fakecited 2010, Fakeother 2020); a fake (FAKEORG, Fakeone and Faketwo 2020) "
+        "design; (Fakesolo 2002 methodology)."
+    ),
+}
+INSIDE_NAMES = (b"Fakename", b"Fakeroe", b"Fakecited", b"Fakeother", b"Fakeone", b"Faketwo", b"Fakesolo")
+
+
+def test_no_name_inside_an_organisation_part_or_a_citation_without_a_comma_is_downloaded(client_viewer):
+    factory.load(factory.workbook(documents=3, findings=6, edits=INSIDE))
+    _, body = _get(client_viewer, export="csv")
+    for name in INSIDE_NAMES:
+        assert name not in body, name
+    rows = {r["finding_id"]: r for r in _csv(body)}
+    assert rows[factory.finding_id(1, 1)]["publishing_organisations"] == (
+        "Fakeorg Institute; Fakeorg International under the FAKE project + 1 author"
+    )
+    assert rows[factory.finding_id(2, 1)]["methods_and_sample"] == (
+        "Done by Fakeorg Country Office and consultant [name withheld]."
+    )
+    assert rows[factory.finding_id(1, 2)]["methods_and_sample"] == (
+        "Trials in Lebanon ([name withheld] 2010, [name withheld] 2020); a fake (FAKEORG, [name withheld] and "
+        "[name withheld] 2020) design; ([name withheld] 2002 methodology)."
+    )
+    _, body = _get(client_viewer, "km:documents", export="csv")
+    assert b"Fakeroe" not in body
+    assert {r["document_id"]: r for r in _csv(body)}["TST-0002"]["publishing_organisations"] == (
+        "Fakeorg Country Office + 1 author"
+    )
+
+
+TYPE = "Desk review by Dr Fakefirst Fakelast (Moe, 2016)"
+
+
+def test_the_about_sheet_never_writes_a_document_type_that_names_a_person(client_viewer):
+    factory.load(
+        factory.workbook(documents=2, findings=4, edits={("documents", 2, "Document / Study Type"): TYPE})
+    )
+    _, body = _get(client_viewer, export="xlsx", type=TYPE)
+    text = _xlsx_text(body)
+    assert b"Moe" not in text and b"Fakelast" not in text and b"Fakefirst" not in text
+    about = dict(_sheets(body)["About"][1:])
+    assert about["Filter"] == "Document type: (not written here: one of them names a person)"
+    _, body = _get(client_viewer, export="xlsx", type="Fake study")
+    assert dict(_sheets(body)["About"][1:])["Filter"] == "Document type: Fake study"

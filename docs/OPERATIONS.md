@@ -1012,24 +1012,37 @@ strongest; `neurodb.km.columns.CONFIDENCE_A_STRONGEST` turns on the colours once
   20,000 findings (`neurodb.km.exports.XLSX_MAX`, a sentence otherwise); the CSV has no limit. The
   browser's own *Copy* and *CSV* buttons are off on the KM tables.
 - `publishing_organisations` replaces the authors: the organisations an entry names ("UNICEF; WHO"),
-  "Authors: N", or both ("UNICEF + 2 authors"). The rule (`neurodb.km.authors`) classes each piece of an
-  entry: words of an organisation, acronyms and places make organisations; initials, "Surname, X.", a name in
-  capitals or capitalised words that could be a name make a person; anything else (a topic in lower case)
-  is counted as one author, never named; "Not reported" and the like give an empty cell. When unsure it
-  counts a person. An organisation string that still holds a KM author's name, a citation or a name after a
-  title is counted as an author instead.
+  "Authors: N", or both ("UNICEF + 2 authors"). The rule (`neurodb.km.authors`) cuts an entry into pieces
+  (";", commas, parentheses, "by"; and a slash, a spaced dash, a colon, "with", the end of a sentence,
+  "and" when a person stands in the piece: "Fakeorg Team: Jane Doe", "author Jane Doe. Published in ...")
+  and takes off the words before a name ("consultant", "led by"). It classes each piece: words of an
+  organisation, acronyms and places make organisations (not a name such as "Jane Cross"); initials,
+  "Surname, X.", a name in capitals or capitalised words that could be a name make a person; anything else
+  (a topic in lower case) is counted as one author, never named; "Not reported" and the like give an empty
+  cell. When unsure it counts a person. An organisation string that still holds a KM author's name, a
+  citation, a name after a title or a name after "by" or "author" is counted as an author instead.
 - **Every text column** goes through `neurodb.km.privacy.for_download` (only the Finding ID and Document ID
-  are written as they are): e-mail addresses, citation names ("Doe et al.", "(Doe, 2019)", "Roe (2018)"),
+  are written as they are): e-mail addresses, citation names ("Doe et al.", "(Doe, 2019)", "Roe (2018)",
+  "(Doe 2010, Roe 2020)", "(Doe 2002 methodology)", "Doe and Roe 2020", "in Doe 2016"; then the same name
+  elsewhere in that text),
   interview speakers ("– Fakename, 34"), the document's own authors by surname, the KM authors' full names
   and names after a title are written "[name withheld]". Months, places, organisations, survey and plan
   names, and acronyms are kept; links and numbers are kept. NeuroDB's own list of people (Watch's) is never
   used and never learns these names.
 - The search box's words are written in the About sheet only when none of them names a KM author.
-- A printout of a finding or document page shows "Publishing organisations" (the download's value), never
-  the authors (screen only).
-- Measured on the user's workbook: about 145 documents name organisations only, 305 list only authors,
-  70 mix both, 16 give none; a check of the whole CSV found no KM author's name form and no citation or
-  speaker name left in any cell.
+- A printout follows the download rule: a finding or document page prints "Publishing organisations" (the
+  download's value), never the authors (screen only), and every text the download writes otherwise (a name
+  withheld: the key finding, the lines, the titles, the types in the tables) is printed as the download
+  writes it, while the screen shows it as the workbook gives it (`km/partials/_printed.html`).
+- Under a filter or a search, the Documents tab's *Findings* counts the findings of the filter ("2", "of
+  3") and links to the Findings tab with the same filter.
+- Measured on the user's workbook: about 140 documents name organisations only, 305 list only authors,
+  75 mix both, 16 give none; the whole CSV holds no KM author's name form in `publishing_organisations`,
+  and the final check finds no name in any cell (only links and numbers, kept by design). An independent
+  count of capitalised words before a year ("Name 2019") left in the texts the assistant will read, not
+  kept by the rule, fell from 435 cells to 88, nearly all ordinary words ("Total 2019", "Target 2025");
+  about a dozen cells still name 4 people in shapes with no year by the name ("(Doe, Lebanon)") or at the
+  start of a clause ("; Doe 2020 (Lebanon) relates").
 
 **Organisations named in downloads** (admin → *KM Database*, superusers and Administrators): corrections
 of the rule, written as the workbook writes the entry, each of a kind: *An organisation* (named), *A

@@ -175,3 +175,76 @@ def test_author_entries_that_look_like_words_are_listed_and_warned():
     edits = {key: value for key, value in edits.items() if key[1] <= 6}
     few = factory.load(factory.workbook(documents=2, findings=5, edits=edits), fewer_ok=True)
     assert not any("look like words" in w or "looks like words" in w for w in few.warnings)
+
+
+@pytest.mark.parametrize(
+    ("entry", "shown"),
+    [
+        # a person written inside an organisation part (the shape found in a real entry, with fake names)
+        (
+            "Fakeorg Institute; author Jane Fakename. Published in 'The Fake Monitor' with Fakeorg "
+            "International under the FAKE project",
+            "Fakeorg Institute; Fakeorg International under the FAKE project + 1 author",
+        ),
+        ("Report prepared by Jane Fakename for the Fakeorg Foundation", "the Fakeorg Foundation + 1 author"),
+        ("Fakeorg Institute, led by Jane Fakename", "Fakeorg Institute + 1 author"),
+        ("Jane Fakename (consultant) for Fakeorg Foundation", "Fakeorg Foundation + 1 author"),
+        ("Fakeorg Institute; consultant", "Fakeorg Institute + 1 author"),  # a role alone: counted
+        ("Jane Fakename - Fakeorg Consulting", "Fakeorg Consulting + 1 author"),
+        ("Jane Fakename – Fakeorg Consulting", "Fakeorg Consulting + 1 author"),
+        ("Jane Fakename/Fakeorg Consulting", "Fakeorg Consulting + 1 author"),
+        ("Jane Fakename with Fakeorg Consulting", "Fakeorg Consulting + 1 author"),
+        ("Fakeorg Research Team: Jane Fakename, John Fakeroe", "Fakeorg Research Team + 2 authors"),
+        ("Fakeorg Institute and consultant Jane Fakename", "Fakeorg Institute + 1 author"),
+        ("Fakeorg Country Office; consultant John Fakeroe", "Fakeorg Country Office + 1 author"),
+        ("Fakeorg Foundation report by Fakename", "Fakeorg Foundation report + 1 author"),
+        ("Fakeorg Institute funded by the Fakeorg Agency", "Fakeorg Institute; the Fakeorg Agency"),
+        # a person whose name holds a word of an organisation
+        ("Jane Cross", "Authors: 1"),
+        ("John Banks", "Authors: 1"),
+        ("Charity Fakename", "Authors: 1"),
+        # organisations stay whole when no person stands in them
+        ("Fakeland Red Cross", "Fakeland Red Cross"),
+        ("Red Cross", "Red Cross"),
+        ("Fakeorg - Lebanon", "Fakeorg - Lebanon"),
+        ("FAKEORG/FKO", "FAKEORG/FKO"),
+        ("Children with Fakeword Association", "Children with Fakeword Association"),
+        ("Fakeorg Institute: Fakeland Office", "Fakeorg Institute: Fakeland Office"),
+        ("Fakeorg Inc. Fakeland Office", "Fakeorg Inc. Fakeland Office"),
+        ("Fakeorg Institute, n/a", "Fakeorg Institute"),
+    ],
+)
+def test_a_person_inside_an_organisation_part_is_counted_never_named(entry, shown):
+    assert authors.for_downloads(entry) == shown
+
+
+def test_the_safety_net_counts_an_organisation_with_a_name_after_by():
+    authors_ = authors.Authors(orgs=["Fakeorg Foundation report by Fakename"])
+    assert authors.safe_orgs(authors_, privacy.NOBODY) == ([], 1)
+    assert authors.safe_orgs(authors.Authors(orgs=["Fakeorg Foundation by UNICEF"]), privacy.NOBODY) == (
+        ["Fakeorg Foundation by UNICEF"],
+        0,
+    )
+
+
+def test_a_role_word_before_a_name_gives_the_persons_name_forms_and_surname():
+    found = authors.classify("Fakeorg Country Office; consultant John Fakeroe")
+    assert found.orgs == ["Fakeorg Country Office"] and found.people == ["John Fakeroe"]
+    assert authors.classify("author Jane Fakename. Published in 'The Fake Monitor'").people == [
+        "Jane Fakename"
+    ]
+    people = authors._gather([(1, "Fakeorg Country Office; consultant John Fakeroe")], {})
+    assert "john fakeroe" in people.names and people.own[1] == {"fakeroe"}
+    assert (
+        privacy.for_download(
+            "Done by Fakeorg Country Office and consultant John Fakeroe.", people, people.own[1]
+        )
+        == f"Done by Fakeorg Country Office and consultant {privacy.NAME_WITHHELD}."
+    )
+
+
+def test_a_citation_of_a_person_whose_name_holds_a_word_of_an_organisation_is_withheld():
+    assert privacy.for_download("as Banks (2019) and Jane Cross (2020) found") == (
+        f"as {privacy.NAME_WITHHELD} (2019) and {privacy.NAME_WITHHELD} (2020) found"
+    )
+    assert privacy.for_download("the Red Cross (2020) found") == "the Red Cross (2020) found"

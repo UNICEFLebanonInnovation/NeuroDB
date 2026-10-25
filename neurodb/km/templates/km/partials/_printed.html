@@ -1,0 +1,2 @@
+{% comment %}A text as the workbook gives it on screen, and as a download writes it on paper (paper: set only when
+the two differ, a name withheld). Context: text, paper.{% endcomment %}{% if paper %}<span class="d-print-none">{{ text }}</span><span class="d-none d-print-inline">{{ paper }}</span>{% else %}{{ text }}{% endif %}

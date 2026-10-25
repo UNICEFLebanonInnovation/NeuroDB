@@ -267,6 +267,7 @@ ABOUT_NAMES_RULE = _("Names of people inside the texts are withheld.")
 NOT_KNOWN = _("not known")
 NO_FILTER = _("None: every row")
 SEARCH_NOT_WRITTEN = _("Search: (your words are not written here: one of them names an author)")
+TYPE_NOT_WRITTEN = _("Document type: (not written here: one of them names a person)")
 
 # ------------------------------------------------------------------------- the version page (the admin)
 DOWNLOAD_SUMMARY = _(

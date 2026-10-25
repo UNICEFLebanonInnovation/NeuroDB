@@ -11,14 +11,21 @@ The rule (:func:`classify`), piece by piece:
    what they said: an organisation (named), a person (counted) or words (left out).
 4. Otherwise the part is cut into pieces on commas and parentheses ("J. Doe (Fakeorg Institute)"), except
    an acronym made of the words before it ("Fake Org (FO)"); initials join the surname before them ("Doe,
-   J."). A part that is not an organisation as a whole is also cut on "and" and "&".
-5. Each piece is classed by itself: listed by an administrator; a word of an organisation (:data:`ORG_WORDS`)
-   → organisation; initials ("J. Doe", "Doe J") → person; a name in capitals ("DOE Jane") → person;
-   acronyms ("FAKEORG", "FaSyR") → organisation; a place → joins the organisation before it; capitalised
-   words that could be a name → person; anything else (a topic in lower case) → counted, never named.
+   J."); and on "by" ("Report prepared by J. Doe": the generic words before it are left out). A piece is
+   also cut on a slash, a spaced dash, a colon, "with" and the full stop that ends a sentence, and on "and"
+   and "&", when a person stands in it ("Jane Doe/Fakeorg", "Fakeorg Team: Jane Doe", "author Jane Doe.
+   Published in ...") or the part is not an organisation as a whole: an organisation's name stays whole
+   ("Fakeorg Institute for Research and Development", "Fakeorg - Lebanon").
+5. Words before a name that say what the person did are taken off ("consultant Jane Doe", "led by Jane
+   Doe"), and a piece that says where the work was published ("Published in ...") is left out. Each piece is
+   then classed by itself: listed by an administrator; a word of an organisation (:data:`ORG_WORDS`) →
+   organisation, except a person's name that holds one ("Jane Cross", "Charity Doe"); initials ("J. Doe",
+   "Doe J") → person; a name in capitals ("DOE Jane") → person; acronyms ("FAKEORG", "FaSyR") →
+   organisation; a place → joins the organisation before it; capitalised words that could be a name →
+   person; anything else (a topic in lower case) → counted, never named.
 6. A downloads cell then reads: the organisations ("Fakeorg Institute; Fakeorg University"), "Authors: N",
-   or both ("Fakeorg Institute + 2 authors"). An organisation whose text still holds a person's name or a
-   citation is counted as an author instead.
+   or both ("Fakeorg Institute + 2 authors"). An organisation whose text still holds a person's name, a
+   citation or a name after "by" or "author" is counted as an author instead.
 
 When the rule is unsure, it counts the entry as a person: it never names someone by mistake. The version's
 page in the admin lists every string named as an organisation, with **Count as a person**.
@@ -55,6 +62,10 @@ ORG_WORDS = frozenset(
     "authorities unions trusts forums projects schools colleges academies laboratories missions boards "
     "partners partnerships charity charities journal journals".split()
 )
+# words of ORG_WORDS that are also people's names ("Jane Cross", "John Banks", "Charity Doe"), and the words
+# that make them an organisation's name again ("Red Cross", "Food Banks")
+NAME_LIKE_ORG_WORDS = frozenset({"cross", "banks", "charity"})
+NOT_NAMES = frozenset({"red", "food", "blood"})
 JOINING = frozenset({"of", "the", "for", "and", "de", "du", "des", "la", "le", "et", "&"})
 PARTICLES = frozenset(
     {"de", "van", "von", "el", "al", "bin", "ibn", "abu", "abou", "bou", "al-", "di", "da", "du", "le", "la"}
@@ -78,6 +89,33 @@ MIXED_CAPS = re.compile(r"^[A-Za-z][^A-Z]*[A-Z][^A-Z]*[A-Z]")  # "FaSyR"
 _TOKEN = re.compile(r"[^\s()\[\],;:]+")
 _TRIM = " \t,.;:"
 ORGANISATION, PERSON, WORDS = "organisation", "person", "words"
+# "by", with the word of what was done before it ("prepared by", "led by"): a piece is always cut there
+BY_WORDS = (
+    "prepared written led edited compiled conducted authored produced coordinated commissioned funded "
+    "supported published reviewed done carried out undertaken".split()
+)
+_BY = re.compile(rf"\s*\b(?:(?:{'|'.join(BY_WORDS)})\s+)*by\s+", re.IGNORECASE)
+# the other signs a piece is cut on when a person stands in it: a slash, a spaced dash, a colon (not of a
+# link) and "with" ("Jane Doe/Fakeorg", "Jane Doe - Fakeorg", "Fakeorg Team: Jane Doe", "Jane Doe with ...")
+_SIGNS = re.compile(r"\s*/\s*|\s+[-–—]\s+|\s*:(?!//)\s*|\s+(?:together\s+)?with\s+", re.IGNORECASE)
+# the full stop that ends a sentence: after a word of three letters or more that is not an abbreviation,
+# before a capital ("author Jane Doe. Published in ...", not "J. Doe" or "Fakeorg Inc. Beirut")
+_FULL_STOP = re.compile(r"(?<=[^\W\d_])\.\s+(?=[A-Z])")
+_LAST_WORD = re.compile(r"[^\W\d_]+$")
+ABBREVIATIONS = frozenset(
+    "dr mr mrs ms mme mlle prof st ste mt inc ltd co corp univ dept govt gov intl assoc no vol ed eds jr sr "
+    "approx".split()
+)
+# the words before a name that say what the person did ("consultant Jane Doe", "lead author: Jane Doe")
+_JOIN_LEAD = re.compile(r"^(?:and|&|by|with|together\s+with|for)\s+", re.IGNORECASE)
+_ROLE = (
+    r"(?:(?:lead|main|principal|senior|junior|independent|external|local)\s+)?(?:co-?)?"
+    r"(?:authors?|researchers?|consultants?|investigators?|editors?|writers?|evaluators?)\b"
+)
+_ROLE_LEAD = re.compile(rf"^{_ROLE}[\s:]*", re.IGNORECASE)
+_ROLE_ONLY = re.compile(_ROLE, re.IGNORECASE)  # "Jane Doe (consultant)": the role of the person before
+# a piece that says where the work was published, not who wrote it: left out
+_VENUE = re.compile(r"^(?:published|appeared|available|printed)\s+(?:in|on|at)\b", re.IGNORECASE)
 
 
 def fold(text: str) -> str:
@@ -95,12 +133,32 @@ def _folded_words(piece: str) -> list[str]:
 
 
 def org_test(piece: str) -> bool:
-    """Whether ``piece`` reads as an organisation: a word of :data:`ORG_WORDS`, or acronyms (all its words
-    upper-case acronyms or joining words; an acronym of four letters or more; a word with two capitals after
-    its first letter, as "FaSyR")."""
-    if any(w in ORG_WORDS for w in _folded_words(piece)):
-        return True
-    return _acronyms(piece)
+    """Whether ``piece`` reads as an organisation: a word of :data:`ORG_WORDS` (not in a person's name that
+    holds one, as "Jane Cross"), or acronyms (all its words upper-case acronyms or joining words; an acronym
+    of four letters or more; a word with two capitals after its first letter, as "FaSyR")."""
+    return _org_words(piece) or _acronyms(piece)
+
+
+def _org_words(piece: str) -> bool:
+    """Whether ``piece`` holds a word of :data:`ORG_WORDS`, and is not a person's name that holds one."""
+    return any(w in ORG_WORDS for w in _folded_words(piece)) and not _name_with_org_word(piece)
+
+
+def _name_with_org_word(piece: str) -> bool:
+    """ "Jane Cross", "John Banks", "Charity Doe", "Banks": a name of one or two capitalised words whose only
+    word of an organisation is one people are also named (:data:`NAME_LIKE_ORG_WORDS`), next to no word of
+    an organisation, a place or common words ("Red Cross" stays an organisation)."""
+    tokens = _tokens(piece)
+    if not 1 <= len(tokens) <= 2 or not all(t[:1].isupper() and t[1:].islower() for t in tokens):
+        return False
+    words = [watch_people.fold(t) for t in tokens]
+    if sum(w in ORG_WORDS for w in words) != 1 or not any(w in NAME_LIKE_ORG_WORDS for w in words):
+        return False
+    other = [w for w in words if w not in ORG_WORDS]
+    return all(
+        w not in NOT_NAMES and w not in privacy.PLACE_WORDS and w not in watch_people.COMMON_WORDS
+        for w in other
+    )
 
 
 def _acronyms(piece: str) -> bool:
@@ -204,23 +262,80 @@ def pieces(part: str) -> list[str]:
         if found and INITIALS.match(piece) and not org_test(found[-1]):
             found[-1] = f"{found[-1]} {piece}"  # "Doe, J." is one piece
             continue
-        found.append(piece)
+        found += _by(piece)
     whole = org_test(part)
     split: list[str] = []
     for piece in found:
-        cut = [p.strip(_TRIM) for p in _AND.split(piece) if p.strip(_TRIM)]
-        # an organisation's name stays whole ("Fakeorg Institute for Research and Development"), unless a
-        # person stands in it ("Jane D. Doe and the Fakeorg Group")
-        if not whole or not org_test(piece) or any(_person_like(p) for p in cut):
-            for one in cut:
-                split += _person_lead(one)
-        else:
-            split += _person_lead(piece)
+        # an organisation's name stays whole ("Fakeorg Institute for Research and Development", "Fakeorg -
+        # Lebanon"), unless a person stands in it ("Jane D. Doe and the Fakeorg Group", "Jane Doe/Fakeorg")
+        signs = _signs(piece)
+        if len(signs) > 1 and whole and org_test(piece) and not any(_holds_person(p) for p in signs):
+            signs = [piece]
+        for sign in signs:
+            cut = [p.strip(_TRIM) for p in _AND.split(sign) if p.strip(_TRIM)]
+            if not whole or not org_test(sign) or any(_holds_person(p) for p in cut):
+                for one in cut:
+                    split += _person_lead(_bare(one))
+            else:
+                split += _person_lead(_bare(sign))
     return [p for p in split if p]
+
+
+def _generic(text: str) -> bool:
+    """Whether ``text`` holds only common or generic words ("Report", "This study"), or nothing."""
+    words = privacy.GENERIC_WORDS | watch_people.COMMON_WORDS | privacy.STOP
+    return all(w in words for w in _folded_words(text))
+
+
+def _by(piece: str) -> list[str]:
+    """``piece`` cut on "by" ("Report prepared by Jane Doe for Fakeorg": the generic words before it are left
+    out)."""
+    found = [p.strip(_TRIM) for p in _BY.split(f" {piece}")]
+    if len(found) > 1 and _generic(found[0]):
+        found = found[1:]
+    return [p for p in found if p]
+
+
+def _signs(piece: str) -> list[str]:
+    """``piece`` cut on the signs of :data:`_SIGNS` and at the end of a sentence (never a placeholder such as
+    "n/a")."""
+    if fold(piece) in EMPTY:
+        return [piece]
+    sentences, last = [], 0
+    for match in _FULL_STOP.finditer(piece):
+        word = _LAST_WORD.search(piece, 0, match.start())
+        if word is None or len(word.group()) < 3 or word.group().casefold() in ABBREVIATIONS:
+            continue
+        sentences.append(piece[last : match.start()])
+        last = match.end()
+    sentences.append(piece[last:])
+    found = [p.strip(_TRIM) for sentence in sentences for p in _SIGNS.split(sentence)]
+    return [p for p in found if p]
+
+
+def _bare(piece: str) -> str:
+    """``piece`` without the words before a name that join it or say what the person did ("and", "for",
+    "consultant", "lead author:"). A role word in capitals is taken off only before a person ("Consultants
+    Collective" stays whole)."""
+    piece = _JOIN_LEAD.sub("", piece).strip(_TRIM)
+    found = _ROLE_LEAD.match(piece)
+    if found and found.end() < len(piece):
+        rest = piece[found.end() :].strip(_TRIM)
+        if rest and (piece[:1].islower() or _person_like(rest)):
+            return rest
+    return piece
+
+
+def _holds_person(piece: str) -> bool:
+    """Whether a person stands in ``piece`` (once the words before a name are taken off, and a person before
+    "of"/"for" an organisation is cut from it)."""
+    return any(_person_like(p) for p in _person_lead(_bare(piece)))
 
 
 def _person_like(piece: str) -> bool:
     """Whether a piece reads as a person by itself (rules c, d and g), not as an organisation."""
+    if _name_with_org_word(piece):
+        return True
     if org_test(piece) or _is_place(piece):
         return False
     return bool(INITIAL.search(piece) or SURNAME_INITIAL.match(piece) or _capitals_name(piece)) or (
@@ -288,44 +403,50 @@ def classify(text: str, known: dict[str, str] | None = None) -> Authors:
         if kind == WORDS:
             found.words.append(part)
             continue
-        last_org = False
+        last = ""  # the kind of the piece before
         for piece in pieces(part):
-            piece_kind = known.get(fold(piece))
             if fold(piece) in EMPTY:
                 continue
-            if piece_kind == WORDS:
-                found.words.append(piece)
-                last_org = False
-                continue
-            if piece_kind == PERSON:
-                found.people.append(piece)
-                last_org = False
-                continue
-            if piece_kind == ORGANISATION or any(w in ORG_WORDS for w in _folded_words(piece)):
-                found.orgs.append(piece)
-                last_org = True
-                continue
-            if INITIAL.search(piece) or SURNAME_INITIAL.match(piece) or _capitals_name(piece):
-                found.people.append(piece)
-                last_org = False
-                continue
-            if _acronyms(piece):
-                found.orgs.append(piece)
-                last_org = True
-                continue
-            if _is_place(piece):
-                if last_org:
+            kind = _piece_kind(piece, known, last)
+            if kind == "place":
+                if last == ORGANISATION:
                     found.orgs[-1] = f"{found.orgs[-1]}, {piece}"
                 else:
                     found.orgs.append(piece)
-                    last_org = True
-                continue
-            if _person_shape(piece):
+                kind = ORGANISATION
+            elif kind == ORGANISATION:
+                found.orgs.append(piece)
+            elif kind == PERSON:
                 found.people.append(piece)
+            elif kind == WORDS:
+                found.words.append(piece)
             else:
                 found.unclassed += 1
-            last_org = False
+            last = kind
     return found
+
+
+def _piece_kind(piece: str, known: dict[str, str], last: str) -> str:
+    """The kind of one piece (step 5 of the rule): an organisation, a person, words (left out), "place" (it
+    joins the organisation before it) or "" (counted, never named). ``last``: the kind of the piece before."""
+    listed = known.get(fold(piece))
+    if listed:
+        return listed
+    if _VENUE.match(piece):  # where it was published: not an author
+        return WORDS
+    if last == PERSON and _ROLE_ONLY.fullmatch(piece):  # "Jane Doe (consultant)": the same person
+        return WORDS
+    if _org_words(piece):
+        return ORGANISATION
+    if _name_with_org_word(piece):
+        return PERSON
+    if INITIAL.search(piece) or SURNAME_INITIAL.match(piece) or _capitals_name(piece):
+        return PERSON
+    if _acronyms(piece):
+        return ORGANISATION
+    if _is_place(piece):
+        return "place"
+    return PERSON if _person_shape(piece) else ""
 
 
 def cell(orgs: list[str], counted: int) -> str:
@@ -348,11 +469,22 @@ def safe_orgs(authors: Authors, people: People) -> tuple[list[str], int]:
         if key in seen:
             continue
         seen.add(key)
-        if privacy.for_download(org, people) != org or privacy.leftover(org, people):
+        if privacy.for_download(org, people) != org or privacy.leftover(org, people) or _named_after(org):
             counted += 1
         else:
             orgs.append(org)
     return orgs, counted
+
+
+# a name after "by" or a role word, inside an organisation's string ("Fakeorg Foundation report by Fakename")
+_NAMED_AFTER = re.compile(
+    rf"(?:\b(?i:by|(?:co-?)?authors?|researchers?|consultants?|investigators?|editors?)\s*:?\s+)"
+    rf"(?P<name>{privacy.NAME})"
+)
+
+
+def _named_after(org: str) -> bool:
+    return any(not privacy.kept(match.group("name")) for match in _NAMED_AFTER.finditer(org))
 
 
 def for_downloads(text: str, known: dict[str, str] | None = None, people: People | None = None) -> str:

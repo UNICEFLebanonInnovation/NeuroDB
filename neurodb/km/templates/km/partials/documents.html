@@ -1,7 +1,9 @@
 {% load i18n humanize %}{% comment %}
   The documents table (km.views.documents). Context: page_obj, count_label, downloads, sorts, filters, how,
   per_links. The authors are shown on screen only: never printed, never in the browser's own copy (the
-  downloads name organisations only).
+  downloads name organisations only); a printout shows the title and the type as a download writes them. Under
+  a filter or a search, Findings counts the findings of the filter ("2", "of 3": d.findings_of) and opens
+  them in the Findings tab with the same filter.
 {% endcomment %}
 {% include "components/table_toolbar.html" with title=words.TAB_DOCUMENTS count_label=count_label no_copy=True downloads=downloads table_id="km-documents" %}
 {% if filters.dropped_questions or how == "letters" %}<div class="km-notes px-3 pb-2">
@@ -19,15 +21,15 @@
     <th scope="col" class="num"{% if filters.sort == "findings" %} aria-sort="descending"{% endif %}><a class="sort-link" href="{{ sorts.findings }}">{% trans "Findings" %}</a></th>
   </tr></thead>
   <tbody>{% for d in page_obj %}<tr>
-    <td class="cell-wrap"><a class="km-clamp-2" href="{% url 'km:document' d.record_id %}">{{ d.title|default:d.record_id }}</a>
+    <td class="cell-wrap"><a class="km-clamp-2" href="{% url 'km:document' d.record_id %}">{% include "km/partials/_printed.html" with text=d.title|default:d.record_id paper=d.paper_title %}</a>
       <span class="cell-sub">{{ d.record_id }}{% if d.needs_review %} <span class="pill pill--sm pill--info">{{ words.REVIEW_PILL }}</span>{% endif %}{% if d.checks %} <span class="pill pill--sm pill--warning" title="{{ words.CHECK_TITLE }}">{{ words.CHECK_PILL }}</span>{% endif %}</span>
-      <span class="cell-sub d-md-none">{{ d.year|default_if_none:d.year_text|default:"—" }} · {{ d.study_type|default:"—" }} · {% include "km/partials/_pill.html" with pill=d.pill %}</span>
+      <span class="cell-sub d-md-none">{{ d.year|default_if_none:d.year_text|default:"—" }} · {% include "km/partials/_printed.html" with text=d.study_type|default:"—" paper=d.paper_type %} · {% include "km/partials/_pill.html" with pill=d.pill %}</span>
     </td>
     <td class="d-none d-md-table-cell d-print-none small cell-wrap" data-export="no"{% if d.entity_shown != d.entity %} title="{{ d.entity }}"{% endif %}>{{ d.entity_shown|default:"—" }}</td>
     <td class="d-none d-md-table-cell text-nowrap">{{ d.year|default_if_none:d.year_text|default:"—" }}</td>
-    <td class="d-none d-md-table-cell small">{{ d.study_type|default:"—" }}</td>
+    <td class="d-none d-md-table-cell small">{% include "km/partials/_printed.html" with text=d.study_type|default:"—" paper=d.paper_type %}</td>
     <td class="d-none d-md-table-cell">{% include "km/partials/_pill.html" with pill=d.pill %}</td>
-    <td class="num"><a href="{% url 'km:index' %}?document={{ d.record_id|urlencode }}">{{ d.findings_rows|intcomma }}</a></td>
+    <td class="num">{% if d.findings_rows %}<a href="{{ d.findings_url }}">{{ d.findings_rows|intcomma }}</a>{% else %}0{% endif %}{% if d.findings_of %}<span class="cell-sub">{{ d.findings_of }}</span>{% endif %}</td>
   </tr>{% endfor %}</tbody>
 </table></div>
 {% include "km/partials/_pages.html" %}

@@ -172,7 +172,7 @@ class Filters:
             sort = params.get("sort") or ""
             filters.sort = sort if sort in (*FINDING_SORTS, *DOCUMENT_SORTS) else ""
             per = params.get("per") or ""
-            filters.per = int(per) if per.isdigit() and int(per) in PER_PAGE else PER_PAGE[0]
+            filters.per = int(per) if per in {str(n) for n in PER_PAGE} else PER_PAGE[0]
         return filters
 
     # ---------------------------------------------------------------------------------- what is chosen

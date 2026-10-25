@@ -126,5 +126,5 @@ without naming them ("UNICEF + 2 authors", "Authors: 3"). Names of people inside
 (citations such as "Doe et al. (2019)", people quoted by their first name) are withheld too. The Excel
 file's *About* sheet gives the version, the filter in words and these rules; it writes your search words
 only when none of them names an author. The page's own *Copy* and *CSV* buttons are off there, and a
-printout shows the organisations only, as a download does (see
+printout follows the same rule: the organisations only, and the names inside the texts withheld (see
 [Downloads and printing](/help/km-database/#downloads-and-printing)).

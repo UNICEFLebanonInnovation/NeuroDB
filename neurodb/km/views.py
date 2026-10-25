@@ -13,18 +13,19 @@ from __future__ import annotations
 from typing import Any
 
 from django.core.paginator import Paginator
-from django.db.models import Count, F
+from django.db.models import Count, F, Q, Value
 from django.http import HttpRequest, HttpResponse, QueryDict
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils import formats
 from django.utils.html import format_html
+from django.utils.safestring import SafeData
 from django.views.decorators.http import require_GET
 
 from neurodb.accounts.roles import can_set_up
 from neurodb.reports import exports as report_exports
 
-from . import authors, exports, loading, search, words
+from . import authors, exports, loading, privacy, search, words
 from . import columns as cols
 from .filters import FLAG_PARAMS, NONE, ORIGINS, PER_PAGE, QUALITY, Filters, facets
 from .models import Flag, KMDocument, KMFinding, KMVersion, day, live
@@ -130,6 +131,38 @@ def fold(text: str, size: int = KEY_FINDING_SHOWN) -> tuple[str, str]:
 
 def cut(text: str, size: int) -> str:
     return text if len(text) <= size else text[:size].rstrip() + "…"
+
+
+# ------------------------------------------------------------------------------------------- printouts
+# A printout follows the download rule: a text the download writes otherwise (a name withheld) is shown as
+# the workbook gives it on screen, and as the download writes it on paper (d-print-none / d-print-*).
+def printed(text: str, people: privacy.People, document: int | None) -> str:
+    """``text`` as a printout shows it (as a download writes it), or "" when that is ``text`` itself."""
+    if not text or not isinstance(text, str) or isinstance(text, SafeData):
+        return ""
+    own = people.own.get(document, frozenset()) if document is not None else frozenset()
+    paper = privacy.for_download(text, people, own)
+    return paper if paper != text else ""
+
+
+def screen_and_paper(text: str, paper: str):
+    """``text`` on screen and ``paper`` on paper, for a place a template writes as it is (a title)."""
+    if not paper:
+        return text
+    return format_html(
+        '<span class="d-print-none">{}</span><span class="d-none d-print-inline">{}</span>', text, paper
+    )
+
+
+def _paper_rows(rows: list[dict[str, Any]], people: privacy.People, document: int) -> None:
+    """Each text line of a detail page with its printed copy (``printed``, and ``differs_printed`` for its
+    note), when the download writes it otherwise. The authors' lines have their own (screen, paper)."""
+    for r in rows:
+        if r.get("screen") or r.get("paper"):
+            continue
+        r["printed"] = printed(r["value"], people, document)
+        if r.get("differs"):
+            r["differs_printed"] = printed(str(r["differs"]), people, document)
 
 
 # ------------------------------------------------------------------------------------- the filter form
@@ -286,8 +319,8 @@ def count_line(n: int, total: int | None, filters: Filters, noun) -> str:
     return line
 
 
-def _findings_page(request: HttpRequest, qs, filters: Filters, how: str):
-    """A page of findings as the table shows them (one count and one query)."""
+def _findings_page(request: HttpRequest, qs, filters: Filters, how: str, people: privacy.People):
+    """A page of findings as the table shows them (one count and one query), each with its printed copies."""
     qs = (
         qs.only(*FINDING_FIELDS)
         .annotate(document_title_shown=F("document__title"))
@@ -300,6 +333,8 @@ def _findings_page(request: HttpRequest, qs, filters: Filters, how: str):
         row.shown = search.highlight(shown, marked)
         row.rest = search.highlight(rest, marked) if rest else ""
         row.pill = confidence_pill(row)
+        row.paper = printed(row.key_finding, people, row.document_id)
+        row.paper_title = printed(row.document_title_shown, people, row.document_id)
     return page
 
 
@@ -314,7 +349,7 @@ def index(request: HttpRequest) -> HttpResponse:
         if export in report_exports.FORMATS:
             ordered = qs.order_by(*filters.finding_order(how == "words"))
             return exports.findings_export(ordered, export, version, filters, context["facets"])
-        page = _findings_page(request, qs, filters, how)
+        page = _findings_page(request, qs, filters, how, authors.people(version))
         context.update(
             page_obj=page,
             count_label=count_line(page.paginator.count, version.findings_count, filters, words.FINDINGS_N),
@@ -336,14 +371,27 @@ def documents(request: HttpRequest) -> HttpResponse:
     if version is not None:
         filters.document = ""  # this tab has no document filter
         qs, how = search.find_documents(filters.documents(KMDocument.objects.all()), filters.q)
-        qs = qs.annotate(findings_rows=Count("findings")).order_by(*filters.document_order(how == "words"))
+        qs = qs.annotate(findings_all=Count("findings"), findings_rows=_findings_of(filters))
+        qs = qs.order_by(*filters.document_order(how == "words"))
         export = request.GET.get("export")
         if export in report_exports.FORMATS:
             return exports.documents_export(qs, export, version, filters, context["facets"])
         page = Paginator(qs.only(*DOCUMENT_FIELDS), filters.per).get_page(request.GET.get("page"))
+        people = authors.people(version)
+        keep = filters.query()
+        keep.pop("sort", None)  # the Findings tab sorts by its own columns
         for row in page.object_list:
             row.pill = confidence_pill(row)
             row.entity_shown = cut(row.entity, ENTITY_SHOWN)
+            query = keep.copy()
+            query["document"] = row.record_id
+            row.findings_url = _url(reverse("km:index"), query)  # the Findings tab, with the same filter
+            if row.findings_rows != row.findings_all:
+                row.findings_of = say(
+                    words.OF_ALL, total=formats.number_format(row.findings_all, force_grouping=True)
+                )
+            row.paper_title = printed(row.title, people, row.pk)
+            row.paper_type = printed(row.study_type, people, row.pk)
         context.update(
             page_obj=page,
             count_label=count_line(page.paginator.count, version.documents_count, filters, words.DOCUMENTS_N),
@@ -354,6 +402,17 @@ def documents(request: HttpRequest) -> HttpResponse:
             results_id="km-results",
         )
     return _answer(request, "km/partials/documents.html", context)
+
+
+def _findings_of(filters: Filters):
+    """The number of a document's findings the Documents tab shows: under a filter or a search, those the
+    Findings tab shows for it with the same filter (its link opens them); otherwise all of them."""
+    if not filters.any:
+        return Count("findings")
+    found, _how = search.find(filters.apply(KMFinding.objects.all()), filters.q)
+    if found.query.is_empty():
+        return Value(0)
+    return Count("findings", filter=Q(findings__in=found.order_by().values("pk")))
 
 
 def _answer(request: HttpRequest, partial: str, context: dict[str, Any]) -> HttpResponse:
@@ -517,18 +576,26 @@ def finding(request: HttpRequest, finding_id: str) -> HttpResponse:
     doc = row.document
     older = None
     asked = request.GET.get("v", "")
-    if asked.isdigit() and int(asked) != version.pk:
+    if asked.isascii() and asked.isdigit() and int(asked) != version.pk:  # never "²", which int() refuses
         older = KMVersion.objects.defer("content").filter(pk=int(asked)).first()
     known, people = authors.context(version)
     print_authors = authors.for_downloads(row.entity or doc.entity, known, people)
     document_url = reverse("km:document", args=[doc.record_id])
     all_url = f"{reverse('km:index')}?document={doc.record_id}"
+    groups = _groups(row, doc, print_authors)
+    for group in groups:
+        _paper_rows([*group["rows"], *group["after"]], people, doc.pk)
+    crumb = cut(doc.title or doc.record_id, 60)
+    paper_title = printed(doc.title, people, doc.pk)
     context = {
         "page_title": words.FINDING_HEADING,
         "page_subtitle": row.finding_id,
         "breadcrumbs": [
             {"label": words.PAGE_TITLE, "url": reverse("km:index")},
-            {"label": cut(doc.title or doc.record_id, 60), "url": document_url},
+            {
+                "label": screen_and_paper(crumb, cut(paper_title, 60) if paper_title else ""),
+                "url": document_url,
+            },
             {"label": words.FINDING_HEADING},
         ],
         "actions": [
@@ -538,7 +605,8 @@ def finding(request: HttpRequest, finding_id: str) -> HttpResponse:
         "header_include": "km/_print_button.html",
         "finding": row,
         "document": doc,
-        "groups": _groups(row, doc, print_authors),
+        "groups": groups,
+        "lead_paper": printed(row.key_finding, people, doc.pk),
         "older": say(words.OLDER_VERSION, label=older.label()) if older else "",
         "document_url": document_url,
         "all_url": all_url,
@@ -564,9 +632,9 @@ def document(request: HttpRequest, record_id: str) -> HttpResponse:
     if doc is None:
         return _missing(request, version, words.MISSING_DOCUMENT)
     filters = Filters()
-    page = _findings_page(request, KMFinding.objects.filter(document=doc), filters, "")
-    table_url = f"{reverse('km:index')}?document={doc.record_id}"
     known, people = authors.context(version)
+    page = _findings_page(request, KMFinding.objects.filter(document=doc), filters, "", people)
+    table_url = f"{reverse('km:index')}?document={doc.record_id}"
     rows_differ = ""
     if doc.findings_stated is not None and doc.findings_stated != doc.findings_rows:
         rows_differ = say(words.ROWS_DIFFER, n=doc.findings_rows)
@@ -594,8 +662,10 @@ def document(request: HttpRequest, record_id: str) -> HttpResponse:
         ),
         _row(words.LINK, _link(doc.link)),
     ]
+    rows = [r for r in rows if r]
+    _paper_rows(rows, people, doc.pk)
     context = {
-        "page_title": doc.title or doc.record_id,
+        "page_title": screen_and_paper(doc.title or doc.record_id, printed(doc.title, people, doc.pk)),
         "page_subtitle": doc.record_id,
         "breadcrumbs": [
             {"label": words.PAGE_TITLE, "url": reverse("km:index")},
@@ -604,7 +674,7 @@ def document(request: HttpRequest, record_id: str) -> HttpResponse:
         "actions": [{"label": words.OPEN_IN_TABLE, "url": table_url}],
         "header_include": "km/_print_button.html",
         "document": doc,
-        "rows": [r for r in rows if r],
+        "rows": rows,
         "page_obj": page,
         "count_label": count_line(page.paginator.count, None, filters, words.FINDINGS_N),
         "table_url": table_url,

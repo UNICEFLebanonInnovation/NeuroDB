@@ -5,11 +5,14 @@ Built from NeuroDB Watch's patterns (:mod:`neurodb.watch.people`, :mod:`neurodb.
 Database's own name sets only (:class:`People`, from :func:`neurodb.km.authors.people`): never NeuroDB's
 list of the people it knows, which no KM text is compared with, and nothing is added to that list.
 
-- **Citations** need no list of names: "Doe et al.", "(Doe, 2019; Roe and Poe, 2020)", "Roe (2018) found",
-  "Doe, 2019" lose the names. A "name" here is one to three capitalised words; it is kept when it is an
-  organisation (:func:`neurodb.km.authors.org_test`), a month, a season, a place or a common word ("(February
-  2023)", "Lebanon (2020)", "(Census 2019)"), holds a generic word of a title ("Response Plan (2020)") or is
-  an acronym such as "FaSyR".
+- **Citations** need no list of names: "Doe et al.", "(Doe, 2019; Roe and Poe, 2020)", "(Doe 2019, Roe
+  2020)", "(Doe 2002 methodology)", "(FAKEORG, Doe and Roe 2020)", "Roe (2018) found", "Doe, 2019", "Doe and
+  Roe 2020", "in Doe 2016" lose the names, and so does the same name wherever else that text writes it
+  ("Doe 2016 (Lebanon) relates"). A "name" here is one to three capitalised words; it is kept when it is an
+  organisation (:func:`neurodb.km.authors.org_test`), a month, a season, a word of time, a place or a common
+  word ("(February 2023)", "(Since 2019)", "Lebanon (2020)", "(Census 2019)"), holds a generic word of a
+  title ("Response Plan (2020)") or is an acronym such as "FaSyR". Outside a parenthesis, one name before a
+  year ("Since 2019") is not taken for a citation.
 - **Interview speakers** ("… – Fakename, 34", "(Fakename, 15)") lose the first name, not a role ("(Mother,
   34)").
 - **A document's own authors** by their surname ("J. Doe interviewed", "Doe's survey") are withheld in the
@@ -42,6 +45,11 @@ MONTHS = frozenset(
     "janvier fevrier mars avril mai juin juillet aout septembre octobre novembre decembre".split()
 )
 SEASONS = frozenset("spring summer autumn fall winter printemps ete automne hiver".split())
+# words of time before a year ("(Since 2019)", "(Early 2020)"), never names
+TIME_WORDS = frozenset(
+    "since until till early late mid end start beginning around circa ca approx approximately year years "
+    "fiscal academic school calendar".split()
+)
 GENERIC_WORDS = frozenset(
     "census survey surveys round wave phase baseline endline midline figure table annex chapter section "
     "report reports plan strategy framework law decree article resolution assessment assessments analysis "
@@ -111,8 +119,28 @@ PAREN = re.compile(r"\(([^()]{4,600})\)")
 C2_ITEM = re.compile(rf"^\s*{_TWO}(?:{ET_AL})?,?\s+{YEAR}(?:\s*,\s*{YEAR})*{LOC}\s*$")
 # C3: "Roe (2018) found", "Doe and Roe (2019: 4)"
 C3 = re.compile(rf"{_BEFORE}{_TWO}(?=(?:{ET_AL})?\s*\(\s*{YEAR}(?:\s*,\s*{YEAR})*{LOC}\s*\))")
+# C2, an item that starts with names and a year, after a programme's name and a slash (or a colon, or "e.g.")
+# or not: "(Doe 2002 methodology)", "(Doe, Roe and Poe 2020)", "(FAKEORG, Doe and Roe 2020)", "(Fake
+# Programme/Doe 2015, 10-13y)"; then every other name before a year in that item ("(Doe 2010, Roe 2020)",
+# "(Doe 2020 and Doe 2023)")
+_NAMES = rf"(?P<names>{NAME}(?:\s*,\s*{NAME})*(?:\s*,?\s+(?:and|&)\s+{NAME})?)"
+_CITING = r"(?:e\.g\.|i\.e\.|see|cf\.?|including|such\s+as)"  # words before the names of a citation
+C2_START = re.compile(
+    rf"^\s*(?:[^/:;()]{{1,80}}[/:]\s*)?(?:{_CITING},?\s+)?{_NAMES}(?:{ET_AL})?,?\s+{YEAR}\b"
+)
+C2_MORE = re.compile(rf"{_BEFORE}{_TWO}(?=(?:{ET_AL})?,?\s+{YEAR}\b)")
+NAME_RE = re.compile(NAME)
+ITEM_MAX = 400  # characters of a parenthesis's item read for names before a year
 # C4: "Doe, 2019"
 C4 = re.compile(rf"{_BEFORE}{_TWO}(?=(?:{ET_AL})?,\s+{YEAR}\b)")
+# C5: outside a parenthesis, two names before a year: "Doe and Roe 2020" (not one: "Since 2019")
+C5 = re.compile(rf"{_BEFORE}(?P<a>{NAME})\s+(?:and|&)\s+(?P<b>{NAME})(?=\s+{YEAR}\b)")
+# C6: outside a parenthesis, a name before a year after a word that cites it: "in Doe 2016", "for Doe 2017",
+# "pooling Doe 2020 and Roe 2023"
+C6 = re.compile(
+    rf"(?<![\w'’\-])(?:in|for|by|from|per|than|with|and|pooling|{_CITING})\s+(?P<a>{NAME})"
+    rf"(?=,?\s+{YEAR}\b)"
+)
 # an interview's speaker by first name and age: "(Fakename, 34)", "“…” – Fakename, 34"
 SPEAKER = re.compile(
     r"(?:\(\s*|[\"”]\s*[-–—]\s*)([A-Z][\w'’-]{2,})(?=,\s*(?:aged?\s*)?\d{1,2}\b(?![.,]\d|\s*%))"
@@ -162,15 +190,16 @@ def kept(name: str) -> bool:
         return True
     if any(_MIXED_CAPS.match(w) or _PLURAL_ACRONYM.match(w) for w in _WORDS.findall(name)):
         return True
-    every = MONTHS | SEASONS | PLACE_WORDS | watch_people.COMMON_WORDS | STOP
+    every = MONTHS | SEASONS | TIME_WORDS | PLACE_WORDS | watch_people.COMMON_WORDS | STOP
     return all(w in every or w.strip("'’") in every for w in found)
 
 
 def _names(match: re.Match) -> list[tuple[int, int]]:
-    """The spans of the names of a C1-C4 match that are not kept."""
+    """The spans of the names of a C1-C6 match that are not kept."""
     spans = []
+    found = match.groupdict()
     for group in ("a", "b"):
-        if match.group(group) and not kept(match.group(group)):
+        if found.get(group) and not kept(found[group]):
             spans.append(match.span(group))
     return spans
 
@@ -181,29 +210,89 @@ def _withhold(text: str, spans: list[tuple[int, int]]) -> str:
     return text
 
 
+def _cited(item: str, cited: set[str]) -> str | None:
+    """An item (or a part of one) that starts with names and a year (C2_START), its names not kept withheld,
+    and every other name before a year in it (C2_MORE); None when it does not start so."""
+    found = C2_START.match(item)
+    if found is None:
+        return None
+    start = found.start("names")
+    spans = {
+        (start + m.start(), start + m.end())
+        for m in NAME_RE.finditer(found.group("names"))
+        if not kept(m.group())
+    }
+    spans |= {span for m in C2_MORE.finditer(item, found.end()) for span in _names(m)}
+    cited.update(item[a:b] for a, b in spans)
+    return _withhold(item, sorted(spans))
+
+
+def _item(item: str, cited: set[str]) -> str:
+    """One item of a parenthesis (between ";"), its citations' names withheld: "Doe, 2019" (C2_ITEM), names
+    and a year at its start, or at the start of one of its parts between commas."""
+    found = C2_ITEM.match(item)
+    if found:
+        spans = _names(found)
+        cited.update(item[a:b] for a, b in spans)
+        return _withhold(item, spans)
+    if len(item) > ITEM_MAX or not _HAS_YEAR.search(item):
+        return item
+    withheld = _cited(item, cited)
+    if withheld is not None:
+        return withheld
+    if "," not in item:
+        return item
+    parts = item.split(",")
+    return ",".join(_cited(part, cited) or part if _HAS_YEAR.search(part) else part for part in parts)
+
+
+def _pair(match: re.Match) -> list[tuple[int, int]]:
+    """C5's two names, when neither is kept ("Fakeword and Child Development Survey 2023" is a title)."""
+    if kept(match.group("a")) or kept(match.group("b")):
+        return []
+    return [match.span("a"), match.span("b")]
+
+
 def _citations(text: str) -> str:
-    """Step 5: the names of citations (C1-C4), withheld."""
+    """Step 5: the names of citations (C1-C6), withheld; then the same names wherever else the text writes
+    them ("pooling Doe 2020 ...; Doe 2020 (Lebanon) relates ...")."""
+    cited: set[str] = set()
+
+    def hold(value: str, spans: list[tuple[int, int]]) -> str:
+        cited.update(value[a:b] for a, b in spans)
+        return _withhold(value, spans)
+
     if _HAS_ET_AL.search(text):
-        text = _withhold(text, [s for m in C1.finditer(text) for s in _names(m)])
+        text = hold(text, [s for m in C1.finditer(text) for s in _names(m)])
     if not _HAS_YEAR.search(text):
-        return text
+        return _again(text, cited)
     if "(" in text:
 
         def paren(match: re.Match) -> str:
-            items = match.group(1).split(";")
-            out = []
-            for item in items:
-                found = C2_ITEM.match(item)
-                if found:
-                    item = _withhold(item, _names(found))
-                out.append(item)
-            return "(" + ";".join(out) + ")"
+            return "(" + ";".join(_item(item, cited) for item in match.group(1).split(";")) + ")"
 
         text = PAREN.sub(paren, text)
-        text = _withhold(text, [s for m in C3.finditer(text) for s in _names(m)])
+        text = hold(text, [s for m in C3.finditer(text) for s in _names(m)])
     if "," in text:
-        text = _withhold(text, [s for m in C4.finditer(text) for s in _names(m)])
-    return text
+        text = hold(text, [s for m in C4.finditer(text) for s in _names(m)])
+    if " and " in text or "&" in text:
+        text = hold(text, [s for m in C5.finditer(text) for s in _pair(m)])
+    text = hold(text, [s for m in C6.finditer(text) for s in _names(m)])
+    return _again(text, cited)
+
+
+def _again(text: str, cited: set[str]) -> str:
+    """The names a citation of ``text`` withheld, and their last words (a surname), withheld wherever else
+    the text writes them, capitalised."""
+    if not cited:
+        return text
+    found = set(cited)
+    for name in cited:
+        last = name.rsplit(" ", 1)[-1]
+        if len(last) >= 3 and not kept(last):
+            found.add(last)
+    alternation = "|".join(re.escape(name) for name in sorted(found, key=len, reverse=True))
+    return re.sub(rf"(?<![\w'’\-])(?:{alternation})(?![\w\-])", NAME_WITHHELD, text)
 
 
 def _speakers(text: str) -> str:
@@ -316,14 +405,15 @@ def _people(text: str, people: People, own: frozenset[str]) -> str:
     text = _citations(text)
     text = _speakers(text)
     folded = _folded(text)
-    if own and any(surname in folded for surname in own):
-        text = _own(text, own)
-        folded = _folded(text)
     # the text's words, folded once: a name is looked for only where it may be written, and a name after a
-    # title only where a title's word is
+    # title only where a title's word is. Full names go before the document's own surnames, so that no first
+    # name is left before a surname withheld ("consultant John [name withheld]")
     found = _LETTERS.findall(folded)
     if people.names and _may_name(found, people):
         text = watch_people.scrub(text, names=people.names)
+        folded = _folded(text)
+    if own and any(surname in folded for surname in own):
+        text = _own(text, own)
     if not watch_people.TITLE_WORDS.isdisjoint(found):
         text = _titles(text)
     return text

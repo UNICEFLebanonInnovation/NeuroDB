@@ -26,7 +26,8 @@ gives it.
 - **Documents** (the second tab, with its number of documents): each document with its Document ID, its
   publishing entity or authors as the workbook gives them (on screen only: never printed or downloaded),
   its year, its type, its confidence level and the number of its findings (press it to see them in the
-  Findings tab).
+  Findings tab). Under a filter or a search, the number counts the findings that match it ("2", "of 3"),
+  and pressing it shows those findings, with the same filter.
 - Each table shows 25 rows a page; **Rows a page** under it shows 50 or 100. The newest year comes
   first, then the workbook's order; after a search, the best match comes first. Press a column's title to
   sort by it (the pillar, the document, the year, the confidence level; on the Documents tab the title,
@@ -87,11 +88,12 @@ gives it.
   individual authors without naming them: "UNICEF + 2 authors", "Authors: 3", or the organisations alone.
   When it is not sure whether a name is a person or an organisation, it counts it as a person.
 - **Names of people inside the texts are withheld** in the files: citations ("Doe et al. (2019)", "(Doe,
-  2019)"), people quoted by their first name and age, a document's own authors and names after a title
-  are written "[name withheld]". Links and figures are kept.
+  2019)", "(Doe 2019, Roe 2020)", "Doe and Roe 2020"), people quoted by their first name and age, a
+  document's own authors and names after a title are written "[name withheld]". Links and figures are kept.
 - Your search words are written in the *About* sheet only when none of them names an author.
-- **Printing** (the page's *Print* button, or the browser's) shows the organisations only, as a download
-  does: the authors' column and lines are left off paper.
+- **Printing** (the page's *Print* button, or the browser's) follows the same rule as a download: the
+  authors' column and lines are left off paper (the organisations are printed instead), and names of
+  people inside the texts are printed "[name withheld]". The screen still shows the texts in full.
 - An administrator can correct how an author entry is written in downloads (an organisation the rule
   missed, a person it took for an organisation, or words that are no name at all) in the administration:
   *KM Database* → *Organisations named in downloads*, or from the version's page. Downloads change at once.

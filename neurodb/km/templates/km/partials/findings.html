@@ -2,7 +2,8 @@
   The findings table (km.views.index, and a document's findings on its page: km.views.document). Context:
   page_obj, count_label, downloads, results_id (the area a page link reloads), sorts (the header links; none on
   a document's page), filters, how (how the search box found them), chip (the document filter), per_links.
-  Sorting is done on the server; the browser's Copy and CSV are off (the downloads follow the author rule).
+  Sorting is done on the server; the browser's Copy and CSV are off (the downloads follow the author rule). A
+  printout shows the key finding and the title as a download writes them (f.paper, f.paper_title).
 {% endcomment %}
 {% include "components/table_toolbar.html" with title=words.TAB_FINDINGS count_label=count_label no_copy=True downloads=downloads table_id="km-findings" %}
 {% if chip or filters.dropped_questions or how == "letters" %}<div class="km-notes px-3 pb-2">
@@ -21,13 +22,13 @@
   </tr></thead>
   <tbody>{% for f in page_obj %}<tr>
     <td class="km-finding">
-      <span class="km-text">{{ f.shown }}</span>
-      <span class="km-row-meta">{% if f.rest %}<details class="km-more-text"><summary>{% trans "Show all" %}</summary><span class="km-text">{{ f.rest }}</span></details>{% endif %}{% url 'km:finding' f.finding_id as finding_url %}<a class="btn btn-outline-secondary btn-sm km-open" href="{{ finding_url }}" hx-get="{{ finding_url }}" hx-target="#modal-content" hx-push-url="false">{{ words.OPEN }}</a><span class="cell-sub">{{ f.finding_id }}{% if f.needs_review %} <span class="pill pill--sm pill--info">{{ words.REVIEW_PILL }}</span>{% endif %}{% if f.checks %} <span class="pill pill--sm pill--warning" title="{{ words.CHECK_TITLE }}">{{ words.CHECK_PILL }}</span>{% endif %}</span></span>
-      <span class="cell-sub d-md-none km-clamp-1">{{ f.pillar_code|default:"—" }} · {{ f.rq_code|default:"—" }} · {% include "km/partials/_pill.html" with pill=f.pill %} · {{ f.document_title_shown }}</span>
+      <span class="km-text{% if f.paper %} d-print-none{% endif %}">{{ f.shown }}</span>{% if f.paper %}<span class="km-text d-none d-print-inline">{{ f.paper }}</span>{% endif %}
+      <span class="km-row-meta">{% if f.rest %}<details class="km-more-text{% if f.paper %} d-print-none{% endif %}"><summary>{% trans "Show all" %}</summary><span class="km-text">{{ f.rest }}</span></details>{% endif %}{% url 'km:finding' f.finding_id as finding_url %}<a class="btn btn-outline-secondary btn-sm km-open" href="{{ finding_url }}" hx-get="{{ finding_url }}" hx-target="#modal-content" hx-push-url="false">{{ words.OPEN }}</a><span class="cell-sub">{{ f.finding_id }}{% if f.needs_review %} <span class="pill pill--sm pill--info">{{ words.REVIEW_PILL }}</span>{% endif %}{% if f.checks %} <span class="pill pill--sm pill--warning" title="{{ words.CHECK_TITLE }}">{{ words.CHECK_PILL }}</span>{% endif %}</span></span>
+      <span class="cell-sub d-md-none km-clamp-1">{{ f.pillar_code|default:"—" }} · {{ f.rq_code|default:"—" }} · {% include "km/partials/_pill.html" with pill=f.pill %} · {% include "km/partials/_printed.html" with text=f.document_title_shown paper=f.paper_title %}</span>
     </td>
     <td class="d-none d-md-table-cell text-nowrap"><span class="has-tip" title="{{ f.pillar }}">{{ f.pillar_code|default:"—" }}</span></td>
     <td class="d-none d-md-table-cell text-nowrap"><span class="has-tip" title="{{ f.research_question }}">{{ f.rq_code|default:"—" }}</span></td>
-    <td class="d-none d-md-table-cell cell-wrap"><a class="km-clamp-2" href="{% url 'km:document' f.record_id %}">{{ f.document_title_shown }}</a><span class="cell-sub">{{ f.year|default_if_none:f.year_text|default:"—" }}</span></td>
+    <td class="d-none d-md-table-cell cell-wrap"><a class="km-clamp-2" href="{% url 'km:document' f.record_id %}">{% include "km/partials/_printed.html" with text=f.document_title_shown paper=f.paper_title %}</a><span class="cell-sub">{{ f.year|default_if_none:f.year_text|default:"—" }}</span></td>
     <td class="d-none d-md-table-cell">{% include "km/partials/_pill.html" with pill=f.pill %}</td>
   </tr>{% endfor %}</tbody>
 </table></div>

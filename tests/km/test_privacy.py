@@ -121,3 +121,56 @@ def test_names_are_never_looked_up_in_neurodbs_own_list(monkeypatch):
     )
     assert privacy.for_download("as Fakefirst Fakelast wrote", PEOPLE) == f"as {W} wrote"
     assert privacy.leftover("as Fakefirst Fakelast wrote", privacy.NOBODY) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "shown"),
+    [
+        # citations written "Name YEAR", without a comma
+        ("Trials in Lebanon (Fakecited 2010, Fakeother 2020)", f"Trials in Lebanon ({W} 2010, {W} 2020)"),
+        ("(Fakesolo 2002 methodology)", f"({W} 2002 methodology)"),
+        ("a fake (Fakeone and Faketwo 2020) design", f"a fake ({W} and {W} 2020) design"),
+        ("(FAKEORG, Fakeone and Faketwo 2020)", f"(FAKEORG, {W} and {W} 2020)"),
+        ("(Fakeone, Faketwo and Fakethree 2020)", f"({W}, {W} and {W} 2020)"),
+        ("(Fakeone 2019; Faketwo 2020, p. 4)", f"({W} 2019; {W} 2020, p. 4)"),
+        ("as Fakeone and Faketwo 2020 found", f"as {W} and {W} 2020 found"),
+        ("as Fakeone et al. 2020 found", f"as {W} et al. 2020 found"),
+        (
+            "(Fake Programme/Fakeone 2015, 10-13y; Fakeone 2020 11-14y)",
+            f"(Fake Programme/{W} 2015, 10-13y; {W} 2020 11-14y)",
+        ),
+        ("(e.g. Fakeone 2015 and Faketwo 2020 totals)", f"(e.g. {W} 2015 and {W} 2020 totals)"),
+        ("(2 fake studies: Fakeone 2016, Faketwo 2019)", f"(2 fake studies: {W} 2016, {W} 2019)"),
+        (
+            "ages 12-59 months in Fakeone 2016 and for Faketwo 2017",
+            f"ages 12-59 months in {W} 2016 and for {W} 2017",
+        ),
+        (
+            "pooling Fakeone 2020 (fake); Fakeone 2020 (Lebanon) relates",
+            f"pooling {W} 2020 (fake); {W} 2020 (Lebanon) relates",
+        ),
+        ("(Fakeone and Faketwo 2020); Faketwo's trial", f"({W} and {W} 2020); {W}'s trial"),
+        # kept: dates, places, surveys, acronyms and words of time
+        ("Since 2019 the fake rate rose (since 2019)", "Since 2019 the fake rate rose (since 2019)"),
+        ("(Since 2019)", "(Since 2019)"),
+        ("(Until 2021, Early 2020, Mid 2021)", "(Until 2021, Early 2020, Mid 2021)"),
+        ("(VASyR 2021, Survey 2019, Beirut 2020)", "(VASyR 2021, Survey 2019, Beirut 2020)"),
+        ("(February 2023, Fakeorg Institute)", "(February 2023, Fakeorg Institute)"),
+        (
+            "in Jordan and Lebanon 2020 and January and February 2021",
+            "in Jordan and Lebanon 2020 and January and February 2021",
+        ),
+        ("(UNICEF and WFP 2020)", "(UNICEF and WFP 2020)"),
+        ("Fakeword 2020 rose", "Fakeword 2020 rose"),  # outside a parenthesis, one word before a year
+        ("[Fake Target 2021 vs Achieved 2021]: 143", "[Fake Target 2021 vs Achieved 2021]: 143"),
+        ("the Fakeword and Child Development Survey 2023", "the Fakeword and Child Development Survey 2023"),
+        (
+            "(Fake Integrated Fakeword, Fakeword and Child Development Survey, FAKS, 2022)",
+            "(Fake Integrated Fakeword, Fakeword and Child Development Survey, FAKS, 2022)",
+        ),
+    ],
+)
+def test_citations_without_a_comma(text, shown):
+    assert privacy.for_download(text) == shown
+    assert privacy.for_ai(text) == shown
+    assert privacy.leftover(shown) == []

@@ -188,7 +188,11 @@ def filter_words(filters: Filters, facets: dict[str, Any], people: privacy.Peopl
     add(_("Research question"), [legend.get(k, k) for k in filters.rq])
     add(_("Confidence"), [_("Not given") if c == NONE else f"Level {c}" for c in filters.confidence])
     add(_("Year"), [_("Not reported") if y == NONE else y for y in filters.year])
-    add(_("Document type"), filters.type)
+    if filters.type:  # a type is the workbook's text: written only when it names nobody
+        if all(search_words_safe(t, people) for t in filters.type):
+            add(_("Document type"), filters.type)
+        else:
+            found.append(str(words.TYPE_NOT_WRITTEN))
     if filters.document:
         add(_("Document ID"), [filters.document])
     add(_("Analytical domain"), filters.domain)
@@ -212,8 +216,8 @@ def filter_words(filters: Filters, facets: dict[str, Any], people: privacy.Peopl
 
 
 def search_words_safe(text: str, people: privacy.People) -> bool:
-    """Whether the search box's words may be written in a download: they name no author of the KM Database
-    and nothing in them is withheld."""
+    """Whether the search box's words (or a document type chosen) may be written in a download: they name no
+    author of the KM Database and nothing in them is withheld."""
     if privacy.for_download(text, people) != text:
         return False
     if {watch_people.fold(w) for w in watch_people.WORD.findall(text)} & people.surnames:
