@@ -106,11 +106,12 @@ def test_the_job_reads_the_staged_copies_and_empties_them(checker, started, no_l
     assert _content_left(upload) == 0
     exports = PowerBIExport.objects.filter(upload=upload)
     assert sorted(exports.values_list("kind", flat=True)) == sorted(px.KINDS)
-    assert set(exports.values_list("state", flat=True)) == {"read"}
+    assert set(exports.values_list("state", flat=True)) == {"compared"}
     assert all(e.rows for e in exports) and all(e.rows_read == 3 for e in exports)
     assert upload.summary["exports"] == 13 and upload.summary["rows"] == 39
-    # nothing else: no import run, no difference written
-    assert PowerBIDifference.objects.count() == 0
+    # the fake rows against an empty NeuroDB: differences, each with its reason (and nothing else is written)
+    assert PowerBIDifference.objects.filter(export__upload=upload).count() > 0
+    assert len(upload.summary["pages"]) == 10
 
 
 def test_an_export_that_cannot_be_read_fails_alone(checker, started):
@@ -122,7 +123,7 @@ def test_an_export_that_cannot_be_read_fails_alone(checker, started):
     upload.refresh_from_db()
     assert upload.status == Status.DONE
     states = dict(PowerBIExport.objects.filter(upload=upload).values_list("kind", "state"))
-    assert states == {"partner_cards": "read", "by_sector": "failed"}
+    assert states == {"partner_cards": "compared", "by_sector": "failed"}
     failed = PowerBIExport.objects.get(upload=upload, kind="by_sector")
     assert failed.error == "NeuroDB could not read sector.xlsx (Unreadable)." and failed.content is None
 
@@ -418,10 +419,38 @@ def test_a_large_export_is_read_whole_by_the_job(checker, started, big):
     upload = _upload(checker, ("disaggregations.xlsx", big))
     pc.run(upload.pk)
     export = PowerBIExport.objects.get(upload=upload)
-    assert export.state == "read" and export.rows_read == 100_000 and export.content is None
+    assert export.state == "compared" and export.rows_read == 100_000 and export.content is None
     rows = pr.rows_of(export.rows)
     first = dict(zip(export.columns, next(iter(rows)), strict=True))
     assert first["p_code"] == "LB9_9_0" and first["period_end"] == "2026-01-01"
+
+
+def test_comparing_a_large_export_stays_within_its_memory_and_line_limits(checker, started, big):
+    """100,000 disaggregation rows against a NeuroDB that holds none: compared month by month, every one counted,
+    only the export's limit written, and the comparison's memory far below the job's limit."""
+    upload = _upload(checker, ("disaggregations.xlsx", big))
+    PowerBIExport.objects.filter(upload=upload).update(state="read")
+    export = PowerBIExport.objects.get(upload=upload)
+    found = pr.read(
+        bytes(export.content), px.recognise(powerbi_xlsx.peek(bytes(export.content)).header), frozenset()
+    )
+    PowerBIExport.objects.filter(pk=export.pk).update(
+        rows=found.rows, rows_read=found.rows_read, columns=found.columns, content=None, filters={}
+    )
+    export.refresh_from_db()
+    from neurodb.datamart import powerbi_facts
+
+    context = powerbi_facts.Context(day=datetime.date(2026, 10, 15), history=datetime.date(2024, 1, 1))
+    tracemalloc.start()
+    try:
+        written = pc._compare(export, upload, context)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    export.refresh_from_db()
+    assert export.state == "compared" and export.counts["lines"] == 100_000
+    assert written == pc.LINE_LIMIT == PowerBIDifference.objects.filter(export=export).count()
+    assert peak < 150 * 1024 * 1024, peak / 1e6
 
 
 def test_reading_memory_does_not_grow_with_the_rows():

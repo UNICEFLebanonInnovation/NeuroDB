@@ -3,9 +3,13 @@
 
 {% comment %}
   One export of an upload (context: datamart.powerbi_admin.export_view, validators only): its Power BI page and
-  visual, its file, the rows read, its filters clause by clause (each with how NeuroDB applies it: rebuilt from
-  what NeuroDB understood, never the raw line), the columns kept, the columns that name people dropped as the file
-  was read, the columns not compared, and its notes. No value from the file is shown.
+  visual, its file, the NeuroDB page it is compared with, the day the statuses are read for; its verdict and the
+  rows compared; its filters clause by clause (each with how NeuroDB applies it: rebuilt from what NeuroDB
+  understood, never the raw line); the columns kept, dropped as people's columns and not compared; its notes; the
+  fit tables (Power BI's possible rules, counted from NeuroDB's records); its lines by group and reason, needs a
+  look first, the expected ones on one line; and the lines themselves (100 a page, at most 5,000 on screen), each
+  with Power BI's value and NeuroDB's, the reason, what to do and "Check in NeuroDB". The table scrolls sideways
+  inside its card on a phone. The values shown are those of the columns NeuroDB compares, never a person.
 {% endcomment %}
 
 {% block content %}
@@ -15,14 +19,17 @@
     <span>{{ page_name }} → {{ row.visual }} · {{ export.file_name }} · <a class="nd-link" href="{{ upload_url }}">{% trans "Back to the upload" %}</a></span>
   </p>
 
-  {% trans "What NeuroDB read" as read_title %}
+  {% trans "What NeuroDB read and found" as read_title %}
   {% component "unfold/components/card.html" with title=read_title title_icon="description" %}
-    <p class="mb-2" data-pbi-state><strong>{{ row.state }}</strong>{% if export.state != "failed" and export.state != "staged" %}: {% blocktrans trimmed count n=export.rows_read %}{{ n }} row{% plural %}{{ n }} rows{% endblocktrans %}{% endif %}.{% if row.action %} {{ row.action }}{% endif %}</p>
+    <p class="mb-2" data-pbi-state><strong>{{ row.state }}</strong>{% if row.action %} {{ row.action }}{% endif %}</p>
+    {% if row.counts %}<p class="mb-2" data-pbi-counts>{{ row.counts }}{% if row.set_aside %} {{ row.set_aside }}.{% endif %}</p>{% elif export.state != "failed" and export.state != "staged" %}<p class="mb-2">{% blocktrans trimmed count n=export.rows_read %}{{ n }} row read{% plural %}{{ n }} rows read{% endblocktrans %}.</p>{% endif %}
+    {% if empty %}<p class="mb-2" data-pbi-empty>{{ empty }}</p>{% endif %}
+    {% if neurodb_page %}<p class="mb-2" data-pbi-neurodb-page>{% trans "Compared with NeuroDB's" %} {% if neurodb_url %}<a class="nd-link" href="{{ neurodb_url }}">{{ neurodb_page }}</a>{% else %}{{ neurodb_page }}{% endif %}{% if day %} · {% blocktrans trimmed %}Statuses read for {{ day }}{% endblocktrans %}{% endif %}.</p>{% endif %}
     {% if row.covers %}<p class="mb-2">{% trans "What its filter covers:" %} {{ row.covers }}</p>{% endif %}
     {% if kept %}<p class="mb-2" data-pbi-kept>{% trans "Columns kept:" %} {{ kept|join:", " }}</p>{% endif %}
     {% for line in export.dropped %}<p class="mb-2" data-pbi-dropped>{{ line }}</p>{% endfor %}
     {% if not_compared %}<p class="mb-2" data-pbi-not-compared>{{ not_compared }}</p>{% endif %}
-    {% for note in export.notes %}<p class="nd-found__warn mb-2">{{ note }}</p>{% endfor %}
+    {% for note in notes %}<p class="nd-found__warn mb-2" data-pbi-note>{{ note }}</p>{% endfor %}
   {% endcomponent %}
 
   {% trans "Power BI's filters" as filters_title %}
@@ -40,6 +47,112 @@
       </div>
     {% else %}
       <p>{{ words.NO_FILTER }}</p>
+    {% endif %}
+  {% endcomponent %}
+
+  {% for table in fits %}
+  {% component "unfold/components/card.html" with title=table.title title_icon="rule" %}
+    <div class="nd-scroll">
+      <table class="nd-jobs nd-found__table" data-pbi-fit>
+        <thead><tr><th scope="col">{% trans "Power BI's possible rule" %}</th><th scope="col">{% trans "Fits" %}</th></tr></thead>
+        <tbody>
+          {% for r in table.rows %}
+            <tr><th scope="row">{{ r.words }}{% if r.chosen %} <strong>({{ words.FIT_CHOSEN }})</strong>{% endif %}</th><td>{{ r.fits }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if table.aside %}<p class="nd-menu__note mt-2">{{ table.aside }}</p>{% endif %}
+  {% endcomponent %}
+  {% endfor %}
+
+  {% if by_reason.needs or by_reason.expected %}
+  {% trans "Differences by reason" as reasons_title %}
+  {% component "unfold/components/card.html" with title=reasons_title title_icon="checklist" %}
+    {% if by_reason.needs %}
+      <ul class="list-disc ml-6 mb-3" data-pbi-reasons>
+        {% for r in by_reason.needs %}
+          <li><a class="nd-link" href="{{ r.url }}">{{ r.group }}: {{ r.reason }} ({{ r.n|intcomma }})</a><small class="nd-menu__note">{{ r.todo }}</small></li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    {% if by_reason.expected %}
+      <p data-pbi-expected>{{ words.EXPECTED_COLLAPSED }}:
+        {% for r in by_reason.expected %}<a class="nd-link" href="{{ r.url }}">{{ r.reason }} ({{ r.n|intcomma }})</a>{% if not forloop.last %} · {% endif %}{% endfor %}
+      </p>
+    {% endif %}
+  {% endcomponent %}
+  {% endif %}
+
+  {% trans "The differences" as lines_title %}
+  {% component "unfold/components/card.html" with title=lines_title title_icon="table_rows" %}
+    <form method="get" action="{{ export_url }}" class="flex flex-wrap gap-3 items-end mb-3" data-pbi-line-filter>
+      <label>{% trans "Reason" %}
+        <select name="reason" class="border rounded px-2 py-1">
+          <option value="">{{ words.ALL_REASONS }}</option>
+          {% for code, label in reasons.items %}<option value="{{ code }}"{% if chosen.reason == code %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>{% trans "Kind" %}
+        <select name="kind" class="border rounded px-2 py-1">
+          <option value="">{{ words.ALL_KINDS }}</option>
+          {% for code, label in kinds.items %}<option value="{{ code }}"{% if chosen.kind == code %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      {% if chosen.group %}<input type="hidden" name="group" value="{{ chosen.group }}">{% endif %}
+      {% component "unfold/components/button.html" with submit=1 %}{{ words.SHOW }}{% endcomponent %}
+    </form>
+    {% if on_screen %}<p class="nd-menu__note mb-2">{{ on_screen }}</p>{% endif %}
+    {% if lines %}
+      <div class="nd-scroll">
+        <table class="nd-jobs nd-found__table" data-pbi-lines>
+          <thead><tr>
+            <th scope="col">{% trans "Kind" %}</th>
+            {% for caption in match %}<th scope="col">{{ caption }}</th>{% endfor %}
+            <th scope="col">{% trans "Column" %}</th>
+            <th scope="col">{{ words.POWER_BI }}</th>
+            <th scope="col">{{ words.NEURODB }}</th>
+            <th scope="col">{% trans "Why" %}</th>
+            <th scope="col">{% trans "What to do" %}</th>
+          </tr></thead>
+          <tbody>
+            {% for line in lines %}
+              {% for column in line.columns %}
+                <tr data-pbi-line>
+                  {% if forloop.first %}
+                    <td rowspan="{{ line.columns|length }}">{{ line.kind }}</td>
+                    {% for value in line.match %}<td rowspan="{{ line.columns|length }}">{{ value }}</td>{% endfor %}
+                  {% endif %}
+                  <th scope="row">{{ column.caption }}</th>
+                  <td>{{ column.powerbi }}</td>
+                  <td>{{ column.neurodb }}{% if column.alternative %}<small class="nd-menu__note">{{ column.alternative }}</small>{% endif %}</td>
+                  {% if forloop.first %}
+                    <td rowspan="{{ line.columns|length }}"><strong>{{ line.reason }}</strong>{% if line.rule %}<small class="nd-menu__note">{{ line.rule }}</small>{% endif %}{% if line.detail %}<small class="nd-menu__note">{{ line.detail }}</small>{% endif %}</td>
+                    <td rowspan="{{ line.columns|length }}">{{ line.todo }}{% if line.link %} <a class="nd-link" href="{{ line.link }}">{{ words.CHECK_IN_NEURODB }}</a>{% endif %}</td>
+                  {% endif %}
+                </tr>
+              {% empty %}
+                <tr data-pbi-line>
+                  <td>{{ line.kind }}</td>
+                  {% for value in line.match %}<td>{{ value }}</td>{% endfor %}
+                  <td>—</td><td>—</td><td>—</td>
+                  <td><strong>{{ line.reason }}</strong>{% if line.detail %}<small class="nd-menu__note">{{ line.detail }}</small>{% endif %}</td>
+                  <td>{{ line.todo }}{% if line.link %} <a class="nd-link" href="{{ line.link }}">{{ words.CHECK_IN_NEURODB }}</a>{% endif %}</td>
+                </tr>
+              {% endfor %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if page.has_other_pages %}
+        <nav class="flex gap-3 mt-3" aria-label="{% trans 'Pages' %}" data-pbi-pages-nav>
+          {% if page.has_previous %}<a class="nd-link" href="?{% if query %}{{ query }}&amp;{% endif %}page={{ page.previous_page_number }}">{% trans "Previous" %}</a>{% endif %}
+          <span>{% blocktrans trimmed with n=page.number of=page.paginator.num_pages %}Page {{ n }} of {{ of }}{% endblocktrans %}</span>
+          {% if page.has_next %}<a class="nd-link" href="?{% if query %}{{ query }}&amp;{% endif %}page={{ page.next_page_number }}">{% trans "Next" %}</a>{% endif %}
+        </nav>
+      {% endif %}
+    {% else %}
+      <p>{{ words.NO_LINES }}</p>
     {% endif %}
   {% endcomponent %}
 </div>

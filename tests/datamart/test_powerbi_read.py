@@ -288,19 +288,18 @@ def test_a_value_neurodb_cannot_read_is_counted_and_its_text_never_kept():
 
 def test_codes_are_kept_as_read_and_never_cleaned():
     """The people cleaner would take a phone-like code for a phone number: two different codes would then read
-    the same. Codes are never cleaned."""
+    the same. Codes are never cleaned. Funded Programs' Fund Reservation is the amount reserved for the grant (a
+    number, as Power BI writes it)."""
     order = [c.name for c in pf.columns("funded_programmes")]
     data = []
     for pd in ("FAKE/PCA1/+961 3 123 457", "FAKE/PCA2/+961 3 123 458"):
         row = dict.fromkeys(order)
-        row.update(
-            {"pd": pd, "grant": "0400012345", "fund_reservation": "0400099999", "donor": "+961 3 123 459"}
-        )
+        row.update({"pd": pd, "grant": "0400012345", "fund_reservation": 5000.1, "donor": "+961 3 123 459"})
         data.append([row[name] for name in order])
     _match, found = _read(pf.export("funded_programmes", data))
     rows = _rows(found)
     assert [r["pd"] for r in rows] == ["FAKE/PCA1/+961 3 123 457", "FAKE/PCA2/+961 3 123 458"]
-    assert rows[0]["fund_reservation"] == "0400099999" and rows[0]["grant"] == "0400012345"
+    assert rows[0]["fund_reservation"] == 5000.1 and rows[0]["grant"] == "0400012345"
     assert rows[0]["donor"] == "[phone withheld]"  # a free text is cleaned
 
 

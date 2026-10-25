@@ -390,6 +390,11 @@ class DatamartDocumentAdmin(ReadOnlyModelAdmin):
                 name="datamart_powerbi_again",
             ),
             path(
+                "datamart/powerbi/<int:pk>/differences.xlsx",
+                view(powerbi_admin.xlsx_view),
+                name="datamart_powerbi_xlsx",
+            ),
+            path(
                 "datamart/powerbi/<int:pk>/<int:export_pk>/",
                 view(powerbi_admin.export_view),
                 name="datamart_powerbi_export",

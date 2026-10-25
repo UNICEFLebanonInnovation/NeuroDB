@@ -64,24 +64,27 @@ def test_only_validators_with_staff_status_open_compare_with_power_bi(client, ro
         ("post", INDEX),
         ("get", reverse("admin:datamart_powerbi_upload", args=[upload.pk])),
         ("get", reverse("admin:datamart_powerbi_export", args=[upload.pk, export.pk])),
+        ("get", reverse("admin:datamart_powerbi_xlsx", args=[upload.pk])),
         ("post", reverse("admin:datamart_powerbi_again", args=[upload.pk])),
     ]
 
     def statuses():
         return [getattr(client, method)(url).status_code for method, url in pages]
 
-    assert statuses() == [302] * 5  # anonymous: the admin's sign-in
+    assert statuses() == [302] * 6  # anonymous: the admin's sign-in
     client.force_login(pf.user("plain-validator", staff=False))
-    assert statuses() == [302] * 5  # the admin asks for staff status
+    assert statuses() == [302] * 6  # the admin asks for staff status
     for user in (pf.user("staff-viewer", validator=False), admin_user):  # an Administrator not ticked: no
         client.force_login(user)
-        assert statuses() == [404] * 5, user
-    for user in (pf.user("staff-validator"), pf.user("root", superuser=True)):
+        assert statuses() == [404] * 6, user
+    for n, user in enumerate((pf.user("staff-validator"), pf.user("root", superuser=True))):
         client.force_login(user)
         found = statuses()
         assert found[0] == 200 and found[2] == 200 and found[3] == 200, (user, found)
         assert found[1] == 200  # a POST without files: "Choose the files to upload."
-        assert found[4] in (200, 302)
+        # the Excel file of every difference; once Compare again queued the upload, none until it is done
+        assert found[4] == (200 if n == 0 else 404)
+        assert found[5] in (200, 302)
     # an export of another upload is not found
     assert client.get(reverse("admin:datamart_powerbi_export", args=[other.pk, export.pk])).status_code == 404
 
@@ -132,14 +135,15 @@ def test_the_upload_page_lists_every_power_bi_page_in_order(checker, started):
     table = html.split("data-pbi-pages", 1)[1].split("</table>", 1)[0]
     pages = re.findall(r'<th scope="row" rowspan="\d+">(.*?)</th>', table)
     assert pages == [p.replace("&", "&amp;") for p in comparison.POWERBI_PAGE_ORDER]
-    assert table.count(words.NOT_UPLOADED) == 11  # 13 visuals, 2 uploaded
+    assert table.count("<td>—</td><td>—</td><td>—</td>") == 11  # 13 visuals, 2 uploaded
+    verdicts = re.findall(r'data-pbi-verdict="(\w+)"', table)
+    assert len(verdicts) == 10 and verdicts.count("not_uploaded") == 8  # 2 of the 10 pages have an export
     assert "cards.xlsx" in table and "list.xlsx" in table
-    todo = re.findall(r"<li>(.*?)</li>", html.split("data-pbi-todo", 1)[1].split("</ul>", 1)[0])
+    todo = _todo(html)
     assert 1 <= len(todo) <= 4
-    assert todo == [
-        "1 file was not read: see why below, then export it again.",
-        "11 visuals are not uploaded: export them too (see How to export).",
-    ]
+    assert todo[0].startswith("Needs a look: ")  # the fake rows against an empty NeuroDB
+    assert "1 file was not read: see why below, then export it again." in todo
+    assert "11 visuals are not uploaded: export them too (see How to export)." in todo
     assert words.NOT_EXCEL.format(name="notes.txt") in html
     assert "Skipped 3 hidden files a Mac adds to a zip." in html
     assert (
@@ -174,7 +178,8 @@ def test_a_filter_neurodb_cannot_apply_is_said_on_the_upload_and_export_pages(ch
     )
     upload = _done(checker, ("sector.xlsx", pf.export("by_sector", filters=filters)))
     html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
-    assert _todo(html) == [
+    todo = _todo(html)
+    assert todo[0].startswith("Needs a look: ") and todo[1:] == [
         words.plural(12, words.TODO_MISSING_ONE, words.TODO_MISSING),
         words.TODO_CANNOT.format(
             clauses="the PD status slicer; the Section slicer; the actual_value filter in the Filters pane; "
@@ -327,3 +332,194 @@ def test_the_help_says_what_works_now_and_keeps_the_sheet_until_neurodb_compares
     if not pc.COMPARERS:
         assert "no longer need" not in section
         assert "comparison sheet" in opening and "people's names" in opening.lower()
+
+
+# ----------------------------------------------------------------------------------- the results (stage 2)
+@pytest.fixture
+def fake_world(db, monkeypatch):
+    import datetime
+
+    from neurodb.datamart import reached
+
+    monkeypatch.setattr(
+        reached,
+        "history_from",
+        lambda today=None: reached.HistoryFrom(datetime.date(2026, 1, 1), "read_from"),
+    )
+    return pf.world()
+
+
+REPORT_DROP = ("pd_status", "partner", "section", "document_type", "due_date", "period_start")
+
+
+def _report(**values):
+    import datetime
+
+    base = {
+        "pd": pf.WORLD_PD,
+        "report_status": "Accepted",
+        "period_end": datetime.date(2026, 3, 31),
+        "report": "QPR1",
+    }
+    return pf.row("report_list", **{**base, **values})
+
+
+def test_an_exports_page_lists_its_lines_needs_a_look_first_with_two_values_and_what_to_do(
+    checker, started, fake_world
+):
+    import datetime
+
+    rows = [
+        _report(),
+        _report(report="HR1", report_status="Overdue", period_end=datetime.date(2026, 8, 31)),  # owed
+        _report(report="HR2", report_status="Accepted", period_end=datetime.date(2026, 8, 31)),  # not in the read
+        *[_report(report=f"HR{n}", report_status="Overdue", period_end=datetime.date(2026, 8, 31)) for n in range(3, 120)],
+        _report(pd="=HYPERLINK(\"http://x\")", report="+1-2"),  # a formula-like text stays a text
+    ]  # fmt: skip
+    pf.sync(
+        datetime.datetime(2026, 10, 15, 8, 0)
+    )  # after Power BI's refresh: a row it did not bring needs a look
+    upload = pf.compared(
+        checker,
+        ("list.xlsx", pf.export("report_list", rows, drop=REPORT_DROP)),
+        refreshed=datetime.datetime(2026, 10, 14, 6, 0),
+    )
+    export = PowerBIExport.objects.get(upload=upload)
+    url = reverse("admin:datamart_powerbi_export", args=[upload.pk, export.pk])
+    html = checker.get(url).content.decode()
+    reasons = html.split("data-pbi-reasons", 1)[1].split("</ul>", 1)[0]
+    assert "Needs a look: Not in NeuroDB: not in the Datamart read (2)" in reasons
+    expected = html.split("data-pbi-expected", 1)[1].split("</p>", 1)[0]
+    assert "A report still owed (118)" in expected and "?reason=owed&amp;group=1" in expected
+    table = html.split("data-pbi-lines", 1)[1].split("</table>", 1)[0]
+    first = table.split("<tr data-pbi-line>", 2)[1]
+    assert (
+        "Not in NeuroDB: not in the Datamart read" in first and "The Datamart did not send this row." in first
+    )
+    assert "Download the Excel file and send it to the NeuroDB team." in first and "Check in PRP" in first
+    assert '<th scope="col">Power BI</th>' in table and '<th scope="col">NeuroDB</th>' in table
+    assert "data-pbi-pages-nav" in html  # 120 lines: 100 a page
+    second = checker.get(url, {"page": 2}).content.decode()
+    assert second.count("Only in Power BI") >= 20
+    owed = checker.get(url, {"reason": "owed"}).content.decode()
+    assert "Not in NeuroDB: not in the Datamart read" not in owed.split("data-pbi-lines", 1)[1]
+    only = checker.get(url, {"kind": "only_neurodb"}).content.decode().split("data-pbi-lines", 1)[1]
+    assert "Only in NeuroDB" in only and "Only in Power BI" not in only  # QPR2 and QPR3: not in the export
+    # the Excel file: every difference, texts as texts, dates as dates, numbers as numbers
+    response = checker.get(reverse("admin:datamart_powerbi_xlsx", args=[upload.pk]))
+    assert response.status_code == 200 and response["Content-Disposition"].startswith(
+        'attachment; filename="powerbi-comparison_'
+    )
+    import io
+
+    import openpyxl
+
+    book = openpyxl.load_workbook(io.BytesIO(response.content))
+    assert book.sheetnames[0] == "Summary" and len(book.sheetnames) == 2
+    sheet = book.worksheets[1]
+    header = [c.value for c in sheet[1]]
+    assert header[:5] == ["Kind", "Group", "Reason", "What to do", "Detail"]
+    rows = [dict(zip(header, (c.value for c in r), strict=False)) for r in sheet.iter_rows(min_row=2)]
+    formula = next(r for r in rows if str(r["PD #"]).startswith("=HYPERLINK"))
+    assert formula["PD #"] == '=HYPERLINK("http://x")' and formula["Report #"] == "+1-2"
+    assert isinstance(formula["Period End"], datetime.datetime)
+    assert "<f>" not in zipfile_text(response.content)
+    assert len(rows) == 122  # every line (118 owed, 2 not in the read, 2 only in NeuroDB), one row each: wide
+
+
+def zipfile_text(data: bytes) -> str:
+    import io
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        return "".join(package.read(n).decode("utf-8", "replace") for n in package.namelist())
+
+
+def test_the_excel_writes_a_different_line_one_row_per_column_and_stops_at_its_caps(
+    checker, started, fake_world, monkeypatch
+):
+    import datetime
+    import io
+
+    import openpyxl
+
+    from neurodb.datamart import powerbi_results, raw
+
+    rows = [_report(report_status="Submitted", partner="SOMEONE ELSE", report="QPR1")]
+    rows += [
+        _report(report=f"HR{n}", report_status="Overdue", period_end=datetime.date(2026, 8, 31))
+        for n in range(1, 30)
+    ]
+    drop = tuple(n for n in REPORT_DROP if n != "partner")
+    upload = pf.compared(checker, ("list.xlsx", pf.export("report_list", rows, drop=drop)))
+    monkeypatch.setattr(powerbi_results, "XLSX_SHEET_ROWS", 10)
+    freed = []
+    real = raw.take_slot
+
+    def slot():
+        found = real()
+        free = found.free
+        found.free = lambda: freed.append(1) or free()
+        return found
+
+    monkeypatch.setattr(raw, "take_slot", slot)
+    response = checker.get(reverse("admin:datamart_powerbi_xlsx", args=[upload.pk]))
+    assert freed == [1]  # the slot is freed once the file is written
+    sheet = openpyxl.load_workbook(io.BytesIO(response.content)).worksheets[1]
+    header = [c.value for c in sheet[1]]
+    rows = [dict(zip(header, (c.value for c in r), strict=False)) for r in sheet.iter_rows(min_row=2)]
+    different = [r for r in rows if r["Kind"] == "Different"]
+    assert {r["Column"] for r in different} == {"Report Status", "Partner"}  # long form: one row per column
+    assert len(rows) == 10 and rows[-1]["Kind"].startswith("Differences counted but not listed here: ")
+    monkeypatch.setattr(raw, "take_slot", lambda: None)
+    busy = checker.get(reverse("admin:datamart_powerbi_xlsx", args=[upload.pk]))
+    assert busy.status_code == 503 and busy.content.decode() == words.XLSX_BUSY
+
+
+def test_the_upload_page_says_what_to_do_now_and_one_verdict_per_power_bi_page(checker, started, fake_world):
+    import datetime
+
+    rows = [
+        _report(),
+        _report(report="QPR2", report_status="Submitted", period_end=datetime.date(2026, 6, 30)),
+        _report(report="QPR3", report_status="Overdue", period_end=datetime.date(2026, 9, 30)),
+        _report(pd=pf.WORLD_ENDED),
+    ]
+    upload = pf.compared(
+        checker,
+        ("list.xlsx", pf.export("report_list", rows, drop=REPORT_DROP)),
+        (
+            "cards.xlsx",
+            pf.export("partner_cards", [pf.row("partner_cards", accepted=1, submitted=1, due=0, overdue=1)]),
+        ),
+    )
+    html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    todo = _todo(html)
+    assert (
+        todo[0].startswith("Check 1 PD in eTools: NeuroDB has it as not running.") and "?group=3" in todo[0]
+    )
+    assert 1 <= len(todo) <= 4
+    verdicts = dict(
+        re.findall(
+            r'<th scope="row" rowspan="\d+">(.*?)</th>\s*<td rowspan="\d+" data-pbi-verdict="(\w+)"', html
+        )
+    )
+    assert verdicts["PD/SPD Report"] == "check" and verdicts["Partner Performance"] == "same"
+    assert verdicts["Program Performance"] == "not_uploaded"
+    assert words.XLSX_BUTTON in html and words.AGAIN_BUTTON in html
+    history = checker.get(INDEX).content.decode().split("data-pbi-history", 1)[1]
+    assert "<td>0</td>" in history  # no line needs a look
+    del datetime
+
+
+def test_the_upload_page_says_how_far_the_comparison_is(checker, started):
+    pf.post(checker, ("cards.xlsx", pf.export("partner_cards")), ("sector.xlsx", pf.export("by_sector")))
+    upload = PowerBIUpload.objects.get()
+    PowerBIUpload.objects.filter(pk=upload.pk).update(
+        status=PowerBIUpload.Status.COMPARING, summary={"compared": 1}
+    )
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(background, "lock_is_held", lambda lock: True)  # the job holds its lock: not stale
+        html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    assert "Comparing… 1 of 2 exports" in html and '<meta http-equiv="refresh" content="5">' in html
+    assert words.XLSX_BUTTON not in html

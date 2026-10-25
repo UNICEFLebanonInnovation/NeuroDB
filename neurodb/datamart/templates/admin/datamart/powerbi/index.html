@@ -1,5 +1,5 @@
 {% extends "admin/base_site.html" %}
-{% load i18n unfold %}
+{% load i18n humanize unfold %}
 
 {% comment %}
   Compare with Power BI (context: datamart.powerbi_admin.index_view, validators only): the upload form (one file
@@ -57,6 +57,7 @@
           <th scope="col">{% trans "By" %}</th>
           <th scope="col">{% trans "Exports read" %}</th>
           <th scope="col">{% trans "Files not read" %}</th>
+          <th scope="col">{% trans "Needs a look" %}</th>
           <th scope="col">{% trans "Status" %}</th>
         </tr></thead>
         <tbody>
@@ -66,6 +67,7 @@
               <td>{{ row.upload.uploaded_by|default:"—" }}</td>
               <td>{% if row.exports is None %}—{% else %}{{ row.exports }}{% endif %}</td>
               <td>{{ row.not_read }}</td>
+              <td>{% if row.look is None %}—{% else %}{{ row.look|intcomma }}{% endif %}</td>
               <td>{{ row.status }}{% if row.upload.trimmed %}<small class="nd-menu__note">{{ words.DETAILS_REMOVED }}</small>{% endif %}</td>
             </tr>
           {% endfor %}

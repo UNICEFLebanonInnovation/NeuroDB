@@ -16,6 +16,7 @@ import datetime
 import io
 import zipfile
 from collections.abc import Iterable, Iterator
+from decimal import Decimal
 from typing import Any
 from xml.sax.saxutils import escape
 
@@ -38,7 +39,7 @@ def value(column: px.Column, n: int) -> Any:
         return f"QPR{n % 4 + 1}"
     if name == "p_code":
         return f"LB9_9_{n}"
-    if name in ("grant", "fund_reservation"):
+    if name == "grant":
         return f"0400{n:06}"
     if name == "partner":
         return f"FAKEORG PARTNER {n}"
@@ -103,7 +104,8 @@ def table(
     found = px.KINDS[kind]
     cols = columns(kind, drop)
     header = list(captions) if captions is not None else [c.caption for c in cols]
-    body = [list(r) for r in (data if data is not None else rows(kind, 3, drop))]
+    given = data if data is not None else rows(kind, 3, drop)
+    body = [[r.get(c.name) for c in cols] if isinstance(r, Row) else list(r) for r in given]
     for extra in extra_columns:
         header.append(extra)
         body = [[*r, f"extra {i}"] for i, r in enumerate(body)]
@@ -427,3 +429,181 @@ def post(client, *files: tuple[str, bytes]):
         SimpleUploadedFile(name, data, content_type="application/octet-stream") for name, data in files
     ]
     return client.post(reverse("admin:datamart_powerbi"), {"files": uploads})
+
+
+# ------------------------------------------------------------------------------- NeuroDB's records (db)
+WORLD_PD = "FAKE/PCA2026001/PD2026001-2"
+WORLD_ENDED = "FAKE/PCA2026002/PD2026002"
+WORLD_PARTNER = "Fakeorg Partner 1"
+_record_ids = iter(range(900_000, 10**9))
+
+
+def report_row(pd, number: str, status: str, start, end, *, title="Fake indicator 1", source=101, place="LB9_9_1",
+               value=None, due=None, submitted=None, **extra):  # fmt: skip
+    """One partner report row of NeuroDB (one indicator, report and location), its value in the "()" total."""
+    from neurodb.datamart import models as dm
+
+    fields = {
+        "datamart_id": next(_record_ids),
+        "partner_id": pd.partner_id,
+        "intervention": pd,
+        "partner_name": WORLD_PARTNER,
+        "pd_reference_number": pd.number,
+        "progress_report": f"PR-{pd.pk}-{number}",
+        "indicator_report": f"IR-{pd.pk}-{number}-{source}",
+        "report_number": number,
+        "report_type": "".join(c for c in number if c.isalpha()) or "QPR",
+        "report_status": status,
+        "period_start": start,
+        "period_end": end,
+        "due_date": due or end + datetime.timedelta(days=15),
+        "submission_date": submitted,
+        "indicator": title,
+        "etools_indicator_id": str(source),
+        "pd_output": "Fake output 1",
+        "section": "Section Alpha",
+        "location": f"Fake place {place[-1]}",
+        "p_code": place,
+        "cp_output": "Output One",
+        "disaggregation": {"()": value} if value is not None else {},
+        "target": "100",
+    }
+    fields.update(extra)
+    return dm.ReportedIndicator.objects.create(**fields)
+
+
+def world():
+    """NeuroDB's side: one active PD of one partner with two indicators (a number and a percentage) and three
+    quarterly reports (Accepted, Submitted, Overdue), and an ended PD."""
+    from neurodb.datamart import models as dm
+    from neurodb.partnerships.models import PCA, PartnerOrganization
+
+    partner = PartnerOrganization.objects.create(
+        etl_id="fake-p1",
+        name=WORLD_PARTNER,
+        vendor_number="V-FAKE-1",
+        partner_type="Civil Society Organization",
+        cso_type="National",
+    )
+    pd = PCA.objects.create(
+        etl_id="fake-pd1",
+        partner=partner,
+        partner_name=WORLD_PARTNER,
+        number=WORLD_PD,
+        title="Fake programme 1",
+        status="active",
+        document_type="PD",
+        start=datetime.date(2026, 1, 1),
+        end=datetime.date(2026, 12, 31),
+        section_names=["Section Alpha", "Section Beta"],
+        cp_outputs=["Output One", "Output, Two"],
+        offices_set=["Office North"],
+        total_unicef_budget="9000",
+        total_budget="10000",
+        cso_contribution="1000",
+        budget_currency="USD",
+        frs_total_outstanding_amt="300",
+    )
+    ended = PCA.objects.create(
+        etl_id="fake-pd2",
+        partner=partner,
+        partner_name=WORLD_PARTNER,
+        number=WORLD_ENDED,
+        title="Fake programme 2",
+        status="ended",
+        start=datetime.date(2026, 1, 1),
+        end=datetime.date(2026, 6, 30),
+        section_names=["Section Alpha"],
+    )
+    for n, (source, title, kind, numerator, denominator) in enumerate(
+        ((101, "Fake indicator 1", "", 100, None), (102, "Fake percentage 2", "percentage", 40, 100)), start=1
+    ):
+        dm.PDIndicator.objects.create(
+            datamart_id=800 + n,
+            source_id=source,
+            intervention=pd,
+            pd_reference_number=pd.number,
+            title=title,
+            display_type=kind,
+            unit="percentage" if kind else "number",
+            section_name="Section Alpha",
+            lower_result_name="Fake output 1",
+            cp_output="Output One",
+            target_numerator=numerator,
+            target_denominator=denominator,
+        )
+    day = datetime.date
+    # Akkar's 10 in QPR1 by sex: Female 4, Male 6
+    first = report_row(
+        pd, "QPR1", "Accepted", day(2026, 1, 1), day(2026, 3, 31), value=10, submitted=day(2026, 4, 10)
+    )
+    first.disaggregation = {"()": 10, "(1,)": 4, "(2,)": 6}
+    first.save(update_fields=["disaggregation"])
+    Label = dm.DisaggregationLabel
+    Label.objects.create(kind=Label.Kind.TYPE, prp_id=10, label="Sex")
+    Label.objects.create(kind=Label.Kind.VALUE, prp_id=1, label="Female", disaggregation_id=10)
+    Label.objects.create(kind=Label.Kind.VALUE, prp_id=2, label="Male", disaggregation_id=10)
+    report_row(pd, "QPR1", "Accepted", day(2026, 1, 1), day(2026, 3, 31), place="LB9_9_2", value=5,
+               submitted=day(2026, 4, 10))  # fmt: skip
+    report_row(pd, "QPR1", "Accepted", day(2026, 1, 1), day(2026, 3, 31), title="Fake percentage 2", source=102,
+               value={"v": 1, "d": 4, "c": 0.25}, submitted=day(2026, 4, 10), target="40")  # fmt: skip
+    report_row(
+        pd, "QPR2", "Submitted", day(2026, 4, 1), day(2026, 6, 30), value=20, submitted=day(2026, 7, 10)
+    )
+    report_row(pd, "QPR3", "", day(2026, 7, 1), day(2026, 9, 30), due=day(2026, 10, 14))
+    report_row(
+        ended, "QPR1", "Accepted", day(2026, 1, 1), day(2026, 3, 31), value=3, submitted=day(2026, 4, 2)
+    )
+    dm.FundsReservation.objects.create(
+        datamart_id=700, intervention=pd, fr_number="FR-FAKE-1", grant_number="SC000001", donor="Fake Donor",
+        overall_amount=Decimal("5000.10"),
+    )  # fmt: skip
+    dm.FundsReservationHeader.objects.create(
+        datamart_id=701, intervention=pd, fr_number="FR-FAKE-1", actual_amt=Decimal("2500"),
+        outstanding_amt=Decimal("300"),
+    )  # fmt: skip
+    return pd, ended
+
+
+class Row(dict):
+    """One Power BI row by column name (``row``): written in the order of the columns the export keeps."""
+
+
+def row(kind: str, **values: Any) -> Row:
+    """One Power BI row of ``kind`` by its columns' names (those not given empty)."""
+    return Row(values)
+
+
+def compared(client, *files: tuple[str, bytes], refreshed: datetime.datetime | None = None):
+    """Upload ``files`` and run the comparison: the upload, as it ended. ``refreshed``: Power BI's refresh
+    (as the files' "Last Updated Date" gives it)."""
+    from django.utils import timezone
+
+    from neurodb.datamart import powerbi_compare
+    from neurodb.datamart.models import PowerBIUpload
+
+    response = post(client, *files)
+    assert response.status_code == 302, response.content[:300]
+    upload = PowerBIUpload.objects.order_by("-pk").first()
+    if refreshed is not None:
+        PowerBIUpload.objects.filter(pk=upload.pk).update(powerbi_as_of=timezone.make_aware(refreshed))
+    powerbi_compare.run(upload.pk)
+    upload.refresh_from_db()
+    return upload
+
+
+def sync(finished: datetime.datetime):
+    """A partner reports sync of the eTools Datamart that finished at ``finished``."""
+    from django.utils import timezone
+
+    from neurodb.core.models import SyncRun
+
+    moment = timezone.make_aware(finished)
+    return SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART,
+        target="partner_reports",
+        status=SyncRun.Status.SUCCEEDED,
+        started_at=moment - datetime.timedelta(minutes=5),
+        finished_at=moment,
+        details={"read": 10},
+    )

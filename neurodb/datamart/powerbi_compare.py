@@ -11,11 +11,15 @@ by the upload page's *Upload and compare* and *Compare again*; never from a shel
    looked for in the records it kept (Raw eTools data's fields): when every record carries one, NeuroDB
    applies it from the records.
 4. A Datamart sync or a KM Database load started meanwhile stops it (the rows stay: *Compare again* works).
-5. **Comparing**, export by export in Power BI's order: an export whose filter names another country is not
-   compared, an export with no row is "Empty in Power BI"; every other export is compared by its kind's
-   comparer (:data:`COMPARERS`) in its own read-only snapshot of the data.
-6. The upload is done; its memory peak and time are kept; uploads older than the newest :data:`KEEP_FULL` lose
-   their rows and lines (retention, also applied when an upload is created).
+5. **Comparing**, export by export in Power BI's order (the report list and the Data Quality list first: the
+   counted visuals are explained from them): an export whose filter names another country is not compared, an
+   export with no row is "Empty in Power BI" (with the rows NeuroDB's page has for its filter); every other
+   export is compared by its kind's comparer (``powerbi_kinds.COMPARERS``) in its own read-only snapshot of
+   the data. Its lines are kept compactly during the snapshot and written after it, needs-a-look first, at
+   most :data:`LINE_LIMIT` per export and :data:`UPLOAD_LINE_LIMIT` per upload (the rest are counted).
+6. The upload is done: its summary (a verdict per Power BI page, what to do now, the choices for the user,
+   ``powerbi_results``), its memory peak and time are kept; uploads older than the newest :data:`KEEP_FULL`
+   lose their rows and lines (retention, also applied when an upload is created).
 
 This job writes the three Compare with Power BI tables and nothing else: no import run, no figure of any page.
 Its logs carry counts, kinds and class names only, never a value from the files.
@@ -28,7 +32,6 @@ import logging
 import os
 import resource
 import time
-from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
@@ -39,7 +42,7 @@ from django.utils import timezone
 from neurodb.integrations import background
 
 from . import powerbi_exports as px
-from . import powerbi_filters, powerbi_read, powerbi_xlsx
+from . import powerbi_facts, powerbi_filters, powerbi_kinds, powerbi_match, powerbi_read, powerbi_xlsx
 from . import powerbi_words as words
 from .models import PowerBIDifference, PowerBIExport, PowerBIUpload
 
@@ -58,8 +61,8 @@ MAX_REFUSED = 100
 Status = PowerBIUpload.Status
 BUSY_STATUSES = (Status.QUEUED, Status.READING, Status.COMPARING)
 READ_STATES = ("read", "compared", "empty", "not_compared")  # an export whose rows NeuroDB read
-# an export's kind -> the function that compares it with NeuroDB's page (none yet: the exports are read)
-COMPARERS: dict[str, Callable[[PowerBIExport, PowerBIUpload], None]] = {}
+COMPARERS = powerbi_kinds.COMPARERS  # an export's kind -> the function that compares it with NeuroDB's page
+BATCH = 1_000  # lines written at once
 
 
 def exports_of(upload: PowerBIUpload | int) -> QuerySet[PowerBIExport]:
@@ -312,11 +315,19 @@ def run(pk: int) -> PowerBIUpload | None:
             return _fail(upload, words.OTHER_JOB_LATER, started)
         if not PowerBIUpload.objects.filter(pk=pk, status=Status.READING).update(status=Status.COMPARING):
             return PowerBIUpload.objects.filter(pk=pk).first()
-        for export in exports_of(upload):
-            _compare(export, upload)
+        context = _context(upload)
+        written = 0
+        for n, export in enumerate(_in_order(exports_of(upload)), start=1):
+            written += _compare(export, upload, context, UPLOAD_LINE_LIMIT - written)
+            _progress(upload, n)
         after = _partner_reports_run()
         upload.sync_moved = _run_id(before) != _run_id(after)
-        upload.summary = {**(upload.summary or {}), **_summary(upload)}
+        from . import powerbi_results
+
+        summary = {**(upload.summary or {}), **_summary(upload)}
+        summary.pop("compared", None)
+        upload.summary = {**summary, **powerbi_results.summary(upload, list(exports_of(upload)))}
+        upload.choices = powerbi_results.choices(list(exports_of(upload)))
         upload.status = Status.DONE
         upload.compared_at = upload.finished_at = timezone.now()
         upload.error = ""
@@ -329,6 +340,7 @@ def run(pk: int) -> PowerBIUpload | None:
                 "error",
                 "sync_moved",
                 "summary",
+                "choices",
                 "day",
                 "powerbi_as_of",
                 "synced_at",
@@ -491,27 +503,99 @@ def _record_fields(upload: PowerBIUpload, run: Any) -> None:
             export.save(update_fields=["filters", "clauses", "notes"])
 
 
-def _compare(export: PowerBIExport, upload: PowerBIUpload) -> None:
-    """One export against NeuroDB, in its own snapshot of the data; one that fails leaves the others."""
-    from . import raw
+def _context(upload: PowerBIUpload) -> powerbi_facts.Context:
+    """What every export of the comparison shares: the day, NeuroDB's history, Power BI's refresh and the sync
+    (dates), the people cleaner's names and the section names NeuroDB knows."""
+    from neurodb.watch import people
+
+    from . import reached
+
+    refreshed = timezone.localtime(upload.powerbi_as_of).date() if upload.powerbi_as_of else None
+    synced = timezone.localtime(upload.synced_at).date() if upload.synced_at else None
+    day = upload.day or timezone.localdate()
+    return powerbi_facts.Context(
+        day=day,
+        history=reached.history_from(day).date,
+        refreshed=refreshed,
+        synced=synced,
+        names=people.known_names(),
+        sections=tuple(known_sections()),
+    )
+
+
+def _in_order(exports: QuerySet[PowerBIExport]) -> list[PowerBIExport]:
+    """Power BI's order, the report list and the Data Quality list first (the counted visuals and the card are
+    explained from them)."""
+    found = list(exports)
+    first = [e for kind in powerbi_kinds.FIRST for e in found if e.kind == kind]
+    return first + [e for e in found if e.kind not in powerbi_kinds.FIRST]
+
+
+def _progress(upload: PowerBIUpload, n: int) -> None:
+    """How many exports are compared so far (the upload's page says "Comparing… n of 13 exports")."""
+    summary = {**(upload.summary or {}), "compared": n}
+    upload.summary = summary
+    PowerBIUpload.objects.filter(pk=upload.pk).update(summary=summary)
+
+
+def _compare(
+    export: PowerBIExport,
+    upload: PowerBIUpload,
+    context: powerbi_facts.Context,
+    room: int = UPLOAD_LINE_LIMIT,
+) -> int:
+    """One export against NeuroDB, in its own snapshot of the data; one that fails leaves the others. Returns
+    the lines written (at most ``room``)."""
+    from . import powerbi_results, raw
 
     if export.state == "failed":
-        return
+        return 0
     parsed = powerbi_filters.Filter.from_json(export.filters)
     try:
+        written = 0
         if parsed.country_ok is False:
             export.state, export.verdict = "not_compared", "other_country"
             note = words.OTHER_COUNTRY.format(country=settings.ETOOLS_DATAMART_COUNTRY)
             export.notes = [*export.notes, note] if note not in export.notes else export.notes
         elif export.rows_read == 0:
-            export.state, export.verdict = "empty", "empty"
-        elif export.kind in COMPARERS:
             with raw.snapshot(raw.STREAM_TIMEOUT_MS):
-                COMPARERS[export.kind](export, upload)
+                count = powerbi_kinds.neurodb_count(export.kind, parsed, context)
+            export.state, export.verdict = "empty", "empty"
+            export.counts = {"neurodb_rows": count}
+        elif export.kind in COMPARERS:
+            data = PowerBIExport.objects.filter(pk=export.pk).values_list("rows", flat=True).first()
+            result = powerbi_match.Result(limit=LINE_LIMIT)
+            job = powerbi_kinds.Job(
+                kind=px.KINDS[export.kind],
+                columns=list(export.columns),
+                data=bytes(data) if data else None,
+                parsed=parsed,
+                context=context,
+                result=result,
+                rows_read=export.rows_read,
+            )
+            with raw.snapshot(raw.STREAM_TIMEOUT_MS):
+                COMPARERS[export.kind](job)
+            written = _write_lines(export, result, min(room, LINE_LIMIT))
+            counts = result.summary()
+            counts["written"] = written
+            if counts["lines"] > written:
+                result.note(words.NOTE_LINES_CUT.format(n=counts["lines"] - written))
+            counts["extra"] = dict(result.extra)
+            counts["notes"] = list(result.notes)  # the comparison's (the read's stay in ``notes``)
+            export.counts = counts
+            export.fits = list(result.fits)
+            export.set_aside = job.set_aside
+            if job.by_comparison:
+                _by_comparison(export, job.by_comparison)
             export.state = "compared"
+            export.verdict = powerbi_results.verdict_code(export)
         else:
             export.state, export.verdict = "read", ""
-        export.save(update_fields=["state", "verdict", "notes", "counts", "fits", "set_aside"])
+        export.save(
+            update_fields=["state", "verdict", "notes", "counts", "fits", "set_aside", "filters", "clauses"]
+        )
+        return written
     except MemoryError:
         raise  # past the job's memory limit: the whole comparison stops
     except Exception as exc:  # noqa: BLE001 - one export never stops the others; its class name only
@@ -521,9 +605,53 @@ def _compare(export: PowerBIExport, upload: PowerBIUpload) -> None:
             export.kind,
             type(exc).__name__,
         )
+        PowerBIDifference.objects.filter(export=export).delete()
         PowerBIExport.objects.filter(pk=export.pk).update(
-            state="failed", error=words.STOPPED.format(cls=type(exc).__name__)[:300]
+            state="failed", verdict="failed", error=words.STOPPED.format(cls=type(exc).__name__)[:300]
         )
+        return 0
+
+
+def _write_lines(export: PowerBIExport, result: powerbi_match.Result, room: int) -> int:
+    """The export's lines, needs-a-look first, in batches: at most ``room`` (the export's limit, or the
+    upload's lines left)."""
+    batch: list[PowerBIDifference] = []
+    n = 0
+    for kind, group, reason, rule, detail, match, found, link in result.lines():
+        if n >= room:
+            break
+        n += 1
+        batch.append(
+            PowerBIDifference(
+                export=export,
+                n=n,
+                group=group,
+                kind=kind,
+                reason=reason,
+                rule=rule,
+                detail=detail,
+                match=match,
+                found=found,
+                link=link,
+            )
+        )
+        if len(batch) >= BATCH:
+            PowerBIDifference.objects.bulk_create(batch)
+            batch = []
+    if batch:
+        PowerBIDifference.objects.bulk_create(batch)
+    return n
+
+
+def _by_comparison(export: PowerBIExport, fields: list[str]) -> None:
+    """A clause NeuroDB's page has no filter for, which the comparison applies itself (Program Performance's
+    report status)."""
+    parsed = powerbi_filters.Filter.from_json(export.filters)
+    for clause in parsed.clauses:
+        if clause.field in fields and clause.state == "applied":
+            clause.state = "by_comparison"
+    export.filters = parsed.to_json()
+    export.clauses = [{"words": c.words, "state": c.state} for c in parsed.clauses]
 
 
 def _summary(upload: PowerBIUpload) -> dict[str, Any]:

@@ -310,7 +310,7 @@ _KINDS = (
         (
             PD,
             Column("Grant #", "grant", CODE),
-            Column("Fund Reservation", "fund_reservation", CODE),
+            Column("Fund Reservation", "fund_reservation", MONEY),  # the funds reserved for the grant
             *_optional(
                 Column("status", "pd_status", LABEL),
                 _text("Donor", "donor"),

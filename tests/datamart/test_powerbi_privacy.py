@@ -225,3 +225,71 @@ def test_codes_and_years_survive_the_cleaner_and_a_known_name_does_not():
         assert pr.clean(text, names, memo) == text
     assert pr.clean("ZQ FAKEPERSON", names, memo) == "[name withheld]"
     assert pr.file_name("folder/Zq Fakeperson export.xlsx", names) == "[name withheld] export.xlsx"
+
+
+def test_people_in_neurodbs_own_records_never_reach_the_comparison(checker, started, caplog, monkeypatch):
+    """NeuroDB's side is read through the page functions and kept through ``powerbi_page.shown``: a PD's focal
+    points, who submitted a report, its narratives and a record's whole data never reach a line, a page, the
+    Excel file or a log; a known person's name in a NeuroDB text is withheld as in the files."""
+    import datetime
+
+    from neurodb.datamart import models as dm
+    from neurodb.datamart import reached
+
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setattr(
+        reached,
+        "history_from",
+        lambda today=None: reached.HistoryFrom(datetime.date(2026, 1, 1), "read_from"),
+    )
+    User.objects.create_user(
+        username="known", first_name="Zq", last_name="Fakeperson", password="pw-1234567-x"
+    )
+    pd, _ended = pf.world()
+    pd.unicef_focal_points = ["Jane Doe", "jane.doe@example.invalid"]
+    pd.save(update_fields=["unicef_focal_points"])
+    dm.ReportedIndicator.objects.update(
+        submitted_by="Zq Fakeperson",
+        narrative="Jane Doe wrote this",
+        narrative_assessment="zq@example.invalid",
+        data={"focal_point": "Jane Doe", "submitted_by_email": "jane.doe@example.invalid"},
+    )
+    dm.ReportedIndicator.objects.filter(report_number="QPR2").update(
+        indicator="Fake indicator of Zq Fakeperson"
+    )
+    rows = [
+        pf.row(
+            "report_list",
+            pd=pf.WORLD_PD,
+            report="QPR1",
+            report_status="Submitted",
+            period_end=datetime.date(2026, 3, 31),
+        )
+    ]
+    upload = pf.compared(
+        checker,
+        ("list.xlsx", pf.export("report_list", rows, people=True)),
+        ("follow.xlsx", pf.export("follow_up", [pf.row("follow_up", pd="FAKE/PD/1", status="Overdue", due_date=datetime.date(2026, 5, 1))])),
+        ("locations.xlsx", pf.export("locations", [pf.row("locations", pd=pf.WORLD_PD, report="QPR9", indicator_title="x", p_code="LB9_9_1", reached=1)])),
+        ("performance.xlsx", pf.export("program_performance", [pf.row("program_performance", indicator_title="Fake", partner="FAKEORG PARTNER 1", target=1, reached=1)])),
+    )  # fmt: skip
+    assert upload.status == PowerBIUpload.Status.DONE
+    from neurodb.datamart.models import PowerBIDifference
+
+    assert PowerBIDifference.objects.filter(kind="only_neurodb").exists()  # NeuroDB's own rows are listed
+    _tables_hold_no_one()
+    pages = [reverse("admin:datamart_powerbi_upload", args=[upload.pk])]
+    pages += [
+        reverse("admin:datamart_powerbi_export", args=[upload.pk, e.pk])
+        for e in PowerBIExport.objects.filter(upload=upload)
+    ]
+    for url in pages:
+        page = checker.get(url)
+        assert page.status_code == 200
+        _clean(page.content.decode(), url)
+    response = checker.get(reverse("admin:datamart_powerbi_xlsx", args=[upload.pk]))
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as package:
+        for name in package.namelist():
+            _clean(package.read(name).decode("utf-8", "replace"), f"the Excel file's {name}")
+    _clean(caplog.text, "logs")
