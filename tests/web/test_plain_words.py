@@ -85,11 +85,15 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         "written_into": "",
         "error_lines": (),
         "unexplained": 0,
+        "sent_twice": 0,
+        "copies_proven": 0,
     }
     sentences.append(runfacts._verdict(facts)[1])
     sentences.append(
         runfacts._verdict({**facts, "never_came": 0, "not_written": 3, "written_into": "locations"})[1]
     )
+    # records sent twice, not proven, as many as those that did not come
+    sentences.append(runfacts._verdict({**facts, "sent_twice": 74})[1])
     # why a sync or a read failed, and what an eTools REST entity never read says (raw_admin's notes)
     sentences += [*runfacts.STATUS_WORDS.values(), rest_raw.NOT_READ, rest_raw.NEVER_READ, rest_raw.NO_FINAL]
     for error in (

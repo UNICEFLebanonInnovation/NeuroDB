@@ -265,7 +265,7 @@ programme documents, trips, engagements, action points and their details).
   when every copy of a record comes identical in one answer, eTools holds it twice: NeuroDB keeps one, counts
   the copy with what it received ("1,939 the Datamart sent twice (identical)" under *Not kept*) and the sync
   is complete. When the copies come on pages far apart, or differ, NeuroDB cannot tell them from records that
-  moved between pages while others did not come: *Complete?* says "No: 1,939 came twice and may stand for
+  moved between pages while others did not come: *Complete?* says "No: 1,939 were sent twice and may stand for
   others that did not come; nothing was removed", and nothing is removed until a sync can prove them.
 - **Fields this source sends** (folded) lists each field the last sync counted on every record it kept
   (before a sync has counted them, the newest 2,000 records in NeuroDB): how many records carry it, how many

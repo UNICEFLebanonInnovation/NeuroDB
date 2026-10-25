@@ -331,7 +331,7 @@ def test_the_21_october_progress_reports_sync_adds_up(world):
     assert facts.gap_by_repeats and facts.twice_unproven == 74
     assert facts.complete == (
         False,
-        "No: 74 came twice and may stand for others that did not come; nothing was removed",
+        "No: 74 were sent twice and may stand for others that did not come; nothing was removed",
     )
 
 
@@ -410,7 +410,7 @@ def test_records_sent_twice_are_said_plainly_on_the_source_page(client_validator
                  "removal_skipped": True, "read": 6_960, "partial": True},
     )  # fmt: skip
     html = " ".join(unescape(client_validator.get(f"{INDEX}cp_indicators/").content.decode()).split())
-    assert "No: 1,939 came twice and may stand for others that did not come; nothing was removed" in html
+    assert "No: 1,939 were sent twice and may stand for others that did not come; nothing was removed" in html
     assert (
         "eTools said it had 1,939 more than NeuroDB received. 1,939 records came twice (identical) while the "
         "Datamart's pages were read: rows moved between pages, and then as many others did not come, or the "

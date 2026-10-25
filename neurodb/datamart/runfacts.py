@@ -190,8 +190,8 @@ def _verdict(facts: dict[str, Any]) -> tuple[bool, str]:
         return False, "No: eTools sent nothing"
     unproven = max(facts["sent_twice"] - facts.get("copies_proven", 0), 0)
     if facts["never_came"] and unproven >= facts["never_came"]:
-        words = f"{unproven:,} came twice and may stand for others that did not come; nothing was removed"
-        return False, f"No: {words}"
+        words = "were sent twice and may stand for others that did not come; nothing was removed"
+        return False, f"No: {unproven:,} {words}"
     if facts["never_came"]:
         return False, f"No: eTools said it had {facts['never_came']:,} more"
     if facts["not_saved"]:

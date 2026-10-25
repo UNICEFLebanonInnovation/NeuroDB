@@ -1954,7 +1954,7 @@ read records its distinct records (`details.read`), so "Received" counts each on
 country sent twice is left out once (`other_country_skipped`). A record twice that no answer proves (copies on
 pages too far apart, copies that differ, a page shift: the request asked again then holds it once) leaves the
 read not whole, as below; when such records are as many as those that did not come, Raw eTools data's
-*Complete?* says "No: 1,939 came twice and may stand for others that did not come; nothing was removed" and
+*Complete?* says "No: 1,939 were sent twice and may stand for others that did not come; nothing was removed" and
 the source's page says why NeuroDB cannot count them as copies. (25 Oct 2026: reports/indicators announced
 8,899 and sent 6,960 distinct records, 1,939 short night after night; PRP's progress reports 74 short. Whether
 they are proven shows on the next night's run: once they are, the first removal of the rows their hash keys
@@ -2467,7 +2467,7 @@ country (`unnamed_skipped`, shown on their own line) and those a business area f
 (`area_strays`, an "of which"); records sent twice are a note, and those the read proved the Datamart's own
 copies (`details.copies_proven`, *Records the Datamart sends twice*) count with what NeuroDB received against
 what eTools said it had, and are named in the *Not kept* column ("1,939 the Datamart sent twice (identical)";
-the others "1,939 came twice (counted once)"). "Updated by the sync" is counted in the table (`synced_at`
+the others "1,939 sent twice (counted once)"). "Updated by the sync" is counted in the table (`synced_at`
 within the run; for the engagements, up to the end of the first run of each of their detail datasets,
 `audit_results`, `audits`, `spot_checks`, `micro_assessments` and `special_audits`, started after it and
 before the next engagements run: they save every engagement they match again straight after it, so on 24 Oct
@@ -2482,7 +2482,7 @@ red. **Complete?** is *Yes* when the run succeeded, NeuroDB received at least wh
 failed (a raw copy, or a partner, programme document, location... of a source written by another sync) and
 nothing is unexplained; otherwise the first reason ("No: the last sync failed"; for a 403 of the Datamart, "No:
 not allowed to read it (ask the eTools Datamart team)"; "No: eTools said it had N more", less the copies
-proven; when records that came twice, not proven, are as many as those that did not come, "No: N came twice
+proven; when records that came twice, not proven, are as many as those that did not come, "No: N were sent twice
 and may stand for others that did not come; nothing was removed", and the source's page says that NeuroDB
 counts a record sent twice as eTools' own copy only when every copy comes identical in one answer of the
 Datamart, so the read is not complete, never that the next sync reads them). An error is shown by its kind

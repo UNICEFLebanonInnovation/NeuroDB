@@ -222,7 +222,7 @@ def _not_kept(facts: runfacts.RunFacts) -> str:
     if facts.copies_proven:  # the Datamart's own copies: NeuroDB keeps one of each
         words += f"; {facts.copies_proven:,} the Datamart sent twice (identical)"
     if facts.twice_unproven:
-        words += f"; {facts.twice_unproven:,} came twice (counted once)"
+        words += f"; {facts.twice_unproven:,} sent twice (counted once)"
     if facts.not_written:
         words += f"; {facts.not_written:,} could not be saved into NeuroDB's {facts.written_into}"
     return words

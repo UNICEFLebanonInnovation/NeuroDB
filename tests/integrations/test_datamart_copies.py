@@ -142,9 +142,9 @@ def test_a_page_shift_is_never_taken_for_copies_and_removes_nothing():
     assert facts.gap_by_repeats
     assert facts.complete == (
         False,
-        "No: 1 came twice and may stand for others that did not come; nothing was removed",
+        "No: 1 were sent twice and may stand for others that did not come; nothing was removed",
     )
-    assert raw_admin._not_kept(facts).endswith("; 1 came twice (counted once)")
+    assert raw_admin._not_kept(facts).endswith("; 1 sent twice (counted once)")
 
 
 @responses.activate
@@ -166,9 +166,9 @@ def test_copies_too_far_apart_stay_not_proven_and_nothing_is_asked_again():
     assert (facts.sent_twice, facts.copies_proven, facts.gap_by_repeats) == (1, 0, True)
     assert facts.complete == (
         False,
-        "No: 1 came twice and may stand for others that did not come; nothing was removed",
+        "No: 1 were sent twice and may stand for others that did not come; nothing was removed",
     )
-    assert raw_admin._not_kept(facts).endswith("; 1 came twice (counted once)")
+    assert raw_admin._not_kept(facts).endswith("; 1 sent twice (counted once)")
 
 
 @responses.activate
