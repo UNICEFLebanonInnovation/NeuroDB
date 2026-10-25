@@ -336,3 +336,81 @@ class KMOrganisation(models.Model):
 
         self.folded = fold(self.name)[:200]
         super().save(*args, **kwargs)
+
+
+class KMQuestion(models.Model):
+    """One question put to the KM Database's assistant (the Ask tab): who asked, the version it read, the
+    filters it read within, the Finding IDs it read and cited, the checked answer, what it cost. Used for
+    the person's daily quota, the conversation's earlier turns and review (admin, read only). Kept 90 days.
+    It is the assistant's own log: never Ask NeuroDB's or the Help assistant's."""
+
+    class Status(models.TextChoices):
+        IN_PROGRESS = "in_progress", _("Being answered")
+        ANSWERED = "answered", _("Answered")
+        NO_MATCH = "no_match", _("No matching findings")
+        REFUSED = "refused", _("Declined")
+        FAILED = "failed", _("Failed")
+        LIMITED = "limited", _("Over a limit or AI off")
+
+    class Covered(models.TextChoices):
+        YES = "yes", _("Answered")
+        PARTLY = "partly", _("In part")
+        NO = "no", _("Not answered")
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name=_("asked by"),
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    conversation = models.UUIDField(
+        null=True, blank=True, help_text=_("groups a question with its follow-ups")
+    )
+    version = models.ForeignKey(
+        KMVersion,
+        verbose_name=_("version read"),
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    question = models.TextField(
+        _("question"), help_text=_("as sent: names, e-mail addresses, links and phone numbers removed")
+    )
+    # the filters the answer read within, as an address's query of known keys (never the search box's words)
+    scope = models.CharField(_("filters"), max_length=500, blank=True)
+    terms = models.JSONField(_("search words suggested"), default=list, blank=True)
+    read = models.JSONField(_("findings read"), default=list, blank=True)  # Finding IDs sent
+    cited = models.JSONField(_("findings cited"), default=list, blank=True)  # Finding IDs cited and kept
+    answer = models.TextField(_("answer"), blank=True)  # checked, with plain [ID] citations
+    covered = models.CharField(_("answers the question"), max_length=8, blank=True, choices=Covered.choices)
+    uncited = models.PositiveSmallIntegerField(_("sentences citing no finding"), default=0)
+    status = models.CharField(
+        _("status"), max_length=12, choices=Status.choices, default=Status.IN_PROGRESS, db_index=True
+    )
+    model = models.CharField(_("model"), max_length=64, blank=True)  # set once a call was made
+    input_tokens = models.PositiveIntegerField(default=0)
+    cache_read_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    duration_ms = models.PositiveIntegerField(default=0)
+    error = models.TextField(_("error"), blank=True)
+    created_at = models.DateTimeField(_("asked at"), auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "km_question"
+        ordering = ("-created_at",)
+        verbose_name = _("question to the KM Database")
+        verbose_name_plural = _("questions to the KM Database")
+        indexes = [
+            models.Index(fields=["user", "-created_at"], name="km_question_user"),
+            models.Index(fields=["user", "conversation", "created_at"], name="km_question_turns"),
+        ]
+
+    def __str__(self) -> str:
+        return self.question[:80]
+
+    @property
+    def tokens(self) -> int:
+        """The whole prompt (cached or not) and the output."""
+        return self.input_tokens + self.cache_read_tokens + self.output_tokens

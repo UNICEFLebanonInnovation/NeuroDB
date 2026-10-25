@@ -17,11 +17,13 @@ from tests.web.menu_rows import groups, rows
 
 pytestmark = pytest.mark.django_db
 
-PAGES = ("km:index", "km:documents")
+PAGES = ("km:index", "km:documents", "km:ask")
 # every address of the KM Database: its tabs, a finding, a document and the downloads
 ADDRESSES = (
     "/km/",
     "/km/documents/",
+    "/km/ask/",
+    "/km/ask/?document=" + factory.record_id(1),
     f"/km/findings/{factory.finding_id(1, 1)}/",
     f"/km/documents/{factory.record_id(1)}/",
     "/km/?export=xlsx",
@@ -114,3 +116,15 @@ def test_signed_out_visitors_are_sent_to_sign_in(client):
     for address in ADDRESSES:
         response = client.get(address)
         assert response.status_code == 302 and reverse("account_login") in response["Location"], address
+    response = client.post(reverse("km:ask_stream"), {"question": "zqkmtoken?"})
+    assert response.status_code in (302, 401, 403)
+
+
+def test_a_donor_never_asks_the_km_database(client, roles):
+    from neurodb.km.models import KMQuestion
+
+    factory.load(factory.workbook())
+    client.force_login(make_donor().user)
+    response = client.post(reverse("km:ask_stream"), {"question": "zqkmtoken?"})  # a plain fetch: JSON 403
+    assert response.status_code == 403 and response.json() == {"detail": "Not available for donor accounts."}
+    assert KMQuestion.objects.count() == 0

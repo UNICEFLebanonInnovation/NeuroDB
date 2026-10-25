@@ -20,7 +20,8 @@ list of the people it knows, which no KM text is compared with, and nothing is a
 - **The KM Database's authors** by their full name, and names after a title ("Dr …"), anywhere.
 
 Downloads keep links and numbers; the assistant's texts also lose e-mail addresses, links and phone numbers.
-The broad phone pattern is never used: it would take sample sizes and years.
+The broad phone pattern is never used: it would take sample sizes and years. A question typed on the Ask tab
+is cleaned by :func:`clean_question` (the Help assistant's rule first, then the KM Database's).
 """
 
 from __future__ import annotations
@@ -441,3 +442,25 @@ def _names_left(text: str, people: People) -> bool:
     if watch_people.PERSON_TITLE_NAME.search(text) or watch_people.HONORIFIC_NAME.search(text):
         return True
     return _citations(text) != text or _speakers(text) != text
+
+
+QUESTION_CHARS = 1000
+# a capitalised word just before a name withheld: its first name ("Jane [name withheld]")
+_BEFORE_WITHHELD = re.compile(rf"(?<![\w'’\-])({WORD})\s+(?={re.escape(NAME_WITHHELD)})")
+
+
+def clean_question(question: str, people: People = NOBODY) -> str:
+    """A question typed on the Ask tab as it is sent and kept: the names NeuroDB knows, e-mail addresses,
+    links and phone numbers removed (``fmm.privacy.clean``, the Help assistant's rule: it reads NeuroDB's
+    list of people only to take names out, and adds nothing to what is sent), then the KM Database's own
+    rule (:func:`for_ai`): its authors by their full name and by their surname, citations, names after a
+    title; and a first name left before a name withheld."""
+    from neurodb.fmm import privacy as fmm_privacy
+
+    cleaned = fmm_privacy.clean(question, QUESTION_CHARS)[0]
+    cleaned = for_ai(cleaned, people, people.surnames)
+
+    def first_name(match: re.Match) -> str:
+        return "" if not kept(match.group(1)) else match.group(0)
+
+    return _BEFORE_WITHHELD.sub(first_name, cleaned) if NAME_WITHHELD in cleaned else cleaned

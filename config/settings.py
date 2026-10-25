@@ -510,6 +510,16 @@ AI_PRICE_OUTPUT_PER_MTOK = _optional_float("AI_PRICE_OUTPUT_PER_MTOK")
 HELP_ENABLED = env.bool("HELP_ENABLED", default=True)
 HELP_PER_USER_PER_DAY = env.int("HELP_PER_USER_PER_DAY", default=20)
 
+# ---------------------------------------------------------------------------- KM Database assistant
+# The KM Database page's Ask tab (/km/ask/): answers from the KM Database's own findings only (neurodb.km.ask:
+# one call, no tools, no other NeuroDB data). It writes answers when the AI is on and KM_ASK_ENABLED (false:
+# it lists the matching findings without an answer). Questions per person per day; its own share of the
+# day's AI tokens (raise AI_DAILY_TOKEN_SOFT_CAP with it), so that a few heavy users cannot use up the shared
+# total; the shared AI_DAILY_TOKEN_SOFT_CAP (100%: a person asks) and the credit pause apply too.
+KM_ASK_ENABLED = env.bool("KM_ASK_ENABLED", default=True)
+KM_PER_USER_PER_DAY = env.int("KM_PER_USER_PER_DAY", default=30)
+KM_DAILY_TOKEN_CAP = env.int("KM_DAILY_TOKEN_CAP", default=600_000)
+
 # ---------------------------------------------------------------------------- Document review
 # The knowledge base's document review (/knowledge/review/, FMS "Other Reports"): documents put in a batch
 # are read by the AI into findings, key statements and action points, nightly (scheduled job doc-review,

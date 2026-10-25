@@ -267,10 +267,15 @@ def test_the_documents_list(client_super):
 # ---------------------------------------------------------------------------------------------- placement
 def test_the_group_its_labels_and_icons(superuser):
     keys = next(keys for name, _description, keys in admin_site.GROUPS if str(name) == "KM Database")
-    assert keys == ["km.KMVersion", "km.KMDocument", "km.KMOrganisation"]
+    assert keys == ["km.KMVersion", "km.KMDocument", "km.KMOrganisation", "km.KMQuestion"]
     names = [str(name) for name, _description, _keys in admin_site.GROUPS]
     assert names.index("KM Database") == names.index("Library and maps") + 1
-    assert [admin_site.ICONS[key] for key in keys] == ["upload_file", "description", "corporate_fare"]
+    assert [admin_site.ICONS[key] for key in keys] == [
+        "upload_file",
+        "description",
+        "corporate_fare",
+        "forum",
+    ]
     request = RequestFactory().get("/")
     request.user = superuser
     group = next(g for g in admin_site.sidebar_navigation(request) if str(g["title"]) == "KM Database")
@@ -278,6 +283,7 @@ def test_the_group_its_labels_and_icons(superuser):
         ("Versions", "upload_file"),
         ("Documents", "description"),
         ("Organisations named in downloads", "corporate_fare"),
+        ("Questions to the KM Database", "forum"),
     ]
 
 
@@ -296,6 +302,7 @@ def test_its_migration_is_listed_as_quick():
 
     assert ("km", "0001_initial", "CreateModel") in QUICK_MIGRATIONS
     assert ("km", "0002_organisation", "CreateModel") in QUICK_MIGRATIONS
+    assert ("km", "0003_question", "CreateModel") in QUICK_MIGRATIONS
 
 
 def test_problem_lines_are_escaped():
@@ -394,3 +401,29 @@ def test_the_organisations_admin(client_super, client, roles, superuser):
     assert client.get(reverse("admin:km_kmorganisation_changelist")).status_code in (302, 403)
     client.force_login(_person("km-org-admin", ADMIN))
     assert client.get(reverse("admin:km_kmorganisation_changelist")).status_code == 200
+
+
+def test_the_questions_admin_is_read_only_for_those_who_set_up(client_super, client, roles, superuser):
+    from neurodb.km.models import KMQuestion
+
+    row = KMQuestion.objects.create(
+        user=superuser,
+        question="What does the fake evidence say?",
+        status="answered",
+        covered="partly",
+        read=["TST-0001-F00001", "TST-0001-F00002"],
+        cited=["TST-0001-F00001"],
+        uncited=1,
+        input_tokens=1200,
+        output_tokens=300,
+        duration_ms=4200,
+    )
+    html = client_super.get(reverse("admin:km_kmquestion_changelist")).content.decode()
+    for shown in ("What does the fake evidence say?", "Answered", "In part", "1,200 / 300", "4.2 s"):
+        assert shown in html, shown
+    assert client_super.get(reverse("admin:km_kmquestion_change", args=[row.pk])).status_code == 200
+    assert client_super.get(reverse("admin:km_kmquestion_add")).status_code == 403
+    client.force_login(_person("km-admin-q", ADMIN))
+    assert client.get(reverse("admin:km_kmquestion_changelist")).status_code == 200
+    client.force_login(_person("km-viewer-q", VIEWER))
+    assert client.get(reverse("admin:km_kmquestion_changelist")).status_code in (302, 403)

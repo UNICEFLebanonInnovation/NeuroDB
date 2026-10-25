@@ -1,6 +1,7 @@
 """The KM Database in the admin, for the people who set NeuroDB up (``roles.can_set_up``: superusers and
 Administrators with staff status): its versions, with the page that uploads a new one and the Excel template,
-and its documents (read only). The findings have no admin list: the KM Database page shows them.
+its documents (read only), the corrections of its downloads' authors and the questions asked to its assistant
+(read only). The findings have no admin list: the KM Database page shows them.
 
 Administrators hold every model permission (``roles.ensure_groups``), so each admin here checks
 ``can_set_up`` itself.
@@ -29,7 +30,7 @@ from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 from . import authors, loading, words, workbook
 from . import columns as cols
 from .forms import UploadForm
-from .models import KMDocument, KMOrganisation, KMVersion, day, live
+from .models import KMDocument, KMOrganisation, KMQuestion, KMVersion, day, live
 from .words import counted, quoted, say
 
 Status = KMVersion.Status
@@ -445,3 +446,68 @@ class KMOrganisationAdmin(ModelAdmin):
         if not change:
             obj.added_by = request.user
         super().save_model(request, obj, form, change)
+
+
+QUESTION_TONES = {
+    "answered": "ok",
+    "no_match": "muted",
+    "refused": "warn",
+    "failed": "bad",
+    "limited": "muted",
+    "in_progress": "muted",
+}
+
+
+@admin.register(KMQuestion)
+class KMQuestionAdmin(ReadOnlyModelAdmin):
+    """The questions put to the KM Database's assistant (read only, kept 90 days): who asked, whether it was
+    answered, how many findings it read and cited, the sentences that cite none, the tokens and the time. The
+    question is kept as it was sent: names, e-mail addresses, phone numbers and links removed."""
+
+    list_display = (
+        "created_at",
+        "user",
+        "question_short",
+        "status_badge",
+        "covered",
+        "read_shown",
+        "cited_shown",
+        "uncited",
+        "tokens_shown",
+        "duration",
+    )
+    list_filter = ("status", "covered", "created_at")
+    search_fields = ("question", "answer", "user__username")
+    date_hierarchy = "created_at"
+    list_select_related = ("user",)
+    list_per_page = 50
+
+    def has_module_permission(self, request):
+        return can_set_up(request.user)
+
+    def has_view_permission(self, request, obj=None):
+        return can_set_up(request.user)
+
+    @admin.display(description=_("Question"))
+    def question_short(self, obj):
+        return obj.question[:100] + ("…" if len(obj.question) > 100 else "")
+
+    @admin.display(description=_("Status"), ordering="status")
+    def status_badge(self, obj):
+        return badge(obj.get_status_display(), QUESTION_TONES.get(obj.status))
+
+    @admin.display(description=_("Findings read"))
+    def read_shown(self, obj):
+        return len(obj.read or [])
+
+    @admin.display(description=_("Findings cited"))
+    def cited_shown(self, obj):
+        return len(obj.cited or [])
+
+    @admin.display(description=_("Tokens in / out"))
+    def tokens_shown(self, obj):
+        return f"{obj.input_tokens + obj.cache_read_tokens:,} / {obj.output_tokens:,}"
+
+    @admin.display(description=_("Time"), ordering="duration_ms")
+    def duration(self, obj):
+        return f"{obj.duration_ms / 1000:.1f} s"

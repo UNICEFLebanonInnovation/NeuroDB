@@ -204,6 +204,7 @@ STAFF_PAGES = [
     "reports:monitoring",
     "km:index",
     "km:documents",
+    "km:ask",
 ]
 
 
@@ -240,6 +241,8 @@ def test_the_api_the_assistant_and_htmx_are_refused(donor_client):
     # Monitoring insights' chat is a plain fetch (no HX header): refused, not redirected
     chat = donor_client.post(reverse("fmm:chat_stream"), {"question": "Which visits were off track?"})
     assert chat.status_code == 403 and chat.json() == {"detail": "Not available for donor accounts."}
+    km = donor_client.post(reverse("km:ask_stream"), {"question": "What does the evidence say?"})
+    assert km.status_code == 403 and km.json() == {"detail": "Not available for donor accounts."}
     assert donor_client.get(reverse("fmm:dashboard"))["Location"] == reverse(
         "donors:page"
     )  # the page: redirected

@@ -1,0 +1,14 @@
+{% comment %}
+  The findings under an answer of the KM Database's assistant (km.ask.used_html): those it cites, then a fold
+  with every finding read; or every finding that matches, when no answer was written. Each line links the
+  finding as the version read it (?v=). The authors are shown on screen only; a printout shows the key finding
+  and the title as a download writes them. Never kept or sent to the AI.
+{% endcomment %}<section class="km-used">
+<h3 class="km-used__title">{{ heading }}</h3>
+<ol class="km-used__list">{% for f in lines %}<li class="km-used__item">
+<a class="km-used__id" href="{{ f.url }}" target="_blank" rel="noopener noreferrer">[{{ f.id }}]</a>{% if f.legend %} <span class="pill pill--sm pill--neutral">{{ f.legend }}</span>{% endif %}
+<span class="km-used__text">{% include "km/partials/_printed.html" with text=f.text paper=f.paper %}</span>
+<span class="cell-sub km-used__meta">{% include "km/partials/_pill.html" with pill=f.pill %} {{ f.year }} · {% include "km/partials/_printed.html" with text=f.title paper=f.paper_title %}{% if f.entity %}<span class="d-print-none"> — {{ f.entity }}</span>{% endif %}</span>
+</li>{% endfor %}</ol>
+{% if read %}<details class="km-used__read"><summary>{{ read_label }}</summary><p class="mb-0">{% for r in read %}<a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">{{ r.id }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p></details>{% endif %}
+</section>

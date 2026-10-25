@@ -6,7 +6,9 @@
 // data-ask-part (form, input, thread, intro, submit, stop, new) instead of the Ask page's ids, show the
 // day's quota the server sends (data-ask-quota), and keep its conversation for the browser tab
 // (data-history-key: sessionStorage, so it follows the person from page to page; the server keeps the
-// conversation itself and sends at most 6 earlier turns to the model).
+// conversation itself and sends at most 6 earlier turns to the model). An example button may ask a question of
+// its own (data-ask-example="…"), and a done event's meta replaces the line under the answer (the KM Database's
+// "Answered from N of about M matching findings").
 import { init as drawChart } from "./charts.js";
 import { csrfToken, toast } from "./lib.js";
 
@@ -72,7 +74,7 @@ export function init(root) {
   });
   root.querySelectorAll("[data-ask-example]").forEach((btn) =>
     btn.addEventListener("click", () => {
-      input.value = btn.textContent.trim();
+      input.value = (btn.dataset.askExample || btn.textContent).trim(); // a recent question's button may show it cut
       autosize();
       form.requestSubmit();
     }),
@@ -222,6 +224,7 @@ export function turnUI(turn) {
   let answered = false;
   let lookups = 0;
   let finalText = "";
+  let doneMeta = "";
 
   const liveBox = () => {
     let el = bodyEl.querySelector(".ask-turn__live");
@@ -269,6 +272,7 @@ export function turnUI(turn) {
         bodyEl.append(notice);
       }
       finalText = event.answer;
+      doneMeta = event.meta || ""; // the server's own line under the answer (the KM Database: what it read)
       answered = true;
     } else if (event.type === "chart") {
       chart(event.spec);
@@ -320,9 +324,9 @@ export function turnUI(turn) {
     settleSteps();
     if (!answered) return;
     footer.hidden = false;
-    meta.textContent = lookups
-      ? `Answered from ${lookups} data lookup${lookups === 1 ? "" : "s"}`
-      : "Answered without looking up data";
+    meta.textContent =
+      doneMeta ||
+      (lookups ? `Answered from ${lookups} data lookup${lookups === 1 ? "" : "s"}` : "Answered without looking up data");
     turn.querySelector(".ask-turn__copy").addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(finalText);

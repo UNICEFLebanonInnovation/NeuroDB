@@ -335,6 +335,9 @@ QUICK_MIGRATIONS = {
     # the KM Database's corrections of how its downloads show an author entry (organisation, person or
     # words): a new, empty table an administrator fills in the admin (CreateModel only, no code runs)
     ("km", "0002_organisation", "CreateModel"),
+    # the questions put to the KM Database's assistant, its own log kept 90 days: a new, empty table
+    # (CreateModel only, no code runs; listed so that the migration is accounted for here)
+    ("km", "0003_question", "CreateModel"),
 }
 
 

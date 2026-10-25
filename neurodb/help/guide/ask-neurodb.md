@@ -38,6 +38,7 @@ read-only look-ups, and it links each answer to the pages its figures come from.
   [document review](/help/knowledge-and-documents/#document-review), it also reads their findings with
   the document, page and quote; findings people rejected are left out.
 - Makani wellbeing is available as centre totals only: never anything about an individual child.
+- It does not read the [KM Database](/help/km-database/), which has its own assistant on its page.
 - Nothing is written back; it reads only what any signed-in person can already see.
 
 ## Limits
@@ -52,3 +53,4 @@ the moment it is asked. See [AI limits](/help/ai-limits/).
 | A figure, a list, a comparison across sources ("which partners in Akkar are off track?") | Ask NeuroDB |
 | What the monitors wrote about the visits of the filter you are looking at | Chat with Data (Monitoring insights) |
 | How a page, rule, chart or number works, or which job refreshes a page | The Help assistant (Ctrl+Shift+H) |
+| What the research and evaluation evidence says | Ask the KM Database (on the [KM Database](/km/ask/) page) |

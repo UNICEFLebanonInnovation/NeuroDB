@@ -4,13 +4,13 @@ Every feature that calls the model adds the call to today's ``AIUsage`` row of i
 right after the call returns (``record``): Ask NeuroDB, the daily review (summary and decisions), the
 What's new note, document summaries, periodic report figures, the country programme reading, NeuroDB
 Watch and Monitoring insights (its briefs, test runs and chat; its AI checks apart; the action points'
-AI review and summaries apart), the Help assistant, the document review and AI settings' connection
-test. The day's totals (``today_total``, ``today_calls``) tell how much of the key's daily spend is used,
-across every feature or for one; the admin lists the rows under "AI use", in tokens, and in US dollars
-where the price is known: Claude's are built in (``CLAUDE_PRICES``), OpenAI's come from the optional
-``AI_PRICE_*`` settings. The model names the provider, so Claude and OpenAI rows never mix. A Claude
-model billed at a higher card above a prompt length (``long_above``) books each longer call in a row of
-its own, the model's id followed by ``LONG``, priced at that card (``ledger_model``).
+AI review and summaries apart), the Help assistant, the document review, the KM Database assistant and AI
+settings' connection test. The day's totals (``today_total``, ``today_calls``) tell how much of the key's
+daily spend is used, across every feature or for one; the admin lists the rows under "AI use", in tokens,
+and in US dollars where the price is known: Claude's are built in (``CLAUDE_PRICES``), OpenAI's come from
+the optional ``AI_PRICE_*`` settings. The model names the provider, so Claude and OpenAI rows never mix. A
+Claude model billed at a higher card above a prompt length (``long_above``) books each longer call in a
+row of its own, the model's id followed by ``LONG``, priced at that card (``ledger_model``).
 
 Recording never fails the feature that called the model: an error is logged and the call goes on.
 """
@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
     FMM_AP_REVIEW,
     HELP,
     DOC_REVIEW,
+    KM,
     TEST,
 ) = (
     "ask",
@@ -60,6 +61,7 @@ logger = logging.getLogger(__name__)
     "fmm_ap_review",
     "help",
     "doc_review",
+    "km",
     "test",
 )
 FEATURES = {
@@ -75,6 +77,7 @@ FEATURES = {
     FMM_AP_REVIEW: "Action points (AI review and summaries)",
     HELP: "Help assistant",
     DOC_REVIEW: "Document review",
+    KM: "KM Database assistant",
     TEST: "Connection test",
 }
 MILLION = Decimal(1_000_000)

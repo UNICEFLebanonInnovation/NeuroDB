@@ -337,3 +337,103 @@ TEXT_USED = _("Text used")
 LINK = _("Link")
 AUTHORS_SCREEN = _("Publishing entity / authors (as the workbook gives it)")
 NUMBER_OF_FINDINGS = _("Number of findings")
+
+# ------------------------------------------------------------------------- Ask the KM Database (its tab)
+TAB_ASK = _("Ask the KM Database")
+TAB_ASK_SHORT = _("Ask")
+ASK_TITLE = _("Ask · KM Database")
+ASK_INTRO = _(
+    "Ask a question about the evidence. The answer is written from the findings of the KM Database that "
+    "match it, and each sentence names the findings it comes from."
+)
+ASK_EXAMPLES = (
+    _("What does the evidence say about girls' access to secondary school?"),
+    _("Which findings with Level A confidence are about household income?"),
+    _("What are the gaps in the evidence on climate change and children?"),
+)
+ASK_LABEL = _("Your question to the KM Database")
+ASK_PLACEHOLDER = _("Ask about the findings, e.g. what helps out-of-school children return to school?")
+ASK_SCOPE = _("Answers read only the findings that match: {filters}")
+ASK_SCOPE_CLEAR = _("Clear")
+ASK_SCOPE_HINT = _(
+    "To ask about some findings only (a pillar, a year, one document), filter them in the Findings tab, then "
+    "open this tab."
+)
+ASK_OFF = _(
+    "The AI is switched off: Ask lists the findings that match your question, without a written answer. "
+    "Search and the filters work as usual."
+)
+ASK_PRIVACY = _(
+    "Your question and the findings of the KM Database that match it are sent to {provider}. Nothing else "
+    "from NeuroDB is sent. Names of authors and other people, e-mail addresses, links and phone numbers are "
+    "taken out first; if a name is still found, nothing is sent."
+)
+ASK_LIMITS = _(
+    "Up to {n} questions a day, 2 at a time. Answers can contain mistakes: open the findings each one cites."
+)
+ASK_QUOTA = _("{used} of {allowed} today")
+ASK_QUOTA_TITLE = _("Your questions to the KM Database today; the count starts again at midnight.")
+RECENT_QUESTIONS = _("Your recent questions")
+NEW_CONVERSATION = _("New conversation")
+ASK_ABOUT_DOCUMENT = _("Ask about its document")
+ASK_ABOUT_THIS_DOCUMENT = _("Ask about this document")
+ONE_DOCUMENT = _("Document: {title}")
+
+# the answer, as it streams
+TYPE_A_QUESTION = _("Type a question first.")
+QUESTION_TOO_LONG = _("Please keep questions under 1,000 characters.")
+ASK_BUSY = _("Your other questions to the KM Database are still being answered. Please wait for them.")
+ASK_EMPTY = _("The KM Database is empty: there is nothing to ask yet.")
+STEP_SEARCHING = _("Searching the KM Database")
+STEP_READING = _("Reading {findings} from {documents}")
+STEP_WRITING = _("Writing the answer")
+REASON_OFF = _("The AI is switched off: here are the findings that match.")
+REASON_PAUSED = _("The AI is resting until {time}: here are the findings that match.")
+REASON_SHARE = _(
+    "The KM Database assistant has used its share of today's AI budget: here are the findings that match. "
+    "Search and the filters work as usual."
+)
+REASON_BUDGET = _("Today's AI budget is used: here are the findings that match.")
+REASON_QUOTA = _(
+    "You have asked {n} questions to the KM Database today; the count starts again tomorrow. Here are the "
+    "findings that match."
+)
+NO_MATCH = _("The KM Database has no findings that match this question. Try other words.")
+NO_MATCH_FILTERED = _(
+    "The KM Database has no findings that match this question within your filters. Try other words, or "
+    "clear the filters."
+)
+FOUND_META = _("Found {n} of about {m} matching findings. Narrow with the filters to read others.")
+ANSWERED_META = _("Answered from {n} of about {m} matching findings. Narrow with the filters to read others.")
+ANSWERED_ALL_META = ngettext_lazy(
+    "Answered from {count} matching finding.", "Answered from {count} matching findings.", "n"
+)
+CODES_USED = _("({codes}, from your question)")
+CODES_LEFT_OUT = _("({codes} in your question matched no finding within the filters and was left out)")
+NOT_SENT = _(
+    "The question could not be sent to the AI safely. These are the findings that match your question:"
+)
+ANSWER_KEPT_BACK = _(
+    "The AI's answer was kept back because it named a person. These are the findings that match your "
+    "question:"
+)
+AI_FAILED = _("The AI could not write an answer. These are the findings that match your question:")
+CUT_OFF = _("The AI could not finish this answer. Ask about one part, or add a filter.")
+WENT_WRONG = _("Something went wrong while answering. Please try again.")
+NOTICE_REFERENCES = _("Each [reference] opens the finding it comes from.")
+NOTICE_REMOVED = ngettext_lazy(
+    "{count} reference to a finding that was not read for this answer was taken out.",
+    "{count} references to findings that were not read for this answer were taken out.",
+    "n",
+)
+NOTICE_NOT_ANSWERED = _("The KM Database does not answer this question.")
+NOTICE_PARTLY = _("The KM Database answers this only in part.")
+NOTICE_NO_CITATION = _("This answer cites no finding: read it with care.")
+NOTICE_UNCITED = ngettext_lazy(
+    "{count} sentence cites no finding: check it against the findings below.",
+    "{count} sentences cite no finding: check them against the findings below.",
+    "n",
+)
+USED_HEADING = _("Findings used for this answer")
+MATCH_HEADING = _("Findings that match your question")
+ALL_READ = ngettext_lazy("The finding read", "All {count} findings read", "n")

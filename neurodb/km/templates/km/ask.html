@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}{{ words.ASK_TITLE }}{% endblock %}
+{% block content %}
+{% comment %}
+  The Ask tab of the KM Database (km.views.ask_page): a question answered from the KM Database's own findings
+  only (km.ask), streamed by ask.js like Ask NeuroDB's answers. The filters of the address (never the search
+  box's words) are the findings it reads within (data-scope); the conversation is kept for the browser tab,
+  keyed by the person. The answers and their lists are written on the server (checked, escaped).
+{% endcomment %}
+{% include "km/_head.html" %}
+{% if version %}
+<section class="panel km-ask" aria-labelledby="km-ask-title">
+  <h2 class="h6 mb-1" id="km-ask-title">{{ words.TAB_ASK }}</h2>
+  {% if scope_line %}
+  <p class="km-note small mb-2" data-km-scope>{{ scope_line }} · <a href="{% url 'km:ask' %}">{{ words.ASK_SCOPE_CLEAR }}</a></p>
+  {% else %}
+  <p class="small text-muted mb-2">{{ words.ASK_SCOPE_HINT }}</p>
+  {% endif %}
+  {% if not ai_on %}<p class="km-note small mb-2" role="status">{% include "components/icon.html" with name="info" %} {{ words.ASK_OFF }}</p>{% endif %}
+  <div class="ask km-ask__box" data-ask data-module="ask" data-stream-url="{% url 'km:ask_stream' %}" data-scope="{{ scope }}" data-history-key="neurodb-km-{{ user.pk }}">
+    <div class="km-ask__bar">
+      <span class="chip" data-ask-quota title="{{ words.ASK_QUOTA_TITLE }}">{{ quota }}</span>
+      <button type="button" class="btn btn-link btn-sm" data-ask-part="new" hidden>{{ words.NEW_CONVERSATION }}</button>
+    </div>
+    <div class="ask__thread" data-ask-part="thread" aria-live="polite">
+      <div class="ask__intro km-ask__intro" data-ask-part="intro">
+        <p class="mb-2">{{ words.ASK_INTRO }}</p>
+        <div class="ask__examples" role="list" aria-label="{% trans 'Example questions' %}">
+          {% for e in examples %}<button type="button" class="chip chip--action" role="listitem" data-ask-example>{{ e }}</button>{% endfor %}
+        </div>
+      </div>
+    </div>
+    <form class="ask__form" data-ask-part="form" autocomplete="off">
+      <label class="visually-hidden" for="km-ask-input">{{ words.ASK_LABEL }}</label>
+      <textarea id="km-ask-input" data-ask-part="input" name="question" rows="1" maxlength="1000" class="form-control ask__input" placeholder="{{ words.ASK_PLACEHOLDER }}" required></textarea>
+      <div class="ask__actions">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-ask-part="stop" hidden>{% trans "Stop" %}</button>
+        <button type="submit" class="btn btn-primary btn-sm" data-ask-part="submit">{% include "components/icon.html" with name="sparkle" %}<span>{% trans "Ask" %}</span></button>
+      </div>
+    </form>
+    <p class="ask__note small text-muted mb-0">{{ privacy_note }} {{ limits }}</p>
+    {% if recent %}
+    <details class="km-recent">
+      <summary>{{ words.RECENT_QUESTIONS }}</summary>
+      <ul class="km-recent__list">{% for q in recent %}<li><button type="button" class="btn btn-link btn-sm km-recent__ask" data-ask-example="{{ q.question }}">{{ q.question|truncatechars:140 }}</button> <span class="cell-sub">{{ q.created_at|date:"j M Y, H:i" }} · {{ q.get_status_display }}</span></li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+    <template data-ask-turn>
+      <article class="ask-turn">
+        <div class="ask-turn__question"></div>
+        <div class="ask-turn__answer panel">
+          <ol class="ask-turn__steps" aria-label="{% trans 'Steps' %}"></ol>
+          <div class="ask-turn__body"><span class="ask-turn__thinking">{% trans "Thinking…" %}</span></div>
+          <div class="ask-turn__charts"></div>
+          <div class="ask-turn__footer" hidden>
+            <span class="small text-muted ask-turn__meta"></span>
+            <button type="button" class="btn btn-link btn-sm ask-turn__copy">{% include "components/icon.html" with name="copy" %}<span>{% trans "Copy" %}</span></button>
+          </div>
+        </div>
+      </article>
+    </template>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

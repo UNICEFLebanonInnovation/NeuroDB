@@ -352,7 +352,8 @@ come from.
 - **Cost and review**: every question is logged in Admin → Data and sync → AI questions with the
   lookups made, tokens used and time taken. Every AI feature on the key (Ask NeuroDB, the daily
   review, What's new, document summaries, periodic figures, country programme reading, NeuroDB
-  Watch, Monitoring insights, the Help assistant, the document review, AI settings' connection test)
+  Watch, Monitoring insights, the Help assistant, the document review, the KM Database assistant, AI
+  settings' connection test)
   is also counted per day and model in one ledger, Admin → Data and sync → **AI use**, with the
   provider of each row and the prompt tokens read from and written to the cache, in tokens and in US
   dollars where the model's price is known: Claude's prices are built in (per million tokens on the
@@ -896,13 +897,14 @@ forecast points ("ActivityInfo is archived: its forecasts are no longer followed
 ## KM Database (`/km/`, admin → KM Database)
 
 The KM Database shows one evidence workbook, findings from research, evaluations and assessments with the
-documents they come from, on its own page with two tabs: **Findings** (the default) and **Documents**, with
-one search box, the filters, a page for each finding (also a quick view from each row's **Open**) and each
-document, and **Excel / CSV of the filter**. The code is in `neurodb/km`.
+documents they come from, on its own page with three tabs: **Findings** (the default), **Documents** and
+**Ask the KM Database** (its own assistant), with one search box, the filters, a page for each finding (also
+a quick view from each row's **Open**) and each document, and **Excel / CSV of the filter**. The code is in
+`neurodb/km`.
 
 **What keeps it apart.** It has its own app and tables (`km_version`, `km_document`, `km_finding`,
-`km_organisation`); their only relations are to each other and to the user who uploaded a version or added
-a correction. Nothing else in NeuroDB imports
+`km_organisation`, `km_question`); their only relations are to each other and to the user who uploaded a
+version, added a correction or asked a question. Nothing else in NeuroDB imports
 `neurodb.km` or reads its tables: it is linked to no partner, programme document, indicator or library
 resource, and Ask NeuroDB, the knowledge base, the library, NeuroDB Watch, the daily review, Data health
 and the site-wide search do not read it (the search's *Pages* group lists the page itself, like every
@@ -1055,11 +1057,87 @@ entries also found as a phrase in the texts of more than 20 findings, each with 
 warns about them: they stay withheld until marked). The documents list shows **Shown in downloads as**. A
 replaced version keeps its downloads summary.
 
+**Ask the KM Database** (`/km/ask/`, the page's third tab; the code is `neurodb/km/ask.py`): a question
+answered from the KM Database's own findings only, by **one model call with no tools** (never Ask
+NeuroDB's run, prompt, tools, date or year lines). In order:
+
+1. The question (1-1,000 characters) is cleaned for sending and keeping: the names NeuroDB knows (the Help
+   assistant's rule; that list is only read to take names out), e-mail addresses, links and phone numbers,
+   then the KM Database's authors (full names and surnames), citations and names after a title. The
+   typed text is searched, never kept or sent.
+2. The filters it reads within are those of the tab's address (the Findings tab's filter, carried by the
+   tab link, or *Ask about its document*): known keys only, never the search box's words, the sort or the
+   page size.
+3. **Retrieval**, over the KM tables only: codes in the question ("Level A", "P2", "RQ3", a Document ID)
+   narrow the filters (a code that would leave nothing is left out and the answer says so); a Finding ID is
+   read first; the question's words (UK/US spellings and sector acronyms joined, common words left out)
+   are looked for in each finding's own words (`own_vector`: key finding, measure, analysis,
+   limitations, the sub-questions and indicator; never the document's methods, population or titles,
+   which only break ties). A finding is kept when it matches 2 of 3 or more word groups, else all of them;
+   the most groups matched come first, then the findings marked Yes for an age group or girls and boys
+   the question names, then the rank. At most 40 findings, 6 a document (no cap when the filters or the
+   question name one document), 60,000 characters. A follow-up of under 4 words keeps the earlier
+   question's words and reads the previous answer's cited findings first. When fewer than 40 findings
+   match (or the question is not in Latin letters) and less than 15 seconds have passed, a small call
+   (20 seconds, no retry) asks for search words from the cleaned question and the conversation's earlier
+   questions only, never any data; it fails silently.
+4. **The message**: the question, up to 4 earlier turns of this conversation read from the version shown
+   (answers cut at 1,500 characters, citations as plain [ID]), the filters in words, a legend of the
+   pillars and research questions, and the findings read, grouped by document, every text through
+   `privacy.for_ai` and escaped (`&lt;5 years`). Each finding carries its Finding ID, its legend key, its
+   confidence level as "Level B" or "not given", "ready" or "marked for review", and the age and sex marks
+   marked Yes. The final check (`privacy.leftover`) leaves out a document whose block still names someone
+   (counted in the question's error) and sends nothing when the whole message does.
+5. **The call**: the model of AI settings at low effort, 5,000 output tokens, held to the time left of 95
+   seconds, no retry, structured JSON (`answer`, `covered`: yes / partly / no), `store=false` (OpenAI;
+   Claude keeps nothing either), a keyed hash of the person.
+6. **The answer checked**: names withheld again (an answer that still names someone is kept back and the
+   findings listed instead); the model's own links taken out; every Finding ID read linked to its finding
+   with the version it was read from (`/km/findings/<ID>/?v=<version>`), every other ID-shaped reference
+   (invented, a Document ID, not read this time) taken out and counted; the sentences citing no finding
+   counted. The rendered answer keeps only links to the findings read.
+
+| Sent to the AI provider | Never sent |
+|---|---|
+| The question, cleaned; up to 4 earlier questions and answers of this conversation and version; the filters in words (codes, years, types, "one document"); the legend of pillar and research question labels | Publishing entity / authors (either sheet), people's names in texts, e-mail addresses, links, phones; the search box's words |
+| Of the findings read (about 30-35, at most 40): Finding ID, legend key, confidence letter, marked for review or not, the age and sex marks marked Yes, ages, measure, key finding, analysis, limitations; of their documents: title, year, type, population, methods | Document IDs, short titles, sub-questions, indicators, evidence origin, values to check, the data quality text |
+| The number of matching findings | Anything from another NeuroDB table: partners, programme documents, indicators, the knowledge base, the library, users, Ask NeuroDB's prompt and its date and year lines |
+| The two fixed prompts (`ask.KM_PROMPT`, `ask.TERMS_PROMPT`) | The workbook, its Read Me, the version's file name |
+
+- **Limits**: `KM_PER_USER_PER_DAY` (30) questions a day per person from local midnight: one being
+  answered and one that made a call count (a failed one with tokens too); one over a limit, with no
+  matching finding or kept back before a call does not; declined questions are free up to the same number.
+  At most 2 at once per person (429). The KM Database's share of the day, `KM_DAILY_TOKEN_CAP` (600,000
+  tokens, about 25-30 questions: a question asks for 25,000 before it starts), so that a few heavy users
+  cannot use up the shared `AI_DAILY_TOKEN_SOFT_CAP` (3,000,000) for Ask NeuroDB, Help and Monitoring
+  insights or stop Watch at 80%; when more roles are ticked, raise both together. The shared budget at
+  100% and the credit pause of Monitoring insights apply too (a call that finds the credit gone starts it).
+- **When no answer is written** (switched off, the AI resting, the KM share or the shared budget used,
+  the person's quota) the tab lists the findings that match, with the sentence, and makes no call; so
+  does a failing, refused or cut-off call. Nothing is ever a 500.
+- **Switching it off**: `KM_ASK_ENABLED=false` → the tab lists the matching findings without an answer;
+  the AI off in AI settings (or by the hosting team) → every assistant, this one included; the tab still
+  lists findings. The confidence rule of the prompt follows `neurodb.km.columns.CONFIDENCE_A_STRONGEST`.
+- **Cost**: one question is about 20,000-25,000 tokens (findings, history, up to 5,000 out, the search
+  words). Every call is counted under *KM Database assistant* (`km`) in *AI use*.
+- **The log**: Admin → *KM Database* → **Questions to the KM Database** (read only, superusers and
+  Administrators): the cleaned question, status, covered, findings read and cited, sentences citing none,
+  tokens and time. Its own rows (`km_question`), never Ask NeuroDB's or the Help assistant's; kept 90
+  days (each question deletes the older ones; no job).
+- **Donors** get the JSON 403 on `/km/ask/stream/` like the other assistants' streams.
+- Measured on the user's workbook (throwaway database, about 15,000 findings): for 20 typical questions the
+  search kept 93 to 5,057 matching findings (median about 1,400) and sent 23 to 38 (median 31: the
+  60,000-character limit stops before 40), from 12 to 22 documents; the search took at most 0.3 s and the
+  message at most 0.4 s. The final check over every finding's texts as sent found nothing left (no name,
+  link, phone or e-mail). A few authors' surnames are also ordinary words: a question that writes one with a
+  capital sends it as "[name withheld]" (the search still uses the word).
+
 **Deleting.** A superuser can delete a version that is not shown and not loading, from its page. The
 version shown is replaced by uploading another.
 
-Quick migrations `km 0001_initial` (new, empty tables with their search indexes) and `km 0002_organisation`
-(the corrections' new, empty table); CreateModel only.
+Quick migrations `km 0001_initial` (new, empty tables with their search indexes), `km 0002_organisation`
+(the corrections' new, empty table) and `km 0003_question` (the assistant's questions' new, empty table);
+CreateModel only.
 
 ## Help assistant (`/help/`, Ctrl+Shift+H)
 

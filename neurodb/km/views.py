@@ -1,8 +1,8 @@
-"""The KM Database page (``/km/``): the findings of the version shown now (the default tab) and its documents,
-with one search box, the filters, sorting, a page for each finding (also opened as a quick view from the
-table) and each document, and the downloads of the filter. Every signed-in UNICEF role opens it (sign-in and
-the donor lock-out are the middleware's); the menu shows it to superusers, and to the roles a superuser ticks
-on the Menu page.
+"""The KM Database page (``/km/``): the findings of the version shown now (the default tab), its documents and
+its assistant (the Ask tab, :mod:`neurodb.km.ask`), with one search box, the filters, sorting, a page for each
+finding (also opened as a quick view from the table) and each document, and the downloads of the filter.
+Every signed-in UNICEF role opens it (sign-in and the donor lock-out are the middleware's); the menu shows it
+to superusers, and to the roles a superuser ticks on the Menu page.
 
 It reads the KM tables only (and, while a version waits to load or loads, the load's lock: a version whose
 load stopped is marked not loaded). An HTMX request (a filter, a page link) gets the table only.
@@ -10,25 +10,29 @@ load stopped is marked not loaded). An HTMX request (a filter, a page link) gets
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
+from django.contrib.auth import get_user_model
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Count, F, Q, Value
-from django.http import HttpRequest, HttpResponse, QueryDict
+from django.http import HttpRequest, HttpResponse, JsonResponse, QueryDict, StreamingHttpResponse
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils import formats
 from django.utils.html import format_html
 from django.utils.safestring import SafeData
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 
 from neurodb.accounts.roles import can_set_up
+from neurodb.assistant import llm
 from neurodb.reports import exports as report_exports
 
-from . import authors, exports, loading, privacy, search, words
+from . import ask, authors, exports, loading, privacy, search, words
 from . import columns as cols
 from .filters import FLAG_PARAMS, NONE, ORIGINS, PER_PAGE, QUALITY, Filters, facets
-from .models import Flag, KMDocument, KMFinding, KMVersion, day, live
+from .models import Flag, KMDocument, KMFinding, KMQuestion, KMVersion, day, live
 from .words import counted, say
 
 KEY_FINDING_SHOWN = 220  # characters of a key finding the table shows before "Show all"
@@ -223,7 +227,7 @@ def _page(request: HttpRequest, tab: str) -> dict[str, Any]:
     and the state."""
     version = live()
     found = facets(version)
-    filters = Filters.from_query(request.GET, found)
+    filters = Filters.from_query(request.GET, found, for_ask=tab == "ask")
     keep = filters.query()
     keep.pop("sort", None)  # each tab sorts by its own columns
     without_document = keep.copy()
@@ -254,6 +258,14 @@ def _page(request: HttpRequest, tab: str) -> dict[str, Any]:
                 "count": version.documents_count if version else 0,
                 "url": _url(reverse("km:documents"), without_document),
                 "drop": "document",
+            },
+            {  # the question is its own search: the search box's words, sort and page size stay behind
+                "key": "ask",
+                "label": words.TAB_ASK,
+                "short": words.TAB_ASK_SHORT,  # on a phone, so that the three tabs fit
+                "count": None,
+                "url": _url(reverse("km:ask"), filters.query(ask=True)),
+                "drop": "q per export",
             },
         ],
         "words": words,
@@ -601,6 +613,7 @@ def finding(request: HttpRequest, finding_id: str) -> HttpResponse:
         "actions": [
             {"label": words.OPEN_DOCUMENT, "url": document_url},
             {"label": words.ALL_OF_DOCUMENT, "url": all_url},
+            {"label": words.ASK_ABOUT_DOCUMENT, "url": f"{reverse('km:ask')}?document={doc.record_id}"},
         ],
         "header_include": "km/_print_button.html",
         "finding": row,
@@ -671,7 +684,10 @@ def document(request: HttpRequest, record_id: str) -> HttpResponse:
             {"label": words.PAGE_TITLE, "url": reverse("km:index")},
             {"label": words.DOCUMENT_HEADING},
         ],
-        "actions": [{"label": words.OPEN_IN_TABLE, "url": table_url}],
+        "actions": [
+            {"label": words.OPEN_IN_TABLE, "url": table_url},
+            {"label": words.ASK_ABOUT_THIS_DOCUMENT, "url": f"{reverse('km:ask')}?document={doc.record_id}"},
+        ],
         "header_include": "km/_print_button.html",
         "document": doc,
         "rows": rows,
@@ -686,3 +702,87 @@ def document(request: HttpRequest, record_id: str) -> HttpResponse:
     if request.htmx:
         return render(request, "km/partials/findings.html", context)
     return render(request, "km/document.html", context)
+
+
+# ------------------------------------------------------------------------------- Ask the KM Database
+@require_GET
+def ask_page(request: HttpRequest) -> HttpResponse:
+    """The Ask tab: the box, the filters it reads within (those of the address, without the search box's
+    words), the person's recent questions and today's count."""
+    context = _page(request, "ask")
+    version, filters = context["version"], context["filters"]
+    context["page_title"] = words.PAGE_TITLE
+    if version is not None:
+        title = ""
+        if filters.document:
+            title = (
+                KMDocument.objects.filter(record_id=filters.document).values_list("title", flat=True).first()
+                or filters.document
+            )
+        parts = ask.scope_parts(filters, context["facets"], document_title=cut(title, CHIP_TITLE))
+        used, allowed = ask.quota(request.user)
+        context.update(
+            scope=filters.query(ask=True).urlencode(),
+            scope_line=say(words.ASK_SCOPE, filters="; ".join(parts)) if parts else "",
+            ai_on=ask.switched_on(),
+            quota=say(words.ASK_QUOTA, used=used, allowed=allowed),
+            limits=say(words.ASK_LIMITS, n=allowed),
+            privacy_note=say(words.ASK_PRIVACY, provider=llm.names().label),
+            recent=list(
+                KMQuestion.objects.filter(user=request.user)
+                .exclude(question="")
+                .only("question", "status", "created_at")[: ask.RECENT]
+            ),
+            examples=[str(e) for e in words.ASK_EXAMPLES],
+        )
+    return render(request, "km/ask.html", context)
+
+
+@require_POST
+def ask_stream(request: HttpRequest) -> HttpResponse:
+    """A question to the KM Database's assistant, answered as Server-Sent Events
+    (:func:`neurodb.km.ask.stream`). In order: the question (1-1,000 characters); the conversation; the
+    question cleaned for sending; the filters it reads within (``scope``: known keys only, never the
+    search box's words); then, the person's row locked, at most 2 questions at once (429), and the
+    reason no answer may be written (switched off, the AI resting, the KM Database's share of the day's
+    AI budget, the shared budget, the person's quota, as many questions declined): with a reason the
+    findings that match are listed, without a model call."""
+    typed = (request.POST.get("question") or "").replace("\x00", "").strip()
+    if not typed:
+        return JsonResponse({"error": str(words.TYPE_A_QUESTION)}, status=400)
+    if len(typed) > ask.QUESTION_CHARS:
+        return JsonResponse({"error": str(words.QUESTION_TOO_LONG)}, status=400)
+    version = live()
+    if version is None:
+        return JsonResponse({"error": str(words.ASK_EMPTY)}, status=409)
+    try:
+        conversation = uuid.UUID(str(request.POST.get("conversation") or ""))
+    except ValueError:
+        conversation = uuid.uuid4()
+    _known, people = authors.context(version)
+    cleaned = privacy.clean_question(typed, people)  # the typed text is searched only: never kept or sent
+    found = facets(version)
+    filters = Filters.from_query(QueryDict(str(request.POST.get("scope") or "")[:500]), found, for_ask=True)
+    fields = {
+        "user": request.user,
+        "conversation": conversation,
+        "version": version,
+        "question": cleaned,
+        "scope": filters.query(ask=True).urlencode()[:500],
+    }
+    with transaction.atomic():
+        # questions sent at the same time are checked one after the other; the row written here counts
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
+        if ask.running(request.user) >= ask.MAX_RUNNING_PER_USER:
+            return JsonResponse({"error": str(words.ASK_BUSY)}, status=429)
+        why, code = ask.reason(request.user)
+        status = KMQuestion.Status.LIMITED if why else KMQuestion.Status.IN_PROGRESS
+        row = KMQuestion.objects.create(**fields, status=status, error=code)
+    ask.prune()
+    turns = ask.history(request.user, conversation, version)
+    response = StreamingHttpResponse(
+        ask.stream(request, row, typed, filters, found, why, turns), content_type="text/event-stream"
+    )
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"  # no proxy buffering: the steps reach the browser as they happen
+    return response

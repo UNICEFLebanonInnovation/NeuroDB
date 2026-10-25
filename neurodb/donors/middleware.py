@@ -85,7 +85,7 @@ class DonorScopeMiddleware:
     @staticmethod
     def _is_api(request) -> bool:
         return (
-            request.path.startswith(("/api/", "/ask/", "/fmm/chat/", "/help/stream/"))
+            request.path.startswith(("/api/", "/ask/", "/fmm/chat/", "/help/stream/", "/km/ask/stream/"))
             or request.headers.get("HX-Request") == "true"
             or "application/json" in request.headers.get("Accept", "")
         )

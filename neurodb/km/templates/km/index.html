@@ -8,27 +8,8 @@
   phone (km-search) while the other filters fold behind "Filters"; a filter reloads the results only
   (#km-results). The sort and the page size are links that load the page, so the bar keeps them.
 {% endcomment %}
-<p class="page-purpose">{{ words.PURPOSE }}</p>
+{% include "km/_head.html" %}
 {% if version %}
-<p class="km-version" data-km-version>{{ version_line }}</p>
-{% endif %}
-{% if loading and version %}
-<p class="km-note small" role="status">{% include "components/icon.html" with name="info" %} {{ words.LOADING_INFO }}</p>
-{% endif %}
-{% if not version %}
-<section class="panel">
-  {% if loading %}{# the first load: nothing is shown yet #}
-  {% include "components/empty_state.html" with icon="evidence" title=words.FIRST_LOADING_TITLE message=words.FIRST_LOADING %}
-  {% elif can_set_up %}
-  {% include "components/empty_state.html" with icon="evidence" title=words.EMPTY_TITLE message=words.EMPTY_SETUP action_url=upload_url action_label=words.UPLOAD_ACTION %}
-  {% else %}
-  {% include "components/empty_state.html" with icon="evidence" title=words.EMPTY_TITLE message=words.EMPTY_OTHERS %}
-  {% endif %}
-</section>
-{% else %}
-<nav class="segmented segmented--scroll mb-3 km-tabs" aria-label="{% trans 'KM Database views' %}">
-  {% for t in tabs %}<a href="{{ t.url }}" data-current-query=""{% if t.drop %} data-drop-query="{{ t.drop }}"{% endif %}{% if t.key == tab %} aria-current="page"{% endif %}>{{ t.label }} <span class="km-tabs__count">({{ t.count|intcomma }})</span></a>{% endfor %}
-</nav>
 <div class="filters-collapse km-filters" data-filters-collapse>
 <form method="get" action="{{ request.path }}" class="filter-bar km-filter-bar" data-filter-bar data-hx-target="#km-results" role="search" aria-label="{% trans 'KM Database filters' %}">
   {% if tab == "findings" and filters.document %}<input type="hidden" name="document" value="{{ filters.document }}">{% endif %}

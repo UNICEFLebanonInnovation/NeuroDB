@@ -8,7 +8,8 @@ gives it.
 
 - **Kept apart.** The KM Database is not linked to partners, programme documents, indicators or any other
   NeuroDB data. Ask NeuroDB, the knowledge base, the library, NeuroDB Watch and the search at the top of
-  every page do not read it.
+  every page do not read it. It has its own assistant, on its **Ask the KM Database** tab, which reads
+  the KM Database only (see below).
 - **Where it is.** In the full menu, under Resources, after Library. Superusers see it there; a superuser
   can add it to a role's menu in the administration's *Menu* page (no role has it until then). Its
   address opens for every signed-in person whose menu does not show it, from links and bookmarks.
@@ -98,6 +99,46 @@ gives it.
   missed, a person it took for an organisation, or words that are no name at all) in the administration:
   *KM Database* → *Organisations named in downloads*, or from the version's page. Downloads change at once.
 
+## Ask the KM Database
+
+The third tab, **Ask the KM Database**, answers a question in a few sentences from the findings of the
+KM Database, and from nothing else.
+
+- **What it reads.** Only the findings of the version shown now that match your question: their key
+  finding, measure, ages, analysis and limitations, with their document's title, year, type, population
+  and methods. It looks for your words in each finding's own text, with UK and US spellings and common
+  acronyms joined, and reads the best matches (at most 40, and at most 6 from one document). Nothing else
+  from NeuroDB is read: no partner, programme document, indicator, knowledge base document, library entry
+  or person.
+- **Your filters.** Open the tab from the Findings tab after filtering (a pillar, a year, one document...)
+  and the answer reads only the findings of that filter; the line over the box names it, with **Clear**.
+  The words of the search box are not used: your question is its own search. On a finding's or a
+  document's page, **Ask about its document** opens the tab for that document. You can also write a
+  code in the question: "Level A", "P2" (a pillar), "RQ3" (a research question), a Finding ID or a
+  Document ID.
+- **What is sent to the AI.** Your question, the matching findings it reads and your filters in words.
+  Never the authors, never Document IDs, links or phone numbers, and never a name of a person: names of
+  NeuroDB's people and of the KM Database's authors are taken out of your question, and names inside the
+  findings (citations, people quoted) are written "[name withheld]". If a name is still found, nothing
+  is sent.
+- **The answer.** Each sentence ends with the findings it rests on, as [references]: each one opens its
+  finding, in a new tab. A reference to a finding that was not read for this answer is taken out, and
+  the answer says how many. Under the answer, **Findings used for this answer** lists them (with their
+  document, year and confidence level), and a fold lists every finding read. The line under the answer
+  says "Answered from N of about M matching findings": when more match than were read, narrow the
+  filters to read others.
+- **When the findings do not answer.** The answer says "The KM Database does not answer this question."
+  and what related evidence it holds; "answers this only in part" when part is missing. A sentence that
+  cites no finding is counted under the answer: check it against the findings.
+- **When the AI is off or a limit is reached** the tab still lists the findings that match your question,
+  without a written answer, and says why. Search and the filters work as usual.
+- **Limits.** 30 questions a day per person, 2 at the same time, and the KM Database's own share of the
+  day's AI budget (see [AI limits](/help/ai-limits/)). A question with no matching finding does not count.
+- **A conversation.** A short follow-up ("and for boys?") keeps the topic of your last question and reads
+  the findings its answer cited again. **New conversation** starts afresh. **Your recent questions**
+  lists your last ten; press one to ask it again. Your questions are kept 90 days.
+- The AI can be wrong: open the findings it cites before you use an answer.
+
 ## When a new version is loaded
 
 An administrator uploads a new version of the workbook in the administration: *KM Database* →
@@ -108,3 +149,7 @@ minute). Until it is ready, the page shows the version it showed before, with a 
 is loading (the very first time, it says the KM Database is being loaded). Once it is ready, the page shows
 the new version: every document and finding of the old one is replaced. If the load does not finish, the
 version shown stays as it was.
+
+A link to a finding that the new version no longer holds says so. A reference in an older answer opens
+the finding with a line saying the answer was written from an older version, so the finding may have
+changed since; earlier answers are not sent again once a new version is shown.

@@ -174,3 +174,49 @@ def test_citations_without_a_comma(text, shown):
     assert privacy.for_download(text) == shown
     assert privacy.for_ai(text) == shown
     assert privacy.leftover(shown) == []
+
+
+# ------------------------------------------------------------------------------ the assistant (SPEC_km §4.4)
+@pytest.mark.django_db
+def test_a_question_loses_neurodbs_known_names_and_the_km_authors(django_user_model):
+    from neurodb.watch import people as watch_people
+
+    django_user_model.objects.create_user(
+        username="fakeuser", first_name="Fakeneuro", last_name="Fakecolleague", password="fake-pass-123456"
+    )
+    watch_people.forget()
+    cleaned = privacy.clean_question(
+        "Did Fakeneuro Fakecolleague, Jane Doe or Dr Fakename Fakesur find that (Fakeone, 2019) girls "
+        "left school? Write to jane@fake.example.org, see https://fake.example.org/x, call +961 3 123 456.",
+        PEOPLE,
+    )
+    for never in (
+        "Fakeneuro",
+        "Fakecolleague",
+        "Jane",
+        "Doe",
+        "Fakename",
+        "Fakeone",
+        "jane@",
+        "fake.example",
+        "123 456",
+    ):
+        assert never not in cleaned, (never, cleaned)
+    assert "girls left school?" in cleaned and "(" + W + ", 2019)" in cleaned
+    # a KM author by surname, and the first name before it
+    assert privacy.clean_question("What did Janet Doe find?", PEOPLE) == f"What did {W} find?"
+    assert privacy.clean_question("What does the evidence say about girls?", PEOPLE) == (
+        "What does the evidence say about girls?"
+    )
+
+
+def test_for_ai_withholds_what_the_final_check_looks_for():
+    sent = privacy.for_ai(
+        "J. Doe interviewed; see www.fake.example.org and +961 3 123 456; “…” – Fakename, 34; Roe (2018)",
+        PEOPLE,
+        frozenset({"doe"}),
+    )
+    assert "Doe" not in sent and "fake.example" not in sent and "123 456" not in sent and "Roe" not in sent
+    assert privacy.leftover(sent, PEOPLE) == []
+    assert privacy.leftover("as Roe (2018) found", PEOPLE) == ["name"]
+    assert privacy.leftover("“…” – Fakename, 34", PEOPLE) == ["name"]

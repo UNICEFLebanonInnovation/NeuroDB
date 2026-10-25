@@ -1469,6 +1469,22 @@ th[data-km-sorted="year"][aria-sort="ascending"] .km-sort-year::after { content:
 .km-marks__title { font-size: 0.78rem; color: var(--nd-muted); }
 .km-older { margin-bottom: 0.75rem; }
 @media print { .km-open, .km-per, .km-how, .km-more-text summary { display: none !important; } .km-more-text { display: block; } .km-more-text > span { display: inline; } }
+/* the Ask tab: the box takes the panel's width; the findings under an answer, one short line each */
+.km-ask .ask { max-width: none; }
+.km-ask .ask__intro { padding: 0.25rem 0 0.5rem; text-align: left; }
+.km-ask .ask__examples { justify-content: flex-start; }
+.km-ask__bar { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.km-recent summary { cursor: pointer; color: var(--nd-primary); font-size: 0.85rem; min-height: 2.25rem; display: flex; align-items: center; }
+.km-recent__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.km-recent__ask { padding: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.km-used { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--nd-border); }
+.ask-turn__body .km-used__title { font-size: 0.9rem; margin: 0 0 0.4rem; }
+.km-used__list { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.45rem; font-size: 0.88rem; }
+.km-used__id { font-weight: 600; white-space: nowrap; }
+.km-used__text { white-space: pre-line; }
+.km-used__meta { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.ask-turn__body .km-notice { margin: 0.5rem 0 0; }
+.km-used__read summary { cursor: pointer; color: var(--nd-primary); font-size: 0.8rem; margin-top: 0.5rem; }
 
 /* ---------------------------------------------------------------------------- pages that load in parts (parts.js)
    A placeholder ([data-part], components/part.html) keeps the height of what it will hold: --part-h by kind, or
