@@ -10,12 +10,17 @@ it. Counted on distinct records, the same for the datasets in their own table an
     in NeuroDB = updated by the sync + updated since (a later sync under way) + kept from an earlier sync
 
 A record a later run rewrote (one running, or one that failed after writing) is counted updated since, not by
-the sync: up to the remainder, those are explained too.
+the sync: up to the remainder, those are explained too. The engagements are saved again by their detail
+datasets (audits, spot checks...) right after their own run, in the same sync: those saves count as the
+sync's (``raw.written_until``).
 
 ``other_country_skipped`` already holds the records that named no country (``unnamed_skipped``) and those of
 another business area a filter let through (``area_strays``): "of another country" is shown without the first,
 the second as an "of which". Records sent twice are a note, each already counted once in what NeuroDB
-received. A remainder the counts do not explain is shown, never hidden. For a source written by another sync
+received; those the read proved the Datamart's own copies (``copies_proven``: every copy came identical in one
+answer) count with what it received against what eTools said it had, and those it could not prove, when
+they are as many as the records that did not come, are said to be why ("may stand for others that did not
+come"). A remainder the counts do not explain is shown, never hidden. For a source written by another sync
 (``WRITTEN_BY``) the equation counts its raw copies; the records that could not be saved into the partners,
 programme documents, locations... the pages read (the run's ``rows_failed``) are a line of their own, and make
 "Complete?" No. An error is shown by its kind only (``runs._error_key``): its text can hold a value of the
@@ -99,7 +104,8 @@ class RunFacts:
     said_it_had: int | None  # details.datamart_count
     received: int | None  # records_read(run): distinct records
     sent_twice: int  # duplicates_read: a note, each already counted once in received
-    never_came: int  # said_it_had - received, when > 0
+    copies_proven: int  # of sent_twice, the Datamart's own copies (details.copies_proven.twice)
+    never_came: int  # said_it_had - received - copies_proven, when > 0
     more_than_said: int  # received - said_it_had, when > 0
     shift_words: str
     other_country: int  # other_country_skipped - unnamed_skipped
@@ -110,7 +116,7 @@ class RunFacts:
     written_into: str  # WRITTEN_INTO's words, or ""
     error_lines: tuple[ErrorLine, ...]
     held: int  # in NeuroDB now
-    updated_by_sync: int  # started_at <= synced_at <= finished_at
+    updated_by_sync: int  # started_at <= synced_at <= finished_at (raw.written_until)
     updated_since: int  # synced_at > finished_at: a later run under way
     from_earlier: int  # last updated before run.started_at
     unexplained: int  # received - other_country_skipped - not_saved - updated_by_sync, less updated_since
@@ -120,10 +126,23 @@ class RunFacts:
     sent_nothing: bool = False  # an eTools REST list whose read received nothing
     not_linked: dict[str, int] = field(default_factory=dict)
     complete: tuple[bool, str] = (False, "")
+    # the last sync failed because the eTools Datamart does not let NeuroDB's account read this dataset (403)
+    not_allowed: bool = False
     # an eTools REST entity: a newer read than ``run`` that ended without receiving anything (a list eTools
     # answered empty; the action points with no final engagement to ask for), and what it got, in words
     newer_empty: SyncRun | None = None
     empty_words: str = ""
+
+    @property
+    def twice_unproven(self) -> int:
+        """The records sent twice the read could not prove the Datamart's own copies."""
+        return max(self.sent_twice - self.copies_proven, 0)
+
+    @property
+    def gap_by_repeats(self) -> bool:
+        """The records that did not come are no more than those sent twice and not proven: these may stand
+        for them (rows that moved between pages), or the Datamart holds them twice."""
+        return bool(self.never_came) and self.twice_unproven >= self.never_came
 
 
 def _error_lines(details: dict[str, Any]) -> tuple[ErrorLine, ...]:
@@ -153,16 +172,25 @@ def _verdict(facts: dict[str, Any]) -> tuple[bool, str]:
     partner, programme document, location...) and none is unexplained; otherwise the first reason, in plain
     words."""
     run = facts["run"]
+    failed = (
+        "No: not allowed to read it (ask the eTools Datamart team)"
+        if facts.get("not_allowed")
+        else "No: the last sync failed"
+    )
     if run is None:
         if facts["newer_failed"] is not None:
-            return False, "No: the last sync failed"
+            return False, failed
         if facts.get("newer_empty") is not None:
             return False, f"No: {facts['empty_words']}"
         return False, "No: never synced"
     if facts["newer_failed"] is not None:
-        return False, "No: the last sync failed"
+        return False, failed
     if facts.get("sent_nothing"):
         return False, "No: eTools sent nothing"
+    unproven = max(facts["sent_twice"] - facts.get("copies_proven", 0), 0)
+    if facts["never_came"] and unproven >= facts["never_came"]:
+        words = f"{unproven:,} came twice and may stand for others that did not come; nothing was removed"
+        return False, f"No: {words}"
     if facts["never_came"]:
         return False, f"No: eTools said it had {facts['never_came']:,} more"
     if facts["not_saved"]:
@@ -172,9 +200,9 @@ def _verdict(facts: dict[str, Any]) -> tuple[bool, str]:
             False,
             f"No: {facts['not_written']:,} could not be saved into NeuroDB's {facts['written_into']}",
         )
-    failed = sum(line.count for line in facts["error_lines"])
-    if failed and run.status != SyncRun.Status.SUCCEEDED:  # errors the counts above do not hold
-        return False, f"No: {failed:,} could not be saved"
+    lines = sum(line.count for line in facts["error_lines"])
+    if lines and run.status != SyncRun.Status.SUCCEEDED:  # errors the counts above do not hold
+        return False, f"No: {lines:,} could not be saved"
     if facts["unexplained"]:
         return False, f"No: {facts['unexplained']:,} records are not explained by the sync's counts"
     return True, "Yes"
@@ -205,6 +233,7 @@ def build(
     skipped, unnamed = _count(row["other_country_skipped"]), _count(row["unnamed_skipped"])
     failed = run.rows_failed if run else 0
     not_saved = _count(details.get("documents_failed")) if name in WRITTEN_BY else failed
+    proven = _count(row["copies_proven"])
     facts: dict[str, Any] = {
         "source": name,
         "run": run,
@@ -212,7 +241,8 @@ def build(
         "said_it_had": said,
         "received": received,
         "sent_twice": _count(row["duplicates_read"]),
-        "never_came": max(said - received, 0) if said is not None and received is not None else 0,
+        "copies_proven": proven,
+        "never_came": max(said - received - proven, 0) if said is not None and received is not None else 0,
         "more_than_said": max(received - said, 0) if said is not None and received is not None else 0,
         "shift_words": shift_words(details) if run else "",
         "other_country": max(skipped - unnamed, 0),
@@ -233,6 +263,7 @@ def build(
         "removal_skipped": row["removal_skipped"],
         "removal_held": _count(row["removal_held"]),
         "not_linked": {str(k): _count(v) for k, v in row["not_linked"].items()},
+        "not_allowed": not_allowed(newer_failed),
     }
     facts["complete"] = _verdict(facts)
     return RunFacts(**facts)
@@ -287,6 +318,7 @@ def _rest_build(
         "said_it_had": said,
         "received": received,
         "sent_twice": _count(details.get("duplicates_read")),
+        "copies_proven": 0,
         "never_came": max(said - received, 0) if said is not None and received is not None else 0,
         "more_than_said": max(received - said, 0) if said is not None and received is not None else 0,
         "shift_words": "",
@@ -447,7 +479,7 @@ def counts(name: str, run: SyncRun | None) -> tuple[int, int, int]:
     since it ended."""
     from . import raw
 
-    return raw._counts(raw.base(name), run)
+    return raw._counts(raw.base(name), run, name)
 
 
 def facts(name: str) -> RunFacts:
@@ -478,6 +510,18 @@ UNREADABLE = re.compile(r"response is not JSON|unrecognised (list|record) payloa
 NOT_READ = "Not read: "  # the start of rest_raw.NOT_READ and NEVER_READ
 
 
+def not_allowed(run: SyncRun | None) -> bool:
+    """An eTools Datamart run that failed because the Datamart does not let NeuroDB's account read its
+    dataset: it answered 403 (signed in, not allowed; a sign-in refused is 401). The other datasets read as
+    usual."""
+    from neurodb.core.admin import HTTP_STATUS
+
+    if run is None or run.job != SyncRun.Job.ETOOLS_DATAMART:
+        return False
+    found = HTTP_STATUS.search(run.error or "")
+    return found is not None and found.group(1) == "403"
+
+
 def not_read(run: SyncRun | None) -> bool:
     """A run of an eTools REST entity that asked eTools for nothing: the list it asks for failed."""
     return run is not None and run.status == SyncRun.Status.FAILED and (run.error or "").startswith(NOT_READ)
@@ -485,7 +529,9 @@ def not_read(run: SyncRun | None) -> bool:
 
 def failure_words(run: SyncRun | None) -> str:
     """Why a run failed, in a few plain words read from its error: the status the service answered ("eTools
-    answered 403: not allowed"), no answer in time, could not connect, NeuroDB restarted during the run, the
+    answered 403: not allowed"; for the eTools Datamart, that the account NeuroDB uses is not allowed to read
+    the dataset and whom to ask, :func:`not_allowed`), no answer in time, could not connect, NeuroDB restarted
+    during the run, the
     list an entity asks for that could not be read, the token not set, no PRP business area code set; "an
     unexpected error" for any other.
     Never the error's text: an answer's body comes from eTools or a proxy, and can hold a record's value."""
@@ -512,6 +558,11 @@ def failure_words(run: SyncRun | None) -> str:
         datamart_sync.NEVER_SENT in error
     ):  # never the value set aside: the error names it
         return "no PRP business area code is set: enter it in Admin → Data and sync → eTools Datamart"
+    if not_allowed(run):
+        return (
+            "eTools Datamart answered 403: the account NeuroDB uses is not allowed to read it; ask the "
+            "eTools Datamart team to grant it"
+        )
     found = HTTP_STATUS.search(error)
     if found:
         status = int(found.group(1))

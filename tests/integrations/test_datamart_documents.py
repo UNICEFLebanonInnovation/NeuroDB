@@ -904,11 +904,12 @@ def test_progress_reports_with_no_id_link_through_a_key_the_data_proves(linked, 
 @responses.activate
 def test_a_copy_an_earlier_read_kept_never_stops_the_link(linked, settings):
     """A programme document held under its hash changes on a night its read is not whole (its new version comes
-    twice): the new version gets a row of its own (prp_id:77) and the old one stays, as nothing is removed. Both
-    carry prp_id 77, external_id 11 and the same reference number, but the old row was written by an earlier
-    read: the latest read's row stands for each value, and the progress reports naming 77 and 78 stay linked
-    through prp_id."""
+    twice, on two pages too far apart to ask again in one: not proven the Datamart's own copies): the new version
+    gets a row of its own (prp_id:77) and the old one stays, as nothing is removed. Both carry prp_id 77,
+    external_id 11 and the same reference number, but the old row was written by an earlier read: the latest
+    read's row stands for each value, and the progress reports naming 77 and 78 stay linked through prp_id."""
     settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    settings.ETOOLS_DATAMART_PAGE_SIZE = 2
     partner, pd = linked
     pd2 = PCA.objects.create(etl_id="12", number="LEB/PD2", title="PD 2", partner=partner)
     old, same = (
@@ -920,7 +921,7 @@ def test_a_copy_an_earlier_read_kept_never_stops_the_link(linked, settings):
                                         data=record)  # fmt: skip
     new = {**old, "title": "New"}
     other = _pd(500, "0990", external_id="11", reference_number="SYR/PD1")
-    FakeDatamart([new, new, same, other], ignore=("external_business_area_code",)).register(
+    FakeDatamart([new, same, new, other], ignore=("external_business_area_code",)).register(
         _url("sources/prp/unicefprogrammedocument")
     )
     reports = [_report(77, "QPR1"), _report(77, "QPR2", "2026-06-30"), _report(78, "QPR1")]
@@ -993,10 +994,11 @@ def test_a_key_left_out_never_stops_another_from_proving_the_pair():
 @responses.activate
 def test_an_older_version_of_a_progress_report_is_never_linked(linked, settings):
     """PRP's progress reports carry no id: QPR1 of programme document 77 is held as "Due", then accepted on a night
-    its read is not whole (another report comes twice), so its new version gets a row of its own and the old one
-    stays. Only the version the latest read wrote is linked to the PD: the old one is counted apart
-    (pd_superseded), so no link counts the report twice, once as overdue."""
+    its read is not whole (another report comes twice, on two pages too far apart to ask again in one), so its new
+    version gets a row of its own and the old one stays. Only the version the latest read wrote is linked to the
+    PD: the old one is counted apart (pd_superseded), so no link counts the report twice, once as overdue."""
     settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    settings.ETOOLS_DATAMART_PAGE_SIZE = 2
     _, pd = linked
     FakeDatamart([_pd(77, external_id="11", reference_number="LEB/PD1"), _pd(78, external_id="999")],
                  ignore=("external_business_area_code",)).register(_url("sources/prp/unicefprogrammedocument"))  # fmt: skip
@@ -1005,7 +1007,7 @@ def test_an_older_version_of_a_progress_report_is_never_linked(linked, settings)
     twice = _report(78, "QPR1")
     nights = []
     for version in (due, accepted):
-        FakeDatamart([version, twice, twice]).register(_url("sources/prp/unicefprogressreport"))
+        FakeDatamart([twice, version, twice]).register(_url("sources/prp/unicefprogressreport"))
         nights.append(run("prp_programme_documents,prp_progress_reports")[1])
         responses.reset()
         FakeDatamart([_pd(77, external_id="11", reference_number="LEB/PD1"), _pd(78, external_id="999")],

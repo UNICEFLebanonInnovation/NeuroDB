@@ -1746,15 +1746,19 @@ def capped(announced: int | None) -> bool:
     return announced is not None and announced >= CAP_FLOOR and announced % CAP_ROUND == 0
 
 
-def read_whole(announced: int | None, read: int, repeated: int = 0) -> bool:
-    """Whether a read got every record the Datamart announced (the ``count`` of its first page), each once.
-    ``read`` counts distinct records (a record returned twice counts once), ``repeated`` the records
-    returned again. With fewer distinct records than announced (a page cut short), or any record returned
-    twice (rows moving on the Datamart while its pages were read: a record returned again stands for one
-    never returned, whatever the count), the rows it did not return are kept, not removed. A round count
-    (:func:`capped`) is a limit of the answer, not what the Datamart holds: such a read is never whole,
-    whatever it read. A list without a count, with no record returned twice, is taken as whole."""
-    return not repeated and not capped(announced) and (announced is None or read >= announced)
+def read_whole(announced: int | None, read: int, repeated: int = 0, proven: int = 0) -> bool:
+    """Whether a read got every record the Datamart announced (the ``count`` of its first page). ``read``
+    counts distinct records (a record returned twice counts once), ``repeated`` the records returned again,
+    ``proven`` those of them whose every copy came identical in one answer (``windows.Copies``: the Datamart
+    holds them that many times, as one answer never lists a row twice). With fewer records than announced,
+    copies proven included (a page cut short), or any record returned again not proven (rows moving on the
+    Datamart while its pages were read: a record returned again may stand for one never returned, whatever
+    the count), the rows it did not return are kept, not removed. Each record received then came at most as
+    many times as the Datamart holds it, so the records received, copies included, add up to what it
+    announced only when none is missing. A round count (:func:`capped`) is a limit of the answer, not what
+    the Datamart holds: such a read is never whole, whatever it read. A list without a count, with no record
+    returned again but proven, is taken as whole."""
+    return repeated <= proven and not capped(announced) and (announced is None or read + proven >= announced)
 
 
 # The signs, in a dataset's previous finished run, that its read looked cut, in the order they are told
@@ -1811,9 +1815,10 @@ def last_details(name: str) -> dict[str, Any]:
 
 def _removal_skipped(reading: windows.Reading) -> dict[str, Any]:
     """The details of a read not whole (``windows.Reading.whole``): fewer distinct records than the Datamart
-    announced, some twice (``duplicates_read``), an answer that looks cut (``cap_suspected``), or a window
-    not read whole (the reading's details say which): nothing it did not return is removed, and the run
-    ends PARTIAL (``finish_by_counts``), so Data health says so; the next whole read removes them."""
+    announced, some twice and not proven its own copies (``duplicates_read``), an answer that looks cut
+    (``cap_suspected``), or a window not read whole (the reading's details say which): nothing it did not
+    return is removed, and the run ends PARTIAL (``finish_by_counts``), so Data health says so; the next
+    whole read removes them."""
     found: dict[str, Any] = {"removal_skipped": True, "read": reading.read, "partial": True}
     if reading.repeated:
         found["duplicates_read"] = reading.repeated
@@ -2796,22 +2801,53 @@ def _order_by(keys: Any) -> str:
     return " and ".join(f"by {k}" for k in keys) or "by id"
 
 
+def copies_words(details: Any) -> str:
+    """The records a read proved the Datamart sends twice (a run's ``copies_proven``: every copy came
+    identical in one answer, a page of the read or a request asked again), in words; "" for none."""
+    details = details if isinstance(details, dict) else {}
+    proven = details.get("copies_proven") if isinstance(details.get("copies_proven"), dict) else {}
+    n = _int(proven.get("twice")) or 0
+    if not n:
+        return ""
+    on_page, again = _int(proven.get("same_page")) or 0, _int(proven.get("asked_again")) or 0
+    how = (
+        "on one page"
+        if not again
+        else "found together again in one more request"
+        if not on_page
+        else f"{on_page:,} on one page, {again:,} found together again in one more request"
+    )
+    return (
+        f"The Datamart sent {n:,} {'record' if n == 1 else 'records'} twice (identical), every copy in one "
+        f"of its answers ({how}): it holds them twice, as one answer never lists a row twice. NeuroDB keeps "
+        "one of each."
+    )
+
+
 def shift_words(details: Any) -> str:
     """What a read whose records came twice found (a run's details), in words for Data health, the run page
-    and checks 10 and 11; "" for a read with no record twice, or one made before it was recorded. With no
-    stable order asked, the counts cannot tell rows moving between pages (as many others then never came) from
-    rows the Datamart holds twice, so both are said; records that still came twice in a stable order are most
+    and checks 10 and 11; "" for a read with no record twice, or one made before it was recorded. The records
+    proven the Datamart's own copies are said first (:func:`copies_words`). For the others, with no stable
+    order asked, the counts cannot tell rows moving between pages (as many others then never came) from rows
+    the Datamart holds twice, so both are said; records that still came twice in a stable order are most
     likely held twice (``held_twice``)."""
     details = details if isinstance(details, dict) else {}
+    proven = copies_words(details)
+    return " ".join(part for part in (proven, _twice_words(details, bool(proven))) if part)
+
+
+def _twice_words(details: dict[str, Any], proven: bool) -> str:
+    """:func:`shift_words` of the records twice not proven; ``proven``: some others were."""
     ordering = details.get("ordering") if isinstance(details.get("ordering"), dict) else {}
     same = " identical" if details.get("twice_identical") else ""
+    other = " other" if proven else ""
     held = _int(details.get("held_twice")) or 0
     if held:
         records = "record" if held == 1 else "records"
         key = ordering.get("key") or "id"
         return (
-            f"The Datamart returned {held:,}{same} {records} twice in a stable order (by {key}): it likely "
-            "holds them twice; tell the eTools Datamart team. Nothing was removed."
+            f"The Datamart returned {held:,}{other}{same} {records} twice in a stable order (by {key}): it "
+            "likely holds them twice; tell the eTools Datamart team. Nothing was removed."
         )
     shifted = details.get("pages_shifted")
     twice = _int(shifted.get("twice")) if isinstance(shifted, dict) else None
@@ -2827,12 +2863,14 @@ def shift_words(details: Any) -> str:
         if missing
         else ""
     )
+    records = "record" if twice == 1 else "records"
     said = (
-        f"{twice:,} {'record' if twice == 1 else 'records'} came twice{' (identical)' if same else ''} while "
-        f"the Datamart's pages were read: rows moved between pages{then}, or the Datamart holds them twice. "
-        "Nothing was removed"
+        f"{twice:,}{other} {records} came twice{' (identical)' if same else ''} while the Datamart's pages "
+        f"were read: rows moved between pages{then}, or the Datamart holds them twice. Nothing was removed"
     )
-    why = ordering.get("why")
+    why, key = ordering.get("why"), ordering.get("key")
+    if key and ordering.get("carried") is False:  # the order's pages shared no record: no order checked
+        return f"{said}; the records do not carry {key}, so the order asked by {key} cannot be checked."
     if why in ("ignored", "refused", "failed"):
         verb = {"ignored": "is ignored", "refused": "is refused", "failed": "could not be asked"}[why]
         by = _order_by(ordering.get("tried"))

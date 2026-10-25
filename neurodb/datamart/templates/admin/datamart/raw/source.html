@@ -4,7 +4,8 @@
 {% comment %}
   Raw eTools data, one source (context: datamart.raw_admin.source_view, validators only): what its last sync received
   and kept (datamart.runfacts: received − of another country − named no country − could not be saved = updated by the
-  sync; in NeuroDB = updated by the sync + updated since + kept from an earlier sync), the fields it sends (counted from
+  sync; in NeuroDB = updated by the sync + updated since + kept from an earlier sync; records sent twice: the Datamart's
+  own copies, proven, or those that may stand for records that did not come, and then why the read is not complete), the fields it sends (counted from
   the newest records NeuroDB holds; a superuser reviews a new field), the filter (a GET form), the records (50 a page,
   each through the people rule: datamart.raw_people) and the CSV of the filter, or the sentence that says which filter
   to choose first. A newer sync that failed says why in a few words and links its run for those who open runs; an
@@ -44,7 +45,7 @@
         {% if facts.through_area_filter %}<li>{% blocktrans with n=facts.through_area_filter|intcomma %}Of which {{ n }} came through the business area filter.{% endblocktrans %}</li>{% endif %}
         {% if facts.unnamed %}<li>{% blocktrans with n=facts.unnamed|intcomma %}Not kept: {{ n }} named no country and no programme document NeuroDB holds. They could be Lebanon's: see check 11.{% endblocktrans %} <a class="nd-link" href="{{ checks_url }}">{% trans "eTools reporting checks" %}</a></li>{% endif %}
         {% if facts.sent_twice %}<li>{% blocktrans with n=facts.sent_twice|intcomma %}{{ n }} sent twice (counted once in what NeuroDB received).{% endblocktrans %}</li>{% endif %}
-        {% if facts.never_came %}<li class="nd-found__warn">{% blocktrans with n=facts.never_came|intcomma %}eTools said it had {{ n }} more than NeuroDB received.{% endblocktrans %} {% if facts.shift_words %}{{ facts.shift_words }}{% endif %} {% trans "The next sync reads them." %}</li>{% endif %}
+        {% if facts.never_came %}<li class="nd-found__warn">{% if facts.copies_proven %}{% blocktrans with n=facts.never_came|intcomma m=facts.copies_proven|intcomma %}eTools said it had {{ n }} more than NeuroDB received and the {{ m }} it sent twice.{% endblocktrans %}{% else %}{% blocktrans with n=facts.never_came|intcomma %}eTools said it had {{ n }} more than NeuroDB received.{% endblocktrans %}{% endif %} {% if facts.shift_words %}{{ facts.shift_words }}{% endif %} {% if facts.gap_by_repeats %}{% trans "NeuroDB counts a record sent twice as eTools' own copy only when every copy comes identical in one answer of the Datamart (one page): these did not, so the read is not complete." %}{% else %}{% trans "The next sync reads them." %}{% endif %}</li>{% elif facts.shift_words %}<li>{{ facts.shift_words }}</li>{% endif %}
         {% if facts.not_written %}<li class="nd-found__warn">{% blocktrans trimmed with n=facts.not_written|intcomma into=facts.written_into %}{{ n }} could not be saved into NeuroDB's {{ into }}, which the pages read.{% endblocktrans %}</li>{% endif %}
         {% for e in facts.error_lines %}<li class="nd-found__warn">{% blocktrans with n=e.count|intcomma words=e.words %}{{ n }} could not be saved: {{ words }}{% endblocktrans %}{% if e.examples %} ({% trans "record ids" %} {{ e.examples|join:", " }}){% endif %}</li>{% endfor %}
         {% if facts.unexplained %}<li class="nd-found__warn">{% blocktrans with n=facts.unexplained|intcomma %}{{ n }} records are not explained by the sync's counts: tell the NeuroDB team.{% endblocktrans %}</li>{% endif %}

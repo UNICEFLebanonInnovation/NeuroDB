@@ -198,10 +198,15 @@ def _refused(answer: dict[str, Any], filter_key: str, code: str, name: str) -> s
         f"The eTools Datamart refused the business area request ({filter_key}={code}){said}, and the sync of "
         f"{name} asks with that same filter, so it fails the same way"
     )
-    if status in (401, 403):
+    if status == 403:  # signed in, not allowed
         return (
-            f"{start}: ask the team that runs NeuroDB's hosting to have the eTools Datamart team give "
-            "NeuroDB's account access to it."
+            f"{start}: the account NeuroDB uses is not allowed to read this dataset; ask the eTools Datamart "
+            "team to grant it."
+        )
+    if status == 401:
+        return (
+            f"{start}: the eTools Datamart refused NeuroDB's sign-in, whose credentials may have expired; "
+            "ask the team that runs NeuroDB's hosting to renew them."
         )
     if status and 400 <= status < 500:
         return (
@@ -249,10 +254,15 @@ def _verdict(
     by_area, by_country = _n(answers.get(BY_BUSINESS_AREA)), _n(answers.get(BY_COUNTRY))
     if all(_n(a) is None for a in answers.values()):
         statuses = {a.get("status") for a in answers.values()}
-        if statuses & {401, 403}:
+        if 403 in statuses:  # signed in (a sign-in refused is 401), not allowed this dataset
             return (
-                f"The eTools Datamart refused NeuroDB's account for {path}: ask the team that runs NeuroDB's "
-                "hosting to have the eTools Datamart team give that account access to it."
+                f"The account NeuroDB uses for the eTools Datamart is not allowed to read {path}: ask the "
+                "eTools Datamart team to grant it."
+            )
+        if 401 in statuses:
+            return (
+                f"The eTools Datamart refused NeuroDB's sign-in for {path}: its credentials may have "
+                "expired; ask the team that runs NeuroDB's hosting to renew them."
             )
         return f"The eTools Datamart did not answer for {path} (see each request's error): try again later."
     if everything == 0 and "error" not in area and not by_area and not by_country:
@@ -595,7 +605,7 @@ def order_verdict(path: str, tried: list[dict[str, Any]]) -> str:
             )
             said.append(
                 f"The Datamart ignores ordering={key} ({how}): the sync reads in its own order, and a read "
-                "whose records come twice removes nothing."
+                "whose records come twice removes nothing, unless every copy of each came in one answer."
             )
     return " ".join(said)
 

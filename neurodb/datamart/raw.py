@@ -1601,7 +1601,7 @@ def held_counts(runs: dict[str, tuple[SyncRun | None, SyncRun | None]]) -> dict[
         for name in runs:
             if typed(name):
                 run = runs[name][0]
-                found[name] = list(_counts(base(name), run))
+                found[name] = list(_counts(base(name), run, name))
         if documents:
             table = connection.ops.quote_name(DatamartDocument._meta.db_table)
             windows = [
@@ -1631,16 +1631,51 @@ def held_counts(runs: dict[str, tuple[SyncRun | None, SyncRun | None]]) -> dict[
     return compute.once(key, count, DATASET_ROWS_TTL, lang_neutral=True)
 
 
-def _counts(rows: QuerySet, run: SyncRun | None) -> tuple[int, int, int]:
+def rewritten_by(name: str) -> tuple[str, ...]:
+    """The datasets whose runs save the records of ``name`` again right after its own, in the same sync: the
+    engagement detail datasets (``datamart_sync.ENRICHMENTS``: audits, spot checks, micro-assessments...) save
+    every engagement they match, so the rows ``engagements`` wrote then read as written by them."""
+    from neurodb.integrations.etools import datamart_sync
+
+    return tuple(datamart_sync.ENRICHMENTS) if name == "engagements" else ()
+
+
+def written_until(name: str, run: SyncRun) -> datetime.datetime | None:
+    """The end of what ``run`` of ``name`` wrote: its own end, or, for a dataset whose records the runs of
+    others save again right after it (:func:`rewritten_by`), the end of the first finished run of each of
+    those that started after it, before the next run of ``name`` (as ``trail_monitoring.pd_writers`` counts
+    the programme documents their budgets save again). One query."""
+    after = rewritten_by(name)
+    if run.finished_at is None or not after:
+        return run.finished_at
+    ends, end = set(after), run.finished_at
+    later = (
+        SyncRun.objects.filter(job=run.job, target__in=(name, *after), started_at__gte=run.started_at)
+        .exclude(pk=run.pk)
+        .order_by("started_at", "pk")
+        .values_list("target", "finished_at")[:100]
+    )
+    for target, finished in later:
+        if target == name:  # the next run of the dataset: what follows is its own
+            break
+        if target in ends and finished is not None:
+            ends.discard(target)
+            end = max(end, finished)
+    return end
+
+
+def _counts(rows: QuerySet, run: SyncRun | None, name: str = "") -> tuple[int, int, int]:
+    """[in NeuroDB, written by ``run`` (from its start to :func:`written_until`), written since]."""
     from django.db.models import Count
 
     rows = rows.order_by()
     if run is None or run.finished_at is None:
         return rows.count(), 0, 0
+    until = written_until(name, run) if name else run.finished_at
     found = rows.aggregate(
         held=Count("pk"),
-        by_sync=Count("pk", filter=Q(synced_at__gte=run.started_at, synced_at__lte=run.finished_at)),
-        since=Count("pk", filter=Q(synced_at__gt=run.finished_at)),
+        by_sync=Count("pk", filter=Q(synced_at__gte=run.started_at, synced_at__lte=until)),
+        since=Count("pk", filter=Q(synced_at__gt=until)),
     )
     return found["held"], found["by_sync"], found["since"]
 

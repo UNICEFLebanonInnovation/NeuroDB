@@ -646,6 +646,8 @@ def quality_row(name: str, run: SyncRun | None, count: int | None) -> dict[str, 
     """One dataset's row of :func:`datamart_quality`: what ``run`` (its latest run) read, wrote, failed to
     link, and ``count``, the rows NeuroDB holds. Raw eTools data (``datamart.runfacts``) reads the same row
     of the run its records come from, so the two pages tell one story."""
+    from neurodb.core.admin import error_hint
+    from neurodb.datamart import runfacts
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.etools import windows
     from neurodb.integrations.etools.datamart_sync import (
@@ -664,6 +666,7 @@ def quality_row(name: str, run: SyncRun | None, count: int | None) -> dict[str, 
     aside = aside if isinstance(aside, dict) else {}
     shifted = details.get("pages_shifted") if isinstance(details.get("pages_shifted"), dict) else {}
     ordering = details.get("ordering") if isinstance(details.get("ordering"), dict) else {}
+    proven = details.get("copies_proven") if isinstance(details.get("copies_proven"), dict) else {}
     return {
         "name": name,
         "run": run,
@@ -677,8 +680,10 @@ def quality_row(name: str, run: SyncRun | None, count: int | None) -> dict[str, 
         "other_country_removed": details.get("other_country_removed"),
         "errors": (details.get("errors") or [])[:3],
         "relinked": details.get("relinked"),
-        # the run's own error, when it stopped before listing row errors (an HTTP 500 of the Datamart)
+        # the run's own error, when it stopped before listing row errors (an HTTP 500 of the Datamart), and
+        # what it means when the Datamart does not let NeuroDB's account read the dataset (HTTP 403)
         "error": run.error if failed and not details.get("errors") else "",
+        "not_allowed": str(error_hint(run)) if failed and runfacts.not_allowed(run) else "",
         "diagnostic": name in DIAGNOSTIC,  # no page, figure or check uses it: never an alarm
         # a PRP dataset's code and its source, in words (it carries no country name)
         "business_area": details.get("business_area") or "",
@@ -694,8 +699,11 @@ def quality_row(name: str, run: SyncRun | None, count: int | None) -> dict[str, 
         "datamart_count": details.get("datamart_count"),
         "removal_skipped": bool(details.get("removal_skipped")),
         "duplicates_read": details.get("duplicates_read"),
-        # records that came twice: pages that shifted (others then missing) or, in a stable order,
-        # records the Datamart likely holds twice; the stable order asked or why none; in words
+        # records that came twice: the Datamart's own copies, proven (every copy in one answer: they do
+        # not stop the read from being whole); the others, pages that shifted (others then missing) or, in
+        # a stable order, records the Datamart likely holds twice; the stable order asked or why none; in
+        # words
+        "copies_proven": proven.get("twice"),
         "pages_shifted_twice": shifted.get("twice"),
         "pages_shifted_missing": shifted.get("missing"),
         "held_twice": details.get("held_twice"),
@@ -758,13 +766,15 @@ def datamart_quality() -> list[dict[str, Any]]:
     no page, figure or check) is marked as such. A PRP dataset's run names the business area code it read
     with and where the code came from (a value that is not a code, a code NeuroDB found, the values set
     aside), and the records that named no business area; a run that read fewer records than the Datamart
-    announced, some twice, or a round count (a limit of the Datamart's answer), says that it removed
-    nothing. A large dataset read in windows says how many, why, what they announced and read, those not read
-    whole (the first three), a count that changed during the read, and a removal held one night; a page cut
-    short says so. The partner reports and PRP's progress reports say which business area filter their read
-    took, or why none, and the records of another business area a filter let through. Records that came twice
-    say whether the pages shifted (and as many others did not come) or, in a stable order, the Datamart likely
-    holds them twice, and the stable order asked or why none."""
+    announced, some twice and not proven, or a round count (a limit of the Datamart's answer), says that it
+    removed nothing. A large dataset read in windows says how many, why, what they announced and read, those
+    not read whole (the first three), a count that changed during the read, and a removal held one night; a
+    page cut short says so. The partner reports and PRP's progress reports say which business area filter
+    their read took, or why none, and the records of another business area a filter let through. Records
+    that came twice say how many the read proved the Datamart's own copies (every copy in one answer) and,
+    for the others, whether the pages shifted (and as many others did not come) or, in a stable order, the
+    Datamart likely holds them twice, and the stable order asked or why none. A dataset the Datamart does not
+    let NeuroDB's account read (HTTP 403) says so and whom to ask."""
     from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
 
     last_by_target = latest_datamart_runs(ENTITY_SYNCS)

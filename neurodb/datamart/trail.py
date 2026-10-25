@@ -1027,13 +1027,22 @@ def source_steps(
             Line(f"{facts.sent_twice:,} were sent twice (each counted once in what NeuroDB received).")
         )
     if facts.never_came:
+        besides = f" and the {facts.copies_proven:,} it sent twice" if facts.copies_proven else ""
+        then = (
+            "NeuroDB counts a record sent twice as eTools' own copy only when every copy comes identical in "
+            "one answer of the Datamart (one page): these did not, so the read is not complete."
+            if facts.gap_by_repeats
+            else "The next sync reads them."
+        )
+        said = f" {facts.shift_words}" if facts.shift_words else ""
         lines.append(
             Line(
-                f"eTools said it had {facts.never_came:,} more than NeuroDB received: {facts.shift_words}. "
-                "The next sync reads them.",
+                f"eTools said it had {facts.never_came:,} more than NeuroDB received{besides}.{said} {then}",
                 alert=True,
             )
         )
+    elif facts.shift_words:
+        lines.append(Line(facts.shift_words))
     if facts.more_than_said:
         lines.append(
             Line(

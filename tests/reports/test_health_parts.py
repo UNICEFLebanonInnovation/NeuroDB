@@ -630,6 +630,35 @@ def test_data_health_says_pages_shifted_or_records_held_twice(client_viewer, wor
     )
 
 
+def test_data_health_says_the_datamart_s_own_copies_and_a_dataset_it_may_not_read(client_viewer, world):
+    """Records the Datamart sent twice, every copy in one answer, are its own copies: the read was whole, so the
+    words are a note, not a warning (25 Oct 2026: reports/indicators, 1,939 short night after night). A dataset
+    the Datamart does not let NeuroDB's account read (24 Oct 2026: audit/financial-findings-all, 403) says so and
+    whom to ask, above the error's text."""
+    from html import unescape
+
+    datamart = SyncRun.Job.ETOOLS_DATAMART
+    _run(datamart, "cp_indicators", rows_in=6_960, rows_written=6_960,
+         details={"documents": 6_960, "datamart_count": 8_899, "duplicates_read": 1_939, "twice_identical": True,
+                  "copies_proven": {"twice": 1_939, "same_page": 1_935, "asked_again": 4},
+                  "confirm_requests": 4})  # fmt: skip
+    error = "IntegrationError: GET /api/latest/datamart/audit/financial-findings-all/: HTTP 403 Forbidden"
+    _run(datamart, "audit_findings", status=SyncRun.Status.FAILED, error=error)
+    html = unescape(text(get_part(client_viewer, PAGE, "datasets")))
+    row = " ".join(_dataset(html, "cp_indicators").split())
+    assert (
+        '<span class="cell-sub text-muted">The Datamart sent 1,939 records twice (identical), every copy in one of '
+        "its answers (1,935 on one page, 4 found together again in one more request): it holds them twice, as one "
+        "answer never lists a row twice. NeuroDB keeps one of each.</span>" in row
+    )
+    assert "none was removed" not in row and "text-warning" not in row
+    row = " ".join(_dataset(html, "audit_findings").split())
+    assert (
+        "The account NeuroDB uses for the eTools Datamart is not allowed to read audit/financial-findings-all: ask "
+        "the eTools Datamart team to grant it." in row
+    )
+
+
 @pytest.mark.parametrize("name", PARTS)
 def test_each_part_stays_within_its_query_ceiling(client_viewer, world, name, django_assert_max_num_queries):
     raw_get(client_viewer, PAGE)  # the navigation stored, as after the frame
@@ -744,7 +773,8 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
     records that named no business area, a code asked that is not one, the values set aside and a code NeuroDB
     found, a read in windows (how many, why, those not whole, a cut count, a changed count, a removal held), a
     page cut (and whether a cut sign tries windows on the next read, or a read tried them already), the business area filter a read took (or why none) with the records it let through, and records
-    that came twice (pages that shifted, or records held twice in a stable order) with the order asked."""
+    that came twice (the Datamart's own copies, proven; pages that shifted, or records held twice in a stable
+    order) with the order asked, and the words of a dataset the Datamart does not let NeuroDB read (403)."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.etools.datamart_sync import (
         FOUND,
@@ -787,6 +817,7 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
                 "errors": (details.get("errors") or [])[:3],
                 "relinked": details.get("relinked"),
                 "error": run.error if run and run.status == "failed" and not details.get("errors") else "",
+                "not_allowed": "",  # no run of the world failed with a 403 of the Datamart
                 "diagnostic": name in DIAGNOSTIC,
                 "business_area": details.get("business_area") or "",
                 "business_area_from": services.BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""),
@@ -800,6 +831,7 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
                 "datamart_count": details.get("datamart_count"),
                 "removal_skipped": bool(details.get("removal_skipped")),
                 "duplicates_read": details.get("duplicates_read"),
+                "copies_proven": (details.get("copies_proven") or {}).get("twice"),
                 "pages_shifted_twice": shifted.get("twice"),
                 "pages_shifted_missing": shifted.get("missing"),
                 "held_twice": details.get("held_twice"),

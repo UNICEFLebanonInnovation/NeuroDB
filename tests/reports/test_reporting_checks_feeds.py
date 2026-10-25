@@ -743,6 +743,22 @@ def test_check_10_and_11_say_when_pages_shifted_during_the_read(pd):
     )
 
 
+def test_check_11_says_the_datamart_s_own_copies_of_a_whole_read(pd):
+    """PRP's progress reports read whole: the 74 that came twice, every copy in one answer, are the Datamart's own
+    copies, said as such, never as pages that shifted or a removal skipped."""
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    _progress_run(business_area="2490", business_area_from="admin", datamart_count=151_307, documents=1_589,
+                  duplicates_read=74, twice_identical=True,
+                  copies_proven={"twice": 74, "same_page": 74, "asked_again": 0})  # fmt: skip
+    verdict = one("11")["verdict"]
+    assert (
+        "PRP's progress reports, last read: The Datamart sent 74 records twice (identical), every copy in one of "
+        "its answers (on one page): it holds them twice, as one answer never lists a row twice. NeuroDB keeps "
+        "one of each." in verdict
+    )
+    assert "Nothing was removed" not in verdict and "rows moved between pages" not in verdict
+
+
 def test_check_10_counts_history_from_the_feed_when_the_datamart_holds_no_earlier_report(pd):
     """The sync asked from 1 Nov 2018 and the rows held start on 1 Jan 2026: history is counted from 1 Jan 2026,
     information, not a warning, and a running PD that started before it (its first report held ends long after

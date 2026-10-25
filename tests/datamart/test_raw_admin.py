@@ -15,6 +15,7 @@ from pathlib import Path
 
 import psycopg
 import pytest
+import responses
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.core.signals import request_finished
@@ -325,8 +326,13 @@ def test_the_21_october_progress_reports_sync_adds_up(world):
     )
     assert facts.received - facts.other_country - facts.unnamed - facts.not_saved == facts.updated_by_sync
     assert facts.unexplained == 0 and facts.held == 1_590 and facts.from_earlier == 0
-    assert facts.sent_twice == 74 and facts.never_came == 74
-    assert facts.complete == (False, "No: eTools said it had 74 more")
+    assert facts.sent_twice == 74 and facts.never_came == 74 and facts.copies_proven == 0
+    # the 74 that came twice, not proven the Datamart's own copies, may stand for the 74 that did not come
+    assert facts.gap_by_repeats and facts.twice_unproven == 74
+    assert facts.complete == (
+        False,
+        "No: 74 came twice and may stand for others that did not come; nothing was removed",
+    )
 
 
 def test_a_typed_and_a_kept_whole_dataset_satisfy_the_equation(world):
@@ -376,6 +382,114 @@ def test_a_newer_failed_sync_is_named_and_complete_says_why(client_validator, wo
     assert "The records in NeuroDB come from the sync of" in html
 
 
+def test_records_sent_twice_are_said_plainly_on_the_source_page(client_validator, world):
+    """25 Oct 2026, reports/indicators: eTools said it had 8,899, NeuroDB received 6,960 and 1,939 came twice.
+    Proven the Datamart's own copies (every copy in one answer), the read is complete; not proven, the page says
+    they may stand for records that did not come, why NeuroDB cannot count them as copies, and that nothing was
+    removed, never that the next sync reads them."""
+    from html import unescape
+
+    proven = {"datamart_count": 8_899, "duplicates_read": 1_939, "twice_identical": True,
+              "copies_proven": {"twice": 1_939, "same_page": 1_939, "asked_again": 0}}  # fmt: skip
+    run = _run("cp_indicators", rows_in=6_960, details=proven)
+    dm.DatamartDocument.objects.bulk_create(
+        dm.DatamartDocument(dataset="cp_indicators", record_key=f"{n:064x}") for n in range(6_960)
+    )
+    html = " ".join(unescape(client_validator.get(f"{INDEX}cp_indicators/").content.decode()).split())
+    assert "<strong>Complete?</strong> Yes" in html
+    assert (
+        "The Datamart sent 1,939 records twice (identical), every copy in one of its answers (on one page)"
+        in html
+    )
+    assert "1,939 the Datamart sent twice (identical)" in client_validator.get(INDEX).content.decode()
+
+    SyncRun.objects.filter(pk=run.pk).update(
+        status=SyncRun.Status.PARTIAL,
+        details={"datamart_count": 8_899, "duplicates_read": 1_939, "twice_identical": True,
+                 "pages_shifted": {"twice": 1_939, "missing": 1_939}, "ordering": {"key": "id", "carried": False},
+                 "removal_skipped": True, "read": 6_960, "partial": True},
+    )  # fmt: skip
+    html = " ".join(unescape(client_validator.get(f"{INDEX}cp_indicators/").content.decode()).split())
+    assert "No: 1,939 came twice and may stand for others that did not come; nothing was removed" in html
+    assert (
+        "eTools said it had 1,939 more than NeuroDB received. 1,939 records came twice (identical) while the "
+        "Datamart's pages were read: rows moved between pages, and then as many others did not come, or the "
+        "Datamart holds them twice. Nothing was removed; the records do not carry id, so the order asked by id "
+        "cannot be checked. NeuroDB counts a record sent twice as eTools' own copy only when every copy comes "
+        "identical in one answer of the Datamart (one page): these did not, so the read is not complete."
+        in html
+    )
+    assert "The next sync reads them." not in html
+
+
+@responses.activate
+def test_the_engagements_count_what_their_detail_datasets_saved_right_after_them(world):
+    """The engagements run writes the engagements; the audits run, right after it in the same sync, saves every
+    one it matches again (24 Oct 2026: 633 engagements, every one saved again at 21:59). Those saves count as
+    the sync's, as the programme documents count what their budgets saved: updated by the sync 3, not 0, and
+    none updated since. The detail dataset's own row does not move, and an engagement a later sync wrote stays
+    updated since."""
+    from neurodb.integrations.etools import datamart_sync
+    from neurodb.integrations.etools.datamart import DatamartClient
+    from neurodb.integrations.http import make_session
+    from tests.integrations.fake_datamart import FakeDatamart
+
+    api = "https://datamart.test/api/latest/datamart"
+    lebanon = {"country_name": "Lebanon"}
+    FakeDatamart([{"id": n, "reference_number": f"LEB/AUD/{n}", "engagement_type": "audit", **lebanon}
+                  for n in (1, 2, 3)]).register(f"{api}/audit/engagements/")  # fmt: skip
+    FakeDatamart([{"id": 10 + n, "reference_number": f"LEB/AUD/{n}", "audited_expenditure": "100", **lebanon}
+                  for n in (1, 2, 3)]).register(f"{api}/audit/audit/")  # fmt: skip
+    client = DatamartClient("https://datamart.test", "svc-user", "not-a-real-secret", country="Lebanon",
+                            session=make_session("", backoff=0))  # fmt: skip
+    engagements, audits = datamart_sync.sync_all(
+        only=["engagements", "audits"], triggered_by="test", client=client
+    )
+    assert engagements.finished_at < audits.started_at
+    assert dm.AuditEngagement.objects.filter(synced_at__gt=engagements.finished_at).count() == 3
+    facts = runfacts.facts("engagements")
+    assert (facts.held, facts.updated_by_sync, facts.updated_since, facts.from_earlier) == (3, 3, 0, 0)
+    assert facts.complete == (True, "Yes")
+    assert raw.held_counts(runfacts.runs(["engagements", "audits"])) == {
+        "engagements": [3, 3, 0],
+        "audits": [3, 3, 0],
+    }
+
+    # the next sync's engagements run started: what it, or the audits after it, saved is not the first one's
+    later = SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="engagements")
+    after = _run("audits", ago=0)
+    SyncRun.objects.filter(pk=after.pk).update(started_at=timezone.now(), finished_at=timezone.now())
+    dm.AuditEngagement.objects.filter(reference_number="LEB/AUD/1").update(synced_at=timezone.now())
+    assert later.started_at > audits.finished_at
+    assert raw.written_until("engagements", engagements) == audits.finished_at
+    assert runfacts.counts("engagements", engagements) == (3, 2, 1)
+
+
+def test_a_dataset_the_datamart_account_may_not_read_says_whom_to_ask(client_validator, world):
+    """24 Oct 2026: audit/financial-findings-all answered 403 while the same account read about 40 other
+    datasets that night: signed in, not allowed this one. Raw eTools data says so and whom to ask, never the
+    credentials."""
+    error = "IntegrationError: GET /api/latest/datamart/audit/financial-findings-all/: HTTP 403 Forbidden"
+    _run("audit_findings", status=SyncRun.Status.FAILED, ago=0, error=error)
+    facts = runfacts.facts("audit_findings")
+    assert facts.run is None and facts.not_allowed
+    assert facts.complete == (False, "No: not allowed to read it (ask the eTools Datamart team)")
+    html = " ".join(client_validator.get(INDEX).content.decode().split())
+    assert (
+        "failed (eTools Datamart answered 403: the account NeuroDB uses is not allowed to read it; ask the "
+        "eTools Datamart team to grant it)" in html
+    )
+    assert "No: not allowed to read it (ask the eTools Datamart team)" in html and "credentials" not in html
+    unauthorised = _run(
+        "audit_findings",
+        status=SyncRun.Status.FAILED,
+        ago=0,
+        error=error.replace("403 Forbidden", "401 Unauthorized"),
+    )
+    assert not runfacts.not_allowed(unauthorised)
+    assert runfacts.failure_words(unauthorised) == "eTools Datamart answered 401: sign-in refused"
+
+
 ERRORS_SEEN = (  # what a failed run's error holds -> what Raw eTools data says of it
     (
         "IntegrationError: GET /api/latest/datamart/audit/financial-findings-all/: HTTP 500 Internal Server "
@@ -403,6 +517,12 @@ ERRORS_SEEN = (  # what a failed run's error holds -> what Raw eTools data says 
         "NeuroDB was restarted during the run",
     ),
     ("KeyError: 'Person One'", "an unexpected error"),
+    (  # signed in, not allowed this dataset (24 Oct 2026); a sign-in refused is 401, above
+        "IntegrationError: GET /api/latest/datamart/audit/financial-findings-all/: HTTP 403 Forbidden "
+        '{"detail": "You do not have permission to perform this action."}',
+        "eTools Datamart answered 403: the account NeuroDB uses is not allowed to read it; ask the eTools "
+        "Datamart team to grant it",
+    ),
 )
 
 

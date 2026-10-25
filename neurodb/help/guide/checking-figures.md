@@ -235,13 +235,18 @@ programme documents, trips, engagements, action points and their details).
   what Progress reports and Partner monitoring read; the other eTools Datamart datasets; the eTools REST
   API; and what NeuroDB does not read, with why. For each source: the pages that use
   it, how many records are in NeuroDB, its last sync, what eTools said it had, what NeuroDB received, what
-  was not kept (of another country, naming no country, records that could not be saved), how many
-  records the last sync updated, and **Complete?**: *Yes*, or *No* with the first reason.
+  was not kept (of another country, naming no country, records that could not be saved, records eTools sent
+  twice), how many records the last sync updated, and **Complete?**: *Yes*, or *No* with the first reason.
+  For the assurance engagements, the saves their audits, spot checks and micro-assessments make right after
+  them, in the same sync, count as updated by the last sync.
 - **A sync that failed** says why in a few words beside the last one that worked: "the sync of 21 Oct 2026,
   16:15 failed (eTools Datamart answered 500)", "(eTools answered 403: not allowed)", "(no answer in time)",
   "(could not connect)", "(NeuroDB was restarted during the run)", "(no PRP business area code is set: enter
   it in Admin → Data and sync → eTools Datamart)". "No answer in time" means eTools took the request but did not
-  answer; "could not connect" means NeuroDB could not reach it. Superusers and Administrators can click it
+  answer; "could not connect" means NeuroDB could not reach it. "(eTools Datamart answered 403: the account
+  NeuroDB uses is not allowed to read it; ask the eTools Datamart team to grant it)" means the account signed
+  in, but may not read that one dataset: ask the eTools Datamart team to give it access (syncing again fails
+  the same way until they do; *Complete?* says "No: not allowed to read it"). Superusers and Administrators can click it
   to open the run, where *What the error means* says what to do. The Datamart's own monitoring
   (`system/monitor`) says "diagnostic: no page or check uses it": its failures are known and change nothing.
 - **A source's page** starts with what its last sync received, in one line that adds up: what NeuroDB
@@ -254,6 +259,12 @@ programme documents, trips, engagements, action points and their details).
   saved into NeuroDB's own partners, programme documents, locations...: the ones the pages read. Then
   **Complete?** says *No*. For the partner reports it also says from which date NeuroDB holds them, and
   how many running programme documents have no report row (check 10).
+- **Records eTools sent twice.** One answer of the eTools Datamart (one page) never lists a record twice, so
+  when every copy of a record comes identical in one answer, eTools holds it twice: NeuroDB keeps one, counts
+  the copy with what it received ("1,939 the Datamart sent twice (identical)" under *Not kept*) and the sync
+  is complete. When the copies come on pages far apart, or differ, NeuroDB cannot tell them from records that
+  moved between pages while others did not come: *Complete?* says "No: 1,939 came twice and may stand for
+  others that did not come; nothing was removed", and nothing is removed until a sync can prove them.
 - **Fields this source sends** (folded) lists each field the last sync counted on every record it kept
   (before a sync has counted them, the newest 2,000 records in NeuroDB): how many records carry it, how many
   hold a value, and how NeuroDB uses it (read into one of its columns, names people, written by a person, a

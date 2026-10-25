@@ -17,12 +17,19 @@ buys the proof requests and a plain read with its ends test, nothing more). A pa
 of its request, not the last, is a cut too (``pages_cut``): the read is not whole, and the next one tries
 windows when it announces :data:`WINDOW_RECORDS` records or more (a smaller one is read plain again).
 
-Records that come twice while the pages are read (``pages_shifted``: the Datamart's default order moved rows
-between pages, and as many others did not come, or it holds them twice) leave the read not whole. The next
-read first proves a stable order (:func:`prove_ordering`: two pages in order and the reverse on another, by
-``id`` or by the dataset's record identity) and asks every page in it; records that still come twice then are
-most likely held twice by the Datamart (``held_twice``). :meth:`Reading.details` keeps counts, dates and ids
-only.
+Records that come twice while the pages are read (``duplicates_read``) are of two kinds. One answer (a page,
+one query) never lists a row twice, so a record whose copies all came identical in one answer is held that
+many times by the Datamart: proven (``copies_proven``). The copies of a record that came on two pages side by
+side are asked again in one small request whose single page covers both places (``confirm_requests``, at most
+:data:`CONFIRMS` a read); when it holds as many identical copies, they are proven too. Any other record that
+came twice is not proven (``pages_shifted``: the Datamart's default order moved rows between pages, and as
+many others did not come, or it holds them twice) and leaves the read not whole. A plain read whose every
+record twice is proven is whole when it received, copies included, every record announced: each record
+received came at most as many times as the Datamart holds it, so a record missing would leave the sum short.
+The next read first proves a stable order (:func:`prove_ordering`: two pages in order and the reverse on
+another, by ``id`` or by the dataset's record identity) and asks every page in it; records that still come
+twice, not proven, in an order checked on the key the records carry are most likely held twice by the
+Datamart (``held_twice``). :meth:`Reading.details` keeps counts, dates and ids only.
 """
 
 from __future__ import annotations
@@ -55,6 +62,7 @@ WINDOWS_KEPT = 60  # the windows listed in a run's details
 BOUNDARY = dt.timedelta(days=1)  # a date this close outside its window is a time zone, not a record outside
 ROUND_COUNT = "round_count"  # why a read is windowed when its count is a limit (``windows_why``)
 ORDER_PAGE = 50  # the records of each of the three pages a stable order is proven on (:func:`prove_ordering`)
+CONFIRMS = 20  # the requests of one read that ask again records that came twice on two pages side by side
 
 
 class _OutOfCounts(Exception):
@@ -118,6 +126,40 @@ class Window:
             "outside": self.outside,
             "whole": self.whole,
         }
+
+
+@dataclass
+class Copies:
+    """The copies of one record that came again in a plain read: ``item``, its first copy, and ``first``, its
+    place in the read (records before it), known when it came on the page of its first repeat or the one
+    before (else None: no one answer can hold both); ``last``, the place of its latest copy; ``best``, the
+    most copies identical to the first that one answer held (a page of the read, or :meth:`Reading._confirm`'s
+    request); ``same``, every copy identical to the first."""
+
+    item: dict[str, Any] | None
+    first: int | None
+    last: int = 0
+    copies: int = 1
+    best: int = 1
+    same: bool = True
+    asked_again: bool = False  # proven by a request asked again, not on a page of the read
+
+    @property
+    def proven(self) -> bool:
+        """Every copy came identical in one answer: the Datamart holds the record that many times (one answer
+        never lists a row twice)."""
+        return self.same and self.best >= self.copies
+
+    def size(self, longest: int) -> int | None:
+        """The page size, at most ``longest`` (the read's own), of the smallest page that holds both the first
+        copy and the latest one; None when there is none, or nothing to ask (copies not identical, the first
+        one too far)."""
+        if not self.same or self.first is None:
+            return None
+        return next(
+            (s for s in range(self.last - self.first + 1, longest + 1) if self.first // s == self.last // s),
+            None,
+        )
 
 
 def _page(length: int, first_length: int) -> int:
@@ -216,17 +258,18 @@ def prove_ordering(
     shares no record with page 1 and, with the key, is in descending order (records with no id are told apart
     by their content). A dataset of ``2 × ORDER_PAGE`` records or fewer (``known``, the last read's count, or
     the first proof page's) is not asked: too small to prove, and to shift. A refused or failed request never
-    fails the read: that key is not proven. Returns ``{"key": key}``, or ``{"key": "", "why": ..., "tried":
-    keys}`` (``ignored``, ``refused``, ``failed`` or ``too_small``), and each key tried with what its pages
-    showed (counts only)."""
+    fails the read: that key is not proven. Returns ``{"key": key}`` (``"carried": False`` when the records do
+    not carry the key: the pages then prove no order, only that they share no record), or ``{"key": "",
+    "why": ..., "tried": keys}`` (``ignored``, ``refused``, ``failed`` or ``too_small``), and each key tried
+    with what its pages showed (counts only)."""
     if isinstance(known, int) and not isinstance(known, bool) and known <= 2 * ORDER_PAGE:
         return {"key": "", "why": "too_small"}, []
     tried: list[dict[str, Any]] = []
     for key in dict.fromkeys(k for k in keys if k):
         found = _order_proof(client, dataset, params, country, key)
         tried.append(found)
-        if found["verdict"] == "proven":
-            return {"key": key}, tried
+        if found["verdict"] == "proven":  # on records without the key, the order itself is not checked
+            return ({"key": key} if found["carried"] else {"key": key, "carried": False}), tried
         if found["verdict"] == "too_small":
             return {"key": "", "why": "too_small"}, tried
     verdicts = [t["verdict"] for t in tried]
@@ -272,6 +315,14 @@ class Reading:
         self.keys: set[str] = set()
         self.repeated = 0
         self.repeated_same = 0  # records again that carry no id: identical to their first copy (their hash)
+        # a plain read: the records that came again (by key) and where; the records of this page and of the
+        # one before (key -> [place, record, copies identical on this page]); the records read so far
+        self.twice: dict[str, Copies] = {}
+        self.page_now: dict[str, list[Any]] = {}
+        self.page_before: dict[str, list[Any]] = {}
+        self.taken = 0
+        self.page_length = 0  # the first page's records: every page but the last holds as many
+        self.confirms = 0  # the requests asked again (:meth:`_confirm`)
         self.windowed = False
         self.windows: list[Window] = []
         self.bound = ""  # the filter the windows are made of: date_key, "id" or "" (none proven)
@@ -308,6 +359,7 @@ class Reading:
                 self._ask_ends()
             yield from self._plain(count, first, pages)
             self._ends_test()
+            self._confirm()
             return
         self.windowed = True
         try:
@@ -320,6 +372,7 @@ class Reading:
             if sync.capped(count):
                 self.cap_suspected = self.cap_suspected or "windows_unproven"
             self._ends_test()
+            self._confirm()
             return
         pages.close()
         self.windows = plan
@@ -341,9 +394,11 @@ class Reading:
         """A window to split: it announces :data:`WINDOW_RECORDS` or more, or a round count."""
         return count is not None and (count >= WINDOW_RECORDS or sync.capped(count))
 
-    def _take(self, window: Window, item: dict[str, Any]) -> None:
+    def _take(self, window: Window, item: dict[str, Any]) -> tuple[str, bool]:
+        """Count one record in ``window``; its key, and whether it came before."""
         key = sync.record_key(item, self.identity)
-        if key in self.keys:
+        again = key in self.keys
+        if again:
             window.repeated += 1
             self.repeated += 1
             self.repeated_same += item.get("id") in (None, "") and key == sync.content_key(item)
@@ -352,21 +407,49 @@ class Reading:
             window.read += 1
         if not self._inside(window, item):
             window.outside += 1
+        return key, again
+
+    def _new_page(self) -> None:
+        self.page_before, self.page_now = self.page_now, {}
+
+    def _copy(self, key: str, again: bool, item: dict[str, Any]) -> None:
+        """Where a record of a plain read came (:class:`Copies`): the page it came on, and for a record that
+        came again, its copies and the most of them identical on one page."""
+        place, self.taken = self.taken, self.taken + 1
+        here = self.page_now.get(key)
+        if not again:
+            self.page_now[key] = [place, item, 1]
+            return
+        copies = self.twice.get(key)
+        if copies is None:
+            first = here or self.page_before.get(key)
+            copies = self.twice[key] = Copies(first[1] if first else None, first[0] if first else None)
+        copies.copies, copies.last = copies.copies + 1, place
+        copies.same = copies.same and item == copies.item
+        if here is None:
+            self.page_now[key] = [place, item, 1]
+        elif copies.same:  # every copy so far identical: those on this page too
+            here[2] += 1
+            copies.best = max(copies.best, here[2])
 
     def _plain(self, count, first, pages) -> Iterator[dict[str, Any]]:
         """Today's read: the first page, then every ``next`` link."""
         window = Window(planned=count, announced=count, pages=1, last_page=len(first))
         self.windows = [window]
+        self.page_length = len(first)
+        self._new_page()
         for item in first:
-            self._take(window, item)
+            self._copy(*self._take(window, item), item)
             yield item
         for _, results in pages:
             if window.pages > 1:  # the page before this one is not the last: was it cut?
                 window.short_pages += _page(window.last_page, len(first))
             window.pages, window.last_page = window.pages + 1, len(results)
+            self._new_page()
             for item in results:
-                self._take(window, item)
+                self._copy(*self._take(window, item), item)
                 yield item
+        self.page_now = self.page_before = {}
         window.done = self.done = True
         if count is None and self.read >= sync.CAP_FLOOR:
             # no count to compare with, and the answer stops on a full page: it may be cut. A page longer than
@@ -404,6 +487,49 @@ class Reading:
             if pk is None or not window.ids[0] <= pk < window.ids[1]:
                 return False
         return True
+
+    def _confirm(self) -> None:
+        """A plain read's records that came twice, each copy on a page of its own, side by side: asked again
+        in one request each (at most :data:`CONFIRMS`), whose single page covers the places of every copy
+        (its size, at most the read's own, the smallest that holds them on one page), in the read's own query
+        and order. A record whose answer holds as many copies, identical, is proven (one answer never lists
+        a row twice). Asked only when it can make the read whole: not cut, every record twice identical and
+        close enough, and every record announced received, copies included; a refused or failed request
+        never fails the read: the copies stay not proven."""
+        if not self.done or self.cap_suspected or self.pages_cut or sync.capped(self.announced):
+            return
+        if self.announced is not None and self.read + self.repeated < self.announced:
+            return
+        asked = []
+        for copies in self.twice.values():
+            if copies.proven:
+                continue
+            size = copies.size(self.page_length)
+            if size is None:  # a record no one answer can prove: the read cannot be whole
+                return
+            asked.append((copies, size))
+        if len(asked) > CONFIRMS:
+            return
+        for copies, size in sorted(asked, key=lambda pair: pair[0].first or 0):
+            if copies.proven:  # an earlier answer held it
+                continue
+            query = {**self.params, "page_size": size, "page": copies.first // size + 1}
+            try:
+                records = self.client.first_page(self.dataset, query, country=self.country)[1]
+            except IntegrationError:
+                return
+            self.confirms += 1
+            held: dict[str, int] = {}
+            for item in records:
+                key = sync.record_key(item, self.identity)
+                found = self.twice.get(key)
+                if found is not None and not found.proven and item == found.item:
+                    held[key] = held.get(key, 0) + 1
+            for key, n in held.items():
+                found = self.twice[key]
+                if n > found.best:
+                    found.best = n
+                    found.asked_again = found.proven
 
     def _ask_ends(self) -> None:
         """The ends test's requests, asked once the first page is read and before the rest: the first record
@@ -557,6 +683,17 @@ class Reading:
         """The distinct records read, in every window."""
         return len(self.keys)
 
+    @property
+    def copies_proven(self) -> int:
+        """The records that came again whose every copy came identical in one answer (a page, or a request
+        asked again): the Datamart holds them that many times. Counted as ``repeated`` counts them."""
+        return sum(c.copies - 1 for c in self.twice.values() if c.proven)
+
+    @property
+    def copies_asked_again(self) -> int:
+        """Of :attr:`copies_proven`, those proven by a request asked again (:meth:`_confirm`)."""
+        return sum(c.copies - 1 for c in self.twice.values() if c.proven and c.asked_again)
+
     def _end_to_end(self) -> bool:
         """The windows cover the query once, in order: dates from the first to the open end, the ids of a
         one-day window (or of the id windows) from 1 to the top."""
@@ -610,11 +747,12 @@ class Reading:
     @property
     def whole(self) -> bool:
         """Whether the sync may remove what the read did not return: never after a cut page
-        (:attr:`pages_cut`), a record lost whatever the counts say."""
+        (:attr:`pages_cut`), a record lost whatever the counts say. A plain read's records that came twice
+        must every one be proven the Datamart's own copies (:attr:`copies_proven`)."""
         if not self.done or self.cap_suspected or self.pages_cut:
             return False
         if not self.windowed or not self.bound:
-            return sync.read_whole(self.announced, self.read, self.repeated)
+            return sync.read_whole(self.announced, self.read, self.repeated, self.copies_proven)
         return (
             self.plan_complete
             and not self.end_check_failed
@@ -651,9 +789,12 @@ class Reading:
 
     def details(self) -> dict[str, Any]:
         """For the run: ``datamart_count`` (the first page's count, C), ``pages_cut`` when a page was cut, the
-        stable order asked (``ordering``) and, for records that came twice, ``pages_shifted`` (``twice``, and
-        ``missing``: announced, not read) or, under a stable order, ``held_twice`` (``twice_identical`` when
-        every one carries no id and came identical); when windowed, why (``windows_why``), the windows (the
+        stable order asked (``ordering``) and, for records that came twice (``duplicates_read``), those proven
+        the Datamart's own copies (``copies_proven``: ``twice``, of which ``same_page`` and ``asked_again``;
+        ``confirm_requests``, the requests asked again) and, for the others, ``pages_shifted`` (``twice``, and
+        ``missing``: announced, not read, copies proven aside) or, under a stable order checked on the key the
+        records carry, ``held_twice`` (``twice_identical`` when every record twice carries no id and came
+        identical); when windowed, why (``windows_why``), the windows (the
         first :data:`WINDOWS_KEPT`), what was read and announced, the filter proven, the checks and their
         outcome (``windows_cut``: windows read to their end holding fewer than they announced);
         ``cap_suspected`` when the answer looks cut. Counts, dates and ids only."""
@@ -668,11 +809,20 @@ class Reading:
             found["pages_cut"] = self.pages_cut
         if self.ordering:
             found["ordering"] = dict(self.ordering)
-        if self.repeated and self.ordering.get("key"):  # twice in a stable order: likely held twice
-            found["held_twice"] = self.repeated
-        elif self.repeated:
-            missing = max((self.announced or 0) - self.read, 0)
-            found["pages_shifted"] = {"twice": self.repeated, "missing": missing}
+        proven = self.copies_proven
+        if proven:  # every copy in one answer: the Datamart holds them twice
+            again = self.copies_asked_again
+            found["copies_proven"] = {"twice": proven, "same_page": proven - again, "asked_again": again}
+        if self.confirms:
+            found["confirm_requests"] = self.confirms
+        others = self.repeated - proven
+        if others and self.ordering.get("key") and self.ordering.get("carried", True):
+            found["held_twice"] = others  # twice in a stable order: likely held twice
+        elif others:
+            missing = max((self.announced or 0) - self.read - proven, 0)
+            found["pages_shifted"] = {"twice": others, "missing": missing}
+        if self.repeated:
+            found["duplicates_read"] = self.repeated
         if self.repeated and self.repeated_same == self.repeated:
             found["twice_identical"] = True
         if not self.windowed:

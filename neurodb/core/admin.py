@@ -122,7 +122,11 @@ def error_hint(run: SyncRun) -> str:
     """What a known error means for the administrator, or "" when the raw error is all we know. A 502, 503
     or 504 is the service being unavailable; any other 5xx is an error inside the service for this one
     request, said to have been asked again only for the statuses NeuroDB retries (``RETRY_STATUSES``: 429,
-    500, 502, 503 and 504); a 429 is too many requests."""
+    500, 502, 503 and 504); a 429 is too many requests. A 403 of the eTools Datamart is its account signed in
+    but not allowed this one dataset (``runfacts.not_allowed``: the other datasets read that night); a 401,
+    or a 403 of another service, is the credentials refused."""
+    from neurodb.datamart import raw, runfacts
+
     error = run.error or ""
     name = SOURCES.get(run.job)
     found = HTTP_STATUS.search(error)
@@ -146,6 +150,11 @@ def error_hint(run: SyncRun) -> str:
         hint = _("%(source)s did not answer in time: try again later.")
     elif how == NOT_CONNECTED:
         hint = _("%(source)s could not be reached: try again later.")
+    elif runfacts.not_allowed(run):
+        return _(
+            "The account NeuroDB uses for the eTools Datamart is not allowed to read %(path)s: ask the "
+            "eTools Datamart team to grant it."
+        ) % {"path": raw.path_of(run.target) or _("this dataset")}
     elif status in (401, 403):
         hint = _(
             "%(source)s refused NeuroDB's credentials: they may have expired. Ask the team that runs "
@@ -162,8 +171,10 @@ def error_hint(run: SyncRun) -> str:
 
 def dataset_note(run: SyncRun) -> str:
     """The run page only (too long for the list): a failed eTools Datamart dataset is its own run. Says that
-    only this dataset stopped, whether a page, figure or check uses it, and how to sync it alone; "" for any
-    other run, and for a run cut off by a restart (the whole sync stopped then)."""
+    only this dataset stopped, whether a page, figure or check uses it, and how to sync it alone (a dataset
+    the account is not allowed to read: that the next sync fails the same way until it is granted); "" for
+    any other run, and for a run cut off by a restart (the whole sync stopped then)."""
+    from neurodb.datamart import runfacts
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.background import CUT_OFF
     from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
@@ -190,14 +201,23 @@ def dataset_note(run: SyncRun) -> str:
                 "read it): it raises no alarm."
             )
         )
-    parts.append(
-        _(
-            "The next sync tries it again. To sync it alone now, press “Sync this dataset again” above, or "
-            "“Sync eTools Datamart now” on Import and sync runs, choose “Only the datasets ticked below, in "
-            "their usual order” and tick %(dataset)s."
+    if runfacts.not_allowed(run):  # asked again, it is refused again until the Datamart team grants it
+        parts.append(
+            _(
+                "The next sync tries it again, and it fails the same way until the eTools Datamart team "
+                "grants the account access to it. Once they have, press “Sync this dataset again” above to "
+                "sync it alone."
+            )
         )
-        % values
-    )
+    else:
+        parts.append(
+            _(
+                "The next sync tries it again. To sync it alone now, press “Sync this dataset again” above, "
+                "or “Sync eTools Datamart now” on Import and sync runs, choose “Only the datasets ticked "
+                "below, in their usual order” and tick %(dataset)s."
+            )
+            % values
+        )
     return " ".join(str(part) for part in parts)
 
 

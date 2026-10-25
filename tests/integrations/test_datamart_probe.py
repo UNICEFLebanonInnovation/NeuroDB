@@ -334,15 +334,30 @@ def test_a_country_dataset_takes_two_requests_and_a_refusal_is_kept_as_its_statu
 
 
 @responses.activate
-def test_a_refused_account_is_said_in_plain_words():
+@pytest.mark.parametrize(
+    ("status", "said"),
+    [
+        (  # signed in, not allowed this dataset (audit/financial-findings-all, 24 Oct 2026)
+            403,
+            "The account NeuroDB uses for the eTools Datamart is not allowed to read prp/indicator-report-v2: "
+            "ask the eTools Datamart team to grant it.",
+        ),
+        (
+            401,
+            "The eTools Datamart refused NeuroDB's sign-in for prp/indicator-report-v2: its credentials may have "
+            "expired; ask the team that runs NeuroDB's hosting to renew them.",
+        ),
+    ],
+)
+def test_a_refused_account_is_said_in_plain_words(status, said):
     for query in ({}, {"business_area": "2490"}, {"country_name": "Lebanon"}):
         responses.get(
-            V2, match=[responses.matchers.query_param_matcher({"page_size": "50", **query})], status=403
+            V2, match=[responses.matchers.query_param_matcher({"page_size": "50", **query})], status=status
         )
     DatamartSetting.objects.create(pk=1, prp_business_area="2490")
     run = probe.run_job("prp_indicator_reports", client=client())
     assert run.status == SyncRun.Status.PARTIAL
-    assert "refused NeuroDB's account" in run.details["verdict"]
+    assert said in run.details["verdict"]
 
 
 def test_without_credentials_the_probe_fails_clearly(settings):
@@ -574,5 +589,6 @@ def test_after_a_read_whose_records_came_twice_the_probe_asks_the_stable_order(s
     assert run.details["ordering_requests"][0]["verdict"] == "ignored"
     assert (
         "The Datamart ignores ordering=id (the reverse order gives the same records): the sync reads in its own "
-        "order, and a read whose records come twice removes nothing." in run.details["verdict"]
+        "order, and a read whose records come twice removes nothing, unless every copy of each came in one "
+        "answer." in run.details["verdict"]
     )

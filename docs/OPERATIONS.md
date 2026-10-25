@@ -1812,8 +1812,14 @@ it. *What the error means* (also in the list's *Error* column) reads: for HTTP 5
 server error (HTTP 500), even after NeuroDB asked again. If the next run fails the same way, tell the
 team that runs eTools Datamart." (NeuroDB asks again on 429, 500, 502, 503 and 504 before it gives up;
 any other 5xx reads the same without "even after NeuroDB asked again"); for 429, "eTools Datamart
-refused more requests for now (too many in a short time): try again later."; for 401 or 403, that the
-credentials were refused.
+refused more requests for now (too many in a short time): try again later."; for 401, that the credentials
+were refused; for 403, that the account is signed in but not allowed this dataset (the same account read the
+others that night): "The account NeuroDB uses for the eTools Datamart is not allowed to read
+audit/financial-findings-all: ask the eTools Datamart team to grant it.", and that the next sync fails the
+same way until they do (24 Oct 2026, `audit_findings`). Raw eTools data says "(eTools Datamart answered 403:
+the account NeuroDB uses is not allowed to read it; ask the eTools Datamart team to grant it)" with *Complete?*
+"No: not allowed to read it (ask the eTools Datamart team)" (`runfacts.not_allowed`), and Data health says the
+same sentence above the error's text. Run a job → *Probe a Datamart dataset* says it too.
 
 **Finish the eTools update.** The work an update leaves for after the site has started runs as the
 job *Finish the eTools update* (`datamart_backfill`, recorded as *eTools update clean-up* in this
@@ -1890,10 +1896,10 @@ Datamart returns nothing at all, or only records of another country (`details.em
 returns this country's records), which usually means a wrong country name.
 A read that returns fewer distinct records than the Datamart announced on its first page (the `count` of
 the paginated list, kept as `details.datamart_count`; records left out as another country's count as read,
-and a record returned twice counts once), or that returns a record twice (rows moving on the Datamart
-while its pages were read: a record returned again stands for one never returned, whatever the counts,
-`details.duplicates_read`), removes nothing either: it would otherwise delete history until the next
-complete read. The run then ends *Succeeded with errors* with `details.removal_skipped` and
+and a record returned twice counts once), or that returns a record twice that it cannot prove the Datamart's
+own copy (rows moving on the Datamart while its pages were read: a record returned again may stand for one
+never returned, whatever the counts, `details.duplicates_read`; *Records the Datamart sends twice*, below),
+removes nothing either: it would otherwise delete history until the next complete read. The run then ends *Succeeded with errors* with `details.removal_skipped` and
 `details.read`, Data health says "read N records of the M the Datamart announced: none was removed" (or
 that the Datamart returned N records twice), and the next complete read removes what the Datamart no
 longer returns. A count of 5,000 or more that is a multiple of 1,000 (`CAP_FLOOR`, `CAP_ROUND` in the sync)
@@ -1914,8 +1920,36 @@ what was read cannot catch a Datamart table reloaded while it is read (its ETL e
 one night's wait keeps such a read from emptying NeuroDB's copy. The records kept whole (below), the raw
 copies of the partner, programme document, location and audit records among them, follow the same rules.
 
-**Pages that shift during a read** (`windows.Reading`). A read whose records came twice
-(`details.duplicates_read`) records `details.pages_shifted` (`twice`, and `missing`: announced but not read).
+**Records the Datamart sends twice** (`windows.Reading`, `windows.Copies`). One answer of the Datamart (a
+page: one query) never lists a row twice. So a record whose every copy came identical in one answer is held
+that many times by the Datamart: its own copies, proven (`details.copies_proven`: `twice`, of which
+`same_page` and `asked_again`). The copies of a record that came on two pages side by side are asked again
+in one small request in the read's own query and order, whose single page covers both places (`page_size`
+the smallest that holds them on one page, at most the read's own; `page` from the first copy's place; at most
+20 requests a read, `CONFIRMS`, `details.confirm_requests`), only when they can make the read whole; when its
+answer holds as many identical copies, they are proven too. A plain read (not in windows) whose every record
+twice is proven is whole when the records it received, copies included, are every one it announced
+(`datamart_sync.read_whole`: distinct + proven copies ≥ the count, no copy left unproven, no cut page, no
+round count), so what the Datamart no longer returns is removed. It can never remove a record that is
+missing: each record received came at most as many times as the Datamart holds it (a page holds no more copies
+than there are rows), so a record missing would leave the sum short of the count. Like any whole read, it
+cannot see a record deleted and another added during the read with the count unchanged. Raw eTools data
+counts them with what NeuroDB received ("Not kept: … 1,939 the Datamart sent twice (identical)"; *Complete?*
+Yes), and Data health, the run page and checks 10 and 11 say "The Datamart sent 1,939 records twice
+(identical), every copy in one of its answers (on one page): it holds them twice, as one answer never lists a
+row twice. NeuroDB keeps one of each." (a note, not a warning). A record twice that no answer proves (copies on
+pages too far apart, copies that differ, a page shift: the request asked again then holds it once) leaves the
+read not whole, as below; when such records are as many as those that did not come, Raw eTools data's
+*Complete?* says "No: 1,939 came twice and may stand for others that did not come; nothing was removed" and
+the source's page says why NeuroDB cannot count them as copies. (25 Oct 2026: reports/indicators announced
+8,899 and sent 6,960 distinct records, 1,939 short night after night; PRP's progress reports 74 short. Whether
+they are proven shows on the next night's run: once they are, the first removal of the rows their hash keys
+left behind can be large, waits one night as any removal of more than half of the rows held, and Ask NeuroDB's
+counts of these datasets then fall to what eTools sends.)
+
+**Pages that shift during a read** (`windows.Reading`). A read whose records came twice, not proven
+(`details.duplicates_read`), records `details.pages_shifted` (`twice`, and `missing`: announced but not read,
+the copies proven aside).
 The counts cannot tell rows moving between pages (the Datamart's default order is not stable, and as many
 others then never come) from rows the Datamart holds twice, so Data health, the run's page and checks 10 and
 11 say both: "74 records came twice (identical) while the Datamart's pages were read: rows moved between
@@ -1928,8 +1962,12 @@ when the records carry the key, are in order; page 1 of `ordering=-id` shares no
 descending order; then the same by the dataset's record identity, below; a dataset of 100 records or fewer is
 not asked) and asks every page of its read in that order (`details.ordering`: `{"key": "id"}`, or `{"key": "",
 "why": ...}` with `ignored`, `refused`, `failed` or `too_small`; a refused or failed request never fails the
-run, and the words then say the Datamart takes no stable order). Records that still come twice in a stable
-order are most likely held twice (a unique order does not move the rows its ETL rewrites, and with ids that
+run, and the words then say the Datamart takes no stable order). An order proven on records that do not carry
+its key (`details.ordering`: `{"key": "id", "carried": false}`: the pages share no record, but nothing in them
+shows an order, as a random one would pass too) is asked, but not taken as stable: records that still come
+twice are said as pages that shift ("…; the records do not carry id, so the order asked by id cannot be
+checked."). Records that still come twice, not proven, in a stable order checked on the key the records carry
+are most likely held twice (a unique order does not move the rows its ETL rewrites, and with ids that
 grow a row added during the read comes last): `details.held_twice` replaces `pages_shifted`, and the words are
 "The Datamart returned 74 identical records twice in a stable order (by id): it likely holds them twice; tell
 the eTools Datamart team. Nothing was removed." Such a read stays not whole, as before, so the progress
@@ -2383,8 +2421,10 @@ with `datamart/raw.py`; templates `datamart/templates/admin/datamart/raw/`, plai
 **What each sync received** (`datamart/runfacts.py`, from Data health's own row, `reports.services.quality_row`).
 The run the records come from is the latest that succeeded, or succeeded with errors, and received something;
 a newer run that failed is named beside it, with why in a few words read from its error
-(`runfacts.failure_words`: "eTools Datamart answered 500", "eTools answered 403: not allowed", "no answer in
-time", "could not connect", "NeuroDB was restarted during the run", "the partners could not be read", "no PRP
+(`runfacts.failure_words`: "eTools Datamart answered 500", "eTools answered 403: not allowed", "eTools
+Datamart answered 403: the account NeuroDB uses is not allowed to read it; ask the eTools Datamart team to
+grant it" (the Datamart signs NeuroDB in with Basic auth, so a sign-in refused is 401: a 403 is this one dataset
+not allowed), "no answer in time", "could not connect", "NeuroDB was restarted during the run", "the partners could not be read", "no PRP
 business area code is set"... and "an unexpected error" for any other), never the error's text (the 200 characters of an answer's body come from
 eTools or a proxy); for superusers and Administrators the words link to the run, where *What the error means*
 says what to do; for anyone else they are plain text. A request that got no answer reads the same on both pages
@@ -2404,16 +2444,29 @@ shows a red line or *Complete? No* of its own; a remainder larger than what the 
 "Received" is `runfacts.records_read(run)` (`details.read`, else the rows written and those of another country
 left out), the one rule checks 10 and 11 read too. `other_country_skipped` holds the records that named no
 country (`unnamed_skipped`, shown on their own line) and those a business area filter let through
-(`area_strays`, an "of which"); records sent twice are a note. "Updated by the sync" is counted in the table
-(`synced_at` within the run). For the raw copies of the sources written by another sync, "could not be saved"
+(`area_strays`, an "of which"); records sent twice are a note, and those the read proved the Datamart's own
+copies (`details.copies_proven`, *Records the Datamart sends twice*) count with what NeuroDB received against
+what eTools said it had, and are named in the *Not kept* column ("1,939 the Datamart sent twice (identical)";
+the others "1,939 came twice (counted once)"). "Updated by the sync" is counted in the table (`synced_at`
+within the run; for the engagements, up to the end of the first run of each of their detail datasets,
+`audit_results`, `audits`, `spot_checks`, `micro_assessments` and `special_audits`, started after it and
+before the next engagements run: they save every engagement they match again straight after it, so on 24 Oct
+2026 the 633 engagements read "updated by the last sync 0" and "updated since (a sync is running) 633";
+`raw.written_until`, as *Programme documents in NeuroDB* counts what the budgets save). For the raw copies of the sources written by another sync, "could not be saved"
 is `details.documents_failed`; the records that could not be saved into the partners, programme documents,
 agreements, engagements, locations or sites the pages read (the run's `rows_failed`) are a line of their own,
 on the source's page and in the first page's *Not kept* column. A remainder the counts do not explain shows in
 red. **Complete?** is *Yes* when the run succeeded, NeuroDB received at least what eTools said it had, nothing
 failed (a raw copy, or a partner, programme document, location... of a source written by another sync) and
-nothing is unexplained; otherwise the first reason. An error is shown by its kind only (`runs._error_key`). On
+nothing is unexplained; otherwise the first reason ("No: the last sync failed"; for a 403 of the Datamart, "No:
+not allowed to read it (ask the eTools Datamart team)"; "No: eTools said it had N more", less the copies
+proven; when records that came twice, not proven, are as many as those that did not come, "No: N came twice
+and may stand for others that did not come; nothing was removed", and the source's page says that NeuroDB
+counts a record sent twice as eTools' own copy only when every copy comes identical in one answer of the
+Datamart, so the read is not complete, never that the next sync reads them). An error is shown by its kind
+only (`runs._error_key`). On
 21 Oct, PRP's progress reports: received 150,221 − of another country 148,631 − could not be saved 0 = 1,590
-updated by the sync; eTools said it had 74 more. An eTools REST entity's records come from the latest run that
+updated by the sync; 74 came twice, not proven, and may stand for the 74 eTools said it had more. An eTools REST entity's records come from the latest run that
 kept its copy (the read below, one run per entity, or the eTools REST sync, `details.raw_copies`; a newer run of
 either that failed is named) and, for a list, received something: a list eTools answered empty (eTools down, or
 a token whose user lost the country) removes nothing, so the records and the page's counts come from the read
@@ -3893,8 +3946,10 @@ count that is refused is an answer (a paging limit), not a refusal. It writes no
 its run (job *eTools Datamart probe*, target the dataset): per request the filter sent, the count
 announced, the records on the page, how many carry each key, and the business area codes and country
 names named (counts). Its `verdict` says in plain words what the answers mean and what to do (enter
-another code, tell the Datamart team the data is not loaded or that it ignores the filter, ask the hosting
-team for access); for a PRP dataset it judges the business area answer first: refused (with its status),
+another code, tell the Datamart team the data is not loaded or that it ignores the filter; a 403 on every
+request: "The account NeuroDB uses for the eTools Datamart is not allowed to read <path>: ask the eTools
+Datamart team to grant it."; a 401: the sign-in refused, ask the hosting team to renew the credentials); for a
+PRP dataset it judges the business area answer first: refused (with its status),
 ignored (its page names other codes, or it finds as many as no filter while that page names other codes),
 or kept to the code. A value set aside is said first ("The hosting team's ETOOLS_DATAMART_BUSINESS_AREA is
 “Lebanon”, a name, not a business area code: the probe and the sync set it aside and use 2490, found in

@@ -200,6 +200,31 @@ def test_the_run_page_says_only_this_dataset_stopped(superadmin):
     assert "Only this dataset" not in _meaning(superadmin, rest)  # not a Datamart dataset
 
 
+def test_a_datamart_dataset_the_account_may_not_read_is_never_said_as_credentials(superadmin):
+    """24 Oct 2026: audit/financial-findings-all answered 403 while the same account read about 40 other datasets:
+    signed in (a sign-in refused is 401), not allowed this one. The run page says so, whom to ask, and that the
+    next sync fails the same way until then; a 401 keeps the credentials' words."""
+    from neurodb.core.admin import error_hint
+
+    error = "IntegrationError: GET /api/latest/datamart/audit/financial-findings-all/: HTTP 403 Forbidden"
+    run = SyncRun.objects.create(job="etools_datamart", target="audit_findings", status="failed", error=error)
+    meaning = " ".join(_meaning(superadmin, run).split())
+    assert (
+        "The account NeuroDB uses for the eTools Datamart is not allowed to read audit/financial-findings-all: "
+        "ask the eTools Datamart team to grant it." in meaning
+    )
+    assert "credentials" not in meaning and "renew" not in meaning
+    assert (
+        "The next sync tries it again, and it fails the same way until the eTools Datamart team grants the "
+        "account access to it. Once they have, press “Sync this dataset again” above to sync it alone."
+        in meaning
+    )
+    unauthorised = SyncRun(job="etools_datamart", target="audit_findings", error=error.replace("403", "401"))
+    assert "refused NeuroDB's credentials" in str(error_hint(unauthorised))
+    rest = SyncRun(job="etools", error="GET /api/v2/partners/: HTTP 403 Forbidden")
+    assert "refused NeuroDB's credentials" in str(error_hint(rest))  # an eTools REST token, revoked
+
+
 @pytest.fixture
 def datamart_ready(monkeypatch):
     from neurodb.integrations.etools import datamart
