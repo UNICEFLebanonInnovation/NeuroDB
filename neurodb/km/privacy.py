@@ -392,9 +392,11 @@ def _titles(text: str) -> str:
 
 # ------------------------------------------------------------------- step 10: names in other shapes
 # S1: a reference list's "Doe, J." or "Roe Poe, M. C." (initials with their full stop after a comma), ending
-# an item (before a comma, ";", "&", "and", "(" or the end)
+# an item (before a comma, ";", "&", "and", "(" or the end) or before the quoted title the person wrote
+# ("Doe, J. 'Fake report', 2021")
 _ITEM_END = r"(?=[ \t]*(?:[,;&()]|and\b|$))"
-S1 = re.compile(rf"{_BEFORE}(?P<a>{NAME}),[ \t]+[A-Z]\.(?:[ \t]?-?[A-Z]\.){{0,2}}{_ITEM_END}", re.MULTILINE)
+_REF_END = r"(?=[ \t]*(?:[,;&()'\"‘“]|and\b|$))"
+S1 = re.compile(rf"{_BEFORE}(?P<a>{NAME}),[ \t]+[A-Z]\.(?:[ \t]?-?[A-Z]\.){{0,2}}{_REF_END}", re.MULTILINE)
 _HAS_INITIAL = re.compile(r",[ \t]+[A-Z]\.")
 # S1b: "Doe J" or "(Doe JM)", initials without a full stop, when Doe is one of the KM Database's surnames
 S1B = re.compile(rf"{_BEFORE}(?P<a>{WORD})[ \t]+[A-Z]{{1,2}}\.?{_ITEM_END}", re.MULTILINE)

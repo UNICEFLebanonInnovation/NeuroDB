@@ -238,6 +238,16 @@ KM = privacy.People(
             "cited with Fakeone, P., Faketwo, M., & Roe Poe, M. C. (2020), Fake Journal",
             f"cited with {W}, {W}, & {W} (2020), Fake Journal",
         ),
+        # a "Surname, I." item before the quoted title it wrote (the browser check found an evidence origin
+        # "Own analysis of: Surname, I. 'Title', ..." whose name the downloads kept)
+        (
+            "Own fake analysis of: Fakeone, A. 'Fake Costing Report', Fake Final Report, July 2021",
+            f"Own fake analysis of: {W} 'Fake Costing Report', Fake Final Report, July 2021",
+        ),
+        (
+            'as Fakeone, A. B. "Fake Title" and Faketwo, C. “Fake Other”',
+            f'as {W} "Fake Title" and {W} “Fake Other”',
+        ),
         # "Surname I" without a full stop: a KM surname only
         (
             "a fake reader (Doe M) wrote; (Appendix C) and (Type I)",
@@ -299,6 +309,8 @@ def test_names_in_other_shapes_are_withheld_and_found_by_the_final_check(text, s
         "fieldwork by Fakeorg, Fakeaid, Fakefund and Fakerelief",  # a list without a KM surname
         "Fakeword, a female-led fake trade; Adults (aged 18+) and Score (12, 15) and Duration (12 years)",
         "(Beirut, Lebanon) and (Doe Fakeorg Institute, Lebanon)",
+        # a section's letter before a quoted heading, and a place's
+        "(Results, E. 'Fake factors') and Lebanon, A. 'Fake area'",
     ],
 )
 def test_words_shaped_like_these_names_are_kept(text):
