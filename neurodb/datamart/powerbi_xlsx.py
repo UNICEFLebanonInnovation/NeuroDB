@@ -39,6 +39,7 @@ MAX_STRINGS_BYTES = 50 * 1024 * 1024
 HEAD_BYTES = 64 * 1024  # a part's first element must start within this
 CHUNK = 256 * 1024
 PEEK_ROWS = 5  # non-empty rows read for the header
+PEEK_DATA_ROWS = 100  # data rows after it looked at for the columns holding a value (never read)
 OLE = b"\xd0\xcf\x11\xe0"
 FILTERS_PREFIX = "Applied filters:"
 SHEET_NAMES = ("Export", "Sheet1")  # Power BI's sheet, then Excel's
@@ -98,8 +99,10 @@ def serial(value: float, date1904: bool = False) -> datetime.datetime:
 @dataclass
 class Peek:
     """What the first rows of an export say: its sheet, how many worksheets the workbook has, the header's
-    captions by position (None when only a filters line was found), and the filters line when it comes
-    first (a chart's export)."""
+    captions by position (None when only a filters line was found), the filters line when it comes first (a
+    chart's export), and the positions holding a value in the header or the first :data:`PEEK_DATA_ROWS`
+    data rows (whether a cell holds a value is looked at, never the value: a column with no caption is still
+    seen)."""
 
     sheet: str
     worksheets: int
@@ -107,6 +110,7 @@ class Peek:
     filters: str | None
     sheet_bytes: int
     unpacked: int
+    filled: frozenset[int] = frozenset()
 
 
 @dataclass
@@ -242,10 +246,11 @@ class Book:
 
     def raw_rows(
         self, sheet: _Sheet, keep: Collection[int] | None
-    ) -> Iterator[tuple[dict[int, Any], str | None]]:
-        """Each non-empty row of ``sheet``: its values by position, and the filters line's text when the row
-        is one. Until the header is passed (the first row that is not the filters line) every column is read;
-        after it, only the columns of ``keep`` (every column when ``keep`` is None)."""
+    ) -> Iterator[tuple[dict[int, Any], str | None, list[int]]]:
+        """Each non-empty row of ``sheet``: its values by position, the filters line's text when the row is
+        one, and the positions of the cells holding a value (read or not). Until the header is passed (the
+        first row that is not the filters line) every column is read; after it, only the columns of ``keep``
+        (every column when ``keep`` is None)."""
         strings: list[str] | None = None
         data = None
         whole = True
@@ -290,7 +295,7 @@ class Book:
                 continue
             if filters is None:
                 whole = False
-            yield values, filters
+            yield values, filters, filled
 
 
 def _filled(cell: ElementTree.Element) -> bool:
@@ -356,24 +361,36 @@ def peek(data: bytes, recognised: Callable[[list[str]], bool] | None = None) -> 
     chosen = next((book.sheet(n) for n in SHEET_NAMES if n in names), None)
     first = None
     for sheet in [chosen] if chosen else book.sheets:
-        header, filters = _head(book, sheet)
-        found = Peek(sheet.name, len(book.sheets), header, filters, book.sizes[sheet.part], book.unpacked)
+        header, filters, filled = _head(book, sheet)
+        found = Peek(
+            sheet.name, len(book.sheets), header, filters, book.sizes[sheet.part], book.unpacked, filled
+        )
         if chosen or recognised is None or (header is not None and recognised(header)):
             return found
         first = first or found
     return first
 
 
-def _head(book: Book, sheet: _Sheet) -> tuple[list[str] | None, str | None]:
-    filters = None
-    for n, (values, line) in enumerate(book.raw_rows(sheet, ())):
-        if n >= PEEK_ROWS:
-            break
-        if line is not None:
-            filters = line
-            continue
-        return _captions(values), filters
-    return None, filters
+def _head(book: Book, sheet: _Sheet) -> tuple[list[str] | None, str | None, frozenset[int]]:
+    """The header's captions, the filters line before it, and the positions holding a value in the header and
+    the data rows after it (at most :data:`PEEK_DATA_ROWS`; no value of theirs is read)."""
+    filters = header = None
+    filled: set[int] = set()
+    data = 0
+    for n, (values, line, cells) in enumerate(book.raw_rows(sheet, ())):
+        if header is None:
+            if n >= PEEK_ROWS:
+                break
+            if line is not None:
+                filters = line
+                continue
+            header = _captions(values)
+        elif line is not None or data >= PEEK_DATA_ROWS:
+            break  # a table's filters line comes after its data
+        else:
+            data += 1
+        filled.update(cells)
+    return header, filters, frozenset(filled)
 
 
 def _captions(values: dict[int, Any]) -> list[str]:
@@ -399,7 +416,7 @@ def rows(data: bytes, keep: Collection[int], sheet: str | None = None) -> Rows:
     wanted = set(keep)
 
     def source() -> Iterator[dict[int, Any]]:
-        for values, line in book.raw_rows(chosen, wanted):
+        for values, line, _filled_at in book.raw_rows(chosen, wanted):
             if line is not None:
                 found.filters = line
             elif found.header is None:

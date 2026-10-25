@@ -15,7 +15,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
-from neurodb.datamart import comparison
+from neurodb.datamart import comparison, powerbi_filters
 from neurodb.datamart import powerbi_compare as pc
 from neurodb.datamart import powerbi_exports as px
 from neurodb.datamart import powerbi_words as words
@@ -157,19 +157,108 @@ def test_the_upload_page_reloads_itself_while_the_job_runs(checker, started):
     assert words.AGAIN_BUTTON not in html
 
 
+def _todo(html: str) -> list[str]:
+    if "data-pbi-todo" not in html:
+        return []
+    return re.findall(r"<li>(.*?)</li>", html.split("data-pbi-todo", 1)[1].split("</ul>", 1)[0])
+
+
 def test_a_filter_neurodb_cannot_apply_is_said_on_the_upload_and_export_pages(checker, started):
-    data = pf.export("by_sector", filters=("status is not active", "name is Zq Unknownperson"))
-    upload = _done(checker, ("sector.xlsx", data))
-    html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
-    assert (
-        "Clear these slicers in Power BI and export again, or compare these exports by hand: status is not …; name is …."
-        in html
+    """What to do now names the slicer as the report shows it (Section, PD status); Power BI's field names stay on
+    the export's page, in its filter table."""
+    filters = (
+        "status is not active",
+        "section_name is Fake Section Nobody Has",
+        "actual_value is between 1 and 2",
+        "name is Zq Unknownperson",
     )
+    upload = _done(checker, ("sector.xlsx", pf.export("by_sector", filters=filters)))
+    html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    assert _todo(html) == [
+        words.plural(12, words.TODO_MISSING_ONE, words.TODO_MISSING),
+        words.TODO_CANNOT.format(
+            clauses="the PD status slicer; the Section slicer; the actual_value filter in the Filters pane; "
+            "the name filter in the Filters pane"
+        ).replace("'", "&#x27;"),
+    ]
+    assert "section_name" not in html and "status is not" not in html
     export = PowerBIExport.objects.get(upload=upload)
     page = checker.get(reverse("admin:datamart_powerbi_export", args=[upload.pk, export.pk])).content.decode()
     assert words.CLAUSE_STATES["cannot"] in page and words.CLAUSE_STATES["unknown_field"] in page
+    table = page.split("data-pbi-clauses", 1)[1].split("</table>", 1)[0]
+    assert "status is not …" in table and "section_name is …" in table and "name is …" in table
     assert "Columns kept: Section, Accepted, Submitted, Due, Overdue" in page
     assert "Unknownperson" not in page and "Unknownperson" not in html
+    assert "Fake Section Nobody Has" not in page and "Fake Section Nobody Has" not in html
+
+
+def test_every_slicer_what_to_do_now_names_is_on_the_report():
+    """Power BI's fields with a slicer, by the slicer's name in comparison.py (the one place for Power BI's
+    names)."""
+    slicers = {*comparison.POWERBI_ONLY_SLICERS, *comparison.POWERBI_SLICERS["partner-monitoring"].values()}
+    assert set(comparison.POWERBI_FIELD_SLICERS.values()) <= slicers
+    assert set(comparison.POWERBI_FIELD_SLICERS) <= set(powerbi_filters.FIELDS)
+
+
+@pytest.mark.parametrize("how", ["stale", "start_failed", "locked", "other_job_later", "stopped"])
+def test_a_failed_upload_says_why_first_and_never_that_there_is_nothing_to_do(checker, monkeypatch, how):
+    """The error's own instruction comes first; an export a failed upload never read says "Not read" with what to
+    do, never "Waiting to be read"."""
+    if how == "start_failed":
+
+        def broken(*args):
+            raise OSError("no process")
+
+        monkeypatch.setattr(background, "start_command", broken)
+    else:
+        monkeypatch.setattr(background, "start_command", lambda *args: 4242)
+    pf.post(checker, *pf.every_export())
+    upload = PowerBIUpload.objects.get()
+    if how == "stale":
+        PowerBIUpload.objects.filter(pk=upload.pk).update(status=PowerBIUpload.Status.READING)
+        assert pc.close_stale() == 1
+    elif how == "locked":
+        monkeypatch.setattr(pc, "_lock", lambda: False)
+        pc.run(upload.pk)
+    elif how == "other_job_later":
+        monkeypatch.setattr(pc, "heavy_job_running", lambda: True)
+        pc.run(upload.pk)
+    elif how == "stopped":
+
+        def too_much(upload):
+            raise MemoryError
+
+        monkeypatch.setattr(pc, "_read_staged", too_much)
+        pc.run(upload.pk)
+    upload.refresh_from_db()
+    assert upload.status == PowerBIUpload.Status.FAILED
+    html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    todo = _todo(html)
+    assert todo and todo[0] == upload.error.replace("'", "&#x27;") and words.TODO_NOTHING not in todo
+    assert words.STATE_WORDS["staged"] not in html
+    table = html.split("data-pbi-pages", 1)[1].split("</table>", 1)[0]
+    if how == "other_job_later":  # read already: Compare again
+        assert upload.error == words.OTHER_JOB_LATER and words.AGAIN_BUTTON in html
+        assert table.count(f"<td>{words.STATE_WORDS['read']}") == 13
+    else:  # the copies were emptied: upload the files again
+        assert "upload the files again" in upload.error and words.AGAIN_BUTTON not in html
+        assert table.count(words.NOT_READ_STATE) == 13 and table.count(words.NOT_READ_ACTION) == 13
+        assert words.COVERS_EVERY_YEAR not in table  # nothing of their filters was read
+
+
+def test_the_history_counts_the_exports_read_and_the_files_not_read(checker, started):
+    pf.post(checker, ("cards.xlsx", pf.export("partner_cards")), ("sector.xlsx", pf.export("by_sector")))
+    upload = PowerBIUpload.objects.get()
+    PowerBIExport.objects.filter(upload=upload, kind="by_sector").update(content=b"PK broken")
+    pc.run(upload.pk)
+    upload.refresh_from_db()
+    assert upload.status == PowerBIUpload.Status.DONE
+    html = checker.get(INDEX).content.decode()
+    table = html.split("data-pbi-history", 1)[1].split("</table>", 1)[0]
+    headers = re.findall(r'<th scope="col">(.*?)</th>', table)
+    cells = re.findall(r"<td>(.*?)</td>", table)
+    found = dict(zip(headers[1:], cells, strict=False))
+    assert found["Exports read"] == "1" and found["Files not read"] == "1"
 
 
 def test_an_upload_with_nothing_recognised_keeps_nothing(checker, started):
@@ -227,3 +316,14 @@ def test_every_kind_has_a_power_bi_visual_and_every_page_is_in_power_bi_s_order(
     assert [k.order for k in px.KINDS.values()] == list(range(13))
     pages = [comparison.POWERBI_PAGE_ORDER.index(k.visual[0]) for k in px.KINDS.values()]
     assert pages == sorted(pages)
+
+
+def test_the_help_says_what_works_now_and_keeps_the_sheet_until_neurodb_compares():
+    """The help's section opens with what Compare with Power BI does today; it says the manual check is no longer
+    needed only once NeuroDB compares the exports with its pages (powerbi_compare.COMPARERS)."""
+    text = (ROOT / "help" / "guide" / "checking-figures.md").read_text(encoding="utf-8")
+    section = text.split("## Compare with Power BI\n", 1)[1].split("\n## ", 1)[0]
+    opening = section.strip().split("\n\n", 1)[0]
+    if not pc.COMPARERS:
+        assert "no longer need" not in section
+        assert "comparison sheet" in opening and "people's names" in opening.lower()

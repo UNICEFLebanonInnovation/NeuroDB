@@ -76,7 +76,7 @@
                   <td><a class="nd-link" href="{{ line.url }}">{{ line.export.file_name }}</a></td>
                   <td>{{ line.export.rows_read|intcomma }}</td>
                   <td>{{ line.covers|default:"—" }}</td>
-                  <td>{% if line.failed %}<span class="nd-found__warn">{{ line.state }}</span>{% else %}{{ line.state }}{% endif %}{% if line.action %}<small class="nd-menu__note">{{ line.action }}</small>{% endif %}</td>
+                  <td>{% if line.warn %}<span class="nd-found__warn">{{ line.state }}</span>{% else %}{{ line.state }}{% endif %}{% if line.action %}<small class="nd-menu__note">{{ line.action }}</small>{% endif %}</td>
                 {% endif %}
               </tr>
             {% endfor %}

@@ -1174,7 +1174,6 @@ class PowerBIExport(models.Model):
     kind = models.CharField(max_length=30)  # powerbi_exports.KINDS
     file_name = models.CharField(max_length=255)  # its base name, cleaned
     state = models.CharField(max_length=12)  # staged, read, compared, empty, not_compared, failed
-    sheet = models.CharField(max_length=40, blank=True)  # the sheet it is read from
     content = models.BinaryField(null=True, editable=False)  # the repacked one-sheet copy, until read
     rows = models.BinaryField(null=True, editable=False)  # gzip JSON lines: the kept columns only
     rows_read = models.PositiveIntegerField(default=0)

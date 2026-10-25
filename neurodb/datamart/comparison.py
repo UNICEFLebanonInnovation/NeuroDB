@@ -152,14 +152,14 @@ POWERBI_ITEMS: dict[str, str] = {
     "with_target": "With a target",
     "without_target": "Without a target",
 }
-# the page's filter fields Power BI has a slicer for, by the slicer's name
+# the page's filter fields Power BI has a slicer for, by the slicer's name: a slicer that means the same. A
+# NeuroDB filter whose namesake means something else in Power BI is NeuroDB's own (:data:`NEURODB_ONLY`)
 POWERBI_SLICERS: dict[str, dict[str, str]] = {
     "progress-reports": {
         "year": "Reporting Year",
         "pd_statuses": "PD status",
         "sections": "Section",
         "partners": "Partner",
-        "emergency": "Emergency indicator",
     },
     "partner-monitoring": {
         "year": "Reporting Year",
@@ -168,16 +168,24 @@ POWERBI_SLICERS: dict[str, dict[str, str]] = {
         "partners": "Partner",
         "document_types": "Document type",
         "offices": "Office",
-        "emergency": "Emergency indicator",
-        "cp_output": "CP Output",
-        "q": "Indicator Title",
     },
 }
-# Power BI's slicers NeuroDB's page has no filter for: set as said on every page, or cleared
+# Power BI's slicers NeuroDB's page has no filter for: set as said on every page, or cleared. Its Emergency
+# indicator is Yes for an SPD (NeuroDB's emergency filter: the indicator's high frequency), its CP Output
+# search matches every CP output of the PD (NeuroDB's: the indicator's), and its Indicator Title box the title
+# alone (Partner monitoring's search: the title or the output)
 POWERBI_ONLY_SLICERS = ("Country name",)  # NeuroDB holds one country
 POWERBI_TO_CLEAR: dict[str, tuple[str, ...]] = {
-    "progress-reports": ("Document type", "Office", "CP Output", "Indicator Title"),
-    "partner-monitoring": (),
+    "progress-reports": ("Emergency indicator", "Document type", "Office", "CP Output", "Indicator Title"),
+    "partner-monitoring": ("Emergency indicator", "CP Output", "Indicator Title"),
+}
+# Power BI's fields (as its "Applied filters" line names them) that a slicer of the report sets, by the
+# slicer's name: Compare with Power BI's "What to do now" names the slicer, never the field
+POWERBI_FIELD_SLICERS: dict[str, str] = {
+    "country_name": POWERBI_ONLY_SLICERS[0],
+    "status": POWERBI_SLICERS["partner-monitoring"]["pd_statuses"],
+    "reporting_year": POWERBI_SLICERS["partner-monitoring"]["year"],
+    "section_name": POWERBI_SLICERS["partner-monitoring"]["sections"],
 }
 ONE_COUNTRY = "{country}: NeuroDB holds one country"
 CLEAR_IN_POWERBI = "Clear these in Power BI: NeuroDB's page has no such filter"
@@ -201,6 +209,7 @@ NEURODB_ONLY: dict[str, dict[str, str]] = {
         "overdue": "Overdue only",
         "report_types": "Report type",
         "statuses": "Report status",
+        "emergency": "Emergency indicator (high frequency)",
         # By disaggregation's own filters
         "indicator": "By disaggregation: indicator",
         "location": "By disaggregation: location",
@@ -214,8 +223,11 @@ NEURODB_ONLY: dict[str, dict[str, str]] = {
         "report_type": "Report type",
         "scope": "Programme documents",
         "status": "Tracking status",
+        "q": "Indicator or output",
         "tags": "Tags",
         "partner_types": "Partner type",
+        "emergency": "Emergency (high frequency)",
+        "cp_output": "CP output",
     },
 }
 # the tags of Partner monitoring's filter, as its filter bar names them

@@ -88,7 +88,6 @@ class Migration(migrations.Migration):
                 ("kind", models.CharField(max_length=30)),
                 ("file_name", models.CharField(max_length=255)),
                 ("state", models.CharField(max_length=12)),
-                ("sheet", models.CharField(blank=True, max_length=40)),
                 ("content", models.BinaryField(null=True)),
                 ("rows", models.BinaryField(null=True)),
                 ("rows_read", models.PositiveIntegerField(default=0)),

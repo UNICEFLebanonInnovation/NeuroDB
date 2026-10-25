@@ -17,7 +17,7 @@
 
   {% trans "What NeuroDB read" as read_title %}
   {% component "unfold/components/card.html" with title=read_title title_icon="description" %}
-    <p class="mb-2" data-pbi-state><strong>{{ row.state }}</strong>{% if export.state != "failed" %}: {% blocktrans trimmed count n=export.rows_read %}{{ n }} row{% plural %}{{ n }} rows{% endblocktrans %}{% endif %}.{% if row.action %} {{ row.action }}{% endif %}</p>
+    <p class="mb-2" data-pbi-state><strong>{{ row.state }}</strong>{% if export.state != "failed" and export.state != "staged" %}: {% blocktrans trimmed count n=export.rows_read %}{{ n }} row{% plural %}{{ n }} rows{% endblocktrans %}{% endif %}.{% if row.action %} {{ row.action }}{% endif %}</p>
     {% if row.covers %}<p class="mb-2">{% trans "What its filter covers:" %} {{ row.covers }}</p>{% endif %}
     {% if kept %}<p class="mb-2" data-pbi-kept>{% trans "Columns kept:" %} {{ kept|join:", " }}</p>{% endif %}
     {% for line in export.dropped %}<p class="mb-2" data-pbi-dropped>{{ line }}</p>{% endfor %}

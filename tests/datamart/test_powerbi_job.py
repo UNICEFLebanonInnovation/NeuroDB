@@ -323,8 +323,9 @@ def test_the_command_says_nothing_to_do_or_raises_the_stored_sentence(
     with pytest.raises(CommandError) as raised:
         call_command("compare_powerbi", "--upload-id", str(failing.pk))
     failing.refresh_from_db()
-    assert failing.status == Status.FAILED and failing.error == "The comparison stopped: MemoryError."
-    assert str(raised.value).endswith("The comparison stopped: MemoryError.")
+    stopped = "The comparison stopped (MemoryError): upload the files again."  # its copy was not read
+    assert failing.status == Status.FAILED and failing.error == stopped
+    assert str(raised.value).endswith(stopped)
     assert _content_left(failing) == 0
 
 

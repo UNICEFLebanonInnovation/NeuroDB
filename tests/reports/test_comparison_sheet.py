@@ -280,11 +280,10 @@ def test_a_search_naming_a_person_or_a_contact_never_reaches_the_sheet(validator
                             assert q.lower() not in found.lower(), (page, sheet.title, cell)
                             assert "123 457" not in found and "123457" not in found, (page, sheet.title, cell)
         compare = book["Compare"]
-        if "q" in comparison.NEURODB_ONLY[page]:  # Progress reports' search: a NeuroDB filter to clear
-            clear = _block(compare, "Clear these in NeuroDB before comparing")
-            assert clear[comparison.NEURODB_ONLY[page]["q"]] == cleaned
-        else:  # Partner monitoring's: Power BI's Indicator Title search box
-            assert _block(compare, "Set these in Power BI")[comparison.POWERBI_SLICERS[page]["q"]] == cleaned
+        clear = _block(
+            compare, "Clear these in NeuroDB before comparing"
+        )  # both pages' search: NeuroDB's own
+        assert clear[comparison.NEURODB_ONLY[page]["q"]] == cleaned
         address = next(r[2] for r in compare.iter_rows(values_only=True) if r[1:2] == ("NeuroDB filter",))
         assert address == comparison.ADDRESS_WITHHELD
         if page == PR:
@@ -308,7 +307,7 @@ def test_a_slicer_s_value_naming_a_person_or_a_contact_is_cleaned(validator, mor
     User.objects.create_user(username="known", first_name="Test", last_name="Person", password="pw-123456-x")
     cases = (
         (PR, {"pd_status": ""}, "section", "sections"),
-        (PM, {"view": "table", "year": "all"}, "cp_output", "cp_output"),
+        (PM, {"view": "table", "year": "all"}, "cp_output", "cp_output"),  # a NeuroDB filter to clear
         (PM, {"view": "table", "year": "all"}, "section", "sections"),
     )
     for page, params, key, field in cases:
@@ -320,8 +319,12 @@ def test_a_slicer_s_value_naming_a_person_or_a_contact_is_cleaned(validator, mor
                         for found in (cell, unquote_plus(cell)):
                             assert value.lower() not in found.lower(), (page, key, sheet.title, cell)
                             assert "123 457" not in found, (page, key, sheet.title, cell)
-        slicers = _block(book["Compare"], "Set these in Power BI")
-        assert slicers[comparison.POWERBI_SLICERS[page][field]].lower() == cleaned.lower(), (page, key)
+        if field in comparison.POWERBI_SLICERS[page]:
+            found = _block(book["Compare"], "Set these in Power BI")[comparison.POWERBI_SLICERS[page][field]]
+        else:
+            clear = _block(book["Compare"], "Clear these in NeuroDB before comparing")
+            found = clear[comparison.NEURODB_ONLY[page][field]]
+        assert found.lower() == cleaned.lower(), (page, key)
 
 
 # ------------------------------------------------------------------------------------------- the filter blocks
@@ -370,8 +373,8 @@ def test_the_slicers_to_set_and_the_neurodb_filters_to_clear(validator, more, fr
     pm |= {"gender": "Female", "age_group": ["12-17", "Under 5"]}
     slicers, clear = comparison.settings_rows(comparison.read(PM, pm, TODAY))
     assert dict(slicers)["Reporting Year"] == "2026" and dict(slicers)["PD status"].startswith("Every status")
-    assert dict(slicers)["CP Output"] == "x"  # Power BI's CP Output search box
     assert dict(clear) == {
+        "CP output": "x",  # the indicator's CP output: Power BI's CP Output search matches the PD's
         "Programme documents": "Every programme document running in 2026, closed ones too",
         "Report type": "Humanitarian reports (monthly): only emergency or cluster indicators",
         "Tracking status": "On track",
@@ -405,6 +408,33 @@ def test_the_slicers_to_set_and_the_neurodb_filters_to_clear(validator, more, fr
     clear = _block(compare, "Clear these in NeuroDB before comparing")
     assert clear["Programme documents"] == "Every programme document, of every status and year"
     assert clear["Tags"] == "Gender: Female; Age group: 12-17, Under 5"
+
+
+def test_a_neurodb_filter_that_means_something_else_in_power_bi_is_cleared_on_both_sides(more, frozen):
+    """NeuroDB's emergency filter (the indicator's high frequency) is not Power BI's Emergency indicator (the
+    document is an SPD); Partner monitoring's search (an indicator's title or output) is not Power BI's Indicator
+    Title box, nor its CP output Power BI's CP Output search (every CP output of the PD). Set, they are NeuroDB
+    filters to clear; Power BI's three are cleared on both pages."""
+    for page in comparison.PAGES:
+        assert {"Emergency indicator", "CP Output", "Indicator Title"} <= set(
+            comparison.POWERBI_TO_CLEAR[page]
+        )
+        assert {"Emergency indicator", "CP Output", "Indicator Title"}.isdisjoint(
+            comparison.POWERBI_SLICERS[page].values()
+        ), page
+        assert "emergency" in comparison.NEURODB_ONLY[page], page
+    assert {"q", "cp_output"} <= set(comparison.NEURODB_ONLY[PM])
+    params = {"view": "table", "year": "2026", "emergency": "yes", "q": "girls", "cp_output": "x"}
+    slicers, clear = comparison.settings_rows(comparison.read(PM, params, TODAY))
+    assert {"Emergency indicator", "CP Output", "Indicator Title"}.isdisjoint(dict(slicers))
+    assert dict(clear) == {
+        "Indicator or output": "girls",
+        "Emergency (high frequency)": "Yes",
+        "CP output": "x",
+    }
+    slicers, clear = comparison.settings_rows(comparison.read(PR, {"emergency": "no"}, TODAY))
+    assert "Emergency indicator" not in dict(slicers)
+    assert dict(clear) == {"Emergency indicator (high frequency)": "No"}
 
 
 def test_power_bi_s_names_come_from_one_place(validator, more, frozen, monkeypatch):

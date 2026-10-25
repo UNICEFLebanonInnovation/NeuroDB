@@ -255,7 +255,8 @@ def _clause(found: Filter, line: str, sections: tuple[str, ...]) -> None:
     known = next((f for f in FIELDS if f.casefold() == name.casefold()), None)
     if known is None:  # its name and condition words only: never its value
         words = bits.get("words") or ("is" if shape == "is" else "")
-        found.clauses.append(Clause(words=f"{name} {words} …".replace("  ", " "), state="unknown_field"))
+        clause = Clause(words=f"{name} {words} …".replace("  ", " "), state="unknown_field", field=name)
+        found.clauses.append(clause)
         return
     kind = FIELDS[known]
     if kind == "number":

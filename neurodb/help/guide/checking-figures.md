@@ -170,9 +170,11 @@ long. Download again or narrow the filter." That file is not complete: do not co
 
 ## Compare with Power BI
 
-You no longer need to match the PRP Power BI report by hand, row by row. In the administration, *Data and
-sync → Compare with Power BI*, upload the files you exported from Power BI: the zip as your browser saved it,
-or the Excel files, several at once. It is for validators with Staff status, like Raw eTools data.
+In the administration, *Data and sync → Compare with Power BI*, upload the files you exported from Power BI:
+the zip as your browser saved it, or the Excel files, several at once. Today NeuroDB reads each export, shows
+Power BI's filters one by one and drops people's names as it reads. Comparing the exports with NeuroDB's pages,
+row by row, comes next: until then, check the figures with the Power BI comparison sheet below. It is for
+validators with Staff status, like Raw eTools data.
 
 **How to export.** The page lists the 13 visuals of the *UNICEF Program Performance* report, in the order of
 its pages. On each: *More options (…) → Export data → Summarized data → .xlsx*. On every page, set *Reporting
@@ -183,28 +185,31 @@ sensitivity label that encrypts it cannot be read: export it again without the l
 **What NeuroDB does with the files.**
 
 - It recognises each export **by its columns**, never by its file name, so a renamed file is still read. A file
-  NeuroDB does not recognise is named with the columns it knows.
+  NeuroDB does not recognise is named with the columns it knows. The month chart is recognised whichever report
+  statuses it shows (a past year has no *Not Yet Due*).
 - It reads Power BI's own filters (the *Applied filters* line Power BI writes at the end of the file) and says,
   filter by filter, how it applies each: applied, applied as NeuroDB reads it, or one it cannot apply (clear
   that slicer in Power BI and export again, or compare that export by hand). A filter on a field NeuroDB does
   not know is listed without its value.
 - **People's names are dropped as the files are read.** The *UNICEF Focal Points* column of PD/SPD Report and
   the *Focal Point* column of Partner Fund Monitoring are never kept, shown, written in a file or sent to the
-  AI; the page says "Dropped as the file was read". Partners, programme documents and indicators stay, without
-  the names NeuroDB knows, e-mail addresses and phone numbers.
+  AI; the page says "Dropped as the file was read". A column with values but no name is dropped too, and so is
+  the sheet's name. Partners, programme documents and indicators stay, without the names NeuroDB knows, e-mail
+  addresses and phone numbers.
 - The hidden files a Mac adds to a zip are skipped and counted.
 
-**The upload's page** opens with *What to do now* (at most four lines: files to export again, visuals not
-uploaded, filters to clear), then one line per Power BI page, in Power BI's order: each export with its file,
-the rows NeuroDB read, what its filter covers ("2026", "Every year", "Education only") and its result. A visual
-you did not upload says *Not uploaded*. Open a file's name to see its filters one by one, the columns kept and
-its notes (for instance "Power BI may have cut this export at 1,000 rows: check the visual shows no more").
-While NeuroDB reads the files the page refreshes by itself every few seconds.
+**The upload's page** opens with *What to do now* (at most four lines: when the comparison stopped, what to do
+first, such as "upload the files again" or "press Compare again"; files to export again, visuals not uploaded,
+and the filters to clear, each slicer by its name on the report, such as *Section* or *PD status*), then one
+line per Power BI page, in Power BI's order: each export with its file, the rows NeuroDB read, what its filter
+covers ("2026", "Every year", "Education only") and its result. A visual you did not upload says *Not
+uploaded*; an export the stopped comparison never read says *Not read*. Open a file's name to see its filters
+one by one, the columns kept and its notes (for instance "Power BI may have cut this export at 1,000 rows:
+check the visual shows no more"). While NeuroDB reads the files the page refreshes by itself every few seconds.
+The *Last uploads* list counts, for each upload, the exports read and the files not read.
 
-NeuroDB reads and keeps the rows now; **comparing them with NeuroDB's pages, row by row, is not ready yet**.
-Until then, use the Power BI comparison sheet below. *Compare again* takes the same rows against NeuroDB's
-newest data, without uploading the files again. Only the last three uploads keep their rows; older ones keep
-their summary.
+*Compare again* takes the same rows against NeuroDB's newest data, without uploading the files again. Only the
+last three uploads keep their rows; older ones keep their summary.
 
 ## The Power BI comparison sheet
 
@@ -223,8 +228,12 @@ The file has these sheets:
 - **Compare.** At the top: the NeuroDB filter (the page's address), the day the statuses are read for,
   the last sync of the data, a yellow cell for the day of Power BI's refresh, and *Everything NeuroDB
   holds* whatever the filter (with the earliest reporting period NeuroDB holds). Then **Set these in
-  Power BI**: each slicer with its value, and a *Done?* cell to tick; and **Clear these in NeuroDB before
-  comparing**: the filters Power BI has no slicer for (a search, a report number, a period...). Then one
+  Power BI**: each slicer with its value, and a *Done?* cell to tick; **Clear these in Power BI**: the slicers
+  NeuroDB's page has no filter for, and those whose namesake means something else in NeuroDB (Power BI's
+  *Emergency indicator* is Yes for an SPD, NeuroDB's is the indicator's high frequency; Power BI's *CP Output*
+  search matches every CP output of the programme document, and its *Indicator Title* box the title alone);
+  and **Clear these in NeuroDB before comparing**: the filters Power BI has no slicer for (a search, a report
+  number, a period, the emergency indicators, a CP output...). Then one
   row per figure: Power BI's page, visual and name for it, NeuroDB's page and figure, NeuroDB's value, and a
   yellow cell for Power BI's value. Type Power BI's number there: *Difference* and *Same?* fill in by
   themselves. *Notes* say why a figure can differ (a report Power BI counts that the partner reports

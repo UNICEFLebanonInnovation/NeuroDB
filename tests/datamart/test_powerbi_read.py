@@ -74,6 +74,31 @@ def test_the_partner_cards_sector_table_and_month_chart_are_told_apart_by_their_
     month = ["Reporting (mmm yyyy)", "Accepted", "Submitted", "Overdue", "Due", "Not Yet Due"]
     assert px.recognise(month).kind.key == "by_month"
     assert px.recognise(["Accepted", "Submitted", "Due", "Overdue"]).kind.key == "partner_cards"
+    # Power BI writes the month chart's status columns only for the statuses in its data: a past year has no
+    # report still to come (no Not Yet Due), and any status can be missing
+    for statuses in (cards, ["Accepted", "Submitted", "Overdue", "Due"], ["Accepted", "Overdue"]):
+        match = px.recognise(["Reporting (mmm yyyy)", *statuses])
+        assert match.kind.key == "by_month" and match.whole, statuses
+    assert px.recognise(["Reporting (mmm yyyy)", "Accepted"]).kind is None  # one status: not a status chart
+    # a file with a grouping column is never taken for the cards
+    for grouping in ("Section", "Reporting (mmm yyyy)", "PD #"):
+        match = px.recognise([grouping, "Accepted", "Submitted", "Due", "Overdue"])
+        assert match.kind is None or match.kind.key != "partner_cards", grouping
+
+
+def test_a_month_chart_without_not_yet_due_is_read_as_the_month_chart():
+    data = pf.export(
+        "by_month",
+        [[f"{m} 2025", 1, 2, 3, 4] for m in ("Jan", "Feb", "Mar")],
+        drop=("not_yet_due", "sent_back"),
+    )
+    found = _prepare(("# of Reports by Type over Reporting Date.xlsx", data))
+    assert found.refused == [] and [e.kind.key for e in found.exports] == ["by_month"]
+    export = found.exports[0]
+    assert export.not_compared == [] and export.unknown == 0 and export.state == "staged"
+    match, read = _read(data)
+    assert match.kind.key == "by_month" and read.rows_read == 3
+    assert _rows(read)[0] == {"month": "Jan 2025", "accepted": 1, "submitted": 2, "overdue": 3, "due": 4}
 
 
 def test_a_file_two_kinds_fit_equally_is_refused_naming_both(monkeypatch):
@@ -178,15 +203,19 @@ def test_cells_with_references_skip_columns_and_a_column_neurodb_does_not_keep_i
     assert set(first) <= set(match.positions) and len(match.positions) == 5
 
 
-def test_peek_reads_five_rows_at_most(monkeypatch):
+def test_peek_reads_the_first_rows_only(monkeypatch):
+    """The header, then whether the first data rows' cells hold a value (never their values): the rest of the
+    sheet is never read in the request."""
+    n = powerbi_xlsx.PEEK_DATA_ROWS + 2  # the first row peek never reaches
     data = pf.patch_sheet(
-        pf.export("follow_up", pf.rows("follow_up", 8)),
+        pf.export("follow_up", pf.rows("follow_up", n + 3)),
         lambda xml: xml.replace(
-            '</x:row><x:row><x:c t="inlineStr"><x:is><x:t>FAKE/PCA2026007', "</x:row><x:row><broken"
+            f'</x:row><x:row><x:c t="inlineStr"><x:is><x:t>FAKE/PCA2026{n:03}', "</x:row><x:row><broken"
         ),
     )
     assert b"<broken" in zipfile.ZipFile(io.BytesIO(data)).read("xl/worksheets/sheet1.xml")
-    assert powerbi_xlsx.peek(data).header[0] == "PD #"
+    peek = powerbi_xlsx.peek(data)
+    assert peek.header[0] == "PD #" and peek.filled == frozenset(range(5))
     with pytest.raises(Exception):  # noqa: B017 - reading the whole sheet meets the broken row
         list(powerbi_xlsx.rows(data, {0}))
 

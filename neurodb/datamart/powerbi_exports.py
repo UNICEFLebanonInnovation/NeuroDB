@@ -3,15 +3,19 @@ how one is recognised: **by its columns, never by its file name** (Power BI name
 and people rename them).
 
 Each kind lists Power BI's column captions, the ones it needs and the ones it may have, with the type NeuroDB
-reads each as. A file is of a kind when every needed caption is in its header; when several kinds fit, the
-one whose captions cover most of the file's columns wins, and a tie is refused (the partner cards' four
-captions are inside the sector table's and the month chart's headers: the fifth and sixth decide).
+reads each as. A file is of a kind when every needed caption is in its header, enough of its optional ones
+(``at_least``) and none of the captions that rule it out (``excluded``); when several kinds fit, the one
+whose captions cover most of the file's columns wins, and a tie is refused. The partner cards' four status
+captions are inside the sector table's and the month chart's headers: a grouping column (Section, the month,
+PD #) rules the cards out. Power BI writes the month chart's status columns only for the statuses in its data
+(a past year has no Not Yet Due): the month is the one caption it needs, with at least two statuses.
 
 Captions match whatever their spacing and case ("% Partner Cont. ", "status"). A column NeuroDB does not
 compare is dropped by its position as the file is read, before any value of it is converted: a column that
 names people ("UNICEF Focal Points", "Focal Point", or any caption ``catalogue.holds_person`` finds) is
-never stored, shown or sent anywhere. Captions are structure, not data: only those of some kind are ever
-named on a page; the others are counted.
+never stored, shown or sent anywhere, and neither is a column holding values under no caption (Power BI lets
+a column's name be a space). Captions are structure, not data: only those of some kind are ever named on a
+page; the others are counted.
 
 Power BI's page and visual for each kind are in ``comparison.POWERBI_VISUALS``, the one place for Power BI's
 names.
@@ -19,6 +23,7 @@ names.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from . import comparison
@@ -64,12 +69,15 @@ def _optional(*columns: Column) -> tuple[Column, ...]:
 
 @dataclass(frozen=True)
 class Kind:
-    """One Power BI visual's export: its code word, layout, columns and the captions never kept."""
+    """One Power BI visual's export: its code word, layout, columns, the captions never kept, the captions
+    that rule it out and how many of its optional captions a file needs."""
 
     key: str
     layout: str
     columns: tuple[Column, ...]
     never: tuple[str, ...] = ()  # columns that name people: dropped by position as the file is read
+    excluded: tuple[str, ...] = ()  # a file holding one of these is never of this kind
+    at_least: int = 0  # optional captions a file needs (Power BI writes only some of them)
     captions: frozenset[str] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -82,6 +90,15 @@ class Kind:
     @property
     def needed(self) -> frozenset[str]:
         return frozenset(normal(c.caption) for c in self.columns if c.needed)
+
+    def fits(self, present: set[str]) -> bool:
+        """A header with these captions can be of this kind."""
+        optional = {normal(c.caption) for c in self.columns if not c.needed}
+        return (
+            self.needed <= present
+            and not present & {normal(c) for c in self.excluded}
+            and len(present & optional) >= self.at_least
+        )
 
     @property
     def visual(self) -> tuple[str, str]:
@@ -135,7 +152,12 @@ _KINDS = (
             PARTNER,
         ),
     ),
-    Kind("partner_cards", EXPORT, (*STATUSES, *_optional(_count("Sent back", "sent_back")))),
+    Kind(
+        "partner_cards",
+        EXPORT,
+        (*STATUSES, *_optional(_count("Sent back", "sent_back"))),
+        excluded=("Section", "Reporting (mmm yyyy)", "PD #"),  # a grouping column: another visual's
+    ),
     Kind(
         "follow_up",
         EXPORT,
@@ -153,13 +175,16 @@ _KINDS = (
         SHEET1,
         (
             Column("Reporting (mmm yyyy)", "month", MONTH),
-            _count("Accepted", "accepted"),
-            _count("Submitted", "submitted"),
-            _count("Overdue", "overdue"),
-            _count("Due", "due"),
-            _count("Not Yet Due", "not_yet_due"),
-            *_optional(_count("Sent back", "sent_back")),
+            *_optional(  # Power BI writes a status only when its data has it
+                _count("Accepted", "accepted"),
+                _count("Submitted", "submitted"),
+                _count("Overdue", "overdue"),
+                _count("Due", "due"),
+                _count("Not Yet Due", "not_yet_due"),
+                _count("Sent back", "sent_back"),
+            ),
         ),
+        at_least=2,
     ),
     Kind("dq_card", SHEET1, (_count("No. of Indicators without Reached", "indicators"),)),
     Kind(
@@ -339,7 +364,7 @@ class Match:
     people: list[str] = field(default_factory=list)  # known captions of columns that name people
     people_others: int = 0  # other columns that name people (counted, never named)
     not_compared: list[str] = field(default_factory=list)  # known captions not kept
-    unknown: int = 0  # captions NeuroDB does not know (counted)
+    unknown: int = 0  # columns NeuroDB does not know (counted): unknown captions, values under no caption
     tied: tuple[Kind, Kind] | None = None
     known: list[str] = field(
         default_factory=list
@@ -351,19 +376,23 @@ class Match:
         return not (self.people or self.people_others or self.not_compared or self.unknown)
 
 
-def recognise(header: list[object]) -> Match:
-    """The kind of a file from its header (its captions by column position)."""
+def recognise(header: list[object], filled: Iterable[int] = ()) -> Match:
+    """The kind of a file from its header (its captions by column position). ``filled``: the positions
+    holding a value in the header or the first data rows (``powerbi_xlsx.Peek.filled``); one with no caption
+    is a column NeuroDB does not know, dropped by its position like the others."""
     captions = {i: normal(c) for i, c in enumerate(header) if normal(c)}
     present = set(captions.values())
-    fits = [k for k in _KINDS if k.needed <= present]
+    uncaptioned = len(set(filled) - set(captions))
+    fits = [k for k in _KINDS if k.fits(present)]
     known = [SPELLING[c] for c in dict.fromkeys(captions.values()) if c in KNOWN_CAPTIONS]
     if not fits:
-        return Match(None, known=known, unknown=sum(1 for c in captions.values() if c not in KNOWN_CAPTIONS))
+        unknown = sum(1 for c in captions.values() if c not in KNOWN_CAPTIONS) + uncaptioned
+        return Match(None, known=known, unknown=unknown)
     fits.sort(key=lambda k: -len(present & k.captions))
     best = fits[0]
     if len(fits) > 1 and len(present & fits[1].captions) == len(present & best.captions):
         return Match(None, tied=(best, fits[1]), known=known)
-    match = Match(best, known=known)
+    match = Match(best, known=known, unknown=uncaptioned)
     by_caption = {normal(c.caption): c for c in best.columns}
     taken: set[str] = set()
     for i, caption in captions.items():

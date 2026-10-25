@@ -81,7 +81,9 @@ LOCKED = "Another comparison was running: upload the files again."
 LOCKED_AGAIN = "Another comparison was running: press Compare again."
 STALE = "The comparison stopped (the server restarted): upload the files again."
 STALE_AGAIN = "The comparison stopped (the server restarted): press Compare again."
-STOPPED = "The comparison stopped: {cls}."
+STOPPED = "The comparison stopped: {cls}."  # an export's
+STOPPED_UPLOAD = "The comparison stopped ({cls}): upload the files again."  # an upload's, a copy not read
+STOPPED_AGAIN = "The comparison stopped ({cls}): press Compare again."  # an upload's, every row kept
 NOT_AGAIN = "These files cannot be compared again: upload them again."
 
 # ------------------------------------------------------------------------------------------- an export read
@@ -121,6 +123,9 @@ STATE_ACTIONS = {
 }
 NOT_UPLOADED = "Not uploaded"
 NOT_UPLOADED_ACTION = "Export this visual too (see How to export)."
+# an export waiting to be read when its upload failed: its copy was emptied, it never will be
+NOT_READ_STATE = "Not read"
+NOT_READ_ACTION = "Upload the files again."
 
 # ------------------------------------------------------------------------------- the filter, clause by clause
 APPLIED = "applied"
@@ -159,8 +164,13 @@ TODO_NOT_READ = "{n:,} files were not read: see why below, then export them agai
 TODO_NOT_READ_ONE = "1 file was not read: see why below, then export it again."
 TODO_MISSING = "{n:,} visuals are not uploaded: export them too (see How to export)."
 TODO_MISSING_ONE = "1 visual is not uploaded: export it too (see How to export)."
-TODO_CANNOT = "Clear these slicers in Power BI and export again, or compare these exports by hand: {clauses}."
+TODO_CANNOT = "Clear these in Power BI and export again, or compare these exports by hand: {clauses}."
 TODO_NOTHING = "Nothing to do now: NeuroDB read every export."
+# a filter TODO_CANNOT names: a slicer by its name on the report (comparison.POWERBI_FIELD_SLICERS), another
+# field as Power BI's Filters pane shows it, a clause NeuroDB could not read without its text
+TODO_SLICER = "the {slicer} slicer"
+TODO_PANE = "the {field} filter in the Filters pane"
+TODO_UNREAD = "a filter NeuroDB could not read (see the export's page)"
 
 
 def plural(n: int, one: str, many: str) -> str:

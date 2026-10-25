@@ -57,6 +57,7 @@ NICE = 10
 MAX_REFUSED = 100
 Status = PowerBIUpload.Status
 BUSY_STATUSES = (Status.QUEUED, Status.READING, Status.COMPARING)
+READ_STATES = ("read", "compared", "empty", "not_compared")  # an export whose rows NeuroDB read
 # an export's kind -> the function that compares it with NeuroDB's page (none yet: the exports are read)
 COMPARERS: dict[str, Callable[[PowerBIExport, PowerBIUpload], None]] = {}
 
@@ -180,7 +181,6 @@ def create(prepared: powerbi_read.Upload, user: Any) -> PowerBIUpload:
                 kind=item.kind.key,
                 file_name=item.file_name,
                 state=item.state,
-                sheet=item.sheet[:40],
                 content=item.content,
                 dropped=item.dropped,
                 not_compared=item.not_compared,
@@ -341,7 +341,10 @@ def run(pk: int) -> PowerBIUpload | None:
     except Exception as exc:  # noqa: BLE001 - the upload keeps our sentence and the class name, nothing else
         logger.warning("Compare with Power BI %s stopped (%s)", pk, type(exc).__name__)
         upload = PowerBIUpload.objects.filter(pk=pk).first()
-        return _fail(upload, words.STOPPED.format(cls=type(exc).__name__), started) if upload else None
+        if upload is None:
+            return None
+        error = words.STOPPED_UPLOAD if _staged_left(pk) else words.STOPPED_AGAIN  # its copies are emptied
+        return _fail(upload, error.format(cls=type(exc).__name__), started)
     finally:
         try:
             _empty_content(pk)
@@ -382,7 +385,7 @@ def _read_staged(upload: PowerBIUpload) -> None:
         try:
             content = bytes(export.content or b"")
             peek = powerbi_xlsx.peek(content)
-            match = px.recognise(peek.header or [])
+            match = px.recognise(peek.header or [], peek.filled)
             if match.kind is None or match.kind.key != export.kind:
                 raise ValueError("kind")
             found = powerbi_read.read(content, match, names, sections, peek.sheet)
@@ -528,7 +531,7 @@ def _summary(upload: PowerBIUpload) -> dict[str, Any]:
     exports = list(exports_of(upload).values("state", "rows_read"))
     return {
         "exports": len(exports),
-        "read": sum(1 for e in exports if e["state"] in ("read", "compared", "empty", "not_compared")),
+        "read": sum(1 for e in exports if e["state"] in READ_STATES),
         "failed": sum(1 for e in exports if e["state"] == "failed"),
         "rows": sum(e["rows_read"] for e in exports),
     }

@@ -11,9 +11,10 @@ them.
   error keeps only its class name.
 * **Where it is read.** A one-sheet export whose every column NeuroDB compares is *staged*: a repacked copy
   holding only that sheet (and its shared strings) waits for the job, which reads it and empties it. Any other
-  export (a column that names people, a column NeuroDB does not compare, a second sheet) is read now, in the
-  request, keeping only the compared columns: the others are dropped by their position before any value is
-  converted, so a person's name is never stored, shown, logged or sent anywhere.
+  export (a column that names people, a column NeuroDB does not compare or with no caption, a second sheet) is
+  read now, in the request, keeping only the compared columns: the others are dropped by their position before
+  any value is converted, so a person's name is never stored, shown, logged or sent anywhere. Nor is the
+  sheet's name.
 * **What is kept of a read** (:func:`read`): one gzip JSON line per data row with the kind's columns only,
   each read as its type (:func:`coerce`); free texts cleaned of people (:func:`clean`); the parsed filters
   (``powerbi_filters``), never the raw line; the counts and plain notes. Never the file, never the zip.
@@ -379,7 +380,6 @@ class Prepared:
     file_name: str
     state: str  # "staged" or "read"
     content: bytes | None = None
-    sheet: str = ""
     read: Read | None = None
     dropped: list[str] = field(default_factory=list)  # sentences: the columns that name people, dropped
     not_compared: list[str] = field(default_factory=list)  # known captions not kept
@@ -507,7 +507,7 @@ def _export(found: Upload, data: bytes, name: str, names: frozenset[str], sectio
         else:
             found.refused.append(_unknown(name, px.Match(None)))
         return
-    match = px.recognise(peek.header)
+    match = px.recognise(peek.header, peek.filled)  # a column holding values under no caption is not kept
     if match.tied:
         a, b = (" / ".join(k.visual) for k in match.tied)
         found.refused.append(words.AMBIGUOUS.format(name=name, a=a, b=b))
@@ -515,7 +515,8 @@ def _export(found: Upload, data: bytes, name: str, names: frozenset[str], sectio
     if match.kind is None:
         found.refused.append(_unknown(name, match))
         return
-    prepared = Prepared(match.kind, name, "staged", sheet=peek.sheet, match=match)
+    # the sheet's name is never kept (it can name anyone): the job finds the copy's only sheet
+    prepared = Prepared(match.kind, name, "staged", match=match)
     prepared.not_compared, prepared.unknown = match.not_compared, match.unknown
     prepared.dropped = [words.DROPPED.format(caption=c) for c in match.people]
     if match.people_others:

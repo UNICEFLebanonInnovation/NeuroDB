@@ -18,10 +18,12 @@ Nothing here shows a value from the files: counts, Power BI's captions and Neuro
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from django import forms
 from django.contrib import admin
+from django.db.models import Count
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -97,14 +99,25 @@ def index_view(request):
 
 def _index(request, form: PowerBIUploadForm, refused: list[str] | None = None, status: int = 200):
     running = powerbi_compare.busy()
-    uploads = PowerBIUpload.objects.select_related("uploaded_by").order_by("-uploaded_at", "-id")[:HISTORY]
+    uploads = list(
+        PowerBIUpload.objects.select_related("uploaded_by").order_by("-uploaded_at", "-id")[:HISTORY]
+    )
+    states: dict[int, Counter] = {u.pk: Counter() for u in uploads}
+    found = (
+        PowerBIExport.objects.filter(upload__in=uploads)
+        .order_by()
+        .values("upload_id", "state")
+        .annotate(n=Count("id"))
+    )
+    for row in found:
+        states[row["upload_id"]][row["state"]] = row["n"]
     context = _context(
         request,
         words.PAGE_TITLE,
         form=form,
         refused=refused or [],
         running=running,
-        history=[_history_row(u) for u in uploads],
+        history=[_history_row(u, states[u.pk]) for u in uploads],
         visuals=[" → ".join(k.visual) for k in px.KINDS.values()],
         report=comparison.POWERBI_REPORT,
         steps=words.HOW_STEPS,
@@ -112,14 +125,16 @@ def _index(request, form: PowerBIUploadForm, refused: list[str] | None = None, s
     return render(request, "admin/datamart/powerbi/index.html", context, status=status)
 
 
-def _history_row(upload: PowerBIUpload) -> dict[str, Any]:
-    summary = upload.summary or {}
+def _history_row(upload: PowerBIUpload, states: Counter) -> dict[str, Any]:
+    """An upload of the history: its exports read (none counted while it runs) and its files not read (refused
+    in the request, or failed in the job)."""
+    busy = upload.status in powerbi_compare.BUSY_STATUSES
     return {
         "upload": upload,
         "url": reverse("admin:datamart_powerbi_upload", args=[upload.pk]),
         "status": words.UPLOAD_STATUS.get(upload.status, upload.status),
-        "exports": summary.get("exports"),
-        "not_read": len(upload.refused or []),
+        "exports": None if busy else sum(states[s] for s in powerbi_compare.READ_STATES),
+        "not_read": len(upload.refused or []) + states["failed"],
     }
 
 
@@ -159,20 +174,35 @@ def _covers(parsed: powerbi_filters.Filter) -> str:
     return " · ".join(parts)
 
 
+def _to_clear(clause: powerbi_filters.Clause) -> str:
+    """A filter NeuroDB cannot apply, as the user finds it on the report: a slicer by its name, another field
+    as the Filters pane shows it (Power BI's field names stay on the export's page)."""
+    slicer = comparison.POWERBI_FIELD_SLICERS.get(clause.field)
+    if slicer:
+        return words.TODO_SLICER.format(slicer=slicer)
+    return words.TODO_PANE.format(field=clause.field) if clause.field else words.TODO_UNREAD
+
+
 def _export_row(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
     kind = px.KINDS.get(export.kind)
     parsed = powerbi_filters.Filter.from_json(export.filters)
+    # a failed upload's copies are emptied: an export still waiting will never be read
+    not_read = export.state == "staged" and upload.status == PowerBIUpload.Status.FAILED
+    if not_read:
+        state, action = words.NOT_READ_STATE, words.NOT_READ_ACTION
+    else:
+        state = words.STATE_WORDS.get(export.state, export.state)
+        action = export.error or words.STATE_ACTIONS.get(export.state, "")
     return {
         "export": export,
         "visual": kind.visual[1] if kind else export.kind,
-        "state": words.STATE_WORDS.get(export.state, export.state),
-        "action": export.error or words.STATE_ACTIONS.get(export.state, ""),
-        "covers": _covers(parsed) if export.state != "failed" else "",
-        "cannot": [
-            c["words"] or words.CLAUSE_STATES["unread"] for c in export.clauses if c["state"] in CANNOT
-        ],
+        "state": state,
+        "action": action,
+        "covers": _covers(parsed) if export.state not in ("failed", "staged") else "",  # its filter read
+        "cannot": [_to_clear(c) for c in parsed.clauses if c.state in CANNOT],
         "url": reverse("admin:datamart_powerbi_export", args=[upload.pk, export.pk]),
         "failed": export.state == "failed",
+        "warn": export.state == "failed" or not_read,
     }
 
 
@@ -197,8 +227,10 @@ def _pages(upload: PowerBIUpload, exports: list[PowerBIExport]) -> tuple[list[di
 
 
 def _todo(upload: PowerBIUpload, pages: list[dict[str, Any]], missing: int) -> list[str]:
-    """What to do now (at most four lines)."""
-    lines = []
+    """What to do now (at most four lines): a failed upload's error first (it says what to do), never "nothing
+    to do"."""
+    failed = upload.status == PowerBIUpload.Status.FAILED
+    lines = [upload.error] if failed and upload.error else []
     not_read = len(upload.refused or []) + sum(1 for p in pages for line in p["lines"] if line.get("failed"))
     if not_read:
         lines.append(words.plural(not_read, words.TODO_NOT_READ_ONE, words.TODO_NOT_READ))
@@ -207,6 +239,8 @@ def _todo(upload: PowerBIUpload, pages: list[dict[str, Any]], missing: int) -> l
     cannot = list(dict.fromkeys(c for p in pages for line in p["lines"] for c in line.get("cannot", ())))
     if cannot:
         lines.append(words.TODO_CANNOT.format(clauses="; ".join(cannot[:TODO_CLAUSES])))
+    if failed:
+        return lines[:4]
     return lines[:4] or [words.TODO_NOTHING]
 
 

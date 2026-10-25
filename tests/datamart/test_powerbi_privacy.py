@@ -95,6 +95,7 @@ def test_people_in_the_files_never_reach_a_table_a_log_a_page_or_the_session(che
         "program_performance",
         [["Section Alpha", "Fake output", "No", "Fake indicator", 1.0, 2.0, 2.0, "ZQ FAKEPERSON"]],
     )
+    sheet_named = pf.export("partner_cards", sheet_name="Zq Fakeperson jane.doe@example.invalid")
     files = [
         ("report list.xlsx", pf.export("report_list", people=True, filters=PEOPLE_FILTERS)),
         ("fund monitoring.xlsx", pf.export("fund_monitoring", people=True)),
@@ -109,6 +110,7 @@ def test_people_in_the_files_never_reach_a_table_a_log_a_page_or_the_session(che
         ("sector.xlsx", staged),
         ("follow up.xlsx", two_sheets),
         ("performance.xlsx", partner_named),
+        ("cards.xlsx", sheet_named),  # a sheet named after a person: its name is never kept
     ]
     response = pf.post(checker, *files)
     assert response.status_code == 302
@@ -117,7 +119,8 @@ def test_people_in_the_files_never_reach_a_table_a_log_a_page_or_the_session(che
     # files naming people are read in the request, never staged; so is a workbook with a second sheet
     for name in ("report list.xlsx", "fund monitoring.xlsx", "list.xlsx", "funds.xlsx", "follow up.xlsx"):
         assert exports[name].state == "read" and exports[name].content is None and exports[name].rows, name
-    assert exports["sector.xlsx"].state == "staged" and exports["performance.xlsx"].state == "staged"
+    for name in ("sector.xlsx", "performance.xlsx", "cards.xlsx"):
+        assert exports[name].state == "staged", name
     _tables_hold_no_one(copies=False)  # a staged copy holds no comment, document property or other sheet
     assert exports["report list.xlsx"].clauses[1:] == [
         {"words": "name is …", "state": "unknown_field"},
@@ -141,6 +144,34 @@ def test_people_in_the_files_never_reach_a_table_a_log_a_page_or_the_session(che
     _clean(caplog.text, "logs")
     _clean(repr(dict(checker.session.items())), "session")
     _clean(repr({k: v.value for k, v in checker.cookies.items()}), "cookies")
+
+
+@pytest.mark.parametrize("caption", ["", " "])  # no caption, or Power BI's display name of one space
+@pytest.mark.parametrize("at", ["last", "middle"])
+@pytest.mark.parametrize("kind", ["by_sector", "by_month"])  # a table's layout and a chart's
+def test_a_column_without_a_caption_is_dropped_as_the_file_is_read(
+    checker, started, caplog, caption, at, kind
+):
+    """A column with no caption holds values all the same (a list of people): it is counted as a column NeuroDB
+    does not know, so the file is read in the request with that column dropped by its position, never staged."""
+    caplog.set_level(logging.DEBUG)
+    grid = pf.table(kind)
+    header = next(i for i, row in enumerate(grid) if row and not str(row[0]).startswith("Applied filters:"))
+    where = len(grid[header]) if at == "last" else 1
+    grid[header].insert(where, caption)
+    for row in grid[header + 1 :]:
+        if len(row) > 1:  # a data row (not the empty row or the filters line)
+            row.insert(where, pf.PERSON)
+    data = pf.powerbi_xlsx_bytes(grid, "Sheet1" if kind == "by_month" else "Export")
+    assert pf.post(checker, ("export.xlsx", data)).status_code == 302
+    export = PowerBIExport.objects.get()
+    assert export.kind == kind and export.state == "read" and export.content is None
+    assert export.unknown_columns == 1 and export.rows_read == 3
+    _tables_hold_no_one()
+    page = checker.get(reverse("admin:datamart_powerbi_export", args=[export.upload_id, export.pk]))
+    assert "Not compared: 1 other column NeuroDB does not know." in page.content.decode()
+    _clean(page.content.decode(), "the export's page")
+    _clean(caplog.text, "logs")
 
 
 def test_an_error_while_reading_keeps_only_its_class_name(checker, started, monkeypatch, caplog):
