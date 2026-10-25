@@ -9,6 +9,7 @@ a partner or programme document removed upstream leaves the link empty instead o
 ``data`` keeps the whole record as received, for the fields that have no column.
 """
 
+from django.conf import settings
 from django.db import models
 
 MONEY = {"max_digits": 20, "decimal_places": 2, "null": True, "blank": True}
@@ -1113,3 +1114,111 @@ class EtoolsMasterLink(models.Model):
         from . import masters
 
         masters.check_link(self)
+
+
+# ------------------------------------------------------------------------------------- Compare with Power BI
+class PowerBIUpload(models.Model):
+    """One upload of the PRP Power BI exports for Compare with Power BI (Admin → Data and sync), and its
+    comparison: a summary per Power BI page and plain sentences, never a cell's value, a file or a zip
+    (``datamart.powerbi_read``). The newest :data:`powerbi_compare.KEEP_FULL` uploads keep their rows; older
+    ones keep their summary only."""
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Waiting to start"
+        READING = "reading", "Reading the files"
+        COMPARING = "comparing", "Comparing"
+        DONE = "done", "Done"
+        FAILED = "failed", "Failed"
+
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.QUEUED)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    # set on upload and on Compare again: a queued upload is aged by it (powerbi_compare.close_stale)
+    queued_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    compared_at = models.DateTimeField(null=True, blank=True)
+    day = models.DateField(null=True, blank=True)  # the day the statuses are read for
+    powerbi_as_of = models.DateTimeField(null=True, blank=True)  # Power BI's refresh, from the files
+    synced_at = models.DateTimeField(
+        null=True, blank=True
+    )  # the partner reports sync NeuroDB's data comes from
+    sync_moved = models.BooleanField(default=False)  # a partner reports sync finished during the comparison
+    refused = models.JSONField(default=list, blank=True)  # plain sentences, at most 100; never a cell's value
+    summary = models.JSONField(default=dict, blank=True)  # counts per Power BI page, the hidden files skipped
+    choices = models.JSONField(default=list, blank=True)  # "Choices for you", with their evidence counts
+    trimmed = models.BooleanField(
+        default=False
+    )  # its rows and lines removed (only the newest uploads keep them)
+    error = models.CharField(max_length=300, blank=True)  # our sentence and the exception's class name only
+    peak_memory_mb = models.FloatField(null=True, blank=True)
+    seconds = models.FloatField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-uploaded_at", "-id")
+        verbose_name = "Power BI upload"
+
+    def __str__(self):
+        return f"Power BI upload {self.pk} ({self.get_status_display()})"
+
+
+class PowerBIExport(models.Model):
+    """One Power BI export of an upload, recognised by its columns: its rows as NeuroDB compares them (gzip
+    JSON lines of the kind's columns, never a column that names people), its parsed filters and plain notes.
+    The repacked copy waiting for the job (``content``) is emptied as soon as it is read."""
+
+    upload = models.ForeignKey(PowerBIUpload, on_delete=models.CASCADE, related_name="exports")
+    order = models.PositiveSmallIntegerField()  # Power BI's page order, then the visual's
+    kind = models.CharField(max_length=30)  # powerbi_exports.KINDS
+    file_name = models.CharField(max_length=255)  # its base name, cleaned
+    state = models.CharField(max_length=12)  # staged, read, compared, empty, not_compared, failed
+    sheet = models.CharField(max_length=40, blank=True)  # the sheet it is read from
+    content = models.BinaryField(null=True, editable=False)  # the repacked one-sheet copy, until read
+    rows = models.BinaryField(null=True, editable=False)  # gzip JSON lines: the kept columns only
+    rows_read = models.PositiveIntegerField(default=0)
+    set_aside = models.PositiveIntegerField(default=0)  # rows about periods before NeuroDB's history
+    columns = models.JSONField(default=list, blank=True)  # the kept columns' names, in the rows' order
+    dropped = models.JSONField(default=list, blank=True)  # sentences: the columns that name people, dropped
+    not_compared = models.JSONField(default=list, blank=True)  # known captions not kept
+    unknown_columns = models.PositiveSmallIntegerField(default=0)  # captions NeuroDB does not know (counted)
+    filters = models.JSONField(default=dict, blank=True)  # the parsed filter (powerbi_filters.Filter)
+    clauses = models.JSONField(default=list, blank=True)  # each clause's words and how NeuroDB applies it
+    counts = models.JSONField(default=dict, blank=True)
+    fits = models.JSONField(default=list, blank=True)
+    verdict = models.CharField(max_length=30, blank=True)
+    notes = models.JSONField(default=list, blank=True)  # plain sentences
+    error = models.CharField(max_length=300, blank=True)  # our sentence and the exception's class name only
+
+    class Meta:
+        ordering = ("upload", "order", "id")
+        verbose_name = "Power BI export"
+
+    def __str__(self):
+        return f"{self.kind} ({self.file_name})"
+
+
+class PowerBIDifference(models.Model):
+    """One difference between a Power BI export's row and NeuroDB's: its values as shown (never a person), its
+    reason and what to do. Written by the comparison, at most ``powerbi_compare.LINE_LIMIT`` per export."""
+
+    export = models.ForeignKey(PowerBIExport, on_delete=models.CASCADE, related_name="differences")
+    n = models.PositiveIntegerField()  # its order within the export
+    group = (
+        models.PositiveSmallIntegerField()
+    )  # 1 expected, 2 wait for the sync, 3 check the PD, 4 needs a look
+    kind = models.CharField(max_length=12)  # different, only_powerbi, only_neurodb
+    reason = models.CharField(max_length=20)
+    rule = models.CharField(max_length=20, blank=True)
+    detail = models.CharField(max_length=300, blank=True)
+    match = models.JSONField(default=list, blank=True)  # the values the row is matched by, as shown
+    found = models.JSONField(default=dict, blank=True)  # {column: [Power BI, NeuroDB, another reading]}
+    link = models.CharField(max_length=300, blank=True)  # "Check in NeuroDB"; empty when withheld
+
+    class Meta:
+        indexes = [models.Index(fields=["export", "group", "reason", "n"], name="datamart_powerbidiff_group")]
+        verbose_name = "Power BI difference"
+
+    def __str__(self):
+        return f"{self.kind}: {self.reason}"

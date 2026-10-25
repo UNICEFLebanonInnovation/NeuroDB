@@ -280,8 +280,11 @@ def test_a_search_naming_a_person_or_a_contact_never_reaches_the_sheet(validator
                             assert q.lower() not in found.lower(), (page, sheet.title, cell)
                             assert "123 457" not in found and "123457" not in found, (page, sheet.title, cell)
         compare = book["Compare"]
-        clear = _block(compare, "Clear these in NeuroDB before comparing")
-        assert clear[comparison.NEURODB_ONLY[page]["q"]] == cleaned
+        if "q" in comparison.NEURODB_ONLY[page]:  # Progress reports' search: a NeuroDB filter to clear
+            clear = _block(compare, "Clear these in NeuroDB before comparing")
+            assert clear[comparison.NEURODB_ONLY[page]["q"]] == cleaned
+        else:  # Partner monitoring's: Power BI's Indicator Title search box
+            assert _block(compare, "Set these in Power BI")[comparison.POWERBI_SLICERS[page]["q"]] == cleaned
         address = next(r[2] for r in compare.iter_rows(values_only=True) if r[1:2] == ("NeuroDB filter",))
         assert address == comparison.ADDRESS_WITHHELD
         if page == PR:
@@ -300,12 +303,12 @@ def test_a_search_naming_a_person_or_a_contact_never_reaches_the_sheet(validator
     ],
 )
 def test_a_slicer_s_value_naming_a_person_or_a_contact_is_cleaned(validator, more, frozen, value, cleaned):
-    """A field Power BI has a slicer for can name anyone too (a section or a report type typed in the address):
-    the slicer's value to set is cleaned as the filters to clear are, and no cell holds it."""
+    """A field Power BI has a slicer for can name anyone too (a section or a CP output typed in the address): the
+    slicer's value to set is cleaned as the filters to clear are, and no cell holds it."""
     User.objects.create_user(username="known", first_name="Test", last_name="Person", password="pw-123456-x")
     cases = (
         (PR, {"pd_status": ""}, "section", "sections"),
-        (PR, {"pd_status": ""}, "report_type", "report_types"),
+        (PM, {"view": "table", "year": "all"}, "cp_output", "cp_output"),
         (PM, {"view": "table", "year": "all"}, "section", "sections"),
     )
     for page, params, key, field in cases:
@@ -349,10 +352,10 @@ def test_the_slicers_to_set_and_the_neurodb_filters_to_clear(validator, more, fr
     }
     slicers, clear = comparison.settings_rows(comparison.read(PR, params, TODAY))
     slicers = dict(slicers)
-    assert slicers["Reporting year"] == "2026" and slicers["Section"] == "Child Protection"
+    assert slicers["Reporting Year"] == "2026" and slicers["Section"] == "Child Protection"
     assert slicers["Partner"] == "Amel Association"
     assert slicers["PD status"] == "Active, Signed, Suspended"  # the page's default: the running PDs
-    assert slicers["Report status"] == "Every value: clear it"
+    assert "Report status" not in slicers  # Power BI's report has no such slicer: a NeuroDB filter to clear
     assert dict(clear) == {
         "Search": "girls",
         "Report #": "QPR1",
@@ -366,17 +369,17 @@ def test_the_slicers_to_set_and_the_neurodb_filters_to_clear(validator, more, fr
     pm = {"year": "2026", "scope": "year", "report_type": "HR", "status": "on_track", "cp_output": "x"}
     pm |= {"gender": "Female", "age_group": ["12-17", "Under 5"]}
     slicers, clear = comparison.settings_rows(comparison.read(PM, pm, TODAY))
-    assert dict(slicers)["Reporting year"] == "2026" and dict(slicers)["PD status"].startswith("Every status")
+    assert dict(slicers)["Reporting Year"] == "2026" and dict(slicers)["PD status"].startswith("Every status")
+    assert dict(slicers)["CP Output"] == "x"  # Power BI's CP Output search box
     assert dict(clear) == {
         "Programme documents": "Every programme document running in 2026, closed ones too",
         "Report type": "Humanitarian reports (monthly): only emergency or cluster indicators",
         "Tracking status": "On track",
         "Tags": "Gender: Female; Age group: 12-17, Under 5",  # the filter bar's words
-        "CP output": "x",
     }
     assert set(comparison.TAG_WORDS) == set(TAG_FIELDS)
     slicers, _clear = comparison.settings_rows(comparison.read(PM, {"year": "all"}, TODAY))
-    assert dict(slicers)["Reporting year"] == "Every year"
+    assert dict(slicers)["Reporting Year"] == "Every year"
     # the programme documents the scope keeps, in words that say what the figures keep: every one with "all",
     # the closed programme document that ran in 2024 too; only those running in the year with "year"
     scopes = {
@@ -405,8 +408,9 @@ def test_the_slicers_to_set_and_the_neurodb_filters_to_clear(validator, more, fr
 
 
 def test_power_bi_s_names_come_from_one_place(validator, more, frozen, monkeypatch):
-    """Every Power BI page, visual and slicer either workbook names is read from POWERBI_PAGES,
-    POWERBI_PD_PAGE and POWERBI_SLICERS: renamed there, no old name is left in a cell."""
+    """Every Power BI page, visual and slicer either workbook names is read from POWERBI_PAGES (made from
+    POWERBI_VISUALS), POWERBI_PD_PAGE, POWERBI_SLICERS, POWERBI_ONLY_SLICERS and POWERBI_TO_CLEAR: renamed there,
+    no old name is left in a cell."""
     renamed: dict[str, str] = {}
 
     def new(name: str) -> str:
@@ -422,6 +426,17 @@ def test_power_bi_s_names_come_from_one_place(validator, more, frozen, monkeypat
     monkeypatch.setattr(comparison, "POWERBI_PAGES", pages)
     monkeypatch.setattr(comparison, "POWERBI_SLICERS", slicers)
     monkeypatch.setattr(comparison, "POWERBI_PD_PAGE", new(comparison.POWERBI_PD_PAGE))
+    monkeypatch.setattr(
+        comparison, "POWERBI_ONLY_SLICERS", tuple(new(v) for v in comparison.POWERBI_ONLY_SLICERS)
+    )
+    # Data Quality's card is named for the item it counts: renamed with it
+    items = {key: renamed.get(name, name) for key, name in comparison.POWERBI_ITEMS.items()}
+    monkeypatch.setattr(comparison, "POWERBI_ITEMS", items)
+    monkeypatch.setattr(
+        comparison,
+        "POWERBI_TO_CLEAR",
+        {page: tuple(new(v) for v in found) for page, found in comparison.POWERBI_TO_CLEAR.items()},
+    )
     # NeuroDB's own words too (columns of the lists, a filter, a view of Partner monitoring): not searched
     own = {"Partner", "Section", "PD status", "Program Performance"}
     text = ""
@@ -527,7 +542,13 @@ def test_each_partner_monitoring_value_is_its_trail_s_figure(validator, more, fr
     for row in _table(book["Compare"]):
         key = unquote_plus(row[11].split("figure=", 1)[1].split("#", 1)[0].split("&", 1)[0])
         figure = figures[key]
-        assert row[5] == figure.page == figure.rebuilt, key
+        if row[3].startswith(
+            comparison.POWERBI_ITEMS["no_reached"]
+        ):  # Power BI's card: two of the page's figures
+            assert key == "dq.without_reached"  # its trail
+            assert row[5] == figure.page + figures["dq.zero_reached"].page
+        else:
+            assert row[5] == figure.page == figure.rebuilt, key
         assert ("view=table" if key.startswith("pp.") else "view=quality") in row[11], key
         assert "year=" in row[11]
         link = row[11].removeprefix("http://testserver")

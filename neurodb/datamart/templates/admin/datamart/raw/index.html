@@ -22,6 +22,10 @@
       What NeuroDB received from eTools, record by record, as it came. People's names, e-mails and phone numbers are never shown: a field that names people shows how many. Use it to check any page. The <a class="nd-link" href="{{ checks_url }}">eTools reporting checks</a> say what the partner reports answer.
     {% endblocktrans %}</span>
   </p>
+  <p class="nd-list-note">
+    <span class="material-symbols-outlined" aria-hidden="true">compare_arrows</span>
+    <span><a class="nd-link" href="{% url 'admin:datamart_powerbi' %}">{% trans "Compare Power BI's exports with NeuroDB" %}</a></span>
+  </p>
 
   {% trans "By page" as by_page_title %}
   {% component "unfold/components/card.html" with title=by_page_title title_icon="web" %}

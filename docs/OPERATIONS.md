@@ -1468,6 +1468,7 @@ button on Raw eTools data (and in Run a job); the fields count is written by the
 | *Reporting setup* → *Master indicators (eTools)*: actions *Accept the proposed master indicators*, *Dismiss the proposed master indicators*, *Confirm all suggestions*, *Confirm suggestions scoring 0.9 or more*, *Merge the selected master indicators*, *Change section (after an eTools rename)*, and *Add PD indicators* on a master's page; *Master indicator links (eTools)*: *Confirm*, *Reject*, *Make "Shown only"*; the same decisions on Partner monitoring's *Master indicators* tab | (no command: they change the master indicators and their links) | in the request |
 | *Reporting setup* → *Master indicators* (ActivityInfo): action *Create eTools master indicators from these* | (no command: writes eTools master indicators only, never an ActivityInfo row) | in the request |
 | Admin → *KM Database* → *Versions* → **Upload a new version** (superusers and Administrators) | `load_km_database` (reads the uploaded workbook into the KM Database; writes only the KM tables) | background |
+| *Data and sync* → *Compare with Power BI* → **Upload and compare**, and an upload's **Compare again** (validators) | `compare_powerbi` (reads Power BI's exports into the Compare with Power BI tables and nothing else; lock 7140443; not an import run; refused while a Datamart sync or a KM Database load runs) | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
 | *Data and sync* → *Raw eTools data* (validators) | (no command: pages and a streamed CSV; the fields of each source are counted by the existing syncs as they write, `details.keys_kept`; a superuser's *Reviewed: show it* writes one row) | in the request |
 | *Raw eTools data* → **Read the eTools REST API now** (superusers and Administrators who are validators), or Run a job → *eTools REST raw copy* | `read_etools_rest_raw` (the raw copy of the eTools REST records; writes no other table) | background |
@@ -2689,13 +2690,19 @@ whole; its name is `powerbi-comparison-<page>_<YYYY-MM-DD>_<HHMM>.xlsx`, the end
   Program Performance row whose title or PD output lost one says "match this row by PD and target"
   (`comparison.KEY_WITHHELD`): Power BI's own export holds the raw title. The page's own Program Performance
   export (`views._monitoring_export`) still writes these texts as stored.
-- *Why they can differ*: seven reasons, each with where to see it.
+- *Why they can differ*: eleven reasons, each with where to see it.
 
 Every text from the data is written as a text (`data_type = "s"`), never a formula; no person is written
-(partners, programme documents and sections only). Power BI's page, visual, card and slicer names are
-placeholders until the user confirms them: they are in one place, `comparison.POWERBI_PAGES`,
-`POWERBI_PD_PAGE`, `POWERBI_ITEMS` and `POWERBI_SLICERS`, and every sentence of the sheet that names one reads
-it there (a test renames them all). Every field of the page's filter dataclasses (`ReportFilters`,
+(partners, programme documents and sections only). Power BI's page, visual, card and slicer names are those
+of the shared report (*UNICEF Program Performance*, `comparison.POWERBI_REPORT`), as the user's screenshot shows
+them. They are in one place: `comparison.POWERBI_PAGE_ORDER` (its ten pages in order) and `POWERBI_VISUALS`
+(each sheet block and each export Compare with Power BI recognises, with its page and visual; `POWERBI_PAGES` and
+`POWERBI_PD_PAGE` are made from them), `POWERBI_ITEMS`, `POWERBI_SLICERS`, `POWERBI_ONLY_SLICERS` (*Country
+name*, written under *Set these in Power BI*) and `POWERBI_TO_CLEAR` (Progress reports: *Document type*,
+*Office*, *CP Output* and *Indicator Title*, under *Clear these in Power BI*), and every sentence of the sheet
+and of Compare with Power BI that names one reads it there (a test renames them all). Data quality's block ends
+with Power BI's card, *No. of Indicators without Reached* (Without Reached and Reported zero together; its
+*Trail* opens Without Reached's). Every field of the page's filter dataclasses (`ReportFilters`,
 `DisaggregationFilters`, `monitoring.Filters`) is either a slicer (`POWERBI_SLICERS`) or a NeuroDB filter to
 clear (`NEURODB_ONLY`); a new field in neither stops the sheet, and a test fails.
 
@@ -2862,6 +2869,106 @@ with a year; Overdue reports; Program Performance's indicators past the patched 
 Home's Indicator progress; the hooks change no SQL and no figure and no page passes one; a cold trail is the page's
 one build; the same queries whatever the number of indicators; the sync note; the words) and the trails' part of
 `tests/datamart/test_raw_csv_privacy.py`.
+
+### Compare with Power BI (Admin → Data and sync)
+
+The user downloads the PRP Power BI report's visuals as Excel files and uploads them; NeuroDB recognises each
+export by its columns, reads Power BI's filters and keeps the rows it will compare. The row-by-row comparison
+with NeuroDB's pages (`powerbi_compare.COMPARERS`, one per kind) is not built yet: an upload ends with every
+export read, empty, of another country or not readable.
+
+**Who and where.** Validators (`roles.can_validate`) with staff status; a 404 for anyone else, as Raw eTools
+data. *Data and sync* lists it third, after Raw eTools data (`admin_site._datamart_pages`); the admin home has a
+Quick action and Raw eTools data's first page a link. Pages (`datamart/powerbi_admin.py`, `datamart/admin.py
+site_urls`): `datamart/powerbi/` (`datamart_powerbi`: the form, *How to export* with the 13 visuals in Power BI's
+order, the last 20 uploads), `datamart/powerbi/<pk>/` (`datamart_powerbi_upload`: *What to do now*, one line per
+Power BI page in `POWERBI_PAGE_ORDER`, the files not read, the hidden files, the columns dropped; a meta refresh
+every 5 s while queued, reading or comparing), `datamart/powerbi/<pk>/<export_pk>/` (`datamart_powerbi_export`:
+its filters clause by clause, its columns, its notes; another upload's export is a 404) and
+`datamart/powerbi/<pk>/again/` (`datamart_powerbi_again`, POST: *Compare again*). Refusals are written in the
+response or kept on the upload (`refused`), never in a message. No ModelAdmin: no developer table shows the rows.
+Every sentence is in `datamart/powerbi_words.py`.
+
+**The upload, in the request** (`datamart/powerbi_read.py`). The POST view is CSRF-exempt so that it can set
+`request.upload_handlers = [powerbi_read.UploadHandler()]` before the body is read; its inner function checks the
+CSRF token. The handler keeps every file in memory, never in Django's temporary files: a file above 25 MB is
+dropped (named), more than 50 MB in all stops the upload ("Nothing was kept"). A zip is read entry by entry (at
+most 200; `__MACOSX/` and names starting with "." skipped and counted; a nested zip and a non-Excel entry refused;
+an entry's declared size checked before it is opened). Each export (at most 30): an OLE file is "protected", a
+file that is not a zip, with more than 500 parts or a part declared above 300 MB is not Excel, more than 400 MB
+declared over the whole upload stops the rest. Then `powerbi_xlsx.peek` reads at most five rows and
+`powerbi_exports.recognise` finds its kind by its captions (whatever their spacing and case; the most captions
+covered wins; a tie is refused naming both visuals). An unknown file is refused naming only captions NeuroDB
+knows (its first row may be a list of people). Each file is processed inside its own `try`: an error keeps only
+its class name ("NeuroDB could not read x.xlsx (ValueError).").
+
+**Staged or read now.** A one-sheet export whose every column NeuroDB keeps is *staged*: `powerbi_read.repack`
+writes a copy holding only that sheet and its shared strings under a workbook NeuroDB writes (no other sheet, no
+comment, no document properties; at most 50 MB of copies per upload), kept in `PowerBIExport.content` until the
+job reads it. Any other export (a column that names people, one NeuroDB does not compare, a second sheet) is read
+in the request if its sheet is at most 20 MB, keeping only the kept columns; above that it is refused ("remove
+those columns in Power BI and export again"). A staged copy holds the sheet as Power BI wrote it, its texts not
+yet cleaned: it is emptied as soon as the job reads it, when the job fails or stops, when it cannot start, and by
+`close_stale` (called by every page, `busy()` and the scheduler's `tick()`), so it never outlives a few minutes.
+
+**The reader** (`datamart/powerbi_xlsx.py`) is NeuroDB's own, standard library only, the same in tests and in
+production (openpyxl never reads an upload): `zipfile` and `ElementTree.XMLPullParser`, any namespace prefix,
+cells with or without references, shared or inline strings, the 1904 date system; each row is dropped from the
+tree once read, so memory does not grow with the rows. A part with a `<!DOCTYPE` before its first element is
+refused; production relies on Python's expat limits for entity expansion. A column not kept is skipped by its
+position: its shared string is never looked up, its text never converted.
+
+**People.** The *UNICEF Focal Points* (PD/SPD Report) and *Focal Point* (Partner Fund Monitoring) columns, and any
+caption `catalogue.holds_person` finds, are dropped by position as the file is read: never stored, shown, logged,
+exported or sent to the AI ("Dropped as the file was read: UNICEF Focal Points (people's names). It was never
+stored."). Free texts (titles, partners, sections, outputs, locations, donors) pass the people rule of Raw eTools
+data (`comparison._clean`: known names whatever their case, e-mails, phones), once per distinct text (a memo of at
+most 5,000); codes (PD #, Report #, P-codes, grants, fund reservations) are kept as read. File names are cleaned
+the same way.
+
+**Power BI's filters** (`datamart/powerbi_filters.py`). The "Applied filters" line is read clause by clause into a
+`Filter` (`PowerBIExport.filters`) and one description per clause (`clauses`), rebuilt from what was understood:
+the raw line is never kept. Applied: "field is value(s)" for `country_name`, `status`, `reporting_year`,
+`section_name` (the PDs' section names), `report_status_label` and Power BI's own `is_period_latest` and
+`is_blueprint_canonical`; a comparison (with "or is blank") for `actual_value`, a comparison for `location_value`.
+Another shape is "cannot apply"; a field NeuroDB does not know keeps its name and condition words, never its
+value; a value outside its field's vocabulary is not kept; another country makes the export "Not compared". The
+job looks for `is_period_latest` and `is_blueprint_canonical` among the fields every partner report record of the
+last sync carries (`raw.keys_kept`, Raw eTools data's fields): there, "applied from the records"; otherwise
+"applied as NeuroDB reads it", with a note on the export.
+
+**What is kept** (`datamart/models.py`, migration `datamart/0019_powerbi_compare`, three new tables):
+`PowerBIUpload` (status, who, when, `queued_at`, the day the statuses are read for, Power BI's refresh, the
+partner reports sync it reads, the files not read as sentences, a summary, `seconds` and `peak_memory_mb`, an
+error of our sentence and a class name only), `PowerBIExport` (its kind, cleaned file name, state, the staged
+copy until read, its rows as gzip JSON lines of the kept columns only, the parsed filter, the dropped and not
+compared columns, notes) and `PowerBIDifference` (written by the comparison, not yet). Every queryset defers
+`content` and `rows`. Retention (`powerbi_compare.KEEP_FULL = 3`): when an upload is created and after every
+job, older uploads lose their rows, copies and lines and keep their summary ("Details removed"). Kept rows of a
+full set of exports take a few MB.
+
+**The job** (`datamart/powerbi_compare.py`, `compare_powerbi --upload-id <pk> --triggered-by <user>`, started by
+*Upload and compare* and *Compare again* through `background.start_command`). It first lowers its CPU priority
+(`os.nice(10)`) and caps its data at 600 MB (`RLIMIT_DATA`: an overrun ends as "The comparison stopped:
+MemoryError." instead of the container being stopped). Its lock `background.POWERBI_COMPARE_LOCK_ID = 7140443`
+(not a `SyncRun` job, not in `LOCK_IDS`): a second job fails its upload ("Another comparison was running"). An
+upload is refused while a comparison, a Datamart sync or a KM Database load runs (their locks), and a sync or a
+load that starts while the files are read stops the job after reading (the rows stay: *Compare again*). Steps:
+read each staged copy and empty it; the day (Power BI's refresh from "Last Updated Date" or "Last Modify Date",
+else the upload's day; today when more than 14 days back, with a note); the partner reports sync it reads (a
+note when it ran before Power BI's refresh; `sync_moved` when one finished meanwhile); each export in Power BI's
+order. `close_stale` fails an upload reading or comparing while nobody holds the lock, or queued for more than two
+minutes since `queued_at` ("press Compare again" when every row is kept). A start that fails fails the upload in
+the request. Logs carry counts, kinds and class names only. Each upload keeps its own `seconds` and
+`peak_memory_mb`: read them on the first production uploads to size the next steps.
+
+**Tests.** `tests/datamart/test_powerbi_read.py` (every kind recognised under any file name, both layouts and
+string encodings, types, codes, refusals, the zip shape, staging), `tests/datamart/test_powerbi_filters.py`
+(every clause shape, the order of trial, what is kept), `tests/datamart/test_powerbi_job.py` (start, lock,
+refusals, stale, the command, retention, nothing on disk, a large export read whole, memory not growing with the
+rows), `tests/datamart/test_powerbi_privacy.py` (people planted in the files never reach a table, a log, a page,
+the job's output, the session or a cookie) and `tests/datamart/test_powerbi_admin.py` (access, the sidebar, the
+pages, kept apart from the AI), with generated fake exports only (`tests/datamart/powerbi_factory.py`).
 
 ### Recording real records as test fixtures
 

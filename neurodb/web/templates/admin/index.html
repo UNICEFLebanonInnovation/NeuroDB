@@ -57,6 +57,7 @@
             <li><a href="{% url 'reports:data_health' %}"><span class="material-symbols-outlined">monitor_heart</span>{% trans "Open the data health page" %}</a></li>
             {% if user_role == "Administrator" or can_validate %}<li><a href="{% url 'admin:datamart_reporting_checks' %}"><span class="material-symbols-outlined">fact_check</span>{% trans "eTools reporting checks (partner reports, Power BI differences)" %}</a></li>{% endif %}
             {% if can_validate %}<li><a href="{% url 'admin:datamart_raw' %}"><span class="material-symbols-outlined">dataset</span>{% trans "Raw eTools data (check a page's figures against the records)" %}</a></li>{% endif %}
+            {% if can_validate %}<li><a href="{% url 'admin:datamart_powerbi' %}"><span class="material-symbols-outlined">compare_arrows</span>{% trans "Compare with Power BI (upload the PRP Power BI exports)" %}</a></li>{% endif %}
             {% if user.is_superuser %}<li><a href="{% url 'admin:admin_logentry_changelist' %}"><span class="material-symbols-outlined">history</span>{% trans "Audit trail" %}</a></li>{% endif %}
             {% if user.is_superuser %}<li><a href="{% url 'admin:web_menuchoice_changelist' %}"><span class="material-symbols-outlined">menu</span>{% trans "Choose what each role sees in the menu" %}</a></li>{% endif %}
           </ul>

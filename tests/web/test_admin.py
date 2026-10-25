@@ -290,13 +290,21 @@ def test_data_and_sync_lists_the_etools_pages_by_who_may_open_them(rf, admin_use
         groups = [g for g in sidebar_navigation(request) if str(g["title"]) == str(DATA_AND_SYNC)]
         return [str(i["title"]) for g in groups for i in g["items"]][:2]
 
+    def third(user) -> list[str]:
+        request = rf.get("/")
+        request.user = user
+        groups = [g for g in sidebar_navigation(request) if str(g["title"]) == str(DATA_AND_SYNC)]
+        return [str(i["title"]) for g in groups for i in g["items"]][2:3]
+
     checks, raw = "eTools reporting checks", "Raw eTools data"
     assert pages(superuser) == [checks, raw]
+    assert third(superuser) == ["Compare with Power BI"]  # validators only, after Raw eTools data
+    assert "Compare with Power BI" not in third(admin_user)
     assert pages(admin_user)[:1] == [checks] and raw not in pages(admin_user)  # an Administrator not ticked
     # a staff validator who holds no table of the group still gets it, with these two pages only
     checker = User.objects.create_user(username="checker", password="pass-123456-x", is_staff=True)
     checker.groups.set(Group.objects.filter(name__in=(VIEWER, VALIDATORS)))
-    assert pages(checker) == [checks, raw]
+    assert pages(checker) == [checks, raw] and third(checker) == ["Compare with Power BI"]
     viewer = User.objects.create_user(username="staff-viewer", password="pass-123456-x", is_staff=True)
     viewer.groups.set(Group.objects.filter(name=VIEWER))
     assert pages(viewer) == []

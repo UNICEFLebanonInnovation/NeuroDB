@@ -46,6 +46,8 @@ ETOOLS_MASTERS_LOCK_ID = 7140440
 ETOOLS_REST_RAW_LOCK_ID = 7140441
 # neurodb.km.loading.LOCK_ID: one load of the KM Database at a time (not a SyncRun job: not in LOCK_IDS)
 KM_LOAD_LOCK_ID = 7140442
+# neurodb.datamart.powerbi_compare.LOCK_ID: one comparison at a time (not a SyncRun job: not in LOCK_IDS)
+POWERBI_COMPARE_LOCK_ID = 7140443
 LOCK_IDS = {
     SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID,
     SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID,

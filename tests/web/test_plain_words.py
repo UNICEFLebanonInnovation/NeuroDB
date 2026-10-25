@@ -8,13 +8,15 @@ import re
 from pathlib import Path
 
 from neurodb.core.models import SyncRun
-from neurodb.datamart import comparison, identity, raw, runfacts, trail, trail_monitoring
+from neurodb.datamart import comparison, identity, powerbi_words, raw, runfacts, trail, trail_monitoring
 from neurodb.integrations import background
 from neurodb.integrations.etools import datamart_sync, rest_raw
 
 ROOT = Path(__file__).resolve().parents[2] / "neurodb"
 TEMPLATES = [
     *sorted((ROOT / "datamart/templates/admin/datamart/raw").glob("*.html")),
+    # Compare with Power BI (its sentences: datamart.powerbi_words, below)
+    *sorted((ROOT / "datamart/templates/admin/datamart/powerbi").glob("*.html")),
     ROOT / "reports/templates/reports/partials/_check_link.html",
     # the figure trail (its sentences are tested on a trail: tests/reports/test_figure_trail.py)
     ROOT / "reports/templates/reports/check_figures.html",
@@ -39,6 +41,22 @@ TAGS = re.compile(
 def _visible(text: str) -> str:
     """A template's words as a person reads them: no comment, tag, variable or HTML element."""
     return TAGS.sub(" ", text)
+
+
+def _powerbi_sentences() -> list[str]:
+    """Every sentence of Compare with Power BI (datamart.powerbi_words): its strings, lists and tables."""
+    found = []
+    for name, value in vars(powerbi_words).items():
+        if name.startswith("_") or not name.isupper():
+            continue
+        if isinstance(value, str):
+            found.append(value)
+        elif isinstance(value, tuple | list):
+            found += [v for v in value if isinstance(v, str)]
+        elif isinstance(value, dict):
+            found += [v for v in value.values() if isinstance(v, str)]
+    assert len(found) > 80
+    return found
 
 
 def test_the_new_templates_say_none_of_the_words_of_the_code():
@@ -66,6 +84,13 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         *(words for page in comparison.NEURODB_ONLY.values() for words in page.values()),
         *comparison.POWERBI_ITEMS.values(),
         *comparison.TAG_WORDS.values(),
+        comparison.ONE_COUNTRY,
+        comparison.CLEAR_IN_POWERBI,
+        comparison.COMPARE_FOR_YOU,
+        *comparison.POWERBI_ONLY_SLICERS,
+        *(name for names in comparison.POWERBI_TO_CLEAR.values() for name in names),
+        # Compare with Power BI's own words
+        *_powerbi_sentences(),
         # the figure trail's own words
         *trail.NOTES,
         trail.DIFFERS,

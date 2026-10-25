@@ -84,6 +84,12 @@ def tick(now=None) -> list[str]:
             job.save(update_fields=["last_outcome"])
     if started:
         logger.info("scheduler: started %s", ", ".join(started))
+    try:  # a comparison with Power BI whose process stopped: its copies of the files never outlive it long
+        from neurodb.datamart import powerbi_compare
+
+        powerbi_compare.close_stale()
+    except Exception as exc:  # noqa: BLE001 - never stops the scheduler; the class name only
+        logger.warning("scheduler: Compare with Power BI could not be tidied (%s)", type(exc).__name__)
     return started
 
 

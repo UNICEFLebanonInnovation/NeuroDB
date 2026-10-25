@@ -9,8 +9,8 @@ A superuser or an Administrator ticks the group in the administration: *Users an
 the person, then *Groups*: tick **Validators** and save. Administrators are validators only when they are
 ticked too, like anyone else; superusers always are.
 
-Raw eTools data and the eTools reporting checks are in the administration, which also asks for **Staff
-status** (on the same form). A validator without it sees "Raw data: ask for staff status" where the link
+Raw eTools data, Compare with Power BI and the eTools reporting checks are in the administration, which also
+asks for **Staff status** (on the same form). A validator without it sees "Raw data: ask for staff status" where the link
 would be.
 
 A validator sees one more line under the tabs of [Progress reports](/partner-reporting/),
@@ -168,6 +168,44 @@ their sum is the figure. In a step's CSV, `counts_once` is 1 only on a unit the 
 When the database takes too long, a file ends with the row "The download stopped here: the database took too
 long. Download again or narrow the filter." That file is not complete: do not compare it.
 
+## Compare with Power BI
+
+You no longer need to match the PRP Power BI report by hand, row by row. In the administration, *Data and
+sync → Compare with Power BI*, upload the files you exported from Power BI: the zip as your browser saved it,
+or the Excel files, several at once. It is for validators with Staff status, like Raw eTools data.
+
+**How to export.** The page lists the 13 visuals of the *UNICEF Program Performance* report, in the order of
+its pages. On each: *More options (…) → Export data → Summarized data → .xlsx*. On every page, set *Reporting
+Year* to 2026 (NeuroDB holds partner reports from 1 Jan 2026), *PD status* to active, and clear *Section*,
+*Partner*, *Document type*, *Office*, *Emergency indicator*, *CP Output* and *Indicator Title*. A file with a
+sensitivity label that encrypts it cannot be read: export it again without the label.
+
+**What NeuroDB does with the files.**
+
+- It recognises each export **by its columns**, never by its file name, so a renamed file is still read. A file
+  NeuroDB does not recognise is named with the columns it knows.
+- It reads Power BI's own filters (the *Applied filters* line Power BI writes at the end of the file) and says,
+  filter by filter, how it applies each: applied, applied as NeuroDB reads it, or one it cannot apply (clear
+  that slicer in Power BI and export again, or compare that export by hand). A filter on a field NeuroDB does
+  not know is listed without its value.
+- **People's names are dropped as the files are read.** The *UNICEF Focal Points* column of PD/SPD Report and
+  the *Focal Point* column of Partner Fund Monitoring are never kept, shown, written in a file or sent to the
+  AI; the page says "Dropped as the file was read". Partners, programme documents and indicators stay, without
+  the names NeuroDB knows, e-mail addresses and phone numbers.
+- The hidden files a Mac adds to a zip are skipped and counted.
+
+**The upload's page** opens with *What to do now* (at most four lines: files to export again, visuals not
+uploaded, filters to clear), then one line per Power BI page, in Power BI's order: each export with its file,
+the rows NeuroDB read, what its filter covers ("2026", "Every year", "Education only") and its result. A visual
+you did not upload says *Not uploaded*. Open a file's name to see its filters one by one, the columns kept and
+its notes (for instance "Power BI may have cut this export at 1,000 rows: check the visual shows no more").
+While NeuroDB reads the files the page refreshes by itself every few seconds.
+
+NeuroDB reads and keeps the rows now; **comparing them with NeuroDB's pages, row by row, is not ready yet**.
+Until then, use the Power BI comparison sheet below. *Compare again* takes the same rows against NeuroDB's
+newest data, without uploading the files again. Only the last three uploads keep their rows; older ones keep
+their summary.
+
 ## The Power BI comparison sheet
 
 NeuroDB never reads Power BI: you compare by hand, and the sheet does the rest. *Power BI comparison sheet
@@ -207,7 +245,7 @@ The file has these sheets:
   that holds a name, an e-mail or a phone is written without it, and the row's note says to match it by PD
   and target. Each row's *Trail*
   cell opens the indicator's Reached on its trail: the partner report rows placed to it, used or not.
-- **Why they can differ**: seven reasons, each with where to see it.
+- **Why they can differ**: eleven reasons, each with where to see it.
 
 **Matching row by row** (on the Progress reports, Partners or Program Performance rows sheet):
 
@@ -221,8 +259,10 @@ The file has these sheets:
 4. Filter the rows where the value is `#N/A` (a row Power BI does not have) or differs, and check those
    rows against Raw eTools data.
 
-The names of Power BI's pages, visuals and slicers in the sheet follow the dashboard as it was shared. If
-your dashboard names one differently, tell the NeuroDB team: they correct it in one place.
+The names of Power BI's pages, visuals and slicers in the sheet are those of the shared report, *UNICEF Program
+Performance*. If your report names one differently, tell the NeuroDB team: they correct it in one place. The
+sheet also says to set *Country name* to Lebanon (NeuroDB holds one country) and, on Progress reports, which of
+Power BI's slicers to clear because the page has no such filter.
 
 ## Raw eTools data
 
@@ -362,6 +402,12 @@ The comparison sheet's last sheet lists these too, each with where to see it.
   the eTools reporting checks).
 - Draft and cancelled programme documents are never read by NeuroDB.
 - A report's status is the newest word across all its rows.
-- Reached reads Accepted and Submitted reports only, never adds a value repeated on every location, and
-  takes PRP's cumulative for a partial history.
+- Reached: Power BI's Program Performance counts Accepted reports only (its filter says so); NeuroDB adds
+  Accepted and Submitted reports, never adds a value repeated on every location, and takes PRP's cumulative
+  for a partial history.
 - An indicator is counted once, although eTools lists it once per location and disaggregation.
+- Reporting Progress in Power BI counts progress reports; NeuroDB's tiles and charts count indicator reports.
+- Power BI's lists call a report not yet due "Due".
+- Power BI joins rows that are the same in every column it shows, and repeats a location's row once per CP
+  output.
+- Power BI shows a percentage indicator as a fraction on its Location and Disaggregation pages.

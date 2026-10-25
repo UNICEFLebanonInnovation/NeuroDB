@@ -9,9 +9,11 @@ person types Power BI's numbers in.
   ``program_performance_rows`` and ``data_quality``), on the day the statuses are read for (Due, Overdue and
   Not yet due depend on it): the page's own day by default, or Power BI's refresh, at most :data:`DAYS_BACK`
   days before. They are read in one read-only snapshot of the data.
-* **Power BI's names** are in one place, :data:`POWERBI_PAGES`, :data:`POWERBI_PD_PAGE`, :data:`POWERBI_ITEMS`
-  and :data:`POWERBI_SLICERS`: placeholders until the names the shared dashboard shows are confirmed (open
-  question 1 of the spec); correct them there. Every sentence of the sheet that names one reads it there.
+* **Power BI's names** are in one place, :data:`POWERBI_PAGE_ORDER`, :data:`POWERBI_VISUALS` (and
+  :data:`POWERBI_PAGES` and :data:`POWERBI_PD_PAGE` made from them), :data:`POWERBI_ITEMS` and
+  :data:`POWERBI_SLICERS`: the names of the shared report (UNICEF Program Performance), as the user's
+  screenshot shows them; correct them there. Every sentence of the sheet that names one reads it there, and so
+  does Compare with Power BI (``powerbi_exports``).
 * **The filter.** Every field of the page's filter is a Power BI slicer to set (:data:`POWERBI_SLICERS`) or a
   NeuroDB filter to clear before comparing (:data:`NEURODB_ONLY`); a new field in neither stops the sheet.
 * **People** never reach the file: partners, programme documents and sections only; the progress reports'
@@ -37,6 +39,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Max
 from django.http import QueryDict
 from django.urls import reverse
@@ -54,34 +57,82 @@ from . import monitoring, reporting, runfacts
 from . import reached as rc
 
 # ------------------------------------------------------------------------------------------- Power BI's names
-# The PRP Power BI dashboard as the shared copy shows it: its pages in their order, each with its visuals in
-# their order, and the NeuroDB block of figures each visual is compared with. PLACEHOLDERS until the names are
-# confirmed (SPEC_validation, open question 1): correct the words here, and only here.
-POWERBI_PAGES: dict[str, tuple[tuple[str, tuple[tuple[str, str], ...]], ...]] = {
-    "progress-reports": (
-        (
-            "Reporting Progress",
-            (
-                ("status_cards", "Status cards"),
-                ("by_section", "Reporting Progress by Sector"),
-                ("by_month", "Reports over Reporting Date"),
-                ("report_list", "Report list"),
-            ),
-        ),
-        ("Partner Performance", (("partner_cards", "Cards"), ("follow_up", "Partners require follow up"))),
-        ("Report/Location", (("locations", "Table"),)),
-        ("PD/SPD Report/Disaggregation", (("disaggregations", "Table"),)),
+# The PRP Power BI report, as the user's screenshot of the shared report shows it (25 Oct 2026): its pages in
+# their order, and each visual NeuroDB compares, by the key of a block of the sheet or of an export Compare
+# with Power BI recognises (``powerbi_exports``). Correct the words here, and only here.
+POWERBI_REPORT = "UNICEF Program Performance"
+POWERBI_PAGE_ORDER = (
+    "Program Performance",
+    "Partner Performance",
+    "Reporting Progress",
+    "Data Quality",
+    "PD/SPD Indicator",
+    "PD/SPD Report",
+    "PD/SPD Report/Location",
+    "PD/SPD Report/Disaggregation",
+    "Partner Fund Monitoring",
+    "Funded Programs",
+)
+POWERBI_VISUALS: dict[str, tuple[str, str]] = {  # a sheet block or an export -> (Power BI page, visual)
+    "pp_indicators": ("Program Performance", "Table"),
+    "pp_sections": ("Program Performance", "Section tiles"),
+    "partner_cards": (
+        "Partner Performance",
+        "# of Partners with (Accepted, Submitted, Sent back, Due, and Overdue)",
     ),
-    "partner-monitoring": (
-        ("Program Performance", (("pp_indicators", "Table"), ("pp_sections", "Indicators by section"))),
-        ("Data Quality", (("dq_tiles", "Cards"),)),
-    ),
+    "follow_up": ("Partner Performance", "Partners require follow up (Overdue, Sent back, Submitted & Due)"),
+    "status_cards": ("Reporting Progress", "Cards"),
+    "by_section": ("Reporting Progress", "Reporting Progress by Sector"),
+    "by_month": ("Reporting Progress", "# of Reports by Type over Reporting Date"),
+    "dq_tiles": ("Data Quality", "No. of Indicators without Reached"),
+    "dq_list": ("Data Quality", "Indicators without Reached or with Zero Reached"),
+    "pd_indicators": ("PD/SPD Indicator", "Table"),
+    "report_list": ("PD/SPD Report", "Table"),
+    "locations": ("PD/SPD Report/Location", "Table"),
+    "disaggregations": ("PD/SPD Report/Disaggregation", "Table"),
+    "fund_monitoring": ("Partner Fund Monitoring", "Table"),
+    "funded_programmes": ("Funded Programs", "Table"),
 }
-# Power BI's page with no row in the sheet: NeuroDB shows it on each programme document's page
-POWERBI_PD_PAGE = "PD/SPD Indicators"
+# the blocks of each page's sheet; :data:`POWERBI_PAGES` puts them in Power BI's order, by Power BI page
+SHEET_BLOCKS: dict[str, tuple[str, ...]] = {
+    "progress-reports": (
+        "partner_cards",
+        "follow_up",
+        "status_cards",
+        "by_section",
+        "by_month",
+        "report_list",
+        "locations",
+        "disaggregations",
+    ),
+    "partner-monitoring": ("pp_indicators", "pp_sections", "dq_tiles"),
+}
+
+
+def _powerbi_pages(blocks: tuple[str, ...]) -> tuple[tuple[str, tuple[tuple[str, str], ...]], ...]:
+    """The blocks grouped by Power BI page, in Power BI's order, each with its visual's name."""
+    found = []
+    for name in POWERBI_PAGE_ORDER:
+        visuals = tuple((b, POWERBI_VISUALS[b][1]) for b in blocks if POWERBI_VISUALS[b][0] == name)
+        if visuals:
+            found.append((name, visuals))
+    return tuple(found)
+
+
+# each page's sheet: its Power BI pages in their order, each with its visuals and the block of figures each is
+# compared with
+POWERBI_PAGES: dict[str, tuple[tuple[str, tuple[tuple[str, str], ...]], ...]] = {
+    page: _powerbi_pages(blocks) for page, blocks in SHEET_BLOCKS.items()
+}
+# Power BI's page with no row in the sheet: NeuroDB shows it on Programmes → Indicators
+POWERBI_PD_PAGE = POWERBI_VISUALS["pd_indicators"][0]
 # the items Power BI names itself (a status, a section or a month is named by the data)
 POWERBI_ITEMS: dict[str, str] = {
     "total": "Total",
+    "not_yet_due": "Not Yet Due",
+    "sent_back": "Sent back",
+    "no_reached": "No. of Indicators without Reached",
+    # NeuroDB's own items: no Power BI export names them
     "reports": "Number of reports",
     "lines": "Number of lines",
     "locations": "Number of locations",
@@ -104,21 +155,36 @@ POWERBI_ITEMS: dict[str, str] = {
 # the page's filter fields Power BI has a slicer for, by the slicer's name
 POWERBI_SLICERS: dict[str, dict[str, str]] = {
     "progress-reports": {
-        "year": "Reporting year",
+        "year": "Reporting Year",
         "pd_statuses": "PD status",
         "sections": "Section",
         "partners": "Partner",
-        "report_types": "Report type",
-        "statuses": "Report status",
-        "emergency": "High frequency",
+        "emergency": "Emergency indicator",
     },
     "partner-monitoring": {
-        "year": "Reporting year",
+        "year": "Reporting Year",
         "pd_statuses": "PD status",
         "sections": "Section",
         "partners": "Partner",
+        "document_types": "Document type",
+        "offices": "Office",
+        "emergency": "Emergency indicator",
+        "cp_output": "CP Output",
+        "q": "Indicator Title",
     },
 }
+# Power BI's slicers NeuroDB's page has no filter for: set as said on every page, or cleared
+POWERBI_ONLY_SLICERS = ("Country name",)  # NeuroDB holds one country
+POWERBI_TO_CLEAR: dict[str, tuple[str, ...]] = {
+    "progress-reports": ("Document type", "Office", "CP Output", "Indicator Title"),
+    "partner-monitoring": (),
+}
+ONE_COUNTRY = "{country}: NeuroDB holds one country"
+CLEAR_IN_POWERBI = "Clear these in Power BI: NeuroDB's page has no such filter"
+COMPARE_FOR_YOU = (
+    "Or let NeuroDB compare for you: upload Power BI's exports in Admin → Data and sync → Compare with Power "
+    "BI."
+)
 
 # --------------------------------------------------------------------------------------------- NeuroDB's side
 # the page's filter fields Power BI has no slicer for, in NeuroDB's words: cleared on NeuroDB before comparing
@@ -133,6 +199,8 @@ NEURODB_ONLY: dict[str, dict[str, str]] = {
         "end_from": "Period end from",
         "end_to": "Period end to",
         "overdue": "Overdue only",
+        "report_types": "Report type",
+        "statuses": "Report status",
         # By disaggregation's own filters
         "indicator": "By disaggregation: indicator",
         "location": "By disaggregation: location",
@@ -146,13 +214,8 @@ NEURODB_ONLY: dict[str, dict[str, str]] = {
         "report_type": "Report type",
         "scope": "Programme documents",
         "status": "Tracking status",
-        "q": "Indicator or output",
         "tags": "Tags",
-        "document_types": "Document type",
-        "offices": "Office",
         "partner_types": "Partner type",
-        "emergency": "Emergency",
-        "cp_output": "CP output",
     },
 }
 # the tags of Partner monitoring's filter, as its filter bar names them
@@ -187,10 +250,20 @@ PDS_NOTE = (
     "The programme documents of these indicators: a running programme document with no indicator of this "
     "filter is not counted (see check 10: running programme documents with no report row)."
 )
-WHY_THEY_DIFFER = (  # (why, where to see it)
+# the Power BI pages the reasons name, by the block of figures on each (:func:`powerbi_page`)
+WHY_PAGES = {
+    "program_performance": "pp_indicators",
+    "reporting_progress": "by_section",
+    "partner_performance": "partner_cards",
+    "pd_report": "report_list",
+    "locations": "locations",
+    "disaggregations": "disaggregations",
+}
+WHY_THEY_DIFFER = (  # (why, where to see it); {history} and the Power BI pages of WHY_PAGES are filled in
     (
         "The days differ: Power BI refreshes on its own schedule, NeuroDB each night at 20:30.",
-        "This file: Statuses read for, and Power BI refreshed on.",
+        "This file: Statuses read for, and Power BI refreshed on; Compare with Power BI reads the refresh "
+        "from Power BI's files.",
     ),
     (
         "NeuroDB holds partner reports from {history} only: Power BI may show older ones.",
@@ -209,13 +282,32 @@ WHY_THEY_DIFFER = (  # (why, where to see it)
         "Raw eTools data → Partner reports: a record's page gives the status every page reads for it.",
     ),
     (
-        "Reached reads Accepted and Submitted reports only, never adds a value repeated on every location, "
-        "and takes PRP's cumulative for a partial history.",
-        "eTools reporting checks: checks 2, 4 and 5; Partner monitoring → Data quality.",
+        "Reached: Power BI's {program_performance} counts Accepted reports only (its filter says so); "
+        "NeuroDB adds Accepted and Submitted reports, never adds a value repeated on every location, and "
+        "takes PRP's cumulative for a partial history.",
+        "eTools reporting checks: checks 2, 4 and 5; Compare with Power BI: {program_performance}.",
     ),
     (
         "An indicator is counted once, although eTools lists it per location and disaggregation.",
         "eTools reporting checks: check 7; Raw eTools data → PD indicators.",
+    ),
+    (
+        "{reporting_progress} in Power BI counts progress reports; NeuroDB's tiles and charts count "
+        "indicator reports.",
+        "This file: Progress reports; Compare with Power BI: {reporting_progress}.",
+    ),
+    (
+        "Power BI's lists call a report not yet due 'Due'.",
+        "Compare with Power BI: {partner_performance} and {pd_report}.",
+    ),
+    (
+        "Power BI joins rows that are the same in every column it shows, and repeats a location's row once "
+        "per CP output.",
+        "Compare with Power BI: {locations}.",
+    ),
+    (
+        "Power BI shows a percentage indicator as a fraction on its {locations} and {disaggregations} pages.",
+        "Compare with Power BI: {locations} and {disaggregations}.",
     ),
 )
 CELL_CHARS = 32_767  # Excel's limit for one cell
@@ -479,11 +571,16 @@ def _dq_tiles(r: Read) -> Iterator[Line]:
     yield ("dq.zero_reached", items["zero_reached"] + in_year, figure, q["zero_reached"], "indicators", "")
     item = items["without_reached"] + in_year
     yield ("dq.without_reached", item, figure, q["without_reached"], "indicators", OVERDUE_NOTE)
+    note = "Without Reached and Reported zero together, as Power BI's card counts them."
+    no_reached = q["without_reached"] + q["zero_reached"]
+    yield ("dq.no_reached", items["no_reached"] + in_year, figure, no_reached, "indicators", note)
     note = "A target of 0 counts as none."
     yield ("dq.with_target", items["with_target"], figure, q["with_target"], "indicators", note)
     yield ("dq.without_target", items["without_target"], figure, q["without_target"], "indicators", "")
 
 
+# a sheet row that is no figure of the page, and the figure whose trail it opens
+TRAIL_OF = {"dq.no_reached": "dq.without_reached"}
 BLOCKS = {
     "status_cards": _status_cards,
     "by_section": _by_section,
@@ -503,6 +600,17 @@ def visual_name(page: str, block: str) -> tuple[str, str]:
     """The Power BI page and visual a block of figures is compared with (:data:`POWERBI_PAGES`)."""
     return next(
         (name, visual) for name, visuals in POWERBI_PAGES[page] for b, visual in visuals if b == block
+    )
+
+
+def powerbi_page(block: str) -> str:
+    """The Power BI page a block of figures is on, as :data:`POWERBI_PAGES` names it."""
+    return next(
+        name
+        for found in POWERBI_PAGES.values()
+        for name, visuals in found
+        for b, _visual in visuals
+        if b == block
     )
 
 
@@ -745,7 +853,15 @@ def _compare_sheet(book: Workbook, found: Read, base_url: str) -> None:
     sheet.header("", "Power BI slicer", "Value", "Done?")
     for slicer, words in slicers:
         sheet.add(None, slicer, _clean(words, names), INPUT)
+    for slicer in POWERBI_ONLY_SLICERS:
+        sheet.add(None, slicer, ONE_COUNTRY.format(country=settings.ETOOLS_DATAMART_COUNTRY), INPUT)
     sheet.add()
+    if POWERBI_TO_CLEAR[page]:
+        sheet.add(None, Bold(CLEAR_IN_POWERBI))
+        sheet.header("", "Power BI slicer", "Done?")
+        for slicer in POWERBI_TO_CLEAR[page]:
+            sheet.add(None, slicer, INPUT)
+        sheet.add()
     sheet.add(None, Bold("Clear these in NeuroDB before comparing"))
     if clear:
         sheet.header("", "NeuroDB filter", "Value")
@@ -773,7 +889,8 @@ def _compare_sheet(book: Workbook, found: Read, base_url: str) -> None:
         numeric = isinstance(figure.value, int | float)
         difference = Formula(f'=IF(ISNUMBER(H{row}),H{row}-F{row},"")') if numeric else None
         same = Formula(f'=IF(ISNUMBER(H{row}),IF(H{row}=F{row},"Same","Differs"),"")') if numeric else None
-        trail = trail_link(found, base_url, figure.key)
+        # a sheet row that is no figure of the page opens the figure it is made from
+        trail = trail_link(found, base_url, TRAIL_OF.get(figure.key, figure.key))
         if trail and withheld:
             trail = TRAIL_WITHHELD
         sheet.add(
@@ -795,10 +912,11 @@ def _compare_sheet(book: Workbook, found: Read, base_url: str) -> None:
     sheet.add(None, "The grid, the Map and Home have no Power BI page: check them against Raw eTools data.")
     sheet.add(
         None,
-        f"{POWERBI_PD_PAGE} is on each programme document's page: check it there against the PD indicators "
-        "of that programme document (Raw eTools data → PD indicators, filtered by the programme document).",
+        f"{POWERBI_PD_PAGE} is on Programmes → Indicators: check it there against the PD indicators (Raw "
+        "eTools data → PD indicators, filtered by the programme document).",
     )
     sheet.add(None, "Why NeuroDB and Power BI can differ: the sheet Why they can differ.")
+    sheet.add(None, COMPARE_FOR_YOU)
 
 
 def trail_link(found: Read, base_url: str, key: str) -> str | None:
@@ -1039,8 +1157,9 @@ def _why_sheet(book: Workbook, found: Read) -> None:
     first, _words = _history(found.day)
     sheet = Sheet(book, "Why they can differ", (4, 100, 70))
     sheet.header("#", "Why NeuroDB and Power BI can differ", "Where to see it")
+    pages = {key: powerbi_page(block) for key, block in WHY_PAGES.items()}
     for n, (why, where) in enumerate(WHY_THEY_DIFFER, start=1):
-        sheet.add(n, why.format(history=_day(first)), where)
+        sheet.add(n, why.format(history=_day(first), **pages), where.format(**pages))
 
 
 def workbook(page: str, params: Any, day: datetime.date, base_url: str = "") -> bytes:

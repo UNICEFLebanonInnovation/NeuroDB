@@ -374,11 +374,26 @@ class DatamartDocumentAdmin(ReadOnlyModelAdmin):
     list_per_page = 50
 
     def site_urls(self):
-        """Raw eTools data, at admin/datamart/raw/ (``NeuroDBAdminSite.get_urls``; ``raw_admin``)."""
-        from . import raw_admin
+        """Raw eTools data, at admin/datamart/raw/ (``NeuroDBAdminSite.get_urls``; ``raw_admin``), and Compare
+        with Power BI, at admin/datamart/powerbi/ (``powerbi_admin``)."""
+        from . import powerbi_admin, raw_admin
 
         view = self.admin_site.admin_view
         return [
+            path("datamart/powerbi/", view(powerbi_admin.index_view), name="datamart_powerbi"),
+            path(
+                "datamart/powerbi/<int:pk>/", view(powerbi_admin.upload_view), name="datamart_powerbi_upload"
+            ),
+            path(
+                "datamart/powerbi/<int:pk>/again/",
+                view(powerbi_admin.again_view),
+                name="datamart_powerbi_again",
+            ),
+            path(
+                "datamart/powerbi/<int:pk>/<int:export_pk>/",
+                view(powerbi_admin.export_view),
+                name="datamart_powerbi_export",
+            ),
             path("datamart/raw/", view(raw_admin.index_view), name="datamart_raw"),
             path("datamart/raw/rest/read/", view(raw_admin.rest_read_view), name="datamart_raw_rest_read"),
             path("datamart/raw/<str:source>/", view(raw_admin.source_view), name="datamart_raw_source"),

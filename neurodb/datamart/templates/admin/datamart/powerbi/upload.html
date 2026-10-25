@@ -1,0 +1,108 @@
+{% extends "admin/base_site.html" %}
+{% load i18n humanize unfold %}
+
+{% comment %}
+  One upload of Compare with Power BI (context: datamart.powerbi_admin.upload_view, validators only): its status
+  (the page reloads itself every 5 seconds while it is queued, read or compared: a meta refresh, no script),
+  what to do now (at most four lines), one line per Power BI page in Power BI's order (comparison.POWERBI_PAGE_ORDER)
+  with each export read or "Not uploaded", the files not read and why, the hidden files skipped, the columns that
+  name people dropped as the files were read, and Compare again. Every sentence comes from datamart.powerbi_words;
+  no value from the files is ever shown.
+{% endcomment %}
+
+{% block extrahead %}{{ block.super }}{% if busy %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+
+{% block content %}
+<div id="content-main" class="nd-found nd-raw flex flex-col gap-6">
+  <p class="nd-list-note">
+    <span class="material-symbols-outlined" aria-hidden="true">info</span>
+    <span>
+      {% blocktrans trimmed with when=upload.uploaded_at|date:"j M Y, H:i" %}Uploaded on {{ when }}{% endblocktrans %}{% if upload.uploaded_by %} · {{ upload.uploaded_by }}{% endif %}.
+      <strong data-pbi-status>{{ status_words }}</strong>
+      <a class="nd-link" href="{{ index_url }}">{% trans "Upload other files" %}</a>
+    </span>
+  </p>
+
+  {% if refused %}
+    <div class="text-red-600 dark:text-red-500" role="alert" data-pbi-refused>
+      <ul class="list-disc ml-6">{% for line in refused %}<li>{{ line }}</li>{% endfor %}</ul>
+    </div>
+  {% endif %}
+  {% if busy %}
+    <p class="nd-fixed__note" role="status" data-pbi-busy>{{ words.STARTED }}</p>
+  {% elif upload.error %}
+    <p class="text-red-600 dark:text-red-500" role="alert" data-pbi-error>{{ upload.error }}</p>
+  {% endif %}
+  {% if trimmed %}<p class="nd-menu__note">{{ trimmed }}</p>{% endif %}
+
+  {% if todo %}
+  {% trans "What to do now" as todo_title %}
+  {% component "unfold/components/card.html" with title=todo_title title_icon="checklist" %}
+    <ul class="list-disc ml-6" data-pbi-todo>{% for line in todo %}<li>{{ line }}</li>{% endfor %}</ul>
+  {% endcomponent %}
+  {% endif %}
+
+  {% trans "Power BI's pages" as pages_title %}
+  {% component "unfold/components/card.html" with title=pages_title title_icon="dashboard" %}
+    {% if refreshed or day or synced %}
+      <p class="mb-3" data-pbi-days>
+        {% if refreshed %}{% blocktrans trimmed %}Power BI refreshed on {{ refreshed }}.{% endblocktrans %} {% endif %}
+        {% if day %}{% blocktrans trimmed %}Statuses read for {{ day }}.{% endblocktrans %} {% endif %}
+        {% if synced %}{% blocktrans trimmed %}NeuroDB's last partner reports sync: {{ synced }}.{% endblocktrans %}{% endif %}
+      </p>
+    {% endif %}
+    {% for note in notes %}<p class="nd-found__warn mb-2">{{ note }}</p>{% endfor %}
+    {% if sync_moved %}<p class="nd-found__warn mb-2">{{ sync_moved }}</p>{% endif %}
+    <div class="nd-scroll">
+      <table class="nd-jobs nd-found__table" data-pbi-pages>
+        <thead><tr>
+          <th scope="col">{% trans "Power BI page" %}</th>
+          <th scope="col">{% trans "Visual" %}</th>
+          <th scope="col">{% trans "File" %}</th>
+          <th scope="col">{% trans "Rows" %}</th>
+          <th scope="col">{% trans "What its filter covers" %}</th>
+          <th scope="col">{% trans "Result" %}</th>
+        </tr></thead>
+        <tbody>
+          {% for page in pages %}
+            {% for line in page.lines %}
+              <tr>
+                {% if forloop.first %}<th scope="row" rowspan="{{ page.lines|length }}">{{ page.name }}</th>{% endif %}
+                <td>{{ line.visual }}</td>
+                {% if line.missing %}
+                  <td>—</td><td>—</td><td>—</td>
+                  <td>{{ words.NOT_UPLOADED }}<small class="nd-menu__note">{{ words.NOT_UPLOADED_ACTION }}</small></td>
+                {% else %}
+                  <td><a class="nd-link" href="{{ line.url }}">{{ line.export.file_name }}</a></td>
+                  <td>{{ line.export.rows_read|intcomma }}</td>
+                  <td>{{ line.covers|default:"—" }}</td>
+                  <td>{% if line.failed %}<span class="nd-found__warn">{{ line.state }}</span>{% else %}{{ line.state }}{% endif %}{% if line.action %}<small class="nd-menu__note">{{ line.action }}</small>{% endif %}</td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endcomponent %}
+
+  {% if not_read or hidden or dropped %}
+  {% trans "As the files were read" as read_title %}
+  {% component "unfold/components/card.html" with title=read_title title_icon="description" %}
+    {% if not_read %}
+      <p class="font-semibold mb-1">{% trans "Files not read" %}</p>
+      <ul class="list-disc ml-6 mb-3" data-pbi-not-read>{% for line in not_read %}<li>{{ line }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if hidden %}<p class="mb-2" data-pbi-hidden>{{ hidden }}</p>{% endif %}
+    {% for line in dropped %}<p class="mb-2" data-pbi-dropped>{{ line }}</p>{% endfor %}
+  {% endcomponent %}
+  {% endif %}
+
+  {% if again %}
+    <form method="post" action="{{ again_url }}" class="flex justify-end">
+      {% csrf_token %}
+      {% component "unfold/components/button.html" with submit=1 %}{{ words.AGAIN_BUTTON }}{% endcomponent %}
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

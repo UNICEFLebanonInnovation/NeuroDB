@@ -1,0 +1,46 @@
+{% extends "admin/base_site.html" %}
+{% load i18n humanize unfold %}
+
+{% comment %}
+  One export of an upload (context: datamart.powerbi_admin.export_view, validators only): its Power BI page and
+  visual, its file, the rows read, its filters clause by clause (each with how NeuroDB applies it: rebuilt from
+  what NeuroDB understood, never the raw line), the columns kept, the columns that name people dropped as the file
+  was read, the columns not compared, and its notes. No value from the file is shown.
+{% endcomment %}
+
+{% block content %}
+<div id="content-main" class="nd-found nd-raw flex flex-col gap-6">
+  <p class="nd-list-note">
+    <span class="material-symbols-outlined" aria-hidden="true">info</span>
+    <span>{{ page_name }} → {{ row.visual }} · {{ export.file_name }} · <a class="nd-link" href="{{ upload_url }}">{% trans "Back to the upload" %}</a></span>
+  </p>
+
+  {% trans "What NeuroDB read" as read_title %}
+  {% component "unfold/components/card.html" with title=read_title title_icon="description" %}
+    <p class="mb-2" data-pbi-state><strong>{{ row.state }}</strong>{% if export.state != "failed" %}: {% blocktrans trimmed count n=export.rows_read %}{{ n }} row{% plural %}{{ n }} rows{% endblocktrans %}{% endif %}.{% if row.action %} {{ row.action }}{% endif %}</p>
+    {% if row.covers %}<p class="mb-2">{% trans "What its filter covers:" %} {{ row.covers }}</p>{% endif %}
+    {% if kept %}<p class="mb-2" data-pbi-kept>{% trans "Columns kept:" %} {{ kept|join:", " }}</p>{% endif %}
+    {% for line in export.dropped %}<p class="mb-2" data-pbi-dropped>{{ line }}</p>{% endfor %}
+    {% if not_compared %}<p class="mb-2" data-pbi-not-compared>{{ not_compared }}</p>{% endif %}
+    {% for note in export.notes %}<p class="nd-found__warn mb-2">{{ note }}</p>{% endfor %}
+  {% endcomponent %}
+
+  {% trans "Power BI's filters" as filters_title %}
+  {% component "unfold/components/card.html" with title=filters_title title_icon="filter_alt" %}
+    {% if clauses %}
+      <div class="nd-scroll">
+        <table class="nd-jobs nd-found__table" data-pbi-clauses>
+          <thead><tr><th scope="col">{% trans "Filter" %}</th><th scope="col">{% trans "How NeuroDB applies it" %}</th></tr></thead>
+          <tbody>
+            {% for c in clauses %}
+              <tr><th scope="row">{{ c.words|default:"—" }}</th><td>{{ c.state }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p>{{ words.NO_FILTER }}</p>
+    {% endif %}
+  {% endcomponent %}
+</div>
+{% endblock %}

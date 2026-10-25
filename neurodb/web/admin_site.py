@@ -524,8 +524,8 @@ def sidebar_navigation(request) -> list[dict[str, Any]]:
 
 def _datamart_pages(request) -> list[dict[str, Any]]:
     """The eTools pages that are not a table, first in Data and sync (the eTools Datamart tables themselves
-    are for developers): the reporting checks (Administrators; validators read them) and Raw eTools data
-    (validators: ``roles.can_validate``)."""
+    are for developers): the reporting checks (Administrators; validators read them), Raw eTools data and
+    Compare with Power BI (validators: ``roles.can_validate``)."""
     from neurodb.accounts.roles import ADMIN, can_validate, role_of
 
     validator = can_validate(request.user)
@@ -541,6 +541,13 @@ def _datamart_pages(request) -> list[dict[str, Any]]:
     if validator:
         pages.append(
             {"title": _("Raw eTools data"), "icon": "dataset", "link": reverse("admin:datamart_raw")}
+        )
+        pages.append(
+            {
+                "title": _("Compare with Power BI"),
+                "icon": "compare_arrows",
+                "link": reverse("admin:datamart_powerbi"),
+            }
         )
     return pages
 

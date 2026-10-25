@@ -3,8 +3,9 @@ Report/Location and Report/Disaggregation, as the eTools Power BI report shows t
 
 * **What is counted.** An *indicator report* is one indicator in one progress report (PRP's
   ``indicator_report``); the Datamart sends it once per location. Reporting Progress counts indicator
-  reports, as Power BI does, and gives the number of progress reports beside each figure. Every
-  indicator report of a progress report has the report's status.
+  reports and gives the number of progress reports beside each figure (Power BI's Reporting Progress counts
+  progress reports: Compare with Power BI says so). Every indicator report of a progress report has the
+  report's status.
 * **Statuses.** The six report statuses of :func:`neurodb.datamart.reached.status_of` (Accepted,
   Submitted, Sent back, Due, Overdue, Not yet due): one status per report, the same on every page, so
   the counts add up to the total; Overdue follows ``monitoring.pending_q`` as every page does.
