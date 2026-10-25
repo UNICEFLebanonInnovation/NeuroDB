@@ -245,8 +245,10 @@ programme documents, trips, engagements, action points and their details).
   it in Admin → Data and sync → eTools Datamart)". "No answer in time" means eTools took the request but did not
   answer; "could not connect" means NeuroDB could not reach it. "(eTools Datamart answered 403: the account
   NeuroDB uses is not allowed to read it; ask the eTools Datamart team to grant it)" means the account signed
-  in, but may not read that one dataset: ask the eTools Datamart team to give it access (syncing again fails
-  the same way until they do; *Complete?* says "No: not allowed to read it"). Superusers and Administrators can click it
+  in (the other datasets read then), but may not read that one dataset: ask the eTools Datamart team to give
+  it access (syncing again fails the same way until they do; *Complete?* says "No: not allowed to read it").
+  "(eTools Datamart answered 403: it refused NeuroDB's sign-in or this dataset)" means nothing showed which: if
+  every dataset fails this way, the team that runs NeuroDB's hosting renews the credentials. Superusers and Administrators can click it
   to open the run, where *What the error means* says what to do. The Datamart's own monitoring
   (`system/monitor`) says "diagnostic: no page or check uses it": its failures are known and change nothing.
 - **A source's page** starts with what its last sync received, in one line that adds up: what NeuroDB

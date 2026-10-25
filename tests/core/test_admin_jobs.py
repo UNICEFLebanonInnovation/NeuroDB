@@ -207,6 +207,7 @@ def test_a_datamart_dataset_the_account_may_not_read_is_never_said_as_credential
     from neurodb.core.admin import error_hint
 
     error = "IntegrationError: GET /api/latest/datamart/audit/financial-findings-all/: HTTP 403 Forbidden"
+    SyncRun.objects.create(job="etools_datamart", target="audits", status="succeeded")  # the sign-in worked
     run = SyncRun.objects.create(job="etools_datamart", target="audit_findings", status="failed", error=error)
     meaning = " ".join(_meaning(superadmin, run).split())
     assert (

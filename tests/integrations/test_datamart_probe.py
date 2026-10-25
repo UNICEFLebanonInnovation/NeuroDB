@@ -255,6 +255,27 @@ def test_the_business_area_answer_is_judged_first(settings, answers, said, never
     assert said in verdict and never not in verdict
 
 
+def test_a_403_on_the_business_area_request_alone_is_that_business_area_not_the_dataset():
+    """The probe read the dataset with no filter and with the country filter: the account reads it, and only
+    the business area request was refused (403). The verdict says so, never that the dataset may not be read."""
+    refused = _answer("business area", status=403, error="IntegrationError: HTTP 403 Forbidden")
+    found = _verdict({probe.NO_FILTER: _answer("no filter", 9000, {"2340": 2}), probe.BY_BUSINESS_AREA: refused,
+                      probe.BY_COUNTRY: _answer("country", 120)})  # fmt: skip
+    assert (
+        "the eTools Datamart does not let the account NeuroDB uses ask this dataset for business area 2490, though "
+        "it reads it with no filter (9,000 records). Check the code in Admin → Data and sync → eTools Datamart: PRP "
+        "business area code against the codes the records name with no filter (listed below); if it is right, ask "
+        "the eTools Datamart team to give the account business area 2490." in found
+    )
+    assert "not allowed to read" not in found
+    refused_too = _answer("no filter", status=403, error="IntegrationError: HTTP 403 Forbidden")
+    found = _verdict({probe.NO_FILTER: refused_too, probe.BY_BUSINESS_AREA: refused,
+                      probe.BY_COUNTRY: _answer("country", 120)})  # fmt: skip
+    assert (
+        "though it reads it with the country filter (120 records)" in found and "with no filter" not in found
+    )
+
+
 def test_a_refused_business_area_request_says_what_to_do_from_the_admin(settings):
     found = _verdict(
         {
@@ -333,26 +354,50 @@ def test_a_country_dataset_takes_two_requests_and_a_refusal_is_kept_as_its_statu
     assert "filter_key" not in run.details
 
 
+NOT_ALLOWED = (
+    "The account NeuroDB uses for the eTools Datamart is not allowed to read prp/indicator-report-v2: ask the "
+    "eTools Datamart team to grant it."
+)
+SIGNED_OUT = (
+    "The eTools Datamart refused NeuroDB's sign-in for prp/indicator-report-v2: its credentials may have expired; "
+    "ask the team that runs NeuroDB's hosting to renew them."
+)
+
+
 @responses.activate
 @pytest.mark.parametrize(
-    ("status", "said"),
+    ("status", "body", "read_before", "said"),
     [
-        (  # signed in, not allowed this dataset (audit/financial-findings-all, 24 Oct 2026)
-            403,
-            "The account NeuroDB uses for the eTools Datamart is not allowed to read prp/indicator-report-v2: "
-            "ask the eTools Datamart team to grant it.",
-        ),
         (
-            401,
-            "The eTools Datamart refused NeuroDB's sign-in for prp/indicator-report-v2: its credentials may have "
-            "expired; ask the team that runs NeuroDB's hosting to renew them.",
+            403,
+            "",
+            True,
+            NOT_ALLOWED,
+        ),  # another dataset read last: signed in (audit/financial-findings-all, 24 Oct)
+        (403, '{"detail": "You do not have permission to perform this action."}', False, NOT_ALLOWED),
+        (403, '{"detail": "Invalid username/password."}', True, SIGNED_OUT),  # the body names the sign-in
+        (  # nothing tells the sign-in from the dataset
+            403,
+            "",
+            False,
+            "The eTools Datamart refused NeuroDB's sign-in or prp/indicator-report-v2 (HTTP 403): if every dataset "
+            "fails this way, ask the team that runs NeuroDB's hosting to renew the credentials; if only this one, "
+            "ask the eTools Datamart team to grant the account access to it.",
         ),
+        (401, "", True, SIGNED_OUT),
     ],
 )
-def test_a_refused_account_is_said_in_plain_words(status, said):
+def test_a_refused_account_is_said_in_plain_words(status, body, read_before, said):
     for query in ({}, {"business_area": "2490"}, {"country_name": "Lebanon"}):
         responses.get(
-            V2, match=[responses.matchers.query_param_matcher({"page_size": "50", **query})], status=status
+            V2,
+            match=[responses.matchers.query_param_matcher({"page_size": "50", **query})],
+            status=status,
+            body=body,
+        )
+    if read_before:
+        SyncRun.objects.create(
+            job=SyncRun.Job.ETOOLS_DATAMART, target="grants", status=SyncRun.Status.SUCCEEDED
         )
     DatamartSetting.objects.create(pk=1, prp_business_area="2490")
     run = probe.run_job("prp_indicator_reports", client=client())

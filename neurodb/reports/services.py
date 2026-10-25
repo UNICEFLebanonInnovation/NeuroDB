@@ -681,9 +681,10 @@ def quality_row(name: str, run: SyncRun | None, count: int | None) -> dict[str, 
         "errors": (details.get("errors") or [])[:3],
         "relinked": details.get("relinked"),
         # the run's own error, when it stopped before listing row errors (an HTTP 500 of the Datamart), and
-        # what it means when the Datamart does not let NeuroDB's account read the dataset (HTTP 403)
+        # what an HTTP 403 of the Datamart means: the account not let read the dataset, the sign-in refused,
+        # or either (runfacts.refused)
         "error": run.error if failed and not details.get("errors") else "",
-        "not_allowed": str(error_hint(run)) if failed and runfacts.not_allowed(run) else "",
+        "refused_words": str(error_hint(run)) if failed and runfacts.refused(run) else "",
         "diagnostic": name in DIAGNOSTIC,  # no page, figure or check uses it: never an alarm
         # a PRP dataset's code and its source, in words (it carries no country name)
         "business_area": details.get("business_area") or "",
@@ -773,8 +774,9 @@ def datamart_quality() -> list[dict[str, Any]]:
     their read took, or why none, and the records of another business area a filter let through. Records
     that came twice say how many the read proved the Datamart's own copies (every copy in one answer) and,
     for the others, whether the pages shifted (and as many others did not come) or, in a stable order, the
-    Datamart likely holds them twice, and the stable order asked or why none. A dataset the Datamart does not
-    let NeuroDB's account read (HTTP 403) says so and whom to ask."""
+    Datamart likely holds them twice, and the stable order asked or why none. A dataset the Datamart answered
+    HTTP 403 says whom to ask: the account not let read it, the sign-in refused, or either when nothing tells
+    them apart (``runfacts.refused``)."""
     from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
 
     last_by_target = latest_datamart_runs(ENTITY_SYNCS)

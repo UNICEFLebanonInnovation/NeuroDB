@@ -43,7 +43,8 @@ class FakeDatamart:
     count and its ``next`` link unchanged); ``changes``: (n, records) added after the n-th request; ``shift``: an
     unstable default order (from page 2 on, a request with no ordering it applies starts ``shift`` records
     early, so ``shift`` records come twice and as many never come), and ``ordering`` is ignorable like a filter
-    (``ignore=("ordering",)``). ``requests``: the queries asked, for assertions."""
+    (``ignore=("ordering",)``); ``hidden``: a key the Datamart holds, filters and orders by but never sends (its
+    own id, for records that carry none). ``requests``: the queries asked, for assertions."""
 
     def __init__(
         self,
@@ -59,12 +60,13 @@ class FakeDatamart:
         cut_pages: tuple[int, ...] = (),
         changes: tuple[int, list[dict[str, Any]]] | None = None,
         shift: int = 0,
+        hidden: str = "",
     ) -> None:
         self.records, self.ignore = list(records), set(ignore)
         self.cap, self.cut_count = cap, cut_count
         self.ignore_on_next, self.refuse, self.matches = set(ignore_on_next), set(refuse), dict(matches or {})
         self.page_limit, self.cut_pages, self.changes = page_limit, set(cut_pages), changes
-        self.shift = shift
+        self.shift, self.hidden = shift, hidden
         self.requests: list[dict[str, str]] = []
         self.url = ""
 
@@ -117,6 +119,8 @@ class FakeDatamart:
         more = page * size < len(found)
         if page in self.cut_pages:
             results = results[:-1]
+        if self.hidden:
+            results = [{k: v for k, v in record.items() if k != self.hidden} for record in results]
         kept = {k: v for k, v in query.items() if k not in self.ignore_on_next}
         following = f"{self.url}?{urlencode({**kept, 'page': page + 1})}" if more else None
         return 200, {}, json.dumps({"count": count, "next": following, "results": results})

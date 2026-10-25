@@ -45,7 +45,7 @@ from django.db.models import Min
 from django.utils import timezone
 
 from neurodb.core.models import SyncRun
-from neurodb.datamart import catalogue
+from neurodb.datamart import catalogue, runfacts
 from neurodb.datamart import models as dm
 from neurodb.integrations.etools import datamart_sync as sync
 from neurodb.integrations.etools import windows
@@ -190,18 +190,38 @@ def _n(answer: dict[str, Any] | None) -> int | None:
     return answer["count"] if answer.get("count") is not None else answer["page"]
 
 
-def _refused(answer: dict[str, Any], filter_key: str, code: str, name: str) -> str:
-    """The verdict when the business area request was refused: the sync asks with that same filter."""
+def _refused(
+    answer: dict[str, Any],
+    filter_key: str,
+    code: str,
+    name: str,
+    everything: int | None = None,
+    by_country: int | None = None,
+) -> str:
+    """The verdict when the business area request was refused: the sync asks with that same filter. Another
+    request of the probe answered (``everything``, with no filter; ``by_country``, with the country filter:
+    None when refused), so a 403 refuses the account this business area, not the dataset."""
     status = answer.get("status")
     said = f" (HTTP {status})" if status else ""
     start = (
         f"The eTools Datamart refused the business area request ({filter_key}={code}){said}, and the sync of "
         f"{name} asks with that same filter, so it fails the same way"
     )
-    if status == 403:  # signed in, not allowed
+    if status == 403:  # signed in: the same account read the dataset with another request
+        read = (
+            f" with no filter ({everything:,} records)"
+            if everything is not None
+            else f" with the country filter ({by_country:,} records)"
+            if by_country is not None
+            else ""
+        )
+        listed = " with no filter (listed below)" if everything is not None else ""
         return (
-            f"{start}: the account NeuroDB uses is not allowed to read this dataset; ask the eTools Datamart "
-            "team to grant it."
+            f"{start}: the eTools Datamart does not let the account NeuroDB uses ask this dataset for "
+            f"business area {code}"
+            + (f", though it reads it{read}" if read else "")
+            + f". Check the code in {CODE_SETTING} against the codes the records name{listed}; if it is "
+            f"right, ask the eTools Datamart team to give the account business area {code}."
         )
     if status == 401:
         return (
@@ -214,6 +234,18 @@ def _refused(answer: dict[str, Any], filter_key: str, code: str, name: str) -> s
             "(listed below); if it is right, tell the eTools Datamart team that this dataset refuses it."
         )
     return f"{start}: probe it again later; if it is refused again, tell the eTools Datamart team."
+
+
+def _refused_why(answers: dict[str, dict[str, Any]], name: str) -> str:
+    """Why every request of a probe answered 403 refused it (``runfacts.refused``): the body names the
+    sign-in, or the account signed in and not let read the dataset (the body says so, or the latest run of
+    another eTools Datamart dataset read); else either."""
+    errors = " ".join(str(a.get("error") or "") for a in answers.values())
+    if runfacts.SIGN_IN_REFUSED.search(errors):
+        return runfacts.SIGN_IN
+    if runfacts.NO_PERMISSION.search(errors) or runfacts.signed_in_near(timezone.now(), name):
+        return runfacts.DATASET
+    return runfacts.EITHER
 
 
 def verdict(
@@ -254,15 +286,22 @@ def _verdict(
     by_area, by_country = _n(answers.get(BY_BUSINESS_AREA)), _n(answers.get(BY_COUNTRY))
     if all(_n(a) is None for a in answers.values()):
         statuses = {a.get("status") for a in answers.values()}
-        if 403 in statuses:  # signed in (a sign-in refused is 401), not allowed this dataset
+        why = runfacts.SIGN_IN if 401 in statuses else _refused_why(answers, name) if 403 in statuses else ""
+        if why == runfacts.SIGN_IN:
+            return (
+                f"The eTools Datamart refused NeuroDB's sign-in for {path}: its credentials may have "
+                "expired; ask the team that runs NeuroDB's hosting to renew them."
+            )
+        if why == runfacts.DATASET:  # signed in, not allowed this dataset
             return (
                 f"The account NeuroDB uses for the eTools Datamart is not allowed to read {path}: ask the "
                 "eTools Datamart team to grant it."
             )
-        if 401 in statuses:
+        if why == runfacts.EITHER:
             return (
-                f"The eTools Datamart refused NeuroDB's sign-in for {path}: its credentials may have "
-                "expired; ask the team that runs NeuroDB's hosting to renew them."
+                f"The eTools Datamart refused NeuroDB's sign-in or {path} (HTTP 403): if every dataset fails "
+                "this way, ask the team that runs NeuroDB's hosting to renew the credentials; if only this "
+                "one, ask the eTools Datamart team to grant the account access to it."
             )
         return f"The eTools Datamart did not answer for {path} (see each request's error): try again later."
     if everything == 0 and "error" not in area and not by_area and not by_country:
@@ -279,7 +318,7 @@ def _verdict(
             "then sync the dataset again."
         )
     if filter_key and "error" in area:
-        return _refused(area, filter_key, code, name)
+        return _refused(area, filter_key, code, name, everything, by_country)
     if filter_key and by_area:
         codes = area.get("business_areas") or {}
         mine, unnamed = codes.get(code, 0), codes.get(sync.NO_CODE, 0)
@@ -580,6 +619,9 @@ def order_verdict(path: str, tried: list[dict[str, Any]]) -> str:
                 if t.get("carried")
                 else "two pages that share no record, the reverse on another"
             )
+            held = t.get("shared_held")
+            if held:  # the two pages shared only records one answer of both lists as often: held twice
+                how += f"; the {held:,} {'record' if held == 1 else 'records'} they share it holds twice"
             said.append(
                 f"The Datamart takes ordering={key} for {path} ({how}): the sync asks for it after a read "
                 "whose records came twice."

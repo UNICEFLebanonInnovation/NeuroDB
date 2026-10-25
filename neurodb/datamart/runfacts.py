@@ -12,7 +12,8 @@ it. Counted on distinct records, the same for the datasets in their own table an
 A record a later run rewrote (one running, or one that failed after writing) is counted updated since, not by
 the sync: up to the remainder, those are explained too. The engagements are saved again by their detail
 datasets (audits, spot checks...) right after their own run, in the same sync: those saves count as the
-sync's (``raw.written_until``).
+sync's (``raw.written_until``), never more than the engagements run kept itself; the others they saved, kept
+from an earlier sync (a read not whole removes nothing), count as kept from an earlier sync.
 
 ``other_country_skipped`` already holds the records that named no country (``unnamed_skipped``) and those of
 another business area a filter let through (``area_strays``): "of another country" is shown without the first,
@@ -116,7 +117,7 @@ class RunFacts:
     written_into: str  # WRITTEN_INTO's words, or ""
     error_lines: tuple[ErrorLine, ...]
     held: int  # in NeuroDB now
-    updated_by_sync: int  # started_at <= synced_at <= finished_at (raw.written_until)
+    updated_by_sync: int  # started_at <= synced_at <= finished_at (raw.written_until; at most what it kept)
     updated_since: int  # synced_at > finished_at: a later run under way
     from_earlier: int  # last updated before run.started_at
     unexplained: int  # received - other_country_skipped - not_saved - updated_by_sync, less updated_since
@@ -234,6 +235,10 @@ def build(
     failed = run.rows_failed if run else 0
     not_saved = _count(details.get("documents_failed")) if name in WRITTEN_BY else failed
     proven = _count(row["copies_proven"])
+    if received is not None and raw.rewritten_by(name):
+        # the detail datasets' saves count as the sync's only up to what its own run kept: one it did not
+        # receive (a read not whole keeps it) was kept from an earlier sync, and saved again by them
+        by_sync = min(by_sync, max(received - skipped - not_saved, 0))
     facts: dict[str, Any] = {
         "source": name,
         "run": run,
@@ -510,16 +515,64 @@ UNREADABLE = re.compile(r"response is not JSON|unrecognised (list|record) payloa
 NOT_READ = "Not read: "  # the start of rest_raw.NOT_READ and NEVER_READ
 
 
-def not_allowed(run: SyncRun | None) -> bool:
-    """An eTools Datamart run that failed because the Datamart does not let NeuroDB's account read its
-    dataset: it answered 403 (signed in, not allowed; a sign-in refused is 401). The other datasets read as
-    usual."""
+# What the body of a 403 kept in a run's error says (Django REST framework's words): the sign-in refused, or
+# the account signed in and refused the dataset (a permission is checked only once signed in)
+SIGN_IN_REFUSED = re.compile(
+    r"Invalid username/password|Authentication credentials were not provided|User inactive or deleted|"
+    r"Invalid token",
+    re.IGNORECASE,
+)
+NO_PERMISSION = re.compile(r"You do not have permission to perform this action", re.IGNORECASE)
+DATASET, SIGN_IN, EITHER = "dataset", "sign_in", "either"  # :func:`refused`
+
+
+def refused(run: SyncRun | None) -> str:
+    """Why the eTools Datamart answered a run 403: :data:`DATASET`, the account signed in but not let read the
+    dataset (the body says so, or the run of another dataset nearest in time read: :func:`signed_in_near`);
+    :data:`SIGN_IN`, the body names the sign-in refused; :data:`EITHER`, nothing tells the two apart (every
+    dataset failing so is the sign-in). "" for a run of another job, or with no 403. A 401 is the sign-in,
+    said by its status. One query, for a 403 whose body tells nothing; kept on the run."""
     from neurodb.core.admin import HTTP_STATUS
 
     if run is None or run.job != SyncRun.Job.ETOOLS_DATAMART:
+        return ""
+    error = run.error or ""
+    found = HTTP_STATUS.search(error)
+    if found is None or found.group(1) != "403":
+        return ""
+    why = getattr(run, "_refused", None)
+    if why is None:
+        if SIGN_IN_REFUSED.search(error):
+            why = SIGN_IN
+        elif NO_PERMISSION.search(error) or signed_in_near(run.started_at, run.target, exclude=run.pk):
+            why = DATASET
+        else:
+            why = EITHER
+        run._refused = why
+    return why
+
+
+def signed_in_near(moment: datetime.datetime | None, target: str, *, exclude: int | None = None) -> bool:
+    """Whether the run of another eTools Datamart dataset nearest in time to ``moment`` (the one that started
+    just before it, or just after it, whichever is nearer) read, or read with errors: NeuroDB's sign-in
+    worked then. A run still under way is left out. One query."""
+    if moment is None:
         return False
-    found = HTTP_STATUS.search(run.error or "")
-    return found is not None and found.group(1) == "403"
+    others = SyncRun.objects.filter(job=SyncRun.Job.ETOOLS_DATAMART).exclude(target=target)
+    others = others.exclude(status=SyncRun.Status.RUNNING)
+    if exclude is not None:
+        others = others.exclude(pk=exclude)
+    fields = ("started_at", "status")
+    after = others.filter(started_at__gte=moment).order_by("started_at", "pk").values_list(*fields)[:1]
+    before = others.filter(started_at__lt=moment).order_by("-started_at", "-pk").values_list(*fields)[:1]
+    near = sorted(after.union(before, all=True), key=lambda found: abs(found[0] - moment))
+    return bool(near) and near[0][1] in (SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL)
+
+
+def not_allowed(run: SyncRun | None) -> bool:
+    """An eTools Datamart run that failed because the Datamart does not let NeuroDB's account read its
+    dataset: it answered 403, and the account was signed in (:func:`refused`)."""
+    return refused(run) == DATASET
 
 
 def not_read(run: SyncRun | None) -> bool:
@@ -530,10 +583,9 @@ def not_read(run: SyncRun | None) -> bool:
 def failure_words(run: SyncRun | None) -> str:
     """Why a run failed, in a few plain words read from its error: the status the service answered ("eTools
     answered 403: not allowed"; for the eTools Datamart, that the account NeuroDB uses is not allowed to read
-    the dataset and whom to ask, :func:`not_allowed`), no answer in time, could not connect, NeuroDB restarted
-    during the run, the
-    list an entity asks for that could not be read, the token not set, no PRP business area code set; "an
-    unexpected error" for any other.
+    the dataset and whom to ask, the sign-in refused, or either, :func:`refused`), no answer in time, could
+    not connect, NeuroDB restarted during the run, the list an entity asks for that could not be read, the
+    token not set, no PRP business area code set; "an unexpected error" for any other.
     Never the error's text: an answer's body comes from eTools or a proxy, and can hold a record's value."""
     from neurodb.core.admin import HTTP_STATUS, NOT_IN_TIME, SOURCES, unanswered
     from neurodb.core.models.sync import STOPPED
@@ -558,11 +610,16 @@ def failure_words(run: SyncRun | None) -> str:
         datamart_sync.NEVER_SENT in error
     ):  # never the value set aside: the error names it
         return "no PRP business area code is set: enter it in Admin → Data and sync → eTools Datamart"
-    if not_allowed(run):
+    why = refused(run)
+    if why == DATASET:
         return (
             "eTools Datamart answered 403: the account NeuroDB uses is not allowed to read it; ask the "
             "eTools Datamart team to grant it"
         )
+    if why == SIGN_IN:
+        return "eTools Datamart answered 403: sign-in refused"
+    if why == EITHER:
+        return "eTools Datamart answered 403: it refused NeuroDB's sign-in or this dataset"
     found = HTTP_STATUS.search(error)
     if found:
         status = int(found.group(1))

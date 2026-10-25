@@ -123,8 +123,9 @@ def error_hint(run: SyncRun) -> str:
     or 504 is the service being unavailable; any other 5xx is an error inside the service for this one
     request, said to have been asked again only for the statuses NeuroDB retries (``RETRY_STATUSES``: 429,
     500, 502, 503 and 504); a 429 is too many requests. A 403 of the eTools Datamart is its account signed in
-    but not allowed this one dataset (``runfacts.not_allowed``: the other datasets read that night); a 401,
-    or a 403 of another service, is the credentials refused."""
+    but not allowed this one dataset when its body says so or the run of another dataset nearest in time read
+    (``runfacts.refused``), the credentials refused when its body names the sign-in, else either, said as
+    such; a 401, or a 403 of another service, is the credentials refused."""
     from neurodb.datamart import raw, runfacts
 
     error = run.error or ""
@@ -150,10 +151,16 @@ def error_hint(run: SyncRun) -> str:
         hint = _("%(source)s did not answer in time: try again later.")
     elif how == NOT_CONNECTED:
         hint = _("%(source)s could not be reached: try again later.")
-    elif runfacts.not_allowed(run):
+    elif runfacts.refused(run) == runfacts.DATASET:
         return _(
             "The account NeuroDB uses for the eTools Datamart is not allowed to read %(path)s: ask the "
             "eTools Datamart team to grant it."
+        ) % {"path": raw.path_of(run.target) or _("this dataset")}
+    elif runfacts.refused(run) == runfacts.EITHER:
+        return _(
+            "The eTools Datamart refused NeuroDB's sign-in or %(path)s (HTTP 403): if every dataset fails "
+            "this way, ask the team that runs NeuroDB's hosting to renew the credentials; if only this one, "
+            "ask the eTools Datamart team to grant the account access to it."
         ) % {"path": raw.path_of(run.target) or _("this dataset")}
     elif status in (401, 403):
         hint = _(

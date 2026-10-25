@@ -415,9 +415,9 @@ def test_records_sent_twice_are_said_plainly_on_the_source_page(client_validator
         "eTools said it had 1,939 more than NeuroDB received. 1,939 records came twice (identical) while the "
         "Datamart's pages were read: rows moved between pages, and then as many others did not come, or the "
         "Datamart holds them twice. Nothing was removed; the records do not carry id, so the order asked by id "
-        "cannot be checked. NeuroDB counts a record sent twice as eTools' own copy only when every copy comes "
-        "identical in one answer of the Datamart (one page): these did not, so the read is not complete."
-        in html
+        "cannot be checked, and the next read is in the Datamart's own order again. NeuroDB counts a record sent "
+        "twice as eTools' own copy only when every copy comes identical in one answer of the Datamart (one page): "
+        "these did not, so the read is not complete." in html
     )
     assert "The next sync reads them." not in html
 
@@ -465,6 +465,38 @@ def test_the_engagements_count_what_their_detail_datasets_saved_right_after_them
     assert runfacts.counts("engagements", engagements) == (3, 2, 1)
 
 
+@responses.activate
+def test_an_engagement_kept_from_an_earlier_sync_and_saved_by_its_audit_is_not_the_sync_s(
+    client_validator, world
+):
+    """The second night's engagements read is not whole (2 of the 3 announced came), so engagement 3 is kept, and
+    its audit, read right after, saves it again. Updated by the last sync counts at most what the engagements
+    run kept itself (2): the third was kept from an earlier sync, and nothing is unexplained."""
+    from neurodb.integrations.etools import datamart_sync
+    from neurodb.integrations.etools.datamart import DatamartClient
+    from neurodb.integrations.http import make_session
+    from tests.integrations.fake_datamart import FakeDatamart
+
+    api, lebanon = "https://datamart.test/api/latest/datamart", {"country_name": "Lebanon"}
+    client = DatamartClient("https://datamart.test", "svc-user", "not-a-real-secret", country="Lebanon",
+                            session=make_session("", backoff=0))  # fmt: skip
+    for cap in (None, 2):
+        responses.reset()
+        FakeDatamart([{"id": n, "reference_number": f"LEB/AUD/{n}", "engagement_type": "audit", **lebanon}
+                      for n in (1, 2, 3)], cap=cap, cut_count=False).register(f"{api}/audit/engagements/")  # fmt: skip
+        FakeDatamart([{"id": 10 + n, "reference_number": f"LEB/AUD/{n}", "audited_expenditure": "100", **lebanon}
+                      for n in (1, 2, 3)]).register(f"{api}/audit/audit/")  # fmt: skip
+        engagements, _ = datamart_sync.sync_all(
+            only=["engagements", "audits"], triggered_by="test", client=client
+        )
+    assert engagements.details["removal_skipped"]
+    facts = runfacts.facts("engagements")
+    assert (facts.received, facts.held, facts.updated_by_sync, facts.updated_since) == (2, 3, 2, 0)
+    assert (facts.from_earlier, facts.unexplained) == (1, 0)
+    html = " ".join(client_validator.get(f"{INDEX}engagements/").content.decode().split())
+    assert "not explained" not in html
+
+
 def test_a_dataset_the_datamart_account_may_not_read_says_whom_to_ask(client_validator, world):
     """24 Oct 2026: audit/financial-findings-all answered 403 while the same account read about 40 other
     datasets that night: signed in, not allowed this one. Raw eTools data says so and whom to ask, never the
@@ -488,6 +520,60 @@ def test_a_dataset_the_datamart_account_may_not_read_says_whom_to_ask(client_val
     )
     assert not runfacts.not_allowed(unauthorised)
     assert runfacts.failure_words(unauthorised) == "eTools Datamart answered 401: sign-in refused"
+
+
+FORBIDDEN = "IntegrationError: GET /api/latest/datamart/{path}/: HTTP 403 Forbidden"
+
+
+def _refused_run(target: str, ago: float, status=SyncRun.Status.FAILED, body: str = "") -> SyncRun:
+    started = timezone.now() - datetime.timedelta(hours=ago)
+    error = (FORBIDDEN.format(path=raw.path_of(target)) + body) if status == SyncRun.Status.FAILED else ""
+    return SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target=target, status=status, error=error,
+                                  started_at=started, finished_at=started + datetime.timedelta(minutes=1))  # fmt: skip
+
+
+def test_every_dataset_refused_403_is_never_said_as_one_dataset_not_allowed(db):
+    """Every dataset of one sync answered 403, nothing read: nothing shows the account was signed in, so no page
+    says it is not allowed one dataset; they say the sign-in or the dataset, and to renew the credentials if every
+    dataset fails so. A body naming the sign-in is the credentials refused."""
+    from neurodb.core.admin import error_hint
+
+    runs = [
+        _refused_run(name, ago)
+        for name, ago in (("grants", 1.2), ("engagements", 1.1), ("partner_reports", 1))
+    ]
+    for run in runs:
+        assert runfacts.refused(run) == runfacts.EITHER and not runfacts.not_allowed(run)
+        assert (
+            runfacts.failure_words(run)
+            == "eTools Datamart answered 403: it refused NeuroDB's sign-in or this dataset"
+        )
+        hint = str(error_hint(run))
+        assert (
+            "renew the credentials" in hint
+            and "grant the account access" in hint
+            and "not allowed" not in hint
+        )
+    assert runfacts.facts("engagements").complete == (False, "No: the last sync failed")
+    signed_out = _refused_run("audits", 1, body=' {"detail":"Invalid username/password."}')
+    assert runfacts.refused(signed_out) == runfacts.SIGN_IN
+    assert "refused NeuroDB's credentials" in str(error_hint(signed_out))
+    assert runfacts.failure_words(signed_out) == "eTools Datamart answered 403: sign-in refused"
+
+
+def test_a_403_beside_a_dataset_that_read_is_this_dataset_not_allowed(db):
+    """24 Oct 2026: audit/financial-findings-all answered 403 between the audits that read: the sign-in worked, so
+    the account is not allowed that dataset. The same for "Sync this dataset again" the next morning, the nearest
+    run of another dataset being last night's audits."""
+    _refused_run("audits", 10, status=SyncRun.Status.SUCCEEDED)
+    findings = _refused_run("audit_findings", 9.9)
+    _refused_run("spot_checks", 9.8, status=SyncRun.Status.PARTIAL)
+    again = _refused_run("audit_findings", 1)
+    for run in (findings, again):
+        assert runfacts.not_allowed(run)
+        assert runfacts.failure_words(run).startswith(
+            "eTools Datamart answered 403: the account NeuroDB uses is not"
+        )
 
 
 ERRORS_SEEN = (  # what a failed run's error holds -> what Raw eTools data says of it

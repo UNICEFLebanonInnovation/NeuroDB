@@ -26,16 +26,17 @@ came twice is not proven (``pages_shifted``: the Datamart's default order moved 
 many others did not come, or it holds them twice) and leaves the read not whole. A plain read whose every
 record twice is proven is whole when it received, copies included, every record announced: each record
 received came at most as many times as the Datamart holds it, so a record missing would leave the sum short.
-The next read first proves a stable order (:func:`prove_ordering`: two pages in order and the reverse on
-another, by ``id`` or by the dataset's record identity) and asks every page in it; records that still come
-twice, not proven, in an order checked on the key the records carry are most likely held twice by the
-Datamart (``held_twice``). :meth:`Reading.details` keeps counts, dates and ids only.
+When some were not proven, the next read first proves a stable order (:func:`prove_ordering`: two pages in
+order and the reverse on another, by ``id`` or by the dataset's record identity) and asks every page in it
+(:func:`order_wanted`: a read whose every record twice was proven stays in the default order); records that
+still come twice, not proven, in an order checked on the key the records carry are most likely held twice by
+the Datamart (``held_twice``). :meth:`Reading.details` keeps counts, dates and ids only.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
@@ -187,10 +188,22 @@ def suspected(name: str, count: int | None) -> str:
 
 def order_wanted(before: dict[str, Any]) -> bool:
     """Whether a read proves a stable order first: the previous finished run of its dataset (``before``, its
-    details) had records twice (``duplicates_read``), or asked an order (``ordering.key``)."""
-    ordering = before.get("ordering") if isinstance(before, dict) else None
-    asked = isinstance(ordering, dict) and bool(ordering.get("key"))
-    return bool(isinstance(before, dict) and before.get("duplicates_read")) or asked
+    details) had records twice that it did not prove its own copies (``duplicates_read`` beyond
+    ``copies_proven``), or asked an order (``ordering.key``). A read whose every record twice was proven asks
+    none: it was whole in the Datamart's default order, where its copies came together. An order asked on a
+    key the records do not carry (``carried: False``, which checks no order) that still left records twice not
+    proven is dropped: the next read is in the default order again, where copies side by side on one page are
+    proven. At worst the two orders take turns, night by night; neither removes a record missing."""
+    if not isinstance(before, dict):
+        return False
+    ordering = before.get("ordering") if isinstance(before.get("ordering"), dict) else {}
+    asked = bool(ordering.get("key"))
+    copies = before.get("copies_proven")
+    proven = (sync._int(copies.get("twice")) or 0) if isinstance(copies, dict) else 0
+    unproven = (sync._int(before.get("duplicates_read")) or 0) > proven
+    if asked and ordering.get("carried") is False and unproven:
+        return False  # an order the records do not carry left copies not proven: back to the default order
+    return unproven or asked
 
 
 def _order_value(value: Any) -> tuple[int, Any] | None:
@@ -229,8 +242,11 @@ def _order_proof(
         and values[2] == sorted(values[2], reverse=True)
         and (not values[0] or not values[1] or values[0][-1] <= values[1][0])
     )
-    proven = all(pages) and not shared and not reverse_shared and in_order
-    return {
+    held = 0  # the records the two pages share that the Datamart holds twice (asked only when they decide)
+    if shared and all(pages) and not reverse_shared and in_order:
+        held = shared if _held_across(client, dataset, asked, country, first, second) else 0
+    proven = all(pages) and shared == held and not reverse_shared and in_order
+    found = {
         "key": key,
         "verdict": "proven" if proven else "ignored",
         "count": count,
@@ -240,6 +256,31 @@ def _order_proof(
         "carried": carried,
         "in_order": in_order,
     }
+    if held:
+        found["shared_held"] = held
+    return found
+
+
+def _held_across(
+    client: DatamartClient,
+    dataset: str,
+    asked: dict[str, Any],
+    country: bool,
+    first: list[dict[str, Any]],
+    second: list[dict[str, Any]],
+) -> bool:
+    """Whether the records pages 1 and 2 of an order share (:func:`_order_proof`) are copies the Datamart
+    holds, not rows that moved between the two requests: one answer of both places (page 1 of
+    ``2 × ORDER_PAGE`` records, in the same order) lists every record as many times as the two pages together.
+    One answer never lists a row twice, so a shift cannot pass. A refused or failed request, or a shorter
+    answer (a page size it does not take), proves nothing."""
+    try:
+        both = client.first_page(dataset, {**asked, "page_size": 2 * ORDER_PAGE}, country=country)[1]
+    except IntegrationError:
+        return False
+    return Counter(sync.record_key(item) for item in both) == Counter(
+        sync.record_key(item) for item in (*first, *second)
+    )
 
 
 def prove_ordering(
@@ -253,15 +294,16 @@ def prove_ordering(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Whether the Datamart reads ``dataset`` (``params``, the read's own query) in a stable order, proven
     as the probe proves a filter, on one key after another (``keys``, the empty ones left out): page 1 and
-    page 2 of ``ordering=<key>`` (:data:`ORDER_PAGE` records each) share no record and, when the records carry
-    the key, each is in order and page 1 ends at or before page 2's start; page 1 of ``ordering=-<key>``
-    shares no record with page 1 and, with the key, is in descending order (records with no id are told apart
-    by their content). A dataset of ``2 × ORDER_PAGE`` records or fewer (``known``, the last read's count, or
-    the first proof page's) is not asked: too small to prove, and to shift. A refused or failed request never
-    fails the read: that key is not proven. Returns ``{"key": key}`` (``"carried": False`` when the records do
-    not carry the key: the pages then prove no order, only that they share no record), or ``{"key": "",
-    "why": ..., "tried": keys}`` (``ignored``, ``refused``, ``failed`` or ``too_small``), and each key tried
-    with what its pages showed (counts only)."""
+    page 2 of ``ordering=<key>`` (:data:`ORDER_PAGE` records each) share no record (or only records the
+    Datamart holds twice, which one answer of both places lists as often: ``shared_held``) and, when the
+    records carry the key, each is in order and page 1 ends at or before page 2's start; page 1 of
+    ``ordering=-<key>`` shares no record with page 1 and, with the key, is in descending order (records with
+    no id are told apart by their content). A dataset of ``2 × ORDER_PAGE`` records or fewer (``known``, the
+    last read's count, or the first proof page's) is not asked: too small to prove, and to shift. A refused or
+    failed request never fails the read: that key is not proven. Returns ``{"key": key}`` (``"carried":
+    False`` when the records do not carry the key: the pages then prove no order, only that they share no
+    record), or ``{"key": "", "why": ..., "tried": keys}`` (``ignored``, ``refused``, ``failed`` or
+    ``too_small``), and each key tried with what its pages showed (counts only)."""
     if isinstance(known, int) and not isinstance(known, bool) and known <= 2 * ORDER_PAGE:
         return {"key": "", "why": "too_small"}, []
     tried: list[dict[str, Any]] = []
@@ -314,6 +356,7 @@ class Reading:
         self.announced: int | None = None  # C, the count of the first page
         self.keys: set[str] = set()
         self.repeated = 0
+        self.again = False  # the record yielded last came before (its key): counted once by those it skips
         self.repeated_same = 0  # records again that carry no id: identical to their first copy (their hash)
         # a plain read: the records that came again (by key) and where; the records of this page and of the
         # one before (key -> [place, record, copies identical on this page]); the records read so far
@@ -397,7 +440,7 @@ class Reading:
     def _take(self, window: Window, item: dict[str, Any]) -> tuple[str, bool]:
         """Count one record in ``window``; its key, and whether it came before."""
         key = sync.record_key(item, self.identity)
-        again = key in self.keys
+        again = self.again = key in self.keys
         if again:
             window.repeated += 1
             self.repeated += 1
@@ -797,7 +840,8 @@ class Reading:
         identical); when windowed, why (``windows_why``), the windows (the
         first :data:`WINDOWS_KEPT`), what was read and announced, the filter proven, the checks and their
         outcome (``windows_cut``: windows read to their end holding fewer than they announced);
-        ``cap_suspected`` when the answer looks cut. Counts, dates and ids only."""
+        ``cap_suspected`` when the answer looks cut; ``read``, the distinct records, when windowed or when
+        some came twice. Counts, dates and ids only."""
         found: dict[str, Any] = {}
         if self.announced is not None:
             found["datamart_count"] = self.announced
@@ -821,8 +865,8 @@ class Reading:
         elif others:
             missing = max((self.announced or 0) - self.read - proven, 0)
             found["pages_shifted"] = {"twice": others, "missing": missing}
-        if self.repeated:
-            found["duplicates_read"] = self.repeated
+        if self.repeated:  # and the distinct records, what NeuroDB received (runfacts.records_read)
+            found.update(duplicates_read=self.repeated, read=self.read)
         if self.repeated and self.repeated_same == self.repeated:
             found["twice_identical"] = True
         if not self.windowed:

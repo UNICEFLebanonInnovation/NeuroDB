@@ -659,6 +659,31 @@ def test_data_health_says_the_datamart_s_own_copies_and_a_dataset_it_may_not_rea
     )
 
 
+def test_data_health_says_a_short_read_whose_only_copies_are_proven_removed_nothing(client_viewer, world):
+    """A read of 11 announced records got 7, one of them twice on one page (proven the Datamart's own copy), and
+    3 never came: not whole, so Data health says what it read and that none was removed, with the copy a note
+    beside it, never as pages that shifted."""
+    from html import unescape
+
+    _run(SyncRun.Job.ETOOLS_DATAMART, "cp_indicators", status=SyncRun.Status.PARTIAL, rows_in=7, rows_written=7,
+         details={"documents": 7, "datamart_count": 11, "read": 7, "removal_skipped": True, "partial": True,
+                  "duplicates_read": 1, "twice_identical": True,
+                  "copies_proven": {"twice": 1, "same_page": 1, "asked_again": 0}})  # fmt: skip
+    row = " ".join(
+        _dataset(unescape(text(get_part(client_viewer, PAGE, "datasets"))), "cp_indicators").split()
+    )
+    assert (
+        '<span class="cell-sub text-warning">read 7 records of the 11 the Datamart announced: none was removed; '
+        "the next complete read removes those it no longer returns</span>" in row
+    )
+    assert (
+        '<span class="cell-sub text-muted">The Datamart sent 1 record twice (identical), every copy in one of its '
+        "answers (on one page): it holds them twice, as one answer never lists a row twice. NeuroDB keeps one of "
+        "each.</span>" in row
+    )
+    assert "rows moving between pages" not in row and "rows moved between pages" not in row
+
+
 @pytest.mark.parametrize("name", PARTS)
 def test_each_part_stays_within_its_query_ceiling(client_viewer, world, name, django_assert_max_num_queries):
     raw_get(client_viewer, PAGE)  # the navigation stored, as after the frame
@@ -817,7 +842,7 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
                 "errors": (details.get("errors") or [])[:3],
                 "relinked": details.get("relinked"),
                 "error": run.error if run and run.status == "failed" and not details.get("errors") else "",
-                "not_allowed": "",  # no run of the world failed with a 403 of the Datamart
+                "refused_words": "",  # no run of the world failed with a 403 of the Datamart
                 "diagnostic": name in DIAGNOSTIC,
                 "business_area": details.get("business_area") or "",
                 "business_area_from": services.BUSINESS_AREA_FROM.get(details.get("business_area_from"), ""),

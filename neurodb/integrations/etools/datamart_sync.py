@@ -1245,7 +1245,8 @@ def remove_other_country(model: type[dm.DatamartRecord], country: str, keep: set
 class OfCountry:
     """The records of a ``country_name``-filtered read that belong to the client's country: a filter
     the API ignored must never let another country's records in (``CountryScope.keeps`` does the same
-    for the records kept whole). ``skipped`` counts the records left out; they are never written.
+    for the records kept whole). ``skipped`` counts the records left out, each once (a copy the Datamart sent
+    again is not counted again, as ``read`` counts it once); they are never written.
     Rows an earlier run wrote are removed from the ``datamart`` tables (:func:`remove_other_country`) and
     from the records kept whole; the partner, programme document, location and site tables keep them.
     ``read`` counts the distinct records read, kept or skipped (by :func:`record_key`), ``repeated``
@@ -1265,9 +1266,10 @@ class OfCountry:
         for item in self.reading:
             named = area.sees(item) if area else True
             if named is False or other_country(item, self.country):
-                self.skipped += 1
-                if area:
-                    area.strays += 1
+                if not self.reading.again:  # a record sent twice is left out once
+                    self.skipped += 1
+                    if area:
+                        area.strays += 1
                 continue
             if named is None:
                 area.unnamed += 1
@@ -2870,7 +2872,10 @@ def _twice_words(details: dict[str, Any], proven: bool) -> str:
     )
     why, key = ordering.get("why"), ordering.get("key")
     if key and ordering.get("carried") is False:  # the order's pages shared no record: no order checked
-        return f"{said}; the records do not carry {key}, so the order asked by {key} cannot be checked."
+        return (
+            f"{said}; the records do not carry {key}, so the order asked by {key} cannot be checked, and the "
+            "next read is in the Datamart's own order again."
+        )
     if why in ("ignored", "refused", "failed"):
         verb = {"ignored": "is ignored", "refused": "is refused", "failed": "could not be asked"}[why]
         by = _order_by(ordering.get("tried"))
