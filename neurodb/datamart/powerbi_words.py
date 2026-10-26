@@ -268,6 +268,7 @@ REASON_ORDER = (
     "see_reports",
     "see_dq_list",
     "cut",
+    "list_cut",
     "filter",
     "unknown",
 )
@@ -285,6 +286,7 @@ REASON_GROUPS = {
     "see_reports": 4,
     "see_dq_list": 4,
     "cut": 4,
+    "list_cut": 4,
     "filter": 4,
     "unknown": 4,
 }
@@ -302,6 +304,7 @@ REASON_WORDS = {
     "see_reports": "Upload PD/SPD Report to see why",
     "see_dq_list": "Upload the Data Quality list to see why",
     "cut": "Power BI may have cut its export",
+    "list_cut": "Power BI may have cut PD/SPD Report",
     "filter": "A filter NeuroDB cannot apply",
     "unknown": "Not explained yet",
 }
@@ -322,10 +325,19 @@ REASON_ACTIONS = {
         "Check in Power BI that the visual shows no more rows. If it does, export it again one section or "
         "one partner at a time and upload each file."
     ),
+    # a counted visual's gap whose reports may be beyond the report list's cut: the list is exported again
+    "list_cut": (
+        "Export PD/SPD Report again one section or one partner at a time and upload the files with this one."
+    ),
     "filter": "Or clear that slicer in Power BI and export again.",
 }
+# not in the Datamart read, where NeuroDB holds no such PD: the PD is checked in eTools (a report in PRP)
+NOT_IN_READ_PD = "Check in eTools that this PD exists."
+# a different rule no choice is offered for (Choices for you would show nothing about it)
+RULE_NO_CHOICE = "NeuroDB counts it another way."
+COUNTED_NO_CHOICE = "Nothing to fix: NeuroDB counts these another way."
 # the reasons whose own step replaces their group's (nothing to send to the NeuroDB team: export again)
-OWN_ACTION = frozenset({"cut"})
+OWN_ACTION = frozenset({"cut", "list_cut"})
 # the details a reason gives
 DETAIL_BEFORE_HISTORY = "The Datamart holds no earlier partner report."
 DETAIL_NOT_RUNNING = "NeuroDB has this PD as {status}."
@@ -492,6 +504,14 @@ NOTE_SET_ASIDE = (
     "{n:,} rows are about periods before {history}: NeuroDB holds none, so they were not compared."
 )
 NOTE_SET_ASIDE_ONE = "1 row is about a period before {history}: NeuroDB holds none, so it was not compared."
+# NeuroDB's own rows of those periods, kept from an earlier sync: set aside the same way
+NOTE_SET_ASIDE_NEURODB = (
+    "NeuroDB still holds {n:,} rows of periods before {history} from an earlier sync: they were not compared "
+    "either."
+)
+NOTE_SET_ASIDE_NEURODB_ONE = (
+    "NeuroDB still holds 1 row of a period before {history} from an earlier sync: it was not compared either."
+)
 NOTE_ZERO = "Power BI shows no value as 0: a 0 against no value in NeuroDB is the same."
 NOTE_RULE = "Stated once for every row: {words}."
 NOTE_JOINED_SECTIONS = "{n:,} Power BI rows join the same sections written differently."
@@ -551,6 +571,7 @@ VERDICT_WORDS = {
     "check_one": "Check 1 PD in eTools",
     "look": "Needs a look: {n:,}",
     "cut": "Power BI may have cut this export at {n:,} rows",
+    "list_cut": "Power BI may have cut PD/SPD Report: {n:,}",
     "empty": "Empty in Power BI: NeuroDB's page has {n:,} rows for this filter",
     "empty_one": "Empty in Power BI: NeuroDB's page has 1 row for this filter",
     "empty_none": "Empty in Power BI: NeuroDB's page has none either",
@@ -568,6 +589,7 @@ VERDICT_ACTIONS = {
     "check_one": GROUP_ACTIONS[3],
     "look": GROUP_ACTIONS[4],
     "cut": REASON_ACTIONS["cut"],
+    "list_cut": REASON_ACTIONS["list_cut"],
     "empty": "Check the visual's filters in Power BI.",
     "empty_one": "Check the visual's filters in Power BI.",
     "empty_none": "Check the visual's filters in Power BI.",

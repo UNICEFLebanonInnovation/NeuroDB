@@ -227,7 +227,9 @@ def _export_row(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
     if not_read:
         state, action = words.NOT_READ_STATE, words.NOT_READ_ACTION
     elif export.state in ("compared", "empty", "not_compared", "failed"):
-        state, action = powerbi_results.verdict_words(export, trimmed=upload.trimmed)
+        state, action = powerbi_results.verdict_words(
+            export, trimmed=upload.trimmed, offered=powerbi_results.offered(upload)
+        )
     else:
         state = words.STATE_WORDS.get(export.state, export.state)
         action = export.error or powerbi_results.country(words.STATE_ACTIONS.get(export.state, ""))
@@ -395,6 +397,7 @@ def export_view(request, pk: int, export_pk: int):
     on_screen = lines.only("n", "group", "kind", "reason", "rule", "detail", "match", "found", "link")
     paginator = Paginator(on_screen[: powerbi_results.ON_SCREEN], powerbi_results.PAGE_SIZE)
     page = paginator.get_page(request.GET.get("page"))
+    choices = powerbi_results.offered(upload)
     query = {k: v for k, v in chosen.items() if v}
     context = _context(
         request,
@@ -420,7 +423,7 @@ def export_view(request, pk: int, export_pk: int):
         fits=powerbi_results.fit_tables(export, history),
         by_reason=_by_reason(upload, export),
         chosen=chosen,
-        lines=[powerbi_results.line_view(export, line, history) for line in page.object_list],
+        lines=[powerbi_results.line_view(export, line, history, choices) for line in page.object_list],
         page=page,
         query=urlencode(query),
         match=powerbi_results.match_captions(export),

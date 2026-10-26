@@ -246,7 +246,7 @@ def test_a_failed_upload_says_why_first_and_never_that_there_is_nothing_to_do(ch
     table = html.split("data-pbi-pages", 1)[1].split("</table>", 1)[0]
     if how == "other_job_later":  # read already: Compare again
         assert upload.error == words.OTHER_JOB_LATER and words.AGAIN_BUTTON in html
-        assert table.count(f"<td>{words.STATE_WORDS['read']}") == 13
+        assert table.count(f'<td class="nd-pbi__long">{words.STATE_WORDS["read"]}') == 13
     else:  # the copies were emptied: upload the files again
         assert "upload the files again" in upload.error and words.AGAIN_BUTTON not in html
         assert table.count(words.NOT_READ_STATE) == 13 and table.count(words.NOT_READ_ACTION) == 13
@@ -534,7 +534,9 @@ def test_the_upload_page_says_what_to_do_now_and_one_verdict_per_power_bi_page(c
     assert 1 <= len(todo) <= 4
     verdicts = dict(
         re.findall(
-            r'<th scope="row" rowspan="\d+">(.*?)</th>\s*<td rowspan="\d+" data-pbi-verdict="(\w+)"', html
+            r'<th scope="row" rowspan="\d+">(.*?)</th>\s*<td class="nd-pbi__long" rowspan="\d+" '
+            r'data-pbi-verdict="(\w+)"',
+            html,
         )
     )
     assert verdicts["PD/SPD Report"] == "check" and verdicts["Partner Performance"] == "same"
@@ -668,6 +670,55 @@ def test_an_export_s_differences_stay_readable_at_phone_width():
     )
     page = (ROOT / "datamart/templates/admin/datamart/powerbi/export.html").read_text(encoding="utf-8")
     assert "nd-pbi__lines" in page and page.count('class="nd-pbi__long"') == 4 and "nd-pbi__note" in page
+
+
+def test_the_upload_page_reads_at_phone_width_and_its_lists_show_their_markers():
+    """The table of Power BI's pages keeps its verdict and result columns wide enough to read on a phone (it
+    scrolls sideways in its card, never the page), and the lists show their bullets and numbers (unfold's
+    stylesheet has no list-disc or list-decimal)."""
+    css = (ROOT / "web/static/css/admin.css").read_text(encoding="utf-8")
+    assert '.nd-pbi__pages th[scope="row"] { min-width: 7rem; }' in css
+    assert ".nd-pbi__pages td.nd-pbi__long { min-width: 12rem; max-width: 24rem; }" in css
+    assert ".nd-pbi .list-disc { list-style-type: disc; }" in css
+    assert ".nd-pbi .list-decimal { list-style-type: decimal; }" in css
+    folder = ROOT / "datamart/templates/admin/datamart/powerbi"
+    page = (folder / "upload.html").read_text(encoding="utf-8")
+    assert "nd-pbi__pages" in page and page.count('class="nd-pbi__long"') == 2
+    for name in ("index.html", "upload.html", "export.html"):
+        assert 'class="nd-found nd-raw nd-pbi ' in (folder / name).read_text(encoding="utf-8"), name
+
+
+def test_choosing_the_files_throws_no_script_error(checker):
+    """unfold's admin script, on any file input's change, writes the file's name into the text input three
+    levels up (its own file widget's): the form keeps the browser's own file input (which says "13 files") and
+    gives the script a hidden text input there, so choosing the files throws no error in the console."""
+    from html.parser import HTMLParser
+
+    class Tree(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.stack, self.found = [], None
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "input" and attrs.get("type") == "file":
+                self.found = list(self.stack)
+            if tag not in ("input", "br", "img", "meta", "link"):
+                self.stack.append((tag, attrs))
+
+        def handle_endtag(self, tag):
+            if self.stack and tag != "input":
+                self.stack.pop()
+
+    html = checker.get(INDEX).content.decode()
+    tree = Tree()
+    tree.feed(html)
+    third = tree.found[-3]
+    assert "data-pbi-file" in third[1], tree.found[-3:]
+    block = html.split("data-pbi-file", 1)[1].split("</form>", 1)[0]
+    assert (
+        '<input type="text" hidden' in block and "disabled" in block.split('<input type="text" hidden', 1)[1]
+    )
 
 
 def test_the_upload_page_says_how_far_the_comparison_is(checker, started):

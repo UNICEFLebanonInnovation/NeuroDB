@@ -9,7 +9,7 @@
 {% endcomment %}
 
 {% block content %}
-<div id="content-main" class="nd-found nd-raw flex flex-col gap-6">
+<div id="content-main" class="nd-found nd-raw nd-pbi flex flex-col gap-6">
   <p class="nd-list-note">
     <span class="material-symbols-outlined" aria-hidden="true">info</span>
     <span>{{ words.INTRO }}</span>
@@ -29,7 +29,12 @@
           <p class="nd-fixed__note" role="status" data-pbi-running>{{ words.BUSY }} <a class="nd-link" href="{% url 'admin:datamart_powerbi_upload' running.pk %}">{{ words.BUSY_LINK }}</a></p>
         {% endif %}
         <label class="font-semibold text-important" for="{{ form.files.id_for_label }}">{{ form.files.label }}</label>
-        {{ form.files }}
+        {% comment %}
+          The browser's own file input (it says how many files are chosen). unfold's admin script writes a chosen
+          file's name into the text input three levels up, where its own file widget has one: this hidden one
+          takes it, so choosing the files throws no error.
+        {% endcomment %}
+        <div data-pbi-file><div><div>{{ form.files }}</div></div><input type="text" hidden disabled aria-hidden="true" tabindex="-1"></div>
         <small class="nd-menu__note">{{ form.files.help_text }}</small>
       </div>
     {% endcomponent %}

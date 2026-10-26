@@ -3047,7 +3047,11 @@ the card are explained from them), then Power BI's order.
   history): NeuroDB's values of a month Power BI's export has no row for are only in NeuroDB. The month chart
   compares every status: a column Power BI did not write (it writes a status only when its data has it) is its
   0, and a note names it. The table by sector's Total row is checked against Power BI's own rows and NeuroDB's
-  total as notes, never as a line (its gaps are the sections').
+  total as notes, never as a line (its gaps are the sections'). Rows about a period that starts before
+  NeuroDB's history are set aside on both sides of the report list, By location and By disaggregation
+  (`Job.after_history`): NeuroDB can still hold some from an earlier sync whose window started earlier, and
+  compared they would be "only in NeuroDB, not explained yet"; a note counts them
+  (`NOTE_SET_ASIDE_NEURODB`).
 - **Reasons** (`powerbi_words.REASON_ORDER`, the first whose test passes; a line whose columns give several takes
   the highest group): before NeuroDB's history (also a Program Performance row whose PD started before it and
   has no Accepted report in NeuroDB: its Accepted reports are older), the PD not running (group 3), a report
@@ -3062,9 +3066,15 @@ the card are explained from them), then Power BI's order.
   another day than Power BI's refresh; Power BI's Overdue on the due date itself is said so), a repeated value,
   upload the report list (or the Data Quality list) to see why, a row only NeuroDB has beyond an export Power BI
   may have cut (exactly 1,000, 30,000 or 150,000 rows: reason `cut`, group 4, its own step "export it again one
-  section or one partner at a time" in place of sending the Excel file; never counted in the report list's gaps,
-  so a counted visual's gap is said to be maybe beyond the list's cut), a filter NeuroDB cannot apply, not
-  explained yet. A candidate that is NeuroDB's own figure (eTools' target) never makes a line "a different
+  section or one partner at a time" in place of sending the Excel file; never counted in the report list's gaps),
+  a counted visual's gap whose reports may be beyond the report list's cut (reason `list_cut`, group 4, its own
+  step "export PD/SPD Report again in parts"; the visual's verdict is "Power BI may have cut PD/SPD Report: n",
+  never that the visual itself is cut, and *What to do now* counts the report list among the exports to export
+  again, not the visual), a filter NeuroDB cannot apply, not explained yet. Not in the Datamart read says
+  "Check in PRP that the report exists", or "Check in eTools that this PD exists" for a row of a PD NeuroDB
+  does not hold and on the PD indicators' and funds exports (`powerbi_results.PD_ROWS`). A different rule
+  points to *Choices for you* (its line, and the export's "counted another way" verdict) only when the upload
+  offers a choice about it (`RULE_CHOICES`, `STATUS_CHOICES`); else "NeuroDB counts it another way". A candidate that is NeuroDB's own figure (eTools' target) never makes a line "a different
   rule". Facts are one unfiltered query each (`powerbi_facts.Pds`, `Reports`: every PD and progress report NeuroDB
   holds, whatever its status).
 - **Fit tables** where Power BI's rule is not known: Program Performance's and PD/SPD Indicator's Reached

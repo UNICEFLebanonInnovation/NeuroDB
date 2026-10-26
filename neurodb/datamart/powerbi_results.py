@@ -31,6 +31,7 @@ SEVERITY = (
     "not_read",
     "look",
     "cut",
+    "list_cut",
     "check",
     "wait",
     "other_country",
@@ -44,6 +45,12 @@ SEVERITY = (
 # (APART) are rows NeuroDB cannot hold yet or never holds: "Same, apart from reports still owed: n"
 COUNTED_REASONS = ("rule", "status", "repeated", "left_out")
 APART_REASONS = ("owed", "before_history", "moved_on")
+# the choice of Choices for you a rule's lines and an export's verdict point to (no other rule has one)
+RULE_CHOICES = {"reached": "reached", "progress_reports": "progress_reports", "emergency": "emergency"}
+STATUS_CHOICES = {"follow_up": "due"}  # an export whose statuses counted differently are a choice
+# not in the Datamart read: the PD indicators' exports check the PD in eTools, as any row of a PD NeuroDB
+# does not hold; the others a report in PRP
+PD_ROWS = frozenset({"pd_indicators", "dq_list", "fund_monitoring", "funded_programmes"})
 XLSX_SHEET_ROWS = 100_000  # rows of one sheet of the Excel file (the last says how many more)
 XLSX_ROWS = 300_000  # rows of the whole file
 ON_SCREEN = 5_000  # lines an export's page lists (the Excel file holds the rest)
@@ -96,7 +103,11 @@ def verdict_code(export: PowerBIExport) -> str:
     found = groups(export)
     reasons = (export.counts or {}).get("reasons") or {}
     if found.get(4):  # every line that needs a look beyond a cut Power BI may have made: export it in parts
-        return "cut" if reasons.get("cut", 0) >= found[4] else "look"
+        cut, list_cut = reasons.get("cut", 0), reasons.get("list_cut", 0)
+        if cut + list_cut >= found[4]:
+            # cut itself, or a counted visual whose gaps wait for the report list exported in parts
+            return "cut" if cut else "list_cut"
+        return "look"
     for group, code in ((3, "check"), (2, "wait")):
         if found.get(group):
             return code
@@ -114,9 +125,28 @@ def apart(export: PowerBIExport) -> tuple[str, str]:
     return parts, " ".join(words.VERDICT_APART_ACTIONS[r] for r, _n in found)
 
 
-def verdict_words(export: PowerBIExport, trimmed: bool = False) -> tuple[str, str]:
+def offered(upload: PowerBIUpload) -> frozenset[str]:
+    """The choices Choices for you offers on this upload (their codes)."""
+    return frozenset(c.get("code", "") for c in upload.choices or [])
+
+
+def has_choice(export: PowerBIExport, choices: frozenset[str] | None) -> bool:
+    """Whether Choices for you has a choice about this export's rules (None: not known, said so)."""
+    if choices is None:
+        return True
+    counts = export.counts or {}
+    rules = counts.get("rules") or {}
+    if any(RULE_CHOICES.get(rule) in choices for rule in rules):
+        return True
+    return bool((counts.get("reasons") or {}).get("status")) and STATUS_CHOICES.get(export.kind) in choices
+
+
+def verdict_words(
+    export: PowerBIExport, trimmed: bool = False, offered: frozenset[str] | None = None
+) -> tuple[str, str]:
     """(the verdict in words, what to do). ``trimmed``: the upload kept its verdicts, not its lines (no Excel
-    file to send)."""
+    file to send). ``offered``: the upload's choices (:func:`offered`): "counted another way" points to
+    Choices for you only when one is about the export."""
     code = export.verdict or verdict_code(export)
     counts = export.counts or {}
     found = groups(export)
@@ -128,6 +158,8 @@ def verdict_words(export: PowerBIExport, trimmed: bool = False) -> tuple[str, st
         return words.VERDICT_WORDS["failed"].format(cls=cls), words.VERDICT_ACTIONS["failed"]
     if code == "cut":
         return words.VERDICT_WORDS["cut"].format(n=export.rows_read), words.VERDICT_ACTIONS["cut"]
+    if code == "list_cut":
+        return words.VERDICT_WORDS["list_cut"].format(n=found.get(4, 0)), words.VERDICT_ACTIONS["list_cut"]
     if code == "empty":
         n = counts.get("neurodb_rows", 0)
         key = "empty_none" if not n else ("empty_one" if n == 1 else "empty")
@@ -145,9 +177,11 @@ def verdict_words(export: PowerBIExport, trimmed: bool = False) -> tuple[str, st
         if code == "owed":
             verdict = words.VERDICT_WORDS["owed"].format(parts=parts)
             return verdict, f"{words.VERDICT_ACTIONS['owed']} {actions}"
+        counted = words.VERDICT_ACTIONS["counted"] if has_choice(export, offered) else words.COUNTED_NO_CHOICE
         if parts:
             verdict = words.VERDICT_COUNTED_ALSO.format(verdict=words.VERDICT_WORDS["counted"], parts=parts)
-            return verdict, f"{words.VERDICT_ACTIONS['counted']} {actions}"
+            return verdict, f"{counted} {actions}"
+        return words.VERDICT_WORDS["counted"], counted
     if code in words.VERDICT_WORDS:
         return words.VERDICT_WORDS[code], country(words.VERDICT_ACTIONS[code])
     action = country(words.STATE_ACTIONS.get(export.state, ""))
@@ -175,7 +209,7 @@ def page_lines(upload: PowerBIUpload, exports: list[PowerBIExport]) -> list[dict
         code = worst(codes) if mine else "not_uploaded"
         chosen = next((e for e in mine if (e.verdict or verdict_code(e)) == code), None)
         if chosen is not None and code not in ("", "not_uploaded"):
-            verdict, action = verdict_words(chosen, trimmed=upload.trimmed)
+            verdict, action = verdict_words(chosen, trimmed=upload.trimmed, offered=offered(upload))
         else:
             verdict, action = words.VERDICT_WORDS["not_uploaded"], words.VERDICT_ACTIONS["not_uploaded"]
         look = sum(groups(e).get(4, 0) for e in mine)
@@ -285,7 +319,7 @@ def todo(upload: PowerBIUpload, exports: list[PowerBIExport], before: list[str])
         export = next((e for e in exports if written_groups(e).get(group)), None)
         return export_url(upload, export, group=group) if export else ""
 
-    cut_lines = found["reasons"].get("cut", 0)
+    cut_lines = found["reasons"].get("cut", 0) + found["reasons"].get("list_cut", 0)
     look = found["groups"].get(4, 0) - cut_lines
     if look > 0:
         action = words.TRIMMED_ACTION if upload.trimmed else words.GROUP_ACTIONS[4]
@@ -301,12 +335,18 @@ def todo(upload: PowerBIUpload, exports: list[PowerBIExport], before: list[str])
     if wait:
         lines.append({"text": words.plural(wait, words.TODO_WAIT_ONE, words.TODO_WAIT), "url": first(2)})
     codes = {e.pk: e.verdict or verdict_code(e) for e in exports}
+    # the exports Power BI may have cut: those with rows beyond a round count, and the report list when a
+    # counted visual's gaps wait for it (it may have no line of its own)
+    cut = [e for e in exports if ((e.counts or {}).get("reasons") or {}).get("cut")]
+    if found["reasons"].get("list_cut"):
+        cut += [e for e in exports if e.kind == "report_list" and e not in cut]
+    with_lines = [e for e in cut if ((e.counts or {}).get("reasons") or {}).get("cut")]
     again = (
         (
-            [e for e in exports if ((e.counts or {}).get("reasons") or {}).get("cut")],
+            cut,
             words.TODO_CUT_ONE,
             words.TODO_CUT,
-            {"reason": "cut"},
+            {"reason": "cut"} if with_lines and with_lines[0] is cut[0] else {},
         ),
         (
             [e for e in exports if codes[e.pk] == "empty" and (e.counts or {}).get("neurodb_rows")],
@@ -567,11 +607,20 @@ def group_action(group: int, reason: str) -> str:
     return "" if reason in words.OWN_ACTION else words.GROUP_ACTIONS.get(group, "")
 
 
-def what_to_do(line: PowerBIDifference, history: str) -> str:
-    """A line's group sentence, and its reason's step when it adds one."""
+def what_to_do(
+    line: PowerBIDifference, history: str, offered: frozenset[str] | None = None, kind: str | None = None
+) -> str:
+    """A line's group sentence, and its reason's step when it adds one: a row of a PD NeuroDB does not hold,
+    or of the PD indicators' exports, is checked in eTools (a report in PRP); a different rule points to
+    Choices for you only when one is offered about it (``offered``: the upload's choices, None not known)."""
     extra = words.REASON_ACTIONS.get(line.reason, "")
-    if line.reason == "not_in_read" and line.group != 4:
-        extra = ""
+    if line.reason == "not_in_read":
+        if line.group != 4:
+            extra = ""
+        elif line.detail.startswith(words.DETAIL_NO_PD) or (kind or line.export.kind) in PD_ROWS:
+            extra = words.NOT_IN_READ_PD
+    if line.reason == "rule" and offered is not None and RULE_CHOICES.get(line.rule) not in offered:
+        extra = words.RULE_NO_CHOICE
     base = group_action(line.group, line.reason)
     return " ".join(x for x in (base, extra.format(history=history)) if x)
 
@@ -597,8 +646,10 @@ def rule_words(rule: str, history: str, export: PowerBIExport | None = None) -> 
     return text.replace("{words}", chosen_words(export, rule)).format(history=history)
 
 
-def line_view(export: PowerBIExport, line: PowerBIDifference, history: str) -> dict[str, Any]:
-    """One line as the export's page and the Excel file show it."""
+def line_view(
+    export: PowerBIExport, line: PowerBIDifference, history: str, offered: frozenset[str] | None = None
+) -> dict[str, Any]:
+    """One line as the export's page shows it (``offered``: the upload's choices)."""
     columns = [
         {
             "caption": caption(export, name),
@@ -616,7 +667,7 @@ def line_view(export: PowerBIExport, line: PowerBIDifference, history: str) -> d
         "reason": reason_words(line.reason, history),
         "rule": rule_words(line.rule, history, export),
         "detail": line.detail,
-        "todo": what_to_do(line, history),
+        "todo": what_to_do(line, history, offered, export.kind),
         "match": [
             display(export, n, v) for n, v in zip(MATCH.get(export.kind, ()), line.match or [], strict=False)
         ]
@@ -641,7 +692,7 @@ def workbook(upload: PowerBIUpload, exports: list[PowerBIExport], history: str, 
             continue
         kind = px.KINDS.get(export.kind)
         title = f"{export.order + 1} {kind.visual[0] if kind else export.kind}"
-        columns, rows = _export_rows(export, history, budget, base_url)
+        columns, rows = _export_rows(export, history, budget, base_url, offered(upload))
         sheets.append((title, columns, rows))
     return xlsx.workbook(sheets)
 
@@ -682,7 +733,7 @@ def _summary_rows(
                 only_powerbi=counts.get("only_powerbi", 0),
                 only_neurodb=counts.get("only_neurodb", 0),
             )
-            verdict, action = verdict_words(export)
+            verdict, action = verdict_words(export, offered=offered(upload))
             yield {
                 "Item": f"  {kind.visual[1] if kind else export.kind} ({export.file_name})",
                 "Value": verdict,
@@ -713,7 +764,11 @@ def _summary_rows(
 
 
 def _export_rows(
-    export: PowerBIExport, history: str, budget: list[int], base_url: str = ""
+    export: PowerBIExport,
+    history: str,
+    budget: list[int],
+    base_url: str = "",
+    choices: frozenset[str] | None = None,
 ) -> tuple[list[str], Iterator[dict[str, Any]]]:
     kind = px.KINDS.get(export.kind)
     match = match_captions(export)
@@ -742,7 +797,7 @@ def _export_rows(
                     for x in (reason_words(line.reason, history), rule_words(line.rule, history, export))
                     if x
                 ),
-                "What to do": what_to_do(line, history),
+                "What to do": what_to_do(line, history, choices, export.kind),
                 "Detail": line.detail,
                 words.CHECK_IN_NEURODB: f"{base_url}{line.link}" if line.link.startswith("/") else line.link,
             }

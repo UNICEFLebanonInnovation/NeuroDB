@@ -210,7 +210,8 @@ the chart by month) from it.
 for the same filter. Rows are matched by what both sides show (for the report list, the PD #, the Report # and
 the period end; for Program Performance, the partner and the indicator title). Two values are the same when
 they are equal, whatever Power BI's number format shows; a 0 in Power BI and no value in NeuroDB are the same.
-Rows about periods before NeuroDB's history are set aside and counted, never listed.
+Rows about periods before NeuroDB's history are set aside and counted, never listed: Power BI's, and the
+rows of those periods NeuroDB still holds from an earlier sync (a note says how many).
 
 **Every difference has a reason and says what to do.** Each reason belongs to one of four groups:
 
@@ -218,8 +219,8 @@ Rows about periods before NeuroDB's history are set aside and counted, never lis
   does not carry those), a row before NeuroDB's history (for a programme that started before it, Power BI can
   show reports NeuroDB never holds), a report that moved on after Power BI's refresh (NeuroDB already has its
   newer status), a status Power BI reads another way (its lists call a report not yet due "Due"), a value PRP
-  repeats on every location, or *a different rule*: Power BI counts the figure another way (see *Choices for
-  you*).
+  repeats on every location, or *a different rule*: Power BI counts the figure another way (the line and
+  the verdict point to *Choices for you* only when it offers a choice about that rule).
 - **Wait for the next sync.** NeuroDB's last sync ran before Power BI's refresh (or NeuroDB cannot tell which
   came first): the row is not in NeuroDB yet, or NeuroDB still has an older version. Wait for tonight's sync
   (20:30), or ask an Administrator to run the eTools Datamart sync, then press *Compare again*.
@@ -227,9 +228,13 @@ Rows about periods before NeuroDB's history are set aside and counted, never lis
   eTools, wait for the next sync and press *Compare again*.
 - **Needs a look.** Nothing above explains it (a row the Datamart did not send although NeuroDB's sync ran after
   Power BI's refresh, later the same day too, or a difference not explained yet). Download the Excel file and
-  send it to the NeuroDB team. An export of exactly 1,000 rows (or 30,000, or 150,000) may be cut by Power BI:
-  NeuroDB's rows beyond it say so. Check in Power BI that the visual shows no more rows; if it does, export it
-  again one section or one partner at a time, and upload each file (nothing to send).
+  send it to the NeuroDB team. A report missing from the Datamart read is checked in PRP; a row of a PD
+  NeuroDB does not hold, a PD indicator or a funds row, in eTools. An export of exactly 1,000 rows (or 30,000,
+  or 150,000) may be cut by Power BI: NeuroDB's rows beyond it say so. Check in Power BI that the visual shows
+  no more rows; if it does, export it again one section or one partner at a time, and upload each file
+  (nothing to send). When the PD/SPD Report list may be cut, the partner cards, the table by sector and the
+  chart by month cannot explain their gaps from it: they say "Power BI may have cut PD/SPD Report" and ask
+  for that list again in parts, never that they are cut themselves.
 
 **The upload's page** opens with *What to do now* (at most four lines, each with a link to its differences:
 what needs a look, the PDs to check in eTools, what waits for the sync, the exports to export again (cut by
@@ -237,7 +242,7 @@ Power BI, empty while NeuroDB's page has rows, or of another country), the files
 compare again, and a last line on what is expected). It says "Power BI and NeuroDB agree" only when every
 export is the same. Then one line per Power BI page, in Power BI's order, with its verdict ("Same", "Same
 data, counted another way", "Same, apart from reports still owed: 12", "Wait for the next sync: 3", "Check 1 PD
-in eTools", "Needs a look: 2", "Empty in Power BI", "Not uploaded") and what to do, and each export with its
+in eTools", "Needs a look: 2", "Power BI may have cut PD/SPD Report: 4", "Empty in Power BI", "Not uploaded") and what to do, and each export with its
 file, the rows read, what its filter covers ("2026", "Every year", "Education only") and its counts: rows
 compared, the same, different, only in Power BI, only in NeuroDB. While NeuroDB compares, the page refreshes by
 itself every few seconds.

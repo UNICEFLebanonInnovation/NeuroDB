@@ -30,7 +30,7 @@ import gzip
 import io
 import json
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -137,6 +137,7 @@ class Job:
     result: pm.Result
     rows_read: int = 0
     set_aside: int = 0
+    neurodb_set_aside: int = 0  # NeuroDB's own rows of periods before its history, set aside the same way
     by_comparison: list[str] = field(default_factory=list)  # filter fields applied while comparing
 
     def has(self, name: str) -> bool:
@@ -168,6 +169,23 @@ class Job:
         if self.set_aside:
             sentence = words.either(self.set_aside, words.NOTE_SET_ASIDE_ONE, words.NOTE_SET_ASIDE)
             self.result.note(sentence.format(n=self.set_aside, history=self.context.history_words))
+
+    def after_history(self, rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+        """NeuroDB's own rows, those of a period before its history set aside as Power BI's are (NeuroDB still
+        holds them from an earlier sync: compared, they would be only in NeuroDB) and counted."""
+        kept = []
+        for row in rows:
+            if self.before_history(row):
+                self.neurodb_set_aside += 1
+            else:
+                kept.append(row)
+        return kept
+
+    def note_neurodb_set_aside(self) -> None:
+        if self.neurodb_set_aside:
+            n = self.neurodb_set_aside
+            sentence = words.either(n, words.NOTE_SET_ASIDE_NEURODB_ONE, words.NOTE_SET_ASIDE_NEURODB)
+            self.result.note(sentence.format(n=n, history=self.context.history_words))
 
 
 def pick(options: list[Reason], context: pf.Context) -> Reason:
@@ -331,8 +349,8 @@ def explain(
             continue
         found[reason] += n
     if not found:
-        if job.context.gaps_cut:  # the reports behind it may be beyond the list's cut
-            return ("cut", "", words.DETAIL_LIST_CUT.format(n=job.context.gaps_cut))
+        if job.context.gaps_cut:  # the reports behind it may be beyond the list's cut: the list in parts
+            return ("list_cut", "", words.DETAIL_LIST_CUT.format(n=job.context.gaps_cut))
         return ("unknown", "", words.DETAIL_NO_GAP_LINES)
     total = sum(found.values())
     detail = words.either(total, words.DETAIL_GAP_ONE, words.DETAIL_GAP)
@@ -407,7 +425,8 @@ def report_list(job: Job) -> None:
         else:
             powerbi.append(row)
     job.note_set_aside()
-    neurodb = page.reports(parsed, context)
+    neurodb = job.after_history(page.reports(parsed, context))
+    job.note_neurodb_set_aside()
 
     def key_pb(row: dict[str, Any], base: bool = False) -> tuple:
         number = pm.pd_base(row["pd"]) if base else pm.pd_number(row["pd"])
@@ -1707,6 +1726,8 @@ def locations(job: Job) -> None:
         captions = [job.kind.column(n).caption for n in sorted(differ)]
         job.result.note(words.DETAIL_COPIES.format(columns=", ".join(captions)))
     neurodb, too_many = location_rows(job)
+    neurodb = job.after_history(neurodb)
+    job.note_neurodb_set_aside()
     if too_many:
         job.result.note(words.DETAIL_LIMIT.format(limit=reporting.LOCATION_LIMIT))
     held = pf.reports(context)
@@ -2062,6 +2083,7 @@ def disaggregations(job: Job) -> None:
                 found=diffs,
                 link=raw_link(b["pd"], b["report_type"], context=context),
             )
+    job.note_neurodb_set_aside()
     if labels_shared:
         job.result.note(words.NOTE_SHARED_LABEL)
     if combined:
@@ -2169,6 +2191,11 @@ def _neurodb_disaggregations(
     for part in parts:
         for block in part.get("blocks", []):
             reporting.fill_block(block, part["labels"])
+            if job.before_history(block):  # NeuroDB still holds it from an earlier sync: set aside
+                singles = [x for group in block["groups"] if not group.cross for x in group.lines]
+                job.neurodb_set_aside += sum(1 for x in [*singles, *block["untyped"]] if x.value is not None)
+                block.clear()
+                continue
             if block.get("unlabelled"):
                 unlabelled.add(
                     _disaggregation_key(

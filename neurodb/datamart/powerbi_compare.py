@@ -425,8 +425,9 @@ def run(pk: int, memory_limit: int | None = None) -> PowerBIUpload | None:
         summary.pop("compared", None)
         if memory_limit:
             summary["memory_limit_mb"] = round(memory_limit / MB)
-        upload.summary = {**summary, **powerbi_results.summary(upload, list(exports_of(upload)))}
+        # the choices first: the summary's verdicts point to Choices for you only when one is about them
         upload.choices = powerbi_results.choices(list(exports_of(upload)))
+        upload.summary = {**summary, **powerbi_results.summary(upload, list(exports_of(upload)))}
         upload.status = Status.DONE
         upload.compared_at = upload.finished_at = timezone.now()
         upload.error = ""
