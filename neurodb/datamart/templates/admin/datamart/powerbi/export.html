@@ -68,7 +68,7 @@
   {% endcomponent %}
   {% endfor %}
 
-  {% if by_reason.needs or by_reason.expected %}
+  {% if by_reason.needs or by_reason.expected or by_reason.noted %}
   {% trans "Differences by reason" as reasons_title %}
   {% component "unfold/components/card.html" with title=reasons_title title_icon="checklist" %}
     {% if by_reason.needs %}
@@ -78,9 +78,10 @@
         {% endfor %}
       </ul>
     {% endif %}
-    {% if by_reason.expected %}
+    {% if by_reason.expected or by_reason.noted %}
       <p data-pbi-expected>{{ words.EXPECTED_COLLAPSED }}:
         {% for r in by_reason.expected %}<a class="nd-link" href="{{ r.url }}">{{ r.reason }} ({{ r.n|intcomma }})</a>{% if not forloop.last %} · {% endif %}{% endfor %}
+        {% if by_reason.noted %}<span data-pbi-noted>{% if by_reason.expected %}, {% endif %}{{ by_reason.noted }}</span>{% endif %}
       </p>
     {% endif %}
   {% endcomponent %}

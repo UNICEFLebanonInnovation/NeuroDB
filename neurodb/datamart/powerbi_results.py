@@ -39,6 +39,7 @@ SEVERITY = (
     "wait",
     "other_country",
     "empty",
+    "not_shown",
     "counted",
     "owed",
     "same",
@@ -49,7 +50,12 @@ SEVERITY = (
 COUNTED_REASONS = ("rule", "status", "repeated", "left_out")
 APART_REASONS = ("owed", "before_history", "moved_on")
 # the choice of Choices for you a rule's lines and an export's verdict point to (no other rule has one)
-RULE_CHOICES = {"reached": "reached", "progress_reports": "progress_reports", "emergency": "emergency"}
+RULE_CHOICES = {
+    "reached": "reached",
+    "accepted_only": "reached",
+    "progress_reports": "progress_reports",
+    "emergency": "emergency",
+}
 STATUS_CHOICES = {"follow_up": "due"}  # an export whose statuses counted differently are a choice
 # not in the Datamart read: the PD indicators' exports check the PD in eTools, as any row of a PD NeuroDB
 # does not hold; the others a report in PRP
@@ -92,9 +98,11 @@ def written_groups(export: PowerBIExport) -> Counter:
 
 
 def verdict_code(export: PowerBIExport) -> str:
-    """An export's verdict: the worst group of its lines; with expected lines only, counted another way (a
-    rule or a reading of NeuroDB's) or the same apart from rows NeuroDB cannot hold (reports still owed,
-    before its history, moved on since Power BI's refresh); else same."""
+    """An export's verdict: the worst group of its lines (:data:`powerbi_match.GROUP_ORDER`: needs a look,
+    check in eTools, wait for the sync, NeuroDB cannot show this yet); with expected lines only, counted
+    another way (a rule or a reading of NeuroDB's) or the same apart from rows NeuroDB cannot hold (before its
+    history, moved on since Power BI's refresh; an earlier upload's reports still owed, which it wrote as
+    expected); else same."""
     if export.state == "failed":
         return "failed"
     if export.state == "not_compared":
@@ -111,7 +119,7 @@ def verdict_code(export: PowerBIExport) -> str:
             # cut itself, or a counted visual whose gaps wait for the report list exported in parts
             return "cut" if cut else "list_cut"
         return "look"
-    for group, code in ((3, "check"), (2, "wait")):
+    for group, code in ((3, "check"), (2, "wait"), (5, "not_shown")):
         if found.get(group):
             return code
     if found.get(1):
@@ -212,6 +220,10 @@ def verdict_words(
         n = found.get(4 if code == "look" else 2, 0)
         action = words.TRIMMED_ACTION if trimmed and code == "look" else words.VERDICT_ACTIONS[code]
         return words.VERDICT_WORDS[code].format(n=n), action
+    if code == "not_shown":
+        n = found.get(5, 0)
+        key = "not_shown_one" if n == 1 else "not_shown"
+        return words.VERDICT_WORDS[key].format(n=n), words.VERDICT_ACTIONS[key]
     if code in ("owed", "counted"):
         parts, actions = apart(export)
         if code == "owed":
@@ -283,16 +295,30 @@ def export_url(upload: PowerBIUpload, export: PowerBIExport, **query: Any) -> st
 
 
 def totals(exports: Iterable[PowerBIExport]) -> dict[str, Any]:
-    """The lines of every export, by group and by reason, and the PDs to check in eTools."""
+    """The lines of every export, by group and by reason, the expected ones by reason (each reason's group as
+    the export wrote it, ``counts["reason_groups"]``; an export compared before they were kept wrote its
+    reports still owed as expected, and every reason in the group of ``REASON_GROUPS`` then, owed's 1), and
+    the PDs to check in eTools."""
     by_group: Counter = Counter()
     by_reason: Counter = Counter()
+    expected: Counter = Counter()
     pds: set[str] = set()
     for export in exports:
         counts = export.counts or {}
         by_group.update(groups(export))
-        by_reason.update(counts.get("reasons") or {})
+        reasons = counts.get("reasons") or {}
+        by_reason.update(reasons)
+        stored = counts.get("reason_groups")
+        for reason, n in reasons.items():
+            group = stored.get(reason) if stored is not None else EARLIER_GROUPS.get(reason)
+            if group == 1:
+                expected[reason] += n
         pds.update(counts.get("check_pds") or [])
-    return {"groups": by_group, "reasons": by_reason, "check_pds": pds}
+    return {"groups": by_group, "reasons": by_reason, "expected": expected, "check_pds": pds}
+
+
+# the expected reasons of an upload compared before each export kept its reasons' groups: owed was one
+EARLIER_GROUPS = {**words.REASON_GROUPS, "owed": 1}
 
 
 def to_clear(clause: powerbi_filters.Clause) -> str:
@@ -354,7 +380,8 @@ def todo(upload: PowerBIUpload, exports: list[PowerBIExport], before: list[str])
     """What to do now, at most four lines, the most pressing first: the upload's error, the differences that
     need a look, the PDs to check in eTools, the differences waiting for the sync, the exports to export again
     (cut by Power BI, empty while NeuroDB has rows, another country), then ``before`` (:func:`before`: the
-    files not read, the visuals not uploaded, the filters to clear), and a closing line on what is expected.
+    files not read, the visuals not uploaded, the filters to clear), what NeuroDB cannot show yet (reports
+    still owed), and a closing line on what is expected (its parts by the groups each export wrote).
     Each line with the address of its lines (none on a trimmed upload: it keeps no line)."""
     found = totals(exports)
     lines: list[dict[str, str]] = []
@@ -415,13 +442,16 @@ def todo(upload: PowerBIUpload, exports: list[PowerBIExport], before: list[str])
             url = "" if upload.trimmed and query else export_url(upload, found_exports[0], **query)
             lines.append({"text": words.plural(len(found_exports), one, many), "url": url})
     lines += [{"text": text, "url": ""} for text in before]
+    not_shown = found["groups"].get(5, 0)
+    if not_shown:
+        text = words.plural(not_shown, words.TODO_NOT_SHOWN_ONE, words.TODO_NOT_SHOWN)
+        lines.append({"text": text, "url": first(5)})
     expected = found["groups"].get(1, 0)
     if expected and len(lines) < TODO_LINES:
-        reasons = found["reasons"]
         parts = ", ".join(
             words.TODO_EXPECTED_PART[r].format(n=n)
-            for r, n in reasons.most_common()
-            if r in words.TODO_EXPECTED_PART and words.REASON_GROUPS.get(r) == 1
+            for r, n in found["expected"].most_common()
+            if r in words.TODO_EXPECTED_PART
         )
         text = words.either(expected, words.TODO_EXPECTED_ONE, words.TODO_EXPECTED)
         lines.append({"text": text.format(n=expected, parts=parts or words.GROUP_NAMES[1]), "url": first(1)})
@@ -484,7 +514,8 @@ def choices(exports: list[PowerBIExport]) -> list[dict[str, Any]]:
         out.append({"code": "progress_reports", "evidence": evidence})
     due = extra("follow_up").get("due_not_yet")
     if due:
-        out.append({"code": "due", "evidence": words.CHOICE_EVIDENCE["due"].format(n=due)})
+        of = extra("follow_up").get("due_rows") or due
+        out.append({"code": "due", "evidence": words.CHOICE_EVIDENCE["due"].format(n=due, of=of)})
     emergency = extra("program_performance").get("emergency_fit")
     if emergency and clear_majority(*emergency):
         evidence = words.CHOICE_EVIDENCE["emergency"].format(fits=emergency[0], of=emergency[1])

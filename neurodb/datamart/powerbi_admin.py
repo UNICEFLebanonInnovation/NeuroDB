@@ -455,7 +455,11 @@ def export_view(request, pk: int, export_pk: int):
 
 
 def _by_reason(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
-    """The lines by group and reason, needs a look first; the expected ones on one line of counts."""
+    """The lines by group and reason in ``powerbi_match.GROUP_ORDER`` (needs a look first, what NeuroDB cannot
+    show yet before the expected ones); the expected ones on one line of counts, with the lines a note of the
+    export states once (counted, not listed)."""
+    from .powerbi_match import GROUP_ORDER
+
     history = _history(upload)
     found = (
         PowerBIDifference.objects.filter(export=export)
@@ -463,7 +467,8 @@ def _by_reason(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
         .values("group", "reason")
         .annotate(n=Count("id"))
     )
-    rows = sorted(found, key=lambda r: (-r["group"], -r["n"], r["reason"]))
+    order = {group: n for n, group in enumerate(GROUP_ORDER)}
+    rows = sorted(found, key=lambda r: (order.get(r["group"], len(order)), -r["n"], r["reason"]))
     needs = []
     expected = []
     for r in rows:
@@ -476,7 +481,8 @@ def _by_reason(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
             or words.REASON_ACTIONS.get(r["reason"], ""),
         }
         (expected if r["group"] == 1 else needs).append(item)
-    return {"needs": needs, "expected": expected}
+    noted = sum(((export.counts or {}).get("noted") or {}).values())
+    return {"needs": needs, "expected": expected, "noted": words.NOTED_COUNT.format(n=noted) if noted else ""}
 
 
 def _not_compared(export: PowerBIExport) -> list[str]:

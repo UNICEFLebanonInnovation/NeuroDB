@@ -305,6 +305,7 @@ PD_INDICATOR_FIELDS = (
     "output",
     "title",
     "target",
+    "ident",
 )
 
 
@@ -340,6 +341,7 @@ def pd_indicators(parsed: Filter, context: pf.Context) -> list[dict[str, Any]]:
                     "output": context.clean(entry["pd_output"]),
                     "title": context.clean(entry["indicator"]),
                     "target": entry["target"],
+                    "ident": entry["ident"],
                 },
             )
         )

@@ -424,9 +424,11 @@ def test_an_exports_page_lists_its_lines_needs_a_look_first_with_two_values_and_
     url = reverse("admin:datamart_powerbi_export", args=[upload.pk, export.pk])
     html = checker.get(url).content.decode()
     reasons = html.split("data-pbi-reasons", 1)[1].split("</ul>", 1)[0]
-    assert "Needs a look: Not in NeuroDB: not in the Datamart read (2)" in reasons
-    expected = html.split("data-pbi-expected", 1)[1].split("</p>", 1)[0]
-    assert "A report still owed (118)" in expected and "?reason=owed&amp;group=1" in expected
+    look = reasons.index("Needs a look: Not in NeuroDB: not in the Datamart read (2)")
+    # reports still owed: their own group, open, after the lines that need a look (never expected)
+    owed_at = reasons.index("NeuroDB cannot show this yet: A report still owed (118)")
+    assert look < owed_at and "?reason=owed&amp;group=5" in reasons
+    assert "data-pbi-expected" not in html
     table = html.split("data-pbi-lines", 1)[1].split("</table>", 1)[0]
     first = table.split("<tr data-pbi-line>", 2)[1]
     assert (
@@ -482,10 +484,8 @@ def test_the_excel_writes_a_different_line_one_row_per_column_and_stops_at_its_c
     from neurodb.datamart import powerbi_results, raw
 
     rows = [_report(report_status="Submitted", partner="SOMEONE ELSE", report="QPR1")]
-    rows += [
-        _report(report=f"HR{n}", report_status="Overdue", period_end=datetime.date(2026, 8, 31))
-        for n in range(1, 30)
-    ]
+    # Power BI lists the report again, with another status (expected lines, written after the one that differs)
+    rows += [_report(report_status="Overdue", report="QPR1") for _n in range(1, 30)]
     drop = tuple(n for n in REPORT_DROP if n != "partner")
     upload = pf.compared(checker, ("list.xlsx", pf.export("report_list", rows, drop=drop)))
     monkeypatch.setattr(powerbi_results, "XLSX_SHEET_ROWS", 10)

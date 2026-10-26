@@ -1210,9 +1210,9 @@ class PowerBIDifference(models.Model):
 
     export = models.ForeignKey(PowerBIExport, on_delete=models.CASCADE, related_name="differences")
     n = models.PositiveIntegerField()  # its order within the export
-    group = (
-        models.PositiveSmallIntegerField()
-    )  # 1 expected, 2 wait for the sync, 3 check the PD, 4 needs a look
+    # 1 expected, 2 wait for the sync, 3 check the PD, 4 needs a look, 5 cannot show yet (an earlier upload's
+    # lines keep the group they were written with)
+    group = models.PositiveSmallIntegerField()
     kind = models.CharField(max_length=12)  # different, only_powerbi, only_neurodb
     reason = models.CharField(max_length=20)
     rule = models.CharField(max_length=20, blank=True)

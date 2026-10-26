@@ -1,9 +1,11 @@
 """Compare with Power BI: when two values are the same, how a Power BI row finds its NeuroDB row, and the
 lines of differences an export's comparison writes (``powerbi_kinds`` compares each export with them).
 
-* **Raw values against raw values.** Power BI's cells hold unrounded values (its number format only changes
-  the display), and none of NeuroDB's figures compared is rounded: two numbers are the same within float
-  noise only (:data:`TOLERANCE`, relative), two amounts within half a cent. A Power BI 0 against no value in
+* **Raw values against raw values.** Power BI's cells hold its values rounded at the 6th decimal at most (its
+  number format only changes the display), and none of NeuroDB's figures compared is rounded: two whole
+  numbers are the same within float noise only (:data:`TOLERANCE`, relative), two numbers of which one is not
+  whole also within half a millionth (:data:`ROUNDED`: 0.905263 against 0.9052631…), two amounts within half
+  a cent. A Power BI 0 against no value in
   NeuroDB is the same in a Reached or % column (Power BI shows no value as 0).
 * **Texts** are the same when their spaces and case are (after the people cleaner on NeuroDB's side: Power
   BI's were cleaned as the file was read); a title Power BI cut at 255 characters matches NeuroDB's title
@@ -17,9 +19,11 @@ lines of differences an export's comparison writes (``powerbi_kinds`` compares e
   database, holds no such number, and one would stop the export's lines from being written.
 * **Lines** (:class:`Result`): each difference with its reason, group and what to do, kept compactly while
   the export is compared (no database write in the comparison's read-only snapshot) and written once every
-  export is compared, group by group across the exports (needs a look first, the expected ones last), at most
-  ``powerbi_compare.LINE_LIMIT`` per export and ``UPLOAD_LINE_LIMIT`` per upload (the rest are counted). A
-  detail is at most :data:`DETAIL_LIMIT` characters, cut on a word (:func:`cut`).
+  export is compared, group by group across the exports in :data:`GROUP_ORDER` (needs a look first, what
+  NeuroDB cannot show yet before the expected ones, which come last), at most ``powerbi_compare.LINE_LIMIT``
+  per export and ``UPLOAD_LINE_LIMIT`` per upload (the rest are counted). A line can be counted and not listed
+  (``listed=False``: a rule a note of the export states once, ``noted``). A detail is at most
+  :data:`DETAIL_LIMIT` characters, cut on a word (:func:`cut`).
 """
 
 from __future__ import annotations
@@ -41,9 +45,12 @@ from . import powerbi_words as words
 from . import reached as rc
 
 TOLERANCE = 1e-9  # relative: float noise only
+ROUNDED = 5e-7  # Power BI rounds a value at the 6th decimal: half a millionth, beside a value not whole
 MONEY_TOLERANCE = 0.005  # half a cent
 PAIR_LIMIT = 60  # rows of one match on a side beyond which they pair in order (no similarity computed)
-GROUP_ORDER = (4, 3, 2, 1)  # the lines' groups, needs a look first: the order they are written and kept
+# the lines' groups, needs a look first: the order they are written, kept and listed, and their severity
+# (5, NeuroDB cannot show this yet, comes before 1, expected)
+GROUP_ORDER = (4, 3, 2, 5, 1)
 DETAIL_LIMIT = 300  # characters of a line's detail (PowerBIDifference.detail)
 LINK_LIMIT = 300  # characters of a line's address (PowerBIDifference.link)
 GRANTLESS = frozenset({"", "non-grant", "non grant", "nongrant"})
@@ -96,12 +103,9 @@ def pd_base(value: Any) -> str:
 
 
 def report_number(value: Any, report_type: Any = "") -> str:
-    """A report number as Power BI writes it: its type first ("QPR3"), added when NeuroDB's number is bare."""
-    found = "".join(str(value or "").split()).upper()
-    kind = "".join(str(report_type or "").split()).upper()
-    if found and kind and found[:1].isdigit():
-        return f"{kind}{found}"
-    return found
+    """A report number as Power BI writes it: its type first ("QPR3"), added when NeuroDB's number is bare
+    (``reached.report_number_key``, the rule PRP's progress reports are matched by too)."""
+    return rc.report_number_key(value, report_type)
 
 
 def partner(value: Any) -> str:
@@ -173,7 +177,10 @@ def same_number(powerbi: Any, neurodb: Any, *, zero_is_none: bool = False) -> bo
         return a is None and b is None
     if not (math.isfinite(a) and math.isfinite(b)):  # a value NeuroDB cannot read is never the same (the
         return False  # tolerance of an infinite one is infinite): its line says so (``readable``)
-    return abs(a - b) <= TOLERANCE * max(1.0, abs(a), abs(b))
+    noise = TOLERANCE * max(1.0, abs(a), abs(b))
+    if a.is_integer() and b.is_integer():  # 56 against 55 differ
+        return abs(a - b) <= noise
+    return abs(a - b) <= ROUNDED + noise  # Power BI's value rounded at the 6th decimal, at the half too
 
 
 def same_money(powerbi: Any, neurodb: Any) -> bool:
@@ -372,6 +379,8 @@ class Result:
     notes: list[str] = field(default_factory=list)
     fits: list[dict[str, Any]] = field(default_factory=list)
     pds: set[str] = field(default_factory=set)  # the PDs to check in eTools
+    noted: Counter = field(default_factory=Counter)  # lines counted, not listed (a note says them), by rule
+    reason_groups: dict[str, int] = field(default_factory=dict)  # each reason's group, as written
     extra: dict[str, Any] = field(default_factory=dict)  # what a later export reads (the report list's gaps)
     _spools: dict[int, Any] = field(default_factory=dict)
     _kept: Counter = field(default_factory=Counter)
@@ -380,10 +389,11 @@ class Result:
         self.counts["rows"] += n
         self.counts["same_zero" if zero else "same"] += n
 
-    def add(self, line: Line, *, row: bool = True) -> None:
+    def add(self, line: Line, *, row: bool = True, listed: bool = True) -> None:
         """One difference; ``row``: it is a row of its own (False: another column of a row counted
-        already). A line holding a value NeuroDB cannot read (:func:`readable`) takes that as its reason, the
-        value left empty."""
+        already); ``listed``: False for a line a note of the export states once (counted exactly as one
+        listed, never kept: ``noted`` counts it by its rule). A line holding a value NeuroDB cannot read
+        (:func:`readable`) takes that as its reason, the value left empty."""
         if not line.readable():
             line = dataclasses.replace(
                 line,
@@ -397,10 +407,14 @@ class Result:
             self.counts[line.kind] += 1
         self.reasons[line.reason] += 1
         self.groups[line.group] += 1
+        self.reason_groups[line.reason] = line.group
         if line.rule:
             self.rules[line.rule] += 1
         if line.group == 3 and line.pd:
             self.pds.add(line.pd)
+        if not listed:
+            self.noted[line.rule or line.reason] += 1
+            return
         if self._kept[line.group] >= self.limit:
             return
         spool = self._spools.get(line.group)
@@ -433,7 +447,7 @@ class Result:
         return _kept_lines(spool[0].getvalue())
 
     def lines(self) -> Iterator[list[Any]]:
-        """Every line kept, needs-a-look first (groups 4, 3, 2, 1)."""
+        """Every line kept, needs-a-look first (:data:`GROUP_ORDER`)."""
         for group in GROUP_ORDER:
             yield from self.take(group)
 
@@ -446,6 +460,10 @@ class Result:
         out["rules"] = dict(self.rules.most_common())
         out["check_pds"] = sorted(self.pds)[:500]
         out["lines"] = int(sum(self.groups.values()))
+        # each reason's group as written: an upload's expected parts are read from these, never from today's
+        # REASON_GROUPS (an earlier upload's reports still owed are expected)
+        out["reason_groups"] = dict(sorted(self.reason_groups.items()))
+        out["noted"] = {k: int(v) for k, v in sorted(self.noted.items())}
         return out
 
 

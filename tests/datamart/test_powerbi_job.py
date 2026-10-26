@@ -199,8 +199,8 @@ def test_power_bi_s_own_fields_are_read_as_neurodb_reads_them_even_when_the_reco
     export = PowerBIExport.objects.get(upload=upload)
     assert export.clauses == [{"words": "is_period_latest is True", "state": "as_read"}]
     assert export.notes == [
-        "Power BI's field is_period_latest is not in the records NeuroDB reads: NeuroDB reads it as the newest "
-        "row of each report and location."
+        "Power BI's field is_period_latest is not in the records NeuroDB reads: NeuroDB reads it as within one "
+        "report, the newest row of each location; Power BI also keeps one report per period end."
     ]
     monkeypatch.setattr(pc, "fields_in_records", lambda run: {"is_period_latest"})
     assert pc.again(upload)
@@ -209,7 +209,8 @@ def test_power_bi_s_own_fields_are_read_as_neurodb_reads_them_even_when_the_reco
     assert export.clauses == [{"words": "is_period_latest is True", "state": "as_read"}]
     assert export.notes == [
         "Power BI's field is_period_latest is in the records NeuroDB reads, but NeuroDB's pages do not use it: "
-        "NeuroDB reads it as the newest row of each report and location."
+        "NeuroDB reads it as within one report, the newest row of each location; Power BI also keeps one report "
+        "per period end."
     ]
 
 
