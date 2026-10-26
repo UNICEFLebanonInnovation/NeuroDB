@@ -1972,7 +1972,8 @@ rows before the scope are left alone; `details.feed_from` counts marked rows. Ra
 "no longer sent N (kept and counted)", how many rows of how many reports and when they were last sent, offers
 three *Updated by* choices (`unsent_period`, `unsent`, and `unsent_word`: the marked rows of the reports whose
 status differs in PRP's own progress reports, `datamart_sync.unsent_word_reports`, as check 11 counts them; none
-while PRP's progress reports are not linked to their programme documents), shows the mark in the list, the record page and the CSV
+while the last sync did not prove the key pair that links PRP's progress reports to their programme documents,
+so never over today's lookup), shows the mark in the list, the record page and the CSV
 (`no_longer_sent_since`, also in the figure trail's row CSVs), and the trail's D4 says it; Data health and
 check 10 count them. Only a superuser removes marked rows, after review: the page lists the reports of the
 filter's marked rows (at most 50, no person) and, under it, *I have reviewed them* and **Remove these rows**
@@ -4374,8 +4375,10 @@ period ends is PRP's; `elsewhere`: the others whose type, number and period end 
 at least `LINK_AGREE_MIN` = 10 compared and `LINK_AGREE` = 9 in 10 of them the same, at least 10 dated and 9
 in 10 of those the same day: many PDs share quarter calendars, so a chance link can match a period end, never
 a submission day), `days` it passed in a row (the verdict of the latest finished run of either dataset that
-started on an earlier day, plus one), `shown` from `LINK_DAYS` = 2 days, `shown_since` the day it first
-showed, and `shown_why` (`not_proven`, `few`, `periods`, `few_days`, `days`, `one_day`, or ""). A read that
+started on an earlier day, plus one; from one again when that run recorded none, did not start on the day
+before, or the latest read of the progress reports by then received nothing or is old), `shown` from
+`LINK_DAYS` = 2 days, `shown_since` the day it first showed, and `shown_why` (`not_proven`, `few`, `periods`,
+`few_days`, `days`, `one_day`, or ""). A read that
 fails any test closes it at once (`days` 0): a wrong link would show wrong overdue reports, a late one only
 delays them. The step also counts, over the reports a read returned within `OWED_STALE_DAYS` = 7 days of the
 latest read of them (`fresh_since`: their reads are never whole, so a report PRP deleted would read Overdue
@@ -4383,8 +4386,9 @@ for ever): `owed` (Due or Overdue, their period ended, not in the rows), `owed_b
 ending before the partner reports' history), `twins` (other versions `counted_once` leaves out),
 `ove_read_due` (PRP says Overdue, read as Due: no due date has passed), `lacking` (Accepted or Submitted this
 year, not in the rows), `unsent_other_word` (reports only rows eTools no longer sends hold, whose status there
-differs from PRP's: the rows' word is never changed; Raw eTools data lists them), and `stale` (owed-looking
-ones no read returned since, counted once, not in the rows). A failure of the proof never fails the run
+differs from PRP's, 0 while the key pair is not proven, "—" in check 11: the rows' word is never changed; Raw
+eTools data lists them), and `stale` (owed-looking ones no read returned since, counted once, not in the
+rows). A failure of the proof never fails the run
 (`proof_error`; the verdict then reads "the check failed on the last sync: tell the NeuroDB team",
 `check_failed`). The one reader is
 `datamart_sync.recorded_pd_link()`: the verdict of the latest finished run of either dataset, whichever

@@ -1376,6 +1376,22 @@ def test_a_chance_pair_on_a_shared_quarter_calendar_is_caught_by_the_submission_
     assert (link["passes"], link["shown_why"]) == (False, "days")
 
 
+def test_a_period_end_held_only_under_another_programme_document_is_counted_elsewhere(linked):
+    """PRP ties HR1, HR2 and HR3 to LEB/PD1, whose rows hold them for the next period. LEB/PD2's rows hold HR1 with
+    PRP's period end, and HR2 with PRP's period end under no type: neither is the same, both are only under
+    another programme document. No other PD's rows hold HR3's period end: it is neither."""
+    partner, pd = linked
+    pd2 = PCA.objects.create(etl_id="12", number="LEB/PD2", title="PD 2", partner=partner)
+    _hold(pd, [_progress(i + 1, end) for i, end in enumerate(ENDS[:3])])
+    for i, end in enumerate(ENDS[:3]):
+        _row(pd, f"HR{i + 1}", end + dt.timedelta(days=31), end + dt.timedelta(days=10))
+    _row(pd2, "HR1", ENDS[0])
+    _row(pd2, "HR2", ENDS[1], kind="")
+    link = sync.link_progress_reports()
+    assert link["linked"] == 3
+    assert link["agrees"] == {"compared": 3, "same": 0, "elsewhere": 2, "dated": 3, "same_day": 3}
+
+
 def test_ends_that_agree_with_too_few_submitted_reports_are_not_shown(linked):
     """Twelve period ends agree, but only four reports were submitted on both sides: the submission day cannot be
     checked, so the link is not shown on period ends alone (few_days)."""
@@ -1400,7 +1416,7 @@ def test_too_few_reports_to_check_the_link(linked):
     assert (link["passes"], link["shown_why"]) == (False, "few")
 
 
-def test_a_failing_read_closes_the_link_at_once(linked):
+def test_a_failing_read_closes_the_link_at_once(linked, site_today):
     """Shown since 13 Oct (two days): today's read agrees again and it stays shown, since 13 Oct. A read whose
     reports end on other days closes it at once (days 0), whatever the days before; so does a read that fails
     before the link step (not read), and the next agreeing read starts again from one day."""
@@ -1420,12 +1436,62 @@ def test_a_failing_read_closes_the_link_at_once(linked):
     _verdict_run("prp_progress_reports", None, day=TODAY, status=SyncRun.Status.FAILED)
     assert (sync.recorded_pd_link()["shown"], sync.recorded_pd_link()["why"]) == (False, "not_read")
 
+    ReportedIndicator.objects.update(period_end=F("period_end") - dt.timedelta(days=31))
+    site_today.set(TODAY + dt.timedelta(days=1))
+    link = sync.link_progress_reports()
+    assert (link["passes"], link["days"], link["shown"], link["shown_why"], link["shown_since"]) == FIRST_DAY
 
-def test_an_unproven_link_is_never_shown_even_when_today_s_lookup_links(linked):
-    """Two keys of PRP's programme documents tie the reports to the documents crosswise, as often each: no pair is
-    proven, and today's lookup (the key a document is held under) links them. The partner reports agree with
-    those links on every report, yet the link is never shown: it is not proven (not_proven)."""
-    partner, pd = linked
+
+FIRST_DAY = (True, 1, False, "one_day", "")  # an agreeing read the day before did not pass: not shown yet
+
+
+@pytest.mark.parametrize("ago", [2, 30])
+def test_a_day_without_a_sync_starts_the_days_again(linked, ago):
+    """Shown since 1 Sep, then no sync of PRP's two datasets for a day or more: today's agreeing read is its first
+    day again."""
+    _, pd = linked
+    shown = {"proven": True, "passes": True, "days": 2, "shown": True, "shown_since": "2026-09-01"}
+    _verdict_run("prp_progress_reports", shown, day=TODAY - dt.timedelta(days=ago))
+    _agreeing(pd)
+    link = sync.link_progress_reports()
+    assert (link["passes"], link["days"], link["shown"], link["shown_why"], link["shown_since"]) == FIRST_DAY
+
+
+def test_a_read_that_received_nothing_starts_the_days_again(linked):
+    """13 Oct passed (one day). On 14 Oct the read of PRP's progress reports received nothing: its link step
+    passed over the reports held, but the pages did not show them (not read). Today's agreeing read is its first
+    day again, also when the programme documents' sync ran after that read on 14 Oct and passed. Once that read
+    received records the days go on; a read of the progress reports more than 7 days old closes them again."""
+    _, pd = linked
+    one = {"proven": True, "passes": True, "days": 1, "shown": False, "shown_why": "one_day"}
+    two = {"proven": True, "passes": True, "days": 2, "shown": True, "shown_since": "2026-10-14"}
+    _verdict_run("prp_progress_reports", one, day=TODAY - dt.timedelta(days=2))
+    empty = _verdict_run("prp_progress_reports", two, day=TODAY - dt.timedelta(days=1), empty_response=True)
+    assert sync.recorded_pd_link()["why"] == "not_read"
+    _agreeing(pd)
+
+    def verdict():
+        link = sync.link_progress_reports()
+        return link["passes"], link["days"], link["shown"], link["shown_why"], link["shown_since"]
+
+    assert verdict() == FIRST_DAY
+    documents = _verdict_run("prp_programme_documents", two, day=TODAY - dt.timedelta(days=1))
+    SyncRun.objects.filter(pk=documents.pk).update(started_at=F("started_at") + dt.timedelta(hours=1))
+    assert sync.recorded_pd_link()["why"] == "not_read"
+    assert verdict() == FIRST_DAY
+    SyncRun.objects.filter(pk=empty.pk).update(details={"progress_reports_pd_link": two})
+    assert verdict() == (True, 3, True, "", "2026-10-14")
+    SyncRun.objects.filter(target="prp_progress_reports").update(
+        started_at=F("started_at") - dt.timedelta(days=9), finished_at=F("finished_at") - dt.timedelta(days=9)
+    )
+    assert verdict() == FIRST_DAY
+
+
+def _crosswise(partner, pd) -> None:
+    """Two keys of PRP's programme documents tie the twelve reports to LEB/PD1 and LEB/PD2 crosswise, as often each:
+    no pair is proven, and today's lookup (the key a document is held under) links them, half to each. The
+    partner reports hold each report under the PD that lookup gives, with the same period end and submission
+    day."""
     pd2 = PCA.objects.create(etl_id="12", number="LEB/PD2", title="PD 2", partner=partner)
     for key, legacy, to in (("77", 78, pd), ("78", 77, pd2)):
         DatamartDocument.objects.create(dataset="prp_programme_documents", record_key=key, intervention=to,
@@ -1435,10 +1501,32 @@ def test_an_unproven_link_is_never_shown_even_when_today_s_lookup_links(linked):
         DatamartDocument.objects.create(dataset="prp_progress_reports", record_key=f"r{i}", date=end,
                                         data=_progress(i + 1, end, pd_id=prp_id))  # fmt: skip
         _row(to, f"HR{i + 1}", end)
+
+
+def test_an_unproven_link_is_never_shown_even_when_today_s_lookup_links(linked):
+    """The partner reports agree with the links of today's lookup on every report, yet the link is never shown:
+    it is not proven (not_proven)."""
+    _crosswise(*linked)
     link = sync.link_progress_reports()
     assert (link["proven"], link["why"], link["linked"]) == (False, "not_clear", 12)
     assert link["agrees"] == {"compared": 12, "same": 12, "elsewhere": 0, "dated": 12, "same_day": 12}
     assert (link["passes"], link["shown"], link["shown_why"]) == (False, False, "not_proven")
+
+
+def test_reports_etools_no_longer_sends_are_never_compared_over_an_unproven_link(linked):
+    """HR2's rows are no longer sent and read Due (nothing submitted), while PRP says Accepted. Over today's
+    lookup, with no pair proven, they are neither counted nor listed for the "Updated by" choice (which the
+    superuser's removal list follows)."""
+    from django.utils import timezone
+
+    _crosswise(*linked)
+    ReportedIndicator.objects.filter(report_number="HR2").update(
+        report_status="", submission_date=None, not_sent_since=timezone.now()
+    )
+    link = sync.link_progress_reports()
+    assert (link["proven"], link["linked"], link["unsent_other_word"]) == (False, 12, 0)
+    _verdict_run("prp_progress_reports", link, day=TODAY)
+    assert sync.unsent_word_reports() == set()
 
 
 def test_report_numbers_compare_bare_and_typed_as_one():

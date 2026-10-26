@@ -3833,7 +3833,8 @@ def unsent_other_word(
     ``reporting.progress_reports``) differs from PRP's: how many, and the rows' reports
     (``reached.report_key``) for Raw eTools data's "Updated by" choice. The report of the same period end when
     the rows have one, else every period of that number. The rows' word is never changed: they are listed for
-    review."""
+    review. Read only over a proven key pair (its callers): the superuser's removal list follows the
+    choice."""
     mine = [r for r in reports if r["key"] and r["base"] and numbers.unsent_only(r)]
     if not mine:
         return 0, set()
@@ -3864,8 +3865,11 @@ def unsent_other_word(
 
 def unsent_word_reports(today: dt.date | None = None) -> set[str]:
     """The partner reports (``reached.report_key``) eTools no longer sends whose status differs in PRP's
-    progress reports (:func:`unsent_other_word`, as check 11 counts them): none while PRP's progress reports
-    are not linked to their programme documents."""
+    progress reports (:func:`unsent_other_word`, as check 11 counts them): none while the last sync did not
+    prove the key pair that links PRP's progress reports to their programme documents
+    (:func:`recorded_pd_link`'s ``proven``), so never over today's lookup."""
+    if recorded_pd_link().get("proven") is not True:
+        return set()
     today = today or timezone.localdate()
     since = fresh_since()
     reports = [r for r in linked_progress_reports(today) if r["synced_at"] >= since]
@@ -3875,11 +3879,14 @@ def unsent_word_reports(today: dt.date | None = None) -> set[str]:
 
 
 def _previous_verdict(today: dt.date) -> dict[str, Any]:
-    """The verdict the latest finished run of either of PRP's two datasets recorded on a day before ``today``
-    ({} when none did: a run that failed before the link step, or one made before the verdict was recorded,
-    gives none)."""
+    """The previous day's verdict, which the days in a row go on from: the one the latest finished run of
+    either of PRP's two datasets that started before ``today`` recorded, never an older run's. {} (the days
+    start again from one) when that run recorded none (it failed before the link step, its proof failed, or
+    it was made before the verdict was recorded), when it did not start on the day before, or when the latest
+    read of the progress reports by then received nothing or is old (:func:`_read_closes`: the pages did not
+    show them)."""
     start = timezone.make_aware(dt.datetime.combine(today, dt.time.min))
-    found = (
+    latest = (
         SyncRun.objects.filter(
             job=SyncRun.Job.ETOOLS_DATAMART,
             target__in=(PROGRESS_REPORTS, PROGRAMME_DOCUMENTS),
@@ -3888,9 +3895,38 @@ def _previous_verdict(today: dt.date) -> dict[str, Any]:
         .exclude(status=SyncRun.Status.RUNNING)
         .order_by("-started_at", "-pk")
         .annotate(_link=KeyTransform("progress_reports_pd_link", "details"))
-        .values_list("_link", flat=True)
+        .values_list("started_at", "_link")
+        .first()
     )
-    return next((link for link in found[:50] if isinstance(link, dict) and "passes" in link), {})
+    if latest is None or not isinstance(latest[1], dict) or "passes" not in latest[1]:
+        return {}
+    if timezone.localtime(latest[0]).date() != today - dt.timedelta(days=1) or _read_closes(start):
+        return {}
+    return latest[1]
+
+
+def _read_closes(before: dt.datetime) -> dict[str, str]:
+    """Why the latest finished read of PRP's progress reports that started before ``before`` closes the
+    verdict: ``{"why": "not_read"}`` when there is none or it received nothing (``empty_response``),
+    ``{"why": "old", "read_on": its day}`` when it ended more than :data:`OWED_STALE_DAYS` days before; {}
+    when it does not."""
+    read = (
+        SyncRun.objects.filter(
+            job=SyncRun.Job.ETOOLS_DATAMART,
+            target=PROGRESS_REPORTS,
+            status__in=(SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL),
+            started_at__lt=before,
+        )
+        .order_by("-started_at", "-pk")
+        .annotate(_empty=KeyTransform("empty_response", "details"))
+        .values_list("finished_at", "_empty")
+        .first()
+    )
+    if read is None or read[1]:
+        return {"why": "not_read"}
+    if read[0] is not None and read[0] < before - dt.timedelta(days=OWED_STALE_DAYS):
+        return {"why": "old", "read_on": timezone.localtime(read[0]).date().isoformat()}
+    return {}
 
 
 def pd_link_proof(proven: bool, today: dt.date) -> dict[str, Any]:
@@ -3910,8 +3946,9 @@ def pd_link_proof(proven: bool, today: dt.date) -> dict[str, Any]:
       Overdue, their period ended, not in the rows), ``owed_before_history`` (of them, ending before the
       partner reports' history, ``reached.history_from``), ``twins`` (:func:`counted_once`),
       ``ove_read_due`` (PRP says Overdue, read as Due: no due date passed), ``lacking`` (Accepted or Submitted
-      this year, not in the rows), ``unsent_other_word`` (:func:`unsent_other_word`); and ``stale``, those
-      that would be owed but no read returned since (counted once, not in the rows).
+      this year, not in the rows), ``unsent_other_word`` (:func:`unsent_other_word`, 0 while the key pair is
+      not proven); and ``stale``, those that would be owed but no read returned since (counted once, not in
+      the rows).
 
     No figure of a page changes: the pages do not show them yet."""
     reports = linked_progress_reports(today)
@@ -3965,7 +4002,7 @@ def pd_link_proof(proven: bool, today: dt.date) -> dict[str, Any]:
             and r["end"].year == today.year
             and not held(r)
         ),
-        "unsent_other_word": unsent_other_word(current, numbers, today)[0],
+        "unsent_other_word": unsent_other_word(current, numbers, today)[0] if proven else 0,
     }
     a = agrees
     why = (
@@ -4048,22 +4085,9 @@ def recorded_pd_link() -> dict[str, Any]:
         **{k: _count(link.get(k)) or 0 for k in PROOF_COUNTS},
         "checked_on": checked_on,
     }
-    if found["shown"]:
-        read = (
-            SyncRun.objects.filter(
-                job=SyncRun.Job.ETOOLS_DATAMART,
-                target=PROGRESS_REPORTS,
-                status__in=(SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL),
-            )
-            .order_by("-started_at", "-pk")
-            .annotate(_empty=KeyTransform("empty_response", "details"))
-            .values_list("finished_at", "_empty")
-            .first()
-        )
-        if read is None or read[1]:
-            found.update(shown=False, why="not_read")
-        elif read[0] is not None and read[0] < timezone.now() - dt.timedelta(days=OWED_STALE_DAYS):
-            found.update(shown=False, why="old", read_on=timezone.localtime(read[0]).date().isoformat())
+    closes = _read_closes(timezone.now()) if found["shown"] else {}
+    if closes:
+        found.update(shown=False, **closes)
     return found
 
 

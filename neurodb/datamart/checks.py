@@ -2416,9 +2416,9 @@ def _proof_figures(verdict: dict[str, Any]) -> list[tuple[str, Any]]:
             "Accepted or Submitted reports of the year in PRP's progress reports, not in the partner reports",
             got(verdict.get("lacking")),
         ),
-        (
+        (  # never compared over a key pair that is not proven ("—")
             "Reports eTools no longer sends whose status differs in PRP's progress reports",
-            got(verdict.get("unsent_other_word")),
+            got(verdict.get("unsent_other_word")) if verdict.get("proven") is True else "—",
         ),
         ("PRP's progress reports can be shown on the pages", shown_words(verdict)),
     ]

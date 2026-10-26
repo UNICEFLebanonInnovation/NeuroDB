@@ -413,11 +413,12 @@ programme documents, trips, engagements, action points and their details).
   documents is not proven", "too few of the reports also in the partner reports end on the same day", "the link
   passed every test on 16 Oct 2026 only, and must pass on the next day too", "the last sync of PRP's progress
   reports or of their programme documents failed or received nothing", "the check failed on the last sync:
-  tell the NeuroDB team"...). The link must pass on two days in a row before they can be shown, and closes at
-  once when a read fails it. Check 11 gives the figures. No page shows these reports yet. The first page
-  says the same beside the dataset, and the list gives each report's programme document and partner in
-  NeuroDB ("not linked" when none), its period end, due date and submission date, never its narrative or the
-  people who wrote it.
+  tell the NeuroDB team"...). The link must pass on two days in a row before they can be shown (a day with no
+  sync, or with a sync that failed or received nothing, starts the count again), and closes at once when a
+  read fails it. Check 11 gives the figures. No page shows these reports yet. The first page says the same
+  beside the dataset, and the list gives each report's programme document and partner in NeuroDB ("not
+  linked" when none), its period end, due date and submission date, never its narrative or the people who
+  wrote it.
 - **PD indicators eTools marks inactive** (PD indicators). The line under the counts says how many indicators
   eTools marks inactive in every row, of how many programme documents, and how many of them have no partner
   report row: mostly an older wording of a PD's indicator, still listed on Programmes → Indicators and Partner
@@ -443,8 +444,9 @@ programme documents, trips, engagements, action points and their details).
   cancelled, not in NeuroDB, or names none. These five choices add up to every partner report row. Its
   *Updated by* choices add the rows eTools no longer sends: "eTools sends their number for another period"
   (first to review), "eTools no longer sends them" (all of them) and "PRP's progress reports give them another
-  status" (those whose report PRP's own list gives another status, as check 11 counts them; none while PRP's
-  list is not tied to its programme documents). For the PD indicators, also *Active*: yes or no.
+  status" (those whose report PRP's own list gives another status, as check 11 counts them; none while the
+  last sync did not prove PRP's list is tied to its programme documents). For the PD indicators, also
+  *Active*: yes or no.
 - **The review list** (partner reports, when the filter holds rows eTools no longer sends) lists their
   progress reports, one line each: programme document, report, period end and when it was last sent, at
   most 50 ("and N more"). Send it to the eTools Datamart team and ask which of these reports PRP deleted.

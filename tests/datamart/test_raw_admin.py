@@ -1288,8 +1288,8 @@ def test_the_prp_progress_reports_page_says_whether_they_are_tied_to_their_progr
 def test_the_partner_reports_whose_status_differs_in_prp_are_listed(client_validator, world):
     """A report eTools no longer sends keeps its rows' word (Due: nothing submitted); PRP's own progress report of
     the same programme document, type, number and period end says Accepted. The rows are listed under "PRP's
-    progress reports give them another status", once PRP's report is tied to its programme document; never
-    while it is not."""
+    progress reports give them another status", once PRP's report is tied to its programme document by the key
+    pair the last sync proved; never while it is not, nor over today's lookup with no pair proven."""
     running = world["running"]
     for pk in (21, 22):
         dm.ReportedIndicator.objects.create(datamart_id=pk, intervention=running, partner=world["partner"],
@@ -1302,6 +1302,12 @@ def test_the_partner_reports_whose_status_differs_in_prp_are_listed(client_valid
     assert _shown(client_validator, "partner_reports", updated="unsent") == 2
     assert _shown(client_validator, "partner_reports", updated="unsent_word") == 0  # not tied to a PD yet
     dm.DatamartDocument.objects.filter(pk=prp.pk).update(intervention=running)
+    assert _shown(client_validator, "partner_reports", updated="unsent_word") == 0  # no sync proved the link
+    unproven = {**PROOF, "proven": False, "why": "not_clear", "passes": False, "days": 0, "shown": False,
+                "shown_since": "", "shown_why": "not_proven"}  # fmt: skip
+    _run("prp_progress_reports", ago=2, details={"read": 1, "progress_reports_pd_link": unproven})
+    assert _shown(client_validator, "partner_reports", updated="unsent_word") == 0
+    _run("prp_progress_reports", details={"read": 1, "progress_reports_pd_link": PROOF})
     assert _shown(client_validator, "partner_reports", updated="unsent_word") == 2
     assert raw.Filters(updated="unsent_word").words() == (
         "Updated by: PRP's progress reports give them another status"

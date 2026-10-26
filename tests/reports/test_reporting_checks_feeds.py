@@ -982,6 +982,10 @@ def test_check_11_never_shows_an_unproven_link_and_says_so(pd):
         "still owed until it is."
     ) in found["verdict"]
     assert figures(found)[CAN_SHOW] == "no: their link to the programme documents is not proven"
+    # never compared over a link that is not proven
+    assert (
+        figures(found)["Reports eTools no longer sends whose status differs in PRP's progress reports"] == "—"
+    )
 
 
 def test_check_11_says_a_read_that_received_nothing_closes_the_link(pd):
