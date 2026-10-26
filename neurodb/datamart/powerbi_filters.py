@@ -14,7 +14,9 @@ raises.
   ``location_value``. Every other shape is one NeuroDB cannot apply.
 * **What is kept.** A known field's values only when they are in its vocabulary (longest first, so a value
   holding ", " is never split wrongly); a field NeuroDB does not know keeps its name and condition words,
-  never its value; a clause NeuroDB could not read keeps no text at all. The raw line is never kept: only the
+  never its value, and not even its name when the name could be a person's (the people cleaner withholds
+  part of it, or it is two words joined by a dot, as an e-mail's first part); a clause NeuroDB could not read
+  keeps no text at all. The raw line is never kept: only the
   parsed filter and the clauses' descriptions, rebuilt from what was understood.
 """
 
@@ -29,6 +31,8 @@ from typing import Any
 from django.conf import settings
 
 from neurodb.partnerships import statuses as pd_statuses
+
+from . import powerbi_words as words
 
 PREFIX = "Applied filters:"
 # Power BI's fields NeuroDB knows, with the kind of value each takes
@@ -57,6 +61,7 @@ REPORT_STATUSES = {
 PD_STATUSES = (*pd_statuses.RUNNING, *pd_statuses.ENDED, *pd_statuses.NOT_A_PARTNERSHIP)
 CONDITIONS = (" does not contain ", " does not start with ", " contains ", " starts with ", " is ")
 FIELD_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]{0,63}$")
+FIRST_DOT_LAST = re.compile(r"^[A-Za-z]+\.[A-Za-z]+$")  # an e-mail's first part ("first.last"): never kept
 BLANK_TAIL = re.compile(r"^(?P<rest>.+?) (?P<join>or|and) is (?P<not>not )?blank$", re.I)
 COMPARISON = re.compile(
     r"^is (?P<op>greater than or equal to|less than or equal to|greater than|less than) "
@@ -184,9 +189,10 @@ def _shown(values: list[Any]) -> str:
 
 
 # --------------------------------------------------------------------------------------------- the clauses
-def parse(text: Any, sections: Iterable[str] = ()) -> Filter:
+def parse(text: Any, sections: Iterable[str] = (), names: frozenset[str] = frozenset()) -> Filter:
     """The filter of an "Applied filters" line (None, an empty text or a text without the prefix give an
-    empty filter). ``sections``: the section names NeuroDB knows (the vocabulary of ``section_name``)."""
+    empty filter). ``sections``: the section names NeuroDB knows (the vocabulary of ``section_name``);
+    ``names``: the people cleaner's (a field NeuroDB does not know named after one of them keeps no name)."""
     found = Filter()
     text = str(text or "")
     if not text.strip().startswith(PREFIX):
@@ -196,7 +202,7 @@ def parse(text: Any, sections: Iterable[str] = ()) -> Filter:
         line = " ".join(line.split())
         if line:
             try:
-                _clause(found, line, sections)
+                _clause(found, line, sections, names)
             except Exception:  # noqa: BLE001 - a clause never stops the reading: it is one NeuroDB could not read
                 found.clauses.append(Clause(words="", state="unread"))
     return found
@@ -242,7 +248,15 @@ def _shape(condition: str) -> tuple[str, dict[str, Any]]:
     return "unread", {}
 
 
-def _clause(found: Filter, line: str, sections: tuple[str, ...]) -> None:
+def _names_someone(name: str, names: frozenset[str]) -> bool:
+    """A field's name that could be a person's: the people cleaner withholds part of it (a known name, written
+    with "_" or "." too), or it is two words joined by a dot."""
+    from . import powerbi_read
+
+    return bool(FIRST_DOT_LAST.match(name)) or powerbi_read.clean(name, names, {}) != name
+
+
+def _clause(found: Filter, line: str, sections: tuple[str, ...], names: frozenset[str] = frozenset()) -> None:
     parts = _split(line)
     if parts is None or not FIELD_NAME.match(parts[0]):
         found.clauses.append(Clause(words="", state="unread"))
@@ -254,8 +268,12 @@ def _clause(found: Filter, line: str, sections: tuple[str, ...]) -> None:
         return
     known = next((f for f in FIELDS if f.casefold() == name.casefold()), None)
     if known is None:  # its name and condition words only: never its value
-        words = bits.get("words") or ("is" if shape == "is" else "")
-        clause = Clause(words=f"{name} {words} …".replace("  ", " "), state="unknown_field", field=name)
+        condition = bits.get("words") or ("is" if shape == "is" else "")
+        if _names_someone(name, names):  # not even its name
+            name, field = words.FIELD_WITHHELD, ""
+        else:
+            field = name
+        clause = Clause(words=f"{name} {condition} …".replace("  ", " "), state="unknown_field", field=field)
         found.clauses.append(clause)
         return
     kind = FIELDS[known]

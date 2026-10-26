@@ -33,12 +33,11 @@ from django import forms
 from django.contrib import admin
 from django.core.paginator import Paginator
 from django.db.models import Count
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
-from django.views.decorators.http import require_POST
 
 from neurodb.accounts.roles import can_validate
 
@@ -48,8 +47,7 @@ from . import powerbi_words as words
 from .models import PowerBIDifference, PowerBIExport, PowerBIUpload
 
 HISTORY = 20  # uploads the first page lists
-CANNOT = ("cannot", "unknown_field", "unknown_value", "unread")
-TODO_CLAUSES = 4  # clauses "what to do now" names
+CANNOT = powerbi_results.CANNOT
 
 
 class MultipleFileInput(forms.ClearableFileInput):
@@ -107,6 +105,17 @@ def index_view(request):
     return _index(request, PowerBIUploadForm())
 
 
+def how_steps(today=None) -> list[str]:
+    """How to export, the year's step filled in: the current reporting year, and where NeuroDB's partner
+    reports start (its history, from the last sync)."""
+    from . import reached, services
+
+    today = today or services.reporting_today()
+    held = reached.history_from(today).date
+    year = words.HOW_YEAR.format(year=today.year, day=f"{held.day} {held:%b %Y}")
+    return [words.HOW_STEPS[0], year, *words.HOW_STEPS[1:]]
+
+
 def _index(request, form: PowerBIUploadForm, refused: list[str] | None = None, status: int = 200):
     running = powerbi_compare.busy()
     uploads = list(
@@ -121,6 +130,16 @@ def _index(request, form: PowerBIUploadForm, refused: list[str] | None = None, s
     )
     for row in found:
         states[row["upload_id"]][row["state"]] = row["n"]
+    never_read = (  # a failed export NeuroDB could not read; the other failures were read, then stopped
+        PowerBIExport.objects.filter(
+            upload__in=uploads, state="failed", error__startswith=powerbi_results.NOT_READ
+        )
+        .order_by()
+        .values("upload_id")
+        .annotate(n=Count("id"))
+    )
+    for row in never_read:
+        states[row["upload_id"]]["never_read"] = row["n"]
     context = _context(
         request,
         words.PAGE_TITLE,
@@ -130,21 +149,22 @@ def _index(request, form: PowerBIUploadForm, refused: list[str] | None = None, s
         history=[_history_row(u, states[u.pk]) for u in uploads],
         visuals=[" → ".join(k.visual) for k in px.KINDS.values()],
         report=comparison.POWERBI_REPORT,
-        steps=words.HOW_STEPS,
+        steps=how_steps(),
     )
     return render(request, "admin/datamart/powerbi/index.html", context, status=status)
 
 
 def _history_row(upload: PowerBIUpload, states: Counter) -> dict[str, Any]:
-    """An upload of the history: its exports read (none counted while it runs) and its files not read (refused
-    in the request, or failed in the job)."""
+    """An upload of the history: its exports read (none counted while it runs; an export whose comparison
+    stopped was read) and its files not read (refused in the request, or not read in the job)."""
     busy = upload.status in powerbi_compare.BUSY_STATUSES
+    stopped = states["failed"] - states["never_read"]
     return {
         "upload": upload,
         "url": reverse("admin:datamart_powerbi_upload", args=[upload.pk]),
         "status": words.UPLOAD_STATUS.get(upload.status, upload.status),
-        "exports": None if busy else sum(states[s] for s in powerbi_compare.READ_STATES),
-        "not_read": len(upload.refused or []) + states["failed"],
+        "exports": None if busy else sum(states[s] for s in powerbi_compare.READ_STATES) + stopped,
+        "not_read": len(upload.refused or []) + states["never_read"],
         # the lines that need a look (a comparison done)
         "look": (upload.summary or {}).get("look") if upload.status == PowerBIUpload.Status.DONE else None,
     }
@@ -172,27 +192,31 @@ def _upload(request, handler: powerbi_read.UploadHandler):
     if not prepared.exports:
         hidden = [words.plural(prepared.hidden, words.HIDDEN_ONE, words.HIDDEN)] if prepared.hidden else []
         return _index(request, PowerBIUploadForm(), [*prepared.refused, *hidden, words.NOTHING_KEPT])
-    upload = powerbi_compare.create(prepared, request.user)
+    try:
+        upload = powerbi_compare.create(prepared, request.user)
+    except powerbi_compare.Busy:  # another upload was queued while these files were checked
+        return _index(request, PowerBIUploadForm(), [words.BUSY])
     powerbi_compare.start(upload, request.user)
     return redirect("admin:datamart_powerbi_upload", upload.pk)
 
 
 # ------------------------------------------------------------------------------------------------ one upload
+APPLIED = ("applied", "by_comparison")  # the clause states NeuroDB applies to its own figures
+
+
 def _covers(parsed: powerbi_filters.Filter) -> str:
-    """What an export's filter covers, in plain words: "2026", "Every year", "Education only"."""
-    parts = [", ".join(str(y) for y in parsed.years) if parsed.years else words.COVERS_EVERY_YEAR]
-    if parsed.sections:
-        parts.append(words.COVERS_ONLY.format(sections=", ".join(parsed.sections)))
+    """What an export's filter covers, in plain words: "2026", "Every year", "Education only" (a year or a
+    section NeuroDB does not apply to this kind of export is not said to be covered)."""
+    applied = {c.field for c in parsed.clauses if c.state in APPLIED}
+    years = parsed.years if "reporting_year" in applied else []
+    sections = parsed.sections if "section_name" in applied else []
+    parts = [", ".join(str(y) for y in years) if years else words.COVERS_EVERY_YEAR]
+    if sections:
+        parts.append(words.COVERS_ONLY.format(sections=", ".join(sections)))
     return " · ".join(parts)
 
 
-def _to_clear(clause: powerbi_filters.Clause) -> str:
-    """A filter NeuroDB cannot apply, as the user finds it on the report: a slicer by its name, another field
-    as the Filters pane shows it (Power BI's field names stay on the export's page)."""
-    slicer = comparison.POWERBI_FIELD_SLICERS.get(clause.field)
-    if slicer:
-        return words.TODO_SLICER.format(slicer=slicer)
-    return words.TODO_PANE.format(field=clause.field) if clause.field else words.TODO_UNREAD
+_to_clear = powerbi_results.to_clear
 
 
 def _export_row(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
@@ -203,10 +227,10 @@ def _export_row(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
     if not_read:
         state, action = words.NOT_READ_STATE, words.NOT_READ_ACTION
     elif export.state in ("compared", "empty", "not_compared", "failed"):
-        state, action = powerbi_results.verdict_words(export)
+        state, action = powerbi_results.verdict_words(export, trimmed=upload.trimmed)
     else:
         state = words.STATE_WORDS.get(export.state, export.state)
-        action = export.error or words.STATE_ACTIONS.get(export.state, "")
+        action = export.error or powerbi_results.country(words.STATE_ACTIONS.get(export.state, ""))
     counts = export.counts or {}
     look = powerbi_results.groups(export).get(4, 0)
     return {
@@ -217,13 +241,14 @@ def _export_row(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
         "covers": _covers(parsed) if export.state not in ("failed", "staged") else "",  # its filter read
         "cannot": [_to_clear(c) for c in parsed.clauses if c.state in CANNOT],
         "url": reverse("admin:datamart_powerbi_export", args=[upload.pk, export.pk]),
-        "failed": export.state == "failed",
+        "failed": powerbi_results.read_failed(export),  # not read: export it again
+        "stopped": export.state == "failed" and not powerbi_results.read_failed(export),  # Compare again
         "warn": export.state == "failed" or not_read or bool(look),
         "counts": _counts_words(export) if export.state == "compared" else "",
         "set_aside": words.EXPORT_SET_ASIDE.format(n=export.set_aside) if export.set_aside else "",
         "look": look,
         "look_url": powerbi_results.export_url(upload, export, group=4)
-        if powerbi_results.written_groups(export).get(4)
+        if powerbi_results.written_groups(export).get(4) and not upload.trimmed
         else "",
         "same": counts.get("same", 0) + counts.get("same_zero", 0),
     }
@@ -240,10 +265,10 @@ def _counts_words(export: PowerBIExport) -> str:
     )
 
 
-def _pages(upload: PowerBIUpload, exports: list[PowerBIExport]) -> tuple[list[dict[str, Any]], int]:
+def _pages(upload: PowerBIUpload, exports: list[PowerBIExport]) -> list[dict[str, Any]]:
     """One line per Power BI page, in Power BI's order: its verdict (its worst export's) and what to do, its
     needs-a-look lines, and its exports (or its visuals not uploaded)."""
-    pages, missing = [], 0
+    pages = []
     for page in powerbi_results.page_lines(upload, exports):
         lines = []
         for kind in px.KINDS.values():
@@ -251,26 +276,10 @@ def _pages(upload: PowerBIUpload, exports: list[PowerBIExport]) -> tuple[list[di
                 continue
             found = [e for e in page["exports"] if e.kind == kind.key]
             if not found:
-                missing += 1
                 lines.append({"visual": kind.visual[1], "missing": True})
             lines.extend(_export_row(upload, e) for e in found)
         pages.append({**page, "lines": lines})
-    return pages, missing
-
-
-def _before(upload: PowerBIUpload, pages: list[dict[str, Any]], missing: int) -> list[str]:
-    """What to do now about the files themselves: those not read, the visuals not uploaded, the filters to
-    clear."""
-    lines = []
-    not_read = len(upload.refused or []) + sum(1 for p in pages for line in p["lines"] if line.get("failed"))
-    if not_read:
-        lines.append(words.plural(not_read, words.TODO_NOT_READ_ONE, words.TODO_NOT_READ))
-    if missing:
-        lines.append(words.plural(missing, words.TODO_MISSING_ONE, words.TODO_MISSING))
-    cannot = list(dict.fromkeys(c for p in pages for line in p["lines"] for c in line.get("cannot", ())))
-    if cannot:
-        lines.append(words.TODO_CANNOT.format(clauses="; ".join(cannot[:TODO_CLAUSES])))
-    return lines
+    return pages
 
 
 def upload_view(request, pk: int):
@@ -290,7 +299,7 @@ def _status_words(upload: PowerBIUpload, exports: list[PowerBIExport]) -> str:
 
 def _upload_page(request, upload: PowerBIUpload, refused: list[str] | None = None, status: int = 200):
     exports = list(powerbi_compare.exports_of(upload))
-    pages, missing = _pages(upload, exports)
+    pages = _pages(upload, exports)
     summary = upload.summary or {}
     hidden = summary.get("hidden") or 0
     busy = upload.status in powerbi_compare.BUSY_STATUSES
@@ -303,14 +312,14 @@ def _upload_page(request, upload: PowerBIUpload, refused: list[str] | None = Non
         busy=busy,
         status_words=_status_words(upload, exports),
         pages=pages,
-        todo=[] if busy else powerbi_results.todo(upload, exports, _before(upload, pages, missing)),
+        todo=[] if busy else powerbi_results.todo(upload, exports, powerbi_results.before(upload, exports)),
         choices=upload.choices if done else [],
         # the Reached sentence alone when no choice carries it (no rule fits)
         reached=summary.get("reached", "")
         if done and not any(c.get("code") == "reached" for c in upload.choices or [])
         else "",
         refused=refused or [],
-        not_read=upload.refused or [],
+        not_read=powerbi_results.not_read(upload, exports),  # each with why: refused, or not read in the job
         hidden=words.plural(hidden, words.HIDDEN_ONE, words.HIDDEN) if hidden else "",
         dropped=list(dict.fromkeys(s for e in exports for s in e.dropped)),
         notes=summary.get("notes") or [],
@@ -318,7 +327,10 @@ def _upload_page(request, upload: PowerBIUpload, refused: list[str] | None = Non
         trimmed=words.DETAILS_REMOVED if upload.trimmed else "",
         again=powerbi_compare.can_compare_again(upload),
         again_url=reverse("admin:datamart_powerbi_again", args=[upload.pk]),
-        xlsx_url=reverse("admin:datamart_powerbi_xlsx", args=[upload.pk]) if done and written else "",
+        # a trimmed upload keeps no line: no file of differences
+        xlsx_url=reverse("admin:datamart_powerbi_xlsx", args=[upload.pk])
+        if done and written and not upload.trimmed
+        else "",
         day=comparison._day(upload.day) if upload.day else "",
         refreshed=comparison._day(upload.powerbi_as_of) if upload.powerbi_as_of else "",
         synced=comparison._day(upload.synced_at) if upload.synced_at else "",
@@ -326,17 +338,23 @@ def _upload_page(request, upload: PowerBIUpload, refused: list[str] | None = Non
     return render(request, "admin/datamart/powerbi/upload.html", context, status=status)
 
 
-@require_POST
 def again_view(request, pk: int):
-    """*Compare again*: refused while a comparison, a Datamart sync or a KM Database load runs."""
+    """*Compare again* (a POST; anyone who is not a validator gets a 404 whatever the method): refused while a
+    comparison, a Datamart sync or a KM Database load runs."""
     _guard(request)
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
     powerbi_compare.close_stale()
     upload = get_object_or_404(PowerBIUpload.objects.select_related("uploaded_by"), pk=pk)
     if powerbi_compare.busy() is not None:
         return _upload_page(request, upload, [words.BUSY])
     if powerbi_compare.heavy_job_running():
         return _upload_page(request, upload, [words.OTHER_JOB])
-    if not powerbi_compare.again(upload):
+    try:
+        again = powerbi_compare.again(upload)
+    except powerbi_compare.Busy:  # another upload was queued meanwhile
+        return _upload_page(request, upload, [words.BUSY])
+    if not again:
         return _upload_page(request, upload, [words.NOT_AGAIN])
     upload.refresh_from_db()
     powerbi_compare.start(upload, request.user)
@@ -410,6 +428,7 @@ def export_view(request, pk: int, export_pk: int):
         if counts.get("written", 0) > powerbi_results.ON_SCREEN
         else "",
         empty=words.EXPORT_EMPTY.format(n=counts.get("neurodb_rows", 0)) if export.state == "empty" else "",
+        trimmed=words.DETAILS_REMOVED if upload.trimmed else "",  # its lines removed: none to list
         kinds=words.LINE_KINDS,
         reasons={r: powerbi_results.reason_words(r, history) for r in words.REASON_ORDER},
         group_names=words.GROUP_NAMES,
@@ -435,7 +454,8 @@ def _by_reason(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
             "reason": powerbi_results.reason_words(r["reason"], history),
             "n": r["n"],
             "url": powerbi_results.export_url(upload, export, reason=r["reason"], group=r["group"]),
-            "todo": words.GROUP_ACTIONS.get(r["group"], ""),
+            "todo": powerbi_results.group_action(r["group"], r["reason"])
+            or words.REASON_ACTIONS.get(r["reason"], ""),
         }
         (expected if r["group"] == 1 else needs).append(item)
     return {"needs": needs, "expected": expected}
@@ -462,7 +482,7 @@ def xlsx_view(request, pk: int):
     powerbi_compare.close_stale()
     upload = get_object_or_404(PowerBIUpload, pk=pk)
     found = list(powerbi_compare.exports_of(upload))
-    if upload.status != PowerBIUpload.Status.DONE or not found:
+    if upload.status != PowerBIUpload.Status.DONE or not found or upload.trimmed:  # trimmed: no line left
         return HttpResponse(words.XLSX_NONE, status=404, content_type="text/plain; charset=utf-8")
     slot = raw.take_slot()
     if slot is None:

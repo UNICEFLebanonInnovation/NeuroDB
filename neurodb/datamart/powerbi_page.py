@@ -4,9 +4,10 @@ the running PDs, the user's own section, this year).
 
 The common filter: Power BI's PD statuses (``status is active`` is ``active`` only; no status clause is every
 status), its reporting years (the year the reporting period ends in; several years are read each and added),
-its sections. Each function returns plain dicts holding only the fields this module names (:func:`shown`):
-never a focal point, a person who submitted a report, a narrative or a record's whole data, even where the
-page's own function returns them.
+its sections, and on the progress reports its report statuses (Power BI's Due covers reports not yet due).
+Each function returns plain dicts holding only the fields this module names (:func:`shown`): never a focal
+point, a person who submitted a report, a narrative or a record's whole data, even where the page's own
+function returns them.
 """
 
 from __future__ import annotations
@@ -67,6 +68,15 @@ def report_params(parsed: Filter, *, year: bool = True, sections: bool = True) -
     return params
 
 
+def wanted_statuses(parsed: Filter) -> set[str] | None:
+    """NeuroDB's report statuses for Power BI's report status clause (None: no such clause, every status)."""
+    from .powerbi_filters import REPORT_STATUSES
+
+    if not parsed.report_statuses:
+        return None
+    return {s for label in parsed.report_statuses for s in REPORT_STATUSES.get(label, ())}
+
+
 def in_years(parsed: Filter, end: Any) -> bool:
     if not parsed.years:
         return True
@@ -86,12 +96,15 @@ def reporting(parsed: Filter, context: pf.Context, *, sections: bool = True) -> 
 
 
 def reports(parsed: Filter, context: pf.Context, *, sections: bool = True) -> list[dict[str, Any]]:
-    """The page's progress reports (one per report, its six statuses read for the day), in Power BI's years,
-    each as :data:`REPORT_FIELDS`."""
+    """The page's progress reports (one per report, its six statuses read for the day), in Power BI's years
+    and report statuses, each as :data:`REPORT_FIELDS`."""
     held = pf.pds(context)
+    wanted = wanted_statuses(parsed)
     out = []
     for report in reporting(parsed, context, sections=sections)["reports"]:
         if not in_years(parsed, report["period_end"]):
+            continue
+        if wanted is not None and report["status"] not in wanted:
             continue
         pd = held.by_id.get(report["intervention_id"]) if report["intervention_id"] else None
         own = [s for s in report["sections"] if s != "—"]
@@ -123,11 +136,16 @@ def reports(parsed: Filter, context: pf.Context, *, sections: bool = True) -> li
 
 def partners_by_status(parsed: Filter, context: pf.Context) -> dict[str, int]:
     """Partner Performance's cards: the partners with a report in each status
-    (``reporting.partner_performance`` on the page's reports, in Power BI's years)."""
+    (``reporting.partner_performance`` on the page's reports, in Power BI's years and report statuses)."""
     from . import reporting as rp
 
     found = reporting(parsed, context)
-    every = [r for r in found["reports"] if in_years(parsed, r["period_end"])]
+    wanted = wanted_statuses(parsed)
+    every = [
+        r
+        for r in found["reports"]
+        if in_years(parsed, r["period_end"]) and (wanted is None or r["status"] in wanted)
+    ]
     by_status = rp.partner_performance(every)["by_status"]
     return {entry["key"]: entry["partners"] for entry in by_status}
 

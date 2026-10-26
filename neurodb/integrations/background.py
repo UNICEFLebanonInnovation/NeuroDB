@@ -48,6 +48,9 @@ ETOOLS_REST_RAW_LOCK_ID = 7140441
 KM_LOAD_LOCK_ID = 7140442
 # neurodb.datamart.powerbi_compare.LOCK_ID: one comparison at a time (not a SyncRun job: not in LOCK_IDS)
 POWERBI_COMPARE_LOCK_ID = 7140443
+# neurodb.datamart.powerbi_compare.QUEUE_LOCK_ID: an upload queued (or queued again) one request at a time,
+# held for that request's transaction only (the comparison holds POWERBI_COMPARE_LOCK_ID for its whole run)
+POWERBI_QUEUE_LOCK_ID = 7140444
 LOCK_IDS = {
     SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID,
     SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID,

@@ -66,17 +66,19 @@ def test_only_validators_with_staff_status_open_compare_with_power_bi(client, ro
         ("get", reverse("admin:datamart_powerbi_export", args=[upload.pk, export.pk])),
         ("get", reverse("admin:datamart_powerbi_xlsx", args=[upload.pk])),
         ("post", reverse("admin:datamart_powerbi_again", args=[upload.pk])),
+        ("get", reverse("admin:datamart_powerbi_again", args=[upload.pk])),  # whatever the method
+        ("get", reverse("admin:datamart_powerbi_again", args=[upload.pk + 1000])),  # an upload that is not
     ]
 
     def statuses():
         return [getattr(client, method)(url).status_code for method, url in pages]
 
-    assert statuses() == [302] * 6  # anonymous: the admin's sign-in
+    assert statuses() == [302] * 8  # anonymous: the admin's sign-in
     client.force_login(pf.user("plain-validator", staff=False))
-    assert statuses() == [302] * 6  # the admin asks for staff status
+    assert statuses() == [302] * 8  # the admin asks for staff status
     for user in (pf.user("staff-viewer", validator=False), admin_user):  # an Administrator not ticked: no
         client.force_login(user)
-        assert statuses() == [404] * 6, user
+        assert statuses() == [404] * 8, user
     for n, user in enumerate((pf.user("staff-validator"), pf.user("root", superuser=True))):
         client.force_login(user)
         found = statuses()
@@ -84,7 +86,7 @@ def test_only_validators_with_staff_status_open_compare_with_power_bi(client, ro
         assert found[1] == 200  # a POST without files: "Choose the files to upload."
         # the Excel file of every difference; once Compare again queued the upload, none until it is done
         assert found[4] == (200 if n == 0 else 404)
-        assert found[5] in (200, 302)
+        assert found[5] in (200, 302) and found[6] == found[7] == 405  # Compare again is a POST
     # an export of another upload is not found
     assert client.get(reverse("admin:datamart_powerbi_export", args=[other.pk, export.pk])).status_code == 404
 
@@ -266,6 +268,37 @@ def test_the_history_counts_the_exports_read_and_the_files_not_read(checker, sta
     assert found["Exports read"] == "1" and found["Files not read"] == "1"
 
 
+def test_an_export_whose_comparison_stopped_is_never_called_a_file_not_read(checker, started, monkeypatch):
+    """Its file was read: What to do now says to press Compare again, the history counts it among the exports
+    read, and only a file NeuroDB could not read is listed (with why) under the files not read."""
+    from neurodb.datamart import powerbi_kinds
+
+    def broken(job):
+        raise TypeError("fake")
+
+    monkeypatch.setitem(powerbi_kinds.COMPARERS, "by_sector", broken)
+    pf.post(checker, ("cards.xlsx", pf.export("partner_cards")), ("sector.xlsx", pf.export("by_sector")))
+    upload = PowerBIUpload.objects.get()
+    pc.run(upload.pk)
+    html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    todo = _todo(html)
+    assert words.TODO_NOT_COMPARED_ONE in todo and not any("not read" in line for line in todo)
+    assert "data-pbi-not-read" not in html
+    assert words.VERDICT_ACTIONS["failed"] in html and "send the Excel file" not in html
+    table = checker.get(INDEX).content.decode().split("data-pbi-history", 1)[1].split("</table>", 1)[0]
+    headers = re.findall(r'<th scope="col">(.*?)</th>', table)
+    found = dict(zip(headers[1:], re.findall(r"<td>(.*?)</td>", table), strict=False))
+    assert found["Exports read"] == "2" and found["Files not read"] == "0"
+    # a file the job could not read: listed, with why
+    PowerBIExport.objects.filter(upload=upload, kind="by_sector").update(
+        error=words.COULD_NOT_READ.format(name="sector.xlsx", cls="ValueError")
+    )
+    html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    assert words.TODO_NOT_READ_ONE.replace("'", "&#x27;") in _todo(html)
+    listed = html.split("data-pbi-not-read", 1)[1].split("</ul>", 1)[0]
+    assert "NeuroDB could not read sector.xlsx (ValueError)." in listed
+
+
 def test_an_upload_with_nothing_recognised_keeps_nothing(checker, started):
     response = pf.post(checker, ("notes.txt", b"fake notes"))
     assert response.status_code == 200
@@ -374,7 +407,7 @@ def test_an_exports_page_lists_its_lines_needs_a_look_first_with_two_values_and_
         _report(report="HR1", report_status="Overdue", period_end=datetime.date(2026, 8, 31)),  # owed
         _report(report="HR2", report_status="Accepted", period_end=datetime.date(2026, 8, 31)),  # not in the read
         *[_report(report=f"HR{n}", report_status="Overdue", period_end=datetime.date(2026, 8, 31)) for n in range(3, 120)],
-        _report(pd="=HYPERLINK(\"http://x\")", report="+1-2"),  # a formula-like text stays a text
+        _report(pd="=SUM(1,2)", report="+1-2"),  # a formula-like text stays a text
     ]  # fmt: skip
     pf.sync(
         datetime.datetime(2026, 10, 15, 8, 0)
@@ -420,8 +453,8 @@ def test_an_exports_page_lists_its_lines_needs_a_look_first_with_two_values_and_
     header = [c.value for c in sheet[1]]
     assert header[:5] == ["Kind", "Group", "Reason", "What to do", "Detail"]
     rows = [dict(zip(header, (c.value for c in r), strict=False)) for r in sheet.iter_rows(min_row=2)]
-    formula = next(r for r in rows if str(r["PD #"]).startswith("=HYPERLINK"))
-    assert formula["PD #"] == '=HYPERLINK("http://x")' and formula["Report #"] == "+1-2"
+    formula = next(r for r in rows if str(r["PD #"]).startswith("=SUM"))
+    assert formula["PD #"] == "=SUM(1,2)" and formula["Report #"] == "+1-2"
     assert isinstance(formula["Period End"], datetime.datetime)
     assert "<f>" not in zipfile_text(response.content)
     assert len(rows) == 122  # every line (118 owed, 2 not in the read, 2 only in NeuroDB), one row each: wide
@@ -510,6 +543,131 @@ def test_the_upload_page_says_what_to_do_now_and_one_verdict_per_power_bi_page(c
     history = checker.get(INDEX).content.decode().split("data-pbi-history", 1)[1]
     assert "<td>0</td>" in history  # no line needs a look
     del datetime
+
+
+def test_what_to_do_now_never_says_agree_while_an_export_is_empty_or_of_another_country(
+    checker, started, fake_world, settings
+):
+    """Every other export the same, one exported empty while NeuroDB's page has rows for its filter (or of
+    another country): What to do now says so, on the page and in the Excel file, never that they agree."""
+    import io
+
+    import openpyxl
+
+    from neurodb.datamart import powerbi_results
+
+    settings.ETOOLS_DATAMART_COUNTRY = "Fakeland"
+    here = ("country_name is Fakeland", "status is active")
+    cards = pf.export(
+        "partner_cards", [pf.row("partner_cards", accepted=1, submitted=1, due=0, overdue=1)], filters=here
+    )
+    elsewhere = ("country_name is Elsewhere", "status is active")
+    for other, line in (
+        (pf.export("report_list", [], filters=here), words.TODO_EMPTY_ONE),
+        (
+            pf.export("report_list", filters=elsewhere),
+            words.TODO_OTHER_COUNTRY_ONE.format(country="Fakeland"),
+        ),
+    ):
+        upload = pf.compared(checker, ("cards.xlsx", cards), ("list.xlsx", other))
+        exports = list(pc.exports_of(upload))
+        lines = [found["text"] for found in powerbi_results.todo(upload, exports, [])]
+        assert line in lines and words.TODO_NOTHING not in lines
+        page = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+        assert any(t.startswith(line.replace("'", "&#x27;")) for t in _todo(page))
+        workbook = checker.get(reverse("admin:datamart_powerbi_xlsx", args=[upload.pk]))
+        sheet = openpyxl.load_workbook(io.BytesIO(workbook.content)).worksheets[0]
+        cells = [r[0] for r in sheet.iter_rows(values_only=True)]
+        assert line in cells and words.TODO_NOTHING not in cells
+    assert "Export it again with Country name Fakeland." in page
+
+
+def test_the_excel_s_what_to_do_now_says_what_the_page_says(checker, started):
+    """The files not read (with why), the visuals not uploaded and the filters to clear: in the Excel file's
+    Summary as on the upload page."""
+    import html as html_module
+    import io
+
+    import openpyxl
+
+    filters = ("country_name is Lebanon", "name is Zq Unknownperson")
+    upload = _done(checker, ("sector.xlsx", pf.export("by_sector", filters=filters)), ("notes.txt", b"fake"))
+    page = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    todo = [html_module.unescape(re.sub(r" <a .*", "", t)) for t in _todo(page)]
+    response = checker.get(reverse("admin:datamart_powerbi_xlsx", args=[upload.pk]))
+    cells = [r[0] for r in openpyxl.load_workbook(io.BytesIO(response.content)).worksheets[0].iter_rows(values_only=True)]  # fmt: skip
+    start = cells.index("What to do now") + 1
+    assert cells[start : start + len(todo)] == todo
+    assert any("visuals are not uploaded" in t for t in todo) and any("Filters pane" in t for t in todo)
+    assert any("file was not read" in t for t in todo)
+    assert "  " + words.NOT_EXCEL.format(name="notes.txt") in cells  # why, as "see why below" says
+
+
+def test_a_trimmed_upload_links_no_line_and_offers_no_excel(checker, started):
+    """Its lines are removed: no link to them, no Excel file (404), its export page says the details were
+    removed (not "No differences"), and no sentence asks to send the Excel file."""
+    uploads = []
+    for n in range(4):
+        uploads.append(_done(checker, (f"{n}.xlsx", pf.export("by_sector"))))  # needs a look: empty NeuroDB
+    first = uploads[0]
+    first.refresh_from_db()
+    assert first.trimmed and (first.summary or {}).get("look")
+    html = checker.get(reverse("admin:datamart_powerbi_upload", args=[first.pk])).content.decode()
+    assert "?group=" not in html and "data-pbi-xlsx" not in html
+    assert words.TRIMMED_ACTION in html and "Download the Excel file" not in html
+    assert checker.get(reverse("admin:datamart_powerbi_xlsx", args=[first.pk])).status_code == 404
+    export = PowerBIExport.objects.get(upload=first)
+    page = checker.get(reverse("admin:datamart_powerbi_export", args=[first.pk, export.pk])).content.decode()
+    assert words.DETAILS_REMOVED in page and words.NO_LINES not in page and "data-pbi-line-filter" not in page
+
+
+def test_how_to_export_and_the_country_follow_neurodb_s_history_and_settings(checker, settings, monkeypatch):
+    import datetime
+
+    from neurodb.datamart import powerbi_results, reached, services
+
+    monkeypatch.setattr(
+        reached,
+        "history_from",
+        lambda today=None: reached.HistoryFrom(datetime.date(2024, 1, 1), "read_from"),
+    )
+    settings.ETOOLS_DATAMART_COUNTRY = "Fakeland"
+    html = checker.get(INDEX).content.decode()
+    year = words.HOW_YEAR.format(year=services.reporting_today().year, day="1 Jan 2024")
+    assert year.replace("'", "&#x27;") in html
+    assert "Lebanon" not in html
+    export = PowerBIExport(state="not_compared", verdict="other_country")
+    assert powerbi_results.verdict_words(export)[1] == "Export it again with Country name Fakeland."
+    export = PowerBIExport(state="not_compared", verdict="")
+    assert powerbi_results.verdict_words(export)[1] == "Export it again with Country name Fakeland."
+
+
+def test_a_counted_visual_s_differences_are_called_differences_not_rows(checker, started):
+    """Two sector rows against an empty NeuroDB: two rows compared, eight differences (four columns each)."""
+    rows = [
+        pf.row("by_sector", section="Section Alpha", accepted=1, submitted=1, due=1, overdue=1),
+        pf.row("by_sector", section="Section Beta", accepted=1, submitted=1, due=1, overdue=1),
+    ]
+    upload = _done(checker, ("sector.xlsx", pf.export("by_sector", rows)))
+    export = PowerBIExport.objects.get(upload=upload)
+    assert export.counts["rows"] == 2 and export.counts["groups"] == {"4": 8}
+    todo = _todo(checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode())
+    assert todo[0].startswith("Needs a look: 8 differences.") and "rows" not in todo[0]
+
+
+def test_an_export_s_differences_stay_readable_at_phone_width():
+    """Why and What to do keep a column wide enough to read on a phone, the Column heading takes no more than
+    its words, a file name without spaces wraps, and the line filter's choices stay in their card."""
+    css = (ROOT / "web/static/css/admin.css").read_text(encoding="utf-8")
+    assert '.nd-pbi__lines th[scope="row"] { min-width: 0; }' in css
+    assert ".nd-pbi__lines td.nd-pbi__long { min-width: 14rem; max-width: 28rem; }" in css
+    assert ".nd-pbi__note { min-width: 0; overflow-wrap: anywhere; }" in css
+    assert (
+        "[data-pbi-line-filter] label, [data-pbi-line-filter] select { max-width: 100%; min-width: 0; }"
+        in css
+    )
+    page = (ROOT / "datamart/templates/admin/datamart/powerbi/export.html").read_text(encoding="utf-8")
+    assert "nd-pbi__lines" in page and page.count('class="nd-pbi__long"') == 4 and "nd-pbi__note" in page
 
 
 def test_the_upload_page_says_how_far_the_comparison_is(checker, started):

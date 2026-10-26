@@ -19,9 +19,9 @@ class Command(BaseCommand):
         parser.add_argument("--triggered-by", dest="triggered_by", default="command", help="who started it")
 
     def handle(self, *args, **options):
-        powerbi_compare.limit_process()
+        limit = powerbi_compare.limit_process()
         try:
-            upload = powerbi_compare.run(options["upload_pk"])
+            upload = powerbi_compare.run(options["upload_pk"], memory_limit=limit)
         except Exception as exc:  # noqa: BLE001 - the run records its own failure; only the class name here
             raise CommandError(f"Compare with Power BI stopped ({type(exc).__name__})") from None
         if upload is None:

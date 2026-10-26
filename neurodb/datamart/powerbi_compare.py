@@ -50,13 +50,17 @@ from .models import PowerBIDifference, PowerBIExport, PowerBIUpload
 logger = logging.getLogger(__name__)
 
 LOCK_ID = background.POWERBI_COMPARE_LOCK_ID
+QUEUE_LOCK_ID = background.POWERBI_QUEUE_LOCK_ID
 HEAVY_LOCKS = (background.DATAMART_LOCK_ID, background.KM_LOAD_LOCK_ID)  # a comparison never runs beside them
 COMMAND = "compare_powerbi"
 QUEUED_FOR_AT_MOST = datetime.timedelta(minutes=2)  # a queued upload older than this never started
 KEEP_FULL = 3  # the newest uploads that keep their rows and lines
 LINE_LIMIT = 20_000  # lines written per export (the rest are counted)
 UPLOAD_LINE_LIMIT = 60_000  # lines written per upload
-MEMORY_LIMIT = 600 * 1024 * 1024  # the job's data limit: past it, a MemoryError ends it (not the container)
+MB = 1024 * 1024
+MEMORY_LIMIT = 600 * MB  # the job's data limit at most: past it, a MemoryError ends it (not the container)
+MEMORY_MARGIN = 150 * MB  # left to the web workers and the scheduler's jobs beside the comparison
+MEMORY_FLOOR = 250 * MB  # the comparison's data limit at least (else it cannot start)
 NICE = 10
 MAX_REFUSED = 100
 Status = PowerBIUpload.Status
@@ -90,18 +94,90 @@ def _unlock() -> None:
         logger.warning("Compare with Power BI: the lock could not be released")
 
 
+class Busy(Exception):
+    """Another upload waits to be compared, or is being compared: these files are not queued."""
+
+
+def _queue_lock() -> None:
+    """One request at a time queues an upload: the check that none is busy and the queueing are one step
+    (held until the request's transaction ends)."""
+    if connection.vendor != "postgresql":
+        return
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [QUEUE_LOCK_ID])
+
+
 def heavy_job_running() -> bool:
     """A Datamart sync or a KM Database load holds its lock now."""
     return any(background.lock_is_held(lock) for lock in HEAVY_LOCKS)
 
 
-def limit_process() -> None:
+def limit_process() -> int:
     """The job's own process gives way to the web workers: a lower CPU priority, and a data limit past which a
-    MemoryError ends the comparison instead of the container being stopped."""
+    MemoryError ends the comparison instead of the container being stopped. The limit is what the container
+    has left (:func:`memory_room`, less :data:`MEMORY_MARGIN`), at most :data:`MEMORY_LIMIT` and at least
+    :data:`MEMORY_FLOOR`. Returns it, in bytes."""
     os.nice(NICE)
     _soft, hard = resource.getrlimit(resource.RLIMIT_DATA)
-    limit = MEMORY_LIMIT if hard == resource.RLIM_INFINITY else min(MEMORY_LIMIT, hard)
+    limit = MEMORY_LIMIT
+    room = memory_room()
+    if room is not None:
+        limit = max(MEMORY_FLOOR, min(MEMORY_LIMIT, _own_data() + room - MEMORY_MARGIN))
+    if hard != resource.RLIM_INFINITY:
+        limit = min(limit, hard)
     resource.setrlimit(resource.RLIMIT_DATA, (limit, hard))
+    return limit
+
+
+CGROUP_V2 = "/sys/fs/cgroup"
+CGROUP_V1 = "/sys/fs/cgroup/memory"
+NO_LIMIT = 1 << 60  # cgroup v1 writes a huge number for "no limit"
+
+
+def memory_room() -> int | None:
+    """The memory the container has left (its cgroup's limit less what it uses, reclaimable page cache not
+    counted), or None when the container has no limit or it cannot be read."""
+
+    def read(path: str) -> str:
+        with open(path, encoding="ascii") as found:
+            return found.read().strip()
+
+    def stat(path: str, name: str) -> int:
+        for line in read(path).splitlines():
+            key, _space, value = line.partition(" ")
+            if key == name:
+                return int(value)
+        return 0
+
+    try:
+        if os.path.exists(f"{CGROUP_V2}/memory.max"):
+            limit = read(f"{CGROUP_V2}/memory.max")
+            if limit == "max":
+                return None
+            used = int(read(f"{CGROUP_V2}/memory.current"))
+            cache = stat(f"{CGROUP_V2}/memory.stat", "inactive_file")
+            total = int(limit)
+        else:
+            total = int(read(f"{CGROUP_V1}/memory.limit_in_bytes"))
+            if total >= NO_LIMIT:
+                return None
+            used = int(read(f"{CGROUP_V1}/memory.usage_in_bytes"))
+            cache = stat(f"{CGROUP_V1}/memory.stat", "total_inactive_file")
+    except (OSError, ValueError):
+        return None
+    return max(0, total - (used - cache))
+
+
+def _own_data() -> int:
+    """This process's data segment now (its VmData: what RLIMIT_DATA limits), in bytes."""
+    try:
+        with open("/proc/self/status", encoding="ascii") as found:
+            for line in found:
+                if line.startswith("VmData:"):
+                    return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0
 
 
 def _empty_content(upload_pk: int) -> None:
@@ -166,9 +242,13 @@ def _aware(moment: datetime.datetime | None) -> datetime.datetime | None:
 
 def create(prepared: powerbi_read.Upload, user: Any) -> PowerBIUpload:
     """The upload and its exports, in one transaction (retention applied in it): read exports with their rows,
-    staged ones with their repacked copy."""
+    staged ones with their repacked copy. Raises :class:`Busy` when another upload is busy: the check and the
+    queueing are one step (:func:`_queue_lock`), so two uploads at once never queue two comparisons."""
     now = timezone.now()
     with transaction.atomic():
+        _queue_lock()
+        if PowerBIUpload.objects.filter(status__in=BUSY_STATUSES).exists():
+            raise Busy
         upload = PowerBIUpload.objects.create(
             status=Status.QUEUED,
             queued_at=now,
@@ -214,9 +294,14 @@ def _keep_read(export: PowerBIExport, found: powerbi_read.Read) -> None:
     export.rows_read = found.rows_read
     export.columns = found.columns
     export.filters = found.filter.to_json()
-    export.clauses = [{"words": c.words, "state": c.state} for c in found.filter.clauses]
+    export.clauses = _clauses(found.filter)
     export.notes = list(found.notes)
     export.state = "read"
+
+
+def _clauses(parsed: powerbi_filters.Filter) -> list[dict[str, str]]:
+    """The clauses as the pages show them: their words and how NeuroDB applies each."""
+    return [{"words": c.words, "state": c.state} for c in parsed.clauses]
 
 
 def start(upload: PowerBIUpload, user: Any) -> bool:
@@ -249,8 +334,12 @@ def can_compare_again(upload: PowerBIUpload) -> bool:
 
 def again(upload: PowerBIUpload) -> bool:
     """*Compare again*: the same rows against NeuroDB's current data. Its lines and results are removed and
-    it waits for the job again (queued now)."""
+    it waits for the job again (queued now). Raises :class:`Busy` when another upload is busy (checked and
+    queued in one step, as :func:`create`)."""
     with transaction.atomic():
+        _queue_lock()
+        if PowerBIUpload.objects.filter(status__in=BUSY_STATUSES).exclude(pk=upload.pk).exists():
+            raise Busy
         locked = PowerBIUpload.objects.select_for_update().filter(pk=upload.pk).first()
         if locked is None or not can_compare_again(locked):
             return False
@@ -272,13 +361,11 @@ def again(upload: PowerBIUpload) -> bool:
 
 def retention() -> int:
     """The uploads older than the newest :data:`KEEP_FULL` lose their rows, copies and lines (their summary,
-    counts and notes stay). Returns how many were trimmed."""
-    keep = list(
-        PowerBIUpload.objects.order_by("-uploaded_at", "-id").values_list("pk", flat=True)[:KEEP_FULL]
-    )
-    older = list(
-        PowerBIUpload.objects.exclude(pk__in=keep).filter(trimmed=False).values_list("pk", flat=True)
-    )
+    counts and notes stay). An upload waiting to be compared, or being compared, is never trimmed and never
+    counted among the newest: its job trims the others once it ends. Returns how many were trimmed."""
+    settled = PowerBIUpload.objects.exclude(status__in=BUSY_STATUSES)
+    keep = list(settled.order_by("-uploaded_at", "-id").values_list("pk", flat=True)[:KEEP_FULL])
+    older = list(settled.exclude(pk__in=keep).filter(trimmed=False).values_list("pk", flat=True))
     if not older:
         return 0
     PowerBIDifference.objects.filter(export__upload_id__in=older).delete()
@@ -288,9 +375,10 @@ def retention() -> int:
 
 
 # ------------------------------------------------------------------------------------------------- the run
-def run(pk: int) -> PowerBIUpload | None:
+def run(pk: int, memory_limit: int | None = None) -> PowerBIUpload | None:
     """Compare upload ``pk``. Returns the upload as it ended (done or failed), or None when there was nothing
-    to do (it is not waiting)."""
+    to do (it is not waiting). ``memory_limit``: the data limit the job runs under (:func:`limit_process`),
+    kept in the upload's summary beside its memory peak."""
     if not _lock():
         error = words.LOCKED if _staged_left(pk) else words.LOCKED_AGAIN
         if PowerBIUpload.objects.filter(pk=pk, status=Status.QUEUED).update(
@@ -302,6 +390,11 @@ def run(pk: int) -> PowerBIUpload | None:
     started = time.monotonic()
     try:
         close_stale(ours=pk)
+        if PowerBIUpload.objects.filter(pk=pk, status=Status.QUEUED, trimmed=True).update(
+            status=Status.FAILED, error=words.TRIMMED_QUEUED, finished_at=timezone.now()
+        ):  # its rows were removed meanwhile: never compared against nothing
+            logger.warning("Compare with Power BI %s: its rows were removed before it started", pk)
+            return PowerBIUpload.objects.filter(pk=pk).first()
         if not PowerBIUpload.objects.filter(pk=pk, status=Status.QUEUED).update(
             status=Status.READING, started_at=timezone.now()
         ):
@@ -330,6 +423,8 @@ def run(pk: int) -> PowerBIUpload | None:
 
         summary = {**(upload.summary or {}), **_summary(upload)}
         summary.pop("compared", None)
+        if memory_limit:
+            summary["memory_limit_mb"] = round(memory_limit / MB)
         upload.summary = {**summary, **powerbi_results.summary(upload, list(exports_of(upload)))}
         upload.choices = powerbi_results.choices(list(exports_of(upload)))
         upload.status = Status.DONE
@@ -463,10 +558,9 @@ def _day(upload: PowerBIUpload, run: Any) -> None:
         day = today
     upload.day = day
     upload.synced_at = runfacts.moment(run)
-    if upload.powerbi_as_of and upload.synced_at:
-        refreshed = timezone.localtime(upload.powerbi_as_of).date()
-        if timezone.localtime(upload.synced_at).date() < refreshed:
-            notes.append(words.SYNC_BEFORE)
+    # the moments, as each row's reason reads them (powerbi_facts.Context)
+    if upload.powerbi_as_of and upload.synced_at and upload.synced_at < upload.powerbi_as_of:
+        notes.append(words.SYNC_BEFORE)
     upload.summary = {**(upload.summary or {}), "notes": notes}
 
 
@@ -500,14 +594,14 @@ def _record_fields(upload: PowerBIUpload, run: Any) -> None:
             clause.state = "as_read"
         if changed or notes != export.notes:
             export.filters = parsed.to_json()
-            export.clauses = [{"words": c.words, "state": c.state} for c in parsed.clauses]
+            export.clauses = _clauses(parsed)
             export.notes = notes
             export.save(update_fields=["filters", "clauses", "notes"])
 
 
 def _context(upload: PowerBIUpload) -> powerbi_facts.Context:
     """What every export of the comparison shares: the day, NeuroDB's history, Power BI's refresh and the sync
-    (dates), the people cleaner's names and the section names NeuroDB knows."""
+    (their dates and their moments), the people cleaner's names and the section names NeuroDB knows."""
     from neurodb.watch import people
 
     from . import reached
@@ -520,6 +614,8 @@ def _context(upload: PowerBIUpload) -> powerbi_facts.Context:
         history=reached.history_from(day).date,
         refreshed=refreshed,
         synced=synced,
+        refreshed_at=upload.powerbi_as_of,
+        synced_at=upload.synced_at,
         names=people.known_names(),
         sections=tuple(known_sections()),
     )
@@ -550,7 +646,10 @@ def _compare(
 
     if export.state == "failed":
         return None
-    parsed = powerbi_filters.Filter.from_json(export.filters)
+    # the clauses this kind's comparer does not apply are ones NeuroDB cannot apply to this export
+    parsed = powerbi_kinds.clause_states(export.kind, powerbi_filters.Filter.from_json(export.filters))
+    export.filters = parsed.to_json()
+    export.clauses = _clauses(parsed)
     try:
         result = None
         if parsed.country_ok is False:
@@ -564,11 +663,13 @@ def _compare(
             export.counts = {"neurodb_rows": count}
         elif export.kind in COMPARERS:
             data = PowerBIExport.objects.filter(pk=export.pk).values_list("rows", flat=True).first()
+            if not data:  # its rows were removed (retention): never compared against nothing
+                raise LookupError("rows")
             result = powerbi_match.Result(limit=LINE_LIMIT)
             job = powerbi_kinds.Job(
                 kind=px.KINDS[export.kind],
                 columns=list(export.columns),
-                data=bytes(data) if data else None,
+                data=bytes(data),
                 parsed=parsed,
                 context=context,
                 result=result,
@@ -694,7 +795,7 @@ def _by_comparison(export: PowerBIExport, fields: list[str]) -> None:
         if clause.field in fields and clause.state == "applied":
             clause.state = "by_comparison"
     export.filters = parsed.to_json()
-    export.clauses = [{"words": c.words, "state": c.state} for c in parsed.clauses]
+    export.clauses = _clauses(parsed)
 
 
 def _summary(upload: PowerBIUpload) -> dict[str, Any]:

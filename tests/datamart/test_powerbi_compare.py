@@ -554,7 +554,11 @@ def test_program_performance_counts_power_bis_possible_reached_and_says_which_fi
     assert (line.kind, line.reason, line.rule, line.group) == ("different", "rule", "reached", 1)
     assert line.found == {"reached": [15, 35, 15]}  # Power BI, NeuroDB, counted Power BI's way
     assert line.detail.startswith("Counted Power BI's way (adds up the Accepted quarterly reports")
-    assert "NeuroDB's records give 35." in line.detail and "Also fits:" in line.detail
+    # each value with its side: 15 counted Power BI's way (as the Alternative column shows), 35 NeuroDB's own
+    assert (
+        "monthly reports only)): 15. NeuroDB's own rule gives 35." in line.detail
+        and "Also fits:" in line.detail
+    )
     assert line.link.startswith("/partner-monitoring/check/") or "figure=pp.reached." in line.link
     (reached, target) = export.fits
     assert reached["title"] == "reached" and target["title"] == "target"
@@ -1285,7 +1289,7 @@ def test_the_upload_s_line_limit_drops_expected_lines_first_and_never_links_an_e
     assert "Differences counted but not listed: 1." in reports.counts["notes"]
     exports = list(pc.exports_of(upload))
     (look, *_rest) = powerbi_results.todo(upload, exports, [])
-    assert look["text"].startswith("Needs a look: 1 row.") and "not listed" not in look["text"]
+    assert look["text"].startswith("Needs a look: 1 difference.") and "not listed" not in look["text"]
     assert look["url"] == powerbi_results.export_url(upload, fund, group=4)
     # one line of room: the report list's line that needs a look is written, the fund's is said not listed
     pf.sync(datetime.datetime(2026, 10, 15, 8, 0))  # after Power BI's refresh: a row not read needs a look
@@ -1303,8 +1307,8 @@ def test_the_upload_s_line_limit_drops_expected_lines_first_and_never_links_an_e
     exports = list(pc.exports_of(upload))
     (look, *_rest) = powerbi_results.todo(upload, exports, [])
     assert look["text"] == (
-        "Needs a look: 2 rows. Download the Excel file and send it to the NeuroDB team. 1 of them is counted "
-        "but not listed (too many differences at once)."
+        "Needs a look: 2 differences. Download the Excel file and send it to the NeuroDB team. 1 of them is "
+        "counted but not listed (too many differences at once)."
     )
     assert look["url"] == powerbi_results.export_url(upload, reports, group=4)
     funds_page = next(
@@ -1395,3 +1399,224 @@ def test_each_comparer_reads_as_many_queries_for_12_pds_as_for_3(kind, history):
             model.objects.all().delete()
         counted.append(_queries(kind, _pds(n)))
     assert counted[0] == counted[1], counted
+
+
+# ----------------------------------------------------------------- the year, the filter by kind, cut exports
+PD_INDICATOR_BASE = {"pd_status": "Active", "partner": PARTNER, "document_type": "PD", "pd_title": "Fake programme 1",
+                     "end": D(2026, 12, 31), "offices": "Office North", "cp_output": "Output One",
+                     "section": "Section Alpha"}  # fmt: skip
+
+
+def test_a_reporting_year_compares_reached_in_that_year(checker, world):
+    """Power BI's Reporting Year reads Reached in that year: a PD older than NeuroDB's history has its whole
+    2026 in NeuroDB, so Power BI's 2026 Reached is the same as NeuroDB's (to date it would be PRP's
+    cumulative)."""
+    from neurodb.datamart import models as dm
+
+    pd, _ended = world
+    pd.start = D(2025, 6, 1)
+    pd.save(update_fields=["start"])
+    dm.ReportedIndicator.objects.filter(intervention=pd, indicator="Fake indicator 1").update(
+        total_cumulative_progress="90"
+    )
+    performance = [
+        _pp(indicator_title="Fake indicator 1", target=100, reached=35, achieved=0.35),  # 10 + 5 + 20 in 2026
+        _pp(indicator_title="Fake percentage 2", target=40, reached=25, achieved=0.625),
+    ]
+    indicators = [
+        pf.row("pd_indicators", pd=PD, indicator_title="Fake indicator 1", target=100, reached=35,
+               start=D(2025, 6, 1), **PD_INDICATOR_BASE),
+    ]  # fmt: skip
+    upload = pf.compared(
+        checker, _one("program_performance", performance, filters=YEAR), _one("pd_indicators", indicators, filters=YEAR)
+    )  # fmt: skip
+    export, lines = _lines(upload, "program_performance")
+    assert lines == [] and export.counts["same"] == 2, [(x.reason, x.rule, x.found) for x in lines]
+    assert {c["words"]: c["state"] for c in export.clauses}["reporting_year is 2026"] == "applied"
+    export, lines = _lines(upload, "pd_indicators")
+    assert not [x for x in lines if x.match[1] == "Fake indicator 1"], [(x.reason, x.found) for x in lines]
+    # Programmes → Indicators has no year: the comparison applies it to Reached itself
+    assert {c["words"]: c["state"] for c in export.clauses}["reporting_year is 2026"] == "by_comparison"
+
+
+def test_a_clause_the_kind_s_comparer_does_not_apply_is_one_neurodb_cannot_apply(checker, world):
+    """The report list cut to Accepted reports is compared with NeuroDB's Accepted reports; a year and a
+    section on the funds pages (which have neither), or several years where one year's Reached is read, are
+    filters NeuroDB cannot apply: a row they leave out is said so, and What to do now asks to clear them."""
+    from django.urls import reverse
+
+    funds = [
+        pf.row("fund_monitoring", pd="FAKE/PCA9/PD9", unicef_planned=1.0, cash=2.0, partner_contribution=3.0)
+    ]
+    performance = [_pp(indicator_title="Fake indicator 1", target=100, reached=35, achieved=0.35)]
+    upload = pf.compared(
+        checker,
+        _one("report_list", [REPORTS[0]], filters=(*ACTIVE, "report_status_label is Accepted")),
+        _one("fund_monitoring", funds, filters=(*YEAR, "section_name is Section Alpha")),
+        _one("program_performance", performance, filters=(*ACTIVE, "reporting_year is 2025 or 2026")),
+    )  # fmt: skip
+    export, lines = _lines(upload, "report_list")
+    assert lines == [] and export.verdict == "same"  # NeuroDB's QPR2 and QPR3 are not Accepted
+    assert {c["words"]: c["state"] for c in export.clauses}["report_status_label is Accepted"] == "applied"
+    export, lines = _lines(upload, "fund_monitoring")
+    states = {c["words"]: c["state"] for c in export.clauses}
+    assert states["reporting_year is 2026"] == states["section_name is Section Alpha"] == "cannot"
+    only = next(x for x in lines if x.kind == "only_neurodb")
+    assert only.reason == "filter" and only.detail == "Power BI's filter: reporting_year is 2026."
+    from neurodb.datamart import powerbi_admin, powerbi_filters
+
+    assert powerbi_admin._covers(powerbi_filters.Filter.from_json(export.filters)) == "Every year"
+    export, _lines_ = _lines(upload, "program_performance")
+    assert {c["words"]: c["state"] for c in export.clauses}["reporting_year is 2025 or 2026"] == "cannot"
+    page = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    assert "the Reporting Year slicer; the Section slicer" in page
+
+
+def test_an_export_power_bi_may_have_cut_says_so_and_explains_no_counted_visual(checker, world):
+    """A report list of exactly 1,000 rows: NeuroDB's reports beyond it may be beyond Power BI's cut (export
+    it again in parts, nothing to send), and a counted visual's gap is never said to be under a filter."""
+    others = [_with(REPORTS[0], pd=f"FAKE/PCA9{n:03}/PD9{n:03}", section="Section Gamma") for n in range(999)]
+    upload = pf.compared(
+        checker,
+        _one("report_list", [REPORTS[0], *others]),
+        _one("by_sector", [pf.row("by_sector", section=SECTIONS, accepted=1, submitted=0, due=0, overdue=0)],
+             filters=YEAR),
+    )  # fmt: skip
+    export, lines = _lines(upload, "report_list")
+    assert export.rows_read == 1_000
+    cut = [x for x in lines if x.kind == "only_neurodb"]
+    assert {x.match[1] for x in cut} == {"QPR2", "QPR3"}
+    assert all((x.reason, x.group) == ("cut", 4) for x in cut)
+    from neurodb.datamart import powerbi_results, powerbi_words
+
+    todo = powerbi_results.what_to_do(cut[0], "1 Jan 2026")
+    assert todo == powerbi_words.REASON_ACTIONS["cut"] and "send it to the NeuroDB team" not in todo
+    assert "clear that slicer" not in todo
+    assert export.verdict == "cut"
+    _sector, lines = _lines(upload, "by_sector")
+    assert {(x.reason, x.detail) for x in lines} == {("cut", powerbi_words.DETAIL_LIST_CUT.format(n=1_000))}
+
+
+def test_neurodbs_values_in_a_month_or_a_status_power_bi_has_no_column_for_are_compared(checker, world):
+    """NeuroDB's disaggregation values of a month Power BI's export has no row for, and its reports in a status
+    Power BI's month chart has no column for, are only in NeuroDB: never "Same"."""
+    from neurodb.datamart import models as dm
+
+    dm.ReportedIndicator.objects.filter(report_number="QPR2", p_code="LB9_9_1").update(
+        disaggregation={"()": 20, "(1,)": 8, "(2,)": 12}
+    )
+    march = [_value(disaggregation="Female", reached=4), _value(disaggregation="Male", reached=6)]
+    months = [
+        pf.row("by_month", month="Mar 2026", accepted=1, submitted=0),
+        pf.row("by_month", month="Jun 2026", accepted=0, submitted=1),
+    ]
+    upload = pf.compared(
+        checker,
+        _one("disaggregations", march, filters=(*ACTIVE, "is_period_latest is True"), drop=DISAGGREGATION_DROP),
+        _one("by_month", months, filters=YEAR, drop=("overdue", "due", "not_yet_due", "sent_back")),
+    )  # fmt: skip
+    export, lines = _lines(upload, "disaggregations")
+    june = {x.match[-1]: x for x in lines if x.match[3] == "2026-06-30"}
+    assert june["male"].kind == "only_neurodb" and june["male"].found == {"reached": [None, 12.0, None]}
+    assert export.verdict != "same"
+    export, lines = _lines(upload, "by_month")
+    (line,) = lines  # Sep: NeuroDB's Overdue report against Power BI's 0
+    assert (line.match, line.found) == (["Sep 2026"], {"overdue": [None, 1, None]})
+    assert any("no Overdue column" in note for note in export.counts["notes"])
+
+
+@pytest.mark.parametrize(
+    ("synced", "refreshed", "group", "detail"),
+    [
+        # the sync ran later the same day: after the refresh, and the row is missing from it
+        (
+            datetime.datetime(2026, 10, 14, 20, 30),
+            datetime.datetime(2026, 10, 14, 6, 0),
+            4,
+            "DETAIL_SYNC_AFTER",
+        ),
+        (
+            datetime.datetime(2026, 10, 14, 5, 0),
+            datetime.datetime(2026, 10, 14, 6, 0),
+            2,
+            "DETAIL_SYNC_BEFORE",
+        ),
+        (datetime.datetime(2026, 10, 14, 20, 30), None, 2, "DETAIL_SYNC_UNKNOWN"),  # no refresh stamp
+        (None, datetime.datetime(2026, 10, 14, 6, 0), 2, "DETAIL_SYNC_UNKNOWN"),  # no sync recorded
+    ],
+)
+def test_a_row_not_in_the_datamart_read_compares_the_sync_and_the_refresh_by_their_moments(
+    checker, world, synced, refreshed, group, detail
+):
+    from neurodb.datamart import powerbi_words
+
+    if synced:
+        pf.sync(synced)
+    rows = [_with(REPORTS[0], report="QPR9", period_start=D(2026, 4, 1), period_end=D(2026, 4, 30))]
+    upload = pf.compared(checker, _one("report_list", rows), refreshed=refreshed)
+    _export, lines = _lines(upload, "report_list")
+    missing = next(x for x in lines if x.kind == "only_powerbi")
+    assert (missing.reason, missing.group, missing.detail) == (
+        "not_in_read",
+        group,
+        getattr(powerbi_words, detail),
+    )
+    assert (powerbi_words.SYNC_BEFORE in upload.summary["notes"]) == (detail == "DETAIL_SYNC_BEFORE")
+
+
+def test_a_target_of_0_against_no_target_is_the_same_and_never_a_rule(checker, world):
+    from neurodb.datamart import models as dm
+    from neurodb.datamart import powerbi_facts, powerbi_kinds, powerbi_match
+
+    dm.PDIndicator.objects.filter(title="Fake indicator 1").update(target_numerator=None)
+    performance = [_pp(indicator_title="Fake indicator 1", target=0, reached=35, achieved=0)]
+    indicators = [
+        pf.row("pd_indicators", pd=PD, indicator_title="Fake indicator 1", target=0, reached=35,
+               start=D(2026, 1, 1), **PD_INDICATOR_BASE),
+    ]  # fmt: skip
+    upload = pf.compared(checker, _one("program_performance", performance), _one("pd_indicators", indicators))
+    for kind in ("program_performance", "pd_indicators"):
+        export, lines = _lines(upload, kind)
+        assert not [x for x in lines if x.match[1] == "Fake indicator 1"], [
+            (x.reason, x.found) for x in lines
+        ]
+        assert any("Power BI shows no value as 0" in note for note in export.counts["notes"]), kind
+    # NeuroDB's own target, eTools', never explains a difference as "a different rule"
+    job = powerbi_kinds.Job(
+        kind=powerbi_exports.KINDS["program_performance"], columns=[], data=None, parsed=powerbi_kinds.Filter(),
+        context=powerbi_facts.Context(day=D(2026, 10, 15), history=D(2026, 1, 1)),
+        result=powerbi_match.Result(limit=10),
+    )  # fmt: skip
+    candidates = {"etools": None, "prp_sum": 7.0, "prp_one": [7.0]}
+    reason = powerbi_kinds.candidate_reason(job, "target", 0, {"target": None}, candidates, "etools")
+    assert reason[0] != "rule"
+
+
+def test_a_choice_is_offered_only_when_the_rule_fits_most_rows():
+    """Choices for you asserts Power BI's rule only on a clear majority of the rows: the best rule fitting 1 of
+    100 rows, 0 of 26 progress reports or 0 of 40 emergency rows offers no choice and claims no rule."""
+    from neurodb.datamart import powerbi_results, powerbi_words
+
+    def performance(fits: int, above: int, positive: int, emergency: list[int]) -> PowerBIExport:
+        row = {"candidate": "qpr_sum", "fits": fits, "of": 100, "above": above, "positive": positive}
+        return PowerBIExport(
+            kind="program_performance",
+            state="compared",
+            fits=[{"title": "reached", "rows": [{**row, "chosen": True}]}],
+            counts={"extra": {"emergency_fit": emergency}},
+        )
+
+    sector = PowerBIExport(kind="by_sector", state="compared", counts={"extra": {"progress_fit": [0, 26]}})
+    weak = [performance(1, 1, 100, [0, 40]), sector]
+    assert powerbi_results.choices(weak) == []
+    sentence = powerbi_results.reached_sentence(weak)
+    assert (
+        sentence.startswith("The rule that fits Power BI's Reached best")
+        and "not missing data" not in sentence
+    )
+    assert sentence == powerbi_words.REACHED_WEAK.format(
+        words=powerbi_words.CANDIDATE_WORDS["qpr_sum"], fits=1, of=100
+    )
+    sector.counts = {"extra": {"progress_fit": [20, 26]}}
+    clear = [performance(90, 80, 90, [30, 40]), sector]
+    assert [c["code"] for c in powerbi_results.choices(clear)] == ["reached", "progress_reports", "emergency"]

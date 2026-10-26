@@ -338,16 +338,96 @@ def test_the_job_lowers_its_priority_and_caps_its_memory(monkeypatch):
     monkeypatch.setattr(os, "nice", lambda n: seen.setdefault("nice", n))
     monkeypatch.setattr(resource, "getrlimit", lambda what: (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
     monkeypatch.setattr(resource, "setrlimit", lambda what, limits: seen.setdefault("limit", (what, limits)))
-    pc.limit_process()
+    monkeypatch.setattr(pc, "memory_room", lambda: None)  # a container with no memory limit
+    assert pc.limit_process() == 600 * 1024 * 1024
     assert seen == {
         "nice": 10,
         "limit": (resource.RLIMIT_DATA, (600 * 1024 * 1024, resource.RLIM_INFINITY)),
     }
 
 
+@pytest.mark.parametrize(
+    ("limit", "current", "inactive", "expected_mb"),
+    [
+        # the web workers already take 520 MB of a 1 GiB container: the job may grow to what is left
+        (1024, 600, 20, 84 + 1024 - 580 - 150),
+        (4096, 600, 0, 600),  # plenty of room: 600 MB at most
+        (1024, 1000, 0, 250),  # almost none: 250 MB at least, so it can start
+    ],
+)
+def test_the_job_s_memory_cap_follows_the_room_left_in_its_container(
+    monkeypatch, tmp_path, limit, current, inactive, expected_mb
+):
+    mb = 1024 * 1024
+    (tmp_path / "memory.max").write_text(f"{limit * mb}\n")
+    (tmp_path / "memory.current").write_text(f"{current * mb}\n")
+    (tmp_path / "memory.stat").write_text(f"anon 1\ninactive_file {inactive * mb}\nactive_file 2\n")
+    monkeypatch.setattr(pc, "CGROUP_V2", str(tmp_path))
+    monkeypatch.setattr(pc, "_own_data", lambda: 84 * mb)  # the job's own data as it starts
+    seen = {}
+    monkeypatch.setattr(os, "nice", lambda n: None)
+    monkeypatch.setattr(resource, "getrlimit", lambda what: (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+    monkeypatch.setattr(resource, "setrlimit", lambda what, limits: seen.setdefault("limit", limits[0]))
+    assert pc.limit_process() == seen["limit"] == expected_mb * mb
+    (tmp_path / "memory.max").write_text("max\n")  # no limit: the fixed cap
+    assert pc.memory_room() is None
+
+
+def test_the_memory_cap_used_is_kept_beside_the_peak(checker, started):
+    upload = _upload(checker, ("cards.xlsx", pf.export("partner_cards")))
+    pc.run(upload.pk, memory_limit=300 * 1024 * 1024)
+    upload.refresh_from_db()
+    assert upload.status == Status.DONE and upload.summary["memory_limit_mb"] == 300
+
+
+def test_two_uploads_at_once_queue_one_comparison(checker, started, monkeypatch):
+    """Queueing is one step with the check that nothing is busy (under its own lock): an upload queued while
+    these files were being checked refuses them, and Compare again too."""
+    first = _upload(checker, ("cards.xlsx", pf.export("partner_cards")))
+    PowerBIUpload.objects.filter(pk=first.pk).update(status=Status.DONE)
+    other = _upload(checker, ("sector.xlsx", pf.export("by_sector")))  # queued, its job about to start
+    monkeypatch.setattr(pc, "busy", lambda: None)  # the request checked before the other one was queued
+    response = pf.post(checker, ("list.xlsx", pf.export("report_list", people=True)))
+    assert response.status_code == 200 and words.BUSY in response.content.decode()
+    assert PowerBIUpload.objects.count() == 2 and len(started) == 2
+    with pytest.raises(pc.Busy):
+        pc.again(first)
+    response = checker.post(reverse("admin:datamart_powerbi_again", args=[first.pk]))
+    assert response.status_code == 200 and words.BUSY in response.content.decode()
+    first.refresh_from_db()
+    assert first.status == Status.DONE and len(started) == 2
+    other.refresh_from_db()
+    assert other.status == Status.QUEUED
+
+
+def test_a_queued_upload_is_never_trimmed_and_one_trimmed_is_never_compared(checker, started):
+    """Retention never trims an upload waiting to be compared (nor counts it among the newest); an upload
+    whose rows were removed is never compared against nothing."""
+    uploads = []
+    for n in range(4):
+        uploads.append(_upload(checker, (f"{n}.xlsx", pf.export("report_list", people=True))))
+        PowerBIUpload.objects.filter(pk=uploads[-1].pk).update(status=Status.DONE)
+    pc.retention()
+    oldest, second = uploads[0], uploads[1]
+    PowerBIUpload.objects.filter(pk=second.pk).update(status=Status.QUEUED)  # Compare again on it
+    assert pc.retention() == 0
+    second.refresh_from_db()
+    assert not second.trimmed and PowerBIExport.objects.get(upload=second).rows
+    # one trimmed meanwhile all the same: it fails, and says so
+    PowerBIUpload.objects.filter(pk=oldest.pk).update(status=Status.QUEUED)
+    ended = pc.run(oldest.pk)
+    assert ended.status == Status.FAILED and ended.error == words.TRIMMED_QUEUED
+    # an export whose rows are gone fails alone: never "the same" over no row
+    PowerBIExport.objects.filter(upload=second).update(rows=None)
+    ended = pc.run(second.pk)
+    export = PowerBIExport.objects.get(upload=second)
+    assert export.state == "failed" and export.verdict == "failed" and export.counts.get("same") is None
+
+
 def test_the_lock_is_the_comparison_s_own():
     ids = [v for k, v in vars(background).items() if k.endswith("_LOCK_ID")]
     assert ids.count(background.POWERBI_COMPARE_LOCK_ID) == 1 and pc.LOCK_ID == 7140443
+    assert ids.count(background.POWERBI_QUEUE_LOCK_ID) == 1 and pc.QUEUE_LOCK_ID == 7140444
     assert pc.LOCK_ID not in background.LOCK_IDS.values()
 
 
@@ -356,10 +436,13 @@ def test_only_the_newest_uploads_keep_their_rows(checker, started):
     uploads = []
     for n in range(4):
         uploads.append(_upload(checker, (f"{n}.xlsx", pf.export("report_list", people=True))))
+        first = uploads[0]
+        first.refresh_from_db()
+        assert not first.trimmed  # an upload waiting to be compared is never counted among the newest
         PowerBIUpload.objects.filter(pk=uploads[-1].pk).update(status=Status.DONE)  # not running
-    first = uploads[0]
+    assert pc.retention() == 1  # as the fourth's comparison ends
     first.refresh_from_db()
-    assert first.trimmed  # trimmed when the fourth was created
+    assert first.trimmed
     assert PowerBIExport.objects.get(upload=first).rows is None
     assert PowerBIExport.objects.get(upload=first).rows_read == 3  # its counts stay
     assert all(PowerBIExport.objects.get(upload=u).rows for u in uploads[1:])
@@ -585,7 +668,13 @@ def test_reading_memory_does_not_grow_with_the_rows():
 
 
 def test_a_staged_copy_of_a_large_export_is_read_the_same(big):
-    content = pr.repack(big, "Export")
+    """The copy is written by NeuroDB in the request (the compared columns only, every row streamed): quick
+    enough for the upload, and read exactly as the file itself."""
+    peek = powerbi_xlsx.peek(big)
+    match = px.recognise(peek.header, peek.filled)
+    start = time.monotonic()
+    content = pr.repack(big, "Export", match)
+    assert time.monotonic() - start < 15
     assert sorted(zipfile.ZipFile(io.BytesIO(content)).namelist()) == [
         "[Content_Types].xml",
         "_rels/.rels",
@@ -593,3 +682,8 @@ def test_a_staged_copy_of_a_large_export_is_read_the_same(big):
         "xl/workbook.xml",
         "xl/worksheets/sheet1.xml",
     ]
+    copy = pr.read(content, px.recognise(powerbi_xlsx.peek(content).header), frozenset(), ())
+    whole = pr.read(big, match, frozenset(), ())
+    assert copy.rows_read == whole.rows_read == 100_000
+    assert list(pr.rows_of(copy.rows)) == list(pr.rows_of(whole.rows))
+    assert copy.filter == whole.filter

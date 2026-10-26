@@ -177,10 +177,12 @@ about each difference. You no longer have to match the rows by hand. It is for v
 like Raw eTools data.
 
 **How to export.** The page lists the 13 visuals of the *UNICEF Program Performance* report, in the order of
-its pages. On each: *More options (…) → Export data → Summarized data → .xlsx*. On every page, set *Reporting
-Year* to 2026 (NeuroDB holds partner reports from 1 Jan 2026), *PD status* to active, and clear *Section*,
-*Partner*, *Document type*, *Office*, *Emergency indicator*, *CP Output* and *Indicator Title*. A file with a
-sensitivity label that encrypts it cannot be read: export it again without the label. Upload the PD/SPD Report
+its pages. On each: *More options (…) → Export data → Summarized data → .xlsx*. Set *Reporting Year* to the
+current year on every page except Partner Fund Monitoring and Funded Programs (NeuroDB's funds pages have no
+year: leave it clear there); the page says the year and the date NeuroDB's partner reports start from. Set *PD
+status* to active, and clear *Section*, *Partner*, *Document type*, *Office*, *Emergency indicator*, *CP Output*
+and *Indicator Title*. A file with a sensitivity label that encrypts it cannot be read: export it again without
+the label. Upload the PD/SPD Report
 list with the other visuals: NeuroDB explains the counted visuals (the partner cards, the table by sector and
 the chart by month) from it.
 
@@ -189,14 +191,19 @@ the chart by month) from it.
 - It recognises each export **by its columns**, never by its file name, so a renamed file is still read. A file
   NeuroDB does not recognise is named with the columns it knows.
 - It reads Power BI's own filters (the *Applied filters* line Power BI writes in the file) and applies the same
-  ones to its own page: the PD status, the reporting year, the section. The export's page lists them one by
-  one: applied, applied as NeuroDB reads it, or one it cannot apply (clear that slicer in Power BI and export
-  again). A filter on a field NeuroDB does not know is listed without its value.
+  ones to its own page: the PD status, the reporting year, the section, and on the report pages the report
+  status. With one reporting year, Program Performance's and PD/SPD Indicator's Reached is the year's, as
+  Power BI's *Reporting Year* reads it. The export's page lists the filters one by one: applied, applied as
+  NeuroDB reads it, or one it cannot apply on that visual (a year or a section on the funds pages, which have
+  neither; clear that slicer in Power BI and export again). A filter on a field NeuroDB does not know is listed
+  without its value, and without its name when the name could be a person's.
 - **People's names are dropped as the files are read.** The *UNICEF Focal Points* column of PD/SPD Report and
   the *Focal Point* column of Partner Fund Monitoring are never kept, shown, written in a file or sent to the
   AI; the page says "Dropped as the file was read". Partners, programme documents and indicators stay, without
-  the names NeuroDB knows, e-mail addresses and phone numbers. NeuroDB's own records are read the same way: no
-  focal point, no person who submitted a report, no narrative ever reaches the comparison.
+  the names NeuroDB knows, e-mail addresses and phone numbers. A code or a status (a PD #, a Report #, a
+  location code, a grant, a status, Yes or No) holding a name, an e-mail or a phone is not kept at all, and the
+  export's notes count them. NeuroDB's own records are read the same way: no focal point, no person who
+  submitted a report, no narrative ever reaches the comparison.
 - The hidden files a Mac adds to a zip are skipped and counted.
 
 **Two values per row.** Every row shows **Power BI**'s value and **NeuroDB**'s: the figure NeuroDB's page shows
@@ -213,18 +220,22 @@ Rows about periods before NeuroDB's history are set aside and counted, never lis
   newer status), a status Power BI reads another way (its lists call a report not yet due "Due"), a value PRP
   repeats on every location, or *a different rule*: Power BI counts the figure another way (see *Choices for
   you*).
-- **Wait for the next sync.** NeuroDB's last sync ran before Power BI's refresh: the row is not in NeuroDB yet,
-  or NeuroDB still has an older version. Wait for tonight's sync (20:30), or ask an Administrator to run the
-  eTools Datamart sync, then press *Compare again*.
+- **Wait for the next sync.** NeuroDB's last sync ran before Power BI's refresh (or NeuroDB cannot tell which
+  came first): the row is not in NeuroDB yet, or NeuroDB still has an older version. Wait for tonight's sync
+  (20:30), or ask an Administrator to run the eTools Datamart sync, then press *Compare again*.
 - **Check the PD in eTools.** NeuroDB has the PD under another status (ended, for instance). If it is active in
   eTools, wait for the next sync and press *Compare again*.
 - **Needs a look.** Nothing above explains it (a row the Datamart did not send although NeuroDB's sync ran after
-  Power BI's refresh, or a difference not explained yet). Download the Excel file and send it to the NeuroDB
-  team.
+  Power BI's refresh, later the same day too, or a difference not explained yet). Download the Excel file and
+  send it to the NeuroDB team. An export of exactly 1,000 rows (or 30,000, or 150,000) may be cut by Power BI:
+  NeuroDB's rows beyond it say so. Check in Power BI that the visual shows no more rows; if it does, export it
+  again one section or one partner at a time, and upload each file (nothing to send).
 
-**The upload's page** opens with *What to do now* (at most four lines, each with a link to its rows: what
-needs a look, the PDs to check in eTools, what waits for the sync, the files to export again, and a last line
-on what is expected). Then one line per Power BI page, in Power BI's order, with its verdict ("Same", "Same
+**The upload's page** opens with *What to do now* (at most four lines, each with a link to its differences:
+what needs a look, the PDs to check in eTools, what waits for the sync, the exports to export again (cut by
+Power BI, empty while NeuroDB's page has rows, or of another country), the files not read, the exports to
+compare again, and a last line on what is expected). It says "Power BI and NeuroDB agree" only when every
+export is the same. Then one line per Power BI page, in Power BI's order, with its verdict ("Same", "Same
 data, counted another way", "Same, apart from reports still owed: 12", "Wait for the next sync: 3", "Check 1 PD
 in eTools", "Needs a look: 2", "Empty in Power BI", "Not uploaded") and what to do, and each export with its
 file, the rows read, what its filter covers ("2026", "Every year", "Education only") and its counts: rows
@@ -242,16 +253,18 @@ or the PD's page). Filter the lines by reason or by kind (different, only in Pow
 how many rows each fits: Program Performance's and PD/SPD Indicator's Reached (the Accepted quarterly reports
 added up, every Accepted report, the latest Accepted report, PRP's cumulative) and Target, Data Quality's
 reading of its filter, the financial contribution and Outstanding DCT. The rule chosen is the one that fits
-most rows where Power BI is above 0; a difference Power BI's way explains says "Counted Power BI's way". On the
-upload's page, **Choices for you** lists what the comparison found (for instance "Power BI's Reached matches
-'adds up the Accepted quarterly reports' on 18 of 20 rows NeuroDB can check"), each with one question. NeuroDB's
-pages keep their own rules until you decide: nothing on them changes.
+most rows where Power BI is above 0; a difference Power BI's way explains says "Counted Power BI's way: 15.
+NeuroDB's own rule gives 35." On the upload's page, **Choices for you** lists what the comparison found when a
+rule fits most of the rows (for instance "Power BI's Reached matches 'adds up the Accepted quarterly reports'
+on 18 of 20 rows NeuroDB can check"), each with one question; a rule that fits only a few rows is said so, and
+no choice is offered. NeuroDB's pages keep their own rules until you decide: nothing on them changes.
 
-**Download every difference (Excel)** gives a *Summary* sheet (what to do now, one line per Power BI page and
-export, the filters, the notes and the fit tables) and one sheet per export: a row only on one side on one
-line, a row that differs on one line per column. *Compare again* takes the same rows against NeuroDB's newest
-data, without uploading the files again. Only the last three uploads keep their rows and lines; older ones keep
-their summary.
+**Download every difference (Excel)** gives a *Summary* sheet (what to do now as the page says it, the files
+not read and why, one line per Power BI page and export, the visuals not uploaded, the filters, the notes and
+the fit tables) and one sheet per export: a row only on one side on one line, a row that differs on one line
+per column. *Compare again* takes the same rows against NeuroDB's newest data, without uploading the files
+again. Only the last three uploads keep their rows and lines; older ones keep their summary and verdicts (no
+lines and no Excel file: upload the files again to see them).
 
 ## The Power BI comparison sheet
 
@@ -312,9 +325,10 @@ Program Performance rows sheet):
    rows against Raw eTools data.
 
 The names of Power BI's pages, visuals and slicers in the sheet are those of the shared report, *UNICEF Program
-Performance*. If your report names one differently, tell the NeuroDB team: they correct it in one place. The
-sheet also says to set *Country name* to Lebanon (NeuroDB holds one country) and, on Progress reports, which of
-Power BI's slicers to clear because the page has no such filter.
+Performance*. A figure is named after a visual only when that visual shows it; the others are on the page's
+*Cards*. If your report names one differently, tell the NeuroDB team: they correct it in one place. The sheet
+also says to set *Country name* to the one country NeuroDB holds and, on both pages, which of Power BI's
+slicers to clear: the page has no such filter, or its filter of that name means something else.
 
 ## Raw eTools data
 

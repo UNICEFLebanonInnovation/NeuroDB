@@ -30,7 +30,9 @@ from . import comparison
 
 # the types a column is read as (powerbi_read.coerce)
 TEXT = "text"  # a free text or a name: cleaned of people when free_text
-CODE = "code"  # PD #, Report #, a P-code, a grant, a fund reservation: kept as read, never cleaned
+# PD #, Report #, a P-code, a grant: kept as read (a cleaned code would match another), unless the people
+# cleaner finds a person, an e-mail or a phone in it: then not kept at all (powerbi_read.names_someone)
+CODE = "code"
 SECTIONS = "sections"  # a joined list ("Education, Health"), compared as a set
 NUMBER = "number"
 COUNT = "count"
@@ -38,9 +40,9 @@ FRACTION = "fraction"  # Power BI's percent cells (0.25 for 25%)
 MONEY = "money"
 DATE = "date"
 STAMP = "stamp"  # a moment: Power BI's refresh, one value for the whole file
-LABEL = "label"  # a status word
+LABEL = "label"  # a status word: kept as read, or not at all when it names someone (as a code)
 MONTH = "month"  # "Jan 2026"
-YES_NO = "yes_no"
+YES_NO = "yes_no"  # Yes or No only: any other text is read as a value NeuroDB could not read
 EXPORT, SHEET1 = "export", "sheet1"  # Power BI's two layouts (powerbi_xlsx)
 
 
@@ -52,8 +54,8 @@ def normal(caption: object) -> str:
 @dataclass(frozen=True)
 class Column:
     """A column of an export: Power BI's caption, NeuroDB's name for it (a code word), its type, whether it is
-    a free text (only these pass the people cleaner), whether it is a title Power BI cuts at 255 characters,
-    and whether the kind needs it."""
+    a free text (cleaned of people; a code or a status word that names someone is not kept at all), whether
+    it is a title Power BI cuts at 255 characters, and whether the kind needs it."""
 
     caption: str
     name: str

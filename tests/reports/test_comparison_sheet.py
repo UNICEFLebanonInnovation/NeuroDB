@@ -145,13 +145,36 @@ def test_partner_monitoring_figures_are_the_page_s(validator, more, frozen, para
 
 
 def test_rows_follow_power_bi_s_pages_and_visuals(more, frozen):
+    """Every visual once, in Power BI's order; a block whose visual shows only some of its figures has the
+    others on the page's cards first."""
     for page in comparison.PAGES:
-        order = [(p, v) for p, visuals in comparison.POWERBI_PAGES[page] for _block_, v in visuals]
+        order = []
+        for p, visuals in comparison.POWERBI_PAGES[page]:
+            for block, v in visuals:
+                if block in comparison.VISUAL_FIGURES:
+                    order.append((p, comparison.POWERBI_ITEMS["cards"]))
+                order.append((p, v))
         seen = []
         for figure in comparison.figures(comparison.read(page, {"pd_status": ""}, TODAY)):
             if not seen or seen[-1] != (figure.powerbi_page, figure.visual):
                 seen.append((figure.powerbi_page, figure.visual))
-        assert seen == order, page  # every visual, once, in Power BI's order
+        assert seen == order, page
+
+
+def test_a_figure_is_named_after_a_visual_only_when_that_visual_shows_it(more, frozen):
+    figures = [
+        f
+        for page in comparison.PAGES
+        for f in comparison.figures(comparison.read(page, {"pd_status": ""}, TODAY))
+    ]
+    card = comparison.POWERBI_VISUALS["dq_tiles"][1]
+    assert [f.key for f in figures if f.visual == card] == ["dq.no_reached"]
+    partners = comparison.POWERBI_VISUALS["partner_cards"][1]
+    assert sorted(f.key for f in figures if f.visual == partners) == sorted(
+        comparison.VISUAL_FIGURES["partner_cards"]
+    )
+    on_cards = {f.key for f in figures if f.visual == comparison.POWERBI_ITEMS["cards"]}
+    assert {"dq.pds", "dq.with_target", "pr.partners", "pr.partners_status.not_yet_due"} <= on_cards
 
 
 def test_program_performance_counts_every_indicator_past_the_page_s_list(

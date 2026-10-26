@@ -9,15 +9,18 @@ them.
   not a zip, too many parts, too much data in the whole upload), then its header (:func:`powerbi_xlsx.peek`,
   a few rows) and its kind (:func:`powerbi_exports.recognise`). Each file is read inside its own ``try``: an
   error keeps only its class name.
-* **Where it is read.** A one-sheet export whose every column NeuroDB compares is *staged*: a repacked copy
-  holding only that sheet (and its shared strings) waits for the job, which reads it and empties it. Any other
-  export (a column that names people, a column NeuroDB does not compare or with no caption, a second sheet) is
-  read now, in the request, keeping only the compared columns: the others are dropped by their position before
-  any value is converted, so a person's name is never stored, shown, logged or sent anywhere. Nor is the
-  sheet's name.
+* **Where it is read.** A one-sheet export whose every column NeuroDB compares is *staged*: a copy NeuroDB
+  writes itself (:func:`repack`: the header's captions, the filters line and the values of the compared
+  columns only, nothing else of the sheet) waits for the job, which reads it and empties it. Any other export
+  (a column that names people, a column NeuroDB does not compare or with no caption, a second sheet) is read
+  now, in the request, keeping only the compared columns: the others are dropped by their position before any
+  value is converted, so a person's name is never stored, shown, logged or sent anywhere. Nor is the sheet's
+  name.
 * **What is kept of a read** (:func:`read`): one gzip JSON line per data row with the kind's columns only,
-  each read as its type (:func:`coerce`); free texts cleaned of people (:func:`clean`); the parsed filters
-  (``powerbi_filters``), never the raw line; the counts and plain notes. Never the file, never the zip.
+  each read as its type (:func:`coerce`); free texts cleaned of people (:func:`clean`); a code or a status
+  word that names someone (an e-mail, a phone, a known name) not kept at all and counted
+  (:func:`names_someone`); the parsed filters (``powerbi_filters``), never the raw line; the counts and plain
+  notes. Never the file, never the zip.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
+from xml.sax.saxutils import escape
 
 from django.core.files.uploadedfile import InMemoryUploadedFile
 from django.core.files.uploadhandler import FileUploadHandler, SkipFile, StopUpload
@@ -60,6 +64,7 @@ _NUMBER_TEXT = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$")
 DATE_FORMATS = ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%d %b %Y", "%d %B %Y")
 STAMP_FORMATS = ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %I:%M:%S %p")
 MONTH_FORMATS = ("%b %Y", "%B %Y")
+YES_NO_WORDS = {"yes": "Yes", "true": "Yes", "1": "Yes", "no": "No", "false": "No", "0": "No"}
 
 
 # --------------------------------------------------------------------------------------------- the upload
@@ -145,6 +150,12 @@ def clean(text: str, names: frozenset[str], memo: dict[str, str]) -> str:
     return found
 
 
+def names_someone(text: str, names: frozenset[str], memo: dict[str, str]) -> bool:
+    """A code or a status word the people cleaner would withhold part of (an e-mail, a phone number, a known
+    name): its spacing alone never counts, so a real code with a stray space is kept."""
+    return clean(text, names, memo) != " ".join(text.split())
+
+
 # ----------------------------------------------------------------------------------------------- values
 def coerce(column: px.Column, value: Any, date1904: bool = False) -> tuple[Any, bool]:
     """A cell's value read as its column's type: (the value, whether it was read). An empty cell is None; a
@@ -170,6 +181,9 @@ def coerce(column: px.Column, value: Any, date1904: bool = False) -> tuple[Any, 
         return ("Yes" if value else "No"), True
     if isinstance(value, float):
         value = str(int(value)) if value.is_integer() else repr(value)
+    if kind == px.YES_NO:  # Yes or No only: any other text is never kept
+        found = YES_NO_WORDS.get(" ".join(str(value).split()).casefold())
+        return (found, True) if found else (None, False)
     return _ILLEGAL.sub("", str(value)), True
 
 
@@ -236,6 +250,7 @@ class Read:
     unreadable: int = 0
     cut: int = 0
     notes: list[str] = field(default_factory=list)
+    withheld: int = 0  # codes and status words that named someone: not kept
 
 
 def read(
@@ -246,7 +261,8 @@ def read(
     sheet: str | None = None,
 ) -> Read:
     """Read every data row of an export, keeping only ``match``'s columns (the others are skipped by their
-    position: never looked up, converted or kept)."""
+    position: never looked up, converted or kept). A free text is cleaned of people; a code or a status word
+    that names someone is not kept at all (None: nothing is matched or shown on it) and counted."""
     kind = match.kind
     book = powerbi_xlsx.Book(data)
     columns = px.kept(kind, match.positions)
@@ -257,7 +273,7 @@ def read(
     found = powerbi_xlsx.rows(data, set(position.values()), sheet)
     memo: dict[str, str] = {}
     out = io.BytesIO()
-    rows_read = unreadable = cut = 0
+    rows_read = unreadable = cut = withheld = 0
     stamp = None
     with gzip.GzipFile(fileobj=out, mode="wb", compresslevel=6, mtime=0) as stream:
         for values in found:
@@ -271,8 +287,12 @@ def read(
                     long = isinstance(raw, str) and len(raw) >= TITLE_CUT
                     cuts.append(long)
                     cut += long
-                if column.free_text and isinstance(value, str):
-                    value = clean(value, names, memo)
+                if isinstance(value, str):
+                    if column.free_text:
+                        value = clean(value, names, memo)
+                    elif column.type in (px.CODE, px.LABEL) and names_someone(value, names, memo):
+                        value = None
+                        withheld += 1
                 if column.type == px.STAMP and value is not None:
                     stamp = value if stamp is None or value > stamp else stamp
                 line.append(_json(value))
@@ -282,7 +302,7 @@ def read(
             stream.write(json.dumps(line + cuts, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
             stream.write(b"\n")
     unreadable += found.errors
-    parsed = powerbi_filters.parse(found.filters, sections)
+    parsed = powerbi_filters.parse(found.filters, sections, names)
     notes = []
     if rows_read in ROUND_COUNTS:
         notes.append(words.ROUND_COUNT.format(n=rows_read))
@@ -290,7 +310,9 @@ def read(
         notes.append(words.plural(unreadable, words.UNREADABLE_VALUE, words.UNREADABLE_VALUES))
     if cut:
         notes.append(words.plural(cut, words.CUT_TITLE, words.CUT_TITLES))
-    return Read(out.getvalue(), rows_read, names_out, parsed, stamp, unreadable, cut, notes)
+    if withheld:
+        notes.append(words.plural(withheld, words.WITHHELD_VALUE, words.WITHHELD_VALUES))
+    return Read(out.getvalue(), rows_read, names_out, parsed, stamp, unreadable, cut, notes, withheld)
 
 
 def rows_of(rows: bytes | None) -> Iterable[list[Any]]:
@@ -303,36 +325,70 @@ def rows_of(rows: bytes | None) -> Iterable[list[Any]]:
                 yield json.loads(line)
 
 
-def repack(data: bytes, sheet: str) -> bytes:
-    """The copy of an export the job reads: its one sheet and its shared strings, under a workbook NeuroDB
-    writes itself. Other sheets, comments, the document's properties (who made or saved it) and anything else
-    the file holds are never copied."""
+def repack(data: bytes, sheet: str, match: px.Match) -> bytes:
+    """The copy of an export the job reads, written by NeuroDB itself under a workbook it writes too: the one
+    sheet's rows with only the header's captions of the columns NeuroDB keeps (``match.positions``), their
+    values (inline strings and numbers) and the filters line. Nothing else of the file is copied: no other
+    sheet or column (a column with no caption whose values start late included), no shared string, comment,
+    header or footer, link, data validation or document property (who made or saved it)."""
     book = powerbi_xlsx.Book(data)
     chosen = book.sheet(sheet)
-    strings = book.strings_part
+    keep = set(match.positions)
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as package:
-        package.writestr(
-            "[Content_Types].xml", REPACK_TYPES.format(strings=REPACK_STRINGS_TYPE if strings else "")
-        )
+        package.writestr("[Content_Types].xml", REPACK_TYPES)
         package.writestr("_rels/.rels", REPACK_ROOT_RELS)
         package.writestr(
             "xl/workbook.xml",
             REPACK_WORKBOOK.format(pr='<workbookPr date1904="1"/>' if book.date1904 else ""),
         )
-        package.writestr(
-            "xl/_rels/workbook.xml.rels", REPACK_RELS.format(strings=REPACK_STRINGS_REL if strings else "")
-        )
-        _copy(book, chosen.part, package, "xl/worksheets/sheet1.xml")
-        if strings:
-            _copy(book, strings, package, "xl/sharedStrings.xml")
+        package.writestr("xl/_rels/workbook.xml.rels", REPACK_RELS)
+        with package.open("xl/worksheets/sheet1.xml", "w") as target:
+            target.write(REPACK_SHEET_HEAD.encode("utf-8"))
+            batch = []
+            for values, line, _filled in book.raw_rows(chosen, keep):
+                cells = {0: line} if line is not None else {i: v for i, v in values.items() if i in keep}
+                written = _row(cells)
+                if not written:
+                    continue  # a row with nothing NeuroDB keeps
+                batch.append(written)
+                if len(batch) >= 1_000:
+                    target.write("".join(batch).encode("utf-8"))
+                    batch = []
+            target.write(("".join(batch) + REPACK_SHEET_TAIL).encode("utf-8"))
     return out.getvalue()
 
 
-def _copy(book: powerbi_xlsx.Book, part: str, package: zipfile.ZipFile, name: str) -> None:
-    with book.archive.open(part) as source, package.open(name, "w") as target:
-        while chunk := source.read(1024 * 1024):
-            target.write(chunk)
+def _row(cells: dict[int, Any]) -> str:
+    """One row of the copy, as Power BI writes its own: each cell the next column (a reference only after a
+    gap), an error stays an error (the job counts it), a number a number, a text an inline string."""
+    out, last = [], -1
+    for i, value in sorted(cells.items()):
+        if value is None:
+            continue
+        ref = "" if i == last + 1 else f' r="{_letter(i)}1"'  # the column is all the reader reads of it
+        last = i
+        if value is ERROR:
+            out.append(f'<c{ref} t="e"><v>#N/A</v></c>')
+        elif isinstance(value, bool):
+            out.append(f'<c{ref} t="b"><v>{int(value)}</v></c>')
+        elif isinstance(value, float):
+            out.append(f"<c{ref}><v>{value!r}</v></c>")
+        else:
+            text = _ILLEGAL.sub("", str(value))
+            space = ' xml:space="preserve"' if text != text.strip() or "\n" in text else ""
+            out.append(f'<c{ref} t="inlineStr"><is><t{space}>{escape(text)}</t></is></c>')
+    return f"<row>{''.join(out)}</row>" if out else ""
+
+
+def _letter(i: int) -> str:
+    """A column's letters from its position (0 -> "A", 26 -> "AA")."""
+    out = ""
+    i += 1
+    while i:
+        i, rest = divmod(i - 1, 26)
+        out = chr(65 + rest) + out
+    return out
 
 
 MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -346,11 +402,7 @@ REPACK_TYPES = (
     'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
     '<Override PartName="/xl/worksheets/sheet1.xml" '
     'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-    "{strings}</Types>"
-)
-REPACK_STRINGS_TYPE = (
-    '<Override PartName="/xl/sharedStrings.xml" '
-    'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'
+    "</Types>"
 )
 REPACK_ROOT_RELS = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -365,10 +417,12 @@ REPACK_WORKBOOK = (
 REPACK_RELS = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-    f'<Relationship Id="rId1" Type="{RELS}/worksheet" Target="worksheets/sheet1.xml"/>'
-    "{strings}</Relationships>"
+    f'<Relationship Id="rId1" Type="{RELS}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'
 )
-REPACK_STRINGS_REL = f'<Relationship Id="rId2" Type="{RELS}/sharedStrings" Target="sharedStrings.xml"/>'
+REPACK_SHEET_HEAD = (
+    f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="{MAIN}"><sheetData>'
+)
+REPACK_SHEET_TAIL = "</sheetData></worksheet>"
 
 
 # ----------------------------------------------------------------------------------------- the whole upload
@@ -420,9 +474,12 @@ def prepare(files: Iterable[Any], names: frozenset[str], sections: Iterable[str]
 
 
 def _plain_zip(data: bytes) -> bool:
-    """A zip that is not an Excel file (no workbook in it): a zip of exports."""
+    """A zip that is not an Excel file (no workbook in it): a zip of exports. One whose directory is too large
+    to open is sent on as a zip too, and refused there before it is parsed."""
     if data[:2] != b"PK":
         return False
+    if powerbi_xlsx.too_many_entries(data, MAX_ENTRIES):
+        return True
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             names = set(archive.namelist())
@@ -437,6 +494,9 @@ def _hidden(name: str) -> bool:
 
 
 def _archive(found: Upload, data: bytes, name: str, names: frozenset[str], sections: tuple[str, ...]) -> None:
+    if powerbi_xlsx.too_many_entries(data, MAX_ENTRIES):  # never parsed: its directory read from its end
+        found.refused.append(words.TOO_MANY_ENTRIES.format(name=name))
+        return
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
         entries = archive.infolist()
@@ -522,7 +582,7 @@ def _export(found: Upload, data: bytes, name: str, names: frozenset[str], sectio
     if match.people_others:
         prepared.dropped.append(words.plural(match.people_others, words.DROPPED_OTHER, words.DROPPED_OTHERS))
     if match.whole and peek.worksheets == 1:
-        content = repack(data, peek.sheet)
+        content = repack(data, peek.sheet, match)
         if found.staged + len(content) > MAX_STAGED:
             found.refused.append(words.STAGED_TOO_BIG)
             return

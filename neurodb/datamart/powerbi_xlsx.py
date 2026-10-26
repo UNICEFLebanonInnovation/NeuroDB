@@ -16,8 +16,9 @@ and the rows are read once, in the job.
   every other cell is empty, to tell the filters line).
 * **Memory** does not grow with the rows: each row is dropped from the tree once read.
 * **Refused:** an OLE file (encrypted or labelled), a file that is not a zip, more than :data:`MAX_PARTS`
-  parts, a part declared above :data:`MAX_PART_BYTES`, a shared strings part above :data:`MAX_STRINGS_BYTES`,
-  and a part with a ``<!DOCTYPE`` before its first element (Python's expat also limits entity expansion).
+  parts (read from the zip's end record before ``zipfile`` parses its directory: :func:`too_many_entries`),
+  a part declared above :data:`MAX_PART_BYTES`, a shared strings part above :data:`MAX_STRINGS_BYTES`, and a
+  part with a ``<!DOCTYPE`` before its first element (Python's expat also limits entity expansion).
   :class:`Unreadable` carries a code word, never a cell's text.
 """
 
@@ -27,6 +28,7 @@ import datetime
 import io
 import posixpath
 import re
+import struct
 import zipfile
 from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass, field
@@ -48,6 +50,10 @@ DOCTYPE = b"<!doctype"
 CELL_REF = re.compile(r"^([A-Za-z]{1,3})\d*$")
 EPOCH_1900 = datetime.datetime(1899, 12, 30)  # Excel's day 0 (with its 1900 leap year)
 EPOCH_1904 = datetime.datetime(1904, 1, 1)
+ENTRY_BYTES = 1024  # a zip's directory may take this much per entry it is allowed (a real one takes ~100)
+END_RECORD = b"PK\x05\x06"
+END_RECORD_64 = b"PK\x06\x06"
+LOCATOR_64 = b"PK\x06\x07"
 
 
 class Unreadable(Exception):
@@ -133,12 +139,34 @@ class Rows:
         return self._source or iter(())
 
 
+def too_many_entries(data: bytes, limit: int) -> bool:
+    """A zip whose directory holds more than ``limit`` entries, or takes more than :data:`ENTRY_BYTES` each:
+    read from its end record (the zip64 one too) before ``zipfile`` parses the directory, whose every entry
+    it would build first (``zipfile`` reads as many bytes as the record's size says, whatever its count). A
+    file with no end record is not a zip: False (``zipfile`` refuses it)."""
+    at = data.rfind(END_RECORD, max(0, len(data) - 65_557))
+    if at < 0 or len(data) < at + 22:
+        return False
+    fields = struct.unpack("<4s4H2LH", data[at : at + 22])
+    entries, size = fields[4], fields[5]
+    if entries == 0xFFFF or size == 0xFFFFFFFF:  # zip64: the record before the locator says
+        locator = at - 20
+        record = locator - 56
+        found = record >= 0 and data[locator : locator + 4] == LOCATOR_64
+        if not found or data[record : record + 4] != END_RECORD_64:
+            return True  # a zip64 marker without its record: never parsed
+        entries, size = struct.unpack("<QQ", data[record + 32 : record + 48])
+    return entries > limit or size > limit * ENTRY_BYTES
+
+
 class Book:
     """An export opened: its parts checked, its worksheets and shared strings found."""
 
     def __init__(self, data: bytes) -> None:
         if data[:4] == OLE:
             raise Unreadable("protected")
+        if too_many_entries(data, MAX_PARTS):  # before zipfile builds every entry of the directory
+            raise Unreadable("too_many_parts")
         try:
             self.archive = zipfile.ZipFile(io.BytesIO(data))
             infos = self.archive.infolist()

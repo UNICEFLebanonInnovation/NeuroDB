@@ -17,10 +17,12 @@ import pytest
 from django.core.management import call_command
 from django.db import connection
 from django.urls import reverse
+from django.utils.html import escape
 
 from neurodb.accounts.models import User
 from neurodb.datamart import powerbi_compare as pc
 from neurodb.datamart import powerbi_read as pr
+from neurodb.datamart import powerbi_words as words
 from neurodb.datamart.models import PowerBIExport, PowerBIUpload
 from neurodb.integrations import background
 from tests.datamart import powerbi_factory as pf
@@ -293,3 +295,136 @@ def test_people_in_neurodbs_own_records_never_reach_the_comparison(checker, star
         for name in package.namelist():
             _clean(package.read(name).decode("utf-8", "replace"), f"the Excel file's {name}")
     _clean(caplog.text, "logs")
+
+
+PHONE = "+961 71 987 654"
+PEOPLE_VALUES = ("jane.doe@example.invalid", PHONE, "Zq Fakeperson")
+
+
+def _no_phone(text: str, where: str) -> None:
+    assert "987 654" not in text and "71987654" not in text, where
+
+
+def test_a_code_a_status_or_a_yes_no_naming_someone_is_never_kept(checker, started):
+    """An e-mail, a phone and a known name in every code, status word and yes/no column of every kind: none is
+    kept (the value is left empty and counted), so none reaches a table, a page or the Excel file."""
+    User.objects.create_user(
+        username="known", first_name="Zq", last_name="Fakeperson", password="pw-1234567-x"
+    )
+    from neurodb.datamart import powerbi_exports as px
+
+    files = []
+    for kind in px.KINDS:
+        columns = pf.columns(kind)
+        rows = pf.rows(kind, 3)
+        for i, row in enumerate(rows):
+            for n, column in enumerate(columns):
+                if column.type in (px.CODE, px.LABEL, px.YES_NO):
+                    row[n] = PEOPLE_VALUES[i]
+        files.append((f"{kind}.xlsx", pf.export(kind, rows)))
+    response = pf.post(checker, *files)
+    assert response.status_code == 302
+    upload = PowerBIUpload.objects.get()
+    _tables_hold_no_one(copies=False)
+    pc.run(upload.pk)
+    upload.refresh_from_db()
+    assert upload.status == PowerBIUpload.Status.DONE, upload.error
+    _tables_hold_no_one()
+    with connection.cursor() as cursor:
+        for table in TABLES:
+            cursor.execute(f"SELECT * FROM {table}")  # noqa: S608 - fixed table names
+            for row in cursor.fetchall():
+                for value in row:
+                    data = bytes(value) if isinstance(value, memoryview | bytes) else str(value).encode()
+                    if data[:2] == b"\x1f\x8b":
+                        data = gzip.decompress(data)
+                    _no_phone(data.decode("utf-8", "replace"), table)
+    report_list = PowerBIExport.objects.get(upload=upload, kind="report_list")
+    kept = sum(c.type in (px.CODE, px.LABEL) for c in pf.columns("report_list"))
+    assert words.WITHHELD_VALUES.format(n=3 * kept) in report_list.notes  # each code and status word, 3 rows
+    pages = [reverse("admin:datamart_powerbi_upload", args=[upload.pk])]
+    pages += [
+        reverse("admin:datamart_powerbi_export", args=[upload.pk, e.pk])
+        for e in PowerBIExport.objects.filter(upload=upload)
+    ]
+    for url in pages:
+        page = checker.get(url)
+        assert page.status_code == 200
+        _clean(page.content.decode(), url)
+        _no_phone(page.content.decode(), url)
+    response = checker.get(reverse("admin:datamart_powerbi_xlsx", args=[upload.pk]))
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as package:
+        for name in package.namelist():
+            text = package.read(name).decode("utf-8", "replace")
+            _clean(text, f"the Excel file's {name}")
+            _no_phone(text, f"the Excel file's {name}")
+
+
+def test_a_filter_on_a_field_named_after_a_person_keeps_no_name(checker, started):
+    """A field NeuroDB does not know keeps its name, unless the name could be a person's (a known name, with
+    "_" or "." too, or an e-mail's first part): then its clause, the upload's what to do now, the export's page
+    and the Excel file name no field."""
+    User.objects.create_user(
+        username="known", first_name="Zq", last_name="Fakeperson", password="pw-1234567-x"
+    )
+    filters = (
+        "country_name is Lebanon",
+        "Zq_Fakeperson is 1",
+        "jane.doe is 1",
+        "partner_name is FAKEORG PARTNER 1",
+        "Dim_PD.status is Active",
+    )
+    upload = pf.compared(
+        checker,
+        ("cards.xlsx", pf.export("partner_cards", filters=filters)),  # staged: its filter read by the job
+        ("list.xlsx", pf.export("report_list", people=True, filters=filters)),  # read in the request
+    )
+    assert upload.status == PowerBIUpload.Status.DONE, upload.error
+    _tables_hold_no_one()
+    for export in PowerBIExport.objects.filter(upload=upload):
+        assert [c["words"] for c in export.clauses[1:]] == [
+            f"{words.FIELD_WITHHELD} is …",
+            f"{words.FIELD_WITHHELD} is …",
+            "partner_name is …",
+            "Dim_PD.status is …",
+        ], export.kind
+    page = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    _clean(page, "the upload's page")
+    assert escape(words.TODO_UNKNOWN_FIELD) in page and "the partner_name filter in the Filters pane" in page
+    for export in PowerBIExport.objects.filter(upload=upload):
+        url = reverse("admin:datamart_powerbi_export", args=[upload.pk, export.pk])
+        _clean(checker.get(url).content.decode(), url)
+    response = checker.get(reverse("admin:datamart_powerbi_xlsx", args=[upload.pk]))
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as package:
+        for name in package.namelist():
+            _clean(package.read(name).decode("utf-8", "replace"), f"the Excel file's {name}")
+
+
+def test_a_late_column_without_a_caption_and_the_sheet_s_other_parts_never_reach_the_staged_copy(
+    checker, started
+):
+    """A column with no caption whose values start after the rows the header check looks at, and the sheet's
+    header and footer: the file is staged, but its copy is NeuroDB's own (the compared columns only), so
+    neither is ever stored, before or after the job."""
+    grid = pf.table("by_sector", [[f"Section {n}", 1, 2, 3, 4] for n in range(102)])
+    grid[0].append("")
+    for n, row in enumerate(grid[1:103]):
+        row.append(pf.PERSON if n >= 100 else None)
+    data = pf.patch_sheet(
+        pf.powerbi_xlsx_bytes(grid),
+        lambda xml: xml.replace(
+            "</x:sheetData>",
+            "</x:sheetData><x:headerFooter><x:oddHeader>&amp;LZq Fakeperson jane.doe@example.invalid"
+            "</x:oddHeader></x:headerFooter>",
+        ),
+    )
+    assert pf.post(checker, ("sector.xlsx", data)).status_code == 302
+    export = PowerBIExport.objects.get()
+    assert export.state == "staged" and export.content  # the header check saw no extra column
+    _tables_hold_no_one()  # the copy itself holds no one
+    pc.run(export.upload_id)
+    export.refresh_from_db()
+    assert export.state == "compared" and export.rows_read == 102 and export.content is None
+    _tables_hold_no_one()

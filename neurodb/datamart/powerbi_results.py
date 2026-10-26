@@ -13,19 +13,24 @@ from collections import Counter
 from collections.abc import Iterable, Iterator
 from typing import Any
 
+from django.conf import settings
 from django.urls import reverse
 
-from . import comparison
+from . import comparison, powerbi_filters
 from . import powerbi_exports as px
 from . import powerbi_words as words
 from .models import PowerBIDifference, PowerBIExport, PowerBIUpload
 
 TODO_LINES = 4
+TODO_CLAUSES = 4  # clauses "what to do now" names
+CANNOT = ("cannot", "unknown_field", "unknown_value", "unread")  # the clauses NeuroDB does not apply
+NOT_READ = words.COULD_NOT_READ.split("{")[0]  # how the sentence of an export NeuroDB could not read starts
 # the verdicts, worst first: a Power BI page takes its worst export's
 SEVERITY = (
     "failed",
     "not_read",
     "look",
+    "cut",
     "check",
     "wait",
     "other_country",
@@ -46,6 +51,17 @@ PAGE_SIZE = 100
 
 
 # ------------------------------------------------------------------------------------------------- verdicts
+def country(text: str) -> str:
+    """A sentence naming the one country NeuroDB holds."""
+    return text.format(country=settings.ETOOLS_DATAMART_COUNTRY)
+
+
+def read_failed(export: PowerBIExport) -> bool:
+    """An export NeuroDB could not read (export it again); any other failure is a comparison that stopped
+    (press Compare again): its file was read."""
+    return export.state == "failed" and (export.error or "").startswith(NOT_READ)
+
+
 def groups(export: PowerBIExport) -> Counter:
     return Counter({int(k): v for k, v in ((export.counts or {}).get("groups") or {}).items()})
 
@@ -78,11 +94,13 @@ def verdict_code(export: PowerBIExport) -> str:
     if export.state != "compared":
         return export.verdict or ""
     found = groups(export)
-    for group, code in ((4, "look"), (3, "check"), (2, "wait")):
+    reasons = (export.counts or {}).get("reasons") or {}
+    if found.get(4):  # every line that needs a look beyond a cut Power BI may have made: export it in parts
+        return "cut" if reasons.get("cut", 0) >= found[4] else "look"
+    for group, code in ((3, "check"), (2, "wait")):
         if found.get(group):
             return code
     if found.get(1):
-        reasons = (export.counts or {}).get("reasons") or {}
         return "owed" if not any(reasons.get(r) for r in COUNTED_REASONS) else "counted"
     return "same"
 
@@ -96,17 +114,20 @@ def apart(export: PowerBIExport) -> tuple[str, str]:
     return parts, " ".join(words.VERDICT_APART_ACTIONS[r] for r, _n in found)
 
 
-def verdict_words(export: PowerBIExport) -> tuple[str, str]:
-    """(the verdict in words, what to do)."""
+def verdict_words(export: PowerBIExport, trimmed: bool = False) -> tuple[str, str]:
+    """(the verdict in words, what to do). ``trimmed``: the upload kept its verdicts, not its lines (no Excel
+    file to send)."""
     code = export.verdict or verdict_code(export)
     counts = export.counts or {}
     found = groups(export)
     if code == "failed":
         error = export.error or ""
-        if error.startswith(words.COULD_NOT_READ.split("{")[0]):  # never read: export it again
+        if read_failed(export):  # never read: export it again
             return words.VERDICT_WORDS["not_read"], words.VERDICT_ACTIONS["not_read"]
         cls = error.rsplit(": ", 1)[-1].rstrip(".") or "Error"
         return words.VERDICT_WORDS["failed"].format(cls=cls), words.VERDICT_ACTIONS["failed"]
+    if code == "cut":
+        return words.VERDICT_WORDS["cut"].format(n=export.rows_read), words.VERDICT_ACTIONS["cut"]
     if code == "empty":
         n = counts.get("neurodb_rows", 0)
         key = "empty_none" if not n else ("empty_one" if n == 1 else "empty")
@@ -117,7 +138,8 @@ def verdict_words(export: PowerBIExport) -> tuple[str, str]:
         return words.VERDICT_WORDS[key].format(n=n), words.VERDICT_ACTIONS[key]
     if code in ("look", "wait"):
         n = found.get(4 if code == "look" else 2, 0)
-        return words.VERDICT_WORDS[code].format(n=n), words.VERDICT_ACTIONS[code]
+        action = words.TRIMMED_ACTION if trimmed and code == "look" else words.VERDICT_ACTIONS[code]
+        return words.VERDICT_WORDS[code].format(n=n), action
     if code in ("owed", "counted"):
         parts, actions = apart(export)
         if code == "owed":
@@ -127,8 +149,9 @@ def verdict_words(export: PowerBIExport) -> tuple[str, str]:
             verdict = words.VERDICT_COUNTED_ALSO.format(verdict=words.VERDICT_WORDS["counted"], parts=parts)
             return verdict, f"{words.VERDICT_ACTIONS['counted']} {actions}"
     if code in words.VERDICT_WORDS:
-        return words.VERDICT_WORDS[code], words.VERDICT_ACTIONS[code]
-    return words.STATE_WORDS.get(export.state, export.state), words.STATE_ACTIONS.get(export.state, "")
+        return words.VERDICT_WORDS[code], country(words.VERDICT_ACTIONS[code])
+    action = country(words.STATE_ACTIONS.get(export.state, ""))
+    return words.STATE_WORDS.get(export.state, export.state), action
 
 
 def worst(codes: Iterable[str]) -> str:
@@ -152,11 +175,12 @@ def page_lines(upload: PowerBIUpload, exports: list[PowerBIExport]) -> list[dict
         code = worst(codes) if mine else "not_uploaded"
         chosen = next((e for e in mine if (e.verdict or verdict_code(e)) == code), None)
         if chosen is not None and code not in ("", "not_uploaded"):
-            verdict, action = verdict_words(chosen)
+            verdict, action = verdict_words(chosen, trimmed=upload.trimmed)
         else:
             verdict, action = words.VERDICT_WORDS["not_uploaded"], words.VERDICT_ACTIONS["not_uploaded"]
         look = sum(groups(e).get(4, 0) for e in mine)
-        first_look = next((e for e in mine if written_groups(e).get(4)), None)
+        # a trimmed upload lists no line: no link to its lines
+        first_look = None if upload.trimmed else next((e for e in mine if written_groups(e).get(4)), None)
         out.append(
             {
                 "name": name,
@@ -193,27 +217,82 @@ def totals(exports: Iterable[PowerBIExport]) -> dict[str, Any]:
     return {"groups": by_group, "reasons": by_reason, "check_pds": pds}
 
 
+def to_clear(clause: powerbi_filters.Clause) -> str:
+    """A filter NeuroDB cannot apply, as the user finds it on the report: a slicer by its name, another field
+    as the Filters pane shows it (Power BI's field names stay on the export's page)."""
+    slicer = comparison.POWERBI_FIELD_SLICERS.get(clause.field)
+    if slicer:
+        return words.TODO_SLICER.format(slicer=slicer)
+    if clause.field:
+        return words.TODO_PANE.format(field=clause.field)
+    return words.TODO_UNKNOWN_FIELD if clause.state == "unknown_field" else words.TODO_UNREAD
+
+
+def before(upload: PowerBIUpload, exports: list[PowerBIExport]) -> list[str]:
+    """What to do now about the files themselves (on the upload's page and in the Excel file alike): those not
+    read (refused in the request, or in the job), the exports whose comparison stopped, the visuals not
+    uploaded, the filters to clear."""
+    lines = []
+    not_read = len(upload.refused or []) + sum(1 for e in exports if read_failed(e))
+    if not_read:
+        lines.append(words.plural(not_read, words.TODO_NOT_READ_ONE, words.TODO_NOT_READ))
+    stopped = sum(1 for e in exports if e.state == "failed" and not read_failed(e))
+    if stopped:
+        lines.append(words.plural(stopped, words.TODO_NOT_COMPARED_ONE, words.TODO_NOT_COMPARED))
+    missing = sum(len(page["missing"]) for page in page_lines(upload, exports))
+    if missing:
+        lines.append(words.plural(missing, words.TODO_MISSING_ONE, words.TODO_MISSING))
+    clear = dict.fromkeys(
+        to_clear(c)
+        for e in exports
+        for c in powerbi_filters.Filter.from_json(e.filters).clauses
+        if c.state in CANNOT
+    )
+    if clear:
+        lines.append(words.TODO_CANNOT.format(clauses="; ".join(list(clear)[:TODO_CLAUSES])))
+    return lines
+
+
+def not_read(upload: PowerBIUpload, exports: list[PowerBIExport]) -> list[str]:
+    """Why each file was not read: refused in the request, or an export the job could not read."""
+    return [*(upload.refused or []), *(e.error for e in exports if read_failed(e))]
+
+
+def settled(export: PowerBIExport) -> bool:
+    """An export with nothing to do: the same, counted another way, the same apart from rows NeuroDB cannot
+    hold, or empty on both sides."""
+    code = export.verdict or verdict_code(export)
+    if code == "empty":
+        return not (export.counts or {}).get("neurodb_rows")
+    return code in ("same", "counted", "owed")
+
+
 def todo(upload: PowerBIUpload, exports: list[PowerBIExport], before: list[str]) -> list[dict[str, str]]:
-    """What to do now, at most four lines, the most pressing first: the upload's error, the rows that need a
-    look, the PDs to check in eTools, the rows waiting for the sync, then ``before`` (the files not read,
-    the visuals not uploaded, the filters to clear), and a closing line on what is expected. Each line with
-    the address of its rows."""
+    """What to do now, at most four lines, the most pressing first: the upload's error, the differences that
+    need a look, the PDs to check in eTools, the differences waiting for the sync, the exports to export again
+    (cut by Power BI, empty while NeuroDB has rows, another country), then ``before`` (:func:`before`: the
+    files not read, the visuals not uploaded, the filters to clear), and a closing line on what is expected.
+    Each line with the address of its lines (none on a trimmed upload: it keeps no line)."""
     found = totals(exports)
     lines: list[dict[str, str]] = []
     if upload.status == PowerBIUpload.Status.FAILED and upload.error:
         lines.append({"text": upload.error, "url": ""})
 
     def first(group: int) -> str:
-        """The rows of the first export that lists some of this group (never a link to an empty list)."""
+        """The lines of the first export that lists some of this group (never a link to an empty list)."""
+        if upload.trimmed:
+            return ""
         export = next((e for e in exports if written_groups(e).get(group)), None)
         return export_url(upload, export, group=group) if export else ""
 
-    look = found["groups"].get(4, 0)
-    if look:
-        text = words.plural(look, words.TODO_LOOK_ONE, words.TODO_LOOK)
-        unlisted = look - sum(written_groups(e).get(4, 0) for e in exports)
-        if unlisted > 0:
-            text += " " + words.plural(unlisted, words.TODO_UNLISTED_ONE, words.TODO_UNLISTED)
+    cut_lines = found["reasons"].get("cut", 0)
+    look = found["groups"].get(4, 0) - cut_lines
+    if look > 0:
+        action = words.TRIMMED_ACTION if upload.trimmed else words.GROUP_ACTIONS[4]
+        text = f"{words.plural(look, words.TODO_LOOK_ONE, words.TODO_LOOK)} {action}"
+        unlisted = found["groups"].get(4, 0) - sum(written_groups(e).get(4, 0) for e in exports)
+        if unlisted > 0 and not upload.trimmed:
+            text += " " + words.plural(min(unlisted, look), words.TODO_UNLISTED_ONE, words.TODO_UNLISTED)
         lines.append({"text": text, "url": first(4)})
     check = len(found["check_pds"]) or found["groups"].get(3, 0)
     if check:
@@ -221,6 +300,31 @@ def todo(upload: PowerBIUpload, exports: list[PowerBIExport], before: list[str])
     wait = found["groups"].get(2, 0)
     if wait:
         lines.append({"text": words.plural(wait, words.TODO_WAIT_ONE, words.TODO_WAIT), "url": first(2)})
+    codes = {e.pk: e.verdict or verdict_code(e) for e in exports}
+    again = (
+        (
+            [e for e in exports if ((e.counts or {}).get("reasons") or {}).get("cut")],
+            words.TODO_CUT_ONE,
+            words.TODO_CUT,
+            {"reason": "cut"},
+        ),
+        (
+            [e for e in exports if codes[e.pk] == "empty" and (e.counts or {}).get("neurodb_rows")],
+            words.TODO_EMPTY_ONE,
+            words.TODO_EMPTY,
+            {},
+        ),
+        (
+            [e for e in exports if codes[e.pk] == "other_country"],
+            country(words.TODO_OTHER_COUNTRY_ONE),
+            words.TODO_OTHER_COUNTRY.replace("{country}", settings.ETOOLS_DATAMART_COUNTRY),
+            {},
+        ),
+    )
+    for found_exports, one, many, query in again:
+        if found_exports:
+            url = "" if upload.trimmed and query else export_url(upload, found_exports[0], **query)
+            lines.append({"text": words.plural(len(found_exports), one, many), "url": url})
     lines += [{"text": text, "url": ""} for text in before]
     expected = found["groups"].get(1, 0)
     if expected and len(lines) < TODO_LINES:
@@ -232,13 +336,19 @@ def todo(upload: PowerBIUpload, exports: list[PowerBIExport], before: list[str])
         )
         text = words.either(expected, words.TODO_EXPECTED_ONE, words.TODO_EXPECTED)
         lines.append({"text": text.format(n=expected, parts=parts or words.GROUP_NAMES[1]), "url": first(1)})
-    if not lines and upload.status == PowerBIUpload.Status.DONE:
+    if not lines and upload.status == PowerBIUpload.Status.DONE and all(settled(e) for e in exports):
         lines.append({"text": words.TODO_NOTHING, "url": ""})
     return lines[:TODO_LINES]
 
 
-def reached_sentence(exports: Iterable[PowerBIExport]) -> str:
-    """Program Performance's Reached fit, in one sentence."""
+def clear_majority(fits: int, of: int) -> bool:
+    """A rule fits more than half the rows: only then is it offered as a choice."""
+    return bool(of) and fits * 2 > of
+
+
+def reached_fit(exports: Iterable[PowerBIExport]) -> tuple[str, bool]:
+    """Program Performance's Reached fit, in one sentence, and whether it is a choice to offer: the rule that
+    fits best fits more than half the rows where Power BI shows a value."""
     for export in exports:
         if export.kind != "program_performance" or export.state != "compared":
             continue
@@ -247,16 +357,24 @@ def reached_sentence(exports: Iterable[PowerBIExport]) -> str:
                 continue
             best = next((r for r in table["rows"] if r.get("chosen")), None)
             if best is None:
-                return words.REACHED_NONE
-            return words.REACHED_SENTENCE.format(
-                words=words.CANDIDATE_WORDS[best["candidate"]], fits=best["fits"], of=best["of"]
-            )
-    return ""
+                return words.REACHED_NONE, False
+            rule = words.CANDIDATE_WORDS[best["candidate"]]
+            shown = best.get("positive", best["of"])  # the rows where Power BI shows a value
+            if not clear_majority(best["above"], shown):
+                return words.REACHED_WEAK.format(words=rule, fits=best["above"], of=shown), False
+            return words.REACHED_SENTENCE.format(words=rule, fits=best["fits"], of=best["of"]), True
+    return "", False
+
+
+def reached_sentence(exports: Iterable[PowerBIExport]) -> str:
+    """Program Performance's Reached fit, in one sentence (:func:`reached_fit`)."""
+    return reached_fit(exports)[0]
 
 
 def choices(exports: list[PowerBIExport]) -> list[dict[str, Any]]:
-    """Choices for you: each rule difference the comparison found evidence for, with its evidence, one plain
-    question and NeuroDB's rule until the user decides."""
+    """Choices for you: each rule difference the comparison found evidence for (the rule fits more than half
+    the rows: :func:`clear_majority`), with its evidence, one plain question and NeuroDB's rule until the user
+    decides."""
     out = []
     by_kind = {e.kind: e for e in exports if e.state == "compared"}
 
@@ -264,22 +382,22 @@ def choices(exports: list[PowerBIExport]) -> list[dict[str, Any]]:
         export = by_kind.get(kind)
         return ((export.counts or {}).get("extra") or {}) if export else {}
 
-    sentence = reached_sentence(exports)
-    if sentence and sentence != words.REACHED_NONE:
+    sentence, offered = reached_fit(exports)
+    if offered:
         out.append({"code": "reached", "evidence": sentence})
     fits = [0, 0]
     for kind in ("by_sector", "by_month"):
         found = extra(kind).get("progress_fit")
         if found:
             fits = [fits[0] + found[0], fits[1] + found[1]]
-    if fits[1]:
+    if clear_majority(*fits):
         evidence = words.CHOICE_EVIDENCE["progress_reports"].format(fits=fits[0], of=fits[1])
         out.append({"code": "progress_reports", "evidence": evidence})
     due = extra("follow_up").get("due_not_yet")
     if due:
         out.append({"code": "due", "evidence": words.CHOICE_EVIDENCE["due"].format(n=due)})
     emergency = extra("program_performance").get("emergency_fit")
-    if emergency and emergency[1]:
+    if emergency and clear_majority(*emergency):
         evidence = words.CHOICE_EVIDENCE["emergency"].format(fits=emergency[0], of=emergency[1])
         out.append({"code": "emergency", "evidence": evidence})
     for item in out:
@@ -443,12 +561,18 @@ def reason_words(reason: str, history: str) -> str:
     return words.REASON_WORDS.get(reason, reason).format(history=history)
 
 
+def group_action(group: int, reason: str) -> str:
+    """A group's sentence, or nothing where the reason's own step replaces it (a cut export: export it again,
+    nothing to send)."""
+    return "" if reason in words.OWN_ACTION else words.GROUP_ACTIONS.get(group, "")
+
+
 def what_to_do(line: PowerBIDifference, history: str) -> str:
     """A line's group sentence, and its reason's step when it adds one."""
     extra = words.REASON_ACTIONS.get(line.reason, "")
     if line.reason == "not_in_read" and line.group != 4:
         extra = ""
-    base = words.GROUP_ACTIONS.get(line.group, "")
+    base = group_action(line.group, line.reason)
     return " ".join(x for x in (base, extra.format(history=history)) if x)
 
 
@@ -534,11 +658,20 @@ def _summary_rows(
         yield {"Item": "NeuroDB's last partner reports sync", "Value": upload.synced_at}
     yield {}
     yield {"Item": "What to do now"}
-    for line in todo(upload, exports, []):
+    for line in todo(upload, exports, before(upload, exports)):
         yield {"Item": line["text"]}
+    refused = not_read(upload, exports)
+    if refused:
+        yield {}
+        yield {"Item": "Files not read"}
+        for sentence in refused:
+            yield {"Item": f"  {sentence}"}
     yield {}
     for page in page_lines(upload, exports):
         yield {"Item": page["name"], "Value": page["verdict"], "What to do": page["action"]}
+        for visual in page["missing"]:
+            missing = {"Value": words.NOT_UPLOADED, "What to do": words.NOT_UPLOADED_ACTION}
+            yield {"Item": f"  {visual}", **missing}
         for export in page["exports"]:
             kind = px.KINDS.get(export.kind)
             counts = export.counts or {}

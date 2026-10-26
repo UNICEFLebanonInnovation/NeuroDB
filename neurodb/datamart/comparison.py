@@ -93,6 +93,14 @@ POWERBI_VISUALS: dict[str, tuple[str, str]] = {  # a sheet block or an export ->
     "fund_monitoring": ("Partner Fund Monitoring", "Table"),
     "funded_programmes": ("Funded Programs", "Table"),
 }
+# the figures a block's visual shows, where it shows only some of the block's figures: the block's others are
+# on the page's cards (POWERBI_ITEMS["cards"]), never said to be on a visual that does not show them
+VISUAL_FIGURES: dict[str, tuple[str, ...]] = {
+    "partner_cards": tuple(
+        f"pr.partners_status.{key}" for key in ("accepted", "submitted", "sent_back", "due", "overdue")
+    ),
+    "dq_tiles": ("dq.no_reached",),
+}
 # the blocks of each page's sheet; :data:`POWERBI_PAGES` puts them in Power BI's order, by Power BI page
 SHEET_BLOCKS: dict[str, tuple[str, ...]] = {
     "progress-reports": (
@@ -128,6 +136,7 @@ POWERBI_PAGES: dict[str, tuple[tuple[str, tuple[tuple[str, str], ...]], ...]] = 
 POWERBI_PD_PAGE = POWERBI_VISUALS["pd_indicators"][0]
 # the items Power BI names itself (a status, a section or a month is named by the data)
 POWERBI_ITEMS: dict[str, str] = {
+    "cards": POWERBI_VISUALS["status_cards"][1],  # a page's cards (a figure no other visual of it shows)
     "total": "Total",
     "not_yet_due": "Not Yet Due",
     "sent_back": "Sent back",
@@ -188,7 +197,10 @@ POWERBI_FIELD_SLICERS: dict[str, str] = {
     "section_name": POWERBI_SLICERS["partner-monitoring"]["sections"],
 }
 ONE_COUNTRY = "{country}: NeuroDB holds one country"
-CLEAR_IN_POWERBI = "Clear these in Power BI: NeuroDB's page has no such filter"
+CLEAR_IN_POWERBI = (
+    "Clear these in Power BI: NeuroDB's page has no such filter, or its filter of that name means something "
+    "else"
+)
 COMPARE_FOR_YOU = (
     "Or let NeuroDB compare for you: upload Power BI's exports in Admin → Data and sync → Compare with Power "
     "BI."
@@ -504,7 +516,9 @@ def _partner_cards(r: Read) -> Iterator[Line]:
     )
     item = POWERBI_ITEMS["partners_not_reported"]
     yield ("pr.partners_not_reported", item, figure, p["not_reported"], "partners", "")
-    for s in p["by_status"]:
+    # the statuses Power BI's visual does not show first (on the cards), then the five it shows
+    shown = VISUAL_FIGURES["partner_cards"]
+    for s in sorted(p["by_status"], key=lambda s: f"pr.partners_status.{s['key']}" in shown):
         item = POWERBI_ITEMS["partners_status"].format(status=s["label"])
         yield (f"pr.partners_status.{s['key']}", item, figure, s["partners"], "partners", "")
 
@@ -583,12 +597,13 @@ def _dq_tiles(r: Read) -> Iterator[Line]:
     yield ("dq.zero_reached", items["zero_reached"] + in_year, figure, q["zero_reached"], "indicators", "")
     item = items["without_reached"] + in_year
     yield ("dq.without_reached", item, figure, q["without_reached"], "indicators", OVERDUE_NOTE)
-    note = "Without Reached and Reported zero together, as Power BI's card counts them."
-    no_reached = q["without_reached"] + q["zero_reached"]
-    yield ("dq.no_reached", items["no_reached"] + in_year, figure, no_reached, "indicators", note)
     note = "A target of 0 counts as none."
     yield ("dq.with_target", items["with_target"], figure, q["with_target"], "indicators", note)
     yield ("dq.without_target", items["without_target"], figure, q["without_target"], "indicators", "")
+    # last: the one figure Power BI's card shows
+    note = "Without Reached and Reported zero together, as Power BI's card counts them."
+    no_reached = q["without_reached"] + q["zero_reached"]
+    yield ("dq.no_reached", items["no_reached"] + in_year, figure, no_reached, "indicators", note)
 
 
 # a sheet row that is no figure of the page, and the figure whose trail it opens
@@ -631,8 +646,10 @@ def figures(found: Read) -> list[Figure]:
     out = []
     for powerbi_page, visuals in POWERBI_PAGES[found.page]:
         for block, visual in visuals:
+            shows = VISUAL_FIGURES.get(block)
             for key, item, neurodb, value, unit, note in BLOCKS[block](found):
-                out.append(Figure(key, powerbi_page, visual, item, neurodb, value, unit, note))
+                where = visual if shows is None or key in shows else POWERBI_ITEMS["cards"]
+                out.append(Figure(key, powerbi_page, where, item, neurodb, value, unit, note))
     return out
 
 

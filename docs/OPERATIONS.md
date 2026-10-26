@@ -2706,9 +2706,12 @@ NeuroDB's filter means), `POWERBI_ONLY_SLICERS` (*Country name*, written under *
 test renames them all). NeuroDB's emergency filter (the indicator's high frequency; Power BI's *Emergency
 indicator* is Yes for an SPD), Partner monitoring's search (the title or the output; Power BI's *Indicator Title*
 box is the title) and its CP output (the indicator's; Power BI's *CP Output* search matches every CP output of
-the PD) are NeuroDB filters to clear (`NEURODB_ONLY`), never mapped to a slicer. Data quality's block ends with
-Power BI's card, *No. of Indicators without Reached* (Without Reached and Reported zero together; its *Trail*
-opens Without Reached's). Every field of the page's filter dataclasses (`ReportFilters`, `DisaggregationFilters`,
+the PD) are NeuroDB filters to clear (`NEURODB_ONLY`), never mapped to a slicer. A figure is named after a
+visual only when that visual shows it (`comparison.VISUAL_FIGURES`): Data quality's block ends with Power BI's
+card, *No. of Indicators without Reached* (Without Reached and Reported zero together; its *Trail* opens
+Without Reached's), and Partner Performance's five-status visual names its five statuses only; the blocks'
+other figures are on the page's cards (`POWERBI_ITEMS["cards"]`). *Clear these in Power BI* says both reasons
+(`CLEAR_IN_POWERBI`): the page has no such filter, or its filter of that name means something else. Every field of the page's filter dataclasses (`ReportFilters`, `DisaggregationFilters`,
 `monitoring.Filters`) is either a slicer (`POWERBI_SLICERS`) or a NeuroDB filter to clear (`NEURODB_ONLY`); a new
 field in neither stops the sheet, and a test fails.
 
@@ -2901,9 +2904,11 @@ ModelAdmin: no developer table shows the rows. Every sentence is in `datamart/po
 `request.upload_handlers = [powerbi_read.UploadHandler()]` before the body is read; its inner function checks the
 CSRF token. The handler keeps every file in memory, never in Django's temporary files: a file above 25 MB is
 dropped (named), more than 50 MB in all stops the upload ("Nothing was kept"). A zip is read entry by entry (at
-most 200; `__MACOSX/` and names starting with "." skipped and counted; a nested zip and a non-Excel entry refused;
-an entry's declared size checked before it is opened). Each export (at most 30): an OLE file is "protected", a
-file that is not a zip, with more than 500 parts or a part declared above 300 MB is not Excel, more than 400 MB
+most 200, counted from its end record before `zipfile` parses its directory, `powerbi_xlsx.too_many_entries`: a
+directory larger than 1 KB for each entry allowed is refused too, whatever count it declares; `__MACOSX/` and
+names starting with "." skipped and counted; a nested zip and a non-Excel entry refused; an entry's declared size
+checked before it is opened). Each export (at most 30): an OLE file is "protected", a file that is not a zip,
+with more than 500 parts (counted the same way) or a part declared above 300 MB is not Excel, more than 400 MB
 declared over the whole upload stops the rest. Then `powerbi_xlsx.peek` reads the header (within five rows) and
 which cells of the next 100 rows hold a value (never their values), and `powerbi_exports.recognise` finds its kind
 by its captions (whatever their spacing and case; a kind's `excluded` captions rule it out, so a grouping column —
@@ -2915,13 +2920,17 @@ refused naming only captions NeuroDB knows (its first row may be a list of peopl
 its own `try`: an error keeps only its class name ("NeuroDB could not read x.xlsx (ValueError).").
 
 **Staged or read now.** A one-sheet export whose every column NeuroDB keeps is *staged*: `powerbi_read.repack`
-writes a copy holding only that sheet and its shared strings under a workbook NeuroDB writes (no other sheet, no
-comment, no document properties; at most 50 MB of copies per upload), kept in `PowerBIExport.content` until the
-job reads it. Any other export (a column that names people, one NeuroDB does not compare, a second sheet) is read
-in the request if its sheet is at most 20 MB, keeping only the kept columns; above that it is refused ("remove
-those columns in Power BI and export again"). A staged copy holds the sheet as Power BI wrote it, its texts not
-yet cleaned: it is emptied as soon as the job reads it, when the job fails or stops, when it cannot start, and by
-`close_stale` (called by every page, `busy()` and the scheduler's `tick()`), so it never outlives a few minutes.
+streams the sheet in the request and writes NeuroDB's own copy of it under a workbook NeuroDB writes: the
+header's captions, the filters line and the values of the kept columns only, as inline strings and numbers (no
+other sheet or column, no shared string, comment, header or footer, link, data validation or document property;
+a column with no caption whose values start after the 100 rows the header check looks at never reaches it; at
+most 50 MB of copies per upload; 100,000 rows take a few seconds), kept in `PowerBIExport.content` until the job
+reads it. Any other export (a column that names people, one NeuroDB does not compare, a second sheet) is read in
+the request if its sheet is at most 20 MB, keeping only the kept columns; above that it is refused ("remove those
+columns in Power BI and export again"). A staged copy holds the kept columns' values as Power BI wrote them, its
+texts not yet cleaned: it is emptied as soon as the job reads it, when the job fails or stops, when it cannot
+start, and by `close_stale` (called by every page, `busy()` and the scheduler's `tick()`), so it never outlives a
+few minutes.
 
 **The reader** (`datamart/powerbi_xlsx.py`) is NeuroDB's own, standard library only, the same in tests and in
 production (openpyxl never reads an upload): `zipfile` and `ElementTree.XMLPullParser`, any namespace prefix,
@@ -2935,8 +2944,11 @@ caption `catalogue.holds_person` finds, are dropped by position as the file is r
 exported or sent to the AI ("Dropped as the file was read: UNICEF Focal Points (people's names). It was never
 stored."). Free texts (titles, partners, sections, outputs, locations, donors) pass the people rule of Raw eTools
 data (`comparison._clean`: known names whatever their case, e-mails, phones), once per distinct text (a memo of at
-most 5,000); codes (PD #, Report #, P-codes, grants, fund reservations) are kept as read. File names are cleaned
-the same way.
+most 5,000). Codes (PD #, Report #, P-codes, grants) and status words pass the same rule: one is kept as read
+(spaces and all, so it still matches; a cleaned code would read like another) unless the cleaner withholds part
+of it (an e-mail, a phone, a known name, a link), and then it is not kept at all (left empty: nothing is matched
+or shown on "[email withheld]") and counted in the export's notes (`powerbi_read.names_someone`). A Yes/No column
+keeps Yes or No only; any other text is a value NeuroDB could not read. File names are cleaned the same way.
 
 **Power BI's filters** (`datamart/powerbi_filters.py`). The "Applied filters" line is read clause by clause into a
 `Filter` (`PowerBIExport.filters`) and one description per clause (`clauses`), rebuilt from what was understood:
@@ -2944,7 +2956,16 @@ the raw line is never kept. Applied: "field is value(s)" for `country_name`, `st
 `section_name` (the PDs' section names), `report_status_label` and Power BI's own `is_period_latest` and
 `is_blueprint_canonical`; a comparison (with "or is blank") for `actual_value`, a comparison for `location_value`.
 Another shape is "cannot apply"; a field NeuroDB does not know keeps its name and condition words, never its
-value; a value outside its field's vocabulary is not kept; another country makes the export "Not compared". The
+value, and keeps no name either when the name could be a person's (the people cleaner withholds part of it, a
+known name written with "_" or "." too, or it is two words joined by a dot, as an e-mail's first part: "a field
+NeuroDB does not know"); a value outside its field's vocabulary is not kept; another country makes the export
+"Not compared". Once an export's kind is known, each clause's state is its kind's (`powerbi_kinds.clause_states`,
+`APPLIES`): an applied clause on a field the kind's comparer does not apply is one NeuroDB cannot apply to that
+export (a year or a section on the funds pages, which have neither; a report status beyond the report pages and
+Program Performance's Accepted alone; `actual_value` beyond Data Quality; `location_value` beyond PD/SPD
+Report/Location; several years where one year's Reached is read), so its rows say "A filter NeuroDB cannot
+apply" and *What to do now* asks to clear it; a year on PD/SPD Indicator (its NeuroDB page has no year) is
+applied to Reached while comparing. "What its filter covers" says only what is applied. The
 comparison compares with NeuroDB's pages, and none of them reads `is_period_latest` or `is_blueprint_canonical`:
 both are "applied as NeuroDB reads it" (the newest row of each report and location; each PD indicator counted
 once), and the export's note says whether every partner report record of the last sync carries the field
@@ -2960,22 +2981,33 @@ tables and verdict; never the sheet's name, which can name anyone) and `PowerBID
 comparison: its kind, group, reason, rule, detail, the values it is matched by, each differing column's [Power BI,
 NeuroDB, another reading] and its "Check in NeuroDB" address). Every queryset defers `content` and `rows`.
 Retention (`powerbi_compare.KEEP_FULL = 3`): when an upload is created and after every job, older uploads lose
-their rows, copies and lines and keep their summary and counts ("Details removed"). Kept rows of a full set of
+their rows, copies and lines and keep their summary and counts ("Details removed": no link to a line, no Excel
+file, "Upload the files again to see these differences"). An upload waiting to be compared or being compared is
+never trimmed, nor counted among the newest: its job trims the others when it ends. A queued upload trimmed all
+the same fails ("upload them again"), and an export whose rows are gone fails alone: never compared against
+nothing. Kept rows of a full set of
 exports take a few MB; the lines at most 60,000 an upload.
 
 **The job** (`datamart/powerbi_compare.py`, `compare_powerbi --upload-id <pk> --triggered-by <user>`, started by
 *Upload and compare* and *Compare again* through `background.start_command`). It first lowers its CPU priority
-(`os.nice(10)`) and caps its data at 600 MB (`RLIMIT_DATA`: an overrun ends as "The comparison stopped
-(MemoryError): upload the files again." instead of the container being stopped; "press Compare again" when every
-row is kept). Its lock `background.POWERBI_COMPARE_LOCK_ID = 7140443`
-(not a `SyncRun` job, not in `LOCK_IDS`): a second job fails its upload ("Another comparison was running"). An
-upload is refused while a comparison, a Datamart sync or a KM Database load runs (their locks), and a sync or a
-load that starts while the files are read stops the job after reading (the rows stay: *Compare again*). Steps:
+(`os.nice(10)`) and caps its data (`RLIMIT_DATA`) at what its container has left (`powerbi_compare.memory_room`:
+the cgroup's limit less what the container uses, reclaimable page cache not counted, less 150 MB for the web
+workers and the scheduler's jobs), at most 600 MB and at least 250 MB, kept as the upload's
+`summary["memory_limit_mb"]` beside `peak_memory_mb`: an overrun ends as "The comparison stopped (MemoryError):
+upload the files again." instead of the container being stopped ("press Compare again" when every row is kept).
+Its lock `background.POWERBI_COMPARE_LOCK_ID = 7140443` (not a `SyncRun` job, not in `LOCK_IDS`): a second job
+fails its upload ("Another comparison was running"). An upload is refused while a comparison, a Datamart sync or
+a KM Database load runs (their locks); the check and the queueing are one step under a transaction lock of their
+own (`background.POWERBI_QUEUE_LOCK_ID = 7140444`, held by `create()` and `again()` until their transaction
+ends), so two uploads at once, or *Compare again* beside an upload, never queue two comparisons: the second is
+told one is running. A sync or a load that starts while the files are read stops the job after reading (the rows
+stay: *Compare again*). Steps:
 read each staged copy and empty it; the day (Power BI's refresh from "Last Updated Date" or "Last Modify Date",
 else the upload's day; today when more than 14 days back, with a note); the partner reports sync it reads (a
-note when it ran before Power BI's refresh; `sync_moved` when one finished meanwhile); each export in Power BI's
-order. `close_stale` fails an upload reading or comparing while nobody holds the lock, or queued for more than two
-minutes since `queued_at` ("press Compare again" when every row is kept). A start that fails fails the upload in
+note when it ran before Power BI's refresh, their moments compared; `sync_moved` when one finished meanwhile);
+each export in Power BI's order. `close_stale` fails an upload reading or comparing while nobody holds the lock,
+or queued for more than two minutes since `queued_at` ("The comparison stopped before it finished (the server
+restarted or ran out of memory)"; "press Compare again" when every row is kept). A start that fails fails the upload in
 the request. Logs carry counts, kinds and class names only. Each upload keeps its own `seconds` and
 `peak_memory_mb`: read them on the first production uploads to size the next steps.
 
@@ -2986,8 +3018,10 @@ the card are explained from them), then Power BI's order.
 
 - **NeuroDB's side** (`powerbi_page`) is the page's own function with Power BI's filter given explicitly: its PD
   statuses (`status is active` is `active` only; no status clause, every status), its reporting years (period
-  end), its sections: `services.partner_reporting` (the report list, the follow-up list, the partner cards, the
-  table by sector and the chart by month, counted as **progress reports** as Power BI counts them),
+  end; with one year, Program Performance's and PD/SPD Indicator's Reached is the year's, `reached_in_year`, as
+  Power BI's Reporting Year reads it), its sections, and on the report pages its report statuses (Power BI's
+  Due covering not yet due): `services.partner_reporting` (the report list, the follow-up list, the partner
+  cards, the table by sector and the chart by month, counted as **progress reports** as Power BI counts them),
   `monitoring.indicators` (Program Performance with the indicators that have an Accepted report, as Power BI's
   `report_status_label is Accepted` keeps; Data quality's `FIGURE_TESTS["no_reached"]` list, with no cut),
   `reporting.pd_indicators` on `partnerships.programme_documents` (PD/SPD Indicator), `reporting.location_rows`
@@ -2998,8 +3032,8 @@ the card are explained from them), then Power BI's order.
   passes `powerbi_page.shown` (explicit field lists): no focal point, no `submitted_by`, no narrative, no whole
   `data`; NeuroDB's free texts pass the same people cleaner as Power BI's.
 - **The same** (`powerbi_match`): raw values against raw values (float noise only, half a cent for money); a
-  Power BI 0 against no value is the same in a Reached or % column; a % column is compared only when its two
-  amounts are the same; texts by their spaces and case, a title Power BI cut at 255 characters as a prefix;
+  Power BI 0 against no value is the same in a Reached, Target or % column; a % column is compared only when its
+  two amounts are the same; texts by their spaces and case, a title Power BI cut at 255 characters as a prefix;
   sections as sets (`reporting.section_names` with the PDs' names); CP outputs whole in Power BI's joined text;
   SPD = SHPD; `NON-GRANT` = no grant; a PD # without its amendment suffix pairs, with a detail. Percentage
   indicators are in Power BI's unit for each visual (×100 on Program Performance and PD/SPD Indicator, a fraction
@@ -3008,27 +3042,38 @@ the card are explained from them), then Power BI's order.
   partner and title, then title, sections and target for a partner written differently; Power BI's row that
   joins two NeuroDB rows when its Reached and Target are their sums), most similar first. Location copies (one
   per CP output of the PD) are joined first; summing kinds (by sector, disaggregations) add up rows with the
-  same match values on each side; a value missing on one side is the same when the other is 0. The table by
-  sector's Total row is checked against Power BI's own rows and NeuroDB's total as notes, never as a line (its
-  gaps are the sections').
+  same match values on each side; a value missing on one side is the same when the other is 0. By
+  disaggregation is compared over Power BI's months and NeuroDB's own (in Power BI's years, within NeuroDB's
+  history): NeuroDB's values of a month Power BI's export has no row for are only in NeuroDB. The month chart
+  compares every status: a column Power BI did not write (it writes a status only when its data has it) is its
+  0, and a note names it. The table by sector's Total row is checked against Power BI's own rows and NeuroDB's
+  total as notes, never as a line (its gaps are the sections').
 - **Reasons** (`powerbi_words.REASON_ORDER`, the first whose test passes; a line whose columns give several takes
   the highest group): before NeuroDB's history (also a Program Performance row whose PD started before it and
   has no Accepted report in NeuroDB: its Accepted reports are older), the PD not running (group 3), a report
-  still owed, not in the Datamart read (group 2 when NeuroDB's partner reports sync finished on or before Power
-  BI's refresh date, 4 after), left out by the page, an older version (an earlier step, or several records of a
+  still owed, not in the Datamart read (group 4 when NeuroDB's partner reports sync finished after Power BI's
+  refresh, their moments compared, later the same day too; group 2 when it finished before, or when either
+  moment is not known: "NeuroDB cannot tell whether its last sync ran before Power BI's refresh"), left out by
+  the page, an older version (an earlier step, or several records of a
   location whose newest gives Power BI's value, when the sync ran before the refresh; after it, NeuroDB holds the
   newest record too and the line is the rule `several_records`: the page reads the largest), moved on since
   Power BI's refresh (NeuroDB a later step and its sync not before the refresh; group 1), a different rule
   (`RULES`), a status counted differently ("read for a different day" only when NeuroDB reads the statuses for
   another day than Power BI's refresh; Power BI's Overdue on the due date itself is said so), a repeated value,
-  upload the report list (or the Data Quality list) to see why, a filter NeuroDB cannot apply, not explained
-  yet. Facts are one unfiltered query each (`powerbi_facts.Pds`, `Reports`: every PD and progress report NeuroDB
+  upload the report list (or the Data Quality list) to see why, a row only NeuroDB has beyond an export Power BI
+  may have cut (exactly 1,000, 30,000 or 150,000 rows: reason `cut`, group 4, its own step "export it again one
+  section or one partner at a time" in place of sending the Excel file; never counted in the report list's gaps,
+  so a counted visual's gap is said to be maybe beyond the list's cut), a filter NeuroDB cannot apply, not
+  explained yet. A candidate that is NeuroDB's own figure (eTools' target) never makes a line "a different
+  rule". Facts are one unfiltered query each (`powerbi_facts.Pds`, `Reports`: every PD and progress report NeuroDB
   holds, whatever its status).
 - **Fit tables** where Power BI's rule is not known: Program Performance's and PD/SPD Indicator's Reached
   (`qpr_sum`, `every_sum`, `latest`, `prp_cumulative`, `accepted`) and Target (`etools`, `prp_sum`, `prp_one`),
   counted from each indicator's quarterly and monthly reports (`powerbi_facts.indicator_facts`: placed by
-  `identity.Idents`, read by `reached.build_reports`), on the rows NeuroDB can check whole (the PD started on or
-  after NeuroDB's history), chosen on the rows where Power BI is above 0; Data Quality's readings of its section
+  `identity.Idents`, read by `reached.build_reports`; in the one year Power BI's filter names, when it names
+  one), on the rows NeuroDB can check whole (the PD started on or after NeuroDB's history, or that year starts
+  on or after it), chosen on the rows where Power BI is above 0; a line's detail names each value with its
+  side ("Counted Power BI's way (…): 15. NeuroDB's own rule gives 35."); Data Quality's readings of its section
   and `actual_value`; the financial contribution; Outstanding DCT (Funded Programs' page has no such column).
 - **Lines** are kept in gzip buffers per group during the snapshot and written once every export is compared,
   group by group across the exports (every export's group 4, then 3, 2 and 1: the limit drops expected lines
@@ -3038,9 +3083,17 @@ the card are explained from them), then Power BI's order.
   characters by design (the other rules that fit by their short names, or how many), cut on a word if ever
   longer. Rules that apply to every row are notes, never lines. The upload's summary keeps one verdict per
   Power BI page, the lines by group and the Reached sentence; `choices` keeps *Choices for you* (Reached,
-  progress or indicator reports, Due and not yet due, Emergency) with their evidence.
-- **Pages and the Excel file** (`powerbi_results`): *What to do now* (at most four lines), one line per Power BI
-  page with its worst export's verdict (with expected lines only: "Same data, counted another way" for a rule,
+  progress or indicator reports, Due and not yet due, Emergency) with their evidence, each offered only when its
+  rule fits more than half the rows (`powerbi_results.clear_majority`; Reached: of the rows where Power BI shows
+  a value, else the sentence says the best rule fits only a few).
+- **Pages and the Excel file** (`powerbi_results`): *What to do now* (at most four lines, counting
+  differences, not rows: a counted visual's row can differ in several columns; the exports to export again, cut,
+  empty while NeuroDB has rows, or of another country; the files not read, an export whose comparison stopped
+  told to press *Compare again* instead and counted among the exports read; "Power BI and NeuroDB agree" only
+  when every export is settled; the same lines in the Excel file's Summary, `powerbi_results.before`, with the
+  files not read and why and each page's visuals not uploaded), *How to export* filled in from NeuroDB's
+  history and its one country (`settings.ETOOLS_DATAMART_COUNTRY`), one line per Power BI page with its worst
+  export's verdict (with expected lines only: "Same data, counted another way" for a rule,
   a status, a repeated value or a row the page leaves out; "Same, apart from reports still owed: n" for reports
   still owed, rows before NeuroDB's history and reports that moved on; both when both); an export's page with
   its notes, fit tables, lines by group and reason and the lines (at most 5,000, 100 a page, filtered by reason

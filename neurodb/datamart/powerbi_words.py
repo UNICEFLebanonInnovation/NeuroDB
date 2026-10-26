@@ -23,15 +23,20 @@ RAW_LINK = "Compare Power BI's exports with NeuroDB"
 XLSX_BUTTON = "Download every difference (Excel)"
 
 # ------------------------------------------------------------------------------------------- how to export
+# the second step is HOW_YEAR, filled in on the page (powerbi_admin.how_steps): the year and NeuroDB's history
 HOW_STEPS = (
     "On each visual: More options (…) → Export data → Summarized data → .xlsx.",
-    "Set Reporting Year to 2026 on every page: NeuroDB holds partner reports from 1 Jan 2026.",
     "Set PD status to active, and clear Section, Partner, Document type, Office, Emergency indicator, "
     "CP Output and Indicator Title.",
     "Upload every file at once, or the zip your browser made.",
     "A filter NeuroDB does not know is listed as one it cannot apply: clear it and export again, or set it "
     "once on one small visual and send that file to the NeuroDB team so NeuroDB can learn it.",
     "A sensitivity label that encrypts the file stops NeuroDB reading it.",
+)
+
+HOW_YEAR = (
+    "Set Reporting Year to {year} on every page except Partner Fund Monitoring and Funded Programs "
+    "(NeuroDB's funds pages have no year: leave it clear there). NeuroDB holds partner reports from {day}."
 )
 
 # ------------------------------------------------------------------------------- the upload (in the request)
@@ -80,8 +85,19 @@ STARTED = "The files are being compared. This page shows the result when it is r
 START_FAILED = "The comparison could not start: upload the files again."
 LOCKED = "Another comparison was running: upload the files again."
 LOCKED_AGAIN = "Another comparison was running: press Compare again."
-STALE = "The comparison stopped (the server restarted): upload the files again."
-STALE_AGAIN = "The comparison stopped (the server restarted): press Compare again."
+# the job's process ended without a word: the server restarted, or the comparison ran out of memory
+STALE = (
+    "The comparison stopped before it finished (the server restarted or ran out of memory): upload the files "
+    "again."
+)
+STALE_AGAIN = (
+    "The comparison stopped before it finished (the server restarted or ran out of memory): press Compare "
+    "again."
+)
+TRIMMED_QUEUED = (
+    "The details of these files were removed meanwhile (only the last 3 uploads keep them): upload them "
+    "again."
+)
 STOPPED = "The comparison stopped: {cls}."  # an export's
 STOPPED_UPLOAD = "The comparison stopped ({cls}): upload the files again."  # an upload's, a copy not read
 STOPPED_AGAIN = "The comparison stopped ({cls}): press Compare again."  # an upload's, every row kept
@@ -93,6 +109,14 @@ UNREADABLE_VALUES = "{n:,} values NeuroDB could not read are left empty."
 UNREADABLE_VALUE = "1 value NeuroDB could not read is left empty."
 CUT_TITLES = "{n:,} titles end at 255 characters: Power BI cuts longer ones."
 CUT_TITLE = "1 title ends at 255 characters: Power BI cuts longer ones."
+WITHHELD_VALUES = (
+    "{n:,} values of codes or statuses name a person, an e-mail or a phone: they were not kept, so their "
+    "rows are compared without them."
+)
+WITHHELD_VALUE = (
+    "1 value of a code or a status names a person, an e-mail or a phone: it was not kept, so its row is "
+    "compared without it."
+)
 OTHER_COUNTRY = "NeuroDB holds {country}'s data only."
 DAY_OLD = (
     "Power BI refreshed on {day}, more than 14 days ago: statuses are read for today, so Due and Overdue may "
@@ -119,7 +143,7 @@ STATE_ACTIONS = {
     "read": "",
     "compared": "",
     "empty": "Check the visual's filters in Power BI.",
-    "not_compared": "Export it again with Country name Lebanon.",
+    "not_compared": "Export it again with Country name {country}.",  # the country NeuroDB holds
     "failed": "Export it again.",
 }
 NOT_UPLOADED = "Not uploaded"
@@ -169,6 +193,27 @@ UPLOAD_STATUS = {
 # ----------------------------------------------------------------------------------------- what to do now
 TODO_NOT_READ = "{n:,} files were not read: see why below, then export them again."
 TODO_NOT_READ_ONE = "1 file was not read: see why below, then export it again."
+# an export read, whose comparison stopped: nothing to export again
+TODO_NOT_COMPARED = "{n:,} exports could not be compared: press Compare again."
+TODO_NOT_COMPARED_ONE = "1 export could not be compared: press Compare again."
+TODO_EMPTY = (
+    "{n:,} exports are empty in Power BI while NeuroDB's page has rows for their filter: check the visuals' "
+    "filters in Power BI and export them again."
+)
+TODO_EMPTY_ONE = (
+    "1 export is empty in Power BI while NeuroDB's page has rows for its filter: check the visual's filters "
+    "in Power BI and export it again."
+)
+TODO_OTHER_COUNTRY = "{n:,} exports are of another country: export them again with Country name {country}."
+TODO_OTHER_COUNTRY_ONE = "1 export is of another country: export it again with Country name {country}."
+TODO_CUT = (
+    "{n:,} exports may be cut by Power BI: check in Power BI that each visual shows no more rows; if it "
+    "does, export it again one section or one partner at a time."
+)
+TODO_CUT_ONE = (
+    "1 export may be cut by Power BI: check in Power BI that the visual shows no more rows; if it does, "
+    "export it again one section or one partner at a time."
+)
 TODO_MISSING = "{n:,} visuals are not uploaded: export them too (see How to export)."
 TODO_MISSING_ONE = "1 visual is not uploaded: export it too (see How to export)."
 TODO_CANNOT = "Clear these in Power BI and export again, or compare these exports by hand: {clauses}."
@@ -178,6 +223,9 @@ TODO_NOTHING = "Power BI and NeuroDB agree. Nothing to do."
 TODO_SLICER = "the {slicer} slicer"
 TODO_PANE = "the {field} filter in the Filters pane"
 TODO_UNREAD = "a filter NeuroDB could not read (see the export's page)"
+TODO_UNKNOWN_FIELD = "a filter on a field NeuroDB does not know (see the export's page)"
+# a field NeuroDB does not know whose name could be a person's: its name is not kept either
+FIELD_WITHHELD = "a field NeuroDB does not know"
 
 
 # ------------------------------------------------------------------------------------- the comparison itself
@@ -219,6 +267,7 @@ REASON_ORDER = (
     "repeated",
     "see_reports",
     "see_dq_list",
+    "cut",
     "filter",
     "unknown",
 )
@@ -235,6 +284,7 @@ REASON_GROUPS = {
     "repeated": 1,
     "see_reports": 4,
     "see_dq_list": 4,
+    "cut": 4,
     "filter": 4,
     "unknown": 4,
 }
@@ -251,6 +301,7 @@ REASON_WORDS = {
     "repeated": "A repeated value NeuroDB does not add",
     "see_reports": "Upload PD/SPD Report to see why",
     "see_dq_list": "Upload the Data Quality list to see why",
+    "cut": "Power BI may have cut its export",
     "filter": "A filter NeuroDB cannot apply",
     "unknown": "Not explained yet",
 }
@@ -267,8 +318,14 @@ REASON_ACTIONS = {
     "see_dq_list": (
         "Export Indicators without Reached or with Zero Reached with the same filters and upload it too."
     ),
+    "cut": (
+        "Check in Power BI that the visual shows no more rows. If it does, export it again one section or "
+        "one partner at a time and upload each file."
+    ),
     "filter": "Or clear that slicer in Power BI and export again.",
 }
+# the reasons whose own step replaces their group's (nothing to send to the NeuroDB team: export again)
+OWN_ACTION = frozenset({"cut"})
 # the details a reason gives
 DETAIL_BEFORE_HISTORY = "The Datamart holds no earlier partner report."
 DETAIL_NOT_RUNNING = "NeuroDB has this PD as {status}."
@@ -276,6 +333,7 @@ DETAIL_NO_PD = "NeuroDB holds no PD with this number."
 DETAIL_OWED = "NeuroDB's partner reports feed does not carry reports still owed (check 11)."
 DETAIL_SYNC_BEFORE = "NeuroDB's last sync ran before Power BI's refresh."
 DETAIL_SYNC_AFTER = "The Datamart did not send this row."
+DETAIL_SYNC_UNKNOWN = "NeuroDB cannot tell whether its last sync ran before Power BI's refresh."
 DETAIL_NONE_ACCEPTED = "NeuroDB has this indicator, but none of its reports is Accepted there."
 DETAIL_SECTION = "NeuroDB's page reads the section of the indicator itself, not the PD's sections."
 DETAIL_LIMIT = "NeuroDB's page reads at most {limit:,} report rows at once."
@@ -297,7 +355,8 @@ DETAIL_REPEATED = (
 )
 DETAIL_PARTNER = "Partner written differently."
 DETAIL_AMENDMENT = "Amendment number differs."
-DETAIL_ALTERNATIVE = "Counted Power BI's way ({words}), NeuroDB's records give {value}."
+# each value with its side: NeuroDB's records counted Power BI's way, then NeuroDB's own rule
+DETAIL_ALTERNATIVE = "Counted Power BI's way ({words}): {alt}. NeuroDB's own rule gives {value}."
 DETAIL_ALSO_FITS = "Also fits: {words}."
 DETAIL_ALSO_FITS_COUNT = "Also fits {n:,} other rules: see the fit table."
 DETAIL_ALSO_FITS_ONE = "Also fits 1 other rule: see the fit table."
@@ -333,6 +392,10 @@ DETAIL_GAP_PART_ONE = {
     "filter": "1 is under a filter NeuroDB cannot apply",
     "unknown": "1 is not explained yet",
 }
+DETAIL_LIST_CUT = (
+    "Power BI's PD/SPD Report list holds exactly {n:,} rows: the reports behind this gap may be beyond its "
+    "cut."
+)
 DETAIL_NO_GAP_LINES = (
     "The report list shows no report behind this gap: Power BI's chart and its own list differ."
 )
@@ -419,6 +482,11 @@ REACHED_SENTENCE = (
     "Accepted and Submitted reports. This is a choice of rule, not missing data."
 )
 REACHED_NONE = "No rule NeuroDB knows fits Power BI's Reached on the rows NeuroDB can check."
+# the rule that fits best fits fewer than half the rows where Power BI shows a value: no choice is offered
+REACHED_WEAK = (
+    "The rule that fits Power BI's Reached best, '{words}', fits only {fits:,} of the {of:,} rows where "
+    "Power BI shows a value: no rule NeuroDB knows explains most of them."
+)
 # notes an export carries once (a rule that applies to every row produces no line)
 NOTE_SET_ASIDE = (
     "{n:,} rows are about periods before {history}: NeuroDB holds none, so they were not compared."
@@ -427,12 +495,13 @@ NOTE_SET_ASIDE_ONE = "1 row is about a period before {history}: NeuroDB holds no
 NOTE_ZERO = "Power BI shows no value as 0: a 0 against no value in NeuroDB is the same."
 NOTE_RULE = "Stated once for every row: {words}."
 NOTE_JOINED_SECTIONS = "{n:,} Power BI rows join the same sections written differently."
-NOTE_SAME_UNIT = (
-    "Same unit as Power BI: progress reports. NeuroDB's own table counts indicator reports (see Choices for "
-    "you)."
-)
+NOTE_SAME_UNIT = "Same unit as Power BI: progress reports. NeuroDB's own table counts indicator reports."
 NOTE_TOTAL_GAP = "Power BI's Total differs from the sum of its own rows in {columns}."
 NOTE_TOTAL_NEURODB = "Power BI's Total differs from NeuroDB's in {columns}: see the sections' lines."
+NOTE_NO_STATUS_COLUMN = (
+    "Power BI's export has no {columns} column (Power BI writes a status only when its data has it): "
+    "NeuroDB's reports in that status are compared against 0."
+)
 NOTE_MONTH_TOTALS = "Accepted reports add up to the same total over the year: only their months differ."
 NOTE_CHART_LIST_GAP = "Power BI's own chart and its report list differ: {columns}."
 NOTE_COPIES = (
@@ -481,6 +550,7 @@ VERDICT_WORDS = {
     "check": "Check {n:,} PDs in eTools",
     "check_one": "Check 1 PD in eTools",
     "look": "Needs a look: {n:,}",
+    "cut": "Power BI may have cut this export at {n:,} rows",
     "empty": "Empty in Power BI: NeuroDB's page has {n:,} rows for this filter",
     "empty_one": "Empty in Power BI: NeuroDB's page has 1 row for this filter",
     "empty_none": "Empty in Power BI: NeuroDB's page has none either",
@@ -497,14 +567,17 @@ VERDICT_ACTIONS = {
     "check": GROUP_ACTIONS[3],
     "check_one": GROUP_ACTIONS[3],
     "look": GROUP_ACTIONS[4],
+    "cut": REASON_ACTIONS["cut"],
     "empty": "Check the visual's filters in Power BI.",
     "empty_one": "Check the visual's filters in Power BI.",
     "empty_none": "Check the visual's filters in Power BI.",
     "not_uploaded": NOT_UPLOADED_ACTION,
-    "other_country": "Export it again with Country name Lebanon.",
+    "other_country": "Export it again with Country name {country}.",  # the country NeuroDB holds
     "not_read": "Export it again.",
-    "failed": "Press Compare again. If it fails again, send the Excel file to the NeuroDB team.",
+    "failed": "Press Compare again. If it fails again, tell the NeuroDB team which export it was.",
 }
+# a trimmed upload keeps its verdicts, not its lines: no Excel file to send
+TRIMMED_ACTION = "Upload the files again to see these differences."
 
 VERDICT_COUNTED_ALSO = "{verdict}; also {parts}"
 # the expected rows NeuroDB cannot hold, in an export's verdict, and what they need
@@ -520,16 +593,17 @@ VERDICT_APART_ACTIONS = {
 }
 
 # ----------------------------------------------------------------------------------- what to do now (done)
-TODO_LOOK = "Needs a look: {n:,} rows. " + GROUP_ACTIONS[4]
-TODO_LOOK_ONE = "Needs a look: 1 row. " + GROUP_ACTIONS[4]
+# these count differences (a counted visual's row can differ in several columns, each a difference)
+TODO_LOOK = "Needs a look: {n:,} differences."
+TODO_LOOK_ONE = "Needs a look: 1 difference."
 TODO_UNLISTED = "{n:,} of them are counted but not listed (too many differences at once)."
 TODO_UNLISTED_ONE = "1 of them is counted but not listed (too many differences at once)."
 TODO_CHECK = "Check {n:,} PDs in eTools: NeuroDB has them as not running."
 TODO_CHECK_ONE = "Check 1 PD in eTools: NeuroDB has it as not running."
-TODO_WAIT = "Wait for the next sync: {n:,} rows. " + GROUP_ACTIONS[2]
-TODO_WAIT_ONE = "Wait for the next sync: 1 row. " + GROUP_ACTIONS[2]
-TODO_EXPECTED = "Expected, nothing to fix: {n:,} rows ({parts})."
-TODO_EXPECTED_ONE = "Expected, nothing to fix: 1 row ({parts})."
+TODO_WAIT = "Wait for the next sync: {n:,} differences. " + GROUP_ACTIONS[2]
+TODO_WAIT_ONE = "Wait for the next sync: 1 difference. " + GROUP_ACTIONS[2]
+TODO_EXPECTED = "Expected, nothing to fix: {n:,} differences ({parts})."
+TODO_EXPECTED_ONE = "Expected, nothing to fix: 1 difference ({parts})."
 TODO_EXPECTED_PART = {
     "before_history": "before NeuroDB's history {n:,}",
     "owed": "reports still owed {n:,}",

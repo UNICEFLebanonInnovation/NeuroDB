@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime
 import io
 import json
+import struct
 import zipfile
 
 import pytest
@@ -286,21 +287,39 @@ def test_a_value_neurodb_cannot_read_is_counted_and_its_text_never_kept():
     assert b"someday" not in json.dumps(_rows(found)).encode()
 
 
-def test_codes_are_kept_as_read_and_never_cleaned():
-    """The people cleaner would take a phone-like code for a phone number: two different codes would then read
-    the same. Codes are never cleaned. Funded Programs' Fund Reservation is the amount reserved for the grant (a
+def test_codes_are_kept_as_read_and_one_naming_someone_is_not_kept():
+    """A code is kept as read (a cleaned code would read like another): spaces and all, so it still matches.
+    One the people cleaner finds a person, an e-mail or a phone in is not kept at all (never matched on
+    "[phone withheld]") and counted. Funded Programs' Fund Reservation is the amount reserved for the grant (a
     number, as Power BI writes it)."""
     order = [c.name for c in pf.columns("funded_programmes")]
     data = []
-    for pd in ("FAKE/PCA1/+961 3 123 457", "FAKE/PCA2/+961 3 123 458"):
+    for pd in ("FAKE/PCA1/+961 3 123 457", "FAKE/PCA2/PD2026002-2 ", "jane.doe@example.invalid"):
         row = dict.fromkeys(order)
         row.update({"pd": pd, "grant": "0400012345", "fund_reservation": 5000.1, "donor": "+961 3 123 459"})
         data.append([row[name] for name in order])
     _match, found = _read(pf.export("funded_programmes", data))
     rows = _rows(found)
-    assert [r["pd"] for r in rows] == ["FAKE/PCA1/+961 3 123 457", "FAKE/PCA2/+961 3 123 458"]
+    assert [r["pd"] for r in rows] == [None, "FAKE/PCA2/PD2026002-2 ", None]
     assert rows[0]["fund_reservation"] == 5000.1 and rows[0]["grant"] == "0400012345"
     assert rows[0]["donor"] == "[phone withheld]"  # a free text is cleaned
+    assert found.withheld == 2 and found.notes == [words.WITHHELD_VALUES.format(n=2)]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Yes", "Yes"),
+        (" no ", "No"),
+        ("TRUE", "Yes"),
+        (0.0, "No"),
+        (True, "Yes"),
+        ("jane.doe@example.invalid", None),
+    ],
+)
+def test_a_yes_no_column_keeps_yes_or_no_only(raw, expected):
+    value, ok = pr.coerce(px.Column("Emergency Indicator", "emergency", px.YES_NO), raw)
+    assert (value, ok) == (expected, expected is not None)
 
 
 def test_a_title_power_bi_cut_at_255_characters_is_marked():
@@ -367,6 +386,39 @@ def test_too_many_parts_too_much_data_and_too_many_exports_are_refused(monkeypat
     assert len(found.exports) == 2 and found.refused == [words.TOO_MANY]
 
 
+def _many_entries(n: int, declared: int | None = None) -> bytes:
+    """A zip of ``n`` tiny entries; ``declared``: the count its end record says (zipfile reads the directory
+    by its size, whatever the count)."""
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as package:
+        for i in range(n):
+            package.writestr(f"fake/entry-{i:05}.txt", b"")
+    data = bytearray(out.getvalue())
+    if declared is not None:
+        at = data.rfind(b"PK\x05\x06")
+        data[at + 8 : at + 12] = struct.pack("<HH", declared, declared)
+    return bytes(data)
+
+
+def test_a_zip_with_too_many_entries_is_refused_before_its_directory_is_parsed(monkeypatch):
+    """The entries are counted from the zip's end record, before zipfile builds every one of them: too many,
+    or a directory too large for the count it declares, is refused without zipfile ever opening it."""
+    monkeypatch.setattr(pr, "MAX_ENTRIES", 5)
+    monkeypatch.setattr(powerbi_xlsx, "MAX_PARTS", 5)
+    many, lying = _many_entries(30), _many_entries(300, declared=1)
+    assert powerbi_xlsx.too_many_entries(many, 5) and powerbi_xlsx.too_many_entries(lying, 5)
+    assert not powerbi_xlsx.too_many_entries(_many_entries(3), 5)
+    assert not powerbi_xlsx.too_many_entries(b"not a zip", 5)
+    opened = []
+    real = zipfile.ZipFile
+    monkeypatch.setattr(zipfile, "ZipFile", lambda *a, **k: opened.append(a) or real(*a, **k))
+    for name, data in (("many.zip", many), ("lying.zip", lying), ("many.xlsx", many), ("lying.xlsx", lying)):
+        assert _prepare((name, data)).refused == [words.TOO_MANY_ENTRIES.format(name=name)], name
+    with pytest.raises(powerbi_xlsx.Unreadable) as raised:
+        powerbi_xlsx.Book(lying)
+    assert raised.value.reason == "too_many_parts" and opened == []
+
+
 def test_a_large_file_with_a_column_neurodb_does_not_compare_is_refused(monkeypatch):
     monkeypatch.setattr(pr, "MAX_READ_NOW", 100)
     found = _prepare(
@@ -431,7 +483,9 @@ def test_the_exports_can_be_uploaded_without_the_zip_too():
 
 
 # ------------------------------------------------------------------------------------------------- staging
-def test_a_staged_copy_holds_one_sheet_and_its_strings_only():
+def test_a_staged_copy_holds_one_sheet_written_by_neurodb_only():
+    """The copy is NeuroDB's own: the compared columns' captions and values and the filters line, as inline
+    strings and numbers; no shared strings, comment or document property, and read as the file itself."""
     data = pf.export("by_month", writer="excel", core_creator="Fake Author", comment="Fake note")
     found = _prepare(("chart.xlsx", data))
     export = found.exports[0]
@@ -441,12 +495,29 @@ def test_a_staged_copy_holds_one_sheet_and_its_strings_only():
         "[Content_Types].xml",
         "_rels/.rels",
         "xl/_rels/workbook.xml.rels",
-        "xl/sharedStrings.xml",
         "xl/workbook.xml",
         "xl/worksheets/sheet1.xml",
     ]
     match, read = _read(export.content)
+    _original_match, original = _read(data)
     assert match.kind.key == "by_month" and read.rows_read == 3
+    assert list(pr.rows_of(read.rows)) == list(pr.rows_of(original.rows)) and read.filter == original.filter
+
+
+def test_a_staged_copy_keeps_each_value_in_its_column_past_an_empty_one():
+    """An empty column with no caption between two kept ones: the copy writes the next cell's column, so every
+    value is read under its own caption."""
+    grid = pf.table("by_sector")
+    for row in grid:
+        if len(row) > 1:
+            row.insert(1, "" if row is grid[0] else None)
+    data = pf.powerbi_xlsx_bytes(grid)
+    export = _prepare(("sector.xlsx", data)).exports[0]
+    assert export.state == "staged"
+    peek = powerbi_xlsx.peek(data)
+    original = pr.read(data, px.recognise(peek.header, peek.filled), NAMES, (), peek.sheet)
+    _match, copy = _read(export.content)
+    assert list(pr.rows_of(copy.rows)) == list(pr.rows_of(original.rows)) and copy.rows_read == 3
 
 
 def test_a_workbook_with_a_second_sheet_is_never_staged():

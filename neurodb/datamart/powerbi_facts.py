@@ -3,7 +3,8 @@ the simple facts a difference's reason is decided from, and Power BI's possible 
 records where Power BI's own rule is not known.
 
 * :class:`Context`: one comparison's day (the statuses are read for it), where NeuroDB's history starts, when
-  Power BI refreshed and when the partner reports sync NeuroDB reads finished, the people cleaner, and what
+  Power BI refreshed and when the partner reports sync NeuroDB reads finished (their moments: a sync later the
+  same day ran after the refresh), the people cleaner, and what
   one export tells another (the report list's gaps explain the counted visuals).
 * :class:`Pds` and :class:`Reports`: every programme document and every progress report NeuroDB holds,
   whatever its status, section, year or PD status (one query each): is the PD there, what is its status, is
@@ -55,9 +56,12 @@ class Context:
     history: datetime.date
     refreshed: datetime.date | None = None
     synced: datetime.date | None = None
+    refreshed_at: datetime.datetime | None = None  # the moments (aware): which came first
+    synced_at: datetime.datetime | None = None
     names: frozenset[str] = frozenset()
     sections: tuple[str, ...] = ()
     gaps: Counter | None = None  # the report list's gaps (powerbi_kinds.report_list); None: not uploaded
+    gaps_cut: int = 0  # the report list's rows, when Power BI may have cut it there
     dq: dict[str, Any] | None = None  # the Data Quality list's NeuroDB count and gaps
     cache: dict[Any, Any] = field(default_factory=dict)
     _memo: dict[str, str] = field(default_factory=dict)
@@ -68,14 +72,15 @@ class Context:
 
     @property
     def sync_after_refresh(self) -> bool:
-        """NeuroDB's last partner reports sync finished on a later day than Power BI's refresh: a row Power BI
-        has and the sync did not bring is not on its way."""
-        return bool(self.synced and self.refreshed and self.synced > self.refreshed)
+        """NeuroDB's last partner reports sync finished after Power BI's refresh (later the same day too): a
+        row Power BI has and the sync did not bring is not on its way. False when either moment is not
+        known."""
+        return bool(self.synced_at and self.refreshed_at and self.synced_at > self.refreshed_at)
 
     @property
     def sync_before_refresh(self) -> bool:
-        """The sync finished on an earlier day than Power BI's refresh (the same day: cannot tell)."""
-        return bool(self.synced and self.refreshed and self.synced < self.refreshed)
+        """The sync finished before Power BI's refresh. False when either moment is not known."""
+        return bool(self.synced_at and self.refreshed_at and self.synced_at < self.refreshed_at)
 
     def group(self, reason: str) -> int:
         if reason == "not_in_read":
@@ -83,7 +88,12 @@ class Context:
         return words.REASON_GROUPS[reason]
 
     def not_in_read_detail(self) -> str:
-        return words.DETAIL_SYNC_AFTER if self.sync_after_refresh else words.DETAIL_SYNC_BEFORE
+        """Why a row may be missing from the Datamart read: said only when NeuroDB knows which came first."""
+        if self.sync_after_refresh:
+            return words.DETAIL_SYNC_AFTER
+        if self.sync_before_refresh:
+            return words.DETAIL_SYNC_BEFORE
+        return words.DETAIL_SYNC_UNKNOWN
 
     def clean(self, text: Any) -> str:
         """A NeuroDB text as Power BI's are kept: without the names NeuroDB knows, e-mails and phones."""
@@ -319,10 +329,10 @@ class IndicatorFact:
             fallback="latest",
         )[0]
 
-    def reached(self, accepted: float | None = None) -> dict[str, float | None]:
-        """Power BI's possible Reached (:data:`REACHED_CANDIDATES`); ``accepted``: the page's own
-        Accepted-only figure."""
-        found = self.accepted
+    def reached(self, accepted: float | None = None, year: int | None = None) -> dict[str, float | None]:
+        """Power BI's possible Reached (:data:`REACHED_CANDIDATES`), to date or in ``year`` (the reports whose
+        period ends in it); ``accepted``: the page's own Accepted-only figure, for the same."""
+        found = self.accepted if year is None else [r for r in self.accepted if _ends_in(r, year)]
         quarterly = [r for r in found if r.report_type == "QPR"]
         latest = found[-1] if found else None
         qpr = self._over(quarterly) if quarterly else (0.0 if found else None)
@@ -342,10 +352,18 @@ class IndicatorFact:
             "prp_one": sorted(set(self.targets.values())) if self.targets else None,
         }
 
+    def accepted_in(self, year: int, report_type: str = "") -> float | None:
+        """The Accepted reports of ``year`` combined as NeuroDB combines them (those of ``report_type``, the
+        type the page reads, when given): the page's Accepted-only figure for that year."""
+        found = [r for r in self.accepted if _ends_in(r, year)]
+        if report_type:
+            found = [r for r in found if r.report_type == report_type]
+        return self._over(found) if found else None
+
     def in_year(self, year: int | None) -> list[rc.Report]:
         if year is None:
             return self.every
-        return [r for r in self.every if r.period_end and r.period_end.year == year]
+        return [r for r in self.every if _ends_in(r, year)]
 
     def value(self, year: int | None, statuses: Iterable[str] | None = None) -> float | None:
         """The indicator's value in ``year`` from the reports of ``statuses`` (None: every status)."""
@@ -358,6 +376,10 @@ class IndicatorFact:
     def empty_row(self, year: int | None) -> bool:
         """One location row of a report of ``year`` (of any status) has no value or 0."""
         return any(v is None or v == 0 for r in self.in_year(year) for v in self.cells.get(r.key, []))
+
+
+def _ends_in(report: rc.Report, year: int) -> bool:
+    return bool(report.period_end and report.period_end.year == year)
 
 
 def indicator_facts(
@@ -417,15 +439,26 @@ def indicator_facts(
 def fit(rows: list[tuple[float | None, dict[str, Any]]], names: Iterable[str]) -> list[dict[str, Any]]:
     """How many rows each candidate fits: ``rows`` are (Power BI's value, the candidates' values); a candidate
     whose value is a list fits when Power BI is one of them. The chosen one fits most rows where Power BI is
-    above 0 (zeros fit by chance), the order of ``names`` breaking a tie."""
+    above 0 (zeros fit by chance), the order of ``names`` breaking a tie. ``positive``: the rows where Power
+    BI is above 0 (a choice is offered only when the chosen one fits most of them)."""
     table = []
+    positive = sum(1 for powerbi, _candidates in rows if powerbi)
     for name in names:
         fits = above = 0
         for powerbi, candidates in rows:
             if fits_value(powerbi, candidates.get(name)):
                 fits += 1
                 above += bool(powerbi)
-        table.append({"candidate": name, "fits": fits, "of": len(rows), "above": above, "chosen": False})
+        table.append(
+            {
+                "candidate": name,
+                "fits": fits,
+                "of": len(rows),
+                "above": above,
+                "positive": positive,
+                "chosen": False,
+            }
+        )
     if table and any(t["above"] for t in table):
         best = max(table, key=lambda t: (t["above"], t["fits"], -list(names).index(t["candidate"])))
         best["chosen"] = True

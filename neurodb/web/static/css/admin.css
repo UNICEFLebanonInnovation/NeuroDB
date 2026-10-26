@@ -172,6 +172,14 @@
 .nd-raw__records th wbr { display: none; }
 /* A note said as a sentence: a source never read, or a sync that failed (raw/_notes.html). */
 .nd-raw__line { display: block; }
+/* Compare with Power BI, an export's differences (admin/datamart/powerbi/export.html): on a phone the Column
+   heading takes no more than its words and Why and What to do keep a column wide enough to read (else each
+   line runs some 340 px high); a file name without spaces wraps in the header note; the line filter's choices
+   stay inside their card. */
+.nd-pbi__lines th[scope="row"] { min-width: 0; }
+.nd-pbi__lines td.nd-pbi__long { min-width: 14rem; max-width: 28rem; }
+.nd-pbi__note { min-width: 0; overflow-wrap: anywhere; }
+[data-pbi-line-filter] label, [data-pbi-line-filter] select { max-width: 100%; min-width: 0; }
 /* Raw eTools data printed or saved as PDF (admin/datamart/raw/: every source, one source, one record): as the eTools
    reporting checks above, every column of every table on an A4 landscape sheet of its own (a named page), the cards
    across all of it (the print dialog reads the media queries at its portrait width, where unfold's container holds
@@ -194,6 +202,7 @@
     padding: 3px 6px 3px 0; vertical-align: top; }
   .nd-raw .nd-jobs th[scope="row"] { min-width: 0; max-width: none; }
   .nd-raw .nd-raw__records td.nd-raw__long { min-width: 7rem; max-width: none; }
+  .nd-raw .nd-pbi__lines td.nd-pbi__long { min-width: 7rem; max-width: none; }
   .nd-raw .nd-jobs code, .nd-raw .nd-raw__when, .nd-raw .nd-raw__records td.nd-raw__atom { white-space: nowrap !important; }
   .nd-raw .nd-jobs code, .nd-raw .nd-jobs .nd-menu__note, .nd-raw .nd-raw__records { font-size: 7.5pt; }
   .nd-raw .nd-raw__records th.nd-raw__long { overflow-wrap: anywhere; }

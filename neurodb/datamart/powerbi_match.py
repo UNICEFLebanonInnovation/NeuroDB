@@ -7,8 +7,9 @@ lines of differences an export's comparison writes (``powerbi_kinds`` compares e
   NeuroDB is the same in a Reached or % column (Power BI shows no value as 0).
 * **Texts** are the same when their spaces and case are (after the people cleaner on NeuroDB's side: Power
   BI's were cleaned as the file was read); a title Power BI cut at 255 characters matches NeuroDB's title
-  that starts with it. **Codes** (PD #, Report #, P-codes, grants) are compared as written, never cleaned. A
-  PD # that differs only in its amendment suffix ("-2") still pairs, and the line says so.
+  that starts with it. **Codes** (PD #, Report #, P-codes, grants) are compared as written (one naming someone
+  was not kept as the file was read). A PD # that differs only in its amendment suffix ("-2") still pairs,
+  and the line says so.
 * **Pairing** (:func:`pair`): the rows with the same match values on each side, most similar first; a row
   left over is only in Power BI or only in NeuroDB.
 * **Lines** (:class:`Result`): each difference with its reason, group and what to do, kept compactly while
