@@ -3,10 +3,17 @@ people who check the figures (tests/web/test_plain_words.py reads them all).
 
 A sentence names a file only by its cleaned base name (``{name}``), a column only by a caption NeuroDB knows
 (:mod:`neurodb.datamart.powerbi_exports`), an error only by its class name (``{cls}``): never a cell's value,
-an unknown caption or the text of a filter NeuroDB could not read.
+an unknown caption or the text of a filter NeuroDB could not read. A Power BI page, visual, card or slicer is
+named as the report writes it, read from :mod:`neurodb.datamart.powerbi_names` (the one place for them).
 """
 
 from __future__ import annotations
+
+from . import powerbi_names as names
+
+_PD_REPORT = names.PD_REPORT
+_DQ_LIST = names.visual("dq_list")
+_COUNTRY = names.COUNTRY_SLICER
 
 PAGE_TITLE = "Compare with Power BI"
 UPLOAD_BUTTON = "Upload and compare"
@@ -25,18 +32,24 @@ XLSX_BUTTON = "Download every difference (Excel)"
 # ------------------------------------------------------------------------------------------- how to export
 # the second step is HOW_YEAR, filled in on the page (powerbi_admin.how_steps): the year and NeuroDB's history
 HOW_STEPS = (
-    "On each visual: More options (…) → Export data → Summarized data → .xlsx.",
-    "Set PD status to active, and clear Section, Partner, Document type, Office, Emergency indicator, "
-    "CP Output and Indicator Title.",
+    "On each visual and card: More options (…) → Export data → Summarized data → .xlsx.",
+    f"On every page, set {names.PD_STATUS_SLICER} to active, and clear its other slicers and boxes: "
+    + ", ".join(names.to_clear(names.POWERBI_PAGE_ORDER, kept=names.slicer("reporting_year").split(" / ")))
+    + ".",
     "Upload every file at once, or the zip your browser made.",
     "A filter NeuroDB does not know is listed as one it cannot apply: clear it and export again, or set it "
     "once on one small visual and send that file to the NeuroDB team so NeuroDB can learn it.",
     "A sensitivity label that encrypts the file stops NeuroDB reading it.",
 )
 
+_WITH_YEAR = names.pages_with("Reporting year")
+_WITHOUT_YEAR = tuple(p for p in names.POWERBI_PAGE_ORDER if p not in _WITH_YEAR)
+# How to export: a page's cards, on one line
+HOW_CARDS = "{page} → the cards {cards}"
 HOW_YEAR = (
-    "Set Reporting Year to {year} on every page except Partner Fund Monitoring and Funded Programs "
-    "(NeuroDB's funds pages have no year: leave it clear there). NeuroDB holds partner reports from {day}."
+    f"Set {names.slicer('reporting_year')} to {{year}} (on {', '.join(_WITH_YEAR)}); "
+    f"{', '.join(_WITHOUT_YEAR[:-1])} and {_WITHOUT_YEAR[-1]} have no year slicer. NeuroDB holds partner "
+    "reports from {day}."
 )
 
 # ------------------------------------------------------------------------------- the upload (in the request)
@@ -205,7 +218,7 @@ STATE_ACTIONS = {
     "read": "",
     "compared": "",
     "empty": "Check the visual's filters in Power BI.",
-    "not_compared": "Export it again with Country name {country}.",  # the country NeuroDB holds
+    "not_compared": f"Export it again with {_COUNTRY} {{country}}.",  # the country NeuroDB holds
     "failed": "Export it again.",
 }
 NOT_UPLOADED = "Not uploaded"
@@ -231,11 +244,15 @@ CLAUSE_STATES = {
     "unknown_value": "A value NeuroDB does not know (its value is not kept)",
     "unread": "A filter NeuroDB could not read (its text is not kept)",
     "other_country": "Another country: NeuroDB holds one country",
+    # Power BI's is_blueprint_canonical: never "cannot" (its rows would read "A filter NeuroDB cannot apply")
+    "all_listed": "NeuroDB does not read this field: its pages list every PD indicator eTools sends",
 }
 # how NeuroDB reads Power BI's own fields (none of its pages reads them, even where the records carry them)
 AS_READ = {
-    "is_period_latest": "the newest row of each report and location",
-    "is_blueprint_canonical": "each PD indicator counted once",
+    "is_period_latest": (
+        "within one report, the newest row of each location; Power BI also keeps one report per period end"
+    ),
+    "is_blueprint_canonical": "every PD indicator eTools sends",
 }
 NOT_IN_RECORDS = "Power BI's field {field} is not in the records NeuroDB reads: NeuroDB reads it as {words}."
 IN_RECORDS = (
@@ -273,8 +290,8 @@ TODO_EMPTY_ONE = (
     "1 export is empty in Power BI while NeuroDB's page has rows for its filter: check the visual's filters "
     "in Power BI and export it again."
 )
-TODO_OTHER_COUNTRY = "{n:,} exports are of another country: export them again with Country name {country}."
-TODO_OTHER_COUNTRY_ONE = "1 export is of another country: export it again with Country name {country}."
+TODO_OTHER_COUNTRY = f"{{n:,}} exports are of another country: export them again with {_COUNTRY} {{country}}."
+TODO_OTHER_COUNTRY_ONE = f"1 export is of another country: export it again with {_COUNTRY} {{country}}."
 TODO_CUT = (
     "{n:,} exports may be cut by Power BI: check in Power BI that each visual shows no more rows; if it "
     "does, export it again one section or one partner at a time."
@@ -287,7 +304,7 @@ TODO_MISSING = "{n:,} visuals are not uploaded: export them too (see How to expo
 TODO_MISSING_ONE = "1 visual is not uploaded: export it too (see How to export)."
 TODO_CANNOT = "Clear these in Power BI and export again, or compare these exports by hand: {clauses}."
 TODO_NOTHING = "Power BI and NeuroDB agree. Nothing to do."
-# a filter TODO_CANNOT names: a slicer by its name on the report (comparison.POWERBI_FIELD_SLICERS), another
+# a filter TODO_CANNOT names: a slicer by its name on the export's page (powerbi_names.slicer), another
 # field as Power BI's Filters pane shows it, a clause NeuroDB could not read without its text
 TODO_SLICER = "the {slicer} slicer"
 TODO_PANE = "the {field} filter in the Filters pane"
@@ -299,8 +316,8 @@ FIELD_WITHHELD = "a field NeuroDB does not know"
 
 # ------------------------------------------------------------------------------------- the comparison itself
 # Each row shows two values, Power BI's and NeuroDB's (the page's own figure for the same filter). Every
-# difference gets the first reason of REASON_ORDER whose test passes, and each reason belongs to one of four
-# groups, each with what to do
+# difference gets the first reason of REASON_ORDER whose test passes, and each reason belongs to one of five
+# groups, each with what to do (``powerbi_match.GROUP_ORDER``: needs a look first, then 3, 2, 5 and 1)
 POWER_BI = "Power BI"
 NEURODB = "NeuroDB"
 LINE_KINDS = {
@@ -313,6 +330,7 @@ GROUP_NAMES = {
     2: "Wait for the next sync",
     3: "Check the PD in eTools",
     4: "Needs a look",
+    5: "NeuroDB cannot show this yet",
 }
 GROUP_ACTIONS = {
     1: "Nothing to fix in NeuroDB.",
@@ -321,6 +339,9 @@ GROUP_ACTIONS = {
     3: "Check this PD's status in eTools. If it is active there, wait for the next sync and press Compare "
     "again.",
     4: "Download the Excel file and send it to the NeuroDB team.",
+    5: "Nothing to fix in NeuroDB now: the eTools Datamart never sent these. NeuroDB shows reports still "
+    "owed once PRP's progress reports are tied to their programme documents (eTools reporting checks, check "
+    "11).",
 }
 # the reasons, in the order they are tried (powerbi_kinds), and the group each belongs to
 REASON_ORDER = (
@@ -328,6 +349,8 @@ REASON_ORDER = (
     "pd_not_running",
     "owed",
     "not_in_read",
+    "inactive",
+    "funds_elsewhere",
     "left_out",
     "older_version",
     "moved_on",
@@ -345,8 +368,10 @@ REASON_ORDER = (
 REASON_GROUPS = {
     "before_history": 1,
     "pd_not_running": 3,
-    "owed": 1,
+    "owed": 5,  # an earlier upload's lines keep the group they were written with (1)
     "not_in_read": 2,  # 4 when NeuroDB's sync ran after Power BI's refresh
+    "inactive": 4,
+    "funds_elsewhere": 4,
     "left_out": 1,
     "older_version": 2,
     "moved_on": 1,
@@ -366,16 +391,18 @@ REASON_WORDS = {
     "pd_not_running": "Not in NeuroDB: the PD is not running there",
     "owed": "A report still owed",
     "not_in_read": "Not in NeuroDB: not in the Datamart read",
+    "inactive": "NeuroDB lists an indicator eTools marks inactive",
+    "funds_elsewhere": "NeuroDB has its funds on another PD, or on none",
     "left_out": "NeuroDB's page leaves it out",
     "older_version": "NeuroDB has an older version",
     "moved_on": "Moved on since Power BI's refresh",
     "rule": "A different rule",
     "status": "Status counted differently",
     "repeated": "A repeated value NeuroDB does not add",
-    "see_reports": "Upload PD/SPD Report to see why",
-    "see_dq_list": "Upload the Data Quality list to see why",
+    "see_reports": f"Upload {_PD_REPORT} to see why",
+    "see_dq_list": f"Upload {_DQ_LIST} to see why",
     "cut": "Power BI may have cut its export",
-    "list_cut": "Power BI may have cut PD/SPD Report",
+    "list_cut": f"Power BI may have cut {_PD_REPORT}",
     "filter": "A filter NeuroDB cannot apply",
     "unreadable": "A value NeuroDB cannot read",
     "unknown": "Not explained yet",
@@ -385,21 +412,24 @@ REASON_ACTIONS = {
     "before_history": "NeuroDB's partner reports start on {history}.",
     "owed": "The partner has not sent this report yet.",
     "not_in_read": "Check in PRP that the report exists.",  # when NeuroDB's sync ran after the refresh
+    "inactive": "Check in eTools whether it is an older version of the PD's indicator.",
+    "funds_elsewhere": (
+        "The funds reservation lines name this PD but NeuroDB links them elsewhere (Raw eTools data → Funds "
+        "reservation lines)."
+    ),
     "left_out": "NeuroDB's page uses another rule here.",
     "moved_on": "Power BI shows the report's newer status after its next refresh.",
     "rule": "NeuroDB counts it another way (see Choices for you).",
     "repeated": "NeuroDB never adds a value PRP repeats on every location.",
-    "see_reports": "Export PD/SPD Report with the same filters and upload it with this one.",
-    "see_dq_list": (
-        "Export Indicators without Reached or with Zero Reached with the same filters and upload it too."
-    ),
+    "see_reports": f"Export {_PD_REPORT} with the same filters and upload it with this one.",
+    "see_dq_list": f"Export {_DQ_LIST} with the same filters and upload it too.",
     "cut": (
         "Check in Power BI that the visual shows no more rows. If it does, export it again one section or "
         "one partner at a time and upload each file."
     ),
     # a counted visual's gap whose reports may be beyond the report list's cut: the list is exported again
     "list_cut": (
-        "Export PD/SPD Report again one section or one partner at a time and upload the files with this one."
+        f"Export {_PD_REPORT} again one section or one partner at a time and upload the files with this one."
     ),
     "filter": "Or clear that slicer in Power BI and export again.",
     "unreadable": "Its values are left empty: check them in eTools or PRP.",
@@ -415,7 +445,16 @@ OWN_ACTION = frozenset({"cut", "list_cut"})
 DETAIL_BEFORE_HISTORY = "The Datamart holds no earlier partner report."
 DETAIL_NOT_RUNNING = "NeuroDB has this PD as {status}."
 DETAIL_NO_PD = "NeuroDB holds no PD with this number."
-DETAIL_OWED = "NeuroDB's partner reports feed does not carry reports still owed (check 11)."
+DETAIL_OWED = (
+    "A report still owed for a period that has ended: the partner reports feed never sent it, and NeuroDB "
+    "cannot tie PRP's own progress reports to their programme documents yet."
+)
+# a value Power BI shows in a report still owed: the partner's draft (PRP's progress reports carry no value)
+DETAIL_OWED_DRAFT = (
+    "A value the partner entered in a report not submitted yet: the eTools Datamart does not send it."
+)
+# a report still owed that neither feed has, once NeuroDB shows PRP's own progress reports (stage 3)
+DETAIL_NOT_IN_PRP = "Neither NeuroDB's partner reports nor PRP's progress reports contain it."
 DETAIL_SYNC_BEFORE = "NeuroDB's last sync ran before Power BI's refresh."
 DETAIL_SYNC_AFTER = "The Datamart did not send this row."
 DETAIL_SYNC_UNKNOWN = "NeuroDB cannot tell whether its last sync ran before Power BI's refresh."
@@ -428,6 +467,22 @@ DETAIL_EARLIER_STEP = "NeuroDB still has this report as {status}; Power BI has i
 DETAIL_MOVED_ON = "NeuroDB's sync ran after Power BI's refresh: the report moved on since."
 DETAIL_MAY_HAVE_MOVED_ON = "The report may have moved on between Power BI's refresh and NeuroDB's sync."
 DETAIL_DUE_COVERS = "Power BI's Due also covers reports not yet due."
+# Power BI's own rules a line names (``RULE_WORDS``), said for the row
+DETAIL_PERIOD_LATEST = "Power BI keeps one report per indicator, location and period end; NeuroDB keeps both."
+DETAIL_PD_YEAR = "Power BI lists an indicator only in the year its programme document ends."
+DETAIL_CANONICAL = "This PD has another copy of the indicator (same title and PD output): Power BI lists one."
+DETAIL_SHARED_OUTPUT = "Two PD outputs of this PD share the indicator's title: Power BI lists it once."
+DETAIL_ADDED_UP = "NeuroDB's value adds up {n:,} indicators that share this title."
+DETAIL_INACTIVE = "eTools marks this indicator inactive, and no partner report names it."
+# NeuroDB's budget fields of the PD, beside a budget column that differs (diagnostic)
+DETAIL_BUDGET = "NeuroDB has this PD's budget as UNICEF {unicef}, total {total}, partner {partner}."
+DETAIL_FUNDS_ELSEWHERE = "NeuroDB links the funds reservation lines naming this PD to {pd}."
+DETAIL_FUNDS_UNLINKED = (
+    "NeuroDB could not tie these lines to one PD (Raw eTools data → Funds reservation lines)."
+)
+# a partner card: partners whose only reports of the card's status are from before NeuroDB's history
+DETAIL_PARTNERS_BEFORE = "{n:,} partners' only reports of this status are from before NeuroDB's history."
+DETAIL_PARTNERS_BEFORE_ONE = "1 partner's only report of this status is from before NeuroDB's history."
 DETAIL_OTHER_DAY = "Statuses are read for a different day."
 DETAIL_DUE_DAY = (
     "Power BI counts a report as Overdue on its due date; NeuroDB counts it as Due until the day after."
@@ -456,6 +511,8 @@ DETAIL_GAP = "Of the {n:,} reports behind this gap: {parts}."
 DETAIL_GAP_PART = {
     "owed": "{n:,} are reports still owed",
     "not_in_read": "{n:,} were not in the Datamart read",
+    "inactive": "{n:,} are indicators eTools marks inactive",
+    "funds_elsewhere": "{n:,} have their funds on another PD, or on none",
     "status": "{n:,} are counted under another status",
     "before_history": "{n:,} are before NeuroDB's history",
     "pd_not_running": "{n:,} are of PDs NeuroDB has as not running",
@@ -471,6 +528,8 @@ DETAIL_GAP_ONE = "Of the 1 report behind this gap: {parts}."
 DETAIL_GAP_PART_ONE = {
     "owed": "1 is a report still owed",
     "not_in_read": "1 was not in the Datamart read",
+    "inactive": "1 is an indicator eTools marks inactive",
+    "funds_elsewhere": "1 has its funds on another PD, or on none",
     "status": "1 is counted under another status",
     "before_history": "1 is before NeuroDB's history",
     "pd_not_running": "1 is of a PD NeuroDB has as not running",
@@ -483,7 +542,7 @@ DETAIL_GAP_PART_ONE = {
     "unknown": "1 is not explained yet",
 }
 DETAIL_LIST_CUT = (
-    "Power BI's PD/SPD Report list holds exactly {n:,} rows: the reports behind this gap may be beyond its "
+    f"Power BI's {_PD_REPORT} list holds exactly {{n:,}} rows: the reports behind this gap may be beyond its "
     "cut."
 )
 DETAIL_NO_GAP_LINES = (
@@ -491,6 +550,8 @@ DETAIL_NO_GAP_LINES = (
 )
 DETAIL_DQ_GAP = "Of the {n:,} indicators behind this gap: {parts}."
 DETAIL_DQ_GAP_ONE = "Of the 1 indicator behind this gap: {parts}."
+# the Data Quality card: the indicators behind both sides of its gap
+DETAIL_DQ_BOTH = "{nd:,} more in NeuroDB, {pb:,} more in Power BI, net {net:,}: {parts}."
 # the rules a "different rule" names (each also a choice the user may make, see CHOICES)
 RULE_WORDS = {
     "reached": "Reached: Power BI {words}; NeuroDB adds Accepted and Submitted reports",
@@ -520,6 +581,13 @@ RULE_WORDS = {
     "several_records": (
         "NeuroDB's page reads the largest value of a location's records; Power BI shows the newest record"
     ),
+    "period_latest": "Power BI keeps one report per indicator, location and period end",
+    "pd_year": "Power BI lists an indicator only in the year its PD ends",
+    "canonical": "Power BI lists one copy of an indicator its PD has twice (same title and PD output)",
+    "shared_output": "Power BI lists one indicator of a title two PD outputs of the PD share",
+    "accepted_only": (
+        "Reached: Power BI adds Accepted reports only; NeuroDB adds Accepted and Submitted reports"
+    ),
 }
 # Power BI's possible rules NeuroDB counts from its records, where Power BI's own rule is not known
 CANDIDATE_WORDS = {
@@ -538,6 +606,7 @@ CANDIDATE_WORDS = {
     "dq_every_status": "values of every report status, not yet submitted ones too",
     "dq_per_row": "an indicator with any one report row without a value or 0",
     "dq_all": "all four of these at once",
+    "dq_pd_year": "only the indicators of PDs that end in the year",
     # Partner Fund Monitoring's financial contribution, Funded Programs' Outstanding DCT
     "fc_latest_accepted": "PRP's contribution to date on the latest Accepted report",
     "fc_latest_counted": "PRP's contribution to date on the latest Accepted or Submitted report (NeuroDB's)",
@@ -608,6 +677,30 @@ NOTE_COPIES = (
 NOTE_SHARED_TITLE = (
     "Two indicators of a PD share a title: Power BI's export has no PD Output to tell them apart."
 )
+NOTE_ADDED_UP = (
+    "{n:,} rows add up two indicators of one PD that share a title, as Power BI's location visual does."
+)
+NOTE_ADDED_UP_ONE = (
+    "1 row adds up two indicators of one PD that share a title, as Power BI's location visual does."
+)
+# the lines that differ only by Power BI's section rule: counted, not listed (``Result.add(listed=False)``)
+NOTE_PD_SECTIONS = (
+    "{n:,} rows Power BI lists under its Section filter, equal in every other column, are counted, not "
+    "listed: Power BI reads the PD's sections, NeuroDB the indicator's own section."
+)
+NOTE_PD_SECTIONS_ONE = (
+    "1 row Power BI lists under its Section filter, equal in every other column, is counted, not listed: "
+    "Power BI reads the PD's sections, NeuroDB the indicator's own section."
+)
+NOTED_COUNT = "and {n:,} counted in the notes above, not listed"
+NOTE_INACTIVE = (
+    "NeuroDB lists {n:,} indicators eTools marks inactive that have no report row (Raw eTools data → PD "
+    "indicators, Active: no)."
+)
+NOTE_INACTIVE_ONE = (
+    "NeuroDB lists 1 indicator eTools marks inactive that has no report row (Raw eTools data → PD "
+    "indicators, Active: no)."
+)
 NOTE_SHARED_LABEL = "Two disaggregations share a value's name: their values are added together on both sides."
 NOTE_CROSS_TAB = "Some values are only in NeuroDB's combined table; they were added up to compare."
 NOTE_LINES_CUT = "Differences counted but not listed: {n:,}."
@@ -620,16 +713,31 @@ NOTE_ACCEPTED_ONLY = (
 NOTE_PAGE = "Compared with NeuroDB's {page}."
 NOTE_SAME_ZERO = "Rows that are 0 on one side and have no value on the other, so the same: {n:,}."
 NOTE_FOLLOWS = "% columns follow Reached and Target: compared only where both are the same."
-NOTE_DQ_CARD = "The card counts the rows of the Data Quality list."
+NOTE_DQ_CARD = f"The card counts the rows of {_DQ_LIST}."
 NOTE_DCT = "NeuroDB's page has no Outstanding DCT column: see the fit table."
 NOTE_CUT = "Power BI cuts titles at 255 characters: a cut title matches NeuroDB's title that starts with it."
 NEURODB_PAGES = {
     "program_performance": "Partner monitoring → Program Performance",
+    "partners_count": "Progress reports → Partners: partners",
+    "partners_reported": "Progress reports → Partners: with at least one report",
+    "partners_not_reported": "Progress reports → Partners: not reported",
     "partner_cards": "Progress reports → Partners",
     "follow_up": "Progress reports → Partners: reports to follow up",
+    "accepted_report": "Progress reports: Accepted progress reports",
+    "submitted_report": "Progress reports: Submitted progress reports",
+    "due_report": "Progress reports: Due progress reports",
+    "overdue_report": "Progress reports: Overdue progress reports",
     "by_sector": "Progress reports: progress reports by section",
     "by_month": "Progress reports: progress reports by month",
+    "pd_count": "Partner monitoring → Data quality: programme documents",
+    "active_pds": "Partner monitoring → Data quality: active programme documents",
+    "ended_pds": "Partner monitoring → Data quality: ended programme documents",
+    "dq_total": "Partner monitoring → Data quality: indicators",
+    "dq_with_reached": "Partner monitoring → Data quality: with a Reached above 0",
     "dq_card": "Partner monitoring → Data quality",
+    "dq_with_target": "Partner monitoring → Data quality: with a target",
+    "dq_without_target": "Partner monitoring → Data quality: without a target",
+    "missing_targets": "Partner monitoring → Data quality: indicators without a target",
     "dq_list": "Partner monitoring → Data quality: without or with zero Reached",
     "pd_indicators": "Programmes → Indicators",
     "report_list": "Progress reports: the reports' list",
@@ -648,8 +756,10 @@ VERDICT_WORDS = {
     "check": "Check {n:,} PDs in eTools",
     "check_one": "Check 1 PD in eTools",
     "look": "Needs a look: {n:,}",
+    "not_shown": "NeuroDB cannot show {n:,} rows yet",
+    "not_shown_one": "NeuroDB cannot show 1 row yet",
     "cut": "Power BI may have cut this export at {n:,} rows",
-    "list_cut": "Power BI may have cut PD/SPD Report: {n:,}",
+    "list_cut": f"Power BI may have cut {_PD_REPORT}: {{n:,}}",
     "empty": "Empty in Power BI: NeuroDB's page has {n:,} rows for this filter",
     "empty_one": "Empty in Power BI: NeuroDB's page has 1 row for this filter",
     "empty_none": "Empty in Power BI: NeuroDB's page has none either",
@@ -670,13 +780,15 @@ VERDICT_ACTIONS = {
     "check": GROUP_ACTIONS[3],
     "check_one": GROUP_ACTIONS[3],
     "look": GROUP_ACTIONS[4],
+    "not_shown": GROUP_ACTIONS[5],
+    "not_shown_one": GROUP_ACTIONS[5],
     "cut": REASON_ACTIONS["cut"],
     "list_cut": REASON_ACTIONS["list_cut"],
     "empty": "Check the visual's filters in Power BI.",
     "empty_one": "Check the visual's filters in Power BI.",
     "empty_none": "Check the visual's filters in Power BI.",
     "not_uploaded": NOT_UPLOADED_ACTION,
-    "other_country": "Export it again with Country name {country}.",  # the country NeuroDB holds
+    "other_country": f"Export it again with {_COUNTRY} {{country}}.",  # the country NeuroDB holds
     "not_read": "Export it again.",
     "failed": "Press Compare again. If it fails again, tell the NeuroDB team which export it was.",
     "stopped": STOPPED_BEFORE_ACTION,  # or upload the files again, when a copy was emptied unread
@@ -715,6 +827,12 @@ TODO_CHECK = "Check {n:,} PDs in eTools: NeuroDB has them as not running."
 TODO_CHECK_ONE = "Check 1 PD in eTools: NeuroDB has it as not running."
 TODO_WAIT = "Wait for the next sync: {n:,} differences. " + GROUP_ACTIONS[2]
 TODO_WAIT_ONE = "Wait for the next sync: 1 difference. " + GROUP_ACTIONS[2]
+TODO_NOT_SHOWN = (
+    "NeuroDB cannot show {n:,} differences yet: reports still owed the eTools Datamart never sent."
+)
+TODO_NOT_SHOWN_ONE = (
+    "NeuroDB cannot show 1 difference yet: a report still owed the eTools Datamart never sent."
+)
 TODO_EXPECTED = "Expected, nothing to fix: {n:,} differences ({parts})."
 TODO_EXPECTED_ONE = "Expected, nothing to fix: 1 difference ({parts})."
 TODO_EXPECTED_PART = {
@@ -743,12 +861,13 @@ CHOICE_QUESTIONS = {
 CHOICE_EVIDENCE = {
     "reached": REACHED_SENTENCE,
     "progress_reports": (
-        "Reporting Progress: counted as progress reports, NeuroDB's records give Power BI's figure on "
-        "{fits:,} of {of:,} rows; NeuroDB's tables count indicator reports."
+        f"{names.REPORTING_PROGRESS}: counted as progress reports, NeuroDB's records give Power BI's figure "
+        "on {fits:,} of {of:,} rows; NeuroDB's tables count indicator reports."
     ),
-    "due": "Partners require follow up: {n:,} of Power BI's 'Due' rows are not yet due in NeuroDB.",
+    "due": f"{names.visual('follow_up')}: {{n:,}} of Power BI's {{of:,}} 'Due' rows are reports not yet due.",
     "emergency": (
-        "Program Performance: Power BI's Emergency indicator is 'the PD is an SPD' on {fits:,} of {of:,} "
+        f"{names.PROGRAM_PERFORMANCE}: Power BI's Emergency indicator is 'the PD is an SPD' on {{fits:,}} of "
+        "{of:,} "
         "rows."
     ),
 }

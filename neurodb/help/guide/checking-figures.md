@@ -176,15 +176,24 @@ every row with the NeuroDB page that shows the same thing, for the same filters,
 about each difference. You no longer have to match the rows by hand. It is for validators with Staff status,
 like Raw eTools data.
 
-**How to export.** The page lists the 13 visuals of the *UNICEF Program Performance* report, in the order of
-its pages. On each: *More options (…) → Export data → Summarized data → .xlsx*. Set *Reporting Year* to the
-current year on every page except Partner Fund Monitoring and Funded Programs (NeuroDB's funds pages have no
-year: leave it clear there); the page says the year and the date NeuroDB's partner reports start from. Set *PD
-status* to active, and clear *Section*, *Partner*, *Document type*, *Office*, *Emergency indicator*, *CP Output*
-and *Indicator Title*. A file with a sensitivity label that encrypts it cannot be read: export it again without
-the label. Upload the PD/SPD Report
-list with the other visuals: NeuroDB explains the counted visuals (the partner cards, the table by sector and
-the chart by month) from it.
+**How to export.** The page lists the visuals and cards of the *UNICEF Program Performance* report, in the
+order of its pages, with the names the report gives them (a page's cards on one line: Partner Performance's
+*# of Partners*, *# of Partners with at least 1 report* and *# of Partners not reported*; Reporting Progress's
+*Accepted Report*, *Submitted Report*, *Due Report* and *Overdue Report*; Data Quality's *PD Count*, *Active
+PDs*, *Ended PDs*, *No. of Indicators (Total)*, *No. of Indicators with Reached*, *No. of Indicators without
+Reached*, *No. of Indicators with Target* and *No. of Indicators without Target*, and its table *Indicators
+with Missing Targets*). On each: *More options (…) → Export data → Summarized data → .xlsx*. Set the year
+slicer to the current year where a page has one (*Reporting Year* on Program Performance, *Reporting year* on
+Reporting Progress, Data Quality, PD/SPD Report, PD/SPD Report/Location and PD/SPD Report/Disaggregation;
+Partner Performance, PD/SPD Indicator, Partner Fund Monitoring and Funded Programs have none); the page says
+the year and the date NeuroDB's partner reports start from. On every page set *PD status* to active, and
+clear its other slicers and boxes (the page names them all: *Section*, *Partner*, *Report status*, *Report
+type*, *Report #*, *Emergency indicator*, *PD Reference #* and so on). A file with a sensitivity label that
+encrypts it cannot be read: export it again without the label. Upload the PD/SPD Report list and the
+PD/SPD Report/Location table with the other visuals: NeuroDB explains the counted visuals and cards (the
+partner cards, the table by sector, the chart by month) and the follow-up list from the report list, and
+ties each disaggregation row (that export has no PD #) to its programme document through the location
+table.
 
 **What NeuroDB does with the files.**
 
@@ -213,14 +222,31 @@ they are equal, whatever Power BI's number format shows; a 0 in Power BI and no 
 Rows about periods before NeuroDB's history are set aside and counted, never listed: Power BI's, and the
 rows of those periods NeuroDB still holds from an earlier sync (a note says how many).
 
-**Every difference has a reason and says what to do.** Each reason belongs to one of four groups:
+**Every difference has a reason and says what to do.** Each reason belongs to one of five groups, listed in this
+order: needs a look, check the PD in eTools, wait for the next sync, NeuroDB cannot show this yet, expected.
 
-- **Expected: nothing to fix.** A report still owed (the partner has not sent it: the partner reports feed
-  does not carry those), a row before NeuroDB's history (for a programme that started before it, Power BI can
-  show reports NeuroDB never holds), a report that moved on after Power BI's refresh (NeuroDB already has its
-  newer status), a status Power BI reads another way (its lists call a report not yet due "Due"), a value PRP
-  repeats on every location, or *a different rule*: Power BI counts the figure another way (the line and
-  the verdict point to *Choices for you* only when it offers a choice about that rule).
+- **Expected: nothing to fix.** A row before NeuroDB's history (for a programme that started before it, Power
+  BI can show reports NeuroDB never holds), a report that moved on after Power BI's refresh (NeuroDB already
+  has its newer status), a status Power BI reads another way (its lists call a report not yet due "Due": the
+  report list of the same upload gives the follow-up list's periods), a value PRP repeats on every location, or
+  *a different rule*: Power BI counts the figure another way (the line and the verdict point to *Choices for
+  you* only when it offers a choice about that rule). Power BI's own rules are said so: it keeps one report
+  per indicator, location and period end (NeuroDB keeps both); its Data Quality list names an indicator only in
+  the year its programme document ends (said only while Power BI lists no indicator of a programme document
+  that ends later); it lists one copy of an indicator its programme document holds twice, and one indicator of
+  a title two PD outputs share; its Reached can count Accepted reports only. Its location table adds up two
+  indicators of a programme document that share a title: NeuroDB adds them up too before comparing (the same
+  report, place and title, written exactly alike), and a note counts them. Values Power BI rounds at the sixth
+  decimal are the same. Rows Power BI lists under its *Section* filter whose only difference is the section
+  (Power BI reads the programme document's sections, NeuroDB the indicator's own) are counted in one note of
+  the export, not listed.
+- **NeuroDB cannot show this yet.** A report still owed for a period that has ended (Due or Overdue): the
+  partner reports feed never sends it, and NeuroDB does not show PRP's own progress reports until their link
+  to the programme documents is proven (eTools reporting checks, check 11). A value Power BI shows in a report
+  not submitted yet (the partner's draft) is in this group too: the eTools Datamart never sends it. Nothing to
+  fix in NeuroDB now; these are never counted as expected. A report Power BI lists as Due whose period has not
+  ended yet, and that NeuroDB lacks, was not in the Datamart read: the feed carries those. Uploads compared
+  before this group existed keep their reports still owed under *Expected*.
 - **Wait for the next sync.** NeuroDB's last sync ran before Power BI's refresh (or NeuroDB cannot tell which
   came first): the row is not in NeuroDB yet, or NeuroDB still has an older version. Wait for tonight's sync
   (20:30), or ask an Administrator to run the eTools Datamart sync, then press *Compare again*.
@@ -229,7 +255,13 @@ rows of those periods NeuroDB still holds from an earlier sync (a note says how 
 - **Needs a look.** Nothing above explains it (a row the Datamart did not send although NeuroDB's sync ran after
   Power BI's refresh, later the same day too, or a difference not explained yet). Download the Excel file and
   send it to the NeuroDB team. A report missing from the Datamart read is checked in PRP; a row of a PD
-  NeuroDB does not hold, a PD indicator or a funds row, in eTools. An export of exactly 1,000 rows (or 30,000,
+  NeuroDB does not hold, a PD indicator or a funds row, in eTools. Two reasons say more: *NeuroDB lists an
+  indicator eTools marks inactive* (with no partner report naming it: check in eTools whether it is an older
+  version of the programme document's indicator; Raw eTools data → PD indicators, Active: no), and *NeuroDB
+  has its funds on another PD, or on none* (the funds reservation lines name this programme document, and
+  NeuroDB links them elsewhere: Raw eTools data → Funds reservation lines). A line whose programme document's
+  budget differs says the budget NeuroDB has for it. A gap of a counted visual takes the reason that most
+  needs doing among its reports, never the most common one. An export of exactly 1,000 rows (or 30,000,
   or 150,000) may be cut by Power BI: NeuroDB's rows beyond it say so. Check in Power BI that the visual shows
   no more rows; if it does, export it again one section or one partner at a time, and upload each file
   (nothing to send). When the PD/SPD Report list may be cut, the partner cards, the table by sector and the
@@ -241,8 +273,9 @@ what needs a look, the PDs to check in eTools, what waits for the sync, the expo
 Power BI, empty while NeuroDB's page has rows, or of another country), the files not read, the exports to
 compare again, and a last line on what is expected). It says "Power BI and NeuroDB agree" only when every
 export is the same. Then one line per Power BI page, in Power BI's order, with its verdict ("Same", "Same
-data, counted another way", "Same, apart from reports still owed: 12", "Wait for the next sync: 3", "Check 1 PD
-in eTools", "Needs a look: 2", "Power BI may have cut PD/SPD Report: 4", "Empty in Power BI", "Not uploaded") and what to do, and each export with its
+data, counted another way", "Same, apart from rows before NeuroDB's history: 12", "NeuroDB cannot show 595 rows
+yet", "Wait for the next sync: 3", "Check 1 PD in eTools", "Needs a look: 2", "Power BI may have cut PD/SPD
+Report: 4", "Empty in Power BI", "Not uploaded") and what to do, and each export with its
 file, the rows read, what its filter covers ("2026", "Every year", "Education only") and its counts: rows
 compared, the same, different, only in Power BI, only in NeuroDB. While NeuroDB compares, the page refreshes by
 itself every few seconds. Once it ran, the page says how much memory the comparison took and how much it may
@@ -253,7 +286,8 @@ upload the files again once its details were removed).
 
 **An export's page** shows its filters one by one, its notes (rules that apply to every row are said once
 there: Power BI's Emergency indicator is Yes for an SPD, its Section and CP Output are the PD's), the
-differences by reason (the expected ones on one line), and the lines themselves, the ones that need a look
+differences by reason (needs a look first, then what NeuroDB cannot show yet; the expected ones on one line,
+with the rows counted in a note), and the lines themselves, the ones that need a look
 first, 100 a page: each with Power BI's value and NeuroDB's for every column that differs, the reason, what to
 do and **Check in NeuroDB** (the figure's trail, the partner report record, Raw eTools data filtered to the PD,
 or the PD's page). Filter the lines by reason or by kind (different, only in Power BI, only in NeuroDB).
@@ -292,14 +326,18 @@ The file has these sheets:
 - **Compare.** At the top: the NeuroDB filter (the page's address), the day the statuses are read for,
   the last sync of the data, a yellow cell for the day of Power BI's refresh, and *Everything NeuroDB
   holds* whatever the filter (with the earliest reporting period NeuroDB holds). Then **Set these in
-  Power BI**: each slicer with its value, and a *Done?* cell to tick; **Clear these in Power BI**: the slicers
-  NeuroDB's page has no filter for, and those whose namesake means something else in NeuroDB (Power BI's
-  *Emergency indicator* is Yes for an SPD, NeuroDB's is the indicator's high frequency; Power BI's *CP Output*
-  search matches every CP output of the programme document, and its *Indicator Title* box the title alone);
+  Power BI**: each slicer with its value, as the report names it on the Power BI pages of the sheet (both
+  spellings where they differ: *Reporting Year / Reporting year*), and a *Done?* cell to tick; **Clear these
+  in Power BI**: every other slicer and box of those pages (*Report status*, *Report type*, *Report #*,
+  *Partner type*, *PD Reference #*...), among them those whose namesake means something else in NeuroDB
+  (Power BI's *Emergency indicator* is Yes for an SPD, NeuroDB's is the indicator's high frequency; Power BI's
+  *CP Output* search matches every CP output of the programme document, and its *Indicator Title* box the
+  title alone);
   and **Clear these in NeuroDB before comparing**: the filters Power BI has no slicer for (a search, a report
   number, a period, the emergency indicators, a CP output...). Then one
-  row per figure: Power BI's page, visual and name for it, NeuroDB's page and figure, NeuroDB's value, and a
-  yellow cell for Power BI's value. Type Power BI's number there: *Difference* and *Same?* fill in by
+  row per figure: Power BI's page, the card or visual that shows it (or "No card or visual of Power BI" for a
+  figure of NeuroDB's own) and its name, NeuroDB's page and figure, NeuroDB's value, and a yellow cell for
+  Power BI's value. Type Power BI's number there: *Difference* and *Same?* fill in by
   themselves. *Notes* say why a figure can differ (a report Power BI counts that the partner reports
   feed does not carry: check 11 of the eTools reporting checks; a programme document with no indicator:
   check 10). Each figure's *Trail* cell opens its figure trail for the same filter and day, on that

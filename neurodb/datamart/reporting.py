@@ -1375,6 +1375,7 @@ def pd_indicators(pds: QuerySet[PCA], params) -> list[dict[str, Any]]:
             "baseline": rc.number(row["baseline_numerator"]),
             "target": _target(row),
             "emergency": "Yes" if row["is_high_frequency"] else "No",
+            "ident": ident,  # its identity in its PD, as Partner monitoring's (Compare with Power BI's)
         }
     out = []
     for entry in found.values():

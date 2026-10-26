@@ -468,12 +468,13 @@ def test_the_user_s_zip_shape_gives_every_export_and_counts_the_hidden_files(mon
     data = pf.archive(*pf.every_export())
     found = _prepare(("exports.zip", data))
     assert sorted(e.kind.key for e in found.exports) == sorted(px.KINDS)
-    assert found.hidden == 14  # 13 AppleDouble files and a .DS_Store, never opened
-    assert all(not name.startswith(".") for name in opened) and len(opened) == 13
+    n = len(px.KINDS)
+    assert found.hidden == n + 1  # an AppleDouble file per export and a .DS_Store, never opened
+    assert all(not name.startswith(".") for name in opened) and len(opened) == n
     assert found.refused == [words.NOT_EXCEL.format(name="notes.txt")]
     assert (
         words.plural(found.hidden, words.HIDDEN_ONE, words.HIDDEN)
-        == "Skipped 14 hidden files a Mac adds to a zip."
+        == f"Skipped {n + 1} hidden files a Mac adds to a zip."
     )
 
 

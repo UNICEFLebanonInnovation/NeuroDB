@@ -2797,24 +2797,39 @@ whole; its name is `powerbi-comparison-<page>_<YYYY-MM-DD>_<HHMM>.xlsx`, the end
 
 Every text from the data is written as a text (`data_type = "s"`), never a formula; no person is written
 (partners, programme documents and sections only). Power BI's page, visual, card and slicer names are those of
-the shared report (*UNICEF Program Performance*, `comparison.POWERBI_REPORT`), as the user's screenshot shows
-them. They are in one place: `comparison.POWERBI_PAGE_ORDER` (its ten pages in order) and `POWERBI_VISUALS` (each
-sheet block and each export Compare with Power BI recognises, with its page and visual; `POWERBI_PAGES` and
-`POWERBI_PD_PAGE` are made from them), `POWERBI_ITEMS`, `POWERBI_SLICERS` (only the slicers that mean what
-NeuroDB's filter means), `POWERBI_ONLY_SLICERS` (*Country name*, written under *Set these in Power BI*),
-`POWERBI_TO_CLEAR` (both pages: *Emergency indicator*, *CP Output* and *Indicator Title*; Progress reports also
-*Document type* and *Office*; under *Clear these in Power BI*) and `POWERBI_FIELD_SLICERS` (Power BI's fields
-`country_name`, `status`, `reporting_year` and `section_name` by their slicer's name, for Compare with Power BI's
-*What to do now*), and every sentence of the sheet and of Compare with Power BI that names one reads it there (a
-test renames them all). NeuroDB's emergency filter (the indicator's high frequency; Power BI's *Emergency
+the shared report (*UNICEF Program Performance*), as the report itself writes them (the user's print of 26 Oct
+2026). They are in one place, `datamart/powerbi_names.py`: `POWERBI_PAGE_ORDER` (its ten pages, as its page
+list names them: *PD/SPD Indicator*, whose own title says *PD/SPD Indicators*), `POWERBI_CARDS` (Partner
+Performance's three cards, Reporting Progress's four, Data Quality's eight), `POWERBI_VISUALS` (each table,
+chart and card a sheet block or an export of Compare with Power BI is compared with), `POWERBI_PAGE_SLICERS`
+(each page's slicers, in its order: *Reporting Year* on Program Performance, *Reporting year* on Reporting
+Progress, Data Quality and the PD/SPD Report pages, no year on Partner Performance, PD/SPD Indicator and the
+funds pages) and `POWERBI_PAGE_BOXES` (each page's section buttons, search boxes, date pickers and drop-downs).
+`comparison` reads them there (`POWERBI_PAGES` and `POWERBI_PD_PAGE` made from them; `POWERBI_SLICERS`, the
+slicers that mean what NeuroDB's filter means, named as the sheet's Power BI pages write them, both spellings
+joined where they differ: *Reporting Year / Reporting year*; `POWERBI_ONLY_SLICERS`, *Country name*, under *Set
+these in Power BI*; `POWERBI_TO_CLEAR`, every other slicer and box of the sheet's Power BI pages
+(`powerbi_names.to_clear`): on Progress reports *Partner type*, *Report status*, *Report type*, *Report #*,
+*Emergency indicator*, the PD/SPD Report pages' date pickers, *PD Reference #* and the disaggregation boxes; on
+Partner monitoring *Emergency indicator*, *CP Output*, *Indicator Title*, *Partner type* and *Report type*), and
+so do Compare with Power BI's recognition (`powerbi_exports`), its sentences (`powerbi_words`: *How to export*,
+the reasons that name PD/SPD Report or the Data Quality list) and *What to do now* (a field's slicer on the
+export's own page, `powerbi_names.slicer`; a field that page has no slicer for, as the Filters pane names it):
+a test renames them all. NeuroDB's emergency filter (the indicator's high frequency; Power BI's *Emergency
 indicator* is Yes for an SPD), Partner monitoring's search (the title or the output; Power BI's *Indicator Title*
-box is the title) and its CP output (the indicator's; Power BI's *CP Output* search matches every CP output of
-the PD) are NeuroDB filters to clear (`NEURODB_ONLY`), never mapped to a slicer. A figure is named after a
-visual only when that visual shows it (`comparison.VISUAL_FIGURES`): Data quality's block ends with Power BI's
-card, *No. of Indicators without Reached* (Without Reached and Reported zero together; its *Trail* opens
-Without Reached's), and Partner Performance's five-status visual names its five statuses only; the blocks'
-other figures are on the page's cards (`POWERBI_ITEMS["cards"]`). *Clear these in Power BI* says both reasons
-(`CLEAR_IN_POWERBI`): the page has no such filter, or its filter of that name means something else. Every field of the page's filter dataclasses (`ReportFilters`, `DisaggregationFilters`,
+box is the title), its CP output (the indicator's; Power BI's *CP Output* search matches every CP output of
+the PD), and NeuroDB's report status, report type, report number and partner type are NeuroDB filters to clear
+(`NEURODB_ONLY`), never mapped to a slicer. A figure is named after the card that shows it
+(`comparison.CARD_FIGURES`: Partner Performance's *# of Partners*, *# of Partners with at least 1 report*, *# of
+Partners not reported*; Reporting Progress's *Accepted Report* to *Overdue Report*; Data Quality's *PD Count*,
+*Active PDs*, *Ended PDs*, *No. of Indicators (Total)*, *with Reached* (a row of its own: With Reached less
+Reported zero, its *Trail* opening With Reached's), *with Target* and *without Target*), else after the visual
+that shows it (`comparison.VISUAL_FIGURES`: Data quality's block ends with *No. of Indicators without Reached*,
+Without Reached and Reported zero together, its *Trail* opening Without Reached's; Partner Performance's
+five-status visual names its five statuses only), else "No card or visual of Power BI" (`POWERBI_ITEMS
+["no_visual"]`: NeuroDB's own figures, such as the running PDs or Reported zero). *Clear these in Power BI*
+says both reasons (`CLEAR_IN_POWERBI`): the page has no such filter, or its filter of that name means something
+else. Every field of the page's filter dataclasses (`ReportFilters`, `DisaggregationFilters`,
 `monitoring.Filters`) is either a slicer (`POWERBI_SLICERS`) or a NeuroDB filter to clear (`NEURODB_ONLY`); a new
 field in neither stops the sheet, and a test fails.
 
@@ -2992,8 +3007,8 @@ and one of four groups, each with what to do. No figure of any page changes: the
 **Who and where.** Validators (`roles.can_validate`) with staff status; a 404 for anyone else, as Raw eTools data.
 *Data and sync* lists it third, after Raw eTools data (`admin_site._datamart_pages`); the admin home has a Quick
 action and Raw eTools data's first page a link. Pages (`datamart/powerbi_admin.py`, `datamart/admin.py
-site_urls`): `datamart/powerbi/` (`datamart_powerbi`: the form, *How to export* with the 13 visuals in Power BI's
-order, the last 20 uploads with their exports read and files not read, refused or failed),
+site_urls`): `datamart/powerbi/` (`datamart_powerbi`: the form, *How to export* with every visual and card in
+Power BI's order, a page's cards on one line, `powerbi_admin.how_visuals`, the last 20 uploads with their exports read and files not read, refused or failed),
 `datamart/powerbi/<pk>/` (`datamart_powerbi_upload`: *What to do now*, a failed upload's error first and never
 "Nothing to do now", the filters to clear named by their slicer, `comparison.POWERBI_FIELD_SLICERS`; one line per
 Power BI page in `POWERBI_PAGE_ORDER`, an export a failed upload never read as *Not read*; the files not read, the
@@ -3134,7 +3149,7 @@ resident memory's, which counts the libraries: a run stopped at a limit of 250 M
 `ru_maxrss`, in which Linux keeps the peak of the web worker that started the job across exec (`ru_maxrss` only
 when `/proc` cannot be read).
 
-**Its memory at production size** (Compare with Power BI's 13 exports of 26 Oct 2026 against 1,156 PDs, 267,716
+**Its memory at production size** (Compare with Power BI's 13 exports of 26 Oct 2026, before the cards against 1,156 PDs, 267,716
 PD indicator rows and 22,595 partner report rows shaped like production's: the record kept as received, a
 cross-tab of disaggregation values, the partner's narrative and titles of 400 characters on every row): the
 job's data peaked at 203 MB (598 MB before: under any lower limit a MemoryError stopped it, in the Data Quality
@@ -3170,8 +3185,34 @@ stops it (a memory error that export alone, above).
 
 **The comparison** (`datamart/powerbi_kinds.py`, with `powerbi_match.py`, `powerbi_page.py`,
 `powerbi_facts.py` and `powerbi_results.py`). Each export is compared in its own `raw.snapshot` (REPEATABLE READ
-READ ONLY, 120 s a statement), the PD/SPD Report list and the Data Quality list first (the counted visuals and
-the card are explained from them), then Power BI's order.
+READ ONLY, 120 s a statement), the PD/SPD Report list, the location table and the Data Quality list first
+(`powerbi_kinds.FIRST`: the counted visuals, the cards, the follow-up list, the disaggregations and Data
+Quality's cards are explained from them), then Power BI's order.
+
+- **What one export tells another** (`powerbi_facts.Context`): the report list's gaps (its rows set aside before
+  NeuroDB's history counted as *before history*: the charts count them), its rows (`listed`, set aside ones too:
+  the periods the follow-up list and the location table lack), their count per period-end year (`listed_years`)
+  and each row's reason (`listed_reasons`, "held" when paired); the location table's PDs of each (title, report,
+  period start when it has one, period end, P-code) (`location_pds`, `location_any`), its reports of each PD
+  base, title and period end (`location_reports`) and of each PD base and title (`location_titles`), each
+  report's status (`location_status`) and NeuroDB's own location rows (`held_locations`); the Data Quality
+  list's gaps (`dq`). Each is built in the comparer's own variables and set at its end; an export that fails
+  sets its fields back to "not uploaded" (`Context.reset`, `powerbi_facts.RESET`), so a later export never
+  reads half of one, and every reader keeps the reason it gives without them. The loops that pair nothing
+  under a row guard (the report list's, the follow-up list's and the location table's rows only in Power BI,
+  the Data Quality list, By location's rows only in NeuroDB, PD/SPD Indicator's rows only in NeuroDB, Funded
+  Programs' rows only in Power BI) read every value with `.get` and compare only values that are there: an error
+  there fails the whole export. `owed_shown` is False until NeuroDB shows PRP's own progress reports (stage 3).
+- **The cards** (`powerbi_names.POWERBI_CARDS`, one export kind each, its one column the card's name):
+  Partner Performance's against Progress reports → Partners (`powerbi_page.partner_performance`: partners,
+  with at least one report, not reported; a difference not explained yet), Reporting Progress's against the
+  progress reports of that status (Power BI's unit; a difference explained from the report list as the table by
+  sector is), Data Quality's against `powerbi_page.quality` (`monitoring.data_quality`'s rules for Power BI's
+  filter: the programme documents, active and ended; the indicators, those with a Reached above 0 (its card
+  without Reached counts the zeros: explained from the Data Quality list), with and without a target). Data
+  Quality's *Indicators with Missing Targets* against the indicators without a target (a target of 0 counts as
+  none), by PD and title: one only Power BI lists whose indicator NeuroDB holds with a target differs in its
+  target.
 
 - **NeuroDB's side** (`powerbi_page`) is the page's own function with Power BI's filter given explicitly: its PD
   statuses (`status is active` is `active` only; no status clause, every status), its reporting years (period
@@ -3215,8 +3256,19 @@ the card are explained from them), then Power BI's order.
   (`Job.after_history`): NeuroDB can still hold some from an earlier sync whose window started earlier, and
   compared they would be "only in NeuroDB, not explained yet"; a note counts them
   (`NOTE_SET_ASIDE_NEURODB`).
+- **Groups** (`powerbi_match.GROUP_ORDER = (4, 3, 2, 5, 1)`: the order lines are written, kept and listed, and
+  their severity): needs a look, check the PD in eTools, wait for the sync, **NeuroDB cannot show this yet**
+  (5: a report still owed for a period that has ended, reason `owed`, `owed_reason`; a draft value of one,
+  `draft_reason`, whatever the gate), expected. `pick` chooses a line's reason by that order, then
+  `REASON_ORDER`, and so does a counted visual's gap (`explain`) and Data Quality's card (both sides of its gap:
+  "273 more in NeuroDB, 39 more in Power BI, net 234: …"). An export with group-5 lines and none worse has the
+  verdict `not_shown` ("NeuroDB cannot show 3 rows yet", never settled); *What to do now* gives them one line
+  before the expected one. Each export keeps each reason's group as written (`counts["reason_groups"]`): the
+  expected parts of *What to do now* are read from them, and an upload compared before (no `reason_groups`)
+  keeps its reports still owed as expected ("Same, apart from reports still owed: n"). The export's page lists
+  the reasons in group order (`_by_reason`), group 5 open, group 1 on one line.
 - **Reasons** (`powerbi_words.REASON_ORDER`, the first whose test passes; a line whose columns give several takes
-  the highest group): before NeuroDB's history (also a Program Performance row whose PD started before it and
+  the one of `pick`): before NeuroDB's history (also a Program Performance row whose PD started before it and
   has no Accepted report in NeuroDB: its Accepted reports are older), the PD not running (group 3), a report
   still owed, not in the Datamart read (group 4 when NeuroDB's partner reports sync finished after Power BI's
   refresh, their moments compared, later the same day too; group 2 when it finished before, or when either
@@ -3251,9 +3303,39 @@ the card are explained from them), then Power BI's order.
   on or after it), chosen on the rows where Power BI is above 0; a line's detail names each value with its
   side ("Counted Power BI's way (…): 15. NeuroDB's own rule gives 35."); Data Quality's readings of its section
   and `actual_value`; the financial contribution; Outstanding DCT (Funded Programs' page has no such column).
+- **Power BI's own rules, labelled** (rule codes, `RULE_WORDS`): `period_latest` (Power BI keeps one report per
+  indicator, location and period end: a row only NeuroDB has whose report Power BI does not show for that
+  indicator while it shows another report of the PD ending that day, which NeuroDB has; on By disaggregation
+  only for a key of one PD), `pd_year` (Data Quality names an indicator only in its PD's last year: only while
+  Power BI lists no indicator of a PD that may end after the year, one NeuroDB cannot tell included; also a
+  reading of the fit table, `dq_pd_year`; the readings ranked by the indicators they agree on, in or out on
+  both sides), `canonical` (a copy of an indicator, the same PD, title and PD output, that Power BI lists or
+  that has the year's rows), `shared_output` (a title two PD outputs of a PD share: Power BI lists one),
+  `accepted_only` (no rule chosen, Power BI's Reached 0, NeuroDB's Accepted-only figure fits it and NeuroDB's own
+  is above 0). Two indicators of a PD that share a title exactly (case and spaces too) are added up per report,
+  P-code and period end before By location is compared (`_added_up`; a note counts the rows the same; one that
+  still differs says it adds them up). Two numbers of which one is not whole are the same within half a
+  millionth (`powerbi_match.ROUNDED`: Power BI rounds at the 6th decimal). Owed only for a period that has
+  ended (`period_ended`): a not-yet-due report NeuroDB lacks was not in the read; the follow-up list's Due row is
+  "Due covers reports not yet due" when every report list row of its PD, status and due date runs still, and
+  before NeuroDB's history when every one starts before it. The disaggregation rows are tied to their PDs
+  through the location table (title, report, period, P-code; never the title alone) and read the report
+  list's reason for that report (not in the read, or still owed: a draft); a row tied to several PDs, one of
+  which NeuroDB has with a location row there, stays not explained yet; a value above NeuroDB's is a report not
+  read or a draft only then; Power BI's status is that of its rows that carry a value. Reasons `inactive` (an
+  indicator eTools marks inactive in every row with no report row: `powerbi_facts.inactive`, first among an
+  indicator only NeuroDB lists, and a note) and `funds_elsewhere` (a Funded Programs row whose funds
+  reservation lines name its PD while NeuroDB links them to another PD, or to none: `powerbi_facts.fr_elsewhere`,
+  never "funds reservation only"), both group 4; a Data Quality indicator only NeuroDB lists whose report of the
+  year the location table names and the report list says was not read is not in the read. A budget column that
+  differs says NeuroDB's budget fields of the PD (`powerbi_facts.budgets`). Rows that differ only by Power BI's
+  section rule (PD/SPD Indicator's paired indicators outside the section, equal in every other column; Data
+  Quality's with no Reached in NeuroDB either) are counted exactly as lines (`Result.add(listed=False)`,
+  `counts["noted"]`) in one note, never listed. `is_blueprint_canonical` has its own state, `all_listed`
+  ("NeuroDB does not read this field: its pages list every PD indicator eTools sends").
 - **Lines** are kept in gzip buffers per group during the snapshot and written once every export is compared,
-  group by group across the exports (every export's group 4, then 3, 2 and 1: the limit drops expected lines
-  first), at most `LINE_LIMIT` (20,000) per export and `UPLOAD_LINE_LIMIT` (60,000) per upload; the rest are
+  group by group across the exports (every export's group 4, then 3, 2, 5 and 1: the limit drops expected
+  lines first), at most `LINE_LIMIT` (20,000) per export and `UPLOAD_LINE_LIMIT` (60,000) per upload; the rest are
   counted (`counts["written_groups"]`: those listed, by group). *What to do now* and the pages link only to
   listed lines, and say how many lines that need a look are counted but not listed. A detail is at most 300
   characters by design (the other rules that fit by their short names, or how many), cut on a word if ever
@@ -3293,8 +3375,11 @@ a table, a log, a page, the Excel file, the job's output, the session or a cooki
 `tests/datamart/test_powerbi_admin.py` (access, the sidebar, the pages, the export's lines, the Excel file, kept
 apart from the AI) and `tests/datamart/test_powerbi_compare.py` (every kind against a small fake NeuroDB: the
 same data gives no line, each reason, the fit tables, the filters read exactly, an empty export, the page
-figures unchanged, the upload's line limit, each comparer's queries the same for 3 and 12 PDs), with generated
-fake exports only (`tests/datamart/powerbi_factory.py`).
+figures unchanged, the upload's line limit, each comparer's queries the same for 3 and 12 PDs) and
+`tests/datamart/test_powerbi_findings.py` (what the first real comparison found: group 5, owed only for a period
+that has ended, the follow-up and chart gaps, the disaggregation tie, Power BI's own rules and their guards,
+the section note, the diagnostics, the cards and *Indicators with Missing Targets*, a failed export's fields
+set back), with generated fake exports only (`tests/datamart/powerbi_factory.py`).
 
 ### Recording real records as test fixtures
 

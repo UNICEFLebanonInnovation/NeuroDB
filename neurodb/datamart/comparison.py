@@ -9,11 +9,11 @@ person types Power BI's numbers in.
   ``program_performance_rows`` and ``data_quality``), on the day the statuses are read for (Due, Overdue and
   Not yet due depend on it): the page's own day by default, or Power BI's refresh, at most :data:`DAYS_BACK`
   days before. They are read in one read-only snapshot of the data.
-* **Power BI's names** are in one place, :data:`POWERBI_PAGE_ORDER`, :data:`POWERBI_VISUALS` (and
-  :data:`POWERBI_PAGES` and :data:`POWERBI_PD_PAGE` made from them), :data:`POWERBI_ITEMS` and
-  :data:`POWERBI_SLICERS`: the names of the shared report (UNICEF Program Performance), as the user's
-  screenshot shows them; correct them there. Every sentence of the sheet that names one reads it there, and so
-  does Compare with Power BI (``powerbi_exports``).
+* **Power BI's names** are in one place, ``powerbi_names`` (the shared report UNICEF Program Performance's
+  pages, visuals, cards and each page's slicers and boxes, as the report writes them); this module reads them
+  there (:data:`POWERBI_VISUALS`, :data:`POWERBI_CARDS`, and :data:`POWERBI_PAGES`, :data:`POWERBI_PD_PAGE`,
+  :data:`POWERBI_SLICERS` and :data:`POWERBI_TO_CLEAR` made from them). Every sentence of the sheet that
+  names one reads it here, and so does Compare with Power BI (``powerbi_exports``, ``powerbi_words``).
 * **The filter.** Every field of the page's filter is a Power BI slicer to set (:data:`POWERBI_SLICERS`) or a
   NeuroDB filter to clear before comparing (:data:`NEURODB_ONLY`); a new field in neither stops the sheet.
 * **People** never reach the file: partners, programme documents and sections only; the progress reports'
@@ -54,52 +54,44 @@ from neurodb.partnerships.models import PCA, PartnerOrganization
 
 from . import models as dm
 from . import monitoring, reporting, runfacts
+from . import powerbi_names as names
 from . import reached as rc
 
 # ------------------------------------------------------------------------------------------- Power BI's names
-# The PRP Power BI report, as the user's screenshot of the shared report shows it (25 Oct 2026): its pages in
-# their order, and each visual NeuroDB compares, by the key of a block of the sheet or of an export Compare
-# with Power BI recognises (``powerbi_exports``). Correct the words here, and only here.
-POWERBI_REPORT = "UNICEF Program Performance"
-POWERBI_PAGE_ORDER = (
-    "Program Performance",
-    "Partner Performance",
-    "Reporting Progress",
-    "Data Quality",
-    "PD/SPD Indicator",
-    "PD/SPD Report",
-    "PD/SPD Report/Location",
-    "PD/SPD Report/Disaggregation",
-    "Partner Fund Monitoring",
-    "Funded Programs",
-)
-POWERBI_VISUALS: dict[str, tuple[str, str]] = {  # a sheet block or an export -> (Power BI page, visual)
-    "pp_indicators": ("Program Performance", "Table"),
-    "pp_sections": ("Program Performance", "Section tiles"),
-    "partner_cards": (
-        "Partner Performance",
-        "# of Partners with (Accepted, Submitted, Sent back, Due, and Overdue)",
-    ),
-    "follow_up": ("Partner Performance", "Partners require follow up (Overdue, Sent back, Submitted & Due)"),
-    "status_cards": ("Reporting Progress", "Cards"),
-    "by_section": ("Reporting Progress", "Reporting Progress by Sector"),
-    "by_month": ("Reporting Progress", "# of Reports by Type over Reporting Date"),
-    "dq_tiles": ("Data Quality", "No. of Indicators without Reached"),
-    "dq_list": ("Data Quality", "Indicators without Reached or with Zero Reached"),
-    "pd_indicators": ("PD/SPD Indicator", "Table"),
-    "report_list": ("PD/SPD Report", "Table"),
-    "locations": ("PD/SPD Report/Location", "Table"),
-    "disaggregations": ("PD/SPD Report/Disaggregation", "Table"),
-    "fund_monitoring": ("Partner Fund Monitoring", "Table"),
-    "funded_programmes": ("Funded Programs", "Table"),
-}
+# The PRP Power BI report's names are in ``powerbi_names`` (its pages, visuals, cards and slicers, as the
+# report writes them): correct them there, and only there. The sheet's blocks of figures, each by the visual
+# or the cards it is compared with; a figure is named after a visual or a card only when that one shows it
+POWERBI_REPORT = names.POWERBI_REPORT
+POWERBI_PAGE_ORDER = names.POWERBI_PAGE_ORDER
+POWERBI_VISUALS: dict[str, tuple[str, str]] = names.POWERBI_VISUALS
+POWERBI_CARDS: dict[str, tuple[str, str]] = names.POWERBI_CARDS
+# the blocks whose figures are each on a card of their own (or on none): the page they are on
+CARD_BLOCKS: dict[str, str] = {"status_cards": names.REPORTING_PROGRESS}
 # the figures a block's visual shows, where it shows only some of the block's figures: the block's others are
-# on the page's cards (POWERBI_ITEMS["cards"]), never said to be on a visual that does not show them
+# on a card of their own (:data:`CARD_FIGURES`), or on none of Power BI's (``POWERBI_ITEMS["no_visual"]``)
 VISUAL_FIGURES: dict[str, tuple[str, ...]] = {
     "partner_cards": tuple(
         f"pr.partners_status.{key}" for key in ("accepted", "submitted", "sent_back", "due", "overdue")
     ),
+    "status_cards": (),
     "dq_tiles": ("dq.no_reached",),
+}
+# the figures a card of Power BI shows (:data:`POWERBI_CARDS`), by the figure's key
+CARD_FIGURES: dict[str, str] = {
+    "pr.partners": "partners_count",
+    "pr.partners_reported": "partners_reported",
+    "pr.partners_not_reported": "partners_not_reported",
+    "pr.status.accepted": "accepted_report",
+    "pr.status.submitted": "submitted_report",
+    "pr.status.due": "due_report",
+    "pr.status.overdue": "overdue_report",
+    "dq.pds": "pd_count",
+    "dq.active": "active_pds",
+    "dq.ended": "ended_pds",
+    "dq.indicators": "dq_total",
+    "dq.reached_above_zero": "dq_with_reached",
+    "dq.with_target": "dq_with_target",
+    "dq.without_target": "dq_without_target",
 }
 # the blocks of each page's sheet; :data:`POWERBI_PAGES` puts them in Power BI's order, by Power BI page
 SHEET_BLOCKS: dict[str, tuple[str, ...]] = {
@@ -117,11 +109,18 @@ SHEET_BLOCKS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _block_visual(block: str) -> tuple[str, str]:
+    """A block's Power BI page and visual ("" for a block of cards: each figure names its own)."""
+    if block in CARD_BLOCKS:
+        return CARD_BLOCKS[block], ""
+    return POWERBI_VISUALS[block]
+
+
 def _powerbi_pages(blocks: tuple[str, ...]) -> tuple[tuple[str, tuple[tuple[str, str], ...]], ...]:
     """The blocks grouped by Power BI page, in Power BI's order, each with its visual's name."""
     found = []
     for name in POWERBI_PAGE_ORDER:
-        visuals = tuple((b, POWERBI_VISUALS[b][1]) for b in blocks if POWERBI_VISUALS[b][0] == name)
+        visuals = tuple((b, _block_visual(b)[1]) for b in blocks if _block_visual(b)[0] == name)
         if visuals:
             found.append((name, visuals))
     return tuple(found)
@@ -132,69 +131,67 @@ def _powerbi_pages(blocks: tuple[str, ...]) -> tuple[tuple[str, tuple[tuple[str,
 POWERBI_PAGES: dict[str, tuple[tuple[str, tuple[tuple[str, str], ...]], ...]] = {
     page: _powerbi_pages(blocks) for page, blocks in SHEET_BLOCKS.items()
 }
+# each page's sheet: the Power BI pages its figures are on
+SHEET_POWERBI_PAGES: dict[str, tuple[str, ...]] = {
+    page: tuple(name for name, _visuals in found) for page, found in POWERBI_PAGES.items()
+}
 # Power BI's page with no row in the sheet: NeuroDB shows it on Programmes → Indicators
-POWERBI_PD_PAGE = POWERBI_VISUALS["pd_indicators"][0]
-# the items Power BI names itself (a status, a section or a month is named by the data)
+POWERBI_PD_PAGE = names.PD_INDICATORS
+# the items Power BI names itself (a status, a section or a month is named by the data), and NeuroDB's own
 POWERBI_ITEMS: dict[str, str] = {
-    "cards": POWERBI_VISUALS["status_cards"][1],  # a page's cards (a figure no other visual of it shows)
     "total": "Total",
     "not_yet_due": "Not Yet Due",
     "sent_back": "Sent back",
-    "no_reached": "No. of Indicators without Reached",
+    "no_reached": names.visual("dq_tiles"),
+    # a figure no card or visual of Power BI shows (NeuroDB's own)
+    "no_visual": "No card or visual of Power BI",
     # NeuroDB's own items: no Power BI export names them
     "reports": "Number of reports",
     "lines": "Number of lines",
     "locations": "Number of locations",
     "indicators": "Number of indicators",
-    "partners": "Partners",
-    "partners_reported": "With at least one report",
-    "partners_not_reported": "Not reported",
     "partners_status": "Partners with a report {status}",
-    "pds": "Programme documents",
     "running_pds": "Running PDs",
-    "active_pds": "Active PDs",
-    "ended_pds": "Ended PDs",
-    "dq_indicators": "Indicators",
-    "with_reached": "With Reached",
     "zero_reached": "Reported zero",
     "without_reached": "Without Reached",
-    "with_target": "With a target",
-    "without_target": "Without a target",
+    "with_reached": "With Reached",
 }
-# the page's filter fields Power BI has a slicer for, by the slicer's name: a slicer that means the same. A
-# NeuroDB filter whose namesake means something else in Power BI is NeuroDB's own (:data:`NEURODB_ONLY`)
+_PR_PAGES = SHEET_POWERBI_PAGES["progress-reports"]
+_PM_PAGES = SHEET_POWERBI_PAGES["partner-monitoring"]
+# the page's filter fields Power BI has a slicer for, by the slicer's name on that sheet's Power BI pages (its
+# spellings joined where the pages differ; Program Performance sets its sections with its section buttons): a
+# slicer that means the same. A NeuroDB filter whose namesake means something else in Power BI, or that the
+# sheet does not set, is NeuroDB's own (:data:`NEURODB_ONLY`)
 POWERBI_SLICERS: dict[str, dict[str, str]] = {
     "progress-reports": {
-        "year": "Reporting Year",
-        "pd_statuses": "PD status",
-        "sections": "Section",
-        "partners": "Partner",
+        "year": names.slicer("reporting_year", _PR_PAGES),
+        "pd_statuses": names.slicer("status", _PR_PAGES),
+        "sections": names.slicer("section_name", _PR_PAGES),
+        "partners": names.slicer("Partner", _PR_PAGES),
     },
     "partner-monitoring": {
-        "year": "Reporting Year",
-        "pd_statuses": "PD status",
-        "sections": "Section",
-        "partners": "Partner",
-        "document_types": "Document type",
-        "offices": "Office",
+        "year": names.slicer("reporting_year", _PM_PAGES),
+        "pd_statuses": names.slicer("status", _PM_PAGES),
+        "sections": " / ".join(
+            (names.slicer("section_name", _PM_PAGES), names.POWERBI_PAGE_BOXES[names.PROGRAM_PERFORMANCE][0])
+        ),
+        "partners": names.slicer("Partner", _PM_PAGES),
+        "document_types": names.slicer("Document type", _PM_PAGES),
+        "offices": names.slicer("Office", _PM_PAGES),
     },
 }
 # Power BI's slicers NeuroDB's page has no filter for: set as said on every page, or cleared. Its Emergency
 # indicator is Yes for an SPD (NeuroDB's emergency filter: the indicator's high frequency), its CP Output
 # search matches every CP output of the PD (NeuroDB's: the indicator's), and its Indicator Title box the title
-# alone (Partner monitoring's search: the title or the output)
-POWERBI_ONLY_SLICERS = ("Country name",)  # NeuroDB holds one country
+# alone (Partner monitoring's search: the title or the output); its Report status, Report type, Report # and
+# Partner type are NeuroDB filters the sheet clears on both sides
+POWERBI_ONLY_SLICERS = (names.COUNTRY_SLICER,)  # NeuroDB holds one country
 POWERBI_TO_CLEAR: dict[str, tuple[str, ...]] = {
-    "progress-reports": ("Emergency indicator", "Document type", "Office", "CP Output", "Indicator Title"),
-    "partner-monitoring": ("Emergency indicator", "CP Output", "Indicator Title"),
-}
-# Power BI's fields (as its "Applied filters" line names them) that a slicer of the report sets, by the
-# slicer's name: Compare with Power BI's "What to do now" names the slicer, never the field
-POWERBI_FIELD_SLICERS: dict[str, str] = {
-    "country_name": POWERBI_ONLY_SLICERS[0],
-    "status": POWERBI_SLICERS["partner-monitoring"]["pd_statuses"],
-    "reporting_year": POWERBI_SLICERS["partner-monitoring"]["year"],
-    "section_name": POWERBI_SLICERS["partner-monitoring"]["sections"],
+    page: names.to_clear(
+        SHEET_POWERBI_PAGES[page],
+        kept=tuple(part for slicer in POWERBI_SLICERS[page].values() for part in slicer.split(" / ")),
+    )
+    for page in SHEET_BLOCKS
 }
 ONE_COUNTRY = "{country}: NeuroDB holds one country"
 CLEAR_IN_POWERBI = (
@@ -457,7 +454,8 @@ def _status_cards(r: Read) -> Iterator[Line]:
     for s in counts["statuses"]:
         note = OVERDUE_NOTE if s["key"] == rc.OVERDUE else ""
         figure = f"Progress reports → {s['label']}"
-        yield (f"pr.status.{s['key']}", s["label"], figure, s["indicator_reports"], IR, note)
+        key = f"pr.status.{s['key']}"  # on Power BI's card of that status, when it has one
+        yield (key, card(key) or s["label"], figure, s["indicator_reports"], IR, note)
 
 
 def _by_section(r: Read) -> Iterator[Line]:
@@ -504,19 +502,19 @@ def _report_list(r: Read) -> Iterator[Line]:
 def _partner_cards(r: Read) -> Iterator[Line]:
     p, figure = r.data["page"]["partners"], "Progress reports → Partners"
     note = "The Partners sheet lists them, one row each."
-    yield ("pr.partners", POWERBI_ITEMS["partners"], figure, p["partners"], "partners", note)
+    yield ("pr.partners", card("pr.partners"), figure, p["partners"], "partners", note)
     note = "Submitted or Accepted."
     yield (
         "pr.partners_reported",
-        POWERBI_ITEMS["partners_reported"],
+        card("pr.partners_reported"),
         figure,
         p["reported"],
         "partners",
         note,
     )
-    item = POWERBI_ITEMS["partners_not_reported"]
+    item = card("pr.partners_not_reported")
     yield ("pr.partners_not_reported", item, figure, p["not_reported"], "partners", "")
-    # the statuses Power BI's visual does not show first (on the cards), then the five it shows
+    # the statuses Power BI's visual does not show first (on no visual), then the five it shows
     shown = VISUAL_FIGURES["partner_cards"]
     for s in sorted(p["by_status"], key=lambda s: f"pr.partners_status.{s['key']}" in shown):
         item = POWERBI_ITEMS["partners_status"].format(status=s["label"])
@@ -580,34 +578,39 @@ def _dq_tiles(r: Read) -> Iterator[Line]:
     q, figure = r.data["quality"], "Partner monitoring → Data quality"
     in_year = f" in {r.filters.year}" if r.filters.year else ""
     pds, items = "programme documents", POWERBI_ITEMS
-    yield ("dq.pds", items["pds"], figure, q["programme_documents"], pds, PDS_NOTE)
+    yield ("dq.pds", card("dq.pds"), figure, q["programme_documents"], pds, PDS_NOTE)
     yield ("dq.running", items["running_pds"], figure, q["running_pds"], pds, "Active, signed or suspended.")
-    yield ("dq.active", items["active_pds"], figure, q["active_pds"], pds, "")
+    yield ("dq.active", card("dq.active"), figure, q["active_pds"], pds, "")
     yield (
         "dq.ended",
-        items["ended_pds"],
+        card("dq.ended"),
         figure,
         q["ended_pds"],
         pds,
         "Ended, closed, terminated or expired.",
     )
-    yield ("dq.indicators", items["dq_indicators"], figure, q["indicators"], "indicators", "")
+    yield ("dq.indicators", card("dq.indicators"), figure, q["indicators"], "indicators", "")
     note = "A counted report (Accepted or Submitted) carries a value."
     yield ("dq.with_reached", items["with_reached"] + in_year, figure, q["with_reached"], "indicators", note)
+    # Power BI's card: With Reached less Reported zero (its card without Reached counts the zeros)
+    note = "With Reached less Reported zero, as Power BI's card counts them."
+    item = card("dq.reached_above_zero") + in_year
+    above = q["with_reached"] - q["zero_reached"]
+    yield ("dq.reached_above_zero", item, figure, above, "indicators", note)
     yield ("dq.zero_reached", items["zero_reached"] + in_year, figure, q["zero_reached"], "indicators", "")
     item = items["without_reached"] + in_year
     yield ("dq.without_reached", item, figure, q["without_reached"], "indicators", OVERDUE_NOTE)
     note = "A target of 0 counts as none."
-    yield ("dq.with_target", items["with_target"], figure, q["with_target"], "indicators", note)
-    yield ("dq.without_target", items["without_target"], figure, q["without_target"], "indicators", "")
-    # last: the one figure Power BI's card shows
+    yield ("dq.with_target", card("dq.with_target"), figure, q["with_target"], "indicators", note)
+    yield ("dq.without_target", card("dq.without_target"), figure, q["without_target"], "indicators", "")
+    # last: the one figure the block's own card shows
     note = "Without Reached and Reported zero together, as Power BI's card counts them."
     no_reached = q["without_reached"] + q["zero_reached"]
     yield ("dq.no_reached", items["no_reached"] + in_year, figure, no_reached, "indicators", note)
 
 
 # a sheet row that is no figure of the page, and the figure whose trail it opens
-TRAIL_OF = {"dq.no_reached": "dq.without_reached"}
+TRAIL_OF = {"dq.no_reached": "dq.without_reached", "dq.reached_above_zero": "dq.with_reached"}
 BLOCKS = {
     "status_cards": _status_cards,
     "by_section": _by_section,
@@ -641,14 +644,26 @@ def powerbi_page(block: str) -> str:
     )
 
 
+def card(key: str) -> str:
+    """The name of the card of Power BI that shows a figure ("" for none: :data:`CARD_FIGURES`)."""
+    found = CARD_FIGURES.get(key)
+    return POWERBI_CARDS[found][1] if found else ""
+
+
 def figures(found: Read) -> list[Figure]:
-    """The page's figures with a Power BI counterpart, in Power BI's order (:data:`POWERBI_PAGES`)."""
+    """The page's figures, in Power BI's order (:data:`POWERBI_PAGES`), each with the card or the visual of
+    Power BI that shows it, or none (NeuroDB's own figure)."""
     out = []
     for powerbi_page, visuals in POWERBI_PAGES[found.page]:
         for block, visual in visuals:
             shows = VISUAL_FIGURES.get(block)
             for key, item, neurodb, value, unit, note in BLOCKS[block](found):
-                where = visual if shows is None or key in shows else POWERBI_ITEMS["cards"]
+                if card(key):
+                    where = card(key)
+                elif shows is None or key in shows:
+                    where = visual
+                else:
+                    where = POWERBI_ITEMS["no_visual"]
                 out.append(Figure(key, powerbi_page, where, item, neurodb, value, unit, note))
     return out
 

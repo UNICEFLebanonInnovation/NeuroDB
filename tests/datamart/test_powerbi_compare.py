@@ -8,7 +8,7 @@ import datetime
 
 import pytest
 
-from neurodb.datamart import powerbi_exports, reached
+from neurodb.datamart import powerbi_exports, powerbi_match, reached
 from neurodb.datamart.models import PowerBIDifference, PowerBIExport, PowerBIUpload
 from neurodb.integrations import background
 from tests.datamart import powerbi_factory as pf
@@ -389,12 +389,11 @@ def test_the_report_list_gives_each_difference_its_reason(checker, world):
     assert (
         found[("only_powerbi", "status", 1)].detail == "Power BI lists this report twice, with two statuses."
     )
-    assert ("only_powerbi", "owed", 1) in found
+    assert ("only_powerbi", "owed", 5) in found  # NeuroDB cannot show it yet
     assert ("only_powerbi", "not_in_read", 2) in found  # the sync ran before the refresh: wait for the next
     assert ("only_powerbi", "pd_not_running", 3) in found and export.counts["check_pds"] == [ENDED]
-    assert [line.group for line in lines] == sorted(
-        (line.group for line in lines), reverse=True
-    )  # look first
+    order = powerbi_match.GROUP_ORDER
+    assert [line.group for line in lines] == sorted((line.group for line in lines), key=order.index)
     assert export.verdict == "check"
     assert "1 row is about a period before 1 Jan 2026" in " ".join(export.counts["notes"])
 
@@ -445,7 +444,7 @@ def test_the_follow_up_list_reads_not_yet_due_owed_ended_and_earlier_reports(che
     assert export.counts["extra"]["due_not_yet"] == 1
     assert {c["code"] for c in upload.choices} == {"due"}
     due = next(c for c in upload.choices if c["code"] == "due")
-    assert "1 of Power BI's 'Due' rows are not yet due" in due["evidence"] and due["question"]
+    assert "1 of Power BI's 1 'Due' rows are reports not yet due" in due["evidence"] and due["question"]
 
 
 SECTOR = [
@@ -484,7 +483,7 @@ def test_a_counted_visual_is_explained_from_the_report_list(checker, world):
     )
     _export, lines = _lines(upload, "by_sector")
     (line,) = lines
-    assert (line.reason, line.group) == ("owed", 1)
+    assert (line.reason, line.group) == ("owed", 5)
     assert line.detail == "Of the 1 report behind this gap: 1 is a report still owed."
     _export, lines = _lines(upload, "by_month")
     assert {(line.match[0], line.reason) for line in lines} == {
@@ -699,7 +698,8 @@ def test_data_quality_readings_and_the_card(checker, world):
     assert rows["dq_per_row"]["fits"] >= rows["dq_neurodb"]["fits"]
     _card, (line,) = _lines(upload, "dq_card")
     assert line.found == {"indicators": [1, 2, None]} and (line.reason, line.group) == ("rule", 1)
-    assert line.detail == "Of the 2 indicators behind this gap: 2 are counted another way."
+    # both sides of the gap: two only NeuroDB lists, one only Power BI does
+    assert line.detail == "2 more in NeuroDB, 1 more in Power BI, net 1: 3 are counted another way."
     del dm
 
 
@@ -1233,7 +1233,8 @@ def test_two_records_of_one_location_neurodb_holds_both_of_are_a_rule_not_a_wait
     assert clauses["is_period_latest is True"] == "as_read"
     assert (
         "Power BI's field is_period_latest is in the records NeuroDB reads, but NeuroDB's pages do not use "
-        "it: NeuroDB reads it as the newest row of each report and location." in export.notes
+        "it: NeuroDB reads it as within one report, the newest row of each location; Power BI also keeps one "
+        "report per period end." in export.notes
     )
     (line,) = [line for line in lines if line.match[1] == "QPR2" and line.match[3] == "LB9_9_2"]
     assert (line.reason, line.rule, line.group, line.found["reached"][:2]) == (
@@ -1258,7 +1259,7 @@ def test_two_records_of_one_location_neurodb_holds_both_of_are_a_rule_not_a_wait
 
 # ---------------------------------------------------------------------------- stage 2 check: what it says
 def test_an_export_with_only_reports_still_owed_says_so_not_counted_another_way(checker, world):
-    from neurodb.datamart import powerbi_results
+    from neurodb.datamart import powerbi_results, powerbi_words
 
     owed = [
         _with(REPORTS[0], report=f"HR{n}", report_status="Overdue", period_start=D(2026, 8, 1),
@@ -1267,13 +1268,20 @@ def test_an_export_with_only_reports_still_owed_says_so_not_counted_another_way(
     ]  # fmt: skip
     upload = pf.compared(checker, _one("report_list", [*REPORTS, *owed]))
     export = PowerBIExport.objects.get(upload=upload)
-    assert export.verdict == "owed"
+    assert export.verdict == "not_shown"  # reports still owed: NeuroDB cannot show them yet, never expected
     assert powerbi_results.verdict_words(export) == (
+        "NeuroDB cannot show 3 rows yet",
+        powerbi_words.GROUP_ACTIONS[5],
+    )
+    page = next(p for p in upload.summary["pages"] if p["name"] == "PD/SPD Report")
+    assert page["verdict"] == "NeuroDB cannot show 3 rows yet"
+    assert not powerbi_results.settled(export)
+    # an earlier upload wrote its reports still owed as expected: its verdict still reads so
+    earlier = PowerBIExport(state="compared", counts={"groups": {"1": 3}, "reasons": {"owed": 3}})
+    assert powerbi_results.verdict_words(earlier) == (
         "Same, apart from reports still owed: 3",
         "Nothing to fix. The partners have not sent these reports yet.",
     )
-    page = next(p for p in upload.summary["pages"] if p["name"] == "PD/SPD Report")
-    assert page["verdict"] == "Same, apart from reports still owed: 3"
     mixed = PowerBIExport(
         state="compared",
         counts={"groups": {"1": 6}, "reasons": {"owed": 3, "rule": 2, "before_history": 1}},
@@ -1329,7 +1337,7 @@ def test_the_upload_s_line_limit_drops_expected_lines_first_and_never_links_an_e
     reports, report_lines = _lines(upload, "report_list")
     fund, fund_lines = _lines(upload, "fund_monitoring")
     assert [line.group for line in fund_lines] == [4]
-    assert [line.group for line in report_lines] == [1, 1] and reports.counts["written"] == 2
+    assert [line.group for line in report_lines] == [5, 5] and reports.counts["written"] == 2
     assert "Differences counted but not listed: 1." in reports.counts["notes"]
     exports = list(pc.exports_of(upload))
     (look, *_rest) = powerbi_results.todo(upload, exports, [])
@@ -1513,17 +1521,22 @@ def test_a_clause_the_kind_s_comparer_does_not_apply_is_one_neurodb_cannot_apply
     export, _lines_ = _lines(upload, "program_performance")
     assert {c["words"]: c["state"] for c in export.clauses}["reporting_year is 2025 or 2026"] == "cannot"
     page = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
-    assert "the Reporting Year slicer; the Section slicer" in page
+    # the funds page has no year or section slicer: its filters are in the Filters pane
+    assert (
+        "the Reporting Year slicer; the reporting_year filter in the Filters pane; the section_name filter in "
+        "the Filters pane"
+    ) in page
 
 
 def test_an_export_power_bi_may_have_cut_says_so_and_explains_no_counted_visual(checker, world):
     """A report list of exactly 1,000 rows: NeuroDB's reports beyond it may be beyond Power BI's cut (export
     it again in parts, nothing to send), and a counted visual's gap is never said to be under a filter."""
     others = [_with(REPORTS[0], pd=f"FAKE/PCA9{n:03}/PD9{n:03}", section="Section Gamma") for n in range(999)]
+    # the table counts more reports of the year than the list holds (1,500 Overdue): it may be beyond the cut
     upload = pf.compared(
         checker,
         _one("report_list", [REPORTS[0], *others]),
-        _one("by_sector", [pf.row("by_sector", section=SECTIONS, accepted=1, submitted=0, due=0, overdue=0)],
+        _one("by_sector", [pf.row("by_sector", section=SECTIONS, accepted=1, submitted=0, due=0, overdue=1500)],
              filters=YEAR),
     )  # fmt: skip
     export, lines = _lines(upload, "report_list")

@@ -123,7 +123,8 @@ def test_a_start_that_fails_fails_the_upload_and_empties_its_copies(checker, mon
 
 def test_the_job_reads_the_staged_copies_and_empties_them(checker, started, no_limits):
     upload = _upload(checker, *pf.every_export())
-    assert _content_left(upload) == 13  # no column names people: each waits in its repacked copy
+    # no column names people: each waits in its repacked copy
+    assert _content_left(upload) == len(px.KINDS)
     out = io.StringIO()
     call_command("compare_powerbi", "--upload-id", str(upload.pk), "--triggered-by", "checker", stdout=out)
     assert no_limits == ["limited"] and "done" in out.getvalue()
@@ -135,7 +136,7 @@ def test_the_job_reads_the_staged_copies_and_empties_them(checker, started, no_l
     assert sorted(exports.values_list("kind", flat=True)) == sorted(px.KINDS)
     assert set(exports.values_list("state", flat=True)) == {"compared"}
     assert all(e.rows for e in exports) and all(e.rows_read == 3 for e in exports)
-    assert upload.summary["exports"] == 13 and upload.summary["rows"] == 39
+    assert upload.summary["exports"] == len(px.KINDS) and upload.summary["rows"] == 3 * len(px.KINDS)
     # the fake rows against an empty NeuroDB: differences, each with its reason (and nothing else is written)
     assert PowerBIDifference.objects.filter(export__upload=upload).count() > 0
     assert len(upload.summary["pages"]) == 10
@@ -199,8 +200,8 @@ def test_power_bi_s_own_fields_are_read_as_neurodb_reads_them_even_when_the_reco
     export = PowerBIExport.objects.get(upload=upload)
     assert export.clauses == [{"words": "is_period_latest is True", "state": "as_read"}]
     assert export.notes == [
-        "Power BI's field is_period_latest is not in the records NeuroDB reads: NeuroDB reads it as the newest "
-        "row of each report and location."
+        "Power BI's field is_period_latest is not in the records NeuroDB reads: NeuroDB reads it as within one "
+        "report, the newest row of each location; Power BI also keeps one report per period end."
     ]
     monkeypatch.setattr(pc, "fields_in_records", lambda run: {"is_period_latest"})
     assert pc.again(upload)
@@ -209,7 +210,8 @@ def test_power_bi_s_own_fields_are_read_as_neurodb_reads_them_even_when_the_reco
     assert export.clauses == [{"words": "is_period_latest is True", "state": "as_read"}]
     assert export.notes == [
         "Power BI's field is_period_latest is in the records NeuroDB reads, but NeuroDB's pages do not use it: "
-        "NeuroDB reads it as the newest row of each report and location."
+        "NeuroDB reads it as within one report, the newest row of each location; Power BI also keeps one report "
+        "per period end."
     ]
 
 

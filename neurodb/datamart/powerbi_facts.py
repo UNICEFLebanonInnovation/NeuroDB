@@ -4,8 +4,12 @@ records where Power BI's own rule is not known.
 
 * :class:`Context`: one comparison's day (the statuses are read for it), where NeuroDB's history starts, when
   Power BI refreshed and when the partner reports sync NeuroDB reads finished (their moments: a sync later the
-  same day ran after the refresh), the people cleaner, and what
-  one export tells another (the report list's gaps explain the counted visuals).
+  same day ran after the refresh), the people cleaner, and what one export tells another: the report list's
+  gaps explain the counted visuals, its rows (:class:`Listed`) give the periods the follow-up list and the
+  location export lack and its reasons tie disaggregation rows and Data Quality's indicators to reports, the
+  location export ties disaggregation rows to their PDs (it has PD #, the disaggregation export none). Each
+  is built in the comparer's own variables and set at its end; one that fails leaves them None
+  (:meth:`Context.reset`), and every reader then keeps the reason it gives without them.
 * :class:`Pds` and :class:`Reports`: every programme document and every progress report NeuroDB holds,
   whatever its status, section, year or PD status (one query each): is the PD there, what is its status, is
   the report there, under which status words, in how many records.
@@ -65,6 +69,24 @@ class Context:
     gaps: Counter | None = None  # the report list's gaps (powerbi_kinds.report_list); None: not uploaded
     gaps_cut: int = 0  # the report list's rows, when Power BI may have cut it there
     dq: dict[str, Any] | None = None  # the Data Quality list's NeuroDB count and gaps
+    # the report list's rows (set aside ones too), their count per period-end year, and the reason each was
+    # given: {(PD #, report, period end): "held" when paired, else its line's reason}
+    listed: Listed | None = None
+    listed_years: Counter | None = None
+    listed_reasons: dict[tuple[str, str, str], str] | None = None
+    # the location export's rows (``powerbi_kinds.locations``, its copies joined): the PDs of each (title,
+    # report, period start or "", period end, P-code), with and without the period start (``location_any``);
+    # the reports of each (PD base, title, period end); the reports of each (PD base, title) as (PD #,
+    # report, period end); each report's Report Status by (PD #, report, period end); and NeuroDB's own
+    # location rows of that comparison as (PD base, title, report, period end, P-code)
+    location_pds: dict[tuple, set[str]] | None = None
+    location_any: dict[tuple, set[str]] | None = None
+    location_start: bool = False  # the location export had a Period Start column
+    location_reports: dict[tuple[str, str, str], set[str]] | None = None
+    location_titles: dict[tuple[str, str], set[tuple[str, str, str]]] | None = None
+    location_status: dict[tuple[str, str, str], str] | None = None
+    held_locations: set[tuple] | None = None
+    owed_shown: bool = False  # NeuroDB shows PRP's reports still owed (stage 3: never yet)
     cache: dict[Any, Any] = field(default_factory=dict)
     _memo: dict[str, str] = field(default_factory=dict)
 
@@ -114,6 +136,62 @@ class Context:
         """Let go of every figure :meth:`once` kept: the job calls it after each export, so no export's data
         stays alive into the next (each reads its own)."""
         self.cache.clear()
+
+    def reset(self, kind: str) -> None:
+        """What an export of this kind tells the others, set back to "not uploaded": its comparison failed,
+        and a later export never reads half of it."""
+        for name, empty in RESET.get(kind, {}).items():
+            setattr(self, name, empty)
+
+
+# what each kind of export tells the exports compared after it, and its value when it is not known
+RESET: dict[str, dict[str, Any]] = {
+    "report_list": {
+        "gaps": None,
+        "gaps_cut": 0,
+        "listed": None,
+        "listed_years": None,
+        "listed_reasons": None,
+    },
+    "locations": {
+        "location_pds": None,
+        "location_any": None,
+        "location_start": False,
+        "location_reports": None,
+        "location_titles": None,
+        "location_status": None,
+        "held_locations": None,
+    },
+    "dq_list": {"dq": None},
+}
+
+
+@dataclass
+class Listed:
+    """The PD/SPD Report list's rows of one upload (those set aside before NeuroDB's history too), each as
+    ``pd``, ``report``, ``label`` (its Report Status as compared), ``period_start``, ``period_end``, ``due``,
+    ``partner`` and ``sections``, by PD # and by PD # without its amendment suffix."""
+
+    by_number: dict[str, list[dict[str, Any]]] = field(default_factory=lambda: defaultdict(list))
+    by_base: dict[str, list[dict[str, Any]]] = field(default_factory=lambda: defaultdict(list))
+
+    def add(self, row: dict[str, Any]) -> None:
+        self.by_number[pm.pd_number(row["pd"])].append(row)
+        self.by_base[pm.pd_base(row["pd"])].append(row)
+
+    def of(self, pd: Any) -> list[dict[str, Any]]:
+        """The rows of a PD: by its number, else by its number without the amendment suffix."""
+        return self.by_number.get(pm.pd_number(pd)) or self.by_base.get(pm.pd_base(pd), [])
+
+    def group(self, pd: Any, label: Any, due: Any) -> list[dict[str, Any]]:
+        """The rows of a PD with this status and due date (Power BI's follow-up list has no report number)."""
+        label, due = pm.text(label), pm.iso(due)
+        return [r for r in self.of(pd) if r["label"] == label and pm.iso(r["due"]) == due]
+
+    def report(self, pd: Any, report: Any) -> list[dict[str, Any]]:
+        """The rows of a PD's report (any period)."""
+        key = pm.text(pm.report_number(report))
+        return [r for r in self.of(pd) if pm.text(r["report"]) == key]
 
 
 # ---------------------------------------------------------------------------------------- programme documents
@@ -497,6 +575,65 @@ def fits_value(powerbi: float | None, candidate: Any) -> bool:
 
 def chosen(table: list[dict[str, Any]]) -> str:
     return next((t["candidate"] for t in table if t["chosen"]), "")
+
+
+def inactive(context: Context, pd_ids: Iterable[int]) -> set[tuple[int, str]]:
+    """The indicators of these PDs eTools marks inactive in every row (``is_active`` false), by their identity
+    (``identity.ident_of``): mostly an older version of a PD's indicator, still listed beside it on Programmes
+    → Indicators and Partner monitoring (Raw eTools data → PD indicators, Active: no). One query."""
+    ids = sorted({i for i in pd_ids if i})
+    if not ids:
+        return set()
+
+    def build() -> set[tuple[int, str]]:
+        seen: dict[tuple[int, str], set[bool]] = defaultdict(set)
+        for start in range(0, len(ids), 5000):
+            for pd_id, source_id, title, active in dm.PDIndicator.objects.filter(
+                intervention_id__in=ids[start : start + 5000]
+            ).values_list("intervention_id", "source_id", "title", "is_active"):
+                seen[identity.ident_of(pd_id, source_id, title)].add(bool(active))
+        return {ident for ident, found in seen.items() if found == {False}}
+
+    return context.once(("inactive", tuple(ids)), build)
+
+
+def fr_elsewhere(context: Context) -> dict[str, set[str]]:
+    """Each PD base number the funds reservation lines name (their ``pd_reference_number``), with the PD
+    numbers NeuroDB links those lines to ("" for a line linked to none): one DISTINCT read. A Funded
+    Programs row Power BI has whose lines NeuroDB links to another PD, or to none, is never "funds
+    reservation only"."""
+
+    def build() -> dict[str, set[str]]:
+        out: dict[str, set[str]] = defaultdict(set)
+        rows = (
+            dm.FundsReservation.objects.exclude(pd_reference_number="")
+            .exclude(pd_reference_number=None)
+            .order_by()
+            .values_list("pd_reference_number", "intervention__number")
+            .distinct()
+        )
+        for named, linked in rows:
+            out[pm.pd_base(named)].add(linked or "")
+        return out
+
+    return context.once("fr_elsewhere", build)
+
+
+def budgets(context: Context, pd_ids: Iterable[int]) -> dict[int, tuple[Any, ...]]:
+    """Each PD's budget fields as NeuroDB holds them (UNICEF, total, partner, UNICEF cash), for the detail of
+    a budget column that differs (a diagnostic of amended PDs' budgets)."""
+    ids = sorted({i for i in pd_ids if i})
+
+    def build() -> dict[int, tuple[Any, ...]]:
+        out: dict[int, tuple[Any, ...]] = {}
+        for start in range(0, len(ids), 5000):
+            for pk, *found in PCA.objects.filter(pk__in=ids[start : start + 5000]).values_list(
+                "pk", "total_unicef_budget", "total_budget", "cso_contribution", "unicef_cash"
+            ):
+                out[pk] = tuple(found)
+        return out
+
+    return context.once(("budgets", tuple(ids)), build) if ids else {}
 
 
 # ------------------------------------------------------------------------------------------------ the money

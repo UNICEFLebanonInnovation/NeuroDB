@@ -134,20 +134,33 @@ def reports(parsed: Filter, context: pf.Context, *, sections: bool = True) -> li
     return out
 
 
-def partners_by_status(parsed: Filter, context: pf.Context) -> dict[str, int]:
-    """Partner Performance's cards: the partners with a report in each status
-    (``reporting.partner_performance`` on the page's reports, in Power BI's years and report statuses)."""
+def partner_performance(parsed: Filter, context: pf.Context) -> dict[str, Any]:
+    """Progress reports → Partners (``reporting.partner_performance`` on the page's reports, in Power BI's
+    years and report statuses): its counts of partners, read once per filter in an export."""
     from . import reporting as rp
 
-    found = reporting(parsed, context)
-    wanted = wanted_statuses(parsed)
-    every = [
-        r
-        for r in found["reports"]
-        if in_years(parsed, r["period_end"]) and (wanted is None or r["status"] in wanted)
-    ]
-    by_status = rp.partner_performance(every)["by_status"]
-    return {entry["key"]: entry["partners"] for entry in by_status}
+    def build() -> dict[str, Any]:
+        found = reporting(parsed, context)
+        wanted = wanted_statuses(parsed)
+        every = [
+            r
+            for r in found["reports"]
+            if in_years(parsed, r["period_end"]) and (wanted is None or r["status"] in wanted)
+        ]
+        performance = rp.partner_performance(every)
+        return {
+            "partners": performance["partners"],
+            "reported": performance["reported"],
+            "not_reported": performance["not_reported"],
+            "by_status": {entry["key"]: entry["partners"] for entry in performance["by_status"]},
+        }
+
+    return context.once(("partner_performance", repr(parsed.to_json())), build)
+
+
+def partners_by_status(parsed: Filter, context: pf.Context) -> dict[str, int]:
+    """Partner Performance's table of statuses: the partners with a report in each status."""
+    return partner_performance(parsed, context)["by_status"]
 
 
 # --------------------------------------------------------------------------------------- partner monitoring
@@ -275,6 +288,37 @@ def in_section(row: dict[str, Any], parsed: Filter) -> bool:
     return not chosen or pm.text(row["section"] or monitoring.NO_SECTION) in chosen
 
 
+def quality(parsed: Filter, context: pf.Context) -> dict[str, int]:
+    """Data quality's figures for Power BI's filter, as its cards count them, of the indicators the page's
+    section filter keeps (``monitoring.data_quality``'s rules, ``FIGURE_TESTS``): the programme documents
+    (active, ended), the indicators, those with a Reached above 0 (Power BI's card without Reached counts the
+    zeros), those with a target (a target of 0 counts as none) and those without one."""
+    from neurodb.partnerships import statuses as pd_statuses
+
+    year = parsed.years[0] if len(parsed.years) == 1 else None
+    rows = [r for r in indicators(parsed, context, view="quality") if in_section(r, parsed)]
+    pds = {r["pd_id"]: r["pd_status"] for r in rows}
+    reached = [r["reached_in_year"] if year else r["reached"] for r in rows]
+    with_target = sum(1 for r in rows if r["target"])
+    return {
+        "pd_count": len(pds),
+        "active_pds": sum(1 for status in pds.values() if status in pd_statuses.ACTIVE),
+        "ended_pds": sum(1 for status in pds.values() if status in pd_statuses.ENDED),
+        "dq_total": len(rows),
+        "dq_with_reached": sum(1 for value in reached if value),
+        "dq_with_target": with_target,
+        "dq_without_target": len(rows) - with_target,
+    }
+
+
+def missing_targets(parsed: Filter, context: pf.Context) -> list[dict[str, Any]]:
+    """Data quality's "missing target" list (``FIGURE_TESTS["missing_target"]``: a target of 0 counts as
+    none), of the indicators the page's section filter keeps."""
+    return [
+        r for r in indicators(parsed, context, view="quality") if in_section(r, parsed) and not r["target"]
+    ]
+
+
 def no_reached(parsed: Filter, context: pf.Context) -> list[dict[str, Any]]:
     """Data quality's "without or with zero Reached" list (``FIGURE_TESTS["no_reached"]``, with no cut), of
     the indicators the page's section filter keeps."""
@@ -305,6 +349,7 @@ PD_INDICATOR_FIELDS = (
     "output",
     "title",
     "target",
+    "ident",
 )
 
 
@@ -340,6 +385,7 @@ def pd_indicators(parsed: Filter, context: pf.Context) -> list[dict[str, Any]]:
                     "output": context.clean(entry["pd_output"]),
                     "title": context.clean(entry["indicator"]),
                     "target": entry["target"],
+                    "ident": entry["ident"],
                 },
             )
         )

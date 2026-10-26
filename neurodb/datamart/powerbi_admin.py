@@ -116,6 +116,30 @@ def how_steps(today=None) -> list[str]:
     return [words.HOW_STEPS[0], year, *words.HOW_STEPS[1:]]
 
 
+def how_visuals() -> list[str]:
+    """How to export: every visual and card Compare with Power BI reads, in Power BI's order ("page →
+    visual"), a page's cards on one line."""
+    from . import powerbi_names
+
+    out: list[str] = []
+    cards: list[str] = []
+    page = ""
+    for kind in px.KINDS.values():
+        found_page, name = kind.visual
+        is_card = px.VISUAL_OF.get(kind.key, kind.key) in powerbi_names.POWERBI_CARDS
+        if cards and (not is_card or found_page != page):
+            out.append(words.HOW_CARDS.format(page=page, cards=", ".join(cards)))
+            cards = []
+        if is_card:
+            page = found_page
+            cards.append(name)
+        else:
+            out.append(f"{found_page} → {name}")
+    if cards:
+        out.append(words.HOW_CARDS.format(page=page, cards=", ".join(cards)))
+    return out
+
+
 def _index(request, form: PowerBIUploadForm, refused: list[str] | None = None, status: int = 200):
     running = powerbi_compare.busy()
     uploads = list(
@@ -147,7 +171,7 @@ def _index(request, form: PowerBIUploadForm, refused: list[str] | None = None, s
         refused=refused or [],
         running=running,
         history=[_history_row(u, states[u.pk]) for u in uploads],
-        visuals=[" → ".join(k.visual) for k in px.KINDS.values()],
+        visuals=how_visuals(),
         report=comparison.POWERBI_REPORT,
         steps=how_steps(),
     )
@@ -245,7 +269,7 @@ def _export_row(upload: PowerBIUpload, export: PowerBIExport, exports: list[Powe
         "state": state,
         "action": action,
         "covers": _covers(parsed) if export.state not in ("failed", "staged") else "",  # its filter read
-        "cannot": [_to_clear(c) for c in parsed.clauses if c.state in CANNOT],
+        "cannot": [_to_clear(c, export.kind) for c in parsed.clauses if c.state in CANNOT],
         "url": reverse("admin:datamart_powerbi_export", args=[upload.pk, export.pk]),
         "failed": powerbi_results.read_failed(export),  # not read: export it again
         "stopped": export.state == "failed" and not powerbi_results.read_failed(export),  # Compare again
@@ -455,7 +479,11 @@ def export_view(request, pk: int, export_pk: int):
 
 
 def _by_reason(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
-    """The lines by group and reason, needs a look first; the expected ones on one line of counts."""
+    """The lines by group and reason in ``powerbi_match.GROUP_ORDER`` (needs a look first, what NeuroDB cannot
+    show yet before the expected ones); the expected ones on one line of counts, with the lines a note of the
+    export states once (counted, not listed)."""
+    from .powerbi_match import GROUP_ORDER
+
     history = _history(upload)
     found = (
         PowerBIDifference.objects.filter(export=export)
@@ -463,7 +491,8 @@ def _by_reason(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
         .values("group", "reason")
         .annotate(n=Count("id"))
     )
-    rows = sorted(found, key=lambda r: (-r["group"], -r["n"], r["reason"]))
+    order = {group: n for n, group in enumerate(GROUP_ORDER)}
+    rows = sorted(found, key=lambda r: (order.get(r["group"], len(order)), -r["n"], r["reason"]))
     needs = []
     expected = []
     for r in rows:
@@ -476,7 +505,8 @@ def _by_reason(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
             or words.REASON_ACTIONS.get(r["reason"], ""),
         }
         (expected if r["group"] == 1 else needs).append(item)
-    return {"needs": needs, "expected": expected}
+    noted = sum(((export.counts or {}).get("noted") or {}).values())
+    return {"needs": needs, "expected": expected, "noted": words.NOTED_COUNT.format(n=noted) if noted else ""}
 
 
 def _not_compared(export: PowerBIExport) -> list[str]:

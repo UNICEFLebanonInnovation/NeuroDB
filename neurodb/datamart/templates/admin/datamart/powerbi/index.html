@@ -3,8 +3,8 @@
 
 {% comment %}
   Compare with Power BI (context: datamart.powerbi_admin.index_view, validators only): the upload form (one file
-  field taking the zip or the Excel files, one button), how to export from the PRP Power BI report (the visuals in
-  Power BI's order, from comparison.POWERBI_VISUALS) and the last uploads. Refusals of a POST are written here, in
+  field taking the zip or the Excel files, one button), how to export from the PRP Power BI report (the visuals and
+  cards in Power BI's order, a page's cards on one line, from powerbi_names: powerbi_admin.how_visuals) and the last uploads. Refusals of a POST are written here, in
   the response: never in a message. Every sentence comes from datamart.powerbi_words. A plain page, no script.
 {% endcomment %}
 
@@ -47,7 +47,7 @@
 
   {% trans "How to export" as how_title %}
   {% component "unfold/components/card.html" with title=how_title title_icon="help" %}
-    <p class="mb-2">{% blocktrans trimmed with report=report %}In the {{ report }} report, export each of these visuals:{% endblocktrans %}</p>
+    <p class="mb-2">{% blocktrans trimmed with report=report %}In the {{ report }} report, export each of these visuals and cards:{% endblocktrans %}</p>
     <ol class="list-decimal ml-6 mb-3" data-pbi-visuals>{% for visual in visuals %}<li>{{ visual }}</li>{% endfor %}</ol>
     <ul class="list-disc ml-6">{% for step in steps %}<li>{{ step }}</li>{% endfor %}</ul>
   {% endcomponent %}

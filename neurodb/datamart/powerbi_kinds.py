@@ -46,8 +46,10 @@ from . import reached as rc
 from .powerbi_filters import Filter
 from .powerbi_links import reverse
 
-# compared first: the counted visuals are explained from the report list, Data Quality's card from its list
-FIRST = ("report_list", "dq_list")
+# compared first: the counted visuals and the follow-up list are explained from the report list, the
+# disaggregations (which have no PD #) tied to their PDs through the location export, Data Quality's card from
+# its list
+FIRST = ("report_list", "locations", "dq_list")
 OWED_LABELS = frozenset({"overdue", "due", "not yet due"})
 # a report's steps: one Power BI is further along has moved on since NeuroDB's sync
 STEPS = {
@@ -75,11 +77,26 @@ REPORTS_APPLY = frozenset({"reporting_year", "section_name", "report_status_labe
 INDICATORS_APPLY = frozenset({"reporting_year", "section_name", "actual_value"})
 APPLIES: dict[str, frozenset[str]] = {
     "program_performance": frozenset({"reporting_year", "section_name", "report_status_label"}),
+    **dict.fromkeys(("partners_count", "partners_reported", "partners_not_reported"), REPORTS_APPLY),
     "partner_cards": REPORTS_APPLY,
     "follow_up": REPORTS_APPLY,
+    **dict.fromkeys(("accepted_report", "submitted_report", "due_report", "overdue_report"), REPORTS_APPLY),
     "by_sector": REPORTS_APPLY,
     "by_month": REPORTS_APPLY,
     "dq_card": INDICATORS_APPLY,
+    **dict.fromkeys(
+        (
+            "pd_count",
+            "active_pds",
+            "ended_pds",
+            "dq_total",
+            "dq_with_reached",
+            "dq_with_target",
+            "dq_without_target",
+        ),
+        frozenset({"reporting_year", "section_name"}),
+    ),
+    "missing_targets": frozenset({"reporting_year", "section_name"}),
     "dq_list": INDICATORS_APPLY,
     "pd_indicators": frozenset({"reporting_year", "section_name"}),
     "report_list": REPORTS_APPLY,
@@ -90,7 +107,22 @@ APPLIES: dict[str, frozenset[str]] = {
 }
 EVERY_KIND_APPLIES = frozenset({"country_name", "status"})
 # the kinds that read one year's figure (Reached in the year): several years are a filter they cannot apply
-ONE_YEAR = frozenset({"program_performance", "dq_card", "dq_list", "pd_indicators"})
+ONE_YEAR = frozenset(
+    {
+        "program_performance",
+        "dq_card",
+        "dq_list",
+        "pd_indicators",
+        "missing_targets",
+        "pd_count",
+        "active_pds",
+        "ended_pds",
+        "dq_total",
+        "dq_with_reached",
+        "dq_with_target",
+        "dq_without_target",
+    }
+)
 # the kinds whose NeuroDB page has no year: the comparison applies it to Reached itself
 YEAR_WHILE_COMPARING = frozenset({"pd_indicators"})
 # PDs whose indicators of every status are read at once, why a Power BI row has none on the page (``_titles``)
@@ -153,8 +185,9 @@ class Job:
         reason, rule, detail = why
         return pm.Line(kind, reason, self.context.group(reason), rule=rule, detail=detail, **parts)
 
-    def add(self, kind: str, why: Reason, *, row: bool = True, **parts: Any) -> None:
-        self.result.add(self.line(kind, why, **parts), row=row)
+    def add(self, kind: str, why: Reason, *, row: bool = True, listed: bool = True, **parts: Any) -> None:
+        """One line (``listed``: False for one a note of the export states once, counted all the same)."""
+        self.result.add(self.line(kind, why, **parts), row=row, listed=listed)
 
     def row(self, kind: str, match: list[Any]) -> RowGuard:
         """One row compared (``with job.row(kind, match):``), see :class:`RowGuard`."""
@@ -223,10 +256,35 @@ class RowGuard:
 
 
 def pick(options: list[Reason], context: pf.Context) -> Reason:
-    """The reason of a line whose columns give several: the one that most needs doing (group 4 first), then
-    the order of ``REASON_ORDER``."""
+    """The reason of a line whose columns give several (or of a counted visual's gap whose reports give
+    several): the one that most needs doing, in the order of ``powerbi_match.GROUP_ORDER`` (needs a look
+    first, what NeuroDB cannot show yet before the expected), then the order of ``REASON_ORDER``."""
     order = words.REASON_ORDER
-    return max(options, key=lambda o: (context.group(o[0]), -order.index(o[0])))
+    return min(options, key=lambda o: (pm.GROUP_ORDER.index(context.group(o[0])), order.index(o[0])))
+
+
+def period_ended(end: Any, day: datetime.date) -> bool:
+    """A report's period has ended on ``day`` (no period end: ended), NeuroDB's rule (``reached.status_of``:
+    a report is not yet due while its period runs)."""
+    found = pm.as_date(end)
+    return found is None or found <= day
+
+
+def owed_reason(job: Job, detail: str = words.DETAIL_OWED) -> Reason:
+    """A report still owed for a period that has ended, that NeuroDB does not list: NeuroDB cannot show it
+    yet (group 5) while it does not show PRP's own progress reports; once it does (``context.owed_shown``),
+    neither feed has it: not in the Datamart read. For report lines only (the report list, the follow-up
+    list)."""
+    if not job.context.owed_shown:
+        return ("owed", "", detail)
+    return ("not_in_read", "", f"{words.DETAIL_NOT_IN_PRP} {job.context.not_in_read_detail()}")
+
+
+def draft_reason(job: Job) -> Reason:
+    """A value Power BI shows in a report still owed: the partner's draft, which the eTools Datamart never
+    sends (and PRP's progress reports carry no value): NeuroDB cannot show it, whatever it shows of the
+    report."""
+    return ("owed", "", words.DETAIL_OWED_DRAFT)
 
 
 def fallback(job: Job, *, only_neurodb: bool = False) -> Reason:
@@ -364,10 +422,19 @@ def powerbi_chart_label(label: Any, period_end: Any, day: datetime.date) -> str:
 
 
 def explain(
-    job: Job, direction: str, label: str, sections: str | None = None, month: str | None = None
+    job: Job,
+    direction: str,
+    label: str,
+    sections: str | None = None,
+    month: str | None = None,
+    chart_total: dict[int | None, float] | None = None,
 ) -> Reason:
-    """A counted visual's gap, from the report list's lines of the same upload: the reason most of its reports
-    have, and how many have each."""
+    """A counted visual's gap, from the report list's lines of the same upload (its rows set aside before
+    NeuroDB's history too): the reason that most needs doing among its reports' (:func:`pick`: a gap of 15
+    reports before the history and 1 not in the read needs a look), and how many have each. No report behind
+    it: the list may be cut (``list_cut``) only when Power BI may have cut it and it holds fewer rows of the
+    year than the visual counts (``chart_total``: the visual's reports per year; None, the partner cards:
+    the cut alone), else the chart and its own list differ."""
     gaps = job.context.gaps
     if gaps is None:
         return ("see_reports", "", "")
@@ -383,12 +450,27 @@ def explain(
             continue
         found[reason] += n
     if not found:
-        if job.context.gaps_cut:  # the reports behind it may be beyond the list's cut: the list in parts
+        # the reports behind it may be beyond the list's cut: the list in parts
+        if job.context.gaps_cut and _list_short(job, month, chart_total):
             return ("list_cut", "", words.DETAIL_LIST_CUT.format(n=job.context.gaps_cut))
         return ("unknown", "", words.DETAIL_NO_GAP_LINES)
     total = sum(found.values())
     detail = words.either(total, words.DETAIL_GAP_ONE, words.DETAIL_GAP)
-    return (found.most_common(1)[0][0], "", detail.format(n=total, parts=gap_parts(found)))
+    reason = pick([(r, "", "") for r in found], job.context)[0]
+    return (reason, "", detail.format(n=total, parts=gap_parts(found)))
+
+
+def _list_short(job: Job, month: str | None, chart_total: dict[int | None, float] | None) -> bool:
+    """The report list holds fewer rows of the gap's year (its month's, else the visual's one year; None:
+    every year) than the visual counts reports in it: what it lacks may be beyond its cut. ``chart_total``
+    None: not known (the partner cards), the cut alone decides."""
+    if chart_total is None:
+        return True
+    listed = job.context.listed_years or Counter()
+    year = int(month[:4]) if month else next(iter(chart_total), None)
+    counted = chart_total.get(year, 0)
+    rows = listed.get(year, 0) if year is not None else sum(listed.values())
+    return rows < counted
 
 
 def gap_parts(found: Counter) -> str:
@@ -413,9 +495,12 @@ def counted_gaps(
     sections: str | None = None,
     month: str | None = None,
     rules: dict[str, Reason] | None = None,
+    chart_total: dict[int | None, float] | None = None,
+    more: dict[str, str] | None = None,
 ) -> None:
     """One row of a counted visual: each column whose count differs is a line with the reason the report list
-    gives for it; a value missing on one side is 0 when the other side is 0 (the same)."""
+    gives for it (``rules``: a column's reason given, ``chart_total``: :func:`explain`'s, ``more``: a column's
+    sentence added to its detail); a value missing on one side is 0 when the other side is 0 (the same)."""
     kind = (
         "different"
         if powerbi is not None and neurodb is not None
@@ -429,7 +514,10 @@ def counted_gaps(
             continue
         status = chart_label(CHART_COLUMNS[name])
         direction = "powerbi" if (pm.number(a) or 0) > (pm.number(b) or 0) else "neurodb"
-        why = (rules or {}).get(name) or explain(job, direction, status, sections, month)
+        why = (rules or {}).get(name) or explain(job, direction, status, sections, month, chart_total)
+        extra = (more or {}).get(name) if direction == "powerbi" else None
+        if extra:
+            why = (why[0], why[1], " ".join(x for x in (why[2], extra) if x))
         job.add(kind, why, row=first, match=match, found={name: [a, b, None]})
         first = False
     if first:
@@ -450,15 +538,40 @@ REPORT_COLUMNS = (
 
 
 def report_list(job: Job) -> None:
+    """PD/SPD Report's list against Progress reports' reports. What it tells the exports compared after it is
+    built here and set at the end (``Context.reset`` on a failure): its gaps by status, sections and month
+    (its rows set aside before NeuroDB's history too, as before the history: the charts count them), its rows
+    (:class:`powerbi_facts.Listed`, set aside ones too) and their count per period-end year, and the reason
+    each row was given ("held" when paired)."""
     context, parsed = job.context, job.parsed
     held = pf.reports(context)
     powerbi = []
+    listed = pf.Listed()
+    years: Counter = Counter()
+    aside: list[dict[str, Any]] = []
     for row in job.rows():
+        end = pm.as_date(row.get("period_end"))
+        listed.add(
+            {
+                "pd": row["pd"],
+                "report": row["report"],
+                "label": pm.text(row.get("report_status")),
+                "period_start": pm.as_date(row.get("period_start")),
+                "period_end": end,
+                "due": pm.as_date(row.get("due_date")),
+                "partner": row.get("partner"),
+                "sections": row.get("section"),
+            }
+        )
+        if end is not None:
+            years[end.year] += 1
         if job.before_history(row):
             job.set_aside += 1
+            aside.append(row)
         else:
             powerbi.append(row)
     job.note_set_aside()
+    reasons: dict[tuple[str, str, str], str] = {}
     neurodb = job.after_history(page.reports(parsed, context))
     job.note_neurodb_set_aside()
 
@@ -484,6 +597,7 @@ def report_list(job: Job) -> None:
     gaps: Counter = Counter()
     names = job.present(REPORT_COLUMNS)
     for p, n in pairs:
+        reasons[key_pb(p)] = "held"
         diffs = report_diffs(job, p, n, names)
         sections = pm.sections_key(n["pd_sections"] or n["sections"])
         month = month_key(n["period_end"])
@@ -543,6 +657,7 @@ def report_list(job: Job) -> None:
             why: Reason = ("status", "", words.DETAIL_TWICE)
         else:
             why = report_missing(job, p, held)
+        reasons.setdefault(key_pb(p), why[0])
         job.add(
             "only_powerbi",
             why,
@@ -567,8 +682,14 @@ def report_list(job: Job) -> None:
             continue  # beyond a list Power BI may have cut: it explains no counted visual
         sections = pm.sections_key(n["pd_sections"] or n["sections"])
         gaps[("neurodb", chart_label(n["status"]), sections, month_key(n["period_end"]), why[0])] += 1
+    # the rows set aside: Power BI's charts count them (NeuroDB holds no report before its history)
+    for p in aside:
+        label = powerbi_chart_label(p.get("report_status"), p.get("period_end"), context.day)
+        sections = pm.sections_key(_powerbi_sections(job, p))
+        gaps[("powerbi", label, sections, month_key(p.get("period_end")), "before_history")] += 1
     context.gaps = gaps
     context.gaps_cut = job.rows_read if cut_at(job) else 0
+    context.listed, context.listed_years, context.listed_reasons = listed, years, reasons
 
 
 def _powerbi_sections(job: Job, p: dict[str, Any]) -> frozenset[str]:
@@ -617,15 +738,18 @@ def report_diffs(job: Job, p: dict[str, Any], n: dict[str, Any], names: tuple[st
 
 
 def report_missing(job: Job, p: dict[str, Any], held: pf.Reports) -> Reason:
-    """Why NeuroDB's page does not list a report of Power BI's list."""
+    """Why NeuroDB's page does not list a report of Power BI's list: its PD not running, no such PD, a report
+    still owed for a period that has ended (one not yet due that NeuroDB lacks was not in the read: the feed
+    carries those), not in the Datamart read, the page's section, its status."""
     pd, _amended = pf.pds(job.context).find(p["pd"])
     if pd is not None and not running(job, pd):
         return ("pd_not_running", "", words.DETAIL_NOT_RUNNING.format(status=pd.status_label))
     found = held.find(p["pd"], p["report"], p["period_end"])
-    if pm.text(p.get("report_status")) in OWED_LABELS and not found:
-        return ("owed", "", words.DETAIL_OWED)
     if pd is None:
         return ("not_in_read", "", f"{words.DETAIL_NO_PD} {job.context.not_in_read_detail()}")
+    owed = pm.text(p.get("report_status")) in OWED_LABELS
+    if owed and not found and period_ended(p.get("period_end"), job.context.day):
+        return owed_reason(job)
     if not found:
         return not_in_read(job)
     if job.parsed.sections:
@@ -707,18 +831,28 @@ def follow_up(job: Job) -> None:
         by_pd_due[(pm.pd_base(n["pd"]), pm.iso(n["due_date"]))].append(n)
     not_yet = 0
     for p in left_pb:
-        due = pm.as_date(p["due_date"])
         found = held.due(p["pd"], p["due_date"])
         pd, _amended = pf.pds(context).find(p["pd"])
         label = pm.text(p["status"])
-        if due and due < context.history and not found:
+        # the report list's rows of the same PD, status and due date: the periods this list lacks
+        group = context.listed.group(p["pd"], label, p["due_date"]) if context.listed is not None else []
+        if not found and _follow_up_before_history(context, p, group):
             why: Reason = ("before_history", "", words.DETAIL_BEFORE_HISTORY)
         elif pd is not None and not running(job, pd):
             why = ("pd_not_running", "", words.DETAIL_NOT_RUNNING.format(status=pd.status_label))
-        elif label in OWED_LABELS and not found:
-            why = ("owed", "", words.DETAIL_OWED)
         elif pd is None:
             why = ("not_in_read", "", f"{words.DETAIL_NO_PD} {context.not_in_read_detail()}")
+        elif label in OWED_LABELS and not found:
+            # Power BI's Due covers reports not yet due: so it does when every period of the list's rows
+            # runs still; with no list, a row of it without a period end, or one ended, still owed
+            running_still = bool(group) and all(
+                r["period_end"] is not None and r["period_end"] > context.day for r in group
+            )
+            if label == "due" and running_still:
+                why = ("status", "", words.DETAIL_DUE_COVERS)
+                not_yet += 1
+            else:
+                why = owed_reason(job)
         elif not found:
             why = not_in_read(job)
         else:
@@ -759,13 +893,63 @@ def follow_up(job: Job) -> None:
             link=raw_link(n["pd"], context=context),
         )
     job.result.extra["due_not_yet"] = not_yet
+    job.result.extra["due_rows"] = sum(1 for p in powerbi if pm.text(p.get("status")) == "due")
+
+
+def _follow_up_before_history(context: pf.Context, p: dict[str, Any], group: list[dict[str, Any]]) -> bool:
+    """A follow-up row about reports before NeuroDB's history: its due date before it, or (the report list of
+    the same upload having rows of its PD, status and due date) every one of them starting before it. With no
+    list, the due date alone; a row of the group starting after the history, or with no start, keeps it."""
+    due = pm.as_date(p.get("due_date"))
+    if due and due < context.history:
+        return True
+    return bool(group) and all(
+        r["period_start"] is not None and r["period_start"] < context.history for r in group
+    )
+
+
+# a partner card's column -> its status as Power BI's report list writes it (its Due covers not yet due)
+CARD_LABELS = {
+    "accepted": "accepted",
+    "submitted": "submitted",
+    "sent_back": "sent back",
+    "due": "due",
+    "overdue": "overdue",
+}
 
 
 def partner_cards(job: Job) -> None:
     names = job.present(("accepted", "submitted", "sent_back", "due", "overdue"))
     neurodb = page.partners_by_status(job.parsed, job.context)
+    more = {}
+    for name, n in _partners_before(job).items():
+        more[name] = words.plural(n, words.DETAIL_PARTNERS_BEFORE_ONE, words.DETAIL_PARTNERS_BEFORE)
     for row in job.rows():
-        counted_gaps(job, [], row, {n: neurodb.get(CHART_COLUMNS[n], 0) for n in names}, names)
+        counted_gaps(job, [], row, {n: neurodb.get(CHART_COLUMNS[n], 0) for n in names}, names, more=more)
+
+
+def _partners_before(job: Job) -> dict[str, int]:
+    """Per partner card: how many partners' report list rows of its status are all before NeuroDB's history
+    (Partner Performance has no year: Power BI counts them, NeuroDB holds none). From the report list's
+    Partner column (a count, never a name); none without the report list or that column."""
+    listed = job.context.listed
+    if listed is None:
+        return {}
+    every: dict[str, dict[str, list[bool]]] = defaultdict(lambda: defaultdict(list))
+    history = job.context.history
+    for rows in listed.by_number.values():
+        for row in rows:
+            name = pm.partner(row.get("partner"))
+            if not name:
+                continue
+            day = row["period_start"] or row["period_end"]
+            every[row["label"]][name].append(bool(day and day < history))
+    out = {}
+    for column, label in CARD_LABELS.items():
+        n = sum(1 for marks in every.get(label, {}).values() if marks and all(marks))
+        if n:
+            out[column] = n
+    return out
 
 
 # ===================================================================================== Reporting Progress
@@ -801,13 +985,15 @@ def by_sector(job: Job) -> None:
     reports = page.reports(job.parsed, context)
     counts = progress_counts(reports, lambda r: pm.sections_key(r["pd_sections"] or r["sections"]))
     neurodb = {key: {n: c.get(CHART_COLUMNS[n], 0) for n in names} for key, c in counts.items()}
+    # the reports the table counts, in its one year (None: several or every year)
+    chart_total = {one_year(job.parsed): sum(sum(r.values()) for r in powerbi.values())}
     fits = cells = 0
     for key in sorted(set(powerbi) | set(neurodb)):
         a, b = powerbi.get(key), neurodb.get(key)
         for name in names:
             cells += 1
             fits += pm.same_count((a or {}).get(name), (b or {}).get(name))
-        counted_gaps(job, [shown.get(key) or key], a, b, names, sections=key)
+        counted_gaps(job, [shown.get(key) or key], a, b, names, sections=key, chart_total=chart_total)
     if total is not None:  # checked against Power BI's own rows and NeuroDB's total: notes, never a line
         caption = px.KINDS["by_sector"].column
         sums = {n: sum(r[n] for r in powerbi.values()) for n in names}
@@ -853,6 +1039,12 @@ def by_month(job: Job) -> None:
         except ValueError:
             return (1, month)
 
+    # the reports the chart counts in each year, over its own status columns
+    chart_total: dict[int | None, float] = Counter()
+    for month, row in powerbi.items():
+        found = order(month)
+        if found[0] == 0:
+            chart_total[found[1].year] += sum(pm.number(row.get(n)) or 0 for n in present)
     for month in sorted(set(powerbi) | set(neurodb), key=order):
         a, b = powerbi.get(month), neurodb.get(month)
         for name in present:  # the evidence for counting progress reports: Power BI's own columns
@@ -860,7 +1052,7 @@ def by_month(job: Job) -> None:
             fits += pm.same_count((a or {}).get(name), (b or {}).get(name))
         found = order(month)
         key = f"{found[1]:%Y-%m}" if found[0] == 0 else None
-        counted_gaps(job, [month], a, b, names, month=key, rules=rules)
+        counted_gaps(job, [month], a, b, names, month=key, rules=rules, chart_total=chart_total)
     previous = job.result.extra.get("progress_fit") or [0, 0]
     job.result.extra["progress_fit"] = [previous[0] + fits, previous[1] + cells]
 
@@ -875,19 +1067,162 @@ def dq_card(job: Job) -> None:
         if pm.same_count(a, neurodb):
             job.result.same()
             continue
-        dq = context.dq
-        if dq is None:
-            why: Reason = ("see_dq_list", "", "")
-        else:
-            side = "powerbi" if (pm.number(a) or 0) > neurodb else "neurodb"
-            found: Counter = dq.get(side) or Counter()
-            if found:
-                total = sum(found.values())
-                detail = words.either(total, words.DETAIL_DQ_GAP_ONE, words.DETAIL_DQ_GAP)
-                why = (found.most_common(1)[0][0], "", detail.format(n=total, parts=gap_parts(found)))
-            else:
-                why = ("unknown", "", "")
-        job.add("different", why, match=[], found={"indicators": [a, neurodb, None]})
+        job.add("different", dq_reason(job), match=[], found={"indicators": [a, neurodb, None]})
+
+
+def dq_reason(job: Job) -> Reason:
+    """Why a Data Quality card of indicators without (or with) Reached differs, from the list of the same
+    upload: both sides of its gap, the indicators only NeuroDB lists and those only Power BI lists, the reason
+    that most needs doing among them (:func:`pick`)."""
+    dq = job.context.dq
+    if dq is None:
+        return ("see_dq_list", "", "")
+    ours: Counter = dq.get("neurodb") or Counter()
+    theirs: Counter = dq.get("powerbi") or Counter()
+    found = ours + theirs
+    if not found:
+        return ("unknown", "", "")
+    nd, pb = sum(ours.values()), sum(theirs.values())
+    detail = words.DETAIL_DQ_BOTH.format(nd=nd, pb=pb, net=nd - pb, parts=gap_parts(found))
+    return (pick([(r, "", "") for r in found], job.context)[0], "", detail)
+
+
+def missing_targets(job: Job) -> None:
+    """Data Quality's Indicators with Missing Targets against Data quality's indicators without a target (a
+    target of 0 counts as none), by PD and title; a row only Power BI has whose indicator NeuroDB holds with a
+    target differs in its target."""
+    context, parsed = job.context, job.parsed
+    neurodb = page.missing_targets(parsed, context)
+    targeted = {
+        (pm.pd_number(n["pd"]), pm.text(n["title"])): n
+        for n in page.indicators(parsed, context, view="quality")
+        if n["target"]
+    }
+    powerbi = list(job.rows())
+
+    def key_pb(row: dict[str, Any], title: str) -> tuple:
+        return (pm.pd_number(row.get("pd")), title)
+
+    def key_nd(row: dict[str, Any], title: str) -> tuple:
+        return (pm.pd_number(row["pd"]), title)
+
+    pairs, left_pb, left_nd, _amended = title_pair(job, powerbi, neurodb, key_pb, key_nd)
+    names = job.present(("target", "section"))
+    for p, n in pairs:
+        with job.row("different", [p.get("pd"), p.get("indicator_title")]):
+            diffs: dict[str, list[Any]] = {}
+            if "target" in names and not pm.same_number(p.get("target"), n["target"], zero_is_none=True):
+                diffs["target"] = [p.get("target"), n["target"], None]
+            if "section" in names and not section_same(
+                p.get("section"),
+                pm.sections(n["section"], context.sections),
+                n["pd_sections"],
+                known=context.sections,
+            ):
+                diffs["section"] = [p.get("section"), n["section"], None]
+            if not diffs:
+                job.result.same()
+                continue
+            job.add(
+                "different",
+                fallback(job),
+                match=[p.get("pd"), p.get("indicator_title")],
+                found=diffs,
+                link=reverse("reports:pd_indicator", args=[n["pd_id"], n["key"]]),
+            )
+    for p in left_pb:
+        with job.row("only_powerbi", [p.get("pd"), p.get("indicator_title")]):
+            held = targeted.get((pm.pd_number(p.get("pd")), pm.text(p.get("indicator_title"))))
+            if held is not None:  # NeuroDB has a target for it
+                job.add(
+                    "different",
+                    older_or_fallback(job),
+                    match=[p.get("pd"), p.get("indicator_title")],
+                    found={"target": [p.get("target"), held["target"], None]},
+                    link=reverse("reports:pd_indicator", args=[held["pd_id"], held["key"]]),
+                )
+                continue
+            why = pd_reason(job, p.get("pd")) or not_in_read(job)
+            job.add(
+                "only_powerbi",
+                why,
+                match=[p.get("pd"), p.get("indicator_title")],
+                found={"target": [p.get("target"), None, None]},
+                pd=p.get("pd") if why[0] == "pd_not_running" else "",
+            )
+    for n in left_nd:
+        job.add(
+            "only_neurodb",
+            neurodb_only(job),
+            match=[n["pd"], n["title"]],
+            found={"target": [None, n["target"], None]},
+            link=reverse("reports:pd_indicator", args=[n["pd_id"], n["key"]]),
+        )
+
+
+# ======================================================================================== the cards
+# a card's NeuroDB figure: Partner Performance's (Progress reports → Partners), Reporting Progress's
+# (progress reports of the status), Data Quality's (``powerbi_page.quality``)
+PARTNER_COUNTS = {
+    "partners_count": "partners",
+    "partners_reported": "reported",
+    "partners_not_reported": "not_reported",
+}
+CARD_STATUSES = {
+    "accepted_report": rc.ACCEPTED,
+    "submitted_report": rc.SUBMITTED,
+    "due_report": rc.DUE,
+    "overdue_report": rc.OVERDUE,
+}
+DQ_CARDS = (
+    "pd_count",
+    "active_pds",
+    "ended_pds",
+    "dq_total",
+    "dq_with_reached",
+    "dq_with_target",
+    "dq_without_target",
+)
+
+
+def _card(job: Job, neurodb: Any, why: Callable[[Any], Reason]) -> None:
+    """A card: its one figure against NeuroDB's; a difference takes ``why(Power BI's value)``."""
+    for row in job.rows():
+        a = row.get("count")
+        if pm.same_count(a, neurodb):
+            job.result.same()
+            continue
+        job.add("different", why(a), match=[], found={"count": [a, neurodb, None]})
+
+
+def partner_count(job: Job) -> None:
+    """Partner Performance's cards against Progress reports → Partners (the partners with a report)."""
+    figures = page.partner_performance(job.parsed, job.context)
+    _card(job, figures[PARTNER_COUNTS[job.kind.key]], lambda _a: fallback(job))
+
+
+def status_card(job: Job) -> None:
+    """Reporting Progress's cards: the progress reports of a status (Power BI's unit), explained from the
+    report list of the same upload, as the table by sector is."""
+    context = job.context
+    status = CARD_STATUSES[job.kind.key]
+    neurodb = sum(1 for r in page.reports(job.parsed, context) if r["status"] == status)
+    job.result.note(words.NOTE_SAME_UNIT)
+
+    def why(powerbi: Any) -> Reason:
+        direction = "powerbi" if (pm.number(powerbi) or 0) > neurodb else "neurodb"
+        total = {one_year(job.parsed): pm.number(powerbi) or 0}
+        return explain(job, direction, chart_label(status), chart_total=total)
+
+    _card(job, neurodb, why)
+
+
+def dq_figure(job: Job) -> None:
+    """Data Quality's cards of programme documents and indicators (``powerbi_page.quality``); its card with
+    Reached is explained from the list of the same upload, as its card without Reached is."""
+    neurodb = page.quality(job.parsed, job.context)[job.kind.key]
+    with_reached = job.kind.key == "dq_with_reached"
+    _card(job, neurodb, lambda _a: dq_reason(job) if with_reached else fallback(job))
 
 
 def title_pair(
@@ -947,10 +1282,20 @@ def title_pair(
 
 
 def dq_list(job: Job) -> None:
+    """Data Quality's list against Partner monitoring → Data quality's "without or with zero Reached", with
+    Power BI's possible readings of its filter ranked by the indicators they agree on (in on both sides, or
+    out on both). An indicator only NeuroDB lists is, in this order: one eTools marks inactive with no report
+    row, a copy of another of its PD's indicators (same title and PD output) Power BI lists or that has the
+    year's rows, one whose report of the year was not in the Datamart read (the location export names it
+    under that report), one of a PD that ends after the year (Power BI lists an indicator only in its PD's
+    last year: only while Power BI lists no indicator of such a PD), one with no report in the year, one with
+    draft values, one outside the PD's sections, else not explained yet."""
     context, parsed = job.context, job.parsed
     year = parsed.years[0] if len(parsed.years) == 1 else None
     every = page.indicators(parsed, context, view="quality")  # every section: the readings need them all
     facts = pf.indicator_facts({r["pd_id"] for r in every}, context.day, context)
+    inactive = pf.inactive(context, {r["pd_id"] for r in every})
+    held_pds = pf.pds(context)
     powerbi = list(job.rows())
 
     def key_pb(row: dict[str, Any], title: str) -> tuple:
@@ -961,6 +1306,13 @@ def dq_list(job: Job) -> None:
 
     pairs, left_pb, left_nd, _amended = title_pair(job, powerbi, every, key_pb, key_nd)
     of_powerbi = {id(n): p for p, n in pairs}
+    # Power BI lists an indicator only in its PD's last year: never said while it lists an indicator of a PD
+    # that ends after the year (or of one NeuroDB cannot tell: none, or two of that number)
+    pd_year = (
+        year is not None
+        and not any(_ends_after(held_pds.by_id.get(n["pd_id"]), year) for _p, n in pairs)
+        and not any(_ends_after(held_pds.find(p["pd"])[0], year) for p in left_pb)
+    )
 
     def flags(n: dict[str, Any]) -> dict[str, bool]:
         fact = facts.get(n["ident"]) or pf.IndicatorFact(n["ident"])
@@ -970,6 +1322,7 @@ def dq_list(job: Job) -> None:
         pd_in = not parsed.sections or bool({pm.text(s) for s in parsed.sections} & n["pd_sections"])
         none = value is None or value == 0
         empty = fact.empty_row(year)
+        pd = held_pds.by_id.get(n["pd_id"])
         return {
             "own": own,
             "pd": pd_in,
@@ -978,6 +1331,9 @@ def dq_list(job: Job) -> None:
             "every_none": every_value is None or every_value == 0,
             "empty": empty,
             "draft": none and not (every_value is None or every_value == 0),
+            "pd_year": bool(pd_year and pd is not None and pd.end is not None and pd.end.year == year),
+            "later": bool(pd_year and pd is not None and pd.end is not None and pd.end.year > year),
+            "no_rows": not fact.every,
         }
 
     readings = {
@@ -987,6 +1343,7 @@ def dq_list(job: Job) -> None:
         "dq_every_status": lambda f: f["own"] and f["every_none"],
         "dq_per_row": lambda f: f["own"] and (f["none"] or f["empty"]),
         "dq_all": lambda f: f["pd"] and f["row"] and (f["every_none"] or f["empty"]),
+        "dq_pd_year": lambda f: f["own"] and f["none"] and f["pd_year"],
     }
     marks = {id(n): flags(n) for n in every}
     listed = {id(n) for _p, n in pairs}
@@ -994,15 +1351,20 @@ def dq_list(job: Job) -> None:
     table = []
     for name, test in readings.items():
         chosen = {id(n) for n in every if test(marks[id(n)])}
-        both = len(chosen & listed)
-        union = len(chosen | listed) + unmatched
-        table.append({"candidate": name, "fits": both, "of": union, "above": 0, "chosen": False})
-    if table:
-        best = max(
-            table, key=lambda t: (t["fits"] - (t["of"] - t["fits"]), -list(readings).index(t["candidate"]))
+        # agreement over every indicator: in on both sides, and out on both (a looser reading that lists
+        # what Power BI does not loses as much as it gains)
+        agreed = len(chosen & listed) + len(every) - len(chosen | listed)
+        table.append(
+            {"candidate": name, "fits": agreed, "of": len(every) + unmatched, "above": 0, "chosen": False}
         )
+    if table:
+        best = max(table, key=lambda t: (t["fits"], -list(readings).index(t["candidate"])))
         best["chosen"] = True
         job.result.fits.append({"title": "dq", "rows": table, "set": True})
+    # each PD indicator's copies: the same PD, raw title and PD output
+    copies: dict[tuple, list[dict[str, Any]]] = defaultdict(list)
+    for n in every:
+        copies[(n["pd_id"], n["title"], n["output"])].append(n)
     gaps = {"powerbi": Counter(), "neurodb": Counter()}
     neurodb_list = [n for n in every if readings["dq_neurodb"](marks[id(n)])]
     names = job.present(("reached", "cp_output", "section"))
@@ -1014,8 +1376,17 @@ def dq_list(job: Job) -> None:
             continue
         link = reverse("reports:pd_indicator", args=[n["pd_id"], n["key"]])
         if p is None:
-            if not f["row"]:
-                why: Reason = ("rule", "no_report_in_year", "")
+            others = [c for c in copies[(n["pd_id"], n["title"], n["output"])] if c is not n]
+            if n["ident"] in inactive and f["no_rows"]:
+                why: Reason = ("inactive", "", words.DETAIL_INACTIVE)
+            elif any(id(c) in listed or marks[id(c)]["row"] for c in others):
+                why = ("rule", "canonical", words.DETAIL_CANONICAL)
+            elif _report_not_in_read(context, n, year):
+                why = not_in_read(job)
+            elif f["later"]:
+                why = ("rule", "pd_year", words.DETAIL_PD_YEAR)
+            elif not f["row"]:
+                why = ("rule", "no_report_in_year", "")
             elif f["draft"]:
                 why = ("rule", "draft_values", "")
             elif f["own"] and not f["pd"]:
@@ -1032,10 +1403,13 @@ def dq_list(job: Job) -> None:
             gaps["neurodb"][why[0]] += 1
             continue
         if not in_neurodb:
+            listed_line = True
             if not running(job, pf.pds(context).by_id.get(n["pd_id"]) or _no_pd()):
                 why = ("pd_not_running", "", "")
             elif f["pd"] and not f["own"]:
                 why = ("left_out", "section", words.DETAIL_SECTION)
+                # only the section differs (NeuroDB has no Reached either): a note says it once
+                listed_line = not f["none"]
             elif f["empty"]:
                 why = ("rule", "per_row", "")
             elif not f["every_none"] and context.sync_before_refresh:
@@ -1046,6 +1420,7 @@ def dq_list(job: Job) -> None:
             job.add(
                 "only_powerbi",
                 why,
+                listed=listed_line,
                 match=[p["pd"], p["indicator_title"], p.get("pd_output")],
                 found={"reached": [p.get("reached"), value, None]},
                 link=link,
@@ -1091,8 +1466,37 @@ def dq_list(job: Job) -> None:
         gaps["powerbi"][why[0]] += 1
     if any(p.get("reached") == 0 for p in powerbi):
         job.result.note(words.NOTE_ZERO)
+    note_sections(job)
     context.dq = {"neurodb": len(neurodb_list), **gaps}
     del left_nd
+
+
+def _ends_after(pd: pf.Pd | None, year: int) -> bool:
+    """A PD that ends after ``year``, or may (NeuroDB holds none of that number, two, or it has no end)."""
+    return pd is None or pd.end is None or pd.end.year > year
+
+
+def _report_not_in_read(context: pf.Context, n: dict[str, Any], year: int | None) -> bool:
+    """An indicator only NeuroDB lists whose report of the year is missing from the Datamart read: the
+    location export names it under a report of the year (its PD and title) that the report list's line says
+    was not in the read. Without the location export or the report list: never (today's reason)."""
+    titles, reasons = context.location_titles, context.listed_reasons
+    if titles is None or reasons is None:
+        return False
+    for pd, report, end in titles.get((pm.pd_base(n["pd"]), pm.text(n["title"])), ()):
+        if year is not None and not end.startswith(f"{year}-"):
+            continue
+        if reasons.get((pd, report, end)) == "not_in_read":
+            return True
+    return False
+
+
+def note_sections(job: Job) -> None:
+    """The lines counted, not listed, because Power BI reads the PD's sections and NeuroDB the indicator's
+    own (equal in every other column): one note."""
+    n = job.result.noted.get("section", 0)
+    if n:
+        job.result.note(words.plural(n, words.NOTE_PD_SECTIONS_ONE, words.NOTE_PD_SECTIONS))
 
 
 def _no_pd() -> pf.Pd:
@@ -1164,9 +1568,11 @@ def candidate_reason(
 ) -> Reason:
     """A Reached or Target difference: Power BI's way when it equals the candidate chosen (the others that fit
     in the detail), a partial history (to date: PRP's cumulative; in a year that starts before NeuroDB's
-    history: reports before it), NeuroDB's older version, else not explained yet. A candidate that is
-    NeuroDB's own figure never explains a difference. ``room``: the characters the detail may take (the line
-    adds its own sentences after it)."""
+    history: reports before it), Power BI's Reached from Accepted reports only when no rule was chosen
+    (Power BI 0 or empty, NeuroDB's Accepted-only figure fits it, NeuroDB's own above 0: never the rule that
+    fits most rows overall, which zeros fit by chance), NeuroDB's older version, else not explained yet. A
+    candidate that is NeuroDB's own figure never explains a difference. ``room``: the characters the detail
+    may take (the line adds its own sentences after it)."""
     value = neurodb.get(column)
     fitting = [
         name
@@ -1188,6 +1594,19 @@ def candidate_reason(
         if column == "reached" and neurodb.get("report_type") == "HR" and chosen == "qpr_sum":
             return ("rule", "monthly", detail)
         return ("rule", column, detail)
+    if (
+        column == "reached"
+        and not chosen
+        and not pm.number(powerbi)
+        and "accepted" in fitting
+        and (pm.number(value) or 0) > 0
+    ):
+        detail = words.DETAIL_ALTERNATIVE.format(
+            words=words.CANDIDATE_WORDS["accepted"],
+            alt=_number_words(candidates["accepted"] or 0),
+            value=_number_words(value),
+        )
+        return ("rule", "accepted_only", also_fits(detail, [c for c in fitting if c != "accepted"], room))
     if (
         column == "reached"
         and job.context.sync_before_refresh
@@ -1535,27 +1954,32 @@ PD_INDICATOR_COLUMNS = (
 
 
 def pd_indicators(job: Job) -> None:
-    """Programmes → Indicators, with Partner monitoring's Reached: to date, or in the one reporting year
-    Power BI's filter names (the page has no year: the comparison applies it to Reached)."""
+    """Programmes → Indicators, with Partner monitoring's Reached (by the indicator's identity): to date, or
+    in the one reporting year Power BI's filter names (the page has no year: the comparison applies it to
+    Reached). A Power BI row pairs first with an indicator the page's section filter keeps (two copies of a
+    title, one in the section). One paired with an indicator outside the section is compared column by
+    column all the same: equal in every other column, a note counts it (Power BI reads the PD's sections);
+    one that also differs is listed with its own reason. An indicator only NeuroDB lists is one eTools marks
+    inactive with no report row, one of a title two PD outputs share (Power BI lists the other), one outside
+    the PD's sections, else not explained yet."""
     context, parsed = job.context, job.parsed
     year = one_year(parsed)
     every = page.pd_indicators(parsed, context)
-    monitored = {
-        (n["pd_id"], pm.text(n["title"]), pm.text(n["output"])): n for n in page.indicators(parsed, context)
-    }
+    monitored = {n["ident"]: n for n in page.indicators(parsed, context)}
     facts = pf.indicator_facts({n["pd_id"] for n in every}, context.day, context)
+    inactive = pf.inactive(context, {n["pd_id"] for n in every})
     for n in every:
-        m = monitored.get((n["pd_id"], pm.text(n["title"]), pm.text(n["output"]))) or {}
+        m = monitored.get(n["ident"]) or {}
         n.update(
             reached=m.get("reached_in_year") if year else m.get("reached"),
             partial=m.get("partial", False),
-            ident=m.get("ident") or (n["pd_id"], ""),
             accepted=m.get("accepted"),
             key=m.get("key"),
             pd_start=m.get("pd_start"),
             report_type=m.get("report_type", ""),
         )
     powerbi = list(job.rows())
+    in_page = {id(n) for n in every if page.in_section(n, parsed)}
 
     def key_pb(row: dict[str, Any], title: str) -> tuple:
         return (pm.pd_number(row["pd"]), title)
@@ -1565,6 +1989,7 @@ def pd_indicators(job: Job) -> None:
 
     def score(p: dict[str, Any], n: dict[str, Any]) -> tuple:
         return (
+            id(n) in in_page,  # the copy of a title in the section Power BI's filter names first
             pm.same_number(p.get("target"), n["target"], zero_is_none=True),
             pm.closeness(p.get("target"), n["target"]),
             pm.same_text(p.get("cp_output"), n["cp_output"]),
@@ -1574,26 +1999,18 @@ def pd_indicators(job: Job) -> None:
     chosen_reached, chosen_target = fit_reached(job, pairs, facts, year=year)
     names = job.present(PD_INDICATOR_COLUMNS)
     section_rule = False
-    in_page = {id(n) for n in every if page.in_section(n, parsed)}
     for p, n in pairs:
         with job.row("different", [p["pd"], p["indicator_title"]]):
-            if id(n) not in in_page:
-                why: Reason = ("left_out", "section", words.DETAIL_SECTION)
-                job.add(
-                    "only_powerbi",
-                    why,
-                    match=[p["pd"], p["indicator_title"]],
-                    found={name: [p.get(name), None, None] for name in names},
-                    link=pd_link(n["pd_id"]),
-                )
-                continue
             fact = facts.get(n["ident"]) or pf.IndicatorFact(n["ident"])
             diffs: dict[str, list[Any]] = {}
             options: list[Reason] = []
-            # the room a detail has: the amendment's and Partner monitoring's sentences come after it
+            # the room a detail has: the amendment's, Partner monitoring's, the section's sentences after it
             room = pm.DETAIL_LIMIT - len(words.DETAIL_FROM_MONITORING) - 1
             if id(p) in amended:
                 room -= len(words.DETAIL_AMENDMENT) + 1
+            outside = id(n) not in in_page
+            if outside:
+                room -= len(words.DETAIL_SECTION) + 1
             for name in names:
                 a = p.get(name)
                 if name == "pd_status":
@@ -1637,6 +2054,17 @@ def pd_indicators(job: Job) -> None:
                 else:
                     options.append(fallback(job))
                 diffs[name] = [a, b, alt]
+            if outside and not diffs:
+                # the page's section filter leaves it out, and only the section differs: a note says it once
+                job.add(
+                    "only_powerbi",
+                    ("left_out", "section", words.DETAIL_SECTION),
+                    listed=False,
+                    match=[p["pd"], p["indicator_title"]],
+                    found={name: [p.get(name), None, None] for name in names},
+                    link=pd_link(n["pd_id"]),
+                )
+                continue
             if not diffs:
                 job.result.same()
                 continue
@@ -1647,6 +2075,7 @@ def pd_indicators(job: Job) -> None:
                     why[2],
                     words.DETAIL_AMENDMENT if id(p) in amended else "",
                     words.DETAIL_FROM_MONITORING if "reached" in diffs else "",
+                    words.DETAIL_SECTION if outside else "",
                 )
                 if x
             )
@@ -1659,6 +2088,7 @@ def pd_indicators(job: Job) -> None:
             )
     if section_rule:
         job.result.note(words.NOTE_RULE.format(words=words.RULE_WORDS["section"]))
+    note_sections(job)
     if any(pm.number(p.get("reached")) == 0 or pm.number(p.get("target")) == 0 for p in powerbi):
         job.result.note(words.NOTE_ZERO)
     for p in left_pb:
@@ -1670,11 +2100,23 @@ def pd_indicators(job: Job) -> None:
             found={name: [p.get(name), None, None] for name in names},
             pd=p["pd"] if why[0] == "pd_not_running" else "",
         )
+    # the outputs Power BI lists each PD's titles under (a title two PD outputs share: it lists one)
+    paired_outputs: dict[tuple[int, str], set[str]] = defaultdict(set)
+    for _p, n in pairs:
+        paired_outputs[(n["pd_id"], n["title"])].add(pm.text(n["output"]))
+    lapsed = 0
     for n in left_nd:
         if id(n) not in in_page:
             continue  # the page's section filter leaves it out, as Power BI's does
+        fact = facts.get(n["ident"])
         own = pm.sections(n["section"], context.sections)
-        if parsed.sections and not ({pm.text(s) for s in parsed.sections} & n["pd_sections"]) and own:
+        twins = paired_outputs.get((n["pd_id"], n["title"]), set())
+        if n["ident"] in inactive and (fact is None or not fact.every):
+            why = ("inactive", "", words.DETAIL_INACTIVE)
+            lapsed += 1
+        elif twins and pm.text(n["output"]) not in twins:
+            why = ("rule", "shared_output", words.DETAIL_SHARED_OUTPUT)
+        elif parsed.sections and not ({pm.text(s) for s in parsed.sections} & n["pd_sections"]) and own:
             why = ("rule", "section", words.DETAIL_SECTION)
         else:
             why = neurodb_only(job)
@@ -1685,6 +2127,8 @@ def pd_indicators(job: Job) -> None:
             found={"target": [None, n["target"], None], "reached": [None, n["reached"], None]},
             link=pd_link(n["pd_id"]),
         )
+    if lapsed:
+        job.result.note(words.plural(lapsed, words.NOTE_INACTIVE_ONE, words.NOTE_INACTIVE))
 
 
 # ============================================================================== PD/SPD Report/Location
@@ -1768,6 +2212,9 @@ def location_rows(job: Job) -> tuple[list[dict[str, Any]], int]:
 
 
 def locations(job: Job) -> None:
+    """PD/SPD Report/Location against By location. What it tells the later exports (the disaggregations,
+    which have no PD #, and Data Quality's list) is built from its rows (copies joined) and NeuroDB's, and set
+    at the end (``Context.reset`` on a failure)."""
     from . import reporting
 
     context, parsed = job.context, job.parsed
@@ -1793,6 +2240,7 @@ def locations(job: Job) -> None:
         copies += 1
         differ |= {n for n in names if pm.shown(first.get(n)) != pm.shown(row.get(n))}
     powerbi = list(seen.values())
+    told = _location_index(job, powerbi)
     job.note_set_aside()
     if copies:
         job.result.note(words.NOTE_COPIES.format(n=copies))
@@ -1800,7 +2248,7 @@ def locations(job: Job) -> None:
         captions = [job.kind.column(n).caption for n in sorted(differ)]
         job.result.note(words.DETAIL_COPIES.format(columns=", ".join(captions)))
     neurodb, too_many = location_rows(job)
-    neurodb = job.after_history(neurodb)
+    neurodb = _added_up(job.after_history(neurodb))
     job.note_neurodb_set_aside()
     if too_many:
         job.result.note(words.DETAIL_LIMIT.format(limit=reporting.LOCATION_LIMIT))
@@ -1823,6 +2271,7 @@ def locations(job: Job) -> None:
     if any(v > 1 for v in shared.values()):
         job.result.note(words.NOTE_SHARED_TITLE)
     newest = _newest_values([n for _p, n in pairs if n["records"] > 1])
+    added_up = 0
     for p, n in pairs:
         with job.row("different", [p["pd"], p["report"], p["indicator_title"], p["p_code"]]):
             diffs: dict[str, list[Any]] = {}
@@ -1858,9 +2307,13 @@ def locations(job: Job) -> None:
                 else:
                     options.append(older_or_fallback(job))
             if not diffs:
+                added_up += bool(n.get("added_up"))
                 job.result.same()
                 continue
             why = pick(options, context)
+            if n.get("added_up") and ("reached" in diffs or "target" in diffs):
+                more = words.DETAIL_ADDED_UP.format(n=n["added_up"])
+                why = (why[0], why[1], " ".join(x for x in (why[2], more) if x))
             if id(p) in amended:
                 why = (why[0], why[1], " ".join(x for x in (why[2], words.DETAIL_AMENDMENT) if x))
             job.add(
@@ -1870,6 +2323,8 @@ def locations(job: Job) -> None:
                 found=diffs,
                 link=_record_link(n),
             )
+    if added_up:
+        job.result.note(words.plural(added_up, words.NOTE_ADDED_UP_ONE, words.NOTE_ADDED_UP))
     if any(pm.number(p.get("reached")) == 0 for p in powerbi):
         job.result.note(words.NOTE_ZERO)
     location_facts = _held_locations(context, {p["pd"] for p in left_pb})
@@ -1884,10 +2339,10 @@ def locations(job: Job) -> None:
         )
         if pd is not None and not running(job, pd):
             why: Reason = ("pd_not_running", "", words.DETAIL_NOT_RUNNING.format(status=pd.status_label))
-        elif pm.text(p.get("report_status")) in OWED_LABELS and not found:
-            why = ("owed", "", words.DETAIL_OWED)
         elif pd is None:
             why = ("not_in_read", "", f"{words.DETAIL_NO_PD} {context.not_in_read_detail()}")
+        elif pm.text(p.get("report_status")) in OWED_LABELS and not found and _location_ended(job, p):
+            why = draft_reason(job)  # a value in a report the partner still owes: its draft
         elif not found or where not in location_facts:
             why = not_in_read(job)
         elif too_many:
@@ -1908,9 +2363,15 @@ def locations(job: Job) -> None:
     for n in left_nd:
         if above is not None and not _passes(n["reached"], above):
             continue  # Power BI keeps only the location values above 0: so does the comparison here
+        if job.has("period_end") and period_latest(
+            context, told["location_reports"], n["pd"], n["title"], n["report"], n["period_end"]
+        ):
+            why = ("rule", "period_latest", words.DETAIL_PERIOD_LATEST)
+        else:
+            why = neurodb_only(job)
         job.add(
             "only_neurodb",
-            neurodb_only(job),
+            why,
             match=[n["pd"], n["report"], n["title"], n["p_code"]],
             found={
                 "reached": [None, n["reached"], None],
@@ -1918,6 +2379,110 @@ def locations(job: Job) -> None:
             },
             link=_record_link(n),
         )
+    told["held_locations"] = {
+        (
+            pm.pd_base(n["pd"]),
+            pm.text(n["title"]),
+            pm.text(n["report"]),
+            pm.iso(n["period_end"]),
+            pm.text(n["p_code"]),
+        )
+        for n in neurodb
+    }
+    for name, value in told.items():
+        setattr(context, name, value)
+
+
+def _location_index(job: Job, powerbi: list[dict[str, Any]]) -> dict[str, Any]:
+    """What the location export tells the later exports (``powerbi_facts.Context``): its rows' PDs by title,
+    report, period (start when it has one) and P-code; the reports of each PD, title and period end; each
+    PD and title's reports; each report's Report Status."""
+    with_start = job.has("period_start")
+    pds: dict[tuple, set[str]] = defaultdict(set)
+    every: dict[tuple, set[str]] = defaultdict(set)
+    reports: dict[tuple, set[str]] = defaultdict(set)
+    titles: dict[tuple, set[tuple[str, str, str]]] = defaultdict(set)
+    status: dict[tuple, str] = {}
+    for row in powerbi:
+        pd, base = pm.pd_number(row["pd"]), pm.pd_base(row["pd"])
+        title, report = pm.text(row.get("indicator_title")), pm.text(pm.report_number(row.get("report")))
+        end, p_code = pm.iso(row.get("period_end")), pm.text(row.get("p_code"))
+        start = pm.iso(row.get("period_start")) if with_start else ""
+        pds[(title, report, start, end, p_code)].add(pd)
+        every[(title, report, end, p_code)].add(pd)
+        reports[(base, title, end)].add(report)
+        titles[(base, title)].add((pd, report, end))
+        if row.get("report_status"):
+            status.setdefault((pd, report, end), pm.text(row["report_status"]))
+    return {
+        "location_pds": dict(pds),
+        "location_any": dict(every),
+        "location_start": with_start,
+        "location_reports": dict(reports),
+        "location_titles": dict(titles),
+        "location_status": status,
+    }
+
+
+def _added_up(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """NeuroDB's location rows, two indicators of one PD that share a title (the same raw title, report,
+    P-code and period end) as one row, their values and targets added up: Power BI's location visual has no PD
+    Output, and adds them up. Never two titles equal only once their case or spaces are set aside, nor two
+    reports, places or PDs. The row added up reads no record's newest value (``records`` 1, ``chosen``
+    None)."""
+    groups: dict[tuple, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        key = (pm.pd_number(row["pd"]), row["report"], row["title"], pm.text(row["p_code"]))
+        groups[(*key, pm.iso(row["period_end"]))].append(row)
+    out = []
+    for found in groups.values():
+        if len(found) == 1:
+            out.append(found[0])
+            continue
+
+        def total(name: str, rows: list[dict[str, Any]] = found) -> float | None:
+            values = [r[name] for r in rows if r[name] is not None]
+            return sum(values) if values else None
+
+        out.append(
+            {
+                **found[0],
+                "reached": total("reached"),
+                "raw_value": total("raw_value"),
+                "target": total("target"),
+                "records": 1,
+                "record_ids": (),
+                "chosen": None,
+                "repeated": any(r["repeated"] for r in found),
+                "added_up": len(found),
+            }
+        )
+    return out
+
+
+def _location_ended(job: Job, p: dict[str, Any]) -> bool:
+    """A location row's period has ended: its own Period End, else (an export without that column) the
+    periods the report list of the same upload gives the PD's report, when they all agree; taken as ended
+    (a report owed) when the list has none of its rows, or they disagree."""
+    if job.has("period_end"):
+        return period_ended(p.get("period_end"), job.context.day)
+    listed = job.context.listed
+    rows = listed.report(p["pd"], p["report"]) if listed is not None else []
+    ended = {period_ended(r["period_end"], job.context.day) for r in rows}
+    return ended != {False}
+
+
+def period_latest(
+    context: pf.Context, shown: dict[tuple, set[str]] | None, pd: Any, title: Any, report: Any, end: Any
+) -> bool:
+    """A row only NeuroDB has that Power BI's ``is_period_latest`` left out: Power BI shows another report of
+    the same PD that ends on the same day for that indicator (and none of this one's), and NeuroDB has that
+    other report. Power BI keeps one report per indicator, location and period end."""
+    found = (shown or {}).get((pm.pd_base(pd), pm.text(title), pm.iso(end)))
+    if not found or pm.text(pm.report_number(report)) in found:
+        return False
+    held = pf.reports(context)
+    return any(held.find(pd, other, end) for other in found)
 
 
 def _units(powerbi: Any, neurodb: Any) -> bool:
@@ -1952,7 +2517,7 @@ def _location_reached(job: Job, powerbi: Any, n: dict[str, Any], newest: dict[An
     if n["repeated"]:
         return ("repeated", "", words.DETAIL_REPEATED)
     if n["reached"] is None and n["status"] in (rc.DUE, rc.OVERDUE, rc.NOT_YET_DUE):
-        return ("owed", "", words.DETAIL_OWED)  # a value in a report the partner has not sent yet
+        return draft_reason(job)  # a value in a report the partner has not sent yet: its draft
     if _units(a, n["reached"]):
         return ("rule", "units", "")
     if n["records"] > 1 and n["chosen"] in newest:
@@ -2109,9 +2674,14 @@ def disaggregations(job: Job) -> None:
             match = (a or b)["match"]
             with job.row("different", match):
                 if a is None:
+                    # Power BI kept another report of the same PD and period end (one PD's rows only)
+                    latest = len(b["pds"]) == 1 and period_latest(
+                        context, context.location_reports, b["pd"], b["match"][0], b["match"][5], key[3]
+                    )
+                    rule: Reason = ("rule", "period_latest", words.DETAIL_PERIOD_LATEST)
                     job.add(
                         "only_neurodb",
-                        neurodb_only(job),
+                        rule if latest else neurodb_only(job),
                         match=match,
                         found={"reached": [None, bv, None]},
                         link=raw_link(b["pd"], b["report_type"], context=context),
@@ -2127,7 +2697,7 @@ def disaggregations(job: Job) -> None:
                             words.DETAIL_LIMIT.format(limit=reporting.DISAGGREGATION_LIMIT),
                         )
                     else:
-                        why = _disaggregation_missing(job, a)
+                        why = _disaggregation_missing(job, a, key, with_start)
                     job.add(
                         "only_powerbi",
                         why,
@@ -2149,8 +2719,10 @@ def disaggregations(job: Job) -> None:
                     elif b["unlabelled"]:
                         options.append(("not_in_read", "", words.DETAIL_UNLABELLED))
                     else:
-                        options.append(older_or_fallback(job))
-                if job.has("report_status") and a["statuses"] and not (a["statuses"] & b["statuses"]):
+                        options.append(_disaggregation_above(job, a, key, with_start, av, bv))
+                # Power BI's status: that of its rows that carry a value (its 0 rows can be another PD's)
+                theirs = a["valued"] or a["statuses"]
+                if job.has("report_status") and theirs and not (theirs & b["statuses"]):
                     diffs["report_status"] = [sorted(a["statuses"]), sorted(b["statuses"]), None]
                     options.append(("status", "", ""))
                 if not diffs:
@@ -2235,12 +2807,15 @@ def _disaggregation_sums(
                     ],
                     "reached": None,
                     "statuses": set(),
+                    "valued": set(),  # the statuses of its rows whose Reached is a number other than 0
                 }
             value = pm.number(row.get("reached"))
             if value is not None:
                 mine["reached"] = (mine["reached"] or 0.0) + value
             if row.get("report_status"):
                 mine["statuses"].add(pm.text(row["report_status"]))
+                if value:
+                    mine["valued"].add(pm.text(row["report_status"]))
     return out
 
 
@@ -2350,7 +2925,9 @@ def _neurodb_disaggregations(
                         "repeated": block["repeated"],
                         "unlabelled": block.get("unlabelled", 0),
                         "combined": None,
+                        "pds": set(),  # every PD whose blocks add up under this key (``pd``: the first)
                     }
+                mine["pds"].add(block["programme_document"])
                 if value is not None:
                     mine["reached"] = (mine["reached"] or 0.0) + value / scale
                 if from_cross is not None:
@@ -2378,14 +2955,87 @@ def _resolve_cut_titles(
                 powerbi[new] = powerbi.pop(key)
 
 
-def _disaggregation_missing(job: Job, a: dict[str, Any]) -> Reason:
-    """A value only Power BI has (above 0): a report still owed, or one the Datamart read did not bring."""
-    statuses = a["statuses"]
-    if statuses and statuses <= OWED_LABELS:
-        return ("owed", "", words.DETAIL_OWED)
+def _disaggregation_missing(job: Job, a: dict[str, Any], key: tuple, with_start: bool) -> Reason:
+    """A value only Power BI has (above 0): the draft of a report still owed (the rows that carry a value, or
+    every row when none does, are of reports still owed for a period that has ended), else the report of the
+    PD the location export ties the row to (:func:`_tie`): not in the Datamart read, or still owed; else (no
+    tie) not in the read while the sync may lag Power BI's refresh, else not explained yet."""
+    statuses = a["valued"] or a["statuses"]
+    if statuses and statuses <= OWED_LABELS and period_ended(a["match"][3], job.context.day):
+        return draft_reason(job)
+    tie = _tie(job, key, with_start, several=True)
+    if tie == "not_in_read":
+        return not_in_read(job)
+    if tie == "owed":
+        return draft_reason(job)
     if not job.context.sync_after_refresh:
         return not_in_read(job)
     return fallback(job)
+
+
+def _disaggregation_above(
+    job: Job, a: dict[str, Any], key: tuple, with_start: bool, powerbi: Any, neurodb: Any
+) -> Reason:
+    """A value both have and Power BI's is above NeuroDB's: Power BI adds another PD's report (the export has
+    no PD #) that the Datamart read did not bring, or a draft of a report still owed; else (NeuroDB above:
+    neither explains it) an older version or not explained yet."""
+    if (pm.number(powerbi) or 0) > (pm.number(neurodb) or 0):
+        tie = _tie(job, key, with_start, several=False)
+        if tie == "not_in_read":
+            return not_in_read(job)
+        valued = a["valued"]
+        draft = bool(valued) and valued <= OWED_LABELS and period_ended(a["match"][3], job.context.day)
+        if tie == "owed" or draft:
+            return draft_reason(job)
+    return older_or_fallback(job)
+
+
+def _tie(job: Job, key: tuple, with_start: bool, *, several: bool) -> str:
+    """Why the report of a disaggregation row's PD is missing, the row tied to its PDs through the location
+    export of the same upload (by title, report, period start when both exports have one, period end and
+    P-code; never by the title alone: several PDs share standard titles): "not_in_read" (the report list says
+    so), "owed" (the report list's or the location export's status is a word of a report still owed, for a
+    period that has ended), else "". ``several``: a row tied to several PDs is explained only when none of
+    those whose report NeuroDB has has a location row of its own at that place for that title (the value
+    may be that report's, a disaggregation NeuroDB lacks)."""
+    context = job.context
+    if context.location_pds is None:
+        return ""
+    title, p_code, start, end, _kind, report, _label = key
+    if with_start and context.location_start:
+        tied = context.location_pds.get((title, report, start, end, p_code))
+    else:
+        tied = (context.location_any or {}).get((title, report, end, p_code))
+    if not tied:
+        return ""
+    reasons = {pd: _tied_reason(context, pd, report, end) for pd in sorted(tied)}
+    found = {r for r in reasons.values() if r}
+    if not found:
+        return ""
+    if several and len(reasons) > 1:
+        places = context.held_locations or set()
+        for pd, reason in reasons.items():
+            if not reason and (pm.pd_base(pd), title, report, end, p_code) in places:
+                return ""
+    return "not_in_read" if "not_in_read" in found else "owed"
+
+
+def _tied_reason(context: pf.Context, pd: str, report: str, end: str) -> str:
+    """Why a tied PD's report is missing from NeuroDB (:func:`_tie`): "owed" when Power BI's report list, else
+    its location export, gives it a word of a report still owed for a period that has ended (whatever
+    NeuroDB shows of it: PRP's progress reports carry no value); "not_in_read" when the report list's line
+    says so; else ""."""
+    labels: set[str] = set()
+    if context.listed is not None:
+        labels = {r["label"] for r in context.listed.report(pd, report) if pm.iso(r["period_end"]) == end}
+    if not labels and context.location_status:
+        found = context.location_status.get((pd, report, end))
+        labels = {found} if found else set()
+    if labels and labels <= OWED_LABELS and period_ended(end, context.day):
+        return "owed"
+    if (context.listed_reasons or {}).get((pd, report, end)) == "not_in_read":
+        return "not_in_read"
+    return ""
 
 
 # ======================================================================================== Funds
@@ -2430,6 +3080,7 @@ def fund_monitoring(job: Job) -> None:
         table = pf.fit(fit_rows, ("fc_latest_accepted", "fc_latest_counted", "fc_sum"))
         job.result.fits.append({"title": "financial_contribution", "rows": table, "set_aside": 0})
     best = pf.chosen(job.result.fits[-1]["rows"]) if fit_rows else ""
+    budgets = pf.budgets(context, {n["pd_id"] for _p, n in pairs})
     for p, n in pairs:
         with job.row("different", [p["pd"]]):
             diffs: dict[str, list[Any]] = {}
@@ -2483,6 +3134,7 @@ def fund_monitoring(job: Job) -> None:
             why = pick(options, context)
             if id(p) in amended:
                 why = (why[0], why[1], " ".join(x for x in (why[2], words.DETAIL_AMENDMENT) if x))
+            why = with_budget(why, diffs, budgets.get(n["pd_id"]))
             job.add("different", why, match=[p["pd"]], found=diffs, link=pd_link(n["pd_id"]))
     for p in left_pb:
         with job.row("only_powerbi", [p["pd"]]):
@@ -2502,6 +3154,22 @@ def fund_monitoring(job: Job) -> None:
             found={"partner": [None, n["partner"], None], "cash": [None, n["total"], None]},
             link=pd_link(n["pd_id"]),
         )
+
+
+# the funds pages' columns of a PD's budget (Partner Fund Monitoring's and Funded Programs')
+BUDGET_COLUMNS = frozenset({"unicef_planned", "cash", "partner_contribution", "partner_share"})
+
+
+def with_budget(why: Reason, diffs: dict[str, Any], budget: tuple[Any, ...] | None) -> Reason:
+    """A line whose PD budget columns differ says the budget fields NeuroDB has for the PD (a diagnostic of
+    amended PDs' budgets: an earlier amendment's, or another record's)."""
+    if budget is None or not BUDGET_COLUMNS & set(diffs):
+        return why
+    from .funds import amount
+
+    unicef, total, partner, _cash = (_number_words(amount(v)) for v in budget)
+    found = words.DETAIL_BUDGET.format(unicef=unicef, total=total, partner=partner)
+    return (why[0], why[1], pm.cut(" ".join(x for x in (why[2], found) if x)))
 
 
 def older_or_fallback(job: Job) -> Reason:
@@ -2546,6 +3214,7 @@ def funded_programmes(job: Job) -> None:
     grant_names = job.present(("donor", "fund_reservation"))
     pd_names = job.present(FUNDED_PD_COLUMNS)
     seen_pds: set[str] = set()
+    budgets = pf.budgets(context, {n["pd_id"] for _p, n in pairs})
     for p, n in pairs:
         with job.row("different", [p["pd"], p["grant"]]):
             diffs: dict[str, list[Any]] = {}
@@ -2608,10 +3277,13 @@ def funded_programmes(job: Job) -> None:
             why = pick(options, context)
             if id(p) in amended:
                 why = (why[0], why[1], " ".join(x for x in (why[2], words.DETAIL_AMENDMENT) if x))
+            why = with_budget(why, diffs, budgets.get(n["pd_id"]))
             job.add("different", why, match=[p["pd"], p["grant"]], found=diffs, link=pd_link(n["pd_id"]))
     funded = {pm.pd_base(n["pd"]) for n in neurodb}
     for p in left_pb:
         why = pd_reason(job, p["pd"])
+        if why is None:
+            why = funds_elsewhere(context, p["pd"])
         if why is None:
             why = ("rule", "fr_only", "") if pm.pd_base(p["pd"]) not in funded else older_or_fallback(job)
         job.add(
@@ -2646,14 +3318,33 @@ def funded_programmes(job: Job) -> None:
             )
 
 
+def funds_elsewhere(context: pf.Context, pd: Any) -> Reason | None:
+    """A Funded Programs row only Power BI has, whose funds reservation lines name its PD while NeuroDB links
+    them to another PD, or to none (a number of an unclear amendment, or of a PD NeuroDB does not hold): never
+    "funds reservation only", which would hide it. Never paired across PDs by grant and amount."""
+    linked = pf.fr_elsewhere(context).get(pm.pd_base(pd))
+    if not linked:
+        return None
+    others = sorted(n for n in linked if n and pm.pd_base(n) != pm.pd_base(pd))
+    if others:
+        return ("funds_elsewhere", "", words.DETAIL_FUNDS_ELSEWHERE.format(pd=", ".join(others[:3])))
+    if "" in linked:
+        return ("funds_elsewhere", "", words.DETAIL_FUNDS_UNLINKED)
+    return None
+
+
 # ===================================================================================== the comparers
 COMPARERS: dict[str, Callable[[Job], None]] = {
     "program_performance": program_performance,
+    **dict.fromkeys(PARTNER_COUNTS, partner_count),
     "partner_cards": partner_cards,
     "follow_up": follow_up,
+    **dict.fromkeys(CARD_STATUSES, status_card),
     "by_sector": by_sector,
     "by_month": by_month,
+    **dict.fromkeys(DQ_CARDS, dq_figure),
     "dq_card": dq_card,
+    "missing_targets": missing_targets,
     "dq_list": dq_list,
     "pd_indicators": pd_indicators,
     "report_list": report_list,
@@ -2668,6 +3359,14 @@ def neurodb_count(kind: str, parsed: Filter, context: pf.Context) -> int:
     """The rows NeuroDB's page has for an export Power BI exported empty (its verdict says how many)."""
     from . import reporting
 
+    if kind in PARTNER_COUNTS:
+        return int(page.partner_performance(parsed, context)[PARTNER_COUNTS[kind]])
+    if kind in CARD_STATUSES:
+        return sum(1 for r in page.reports(parsed, context) if r["status"] == CARD_STATUSES[kind])
+    if kind in DQ_CARDS:
+        return int(page.quality(parsed, context)[kind])
+    if kind == "missing_targets":
+        return len(page.missing_targets(parsed, context))
     if kind in ("report_list", "follow_up", "by_sector", "by_month", "partner_cards"):
         found = page.reports(parsed, context)
         if kind == "follow_up":

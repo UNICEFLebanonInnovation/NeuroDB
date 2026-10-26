@@ -11,8 +11,9 @@ by the upload page's *Upload and compare* and *Compare again*; never from a shel
    looked for in the records it kept (Raw eTools data's fields): NeuroDB's pages never read them, so they are
    applied as NeuroDB reads them, and the export's note says whether the records carry them.
 4. A Datamart sync or a KM Database load started meanwhile stops it (the rows stay: *Compare again* works).
-5. **Comparing**, export by export in Power BI's order (the report list and the Data Quality list first: the
-   counted visuals are explained from them): an export whose filter names another country is not compared, an
+5. **Comparing**, export by export in Power BI's order (the report list, the location export and the Data
+   Quality list first: the counted visuals, the follow-up list, the disaggregations and the cards are
+   explained from them): an export whose filter names another country is not compared, an
    export with no row is "Empty in Power BI" (with the rows NeuroDB's page has for its filter); every other
    export is compared by its kind's comparer (``powerbi_kinds.COMPARERS``) in its own read-only snapshot of
    the data. Its lines are kept compactly during the snapshot, and every export's are written once all are
@@ -737,8 +738,10 @@ def fields_in_records(run: Any) -> set[str]:
 
 def _record_fields(upload: PowerBIUpload, run: Any) -> None:
     """Each clause on one of Power BI's own fields is applied as NeuroDB reads it: none of NeuroDB's pages
-    reads those fields, even where the records carry them, and the comparison compares with the pages. The
-    export's note says whether the records carry the field (Raw eTools data's fields)."""
+    reads those fields, even where the records carry them, and the comparison compares with the pages.
+    ``is_blueprint_canonical`` has its own state (``all_listed``): NeuroDB's pages list every PD indicator
+    eTools sends, never "cannot apply" (its rows would all read "A filter NeuroDB cannot apply"). The export's
+    note says whether the records carry the field (Raw eTools data's fields)."""
     carried = fields_in_records(run)
     for export in exports_of(upload).exclude(state="failed"):
         parsed = powerbi_filters.Filter.from_json(export.filters)
@@ -748,12 +751,14 @@ def _record_fields(upload: PowerBIUpload, run: Any) -> None:
             if clause.field not in powerbi_filters.RECORD_FIELDS or clause.state not in (
                 "as_read",
                 "from_records",
+                "all_listed",
             ):
                 continue
             sentence = words.IN_RECORDS if clause.field in carried else words.NOT_IN_RECORDS
             notes.append(sentence.format(field=clause.field, words=words.AS_READ[clause.field]))
-            changed = changed or clause.state != "as_read"
-            clause.state = "as_read"
+            state = "all_listed" if clause.field == "is_blueprint_canonical" else "as_read"
+            changed = changed or clause.state != state
+            clause.state = state
         if changed or notes != export.notes:
             export.filters = parsed.to_json()
             export.clauses = _clauses(parsed)
@@ -784,7 +789,8 @@ def _context(upload: PowerBIUpload) -> powerbi_facts.Context:
 
 
 def _in_order(exports: QuerySet[PowerBIExport]) -> list[PowerBIExport]:
-    """Power BI's order, the report list and the Data Quality list first (the counted visuals and the card are
+    """Power BI's order, the report list, the location export and the Data Quality list first
+    (``powerbi_kinds.FIRST``: the counted visuals, the follow-up list, the disaggregations and the cards are
     explained from them)."""
     found = list(exports)
     first = [e for kind in powerbi_kinds.FIRST for e in found if e.kind == kind]
@@ -897,6 +903,7 @@ def _compare(
         )
         return result
     except Exception as exc:  # noqa: BLE001 - one export never stops the others; its step and class only
+        context.reset(export.kind)  # what it tells the later exports: never half of it
         if step == "comparing" and not isinstance(exc, MemoryError):  # out of memory: no step (failure)
             step = _step_of(exc)
         traceback.clear_frames(exc.__traceback__)  # the comparer's frames let go of what they held
@@ -964,8 +971,10 @@ def _write_lines(compared: list[tuple[PowerBIExport, powerbi_match.Result]]) -> 
         total = sum(written[export.pk].values())
         counts["written"] = total
         counts["written_groups"] = {str(g): n for g, n in sorted(written[export.pk].items())}
-        if counts.get("lines", 0) > total:
-            note = words.NOTE_LINES_CUT.format(n=counts["lines"] - total)
+        # the lines a note states once are counted, never listed: not "counted but not listed" here
+        unlisted = counts.get("lines", 0) - sum((counts.get("noted") or {}).values()) - total
+        if unlisted > 0:
+            note = words.NOTE_LINES_CUT.format(n=unlisted)
             counts["notes"] = [*(counts.get("notes") or []), note]
         export.counts = counts
         PowerBIExport.objects.filter(pk=export.pk).update(counts=counts)

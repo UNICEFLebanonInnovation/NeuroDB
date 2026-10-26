@@ -1,6 +1,7 @@
-"""The 13 exports of the PRP Power BI report that Compare with Power BI reads (Admin → Data and sync), and
-how one is recognised: **by its columns, never by its file name** (Power BI names its files after the visual,
-and people rename them).
+"""The exports of the PRP Power BI report that Compare with Power BI reads (Admin → Data and sync): its
+tables, its charts and its cards, and how one is recognised: **by its columns, never by its file name**
+(Power BI names its files after the visual, and people rename them). A card's export holds one column, the
+card's own name (``powerbi_names.POWERBI_CARDS``).
 
 Each kind lists Power BI's column captions, the ones it needs and the ones it may have, with the type NeuroDB
 reads each as. A file is of a kind when every needed caption is in its header, enough of its optional ones
@@ -17,8 +18,8 @@ never stored, shown or sent anywhere, and neither is a column holding values und
 a column's name be a space). Captions are structure, not data: only those of some kind are ever named on a
 page; the others are counted.
 
-Power BI's page and visual for each kind are in ``comparison.POWERBI_VISUALS``, the one place for Power BI's
-names.
+Power BI's page and visual (or card) for each kind are in ``powerbi_names.POWERBI_VISUALS``, the one place for
+Power BI's names.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from . import comparison
+from . import powerbi_names as names
 
 # the types a column is read as (powerbi_read.coerce)
 TEXT = "text"  # a free text or a name: cleaned of people when free_text
@@ -104,8 +105,8 @@ class Kind:
 
     @property
     def visual(self) -> tuple[str, str]:
-        """(Power BI page, visual), from ``comparison.POWERBI_VISUALS``."""
-        return comparison.POWERBI_VISUALS[VISUAL_OF.get(self.key, self.key)]
+        """(Power BI page, visual or card), from ``powerbi_names.POWERBI_VISUALS``."""
+        return names.POWERBI_VISUALS[VISUAL_OF.get(self.key, self.key)]
 
     @property
     def order(self) -> int:
@@ -126,6 +127,11 @@ def _sections(caption: str = "Section", name: str = "section") -> Column:
 
 def _count(caption: str, name: str) -> Column:
     return Column(caption, name, COUNT)
+
+
+def _card(key: str) -> Kind:
+    """A card of the report: one figure, under the card's own name (Power BI's chart layout)."""
+    return Kind(key, SHEET1, (_count(names.visual(key), "count"),))
 
 
 PD = Column("PD #", "pd", CODE)
@@ -154,6 +160,7 @@ _KINDS = (
             PARTNER,
         ),
     ),
+    *(_card(key) for key in ("partners_count", "partners_reported", "partners_not_reported")),
     Kind(
         "partner_cards",
         EXPORT,
@@ -171,6 +178,7 @@ _KINDS = (
             Column("Report Due Date", "due_date", DATE),
         ),
     ),
+    *(_card(key) for key in ("accepted_report", "submitted_report", "due_report", "overdue_report")),
     Kind("by_sector", EXPORT, (_sections(), *STATUSES)),
     Kind(
         "by_month",
@@ -188,7 +196,15 @@ _KINDS = (
         ),
         at_least=2,
     ),
-    Kind("dq_card", SHEET1, (_count("No. of Indicators without Reached", "indicators"),)),
+    *(_card(key) for key in ("pd_count", "active_pds", "ended_pds", "dq_total", "dq_with_reached")),
+    Kind("dq_card", SHEET1, (_count(names.visual("dq_tiles"), "indicators"),)),
+    *(_card(key) for key in ("dq_with_target", "dq_without_target")),
+    Kind(
+        "missing_targets",
+        EXPORT,
+        (_sections(), PD, INDICATOR, Column("Target", "target", NUMBER)),
+        excluded=("Reached", "PD Status", "Report #"),  # another visual's columns
+    ),
     Kind(
         "dq_list",
         EXPORT,

@@ -116,9 +116,12 @@ def test_the_sidebar_and_the_admin_home_link_it_for_validators(client, roles, ad
 def test_the_first_page_says_how_to_export_every_visual_in_power_bi_s_order(checker):
     html = checker.get(INDEX).content.decode()
     visuals = re.findall(r"<li>(.*?)</li>", html.split("data-pbi-visuals", 1)[1].split("</ol>", 1)[0])
-    assert len(visuals) == 13
+    assert len(visuals) == 16  # each table and chart, a page's cards on one line
     order = [comparison.POWERBI_PAGE_ORDER.index(v.split(" → ")[0]) for v in visuals]
     assert order == sorted(order)
+    # every card is asked for, by its name
+    cards = " ".join(v for v in visuals if " → the cards " in v).replace("&#x27;", "'")
+    assert all(name in cards for _page, name in comparison.POWERBI_CARDS.values())
     assert words.UPLOAD_BUTTON in html and 'enctype="multipart/form-data"' in html
 
 
@@ -137,7 +140,8 @@ def test_the_upload_page_lists_every_power_bi_page_in_order(checker, started):
     table = html.split("data-pbi-pages", 1)[1].split("</table>", 1)[0]
     pages = re.findall(r'<th scope="row" rowspan="\d+">(.*?)</th>', table)
     assert pages == [p.replace("&", "&amp;") for p in comparison.POWERBI_PAGE_ORDER]
-    assert table.count("<td>—</td><td>—</td><td>—</td>") == 11  # 13 visuals, 2 uploaded
+    # every visual and card but the 2 uploaded
+    assert table.count("<td>—</td><td>—</td><td>—</td>") == len(px.KINDS) - 2
     verdicts = re.findall(r'data-pbi-verdict="(\w+)"', table)
     assert len(verdicts) == 10 and verdicts.count("not_uploaded") == 8  # 2 of the 10 pages have an export
     assert "cards.xlsx" in table and "list.xlsx" in table
@@ -145,7 +149,7 @@ def test_the_upload_page_lists_every_power_bi_page_in_order(checker, started):
     assert 1 <= len(todo) <= 4
     assert todo[0].startswith("Needs a look: ")  # the fake rows against an empty NeuroDB
     assert "1 file was not read: see why below, then export it again." in todo
-    assert "11 visuals are not uploaded: export them too (see How to export)." in todo
+    assert f"{len(px.KINDS) - 2} visuals are not uploaded: export them too (see How to export)." in todo
     assert words.NOT_EXCEL.format(name="notes.txt") in html
     assert "Skipped 3 hidden files a Mac adds to a zip." in html
     assert (
@@ -182,7 +186,7 @@ def test_a_filter_neurodb_cannot_apply_is_said_on_the_upload_and_export_pages(ch
     html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
     todo = _todo(html)
     assert todo[0].startswith("Needs a look: ") and todo[1:] == [
-        words.plural(12, words.TODO_MISSING_ONE, words.TODO_MISSING),
+        words.plural(len(px.KINDS) - 1, words.TODO_MISSING_ONE, words.TODO_MISSING),
         words.TODO_CANNOT.format(
             clauses="the PD status slicer; the Section slicer; the actual_value filter in the Filters pane; "
             "the name filter in the Filters pane"
@@ -200,11 +204,17 @@ def test_a_filter_neurodb_cannot_apply_is_said_on_the_upload_and_export_pages(ch
 
 
 def test_every_slicer_what_to_do_now_names_is_on_the_report():
-    """Power BI's fields with a slicer, by the slicer's name in comparison.py (the one place for Power BI's
-    names)."""
-    slicers = {*comparison.POWERBI_ONLY_SLICERS, *comparison.POWERBI_SLICERS["partner-monitoring"].values()}
-    assert set(comparison.POWERBI_FIELD_SLICERS.values()) <= slicers
-    assert set(comparison.POWERBI_FIELD_SLICERS) <= set(powerbi_filters.FIELDS)
+    """Power BI's fields with a slicer, by the slicer's name on the export's page (powerbi_names, the one place
+    for Power BI's names): Program Performance writes Reporting Year, the report list's page Reporting year."""
+    from neurodb.datamart import powerbi_names, powerbi_results
+
+    every = {s for found in powerbi_names.POWERBI_PAGE_SLICERS.values() for s in found}
+    for field in powerbi_names.FIELD_SLICERS:
+        assert set(powerbi_names.slicer(field).split(" / ")) <= every, field
+    assert set(powerbi_names.FIELD_SLICERS) <= set(powerbi_filters.FIELDS)
+    year = powerbi_filters.Clause(words="", state="cannot", field="reporting_year")
+    assert powerbi_results.to_clear(year, "program_performance") == "the Reporting Year slicer"
+    assert powerbi_results.to_clear(year, "report_list") == "the Reporting year slicer"
 
 
 @pytest.mark.parametrize("how", ["stale", "start_failed", "locked", "other_job_later", "stopped"])
@@ -248,11 +258,12 @@ def test_a_failed_upload_says_why_first_and_never_that_there_is_nothing_to_do(ch
     assert words.NOT_UPLOADED not in table and table.count('data-pbi-verdict="stopped"') == 10  # every page
     if how == "other_job_later":  # read already, never compared: Compare again (each export and each page)
         assert upload.error == words.OTHER_JOB_LATER and words.AGAIN_BUTTON in html
-        assert table.count(words.STOPPED_BEFORE) == 13 + 10
-        assert table.count(words.STOPPED_BEFORE_ACTION) == 13 + 10
+        assert table.count(words.STOPPED_BEFORE) == len(px.KINDS) + 10
+        assert table.count(words.STOPPED_BEFORE_ACTION) == len(px.KINDS) + 10
     else:  # the copies were emptied: upload the files again
         assert "upload the files again" in upload.error and words.AGAIN_BUTTON not in html
-        assert table.count(words.NOT_READ_STATE) == 13 and table.count(words.NOT_READ_ACTION) == 13 + 10
+        n = len(px.KINDS)
+        assert table.count(words.NOT_READ_STATE) == n and table.count(words.NOT_READ_ACTION) == n + 10
         assert words.COVERS_EVERY_YEAR not in table  # nothing of their filters was read
 
 
@@ -354,7 +365,7 @@ def test_every_kind_has_a_power_bi_visual_and_every_page_is_in_power_bi_s_order(
     assert {page for page, _visual in comparison.POWERBI_VISUALS.values()} <= set(
         comparison.POWERBI_PAGE_ORDER
     )
-    assert [k.order for k in px.KINDS.values()] == list(range(13))
+    assert [k.order for k in px.KINDS.values()] == list(range(len(px.KINDS)))
     pages = [comparison.POWERBI_PAGE_ORDER.index(k.visual[0]) for k in px.KINDS.values()]
     assert pages == sorted(pages)
 
@@ -424,9 +435,11 @@ def test_an_exports_page_lists_its_lines_needs_a_look_first_with_two_values_and_
     url = reverse("admin:datamart_powerbi_export", args=[upload.pk, export.pk])
     html = checker.get(url).content.decode()
     reasons = html.split("data-pbi-reasons", 1)[1].split("</ul>", 1)[0]
-    assert "Needs a look: Not in NeuroDB: not in the Datamart read (2)" in reasons
-    expected = html.split("data-pbi-expected", 1)[1].split("</p>", 1)[0]
-    assert "A report still owed (118)" in expected and "?reason=owed&amp;group=1" in expected
+    look = reasons.index("Needs a look: Not in NeuroDB: not in the Datamart read (2)")
+    # reports still owed: their own group, open, after the lines that need a look (never expected)
+    owed_at = reasons.index("NeuroDB cannot show this yet: A report still owed (118)")
+    assert look < owed_at and "?reason=owed&amp;group=5" in reasons
+    assert "data-pbi-expected" not in html
     table = html.split("data-pbi-lines", 1)[1].split("</table>", 1)[0]
     first = table.split("<tr data-pbi-line>", 2)[1]
     assert (
@@ -474,7 +487,6 @@ def zipfile_text(data: bytes) -> str:
 def test_the_excel_writes_a_different_line_one_row_per_column_and_stops_at_its_caps(
     checker, started, fake_world, monkeypatch
 ):
-    import datetime
     import io
 
     import openpyxl
@@ -482,10 +494,8 @@ def test_the_excel_writes_a_different_line_one_row_per_column_and_stops_at_its_c
     from neurodb.datamart import powerbi_results, raw
 
     rows = [_report(report_status="Submitted", partner="SOMEONE ELSE", report="QPR1")]
-    rows += [
-        _report(report=f"HR{n}", report_status="Overdue", period_end=datetime.date(2026, 8, 31))
-        for n in range(1, 30)
-    ]
+    # Power BI lists the report again, with another status (expected lines, written after the one that differs)
+    rows += [_report(report_status="Overdue", report="QPR1") for _n in range(1, 30)]
     drop = tuple(n for n in REPORT_DROP if n != "partner")
     upload = pf.compared(checker, ("list.xlsx", pf.export("report_list", rows, drop=drop)))
     monkeypatch.setattr(powerbi_results, "XLSX_SHEET_ROWS", 10)

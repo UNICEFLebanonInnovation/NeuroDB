@@ -145,20 +145,21 @@ def test_partner_monitoring_figures_are_the_page_s(validator, more, frozen, para
 
 
 def test_rows_follow_power_bi_s_pages_and_visuals(more, frozen):
-    """Every visual once, in Power BI's order; a block whose visual shows only some of its figures has the
-    others on the page's cards first."""
+    """Every block once, in Power BI's order of pages and visuals; each row on the card or the visual of Power
+    BI that shows its figure, or on none (NeuroDB's own figure)."""
+    known = {
+        *(v for _page, v in comparison.POWERBI_VISUALS.values()),
+        comparison.POWERBI_ITEMS["no_visual"],
+    }
     for page in comparison.PAGES:
-        order = []
-        for p, visuals in comparison.POWERBI_PAGES[page]:
-            for block, v in visuals:
-                if block in comparison.VISUAL_FIGURES:
-                    order.append((p, comparison.POWERBI_ITEMS["cards"]))
-                order.append((p, v))
-        seen = []
-        for figure in comparison.figures(comparison.read(page, {"pd_status": ""}, TODAY)):
-            if not seen or seen[-1] != (figure.powerbi_page, figure.visual):
-                seen.append((figure.powerbi_page, figure.visual))
-        assert seen == order, page
+        found = comparison.figures(comparison.read(page, {"pd_status": ""}, TODAY))
+        pages = [comparison.POWERBI_PAGE_ORDER.index(f.powerbi_page) for f in found]
+        assert pages == sorted(pages), page
+        assert {f.visual for f in found} <= known, page
+        for f in found:
+            card = comparison.CARD_FIGURES.get(f.key)
+            if card:
+                assert (f.powerbi_page, f.visual) == comparison.POWERBI_CARDS[card], f.key
 
 
 def test_a_figure_is_named_after_a_visual_only_when_that_visual_shows_it(more, frozen):
@@ -173,8 +174,13 @@ def test_a_figure_is_named_after_a_visual_only_when_that_visual_shows_it(more, f
     assert sorted(f.key for f in figures if f.visual == partners) == sorted(
         comparison.VISUAL_FIGURES["partner_cards"]
     )
-    on_cards = {f.key for f in figures if f.visual == comparison.POWERBI_ITEMS["cards"]}
-    assert {"dq.pds", "dq.with_target", "pr.partners", "pr.partners_status.not_yet_due"} <= on_cards
+    named = {f.key: f.visual for f in figures}
+    assert named["dq.pds"] == "PD Count" and named["dq.with_target"] == "No. of Indicators with Target"
+    assert named["pr.partners"] == "# of Partners" and named["pr.status.overdue"] == "Overdue Report"
+    assert named["dq.reached_above_zero"] == "No. of Indicators with Reached"
+    none = comparison.POWERBI_ITEMS["no_visual"]  # NeuroDB's own figures: no card or visual of Power BI
+    for key in ("pr.partners_status.not_yet_due", "pr.indicator_reports", "dq.running", "dq.zero_reached"):
+        assert named[key] == none, key
 
 
 def test_program_performance_counts_every_indicator_past_the_page_s_list(
@@ -222,7 +228,9 @@ def test_the_compare_sheet_leaves_power_bi_s_cells_empty_and_writes_two_formula_
     n = first[0].row
     assert first[8].value == f'=IF(ISNUMBER(H{n}),H{n}-F{n},"")'
     assert first[9].value == f'=IF(ISNUMBER(H{n}),IF(H{n}=F{n},"Same","Differs"),"")'
-    assert "eTools reporting checks" in next(r[10] for r in rows if r[3] == "Overdue")
+    assert "eTools reporting checks" in next(
+        r[10] for r in rows if r[3] == comparison.card("pr.status.overdue")
+    )
 
 
 def test_the_program_performance_sheet_writes_two_formula_columns(validator, more, frozen):
@@ -378,10 +386,13 @@ def test_the_slicers_to_set_and_the_neurodb_filters_to_clear(validator, more, fr
     }
     slicers, clear = comparison.settings_rows(comparison.read(PR, params, TODAY))
     slicers = dict(slicers)
-    assert slicers["Reporting Year"] == "2026" and slicers["Section"] == "Child Protection"
+    year = comparison.POWERBI_SLICERS[PR]["year"]
+    assert year == "Reporting year"  # as Reporting Progress and the PD/SPD Report pages write it
+    assert slicers[year] == "2026" and slicers["Section"] == "Child Protection"
     assert slicers["Partner"] == "Amel Association"
     assert slicers["PD status"] == "Active, Signed, Suspended"  # the page's default: the running PDs
-    assert "Report status" not in slicers  # Power BI's report has no such slicer: a NeuroDB filter to clear
+    # Power BI's Report status is not NeuroDB's (its Due covers reports not yet due): cleared on both sides
+    assert "Report status" not in slicers and "Report status" in comparison.POWERBI_TO_CLEAR[PR]
     assert dict(clear) == {
         "Search": "girls",
         "Report #": "QPR1",
@@ -395,7 +406,9 @@ def test_the_slicers_to_set_and_the_neurodb_filters_to_clear(validator, more, fr
     pm = {"year": "2026", "scope": "year", "report_type": "HR", "status": "on_track", "cp_output": "x"}
     pm |= {"gender": "Female", "age_group": ["12-17", "Under 5"]}
     slicers, clear = comparison.settings_rows(comparison.read(PM, pm, TODAY))
-    assert dict(slicers)["Reporting Year"] == "2026" and dict(slicers)["PD status"].startswith("Every status")
+    year = comparison.POWERBI_SLICERS[PM]["year"]
+    assert year == "Reporting Year / Reporting year"  # Program Performance's, then Data Quality's
+    assert dict(slicers)[year] == "2026" and dict(slicers)["PD status"].startswith("Every status")
     assert dict(clear) == {
         "CP output": "x",  # the indicator's CP output: Power BI's CP Output search matches the PD's
         "Programme documents": "Every programme document running in 2026, closed ones too",
@@ -405,7 +418,7 @@ def test_the_slicers_to_set_and_the_neurodb_filters_to_clear(validator, more, fr
     }
     assert set(comparison.TAG_WORDS) == set(TAG_FIELDS)
     slicers, _clear = comparison.settings_rows(comparison.read(PM, {"year": "all"}, TODAY))
-    assert dict(slicers)["Reporting Year"] == "Every year"
+    assert dict(slicers)[year] == "Every year"
     # the programme documents the scope keeps, in words that say what the figures keep: every one with "all",
     # the closed programme document that ran in 2024 too; only those running in the year with "year"
     scopes = {
@@ -438,10 +451,10 @@ def test_a_neurodb_filter_that_means_something_else_in_power_bi_is_cleared_on_bo
     document is an SPD); Partner monitoring's search (an indicator's title or output) is not Power BI's Indicator
     Title box, nor its CP output Power BI's CP Output search (every CP output of the PD). Set, they are NeuroDB
     filters to clear; Power BI's three are cleared on both pages."""
+    # the pages of each sheet that have them: Program Performance its CP Output and Indicator Title boxes
+    assert {"Emergency indicator", "CP Output", "Indicator Title"} <= set(comparison.POWERBI_TO_CLEAR[PM])
+    assert "Emergency indicator" in comparison.POWERBI_TO_CLEAR[PR]
     for page in comparison.PAGES:
-        assert {"Emergency indicator", "CP Output", "Indicator Title"} <= set(
-            comparison.POWERBI_TO_CLEAR[page]
-        )
         assert {"Emergency indicator", "CP Output", "Indicator Title"}.isdisjoint(
             comparison.POWERBI_SLICERS[page].values()
         ), page
@@ -461,13 +474,13 @@ def test_a_neurodb_filter_that_means_something_else_in_power_bi_is_cleared_on_bo
 
 
 def test_power_bi_s_names_come_from_one_place(validator, more, frozen, monkeypatch):
-    """Every Power BI page, visual and slicer either workbook names is read from POWERBI_PAGES (made from
-    POWERBI_VISUALS), POWERBI_PD_PAGE, POWERBI_SLICERS, POWERBI_ONLY_SLICERS and POWERBI_TO_CLEAR: renamed there,
-    no old name is left in a cell."""
+    """Every Power BI page, visual, card and slicer either workbook names is read from POWERBI_PAGES (made from
+    POWERBI_VISUALS), POWERBI_CARDS, POWERBI_PD_PAGE, POWERBI_SLICERS, POWERBI_ONLY_SLICERS and POWERBI_TO_CLEAR
+    (all from powerbi_names): renamed there, no old name is left in a cell."""
     renamed: dict[str, str] = {}
 
     def new(name: str) -> str:
-        return renamed.setdefault(name, f"Renamed {len(renamed) + 1:02}")
+        return renamed.setdefault(name, f"Renamed {len(renamed) + 1:02}") if name else ""
 
     pages = {
         page: tuple((new(name), tuple((block, new(v)) for block, v in visuals)) for name, visuals in found)
@@ -477,6 +490,8 @@ def test_power_bi_s_names_come_from_one_place(validator, more, frozen, monkeypat
         page: {k: new(v) for k, v in found.items()} for page, found in comparison.POWERBI_SLICERS.items()
     }
     monkeypatch.setattr(comparison, "POWERBI_PAGES", pages)
+    cards = {key: (new(page), new(name)) for key, (page, name) in comparison.POWERBI_CARDS.items()}
+    monkeypatch.setattr(comparison, "POWERBI_CARDS", cards)
     monkeypatch.setattr(comparison, "POWERBI_SLICERS", slicers)
     monkeypatch.setattr(comparison, "POWERBI_PD_PAGE", new(comparison.POWERBI_PD_PAGE))
     monkeypatch.setattr(
@@ -491,7 +506,7 @@ def test_power_bi_s_names_come_from_one_place(validator, more, frozen, monkeypat
         {page: tuple(new(v) for v in found) for page, found in comparison.POWERBI_TO_CLEAR.items()},
     )
     # NeuroDB's own words too (columns of the lists, a filter, a view of Partner monitoring): not searched
-    own = {"Partner", "Section", "PD status", "Program Performance"}
+    own = {"Partner", "Section", "PD status", "Program Performance", "Report #", "Indicator"}
     text = ""
     for page in comparison.PAGES:
         book = _book(validator, page, {"pd_status": ""})
@@ -529,7 +544,7 @@ def test_statuses_read_for_a_past_day_read_as_the_page_reads_them(validator, mor
     assert then["pr.status.overdue"].value < now["pr.status.overdue"].value
     compare = _book(validator, PR, {"day": "2026-06-22"})["Compare"]
     shown = {r[3]: r[5] for r in _table(compare)}
-    assert shown["Overdue"] == then["pr.status.overdue"].value
+    assert shown[comparison.card("pr.status.overdue")] == then["pr.status.overdue"].value
     assert compare["B3"].value == "Statuses read for" and compare["C3"].value == "22 Jun 2026"
     url = reverse("reports:check_compare", args=[PR])
     for refused in ("2026-06-16", "2026-07-02", "yesterday"):  # 15 days before, tomorrow, not a day
