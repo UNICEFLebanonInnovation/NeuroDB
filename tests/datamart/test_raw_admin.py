@@ -30,6 +30,7 @@ from neurodb.accounts.roles import ADMIN, SECTION_EDITOR, VALIDATORS, VIEWER
 from neurodb.core.models import SyncRun
 from neurodb.datamart import catalogue, raw, reporting, runfacts
 from neurodb.datamart import models as dm
+from neurodb.integrations.etools import datamart_sync as sync
 from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS, FR_VENDOR_KINDS
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
@@ -1218,6 +1219,105 @@ def test_a_partner_report_row_shows_its_report_and_the_status_the_pages_read(cli
     assert NAME not in html and EMAIL not in html
     assert "submitted_by (people)" in html and "1 person (not shown)" in html
     assert "the sync of" in html and "(the last one)" in html
+
+
+PROOF = {"linked": 14, "proven": True, "by": ["programme_document", "prp_id"], "pairs": [],
+         "agrees": {"compared": 12, "same": 11, "elsewhere": 1, "dated": 11, "same_day": 10},
+         "owed": 3, "owed_before_history": 0, "stale": 2, "twins": 0, "ove_read_due": 0, "lacking": 0,
+         "unsent_other_word": 0, "passes": True, "days": 2, "shown": True, "shown_since": "2026-10-14",
+         "shown_why": ""}  # fmt: skip
+
+
+def _prp_report(pd, n: int, **data) -> dm.DatamartDocument:
+    """A PRP progress report as sources/prp/unicefprogressreport sends it: its narrative and the people who wrote
+    it beside the fields NeuroDB reads."""
+    record = {"programme_document": 77, "report_type": "QPR", "report_number": f"QPR{n}", "status": "Due",
+              "start_date": "2026-01-01", "end_date": "2026-03-31", "due_date": "2026-04-15",
+              "submission_date": None, "narrative": f"Reached as planned, says {NAME}",
+              "submitted_by_email": EMAIL, **data}  # fmt: skip
+    return dm.DatamartDocument.objects.create(dataset="prp_progress_reports", record_key=f"r{n}", intervention=pd,
+                                              partner=pd.partner if pd else None, date=datetime.date(2026, 3, 31),
+                                              data=record)  # fmt: skip
+
+
+def test_the_prp_progress_reports_page_says_whether_they_are_tied_to_their_programme_documents(
+    client_validator, world
+):
+    """Raw eTools data → PRP progress reports says, as the last sync recorded it, whether the data proves their
+    link to the programme documents, how the reports the partner reports also have agree, the reports still owed,
+    and whether the pages can show them; its list gives each report's PD and partner in NeuroDB and its dates,
+    never its narrative or a person. The first page says it beside the dataset."""
+    _prp_report(world["running"], 1)
+    _prp_report(None, 2)
+    url = f"{INDEX}prp_progress_reports/"
+    _run("prp_progress_reports", rows_in=2, details={"read": 2, "progress_reports_pd_link": PROOF})
+    said = raw.prp_link_words(sync.recorded_pd_link())
+    assert said == (
+        "Tied to their programme document: yes, the data proves it. Of the 12 reports also in the partner "
+        "reports, 11 end on the same day (10 of 11 on the same submission day). Still owed for a period that has "
+        "ended: 3 (2 more no longer returned by PRP's reads, not counted). Can be shown on the pages: yes, since "
+        "14 Oct 2026."
+    )
+    response = client_validator.get(url)
+    html = response.content.decode()
+    assert escape(said) in html
+    headings = response.context["columns"]
+    assert {"PD in NeuroDB", "Partner in NeuroDB", "Period end", "Due", "Submitted"} <= set(headings)
+    assert "LEB/PD1" in html and "Amel Association" in html and "not linked" in html
+    assert "2026-04-15" in html  # the due day
+    assert NAME not in html and EMAIL not in html and "Reached as planned" not in html
+    index = client_validator.get(INDEX).content.decode()
+    assert "reports still owed can be shown on the pages: yes, since 14 Oct 2026" in index
+
+    unproven = {**PROOF, "proven": False, "why": "not_clear", "passes": False, "days": 0, "shown": False,
+                "shown_since": "", "shown_why": "not_proven"}  # fmt: skip
+    _run("prp_progress_reports", ago=0, rows_in=2, details={"read": 2, "progress_reports_pd_link": unproven})
+    assert raw.prp_link_words(sync.recorded_pd_link()) == (
+        "Tied to their programme document: no, two ways of matching them disagree (see check 11). Of the 12 "
+        "reports also in the partner reports, 11 end on the same day (10 of 11 on the same submission day). "
+        "Still owed for a period that has ended: 3 (2 more no longer returned by PRP's reads, not counted). Can "
+        "be shown on the pages: no: their link to the programme documents is not proven."
+    )
+    _run("prp_programme_documents", ago=0, status=SyncRun.Status.FAILED)
+    assert raw.prp_link_words(sync.recorded_pd_link()) == (
+        "Can be shown on the pages: no: the last sync of PRP's progress reports or of their programme documents "
+        "failed or received nothing."
+    )
+
+
+def test_the_partner_reports_whose_status_differs_in_prp_are_listed(client_validator, world):
+    """A report eTools no longer sends keeps its rows' word (Due: nothing submitted); PRP's own progress report of
+    the same programme document, type, number and period end says Accepted. The rows are listed under "PRP's
+    progress reports give them another status", once PRP's report is tied to its programme document; never
+    while it is not."""
+    running = world["running"]
+    for pk in (21, 22):
+        dm.ReportedIndicator.objects.create(datamart_id=pk, intervention=running, partner=world["partner"],
+                                            pd_reference_number="LEB/PD1", report_type="QPR", report_number="QPR2",
+                                            report_status="", period_start=datetime.date(2026, 4, 1),
+                                            period_end=datetime.date(2026, 6, 30), indicator=f"Indicator {pk}",
+                                            not_sent_since=timezone.now())  # fmt: skip
+    prp = _prp_report(None, 2, end_date="2026-06-30", status="Accepted", submission_date="2026-07-10")
+    assert "unsent_word" in raw.updated_choices("partner_reports")
+    assert _shown(client_validator, "partner_reports", updated="unsent") == 2
+    assert _shown(client_validator, "partner_reports", updated="unsent_word") == 0  # not tied to a PD yet
+    dm.DatamartDocument.objects.filter(pk=prp.pk).update(intervention=running)
+    assert _shown(client_validator, "partner_reports", updated="unsent_word") == 2
+    assert raw.Filters(updated="unsent_word").words() == (
+        "Updated by: PRP's progress reports give them another status"
+    )
+    dm.DatamartDocument.objects.filter(pk=prp.pk).update(data={**prp.data, "status": "Due"})
+    assert _shown(client_validator, "partner_reports", updated="unsent_word") == 0  # the same word
+
+
+def test_the_budgets_page_says_which_budget_records_name_another_pd(client_validator, world):
+    url = f"{INDEX}intervention_budgets/"
+    _run("intervention_budgets", ago=3, rows_in=4, details={"read": 4})
+    before = client_validator.get(url).content.decode()
+    assert "budget records of the last sync" not in before  # a sync before they were counted
+    found = {"records": 4, "number_other": 1, "several": 1}
+    _run("intervention_budgets", rows_in=4, details={"read": 4, "budget_link": found})
+    assert escape(raw.budget_link_words(found)) in client_validator.get(url).content.decode()
 
 
 def test_a_record_held_by_its_content_says_so(client_validator, world):

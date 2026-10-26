@@ -24,12 +24,26 @@ import datetime
 import json
 import re
 from collections import Counter, defaultdict
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Case, CharField, Count, Exists, Max, OuterRef, Q, QuerySet, Value, When
-from django.db.models.functions import Cast, Coalesce, Concat, ExtractYear, NullIf, Trim, Upper
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    Exists,
+    F,
+    Func,
+    Max,
+    OuterRef,
+    Q,
+    QuerySet,
+    Value,
+    When,
+)
+from django.db.models.functions import Cast, Coalesce, Concat, ExtractYear, Lower, NullIf, Trim, Upper
 
 from neurodb.core import compute
 from neurodb.partnerships import statuses as pd_statuses
@@ -170,6 +184,55 @@ def sent_for_another_period(rows: QuerySet) -> QuerySet:
         .annotate(_number=REPORT_NUMBER, _period=REPORT_PERIOD)
         .filter(Exists(sent))
     )
+
+
+def _base_sql(column: str) -> Func:
+    """``reached.pd_base`` in the database: the number without its spaces, in lower case, its amendment suffix
+    ("-2") dropped."""
+    bare = Func(
+        F(column), Value(r"\s"), Value(""), Value("g"), function="REGEXP_REPLACE", output_field=CharField()
+    )
+    return Func(Lower(bare), Value(r"-\d+$"), Value(""), function="REGEXP_REPLACE", output_field=CharField())
+
+
+def report_numbers(pd_numbers: Iterable[str] | None = None, *fields: str) -> Iterator[tuple]:
+    """The progress reports the partner report rows hold, by number, in one query over every row (never a
+    filtered queryset: a section, a search or the emergency filter leaves out rows of a report the rows still
+    hold; a row eTools no longer sends still holds its report), limited to the rows of ``pd_numbers`` (by
+    ``reached.pd_base``) when given: for each distinct row, ``(bases, TYPE, number key, *fields)``. ``bases``:
+    the base of the row's own reference number and of its linked programme document's number (both, when they
+    differ: a row the eTools id linked to another amendment, or to another PD, still holds its report); TYPE
+    upper case; the number key ``reached.report_number_key`` ("3" of a QPR is "QPR3"). A row with no number
+    holds none."""
+    rows = dm.ReportedIndicator.objects.order_by()
+    if pd_numbers is not None:
+        bases = sorted({rc.pd_base(n) for n in pd_numbers} - {""})
+        if not bases:
+            return
+        rows = rows.annotate(_own=_base_sql("pd_reference_number"), _linked=_base_sql("intervention__number"))
+        rows = rows.filter(Q(_own__in=bases) | Q(_linked__in=bases))
+    found = rows.values_list(
+        "pd_reference_number", "intervention__number", "report_type", "report_number", *fields
+    ).distinct()
+    for own, linked, kind, number, *rest in found.iterator(chunk_size=2000):
+        key = rc.report_number_key(number, kind)
+        bases = {rc.pd_base(own), rc.pd_base(linked)} - {""}
+        if key and bases:
+            yield (bases, (kind or "").strip().upper(), key, *rest)
+
+
+def held_report_numbers(pd_numbers: Iterable[str] | None = None) -> set[tuple[str, str, str]]:
+    """The progress reports the partner report rows hold (:func:`report_numbers`), as ``(base of a PD number,
+    TYPE, number key)``; a row with no type gives ``(base, "", key)``, which holds the number under any type
+    (:func:`holds`). The one rule that says whether the rows hold a report of PRP's own progress reports (the
+    proof of their link, ``datamart_sync.PartnerNumbers``, reads the same rows by the same rule)."""
+    return {(base, kind, key) for bases, kind, key in report_numbers(pd_numbers) for base in bases}
+
+
+def holds(found: Any, base: str, kind: str, key: str) -> bool:
+    """Whether ``found`` (:func:`held_report_numbers`, or a dict keyed alike) holds the report ``key`` of type
+    ``kind`` of the PD whose base number is ``base``: under its type, or under a row with no type."""
+    return (base, kind, key) in found or (base, "", key) in found
 
 
 def _date(value: Any) -> datetime.date | None:

@@ -289,6 +289,15 @@ DOCUMENTS: dict[str, Source] = {
         filter_key="business_area_code",
         date="end_date",
         title=("report_type", "report_number"),
+        # the fields the proof of their link and the reports still owed read (datamart_sync.pd_link_proof)
+        reads=(
+            "status",
+            "due_date",
+            "start_date",
+            "submission_date",
+            "programme_document_id",
+            "programme_document",
+        ),
     ),
     # ---- reference data
     "locations": Source(

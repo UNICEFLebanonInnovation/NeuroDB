@@ -10,6 +10,7 @@ from pathlib import Path
 from neurodb.core.models import SyncRun
 from neurodb.datamart import (
     backfill,
+    checks,
     comparison,
     identity,
     powerbi_words,
@@ -68,6 +69,26 @@ def _powerbi_sentences() -> list[str]:
     return found
 
 
+# the verdicts the sync records on PRP's progress reports (datamart_sync.recorded_pd_link), one per reason
+PRP_VERDICTS = [
+    {
+        "shown": why == "",
+        "why": why,
+        "since": "2026-10-14",
+        "passes": why in ("", "one_day"),
+        "proven": why != "not_proven",
+        "link_why": "not_clear" if why == "not_proven" else "",
+        "linked": 14,
+        "agrees": {"compared": 12, "same": 11, "elsewhere": 1, "dated": 11, "same_day": 10},
+        "owed": 3,
+        "stale": 2,
+        "checked_on": "2026-10-14",
+        "read_on": "2026-10-06",
+    }
+    for why in ("", *datamart_sync.SHOWN_WHY)
+] + [{"shown": False, "why": "not_read"}]
+
+
 def test_the_new_templates_say_none_of_the_words_of_the_code():
     assert TEMPLATES and all(path.exists() for path in TEMPLATES)
     for path in TEMPLATES:
@@ -111,6 +132,23 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         ),
         raw.fr_link_words({"by_number": 1, "exact": 1}, "funds_reservation_headers"),
         raw.Filters(fr_link="number_not_held").words(),
+        # PRP's progress reports: tied to their programme documents? may the pages show their reports still owed?
+        *raw.PRP_LINK_WHY.values(),
+        *datamart_sync.SHOWN_WHY.values(),
+        *(raw.prp_link_words(verdict) for verdict in PRP_VERDICTS),
+        *(checks._shown_sentence(verdict) for verdict in PRP_VERDICTS),
+        *(label for label, _ in checks._proof_figures(PRP_VERDICTS[0])),
+        *(
+            f"reports still owed can be shown on the pages: {datamart_sync.shown_words(v)}"
+            for v in PRP_VERDICTS
+        ),
+        raw.Filters(updated="unsent_word").words(),
+        # the PD indicators eTools marks inactive in every row, and the budget records of a sync
+        raw.inactive_words({"indicators": 280, "without_rows": 182, "pds": 40}),
+        raw.inactive_words({"indicators": 1, "without_rows": 1, "pds": 1}),
+        raw.Filters(active="no").words(),
+        raw.budget_link_words({"records": 120, "number_other": 7, "several": 3}),
+        raw.budget_link_words({"records": 1, "number_other": 1, "several": 1}),
         backfill.UNSENT_BUSY,
         backfill.UNSENT_CHANGED,
         backfill.UNSENT_FAILED,

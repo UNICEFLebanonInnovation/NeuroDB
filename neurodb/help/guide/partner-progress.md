@@ -264,7 +264,12 @@ to their programme document: by the pair of keys the data proves, with how many 
 was proven and the keys PRP's programme documents carry (what to tell the eTools Datamart team), or the keys
 left out because a programme document came twice in one read (the next read's copy counts); check 11 counts
 each progress report once, as its latest version (Ask NeuroDB still lists an older version until a whole read
-removes it). Check 12 counts, per section, the PD indicators with and
+removes it). Its last figures say whether the pages could show the reports still owed from PRP's own list:
+only when the pair of keys is proven, the reports the partner reports also have end on the same day (9 in 10,
+at least 10 of them) and were submitted on the same day (9 in 10 of at least 10 submitted on both sides), on
+two days in a row; a read that fails one of these closes it at once. They also count those reports still
+owed, the partner report rows whose eTools id and reference number name different programme documents, and
+the reports kept although eTools no longer sends them; no page shows PRP's reports yet. Check 12 counts, per section, the PD indicators with and
 without an eTools id and a CP output, the percentages reported with their numerator and denominator, and
 how many master indicators the next night would propose; it changes nothing. Checks 10 and 11 run first. The checks run every night as a job and the page shows their latest
 result at once, with when they were checked; **Run the checks now** runs them again in the background

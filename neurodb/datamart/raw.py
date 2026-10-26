@@ -17,7 +17,9 @@ for the people who check a page's figures against it (the Validators group, supe
   (:func:`unsent_reports`);
 * how the last sync linked the funds reservation lines and headers to their programme document, by the
   number they carry first (``datamart_sync.Links.by_number_first``, :func:`fr_link_words`), the lines whose
-  number names no programme document NeuroDB holds, and why a line links to none (:class:`FundsNumbers`).
+  number names no programme document NeuroDB holds, and why a line links to none (:class:`FundsNumbers`);
+* whether the data proves the link of PRP's own progress reports to their programme documents, and whether the
+  pages could show their reports still owed (``datamart_sync.recorded_pd_link``, :func:`prp_link_words`).
 
 People are never shown or written: every record goes through ``raw_people.public_record``.
 """
@@ -740,8 +742,12 @@ VIEWS: dict[str, RawView] = {
             ("Record id", "id"),
             ("Reference", "d:report_number"),
             ("Title", "title"),
+            ("PD in NeuroDB", "pd"),
+            ("Partner in NeuroDB", "partner"),
             ("Status", "d:status"),
-            ("Date", "date"),
+            ("Period end", "d:end_date"),
+            ("Due", "d:due_date"),
+            ("Submitted", "d:submission_date"),
         ),
         status_key="status",
         payload_fields=3,
@@ -894,11 +900,19 @@ FR_LINK_WORDS = {"number_not_held": "Their number names no PD NeuroDB holds"}
 FR_SEVERAL = "several PDs fit"
 UPDATED = {"last": "the last sync", "earlier": "an earlier sync"}
 # the partner reports' "Updated by" choices for the rows eTools no longer sends (datamart_sync.keep_unsent):
-# those whose number eTools sends for another period (to review first), then all of them
+# those whose number eTools sends for another period (to review first), all of them, and those whose status
+# PRP's own progress reports give otherwise
 UNSENT = {
     "unsent_period": "eTools sends their number for another period",
     "unsent": "eTools no longer sends them",
+    # those PRP's own progress reports give another status (datamart_sync.unsent_word_reports, check 11)
+    "unsent_word": "PRP's progress reports give them another status",
 }
+
+
+# The PD indicators' "Active" choices (eTools' is_active): an indicator inactive in every row is mostly an
+# older version of the PD's indicator (identity.inactive_indicators, inactive_words)
+ACTIVE_WORDS = {"yes": "yes", "no": "no"}
 
 
 def updated_choices(name: str) -> dict[str, str]:
@@ -942,6 +956,7 @@ class Filters:
     report_type: str = ""
     pd_link: str = ""
     fr_link: str = ""
+    active: str = ""  # the PD indicators': "yes" or "no" (is_active)
     refused: str = field(default="", compare=False)
 
     @classmethod
@@ -960,6 +975,7 @@ class Filters:
             report_type=_text(params, "report_type", 30).upper(),
             pd_link=_text(params, "pd_link") if params.get("pd_link") in PD_LINKS else "",
             fr_link=_text(params, "fr_link") if params.get("fr_link") in FR_LINK_WORDS else "",
+            active=_text(params, "active") if params.get("active") in ACTIVE_WORDS else "",
         )
         from neurodb.watch import people
 
@@ -983,6 +999,7 @@ class Filters:
             "report_type": self.report_type,
             "pd_link": self.pd_link,
             "fr_link": self.fr_link,
+            "active": self.active,
         }
         return {k: v for k, v in values.items() if v}
 
@@ -1004,6 +1021,7 @@ class Filters:
             ("Search", self.q),
             ("Record id", self.record),
             ("Updated by", {**UPDATED, **UNSENT}.get(self.updated, "")),
+            ("Active", ACTIVE_WORDS.get(self.active, "")),
         ]
         return "; ".join(f"{label}: {value}" for label, value in found if value) or "every record"
 
@@ -1037,6 +1055,14 @@ class Filters:
         if self.updated in UNSENT and name == "partner_reports":  # never offered elsewhere
             if self.updated == "unsent":
                 rows = rows.exclude(not_sent_since=None)
+            elif self.updated == "unsent_word":
+                from neurodb.integrations.etools.datamart_sync import unsent_word_reports  # lazy: the sync
+
+                rows = (
+                    rows.exclude(not_sent_since=None)
+                    .annotate(_report=reporting.REPORT_KEY)
+                    .filter(_report__in=sorted(unsent_word_reports()))
+                )
             else:
                 rows = reporting.sent_for_another_period(rows)
         elif self.updated in UPDATED and run is not None and run.finished_at is not None:
@@ -1051,6 +1077,8 @@ class Filters:
                 rows = rows.filter(PD_LINKS[self.pd_link])
         if name in FR_SOURCES and self.fr_link == "number_not_held":
             rows = rows.filter(FundsNumbers().not_held(rows))
+        if name == "pd_indicators" and self.active:
+            rows = rows.filter(is_active=self.active == "yes")
         return rows
 
 
@@ -1190,6 +1218,7 @@ def filters_shown(name: str) -> dict[str, bool]:
             "report_type": False,
             "pd_link": False,
             "fr_link": False,
+            "active": False,
         }
     return {
         "pd": bool(spec.pd)
@@ -1206,6 +1235,7 @@ def filters_shown(name: str) -> dict[str, bool]:
         "report_type": name == "partner_reports",
         "pd_link": name == "partner_reports",
         "fr_link": name in FR_SOURCES,
+        "active": name == "pd_indicators",
     }
 
 
@@ -1308,6 +1338,8 @@ def pd_words(row: Any, funds: FundsNumbers | None = None) -> str:
             return FR_SEVERAL if len(funds.fit(number)) > 1 else "not in NeuroDB"
         data = row.data if isinstance(row.data, dict) else {}
         return "not in NeuroDB" if data.get("source_intervention_id") not in (None, "") else "names none"
+    if isinstance(row, DatamartDocument) and row.dataset == "prp_progress_reports":
+        return "not linked"  # through PRP's programme documents (datamart_sync.link_progress_reports)
     data = getattr(row, "data", None) or {}
     named = (getattr(row, "pd_reference_number", "") or "") or data.get("etools_intervention_id") not in (
         None,
@@ -1982,6 +2014,85 @@ def fr_link_words(found: dict[str, int], name: str) -> str:
     if vendor:
         said += f" The partner's vendor number matches on {', '.join(vendor)}."
     return said
+
+
+def _n(n: int, one: str, many: str) -> str:
+    return f"{n:,} {one if n == 1 else many}"
+
+
+def inactive_words(found: dict[str, int] | None) -> str:
+    """The PD indicators page's sentence on the indicators eTools marks inactive in every row, as the last
+    proof counted them (``identity.inactive_indicators``); "" before a sync counted them, or when there are
+    none."""
+    if not found or not found.get("indicators"):
+        return ""
+    without = found.get("without_rows", 0)
+    return (
+        f"eTools marks {_n(found['indicators'], 'indicator', 'indicators')} of "
+        f"{_n(found.get('pds', 0), 'programme document', 'programme documents')} inactive in every row; "
+        f"{without:,} of them {'has' if without == 1 else 'have'} no partner report row and "
+        f"{'is' if without == 1 else 'are'} still listed on Programmes → Indicators and Partner monitoring."
+    )
+
+
+def budget_link_words(found: Any) -> str:
+    """The programme document budgets page's sentence on the budget records of the last sync
+    (``details.budget_link``, ``datamart_sync.Links.budget``): those whose number names another programme
+    document than their eTools id (linked by the id, as always), and the programme documents several records
+    wrote (the last one read is kept). "" for a sync before they were counted."""
+    if not isinstance(found, dict) or "records" not in found:
+        return ""
+    other, several = found.get("number_other", 0), found.get("several", 0)
+    names = (
+        "names by its number another programme document than its eTools id (NeuroDB links it by the id)"
+        if other == 1
+        else "name by their number another programme document than their eTools id (NeuroDB links them by "
+        "the id)"
+    )
+    records = _n(found["records"], "budget record", "budget records")
+    written = _n(several, "programme document was", "programme documents were")
+    return (
+        f"Of the {records} of the last sync, {other:,} {names}; {written} written by several budget records "
+        "(the last one read is kept)."
+    )
+
+
+# why the data does not prove the link of PRP's progress reports to their programme documents
+# (datamart_sync.LINK_WHY, as check 11 says it), in the words of Raw eTools data
+PRP_LINK_WHY = {
+    "no_link": "nothing in PRP's programme documents matches what the progress reports name",
+    "repeated": "what could match them repeats across PRP's programme documents",
+    "dates_disagree": "the matches tie reports to programme documents of other dates",
+    "not_clear": "two ways of matching them disagree",
+    "few": "the best way of matching them ties too few reports",
+}
+
+
+def prp_link_words(verdict: dict[str, Any]) -> str:
+    """The PRP progress reports page's sentence on their link to the programme documents, as the last sync
+    recorded it (``datamart_sync.recorded_pd_link``): whether the data proves it, how the reports the partner
+    reports also have agree, the reports still owed, and whether the pages can show them. Counts only."""
+    from neurodb.integrations.etools.datamart_sync import shown_words  # lazy: the Datamart sync
+
+    said = []
+    if "passes" in verdict:
+        if verdict.get("proven"):
+            said.append("Tied to their programme document: yes, the data proves it.")
+        else:
+            why = PRP_LINK_WHY.get(str(verdict.get("link_why") or ""), "the data does not prove it")
+            said.append(f"Tied to their programme document: no, {why} (see check 11).")
+        agrees = verdict.get("agrees") or {}
+        said.append(
+            f"Of the {agrees.get('compared', 0):,} reports also in the partner reports, "
+            f"{agrees.get('same', 0):,} end on the same day ({agrees.get('same_day', 0):,} of "
+            f"{agrees.get('dated', 0):,} on the same submission day)."
+        )
+        owed = f"Still owed for a period that has ended: {verdict.get('owed', 0):,}"
+        if verdict.get("stale"):
+            owed += f" ({verdict['stale']:,} more no longer returned by PRP's reads, not counted)"
+        said.append(f"{owed}.")
+    said.append(f"Can be shown on the pages: {shown_words(verdict)}.")
+    return " ".join(said)
 
 
 def unsent_reports(rows: QuerySet, names: frozenset[str]) -> tuple[list[dict[str, Any]], int]:

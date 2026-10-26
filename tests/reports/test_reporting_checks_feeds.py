@@ -834,3 +834,206 @@ def test_the_progress_reports_section_filter_offers_single_names(pd):
     assert set(rows.values_list("indicator_report", flat=True)) == {"2"}
     rows = dm.ReportedIndicator.objects.filter(reporting.section_q(["Child Protection"]))
     assert set(rows.values_list("indicator_report", flat=True)) == {"1", "3"}
+
+
+# ------------------------------------------------- check 11: may the pages show PRP's progress reports still owed?
+PROVEN = {"linked": 14, "pd_not_held": 0, "pd_not_linked": 0, "pd_not_named": 0,
+          "by": ["programme_document", "prp_id"], "proven": True,
+          "pairs": [{"report": "programme_document", "pd": "prp_id", "linked": 14, "dated": 14, "agree": 14,
+                     "verdict": "proven"}],
+          "pd_keys": {"record_key": 1, "prp_id": 1}}  # fmt: skip
+SHOWN = {**PROVEN, "agrees": {"compared": 12, "same": 12, "elsewhere": 0, "dated": 11, "same_day": 11},
+         "owed": 3, "owed_before_history": 1, "stale": 1, "twins": 1, "ove_read_due": 1, "lacking": 2,
+         "unsent_other_word": 1, "passes": True, "days": 2, "shown": True, "shown_since": "2026-10-14",
+         "shown_why": ""}  # fmt: skip
+CAN_SHOW = "PRP's progress reports can be shown on the pages"
+NOT_READ = (
+    "no: the last sync of PRP's progress reports or of their programme documents failed or received nothing"
+)
+
+
+def test_check_11_says_the_proof_that_prp_s_progress_reports_can_be_shown(pd):
+    """The last sync recorded the proof: the twelve reports the partner reports also have end on the same day,
+    eleven submitted on both sides on the same day, on two days in a row. Check 11 gives its figures, and says the
+    pages can show the three reports still owed. Counts only."""
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    _progress_run(business_area="2490", business_area_from="admin", progress_reports_pd_link=SHOWN)
+    found = one("11")
+    numbers = figures(found)
+    assert (
+        numbers["PRP progress reports linked that the partner reports also have (same type and number)"] == 12
+    )
+    assert (numbers["… with the same period end"], numbers["… only under another programme document"]) == (
+        12,
+        0,
+    )
+    assert numbers["… with the same submission day (of those submitted on both sides)"] == "11 of 11"
+    assert (
+        numbers[
+            "Reports still owed for a period that has ended, in PRP's progress reports, never received from the "
+            "partner reports"
+        ]
+        == 3
+    )
+    assert numbers["… of which ending before the partner reports' history"] == 1
+    assert numbers["… no longer returned by PRP's progress reports (not counted)"] == 1
+    assert numbers["… two versions of one report in one read (counted once)"] == 1
+    assert numbers["… PRP says Overdue, but no due date: read as Due"] == 1
+    assert (
+        numbers[
+            "Accepted or Submitted reports of the year in PRP's progress reports, not in the partner reports"
+        ]
+        == 2
+    )
+    assert numbers["Reports eTools no longer sends whose status differs in PRP's progress reports"] == 1
+    assert numbers[CAN_SHOW] == "yes, since 14 Oct 2026"
+    assert (
+        "PRP's progress reports are tied to their programme documents: of the 12 reports the partner reports also "
+        "have, 12 end on the same day. NeuroDB can show the 3 reports still owed."
+    ) in found["verdict"]
+    assert "Partner A" not in json.dumps(found) and "LEB/PD/CHK1" not in json.dumps(found)
+
+
+@pytest.mark.parametrize(
+    ("verdict", "sentence", "figure"),
+    [
+        (
+            {"passes": True, "days": 1, "shown": False, "shown_since": "", "shown_why": "one_day"},
+            "PRP's progress reports are tied to their programme documents: of the 12 reports the partner reports "
+            "also have, 12 end on the same day. The link passed every test on 14 Oct 2026: NeuroDB can show them "
+            "once the next read agrees.",
+            "no: the link passed every test on 14 Oct 2026 only, and must pass on the next day too",
+        ),
+        (
+            {
+                "agrees": {"compared": 12, "same": 3, "elsewhere": 2, "dated": 12, "same_day": 3},
+                "passes": False,
+                "days": 0,
+                "shown": False,
+                "shown_since": "",
+                "shown_why": "periods",
+            },  # fmt: skip
+            "The link ties 14 reports, but only 3 of the 12 the partner reports also have end on the same day: "
+            "NeuroDB does not show them on the pages.",
+            "no: too few of the reports also in the partner reports end on the same day",
+        ),
+        (
+            {
+                "agrees": {"compared": 5, "same": 5, "elsewhere": 0, "dated": 5, "same_day": 5},
+                "passes": False,
+                "days": 0,
+                "shown": False,
+                "shown_since": "",
+                "shown_why": "few",
+            },  # fmt: skip
+            "The link ties 14 reports, but only 5 of them are also in the partner reports, too few to check it (10 "
+            "are needed): NeuroDB does not show them on the pages.",
+            "no: too few of them are also in the partner reports to check the link",
+        ),
+        (
+            {
+                "agrees": {"compared": 12, "same": 12, "elsewhere": 0, "dated": 4, "same_day": 4},
+                "passes": False,
+                "days": 0,
+                "shown": False,
+                "shown_since": "",
+                "shown_why": "few_days",
+            },  # fmt: skip
+            "The link ties 14 reports, but only 4 of the 12 the partner reports also have were submitted on both "
+            "sides, too few to check the submission day (10 are needed): NeuroDB does not show them on the pages.",
+            "no: too few reports were submitted on both sides to check the submission day",
+        ),
+        (
+            {
+                "agrees": {"compared": 12, "same": 12, "elsewhere": 0, "dated": 12, "same_day": 0},
+                "passes": False,
+                "days": 0,
+                "shown": False,
+                "shown_since": "",
+                "shown_why": "days",
+            },  # fmt: skip
+            "The link ties 14 reports, but only 0 of the 12 submitted on both sides were submitted on the same "
+            "day: NeuroDB does not show them on the pages.",
+            "no: too few of the reports submitted on both sides were submitted on the same day",
+        ),
+    ],
+)
+def test_check_11_says_why_prp_s_progress_reports_are_not_shown(pd, verdict, sentence, figure):
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    _progress_run(
+        business_area="2490", business_area_from="admin", progress_reports_pd_link={**SHOWN, **verdict}
+    )
+    found = one("11")
+    assert sentence in found["verdict"]
+    assert figures(found)[CAN_SHOW] == figure
+
+
+def test_check_11_never_shows_an_unproven_link_and_says_so(pd):
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    unproven = {**SHOWN, "proven": False, "why": "not_clear", "by": ["named", "record_key"], "pairs": [],
+                "passes": False, "days": 0, "shown": False, "shown_why": "not_proven"}  # fmt: skip
+    _progress_run(business_area="2490", business_area_from="admin", progress_reports_pd_link=unproven)
+    found = one("11")
+    assert (
+        "No key pair links PRP's progress reports to their programme documents clearly (two key pairs link them "
+        "otherwise, neither twice as often as the other): they are linked by the id each programme document is "
+        "held under, 14 of the 14 reports naming one. The keys PRP's programme documents carry: prp_id (1); tell "
+        "the eTools Datamart team which one holds the id the progress reports name. NeuroDB does not show reports "
+        "still owed until it is."
+    ) in found["verdict"]
+    assert figures(found)[CAN_SHOW] == "no: their link to the programme documents is not proven"
+
+
+def test_check_11_says_a_read_that_received_nothing_closes_the_link(pd):
+    """A later sync of PRP's programme documents recorded no link (it failed before the link step): the proof the
+    progress reports' sync recorded is not read over it, and the figures read "—"."""
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    _progress_run(business_area="2490", business_area_from="admin", progress_reports_pd_link=SHOWN)
+    _documents_run()
+    SyncRun.objects.filter(target="prp_programme_documents").update(
+        started_at=timezone.make_aware(datetime.datetime(2026, 10, 14, 21, 0)), status=SyncRun.Status.FAILED
+    )
+    found = one("11")
+    numbers = figures(found)
+    assert numbers[CAN_SHOW] == NOT_READ
+    assert numbers["… with the same period end"] == "—"
+    assert (
+        "The last sync of PRP's progress reports or of their programme documents failed or received nothing: "
+        "NeuroDB does not show reports still owed."
+    ) in found["verdict"]
+
+
+def test_check_11_counts_partner_report_rows_whose_id_and_number_name_other_pds(pd):
+    """Two rows of one report name LEB/PD/OTHER1 by reference number while their eTools id linked them to
+    LEB/PD/CHK1; an amendment's number (-2) is the same PD. A report kept although eTools no longer sends it is
+    counted among the reports still owed of the partner reports."""
+    report_row(pd, "QPR1", end=D(2026, 3, 31), reference="LEB/PD/OTHER1")
+    report_row(pd, "QPR1", end=D(2026, 3, 31), reference="LEB/PD/OTHER1", title="Teachers trained")
+    report_row(pd, "QPR2", end=D(2026, 6, 30), reference="LEB/PD/CHK1-2")
+    report_row(pd, "QPR3", end=D(2026, 9, 30), status="Due", not_sent_since=timezone.now())
+    numbers = figures(one("11"))
+    assert (
+        numbers["Partner report rows whose eTools id and reference number name different programme documents"]
+        == 2
+    )
+    assert numbers["… progress reports they belong to"] == 1
+    assert numbers["Progress reports due or overdue in the partner reports"] == 1
+    assert numbers["… of which kept from earlier syncs (eTools no longer sends them)"] == 1
+    assert numbers[CAN_SHOW] == NOT_READ
+
+
+def test_check_11_says_when_the_proof_failed(pd):
+    """The last sync linked the reports but its proof failed: check 11 says so, never "not checked yet"."""
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    _progress_run(
+        business_area="2490",
+        business_area_from="admin",
+        progress_reports_pd_link={**PROVEN, "proof_error": "x"},
+    )
+    found = one("11")
+    assert figures(found)[CAN_SHOW] == "no: the check failed on the last sync: tell the NeuroDB team"
+    assert (
+        "Whether NeuroDB can show PRP's reports still owed could not be checked on the last sync: tell the NeuroDB "
+        "team."
+    ) in found["verdict"]
+    assert "x" not in figures(found).values()

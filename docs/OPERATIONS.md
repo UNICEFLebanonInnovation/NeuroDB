@@ -1868,7 +1868,7 @@ Datamart host (a pagination link to any other host is refused). Every request is
 | `location_sites` | `location-sites/` | `datamart.MonitoringSite`: field-monitoring sites with their point and parent location |
 | `partners` | `partners/` | the existing partner table (`etools.PartnerOrganization`, by eTools id) |
 | `interventions` | `interventions/` | the existing programme documents (`etools.PCA`) and their agreements, sections, offices, focal points, donors, grants and planned locations |
-| `intervention_budgets` | `interventions-budget/` | the budget columns of the programme documents |
+| `intervention_budgets` | `interventions-budget/` | the budget columns of the programme documents, linked by eTools id as before; `details.budget_link` counts the `records`, those whose `number` names another PD than their id (`number_other`; bases compared, `reached.pd_base`: another amendment of the same PD is the same PD) and the PDs several records wrote (`several`: the last read wins), a diagnostic shown on Raw eTools data → Programme document budgets |
 | `agreements` | `partners/agreements/` | type and dates of the agreements |
 | `funds_reservations` | `funds-reservation/` | `datamart.FundsReservation`, linked to the PD; rebuilds each PD's donor amounts (donor page) |
 | `grants` | `funds/grants/` | `datamart.Grant` (expiry dates on the donor page) |
@@ -1970,7 +1970,9 @@ deleted, marked or not (`remove_other_country`, unchanged); a held row whose Dat
 naming another country is no longer sent like any other (a whole read marks it; a read not whole leaves it);
 rows before the scope are left alone; `details.feed_from` counts marked rows. Raw eTools data → Partner reports says
 "no longer sent N (kept and counted)", how many rows of how many reports and when they were last sent, offers
-two *Updated by* choices (`unsent_period`, `unsent`), shows the mark in the list, the record page and the CSV
+three *Updated by* choices (`unsent_period`, `unsent`, and `unsent_word`: the marked rows of the reports whose
+status differs in PRP's own progress reports, `datamart_sync.unsent_word_reports`, as check 11 counts them; none
+while PRP's progress reports are not linked to their programme documents), shows the mark in the list, the record page and the CSV
 (`no_longer_sent_since`, also in the figure trail's row CSVs), and the trail's D4 says it; Data health and
 check 10 count them. Only a superuser removes marked rows, after review: the page lists the reports of the
 filter's marked rows (at most 50, no person) and, under it, *I have reviewed them* and **Remove these rows**
@@ -3380,7 +3382,13 @@ under: it is used when it was compared on 20 groups or more (`CALIBRATION_MIN`) 
 indicator type when, besides, each type goes with one display type and unit, and no pair with two types).
 The proof is stored in the run's details, `details.identity` (`version`, `enabled`, `types`, and per
 tie-breaker `compared`, `same`, `differ` and `not_given`: counts and fixed words only); a failure is
-`details.identity_error` and never fails the run. Every page reads the proof of the newest finished
+`details.identity_error` and never fails the run. It also counts, a diagnostic, the PD indicators of those PDs
+eTools marks inactive in every row (`details.identity.inactive`: `indicators`, `without_rows` — no row was placed
+on them in any way, by id, title or output, or as one of the indicators a shared title could go to — and
+`pds`): Raw eTools data → PD indicators says "eTools marks N indicators of K programme documents inactive in
+every row; M of them have no partner report row and are still listed on Programmes → Indicators and Partner
+monitoring", from the newest run that counted them (`identity.inactive_indicators`), and its *Active* filter
+(`active=yes|no`) lists their rows. No page changes. Every page reads the proof of the newest finished
 `partner_reports` or `pd_indicators` run, once per request, and ignores one stored under another
 `identity.CALIBRATION_VERSION` (bumped whenever a rule changes). With no proof (a new install, a run before
 this release) no tie-breaker is used, exactly as before. To see what each tie-breaker says and why it is or
@@ -3719,8 +3727,13 @@ and business area codes at most).
   report once, as the latest read wrote it (*… older versions of a report a later read wrote again (not
   counted)*) (figures *PRP programme document records held*, *… linked to an eTools programme document NeuroDB
   holds*, *… records of another business area naming one of NeuroDB's by reference number*, *PRP progress
-  reports linked by*, *… of the reports naming one*); and, when their last read had records twice, what that
-  read found.
+  reports linked by*, *… of the reports naming one*); when their last read had records twice, what that
+  read found; whether the pages could show PRP's reports still owed, as the last sync of either dataset
+  recorded it (figures *PRP progress reports linked that the partner reports also have (same type and
+  number)* to *PRP's progress reports can be shown on the pages*, and one sentence by reason: see "Can the
+  pages show PRP's reports still owed?" below); the partner report rows whose eTools id and reference number
+  name different programme documents (*… progress reports they belong to*); and, among the progress reports
+  due or overdue in the partner reports, those kept from earlier syncs (eTools no longer sends them).
 * **Check 12**, *Indicator grouping*, counts for the eTools master indicators (counts only, never a title
   or a partner's or master indicator's name): the PD indicators the nightly `suggest_master_indicators` job
   reads (those of the programme documents running this year or last, per section), with and without an
@@ -4344,6 +4357,51 @@ is never also counted as overdue there. Ask NeuroDB is not changed by this: it h
 for PRP's progress reports (their catalogue entry names no PD or partner key, so it lists their records and
 filters on their own fields, where `programme_document` is PRP's id, not an eTools PD), and it lists every
 row held, an older version among them, until a whole read removes it.
+
+**Can the pages show PRP's reports still owed? The proof** (`datamart_sync.pd_link_proof`, in the same link
+step, so after each sync of either dataset). The partner reports feed stops sending a report once its period
+ends unsent, while PRP's own list still holds it; the pages may show those reports only while the data proves
+the link to their programme documents. Over the linked progress reports (the latest version of each, read
+field by field, never a record whole: `linked_progress_reports`), one per programme document, type and number
+(`counted_once`: the version of the latest read, then the latest period end, then the newest record), the
+step compares each with the partner report rows by number (`reporting.report_numbers`, one query over every
+row, marked ones too: the base of each row's own reference number and of its linked PD's number,
+`reached.pd_base`, both when they differ; the type upper case; the number `reached.report_number_key`, "3" of
+a QPR being "QPR3"; a row with no type holds the number under any type, `reporting.holds`). It records under
+`progress_reports_pd_link`: `agrees` (`compared`: the reports the rows hold by number; `same`: one of their
+period ends is PRP's; `elsewhere`: the others whose type, number and period end another PD's rows hold;
+`dated`: submitted on both sides; `same_day`: one submission day is PRP's), `passes` (the key pair is proven,
+at least `LINK_AGREE_MIN` = 10 compared and `LINK_AGREE` = 9 in 10 of them the same, at least 10 dated and 9
+in 10 of those the same day: many PDs share quarter calendars, so a chance link can match a period end, never
+a submission day), `days` it passed in a row (the verdict of the latest finished run of either dataset that
+started on an earlier day, plus one), `shown` from `LINK_DAYS` = 2 days, `shown_since` the day it first
+showed, and `shown_why` (`not_proven`, `few`, `periods`, `few_days`, `days`, `one_day`, or ""). A read that
+fails any test closes it at once (`days` 0): a wrong link would show wrong overdue reports, a late one only
+delays them. The step also counts, over the reports a read returned within `OWED_STALE_DAYS` = 7 days of the
+latest read of them (`fresh_since`: their reads are never whole, so a report PRP deleted would read Overdue
+for ever): `owed` (Due or Overdue, their period ended, not in the rows), `owed_before_history` (of them,
+ending before the partner reports' history), `twins` (other versions `counted_once` leaves out),
+`ove_read_due` (PRP says Overdue, read as Due: no due date has passed), `lacking` (Accepted or Submitted this
+year, not in the rows), `unsent_other_word` (reports only rows eTools no longer sends hold, whose status there
+differs from PRP's: the rows' word is never changed; Raw eTools data lists them), and `stale` (owed-looking
+ones no read returned since, counted once, not in the rows). A failure of the proof never fails the run
+(`proof_error`; the verdict then reads "the check failed on the last sync: tell the NeuroDB team",
+`check_failed`). The one reader is
+`datamart_sync.recorded_pd_link()`: the verdict of the latest finished run of either dataset, whichever
+started later, so an older verdict is never read over newer links; "not read" when that run recorded none (it
+failed before the link step, or no progress report was held: "the last sync of PRP's progress reports or of
+their programme documents failed or received nothing"), "not checked" for a run before this release,
+and a verdict that shows them still closes when the latest finished read of the progress reports received
+nothing ("not read") or ended more than 7 days ago ("old"). Check 11 (its figures *PRP progress reports linked
+that the partner reports also have…* to *PRP's progress reports can be shown on the pages*, and one sentence
+by reason) and Raw eTools data → PRP progress reports (one line under the counts, a note on the first page)
+read it. The catalogue counts the fields the proof reads on every record read (`reads`: `status`,
+`due_date`, `start_date`, `submission_date`, `programme_document_id`, `programme_document`, in
+`details.keys_seen`), so a field the Datamart does not send shows at once. No page shows these reports yet:
+no figure changes. Check 11 also counts the partner report rows whose eTools id linked them to a PD whose
+number is not the one they carry (bases compared: the link problem the funds reservation lines had; their
+link is unchanged), and, among the progress reports due or overdue in the partner reports, those kept from
+earlier syncs (eTools no longer sends them).
 
 **A record identity for records without an id.** A dataset kept whole whose records carry no `id` was held
 under a hash of each record, so a record that changed became a new row. Each read now looks for an id-like

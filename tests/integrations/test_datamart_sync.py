@@ -1734,3 +1734,49 @@ def test_the_locations_job_reads_the_datamart_by_default(db):
     akkar = Location.objects.get(p_code="LB1")
     assert akkar.type.admin_level == 1
     assert Location.objects.get(p_code="LB11").parent_id == akkar.pk
+
+
+# ------------------------------------------------------------------- budget records: a diagnostic, no figure
+def _budget(pk: int, source_id: int, number: str, total: str) -> dict:
+    """One record of interventions-budget, as the Datamart sends it."""
+    return {"id": pk, "source_id": source_id, "intervention_id": source_id, "number": number,
+            "budget_total": total, "budget_unicef_cash": "800", "budget_unicef_supply": "0",
+            "budget_cso_contribution": "200", "budget_currency": "USD"}  # fmt: skip
+
+
+@responses.activate
+def test_budget_records_whose_number_names_another_pd_or_that_share_a_pd_are_counted():
+    """PD 11 gets five budget records: an amendment's, the latest, one whose number names PD 12 while its eTools id
+    names PD 11 (linked by the id, as before; the last read wins), one naming an amendment of PD 12 NeuroDB does
+    not hold, and one naming another amendment of PD 11 (the same PD). The run counts the two records whose
+    number names another PD and the PD several records wrote; nothing else changes. Two runs sharing one sync's
+    links count their own records only, and no other dataset says it."""
+    p = PartnerOrganization.objects.create(etl_id="1", name="Partner A", vendor_number="2500000001")
+    pd11 = PCA.objects.create(etl_id="11", number="LEBA/PCA2020001/PD2020001-1", title="PD 1", partner=p)
+    PCA.objects.create(etl_id="12", number="LEBA/PCA2020002/PD2020002-1", title="PD 2", partner=p)
+    records = [
+        _budget(1, 11, "LEBA/PCA2020001/PD2020001-1", "900"),
+        _budget(2, 11, "LEBA/PCA2020001/PD2020001-1", "1000"),
+        _budget(3, 11, "LEBA/PCA2020002/PD2020002-1", "1100"),
+        _budget(4, 12, "LEBA/PCA2020002/PD2020002-1", "500"),
+        _budget(5, 11, "LEBA/PCA2020002/PD2020002-3", "1200"),
+        _budget(6, 11, "leba/pca2020001/pd2020001-2", "1300"),
+    ]
+    page("interventions-budget", records)
+    page("partners/agreements", [])
+    budgets, agreements = run_all("intervention_budgets,agreements")
+    assert budgets.details["budget_link"] == {"records": 6, "number_other": 2, "several": 1}
+    assert "budget_link" not in agreements.details
+    pd11.refresh_from_db()
+    assert pd11.total_budget == "1300"  # the last read, linked by its eTools id: unchanged
+    assert raw.budget_link_words(budgets.details["budget_link"]) == (
+        "Of the 6 budget records of the last sync, 2 name by their number another programme document than their "
+        "eTools id (NeuroDB links them by the id); 1 programme document was written by several budget records "
+        "(the last one read is kept)."
+    )
+    links = sync.Links()
+    for _ in range(2):
+        run = SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="intervention_budgets")
+        sync.ENTITY_SYNCS["intervention_budgets"](run, client=make_client(), links=links)
+        run.refresh_from_db()
+        assert run.details["budget_link"] == {"records": 6, "number_other": 2, "several": 1}

@@ -460,6 +460,27 @@ def report_identity(row: dict[str, Any]) -> tuple:
     )
 
 
+AMENDMENT = re.compile(r"-\d+$")  # a PD reference number's amendment suffix ("-2")
+
+
+def pd_base(value: Any) -> str:
+    """A programme document's reference number without its amendment suffix, its spaces and case aside: the
+    PD a report belongs to, as the partner reports, PRP's progress reports and Power BI's exports all name it
+    (each amendment of a PD shares it). "" for none."""
+    return AMENDMENT.sub("", "".join(str(value or "").split()).casefold())
+
+
+def report_number_key(number: Any, report_type: Any = "") -> str:
+    """A report's number as two feeds are matched: upper case, no spaces, its type put first when the number
+    is bare ("3" of a QPR is "QPR3", as PRP and Power BI write it). "" for no number. :func:`report_key` and
+    ``reporting.REPORT_KEY`` keep the number as received."""
+    found = "".join(str(number or "").split()).upper()
+    kind = "".join(str(report_type or "").split()).upper()
+    if found and kind and found[:1].isdigit():
+        return f"{kind}{found}"
+    return found
+
+
 def report_key(row: dict[str, Any]) -> str:
     """The progress report of a row (:func:`report_identity`) as text: every page groups a report's rows,
     counts it and reads its one status by it (``reporting.REPORT_KEY`` in the database). Two programme

@@ -43,7 +43,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import connection, models, transaction
-from django.db.models.fields.json import KT
+from django.db.models.fields.json import KT, KeyTransform
 from django.utils import timezone
 
 from neurodb.core.models import DatamartSetting, SyncRun
@@ -141,12 +141,47 @@ class Links:
         self._tpm_visits: dict[str, int] | None = None
         self._fm_pds: PDResolver | None = None
         self._pca_vendor: dict[int, str] | None = None  # each PD's partner's vendor number
+        self._pca_numbers: dict[int, str] = {}  # each PD's reference number (:meth:`budget`)
         self._header_numbers: dict[str, str] | None = None  # FR number -> its header's reference number
         self.scope: Any = None  # the CountryScope of the run, once a catalogue dataset needs it
         self.missing: dict[str, int] = defaultdict(int)
         # how a run linked funds reservation lines or headers to their PD (details.pd_link), each record once
         self.fr_link: Counter[str] = Counter()
         self.fr_counted: set[int] = set()
+        # the budget records of a run (details.budget_link, :meth:`budget`) and the PDs each wrote
+        self.budget_link: Counter[str] = Counter()
+        self.budget_written: Counter[int] = Counter()
+
+    def clear(self) -> None:
+        """What a dataset's run counts, cleared at its start and end: ``sync_all`` shares one ``Links`` across
+        the datasets."""
+        self.missing.clear()
+        self.budget_link.clear()
+        self.budget_written.clear()
+
+    def budget(self, source_id: Any, number: Any, pk: int | None) -> None:
+        """Count one budget record (a diagnostic, :func:`update_budget`): its number naming another PD than
+        its eTools id (``number_other``: the bases differ, ``reached.pd_base``, so another amendment of the
+        same PD is the same PD, and a number NeuroDB does not hold still names another; it is linked by the
+        id, as always), and the PD it wrote (``pk``)."""
+        if self._pcas_by_etl is None:
+            self._load_pcas()
+        self.budget_link["records"] += 1
+        by_id = self._pcas_by_etl.get(str(source_id)) if source_id not in (None, "") else None
+        named, own = rc.pd_base(number), rc.pd_base(self._pca_numbers.get(by_id))
+        if named and own and named != own:
+            self.budget_link["number_other"] += 1
+        if pk is not None:
+            self.budget_written[pk] += 1
+
+    def budget_details(self) -> dict[str, int]:
+        """The budget records counted (:meth:`budget`), and the PDs several of them wrote (``several``: the
+        last read is kept)."""
+        return {
+            "records": self.budget_link["records"],
+            "number_other": self.budget_link["number_other"],
+            "several": sum(1 for n in self.budget_written.values() if n > 1),
+        }
 
     def refresh(self) -> None:
         self._partners_by_etl = self._partners_by_vendor = None
@@ -165,11 +200,13 @@ class Links:
 
     def _load_pcas(self) -> None:
         self._pcas_by_etl, self._pcas_by_number, self._pca_vendor = {}, {}, {}
+        self._pca_numbers = {}
         for pk, etl_id, number, vendor in PCA.objects.values_list(
             "pk", "etl_id", "number", "partner__vendor_number"
         ):
             self._pcas_by_etl[str(etl_id)] = pk
             self._pca_vendor[pk] = vendor or ""
+            self._pca_numbers[pk] = number or ""
             if number:
                 self._pcas_by_number.setdefault(number.strip(), pk)
 
@@ -551,7 +588,12 @@ def upsert_intervention(item: dict[str, Any], links: Links) -> None:
 
 
 def update_budget(item: dict[str, Any], links: Links) -> None:
-    pk = links.intervention(item.get("source_id") or item.get("intervention_id"), item.get("number"))
+    """A PD's budget fields from one budget record, linked by its eTools id (else its number). Each record is
+    also counted (:meth:`Links.budget`): a number naming another PD than the id, and a PD several records
+    write (the last read wins), so the budgets that differ from Power BI's can be explained."""
+    source_id = item.get("source_id") or item.get("intervention_id")
+    pk = links.intervention(source_id, item.get("number"))
+    links.budget(source_id, item.get("number"), pk)
     if pk is None:
         return
     pca = PCA.objects.get(pk=pk)
@@ -1849,14 +1891,16 @@ def sync_legacy(
 ) -> Callable[..., SyncRun]:
     def sync(run: SyncRun, *, client: DatamartClient, links: Links) -> SyncRun:
         def body() -> dict[str, Any]:
-            links.missing.clear()
+            links.clear()
             aligned = align_sequences()
             found = OfCountry(windows.Reading(client, dataset, name=name))
             items = list(found)
             process_items(run, items, lambda item: handler(item, links), _label)
             links.refresh()  # new partners and programme documents are linkable from here on
             details = {**links.details(), **found.details()}
-            links.missing.clear()
+            if name == "intervention_budgets":  # a diagnostic: numbers naming another PD, PDs written twice
+                details["budget_link"] = links.budget_details()
+            links.clear()
             if aligned:
                 details["sequences_aligned"] = aligned
             return {**details, **_write_documents(name, items, links, found)}
@@ -3261,6 +3305,12 @@ LINK_SHARE = 0.5  # and at least this share of the reports naming a programme do
 LINK_SHARE_UNDATED = 0.9  # the share asked when fewer than half of its links have dates on both sides
 LINK_DATES = 0.9  # the share of its dated links that agree: the report ends within its document's dates
 LINK_BEFORE, LINK_AFTER = dt.timedelta(days=31), dt.timedelta(days=365)  # around the document's start and end
+# a proven pair's agreement with the partner reports (:func:`pd_link_proof`): the reports the two feeds share,
+# and of them those submitted on both sides, needed to judge it; the share of them with the same period end,
+# and of those with the same submission day; the days in a row it must pass before the pages may show them
+LINK_AGREE_MIN = 10
+LINK_AGREE = 0.9
+LINK_DAYS = 2
 PAIRS_KEPT = 5  # the pairs a run lists, the best first
 # why no key pair is proven (``progress_reports_pd_link.why``), in words for check 11
 LINK_WHY = {
@@ -3528,8 +3578,9 @@ def link_progress_reports() -> dict[str, Any]:
     counts only, for the run's details: ``linked``; ``pd_not_named`` (the record names none under the pair's
     key); ``pd_not_held`` (a PRP programme document NeuroDB does not hold under the pair's key);
     ``pd_not_linked`` (held, not linked to a PD NeuroDB holds); ``pd_superseded`` (an older version, left
-    unlinked); and the pair (:meth:`PDLink.details`: ``by``, ``proven``, ``pairs``, ``pd_keys``,
-    ``not_unique``, ``came_twice``, ``why``). Nothing when no progress report is held."""
+    unlinked); the pair (:meth:`PDLink.details`: ``by``, ``proven``, ``pairs``, ``pd_keys``,
+    ``not_unique``, ``came_twice``, ``why``); and whether the pages may show PRP's reports still owed, with
+    the figures that prove it (:func:`pd_link_proof`). Nothing when no progress report is held."""
     reports = list(
         dm.DatamartDocument.objects.filter(dataset=PROGRESS_REPORTS).only(
             "pk", "data", "intervention_id", "partner_id", "synced_at"
@@ -3563,7 +3614,457 @@ def link_progress_reports() -> dict[str, Any]:
             doc.intervention_id, doc.partner_id = pd_id, partner_id
             changed.append(doc)
     dm.DatamartDocument.objects.bulk_update(changed, ["intervention_id", "partner_id"], batch_size=2000)
-    return {**counts, **link.details()}
+    try:  # the proof never fails the link: without it, the pages may not show them ("check_failed")
+        with transaction.atomic():
+            proof = pd_link_proof(link.proven, timezone.localdate())
+    except Exception as exc:
+        logger.warning("etools datamart: the proof of the progress reports' link was not read: %s", exc)
+        proof = {"proof_error": str(exc)[:300]}
+    return {**counts, **link.details(), **proof}
+
+
+# ------------------------------- PRP's progress reports against the partner reports: may the pages show them?
+# PRP's own list of progress reports holds the reports still owed for a period that has ended, which the
+# partner reports feed stops sending. The pages may show them only while the data proves the link to their
+# programme documents: the key pair is proven, and the reports the two feeds share agree on their period end
+# and on the day they were submitted (many PDs share quarter calendars, so a chance link can match a period
+# end; a submission day is a specific date), on two days in a row. It closes at once when a read fails it: a
+# wrong link would show wrong overdue reports, a late one only delays them.
+# a PRP progress report no read returned for this long is no longer counted (PRP may have deleted it)
+OWED_STALE_DAYS = 7
+OWED = frozenset({rc.DUE, rc.OVERDUE})  # a report still owed, once its period has ended
+AGREES = ("compared", "same", "elsewhere", "dated", "same_day")  # progress_reports_pd_link.agrees
+PROOF_COUNTS = (
+    "owed",
+    "owed_before_history",
+    "stale",
+    "twins",
+    "ove_read_due",
+    "lacking",
+    "unsent_other_word",
+)
+# the fields of a PRP progress report the proof reads, one by one (never the record whole: it holds narratives
+# and the people who wrote and reviewed it)
+PROGRESS_FIELDS = (
+    "status",
+    "report_type",
+    "report_number",
+    "start_date",
+    "end_date",
+    "due_date",
+    "submission_date",
+)
+# why the pages may not show them (recorded_pd_link: why), in words for check 11 and Raw eTools data
+SHOWN_WHY = {
+    "not_proven": "their link to the programme documents is not proven",
+    "few": "too few of them are also in the partner reports to check the link",
+    "periods": "too few of the reports also in the partner reports end on the same day",
+    "few_days": "too few reports were submitted on both sides to check the submission day",
+    "days": "too few of the reports submitted on both sides were submitted on the same day",
+    "one_day": "the link passed every test on {day} only, and must pass on the next day too",
+    "not_read": "the last sync of PRP's progress reports or of their programme documents failed or received "
+    "nothing",
+    "not_checked": "not checked yet: the next sync of PRP's progress reports checks it",
+    "check_failed": "the check failed on the last sync: tell the NeuroDB team",
+    "old": "PRP's progress reports were last read on {day}",
+}
+
+
+def day_words(iso: Any) -> str:
+    """A recorded day ("2026-10-16") as the pages write it: "16 Oct 2026" ("" for none)."""
+    day = rc.iso_day(iso)
+    return f"{day.day} {day:%b %Y}" if day else ""
+
+
+def shown_words(verdict: dict[str, Any]) -> str:
+    """Whether the pages may show PRP's progress reports still owed (:func:`recorded_pd_link`), in words:
+    "yes, since 16 Oct 2026", or "no: " and why (:data:`SHOWN_WHY`)."""
+    if verdict.get("shown"):
+        return f"yes, since {day_words(verdict.get('since'))}"
+    why = str(verdict.get("why") or "")
+    day = day_words(verdict.get("read_on") if why == "old" else verdict.get("checked_on"))
+    return f"no: {SHOWN_WHY.get(why, SHOWN_WHY['not_proven']).format(day=day)}"
+
+
+def linked_progress_reports(today: dt.date) -> list[dict[str, Any]]:
+    """PRP's progress reports linked to a programme document NeuroDB holds (an older version is linked to
+    none: :func:`link_progress_reports`), each read field by field (:data:`PROGRESS_FIELDS`, ``KT``): its
+    record's ``pk``, ``pd`` and the ``base`` of the PD's number (``reached.pd_base``), its ``kind`` (TYPE) and
+    number ``key`` (``reached.report_number_key``), ``start``, ``end``, ``due`` and ``sub`` (submission) days,
+    PRP's ``word`` and the ``status`` NeuroDB reads it as (``reached.prp_document_status``), when a read last
+    returned it (``synced_at``) and which read that was (``read``, :func:`written_by`)."""
+    found = list(
+        dm.DatamartDocument.objects.filter(dataset=PROGRESS_REPORTS, intervention__isnull=False)
+        .annotate(**{f"_{k}": KT(f"data__{k}") for k in PROGRESS_FIELDS})
+        .values(
+            "pk",
+            "intervention_id",
+            "intervention__number",
+            "date",
+            "synced_at",
+            *(f"_{k}" for k in PROGRESS_FIELDS),
+        )
+    )
+    reads = written_by(PROGRESS_REPORTS, [row["synced_at"] for row in found])
+    out = []
+    for row, read in zip(found, reads, strict=True):
+        status, end = rc.prp_document_status(
+            status=row["_status"],
+            end=row["date"] or row["_end_date"],
+            due=row["_due_date"],
+            sub=row["_submission_date"],
+            today=today,
+        )
+        kind = str(row["_report_type"] or "").strip().upper()
+        out.append(
+            {
+                "pk": row["pk"],
+                "pd": row["intervention_id"],
+                "base": rc.pd_base(row["intervention__number"]),
+                "kind": kind,
+                "key": rc.report_number_key(row["_report_number"], kind),
+                "start": rc.iso_day(row["_start_date"]),
+                "end": end,
+                "due": rc.iso_day(row["_due_date"]),
+                "sub": rc.iso_day(row["_submission_date"]),
+                "word": " ".join(str(row["_status"] or "").lower().split()),
+                "status": status,
+                "synced_at": row["synced_at"],
+                "read": read,
+            }
+        )
+    return out
+
+
+def counted_once(reports: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """PRP's progress reports (:func:`linked_progress_reports`), one per programme document, type and number
+    (the identity :func:`older_versions` uses): the version the latest read wrote, then the latest period end,
+    then the newest record; and how many others it leaves out (``twins``: a shift of the Datamart's pages can
+    bring two versions of one report in one read). A report with no number is one of its own."""
+    best: dict[Any, tuple[tuple, dict[str, Any]]] = {}
+    for report in reports:
+        group = (report["pd"], report["kind"], report["key"]) if report["key"] else ("record", report["pk"])
+        rank = (report["read"], report["end"] or dt.date.min, report["pk"])
+        if group not in best or rank > best[group][0]:
+            best[group] = (rank, report)
+    kept = [report for _, report in best.values()]
+    return kept, len(reports) - len(kept)
+
+
+def fresh_since() -> dt.datetime:
+    """From when a read must have returned a PRP progress report for it to count: :data:`OWED_STALE_DAYS`
+    before the latest read of them that finished, or the one under way (now, before any). Their reads are
+    never whole (the Datamart's pages shift), so nothing removes a report PRP deleted: its last record would
+    read Overdue for ever."""
+    started = (
+        SyncRun.objects.filter(
+            job=SyncRun.Job.ETOOLS_DATAMART,
+            target=PROGRESS_REPORTS,
+            status__in=(SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL, SyncRun.Status.RUNNING),
+        )
+        .order_by("-started_at", "-pk")
+        .values_list("started_at", flat=True)
+        .first()
+    )
+    return (started or timezone.now()) - dt.timedelta(days=OWED_STALE_DAYS)
+
+
+@dataclass
+class PartnerNumbers:
+    """The progress reports the partner report rows hold by number (``reporting.report_numbers``, every row):
+    each ``(base, TYPE, number key)`` with its period ends and submission days (``reports``), the bases that
+    hold each ``(TYPE, number key, period end)`` (``by_end``), and those a row still sent holds (``sent``: the
+    others are held only by rows eTools no longer sends). One query."""
+
+    reports: dict[tuple[str, str, str], tuple[set[dt.date], set[dt.date]]] = field(default_factory=dict)
+    by_end: dict[tuple[str, str, dt.date], set[str]] = field(default_factory=lambda: defaultdict(set))
+    sent: set[tuple[str, str, str]] = field(default_factory=set)
+
+    @classmethod
+    def read(cls) -> PartnerNumbers:
+        from neurodb.datamart import reporting  # lazy: the partner reports' pages
+
+        found = cls()
+        for bases, kind, key, end, sub, unsent in reporting.report_numbers(
+            None, "period_end", "submission_date", "not_sent_since"
+        ):
+            for base in bases:
+                ends, subs = found.reports.setdefault((base, kind, key), (set(), set()))
+                if end is not None:
+                    ends.add(end)
+                    found.by_end[(kind, key, end)].add(base)
+                if sub is not None:
+                    subs.add(sub)
+                if unsent is None:
+                    found.sent.add((base, kind, key))
+        return found
+
+    def of(self, report: dict[str, Any]) -> tuple[set[dt.date], set[dt.date]] | None:
+        """The period ends and submission days of a PRP report's number in the rows, under its type or under a
+        row with no type (``reporting.holds``); None when the rows hold none."""
+        found = [self.reports[k] for k in self._keys(report) if k in self.reports]
+        if not found:
+            return None
+        return set().union(*(ends for ends, _ in found)), set().union(*(subs for _, subs in found))
+
+    def unsent_only(self, report: dict[str, Any]) -> bool:
+        """Whether only rows eTools no longer sends hold the report."""
+        keys = [k for k in self._keys(report) if k in self.reports]
+        return bool(keys) and not any(k in self.sent for k in keys)
+
+    def elsewhere(self, report: dict[str, Any]) -> bool:
+        """Whether another programme document's rows hold the report's type, number and period end."""
+        if report["end"] is None:
+            return False
+        bases = self.by_end.get((report["kind"], report["key"], report["end"]), set())
+        bases = bases | self.by_end.get(("", report["key"], report["end"]), set())
+        return bool(bases - {report["base"]})
+
+    @staticmethod
+    def _keys(report: dict[str, Any]) -> tuple[tuple[str, str, str], ...]:
+        return (report["base"], report["kind"], report["key"]), (report["base"], "", report["key"])
+
+
+def unsent_other_word(
+    reports: list[dict[str, Any]], numbers: PartnerNumbers, today: dt.date
+) -> tuple[int, set[str]]:
+    """Of PRP's progress reports (counted once), those the partner report rows hold only as no longer sent
+    (``ReportedIndicator.not_sent_since``) whose status there (the rows decide, as every page reads them:
+    ``reporting.progress_reports``) differs from PRP's: how many, and the rows' reports
+    (``reached.report_key``) for Raw eTools data's "Updated by" choice. The report of the same period end when
+    the rows have one, else every period of that number. The rows' word is never changed: they are listed for
+    review."""
+    mine = [r for r in reports if r["key"] and r["base"] and numbers.unsent_only(r)]
+    if not mine:
+        return 0, set()
+    from neurodb.datamart import reporting  # lazy: the partner reports' pages
+
+    marked = reporting.progress_reports(dm.ReportedIndicator.objects.exclude(not_sent_since=None), today)
+    pd_numbers = dict(
+        PCA.objects.filter(pk__in={r["intervention_id"] for r in marked if r["intervention_id"]}).values_list(
+            "pk", "number"
+        )
+    )
+    by_number: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    for r in marked:
+        kind = (r["report_type"] or "").strip().upper()
+        key = rc.report_number_key(r["report_number"], kind)
+        for base in {rc.pd_base(r["pd_reference_number"]), rc.pd_base(pd_numbers.get(r["intervention_id"]))}:
+            if base and key:
+                by_number[(base, kind, key)].append(r)
+    differ, keys = 0, set()
+    for report in mine:
+        found = [r for k in PartnerNumbers._keys(report) for r in by_number.get(k, ())]
+        same = [r for r in found if r["period_end"] == report["end"]] or found
+        if same and report["status"] not in {r["status"] for r in same}:
+            differ += 1
+            keys.update(r["key"] for r in same)
+    return differ, keys
+
+
+def unsent_word_reports(today: dt.date | None = None) -> set[str]:
+    """The partner reports (``reached.report_key``) eTools no longer sends whose status differs in PRP's
+    progress reports (:func:`unsent_other_word`, as check 11 counts them): none while PRP's progress reports
+    are not linked to their programme documents."""
+    today = today or timezone.localdate()
+    since = fresh_since()
+    reports = [r for r in linked_progress_reports(today) if r["synced_at"] >= since]
+    if not reports:
+        return set()
+    return unsent_other_word(counted_once(reports)[0], PartnerNumbers.read(), today)[1]
+
+
+def _previous_verdict(today: dt.date) -> dict[str, Any]:
+    """The verdict the latest finished run of either of PRP's two datasets recorded on a day before ``today``
+    ({} when none did: a run that failed before the link step, or one made before the verdict was recorded,
+    gives none)."""
+    start = timezone.make_aware(dt.datetime.combine(today, dt.time.min))
+    found = (
+        SyncRun.objects.filter(
+            job=SyncRun.Job.ETOOLS_DATAMART,
+            target__in=(PROGRESS_REPORTS, PROGRAMME_DOCUMENTS),
+            started_at__lt=start,
+        )
+        .exclude(status=SyncRun.Status.RUNNING)
+        .order_by("-started_at", "-pk")
+        .annotate(_link=KeyTransform("progress_reports_pd_link", "details"))
+        .values_list("_link", flat=True)
+    )
+    return next((link for link in found[:50] if isinstance(link, dict) and "passes" in link), {})
+
+
+def pd_link_proof(proven: bool, today: dt.date) -> dict[str, Any]:
+    """Whether the pages may show PRP's progress reports still owed, and the figures that prove it, over the
+    reports linked (:func:`linked_progress_reports`, :func:`counted_once`), names and counts only:
+
+    * ``agrees``: of them, those the partner report rows also hold by type and number (``compared``,
+      :class:`PartnerNumbers`), those with the same period end (``same``), the others whose period end another
+      PD's rows hold (``elsewhere``), those submitted on both sides (``dated``) and on the same day
+      (``same_day``);
+    * ``passes``: the key pair is proven and at least :data:`LINK_AGREE_MIN` compared, :data:`LINK_AGREE` of
+      them the same, at least :data:`LINK_AGREE_MIN` dated, :data:`LINK_AGREE` of those on the same day;
+      ``days`` it passed in a row (the previous day's verdict, :func:`_previous_verdict`); ``shown`` from
+      :data:`LINK_DAYS` days, ``shown_since`` the day it first showed; ``shown_why`` why not (``not_proven``,
+      ``few``, ``periods``, ``few_days``, ``days``, ``one_day``) or "";
+    * of the reports a read returned within :data:`OWED_STALE_DAYS` (:func:`fresh_since`): ``owed`` (Due or
+      Overdue, their period ended, not in the rows), ``owed_before_history`` (of them, ending before the
+      partner reports' history, ``reached.history_from``), ``twins`` (:func:`counted_once`),
+      ``ove_read_due`` (PRP says Overdue, read as Due: no due date passed), ``lacking`` (Accepted or Submitted
+      this year, not in the rows), ``unsent_other_word`` (:func:`unsent_other_word`); and ``stale``, those
+      that would be owed but no read returned since (counted once, not in the rows).
+
+    No figure of a page changes: the pages do not show them yet."""
+    reports = linked_progress_reports(today)
+    since = fresh_since()
+    numbers = PartnerNumbers.read()
+    agrees = dict.fromkeys(AGREES, 0)
+    once, _ = counted_once(reports)
+    for report in once:
+        found = numbers.of(report) if report["key"] and report["base"] else None
+        if found is None:
+            continue
+        ends, subs = found
+        agrees["compared"] += 1
+        if report["end"] is not None and report["end"] in ends:
+            agrees["same"] += 1
+        elif numbers.elsewhere(report):
+            agrees["elsewhere"] += 1
+        if report["sub"] is not None and subs:
+            agrees["dated"] += 1
+            agrees["same_day"] += report["sub"] in subs
+    fresh = [r for r in reports if r["synced_at"] >= since]
+    current, twins = counted_once(fresh)
+
+    def ended(report: dict[str, Any]) -> bool:
+        return report["end"] is not None and report["end"] <= today
+
+    def held(report: dict[str, Any]) -> bool:
+        return bool(report["key"] and report["base"]) and numbers.of(report) is not None
+
+    owed = [r for r in current if r["status"] in OWED and ended(r) and not held(r)]
+    history = rc.history_from(today).date
+    counts = {
+        "owed": len(owed),
+        "owed_before_history": sum(1 for r in owed if r["end"] < history),
+        "stale": sum(
+            1
+            for r in counted_once([r for r in reports if r["synced_at"] < since])[0]
+            if r["status"] in OWED and ended(r) and not held(r)
+        ),
+        "twins": twins,
+        "ove_read_due": sum(
+            1
+            for r in current
+            if r["word"] in ("ove", "overdue") and r["status"] == rc.DUE and r["sub"] is None
+        ),
+        "lacking": sum(
+            1
+            for r in current
+            if r["status"] in rc.COUNTED
+            and r["end"] is not None
+            and r["end"].year == today.year
+            and not held(r)
+        ),
+        "unsent_other_word": unsent_other_word(current, numbers, today)[0],
+    }
+    a = agrees
+    why = (
+        "not_proven"
+        if not proven
+        else "few"
+        if a["compared"] < LINK_AGREE_MIN
+        else "periods"
+        if a["same"] < LINK_AGREE * a["compared"]
+        else "few_days"
+        if a["dated"] < LINK_AGREE_MIN
+        else "days"
+        if a["same_day"] < LINK_AGREE * a["dated"]
+        else ""
+    )
+    passes = not why
+    previous = _previous_verdict(today)
+    days = (_count(previous.get("days")) or 0) + 1 if previous.get("passes") is True else 1
+    days = days if passes else 0
+    shown = days >= LINK_DAYS
+    since_day = ""
+    if shown:
+        since_day = str(previous.get("shown_since") or "") if previous.get("shown") is True else ""
+        since_day = since_day or today.isoformat()
+    if passes and not shown:
+        why = "one_day"
+    return {
+        "agrees": agrees,
+        **counts,
+        "passes": passes,
+        "days": days,
+        "shown": shown,
+        "shown_since": since_day,
+        "shown_why": why,
+    }
+
+
+def recorded_pd_link() -> dict[str, Any]:
+    """Whether the pages may show PRP's progress reports still owed, as the sync recorded it
+    (:func:`pd_link_proof`): the verdict of the latest finished run (not running) of PRP's progress reports or
+    of their programme documents, whichever started later, so an older verdict is never read over newer links.
+    ``{"shown": False, "why": "not_read"}`` when that run recorded none (it failed before the link step, or no
+    progress report was held), ``why`` "check_failed" when its proof failed (``proof_error``),
+    "not_checked" for a run made before the verdict was recorded. A verdict that shows them still closes when
+    the latest read of the progress reports that finished received nothing (``not_read``) or ended more than
+    :data:`OWED_STALE_DAYS` days ago (``old``, ``read_on`` its day). Else:
+    ``shown``, ``why`` (``pd_link_proof``'s ``shown_why``), ``since``, ``days``, ``passes``, ``proven``,
+    ``link_why`` (why no key pair is proven, :data:`LINK_WHY`), ``linked``, ``agrees``, the counts of
+    :data:`PROOF_COUNTS` and ``checked_on``, the day of the verdict's run. Check 11 and Raw eTools data read
+    it."""
+    latest = list(
+        SyncRun.objects.filter(
+            job=SyncRun.Job.ETOOLS_DATAMART, target__in=(PROGRESS_REPORTS, PROGRAMME_DOCUMENTS)
+        )
+        .exclude(status=SyncRun.Status.RUNNING)
+        .order_by("-started_at", "-pk")
+        .annotate(_link=KeyTransform("progress_reports_pd_link", "details"))
+        .values_list("started_at", "_link")[:1]
+    )
+    if not latest:
+        return {"shown": False, "why": "not_read"}
+    started, link = latest[0]
+    checked_on = timezone.localtime(started).date().isoformat()
+    if not isinstance(link, dict) or not link:
+        return {"shown": False, "why": "not_read", "checked_on": checked_on}
+    if "passes" not in link:
+        why = "check_failed" if link.get("proof_error") else "not_checked"
+        return {"shown": False, "why": why, "checked_on": checked_on}
+    agrees = link.get("agrees") if isinstance(link.get("agrees"), dict) else {}
+    found: dict[str, Any] = {
+        "shown": link.get("shown") is True,
+        "why": str(link.get("shown_why") or ""),
+        "since": str(link.get("shown_since") or ""),
+        "days": _count(link.get("days")) or 0,
+        "passes": link.get("passes") is True,
+        "proven": link.get("proven") is True,
+        "link_why": str(link.get("why") or ""),
+        "linked": _count(link.get("linked")) or 0,
+        "agrees": {k: _count(agrees.get(k)) or 0 for k in AGREES},
+        **{k: _count(link.get(k)) or 0 for k in PROOF_COUNTS},
+        "checked_on": checked_on,
+    }
+    if found["shown"]:
+        read = (
+            SyncRun.objects.filter(
+                job=SyncRun.Job.ETOOLS_DATAMART,
+                target=PROGRESS_REPORTS,
+                status__in=(SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL),
+            )
+            .order_by("-started_at", "-pk")
+            .annotate(_empty=KeyTransform("empty_response", "details"))
+            .values_list("finished_at", "_empty")
+            .first()
+        )
+        if read is None or read[1]:
+            found.update(shown=False, why="not_read")
+        elif read[0] is not None and read[0] < timezone.now() - dt.timedelta(days=OWED_STALE_DAYS):
+            found.update(shown=False, why="old", read_on=timezone.localtime(read[0]).date().isoformat())
+    return found
 
 
 # the link steps run after a dataset's records are written (:func:`sync_documents`)

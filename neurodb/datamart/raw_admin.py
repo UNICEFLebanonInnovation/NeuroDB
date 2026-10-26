@@ -134,6 +134,18 @@ def _datamart_notes(request, name: str, facts: runfacts.RunFacts) -> list[dict]:
     return notes
 
 
+def _prp_notes(request, name: str, facts: runfacts.RunFacts) -> list[dict] | None:
+    """PRP's progress reports' row on the first page also says whether the pages could show their reports
+    still owed (``datamart_sync.recorded_pd_link``), once a sync of them ran; None for the other sources
+    (their notes are :func:`_datamart_notes`)."""
+    if name != "prp_progress_reports" or facts.run is None:
+        return None
+    from neurodb.integrations.etools.datamart_sync import recorded_pd_link, shown_words
+
+    words = f"reports still owed can be shown on the pages: {shown_words(recorded_pd_link())}"
+    return [*_datamart_notes(request, name, facts), _note(request, words, warn=False)]
+
+
 @dataclass(frozen=True)
 class _Read:
     """The latest read of the eTools REST API into Raw eTools data, from its runs' details
@@ -310,7 +322,11 @@ def index_view(request):
     tables = [
         {
             "title": _("Read by Progress reports and Partner monitoring"),
-            "rows": [_row(request, n, facts[n]) for n in raw.PRP_SOURCES if n in shown],
+            "rows": [
+                _row(request, n, facts[n], _prp_notes(request, n, facts[n]))
+                for n in raw.PRP_SOURCES
+                if n in shown
+            ],
         },
         {
             "title": _("Other eTools Datamart datasets"),
@@ -435,6 +451,18 @@ def source_view(request, source: str):
         }
     elif name in raw.FR_SOURCES:  # how the last sync linked them to their programme document
         extra = {"pd_link_line": raw.fr_link_words(facts.pd_link, name)}
+    elif name == "pd_indicators":  # those eTools marks inactive in every row
+        from . import identity
+
+        extra = {"inactive_line": raw.inactive_words(identity.inactive_indicators())}
+    elif name == "intervention_budgets":  # their numbers against their eTools ids, and PDs written twice
+        extra = {
+            "budget_line": raw.budget_link_words((run.details or {}).get("budget_link") if run else None)
+        }
+    elif name == "prp_progress_reports":  # tied to their programme documents? may the pages show them?
+        from neurodb.integrations.etools.datamart_sync import recorded_pd_link
+
+        extra = {"prp_link_line": raw.prp_link_words(recorded_pd_link())}
     context = _context(
         request,
         raw.NAMES.get(name, name),
@@ -451,6 +479,7 @@ def source_view(request, source: str):
         choices=raw.choices(name, run),
         pd_links=raw.PD_LINK_WORDS,
         fr_links=raw.FR_LINK_WORDS,
+        active_choices=raw.ACTIVE_WORDS,
         updated_choices=raw.updated_choices(name),
         n=n,
         too_slow=raw.TOO_SLOW.format(n=f"{facts.held:,}") if n is None else "",

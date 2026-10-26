@@ -663,3 +663,54 @@ def test_the_lines_of_shared_copies_read_their_common_type_or_none():
     dm.PDIndicator.objects.filter(source_id=Y).update(display_type="number", unit="number")
     (line,) = reporting.location_rows(data["rows"], data["statuses"], TODAY)["rows"]
     assert line["percentage"] is False
+
+
+# ------------------------------------------------------------------- PD indicators eTools marks inactive
+def test_an_inactive_indicator_without_rows_is_counted(client, roles):
+    """PD B lists an older version of its indicator, inactive in every row and with no report row, beside the
+    active one its rows go to; PD C's inactive indicator still has rows (placed by its title), and a third, active
+    in one of its rows, is not inactive. The proof counts two indicators of two PDs inactive in every row, one of
+    them without rows; Raw eTools data → PD indicators says so and lists them under Active: no."""
+    pd = make_pd("B")
+    indicator(pd, X)
+    indicator(pd, Y, "# of children reached (old wording)", active=False)
+    row(pd)
+    other = make_pd("C")
+    indicator(other, 601, "# of teachers trained", active=False)
+    row(other, title="# of teachers trained")
+    dm.PDIndicator.objects.create(datamart_id=next(_ids), source_id=602, intervention=other, title="Mixed",
+                                  is_active=False)  # fmt: skip
+    dm.PDIndicator.objects.create(datamart_id=next(_ids), source_id=602, intervention=other, title="Mixed",
+                                  is_active=True)  # fmt: skip
+    found = identity.calibrate()
+    assert found["inactive"] == {"indicators": 2, "without_rows": 1, "pds": 2}
+    whole()  # the PD indicators' last sync, then the partner reports' with the proof
+    proof(found)
+    from neurodb.datamart import raw
+
+    assert raw.inactive_words(identity.inactive_indicators()) == (
+        "eTools marks 2 indicators of 2 programme documents inactive in every row; 1 of them has no partner report "
+        "row and is still listed on Programmes → Indicators and Partner monitoring."
+    )
+    staff = _validator()
+    client.force_login(staff)
+    from django.urls import reverse
+
+    url = reverse("admin:datamart_raw_source", args=["pd_indicators"])
+    response = client.get(url)
+    assert "inactive in every row" in response.content.decode()
+    assert response.context["shown"]["active"] and 'href="?active=no"' in response.content.decode()
+    assert client.get(url, {"active": "no"}).context["n"] == 5  # Y's two rows, C's two, Mixed's inactive one
+    assert client.get(url, {"active": "yes"}).context["n"] == 3  # X's two rows, Mixed's active one
+    assert raw.Filters(active="no").words() == "Active: no"
+
+
+def _validator():
+    from django.contrib.auth.models import Group
+
+    from neurodb.accounts.models import User
+    from neurodb.accounts.roles import VALIDATORS, VIEWER
+
+    user = User.objects.create_user(username="validator", password="pass-123456-x", is_staff=True)
+    user.groups.set(Group.objects.filter(name__in=(VIEWER, VALIDATORS)))
+    return user

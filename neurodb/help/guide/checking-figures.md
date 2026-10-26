@@ -403,6 +403,29 @@ programme documents, trips, engagements, action points and their details).
   *Programme document link* choice "Their number names no PD NeuroDB holds" lists the lines left unlinked so,
   those without a number of their own by their FR's number: as many as the line under the counts says. If
   they are many, tell the NeuroDB team before using the Funds pages.
+- **PRP's own progress reports and their programme documents** (PRP progress reports). PRP's own list holds
+  the reports partners still owe for a period that has ended, which the partner reports stop sending. The line
+  under the counts says, as the last sync recorded it, whether they are tied to their programme document ("yes,
+  the data proves it", or why not); of the reports the partner reports also have, how many end on the same day,
+  and how many of those submitted on both sides were submitted on the same day; how many reports are still
+  owed for a period that has ended (and how many more no read of PRP's list returned for a week: not counted);
+  and whether the pages can show them: "yes, since 16 Oct 2026", or why not ("their link to the programme
+  documents is not proven", "too few of the reports also in the partner reports end on the same day", "the link
+  passed every test on 16 Oct 2026 only, and must pass on the next day too", "the last sync of PRP's progress
+  reports or of their programme documents failed or received nothing", "the check failed on the last sync:
+  tell the NeuroDB team"...). The link must pass on two days in a row before they can be shown, and closes at
+  once when a read fails it. Check 11 gives the figures. No page shows these reports yet. The first page
+  says the same beside the dataset, and the list gives each report's programme document and partner in
+  NeuroDB ("not linked" when none), its period end, due date and submission date, never its narrative or the
+  people who wrote it.
+- **PD indicators eTools marks inactive** (PD indicators). The line under the counts says how many indicators
+  eTools marks inactive in every row, of how many programme documents, and how many of them have no partner
+  report row: mostly an older wording of a PD's indicator, still listed on Programmes → Indicators and Partner
+  monitoring. The filter's *Active* choice ("no") lists their rows. Nothing on the pages changes.
+- **Programme document budgets.** The line under the counts says how many budget records the last sync read,
+  how many name by their number another programme document than their eTools id (NeuroDB links them by the
+  id, as always), and how many programme documents several budget records wrote (the last one read is kept):
+  a budget that differs from Power BI's may come from one of these.
 - **Records eTools sent twice.** One answer of the eTools Datamart (one page) never lists a record twice, so
   when every copy of a record comes identical in one answer, eTools holds it twice: NeuroDB keeps one, counts
   the copy with what it received ("1,939 the Datamart sent twice (identical)" under *Not kept*) and the sync
@@ -419,7 +442,9 @@ programme documents, trips, engagements, action points and their details).
   reports, also the report type and the programme document link: running, another status, draft or
   cancelled, not in NeuroDB, or names none. These five choices add up to every partner report row. Its
   *Updated by* choices add the rows eTools no longer sends: "eTools sends their number for another period"
-  (first to review) and "eTools no longer sends them" (all of them).
+  (first to review), "eTools no longer sends them" (all of them) and "PRP's progress reports give them another
+  status" (those whose report PRP's own list gives another status, as check 11 counts them; none while PRP's
+  list is not tied to its programme documents). For the PD indicators, also *Active*: yes or no.
 - **The review list** (partner reports, when the filter holds rows eTools no longer sends) lists their
   progress reports, one line each: programme document, report, period end and when it was last sent, at
   most 50 ("and N more"). Send it to the eTools Datamart team and ask which of these reports PRP deleted.

@@ -15,6 +15,7 @@ from django.db import connection
 from django.db.models import QuerySet
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import escape
 
 from neurodb.accounts.models import User
 from neurodb.accounts.roles import ADMIN, VALIDATORS, VIEWER
@@ -149,7 +150,7 @@ def test_the_source_page_says_what_is_kept_and_lists_the_reports_for_review(clie
     assert "Remove these rows" not in html  # a validator reviews, a superuser removes
     assert NAME not in html
     for words in raw.UNSENT.values():
-        assert words in html  # the "updated" choices
+        assert escape(words) in html  # the "updated" choices
 
 
 def test_the_record_page_says_when_etools_stopped_sending_the_row(client, world):

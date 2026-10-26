@@ -462,6 +462,32 @@ def calibration() -> Calibration:
     return compute.per_request("datamart_identity_calibration", read)
 
 
+def inactive_indicators() -> dict[str, int] | None:
+    """The PD indicators eTools marks inactive in every row, as the newest proof that counted them stored them
+    (:func:`calibrate`: ``inactive``): ``indicators``, ``without_rows`` and ``pds``; None before a sync
+    counted them."""
+    from neurodb.core.models import SyncRun
+
+    found = (
+        SyncRun.objects.filter(
+            job=SyncRun.Job.ETOOLS_DATAMART,
+            target__in=CALIBRATED_BY,
+            status__in=(SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL),
+            details__identity__inactive__isnull=False,
+        )
+        .order_by("-started_at", "-pk")
+        .values_list("details__identity__inactive", flat=True)
+        .first()
+    )
+    if not isinstance(found, dict):
+        return None
+    return {
+        k: v if isinstance(v, int) else 0
+        for k, v in found.items()
+        if k in ("indicators", "without_rows", "pds")
+    }
+
+
 def _stored() -> Calibration:
     return calibration()  # what :class:`Idents` reads when given none (its argument hides the name)
 
@@ -602,6 +628,11 @@ class Idents:
         return "shared_output" if place in self.shared_output else "output_unmatched"
 
     # ------------------------------------------------------------------------------- the indicators
+    def inactive(self) -> set[tuple[int, str]]:
+        """The indicators eTools marks inactive in every row (``is_active`` false): mostly an older version of
+        a PD's indicator, still listed beside it on Programmes → Indicators and Partner monitoring."""
+        return {ident for ident, seen in self._seen.items() if seen.active == {False}}
+
     def candidate(self, ident: tuple[int, str]) -> Candidate:
         found = self._candidates.get(ident)
         if found is None:
@@ -867,12 +898,16 @@ def calibrate() -> dict[str, Any]:
     every page, whatever its filter): the rows placed by id, title or output, grouped as :meth:`Idents.place`
     groups them, compared with the indicator they were placed under. A tie-breaker is enabled when it was
     compared on :data:`CALIBRATION_MIN` groups or more and never differed; the indicator type when, besides,
-    each type seen goes with one (display type, unit) and no pair with two types. Counts and fixed words only
-    (the indicator types), stored by the sync in its run's details (``identity``)."""
+    each type seen goes with one (display type, unit) and no pair with two types. Also (``inactive``, a
+    diagnostic) the indicators of those PDs eTools marks inactive in every row (:meth:`Idents.inactive`), how
+    many of them no row was placed on in any way (``without_rows``: by id, title or output, or one of the
+    indicators a shared title could go to), and their PDs. Counts and fixed words only (the indicator types),
+    stored by the sync in its run's details (``identity``)."""
     rows = dm.ReportedIndicator.objects.exclude(intervention=None).order_by()
     pd_ids = sorted(set(rows.values_list("intervention_id", flat=True).distinct()))
     idents = Idents(pd_ids, Calibration())
     groups: dict[tuple, Group] = {}
+    placed: set[tuple[int, str]] = set()  # the indicators a row may go to, any way
     read = 0
     values = (
         with_signature(rows)
@@ -887,9 +922,16 @@ def calibrate() -> dict[str, Any]:
             row["indicator"],
             row["pd_output"],
         )
-        if idents.how(pd, eid, title, output) not in PLACED_BY_KEY:
+        way = idents.how(pd, eid, title, output)
+        if way not in PLACED_BY_KEY:
+            placed.update(
+                idents.shared_output.get((pd, norm(output), norm(title)), ())
+                if way == "shared_output"
+                else idents.titled(pd, title)
+            )
             continue
         key = (*group_key(row), idents.of(pd, eid, title, output))
+        placed.add(key[-1])
         group = groups.get(key)
         if group is None:
             group = groups[key] = Group(row)
@@ -928,6 +970,7 @@ def calibrate() -> dict[str, Any]:
     counts["same"] = sum(n for (kind, _), n in pairs.items() if kind in types)
     counts["differ"] = counts["compared"] - counts["same"]
     enabled = [n for n in BREAKERS if tally[n]["compared"] >= CALIBRATION_MIN and not tally[n]["differ"]]
+    inactive = idents.inactive()
     return {
         "version": CALIBRATION_VERSION,
         "computed_at": timezone.now().isoformat(),
@@ -938,5 +981,10 @@ def calibrate() -> dict[str, Any]:
         "stats": {
             name: {k: counts[k] for k in ("compared", "same", "differ", "not_given")}
             for name, counts in tally.items()
+        },
+        "inactive": {
+            "indicators": len(inactive),
+            "without_rows": len(inactive - placed),
+            "pds": len({pd for pd, _ in inactive}),
         },
     }

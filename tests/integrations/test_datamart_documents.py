@@ -1,11 +1,15 @@
+import datetime as dt
+import itertools
 import json
 
 import pytest
 import responses
+from django.db.models import F
 
 from neurodb.core.models import DatamartSetting, SyncRun
-from neurodb.datamart import catalogue
-from neurodb.datamart.models import DatamartDocument
+from neurodb.datamart import catalogue, reporting
+from neurodb.datamart import reached as rc
+from neurodb.datamart.models import DatamartDocument, ReportedIndicator
 from neurodb.integrations.etools import datamart_sync as sync
 from neurodb.integrations.etools.datamart import DatamartClient
 from neurodb.integrations.http import make_session
@@ -1187,3 +1191,426 @@ def test_a_read_under_a_business_area_filter_chooses_no_new_record_identity():
     assert (tracker.keys, sync.identity_key(tracker)) == (["prp_id"], "prp_id")
     tracker.saw({"external_id": "4"}, "content 4")  # a record without prp_id: no key is left
     assert (tracker.keys, sync.identity_key(tracker, "prp_id")) == ([], "")
+
+
+# ------------------------------------------- PRP's progress reports against the partner reports: the proof
+_rows = itertools.count(970_000)
+D = dt.date
+TODAY = D(2026, 10, 15)  # the site's day in the tests (tests/conftest.py)
+
+
+def _month_ends(first: dt.date, n: int) -> list[dt.date]:
+    """``n`` month ends from the month of ``first``."""
+    out, year, month = [], first.year, first.month
+    for _ in range(n):
+        nxt = D(year + month // 12, month % 12 + 1, 1)
+        out.append(nxt - dt.timedelta(days=1))
+        year, month = nxt.year, nxt.month
+    return out
+
+
+ENDS = _month_ends(D(2025, 7, 1), 12)  # Jul 2025 to Jun 2026: HR1 to HR12
+
+
+def _progress(n: int, end: dt.date, *, pd_id=77, kind="HR", number=None, sub=..., status="Accepted", **extra):
+    """A PRP progress report as sources/prp/unicefprogressreport sends it (21 Oct 2026): no id, no source_id, its
+    dates as text, its narrative and the people who wrote and reviewed it beside the fields NeuroDB reads."""
+    sub = end + dt.timedelta(days=10) if sub is ... else sub
+    record = {
+        "business_area_code": "2490",
+        "programme_document": pd_id,
+        "report_type": kind,
+        "report_number": number or f"{kind}{n}",
+        "start_date": end.replace(day=1).isoformat(),
+        "end_date": end.isoformat(),
+        "due_date": (end + dt.timedelta(days=15)).isoformat(),
+        "submission_date": sub.isoformat() if sub else None,
+        "status": status,
+        "narrative": "Fake narrative of the period",
+        "submitted_by": "Focal Alpha",
+        "reviewed_by_email": "focal.alpha@example.invalid",
+        **extra,
+    }
+    return {k: v for k, v in record.items() if v is not ...}
+
+
+def _row(pd, number: str, end: dt.date, sub=..., *, kind="HR", reference=None, status="Accepted", **extra):
+    """One partner report row (prp/datareport) of ``pd``'s report ``number``."""
+    sub = end + dt.timedelta(days=10) if sub is ... else sub
+    return ReportedIndicator.objects.create(
+        datamart_id=next(_rows),
+        intervention=pd,
+        partner=pd.partner if pd else None,
+        pd_reference_number=pd.number if reference is None else reference,
+        report_type=kind,
+        report_number=number,
+        report_status=status,
+        period_start=end.replace(day=1),
+        period_end=end,
+        due_date=end + dt.timedelta(days=15),
+        submission_date=sub,
+        indicator="Children reached",
+        location="Akkar",
+        **extra,
+    )
+
+
+def _hold(pd, reports: list[dict], *, prp_id=77, key="h77", start="2025-01-01") -> list[DatamartDocument]:
+    """PRP's programme document ``prp_id`` (linked to ``pd``) and its progress reports, as the syncs keep them
+    (no id: held under a hash)."""
+    DatamartDocument.objects.create(
+        dataset="prp_programme_documents",
+        record_key=key,
+        intervention=pd,
+        data={
+            "prp_id": prp_id,
+            "external_id": pd.etl_id,
+            "reference_number": pd.number,
+            "start_date": start,
+            "end_date": "2026-12-31",
+        },  # fmt: skip
+    )
+    return [
+        DatamartDocument.objects.create(
+            dataset="prp_progress_reports",
+            record_key=f"{key}r{n}",
+            date=dt.date.fromisoformat(data["end_date"]),
+            data=data,
+        )
+        for n, data in enumerate(reports)
+    ]
+
+
+def _verdict_run(target: str, link: dict | None, *, day: dt.date, status=SyncRun.Status.SUCCEEDED, **details):
+    """A finished run of one of PRP's two datasets on ``day``, with the link it recorded (None: none)."""
+    from django.utils import timezone
+
+    started = timezone.make_aware(dt.datetime.combine(day, dt.time(20, 30)))
+    if link is not None:
+        details["progress_reports_pd_link"] = link
+    return SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target=target, status=status,
+                                  started_at=started, finished_at=started + dt.timedelta(minutes=5),
+                                  details=details)  # fmt: skip
+
+
+def _agreeing(pd, n: int = 12, *, rows: bool = True) -> list[DatamartDocument]:
+    """``n`` monthly reports PRP ties to ``pd``, each also in the partner reports with the same period end and
+    submission day."""
+    reports = [_progress(i + 1, end) for i, end in enumerate(ENDS[:n])]
+    if rows:
+        for i, end in enumerate(ENDS[:n]):
+            _row(pd, f"HR{i + 1}", end)
+    return _hold(pd, reports)
+
+
+@responses.activate
+def test_the_link_agrees_with_the_partner_reports_when_periods_and_days_match(linked, settings, site_today):
+    """Twelve monthly reports PRP ties to LEB/PD1 by a proven pair, each also in the partner reports with the same
+    period end and submission day: the link passes every test, but on one day only, so it is not shown yet; the
+    next day's read agrees again and it is shown, since that day. The fields NeuroDB reads are counted on every
+    record read. Names and counts only."""
+    settings.ETOOLS_DATAMART_BUSINESS_AREA = "2490"
+    _, pd = linked
+    for i, end in enumerate(ENDS):
+        _row(pd, f"HR{i + 1}", end)
+    documents = [_pd(77, external_id="11", reference_number="LEB/PD1", start_date="2025-01-01")]
+    reports = [_progress(i + 1, end) for i, end in enumerate(ENDS)]
+
+    def night():
+        responses.reset()
+        FakeDatamart(documents, ignore=("external_business_area_code",)).register(
+            _url("sources/prp/unicefprogrammedocument")
+        )
+        FakeDatamart(reports).register(_url("sources/prp/unicefprogressreport"))
+        return run("prp_programme_documents,prp_progress_reports")
+
+    _, progress = night()
+    link = progress.details["progress_reports_pd_link"]
+    assert (link["proven"], link["linked"]) == (True, 12)
+    assert link["agrees"] == {"compared": 12, "same": 12, "elsewhere": 0, "dated": 12, "same_day": 12}
+    assert (link["passes"], link["days"], link["shown"], link["shown_why"], link["shown_since"]) == (
+        True, 1, False, "one_day", ""
+    )  # fmt: skip
+    assert sync.recorded_pd_link()["why"] == "one_day"
+    seen = progress.details["keys_seen"]
+    assert {k: seen[k] for k in ("status", "due_date", "start_date", "submission_date", "programme_document")} == {
+        "status": 12, "due_date": 12, "start_date": 12, "submission_date": 12, "programme_document": 12
+    }  # fmt: skip
+    assert seen["programme_document_id"] == 0
+    assert "Focal" not in json.dumps(link) and "HR1" not in json.dumps(link) and "LEB" not in json.dumps(link)
+
+    site_today.set(TODAY + dt.timedelta(days=1))
+    documents_run, progress = night()
+    for found in (documents_run, progress):
+        link = found.details["progress_reports_pd_link"]
+        assert (link["passes"], link["days"], link["shown"], link["shown_why"], link["shown_since"]) == (
+            True, 2, True, "", "2026-10-16"
+        )  # fmt: skip
+    recorded = sync.recorded_pd_link()
+    assert (recorded["shown"], recorded["why"], recorded["since"]) == (True, "", "2026-10-16")
+    assert recorded["agrees"]["same_day"] == 12
+
+
+def test_a_proven_pair_whose_reports_end_on_other_days_is_not_shown(linked):
+    """Twelve linked reports the partner reports also have by number, nine of them for another period: the link
+    is proven but not shown (periods)."""
+    _, pd = linked
+    _hold(pd, [_progress(i + 1, end) for i, end in enumerate(ENDS)])
+    for i, end in enumerate(ENDS):
+        other = end if i < 3 else end + dt.timedelta(days=31)
+        _row(pd, f"HR{i + 1}", other, end + dt.timedelta(days=10))
+    link = sync.link_progress_reports()
+    assert link["proven"] is True
+    assert link["agrees"] == {"compared": 12, "same": 3, "elsewhere": 0, "dated": 12, "same_day": 12}
+    assert (link["passes"], link["days"], link["shown"], link["shown_why"]) == (False, 0, False, "periods")
+
+
+def test_a_chance_pair_on_a_shared_quarter_calendar_is_caught_by_the_submission_day(linked):
+    """Many PDs share calendars: the period ends agree, but none of the submission days does (days)."""
+    _, pd = linked
+    _hold(pd, [_progress(i + 1, end) for i, end in enumerate(ENDS)])
+    for i, end in enumerate(ENDS):
+        _row(pd, f"HR{i + 1}", end, end + dt.timedelta(days=3))
+    link = sync.link_progress_reports()
+    assert link["agrees"] == {"compared": 12, "same": 12, "elsewhere": 0, "dated": 12, "same_day": 0}
+    assert (link["passes"], link["shown_why"]) == (False, "days")
+
+
+def test_ends_that_agree_with_too_few_submitted_reports_are_not_shown(linked):
+    """Twelve period ends agree, but only four reports were submitted on both sides: the submission day cannot be
+    checked, so the link is not shown on period ends alone (few_days)."""
+    _, pd = linked
+    reports = [
+        _progress(i + 1, end, **({} if i < 4 else {"sub": None, "status": "Due"}))
+        for i, end in enumerate(ENDS)
+    ]
+    _hold(pd, reports)
+    for i, end in enumerate(ENDS):
+        _row(pd, f"HR{i + 1}", end)
+    link = sync.link_progress_reports()
+    assert link["agrees"] == {"compared": 12, "same": 12, "elsewhere": 0, "dated": 4, "same_day": 4}
+    assert (link["passes"], link["shown_why"]) == (False, "few_days")
+
+
+def test_too_few_reports_to_check_the_link(linked):
+    _, pd = linked
+    _agreeing(pd, 5)
+    link = sync.link_progress_reports()
+    assert link["agrees"]["compared"] == 5
+    assert (link["passes"], link["shown_why"]) == (False, "few")
+
+
+def test_a_failing_read_closes_the_link_at_once(linked):
+    """Shown since 13 Oct (two days): today's read agrees again and it stays shown, since 13 Oct. A read whose
+    reports end on other days closes it at once (days 0), whatever the days before; so does a read that fails
+    before the link step (not read), and the next agreeing read starts again from one day."""
+    _, pd = linked
+    shown = {"proven": True, "passes": True, "days": 2, "shown": True, "shown_since": "2026-10-13"}
+    _verdict_run("prp_progress_reports", shown, day=TODAY - dt.timedelta(days=1))
+    _agreeing(pd)
+    link = sync.link_progress_reports()
+    assert (link["days"], link["shown"], link["shown_since"]) == (3, True, "2026-10-13")
+
+    ReportedIndicator.objects.update(period_end=F("period_end") + dt.timedelta(days=31))
+    link = sync.link_progress_reports()
+    assert (link["passes"], link["days"], link["shown"], link["shown_since"], link["shown_why"]) == (
+        False, 0, False, "", "periods"
+    )  # fmt: skip
+
+    _verdict_run("prp_progress_reports", None, day=TODAY, status=SyncRun.Status.FAILED)
+    assert (sync.recorded_pd_link()["shown"], sync.recorded_pd_link()["why"]) == (False, "not_read")
+
+
+def test_an_unproven_link_is_never_shown_even_when_today_s_lookup_links(linked):
+    """Two keys of PRP's programme documents tie the reports to the documents crosswise, as often each: no pair is
+    proven, and today's lookup (the key a document is held under) links them. The partner reports agree with
+    those links on every report, yet the link is never shown: it is not proven (not_proven)."""
+    partner, pd = linked
+    pd2 = PCA.objects.create(etl_id="12", number="LEB/PD2", title="PD 2", partner=partner)
+    for key, legacy, to in (("77", 78, pd), ("78", 77, pd2)):
+        DatamartDocument.objects.create(dataset="prp_programme_documents", record_key=key, intervention=to,
+                                        data={"legacy_id": legacy})  # fmt: skip
+    for i, end in enumerate(ENDS):
+        to, prp_id = (pd, 77) if i % 2 else (pd2, 78)
+        DatamartDocument.objects.create(dataset="prp_progress_reports", record_key=f"r{i}", date=end,
+                                        data=_progress(i + 1, end, pd_id=prp_id))  # fmt: skip
+        _row(to, f"HR{i + 1}", end)
+    link = sync.link_progress_reports()
+    assert (link["proven"], link["why"], link["linked"]) == (False, "not_clear", 12)
+    assert link["agrees"] == {"compared": 12, "same": 12, "elsewhere": 0, "dated": 12, "same_day": 12}
+    assert (link["passes"], link["shown"], link["shown_why"]) == (False, False, "not_proven")
+
+
+def test_report_numbers_compare_bare_and_typed_as_one():
+    assert rc.report_number_key("3", "QPR") == rc.report_number_key(" qpr 3 ", "QPR") == "QPR3"
+    assert rc.report_number_key("HR3", "") == "HR3" and rc.report_number_key("", "QPR") == ""
+    assert rc.pd_base(" leba/pca2020001/pd2020001-2 ") == rc.pd_base("LEBA/PCA2020001/PD2020001-1")
+    assert rc.pd_base("LEBA/PCA2020001/PD2020001-1") == "leba/pca2020001/pd2020001"
+
+
+def test_bare_and_typed_numbers_compare_as_one(linked):
+    """PRP's "HR3" and a partner report row numbered "3" of type HR are one report; so are " hr 4 " and "HR4"."""
+    _, pd = linked
+    _agreeing(pd, rows=False)
+    for i, end in enumerate(ENDS):
+        _row(pd, str(i + 1) if i % 2 else f" hr {i + 1} ", end)
+    assert sync.link_progress_reports()["agrees"]["same_day"] == 12
+
+
+def test_a_row_with_no_type_matches_any_type(linked):
+    _, pd = linked
+    _agreeing(pd, rows=False)
+    for i, end in enumerate(ENDS):
+        _row(pd, f"HR{i + 1}", end, kind="")
+    assert sync.link_progress_reports()["agrees"]["compared"] == 12
+    held = reporting.held_report_numbers()
+    assert reporting.holds(held, rc.pd_base(pd.number), "HR", "HR1")
+    assert reporting.holds(held, rc.pd_base(pd.number), "QPR", "HR1")  # a row with no type holds any type
+    assert not reporting.holds(held, rc.pd_base(pd.number), "HR", "HR13")
+
+
+def test_a_row_linked_to_another_amendment_still_holds_its_report(linked):
+    """The PD NeuroDB holds is LEBA/PCA2020001/PD2020001-2; the rows name the first amendment, and some were
+    linked by their eTools id to another PD: their reports are still held, by both numbers' bases."""
+    partner, pd = linked
+    PCA.objects.filter(pk=pd.pk).update(number="LEBA/PCA2020001/PD2020001-2")
+    pd.refresh_from_db()
+    other = PCA.objects.create(
+        etl_id="12", number="LEBA/PCA2020002/PD2020002-1", title="PD 2", partner=partner
+    )
+    _agreeing(pd, rows=False)
+    for i, end in enumerate(ENDS):
+        _row(other if i % 2 else pd, f"HR{i + 1}", end, reference="LEBA/PCA2020001/PD2020001-1")
+    assert sync.link_progress_reports()["agrees"]["same_day"] == 12
+    held = reporting.held_report_numbers()
+    assert reporting.holds(held, "leba/pca2020002/pd2020002", "HR", "HR2")  # the PD the eTools id named too
+    assert reporting.held_report_numbers(["LEBA/PCA2020001/PD2020001-2"]) >= {
+        ("leba/pca2020001/pd2020001", "HR", "HR1")
+    }
+    assert not reporting.held_report_numbers(["LEB/PD9"])
+
+
+def test_older_versions_are_not_counted(linked):
+    """PRP's QPR1 of programme document 77 is held twice: as Due, written by an earlier read, and as Accepted by
+    the latest. Only the latest version is compared and counted: the old one is linked to none."""
+    from django.utils import timezone
+
+    _, pd = linked
+    night = timezone.make_aware(dt.datetime(2026, 10, 13, 20, 30))
+    for n in range(2):
+        _verdict_run("prp_progress_reports", None, day=(night + dt.timedelta(days=n)).date(),
+                     status=SyncRun.Status.PARTIAL)  # fmt: skip
+    docs = _agreeing(pd)
+    old = DatamartDocument.objects.create(dataset="prp_progress_reports", record_key="old", date=ENDS[0],
+                                          data=_progress(1, ENDS[0], sub=None, status="Due"))  # fmt: skip
+    DatamartDocument.objects.filter(pk=old.pk).update(synced_at=night + dt.timedelta(minutes=5))
+    DatamartDocument.objects.filter(pk__in=[d.pk for d in docs]).update(
+        synced_at=night + dt.timedelta(days=1, minutes=5)
+    )
+    link = sync.link_progress_reports()
+    assert (link["pd_superseded"], link["linked"], link["twins"]) == (1, 12, 0)
+    assert link["agrees"]["compared"] == 12 and link["owed"] == 0
+
+
+def test_two_versions_from_one_read_count_once(linked):
+    """A paging shift brought two versions of HR12 in one read (as Due, and as Accepted with another period end):
+    they count once, the latest period end, and the other is a twin."""
+    _, pd = linked
+    _agreeing(pd)
+    twin = _progress(12, ENDS[11] - dt.timedelta(days=5), sub=None, status="Due")
+    DatamartDocument.objects.create(dataset="prp_progress_reports", record_key="twin", date=ENDS[11],
+                                    data=twin)  # fmt: skip
+    link = sync.link_progress_reports()
+    assert (link["linked"], link["twins"]) == (13, 1)
+    assert link["agrees"]["compared"] == 12 and link["agrees"]["same"] == 12 and link["owed"] == 0
+
+
+def test_recorded_pd_link_reads_not_read_when_the_latest_run_recorded_none(db):
+    """The verdict is the latest finished run's of PRP's two datasets: a later programme documents run that
+    recorded none (nothing held, or it failed before the link step) is not_read, never the progress reports'
+    older verdict; a run before the verdict was recorded is not checked yet; with no run, not read."""
+    assert sync.recorded_pd_link() == {"shown": False, "why": "not_read"}
+    shown = {"proven": True, "passes": True, "days": 2, "shown": True, "shown_since": "2026-10-13"}
+    _verdict_run("prp_progress_reports", shown, day=TODAY - dt.timedelta(days=1))
+    assert sync.recorded_pd_link()["shown"] is True
+    _verdict_run("prp_programme_documents", {}, day=TODAY)
+    assert (sync.recorded_pd_link()["shown"], sync.recorded_pd_link()["why"]) == (False, "not_read")
+    _verdict_run("prp_progress_reports", {"proven": True, "linked": 12}, day=TODAY + dt.timedelta(days=1))
+    assert sync.recorded_pd_link()["why"] == "not_checked"
+    # a run under way is not finished: the verdict stays the finished run's
+    SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="prp_programme_documents",
+                           status=SyncRun.Status.RUNNING)  # fmt: skip
+    assert sync.recorded_pd_link()["why"] == "not_checked"
+
+
+def test_a_shown_link_closes_when_the_last_read_received_nothing_or_is_old(db):
+    shown = {"proven": True, "passes": True, "days": 2, "shown": True, "shown_since": "2026-10-13"}
+    run_ = _verdict_run("prp_progress_reports", shown, day=TODAY - dt.timedelta(days=1), empty_response=True)
+    assert sync.recorded_pd_link()["why"] == "not_read"
+    run_.details = {"progress_reports_pd_link": shown}
+    run_.save()
+    assert sync.recorded_pd_link()["shown"] is True
+    SyncRun.objects.filter(pk=run_.pk).update(
+        started_at=run_.started_at - dt.timedelta(days=8), finished_at=run_.finished_at - dt.timedelta(days=8)
+    )
+    found = sync.recorded_pd_link()
+    assert (found["shown"], found["why"], found["read_on"]) == (False, "old", "2026-10-06")
+
+
+def test_the_link_step_counts_reports_still_owed_that_the_partner_reports_lack(linked, settings):
+    """Beside the twelve that agree, PRP's own list holds: HR13, overdue (its due date passed), and HR14, which
+    PRP calls Overdue with no due date (read as Due), neither in the partner reports: owed; QPR4 of 2025, overdue,
+    before the partner reports' history (2026); QPR1, overdue, which the partner reports hold under its own
+    period: not owed; HR15, overdue but no read returned it for ten days: not counted (stale); QPR2, overdue and
+    not returned for ten days either, but the partner reports hold it: not stale; HR16, accepted, not in the
+    partner reports (lacking); and HR12, which eTools no longer sends (its rows read Overdue) while PRP says
+    Accepted (another word)."""
+    from django.utils import timezone
+
+    settings.ETOOLS_DATAMART_REPORTING_YEARS = 1
+    _, pd = linked
+    docs = _agreeing(pd)
+    ReportedIndicator.objects.filter(report_number="HR12").update(
+        report_status="", submission_date=None, not_sent_since=timezone.now()
+    )
+    _row(pd, "QPR1", D(2026, 3, 31), None, kind="QPR", status="Overdue")
+    _row(pd, "QPR2", D(2026, 6, 30), None, kind="QPR", status="Overdue")
+    extra = [
+        _progress(13, D(2026, 7, 31), sub=None, status="Ove"),
+        _progress(14, D(2026, 8, 31), sub=None, status="Ove", due_date=None),
+        _progress(4, D(2025, 12, 31), kind="QPR", sub=None, status="Due"),
+        _progress(1, D(2026, 6, 30), kind="QPR", sub=None, status="Overdue"),
+        _progress(15, D(2026, 9, 30), sub=None, status="Due", due_date="2026-10-05"),
+        _progress(16, D(2026, 9, 30), status="Accepted"),
+        _progress(2, D(2026, 6, 30), kind="QPR", sub=None, status="Due"),
+    ]
+    for n, data in enumerate(extra):
+        doc = DatamartDocument.objects.create(dataset="prp_progress_reports", record_key=f"x{n}",
+                                              date=dt.date.fromisoformat(data["end_date"]), data=data)  # fmt: skip
+        if data["report_number"] in ("HR15", "QPR2"):
+            DatamartDocument.objects.filter(pk=doc.pk).update(
+                synced_at=timezone.now() - dt.timedelta(days=10)
+            )
+    assert len(docs) == 12
+    link = sync.link_progress_reports()
+    assert (link["owed"], link["owed_before_history"], link["stale"]) == (3, 1, 1)
+    assert (link["ove_read_due"], link["lacking"], link["unsent_other_word"]) == (1, 1, 1)
+    assert link["agrees"]["compared"] == 14 and link["passes"] is True
+
+
+def test_a_proof_that_fails_never_fails_the_link_and_is_said(linked, monkeypatch):
+    """The proof breaks (a bug, a database error): the reports are still linked, the run records why, and the
+    pages may not show PRP's reports until a proof is made; check 11 and Raw eTools data say so."""
+    _, pd = linked
+    _agreeing(pd)
+
+    def broken(proven, today):
+        raise ValueError("a fake failure")
+
+    monkeypatch.setattr(sync, "pd_link_proof", broken)
+    link = sync.link_progress_reports()
+    assert link["linked"] == 12 and link["proof_error"] == "a fake failure" and "passes" not in link
+    _verdict_run("prp_progress_reports", link, day=TODAY)
+    found = sync.recorded_pd_link()
+    assert (found["shown"], found["why"]) == (False, "check_failed")
+    assert sync.shown_words(found) == "no: the check failed on the last sync: tell the NeuroDB team"

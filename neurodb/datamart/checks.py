@@ -2265,10 +2265,13 @@ def _progress_feed(cursor, today: datetime.date) -> dict[str, Any]:
     those of the year by their programme document link, those with no period end, and the last sync; PRP's
     programme documents held and those linked to an eTools PD NeuroDB holds, with their last sync; and how the
     progress reports were linked to them (``progress_reports_pd_link`` of the later of the two syncs that
-    recorded one). An older version of a report a later read wrote again (``datamart_sync.older_versions``:
-    they carry no id, and a read not whole keeps the old row of a report that changed) is held but counted in
-    none of these, so a report is counted once, as its latest version."""
-    from neurodb.integrations.etools.datamart_sync import older_versions
+    recorded one: the links NeuroDB has, which a read that fails leaves as they were), and whether the pages
+    may show their reports still owed (``verdict``: ``datamart_sync.recorded_pd_link``, the verdict of the
+    latest run of either, never an older one). An older version of a report a later read wrote again
+    (``datamart_sync.older_versions``: they carry no id, and a read not whole keeps the old row of a report
+    that changed) is held but counted in none of these, so a report is counted once, as its latest
+    version."""
+    from neurodb.integrations.etools.datamart_sync import older_versions, recorded_pd_link
     from neurodb.reports.services import latest_datamart_runs
 
     zero = dict.fromkeys(rc.STATUS_LABELS, 0)
@@ -2332,7 +2335,9 @@ def _progress_feed(cursor, today: datetime.date) -> dict[str, Any]:
         and r.details["progress_reports_pd_link"]
     ]
     link = max(recorded, key=lambda found: found[0])[1] if recorded else {}
+    _bound(cursor, 3)  # the verdict: the runs of both datasets, and the latest read of the progress reports
     return {
+        "verdict": recorded_pd_link(),  # may the pages show their reports still owed (the latest run's)
         "run": run,
         "held": total + len(older),
         "older": len(older),
@@ -2348,6 +2353,99 @@ def _progress_feed(cursor, today: datetime.date) -> dict[str, Any]:
         "documents_run": documents_run,
         "documents_details": documents_details,
     }
+
+
+def _kept_reports(cursor, keys: set[str]) -> int:
+    """Of the progress reports ``keys`` (``reporting.REPORT_KEY``), those every row of which eTools no longer
+    sends (kept from earlier syncs and counted: ``ReportedIndicator.not_sent_since``)."""
+    if not keys:
+        return 0
+    _bound(cursor, 2)
+    marked = set(
+        dm.ReportedIndicator.objects.exclude(not_sent_since=None)
+        .annotate(_report=reporting.REPORT_KEY)
+        .filter(_report__in=keys)
+        .values_list("_report", flat=True)
+        .distinct()
+    )
+    if not marked:
+        return 0
+    sent = set(
+        dm.ReportedIndicator.objects.filter(not_sent_since=None)
+        .annotate(_report=reporting.REPORT_KEY)
+        .filter(_report__in=marked)
+        .values_list("_report", flat=True)
+        .distinct()
+    )
+    return len(marked - sent)
+
+
+def _proof_figures(verdict: dict[str, Any]) -> list[tuple[str, Any]]:
+    """Check 11's figures of the proof that the pages may show PRP's progress reports still owed, as the last
+    sync recorded it (``datamart_sync.recorded_pd_link``; "—" before a sync recorded one), and whether they
+    may."""
+    from neurodb.integrations.etools.datamart_sync import shown_words
+
+    judged = "passes" in verdict
+    agrees = verdict.get("agrees") or {}
+
+    def got(value: Any) -> Any:
+        return _count(value) if judged else "—"
+
+    return [
+        (
+            "PRP progress reports linked that the partner reports also have (same type and number)",
+            got(agrees.get("compared")),
+        ),
+        ("… with the same period end", got(agrees.get("same"))),
+        ("… only under another programme document", got(agrees.get("elsewhere"))),
+        (
+            "… with the same submission day (of those submitted on both sides)",
+            f"{_count(agrees.get('same_day')):,} of {_count(agrees.get('dated')):,}" if judged else "—",
+        ),
+        (
+            "Reports still owed for a period that has ended, in PRP's progress reports, never received from "
+            "the partner reports",
+            got(verdict.get("owed")),
+        ),
+        ("… of which ending before the partner reports' history", got(verdict.get("owed_before_history"))),
+        ("… no longer returned by PRP's progress reports (not counted)", got(verdict.get("stale"))),
+        ("… two versions of one report in one read (counted once)", got(verdict.get("twins"))),
+        ("… PRP says Overdue, but no due date: read as Due", got(verdict.get("ove_read_due"))),
+        (
+            "Accepted or Submitted reports of the year in PRP's progress reports, not in the partner reports",
+            got(verdict.get("lacking")),
+        ),
+        (
+            "Reports eTools no longer sends whose status differs in PRP's progress reports",
+            got(verdict.get("unsent_other_word")),
+        ),
+        ("PRP's progress reports can be shown on the pages", shown_words(verdict)),
+    ]
+
+
+def _id_and_number(cursor) -> list[tuple[str, int]]:
+    """The partner report rows whose eTools id linked them to a programme document whose number (its base:
+    ``reached.pd_base``, amendments aside) is not the reference number they carry, and their progress
+    reports: the link problem the funds reservation lines had. Read over the distinct pairs; their link is
+    unchanged."""
+    _bound(cursor)
+    pairs = (
+        dm.ReportedIndicator.objects.exclude(intervention=None)
+        .exclude(pd_reference_number="")
+        .order_by()
+        .values("pd_reference_number", "intervention__number")
+        .annotate(rows=Count("pk"), reports=Count(reporting.REPORT_KEY, distinct=True))
+    )
+    rows = reports = 0
+    for pair in pairs:
+        if rc.pd_base(pair["pd_reference_number"]) != rc.pd_base(pair["intervention__number"]):
+            rows += pair["rows"]
+            reports += pair["reports"]
+    return [
+        ("Partner report rows whose eTools id and reference number name different programme documents", rows),
+        ("… progress reports they belong to", reports),
+    ]
 
 
 def _pair(by: list[Any]) -> str:
@@ -2426,8 +2524,65 @@ def _link_words(feed: dict[str, Any]) -> tuple[str, bool]:
                     if keys
                     else ""
                 )
+                + " NeuroDB does not show reports still owed until it is."
             )
+    shown = _shown_sentence(feed.get("verdict") or {})
+    if shown:
+        said.append(shown)
     return " ".join(said), warn
+
+
+def _shown_sentence(verdict: dict[str, Any]) -> str:
+    """Check 11's sentence on whether the pages may show PRP's progress reports still owed
+    (``datamart_sync.recorded_pd_link``): tied to their programme documents (and since when, or the one day it
+    passed), or why not, with the figures of the test that failed; "" when the key pair is not proven (the
+    sentence on the pair says so)."""
+    from neurodb.integrations.etools.datamart_sync import LINK_AGREE_MIN, day_words
+
+    why = str(verdict.get("why") or "")
+    agrees = verdict.get("agrees") or {}
+    compared, same = _count(agrees.get("compared")), _count(agrees.get("same"))
+    dated, same_day = _count(agrees.get("dated")), _count(agrees.get("same_day"))
+    tied = (
+        "PRP's progress reports are tied to their programme documents: of the "
+        f"{compared:,} reports the partner reports also have, {same:,} end on the same day."
+    )
+    if verdict.get("shown"):
+        return f"{tied} NeuroDB can show the {_count(verdict.get('owed')):,} reports still owed."
+    if why == "one_day":
+        day = day_words(verdict.get("checked_on"))
+        return f"{tied} The link passed every test on {day}: NeuroDB can show them once the next read agrees."
+    failed = {
+        "few": f"only {compared:,} of them are also in the partner reports, too few to check it "
+        f"({LINK_AGREE_MIN} are needed)",
+        "periods": f"only {same:,} of the {compared:,} the partner reports also have end on the same day",
+        "few_days": f"only {dated:,} of the {compared:,} the partner reports also have were submitted on "
+        f"both sides, too few to check the submission day ({LINK_AGREE_MIN} are needed)",
+        "days": f"only {same_day:,} of the {dated:,} submitted on both sides were submitted on the same day",
+    }
+    if why in failed:
+        return (
+            f"The link ties {_count(verdict.get('linked')):,} reports, but {failed[why]}: NeuroDB does not "
+            "show them on the pages."
+        )
+    if why == "not_read":
+        return (
+            "The last sync of PRP's progress reports or of their programme documents failed or received "
+            "nothing: NeuroDB does not show reports still owed."
+        )
+    if why == "old":
+        return (
+            f"PRP's progress reports were last read on {day_words(verdict.get('read_on'))}: NeuroDB does not "
+            "show reports still owed until a newer read."
+        )
+    if why == "not_checked":
+        return "Whether NeuroDB can show PRP's reports still owed is checked from the next sync of them."
+    if why == "check_failed":
+        return (
+            "Whether NeuroDB can show PRP's reports still owed could not be checked on the last sync: tell "
+            "the NeuroDB team."
+        )
+    return ""
 
 
 def _progress_state(feed: dict[str, Any], year: int) -> tuple[str, str]:
@@ -2524,11 +2679,15 @@ def _two_feeds(cursor) -> dict[str, Any]:
     filters = reporting.ReportFilters(year=today.year)  # the running PDs, as the page by default
     ours: dict[Any, dict[str, int]] = {}  # indicator reports
     ours_reports: dict[Any, dict[str, int]] = {}  # progress reports (to compare with PRP's progress reports)
+    owed_keys: set[str] = set()  # the progress reports still owed (due or overdue)
     for r in reporting.progress_reports(filters.queryset(today), today):
         month = r["period_end"].month if r["period_end"] else None
         counts = ours.setdefault(month, dict(zero))
         counts[r["status"]] += r["indicators"]
         ours_reports.setdefault(month, dict(zero))[r["status"]] += 1
+        if r["status"] in (rc.DUE, rc.OVERDUE):
+            owed_keys.add(r["key"])
+    kept_owed = _kept_reports(cursor, owed_keys)
     gaps, missing, estimated = _number_gaps(cursor, today)
     feed = _prp_feed(cursor)
     # PRP's records of the year by the period end they are counted by (their progress report's, else
@@ -2634,6 +2793,7 @@ def _two_feeds(cursor) -> dict[str, Any]:
     mine_owed = sum(owing(mine, m) for m in mine)
     figures += [
         ("Progress reports due or overdue in the partner reports", ours_reports_owed),
+        ("… of which kept from earlier syncs (eTools no longer sends them)", kept_owed),
         ("Progress reports due or overdue in PRP's progress reports", mine_owed),
         ("PRP progress report records held", progress["held"]),
         ("… older versions of a report a later read wrote again (not counted)", progress["older"]),
@@ -2664,6 +2824,8 @@ def _two_feeds(cursor) -> dict[str, Any]:
             "—" if by is None else _pair(by) if link.get("proven") else "no key pair proven",
         ),
         ("… of the reports naming one", "—" if by is None else _count(link.get("linked"))),
+        *_proof_figures(progress["verdict"]),
+        *_id_and_number(cursor),
     ]
     if mine or ours_reports:
         ends = sorted({*mine, *ours_reports}, key=lambda m: (m is None, m or 0))
@@ -3235,7 +3397,12 @@ CHECKS: tuple[Check, ...] = (
         "until a whole read removes it. All are read with the same status rule (PRP's word, then the dates); "
         "indicator reports are compared with indicator reports, progress reports with progress reports. A "
         "report the partner reports feed does not carry is counted nowhere else: the number gaps (a QPR2 "
-        "missing between QPR1 and QPR3) are estimated here only.",
+        "missing between QPR1 and QPR3) are estimated here only. Each sync of PRP's progress reports or of "
+        "their programme documents also records whether the pages could show PRP's reports still owed: only "
+        "when the pair of keys is proven, at least 10 of the reports the partner reports also have are "
+        "compared, 9 in 10 of them end on the same day, at least 10 were submitted on both sides and 9 in 10 "
+        "of those on the same day, on two days in a row; a read that fails one of these closes it at once. "
+        "The pages do not show them yet.",
         _two_feeds,
     ),
     Check(

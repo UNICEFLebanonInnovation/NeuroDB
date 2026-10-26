@@ -38,6 +38,7 @@ from decimal import Decimal
 from typing import Any
 
 from . import powerbi_words as words
+from . import reached as rc
 
 TOLERANCE = 1e-9  # relative: float noise only
 MONEY_TOLERANCE = 0.005  # half a cent
@@ -46,7 +47,6 @@ GROUP_ORDER = (4, 3, 2, 1)  # the lines' groups, needs a look first: the order t
 DETAIL_LIMIT = 300  # characters of a line's detail (PowerBIDifference.detail)
 LINK_LIMIT = 300  # characters of a line's address (PowerBIDifference.link)
 GRANTLESS = frozenset({"", "non-grant", "non grant", "nongrant"})
-AMENDMENT = re.compile(r"-\d+$")
 ETOOLS_SUFFIX = re.compile(r"\s*\(etools\s*\d+\)\s*$", re.I)
 SPD = frozenset({"spd", "shpd"})
 
@@ -91,8 +91,8 @@ def pd_number(value: Any) -> str:
 
 
 def pd_base(value: Any) -> str:
-    """A PD # without its amendment suffix ("-2")."""
-    return AMENDMENT.sub("", pd_number(value))
+    """A PD # without its amendment suffix ("-2"): ``reached.pd_base``, the rule the sync reads too."""
+    return rc.pd_base(value)
 
 
 def report_number(value: Any, report_type: Any = "") -> str:
