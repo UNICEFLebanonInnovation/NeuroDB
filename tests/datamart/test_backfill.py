@@ -344,6 +344,9 @@ QUICK_MIGRATIONS = {
     # the authors' surnames a KM version's texts also write as ordinary words: a column with a default on
     # the KM Database's table of versions (a few rows; AddField only, no code runs; the next load fills it)
     ("km", "0004_ordinary_words", "AddField"),
+    # the moment eTools stopped sending a partner report row (kept and counted): a nullable column, no default
+    # (catalogue only on PostgreSQL), AddField only, no code runs; listed so the migration is accounted for here
+    ("datamart", "0020_partner_report_not_sent", "AddField"),
 }
 
 

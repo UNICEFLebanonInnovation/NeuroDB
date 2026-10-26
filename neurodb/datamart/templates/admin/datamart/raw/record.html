@@ -52,7 +52,7 @@
         <li>{% trans "Indicator report id:" %} <code>{{ report.indicator_report_key }}</code></li>
         <li>{% trans "Status of its progress report as the pages read it:" %} {{ report.status|default:"—" }}{% if report.word %} ({% blocktrans with word=report.word %}the word of its rows changed last: {{ word }}{% endblocktrans %}){% endif %}</li>
       {% endif %}
-      <li>{% trans "Updated by:" %} {% if written.last %}{% blocktrans with when=written.when|date:"j M Y, H:i" %}the sync of {{ when }} (the last one){% endblocktrans %}{% else %}{% blocktrans with when=written.when|date:"j M Y, H:i" %}an earlier sync ({{ when }}){% endblocktrans %}{% endif %}</li>
+      <li>{% trans "Updated by:" %} {% if written.unsent %}{{ written.unsent }}{% elif written.last %}{% blocktrans with when=written.when|date:"j M Y, H:i" %}the sync of {{ when }} (the last one){% endblocktrans %}{% else %}{% blocktrans with when=written.when|date:"j M Y, H:i" %}an earlier sync ({{ when }}){% endblocktrans %}{% endif %}</li>
     </ul>
     {% if made %}
       <div class="nd-scroll mt-3">

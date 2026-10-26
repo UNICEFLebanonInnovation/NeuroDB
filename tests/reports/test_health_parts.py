@@ -799,9 +799,11 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
     found, a read in windows (how many, why, those not whole, a cut count, a changed count, a removal held), a
     page cut (and whether a cut sign tries windows on the next read, or a read tried them already), the business area filter a read took (or why none) with the records it let through, and records
     that came twice (the Datamart's own copies, proven; pages that shifted, or records held twice in a stable
-    order) with the order asked, and the words of a dataset the Datamart does not let NeuroDB read (403)."""
+    order) with the order asked, the words of a dataset the Datamart does not let NeuroDB read (403), and the
+    partner report rows no longer sent (kept and counted), whose dataset the next complete read never empties."""
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.etools.datamart_sync import (
+        DATASETS,
         FOUND,
         area_words,
         is_area_code,
@@ -836,6 +838,10 @@ def _quality_before(names=ENTITY_SYNCS) -> list[dict]:
                 "not_linked": not_linked,
                 "not_linked_total": sum(int(v) for v in not_linked.values()),
                 "removed": details.get("removed"),
+                "no_longer_sent": details.get("no_longer_sent"),
+                "next_read": ""
+                if name in DATASETS and DATASETS[name][1].keep_unsent
+                else "; the next complete read removes those it no longer returns",
                 "empty_response": bool(details.get("empty_response")),
                 "other_country_skipped": details.get("other_country_skipped"),
                 "other_country_removed": details.get("other_country_removed"),

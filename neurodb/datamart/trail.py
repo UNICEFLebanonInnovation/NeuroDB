@@ -1066,11 +1066,17 @@ def source_steps(
     out.append(Step("D3", "dataset", "What NeuroDB did not keep", tuple(lines), counts_only=True))
     limit = raw.csv_limit(source)
     them = "rows" if "rows" in noun else "records"
+    unsent = ""
+    if facts.no_longer_sent:  # the partner report rows a whole read no longer returned: kept and counted
+        unsent = (
+            f", of which {facts.no_longer_sent:,} eTools no longer sends (last sent "
+            f"{raw.between(facts.last_sent_first, facts.last_sent_last)}): kept and counted"
+        )
     lines = [
         Line(
             f"{facts.held:,} {them} are in NeuroDB: {facts.updated_by_sync:,} updated by that sync, "
             f"{facts.updated_since:,} updated since (a sync is running), {facts.from_earlier:,} kept from an "
-            "earlier sync.",
+            f"earlier sync{unsent}.",
             what=what if held <= limit else "",
         )
     ]

@@ -651,6 +651,7 @@ def quality_row(name: str, run: SyncRun | None, count: int | None) -> dict[str, 
     from neurodb.datamart.catalogue import DIAGNOSTIC
     from neurodb.integrations.etools import windows
     from neurodb.integrations.etools.datamart_sync import (
+        DATASETS,
         FOUND,
         area_words,
         is_area_code,
@@ -674,6 +675,12 @@ def quality_row(name: str, run: SyncRun | None, count: int | None) -> dict[str, 
         "not_linked": not_linked,
         "not_linked_total": sum(int(v) for v in not_linked.values()),
         "removed": details.get("removed"),
+        # the partner reports keep the rows a whole read no longer returns, counted, marked no longer sent:
+        # the next complete read never removes them (datamart_sync.keep_unsent)
+        "no_longer_sent": details.get("no_longer_sent"),
+        "next_read": ""
+        if name in DATASETS and DATASETS[name][1].keep_unsent
+        else "; the next complete read removes those it no longer returns",
         "empty_response": bool(details.get("empty_response")),
         # records of another country the sync left out, and rows of another country it deleted
         "other_country_skipped": details.get("other_country_skipped"),

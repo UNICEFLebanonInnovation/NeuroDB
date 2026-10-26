@@ -502,6 +502,12 @@ class ReportedIndicator(DatamartRecord):
     tag_age_group = models.CharField(**TAG)
     tag_nationality = models.CharField(**TAG)
     tag_disability = models.CharField(**TAG)
+    # "last sent" is the row's own synced_at: marking it (an update()) never moves it
+    not_sent_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="when a whole read first no longer returned it: kept and counted, marked no longer sent",
+    )
 
     class Meta:
         ordering = ("-period_end", "pd_reference_number", "indicator")

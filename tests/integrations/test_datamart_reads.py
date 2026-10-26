@@ -4,7 +4,8 @@ test once it is large; and the history is counted from where the rows held reall
 during a read are said and remove nothing, and the next read asks a stable order when the Datamart takes one
 (G). The Datamart is the fake of ``fake_datamart`` with the small constants of ``test_datamart_windows`` (a
 read of 20 records or more is large, a round count of 20 or more a multiple of 10, pages of 5, a stable order
-proven on pages of 5); nothing patches ``cut_sign``."""
+proven on pages of 5); nothing patches ``cut_sign``. A whole read keeps the rows it no longer returns, marked no
+longer sent (``test_datamart_unsent``)."""
 
 import datetime as dt
 import re
@@ -104,8 +105,9 @@ def test_a_large_country_blind_answer_is_read_in_one_answer():
         *({**ASKED, "page": str(n)} for n in range(2, 11)),
     ]
     assert "window_bound" not in details and "windows_why" not in details and "ends_missing" not in details
-    assert (details["datamart_count"], details["other_country_skipped"], details["removed"]) == (47, 24, 1)
-    assert ids() == set(range(2, 48, 2))  # the stale row of the window removed
+    assert (details["datamart_count"], details["other_country_skipped"], details["removed"]) == (47, 24, 0)
+    assert ids() == {*range(2, 48, 2), 900}  # the row of the window no longer returned: kept, marked
+    assert details["no_longer_sent_new"] == 1
     assert details["area_filter"]["why"] == "no_code"
 
 
@@ -117,7 +119,7 @@ def test_a_round_count_is_read_in_windows_and_says_why():
     details = found.details
     assert found.status == SyncRun.Status.SUCCEEDED, details
     assert (details["windows_why"], details["window_bound"]) == ("round_count", KEY)
-    assert ids() == set(range(1, 121)) and details["removed"] == 1
+    assert ids() == {*range(1, 121), 900} and (details["removed"], details["no_longer_sent"]) == (0, 1)
 
 
 @responses.activate
@@ -138,8 +140,8 @@ def test_a_page_shorter_than_the_first_removes_nothing_and_windows_the_next_nigh
     second = run()
     details = second.details
     assert second.status == SyncRun.Status.SUCCEEDED, details
-    assert (details["windows_why"], details["window_bound"], details["removed"]) == ("pages_cut", KEY, 1)
-    assert ids() == set(range(1, 48)) and "pages_cut" not in details
+    assert (details["windows_why"], details["window_bound"], details["removed"]) == ("pages_cut", KEY, 0)
+    assert ids() == {*range(1, 48), 900} and "pages_cut" not in details and details["no_longer_sent"] == 1
 
     responses.reset()
     FakeDatamart(rows).register(REPORTS)
@@ -192,7 +194,7 @@ def test_a_windowed_night_not_whole_without_a_cut_is_followed_by_a_plain_night()
     FakeDatamart([*rows, report(500, "2025-02-01")]).register(REPORTS)
     following = run()
     assert following.status == SyncRun.Status.SUCCEEDED and "window_bound" not in following.details
-    assert 900 not in ids()
+    assert 900 in ids() and following.details["no_longer_sent_new"] == 1  # kept, marked no longer sent
 
 
 @pytest.mark.parametrize(
@@ -242,23 +244,27 @@ def test_a_whole_read_records_where_its_feed_starts():
 
 
 @responses.activate
-def test_a_removal_held_one_night_keeps_the_history_of_the_rows_held(monkeypatch):
-    """The rows held start on 1 Feb 2025; tonight's whole read returns two reports from 5 Jan 2026 and holds the
-    removal one night: the rows held still count, so the history stays counted from the date asked. The next
-    night removes them, and the history is counted from the feed's first report."""
-    monkeypatch.setattr(sync, "HOLD_FLOOR", 3)
+def test_rows_no_longer_sent_keep_the_history_of_the_rows_held():
+    """The rows held start on 1 Feb 2025; tonight's whole read returns two reports from 5 Jan 2026: the rows it no
+    longer returns are kept and marked, they still count, so the history stays counted from the date asked, the
+    next night too (the Datamart dropping old reports never moves it forward)."""
     for pk in range(900, 905):
         held(pk, "2025-02-01")
     FakeDatamart(spread(2, dt.date(2026, 1, 5))).register(REPORTS)
     first = run()
-    assert (first.details["removal_held"], first.details["feed_from"]) == (5, "2025-02-01")
+    assert (first.details["no_longer_sent_new"], first.details["feed_from"]) == (5, "2025-02-01")
+    assert "removal_held" not in first.details and first.details["removed"] == 0
     assert reached.history_from() == reached.HistoryFrom(
         dt.date(2025, 1, 1), reached.READ_FROM, dt.date(2025, 1, 1)
     )
     SyncRun.objects.filter(pk=first.pk).update(started_at=first.started_at - dt.timedelta(hours=21))
     second = run()
-    assert (second.details["removed"], second.details["feed_from"]) == (5, "2026-01-05")
-    assert reached.history_from().source == reached.FEED
+    assert (second.details["removed"], second.details["no_longer_sent"], second.details["feed_from"]) == (
+        0,
+        5,
+        "2025-02-01",
+    )
+    assert reached.history_from().source == reached.READ_FROM
 
 
 # ------------------------------------------------------------------------------- pages that shift during a read
@@ -309,7 +315,7 @@ def test_after_a_shift_the_read_asks_a_stable_order():
     assert details["ordering"] == {"key": "id"}
     assert all(r["ordering"] == "id" for r in fake.requests[3:] if r["page_size"] == "5")
     assert "pages_shifted" not in details and "duplicates_read" not in details
-    assert ids() == set(range(1, 48)) and details["removed"] == 1
+    assert ids() == {*range(1, 48), 900} and (details["removed"], details["no_longer_sent"]) == (0, 1)
 
 
 @responses.activate

@@ -8,7 +8,9 @@
   own copies, proven, or those that may stand for records that did not come, and then why the read is not complete), the fields it sends (counted from
   the newest records NeuroDB holds; a superuser reviews a new field), the filter (a GET form), the records (50 a page,
   each through the people rule: datamart.raw_people) and the CSV of the filter, or the sentence that says which filter
-  to choose first. A newer sync that failed says why in a few words and links its run for those who open runs; an
+  to choose first. For the partner reports, the rows eTools no longer sends (kept and counted: datamart_sync.keep_unsent)
+  are counted, their reports listed for review when the filter holds some, and a superuser removes them after review
+  ("Remove these rows": raw_admin.unsent_view, the eTools update clean-up). A newer sync that failed says why in a few words and links its run for those who open runs; an
   eTools REST entity never read says why (_notes.html). A plain page, no script. Printed or saved as PDF, it prints
   whole on A4 landscape, without the filter and the review buttons (admin.css, nd-raw); a record's cell that is one
   word as shown (a reference, a number: nd-raw__atom) never breaks, a date as shown ("Sept. 30, 2026") and a long
@@ -40,6 +42,7 @@
         · {% trans "could not be saved" %} {{ facts.not_saved|intcomma }}
         · {% trans "updated by the sync" %} {{ facts.updated_by_sync|intcomma }}
         · {% trans "removed" %} {{ facts.removed|intcomma }}
+        {% if name == "partner_reports" %}· {% blocktrans with n=facts.no_longer_sent|intcomma %}no longer sent {{ n }} (kept and counted){% endblocktrans %}{% endif %}
       </p>
       <ul class="nd-found__rates">
         {% if facts.through_area_filter %}<li>{% blocktrans with n=facts.through_area_filter|intcomma %}Of which {{ n }} came through the business area filter.{% endblocktrans %}</li>{% endif %}
@@ -50,6 +53,7 @@
         {% for e in facts.error_lines %}<li class="nd-found__warn">{% blocktrans with n=e.count|intcomma words=e.words %}{{ n }} could not be saved: {{ words }}{% endblocktrans %}{% if e.examples %} ({% trans "record ids" %} {{ e.examples|join:", " }}){% endif %}</li>{% endfor %}
         {% if facts.unexplained %}<li class="nd-found__warn">{% blocktrans with n=facts.unexplained|intcomma %}{{ n }} records are not explained by the sync's counts: tell the NeuroDB team.{% endblocktrans %}</li>{% endif %}
         {% if facts.removal_skipped %}<li>{% trans "The last sync did not get every record, so records eTools may have deleted are still here." %}</li>{% endif %}
+        {% if unsent_line %}<li>{{ unsent_line }}{% if facts.same_number_other_period %} <a class="nd-link" href="?updated=unsent_period#no-longer-sent">{% trans "List them" %}</a>{% endif %}</li>{% endif %}
         {% if facts.removal_held %}<li>{% blocktrans with n=facts.removal_held|intcomma %}{{ n }} records eTools no longer sends are kept one more night (more than half of those in NeuroDB).{% endblocktrans %}</li>{% endif %}
       </ul>
     {% elif notes %}
@@ -59,9 +63,11 @@
     {% endif %}
     {% if notes %}<p class="mb-2">{% include "admin/datamart/raw/_notes.html" with notes=notes as_sentences=True %}{% if facts.run %}<span class="nd-raw__line">{% blocktrans trimmed with used=facts.run.finished_at|date:"j M Y, H:i" %}The records in NeuroDB come from the sync of {{ used }}.{% endblocktrans %}</span>{% endif %}</p>{% endif %}
     <p class="mb-2"><strong>{% trans "Complete?" %}</strong> {% if facts.complete.0 or diagnostic %}{{ facts.complete.1 }}{% else %}<span class="nd-found__warn">{{ facts.complete.1 }}</span>{% endif %}</p>
-    <p class="mb-2">{% blocktrans trimmed with n=facts.held|intcomma by=facts.updated_by_sync|intcomma since=facts.updated_since|intcomma earlier=facts.from_earlier|intcomma %}
+    <p class="mb-2">{% if name == "partner_reports" %}{% blocktrans trimmed with n=facts.held|intcomma by=facts.updated_by_sync|intcomma since=facts.updated_since|intcomma earlier=facts.from_earlier|intcomma unsent=facts.no_longer_sent|intcomma %}
+      In NeuroDB now: {{ n }} records: {{ by }} updated by the sync, {{ since }} updated since (a sync is running), {{ earlier }} kept from an earlier sync, of which {{ unsent }} no longer sent.
+    {% endblocktrans %}{% else %}{% blocktrans trimmed with n=facts.held|intcomma by=facts.updated_by_sync|intcomma since=facts.updated_since|intcomma earlier=facts.from_earlier|intcomma %}
       In NeuroDB now: {{ n }} records: {{ by }} updated by the sync, {{ since }} updated since (a sync is running), {{ earlier }} kept from an earlier sync.
-    {% endblocktrans %}</p>
+    {% endblocktrans %}{% endif %}</p>
     {% if name == "partner_reports" %}
       <p class="mb-2">{% blocktrans with day=history_from|date:"j M Y" %}NeuroDB holds partner reports from {{ day }} (the Datamart has none earlier).{% endblocktrans %}</p>
       {% if check_ten %}<p class="mb-2">{% blocktrans trimmed with n=check_ten.none|intcomma m=check_ten.unexplained|default:0|intcomma %}Running PDs with no report row: {{ n }}, of which {{ m }} nothing explains:{% endblocktrans %} <a class="nd-link" href="{{ checks_url }}">{% trans "see check 10" %}</a>.</p>{% endif %}
@@ -127,6 +133,37 @@
   </form>
 
   {% if filters.refused %}<p class="mb-4 nd-found__warn">{{ filters.refused }}</p>{% endif %}
+
+  {% if review %}
+    <div id="no-longer-sent">
+      {% trans "Rows eTools no longer sends" as review_title %}
+      {% component "unfold/components/card.html" with title=review_title title_icon="history" %}
+        <p class="mb-2">{{ review.words }} {% trans "Send these reports to the eTools Datamart team and ask which ones PRP deleted." %}</p>
+        <div class="nd-scroll">
+          <table class="nd-jobs nd-found__table">
+            <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Report" %}</th><th scope="col">{% trans "Period end" %}</th><th scope="col">{% trans "Last sent" %}</th><th scope="col">{% trans "Rows" %}</th></tr></thead>
+            <tbody>
+              {% for r in review.lines %}
+                <tr><th scope="row" class="nd-raw__atom">{{ r.pd }}</th><td class="nd-raw__atom">{{ r.report }}</td><td>{% if r.period_end %}{{ r.period_end|date:"j M Y" }}{% else %}—{% endif %}</td><td>{{ r.last_sent|date:"j M Y" }}</td><td>{{ r.rows|intcomma }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if review.more %}<p class="mt-2">{% blocktrans with n=review.more|intcomma %}and {{ n }} more{% endblocktrans %}</p>{% endif %}
+        {% if superuser %}
+          <form method="post" action="{{ review.url }}" class="mt-3 nd-raw__review">
+            {% csrf_token %}
+            {% for k, v in review.query.items %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+            <input type="hidden" name="count" value="{{ review.rows|unlocalize }}">
+            <input type="hidden" name="newest" value="{{ review.newest }}">
+            <p class="mb-2">{{ review.words }} {% trans "Remove them only once the eTools Datamart team confirms PRP deleted these reports." %}</p>
+            <p class="mb-2"><label><input type="checkbox" name="reviewed" value="yes"> {% trans "I have reviewed them" %}</label></p>
+            <button type="submit" class="nd-found__button">{% trans "Remove these rows" %}</button>
+          </form>
+        {% endif %}
+      {% endcomponent %}
+    </div>
+  {% endif %}
 
   {% component "unfold/components/card.html" %}
     {% if n is None %}

@@ -562,7 +562,9 @@ def test_fr_headers_tpm_activities_visits_and_workplan_link_to_the_pd(linked):
 
 
 @responses.activate
-def test_partner_reports_are_read_for_a_window_and_only_that_window_is_replaced(linked, settings):
+def test_partner_reports_are_read_for_a_window_and_only_that_window_is_kept_and_marked(linked, settings):
+    """A whole read of the window keeps the rows of the window it no longer returns, marked no longer sent
+    (``test_datamart_unsent``); a row before the window is left alone."""
     p, pd = linked
     settings.ETOOLS_DATAMART_REPORTING_YEARS = 2
     old = dm.ReportedIndicator.objects.create(datamart_id=90, period_start="2001-01-01", indicator="old")
@@ -596,17 +598,21 @@ def test_partner_reports_are_read_for_a_window_and_only_that_window_is_replaced(
         },
     )
     (run,) = run_all("partner_reports")
-    assert run.status == SyncRun.Status.SUCCEEDED and run.details["removed"] == 1
+    assert run.status == SyncRun.Status.SUCCEEDED and run.details["removed"] == 0
+    assert run.details["no_longer_sent_new"] == 1
     row = dm.ReportedIndicator.objects.get(datamart_id=1)
     assert (row.partner, row.intervention, str(row.due_date)) == (p, pd, "2030-01-20")
-    assert dm.ReportedIndicator.objects.filter(pk=old.pk).exists()  # before the window: kept
-    assert not dm.ReportedIndicator.objects.filter(pk=gone.pk).exists()
+    old.refresh_from_db()
+    gone.refresh_from_db()
+    assert old.not_sent_since is None  # before the window: left alone
+    assert gone.not_sent_since == run.started_at  # in the window, no longer returned: kept, marked
 
 
 @responses.activate
 def test_partner_reports_of_another_country_are_never_written_and_old_ones_go(linked, settings):
     """A ``country_name`` filter the Datamart ignored must not let another country's report rows in: they
-    are counted and never written, and those an earlier run wrote are removed by the complete read."""
+    are counted and never written, and those an earlier run wrote are removed by the complete read, also one
+    written as this country's that the read returns naming another (it is not one eTools no longer sends)."""
     settings.ETOOLS_DATAMART_REPORTING_YEARS = 2
     start = f"{__import__('datetime').date.today().year - 1}-01-01"
     earlier = dm.ReportedIndicator.objects.create(
@@ -642,8 +648,10 @@ def test_partner_reports_of_another_country_are_never_written_and_old_ones_go(li
     )
     (run,) = run_all("partner_reports")
     assert run.status == SyncRun.Status.SUCCEEDED
-    assert run.details["other_country_skipped"] == 2 and run.details["removed"] == 1
-    assert run.details["other_country_removed"] == 1
+    assert run.details["other_country_skipped"] == 2 and run.details["removed"] == 0
+    # 93, written before as this country's, came back naming another: removed as such, never kept as no
+    # longer sent
+    assert run.details["other_country_removed"] == 2 and run.details["no_longer_sent_new"] == 0
     assert run.rows_in == 3
     assert set(dm.ReportedIndicator.objects.values_list("datamart_id", flat=True)) == {1, 2, 3, 97}
     assert not dm.ReportedIndicator.objects.filter(pk__in=[earlier.pk, old_other.pk]).exists()
@@ -680,13 +688,15 @@ def test_partner_reports_scope_and_request_use_one_since(linked, monkeypatch):
     )
     (run,) = run_all("partner_reports")
     assert run.status == SyncRun.Status.SUCCEEDED
-    assert (run.details["read_from"], run.details["held_before"], run.details["removed"]) == (
+    assert (run.details["read_from"], run.details["held_before"], run.details["no_longer_sent_new"]) == (
         "2025-01-01",
         1,
         1,
     )
-    assert dm.ReportedIndicator.objects.filter(pk=before.pk).exists()  # before the window asked: kept
-    assert not dm.ReportedIndicator.objects.filter(pk=gone.pk).exists()
+    before.refresh_from_db()
+    gone.refresh_from_db()
+    assert before.not_sent_since is None  # before the window asked: left alone
+    assert gone.not_sent_since == run.started_at
 
 
 def _reports(start: str, n: int) -> list[dict]:
@@ -723,8 +733,9 @@ def test_a_round_count_removes_nothing(linked, settings, monkeypatch):
     responses.reset()
     responses.get(url, json={"count": 21, "next": None, "results": _reports(start, 21)})
     (run,) = run_all("partner_reports")
-    assert run.status == SyncRun.Status.SUCCEEDED and run.details["removed"] == 1
-    assert "cap_suspected" not in run.details and not dm.ReportedIndicator.objects.filter(pk=held.pk).exists()
+    assert run.status == SyncRun.Status.SUCCEEDED and run.details["no_longer_sent_new"] == 1
+    held.refresh_from_db()
+    assert "cap_suspected" not in run.details and held.not_sent_since == run.started_at  # kept, marked
 
 
 @responses.activate

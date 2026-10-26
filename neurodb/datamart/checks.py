@@ -1794,10 +1794,10 @@ def _history_words(history: rc.HistoryFrom) -> str:
 
 def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool]:
     """What the latest partner reports sync did, for check 10: its sentence (what it asked, what the Datamart
-    announced, what was read, kept and removed, then the windows and why, the limit, a page cut, the business
-    area filter it read with or why none, and records that came twice: pages that shifted, or records held
-    twice), its figures, the table of its windows, and whether it calls for a warning (a cut answer, nothing
-    removed, a window not whole, a page cut)."""
+    announced, what was read, kept, marked no longer sent (kept and counted) and removed, then the windows and
+    why, the limit, a page cut, the business area filter it read with or why none, and records that came
+    twice: pages that shifted, or records held twice), its figures, the table of its windows, and whether it
+    calls for a warning (a cut answer, nothing removed, a window not whole, a page cut)."""
     from neurodb.integrations.etools.datamart_sync import area_words, capped, shift_words
     from neurodb.reports.services import WINDOWS_WHY
 
@@ -1823,8 +1823,16 @@ def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool
         else "the Datamart announced no count, "
     )
     said += f"NeuroDB read {read:,}" + (f" ({other:,} of another country)" if other else "")
-    said += f", kept {_plural(kept, 'row', 'rows')} and removed " + (f"{removed:,}" if removed else "none")
-    said += " (removal skipped)." if skipped else " (held one more night)." if held else "."
+    if "no_longer_sent" in details:  # a whole read keeps the rows it no longer returns (keep_unsent)
+        marked, again = _count(details.get("no_longer_sent")), _count(details.get("same_number_other_period"))
+        said += f", kept {_plural(kept, 'row', 'rows')}, marked {marked:,} no longer sent (kept and counted"
+        said += f"; {_plural(again, 'report', 'reports')} sent again for another period)" if again else ")"
+        said += f", removed {removed:,} replaced by a new copy." if removed else ", removed none."
+    else:
+        said += f", kept {_plural(kept, 'row', 'rows')} and removed " + (
+            f"{removed:,}" if removed else "none"
+        )
+        said += " (removal skipped)." if skipped else " (held one more night)." if held else "."
     bound, cut = details.get("window_bound"), details.get("cap_suspected")
     windows, not_whole = details.get("windows") or [], _count(details.get("windows_not_whole"))
     if cut == "windows_unproven" or (capped(announced) and not bound):
@@ -1880,6 +1888,7 @@ def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool
         ("… of another country skipped", other),
         ("… returned twice", _count(details.get("duplicates_read"))),
         ("… rows removed", removed),
+        ("… rows no longer sent (kept and counted)", _count(details.get("no_longer_sent"))),
         ("… rows held before", _count(details.get("held_before"))),
         ("… windows read", _count(details.get("windows_read"))),
         ("… windows not read whole", not_whole),

@@ -1902,7 +1902,9 @@ counts them. In a `datamart` table, a read that returns this country's records a
 an earlier run wrote for another country, whatever its date (`details.other_country_removed`); the
 partner, programme document, location and site tables keep such rows (only their raw copies kept for
 Ask NeuroDB are replaced). The partner and programme tables are updated, never emptied. Each `datamart` table is
-replaced by a complete read (rows the Datamart no longer returns are deleted), except when the
+replaced by a complete read (rows the Datamart no longer returns are deleted; the partner reports are the
+exception: their rows are kept, counted and marked no longer sent, *Partner report rows the Datamart no longer
+returns*, below), except when the
 Datamart returns nothing at all, or only records of another country (`details.empty_response`, with
 `details.other_country_skipped` in the second case; rows an earlier run wrote then stay until a read
 returns this country's records), which usually means a wrong country name.
@@ -1920,7 +1922,8 @@ one that cannot be removes nothing, whatever it read. (The partner reports reads
 whole: 777,535 and 780,905 records announced, every one read, every country's rows, about 10,000 of them
 Lebanon's: the Datamart answers no limit near 10,000.) A failed page fails the run before anything is removed. Every run also records
 `details.held_before`, the rows of its scope NeuroDB held before the read: a large `removed` reads
-against it. **A large removal waits one night**: a whole read that would remove more than half of the rows
+against it. **A large removal waits one night** (never asked for the partner reports, which remove nothing they
+no longer return: below): a whole read that would remove more than half of the rows
 held in its scope, and at least 1,000 (`HOLD_FLOOR`), removes nothing that night (`details.removal_held`, the
 rows kept; *Succeeded with errors*; Data health: "N rows the Datamart no longer returns are kept one more
 night: more than half of those held; the first whole read a night later removes them"); a run removes them
@@ -1931,6 +1934,41 @@ again. Counts that agree with
 what was read cannot catch a Datamart table reloaded while it is read (its ETL empties and refills tables);
 one night's wait keeps such a read from emptying NeuroDB's copy. The records kept whole (below), the raw
 copies of the partner, programme document, location and audit records among them, follow the same rules.
+
+**Partner report rows the Datamart no longer returns** (`Dataset.keep_unsent`, `datamart_sync.keep_unsent`;
+partner reports only). The Datamart's feed loses reports (the reports of 2026 a whole read stopped returning
+were deleted by every whole read before this rule), so a whole read of `partner_reports` deletes nothing it no
+longer returns. Each such row of its scope is kept, counted by every page as before (no reader filters on the
+mark: one report keeps one status everywhere), and marked no longer sent: `ReportedIndicator.not_sent_since`,
+the start of the first whole read that no longer returned it; its `synced_at` stays the moment it was last
+sent (`update()` never moves `auto_now`). A report whose rows are all marked keeps the status they last
+carried, read for today: one still to submit turns Due, then Overdue by its dates. Any read that returns the
+record again clears the mark (`upsert_record`). A row is removed only when tonight's rows hold its
+replacement (`replaced_rows`): the same progress report (`reached.report_key`) and indicator
+(`reached.indicator_key`: eTools id, title and output, never PRP's indicator report id), at the same place
+(P-code; the location name when either has none), or under a new PRP indicator report id (every place of the
+old id is then superseded); a place tonight's read did not return, under the same id, stays marked. The run
+records `details.no_longer_sent_new` (marked tonight), `no_longer_sent` (marked rows of the scope after it),
+`sent_again` (marked before, returned tonight), `replaced` (= `removed`) and `same_number_other_period`
+(marked reports whose programme document, type and number a row still sent holds under another period, mostly
+reports PRP made again after an amendment; their rows `…_rows`). Nothing is held one night (`removal_waits` is
+never asked: nothing is lost) and a mark never makes the run partial. A read not whole, or an empty answer,
+marks nothing and keeps earlier marks; another country's rows are still deleted, marked or not; rows before
+the scope are left alone; `details.feed_from` counts marked rows. Raw eTools data → Partner reports says
+"no longer sent N (kept and counted)", how many rows of how many reports and when they were last sent, offers
+two *Updated by* choices (`unsent_period`, `unsent`), shows the mark in the list, the record page and the CSV
+(`no_longer_sent_since`, also in the figure trail's row CSVs), and the trail's D4 says it; Data health and
+check 10 count them. Only a superuser removes marked rows, after review: the page lists the reports of the
+filter's marked rows (at most 50, no person) and, under it, *I have reviewed them* and **Remove these rows**
+(`raw_admin.unsent_view`, `backfill.remove_unsent`). The post carries the filter, the count shown and the
+newest mark shown; the view applies the filter again up to that mark, refuses without the box or when the
+count changed, takes the clean-up's lock then the Datamart lock (as `backfill.run`; either held: "An eTools
+sync is running: remove them once it ends"), deletes in one transaction and records a run of the **eTools
+update clean-up** (`DATAMART_BACKFILL`, target `partner_reports:no_longer_sent`, `rows_written`,
+`details.removed`, `reports`, `filter`), never of the sync: `SyncRun.last_success(ETOOLS_DATAMART)`, Data
+health, the landing and the brief never read a removal as a fresh sync, and Scheduled jobs' "Last run" of the
+clean-up reads only its own runs (`target=""`). The figures' stamp still moves (`keys.ETOOLS_JOBS`). Migration
+`datamart/0020_partner_report_not_sent` adds the nullable column (no default: the table's description only).
 
 **Records the Datamart sends twice** (`windows.Reading`, `windows.Copies`). One answer of the Datamart (a
 page: one query) never lists a row twice. So a record whose every copy came identical in one answer is held

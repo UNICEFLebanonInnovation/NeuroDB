@@ -1022,7 +1022,11 @@ class ScheduledJobAdmin(ModelAdmin):
         if not command or not command.sync_job:
             text = format_html("{}", naturaltime(obj.last_started_at)) if obj.last_started_at else None
         else:
-            run = SyncRun.objects.filter(job=command.sync_job).order_by("-started_at").first()
+            runs = SyncRun.objects.filter(job=command.sync_job)
+            if command.sync_job == SyncRun.Job.DATAMART_BACKFILL:
+                # a superuser's removal of partner report rows (backfill.UNSENT_TARGET): not the clean-up's
+                runs = runs.filter(target="")
+            run = runs.order_by("-started_at").first()
             text = None
             if run:
                 url = reverse("admin:core_syncrun_change", args=[run.pk])

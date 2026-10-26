@@ -11,7 +11,10 @@ for the people who check a page's figures against it (the Validators group, supe
   from the newest :data:`FIELDS_COUNTED` records NeuroDB holds before a sync counted them;
 * how each source is listed and filtered (:data:`VIEWS`, :class:`Filters`);
 * its CSV: streamed inside one snapshot of the data, at most :data:`CSV_LIMIT` records, at most
-  ``settings.RAW_CSV_MAX_RUNNING`` large downloads at once on the whole site (advisory locks).
+  ``settings.RAW_CSV_MAX_RUNNING`` large downloads at once on the whole site (advisory locks);
+* the partner report rows eTools no longer sends, kept and counted (``datamart_sync.keep_unsent``): their
+  counts (:func:`no_longer_sent`) and the reports a superuser reviews before removing them
+  (:func:`unsent_reports`).
 
 People are never shown or written: every record goes through ``raw_people.public_record``.
 """
@@ -40,7 +43,7 @@ from neurodb.partnerships.models import PCA, PartnerOrganization
 
 from . import catalogue, raw_people, reporting
 from . import query as dmq
-from .models import DatamartDocument, RawFieldReview, RestRecord
+from .models import DatamartDocument, RawFieldReview, ReportedIndicator, RestRecord
 
 logger = logging.getLogger(__name__)
 
@@ -872,6 +875,19 @@ PD_LINK_WORDS = {
     "no_pd": "names none",
 }
 UPDATED = {"last": "the last sync", "earlier": "an earlier sync"}
+# the partner reports' "Updated by" choices for the rows eTools no longer sends (datamart_sync.keep_unsent):
+# those whose number eTools sends for another period (to review first), then all of them
+UNSENT = {
+    "unsent_period": "eTools sends their number for another period",
+    "unsent": "eTools no longer sends them",
+}
+
+
+def updated_choices(name: str) -> dict[str, str]:
+    """The "Updated by" choices of a source's filter; the partner reports' add the rows no longer sent."""
+    return {**UPDATED, **UNSENT} if name == "partner_reports" else UPDATED
+
+
 REFUSED = "eTools records cannot be searched for a person."
 
 
@@ -921,7 +937,7 @@ class Filters:
             date_to=_date(params, "to"),
             q=_text(params, "q"),
             record=_text(params, "record", 64),
-            updated=_text(params, "updated") if params.get("updated") in UPDATED else "",
+            updated=_text(params, "updated") if params.get("updated") in {**UPDATED, **UNSENT} else "",
             report_type=_text(params, "report_type", 30).upper(),
             pd_link=_text(params, "pd_link") if params.get("pd_link") in PD_LINKS else "",
         )
@@ -948,6 +964,24 @@ class Filters:
             "pd_link": self.pd_link,
         }
         return {k: v for k, v in values.items() if v}
+
+    def words(self) -> str:
+        """The filter in the words of the page's form ("every record" when nothing is chosen)."""
+        found = [
+            ("Programme document", self.pd),
+            ("Partner", self.partner),
+            ("Section", self.section),
+            ("Status", self.status),
+            ("Report type", self.report_type),
+            ("Programme document link", PD_LINK_WORDS.get(self.pd_link, "")),
+            ("Year", str(self.year or "")),
+            ("From", self.date_from.isoformat() if self.date_from else ""),
+            ("To", self.date_to.isoformat() if self.date_to else ""),
+            ("Search", self.q),
+            ("Record id", self.record),
+            ("Updated by", {**UPDATED, **UNSENT}.get(self.updated, "")),
+        ]
+        return "; ".join(f"{label}: {value}" for label, value in found if value) or "every record"
 
     def apply(self, name: str, rows: QuerySet, run: SyncRun | None) -> QuerySet:
         """``rows`` narrowed by the filter, as the page states it (a refused search finds nothing)."""
@@ -976,7 +1010,12 @@ class Filters:
             rows = rows.filter(_search_q(name, spec, self.q))
         if self.record:
             rows = rows.filter(_record_q(name, self.record))
-        if self.updated and run is not None and run.finished_at is not None:
+        if self.updated in UNSENT and name == "partner_reports":  # never offered elsewhere
+            if self.updated == "unsent":
+                rows = rows.exclude(not_sent_since=None)
+            else:
+                rows = reporting.sent_for_another_period(rows)
+        elif self.updated in UPDATED and run is not None and run.finished_at is not None:
             window = Q(synced_at__gte=run.started_at, synced_at__lte=run.finished_at)
             rows = (
                 rows.filter(window) if self.updated == "last" else rows.filter(synced_at__lt=run.started_at)
@@ -1286,6 +1325,33 @@ def updated_by_last(row: Any, run: SyncRun | None) -> bool:
     return run.started_at <= row.synced_at <= run.finished_at
 
 
+def local_day(moment: datetime.datetime | None) -> str:
+    """A moment's day in Beirut, in words: 24 Oct 2026."""
+    if moment is None:
+        return ""
+    day = timezone.localtime(moment).date()
+    return f"{day.day} {day:%b %Y}"
+
+
+def between(first: datetime.datetime | None, last: datetime.datetime | None) -> str:
+    """Two moments as days in words: "between 20 Sep and 24 Oct 2026", "on 24 Oct 2026"."""
+    a, b = local_day(first), local_day(last)
+    if a == b:
+        return f"on {b}"
+    if a.endswith(b[-4:]):
+        a = a[:-5]
+    return f"between {a} and {b}"
+
+
+def updated_words(row: Any, run: SyncRun | None) -> str:
+    """The list's "Updated by the last sync": yes or no; for a partner report row eTools no longer sends,
+    since when, and when it was last sent (its ``synced_at``: marking a row never moves it)."""
+    since = getattr(row, "not_sent_since", None)
+    if since is not None:
+        return f"No: no longer sent since {local_day(since)} (last sent {local_day(row.synced_at)})"
+    return "yes" if updated_by_last(row, run) else "no"
+
+
 REPORT_COLUMNS = ("report_type", "report_number")  # the list's "Report" column
 
 
@@ -1327,7 +1393,7 @@ def cells(
             else:
                 out.append(" ".join(str(shown.get(k) or "") for k in REPORT_COLUMNS).strip())
         elif what == "updated":
-            out.append("yes" if updated_by_last(row, run) else "no")
+            out.append(updated_words(row, run))
         elif what.startswith("t:"):
             out.append(raw_people.column(name, what[2:], getattr(row, what[2:], None), names, own))
         elif what.startswith("d:"):
@@ -1458,7 +1524,7 @@ NEURODB_COLUMNS = (
     "partner_in_neurodb",
     "vendor_number",
 )
-PARTNER_REPORT_COLUMNS = ("pd_link", "progress_report_key", "indicator_report_key")
+PARTNER_REPORT_COLUMNS = ("pd_link", "progress_report_key", "indicator_report_key", "no_longer_sent_since")
 TAIL_COLUMNS = ("people_inside", "fields_not_shown", "other_fields")
 
 
@@ -1534,7 +1600,12 @@ def csv_record(
     }
     if name == "partner_reports":
         own = dmq._own_names(catalogue.scrub(row.data if isinstance(row.data, dict) else {}))
-        out.update(pd_link=pd_link(row), **report_keys(row, names, own))
+        since = row.not_sent_since
+        out.update(
+            pd_link=pd_link(row),
+            **report_keys(row, names, own),
+            no_longer_sent_since=timezone.localtime(since).date().isoformat() if since else "",
+        )
     other: dict[str, Any] = {}
     for key, value in shown.items():
         if key in wanted:
@@ -1704,3 +1775,103 @@ def rest_counts(runs: dict[str, tuple[SyncRun | None, SyncRun | None]]) -> dict[
         for entity, held, by_sync, since in cursor.fetchall():
             found[entity] = [held, by_sync, since]
     return found
+
+
+# ------------------------------------------------------------------------- partner reports no longer sent
+REVIEW_REPORTS = 50  # the reports the review list shows, then "and N more"
+
+
+def no_longer_sent(rows: QuerySet | None = None) -> dict[str, Any]:
+    """The partner report rows eTools no longer sends (marked by a whole read, kept and counted) of ``rows``
+    (every row by default): ``rows``, of how many progress reports (``reporting.REPORT_KEY``), when they were
+    last sent (``first``, ``last``: their ``synced_at``), the ``newest`` mark, and of those reports the ones
+    eTools sends again for another period (``other_period``, ``reporting.sent_for_another_period``). Counts
+    only: one query, and a second when some are marked."""
+    from django.db.models import Count, Max, Min
+
+    marked = (rows if rows is not None else ReportedIndicator.objects.all()).exclude(not_sent_since=None)
+    found = marked.order_by().aggregate(
+        rows=Count("pk"),
+        reports=Count(reporting.REPORT_KEY, distinct=True),
+        first=Min("synced_at"),
+        last=Max("synced_at"),
+        newest=Max("not_sent_since"),
+    )
+    found["other_period"] = 0
+    if found["rows"]:
+        found["other_period"] = (
+            reporting.sent_for_another_period(marked)
+            .order_by()
+            .aggregate(n=Count(reporting.REPORT_KEY, distinct=True))["n"]
+        )
+    return found
+
+
+def rows_of_reports(rows: int, reports: int) -> str:
+    """ "312 rows of 14 progress reports", "1 row of 1 progress report"."""
+    return (
+        f"{rows:,} {'row' if rows == 1 else 'rows'} of {reports:,} "
+        f"{'progress report' if reports == 1 else 'progress reports'}"
+    )
+
+
+def unsent_words(rows: int, reports: int, first: Any, last: Any, other: int) -> str:
+    """The source page's sentence on the partner report rows eTools no longer sends ("" when none)."""
+    if not rows:
+        return ""
+    said = (
+        f"{rows_of_reports(rows, reports)} eTools no longer sends {'is' if rows == 1 else 'are'} kept and "
+        f"counted, marked no longer sent (last sent {between(first, last)})."
+    )
+    if other:
+        said += (
+            f" eTools sends the number of {other:,} of these reports again for another period: review those "
+            "first."
+        )
+    return said
+
+
+def unsent_reports(rows: QuerySet, names: frozenset[str]) -> tuple[list[dict[str, Any]], int]:
+    """The progress reports of the rows of ``rows`` eTools no longer sends, for review before a removal: one
+    line each, the last sent first (its programme document's number, the report, its period end, when it was
+    last sent, its rows), at most :data:`REVIEW_REPORTS`, and how many more. No person: the texts go through
+    the people rule."""
+    from django.db.models import Count, Max
+
+    grouped = (
+        rows.exclude(not_sent_since=None)
+        .annotate(_key=reporting.REPORT_KEY)
+        .values("_key")
+        .annotate(
+            pd=Max("intervention__number"),
+            ref=Max("pd_reference_number"),
+            kind=Max("report_type"),
+            number=Max("report_number"),
+            end=Max("period_end"),
+            last=Max("synced_at"),
+            n=Count("pk"),
+        )
+        .order_by("-last", "_key")
+    )
+    total = grouped.count()
+    lines = []
+    for found in grouped[:REVIEW_REPORTS]:
+        report = " ".join(x for x in (found["kind"], found["number"]) if x)
+        lines.append(
+            {
+                "pd": raw_people.text(
+                    found["pd"] or found["ref"] or "—",
+                    "partner_reports",
+                    "pd_reference_number",
+                    names,
+                    frozenset(),
+                ),
+                "report": raw_people.text(
+                    report or "—", "partner_reports", "report_number", names, frozenset()
+                ),
+                "period_end": found["end"],
+                "last_sent": found["last"],
+                "rows": found["n"],
+            }
+        )
+    return lines, max(total - REVIEW_REPORTS, 0)

@@ -10,7 +10,10 @@ status). Anyone else gets a 404.
 * ``datamart/raw/<source>/fields/`` (POST, superusers): a field reviewed, or hidden again;
 * ``datamart/raw/rest/read/`` (POST, superusers and Administrators): "Read the eTools REST API now" starts the
   job that reads the eTools REST API into Raw eTools data (``integrations.etools.rest_raw``), in the
-  background; without the eTools token the page says so and shows no button.
+  background; without the eTools token the page says so and shows no button;
+* ``datamart/raw/partner_reports/no-longer-sent/`` (POST, superusers): "Remove these rows" removes the partner
+  report rows of the list's filter eTools no longer sends, once reviewed (``backfill.remove_unsent``: the
+  eTools update clean-up, never a sync). The Partner reports page lists their reports for review first.
 
 Every record goes through the people rule (``raw_people``). Read-only, but for the reviews and the button.
 Where a sync or a read failed, the pages say why in a few words (``runfacts.failure_words``) and link the run
@@ -417,7 +420,18 @@ def source_view(request, source: str):
     csv_url = f"{reverse('admin:datamart_raw_csv', args=[name])}?{urlencode(query)}"
     extra: dict[str, Any] = {}
     if name == "partner_reports":
-        extra = {"history_from": _history_from(), "check_ten": _check_ten()}
+        extra = {
+            "history_from": _history_from(),
+            "check_ten": _check_ten(),
+            "unsent_line": raw.unsent_words(
+                facts.no_longer_sent,
+                facts.no_longer_sent_reports,
+                facts.last_sent_first,
+                facts.last_sent_last,
+                facts.same_number_other_period,
+            ),
+            "review": _review(filters, rows, names) if n else None,
+        }
     context = _context(
         request,
         raw.NAMES.get(name, name),
@@ -433,7 +447,7 @@ def source_view(request, source: str):
         shown=raw.filters_shown(name),
         choices=raw.choices(name, run),
         pd_links=raw.PD_LINK_WORDS,
-        updated_choices=raw.UPDATED,
+        updated_choices=raw.updated_choices(name),
         n=n,
         too_slow=raw.TOO_SLOW.format(n=f"{facts.held:,}") if n is None else "",
         too_many=raw.too_many(name, n) if n is not None and n > limit else "",
@@ -460,6 +474,29 @@ def source_view(request, source: str):
         **extra,
     )
     return render(request, "admin/datamart/raw/source.html", context)
+
+
+def _review(filters: raw.Filters, rows: Any, names: frozenset[str]) -> dict[str, Any] | None:
+    """The partner reports of the list's filter eTools no longer sends, for review (one line each, at most
+    ``raw.REVIEW_REPORTS``), and what the superusers' button removes: their rows up to the newest mark shown,
+    with the filter, the count and that mark it posts (``unsent_view``). None when the filter holds none."""
+    found = raw.no_longer_sent(rows)
+    if not found["rows"]:
+        return None
+    lines, more = raw.unsent_reports(rows, names)
+    these = raw.rows_of_reports(found["rows"], found["reports"])
+    return {
+        "lines": lines,
+        "more": more,
+        "rows": found["rows"],
+        "words": (
+            f"eTools no longer sends {these} of this list (last sent "
+            f"{raw.between(found['first'], found['last'])}). They still count on every page."
+        ),
+        "newest": found["newest"].isoformat(),
+        "query": filters.query(),
+        "url": reverse("admin:datamart_raw_unsent"),
+    }
 
 
 def _heading(label: str, what: str) -> str:
@@ -533,9 +570,12 @@ def _report_status(row: Any, names: frozenset[str], own: frozenset[str]) -> dict
 
 
 def _written_by(name: str, row: Any, run: SyncRun | None) -> dict[str, Any]:
-    """The sync that last updated a record: the last one, or an earlier one (its date)."""
+    """The sync that last updated a record: the last one, or an earlier one (its date); a partner report row
+    eTools no longer sends says so, as its cell does (``raw.updated_words``)."""
     from django.db.models import Q
 
+    if getattr(row, "not_sent_since", None) is not None:
+        return {"last": False, "when": row.synced_at, "unsent": raw.updated_words(row, run)}
     if run is not None and raw.updated_by_last(row, run):
         return {"last": True, "when": run.finished_at}
     jobs = Q(job=SyncRun.Job.ETOOLS_DATAMART, target=name)
@@ -741,4 +781,48 @@ def rest_read_view(request):
                 "in a few minutes to see what it received."
             ),
         )
+    return redirect(back)
+
+
+# ------------------------------------------------------------------------- partner reports no longer sent
+@require_POST
+def unsent_view(request):
+    """ "Remove these rows" (superusers only; anyone else gets a 404): the partner report rows of the list's
+    filter eTools no longer sends, up to the newest mark the page showed, once the reviewer ticked "I have
+    reviewed them" and only while they are the rows the page counted (``backfill.remove_unsent``: the eTools
+    update clean-up, never a sync; refused while a sync or a clean-up runs)."""
+    from django.utils.dateparse import parse_datetime
+
+    from . import backfill
+
+    _guard(request)
+    if not request.user.is_superuser:
+        raise Http404
+    name = "partner_reports"
+    filters = raw.Filters.from_params(request.POST)
+    query = filters.query()
+    back = f"{reverse('admin:datamart_raw_source', args=[name])}?{urlencode(query)}#no-longer-sent"
+    newest = parse_datetime(str(request.POST.get("newest") or ""))
+    shown = str(request.POST.get("count") or "")
+    if filters.refused or newest is None or not shown.isdigit():
+        messages.error(request, backfill.UNSENT_CHANGED)
+        return redirect(back)
+    if request.POST.get("reviewed") != "yes":
+        messages.error(request, _("Tick “I have reviewed them” first: nothing was removed."))
+        return redirect(back)
+    run = runfacts.runs([name])[name][0]
+    rows = (
+        filters.apply(name, raw.base(name), run)
+        .exclude(not_sent_since=None)
+        .filter(not_sent_since__lte=newest)
+    )
+    done = backfill.remove_unsent(rows, int(shown), filters.words(), request.user.get_username())
+    if isinstance(done, str):
+        messages.error(request, done)
+        return redirect(back)
+    removed = raw.rows_of_reports(done.details.get("removed", 0), done.details.get("reports", 0))
+    messages.success(
+        request,
+        _("Removed %(removed)s eTools no longer sends: the eTools update clean-up.") % {"removed": removed},
+    )
     return redirect(back)

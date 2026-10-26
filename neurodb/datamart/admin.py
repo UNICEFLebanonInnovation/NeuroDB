@@ -401,6 +401,11 @@ class DatamartDocumentAdmin(ReadOnlyModelAdmin):
             ),
             path("datamart/raw/", view(raw_admin.index_view), name="datamart_raw"),
             path("datamart/raw/rest/read/", view(raw_admin.rest_read_view), name="datamart_raw_rest_read"),
+            path(
+                "datamart/raw/partner_reports/no-longer-sent/",
+                view(raw_admin.unsent_view),
+                name="datamart_raw_unsent",
+            ),
             path("datamart/raw/<str:source>/", view(raw_admin.source_view), name="datamart_raw_source"),
             path(
                 "datamart/raw/<str:source>/<int:pk>/", view(raw_admin.record_view), name="datamart_raw_record"

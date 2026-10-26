@@ -17,6 +17,10 @@ The job holds the eTools Datamart sync's lock, so the sync and the clean-up neve
 tables at the same time, and its own lock first, so that a sync finding the Datamart lock taken
 knows it is the clean-up and waits for it (``sync_etools_datamart``). A clean-up that finds the sync
 going leaves the work to its schedule, switched back on if a finished run had switched it off.
+
+The partner report rows eTools no longer sends (kept and counted by the sync, ``datamart_sync.keep_unsent``)
+are removed here too, by a superuser after review (Raw eTools data → Partner reports, :func:`remove_unsent`):
+a run of this job with the target :data:`UNSENT_TARGET`, never a sync, holding both locks in the same order.
 """
 
 from __future__ import annotations
@@ -26,7 +30,8 @@ import logging
 from collections.abc import Iterator
 
 from django.apps import apps
-from django.db import connection
+from django.db import connection, transaction
+from django.db.models import Count, QuerySet
 
 from neurodb.core.models import ScheduledJob, SyncRun
 from neurodb.datamart.catalogue import PERSONAL_KEYS, scrub
@@ -46,6 +51,10 @@ SYNC_RUNNING = (
     "(every 15 minutes) once the sync has finished."
 )
 WAITING = "waiting: the eTools Datamart sync is running"
+# a superuser's removal of the partner report rows eTools no longer sends, after review (remove_unsent)
+UNSENT_TARGET = "partner_reports:no_longer_sent"
+UNSENT_BUSY = "An eTools sync is running: remove them once it ends."
+UNSENT_CHANGED = "The rows changed since you looked: review them again."
 
 
 # ----------------------------------------------------------------- the columns of datamart 0009
@@ -269,3 +278,41 @@ def _run_steps(triggered_by: str) -> SyncRun:
     sync_run.rows_written = sum(sum(counts.values()) for counts in details.values())
     sync_run.finish(SyncRun.Status.SUCCEEDED, schedule_switched_off=bool(finished_schedule()), **details)
     return sync_run
+
+
+def remove_unsent(rows: QuerySet, shown: int, words: str, triggered_by: str) -> SyncRun | str:
+    """Remove ``rows`` (the partner report rows of a filter of Raw eTools data eTools no longer sends, up to
+    the newest mark the page showed), once a superuser has reviewed them and the eTools Datamart team
+    confirmed PRP deleted their reports. It takes the clean-up's lock, then the sync's, as :func:`run` does,
+    so neither a sync nor a clean-up writes meanwhile and a sync reads it as a clean-up; it refuses when
+    either is held, or when the rows are no longer the ``shown`` the reviewer saw. The run is the clean-up's
+    (target :data:`UNSENT_TARGET`), never a sync: a removal never counts as a fresh eTools sync. ``words``:
+    the filter, as the page says it. Returns the run, or why nothing was removed."""
+    from . import models as dm
+    from . import reporting
+
+    if not _take(background.DATAMART_BACKFILL_LOCK_ID):
+        return UNSENT_BUSY
+    try:
+        if not _take(background.DATAMART_LOCK_ID):
+            return UNSENT_BUSY
+        try:
+            pks = list(rows.order_by().values_list("pk", flat=True))
+            if len(pks) != shown:
+                return UNSENT_CHANGED
+            sync_run = new_run(SyncRun.Job.DATAMART_BACKFILL, UNSENT_TARGET, triggered_by)
+            try:
+                with transaction.atomic():
+                    gone = dm.ReportedIndicator.objects.filter(pk__in=pks)
+                    reports = gone.aggregate(n=Count(reporting.REPORT_KEY, distinct=True))["n"]
+                    _, deleted = gone.delete()
+            except Exception as exc:
+                return fail(sync_run, exc)
+            removed = deleted.get(dm.ReportedIndicator._meta.label, 0)
+            sync_run.rows_written = removed
+            sync_run.finish(SyncRun.Status.SUCCEEDED, removed=removed, reports=reports, filter=words)
+            return sync_run
+        finally:
+            _release(background.DATAMART_LOCK_ID)
+    finally:
+        _release(background.DATAMART_BACKFILL_LOCK_ID)

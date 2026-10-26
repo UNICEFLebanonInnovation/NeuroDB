@@ -27,6 +27,7 @@ BASE = "https://datamart.test"
 REPORTS = f"{BASE}/api/latest/prp/datareport/"
 V2 = f"{BASE}/api/latest/prp/indicator-report-v2/"
 INDICATORS = f"{BASE}/api/latest/datamart/pd-indicators/"
+GRANTS = f"{BASE}/api/latest/datamart/funds/grants/"
 KEY = "reporting_period_start_date"
 DATE_FILTERS = (f"{KEY}__gte", f"{KEY}__lt", f"{KEY}__lte")
 ID_FILTERS = ("id__gte", "id__lt", "id__lte")
@@ -124,15 +125,16 @@ def test_a_cut_read_holds_its_history_from_its_earliest_row_only():
 @responses.activate
 def test_a_capped_dataset_is_read_whole_in_date_windows():
     """120 rows, at most 50 to one query and a count cut to 50: read in date windows split below 20, every row
-    arrives, the stale row goes, and the run says the Datamart's own count was cut."""
+    arrives, the row it no longer returns is kept and marked no longer sent, and the run says the Datamart's own
+    count was cut."""
     held(900)
     fake = FakeDatamart(spread(120), cap=50)
     fake.register(REPORTS)
     found = run("partner_reports")
     details = found.details
     assert found.status == SyncRun.Status.SUCCEEDED, details
-    assert ids() == set(range(1, 121))
-    assert details["removed"] == 1 and "removal_skipped" not in details
+    assert ids() == {*range(1, 121), 900}  # kept, counted, marked no longer sent
+    assert (details["removed"], details["no_longer_sent_new"]) == (0, 1) and "removal_skipped" not in details
     assert (details["datamart_count"], details["read"], details["windows_announced"]) == (50, 120, 120)
     assert details["window_bound"] == KEY and details["whole_count_capped"] is True
     assert details["windows_not_whole"] == 0 and all(w["announced"] < 20 for w in details["windows"])
@@ -436,20 +438,37 @@ def test_a_record_on_the_window_boundary_by_a_timezone_is_not_outside():
     assert found.details["outside_window"] == 0 and 700 in ids()
 
 
+def grants(n: int) -> list[dict]:
+    """``n`` grants of Lebanon, ids from 1."""
+    return [{"id": pk, "name": f"SC{pk}", "country_name": "Lebanon"} for pk in range(1, n + 1)]
+
+
+def held_grants() -> set[int]:
+    """The grants an earlier read wrote, ids 900 to 904."""
+    for pk in range(900, 905):
+        dm.Grant.objects.create(datamart_id=pk, name=f"SC{pk}")
+    return set(range(900, 905))
+
+
+def grant_ids() -> set[int]:
+    return set(dm.Grant.objects.values_list("datamart_id", flat=True))
+
+
 @responses.activate
 def test_a_large_removal_waits_one_night(monkeypatch):
+    """The partner reports never remove what a whole read no longer returns (test_datamart_unsent): the hold
+    is the other datasets', the grants here."""
     monkeypatch.setattr(sync, "HOLD_FLOOR", 3)
-    for pk in range(900, 905):
-        held(pk)
-    fake = FakeDatamart(spread(2))
-    fake.register(REPORTS)
-    first = run("partner_reports")
+    held_grants()
+    fake = FakeDatamart(grants(2))
+    fake.register(GRANTS)
+    first = run("grants")
     assert first.status == SyncRun.Status.PARTIAL
-    assert (first.details["removal_held"], first.details["removed"]) == (5, 0) and len(ids()) == 7
+    assert (first.details["removal_held"], first.details["removed"]) == (5, 0) and len(grant_ids()) == 7
     _hours_ago(first, 21)
-    second = run("partner_reports")  # the next night's whole read removes them
+    second = run("grants")  # the next night's whole read removes them
     assert second.status == SyncRun.Status.SUCCEEDED
-    assert second.details["removed"] == 5 and ids() == {1, 2}
+    assert second.details["removed"] == 5 and grant_ids() == {1, 2}
 
 
 def _hours_ago(found: SyncRun, hours: int) -> None:
@@ -462,17 +481,16 @@ def test_a_held_removal_is_held_again_by_a_sync_minutes_later(monkeypatch):
     """The sync pressed again minutes after the night's run (the Datamart's table still reloading) reads the
     same smaller set: it removes nothing either. The run a night after the first hold removes the rows."""
     monkeypatch.setattr(sync, "HOLD_FLOOR", 3)
-    for pk in range(900, 905):
-        held(pk)
-    FakeDatamart(spread(2)).register(REPORTS)
-    first = run("partner_reports")
-    second = run("partner_reports")  # minutes later
+    held_grants()
+    FakeDatamart(grants(2)).register(GRANTS)
+    first = run("grants")
+    second = run("grants")  # minutes later
     assert second.status == SyncRun.Status.PARTIAL
-    assert (second.details["removal_held"], second.details["removed"]) == (5, 0) and len(ids()) == 7
+    assert (second.details["removal_held"], second.details["removed"]) == (5, 0) and len(grant_ids()) == 7
     _hours_ago(first, 21)  # the first hold was a night ago: its chain of holds has waited long enough
-    third = run("partner_reports")
+    third = run("grants")
     assert third.status == SyncRun.Status.SUCCEEDED
-    assert third.details["removed"] == 5 and ids() == {1, 2}
+    assert third.details["removed"] == 5 and grant_ids() == {1, 2}
 
 
 @responses.activate

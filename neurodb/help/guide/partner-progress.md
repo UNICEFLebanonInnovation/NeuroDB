@@ -50,6 +50,10 @@ were given last is the report's on every page:
 | Overdue | Not submitted by its due date. | No |
 | Not yet due | The reporting period is still running. | No |
 
+A report eTools stops sending stays, with the status it last had: one still to submit turns Due, then
+Overdue, by its dates, until eTools sends it again. So reports still owed can appear here although the
+partner reports feed no longer sends them.
+
 ## Partner monitoring
 
 [Partner monitoring](/partner-monitoring/) has five views on one filter:

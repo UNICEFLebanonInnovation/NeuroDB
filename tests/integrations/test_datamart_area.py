@@ -121,7 +121,7 @@ def test_a_business_area_filter_the_datamart_applies_is_proven_then_used(code):
         }
     ]
     assert "other_country_skipped" not in details  # no record of another country was asked
-    assert details["removed"] == 1 and ids() == set(range(1, 7))
+    assert (details["removed"], details["no_longer_sent_new"]) == (0, 1) and ids() == {*range(1, 7), 900}
     assert (
         sync.area_words(area)
         == "read by business area 2490 (filter business_area: 6 records with it, 12 without)"
@@ -291,7 +291,8 @@ def test_a_stray_is_never_written_and_the_key_is_skipped_the_next_night(code, mo
     area = second.details["area_filter"]
     assert area["tried"][0] == {"key": "business_area", "verdict": "strays_this_week"}
     assert area["tried"][1]["key"] == "business_area_code" and area["why"] == "none_proven"
-    assert second.status == SyncRun.Status.SUCCEEDED and 900 not in ids()
+    assert second.status == SyncRun.Status.SUCCEEDED and second.details["no_longer_sent_new"] == 1
+    assert 900 in ids()  # kept, marked no longer sent
     third = run()  # a clean night between: still skipped
     assert third.details["area_filter"]["tried"][0]["verdict"] == "strays_this_week"
 

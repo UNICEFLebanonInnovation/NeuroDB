@@ -478,7 +478,14 @@ def indicator_report_key(row: dict[str, Any]) -> str:
     report are never read as one, even when they share a title or an eTools id, as long as PRP's id or
     their output tells them apart."""
     found = str(row.get("indicator_report") or "")
-    return found or (
+    return found or indicator_key(row)
+
+
+def indicator_key(row: dict[str, Any]) -> str:
+    """One indicator of a progress report whatever PRP's indicator report id: its eTools id, title and PD
+    output (the second half of :func:`indicator_report_key`). A row PRP sends again under a new indicator
+    report id is the same indicator (``datamart_sync.keep_unsent``)."""
+    return (
         f"t|{row.get('etools_indicator_id') or ''}|{row.get('indicator') or ''}|{row.get('pd_output') or ''}"
     )
 

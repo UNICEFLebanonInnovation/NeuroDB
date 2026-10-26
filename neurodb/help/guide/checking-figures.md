@@ -372,6 +372,14 @@ programme documents, trips, engagements, action points and their details).
   saved into NeuroDB's own partners, programme documents, locations...: the ones the pages read. Then
   **Complete?** says *No*. For the partner reports it also says from which date NeuroDB holds them, and
   how many running programme documents have no report row (check 10).
+- **Rows eTools no longer sends** (partner reports only). When a complete sync no longer gets a partner
+  report row, NeuroDB keeps it and counts it on every page, marked "no longer sent" ("no longer sent 312
+  (kept and counted)"; the list's *Updated* cell says since when, and when it was last sent). Its report keeps
+  the status it last had. The mark goes as soon as eTools sends the row again. A row is removed by a sync only
+  when the sync gets its new copy: the same report and indicator at the same place, or under a new id PRP gave
+  the indicator. The line under the counts says how many rows of how many reports are kept so, and how many of
+  these reports eTools now sends under the same number for another period (mostly reports PRP made again
+  after an amendment): review those first.
 - **Records eTools sent twice.** One answer of the eTools Datamart (one page) never lists a record twice, so
   when every copy of a record comes identical in one answer, eTools holds it twice: NeuroDB keeps one, counts
   the copy with what it received ("1,939 the Datamart sent twice (identical)" under *Not kept*) and the sync
@@ -385,7 +393,17 @@ programme documents, trips, engagements, action points and their details).
 - **The filter** keeps the records of a programme document, a partner, a section, a status, a year or a
   date range, a reference or number, a record id, and those the last sync updated or not. For the partner
   reports, also the report type and the programme document link: running, another status, draft or
-  cancelled, not in NeuroDB, or names none. These five choices add up to every partner report row.
+  cancelled, not in NeuroDB, or names none. These five choices add up to every partner report row. Its
+  *Updated by* choices add the rows eTools no longer sends: "eTools sends their number for another period"
+  (first to review) and "eTools no longer sends them" (all of them).
+- **The review list** (partner reports, when the filter holds rows eTools no longer sends) lists their
+  progress reports, one line each: programme document, report, period end and when it was last sent, at
+  most 50 ("and N more"). Send it to the eTools Datamart team and ask which of these reports PRP deleted.
+  Under it, a superuser reads "eTools no longer sends 312 rows of 14 progress reports of this list…", ticks
+  *I have reviewed them* and presses **Remove these rows**: only once the Datamart team confirms PRP deleted
+  them. It removes the filter's rows no longer sent, up to the last one the page showed; if the rows changed
+  since, or a sync is running, nothing is removed and the page says why. The removal is recorded in
+  *Import and sync runs* as the eTools update clean-up ("partner_reports:no_longer_sent"), never as a sync.
 - **The list** shows 50 records a page, the newest first, each linked to its own page: every field as
   received, then what NeuroDB made of it (its columns, the programme document, partner and location it
   links to; for a partner report row its progress report and the status every page reads for it; for an

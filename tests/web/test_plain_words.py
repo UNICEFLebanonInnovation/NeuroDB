@@ -8,7 +8,16 @@ import re
 from pathlib import Path
 
 from neurodb.core.models import SyncRun
-from neurodb.datamart import comparison, identity, powerbi_words, raw, runfacts, trail, trail_monitoring
+from neurodb.datamart import (
+    backfill,
+    comparison,
+    identity,
+    powerbi_words,
+    raw,
+    runfacts,
+    trail,
+    trail_monitoring,
+)
 from neurodb.integrations import background
 from neurodb.integrations.etools import datamart_sync, rest_raw
 
@@ -71,6 +80,13 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         *raw.USES.values(),
         *raw.PD_LINK_WORDS.values(),
         *raw.UPDATED.values(),
+        # the partner report rows eTools no longer sends: their choices, sentences, cell and the button's answers
+        *raw.UNSENT.values(),
+        raw.unsent_words(312, 14, None, None, 3),
+        raw.unsent_words(1, 1, None, None, 0),
+        raw.Filters(pd="LEB/PD1", updated="unsent").words(),
+        backfill.UNSENT_BUSY,
+        backfill.UNSENT_CHANGED,
         raw.REFUSED,
         raw.BUSY,
         raw.TOO_SLOW,

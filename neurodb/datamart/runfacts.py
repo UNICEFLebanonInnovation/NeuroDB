@@ -9,6 +9,10 @@ it. Counted on distinct records, the same for the datasets in their own table an
     received − of another country − named no country − could not be saved = updated by the sync
     in NeuroDB = updated by the sync + updated since (a later sync under way) + kept from an earlier sync
 
+The partner report rows eTools no longer sends (a whole read keeps them, counted:
+``datamart_sync.keep_unsent``) are kept from an earlier sync: counted there (``no_longer_sent``), never as
+unexplained.
+
 A record a later run rewrote (one running, or one that failed after writing) is counted updated since, not by
 the sync: up to the remainder, those are explained too. The engagements are saved again by their detail
 datasets (audits, spot checks...) right after their own run, in the same sync: those saves count as the
@@ -39,6 +43,7 @@ answered, no answer in time, no connection...), never by its error's text.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import re
 from dataclasses import dataclass, field
@@ -133,6 +138,14 @@ class RunFacts:
     # answered empty; the action points with no final engagement to ask for), and what it got, in words
     newer_empty: SyncRun | None = None
     empty_words: str = ""
+    # the partner reports (:func:`facts`: their page and the trails): the rows eTools no longer sends, kept
+    # and counted inside ``from_earlier`` (raw.no_longer_sent), their progress reports, those of them eTools
+    # sends again for another period, and when they were last sent
+    no_longer_sent: int = 0
+    no_longer_sent_reports: int = 0
+    same_number_other_period: int = 0
+    last_sent_first: datetime.datetime | None = None
+    last_sent_last: datetime.datetime | None = None
 
     @property
     def twice_unproven(self) -> int:
@@ -488,14 +501,26 @@ def counts(name: str, run: SyncRun | None) -> tuple[int, int, int]:
 
 
 def facts(name: str) -> RunFacts:
-    """The facts of one source (its page): its runs (two queries) and its counts (one)."""
+    """The facts of one source (its page): its runs (two queries) and its counts (one); for the partner
+    reports, the rows eTools no longer sends (one more, two when some are marked)."""
     from . import raw
 
     if raw.rest(name):
         found = rest_reads([name])[name]
         return build(name, found.run, found.newer_failed, counts(name, found.run), last=found.last)
     run, newer = runs([name])[name]
-    return build(name, run, newer, counts(name, run))
+    found = build(name, run, newer, counts(name, run))
+    if name == "partner_reports":  # its own page and the trails: the rows eTools no longer sends
+        unsent = raw.no_longer_sent()
+        found = dataclasses.replace(
+            found,
+            no_longer_sent=unsent["rows"],
+            no_longer_sent_reports=unsent["reports"],
+            same_number_other_period=unsent["other_period"],
+            last_sent_first=unsent["first"],
+            last_sent_last=unsent["last"],
+        )
+    return found
 
 
 # ------------------------------------------------------------------------------------- why a run failed

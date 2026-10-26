@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Case, CharField, Count, Max, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, Count, Exists, Max, OuterRef, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTransform
 from django.db.models.functions import Cast, Coalesce, Concat, ExtractYear, NullIf, Trim, Upper
 
@@ -97,15 +97,17 @@ INDICATOR_REPORT = Coalesce(
     ),
     output_field=CharField(),
 )
+# a report's programme document as reached.report_key names it: NeuroDB's link, else the reference number
+REPORT_PD = Case(
+    When(intervention__isnull=False, then=Concat(Value("pd"), Cast("intervention_id", CharField()))),
+    default=Concat(Value("ref:"), "pd_reference_number"),
+    output_field=CharField(),
+)
 # a progress report as reached.report_key tells it apart: its programme document (NeuroDB's link, else the
 # reference number), type, number and period; PRP's progress report id only on a row naming no programme
 # document at all, or no number and no period
 REPORT_KEY = Concat(
-    Case(
-        When(intervention__isnull=False, then=Concat(Value("pd"), Cast("intervention_id", CharField()))),
-        default=Concat(Value("ref:"), "pd_reference_number"),
-        output_field=CharField(),
-    ),
+    REPORT_PD,
     Value("|"),
     Upper(Trim("report_type")),
     Value("|"),
@@ -130,6 +132,16 @@ REPORT_KEY = Concat(
 )
 # one indicator report among all: its progress report and the indicator in it, as progress_reports counts them
 INDICATOR_REPORT_KEY = Concat(REPORT_KEY, Value("#"), INDICATOR_REPORT, output_field=CharField())
+# a progress report by its programme document, type and number, whatever its period; and its period
+REPORT_NUMBER = Concat(
+    REPORT_PD, Value("|"), Upper(Trim("report_type")), Value("|"), "report_number", output_field=CharField()
+)
+REPORT_PERIOD = Concat(
+    Coalesce(Cast("period_start", CharField()), Value("")),
+    Value("|"),
+    Coalesce(Cast("period_end", CharField()), Value("")),
+    output_field=CharField(),
+)
 # report rows that name no programme document at all (no link, no PD reference number, no eTools PD id):
 # PRP reports outside programme documents, which no PD status filter keeps: Progress reports, the partner
 # page, the home page and the management brief never count them
@@ -138,6 +150,27 @@ NO_PD = Q(intervention__isnull=True, pd_reference_number="") & (
     | Q(data__etools_intervention_id=None)
     | Q(data__etools_intervention_id="")
 )
+
+
+def sent_for_another_period(rows: QuerySet) -> QuerySet:
+    """The rows of ``rows`` eTools no longer sends (``not_sent_since``, kept and counted) whose programme
+    document, type and report number a row still sent holds under another period (start or end): mostly
+    reports PRP made again with new dates after a PD amendment, the first to review before removing them
+    (Raw eTools data, ``datamart_sync.keep_unsent``). One ``Exists``; a row with no report number is never
+    one."""
+    sent = (
+        dm.ReportedIndicator.objects.filter(not_sent_since=None)
+        .exclude(report_number="")
+        .annotate(_number=REPORT_NUMBER, _period=REPORT_PERIOD)
+        .filter(_number=OuterRef("_number"))
+        .exclude(_period=OuterRef("_period"))
+    )
+    return (
+        rows.exclude(not_sent_since=None)
+        .exclude(report_number="")
+        .annotate(_number=REPORT_NUMBER, _period=REPORT_PERIOD)
+        .filter(Exists(sent))
+    )
 
 
 def _date(value: Any) -> datetime.date | None:

@@ -11,7 +11,11 @@ Two kinds of targets:
   totals) go to the ``datamart`` app, keyed by the Datamart id and linked to the programme
   document and partner. A dataset read whole replaces its table: rows the Datamart no longer
   returns are deleted. A large dataset is read in windows (``windows.Reading``), and nothing is removed
-  unless every window was read whole.
+  unless every window was read whole. The partner reports are the exception (``Dataset.keep_unsent``):
+  a whole read keeps the rows it no longer returns, counted on every page, and marks them no longer sent
+  (``ReportedIndicator.not_sent_since``); it removes only a row tonight's read holds the replacement of
+  (:func:`keep_unsent`). A row sent again loses its mark, and only a superuser removes marked rows, after
+  review (Raw eTools data, ``raw_admin.unsent_view``).
 
 Each record is written in its own savepoint (``runs.process_items``): one bad record is logged and
 counted, the rest are written and the run ends PARTIAL. Every request is limited to one country
@@ -43,6 +47,7 @@ from django.utils import timezone
 from neurodb.core.models import DatamartSetting, SyncRun
 from neurodb.datamart import catalogue, identity, tags
 from neurodb.datamart import models as dm
+from neurodb.datamart import reached as rc
 from neurodb.datamart.fm import PDResolver, entity_kind
 from neurodb.geo.models import Location, LocationType
 from neurodb.integrations.etools import windows
@@ -540,6 +545,8 @@ class Dataset:
     scope: Callable[[models.QuerySet, Any], models.QuerySet] | None = None
     # the date key a large read is windowed by (``windows.Reading``); the others are windowed by id
     windows: str = ""
+    # a whole read keeps the rows it no longer returns, counted, marked no longer sent (:func:`keep_unsent`)
+    keep_unsent: bool = False
 
 
 def _link_intervention(key: str = "source_intervention_id", number_key: str = "pd_reference_number"):
@@ -1037,6 +1044,7 @@ DATASETS: dict[str, tuple[str, Dataset]] = {
             params=_reporting_window,
             scope=_in_reporting_window,
             windows=REPORT_START,
+            keep_unsent=True,
         ),
     ),
     "tpm_activities": (
@@ -1188,6 +1196,8 @@ def upsert_record(
     if spec.link:
         spec.link(row, item, links)
     row.data = _stored(item)
+    if spec.keep_unsent:
+        row.not_sent_since = None  # sent again, by any read: no longer marked
     row.save()
     if spec.after:
         spec.after(row, item, links)
@@ -1221,25 +1231,34 @@ def other_country(item: dict[str, Any], country: str) -> bool:
     return bool(wanted and named and named != wanted)
 
 
-def remove_other_country(model: type[dm.DatamartRecord], country: str, keep: set[int]) -> int:
+def remove_other_country(
+    model: type[dm.DatamartRecord], country: str, keep: set[int], returned: Iterable[int] = ()
+) -> int:
     """Delete the rows of a ``datamart`` table whose record names another country than ``country``,
     whatever their date (an earlier run wrote them before the guard, or before the reading window moved),
-    never one of ``keep`` (the records this read wrote). The names are compared by :func:`other_country`
-    itself, over the few names the table holds. Run after a read that returned this country's records, so
-    a wrong country name never empties a table."""
+    never one of ``keep`` (the records this read wrote); and those of ``returned``, held records this read
+    returned naming another country (``OfCountry.foreign``: a dataset that keeps the rows it no longer
+    returns, ``Dataset.keep_unsent``, would otherwise keep them as no longer sent). The names are compared
+    by :func:`other_country` itself, over the few names the table holds. Run after a read that returned this
+    country's records, so a wrong country name never empties a table."""
     if not country_name(country):
         return 0
+    named = 0
+    returned = set(returned) - keep
+    if returned:
+        _, deleted = model.objects.filter(datamart_id__in=returned).delete()
+        named = deleted.get(model._meta.label, 0)
     names = model.objects.order_by().annotate(_c=KT("data__country_name")).values_list("_c", flat=True)
     foreign = [n for n in names.distinct() if n and other_country({"country_name": n}, country)]
     if not foreign:
-        return 0
+        return named
     rows = (
         model.objects.annotate(_c=KT("data__country_name"))
         .filter(_c__in=foreign)
         .exclude(datamart_id__in=keep)
     )
     _, deleted = model.objects.filter(pk__in=rows.values("pk")).delete()
-    return deleted.get(model._meta.label, 0)
+    return named + deleted.get(model._meta.label, 0)
 
 
 class OfCountry:
@@ -1256,16 +1275,23 @@ class OfCountry:
     country is a stray (``area.strays``, skipped too) and the read is not whole; one naming no code is
     written and counted (``area.unnamed``)."""
 
-    def __init__(self, reading: windows.Reading, area: AreaFilter | None = None) -> None:
+    def __init__(
+        self, reading: windows.Reading, area: AreaFilter | None = None, watch: set[int] | None = None
+    ) -> None:
         self.reading, self.area = reading, area
         self.country = getattr(reading.client, "country", settings.ETOOLS_DATAMART_COUNTRY)
         self.skipped = 0
+        # of ``watch`` (the ids NeuroDB holds), those this read returned naming another country
+        self.watch, self.foreign = watch or set(), set()
 
     def __iter__(self):
         area = self.area if self.area is not None and self.area.key else None
         for item in self.reading:
             named = area.sees(item) if area else True
-            if named is False or other_country(item, self.country):
+            foreign = other_country(item, self.country)
+            if named is False or foreign:
+                if foreign and self.watch and (found := _int(item.get("id"))) in self.watch:
+                    self.foreign.add(found)
                 if not self.reading.again:  # a record sent twice is left out once
                     self.skipped += 1
                     if area:
@@ -1829,6 +1855,100 @@ def _removal_skipped(reading: windows.Reading) -> dict[str, Any]:
     return found
 
 
+# ------------------------------------------------------------------- partner reports no longer sent
+# what keep_unsent reads of a partner report row: its report, its indicator and its place
+UNSENT_FIELDS = (
+    *rc.IDENTITY_FIELDS,
+    "progress_report",
+    "indicator_report",
+    "etools_indicator_id",
+    "indicator",
+    "pd_output",
+    "p_code",
+    "location",
+)
+
+
+def same_place(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Two partner report rows at one place: the same P-code; when either has none, the same location name."""
+    first, second = (a.get("p_code") or "").strip().upper(), (b.get("p_code") or "").strip().upper()
+    if first and second:
+        return first == second
+    return rc.norm(a.get("location")) == rc.norm(b.get("location"))
+
+
+def replaced_rows(stale: list[dict[str, Any]], seen: set[int], started: dt.datetime) -> list[int]:
+    """The pks of the ``stale`` rows (a whole read no longer returned them) whose replacement tonight's rows
+    hold: the same progress report (``reached.report_key``) and indicator (``reached.indicator_key``), and
+    either one of them at the same place (:func:`same_place`), or none of them under the stale row's own PRP
+    indicator report id (PRP gave the indicator report a new id: every place of the old one is superseded).
+    A place tonight's read did not return, under the same PRP id, is never replaced: a read of the records
+    changed since a date can return one place of a report and not another. Tonight's rows are read for the
+    programme documents and period ends of the stale rows only."""
+    if not stale:
+        return []
+    pds = {row["intervention_id"] for row in stale if row["intervention_id"] is not None}
+    refs = {row["pd_reference_number"] for row in stale if row["intervention_id"] is None}
+    ends = {row["period_end"] for row in stale}
+    by_end = models.Q(period_end__in=[end for end in ends if end is not None])
+    if None in ends:
+        by_end |= models.Q(period_end=None)
+    tonight = dm.ReportedIndicator.objects.filter(synced_at__gte=started, datamart_id__in=seen).filter(
+        models.Q(intervention_id__in=pds) | models.Q(intervention=None, pd_reference_number__in=refs), by_end
+    )
+    found: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in tonight.order_by().values(*UNSENT_FIELDS):
+        found[(rc.report_key(row), rc.indicator_key(row))].append(row)
+    replaced = []
+    for row in stale:
+        new = found.get((rc.report_key(row), rc.indicator_key(row)))
+        if not new:
+            continue
+        own = str(row["indicator_report"] or "")
+        if any(same_place(row, other) for other in new) or (
+            own and all(str(other["indicator_report"] or "") != own for other in new)
+        ):
+            replaced.append(row["pk"])
+    return replaced
+
+
+def keep_unsent(
+    scoped: Callable[[], models.QuerySet], seen: set[int], started: dt.datetime, unsent_before: set[int]
+) -> dict[str, Any]:
+    """What a whole read of the partner reports does with the rows of its scope it no longer returned: those
+    tonight's rows replace (:func:`replaced_rows`) are removed (``removed``, ``replaced``), every other is
+    kept, counted on every page, and marked no longer sent from ``started`` (``no_longer_sent_new``; a row
+    marked already keeps its first mark, and its ``synced_at`` stays the moment it was last sent). Then the
+    marked rows of the scope (``no_longer_sent``), those marked before the read that it returned
+    (``sent_again``), and the marked reports whose programme document, type and number a row still sent holds
+    under another period (``same_number_other_period``, their rows ``…_rows``). Nothing is held a night
+    (:func:`removal_waits`): nothing is lost, and a mark never makes the run partial."""
+    from django.db.models import Count
+
+    from neurodb.datamart import reporting
+
+    stale = scoped().exclude(datamart_id__in=seen)
+    replaced = replaced_rows(list(stale.order_by().values("pk", *UNSENT_FIELDS)), seen, started)
+    removed = 0
+    if replaced:
+        _, deleted = dm.ReportedIndicator.objects.filter(pk__in=replaced).delete()
+        removed = deleted.get(dm.ReportedIndicator._meta.label, 0)
+    new = stale.filter(not_sent_since=None).update(not_sent_since=started)
+    marked = scoped().exclude(not_sent_since=None).order_by()
+    other = reporting.sent_for_another_period(marked).aggregate(
+        reports=Count(reporting.REPORT_KEY, distinct=True), rows=Count("pk")
+    )
+    return {
+        "removed": removed,
+        "replaced": removed,
+        "no_longer_sent_new": new,
+        "no_longer_sent": marked.count(),
+        "sent_again": len(unsent_before & seen),
+        "same_number_other_period": other["reports"] or 0,
+        "same_number_other_period_rows": other["rows"] or 0,
+    }
+
+
 # A whole read that would remove more than half of the rows held, and at least this many, waits one night: a
 # Datamart table reloaded while it was read (its ETL empties and refills tables) can announce and return a
 # consistent smaller set, which counts that agree cannot catch
@@ -1918,6 +2038,12 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
 
             # the rows this read replaces, counted before it writes (a large "removed" reads against it)
             held_before = scoped().count()
+            # the rows marked no longer sent before it: those it returns are sent again (details.sent_again)
+            unsent_before = (
+                set(scoped().exclude(not_sent_since=None).values_list("datamart_id", flat=True))
+                if spec.keep_unsent
+                else set()
+            )
             area = None
             if name in catalogue.AREA_FILTERS:  # by business area once the Datamart proves it applies it
                 code = resolve_business_area().code  # set or held: no request
@@ -1935,7 +2061,11 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
                 )
                 params = {**(params or {}), **area.params()}
             reading = windows.Reading(client, dataset, params, date_key=spec.windows, name=name)
-            found = OfCountry(reading, area)
+            # a dataset that keeps the rows it no longer returns removes those it returns as another country's
+            held_ids = (
+                set(spec.model.objects.values_list("datamart_id", flat=True)) if spec.keep_unsent else None
+            )
+            found = OfCountry(reading, area, held_ids)
             from neurodb.datamart import raw  # lazy: Raw eTools data reads what this sync writes
 
             fields = raw.KeyCount(name)  # the fields of the records kept (details.keys_kept)
@@ -1943,8 +2073,10 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
             if seen:
                 # another country's rows first (every one, whatever its date), then the rest of the scope
                 # the Datamart no longer returns
-                other = remove_other_country(spec.model, found.country, seen)
-                if found.whole:
+                other = remove_other_country(spec.model, found.country, seen, found.foreign)
+                if found.whole and spec.keep_unsent:  # nothing is lost: kept, counted and marked
+                    details = {**keep_unsent(scoped, seen, run.started_at, unsent_before), **links.details()}
+                elif found.whole:
                     stale = scoped().exclude(datamart_id__in=seen)
                     n = stale.count()
                     if n and removal_waits(name, n, held_before):  # a large removal waits one night

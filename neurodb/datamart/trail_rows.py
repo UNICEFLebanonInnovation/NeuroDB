@@ -81,6 +81,7 @@ ROW_HEAD = (
     "vendor_number",
     "synced_at",
     "updated_by_last_sync",
+    "no_longer_sent_since",
 )
 REPORT_COLUMNS = (
     "figures_as_of",
