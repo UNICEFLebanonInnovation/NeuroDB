@@ -436,7 +436,7 @@ def explain_visit_score(visit: str) -> dict[str, Any]:
 def list_jobs() -> dict[str, Any]:
     from neurodb.core.admin_jobs import BACKGROUND_JOBS
     from neurodb.core.cron import describe
-    from neurodb.core.jobs import COMMANDS
+    from neurodb.core.jobs import COMMANDS, last_run
     from neurodb.core.models import ScheduledJob, SyncRun
 
     descriptions = {spec.job: str(spec.description) for spec in BACKGROUND_JOBS}
@@ -445,7 +445,7 @@ def list_jobs() -> dict[str, Any]:
         command = COMMANDS.get(job.command)
         last = None
         if command is not None and command.sync_job:
-            run = SyncRun.objects.filter(job=command.sync_job).order_by("-started_at").first()
+            run = last_run(command)  # as Scheduled jobs says it: never a removal of partner report rows
             if run is not None:
                 last = {
                     "status": run.get_status_display(),

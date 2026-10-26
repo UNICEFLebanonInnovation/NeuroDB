@@ -376,9 +376,12 @@ programme documents, trips, engagements, action points and their details).
   report row, NeuroDB keeps it and counts it on every page, marked "no longer sent" ("no longer sent 312
   (kept and counted)"; the list's *Updated* cell says since when, and when it was last sent). Its report keeps
   the status it last had. The mark goes as soon as eTools sends the row again. A row is removed by a sync only
-  when the sync gets its new copy: the same report and indicator at the same place, or under a new id PRP gave
-  the indicator. The line under the counts says how many rows of how many reports are kept so, and how many of
-  these reports eTools now sends under the same number for another period (mostly reports PRP made again
+  when the sync gets its new copy, a record eTools sends under a new record id: the same report and indicator
+  at the same place, or under a new id PRP gave the indicator. A record eTools sends again under its old record
+  id never removes another row, and neither does the new copy of another indicator with the same title and
+  output. Data health and check 10 say how many rows are kept so after every sync, also one that could not
+  read everything. The line under the counts says how many rows of how many reports are kept so, and how many
+  of these reports eTools now sends under the same number for another period (mostly reports PRP made again
   after an amendment): review those first.
 - **Records eTools sent twice.** One answer of the eTools Datamart (one page) never lists a record twice, so
   when every copy of a record comes identical in one answer, eTools holds it twice: NeuroDB keeps one, counts
@@ -402,7 +405,8 @@ programme documents, trips, engagements, action points and their details).
   Under it, a superuser reads "eTools no longer sends 312 rows of 14 progress reports of this list…", ticks
   *I have reviewed them* and presses **Remove these rows**: only once the Datamart team confirms PRP deleted
   them. It removes the filter's rows no longer sent, up to the last one the page showed; if the rows changed
-  since, or a sync is running, nothing is removed and the page says why. The removal is recorded in
+  since, or a sync is running, nothing is removed and the page says why; if the removal fails, nothing is
+  removed and the page says so (its run in *Import and sync runs* says why). The removal is recorded in
   *Import and sync runs* as the eTools update clean-up ("partner_reports:no_longer_sent"), never as a sync.
 - **The list** shows 50 records a page, the newest first, each linked to its own page: every field as
   received, then what NeuroDB made of it (its columns, the programme document, partner and location it

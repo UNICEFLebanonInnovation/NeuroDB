@@ -1017,16 +1017,13 @@ class ScheduledJobAdmin(ModelAdmin):
     @admin.display(description=_("Last run"))
     def last_run(self, obj):
         from .jobs import COMMANDS
+        from .jobs import last_run as latest
 
         command = COMMANDS.get(obj.command)
         if not command or not command.sync_job:
             text = format_html("{}", naturaltime(obj.last_started_at)) if obj.last_started_at else None
         else:
-            runs = SyncRun.objects.filter(job=command.sync_job)
-            if command.sync_job == SyncRun.Job.DATAMART_BACKFILL:
-                # a superuser's removal of partner report rows (backfill.UNSENT_TARGET): not the clean-up's
-                runs = runs.filter(target="")
-            run = runs.order_by("-started_at").first()
+            run = latest(command)  # never a superuser's removal of partner report rows (the clean-up's job)
             text = None
             if run:
                 url = reverse("admin:core_syncrun_change", args=[run.pk])

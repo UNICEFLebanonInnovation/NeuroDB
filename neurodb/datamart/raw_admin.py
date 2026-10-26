@@ -820,6 +820,9 @@ def unsent_view(request):
     if isinstance(done, str):
         messages.error(request, done)
         return redirect(back)
+    if done.status != SyncRun.Status.SUCCEEDED:  # rolled back: its run says why
+        messages.error(request, backfill.UNSENT_FAILED)
+        return redirect(back)
     removed = raw.rows_of_reports(done.details.get("removed", 0), done.details.get("reports", 0))
     messages.success(
         request,

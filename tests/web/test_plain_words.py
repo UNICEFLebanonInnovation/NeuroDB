@@ -87,6 +87,7 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         raw.Filters(pd="LEB/PD1", updated="unsent").words(),
         backfill.UNSENT_BUSY,
         backfill.UNSENT_CHANGED,
+        backfill.UNSENT_FAILED,
         raw.REFUSED,
         raw.BUSY,
         raw.TOO_SLOW,

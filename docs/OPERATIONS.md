@@ -1943,18 +1943,25 @@ mark: one report keeps one status everywhere), and marked no longer sent: `Repor
 the start of the first whole read that no longer returned it; its `synced_at` stays the moment it was last
 sent (`update()` never moves `auto_now`). A report whose rows are all marked keeps the status they last
 carried, read for today: one still to submit turns Due, then Overdue by its dates. Any read that returns the
-record again clears the mark (`upsert_record`). A row is removed only when tonight's rows hold its
-replacement (`replaced_rows`): the same progress report (`reached.report_key`) and indicator
+record again clears the mark (`upsert_record`). A row is removed only when tonight's read brought its
+replacement (`replaced_rows`). A replacement is a row the read brought under a new Datamart id (one NeuroDB
+did not hold before the read) of the same progress report (`reached.report_key`) and indicator
 (`reached.indicator_key`: eTools id, title and output, never PRP's indicator report id), at the same place
-(P-code; the location name when either has none), or under a new PRP indicator report id (every place of the
-old id is then superseded); a place tonight's read did not return, under the same id, stays marked. The run
-records `details.no_longer_sent_new` (marked tonight), `no_longer_sent` (marked rows of the scope after it),
+(P-code; the location name when either has none), or under a new PRP indicator report id while no row of
+tonight's read carries the old one (every place of the old id is then superseded). A place tonight's read did
+not return, under the same id, stays marked. A row returned again under a Datamart id NeuroDB held never
+replaces another, and a new row under a PRP id another held row carries is that other indicator report: two
+PD indicators of one report can share a title and an output and carry no eTools id, told apart by PRP's id
+alone. The run records `details.no_longer_sent_new` (marked tonight), `no_longer_sent` (marked rows of the scope after it),
 `sent_again` (marked before, returned tonight), `replaced` (= `removed`) and `same_number_other_period`
 (marked reports whose programme document, type and number a row still sent holds under another period, mostly
 reports PRP made again after an amendment; their rows `…_rows`). Nothing is held one night (`removal_waits` is
 never asked: nothing is lost) and a mark never makes the run partial. A read not whole, or an empty answer,
-marks nothing and keeps earlier marks; another country's rows are still deleted, marked or not; rows before
-the scope are left alone; `details.feed_from` counts marked rows. Raw eTools data → Partner reports says
+marks nothing and keeps earlier marks, and records `no_longer_sent` too (check 10 and Data health say how many
+rows stay kept and marked, whatever read came last). Rows whose stored record names another country are still
+deleted, marked or not (`remove_other_country`, unchanged); a held row whose Datamart id tonight's read returns
+naming another country is no longer sent like any other (a whole read marks it; a read not whole leaves it);
+rows before the scope are left alone; `details.feed_from` counts marked rows. Raw eTools data → Partner reports says
 "no longer sent N (kept and counted)", how many rows of how many reports and when they were last sent, offers
 two *Updated by* choices (`unsent_period`, `unsent`), shows the mark in the list, the record page and the CSV
 (`no_longer_sent_since`, also in the figure trail's row CSVs), and the trail's D4 says it; Data health and
@@ -1967,7 +1974,9 @@ sync is running: remove them once it ends"), deletes in one transaction and reco
 update clean-up** (`DATAMART_BACKFILL`, target `partner_reports:no_longer_sent`, `rows_written`,
 `details.removed`, `reports`, `filter`), never of the sync: `SyncRun.last_success(ETOOLS_DATAMART)`, Data
 health, the landing and the brief never read a removal as a fresh sync, and Scheduled jobs' "Last run" of the
-clean-up reads only its own runs (`target=""`). The figures' stamp still moves (`keys.ETOOLS_JOBS`). Migration
+clean-up and Ask NeuroDB's list of jobs read only its own runs (`target=""`, `core.jobs.last_run`). A removal
+that fails removes nothing (one transaction); its run is *Failed* with the error, and the page says "Nothing was
+removed: the removal failed. Its run in Import and sync runs says why." The figures' stamp still moves (`keys.ETOOLS_JOBS`). Migration
 `datamart/0020_partner_report_not_sent` adds the nullable column (no default: the table's description only).
 
 **Records the Datamart sends twice** (`windows.Reading`, `windows.Copies`). One answer of the Datamart (a

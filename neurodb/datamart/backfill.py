@@ -55,6 +55,7 @@ WAITING = "waiting: the eTools Datamart sync is running"
 UNSENT_TARGET = "partner_reports:no_longer_sent"
 UNSENT_BUSY = "An eTools sync is running: remove them once it ends."
 UNSENT_CHANGED = "The rows changed since you looked: review them again."
+UNSENT_FAILED = "Nothing was removed: the removal failed. Its run in Import and sync runs says why."
 
 
 # ----------------------------------------------------------------- the columns of datamart 0009
@@ -287,7 +288,8 @@ def remove_unsent(rows: QuerySet, shown: int, words: str, triggered_by: str) -> 
     so neither a sync nor a clean-up writes meanwhile and a sync reads it as a clean-up; it refuses when
     either is held, or when the rows are no longer the ``shown`` the reviewer saw. The run is the clean-up's
     (target :data:`UNSENT_TARGET`), never a sync: a removal never counts as a fresh eTools sync. ``words``:
-    the filter, as the page says it. Returns the run, or why nothing was removed."""
+    the filter, as the page says it. Returns the run (failed when the removal did, nothing removed), or why
+    nothing was removed."""
     from . import models as dm
     from . import reporting
 

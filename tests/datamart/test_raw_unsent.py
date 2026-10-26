@@ -12,6 +12,7 @@ import psycopg
 import pytest
 from django.contrib.auth.models import Group
 from django.db import connection
+from django.db.models import QuerySet
 from django.urls import reverse
 from django.utils import timezone
 
@@ -268,6 +269,20 @@ def test_it_removes_only_the_filter_s_marked_rows_up_to_the_newest_mark_shown(cl
     )
 
 
+def test_a_failed_removal_is_said_as_failed(client, world, superuser, monkeypatch):
+    def fails(self):
+        raise RuntimeError("the database refused")
+
+    monkeypatch.setattr(QuerySet, "delete", fails)
+    client.force_login(superuser)
+    response = _post(client, count=3)
+    found = SyncRun.objects.get(job=SyncRun.Job.DATAMART_BACKFILL)
+    assert found.status == SyncRun.Status.FAILED
+    level = list(response.wsgi_request._messages)[-1].level_tag
+    assert (level, _said(response)) == ("error", backfill.UNSENT_FAILED)
+    assert _held() == {1, 2, 3, 4}
+
+
 def test_a_removal_is_recorded_as_the_clean_up_and_moves_the_figures_stamp(client, world, superuser):
     before, etools = compute.data_stamp(), keys.fingerprint()
     client.force_login(superuser)
@@ -301,6 +316,20 @@ def test_a_removal_is_never_a_sync(client, world, superuser):
     assert SyncRun.last_success(SyncRun.Job.ETOOLS_DATAMART) == last_sync
     assert etools_row() == health
     assert str(jobs.last_run(cleanup)) == shown  # the clean-up's own last run, never the removal
+
+
+def test_ask_lists_the_clean_up_s_own_last_run_never_a_removal(client, world, superuser):
+    from neurodb.help.tools import list_jobs
+
+    cleanup = ScheduledJob.objects.get(key=backfill.SCHEDULE_KEY)
+    then = timezone.now() - datetime.timedelta(days=3)
+    own = SyncRun.objects.create(
+        job=SyncRun.Job.DATAMART_BACKFILL, status=SyncRun.Status.SUCCEEDED, started_at=then, finished_at=then
+    )
+    client.force_login(superuser)
+    _post(client, count=3)
+    found = next(job for job in list_jobs()["jobs"] if job["job"] == cleanup.key)
+    assert found["last_run"]["started"] == own.started_at.isoformat(timespec="minutes")
 
 
 def test_the_migration_is_quick_and_accounted_for():

@@ -1823,8 +1823,9 @@ def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool
         else "the Datamart announced no count, "
     )
     said += f"NeuroDB read {read:,}" + (f" ({other:,} of another country)" if other else "")
-    if "no_longer_sent" in details:  # a whole read keeps the rows it no longer returns (keep_unsent)
-        marked, again = _count(details.get("no_longer_sent")), _count(details.get("same_number_other_period"))
+    marked = _count(details.get("no_longer_sent"))
+    if "no_longer_sent_new" in details:  # a whole read keeps the rows it no longer returns (keep_unsent)
+        again = _count(details.get("same_number_other_period"))
         said += f", kept {_plural(kept, 'row', 'rows')}, marked {marked:,} no longer sent (kept and counted"
         said += f"; {_plural(again, 'report', 'reports')} sent again for another period)" if again else ")"
         said += f", removed {removed:,} replaced by a new copy." if removed else ", removed none."
@@ -1832,7 +1833,13 @@ def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool
         said += f", kept {_plural(kept, 'row', 'rows')} and removed " + (
             f"{removed:,}" if removed else "none"
         )
-        said += " (removal skipped)." if skipped else " (held one more night)." if held else "."
+        said += " (removal skipped)" if skipped else " (held one more night)" if held else ""
+        if marked:  # a read not whole, or an empty answer, marks nothing: the earlier marks stay
+            said += (
+                f"; {_plural(marked, 'row marked no longer sent stays', 'rows marked no longer sent stay')} "
+                "kept and counted"
+            )
+        said += "."
     bound, cut = details.get("window_bound"), details.get("cap_suspected")
     windows, not_whole = details.get("windows") or [], _count(details.get("windows_not_whole"))
     if cut == "windows_unproven" or (capped(announced) and not bound):

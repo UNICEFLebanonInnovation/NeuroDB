@@ -611,8 +611,9 @@ def test_partner_reports_are_read_for_a_window_and_only_that_window_is_kept_and_
 @responses.activate
 def test_partner_reports_of_another_country_are_never_written_and_old_ones_go(linked, settings):
     """A ``country_name`` filter the Datamart ignored must not let another country's report rows in: they
-    are counted and never written, and those an earlier run wrote are removed by the complete read, also one
-    written as this country's that the read returns naming another (it is not one eTools no longer sends)."""
+    are counted and never written, and those an earlier run wrote are removed by the complete read. A row
+    whose stored record names no other country, and whose Datamart id the read returns naming another, is
+    no longer sent: kept and marked, never removed as another country's."""
     settings.ETOOLS_DATAMART_REPORTING_YEARS = 2
     start = f"{__import__('datetime').date.today().year - 1}-01-01"
     earlier = dm.ReportedIndicator.objects.create(
@@ -649,12 +650,12 @@ def test_partner_reports_of_another_country_are_never_written_and_old_ones_go(li
     (run,) = run_all("partner_reports")
     assert run.status == SyncRun.Status.SUCCEEDED
     assert run.details["other_country_skipped"] == 2 and run.details["removed"] == 0
-    # 93, written before as this country's, came back naming another: removed as such, never kept as no
-    # longer sent
-    assert run.details["other_country_removed"] == 2 and run.details["no_longer_sent_new"] == 0
+    assert run.details["other_country_removed"] == 1 and run.details["no_longer_sent_new"] == 1
     assert run.rows_in == 3
-    assert set(dm.ReportedIndicator.objects.values_list("datamart_id", flat=True)) == {1, 2, 3, 97}
-    assert not dm.ReportedIndicator.objects.filter(pk__in=[earlier.pk, old_other.pk]).exists()
+    assert set(dm.ReportedIndicator.objects.values_list("datamart_id", flat=True)) == {1, 2, 3, 93, 97}
+    assert not dm.ReportedIndicator.objects.filter(pk=old_other.pk).exists()
+    earlier.refresh_from_db()
+    assert earlier.not_sent_since == run.started_at  # kept and marked, never deleted as another country's
     assert dm.ReportedIndicator.objects.filter(pk=old_ours.pk).exists()
 
 

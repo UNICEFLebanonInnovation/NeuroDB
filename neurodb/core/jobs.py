@@ -116,6 +116,19 @@ NEVER_AN_ALARM = frozenset({SyncRun.Job.DATAMART_PROBE})
 UNKNOWN_COMMAND = "not started: unknown command"
 
 
+def last_run(command: JobCommand) -> SyncRun | None:
+    """The latest run of a command's own job (none without one), as Scheduled jobs' "Last run" and Ask
+    NeuroDB's list of jobs say it. A superuser's removal of the partner report rows eTools no longer sends
+    is recorded under the eTools update clean-up's job with a target (``datamart.backfill.UNSENT_TARGET``):
+    it is never the clean-up's last run, which reads only the runs with no target."""
+    if not command.sync_job:
+        return None
+    runs = SyncRun.objects.filter(job=command.sync_job)
+    if command.sync_job == SyncRun.Job.DATAMART_BACKFILL:
+        runs = runs.filter(target="")
+    return runs.order_by("-started_at").first()
+
+
 def start(key: str, triggered_by: str) -> str:
     """Start a job's command in the background. Returns "started" or "running" (not started)."""
     from neurodb.integrations import background
