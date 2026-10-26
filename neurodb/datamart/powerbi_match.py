@@ -12,8 +12,10 @@ lines of differences an export's comparison writes (``powerbi_kinds`` compares e
 * **Pairing** (:func:`pair`): the rows with the same match values on each side, most similar first; a row
   left over is only in Power BI or only in NeuroDB.
 * **Lines** (:class:`Result`): each difference with its reason, group and what to do, kept compactly while
-  the export is compared (no database write in the comparison's read-only snapshot) and written after it,
-  needs-a-look first, at most ``powerbi_compare.LINE_LIMIT`` per export (the rest are counted).
+  the export is compared (no database write in the comparison's read-only snapshot) and written once every
+  export is compared, group by group across the exports (needs a look first, the expected ones last), at most
+  ``powerbi_compare.LINE_LIMIT`` per export and ``UPLOAD_LINE_LIMIT`` per upload (the rest are counted). A
+  detail is at most :data:`DETAIL_LIMIT` characters, cut on a word (:func:`cut`).
 """
 
 from __future__ import annotations
@@ -32,6 +34,8 @@ from typing import Any
 TOLERANCE = 1e-9  # relative: float noise only
 MONEY_TOLERANCE = 0.005  # half a cent
 PAIR_LIMIT = 60  # rows of one match on a side beyond which they pair in order (no similarity computed)
+GROUP_ORDER = (4, 3, 2, 1)  # the lines' groups, needs a look first: the order they are written and kept
+DETAIL_LIMIT = 300  # characters of a line's detail (PowerBIDifference.detail)
 GRANTLESS = frozenset({"", "non-grant", "non grant", "nongrant"})
 AMENDMENT = re.compile(r"-\d+$")
 ETOOLS_SUFFIX = re.compile(r"\s*\(etools\s*\d+\)\s*$", re.I)
@@ -287,6 +291,16 @@ def closeness(a: Any, b: Any) -> float:
 
 
 # --------------------------------------------------------------------------------------------- the lines
+def cut(text: str, limit: int = DETAIL_LIMIT) -> str:
+    """A text of at most ``limit`` characters: whole, or cut after its last whole word with "…"."""
+    if len(text) <= limit:
+        return text
+    head = text[: limit - 1]
+    if text[limit - 1] != " ":  # the cut falls inside a word: drop it
+        head = head.rsplit(" ", 1)[0] if " " in head else head
+    return head.rstrip(" ,;:(") + "…"
+
+
 @dataclass
 class Line:
     """One difference: its kind (different, only_powerbi, only_neurodb), reason, group, rule, detail, the
@@ -309,7 +323,7 @@ class Line:
             self.group,
             self.reason,
             self.rule,
-            self.detail[:300],
+            cut(self.detail),
             [shown(v) for v in self.match],
             {k: [shown(x) for x in v] for k, v in self.found.items()},
             self.link if len(self.link) <= 300 else "",  # a cut address would open the wrong page: none
@@ -363,17 +377,25 @@ class Result:
         if sentence and sentence not in self.notes:
             self.notes.append(sentence)
 
+    def close(self) -> None:
+        """The comparison is over: each group's buffer is finished (its compressor freed), its lines kept
+        until they are taken."""
+        for _buffer, stream in self._spools.values():
+            stream.close()
+
+    def take(self, group: int) -> Iterator[list[Any]]:
+        """The lines kept of one group, in the order they came; the result lets them go at once (whether they
+        are read or not)."""
+        spool = self._spools.pop(group, None)
+        if spool is None:
+            return iter(())
+        spool[1].close()
+        return _kept_lines(spool[0].getvalue())
+
     def lines(self) -> Iterator[list[Any]]:
         """Every line kept, needs-a-look first (groups 4, 3, 2, 1)."""
-        for group in (4, 3, 2, 1):
-            spool = self._spools.get(group)
-            if spool is None:
-                continue
-            spool[1].close()
-            with gzip.GzipFile(fileobj=io.BytesIO(spool[0].getvalue()), mode="rb") as stream:
-                for raw in stream:
-                    yield json.loads(raw)
-        self._spools.clear()
+        for group in GROUP_ORDER:
+            yield from self.take(group)
 
     def summary(self) -> dict[str, Any]:
         out = {k: int(v) for k, v in self.counts.items()}
@@ -385,3 +407,9 @@ class Result:
         out["check_pds"] = sorted(self.pds)[:500]
         out["lines"] = int(sum(self.groups.values()))
         return out
+
+
+def _kept_lines(data: bytes) -> Iterator[list[Any]]:
+    with gzip.GzipFile(fileobj=io.BytesIO(data), mode="rb") as stream:
+        for raw in stream:
+            yield json.loads(raw)

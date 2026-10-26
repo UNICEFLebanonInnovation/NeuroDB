@@ -133,7 +133,8 @@ APPLIED = "applied"
 CLAUSE_STATES = {
     "applied": "NeuroDB applies it",
     "as_read": "NeuroDB applies it as it reads it",
-    "from_records": "NeuroDB applies it from the records",
+    # an earlier comparison's: the records carry the field, NeuroDB's pages do not read it
+    "from_records": "NeuroDB applies it as it reads it (its pages do not use the field)",
     "by_comparison": "NeuroDB applies it while comparing (its page has no such filter)",
     "cannot": "NeuroDB cannot apply it: compare by hand, or clear that slicer",
     "unknown_field": "A filter NeuroDB does not know (its value is not kept)",
@@ -141,12 +142,16 @@ CLAUSE_STATES = {
     "unread": "A filter NeuroDB could not read (its text is not kept)",
     "other_country": "Another country: NeuroDB holds one country",
 }
-# how NeuroDB reads Power BI's own fields when its records do not carry them
+# how NeuroDB reads Power BI's own fields (none of its pages reads them, even where the records carry them)
 AS_READ = {
     "is_period_latest": "the newest row of each report and location",
     "is_blueprint_canonical": "each PD indicator counted once",
 }
 NOT_IN_RECORDS = "Power BI's field {field} is not in the records NeuroDB reads: NeuroDB reads it as {words}."
+IN_RECORDS = (
+    "Power BI's field {field} is in the records NeuroDB reads, but NeuroDB's pages do not use it: NeuroDB "
+    "reads it as {words}."
+)
 COVERS_EVERY_YEAR = "Every year"
 COVERS_ONLY = "{sections} only"
 NO_FILTER = "Power BI wrote no filters."
@@ -208,6 +213,7 @@ REASON_ORDER = (
     "not_in_read",
     "left_out",
     "older_version",
+    "moved_on",
     "rule",
     "status",
     "repeated",
@@ -223,6 +229,7 @@ REASON_GROUPS = {
     "not_in_read": 2,  # 4 when NeuroDB's sync ran after Power BI's refresh
     "left_out": 1,
     "older_version": 2,
+    "moved_on": 1,
     "rule": 1,
     "status": 1,
     "repeated": 1,
@@ -238,6 +245,7 @@ REASON_WORDS = {
     "not_in_read": "Not in NeuroDB: not in the Datamart read",
     "left_out": "NeuroDB's page leaves it out",
     "older_version": "NeuroDB has an older version",
+    "moved_on": "Moved on since Power BI's refresh",
     "rule": "A different rule",
     "status": "Status counted differently",
     "repeated": "A repeated value NeuroDB does not add",
@@ -252,6 +260,7 @@ REASON_ACTIONS = {
     "owed": "The partner has not sent this report yet.",
     "not_in_read": "Check in PRP that the report exists.",  # when NeuroDB's sync ran after the refresh
     "left_out": "NeuroDB's page uses another rule here.",
+    "moved_on": "Power BI shows the report's newer status after its next refresh.",
     "rule": "NeuroDB counts it another way (see Choices for you).",
     "repeated": "NeuroDB never adds a value PRP repeats on every location.",
     "see_reports": "Export PD/SPD Report with the same filters and upload it with this one.",
@@ -267,12 +276,20 @@ DETAIL_NO_PD = "NeuroDB holds no PD with this number."
 DETAIL_OWED = "NeuroDB's partner reports feed does not carry reports still owed (check 11)."
 DETAIL_SYNC_BEFORE = "NeuroDB's last sync ran before Power BI's refresh."
 DETAIL_SYNC_AFTER = "The Datamart did not send this row."
+DETAIL_NONE_ACCEPTED = "NeuroDB has this indicator, but none of its reports is Accepted there."
 DETAIL_SECTION = "NeuroDB's page reads the section of the indicator itself, not the PD's sections."
 DETAIL_LIMIT = "NeuroDB's page reads at most {limit:,} report rows at once."
 DETAIL_OLDER_RECORD = "NeuroDB holds {n:,} records of this row; the page used one that is not the newest."
+DETAIL_NEWEST_RECORD = "NeuroDB holds {n:,} records of this row; Power BI's value is the newest one's."
 DETAIL_EARLIER_STEP = "NeuroDB still has this report as {status}; Power BI has it as {powerbi}."
+DETAIL_MOVED_ON = "NeuroDB's sync ran after Power BI's refresh: the report moved on since."
+DETAIL_MAY_HAVE_MOVED_ON = "The report may have moved on between Power BI's refresh and NeuroDB's sync."
 DETAIL_DUE_COVERS = "Power BI's Due also covers reports not yet due."
 DETAIL_OTHER_DAY = "Statuses are read for a different day."
+DETAIL_DUE_DAY = (
+    "Power BI counts a report as Overdue on its due date; NeuroDB counts it as Due until the day after."
+)
+DETAIL_OWED_WORDS = "Power BI and NeuroDB read this report's status differently."
 DETAIL_NEWEST_WORD = "NeuroDB takes the newest word across a report's rows."
 DETAIL_TWICE = "Power BI lists this report twice, with two statuses."
 DETAIL_REPEATED = (
@@ -282,6 +299,8 @@ DETAIL_PARTNER = "Partner written differently."
 DETAIL_AMENDMENT = "Amendment number differs."
 DETAIL_ALTERNATIVE = "Counted Power BI's way ({words}), NeuroDB's records give {value}."
 DETAIL_ALSO_FITS = "Also fits: {words}."
+DETAIL_ALSO_FITS_COUNT = "Also fits {n:,} other rules: see the fit table."
+DETAIL_ALSO_FITS_ONE = "Also fits 1 other rule: see the fit table."
 DETAIL_CLAUSE = "Power BI's filter: {clause}."
 DETAIL_UNLABELLED = "NeuroDB has not read this value's name yet."
 DETAIL_FROM_MONITORING = "Reached: from Partner monitoring."
@@ -294,6 +313,7 @@ DETAIL_GAP_PART = {
     "before_history": "{n:,} are before NeuroDB's history",
     "pd_not_running": "{n:,} are of PDs NeuroDB has as not running",
     "older_version": "{n:,} are older versions in NeuroDB",
+    "moved_on": "{n:,} moved on since Power BI's refresh",
     "left_out": "{n:,} are left out by NeuroDB's page",
     "rule": "{n:,} are counted another way",
     "filter": "{n:,} are under a filter NeuroDB cannot apply",
@@ -307,6 +327,7 @@ DETAIL_GAP_PART_ONE = {
     "before_history": "1 is before NeuroDB's history",
     "pd_not_running": "1 is of a PD NeuroDB has as not running",
     "older_version": "1 is an older version in NeuroDB",
+    "moved_on": "1 moved on since Power BI's refresh",
     "left_out": "1 is left out by NeuroDB's page",
     "rule": "1 is counted another way",
     "filter": "1 is under a filter NeuroDB cannot apply",
@@ -343,6 +364,9 @@ RULE_WORDS = {
         "report"
     ),
     "no_column": "NeuroDB's page has no such column",
+    "several_records": (
+        "NeuroDB's page reads the largest value of a location's records; Power BI shows the newest record"
+    ),
 }
 # Power BI's possible rules NeuroDB counts from its records, where Power BI's own rule is not known
 CANDIDATE_WORDS = {
@@ -367,6 +391,17 @@ CANDIDATE_WORDS = {
     "fc_sum": "PRP's contributions added up over the reports",
     "dct_fr": "the funds reservations' outstanding amounts added up",
     "dct_pd": "the PD's own total outstanding in eTools",
+}
+# the same rules, short, where a line names the others that fit too (its detail is at most 300 characters)
+CANDIDATE_SHORT = {
+    "qpr_sum": "the Accepted quarterly reports added up",
+    "every_sum": "every Accepted report added up",
+    "latest": "the latest Accepted report",
+    "prp_cumulative": "PRP's cumulative",
+    "accepted": "NeuroDB's Accepted-only figure",
+    "etools": "eTools' target",
+    "prp_sum": "PRP's targets added up",
+    "prp_one": "one location's PRP target",
 }
 FIT_TITLES = {
     "reached": "Reached: which rule fits Power BI",
@@ -397,6 +432,7 @@ NOTE_SAME_UNIT = (
     "you)."
 )
 NOTE_TOTAL_GAP = "Power BI's Total differs from the sum of its own rows in {columns}."
+NOTE_TOTAL_NEURODB = "Power BI's Total differs from NeuroDB's in {columns}: see the sections' lines."
 NOTE_MONTH_TOTALS = "Accepted reports add up to the same total over the year: only their months differ."
 NOTE_CHART_LIST_GAP = "Power BI's own chart and its report list differ: {columns}."
 NOTE_COPIES = (
@@ -440,6 +476,7 @@ NEURODB_PAGES = {
 VERDICT_WORDS = {
     "same": "Same",
     "counted": "Same data, counted another way",
+    "owed": "Same, apart from {parts}",
     "wait": "Wait for the next sync: {n:,}",
     "check": "Check {n:,} PDs in eTools",
     "check_one": "Check 1 PD in eTools",
@@ -455,6 +492,7 @@ VERDICT_WORDS = {
 VERDICT_ACTIONS = {
     "same": "Nothing.",
     "counted": "Nothing to fix. See Choices for you if NeuroDB should count Power BI's way.",
+    "owed": "Nothing to fix.",
     "wait": GROUP_ACTIONS[2],
     "check": GROUP_ACTIONS[3],
     "check_one": GROUP_ACTIONS[3],
@@ -468,9 +506,24 @@ VERDICT_ACTIONS = {
     "failed": "Press Compare again. If it fails again, send the Excel file to the NeuroDB team.",
 }
 
+VERDICT_COUNTED_ALSO = "{verdict}; also {parts}"
+# the expected rows NeuroDB cannot hold, in an export's verdict, and what they need
+VERDICT_APART = {
+    "owed": "reports still owed: {n:,}",
+    "before_history": "rows before NeuroDB's history: {n:,}",
+    "moved_on": "reports that moved on since Power BI's refresh: {n:,}",
+}
+VERDICT_APART_ACTIONS = {
+    "owed": "The partners have not sent these reports yet.",
+    "before_history": "NeuroDB holds no partner report before its history.",
+    "moved_on": "Power BI shows their newer status after its next refresh.",
+}
+
 # ----------------------------------------------------------------------------------- what to do now (done)
 TODO_LOOK = "Needs a look: {n:,} rows. " + GROUP_ACTIONS[4]
 TODO_LOOK_ONE = "Needs a look: 1 row. " + GROUP_ACTIONS[4]
+TODO_UNLISTED = "{n:,} of them are counted but not listed (too many differences at once)."
+TODO_UNLISTED_ONE = "1 of them is counted but not listed (too many differences at once)."
 TODO_CHECK = "Check {n:,} PDs in eTools: NeuroDB has them as not running."
 TODO_CHECK_ONE = "Check 1 PD in eTools: NeuroDB has it as not running."
 TODO_WAIT = "Wait for the next sync: {n:,} rows. " + GROUP_ACTIONS[2]
@@ -480,6 +533,7 @@ TODO_EXPECTED_ONE = "Expected, nothing to fix: 1 row ({parts})."
 TODO_EXPECTED_PART = {
     "before_history": "before NeuroDB's history {n:,}",
     "owed": "reports still owed {n:,}",
+    "moved_on": "moved on since Power BI's refresh {n:,}",
     "left_out": "left out by NeuroDB's page {n:,}",
     "rule": "counted another way {n:,}",
     "status": "statuses counted differently {n:,}",

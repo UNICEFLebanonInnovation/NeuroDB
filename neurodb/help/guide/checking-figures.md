@@ -208,9 +208,11 @@ Rows about periods before NeuroDB's history are set aside and counted, never lis
 **Every difference has a reason and says what to do.** Each reason belongs to one of four groups:
 
 - **Expected: nothing to fix.** A report still owed (the partner has not sent it: the partner reports feed
-  does not carry those), a row before NeuroDB's history, a status Power BI reads another way (its lists call a
-  report not yet due "Due"), a value PRP repeats on every location, or *a different rule*: Power BI counts the
-  figure another way (see *Choices for you*).
+  does not carry those), a row before NeuroDB's history (for a programme that started before it, Power BI can
+  show reports NeuroDB never holds), a report that moved on after Power BI's refresh (NeuroDB already has its
+  newer status), a status Power BI reads another way (its lists call a report not yet due "Due"), a value PRP
+  repeats on every location, or *a different rule*: Power BI counts the figure another way (see *Choices for
+  you*).
 - **Wait for the next sync.** NeuroDB's last sync ran before Power BI's refresh: the row is not in NeuroDB yet,
   or NeuroDB still has an older version. Wait for tonight's sync (20:30), or ask an Administrator to run the
   eTools Datamart sync, then press *Compare again*.
@@ -223,10 +225,11 @@ Rows about periods before NeuroDB's history are set aside and counted, never lis
 **The upload's page** opens with *What to do now* (at most four lines, each with a link to its rows: what
 needs a look, the PDs to check in eTools, what waits for the sync, the files to export again, and a last line
 on what is expected). Then one line per Power BI page, in Power BI's order, with its verdict ("Same", "Same
-data, counted another way", "Wait for the next sync: 3", "Check 1 PD in eTools", "Needs a look: 2", "Empty in
-Power BI", "Not uploaded") and what to do, and each export with its file, the rows read, what its filter covers
-("2026", "Every year", "Education only") and its counts: rows compared, the same, different, only in Power BI,
-only in NeuroDB. While NeuroDB compares, the page refreshes by itself every few seconds.
+data, counted another way", "Same, apart from reports still owed: 12", "Wait for the next sync: 3", "Check 1 PD
+in eTools", "Needs a look: 2", "Empty in Power BI", "Not uploaded") and what to do, and each export with its
+file, the rows read, what its filter covers ("2026", "Every year", "Education only") and its counts: rows
+compared, the same, different, only in Power BI, only in NeuroDB. While NeuroDB compares, the page refreshes by
+itself every few seconds.
 
 **An export's page** shows its filters one by one, its notes (rules that apply to every row are said once
 there: Power BI's Emergency indicator is Yes for an SPD, its Section and CP Output are the PD's), the

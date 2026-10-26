@@ -8,15 +8,16 @@ by the upload page's *Upload and compare* and *Compare again*; never from a shel
 3. **The day** the statuses are read for: Power BI's refresh (the newest "Last Updated Date" or "Last Modify
    Date" in the files), else the upload's day; more than 14 days back, today, and the page says so. The
    partner reports sync NeuroDB's data comes from is noted, and Power BI's own fields a filter names are
-   looked for in the records it kept (Raw eTools data's fields): when every record carries one, NeuroDB
-   applies it from the records.
+   looked for in the records it kept (Raw eTools data's fields): NeuroDB's pages never read them, so they are
+   applied as NeuroDB reads them, and the export's note says whether the records carry them.
 4. A Datamart sync or a KM Database load started meanwhile stops it (the rows stay: *Compare again* works).
 5. **Comparing**, export by export in Power BI's order (the report list and the Data Quality list first: the
    counted visuals are explained from them): an export whose filter names another country is not compared, an
    export with no row is "Empty in Power BI" (with the rows NeuroDB's page has for its filter); every other
    export is compared by its kind's comparer (``powerbi_kinds.COMPARERS``) in its own read-only snapshot of
-   the data. Its lines are kept compactly during the snapshot and written after it, needs-a-look first, at
-   most :data:`LINE_LIMIT` per export and :data:`UPLOAD_LINE_LIMIT` per upload (the rest are counted).
+   the data. Its lines are kept compactly during the snapshot, and every export's are written once all are
+   compared, group by group across the exports (needs a look first, the expected ones last), at most
+   :data:`LINE_LIMIT` per export and :data:`UPLOAD_LINE_LIMIT` per upload (the rest are counted).
 6. The upload is done: its summary (a verdict per Power BI page, what to do now, the choices for the user,
    ``powerbi_results``), its memory peak and time are kept; uploads older than the newest :data:`KEEP_FULL`
    lose their rows and lines (retention, also applied when an upload is created).
@@ -316,10 +317,13 @@ def run(pk: int) -> PowerBIUpload | None:
         if not PowerBIUpload.objects.filter(pk=pk, status=Status.READING).update(status=Status.COMPARING):
             return PowerBIUpload.objects.filter(pk=pk).first()
         context = _context(upload)
-        written = 0
+        compared = []
         for n, export in enumerate(_in_order(exports_of(upload)), start=1):
-            written += _compare(export, upload, context, UPLOAD_LINE_LIMIT - written)
+            result = _compare(export, upload, context)
+            if result is not None:
+                compared.append((export, result))
             _progress(upload, n)
+        _write_lines(compared)
         after = _partner_reports_run()
         upload.sync_moved = _run_id(before) != _run_id(after)
         from . import powerbi_results
@@ -476,8 +480,9 @@ def fields_in_records(run: Any) -> set[str]:
 
 
 def _record_fields(upload: PowerBIUpload, run: Any) -> None:
-    """How each clause on one of Power BI's own fields is applied: from the records when they carry it, else
-    as NeuroDB reads it (with a note)."""
+    """Each clause on one of Power BI's own fields is applied as NeuroDB reads it: none of NeuroDB's pages
+    reads those fields, even where the records carry them, and the comparison compares with the pages. The
+    export's note says whether the records carry the field (Raw eTools data's fields)."""
     carried = fields_in_records(run)
     for export in exports_of(upload).exclude(state="failed"):
         parsed = powerbi_filters.Filter.from_json(export.filters)
@@ -489,13 +494,10 @@ def _record_fields(upload: PowerBIUpload, run: Any) -> None:
                 "from_records",
             ):
                 continue
-            state = "from_records" if clause.field in carried else "as_read"
-            if state == "as_read":
-                notes.append(
-                    words.NOT_IN_RECORDS.format(field=clause.field, words=words.AS_READ[clause.field])
-                )
-            changed = changed or state != clause.state
-            clause.state = state
+            sentence = words.IN_RECORDS if clause.field in carried else words.NOT_IN_RECORDS
+            notes.append(sentence.format(field=clause.field, words=words.AS_READ[clause.field]))
+            changed = changed or clause.state != "as_read"
+            clause.state = "as_read"
         if changed or notes != export.notes:
             export.filters = parsed.to_json()
             export.clauses = [{"words": c.words, "state": c.state} for c in parsed.clauses]
@@ -539,20 +541,18 @@ def _progress(upload: PowerBIUpload, n: int) -> None:
 
 
 def _compare(
-    export: PowerBIExport,
-    upload: PowerBIUpload,
-    context: powerbi_facts.Context,
-    room: int = UPLOAD_LINE_LIMIT,
-) -> int:
+    export: PowerBIExport, upload: PowerBIUpload, context: powerbi_facts.Context
+) -> powerbi_match.Result | None:
     """One export against NeuroDB, in its own snapshot of the data; one that fails leaves the others. Returns
-    the lines written (at most ``room``)."""
+    its result, whose lines are written once every export is compared (:func:`_write_lines`), or None (no
+    comparer ran, or it failed)."""
     from . import powerbi_results, raw
 
     if export.state == "failed":
-        return 0
+        return None
     parsed = powerbi_filters.Filter.from_json(export.filters)
     try:
-        written = 0
+        result = None
         if parsed.country_ok is False:
             export.state, export.verdict = "not_compared", "other_country"
             note = words.OTHER_COUNTRY.format(country=settings.ETOOLS_DATAMART_COUNTRY)
@@ -576,11 +576,9 @@ def _compare(
             )
             with raw.snapshot(raw.STREAM_TIMEOUT_MS):
                 COMPARERS[export.kind](job)
-            written = _write_lines(export, result, min(room, LINE_LIMIT))
+            result.close()
             counts = result.summary()
-            counts["written"] = written
-            if counts["lines"] > written:
-                result.note(words.NOTE_LINES_CUT.format(n=counts["lines"] - written))
+            counts["written"] = 0
             counts["extra"] = dict(result.extra)
             counts["notes"] = list(result.notes)  # the comparison's (the read's stay in ``notes``)
             export.counts = counts
@@ -595,37 +593,82 @@ def _compare(
         export.save(
             update_fields=["state", "verdict", "notes", "counts", "fits", "set_aside", "filters", "clauses"]
         )
-        return written
+        return result
     except MemoryError:
         raise  # past the job's memory limit: the whole comparison stops
     except Exception as exc:  # noqa: BLE001 - one export never stops the others; its class name only
-        logger.warning(
-            "Compare with Power BI %s: %s could not be compared (%s)",
-            upload.pk,
-            export.kind,
-            type(exc).__name__,
-        )
-        PowerBIDifference.objects.filter(export=export).delete()
-        PowerBIExport.objects.filter(pk=export.pk).update(
-            state="failed", verdict="failed", error=words.STOPPED.format(cls=type(exc).__name__)[:300]
-        )
-        return 0
+        _failed(export, upload.pk, exc)
+        return None
 
 
-def _write_lines(export: PowerBIExport, result: powerbi_match.Result, room: int) -> int:
-    """The export's lines, needs-a-look first, in batches: at most ``room`` (the export's limit, or the
-    upload's lines left)."""
+def _failed(export: PowerBIExport, upload_pk: int, exc: Exception) -> None:
+    """One export that could not be compared (or its lines not written): its lines removed, its class name."""
+    logger.warning(
+        "Compare with Power BI %s: %s could not be compared (%s)", upload_pk, export.kind, type(exc).__name__
+    )
+    PowerBIDifference.objects.filter(export=export).delete()
+    PowerBIExport.objects.filter(pk=export.pk).update(
+        state="failed", verdict="failed", error=words.STOPPED.format(cls=type(exc).__name__)[:300]
+    )
+
+
+def _write_lines(compared: list[tuple[PowerBIExport, powerbi_match.Result]]) -> int:
+    """Every compared export's lines, group by group across the exports: every export's lines that need a
+    look first (in Power BI's order), then those to check in eTools, those waiting for the sync, and the
+    expected ones last, at most :data:`LINE_LIMIT` per export and :data:`UPLOAD_LINE_LIMIT` per upload (so
+    the limit drops expected lines first). An export whose lines are not all written says how many are
+    counted only. Returns the lines written."""
+    left = UPLOAD_LINE_LIMIT
+    written: dict[int, dict[int, int]] = {export.pk: {} for export, _result in compared}
+    failed: set[int] = set()
+    for group in powerbi_match.GROUP_ORDER:
+        for export, result in compared:
+            if export.pk in failed:
+                continue
+            mine = written[export.pk]
+            room = max(0, min(left, LINE_LIMIT - sum(mine.values())))
+            try:
+                n = _write_group(export, result, group, room, sum(mine.values()))
+            except MemoryError:
+                raise  # past the job's memory limit: the whole comparison stops
+            except Exception as exc:  # noqa: BLE001 - one export never stops the others; its class name only
+                failed.add(export.pk)
+                _failed(export, export.upload_id, exc)
+                continue
+            if n:
+                mine[group] = n
+            left -= n
+    for export, _result in compared:
+        if export.pk in failed:
+            continue
+        counts = dict(export.counts or {})
+        total = sum(written[export.pk].values())
+        counts["written"] = total
+        counts["written_groups"] = {str(g): n for g, n in sorted(written[export.pk].items())}
+        if counts.get("lines", 0) > total:
+            note = words.NOTE_LINES_CUT.format(n=counts["lines"] - total)
+            counts["notes"] = [*(counts.get("notes") or []), note]
+        export.counts = counts
+        PowerBIExport.objects.filter(pk=export.pk).update(counts=counts)
+    return sum(sum(found.values()) for pk, found in written.items() if pk not in failed)
+
+
+def _write_group(
+    export: PowerBIExport, result: powerbi_match.Result, group: int, room: int, start: int
+) -> int:
+    """One group's lines of an export, in batches, numbered on from ``start`` (an export's lines are read in
+    the order they are numbered: needs a look first): at most ``room``; the rest are let go."""
     batch: list[PowerBIDifference] = []
     n = 0
-    for kind, group, reason, rule, detail, match, found, link in result.lines():
+    for kind, line_group, reason, rule, detail, match, found, link in result.take(group):
         if n >= room:
             break
         n += 1
         batch.append(
             PowerBIDifference(
                 export=export,
-                n=n,
-                group=group,
+                n=start + n,
+                group=line_group,
                 kind=kind,
                 reason=reason,
                 rule=rule,

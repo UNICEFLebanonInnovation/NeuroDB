@@ -1,8 +1,8 @@
 """The job of Compare with Power BI (datamart.powerbi_compare, command compare_powerbi): started by the upload and
 by Compare again, one at a time under its own lock, never beside a Datamart sync or a KM Database load; staged
 copies read and emptied; stale comparisons closed (from the pages, busy() and the scheduler); retention of the
-newest uploads; the upload kept in memory only; reading a large export without memory growing with its rows.
-Generated fake exports only."""
+newest uploads; the upload kept in memory only; reading a large export without memory growing with its rows,
+and comparing it against an empty and a matching NeuroDB within the job's memory. Generated fake exports only."""
 
 from __future__ import annotations
 
@@ -159,9 +159,11 @@ def test_power_bi_s_refresh_gives_the_day_the_statuses_are_read_for(checker, sta
     assert upload.summary["notes"] == [words.DAY_OLD.format(day="24 Oct 2026")]
 
 
-def test_power_bi_s_own_fields_are_applied_from_the_records_when_they_carry_them(
+def test_power_bi_s_own_fields_are_read_as_neurodb_reads_them_even_when_the_records_carry_them(
     checker, started, monkeypatch
 ):
+    """NeuroDB's pages never read Power BI's own fields: the clause is applied as NeuroDB reads it, and the note
+    says whether the records carry the field."""
     upload = _upload(
         checker, ("pp.xlsx", pf.export("program_performance", filters=("is_period_latest is True",)))
     )
@@ -177,10 +179,11 @@ def test_power_bi_s_own_fields_are_applied_from_the_records_when_they_carry_them
     assert pc.again(upload)
     pc.run(upload.pk)
     export.refresh_from_db()
-    assert (
-        export.clauses == [{"words": "is_period_latest is True", "state": "from_records"}]
-        and export.notes == []
-    )
+    assert export.clauses == [{"words": "is_period_latest is True", "state": "as_read"}]
+    assert export.notes == [
+        "Power BI's field is_period_latest is in the records NeuroDB reads, but NeuroDB's pages do not use it: "
+        "NeuroDB reads it as the newest row of each report and location."
+    ]
 
 
 def test_fields_in_records_reads_raw_etools_data_s_fields(monkeypatch):
@@ -443,13 +446,126 @@ def test_comparing_a_large_export_stays_within_its_memory_and_line_limits(checke
     context = powerbi_facts.Context(day=datetime.date(2026, 10, 15), history=datetime.date(2024, 1, 1))
     tracemalloc.start()
     try:
-        written = pc._compare(export, upload, context)
+        written = pc._write_lines([(export, pc._compare(export, upload, context))])
         peak = tracemalloc.get_traced_memory()[1]
     finally:
         tracemalloc.stop()
     export.refresh_from_db()
     assert export.state == "compared" and export.counts["lines"] == 100_000
     assert written == pc.LINE_LIMIT == PowerBIDifference.objects.filter(export=export).count()
+    assert peak < 150 * 1024 * 1024, peak / 1e6
+
+
+MATCHING_LABELS = [(1, "Female", 10), (2, "Male", 10)] + [(i, f"Age {i}", 20) for i in range(3, 11)]
+
+
+def _matching_neurodb(indicators: int, places: int, months: int) -> None:
+    """NeuroDB's records for :func:`_matching_export`: one PD, monthly reports, ten values of two
+    disaggregations at every place."""
+    from neurodb.datamart import models as dm
+    from neurodb.partnerships.models import PCA, PartnerOrganization
+
+    partner = PartnerOrganization.objects.create(
+        etl_id="fake-big", name="Fakeorg Partner 1", vendor_number="V-B"
+    )
+    pd = PCA.objects.create(
+        etl_id="fake-big-pd", partner=partner, partner_name="Fakeorg Partner 1", number="FAKE/PCA2026001/PD2026001",
+        title="Fake programme", status="active", document_type="PD", start=datetime.date(2026, 1, 1),
+        end=datetime.date(2026, 12, 31), section_names=["Section Alpha"],
+    )  # fmt: skip
+    label = dm.DisaggregationLabel
+    label.objects.create(kind=label.Kind.TYPE, prp_id=10, label="Sex")
+    label.objects.create(kind=label.Kind.TYPE, prp_id=20, label="Age")
+    for prp_id, name, kind in MATCHING_LABELS:
+        label.objects.create(kind=label.Kind.VALUE, prp_id=prp_id, label=name, disaggregation_id=kind)
+    values = {"()": 100.0, **{f"({prp_id},)": float(prp_id) for prp_id, _n, _k in MATCHING_LABELS}}
+    records, n = [], 1_000_000
+    for month in range(1, months + 1):
+        start, end = _month(month)
+        for i in range(indicators):
+            for place in range(places):
+                n += 1
+                records.append(
+                    dm.ReportedIndicator(
+                        datamart_id=n, partner_id=partner.pk, intervention=pd, partner_name="Fakeorg Partner 1",
+                        pd_reference_number=pd.number, progress_report=f"PR-{month}", indicator_report=f"IR-{month}-{i}",
+                        report_number=str(month), report_type="HR", report_status="Accepted", period_start=start,
+                        period_end=end, due_date=end + datetime.timedelta(days=10),
+                        submission_date=end + datetime.timedelta(days=5), indicator=f"Fake indicator {i}",
+                        etools_indicator_id=str(100 + i), pd_output="Fake output", section="Section Alpha",
+                        location=f"Fake place {place}", p_code=f"LB9_{place}", cp_output="Fake output one",
+                        disaggregation=values, target="100",
+                    )
+                )  # fmt: skip
+    dm.ReportedIndicator.objects.bulk_create(records, batch_size=2000)
+
+
+def _month(month: int) -> tuple[datetime.date, datetime.date]:
+    start = datetime.date(2026, month, 1)
+    return start, (start + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
+
+
+def _matching_export(indicators: int, places: int, months: int) -> bytes:
+    """Power BI's Disaggregation export of the same values (reports/xlsx.py)."""
+    from neurodb.reports import xlsx
+
+    cols = pf.columns("disaggregations")
+
+    def body():
+        for month in range(1, months + 1):
+            start, end = _month(month)
+            for i in range(indicators):
+                for place in range(places):
+                    for prp_id, name, _kind in MATCHING_LABELS:
+                        value = {
+                            "section": "Section Alpha", "indicator_title": f"Fake indicator {i}",
+                            "location": f"Fake place {place}", "p_code": f"LB9_{place}", "period_start": start,
+                            "period_end": end, "due_date": end + datetime.timedelta(days=10),
+                            "report_status": "Accepted", "report_type": "HR", "report": f"HR{month}",
+                            "disaggregation": name, "reached": float(prp_id),
+                            "refreshed": datetime.datetime(2026, 10, 14, 6, 0),
+                        }  # fmt: skip
+                        yield {c.caption: value.get(c.name) for c in cols}
+        yield {}
+        yield {cols[0].caption: pf.filters_line(("country_name is Lebanon", "status is active"))}
+
+    return xlsx.workbook([("Export", [c.caption for c in cols], body())])
+
+
+def test_comparing_a_large_export_with_a_matching_neurodb_stays_within_its_memory(
+    checker, started, monkeypatch
+):
+    """100,000 disaggregation rows against a NeuroDB that holds the same values (10,000 records): NeuroDB's side
+    (disaggregation_rows, fill_block, the sums) is read month by month, every row is the same, and the
+    comparison's memory stays far below the job's limit."""
+    from neurodb.datamart import powerbi_facts, reached
+
+    monkeypatch.setattr(
+        reached,
+        "history_from",
+        lambda today=None: reached.HistoryFrom(datetime.date(2026, 1, 1), "read_from"),
+    )
+    _matching_neurodb(20, 50, 10)
+    upload = _upload(checker, ("disaggregations.xlsx", _matching_export(20, 50, 10)))
+    export = PowerBIExport.objects.get(upload=upload)
+    found = pr.read(
+        bytes(export.content), px.recognise(powerbi_xlsx.peek(bytes(export.content)).header), frozenset()
+    )
+    PowerBIExport.objects.filter(pk=export.pk).update(
+        rows=found.rows, rows_read=found.rows_read, columns=found.columns, content=None,
+        filters=found.filter.to_json(), state="read",
+    )  # fmt: skip
+    export.refresh_from_db()
+    context = powerbi_facts.Context(day=datetime.date(2026, 10, 15), history=datetime.date(2026, 1, 1))
+    tracemalloc.start()
+    try:
+        pc._write_lines([(export, pc._compare(export, upload, context))])
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    export.refresh_from_db()
+    assert export.state == "compared" and export.rows_read == 100_000, export.error
+    assert export.counts["same"] == 100_000 and export.counts["lines"] == 0, export.counts
     assert peak < 150 * 1024 * 1024, peak / 1e6
 
 

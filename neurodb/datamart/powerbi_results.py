@@ -31,9 +31,14 @@ SEVERITY = (
     "other_country",
     "empty",
     "counted",
+    "owed",
     "same",
     "not_uploaded",
 )
+# the expected reasons that are a rule or a reading of NeuroDB ("Same data, counted another way"); the others
+# (APART) are rows NeuroDB cannot hold yet or never holds: "Same, apart from reports still owed: n"
+COUNTED_REASONS = ("rule", "status", "repeated", "left_out")
+APART_REASONS = ("owed", "before_history", "moved_on")
 XLSX_SHEET_ROWS = 100_000  # rows of one sheet of the Excel file (the last says how many more)
 XLSX_ROWS = 300_000  # rows of the whole file
 ON_SCREEN = 5_000  # lines an export's page lists (the Excel file holds the rest)
@@ -45,8 +50,25 @@ def groups(export: PowerBIExport) -> Counter:
     return Counter({int(k): v for k, v in ((export.counts or {}).get("groups") or {}).items()})
 
 
+def written_groups(export: PowerBIExport) -> Counter:
+    """An export's lines written (listed on its page), by group: those its rows link to. An earlier comparison
+    kept only how many it wrote in all, needs a look first: read so."""
+    from . import powerbi_match
+
+    counts = export.counts or {}
+    if "written_groups" in counts:
+        return Counter({int(k): v for k, v in (counts["written_groups"] or {}).items()})
+    found, left, out = groups(export), counts.get("written", 0), Counter()
+    for group in powerbi_match.GROUP_ORDER:
+        out[group] = min(found.get(group, 0), left)
+        left -= out[group]
+    return +out
+
+
 def verdict_code(export: PowerBIExport) -> str:
-    """An export's verdict: the worst group of its lines, else same (or counted another way)."""
+    """An export's verdict: the worst group of its lines; with expected lines only, counted another way (a
+    rule or a reading of NeuroDB's) or the same apart from rows NeuroDB cannot hold (reports still owed,
+    before its history, moved on since Power BI's refresh); else same."""
     if export.state == "failed":
         return "failed"
     if export.state == "not_compared":
@@ -56,10 +78,22 @@ def verdict_code(export: PowerBIExport) -> str:
     if export.state != "compared":
         return export.verdict or ""
     found = groups(export)
-    for group, code in ((4, "look"), (3, "check"), (2, "wait"), (1, "counted")):
+    for group, code in ((4, "look"), (3, "check"), (2, "wait")):
         if found.get(group):
             return code
+    if found.get(1):
+        reasons = (export.counts or {}).get("reasons") or {}
+        return "owed" if not any(reasons.get(r) for r in COUNTED_REASONS) else "counted"
     return "same"
+
+
+def apart(export: PowerBIExport) -> tuple[str, str]:
+    """The expected rows NeuroDB cannot hold, in words, and what they need ("reports still owed: 3", "The
+    partners have not sent these reports yet."): empty when none."""
+    reasons = (export.counts or {}).get("reasons") or {}
+    found = [(r, reasons[r]) for r in APART_REASONS if reasons.get(r)]
+    parts = "; ".join(words.VERDICT_APART[r].format(n=n) for r, n in found)
+    return parts, " ".join(words.VERDICT_APART_ACTIONS[r] for r, _n in found)
 
 
 def verdict_words(export: PowerBIExport) -> tuple[str, str]:
@@ -84,6 +118,14 @@ def verdict_words(export: PowerBIExport) -> tuple[str, str]:
     if code in ("look", "wait"):
         n = found.get(4 if code == "look" else 2, 0)
         return words.VERDICT_WORDS[code].format(n=n), words.VERDICT_ACTIONS[code]
+    if code in ("owed", "counted"):
+        parts, actions = apart(export)
+        if code == "owed":
+            verdict = words.VERDICT_WORDS["owed"].format(parts=parts)
+            return verdict, f"{words.VERDICT_ACTIONS['owed']} {actions}"
+        if parts:
+            verdict = words.VERDICT_COUNTED_ALSO.format(verdict=words.VERDICT_WORDS["counted"], parts=parts)
+            return verdict, f"{words.VERDICT_ACTIONS['counted']} {actions}"
     if code in words.VERDICT_WORDS:
         return words.VERDICT_WORDS[code], words.VERDICT_ACTIONS[code]
     return words.STATE_WORDS.get(export.state, export.state), words.STATE_ACTIONS.get(export.state, "")
@@ -114,7 +156,7 @@ def page_lines(upload: PowerBIUpload, exports: list[PowerBIExport]) -> list[dict
         else:
             verdict, action = words.VERDICT_WORDS["not_uploaded"], words.VERDICT_ACTIONS["not_uploaded"]
         look = sum(groups(e).get(4, 0) for e in mine)
-        first_look = next((e for e in mine if groups(e).get(4)), None)
+        first_look = next((e for e in mine if written_groups(e).get(4)), None)
         out.append(
             {
                 "name": name,
@@ -162,12 +204,17 @@ def todo(upload: PowerBIUpload, exports: list[PowerBIExport], before: list[str])
         lines.append({"text": upload.error, "url": ""})
 
     def first(group: int) -> str:
-        export = next((e for e in exports if groups(e).get(group)), None)
+        """The rows of the first export that lists some of this group (never a link to an empty list)."""
+        export = next((e for e in exports if written_groups(e).get(group)), None)
         return export_url(upload, export, group=group) if export else ""
 
     look = found["groups"].get(4, 0)
     if look:
-        lines.append({"text": words.plural(look, words.TODO_LOOK_ONE, words.TODO_LOOK), "url": first(4)})
+        text = words.plural(look, words.TODO_LOOK_ONE, words.TODO_LOOK)
+        unlisted = look - sum(written_groups(e).get(4, 0) for e in exports)
+        if unlisted > 0:
+            text += " " + words.plural(unlisted, words.TODO_UNLISTED_ONE, words.TODO_UNLISTED)
+        lines.append({"text": text, "url": first(4)})
     check = len(found["check_pds"]) or found["groups"].get(3, 0)
     if check:
         lines.append({"text": words.plural(check, words.TODO_CHECK_ONE, words.TODO_CHECK), "url": first(3)})

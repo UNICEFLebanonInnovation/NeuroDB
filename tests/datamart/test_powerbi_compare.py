@@ -8,7 +8,7 @@ import datetime
 
 import pytest
 
-from neurodb.datamart import reached
+from neurodb.datamart import powerbi_exports, reached
 from neurodb.datamart.models import PowerBIDifference, PowerBIExport, PowerBIUpload
 from neurodb.integrations import background
 from tests.datamart import powerbi_factory as pf
@@ -749,8 +749,8 @@ def test_locations_join_power_bis_copies_and_give_each_difference_its_reason(che
         found[("QPR1", "Fake percentage 2", "LB9_9_1")].reason,
         found[("QPR1", "Fake percentage 2", "LB9_9_1")].rule,
     ) == ("rule", "units")
-    older = found[("QPR2", "Fake indicator 1", "LB9_9_2")]
-    assert (older.reason, older.found["reached"][:2]) == ("older_version", [6.0, 8.0])
+    older = found[("QPR2", "Fake indicator 1", "LB9_9_2")]  # NeuroDB holds the newer one too: a rule
+    assert (older.reason, older.rule, older.found["reached"][:2]) == ("rule", "several_records", [6.0, 8.0])
     assert (
         older.detail.startswith("NeuroDB holds 2 records of this row")
         and "/datamart/raw/partner_reports/" in older.link
@@ -1059,3 +1059,339 @@ def test_a_month_above_the_tabs_limit_is_read_pd_by_pd_with_the_same_result(worl
     monkeypatch.setattr(reporting, "DISAGGREGATION_LIMIT", 0)  # even one PD is too large: said, never guessed
     found, _shared, _unlabelled = read()
     assert found == {}
+
+
+# ------------------------------------------------------------------------------- stage 2 check: reasons
+def test_a_program_performance_row_of_a_pd_older_than_neurodbs_history_is_expected(checker, world):
+    """Power BI keeps the indicators with an Accepted report: a PD that started before NeuroDB's history, whose
+    Accepted reports are all older than it, is expected; a PD that started after it, with no Accepted report in
+    NeuroDB, still needs a look and says so truly."""
+    from neurodb.partnerships.models import PCA
+
+    pd, _ended = world
+    pf.sync(datetime.datetime(2026, 10, 15, 8, 0))  # after Power BI's refresh
+    for number, start, source, title in (
+        ("FAKE/PCA2025009/PD2025009", D(2025, 6, 1), 909, "Fake old indicator"),
+        ("FAKE/PCA2026008/PD2026008", D(2026, 2, 1), 908, "Fake new indicator"),
+    ):
+        found = PCA.objects.create(
+            etl_id=f"fake-{source}", partner=pd.partner, partner_name=pd.partner_name, number=number,
+            title=f"Fake programme {source}", status="active", document_type="PD", start=start,
+            end=D(2026, 12, 31), section_names=["Section Alpha"], cp_outputs=["Output One"],
+        )  # fmt: skip
+        _indicator(found, source, title)
+        # its 2026 report is still Submitted (the old PD's Accepted ones are from 2025)
+        pf.report_row(found, "QPR3", "Submitted", D(2026, 1, 1), D(2026, 3, 31), title=title, source=source,
+                      value=5, submitted=D(2026, 4, 10))  # fmt: skip
+    rows = [
+        _pp(section="Section Alpha", cp_output="Output One", indicator_title=title, target=100, reached=50,
+            achieved=0.5)
+        for title in ("Fake old indicator", "Fake new indicator")
+    ]  # fmt: skip
+    upload = pf.compared(
+        checker,
+        _one("program_performance", rows, filters=PP_FILTERS),
+        refreshed=datetime.datetime(2026, 10, 14, 6, 0),
+    )
+    _export, lines = _lines(upload, "program_performance")
+    found = {line.match[1]: line for line in lines if line.kind == "only_powerbi"}
+    old = found["Fake old indicator"]
+    assert (old.reason, old.group, old.detail) == (
+        "before_history",
+        1,
+        "The Datamart holds no earlier partner report.",
+    )
+    new = found["Fake new indicator"]
+    assert (new.reason, new.group) == ("not_in_read", 4)
+    assert new.detail == "NeuroDB has this indicator, but none of its reports is Accepted there."
+
+
+def test_a_report_further_along_in_neurodb_after_power_bis_refresh_has_moved_on(checker, world):
+    """NeuroDB's sync ran after Power BI's refresh and NeuroDB has a report further along: it moved on since
+    (expected). A report Power BI counts as Overdue on its due date, the day the statuses are read for, is
+    said so; "a different day" only when NeuroDB reads the statuses for another day than Power BI's refresh."""
+    from neurodb.datamart import powerbi_words as words
+
+    pf.sync(datetime.datetime(2026, 10, 15, 8, 0))
+    rows = [
+        _with(REPORTS[0], report_status="Submitted"),  # NeuroDB has it Accepted
+        REPORTS[1],
+        REPORTS[2],  # Overdue on 14 Oct, its due date: NeuroDB's Due until the day after
+    ]
+    upload = pf.compared(checker, _one("report_list", rows), refreshed=datetime.datetime(2026, 10, 14, 6, 0))
+    export, lines = _lines(upload, "report_list")
+    assert upload.day == D(2026, 10, 14)
+    found = {line.match[1]: line for line in lines}
+    moved = found["QPR1"]
+    assert (moved.kind, moved.reason, moved.group) == ("different", "moved_on", 1)
+    assert moved.detail == "NeuroDB's sync ran after Power BI's refresh: the report moved on since."
+    owed = found["QPR3"]
+    assert (owed.reason, owed.group, owed.found["report_status"][:2]) == ("status", 1, ["Overdue", "Due"])
+    assert owed.detail == (
+        "Power BI counts a report as Overdue on its due date; NeuroDB counts it as Due until the day after."
+    )
+    assert export.verdict != "look"
+    # Power BI refreshed more than 14 days ago: NeuroDB reads the statuses for today, another day
+    rows = [REPORTS[0], REPORTS[1], _with(REPORTS[2], report_status="Due")]
+    upload = pf.compared(checker, _one("report_list", rows), refreshed=datetime.datetime(2026, 9, 20, 6, 0))
+    _export, (line,) = _lines(upload, "report_list")
+    assert upload.day == D(2026, 10, 15) and line.found["report_status"][:2] == ["Due", "Overdue"]
+    assert (line.reason, line.detail) == ("status", words.DETAIL_OTHER_DAY)
+
+
+def test_power_bis_total_row_is_checked_as_a_note_never_as_a_line(checker, world):
+    from neurodb.datamart import powerbi_exports as px
+
+    rows = [
+        pf.row("by_sector", section=SECTIONS, accepted=2, submitted=1, due=0, overdue=1),
+        pf.row("by_sector", section="Total", accepted=2, submitted=1, due=0, overdue=1),
+    ]
+    upload = pf.compared(checker, _one("by_sector", rows, filters=YEAR))
+    export, lines = _lines(upload, "by_sector")
+    assert [(line.match, line.found) for line in lines] == [([SECTIONS], {"accepted": [2.0, 1, None]})]
+    assert export.counts["groups"] == {"4": 1} and upload.summary["look"] == 1
+    caption = px.KINDS["by_sector"].column("accepted").caption
+    assert (
+        f"Power BI's Total differs from NeuroDB's in {caption}: see the sections' lines."
+        in (export.counts["notes"])
+    )
+
+
+def test_two_records_of_one_location_neurodb_holds_both_of_are_a_rule_not_a_wait(checker, world, monkeypatch):
+    """The record Power BI shows is already in NeuroDB: waiting for the next sync changes nothing. Power BI's
+    own field in the records is said to be unused by NeuroDB's pages, never "applied"."""
+    from django.utils import timezone
+
+    from neurodb.datamart import models as dm
+    from neurodb.datamart import powerbi_compare as pc
+
+    pd, _ended = world
+    for value, changed, latest in (
+        (8, datetime.datetime(2026, 7, 1), False),
+        (6, datetime.datetime(2026, 7, 20), True),
+    ):
+        pf.report_row(pd, "QPR2", "Submitted", D(2026, 4, 1), D(2026, 6, 30), place="LB9_9_2", value=value,
+                      submitted=D(2026, 7, 10), last_modify_date=timezone.make_aware(changed),
+                      data={"is_period_latest": latest})  # fmt: skip
+    dm.ReportedIndicator.objects.exclude(data__has_key="is_period_latest").update(
+        data={"is_period_latest": True}
+    )
+    monkeypatch.setattr(pc, "fields_in_records", lambda run: {"is_period_latest"})
+    rows = [_location(report="QPR2", p_code="LB9_9_2", reached=6, report_status="Submitted",
+                      period_end=D(2026, 6, 30))]  # fmt: skip
+    upload = pf.compared(checker, _one("locations", rows, filters=LOCATION_FILTERS, drop=LOCATION_DROP))
+    export, lines = _lines(upload, "locations")
+    clauses = {c["words"]: c["state"] for c in export.clauses}
+    assert clauses["is_period_latest is True"] == "as_read"
+    assert (
+        "Power BI's field is_period_latest is in the records NeuroDB reads, but NeuroDB's pages do not use "
+        "it: NeuroDB reads it as the newest row of each report and location." in export.notes
+    )
+    (line,) = [line for line in lines if line.match[1] == "QPR2" and line.match[3] == "LB9_9_2"]
+    assert (line.reason, line.rule, line.group, line.found["reached"][:2]) == (
+        "rule",
+        "several_records",
+        1,
+        [6.0, 8.0],
+    )
+    assert line.detail == "NeuroDB holds 2 records of this row; Power BI's value is the newest one's."
+    # NeuroDB's sync ran before Power BI's refresh: the next one may bring the change
+    pf.sync(datetime.datetime(2026, 10, 13, 20, 30))
+    upload = pf.compared(
+        checker,
+        _one("locations", rows, filters=LOCATION_FILTERS, drop=LOCATION_DROP),
+        refreshed=datetime.datetime(2026, 10, 14, 6, 0),
+    )
+    _export, lines = _lines(upload, "locations")
+    (line,) = [line for line in lines if line.match[1] == "QPR2" and line.match[3] == "LB9_9_2"]
+    assert (line.reason, line.group) == ("older_version", 2)
+    assert line.detail == "NeuroDB holds 2 records of this row; the page used one that is not the newest."
+
+
+# ---------------------------------------------------------------------------- stage 2 check: what it says
+def test_an_export_with_only_reports_still_owed_says_so_not_counted_another_way(checker, world):
+    from neurodb.datamart import powerbi_results
+
+    owed = [
+        _with(REPORTS[0], report=f"HR{n}", report_status="Overdue", period_start=D(2026, 8, 1),
+              period_end=D(2026, 8, 31))
+        for n in (1, 2, 3)
+    ]  # fmt: skip
+    upload = pf.compared(checker, _one("report_list", [*REPORTS, *owed]))
+    export = PowerBIExport.objects.get(upload=upload)
+    assert export.verdict == "owed"
+    assert powerbi_results.verdict_words(export) == (
+        "Same, apart from reports still owed: 3",
+        "Nothing to fix. The partners have not sent these reports yet.",
+    )
+    page = next(p for p in upload.summary["pages"] if p["name"] == "PD/SPD Report")
+    assert page["verdict"] == "Same, apart from reports still owed: 3"
+    mixed = PowerBIExport(
+        state="compared",
+        counts={"groups": {"1": 6}, "reasons": {"owed": 3, "rule": 2, "before_history": 1}},
+    )
+    assert powerbi_results.verdict_code(mixed) == "counted"
+    assert powerbi_results.verdict_words(mixed) == (
+        "Same data, counted another way; also reports still owed: 3; rows before NeuroDB's history: 1",
+        "Nothing to fix. See Choices for you if NeuroDB should count Power BI's way. The partners have not "
+        "sent these reports yet. NeuroDB holds no partner report before its history.",
+    )
+
+
+def test_a_line_s_detail_stays_whole_when_every_rule_fits():
+    from neurodb.datamart import powerbi_exports as px
+    from neurodb.datamart import powerbi_facts, powerbi_filters, powerbi_kinds
+    from neurodb.datamart import powerbi_match as pm
+    from neurodb.datamart import powerbi_words as words
+
+    context = powerbi_facts.Context(day=D(2026, 10, 15), history=D(2026, 1, 1))
+    job = powerbi_kinds.Job(
+        px.KINDS["program_performance"], [], None, powerbi_filters.Filter(), context, pm.Result(10)
+    )
+    candidates = dict.fromkeys(powerbi_facts.REACHED_CANDIDATES, 15.0)
+    reason, rule, detail = powerbi_kinds.candidate_reason(
+        job, "reached", 15.0, {"reached": 35.0, "report_type": "QPR"}, candidates, "qpr_sum"
+    )
+    assert (reason, rule) == ("rule", "reached") and len(detail) <= 300
+    assert detail.startswith("Counted Power BI's way (adds up the Accepted quarterly reports")
+    others = [c for c in powerbi_facts.REACHED_CANDIDATES if c != "qpr_sum"]
+    assert all(words.CANDIDATE_SHORT[c] in detail for c in others), detail
+    assert detail.endswith(".")
+    # a detail too long is cut on a word, never inside one
+    kept = pm.Line("different", "unknown", 4, detail="Fakeword " * 60).as_json()[4]
+    assert len(kept) <= 300 and kept.endswith("…") and kept[:-1].split()[-1] == "Fakeword"
+
+
+def test_the_upload_s_line_limit_drops_expected_lines_first_and_never_links_an_empty_list(
+    checker, world, monkeypatch
+):
+    """The report list is compared first, but its expected lines give way to a later export's lines that need a
+    look; a needs-a-look line left unwritten is said so, and no link opens an empty list."""
+    from neurodb.datamart import powerbi_compare as pc
+    from neurodb.datamart import powerbi_results
+
+    owed = [
+        _with(REPORTS[0], report=f"HR{n}", report_status="Overdue", period_start=D(2026, 8, 1),
+              period_end=D(2026, 8, 31))
+        for n in (1, 2, 3)
+    ]  # fmt: skip
+    funds = [pf.row("fund_monitoring", pd=PD, unicef_planned=1.0, cash=2.0, partner_contribution=3.0)]
+    monkeypatch.setattr(pc, "UPLOAD_LINE_LIMIT", 3)
+    upload = pf.compared(checker, _one("report_list", [*REPORTS, *owed]), _one("fund_monitoring", funds))
+    reports, report_lines = _lines(upload, "report_list")
+    fund, fund_lines = _lines(upload, "fund_monitoring")
+    assert [line.group for line in fund_lines] == [4]
+    assert [line.group for line in report_lines] == [1, 1] and reports.counts["written"] == 2
+    assert "Differences counted but not listed: 1." in reports.counts["notes"]
+    exports = list(pc.exports_of(upload))
+    (look, *_rest) = powerbi_results.todo(upload, exports, [])
+    assert look["text"].startswith("Needs a look: 1 row.") and "not listed" not in look["text"]
+    assert look["url"] == powerbi_results.export_url(upload, fund, group=4)
+    # one line of room: the report list's line that needs a look is written, the fund's is said not listed
+    pf.sync(datetime.datetime(2026, 10, 15, 8, 0))  # after Power BI's refresh: a row not read needs a look
+    monkeypatch.setattr(pc, "UPLOAD_LINE_LIMIT", 1)
+    missing = _with(REPORTS[0], report="QPR9", period_start=D(2026, 4, 1), period_end=D(2026, 4, 30))
+    upload = pf.compared(
+        checker,
+        _one("report_list", [*REPORTS, missing, *owed]),
+        _one("fund_monitoring", funds),
+        refreshed=datetime.datetime(2026, 10, 14, 6, 0),
+    )
+    reports, report_lines = _lines(upload, "report_list")
+    fund, fund_lines = _lines(upload, "fund_monitoring")
+    assert [(line.group, line.match[1]) for line in report_lines] == [(4, "QPR9")] and fund_lines == []
+    exports = list(pc.exports_of(upload))
+    (look, *_rest) = powerbi_results.todo(upload, exports, [])
+    assert look["text"] == (
+        "Needs a look: 2 rows. Download the Excel file and send it to the NeuroDB team. 1 of them is counted "
+        "but not listed (too many differences at once)."
+    )
+    assert look["url"] == powerbi_results.export_url(upload, reports, group=4)
+    funds_page = next(
+        p for p in powerbi_results.page_lines(upload, exports) if p["name"] == "Partner Fund Monitoring"
+    )
+    assert funds_page["look"] == 1 and funds_page["look_url"] == ""
+
+
+QUERY_ROWS = {"indicator_title": "Fake indicator 1", "partner": "FAKEORG PARTNER 1", "target": 100, "reached": 10,
+              "grant": "SC1", "report": "QPR1", "period_end": "2026-03-31", "report_status": "Accepted",
+              "p_code": "LB9_9_1", "pd_output": "Fake output 1", "status": "Overdue", "due_date": "2026-04-15",
+              "disaggregation": "Female", "period_start": "2026-01-01", "unicef_planned": 9000, "cash": 10000,
+              "section": "Section Alpha", "month": "Mar 2026", "accepted": 1, "indicators": 1}  # fmt: skip
+
+
+def _pds(n):
+    """``n`` running PDs, each with an indicator, an Accepted report, a funds reservation and its header."""
+    from decimal import Decimal
+
+    from neurodb.datamart import models as dm
+    from neurodb.partnerships.models import PCA, PartnerOrganization
+
+    partner = PartnerOrganization.objects.create(
+        etl_id=f"fake-q{n}", name="Fakeorg Partner 1", vendor_number=f"V-Q{n}",
+        partner_type="Civil Society Organization", cso_type="National",
+    )  # fmt: skip
+    out = []
+    for i in range(n):
+        pd = PCA.objects.create(
+            etl_id=f"fake-q{n}-{i}", partner=partner, partner_name="Fakeorg Partner 1",
+            number=f"FAKE/PCA2026{n:02}{i:03}/PD", title=f"Fake programme {i}", status="active", document_type="PD",
+            start=D(2026, 1, 1), end=D(2026, 12, 31), section_names=["Section Alpha"], cp_outputs=["Output One"],
+            offices_set=["Office North"], total_unicef_budget="9000", total_budget="10000", cso_contribution="1000",
+            budget_currency="USD", frs_total_outstanding_amt="300",
+        )  # fmt: skip
+        _indicator(pd, 500 + i, "Fake indicator 1", cp_output="Output One", unit="number")
+        pf.report_row(pd, "QPR1", "Accepted", D(2026, 1, 1), D(2026, 3, 31), source=500 + i, value=10,
+                      submitted=D(2026, 4, 2))  # fmt: skip
+        dm.FundsReservation.objects.create(
+            datamart_id=20_000 * n + i, intervention=pd, fr_number=f"FR-Q{n}-{i}", grant_number="SC1",
+            donor="Fake Donor", overall_amount=Decimal("5000"),
+        )  # fmt: skip
+        dm.FundsReservationHeader.objects.create(
+            datamart_id=30_000 * n + i, intervention=pd, fr_number=f"FR-Q{n}-{i}", actual_amt=Decimal("2500"),
+            outstanding_amt=Decimal("300"),
+        )  # fmt: skip
+        out.append(pd)
+    return out
+
+
+def _queries(kind, pds):
+    import gzip
+    import io
+    import json
+
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from neurodb.datamart import powerbi_exports as px
+    from neurodb.datamart import powerbi_facts, powerbi_filters, powerbi_kinds
+    from neurodb.datamart import powerbi_match as pm
+
+    names = [c.name for c in px.KINDS[kind].columns]
+    buffer = io.BytesIO()
+    with gzip.GzipFile(fileobj=buffer, mode="wb") as stream:
+        for pd in pds:
+            row = {**QUERY_ROWS, "pd": pd.number}
+            stream.write((json.dumps([row.get(n) for n in names]) + "\n").encode())
+    parsed = powerbi_filters.parse("Applied filters:\ncountry_name is Lebanon\nstatus is active")
+    context = powerbi_facts.Context(day=D(2026, 10, 15), history=D(2026, 1, 1))
+    job = powerbi_kinds.Job(px.KINDS[kind], names, buffer.getvalue(), parsed, context, pm.Result(1000),
+                            rows_read=len(pds))  # fmt: skip
+    with CaptureQueriesContext(connection) as found:
+        powerbi_kinds.COMPARERS[kind](job)
+    return len(found.captured_queries)
+
+
+@pytest.mark.parametrize("kind", sorted(powerbi_exports.KINDS))
+def test_each_comparer_reads_as_many_queries_for_12_pds_as_for_3(kind, history):
+    """No query per row or per PD: a comparer's queries do not grow with NeuroDB's PDs."""
+    from neurodb.datamart import models as dm
+    from neurodb.partnerships.models import PCA, PartnerOrganization
+
+    counted = []
+    for n in (3, 12):
+        for model in (dm.ReportedIndicator, dm.PDIndicator, dm.FundsReservation, dm.FundsReservationHeader, PCA,
+                      PartnerOrganization):  # fmt: skip
+            model.objects.all().delete()
+        counted.append(_queries(kind, _pds(n)))
+    assert counted[0] == counted[1], counted

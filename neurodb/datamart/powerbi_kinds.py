@@ -163,17 +163,39 @@ def earlier_step(neurodb: str, powerbi: str) -> bool:
     return STEPS.get(neurodb, 0) < LABEL_STEPS.get(pm.text(powerbi), 0)
 
 
+def later_step(neurodb: str, powerbi: str) -> bool:
+    """NeuroDB's status is a later step of the same report than Power BI's (Accepted against Submitted)."""
+    label = pm.text(powerbi)
+    return label in LABEL_STEPS and STEPS.get(neurodb, 0) > LABEL_STEPS[label]
+
+
+def owed_detail(context: pf.Context, powerbi: Any, status: str, due: Any) -> str:
+    """Why a report still owed has another of the owed words (Due, Overdue, Not Yet Due) in NeuroDB: read for
+    another day than Power BI's refresh, Power BI's Overdue on the due date itself, else said plainly."""
+    if context.refreshed and context.refreshed != context.day:
+        return words.DETAIL_OTHER_DAY
+    if pm.text(powerbi) == "overdue" and status == rc.DUE and pm.as_date(due) == context.day:
+        return words.DETAIL_DUE_DAY
+    return words.DETAIL_OWED_WORDS
+
+
 def status_reason(job: Job, held: list[pf.HeldReport], powerbi: str) -> Reason:
-    """Why NeuroDB has a report under another status than Power BI."""
+    """Why NeuroDB has a report under another status than Power BI: Power BI's Due covering reports not yet
+    due, NeuroDB behind (its sync ran before Power BI's refresh) or ahead (the report moved on since), another
+    owed word, the newest word of a report's rows, else not explained yet."""
     report = held[0]
+    context = job.context
     label = pm.text(powerbi)
     if label == "due" and report.status == rc.NOT_YET_DUE:
         return ("status", "", words.DETAIL_DUE_COVERS)
-    if earlier_step(report.status, powerbi) and job.context.sync_before_refresh:
+    if earlier_step(report.status, powerbi) and context.sync_before_refresh:
         detail = words.DETAIL_EARLIER_STEP.format(status=rc.STATUS_LABELS[report.status], powerbi=powerbi)
         return ("older_version", "", detail)
+    if later_step(report.status, powerbi) and not context.sync_before_refresh:
+        detail = words.DETAIL_MOVED_ON if context.sync_after_refresh else words.DETAIL_MAY_HAVE_MOVED_ON
+        return ("moved_on", "", detail)
     if label in OWED_LABELS and report.status in (rc.DUE, rc.OVERDUE, rc.NOT_YET_DUE):
-        return ("status", "", words.DETAIL_OTHER_DAY)
+        return ("status", "", owed_detail(context, powerbi, report.status, report.due_date))
     if len({w for w in report.words if w}) > 1:
         return ("status", "", words.DETAIL_NEWEST_WORD)
     return fallback(job)
@@ -591,11 +613,17 @@ def follow_up(job: Job) -> None:
             link=raw_link(p["pd"], context=context),
             pd=p["pd"] if why[0] == "pd_not_running" else "",
         )
-    powerbi_by_due = {(pm.pd_base(p["pd"]), pm.iso(p["due_date"])) for p in powerbi}
+    powerbi_by_due: dict[tuple[str, str], Any] = {}
+    for p in powerbi:
+        powerbi_by_due.setdefault((pm.pd_base(p["pd"]), pm.iso(p["due_date"])), p["status"])
     for n in left_nd:
-        if (pm.pd_base(n["pd"]), pm.iso(n["due_date"])) in powerbi_by_due:
-            owed = n["status"] in (rc.DUE, rc.OVERDUE)
-            why = ("status", "", words.DETAIL_OTHER_DAY if owed else words.DETAIL_NEWEST_WORD)
+        mine = (pm.pd_base(n["pd"]), pm.iso(n["due_date"]))
+        if mine in powerbi_by_due:
+            if n["status"] in (rc.DUE, rc.OVERDUE):
+                detail = owed_detail(context, powerbi_by_due[mine], n["status"], n["due_date"])
+            else:
+                detail = words.DETAIL_NEWEST_WORD
+            why = ("status", "", detail)
         elif context.sync_before_refresh:
             why = ("older_version", "", "")
         else:
@@ -660,15 +688,16 @@ def by_sector(job: Job) -> None:
             cells += 1
             fits += pm.same_count((a or {}).get(name), (b or {}).get(name))
         counted_gaps(job, [shown.get(key) or key], a, b, names, sections=key)
-    if total is not None:
+    if total is not None:  # checked against Power BI's own rows and NeuroDB's total: notes, never a line
+        caption = px.KINDS["by_sector"].column
         sums = {n: sum(r[n] for r in powerbi.values()) for n in names}
-        off = [
-            px.KINDS["by_sector"].column(n).caption for n in names if not pm.same_count(total.get(n), sums[n])
-        ]
+        off = [caption(n).caption for n in names if not pm.same_count(total.get(n), sums[n])]
         if off:
             job.result.note(words.NOTE_TOTAL_GAP.format(columns=", ".join(off)))
         every = {n: sum(r[n] for r in neurodb.values()) for n in names}
-        counted_gaps(job, [total.get("section") or "Total"], total, every, names)
+        off = [caption(n).caption for n in names if not pm.same_count(total.get(n), every[n])]
+        if off:
+            job.result.note(words.NOTE_TOTAL_NEURODB.format(columns=", ".join(off)))
     job.result.extra["progress_fit"] = [fits, cells]
 
 
@@ -980,20 +1009,20 @@ def candidate_reason(
     neurodb: dict[str, Any],
     candidates: dict[str, Any],
     chosen: str,
+    room: int = pm.DETAIL_LIMIT,
 ) -> Reason:
     """A Reached or Target difference: Power BI's way when it equals the candidate chosen (the others that fit
-    in the detail), a partial history, NeuroDB's older version, else not explained yet."""
+    in the detail), a partial history, NeuroDB's older version, else not explained yet. ``room``: the
+    characters the detail may take (the line adds its own sentences after it)."""
     fitting = [name for name, value in candidates.items() if pf.fits_value(powerbi, value)]
     value = neurodb.get(column)
     if column == "reached" and neurodb.get("partial"):
         return ("rule", "partial", "")
     if chosen and chosen in fitting:
-        others = [words.CANDIDATE_WORDS[c] for c in fitting if c != chosen]
         detail = words.DETAIL_ALTERNATIVE.format(
             words=words.CANDIDATE_WORDS[chosen], value=_number_words(value)
         )
-        if others:
-            detail += " " + words.DETAIL_ALSO_FITS.format(words="; ".join(others))
+        detail = also_fits(detail, [c for c in fitting if c != chosen], room)
         if column == "reached" and neurodb.get("report_type") == "HR" and chosen == "qpr_sum":
             return ("rule", "monthly", detail)
         return ("rule", column, detail)
@@ -1004,9 +1033,22 @@ def candidate_reason(
     ):
         return ("older_version", "", "")
     if fitting:
-        detail = words.DETAIL_ALSO_FITS.format(words="; ".join(words.CANDIDATE_WORDS[c] for c in fitting))
-        return ("unknown", "", detail)
+        return ("unknown", "", also_fits("", fitting, room))
     return fallback(job)
+
+
+def also_fits(detail: str, others: list[str], room: int) -> str:
+    """``detail`` with the other rules that fit Power BI's value: by their short names, else (past ``room``
+    characters) how many, so a detail is never cut."""
+    if not others:
+        return detail
+    names = words.DETAIL_ALSO_FITS.format(words=", ".join(words.CANDIDATE_SHORT[c] for c in others))
+    count = words.plural(len(others), words.DETAIL_ALSO_FITS_ONE, words.DETAIL_ALSO_FITS_COUNT)
+    for sentence in (names, count):
+        found = f"{detail} {sentence}".strip()
+        if len(found) <= room:
+            return found
+    return detail
 
 
 def _number_words(value: Any) -> str:
@@ -1080,12 +1122,14 @@ def program_performance(job: Job) -> None:
             emergency[0] += pm.yes_no(p.get("emergency")) == n["spd"]
         diffs: dict[str, list[Any]] = {}
         options: list[Reason] = []
+        # the characters a detail may take: the partner's sentence comes after it
+        room = pm.DETAIL_LIMIT - (len(words.DETAIL_PARTNER) + 1 if id(p) in partner_by else 0)
         if "target" in names and not pm.same_number(p.get("target"), target):
             candidates = fact.target(n["target"])
             diffs["target"] = [p.get("target"), target, _first_fit(p.get("target"), candidates)]
             options.append(
                 candidate_reason(
-                    job, "target", p.get("target"), {**n, "target": target}, candidates, chosen_target
+                    job, "target", p.get("target"), {**n, "target": target}, candidates, chosen_target, room
                 )
             )
         if "reached" in names and not pm.same_number(p.get("reached"), reached, zero_is_none=True):
@@ -1093,7 +1137,13 @@ def program_performance(job: Job) -> None:
             diffs["reached"] = [p.get("reached"), reached, _first_fit(p.get("reached"), candidates)]
             options.append(
                 candidate_reason(
-                    job, "reached", p.get("reached"), {**n, "reached": reached}, candidates, chosen_reached
+                    job,
+                    "reached",
+                    p.get("reached"),
+                    {**n, "reached": reached},
+                    candidates,
+                    chosen_reached,
+                    room,
                 )
             )
         if "achieved" in names and "target" not in diffs and "reached" not in diffs:
@@ -1208,10 +1258,15 @@ def _titles(context: pf.Context, parsed: Filter) -> dict[str, list[dict[str, Any
 
 
 def _pp_missing(job: Job, p: dict[str, Any], titled, facts) -> Reason:
+    """Why NeuroDB's Program Performance has no row for a Power BI row: no indicator of that title, its PD not
+    running, the page's section filter, or (Power BI keeps the indicators with an Accepted report) none of its
+    reports Accepted in NeuroDB: expected when its PD started before NeuroDB's history (its Accepted reports
+    can be older than that)."""
+    context = job.context
     found = titled.get(pm.text(p.get("indicator_title"))) or []
     if not found:
         return not_in_read(job)
-    held = [pf.pds(job.context).by_id.get(n["pd_id"]) for n in found]
+    held = [pf.pds(context).by_id.get(n["pd_id"]) for n in found]
     if all(pd is not None and not running(job, pd) for pd in held):
         pd = held[0]
         return ("pd_not_running", "", words.DETAIL_NOT_RUNNING.format(status=pd.status_label))
@@ -1219,7 +1274,15 @@ def _pp_missing(job: Job, p: dict[str, Any], titled, facts) -> Reason:
         return ("left_out", "section", words.DETAIL_SECTION)
     accepted = [n for n in found if (facts.get(n["ident"]) or pf.IndicatorFact(n["ident"])).any_accepted]
     if not accepted and job.by_comparison:
-        return ("older_version", "", "") if job.context.sync_before_refresh else not_in_read(job)
+        # the indicators the page would list (the Power BI row's partner's, when NeuroDB has one)
+        shown = [n for n, pd in zip(found, held, strict=True) if pd is not None and running(job, pd)]
+        shown = [n for n in shown if page.in_section(n, job.parsed)] or shown
+        shown = [n for n in shown if pm.partner(n["partner"]) == pm.partner(p.get("partner"))] or shown
+        if shown and all(n["partial"] or (n["pd_start"] and n["pd_start"] < context.history) for n in shown):
+            return ("before_history", "", words.DETAIL_BEFORE_HISTORY)
+        if context.sync_before_refresh:
+            return ("older_version", "", words.DETAIL_NONE_ACCEPTED)
+        return ("not_in_read", "", words.DETAIL_NONE_ACCEPTED)
     return fallback(job)
 
 
@@ -1308,6 +1371,10 @@ def pd_indicators(job: Job) -> None:
         fact = facts.get(n["ident"]) or pf.IndicatorFact(n["ident"])
         diffs: dict[str, list[Any]] = {}
         options: list[Reason] = []
+        # the characters a detail may take: the amendment's and Partner monitoring's sentences come after it
+        room = pm.DETAIL_LIMIT - len(words.DETAIL_FROM_MONITORING) - 1
+        if id(p) in amended:
+            room -= len(words.DETAIL_AMENDMENT) + 1
         for name in names:
             a = p.get(name)
             if name == "pd_status":
@@ -1341,11 +1408,8 @@ def pd_indicators(job: Job) -> None:
             if name in ("target", "reached"):
                 candidates = fact.target(n["target"]) if name == "target" else fact.reached(n.get("accepted"))
                 alt = _first_fit(a, candidates)
-                options.append(
-                    candidate_reason(
-                        job, name, a, n, candidates, chosen_target if name == "target" else chosen_reached
-                    )
-                )
+                chosen = chosen_target if name == "target" else chosen_reached
+                options.append(candidate_reason(job, name, a, n, candidates, chosen, room))
             elif name == "partner":
                 options.append(("rule", "partner_name", words.DETAIL_PARTNER))
             else:
@@ -1655,7 +1719,9 @@ def _record_link(n: dict[str, Any]) -> str:
 
 def _location_reached(job: Job, powerbi: Any, n: dict[str, Any], newest: dict[Any, float | None]) -> Reason:
     """Why a location's value differs: PRP's report total repeated on every location (NeuroDB gives it none),
-    a factor of 100 (units), the newest of several records, an earlier step, else not explained yet."""
+    a factor of 100 (units), the newest of several records (the page reads the largest: a rule, as NeuroDB
+    holds the newest too, unless its sync ran before Power BI's refresh and the next one may bring the
+    change), an earlier step, else not explained yet."""
     a = pm.number(powerbi)
     if n["repeated"]:
         return ("repeated", "", words.DETAIL_REPEATED)
@@ -1666,7 +1732,9 @@ def _location_reached(job: Job, powerbi: Any, n: dict[str, Any], newest: dict[An
     if n["records"] > 1 and n["chosen"] in newest:
         value = newest[n["chosen"]]
         if value is not None and pm.same_number(a, value):
-            return ("older_version", "", words.DETAIL_OLDER_RECORD.format(n=n["records"]))
+            if job.context.sync_before_refresh:
+                return ("older_version", "", words.DETAIL_OLDER_RECORD.format(n=n["records"]))
+            return ("rule", "several_records", words.DETAIL_NEWEST_RECORD.format(n=n["records"]))
     if job.context.sync_before_refresh and n["status"] != rc.ACCEPTED:
         return ("older_version", "", "")
     return fallback(job)

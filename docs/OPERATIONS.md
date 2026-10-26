@@ -2945,9 +2945,10 @@ the raw line is never kept. Applied: "field is value(s)" for `country_name`, `st
 `is_blueprint_canonical`; a comparison (with "or is blank") for `actual_value`, a comparison for `location_value`.
 Another shape is "cannot apply"; a field NeuroDB does not know keeps its name and condition words, never its
 value; a value outside its field's vocabulary is not kept; another country makes the export "Not compared". The
-job looks for `is_period_latest` and `is_blueprint_canonical` among the fields every partner report record of the
-last sync carries (`raw.keys_kept`, Raw eTools data's fields): there, "applied from the records"; otherwise
-"applied as NeuroDB reads it", with a note on the export.
+comparison compares with NeuroDB's pages, and none of them reads `is_period_latest` or `is_blueprint_canonical`:
+both are "applied as NeuroDB reads it" (the newest row of each report and location; each PD indicator counted
+once), and the export's note says whether every partner report record of the last sync carries the field
+(`raw.keys_kept`, Raw eTools data's fields) or not.
 
 **What is kept** (`datamart/models.py`, migration `datamart/0019_powerbi_compare`, three new tables):
 `PowerBIUpload` (status, who, when, `queued_at`, the day the statuses are read for, Power BI's refresh, the
@@ -3007,12 +3008,19 @@ the card are explained from them), then Power BI's order.
   partner and title, then title, sections and target for a partner written differently; Power BI's row that
   joins two NeuroDB rows when its Reached and Target are their sums), most similar first. Location copies (one
   per CP output of the PD) are joined first; summing kinds (by sector, disaggregations) add up rows with the
-  same match values on each side; a value missing on one side is the same when the other is 0.
+  same match values on each side; a value missing on one side is the same when the other is 0. The table by
+  sector's Total row is checked against Power BI's own rows and NeuroDB's total as notes, never as a line (its
+  gaps are the sections').
 - **Reasons** (`powerbi_words.REASON_ORDER`, the first whose test passes; a line whose columns give several takes
-  the highest group): before NeuroDB's history, the PD not running (group 3), a report still owed, not in the
-  Datamart read (group 2 when NeuroDB's partner reports sync finished on or before Power BI's refresh date, 4
-  after), left out by the page, an older version (several records, the newest disagreeing; or an earlier step
-  and the sync before the refresh), a different rule (`RULES`), a status counted differently, a repeated value,
+  the highest group): before NeuroDB's history (also a Program Performance row whose PD started before it and
+  has no Accepted report in NeuroDB: its Accepted reports are older), the PD not running (group 3), a report
+  still owed, not in the Datamart read (group 2 when NeuroDB's partner reports sync finished on or before Power
+  BI's refresh date, 4 after), left out by the page, an older version (an earlier step, or several records of a
+  location whose newest gives Power BI's value, when the sync ran before the refresh; after it, NeuroDB holds the
+  newest record too and the line is the rule `several_records`: the page reads the largest), moved on since
+  Power BI's refresh (NeuroDB a later step and its sync not before the refresh; group 1), a different rule
+  (`RULES`), a status counted differently ("read for a different day" only when NeuroDB reads the statuses for
+  another day than Power BI's refresh; Power BI's Overdue on the due date itself is said so), a repeated value,
   upload the report list (or the Data Quality list) to see why, a filter NeuroDB cannot apply, not explained
   yet. Facts are one unfiltered query each (`powerbi_facts.Pds`, `Reports`: every PD and progress report NeuroDB
   holds, whatever its status).
@@ -3022,33 +3030,41 @@ the card are explained from them), then Power BI's order.
   `identity.Idents`, read by `reached.build_reports`), on the rows NeuroDB can check whole (the PD started on or
   after NeuroDB's history), chosen on the rows where Power BI is above 0; Data Quality's readings of its section
   and `actual_value`; the financial contribution; Outstanding DCT (Funded Programs' page has no such column).
-- **Lines** are kept in gzip buffers per group during the snapshot and written after it, group 4 first, at most
-  `LINE_LIMIT` (20,000) per export and `UPLOAD_LINE_LIMIT` (60,000) per upload; the rest are counted. Rules that
-  apply to every row are notes, never lines. The upload's summary keeps one verdict per Power BI page, the lines
-  by group and the Reached sentence; `choices` keeps *Choices for you* (Reached, progress or indicator reports,
-  Due and not yet due, Emergency) with their evidence.
+- **Lines** are kept in gzip buffers per group during the snapshot and written once every export is compared,
+  group by group across the exports (every export's group 4, then 3, 2 and 1: the limit drops expected lines
+  first), at most `LINE_LIMIT` (20,000) per export and `UPLOAD_LINE_LIMIT` (60,000) per upload; the rest are
+  counted (`counts["written_groups"]`: those listed, by group). *What to do now* and the pages link only to
+  listed lines, and say how many lines that need a look are counted but not listed. A detail is at most 300
+  characters by design (the other rules that fit by their short names, or how many), cut on a word if ever
+  longer. Rules that apply to every row are notes, never lines. The upload's summary keeps one verdict per
+  Power BI page, the lines by group and the Reached sentence; `choices` keeps *Choices for you* (Reached,
+  progress or indicator reports, Due and not yet due, Emergency) with their evidence.
 - **Pages and the Excel file** (`powerbi_results`): *What to do now* (at most four lines), one line per Power BI
-  page with its worst export's verdict; an export's page with its notes, fit tables, lines by group and reason
-  and the lines (at most 5,000, 100 a page, filtered by reason and kind); `datamart/powerbi/<pk>/differences.xlsx`
-  (`datamart_powerbi_xlsx`, `reports/xlsx.py`, behind `raw.take_slot()`: 503 while every slot is taken): a
-  Summary sheet and one sheet per export, a row only on one side in wide form, a row that differs in long form,
-  at most 100,000 rows a sheet and 300,000 in the file.
+  page with its worst export's verdict (with expected lines only: "Same data, counted another way" for a rule,
+  a status, a repeated value or a row the page leaves out; "Same, apart from reports still owed: n" for reports
+  still owed, rows before NeuroDB's history and reports that moved on; both when both); an export's page with
+  its notes, fit tables, lines by group and reason and the lines (at most 5,000, 100 a page, filtered by reason
+  and kind); `datamart/powerbi/<pk>/differences.xlsx` (`datamart_powerbi_xlsx`, `reports/xlsx.py`, behind
+  `raw.take_slot()`: 503 while every slot is taken): a Summary sheet and one sheet per export, a row only on one
+  side in wide form, a row that differs in long form, at most 100,000 rows a sheet and 300,000 in the file.
 
 Measured here, comparing 100,000 fake disaggregation rows against an empty NeuroDB took about 35 s with a
-tracemalloc peak of about 40 MB (the test bounds it at 150 MB); read the first production uploads' own
-`seconds` and `peak_memory_mb` before sizing anything.
+tracemalloc peak of about 40 MB, and against a NeuroDB holding the same values (10,000 records, every row the
+same) about 5 s (23 s under tracemalloc), 81 queries and a peak of about 43 MB (both tests bound it at
+150 MB); read the first production uploads' own `seconds` and `peak_memory_mb` before sizing anything.
 
 **Tests.** `tests/datamart/test_powerbi_read.py` (every kind recognised under any file name, both layouts and
 string encodings, types, codes, refusals, the zip shape, staging), `tests/datamart/test_powerbi_filters.py`
 (every clause shape, the order of trial, what is kept), `tests/datamart/test_powerbi_job.py` (start, lock,
 refusals, stale, the command, retention, nothing on disk, a large export read whole and compared within its
-memory and line limits, memory not growing with the rows), `tests/datamart/test_powerbi_privacy.py` (people
-planted in the files, and in NeuroDB's own records, never reach a table, a log, a page, the Excel file, the job's
-output, the session or a cookie), `tests/datamart/test_powerbi_admin.py` (access, the sidebar, the pages, the
-export's lines, the Excel file, kept apart from the AI) and `tests/datamart/test_powerbi_compare.py`
-(every kind against a small fake NeuroDB: the same data gives no line, each reason, the fit tables, the
-filters read exactly, an empty export, the page figures unchanged), with generated fake exports only
-(`tests/datamart/powerbi_factory.py`).
+memory and line limits, against an empty and a matching NeuroDB, memory not growing with the rows),
+`tests/datamart/test_powerbi_privacy.py` (people planted in the files, and in NeuroDB's own records, never reach
+a table, a log, a page, the Excel file, the job's output, the session or a cookie),
+`tests/datamart/test_powerbi_admin.py` (access, the sidebar, the pages, the export's lines, the Excel file, kept
+apart from the AI) and `tests/datamart/test_powerbi_compare.py` (every kind against a small fake NeuroDB: the
+same data gives no line, each reason, the fit tables, the filters read exactly, an empty export, the page
+figures unchanged, the upload's line limit, each comparer's queries the same for 3 and 12 PDs), with generated
+fake exports only (`tests/datamart/powerbi_factory.py`).
 
 ### Recording real records as test fixtures
 

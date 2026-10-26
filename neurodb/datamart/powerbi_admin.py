@@ -222,7 +222,9 @@ def _export_row(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
         "counts": _counts_words(export) if export.state == "compared" else "",
         "set_aside": words.EXPORT_SET_ASIDE.format(n=export.set_aside) if export.set_aside else "",
         "look": look,
-        "look_url": powerbi_results.export_url(upload, export, group=4) if look else "",
+        "look_url": powerbi_results.export_url(upload, export, group=4)
+        if powerbi_results.written_groups(export).get(4)
+        else "",
         "same": counts.get("same", 0) + counts.get("same_zero", 0),
     }
 
