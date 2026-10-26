@@ -178,10 +178,12 @@ POWERBI_SLICERS: dict[str, dict[str, str]] = {
         "partners": names.slicer("Partner", _PM_PAGES),
         "document_types": names.slicer("Document type", _PM_PAGES),
         "offices": names.slicer("Office", _PM_PAGES),
+        "emergency": names.slicer("Emergency indicator", _PM_PAGES),
     },
 }
 # Power BI's slicers NeuroDB's page has no filter for: set as said on every page, or cleared. Its Emergency
-# indicator is Yes for an SPD (NeuroDB's emergency filter: the indicator's high frequency), its CP Output
+# indicator is NeuroDB's (the PD is an SPD, by the user's decision of 26 Oct 2026): set on Partner monitoring,
+# cleared on Progress reports, where most of the Power BI pages compared have no such slicer. Its CP Output
 # search matches every CP output of the PD (NeuroDB's: the indicator's), and its Indicator Title box the title
 # alone (Partner monitoring's search: the title or the output); its Report status, Report type, Report # and
 # Partner type are NeuroDB filters the sheet clears on both sides
@@ -218,7 +220,7 @@ NEURODB_ONLY: dict[str, dict[str, str]] = {
         "overdue": "Overdue only",
         "report_types": "Report type",
         "statuses": "Report status",
-        "emergency": "Emergency indicator (high frequency)",
+        "emergency": "Emergency indicator",
         # By disaggregation's own filters
         "indicator": "By disaggregation: indicator",
         "location": "By disaggregation: location",
@@ -235,7 +237,6 @@ NEURODB_ONLY: dict[str, dict[str, str]] = {
         "q": "Indicator or output",
         "tags": "Tags",
         "partner_types": "Partner type",
-        "emergency": "Emergency (high frequency)",
         "cp_output": "CP output",
     },
 }
@@ -313,12 +314,13 @@ WHY_THEY_DIFFER = (  # (why, where to see it); {history} and the Power BI pages 
         "eTools reporting checks: check 7; Raw eTools data → PD indicators.",
     ),
     (
-        "{reporting_progress} in Power BI counts progress reports; NeuroDB's tiles and charts count "
-        "indicator reports.",
+        "{reporting_progress} counts progress reports, in Power BI and in NeuroDB; NeuroDB's tiles give the "
+        "indicator reports in them too.",
         "This file: Progress reports; Compare with Power BI: {reporting_progress}.",
     ),
     (
-        "Power BI's lists call a report not yet due 'Due'.",
+        "Both call a report not yet due 'Due' in their lists of reports to follow up; NeuroDB's own lists "
+        "and charts call it Not yet due.",
         "Compare with Power BI: {partner_performance} and {pd_report}.",
     ),
     (
@@ -442,48 +444,48 @@ def _status_cards(r: Read) -> Iterator[Line]:
             f"NeuroDB leaves out {left_out['by_pd_status']:,} indicator reports of programme documents with "
             f"another status or not in NeuroDB, and {left_out['no_pd']:,} naming no programme document."
         )
-    total = counts["indicator_reports"]
+    total = counts["progress_reports"]
     yield (
-        "pr.indicator_reports",
+        "pr.progress_reports",
         POWERBI_ITEMS["total"],
-        "Progress reports → Indicator reports",
+        "Progress reports → Progress reports",
         total,
-        IR,
+        PR,
         note,
     )
     for s in counts["statuses"]:
         note = OVERDUE_NOTE if s["key"] == rc.OVERDUE else ""
         figure = f"Progress reports → {s['label']}"
         key = f"pr.status.{s['key']}"  # on Power BI's card of that status, when it has one
-        yield (key, card(key) or s["label"], figure, s["indicator_reports"], IR, note)
+        yield (key, card(key) or s["label"], figure, s["progress_reports"], PR, note)
 
 
 def _by_section(r: Read) -> Iterator[Line]:
     table = r.data["page"]["by_section"]
     labels = [rc.STATUS_LABELS[k] for k in reporting.STATUS_KEYS]
-    figure, total = "Progress reports → Indicator reports by section", POWERBI_ITEMS["total"]
+    figure, total = "Progress reports → Progress reports by section", POWERBI_ITEMS["total"]
     for row in table["rows"]:
         section = row["section"]
         name = NO_SECTION if section == reporting.NO_SECTION else section
         for key, label, n in zip(reporting.STATUS_KEYS, labels, row["counts"], strict=True):
-            yield (f"pr.section.{section}.{key}", f"{name} · {label}", figure, n, IR, "")
-        yield (f"pr.section.{section}.total", f"{name} · {total}", figure, row["total"], IR, "")
+            yield (f"pr.section.{section}.{key}", f"{name} · {label}", figure, n, PR, "")
+        yield (f"pr.section.{section}.total", f"{name} · {total}", figure, row["total"], PR, "")
     for key, label, n in zip(reporting.STATUS_KEYS, labels, table["totals"], strict=True):
-        yield (f"pr.section_total.{key}", f"{total} · {label}", figure, n, IR, "")
-    yield ("pr.section_total.total", total, figure, table["total"], IR, "")
+        yield (f"pr.section_total.{key}", f"{total} · {label}", figure, n, PR, "")
+    yield ("pr.section_total.total", total, figure, table["total"], PR, "")
 
 
 def _by_month(r: Read) -> Iterator[Line]:
     chart = r.data["page"]["by_month"]
     keys = {label: key for key, label in rc.STATUS_LABELS.items()}
-    figure = "Progress reports → Indicator reports by month of the reporting period's end"
+    figure = "Progress reports → Progress reports by month of the reporting period's end"
     for i, month in enumerate(chart["labels"]):
         try:
             code = datetime.datetime.strptime(month, "%b %Y").strftime("%Y-%m")
         except ValueError:
             code = "none"  # "No period end"
         for label, values in chart["series"].items():
-            yield (f"pr.month.{code}.{keys[label]}", f"{month} · {label}", figure, values[i], IR, "")
+            yield (f"pr.month.{code}.{keys[label]}", f"{month} · {label}", figure, values[i], PR, "")
 
 
 def _report_list(r: Read) -> Iterator[Line]:
@@ -715,7 +717,7 @@ def _words(page: str, name: str, value: Any, filters: Any, partners: dict[str, s
         return "Every programme document, of every status and year"
     if name == "report_type":
         words = monitoring.REPORT_TYPES.get(value, value)
-        return words + ": only emergency or cluster indicators" if value == "HR" else words
+        return words + ": only high-frequency or cluster indicators" if value == "HR" else words
     if name == "status":
         return monitoring.LABELS.get(value, value)
     if name == "tags":
@@ -1002,8 +1004,8 @@ def _everything(sheet: Sheet, found: Read) -> None:
     sheet.add(
         None, Bold("Everything NeuroDB holds"), "whatever the page's filter: every PD status and every year"
     )
-    sheet.add(None, "Indicator reports", every["indicator_reports"])
     sheet.add(None, "Progress reports", every["progress_reports"])
+    sheet.add(None, "Indicator reports", every["indicator_reports"])
     if found.page == "partner-monitoring":
         held = PCA.objects.exclude(status__in=pd_statuses.NOT_A_PARTNERSHIP).count()
         sheet.add(None, "Programme documents", held)

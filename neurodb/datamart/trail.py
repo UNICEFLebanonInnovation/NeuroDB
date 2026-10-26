@@ -258,8 +258,9 @@ class Report:
     """What the trail reads of one progress report the filter keeps (``progress_reports`` and
     ``with_pd_details``): its status and whether the status filter keeps it, the month its period ends in, its
     partner (``partner_key``) and whether that partner has reported, its programme document
-    (``pd_follow_up_key``), whether it was submitted late, each indicator report's section, the status word
-    and the newest record carrying it, and its rows the filter leaves out."""
+    (``pd_follow_up_key``), whether it was submitted late, each indicator report's section and the section the
+    report is counted under (``reporting.report_section``), the status word and the newest record carrying
+    it, and its rows the filter leaves out."""
 
     status: str
     chosen: bool
@@ -272,6 +273,7 @@ class Report:
     word: str
     word_from: Any
     rows_outside: int
+    section: str = ""
 
 
 @dataclass(frozen=True)
@@ -496,6 +498,7 @@ def chain(
             word=word,
             word_from=newest[1] if newest else None,
             rows_outside=every_row[key] - kept_rows[key],
+            section=reporting.report_section(r),
         )
     trail_rows = TrailRows(
         stages=tuple(name for name, _ in steps),
@@ -541,8 +544,8 @@ def _check(rows: TrailRows, name: str, value: Any) -> Callable[[int, tuple], boo
     reports = rows.reports
     if name == "status":
         return lambda pk, r: reports[r[1]].status == value
-    if name == "section":
-        return lambda pk, r: reports[r[1]].sections.get(r[2]) == value
+    if name == "section":  # the section a progress report is counted under (reporting.report_section)
+        return lambda pk, r: reports[r[1]].section == value
     if name == "month":
         return lambda pk, r: reports[r[1]].month == value
     if name == "late":
@@ -557,8 +560,10 @@ def _check(rows: TrailRows, name: str, value: Any) -> Callable[[int, tuple], boo
         return lambda pk, r: reports[r[1]].pd == value
     if name == "report":
         return lambda pk, r: r[1] == value
-    if name == "follow_up":
-        return lambda pk, r: (reports[r[1]].status in reporting.FOLLOW_UP) == value
+    if name == "follow_up":  # a report to follow up (one not yet due among the Due ones)
+        return lambda pk, r: (reports[r[1]].status in reporting.FOLLOW_UP_STATUSES) == value
+    if name == "follow_up_status":  # its status in the lists to follow up: one not yet due is Due there
+        return lambda pk, r: reporting.follow_up_status(reports[r[1]].status) == value
     raise ValueError(f"no condition named {name!r}")
 
 
@@ -634,13 +639,15 @@ CHOSEN = (("set", "chosen"),)
 
 
 def _tiles(counts: dict[str, Any]) -> list[Figure]:
+    """The tiles: progress reports per status (as Power BI's Reporting Progress counts them, the user's
+    decision of 26 Oct 2026), and under each the indicator reports in them."""
     out = [
         Figure(
-            "pr.indicator_reports",
-            "Indicator reports",
-            IR,
-            counts["indicator_reports"],
-            how="Every indicator report kept, of the report statuses chosen",
+            "pr.progress_reports",
+            "Progress reports",
+            PR,
+            counts["progress_reports"],
+            how="Every progress report kept, of the report statuses chosen",
             select=CHOSEN,
         )
     ]
@@ -649,30 +656,30 @@ def _tiles(counts: dict[str, Any]) -> list[Figure]:
             Figure(
                 f"pr.status.{s['key']}",
                 s["label"],
-                IR,
-                s["indicator_reports"],
+                PR,
+                s["progress_reports"],
                 how=f"With the status {s['label']} (one status per progress report, read from all its rows)",
                 select=(*CHOSEN, ("status", s["key"])),
             )
         )
     out.append(
         Figure(
-            "pr.progress_reports",
-            "Indicator reports: the progress reports under it",
-            PR,
-            counts["progress_reports"],
-            how="Every progress report kept, of the report statuses chosen",
+            "pr.indicator_reports",
+            "Progress reports: the indicator reports under it",
+            IR,
+            counts["indicator_reports"],
+            how="Every indicator report kept, of the report statuses chosen",
             select=CHOSEN,
         )
     )
     for s in counts["statuses"]:
         out.append(
             Figure(
-                f"pr.status_reports.{s['key']}",
-                f"{s['label']}: the progress reports under it",
-                PR,
-                s["progress_reports"],
-                how=f"Progress reports with the status {s['label']}",
+                f"pr.status_indicators.{s['key']}",
+                f"{s['label']}: the indicator reports under it",
+                IR,
+                s["indicator_reports"],
+                how=f"Indicator reports of the progress reports with the status {s['label']}",
                 select=(*CHOSEN, ("status", s["key"])),
             )
         )
@@ -723,13 +730,16 @@ def _by_section(table: dict[str, Any]) -> list[Figure]:
     for row in table["rows"]:
         section = row["section"]
         name = "(no section)" if section == reporting.NO_SECTION else section
-        how = f"Counted under {name} (the row's section, else its programme document's sections, joined)"
+        how = (
+            f"Progress reports counted under {name} (their Section as the table shows it: their rows' own "
+            "sections, else their programme document's, joined)"
+        )
         for key, label, n in zip(reporting.STATUS_KEYS, labels, row["counts"], strict=True):
             out.append(
                 Figure(
                     f"pr.section.{section}.{key}",
                     f"{name} · {label}",
-                    IR,
+                    PR,
                     n,
                     how=f"{how}, status {label}",
                     select=(*CHOSEN, ("status", key), ("section", section)),
@@ -739,7 +749,7 @@ def _by_section(table: dict[str, Any]) -> list[Figure]:
             Figure(
                 f"pr.section.{section}.total",
                 f"{name} · Total",
-                IR,
+                PR,
                 row["total"],
                 how=how,
                 select=(*CHOSEN, ("section", section)),
@@ -752,7 +762,7 @@ def _by_section(table: dict[str, Any]) -> list[Figure]:
             Figure(
                 f"pr.section_total.{key}",
                 f"Total · {label}",
-                IR,
+                PR,
                 n,
                 how=f"Every section, status {label}",
                 select=(*CHOSEN, ("status", key)),
@@ -764,7 +774,7 @@ def _by_section(table: dict[str, Any]) -> list[Figure]:
         Figure(
             "pr.section_total.total",
             "Total",
-            IR,
+            PR,
             table["total"],
             how="Every section",
             select=CHOSEN,
@@ -794,7 +804,7 @@ def _by_month(chart: dict[str, Any]) -> list[Figure]:
                 Figure(
                     f"pr.month.{code}.{keys[label]}",
                     f"{month} · {label}",
-                    IR,
+                    PR,
                     values[i],
                     how=f"Period ends in {month}, status {label}",
                     select=(*CHOSEN, ("status", keys[label]), ("month", code)),
@@ -913,7 +923,8 @@ def _partners(partners: dict[str, Any], *, every: bool = True, drawn: bool = Tru
             "Reports to follow up",
             PR,
             len(partners["follow_up"]),
-            how="Progress reports Overdue, Sent back, Due or Submitted",
+            how="Progress reports Overdue, Sent back, Due (one not yet due among them, as in Power BI's "
+            "list) or Submitted",
             select=(*CHOSEN, ("follow_up", True)),
         )
     )
@@ -935,14 +946,15 @@ def _home_pds(pds: dict[str, Any], rows: list[dict[str, Any]]) -> list[Figure]:
         name = row["pd_reference_number"] or "—"
         for key in reporting.FOLLOW_UP:
             label = rc.STATUS_LABELS[key]
+            also = " (one not yet due among them, as in Power BI's follow-up list)" if key == rc.DUE else ""
             out.append(
                 Figure(
                     f"home.pd.{row['pd_reference_number'] or row['key']}.{key}",
                     f"{name}: {label}",
                     PR,
                     row["counts"][key],
-                    how=f"This programme document's progress reports with the status {label}",
-                    select=(*CHOSEN, ("pd", row["key"]), ("status", key)),
+                    how=f"This programme document's progress reports with the status {label}{also}",
+                    select=(*CHOSEN, ("pd", row["key"]), ("follow_up_status", key)),
                 )
             )
     return out
@@ -1147,9 +1159,9 @@ def _filter_title(name: str, filters: reporting.ReportFilters) -> str:
         "partner": "Not the partner chosen" if len(f.partners) == 1 else "Not the partners chosen",
         "partner_type": f"Partner type is not {', '.join(f.partner_types)}",
         "not_a_partnership": "Programme document is a draft or cancelled (never read)",
-        "emergency": "Not an emergency (high frequency) indicator"
+        "emergency": "Its programme document is not an SPD (the Emergency indicator)"
         if f.emergency == "yes"
-        else "An emergency (high frequency) indicator",
+        else "Its programme document is an SPD (the Emergency indicator)",
         "start_from": f"Period starts before {_day(f.start_from)}",
         "start_to": f"Period starts after {_day(f.start_to)}",
         "end_from": f"Period ends before {_day(f.end_from)}",
@@ -1365,13 +1377,13 @@ def _progress_trail(page: str, params: Any, day: datetime.date) -> Trail:
                 ),
                 Block(
                     "sections",
-                    "Indicator reports by section",
+                    "Progress reports by section",
                     "reports",
                     tuple(_by_section(data["by_section"])),
                 ),
                 Block(
                     "months",
-                    "Indicator reports by month of the reporting period's end (the chart)",
+                    "Progress reports by month of the reporting period's end (the chart)",
                     "reports",
                     tuple(_by_month(data["by_month"])),
                 ),

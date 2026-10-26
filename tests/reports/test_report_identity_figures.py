@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,17 @@ def _plain(value: Any) -> Any:
     if isinstance(value, list | tuple):
         return [_plain(v) for v in value]
     return value
+
+
+def _indicator_reports_by_month(reports: list[dict[str, Any]]) -> dict[str, list[int]]:
+    """The indicator reports by month of the reporting period's end and status, as the chart counted them when
+    the figures were frozen (``reporting.by_month``'s series, each report weighing its indicator reports)."""
+    months: dict[Any, Counter] = defaultdict(Counter)
+    for r in reports:
+        months[reporting.report_month(r)][r["status"]] += r["indicators"]
+    order = sorted(m for m in months if m is not None) + ([None] if None in months else [])
+    present = [k for k in reporting.STATUS_KEYS if any(months[m].get(k) for m in order)]
+    return {reached.STATUS_LABELS[k]: [months[m].get(k, 0) for m in order] for k in present}
 
 
 def figures(world: World) -> dict[str, Any]:
@@ -99,9 +111,15 @@ def figures(world: World) -> dict[str, Any]:
             f"{r['status']}|{r['indicators']}"
             for r in data["reports"]
         )
-        out[f"progress/{choice}/counts"] = {k: v for k, v in data["counts"].items() if k != "statuses"}
+        # the indicator reports per status and per month, as frozen (the tiles and the chart count progress
+        # reports since the user's decision of 26 Oct 2026: "summary" and "reports" freeze those)
+        counts = data["counts"]
+        out[f"progress/{choice}/counts"] = {
+            **{k: v for k, v in counts.items() if k not in ("statuses", *reporting.STATUS_KEYS)},
+            **{s["key"]: s["indicator_reports"] for s in counts["statuses"]},
+        }
         out[f"progress/{choice}/summary"] = data["summary"]["statuses"]
-        out[f"progress/{choice}/by_month"] = data["by_month"]["series"]
+        out[f"progress/{choice}/by_month"] = _indicator_reports_by_month(data["reports"])
         out[f"progress/{choice}/partners"] = {
             k: data["partners"][k] for k in ("partners", "reported", "not_reported")
         }

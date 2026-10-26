@@ -14,7 +14,7 @@
     <input class="form-control form-control-sm" type="search" id="f-indicator" name="indicator" value="{{ indicator_q }}" placeholder="{% trans 'Words in the title' %}">
   </div>
   <div class="filter-bar__field">
-    <label class="form-label" for="f-emergency"><span class="has-tip" title="{% trans 'Emergency indicators are the high-frequency ones, reported monthly in humanitarian reports' %}">{% trans "Emergency" %}</span></label>
+    <label class="form-label" for="f-emergency"><span class="has-tip" title="{% trans "Yes: the indicators of SPDs (simplified programme documents), as Power BI's Emergency indicator" %}">{% trans "Emergency" %}</span></label>
     <select class="form-select form-select-sm" id="f-emergency" name="emergency">
       <option value="">{% trans "All" %}</option>
       <option value="yes" {% if emergency == "yes" %}selected{% endif %}>{% trans "Yes" %}</option>

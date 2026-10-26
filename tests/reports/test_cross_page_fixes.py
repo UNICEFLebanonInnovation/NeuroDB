@@ -173,7 +173,9 @@ def test_a_report_whose_rows_disagree_has_one_status_on_every_page(pd):
         "# of boys enrolled": ("Submitted", 20.0),
     }
     data = services.partner_reporting({}, TODAY)
-    assert data["counts"]["submitted"] == 2 and data["counts"]["accepted"] == 0
+    # the tiles count progress reports: one Submitted report, of two indicator reports
+    assert data["counts"]["submitted"] == 1 and data["counts"]["accepted"] == 0
+    assert {s["key"]: s["indicator_reports"] for s in data["counts"]["statuses"]}["submitted"] == 2
     assert [r["status"] for r in data["reports"]] == ["submitted"]
     assert services.report_detail("C-9", TODAY)["status"] == "submitted"
     tab = reporting.location_rows(data["rows"], data["statuses"], TODAY)["rows"]
@@ -186,7 +188,7 @@ def test_a_report_whose_rows_disagree_has_one_status_on_every_page(pd):
     dm.ReportedIndicator.objects.filter(indicator="# of girls enrolled").update(last_modify_date=changed)
     assert {r.report_status for r in grid(pd)} == {"Accepted"}
     data = services.partner_reporting({}, TODAY)
-    assert (data["counts"]["accepted"], data["counts"]["submitted"]) == (2, 0)
+    assert (data["counts"]["accepted"], data["counts"]["submitted"]) == (1, 0)
     assert services.report_detail("C-9", TODAY)["status"] == "accepted"
 
 
@@ -325,13 +327,22 @@ def test_progress_reports_open_on_the_running_pds(reporting_pds, client_viewer):
 
 
 def test_progress_reports_emergency_filter(reporting_pds, client_viewer):
+    """The Emergency indicator keeps the reports of SPDs, as Power BI's (the user's decision of 26 Oct 2026):
+    A-1's high-frequency girls rows are not emergency ones."""
+    PCA.objects.filter(pk=reporting_pds["ended"].pk).update(document_type="SPD")
     url = reverse("reports:partner_reporting")
-    yes = client_viewer.get(url, {"emergency": "yes"}).context["data"]["counts"]["indicator_reports"]
-    no = client_viewer.get(url, {"emergency": "no"}).context["data"]["counts"]["indicator_reports"]
-    every = client_viewer.get(url).context["data"]["counts"]["indicator_reports"]
-    assert (yes, no, every) == (1, 1, 2)
-    tab = client_viewer.get(url, {"tab": "locations", "emergency": "yes"}).context["locations"]["rows"]
-    assert {r["emergency"] for r in tab} == {"Yes"} and len(tab) == 2
+    every_status = {"pd_status": ""}
+
+    def counts(**params):
+        found = client_viewer.get(url, {**every_status, **params}).context["data"]["counts"]
+        return found["progress_reports"], found["indicator_reports"]
+
+    assert (counts(emergency="yes"), counts(emergency="no"), counts()) == ((1, 1), (1, 2), (2, 3))
+    for chosen, pd, word in (("yes", "LEB/ENDED", "Yes"), ("no", "LEB/PCA-C", "No")):
+        tab = client_viewer.get(url, {**every_status, "tab": "locations", "emergency": chosen})
+        assert {(r["programme_document"], r["emergency"]) for r in tab.context["locations"]["rows"]} == {
+            (pd, word)
+        }
 
 
 def test_the_month_chart_places_a_report_in_the_month_its_period_ends():
@@ -346,7 +357,8 @@ def test_the_month_chart_places_a_report_in_the_month_its_period_ends():
     ]
     chart = reporting.by_month(reports)
     assert chart["labels"] == ["Sep 2026", "Dec 2026"]
-    assert chart["series"] == {"Due": [21, 0], "Not yet due": [0, 3]}
+    # progress reports, as Power BI's chart counts them (the user's decision), not their indicator reports
+    assert chart["series"] == {"Due": [1, 0], "Not yet due": [0, 1]}
 
 
 # ---------------------------------------------------------------------------- Program Performance

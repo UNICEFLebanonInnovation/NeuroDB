@@ -2057,15 +2057,17 @@ def _reporting_export(data: dict[str, Any], tab: str, fmt: str, params=None) -> 
     if fmt == "csv":
         return exports.stream_csv(exports.export_filename(label, "csv"), columns, rows)
     sheets: list[tuple[str, Any, Any]] = [(title, columns, rows)]
+    # the tiles: progress reports per status (as Power BI's Reporting Progress counts them), the indicator
+    # reports in them beside
     status_rows = [
         {
             "status": s["label"],
-            "indicator_reports": s["indicator_reports"],
             "progress_reports": s["progress_reports"],
+            "indicator_reports": s["indicator_reports"],
         }
         for s in data["counts"]["statuses"]
     ]
-    sheets.append(("By status", ("status", "indicator_reports", "progress_reports"), status_rows))
+    sheets.append(("By status", ("status", "progress_reports", "indicator_reports"), status_rows))
     labels = list(reporting_service.rc.STATUS_LABELS.values())
     section_rows = [
         {"section": row["section"], **dict(zip(labels, row["counts"], strict=True)), "Total": row["total"]}

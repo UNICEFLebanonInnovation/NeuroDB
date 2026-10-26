@@ -57,7 +57,7 @@ status, the tab's own filters) and their lines.
 
 **A worked example.** The tile *Overdue* on Progress reports, section Education:
 
-> Overdue: 41 indicator reports in 12 progress reports, the same as the page.
+> Overdue: 12 progress reports, the same as the page.
 >
 > 1. eTools said it had 780,905 partner report rows, of every country: the Datamart does not filter this
 >    list by country. NeuroDB received 780,975: 70 more than it said, records added during the sync.
@@ -69,7 +69,7 @@ status, the tab's own filters) and their lines.
 >    indicator reports left out entirely, 3 partly); programme document is a draft or cancelled (12 rows);
 >    the PD status filter (300 rows). [CSV for each]
 > 5. Kept by the filter: 2,545 rows, 820 indicator reports in 210 progress reports. [Kept rows CSV]
-> 6. With the status Overdue: 41 indicator reports in 12 progress reports.
+> 6. With the status Overdue: 12 progress reports.
 
 The rows that set a report's status (its newest word, across all its rows, also those the filter leaves out)
 download beside step 5: *Rows that set the status (CSV)*.
@@ -156,10 +156,12 @@ the row: `report_status_neurodb` (the report's status), `report_status_chosen`, 
 2. Filter `report_status_chosen` on *yes*.
 3. Put `report_status_neurodb` in Rows (or `section_counted` with it in Columns, for the section table; or
    `period_end_month`, for the month chart).
-4. Put the sum of `counts_once_indicator_report` in Values: the tiles. The sum of
-   `counts_once_progress_report` gives the progress reports under them, and the sum of
-   `counts_once_partner` the Partners tab's *Partners*. A distinct count of `indicator_report_unit`,
-   `progress_report_unit` or `partner_unit` gives the same.
+4. Put the sum of `counts_once_progress_report` in Values: the tiles, the section table and the month chart
+   (they count progress reports, as Power BI's Reporting Progress does). The sum of
+   `counts_once_indicator_report` gives the indicator reports under each tile, and the sum of
+   `counts_once_partner` the Partners tab's *Partners*. A distinct count of `progress_report_unit`,
+   `indicator_report_unit` or `partner_unit` gives the same. The reports to follow up are those Overdue, Sent
+   back, Due, Not yet due (listed as Due there, as Power BI does) and Submitted.
 
 Each figure's own *Rows (CSV)* holds only the rows it counts, with `unit_key` (its unit) and `counts_once`:
 their sum is the figure. In a step's CSV, `counts_once` is 1 only on a unit the step leaves out entirely
@@ -227,8 +229,7 @@ order: needs a look, check the PD in eTools, wait for the next sync, NeuroDB can
 
 - **Expected: nothing to fix.** A row before NeuroDB's history (for a programme that started before it, Power
   BI can show reports NeuroDB never holds), a report that moved on after Power BI's refresh (NeuroDB already
-  has its newer status), a status Power BI reads another way (its lists call a report not yet due "Due": the
-  report list of the same upload gives the follow-up list's periods), a value PRP repeats on every location, or
+  has its newer status), a status Power BI reads another way, a value PRP repeats on every location, or
   *a different rule*: Power BI counts the figure another way (the line and the verdict point to *Choices for
   you* only when it offers a choice about that rule). Power BI's own rules are said so: it keeps one report
   per indicator, location and period end (NeuroDB keeps both); its Data Quality list names an indicator only in
@@ -285,7 +286,7 @@ exports it had not reached yet say "Not compared: the comparison stopped before 
 upload the files again once its details were removed).
 
 **An export's page** shows its filters one by one, its notes (rules that apply to every row are said once
-there: Power BI's Emergency indicator is Yes for an SPD, its Section and CP Output are the PD's), the
+there: Power BI's Section and CP Output are the PD's), the
 differences by reason (needs a look first, then what NeuroDB cannot show yet; the expected ones on one line,
 with the rows counted in a note), and the lines themselves, the ones that need a look
 first, 100 a page: each with Power BI's value and NeuroDB's for every column that differs, the reason, what to
@@ -301,6 +302,9 @@ NeuroDB's own rule gives 35." On the upload's page, **Choices for you** lists wh
 rule fits most of the rows (for instance "Power BI's Reached matches 'adds up the Accepted quarterly reports'
 on 18 of 20 rows NeuroDB can check"), each with one question; a rule that fits only a few rows is said so, and
 no choice is offered. NeuroDB's pages keep their own rules until you decide: nothing on them changes.
+NeuroDB follows Power BI in three rules you decided on 26 Oct 2026, so the comparison no longer asks them:
+Reporting Progress counts progress reports, the reports to follow up count a report not yet due as Due, and the
+Emergency indicator means the programme document is an SPD.
 
 **Download every difference (Excel)** gives a *Summary* sheet (what to do now as the page says it, the files
 not read and why, one line per Power BI page and export, the visuals not uploaded, the filters, the notes and
@@ -330,11 +334,11 @@ The file has these sheets:
   spellings where they differ: *Reporting Year / Reporting year*), and a *Done?* cell to tick; **Clear these
   in Power BI**: every other slicer and box of those pages (*Report status*, *Report type*, *Report #*,
   *Partner type*, *PD Reference #*...), among them those whose namesake means something else in NeuroDB
-  (Power BI's *Emergency indicator* is Yes for an SPD, NeuroDB's is the indicator's high frequency; Power BI's
-  *CP Output* search matches every CP output of the programme document, and its *Indicator Title* box the
-  title alone);
+  (Power BI's *CP Output* search matches every CP output of the programme document, and its *Indicator Title*
+  box the title alone);
   and **Clear these in NeuroDB before comparing**: the filters Power BI has no slicer for (a search, a report
-  number, a period, the emergency indicators, a CP output...). Then one
+  number, a period, a CP output...), and on Progress reports the emergency indicator (most of the Power BI
+  pages it is compared with have no such slicer). Then one
   row per figure: Power BI's page, the card or visual that shows it (or "No card or visual of Power BI" for a
   figure of NeuroDB's own) and its name, NeuroDB's page and figure, NeuroDB's value, and a yellow cell for
   Power BI's value. Type Power BI's number there: *Difference* and *Same?* fill in by
@@ -585,8 +589,10 @@ The comparison sheet's last sheet lists these too, each with where to see it.
   Accepted and Submitted reports, never adds a value repeated on every location, and takes PRP's cumulative
   for a partial history.
 - An indicator is counted once, although eTools lists it once per location and disaggregation.
-- Reporting Progress in Power BI counts progress reports; NeuroDB's tiles and charts count indicator reports.
-- Power BI's lists call a report not yet due "Due".
+- Reporting Progress counts progress reports, in Power BI and in NeuroDB; NeuroDB's tiles also give the
+  indicator reports in them.
+- Both call a report not yet due "Due" in their lists of reports to follow up; NeuroDB's own lists and charts
+  call it Not yet due.
 - Power BI joins rows that are the same in every column it shows, and repeats a location's row once per CP
   output.
 - Power BI shows a percentage indicator as a fraction on its Location and Disaggregation pages.

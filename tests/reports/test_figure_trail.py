@@ -67,7 +67,12 @@ CONDITIONS = {  # a figure's conditions, read on the Kept rows CSV's columns
     "pd": lambda row, v: row["pd_unit"] == v,
     "report": lambda row, v: row["progress_report_unit"] == v,
     "follow_up": lambda row, v: (
-        (row["report_status_neurodb"] in {rc.STATUS_LABELS[k] for k in reporting.FOLLOW_UP}) == v
+        (row["report_status_neurodb"] in {rc.STATUS_LABELS[k] for k in reporting.FOLLOW_UP_STATUSES}) == v
+    ),
+    # a report not yet due is one of the Due ones to follow up, as in Power BI's list
+    "follow_up_status": lambda row, v: (
+        {"Not yet due": "Due"}.get(row["report_status_neurodb"], row["report_status_neurodb"])
+        == rc.STATUS_LABELS[v]
     ),
 }
 ONCE_COLUMNS = {  # the Kept rows CSV's counts_once_* columns and the figure each sums to
@@ -226,9 +231,9 @@ def _expected(reports, partners) -> dict[str, int]:
         "pr.reports_listed": reports.context["page_obj"].paginator.count,
         "pr.section_total.total": data["by_section"]["total"],
     }
-    for s in data["counts"]["statuses"]:
-        out[f"pr.status.{s['key']}"] = s["indicator_reports"]
-        out[f"pr.status_reports.{s['key']}"] = s["progress_reports"]
+    for s in data["counts"]["statuses"]:  # the tiles count progress reports, their hints indicator reports
+        out[f"pr.status.{s['key']}"] = s["progress_reports"]
+        out[f"pr.status_indicators.{s['key']}"] = s["indicator_reports"]
     for name in ("by_pd_status", "other_status", "not_held", "no_pd"):
         out[f"pr.left_out.{name}"] = data["left_out"][name]
     for row in data["by_section"]["rows"]:
@@ -455,7 +460,10 @@ def test_a_step_s_csv_counts_once_the_units_it_leaves_out_entirely(validator, wo
     assert sum(int(r["counts_once"]) for r in rows) == left.out.indicator_reports
     assert sum(int(r["counts_once_progress_report"]) for r in rows) == left.out.progress_reports
     partly = {r["progress_report_unit"] for r in rows if r["progress_report_partly_kept"] == "yes"}
-    assert len(partly) == left.partly[1] > 0  # some of their rows kept
+    if step == "emergency":  # the PD is an SPD (the Emergency indicator): whole programme documents go
+        assert len(partly) == left.partly[1] == 0
+    else:
+        assert len(partly) == left.partly[1] > 0  # some of their rows kept
     assert len({r["indicator_report_unit"] for r in rows if r["unit_partly_kept"] == "yes"}) == left.partly[0]
     for r in rows:
         if r["unit_partly_kept"] == "yes":

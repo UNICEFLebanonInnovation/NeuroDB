@@ -70,6 +70,26 @@ _STATUS_WORDS = {
 # PRP's word for a report still to be submitted: it never counts, whatever dates it carries
 _DUE_WORDS = frozenset({"due", "ove", "overdue"})
 
+# NeuroDB's Emergency indicator: the programme document is a simplified one (an SPD; some eTools records write
+# SHPD), as Power BI's Emergency indicator is, by the user's decision of 26 Oct 2026. eTools' own "high
+# frequency" (an indicator reported monthly, in humanitarian reports) is another thing: the HR reports read it
+SPD_TYPES = ("SPD", "SHPD")
+
+
+def is_spd(document_type: Any) -> bool:
+    """Whether a programme document's type is an SPD (:data:`SPD_TYPES`, any case): NeuroDB's Emergency
+    indicator."""
+    return str(document_type or "").strip().upper() in SPD_TYPES
+
+
+def spd_q(path: str = "") -> Any:
+    """The database's :func:`is_spd`: the rows whose programme document is an SPD, through ``path``
+    ("intervention__" for a row linked to its PD, "" for a PD). A row linked to no PD is never one."""
+    from django.db.models import Q
+
+    return Q(**{f"{path}document_type__iregex": r"^\s*(" + "|".join(SPD_TYPES) + r")\s*$"})
+
+
 # what an indicator's value says about it
 NOT_REPORTED = "not_reported"  # no counted report with a value
 REPORTED_ZERO = "reported_zero"  # counted reports, and Reached is 0

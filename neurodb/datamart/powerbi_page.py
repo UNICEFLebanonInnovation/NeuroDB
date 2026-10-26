@@ -178,7 +178,6 @@ INDICATOR_FIELDS = (
     "cp_output",
     "pd_cp_outputs",
     "emergency",
-    "spd",
     "document_type",
     "target",
     "reached",
@@ -261,8 +260,7 @@ def _indicators(filters, context: pf.Context, reached: bool) -> list[dict[str, A
                     "pd_section_text": ", ".join(pd.sections) if pd else "",
                     "cp_output": context.clean(entry.cp_output),
                     "pd_cp_outputs": [context.clean(c) for c in (pd.cp_outputs if pd else ())],
-                    "emergency": bool(entry.high_frequency),
-                    "spd": pm.document_type(entry.pd.document_type) == "spd",
+                    "emergency": entry.emergency,  # the PD is an SPD, as Power BI's Emergency indicator
                     "document_type": entry.pd.document_type or "",
                     "target": entry.target,
                     "reached": entry.reached,

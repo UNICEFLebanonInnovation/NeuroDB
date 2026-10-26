@@ -93,9 +93,14 @@ def test_progress_reports_figures_are_the_page_s(validator, more, frozen, params
     found = _figures(PR, params)
     page = validator.get(reverse("reports:partner_reporting"), params).context
     data = page["data"]
-    assert found["pr.indicator_reports"].value == data["counts"]["indicator_reports"]
+    # Reporting Progress's cards, table and chart count progress reports, on the page and in the sheet (the
+    # user's decision of 26 Oct 2026)
+    assert found["pr.progress_reports"].value == data["counts"]["progress_reports"]
+    assert "pr.indicator_reports" not in found
     for s in data["counts"]["statuses"]:
-        assert found[f"pr.status.{s['key']}"].value == s["indicator_reports"]
+        assert found[f"pr.status.{s['key']}"].value == s["progress_reports"]
+    units = {f.unit for k, f in found.items() if k.startswith(("pr.status.", "pr.section", "pr.month."))}
+    assert units <= {comparison.PR}
     assert found["pr.reports_listed"].value == page["page_obj"].paginator.count
     for row in data["by_section"]["rows"]:
         for key, n in zip(reporting.STATUS_KEYS, row["counts"], strict=True):
@@ -179,7 +184,7 @@ def test_a_figure_is_named_after_a_visual_only_when_that_visual_shows_it(more, f
     assert named["pr.partners"] == "# of Partners" and named["pr.status.overdue"] == "Overdue Report"
     assert named["dq.reached_above_zero"] == "No. of Indicators with Reached"
     none = comparison.POWERBI_ITEMS["no_visual"]  # NeuroDB's own figures: no card or visual of Power BI
-    for key in ("pr.partners_status.not_yet_due", "pr.indicator_reports", "dq.running", "dq.zero_reached"):
+    for key in ("pr.partners_status.not_yet_due", "pr.progress_reports", "dq.running", "dq.zero_reached"):
         assert named[key] == none, key
 
 
@@ -412,7 +417,7 @@ def test_the_slicers_to_set_and_the_neurodb_filters_to_clear(validator, more, fr
     assert dict(clear) == {
         "CP output": "x",  # the indicator's CP output: Power BI's CP Output search matches the PD's
         "Programme documents": "Every programme document running in 2026, closed ones too",
-        "Report type": "Humanitarian reports (monthly): only emergency or cluster indicators",
+        "Report type": "Humanitarian reports (monthly): only high-frequency or cluster indicators",
         "Tracking status": "On track",
         "Tags": "Gender: Female; Age group: 12-17, Under 5",  # the filter bar's words
     }
@@ -447,30 +452,32 @@ def test_the_slicers_to_set_and_the_neurodb_filters_to_clear(validator, more, fr
 
 
 def test_a_neurodb_filter_that_means_something_else_in_power_bi_is_cleared_on_both_sides(more, frozen):
-    """NeuroDB's emergency filter (the indicator's high frequency) is not Power BI's Emergency indicator (the
-    document is an SPD); Partner monitoring's search (an indicator's title or output) is not Power BI's Indicator
-    Title box, nor its CP output Power BI's CP Output search (every CP output of the PD). Set, they are NeuroDB
-    filters to clear; Power BI's three are cleared on both pages."""
+    """Partner monitoring's search (an indicator's title or output) is not Power BI's Indicator Title box, nor
+    its CP output Power BI's CP Output search (every CP output of the PD). Set, they are NeuroDB filters to
+    clear; Power BI's two are cleared. NeuroDB's emergency filter is Power BI's Emergency indicator (the PD is an
+    SPD, the user's decision of 26 Oct 2026): a slicer to set on Partner monitoring; on Progress reports, whose
+    other Power BI pages have no such slicer, a filter to clear on both sides."""
     # the pages of each sheet that have them: Program Performance its CP Output and Indicator Title boxes
-    assert {"Emergency indicator", "CP Output", "Indicator Title"} <= set(comparison.POWERBI_TO_CLEAR[PM])
-    assert "Emergency indicator" in comparison.POWERBI_TO_CLEAR[PR]
+    assert {"CP Output", "Indicator Title"} <= set(comparison.POWERBI_TO_CLEAR[PM])
+    assert "Emergency indicator" not in comparison.POWERBI_TO_CLEAR[PM]
+    assert comparison.POWERBI_SLICERS[PM]["emergency"] == "Emergency indicator"
+    assert (
+        "Emergency indicator" in comparison.POWERBI_TO_CLEAR[PR]
+        and "emergency" in comparison.NEURODB_ONLY[PR]
+    )
     for page in comparison.PAGES:
-        assert {"Emergency indicator", "CP Output", "Indicator Title"}.isdisjoint(
-            comparison.POWERBI_SLICERS[page].values()
-        ), page
-        assert "emergency" in comparison.NEURODB_ONLY[page], page
-    assert {"q", "cp_output"} <= set(comparison.NEURODB_ONLY[PM])
+        assert {"CP Output", "Indicator Title"}.isdisjoint(comparison.POWERBI_SLICERS[page].values()), page
+    assert {"q", "cp_output"} <= set(
+        comparison.NEURODB_ONLY[PM]
+    ) and "emergency" not in comparison.NEURODB_ONLY[PM]
     params = {"view": "table", "year": "2026", "emergency": "yes", "q": "girls", "cp_output": "x"}
     slicers, clear = comparison.settings_rows(comparison.read(PM, params, TODAY))
-    assert {"Emergency indicator", "CP Output", "Indicator Title"}.isdisjoint(dict(slicers))
-    assert dict(clear) == {
-        "Indicator or output": "girls",
-        "Emergency (high frequency)": "Yes",
-        "CP output": "x",
-    }
+    assert {"CP Output", "Indicator Title"}.isdisjoint(dict(slicers))
+    assert dict(slicers)["Emergency indicator"].startswith("Yes")
+    assert dict(clear) == {"Indicator or output": "girls", "CP output": "x"}
     slicers, clear = comparison.settings_rows(comparison.read(PR, {"emergency": "no"}, TODAY))
     assert "Emergency indicator" not in dict(slicers)
-    assert dict(clear) == {"Emergency indicator (high frequency)": "No"}
+    assert dict(clear) == {"Emergency indicator": "No"}
 
 
 def test_power_bi_s_names_come_from_one_place(validator, more, frozen, monkeypatch):

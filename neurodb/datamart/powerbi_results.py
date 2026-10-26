@@ -53,10 +53,7 @@ APART_REASONS = ("owed", "before_history", "moved_on")
 RULE_CHOICES = {
     "reached": "reached",
     "accepted_only": "reached",
-    "progress_reports": "progress_reports",
-    "emergency": "emergency",
 }
-STATUS_CHOICES = {"follow_up": "due"}  # an export whose statuses counted differently are a choice
 # not in the Datamart read: the PD indicators' exports check the PD in eTools, as any row of a PD NeuroDB
 # does not hold; the others a report in PRP
 PD_ROWS = frozenset({"pd_indicators", "dq_list", "fund_monitoring", "funded_programmes"})
@@ -176,9 +173,7 @@ def has_choice(export: PowerBIExport, choices: frozenset[str] | None) -> bool:
         return True
     counts = export.counts or {}
     rules = counts.get("rules") or {}
-    if any(RULE_CHOICES.get(rule) in choices for rule in rules):
-        return True
-    return bool((counts.get("reasons") or {}).get("status")) and STATUS_CHOICES.get(export.kind) in choices
+    return any(RULE_CHOICES.get(rule) in choices for rule in rules)
 
 
 def verdict_words(
@@ -498,33 +493,12 @@ def reached_sentence(exports: Iterable[PowerBIExport]) -> str:
 def choices(exports: list[PowerBIExport]) -> list[dict[str, Any]]:
     """Choices for you: each rule difference the comparison found evidence for (the rule fits more than half
     the rows: :func:`clear_majority`), with its evidence, one plain question and NeuroDB's rule until the user
-    decides."""
+    decides. Reporting Progress counting progress reports, the follow-up list's Due and the Emergency
+    indicator are no choice since the user decided them (26 Oct 2026): NeuroDB counts them Power BI's way."""
     out = []
-    by_kind = {e.kind: e for e in exports if e.state == "compared"}
-
-    def extra(kind: str) -> dict[str, Any]:
-        export = by_kind.get(kind)
-        return ((export.counts or {}).get("extra") or {}) if export else {}
-
     sentence, offered = reached_fit(exports)
     if offered:
         out.append({"code": "reached", "evidence": sentence})
-    fits = [0, 0]
-    for kind in ("by_sector", "by_month"):
-        found = extra(kind).get("progress_fit")
-        if found:
-            fits = [fits[0] + found[0], fits[1] + found[1]]
-    if clear_majority(*fits):
-        evidence = words.CHOICE_EVIDENCE["progress_reports"].format(fits=fits[0], of=fits[1])
-        out.append({"code": "progress_reports", "evidence": evidence})
-    due = extra("follow_up").get("due_not_yet")
-    if due:
-        of = extra("follow_up").get("due_rows") or due
-        out.append({"code": "due", "evidence": words.CHOICE_EVIDENCE["due"].format(n=due, of=of)})
-    emergency = extra("program_performance").get("emergency_fit")
-    if emergency and clear_majority(*emergency):
-        evidence = words.CHOICE_EVIDENCE["emergency"].format(fits=emergency[0], of=emergency[1])
-        out.append({"code": "emergency", "evidence": evidence})
     for item in out:
         item["question"] = words.CHOICE_QUESTIONS[item["code"]]
         item["default"] = words.CHOICE_DEFAULTS[item["code"]]

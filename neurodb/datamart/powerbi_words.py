@@ -466,7 +466,6 @@ DETAIL_NEWEST_RECORD = "NeuroDB holds {n:,} records of this row; Power BI's valu
 DETAIL_EARLIER_STEP = "NeuroDB still has this report as {status}; Power BI has it as {powerbi}."
 DETAIL_MOVED_ON = "NeuroDB's sync ran after Power BI's refresh: the report moved on since."
 DETAIL_MAY_HAVE_MOVED_ON = "The report may have moved on between Power BI's refresh and NeuroDB's sync."
-DETAIL_DUE_COVERS = "Power BI's Due also covers reports not yet due."
 # Power BI's own rules a line names (``RULE_WORDS``), said for the row
 DETAIL_PERIOD_LATEST = "Power BI keeps one report per indicator, location and period end; NeuroDB keeps both."
 DETAIL_PD_YEAR = "Power BI lists an indicator only in the year its programme document ends."
@@ -556,10 +555,6 @@ DETAIL_DQ_BOTH = "{nd:,} more in NeuroDB, {pb:,} more in Power BI, net {net:,}: 
 RULE_WORDS = {
     "reached": "Reached: Power BI {words}; NeuroDB adds Accepted and Submitted reports",
     "target": "Target: Power BI {words}; NeuroDB shows the target in eTools",
-    "progress_reports": "Power BI counts progress reports; this NeuroDB page counts indicator reports",
-    "emergency": (
-        "Power BI's Emergency indicator is Yes for an SPD; NeuroDB's is the indicator's high frequency"
-    ),
     "section": "Power BI's Section is the PD's sections; NeuroDB's is the indicator's",
     "cp_output": "Power BI's CP Output is every CP output of the PD; NeuroDB's is the indicator's",
     "joined": "Power BI joins rows that are the same in every column it shows",
@@ -662,7 +657,10 @@ NOTE_SET_ASIDE_NEURODB_ONE = (
 NOTE_ZERO = "Power BI shows no value as 0: a 0 against no value in NeuroDB is the same."
 NOTE_RULE = "Stated once for every row: {words}."
 NOTE_JOINED_SECTIONS = "{n:,} Power BI rows join the same sections written differently."
-NOTE_SAME_UNIT = "Same unit as Power BI: progress reports. NeuroDB's own table counts indicator reports."
+NOTE_SECTOR_SECTIONS = (
+    "Each report is counted under its PD's sections, as Power BI's Section is; NeuroDB's own table counts it "
+    "under its Section as its list of progress reports shows it."
+)
 NOTE_TOTAL_GAP = "Power BI's Total differs from the sum of its own rows in {columns}."
 NOTE_TOTAL_NEURODB = "Power BI's Total differs from NeuroDB's in {columns}: see the sections' lines."
 NOTE_NO_STATUS_COLUMN = (
@@ -852,30 +850,17 @@ CHOICES_INTRO = (
     "NeuroDB keeps its own rules until you decide. Each choice below shows what the comparison found; tell "
     "the NeuroDB team if NeuroDB should count Power BI's way."
 )
+# Reporting Progress counting progress reports, the follow-up list's Due covering reports not yet due and the
+# Emergency indicator meaning "the PD is an SPD" are NeuroDB's rules too since the user's decision of 26 Oct
+# 2026: the comparison asks them no more
 CHOICE_QUESTIONS = {
     "reached": "Should NeuroDB's Program Performance show Reached Power BI's way?",
-    "progress_reports": "Should NeuroDB's Reporting Progress count progress reports, as Power BI does?",
-    "due": "Should NeuroDB's follow-up list include reports not yet due, as Power BI does?",
-    "emergency": "Should NeuroDB's Emergency indicator mean 'the PD is an SPD', as Power BI's does?",
 }
 CHOICE_EVIDENCE = {
     "reached": REACHED_SENTENCE,
-    "progress_reports": (
-        f"{names.REPORTING_PROGRESS}: counted as progress reports, NeuroDB's records give Power BI's figure "
-        "on {fits:,} of {of:,} rows; NeuroDB's tables count indicator reports."
-    ),
-    "due": f"{names.visual('follow_up')}: {{n:,}} of Power BI's {{of:,}} 'Due' rows are reports not yet due.",
-    "emergency": (
-        f"{names.PROGRAM_PERFORMANCE}: Power BI's Emergency indicator is 'the PD is an SPD' on {{fits:,}} of "
-        "{of:,} "
-        "rows."
-    ),
 }
 CHOICE_DEFAULTS = {
     "reached": "Until then NeuroDB adds Accepted and Submitted reports.",
-    "progress_reports": "Until then NeuroDB's tables count indicator reports.",
-    "due": "Until then NeuroDB's follow-up list leaves out reports not yet due.",
-    "emergency": "Until then NeuroDB's Emergency indicator is the indicator's high frequency.",
 }
 
 # ----------------------------------------------------------------------------------------------- the pages

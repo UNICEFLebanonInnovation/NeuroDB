@@ -5,8 +5,9 @@ programme documents to follow up (reporting.pd_follow_up, at most home.HOME_PDS 
 only the first ones), each with its reports on Progress reports (pd=), its oldest due date (Due or Overdue, so a past
 one for an overdue report) and its indicators on Program Performance; then the partners line (the Partners tab's three
 tiles). A scope with no progress report at all says so, and has no partners line: "nothing to follow up" is for
-reports that are all Accepted or not yet due. The tiles count indicator reports, the table and the partners line
-progress reports (the table's column group says so). The table sits in a panel, as on Progress reports: the scroll
+reports that are all Accepted. The tiles, the table and the partners line count progress reports (the table's column
+group says so); a report not yet due is one of the table's Due ones, as in Power BI's follow-up list (the user's
+decision of 26 Oct 2026). The table sits in a panel, as on Progress reports: the scroll
 cues of .table-wrap are painted in the panel's colour, and on the page's own background they showed as pale patches at
 both ends of every row. A server whose eTools Datamart sync never ran (no_etools) reads one line instead. Context:
 reporting, pd_rows, tile_urls, partners_url, no_etools, check_url (the block's figure trail: "Check these figures" under
@@ -21,7 +22,7 @@ the hint, for the people who check the figures). Every number carries its figure
   <p class="home-empty">{% trans "No eTools data yet: the eTools Datamart sync has not run on this server." %}</p>
   {% else %}
   {% include "reports/partials/_reporting_tiles.html" with counts=reporting.counts %}
-  <p class="home-also">{% trans "Each tile counts indicator reports (one indicator in one progress report); the number of progress reports is under it." %}</p>
+  <p class="home-also">{% trans "Each tile counts progress reports, as Power BI's Reporting Progress does; the indicator reports in them (one indicator in one progress report) are under it." %}</p>
   <div class="home-prp__title home-prp__title--split">
     <h3 class="home-block__title" id="home-pds-title">{% trans "Programme documents to follow up" %}</h3>
     <span class="home-prp__hint">{% if reporting.pds.count > pd_rows|length %}{% blocktrans with n=pd_rows|length total=reporting.pds.count|intcomma %}The first {{ n }} of <span data-figure="home.pds">{{ total }}</span> programme documents, the most overdue first{% endblocktrans %}{% else %}{% blocktrans count counter=reporting.pds.count with n=reporting.pds.count|intcomma %}<span data-figure="home.pds">{{ n }}</span> programme document{% plural %}<span data-figure="home.pds">{{ n }}</span> programme documents{% endblocktrans %}{% endif %}</span>
@@ -44,11 +45,11 @@ the hint, for the people who check the figures). Every number carries its figure
       <td class="small text-nowrap">{% if r.indicators_url %}<a href="{{ r.indicators_url }}">{% trans "Indicators" %}<span class="visually-hidden"> {% blocktrans with ref=r.pd_reference_number %}of {{ ref }} on Partner monitoring{% endblocktrans %}</span></a>{% else %}—{% endif %}</td>
     </tr>{% endfor %}</tbody>
   </table></div></div>
-  <p class="home-also">{% trans "Counts are progress reports. Overdue first, then Sent back, Due and Submitted." %} <a class="home-more" href="{{ partners_url }}">{% trans "Every report to follow up, on Progress reports" %} →</a></p>
+  <p class="home-also">{% trans "Counts are progress reports. Overdue first, then Sent back, Due and Submitted. Due includes the reports not yet due, as in Power BI's follow-up list." %} <a class="home-more" href="{{ partners_url }}">{% trans "Every report to follow up, on Progress reports" %} →</a></p>
   {% elif not reporting.counts.progress_reports %}
   <p class="home-empty">{% trans "No progress reports here." %}</p>
   {% else %}
-  <p class="home-empty">{% trans "Nothing to follow up: every report here is Accepted or not yet due." %}</p>
+  <p class="home-empty">{% trans "Nothing to follow up: every report here is Accepted." %}</p>
   {% endif %}
   {% if reporting.counts.progress_reports %}{% with p=reporting.partners %}<p class="home-prp__partners"><a href="{{ partners_url }}">{% blocktrans count counter=p.partners with n=p.partners|intcomma r=p.reported|intcomma nr=p.not_reported|intcomma %}<span data-figure="pr.partners">{{ n }}</span> partner has progress reports here: <span data-figure="pr.partners_reported">{{ r }}</span> has reported (Submitted or Accepted), <span data-figure="pr.partners_not_reported">{{ nr }}</span> has not yet.{% plural %}<span data-figure="pr.partners">{{ n }}</span> partners have progress reports here: <span data-figure="pr.partners_reported">{{ r }}</span> have reported (Submitted or Accepted), <span data-figure="pr.partners_not_reported">{{ nr }}</span> have not yet.{% endblocktrans %}</a></p>{% endwith %}{% endif %}
   {% endif %}

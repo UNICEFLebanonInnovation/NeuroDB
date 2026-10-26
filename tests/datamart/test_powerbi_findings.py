@@ -201,8 +201,10 @@ def test_an_earlier_upload_s_owed_lines_keep_group_1(checker, world):
 
 
 # ================================================================================ item 2: the follow-up
-def test_a_due_follow_up_row_whose_list_periods_have_not_ended_is_due_covers(checker, world):
-    """Power BI's Due covers reports not yet due: the report list of the same upload gives its period."""
+def test_a_due_follow_up_row_whose_list_periods_have_not_ended_is_not_in_read(checker, world):
+    """A Due row of a report not yet due (the report list of the same upload gives its period): NeuroDB's list
+    calls such a report Due too (the user's decision), and the feed carries them, so one NeuroDB lacks was not
+    in the read. No "Due covers" label, no choice."""
     listed = _report(report="QPR4", report_status="Due", period_start=D(2026, 10, 1), period_end=D(2026, 12, 31),
                      due_date=D(2027, 1, 15))  # fmt: skip
     upload = _compared(
@@ -212,13 +214,10 @@ def test_a_due_follow_up_row_whose_list_periods_have_not_ended_is_due_covers(che
     )
     export, lines = _lines(upload, "follow_up")
     line = _only(lines, PD, "Due", D(2027, 1, 15))
-    assert (line.reason, line.group, line.detail) == ("status", 1, words.DETAIL_DUE_COVERS)
-    assert export.counts["extra"]["due_not_yet"] == 1 and export.counts["extra"]["due_rows"] == 1
-    due = next(c for c in upload.choices if c["code"] == "due")
-    assert due["evidence"] == (
-        "Partners require follow up (Overdue, Sent back, Submitted & Due): 1 of Power BI's 1 'Due' rows are "
-        "reports not yet due."
-    )
+    assert line.reason == "not_in_read" and line.group in (2, 4)
+    assert "due_not_yet" not in export.counts["extra"] and "due_rows" not in export.counts["extra"]
+    assert upload.choices == []
+    assert not hasattr(words, "DETAIL_DUE_COVERS")
 
 
 def _two_listed(second_end):
@@ -1250,7 +1249,8 @@ def test_the_cards_compare_with_neurodb_s_figures(checker, world):
     _export, (line,) = _lines(upload, "overdue_report")
     assert line.found == {"count": [1, 0, None]}
     assert (line.reason, line.group) == ("owed", 5)  # the report list's Overdue HR1: still owed
-    assert "Same unit as Power BI: progress reports" in " ".join(exports["overdue_report"].counts["notes"])
+    # the tiles count progress reports as the cards do: no note on another unit
+    assert "Same unit" not in " ".join(exports["overdue_report"].counts["notes"])
 
 
 def test_indicators_with_missing_targets_compare_with_neurodb_s(checker, world):

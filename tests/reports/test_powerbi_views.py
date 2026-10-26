@@ -109,8 +109,10 @@ def test_pd_status_filter_defaults_to_the_running_pds(more, frozen):
 # --------------------------------------------------------------------------- Program Performance
 def test_program_performance_filters(more, frozen):
     girls, boys = more["girls"], more["boys"]
-    assert {r.title for r in _rows(emergency="yes")} == {girls}
-    assert {r.title for r in _rows(emergency="no")} == {boys, CLASSROOMS}
+    # the Emergency indicator is the PD being an SPD, as Power BI's (the user's decision): the girls'
+    # indicator is high frequency, which is not it
+    assert {r.title for r in _rows(emergency="yes")} == set()
+    assert {r.title for r in _rows(emergency="no")} == {girls, boys, CLASSROOMS}
     assert {r.title for r in _rows(pd_status="", document_type="SSFA")} == {"# of schools"}
     assert {r.title for r in _rows(pd_status="", office="Zahle")} == {"# of schools"}
     assert {r.title for r in _rows(pd_status="", partner_type="National")} == {"# of schools"}
@@ -120,6 +122,14 @@ def test_program_performance_filters(more, frozen):
     assert by_title[boys].cp_output == "3.1 Children at risk reached with protection services"
     assert by_title[girls].cp_output == "1.2 Psychosocial support for children"
     assert {r.title for r in _rows(cp_output="children at risk")} == {boys, CLASSROOMS}
+    # an SPD's indicators are the emergency ones (an "shpd" written in any case too), in the column and export
+    PCA.objects.filter(pk=more["closed"].pk).update(document_type=" shpd ")
+    assert {r.title for r in _rows(pd_status="", emergency="yes")} == {"# of schools"}
+    assert {r.title for r in _rows(pd_status="", emergency="no")} == {girls, boys, CLASSROOMS}
+    every = _rows(pd_status="")
+    assert {r.title for r in every if r.emergency} == {"# of schools"}
+    exported = {r["indicator"]: r["emergency"] for r in monitoring.table_rows(every, monitoring.Filters())}
+    assert exported == {girls: "No", boys: "No", CLASSROOMS: "No", "# of schools": "Yes"}
 
 
 def test_program_performance_table_sorts_and_counts_sections(client_viewer, more, frozen):
@@ -274,7 +284,9 @@ def _reporting(**params):
     return services.partner_reporting(params, today=TODAY)
 
 
-def test_tiles_count_indicator_reports_with_progress_reports_beside(more):
+def test_tiles_count_progress_reports_with_indicator_reports_under(more):
+    """The tiles, the table by section and the chart by month count progress reports, as Power BI's
+    Reporting Progress does (the user's decision of 26 Oct 2026); each tile gives its indicator reports."""
     data = _reporting()
     counts = {s["key"]: (s["indicator_reports"], s["progress_reports"]) for s in data["counts"]["statuses"]}
     # PR-1 (girls and boys), PR-2 and HR-4 accepted; PR-3 still running; PR-9 (closed PD) overdue
@@ -288,10 +300,19 @@ def test_tiles_count_indicator_reports_with_progress_reports_beside(more):
     }
     assert (data["counts"]["indicator_reports"], data["counts"]["progress_reports"]) == (6, 5)
     assert data["summary"]["reports"] == 5  # progress reports per status, as before
+    # the tiles' values are progress reports
+    assert {k: data["counts"][k] for k in reporting.STATUS_KEYS} == {
+        "accepted": 3,
+        "submitted": 0,
+        "sent_back": 0,
+        "due": 0,
+        "overdue": 1,
+        "not_yet_due": 1,
+    }
     # one status per report: the section table and the months add up to the tiles
-    assert data["by_section"]["total"] == 6
-    assert data["by_section"]["totals"] == [4, 0, 0, 0, 1, 1]
-    assert sum(sum(v) for v in data["by_month"]["series"].values()) == 6
+    assert data["by_section"]["total"] == 5
+    assert data["by_section"]["totals"] == [3, 0, 0, 0, 1, 1]
+    assert sum(sum(v) for v in data["by_month"]["series"].values()) == 5
     assert "Not yet due" in data["by_month"]["series"]
     # each indicator report is counted once, however many locations it has
     pr1 = next(r for r in data["reports"] if r["progress_report"] == "PR-1")
@@ -305,10 +326,10 @@ def test_section_table_and_section_filter(more):
     dm.ReportedIndicator.objects.filter(progress_report="PR-2").update(section="Education")
     data = _reporting()
     rows = {row["section"]: row for row in data["by_section"]["rows"]}
-    # a report without a section of its own counts under its PD's sections (the closed PD has none);
-    # nothing is counted twice
-    assert {s: row["total"] for s, row in rows.items()} == {"Education": 1, "Child Protection": 4, "—": 1}
-    assert sum(row["total"] for row in data["by_section"]["rows"]) == data["by_section"]["total"] == 6
+    # each progress report once, under its Section (a report without a section of its own under its PD's
+    # sections; the closed PD has none): nothing is counted twice
+    assert {s: row["total"] for s, row in rows.items()} == {"Education": 1, "Child Protection": 3, "—": 1}
+    assert sum(row["total"] for row in data["by_section"]["rows"]) == data["by_section"]["total"] == 5
     pr1 = next(r for r in data["reports"] if r["progress_report"] == "PR-1")
     assert pr1["section"] == "Child Protection"  # from the PD, for the table
     assert {r["progress_report"] for r in _reporting(section="Education")["reports"]} == {"PR-2"}
@@ -371,9 +392,10 @@ def test_report_table_columns_and_focal_point_names_only(client_viewer, more, fr
         and "three@example.org" not in page.text
         and "Focal Three" not in page.text
     )
-    for label in ("Indicator reports", "Accepted", "Submitted", "Sent back", "Due", "Overdue", "Not yet due"):
+    for label in ("Progress reports", "Accepted", "Submitted", "Sent back", "Due", "Overdue", "Not yet due"):
         assert f">{label}<" in page.text
-    assert "3 progress reports" in page.text  # the hint under Accepted
+    assert "4 indicator reports" in page.text  # the hint under Accepted (3 progress reports)
+    assert "Progress reports by section" in page.text and "Indicator reports by section" not in page.text
 
 
 def test_report_exports_hold_every_report_and_the_tile_counts(client_viewer, more, frozen, monkeypatch):
@@ -393,11 +415,16 @@ def test_report_exports_hold_every_report_and_the_tile_counts(client_viewer, mor
         )
     )
     assert workbook.sheetnames == ["Progress reports", "By status", "By section"]
+    header = next(workbook["By status"].iter_rows(max_row=1, values_only=True))
+    assert header[:3] == ("status", "progress_reports", "indicator_reports")
     by_status = {r[0]: (r[1], r[2]) for r in workbook["By status"].iter_rows(min_row=2, values_only=True)}
-    assert by_status["Accepted"] == (4, 3) and by_status["Overdue"] == (1, 1)
+    assert by_status["Accepted"] == (3, 4) and by_status["Overdue"] == (1, 1)
+    # By section counts progress reports, as the page's table
+    by_section = {r[0]: r[-1] for r in workbook["By section"].iter_rows(min_row=2, values_only=True)}
+    assert sum(by_section.values()) == 5
     # Ask NeuroDB gives the tiles' figures
     out = tools.run("partner_reporting", {})
-    assert out["indicator_reports"]["Accepted"] == {"indicator_reports": 4, "progress_reports": 3}
+    assert out["tiles"]["Accepted"] == {"progress_reports": 3, "indicator_reports": 4}
 
 
 # --------------------------------------------------------------------------- Partner Performance
@@ -413,10 +440,15 @@ def test_partners_tab(client_viewer, more, frozen):
         "not_yet_due": 1,
     }
     assert [p["name"] for p in perf["not_reported_list"]] == ["Himaya"]
-    # Overdue, Sent back, Due and Submitted reports, the most pressing first (Not yet due is not listed)
-    assert [r["progress_report"] for r in perf["follow_up"]] == ["PR-9"]
+    # Overdue, Sent back, Due and Submitted reports, the most pressing first; a report not yet due (PR-3) is
+    # one of the Due ones, listed as Due, as Power BI's follow-up list (the user's decision)
+    assert [r["progress_report"] for r in perf["follow_up"]] == ["PR-9", "PR-3"]
+    assert [r["status_label"] for r in perf["follow_up"]] == ["Overdue", "Due"]
     dm.ReportedIndicator.objects.filter(progress_report="PR-2").update(report_status="Sent back")
-    assert [r["progress_report"] for r in _reporting()["partners"]["follow_up"]] == ["PR-9", "PR-2"]
+    assert [r["progress_report"] for r in _reporting()["partners"]["follow_up"]] == ["PR-9", "PR-2", "PR-3"]
+    # the reports' own list keeps Not yet due
+    pr3 = next(r for r in _reporting()["reports"] if r["progress_report"] == "PR-3")
+    assert pr3["status"] == "not_yet_due"
     page = client_viewer.get(reverse("reports:partner_reporting"), {"tab": "partners"})
     assert page.status_code == 200 and page.context["tab"] == "partners"
     for label in ("Partners", "With at least one report", "Not reported"):
@@ -429,7 +461,8 @@ def test_partners_tab(client_viewer, more, frozen):
         )
     )
     assert workbook.sheetnames[0] == "Follow up" and "Partners not reported" in workbook.sheetnames
-    assert workbook["Follow up"].max_row == 3
+    statuses = [r[3] for r in workbook["Follow up"].iter_rows(min_row=2, values_only=True)]
+    assert statuses == ["Overdue", "Sent back", "Due"]
 
 
 # ------------------------------------------------------------------------------- Report/Location
@@ -506,9 +539,17 @@ def test_programme_indicators_tab(client_viewer, more):
         "Active",
         "Beirut",
         1000.0,
-        "Yes",
+        "No",  # high frequency, but not an SPD's: the Emergency indicator is the PD being an SPD
     )
-    assert [r["indicator"] for r in reporting.pd_indicators(pds, {"emergency": "yes"})] == [more["girls"]]
+    assert reporting.pd_indicators(pds, {"emergency": "yes"}) == []
+    PCA.objects.filter(pk=more["pd"].pk).update(document_type="SPD")
+    pds = partnerships.programme_documents(scope="all")
+    assert {r["indicator"] for r in reporting.pd_indicators(pds, {"emergency": "yes"})} == {
+        more["girls"],
+        more["boys"],
+        CLASSROOMS,
+    }
+    assert {r["emergency"] for r in reporting.pd_indicators(pds, {"emergency": "no"})} == {"No"}
     assert [r["indicator"] for r in reporting.pd_indicators(pds, {"section": "Education"})] == [
         CLASSROOMS,
         "# of schools",
@@ -520,7 +561,9 @@ def test_programme_indicators_tab(client_viewer, more):
     partial = client_viewer.get(
         reverse("reports:programmes"), {"tab": "indicators", "emergency": "no"}, headers=HX
     )
-    assert more["girls"] not in partial.text and more["boys"] in partial.text and "<html" not in partial.text
+    assert (
+        more["girls"] not in partial.text and "# of schools" in partial.text and "<html" not in partial.text
+    )
     response = client_viewer.get(reverse("reports:programmes"), {"tab": "indicators", "export": "csv"})
     lines = list(csv.DictReader(io.StringIO(b"".join(response.streaming_content).decode("utf-8-sig"))))
     assert len(lines) == 4 and set(reporting.INDICATOR_COLUMNS) == set(lines[0])
@@ -641,13 +684,15 @@ def test_program_performance_export_is_not_cut_at_the_page_limit(client_viewer, 
 
 def test_ask_counts_progress_reports_by_status_like_its_totals(more):
     out = tools.run("partner_reporting", {})
-    # "by_status" counts progress reports, as "reports" and the status keys do; the indicator reports
-    # (what the page's tiles count) are under "indicator_reports". Like the page, it reads the running PDs
-    # (the closed PD's PR-9 is left out)
+    # "by_status" counts progress reports, as "reports", the status keys and the page's tiles do ("tiles",
+    # with the indicator reports in them). Like the page, it reads the running PDs (the closed PD's PR-9 is
+    # left out)
     assert sum(out["by_status"].values()) == out["reports"] == 4
     assert out["pd_statuses"] == ["active", "signed", "suspended"]
     assert out["by_status"]["Accepted"] == out["accepted"] == 3
-    assert out["indicator_reports"]["Accepted"] == {"indicator_reports": 4, "progress_reports": 3}
+    assert out["tiles"]["Accepted"] == {"progress_reports": 3, "indicator_reports": 4}
+    # the reports to follow up, as the Partners tab lists them: PR-3, not yet due, is one of the Due ones
+    assert out["to_follow_up"] == {"Due": 1}
 
 
 def test_report_by_location_keeps_each_report_by_its_own_status(client_viewer, more, frozen):

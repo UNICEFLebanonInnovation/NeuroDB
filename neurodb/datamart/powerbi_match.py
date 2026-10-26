@@ -55,7 +55,7 @@ DETAIL_LIMIT = 300  # characters of a line's detail (PowerBIDifference.detail)
 LINK_LIMIT = 300  # characters of a line's address (PowerBIDifference.link)
 GRANTLESS = frozenset({"", "non-grant", "non grant", "nongrant"})
 ETOOLS_SUFFIX = re.compile(r"\s*\(etools\s*\d+\)\s*$", re.I)
-SPD = frozenset({"spd", "shpd"})
+SPD = frozenset(t.casefold() for t in rc.SPD_TYPES)  # NeuroDB's Emergency indicator (reached.is_spd)
 
 
 # ----------------------------------------------------------------------------------------------- normalised

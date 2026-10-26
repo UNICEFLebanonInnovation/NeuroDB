@@ -144,7 +144,7 @@ class Filters:
     document_types: list[str] = field(default_factory=list)  # PD, SPD...
     offices: list[str] = field(default_factory=list)  # the PD's UNICEF offices
     partner_types: list[str] = field(default_factory=list)  # partner type or CSO type
-    emergency: str = ""  # yes: the emergency (high-frequency) indicators, no: the others
+    emergency: str = ""  # yes: the indicators of SPDs (the Emergency indicator, as Power BI's), no: others
     cp_output: str = ""  # words in the indicator's country programme output
 
     @property
@@ -309,8 +309,9 @@ def _indicator_rows(
     for tag, values in filters.tags.items():
         if values:
             qs = _stage(steps, f"tags.{tag}", qs.filter(**{f"tag_{tag}__in": values}))
-    if filters.emergency:
-        qs = _stage(steps, "emergency", qs.filter(is_high_frequency=filters.emergency == "yes"))
+    if filters.emergency:  # the programme document is an SPD (reached.is_spd), as Power BI's
+        spd = rc.spd_q("intervention__")
+        qs = _stage(steps, "emergency", qs.filter(spd) if filters.emergency == "yes" else qs.exclude(spd))
     if filters.report_type == "HR":
         qs = _stage(steps, "hr_only", qs.filter(Q(is_high_frequency=True) | ~Q(cluster_name="")))
     return qs
@@ -374,6 +375,12 @@ class Indicator:
     title_rows_left_out: int = 0
     title_rows_unmatched: int = 0
     placed_by: str = ""  # the tie-breakers that placed its rows ("" for its id, title or output)
+
+    @property
+    def emergency(self) -> bool:
+        """The Emergency indicator: its programme document is an SPD (``reached.is_spd``), as Power BI's (the
+        user's decision of 26 Oct 2026); never its high frequency, which only says it has monthly reports."""
+        return rc.is_spd(self.pd.document_type)
 
     @property
     def cumulative(self) -> float | None:
@@ -838,6 +845,11 @@ class Row:
     @property
     def partner(self) -> StoredPartner | None:
         return self.pd.partner
+
+    @property
+    def emergency(self) -> bool:
+        """As :attr:`Indicator.emergency`: the programme document is an SPD."""
+        return rc.is_spd(self.pd.document_type)
 
 
 def _stored_pd(pd: PCA) -> StoredPD:
@@ -1318,7 +1330,7 @@ def _partner_name(row: Indicator) -> str:
 TABLE_SORTS: dict[str, Any] = {
     "section": lambda r: norm(r.section) or None,
     "cp_output": lambda r: norm(r.cp_output) or None,
-    "emergency": lambda r: r.high_frequency,
+    "emergency": lambda r: r.emergency,
     "indicator": lambda r: norm(r.title) or None,
     "target": lambda r: r.target,
     "reached": lambda r: r.reached,
@@ -1386,7 +1398,7 @@ def table_rows(rows: list[Indicator], filters: Filters, base_url: str = "") -> A
         yield {
             "section": r.section,
             "cp_output": r.cp_output,
-            "emergency": "Yes" if r.high_frequency else "No",
+            "emergency": "Yes" if r.emergency else "No",  # the PD is an SPD
             "pd_output": r.output,
             "indicator": r.title,
             "unit": r.unit,

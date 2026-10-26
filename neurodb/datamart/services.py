@@ -1307,10 +1307,12 @@ def reporting_figures(params, day: datetime.date | None = None) -> dict[str, Any
 def partner_reporting(params, today: datetime.date | None = None, *, options: bool = True) -> dict[str, Any]:
     """The Progress reports page: the progress reports of the filter (one of six statuses each, with
     their PD's status, document type and UNICEF focal points), the progress reports per status
-    (``summary``), the indicator reports per status (``counts``: what the tiles show), by section and
-    by month of the reporting period's end, and Partner Performance. ``statuses``: the status of every
-    progress report of the filter, read before the status filter (Report/Location reads each report's
-    status there, so a report left out by the status filter is never let back in by one of its rows);
+    (``summary``; ``counts``: what the tiles show, as Power BI's Reporting Progress counts them, with the
+    indicator reports in them), by section and by month of the reporting period's end, and Partner
+    Performance (its reports to follow up count a report not yet due as Due, as Power BI's list does).
+    ``statuses``: the status of every progress report of the filter, read before the status filter
+    (Report/Location reads each report's status there, so a report left out by the status filter is never
+    let back in by one of its rows);
     ``by_status``: the progress reports per status, by name (as ``summary`` counts them); ``left_out``: the
     indicator reports the PD status filter leaves out, and those naming no PD (:func:`neurodb.datamart.
     reporting.left_out`; only with ``options``, as the page draws it). ``options``:
@@ -1325,7 +1327,7 @@ def partner_reporting(params, today: datetime.date | None = None, *, options: bo
         reports = [r for r in reports if r["status"] in filters.statuses]
     reporting.with_pd_details(reports)
     summary = _status_summary(reports)  # progress reports per status
-    counts = reporting.counts(reports)  # indicator reports per status (the tiles)
+    counts = reporting.counts(reports)  # progress reports per status (the tiles), and their indicator reports
     return {
         "filters": filters,
         "rows": rows,

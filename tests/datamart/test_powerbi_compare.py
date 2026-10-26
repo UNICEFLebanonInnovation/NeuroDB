@@ -428,7 +428,7 @@ def test_the_follow_up_list_reads_not_yet_due_owed_ended_and_earlier_reports(che
     rows = [
         _follow(status="Submitted", due_date=D(2026, 7, 15)),
         _follow(status="Overdue", due_date=D(2026, 10, 14)),
-        _follow(status="Due", due_date=D(2027, 1, 15)),  # Power BI's Due covers reports not yet due
+        _follow(status="Due", due_date=D(2027, 1, 15)),  # not yet due: NeuroDB's list calls it Due too
         _follow(status="Overdue", due_date=D(2025, 12, 15)),  # before NeuroDB's history
         _follow(pd=ENDED, status="Submitted", due_date=D(2026, 4, 17)),
         _follow(status="Sent back", due_date=D(2026, 8, 15)),
@@ -436,15 +436,14 @@ def test_the_follow_up_list_reads_not_yet_due_owed_ended_and_earlier_reports(che
     upload = pf.compared(checker, _one("follow_up", rows, filters=FOLLOW_FILTERS))
     export, lines = _lines(upload, "follow_up")
     found = _by_reason(lines)
-    assert export.counts["same"] == 2
-    assert found[("only_powerbi", "status", 1)].detail == "Power BI's Due also covers reports not yet due."
+    # NeuroDB's follow-up list counts the report not yet due as Due, as Power BI's (the user's decision): the
+    # rows pair, no "Due covers" label and no choice is left
+    assert export.counts["same"] == 3
+    assert not any(line.reason == "status" for line in lines)
     assert ("only_powerbi", "before_history", 1) in found
     assert ("only_powerbi", "pd_not_running", 3) in found
     assert ("only_powerbi", "not_in_read", 2) in found
-    assert export.counts["extra"]["due_not_yet"] == 1
-    assert {c["code"] for c in upload.choices} == {"due"}
-    due = next(c for c in upload.choices if c["code"] == "due")
-    assert "1 of Power BI's 1 'Due' rows are reports not yet due" in due["evidence"] and due["question"]
+    assert "due_not_yet" not in export.counts["extra"] and upload.choices == []
 
 
 SECTOR = [
@@ -459,7 +458,8 @@ def test_a_counted_visual_without_the_report_list_says_upload_it(checker, world)
     assert [(line.reason, line.found) for line in lines] == [("see_reports", {"overdue": [2, 1, None]})]
     notes = " ".join(export.counts["notes"])
     assert "2 Power BI rows join the same sections written differently" in notes
-    assert "Same unit as Power BI: progress reports" in notes
+    assert "counted under its PD's sections, as Power BI's Section is" in notes
+    assert "Same unit" not in notes  # NeuroDB's table counts progress reports too
 
 
 def test_a_counted_visual_is_explained_from_the_report_list(checker, world):
@@ -514,7 +514,7 @@ def test_accepted_reports_in_another_month_with_the_same_total_are_a_rule(checke
         ("Mar 2026", "rule", "month"),
     }
     assert export.verdict == "counted"
-    assert {c["code"] for c in upload.choices} == {"progress_reports"}
+    assert upload.choices == []  # NeuroDB counts progress reports too: no choice is left
 
 
 PP_FILTERS = (*ACTIVE, "is_period_latest is True", "report_status_label is Accepted")
@@ -565,10 +565,8 @@ def test_program_performance_counts_power_bis_possible_reached_and_says_which_fi
     assert (best["candidate"], best["fits"], best["of"], best["above"]) == ("qpr_sum", 2, 2, 2)
     assert export.verdict == "counted"
     notes = " ".join(export.counts["notes"])
-    assert (
-        "Emergency indicator is Yes for an SPD" in notes
-        and "Power BI's Section is the PD's sections" in notes
-    )
+    # NeuroDB's Emergency indicator is Power BI's (the PD is an SPD): no rule to state about it
+    assert "Emergency indicator" not in notes and "Power BI's Section is the PD's sections" in notes
     clauses = {c["words"]: c["state"] for c in export.clauses}
     assert clauses["report_status_label is Accepted"] == "by_comparison"
     choice = next(c for c in upload.choices if c["code"] == "reached")
@@ -630,11 +628,25 @@ def test_program_performance_partial_history_emergency_and_rows_power_bi_alone_h
     found = {line.match[1]: line for line in lines}
     first = found["Fake indicator 1"]
     assert first.found["reached"][:2] == [35.0, 90.0] and (first.reason, first.rule) == ("rule", "partial")
+    # NeuroDB's Emergency indicator is Power BI's (the PD is an SPD, the user's decision): a plain difference,
+    # no rule stated, no evidence kept for a choice
     assert found["Fake percentage 2"].found == {"emergency": ["Yes", "No", None]}
+    assert found["Fake percentage 2"].reason != "rule"
     assert found["Fake ended indicator"].reason == "pd_not_running"
     assert found["Fake indicator never held"].reason == "not_in_read"
     assert export.fits[0]["set_aside"] == 2  # the PD started before NeuroDB's history
-    assert export.counts["extra"]["emergency_fit"] == [1, 2]
+    assert "emergency_fit" not in export.counts["extra"]
+    assert "Emergency indicator" not in " ".join(export.counts["notes"])
+    pd.document_type = "SPD"
+    pd.save(update_fields=["document_type"])
+    upload = pf.compared(checker, _one("program_performance", rows, filters=PP_FILTERS))
+    _export, lines = _lines(upload, "program_performance")
+    assert "Fake percentage 2" not in {line.match[1] for line in lines}  # Yes on both sides
+    assert {line.match[1]: line.found for line in lines}["Fake indicator 1"]["emergency"] == [
+        "No",
+        "Yes",
+        None,
+    ]
 
 
 def test_pd_indicators_read_the_section_filter_and_the_pd_status(checker, world):
@@ -1665,7 +1677,8 @@ def test_a_target_of_0_against_no_target_is_the_same_and_never_a_rule(checker, w
 
 def test_a_choice_is_offered_only_when_the_rule_fits_most_rows():
     """Choices for you asserts Power BI's rule only on a clear majority of the rows: the best rule fitting 1 of
-    100 rows, 0 of 26 progress reports or 0 of 40 emergency rows offers no choice and claims no rule."""
+    100 rows offers no choice and claims no rule. Progress reports and the Emergency indicator are no choice
+    since the user decided them, whatever an earlier upload's evidence says."""
     from neurodb.datamart import powerbi_results, powerbi_words
 
     def performance(fits: int, above: int, positive: int, emergency: list[int]) -> PowerBIExport:
@@ -1690,7 +1703,7 @@ def test_a_choice_is_offered_only_when_the_rule_fits_most_rows():
     )
     sector.counts = {"extra": {"progress_fit": [20, 26]}}
     clear = [performance(90, 80, 90, [30, 40]), sector]
-    assert [c["code"] for c in powerbi_results.choices(clear)] == ["reached", "progress_reports", "emergency"]
+    assert [c["code"] for c in powerbi_results.choices(clear)] == ["reached"]
 
 
 def test_a_rule_sends_the_user_to_choices_for_you_only_when_one_is_offered(checker, world):

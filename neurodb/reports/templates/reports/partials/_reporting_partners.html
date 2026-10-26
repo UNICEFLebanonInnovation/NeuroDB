@@ -40,9 +40,9 @@
     </tr>{% endfor %}</tbody>
   </table></div>
   {% include "components/pagination.html" with hx_target="#reporting-results" %}
-  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}Overdue first, then Sent back, Due and Submitted (awaiting acceptance), each by due date. Partners here are those with a progress report in the filter; a partner whose programme documents have no report in the Partner Reporting Portal yet is not counted.{% endblocktrans %}</p>
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}Overdue first, then Sent back, Due and Submitted (awaiting acceptance), each by due date. Due includes the reports not yet due (their reporting period still runs), as Power BI's follow-up list does. Partners here are those with a progress report in the filter; a partner whose programme documents have no report in the Partner Reporting Portal yet is not counted.{% endblocktrans %}</p>
   {% else %}
-  <p class="small text-muted px-3 py-2 mb-0">{% trans "Nothing to follow up: every report in the filter is Accepted or not yet due." %}</p>
+  <p class="small text-muted px-3 py-2 mb-0">{% trans "Nothing to follow up: every report in the filter is Accepted." %}</p>
   {% endif %}
 </section>
 {% endwith %}

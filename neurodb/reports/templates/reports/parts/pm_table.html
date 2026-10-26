@@ -17,7 +17,7 @@ page's scope).{% endcomment %}
       <tr>
         <td class="small">{{ i.section|default:"—" }}</td>
         <td class="small cell-wrap">{{ i.cp_output|default:"—" }}</td>
-        <td class="small">{% if i.high_frequency %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
+        <td class="small">{% if i.emergency %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
         <td class="cell-wrap"><a href="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-get="{{ i.url }}?report_type={{ filters.report_type }}&amp;year={{ filters.year_param }}" hx-target="#modal-content" hx-push-url="false">{{ i.title }}</a>{% if i.report_type != filters.report_type or i.partial or i.mismatch or i.awaiting_reports %}<span class="cell-sub"><span class="chips">{% if i.report_type != filters.report_type %}<span class="chip">{% trans "From monthly reports" %}</span>{% endif %}{% if i.partial %}<span class="chip">{% trans "Partial history" %}</span>{% endif %}{% if i.mismatch %}<span class="chip" title="{% blocktrans with v=i.prp_cumulative|number:0 %}PRP’s own cumulative is {{ v }}{% endblocktrans %}">{% trans "Differs from PRP" %}</span>{% endif %}{% if i.awaiting_reports %}<span class="chip" title="{% trans 'Part of Reached comes from Submitted reports not yet accepted' %}">{% blocktrans with n=i.awaiting|number:0 %}{{ n }} awaiting acceptance{% endblocktrans %}</span>{% endif %}</span></span>{% endif %}</td>
         <td class="num">{{ i.target|number:0 }}{% if i.display_type == "percentage" and i.target is not None %}%{% endif %}</td>
         {% if filters.year %}

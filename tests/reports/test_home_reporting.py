@@ -225,9 +225,13 @@ def test_each_programme_document_row_counts_what_its_link_opens(client_viewer, w
     for row in rows:
         page = client_viewer.get(row["reports_url"])
         summary = page.context["data"]["summary"]["statuses"]
-        assert {key: row["counts"][key] for key in reporting.STATUS_KEYS} == {
-            key: summary.get(key, 0) for key in reporting.STATUS_KEYS
-        }, row["pd_reference_number"]
+        # its reports per status as the lists to follow up name them: one not yet due is Due there
+        expected = {key: summary.get(key, 0) for key in reporting.STATUS_KEYS}
+        expected["due"] += expected.pop("not_yet_due")
+        expected["not_yet_due"] = 0
+        assert {key: row["counts"][key] for key in reporting.STATUS_KEYS} == expected, row[
+            "pd_reference_number"
+        ]
         partners_tab = client_viewer.get(row["reports_url"] + "&tab=partners")
         assert len(partners_tab.context["data"]["partners"]["follow_up"]) == row["follow_up"]
         assert _query(row["reports_url"])["pd"] == [row["pd_reference_number"]]
@@ -496,19 +500,27 @@ def test_a_scope_with_true_zeros_keeps_its_tiles(client_viewer, world):
 
 
 def test_a_scope_whose_reports_need_no_follow_up_says_so(client_viewer, world):
-    """Reports that are all Accepted (or not yet due): nothing to follow up, and the partners line."""
+    """Reports that are all Accepted: nothing to follow up, and the partners line. A report not yet due is one
+    to follow up, as one of the Due ones (Power BI's follow-up list, the user's decision of 26 Oct 2026)."""
     delta = PartnerOrganization.objects.create(etl_id="4", name="Partner Delta", partner_type="CSO")
     pd, d = _pd(delta, "LEB/PD40", sections=["Health"]), datetime.date
     _report(pd, delta, "QPR1", d(2026, 3, 31), "Accepted", section="Health", submitted=d(2026, 4, 10))
-    _report(pd, delta, "QPR4", d(2026, 12, 31), section="Health")  # not yet due
     home = _home(client_viewer, "?section=Health")
-    assert _figures(home)["reporting"]["counts"]["progress_reports"] == 2 and not _figures(home)["pd_rows"]
+    assert _figures(home)["reporting"]["counts"]["progress_reports"] == 1 and not _figures(home)["pd_rows"]
     html = text(home)
     block = html[html.index('id="home-pr-title"') : html.index('id="home-pm-title"')]
-    assert "Nothing to follow up: every report here is Accepted or not yet due.</p>" in block
+    assert "Nothing to follow up: every report here is Accepted.</p>" in block
     assert "No progress reports here." not in block
     line = "1 partner has progress reports here: 1 has reported (Submitted or Accepted), 0 has not yet."
     assert line in _words(block)
+    _report(pd, delta, "QPR4", d(2026, 12, 31), section="Health")  # not yet due
+    (row,) = _figures(_home(client_viewer, "?section=Health"))["pd_rows"]
+    assert (row["pd_reference_number"], row["counts"]["due"], row["counts"]["not_yet_due"]) == (
+        "LEB/PD40",
+        1,
+        0,
+    )
+    assert row["oldest_due"] is not None and row["follow_up"] == 1
 
 
 # ------------------------------------------------------------------------- accessibility

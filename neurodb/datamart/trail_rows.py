@@ -340,7 +340,8 @@ def _report_columns(report: trail.Report, r: tuple, names: frozenset[str]) -> di
         "status_word_used": clean("report_status", report.word),
         "status_word_from_record_id": report.word_from if report.word_from is not None else "",
         "status_rows_outside_filter": report.rows_outside,
-        "section_counted": clean("section", report.sections.get(r[2], "")),
+        # the section its progress report is counted under in the table by section (reporting.report_section)
+        "section_counted": clean("section", report.section),
         "period_end_month": report.month,
         "submitted_late": _yes(report.late),
         "partner_has_reported": _yes(report.reported) if report.partner is not None else "",

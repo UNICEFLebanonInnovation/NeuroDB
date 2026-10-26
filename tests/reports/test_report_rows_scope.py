@@ -95,7 +95,8 @@ def test_every_pd_status_reads_the_pds_not_held_but_never_a_report_of_no_pd(rows
     assert numbers == {"LEB/RUN", "LEB/END", "LEB/GONE", ""}  # "" is the report naming an eTools PD id
     assert data["counts"]["indicator_reports"] == 5
     assert "Cluster children" not in {r.indicator for r in data["rows"]}
-    assert data["by_section"]["total"] == 5 and "Protection" not in {
+    # the table by section counts progress reports (the user's decision): one each
+    assert data["by_section"]["total"] == data["counts"]["progress_reports"] == 4 and "Protection" not in {
         r["section"] for r in data["by_section"]["rows"]
     }
     assert data["left_out"] == {"other_status": 0, "not_held": 0, "no_pd": 2, "by_pd_status": 0}

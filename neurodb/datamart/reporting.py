@@ -1,11 +1,16 @@
 """Partner reporting: the Progress reports page (Reporting Progress, Partner Performance, the report table,
 Report/Location and Report/Disaggregation, as the eTools Power BI report shows them) and its exports.
 
-* **What is counted.** An *indicator report* is one indicator in one progress report (PRP's
-  ``indicator_report``); the Datamart sends it once per location. Reporting Progress counts indicator
-  reports and gives the number of progress reports beside each figure (Power BI's Reporting Progress counts
-  progress reports: Compare with Power BI says so). Every indicator report of a progress report has the
-  report's status.
+* **What is counted.** Reporting Progress counts progress reports, as Power BI's Reporting Progress does (the
+  user's decision of 26 Oct 2026): its tiles, its table by section and its chart by month. An *indicator
+  report* is one indicator in one progress report (PRP's ``indicator_report``; the Datamart sends it once per
+  location): each tile gives the indicator reports of its progress reports under it. Every indicator report of
+  a progress report has the report's status.
+* **To follow up.** The reports to follow up (the Partners tab, Home) are those Overdue, Sent back, Due and
+  Submitted, a report not yet due among the Due ones, as Power BI's follow-up list has them (the user's
+  decision of 26 Oct 2026): :data:`FOLLOW_UP_STATUSES`, :func:`follow_up_status`.
+* **Emergency indicator**: the programme document is an SPD (``reached.is_spd``), as Power BI's (the user's
+  decision of 26 Oct 2026), never the indicator's high frequency.
 * **Statuses.** The six report statuses of :func:`neurodb.datamart.reached.status_of` (Accepted,
   Submitted, Sent back, Due, Overdue, Not yet due): one status per report, the same on every page, so
   the counts add up to the total; Overdue follows ``monitoring.pending_q`` as every page does.
@@ -70,7 +75,10 @@ REPORT_FIELDS = (
 )
 STATUS_KEYS = tuple(rc.STATUS_LABELS)
 # reports someone has to act on, the most pressing first (Power BI's "Partners require follow up")
-FOLLOW_UP = (rc.OVERDUE, rc.SENT_BACK, rc.DUE, rc.SUBMITTED)
+FOLLOW_UP = (rc.OVERDUE, rc.SENT_BACK, rc.DUE, rc.SUBMITTED)  # the most pressing first
+# the statuses of the reports to follow up: a report not yet due is one of the Due ones there, as Power BI's
+# "Partners require follow up" lists it (the user's decision of 26 Oct 2026)
+FOLLOW_UP_STATUSES = frozenset({*FOLLOW_UP, rc.NOT_YET_DUE})
 # one colour per status in the charts (dark-mode tokens of app.css)
 STATUS_COLORS = {
     rc.ACCEPTED: "--nd-cat-6",
@@ -274,7 +282,7 @@ class ReportFilters:
     # eTools PD statuses chosen: None (no choice made) the running PDs, as on Partner monitoring and in
     # Power BI; an empty list every status. Draft and cancelled PDs are never read
     pd_statuses: list[str] | None = None
-    emergency: str = ""  # yes: the emergency (high-frequency) indicators' reports, no: the others
+    emergency: str = ""  # yes: the reports of SPDs (the Emergency indicator, as Power BI's), no: the others
     start_from: datetime.date | None = None  # period start between
     start_to: datetime.date | None = None
     end_from: datetime.date | None = None  # period end between
@@ -382,8 +390,9 @@ class ReportFilters:
             )
         # never draft or cancelled PDs (not, or no longer, a partnership)
         rows = kept("not_a_partnership", rows.exclude(intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP))
-        if self.emergency:
-            rows = kept("emergency", rows.filter(high_frequency=self.emergency == "yes"))
+        if self.emergency:  # the programme document is an SPD (reached.is_spd), as Power BI's
+            spd = rc.spd_q("intervention__")
+            rows = kept("emergency", rows.filter(spd) if self.emergency == "yes" else rows.exclude(spd))
         for name, lookup, value in (
             ("start_from", "period_start__gte", self.start_from),
             ("start_to", "period_start__lte", self.start_to),
@@ -709,7 +718,8 @@ def section_names(text: Any, known: Any = ()) -> list[str]:
 
 # ------------------------------------------------------------------------------- Reporting Progress
 def counts(reports: list[dict[str, Any]]) -> dict[str, Any]:
-    """Indicator reports and progress reports per status (each adds up to its total), and the
+    """Progress reports per status (what the tiles show, as Power BI's Reporting Progress counts them: the
+    status keys) and the indicator reports in them (each tile's hint), each adding up to its total, and the
     progress reports submitted after their due date."""
     indicator_reports: Counter[str] = Counter()
     progress: Counter[str] = Counter()
@@ -728,18 +738,25 @@ def counts(reports: list[dict[str, Any]]) -> dict[str, Any]:
             }
             for key in STATUS_KEYS
         ],
-        **{key: indicator_reports.get(key, 0) for key in STATUS_KEYS},
+        **{key: progress.get(key, 0) for key in STATUS_KEYS},
         "late": sum(1 for r in reports if submitted_late(r)),
     }
 
 
+def report_section(report: dict[str, Any]) -> str:
+    """The section a progress report is counted under by :func:`by_section`: its Section as the reports' table
+    shows it (its indicator reports' own sections, joined; for those that name none, their PD's sections), or
+    :data:`NO_SECTION`."""
+    return report["section"] or NO_SECTION
+
+
 def by_section(reports: list[dict[str, Any]]) -> dict[str, Any]:
-    """Indicator reports by section and status, with a total row and column (Power BI's "Reporting
-    Progress by Sector"): every indicator report is in one section, so the rows add up to the total."""
+    """Progress reports by section and status, with a total row and column (Power BI's "Reporting Progress
+    by Sector", which counts progress reports): each report once, under its Section (:func:`report_section`),
+    so the rows add up to the total and to the tiles."""
     table: dict[str, Counter[str]] = defaultdict(Counter)
     for r in reports:
-        for section, n in r["sections"].items():
-            table[section][r["status"]] += n
+        table[report_section(r)][r["status"]] += 1
     rows = [
         {"section": section, "counts": [c.get(k, 0) for k in STATUS_KEYS], "total": sum(c.values())}
         for section, c in sorted(table.items(), key=lambda kv: (kv[0] == NO_SECTION, kv[0].lower()))
@@ -756,13 +773,13 @@ def report_month(report: dict[str, Any]) -> tuple[int, int] | None:
 
 
 def by_month(reports: list[dict[str, Any]]) -> dict[str, Any]:
-    """Indicator reports by month of the end of their reporting period and status, Not yet due included
-    (a chart). The month a report is about, as Power BI's "Reports over Reporting Date" places it (a
-    report still Due on the day of the refresh sits in the month its period ended, before its due
-    date), and as the Reporting year filter and Partner monitoring's months read it."""
+    """Progress reports by month of the end of their reporting period and status, Not yet due included (a
+    chart), as Power BI's "# of Reports by Type over Reporting Date" counts them. The month a report is about,
+    as Power BI places it (a report still Due on the day of the refresh sits in the month its period ended,
+    before its due date), and as the Reporting year filter and Partner monitoring's months read it."""
     months: dict[tuple[int, int] | None, Counter[str]] = defaultdict(Counter)
     for r in reports:
-        months[report_month(r)][r["status"]] += r["indicators"]
+        months[report_month(r)][r["status"]] += 1
     order = sorted(m for m in months if m is not None) + ([None] if None in months else [])
     labels = [datetime.date(m[0], m[1], 1).strftime("%b %Y") if m else "No period end" for m in order]
     present = [k for k in STATUS_KEYS if any(months[m].get(k) for m in order)]
@@ -780,10 +797,37 @@ def partner_key(report: dict[str, Any]) -> Any:
     return report["partner_id"] or (report["partner_name"] or "").strip().lower() or None
 
 
+def follow_up_status(status: str) -> str:
+    """A report's status in the lists of reports to follow up: a report not yet due is Due there, as Power
+    BI's follow-up list calls it (the user's decision of 26 Oct 2026); any other keeps its own."""
+    return rc.DUE if status == rc.NOT_YET_DUE else status
+
+
+def follow_up_reports(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The reports to follow up (:data:`FOLLOW_UP_STATUSES`), the most pressing first: Overdue, Sent back,
+    Due (a report not yet due among them) and Submitted, each by due date. A report not yet due is listed as
+    Due (:func:`follow_up_status`: a copy of its row, its status Due), so the table, its export and the
+    trail's CSV say Due as Power BI's list does; the reports' own list keeps Not yet due."""
+    severity = {key: n for n, key in enumerate(FOLLOW_UP)}
+    out = []
+    for r in reports:
+        if r["status"] not in FOLLOW_UP_STATUSES:
+            continue
+        status = follow_up_status(r["status"])
+        if status != r["status"]:
+            r = {**r, "status": status, "status_label": rc.STATUS_LABELS[status]}
+        out.append(r)
+    out.sort(
+        key=lambda r: (severity[r["status"]], r["due_date"] or datetime.date.max, r["pd_reference_number"])
+    )
+    return out
+
+
 def partner_performance(reports: list[dict[str, Any]]) -> dict[str, Any]:
     """Partners with reports in the filter (every status), those with at least one Submitted or
     Accepted report and those without, the number of partners with a report in each status, and the
-    reports to follow up (Overdue, Sent back, Due, Submitted), the most pressing first."""
+    reports to follow up (:func:`follow_up_reports`: Overdue, Sent back, Due, a report not yet due among
+    them, and Submitted), the most pressing first."""
     names: dict[Any, str] = {}
     ids: dict[Any, int | None] = {}
     by_status: dict[str, set[Any]] = defaultdict(set)
@@ -801,11 +845,7 @@ def partner_performance(reports: list[dict[str, Any]]) -> dict[str, Any]:
             pds_of[key].add(r["pd_reference_number"])
     reported = set().union(*(by_status[k] for k in rc.COUNTED))
     not_reported = sorted(set(names) - reported, key=lambda k: names[k].lower())
-    severity = {key: n for n, key in enumerate(FOLLOW_UP)}
-    follow_up = sorted(
-        (r for r in reports if r["status"] in severity),
-        key=lambda r: (severity[r["status"]], r["due_date"] or datetime.date.max, r["pd_reference_number"]),
-    )
+    follow_up = follow_up_reports(reports)
     return {
         "partners": len(names),
         "reported": len(reported),
@@ -842,9 +882,10 @@ def pd_follow_up(reports: list[dict[str, Any]]) -> dict[str, Any]:
     NeuroDB holds it; else the reports' reference; "" for neither), ``pd_number`` (the PD's number alone, as
     Partner monitoring's ``pd`` reads it: "" for a PD NeuroDB does not hold), ``intervention_id``,
     ``partner_id``, ``partner_name``, ``sections`` (its reports' sections, joined), ``counts`` (its progress
-    reports per status, the six of them), ``follow_up`` (Overdue, Sent back, Due and Submitted) and
-    ``oldest_due`` (the oldest due date of its Due or Overdue reports: a past one as soon as one is Overdue)
-    and ``key`` (:func:`pd_follow_up_key`).
+    reports per status as the follow-up lists name it, :func:`follow_up_status`: a report not yet due is
+    counted under Due, as Power BI's follow-up list has it; Not yet due is then 0), ``follow_up`` (Overdue,
+    Sent back, Due and Submitted) and ``oldest_due`` (the oldest due date of its Due or Overdue reports: a
+    past one as soon as one is Overdue) and ``key`` (:func:`pd_follow_up_key`).
     Only the programme documents with a report to follow up, the most pressing first: the most Overdue, then
     Sent back, Due and Submitted, then the oldest due date. Counts are progress reports, as the follow-up
     table of the Partners tab lists them."""
@@ -875,8 +916,9 @@ def pd_follow_up(reports: list[dict[str, Any]]) -> dict[str, Any]:
         for name in r["sections"]:  # as the page's Section column names them
             if name != NO_SECTION and name not in row["_sections"]:
                 row["_sections"].append(name)
-        row["counts"][r["status"]] += 1
-        if r["status"] in (rc.DUE, rc.OVERDUE) and r["due_date"]:
+        status = follow_up_status(r["status"])
+        row["counts"][status] += 1
+        if status in (rc.DUE, rc.OVERDUE) and r["due_date"]:
             if row["oldest_due"] is None or r["due_date"] < row["oldest_due"]:
                 row["oldest_due"] = r["due_date"]
     rows = []
@@ -956,7 +998,7 @@ def _location_cells(
                 "section": (first["section"] or "").strip() or ", ".join(pd.get("sections", [])),
                 "cp_output": first["cp_output"],
                 "indicator": first["indicator"],
-                "emergency": "Yes" if first["high_frequency"] else "No",
+                "emergency": "Yes" if rc.is_spd(pd.get("document_type")) else "No",  # the PD is an SPD
                 "report": report.number,
                 "report_type": report.report_type,
                 "progress_report": first["progress_report"],
@@ -1315,8 +1357,8 @@ def pd_indicators(pds: QuerySet[PCA], params) -> list[dict[str, Any]]:
     """PD/SPD Indicators: one row per indicator of these programme documents (the Datamart lists an
     indicator once per location and disaggregation; it is identified by its eTools id, else its title,
     as on Partner monitoring), with its PD's attributes, its target and baseline. ``params``: ``emergency``
-    (yes/no), ``section`` (the indicator's own section), ``indicator`` (words in its title) and ``pd_q``
-    (words in the PD reference)."""
+    (yes/no: the indicators of SPDs, NeuroDB's Emergency indicator as Power BI's), ``section`` (the
+    indicator's own section), ``indicator`` (words in its title) and ``pd_q`` (words in the PD reference)."""
     from .monitoring import _target, ident_of, pd_cp_outputs
 
     pd_q = (params.get("pd_q") or "").strip()
@@ -1327,8 +1369,9 @@ def pd_indicators(pds: QuerySet[PCA], params) -> list[dict[str, Any]]:
         return []
     rows = dm.PDIndicator.objects.filter(intervention_id__in=list(by_id))
     emergency = str(params.get("emergency") or "").strip().lower()
-    if emergency in ("yes", "no"):
-        rows = rows.filter(is_high_frequency=emergency == "yes")
+    if emergency in ("yes", "no"):  # the programme document is an SPD (reached.is_spd)
+        spd = rc.spd_q("intervention__")
+        rows = rows.filter(spd) if emergency == "yes" else rows.exclude(spd)
     words = (params.get("indicator") or "").strip()
     if words:
         rows = rows.filter(title__icontains=words)
@@ -1346,7 +1389,6 @@ def pd_indicators(pds: QuerySet[PCA], params) -> list[dict[str, Any]]:
         "baseline_numerator",
         "target_numerator",
         "target_denominator",
-        "is_high_frequency",
     )
     for row in rows.order_by("lower_result_name", "title", "datamart_id").values(*fields):
         ident = ident_of(row["intervention_id"], row["source_id"], row["title"])
@@ -1374,7 +1416,7 @@ def pd_indicators(pds: QuerySet[PCA], params) -> list[dict[str, Any]]:
             "display_type": row["display_type"] or "",
             "baseline": rc.number(row["baseline_numerator"]),
             "target": _target(row),
-            "emergency": "Yes" if row["is_high_frequency"] else "No",
+            "emergency": "Yes" if rc.is_spd(pd.document_type) else "No",  # the PD is an SPD
             "ident": ident,  # its identity in its PD, as Partner monitoring's (Compare with Power BI's)
         }
     out = []

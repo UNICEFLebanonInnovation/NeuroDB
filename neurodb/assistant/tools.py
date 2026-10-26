@@ -883,15 +883,18 @@ def partner_reporting(
         **data["summary"],
         # the programme documents read, as the page opens: the running ones (never draft or cancelled)
         "pd_statuses": data["filters"].status_choice,
-        # what the Progress reports page's tiles count: indicator reports (one indicator in one
-        # progress report) per status, with the progress reports beside them
-        "indicator_reports": {
+        # what the Progress reports page's tiles count: progress reports per status, as Power BI's
+        # Reporting Progress does, with the indicator reports (one indicator in one progress report) in them
+        "tiles": {
             s["label"]: {
-                "indicator_reports": s["indicator_reports"],
                 "progress_reports": s["progress_reports"],
+                "indicator_reports": s["indicator_reports"],
             }
             for s in data["counts"]["statuses"]
         },
+        # the reports to follow up, as the Partners tab lists them: Overdue, Sent back, Due (a report not yet
+        # due is one of the Due ones, as in Power BI's follow-up list) and Submitted
+        "to_follow_up": dict(Counter(r["status_label"] for r in data["partners"]["follow_up"])),
         # progress reports per status, by name: the same counts as ``reports`` and the status keys above
         "by_status": dict(data["by_status"]),
         **_cut(rows, "progress_reports"),
@@ -1429,11 +1432,13 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     "partner_reporting": (
         partner_reporting,
         "Partner progress reports (Partner Reporting Portal): progress reports per status (Accepted, "
-        "Submitted, Sent back, Due, Overdue, Not yet due) and late, the indicator reports per status (one "
-        "indicator in one progress report: what the Progress reports page counts, as Power BI does), and "
-        "the list of reports with period, due and submission dates, of the running programme documents "
-        "(active, signed or suspended: pd_statuses), as the page opens. Filter by partner name/vendor/PD "
-        "text, year the period ends, or overdue only.",
+        "Submitted, Sent back, Due, Overdue, Not yet due: what the Progress reports page's tiles count, as "
+        "Power BI does) and late, the indicator reports in them (one indicator in one progress report), the "
+        "reports to follow up by status (to_follow_up: Overdue, Sent back, Due and Submitted, a report not "
+        "yet due counted as Due, as in Power BI's follow-up list), and the list of reports with period, due "
+        "and submission dates, of the running programme documents (active, signed or suspended: "
+        "pd_statuses), as the page opens. Filter by partner name/vendor/PD text, year the period ends, or "
+        "overdue only.",
         _schema(
             {
                 "partner": {"type": "string"},

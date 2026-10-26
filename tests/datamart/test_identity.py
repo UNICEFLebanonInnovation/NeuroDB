@@ -448,13 +448,16 @@ def test_the_place_only_the_other_copy_plans_keeps_the_group_out_after_any_pd_in
 def test_a_filter_never_changes_where_a_report_s_rows_go():
     """X (a cluster's, a percentage) and Y (a number) share the title and output; QPR1 has a high frequency
     row at Akkar and another at Bekaa, both naming the cluster. The cluster gives both groups to X, so
-    neither goes (two indicator reports for one). The emergency filter keeps one of them: Report/Location
-    still places the whole report, so its line reads as a number under every filter, as in the pop-up."""
+    neither goes (two indicator reports for one). A section filter keeps one of them (the rows name two
+    sections): Report/Location still places the whole report, so its line reads as a number under every
+    filter, as in the pop-up. (The emergency filter keeps whole programme documents: the PD is an SPD.)"""
     pd = make_pd("B")
     indicator(pd, X, cluster="Child Protection cluster", display_type="percentage", unit="percentage")
     indicator(pd, Y)
     shared = row(pd, hf=True, cluster="true", total={"v": 4, "d": 10, "c": 0.4})
-    row(pd, 30, place="Bekaa", cluster="true")
+    bekaa = row(pd, 30, place="Bekaa", cluster="true")
+    dm.ReportedIndicator.objects.filter(pk=shared.pk).update(section="Section Alpha")
+    dm.ReportedIndicator.objects.filter(pk=bekaa.pk).update(section="Section Beta")
     gate(rows={"cluster": "false"})
     off = make_pd("H")  # high frequency is not proved: one placed group differs
     indicator(off, 7001, "# of teachers trained", "5.1 Teachers")
@@ -462,7 +465,7 @@ def test_a_filter_never_changes_where_a_report_s_rows_go():
     stored = proof()
     assert "cluster" in stored["enabled"] and "high_frequency" not in stored["enabled"]
     assert ways(pd) == ["two_for_one"]
-    for chosen in ({}, {"emergency": "yes"}, {"emergency": "no"}):
+    for chosen in ({}, {"section": "Section Alpha"}, {"section": "Section Beta"}):
         data = services.partner_reporting(chosen, TODAY)
         lines = [
             r

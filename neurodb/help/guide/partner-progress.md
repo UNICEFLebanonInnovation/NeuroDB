@@ -48,7 +48,7 @@ were given last is the report's on every page:
 | Sent back | Returned to the partner. | No |
 | Due | The period has ended; not submitted yet, and not late. | No |
 | Overdue | Not submitted by its due date. | No |
-| Not yet due | The reporting period is still running. | No |
+| Not yet due | The reporting period is still running. In the lists of reports to follow up it is one of the Due ones, as in Power BI. | No |
 
 A report eTools stops sending stays, with the status it last had: one still to submit turns Due, then
 Overdue, by its dates, until eTools sends it again. So reports still owed can appear here although the
@@ -61,7 +61,10 @@ partner reports feed no longer sends them.
 - **Grid**: by section, programme document and output, each indicator with its target, Reached, %
   Reached, Reached in the chosen year, awaiting acceptance, status and the months of the year.
 - **Program Performance**: one row per indicator (section, CP output, emergency, target, Reached, %
-  Reached, partner, programme document), sorted by % Reached; the section tiles filter it. With a
+  Reached, partner, programme document), sorted by % Reached; the section tiles filter it. *Emergency*
+  (the column and the filter) means the programme document is an SPD, as Power BI's Emergency indicator
+  does (your decision of 26 Oct 2026). eTools' *high frequency* is another thing: an indicator reported
+  monthly, in humanitarian reports. With a
   reporting year chosen, it shows Reached in that year and its % of the target first (sorted by it),
   as Power BI does, with Reached to date beside them.
 - **Data quality**: programme documents and indicators with and without a target or Reached, and the
@@ -164,19 +167,23 @@ confirmed in the one kept.
 [Progress reports](/partner-reporting/) has four tabs on one filter (search, report status, report
 type, reporting year, section, report number, partner, partner type, PD status, emergency indicator, and
 the period start and end; the section list offers each section once, and a section chosen also finds
-reports whose rows list several sections). Like Partner monitoring, it opens on the running programme
+reports whose rows list several sections). The emergency indicator keeps the reports of SPDs, as Power BI's
+does. Like Partner monitoring, it opens on the running programme
 documents (active, signed or suspended); clear the PD status choice to see every status. Under the
 tiles, a note says how many more indicator reports the PD status filter leaves out (of programme
 documents with another status, or not in NeuroDB), with a link that shows every status. Draft and cancelled
 programme documents are never listed, nor reports that name no programme document.
 
-- **Reporting progress**: the tiles count *indicator reports* (one indicator in one progress report, as
-  Power BI counts them) per status, with the number of progress reports under each; then by section and
-  by month of the end of the reporting period (the month a report is about, as Power BI shows it),
-  and the report table with the PD status, document type and UNICEF focal
-  points (names only).
+- **Reporting progress**: the tiles count *progress reports* per status, as Power BI's Reporting Progress
+  does (your decision of 26 Oct 2026), with the indicator reports in them under each (one indicator in one
+  progress report); then the progress reports by section (each report once, under its Section as the
+  report table shows it) and by month of the end of the reporting period (the month a report is about, as
+  Power BI shows it), and the report table with the PD status, document type and UNICEF focal points
+  (names only).
 - **Partners**: partners with reports, with at least one submitted or accepted, and without; partners
-  per status; the reports to follow up (Overdue, Sent back, Due, Submitted).
+  per status; the reports to follow up (Overdue, Sent back, Due, Submitted). A report not yet due is one
+  of the Due ones there, as in Power BI's follow-up list (your decision of 26 Oct 2026); Home's programme
+  documents to follow up count it the same way. Everywhere else it is *Not yet due*.
 - **By location**: one row per indicator, report and location, with the value in the period and PRP's
   figure to date there.
 - **By disaggregation**: per indicator, report and location, the value of each disaggregation (female,

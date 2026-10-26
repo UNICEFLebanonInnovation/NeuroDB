@@ -543,7 +543,7 @@ PD_TITLES = {
 ROW_TITLES = {
     "rows": "PD indicator rows of the programme documents kept",
     "q": 'Does not match "{q}" (indicator or PD output)',
-    "hr_only": "Humanitarian reports: only emergency or cluster indicators",
+    "hr_only": "Humanitarian reports: only high-frequency or cluster indicators",
 }
 FOUND_TITLES = {
     "one_per_indicator": "One per indicator",
@@ -582,8 +582,8 @@ def stage_title(name: str, filters: monitoring.Filters) -> str:
         return "Not running (active, signed or suspended)"
     if name == "emergency":
         if f.emergency == "yes":
-            return "Not an emergency (high frequency) indicator"
-        return "An emergency (high frequency) indicator"
+            return "Its programme document is not an SPD (the Emergency indicator)"
+        return "Its programme document is an SPD (the Emergency indicator)"
     if name.startswith("tags."):
         from .comparison import TAG_WORDS
 

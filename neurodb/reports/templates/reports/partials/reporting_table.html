@@ -19,7 +19,7 @@ parity world (an administrator's and a viewer's are the same): height at 1366 px
 {% else %}
 {% with c=data.counts %}
 {% include "reports/partials/_reporting_tiles.html" with counts=c %}
-<p class="small text-muted mb-3">{% blocktrans with late=data.summary.late|intcomma %}Each tile counts indicator reports: one indicator in one progress report, as the eTools Power BI report counts them; the number of progress reports is under it. Every report has one status, so the tiles add up to the total. Submitted means awaiting acceptance; Not yet due, that the reporting period is still running. <span data-figure="pr.late">{{ late }}</span> progress reports were submitted after their due date.{% endblocktrans %}</p>
+<p class="small text-muted mb-3">{% blocktrans with late=data.summary.late|intcomma %}Each tile counts progress reports, as the eTools Power BI report's Reporting Progress does; the indicator reports in them (one indicator in one progress report) are under it. Every report has one status, so the tiles add up to the total. Submitted means awaiting acceptance; Not yet due, that the reporting period is still running. <span data-figure="pr.late">{{ late }}</span> progress reports were submitted after their due date.{% endblocktrans %}</p>
 {% endwith %}
 {% with lo=data.left_out %}{% if lo.by_pd_status or lo.no_pd %}
 <p class="small text-muted mb-3" id="reporting-left-out">
@@ -29,18 +29,19 @@ parity world (an administrator's and a viewer's are the same): height at 1366 px
 {% endif %}{% endwith %}
 {% if user_role == "Administrator" %}<p class="small text-muted mb-3" id="reporting-checks-link">{% url 'admin:datamart_reporting_checks' as checks_url %}{% blocktrans %}Administrators: <a href="{{ checks_url }}">eTools reporting checks</a> 10 and 11 show which country and programme document the report rows name, and the reports still owed in eTools' two feeds (why Power BI can count reports this page does not).{% endblocktrans %}</p>{% endif %}
 <section class="panel p-0 mb-3">
-    {% include "components/table_toolbar.html" with title=_("Indicator reports by section") count=None table_id="reporting-sections" filename="indicator-reports-by-section" downloads=None %}
+    {% include "components/table_toolbar.html" with title=_("Progress reports by section") count=None table_id="reporting-sections" filename="progress-reports-by-section" downloads=None %}
     {% if data.by_section.rows %}
     <div class="table-wrap"><table class="table table-sm status-matrix" id="reporting-sections">
       <thead><tr><th scope="col">{% trans "Section" %}</th>{% for s in data.counts.statuses %}<th scope="col" class="num">{{ s.label }}</th>{% endfor %}<th scope="col" class="num">{% trans "Total" %}</th></tr></thead>
       <tbody>{% for row in data.by_section.rows %}<tr><th scope="row" class="fw-normal small">{{ row.section }}</th>{% for key, n in status_keys|paired:row.counts %}<td class="num" data-figure="pr.section.{{ row.section }}.{{ key }}">{{ n|intcomma }}</td>{% endfor %}<td class="num fw-semibold" data-figure="pr.section.{{ row.section }}.total">{{ row.total|intcomma }}</td></tr>{% endfor %}</tbody>
       <tfoot><tr><th scope="row">{% trans "Total" %}</th>{% for key, n in status_keys|paired:data.by_section.totals %}<td class="num" data-figure="pr.section_total.{{ key }}">{{ n|intcomma }}</td>{% endfor %}<td class="num" data-figure="pr.section_total.total">{{ data.by_section.total|intcomma }}</td></tr></tfoot>
     </table></div>
+    <p class="small text-muted px-3 py-2 mb-0">{% trans "Each progress report is counted once, under its Section as the table of progress reports shows it." %}</p>
     {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "No progress reports match." %}</p>{% endif %}
 </section>
 <section class="panel mb-3">
-  <div class="panel__header"><h2 class="panel__title">{% trans "Indicator reports by month of the reporting period's end" %}</h2><span class="panel__hint">{% trans "Not yet due included" %}</span></div>
-  <div class="chart" data-module="charts" data-chart="grouped" data-source="reporting-chart-data" data-key="by_month" data-legend="top" data-height="300" data-empty-title="{% trans 'No progress reports' %}" aria-label="{% trans 'Indicator reports by month of the reporting period end and status' %}"></div>
+  <div class="panel__header"><h2 class="panel__title">{% trans "Progress reports by month of the reporting period's end" %}</h2><span class="panel__hint">{% trans "Not yet due included" %}</span></div>
+  <div class="chart" data-module="charts" data-chart="grouped" data-source="reporting-chart-data" data-key="by_month" data-legend="top" data-height="300" data-empty-title="{% trans 'No progress reports' %}" aria-label="{% trans 'Progress reports by month of the reporting period end and status' %}"></div>
 </section>
 <section class="panel p-0">
   {% include "components/table_toolbar.html" with title=_("Progress reports") count=page_obj.paginator.count table_id="progress-reports" filename="progress-reports" downloads=downloads count_figure_key="pr.reports_listed" %}

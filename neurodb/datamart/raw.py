@@ -717,7 +717,8 @@ VIEWS: dict[str, RawView] = {
             ("Location", "t:location_name"),
             ("Target", "t:target_numerator"),
             ("Active", "t:is_active"),
-            ("Emergency", "t:is_high_frequency"),
+            # eTools' own field (monthly reports): NeuroDB's Emergency indicator is the PD being an SPD
+            ("High frequency", "t:is_high_frequency"),
         ),
         pd=("pd_reference_number",),
         section="section_name",
