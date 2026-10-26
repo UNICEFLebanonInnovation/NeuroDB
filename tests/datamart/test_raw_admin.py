@@ -944,12 +944,13 @@ def test_the_funds_lines_page_says_how_the_last_sync_linked_them_to_their_pd(cli
     said = raw.fr_link_words(FUNDS_LINKED, "funds_reservations")
     assert said == (
         "Linked to their programme document by reference number: 1,234 (exact 1,200; another amendment's number "
-        "5; the PD part alone 9; the FR's header number 20; shared by several PDs, the one whose dates cover it "
-        "taken: 0). By eTools id only (no number): 12. Not linked: a number of a PD NeuroDB does not hold 20 (the "
-        "eTools id names a PD NeuroDB holds on 15 of them); another amendment's number or a PD part several PDs "
-        "fit 0. The eTools id names another PD NeuroDB holds on 343 of the lines linked by number (the old rule "
-        "put them there); moved to another PD by this sync: 343. The partner's vendor number matches on 1,180 of "
-        "1,190 lines linked by exact number, 10 of 12 by eTools id."
+        "5; the PD part alone 9; the FR's header number 20). Of these, 0 carry the number of several PDs: each "
+        "went to the PD whose dates cover it, else to the one that ends last. By eTools id only (no number): 12. "
+        "Not linked: a number of a PD NeuroDB does not hold 20 (the eTools id names a PD NeuroDB holds on 15 of "
+        "them); a number several PDs fit (another amendment's or the PD part alone) 0. The eTools id names "
+        "another PD NeuroDB holds on 343 of the lines linked by number (the old rule put them there); moved to "
+        "another PD by this sync: 343. The partner's vendor number matches on 1,180 of 1,190 lines linked by "
+        "exact number, 10 of 12 by eTools id."
     )
     html = client_validator.get(url).content.decode()
     assert escape(said) in html
@@ -980,6 +981,42 @@ def test_the_funds_lines_whose_number_names_no_pd_neurodb_holds_are_listed(clien
     assert sorted(r["pd_reference_number"] for r in rows) == ["LEB/PD9", "LEBA/PCA2020009/PD2020009-1"]
     assert _shown(client_validator, "funds_reservation_headers", fr_link="number_not_held") == 0
     assert not client_validator.get(f"{INDEX}partner_reports/").context["shown"]["fr_link"]
+
+
+def test_a_funds_line_left_unlinked_says_why_on_the_list_its_page_and_the_csv(client_validator, world):
+    """Its PD in NeuroDB: "several PDs fit" when its number fits several PDs NeuroDB holds (the sync links it
+    to none of them), "not in NeuroDB" when its number, or its FR header's for a line without one, names none
+    NeuroDB holds, "names none" when it carries neither. The page and the download read the programme
+    documents and the FR headers once, whatever the number of lines."""
+    partner = world["partner"]
+    for etl_id, number in (("21", "LEBA/PCA2020003/PD2020003-1"), ("22", "LEBA/PCA2020004/PD2020003-2")):
+        PCA.objects.create(etl_id=etl_id, partner=partner, number=number, title=number)
+    dm.FundsReservationHeader.objects.create(
+        datamart_id=1, fr_number="0400001", pd_reference_number="LEBA/PCA2020009/PD2020009-1"
+    )
+    lines = (("PD2020003", ""), ("", "0400001"), ("", ""), ("LEB/PD9", ""))
+    for pk, (number, fr) in enumerate(lines, start=1):
+        dm.FundsReservation.objects.create(
+            datamart_id=pk, pd_reference_number=number, fr_number=fr, data={"id": pk, "fr_number": fr}
+        )
+    said = {"1": "several PDs fit", "2": "not in NeuroDB", "3": "names none", "4": "not in NeuroDB"}
+    rows = _csv(client_validator.get(f"{INDEX}funds_reservations/rows.csv"))
+    assert {r["record_id"]: r["pd_number_in_neurodb"] for r in rows} == said
+    response = client_validator.get(f"{INDEX}funds_reservations/")
+    columns = list(response.context["columns"])
+    at, pd_at = columns.index("Record id"), columns.index("PD in NeuroDB")
+    assert {r["cells"][at]: r["cells"][pd_at] for r in response.context["records"]} == said
+    line = dm.FundsReservation.objects.get(datamart_id=1)
+    page = client_validator.get(f"{INDEX}funds_reservations/{line.pk}/").content.decode()
+    assert "Programme document: several PDs fit" in page
+    page_queries = _queries(client_validator, f"{INDEX}funds_reservations/")
+    csv_queries = _queries(client_validator, f"{INDEX}funds_reservations/rows.csv")
+    dm.FundsReservation.objects.bulk_create(
+        dm.FundsReservation(datamart_id=100 + i, pd_reference_number=f"PD20200{i:02}", data={"id": 100 + i})
+        for i in range(40)
+    )
+    assert _queries(client_validator, f"{INDEX}funds_reservations/") == page_queries
+    assert _queries(client_validator, f"{INDEX}funds_reservations/rows.csv") == csv_queries
 
 
 def _rest_world() -> SyncRun:

@@ -408,10 +408,11 @@ def source_view(request, source: str):
         page_obj = paginator.get_page(request.GET.get("p"))
         start = (page_obj.number - 1) * raw.PAGE_SIZE
         found = list(raw.related(name, rows).order_by("-pk")[start : start + raw.PAGE_SIZE])
+        funds = raw.FundsNumbers() if name in raw.FR_SOURCES else None  # why a line links no PD, read once
         records = [
             {
                 "url": reverse("admin:datamart_raw_record", args=[name, row.pk]),
-                "cells": raw.cells(name, row, columns, names, reviewed, run),
+                "cells": raw.cells(name, row, columns, names, reviewed, run, funds),
             }
             for row in found
         ]

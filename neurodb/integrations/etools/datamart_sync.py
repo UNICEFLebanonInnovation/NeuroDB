@@ -203,9 +203,10 @@ class Links:
         carries first, and what the run counts of it (``fr_link``'s keys). A line with no number takes its FR
         header's (``fr_number``). The candidates are those of :meth:`PDResolver.candidates`: the exact number,
         else another amendment's ('token', 'base': "amended"), else the PD part alone. Of several, the one the
-        eTools id names; else, by exact number, the one whose dates cover ``day`` ("twice"); else none
-        ("unclear"). A number no PD carries links nothing ("number_not_held"): the eTools id is never used
-        alone when a number is given, only with no number at all ("by_id"). Not linked is counted missing."""
+        eTools id names; else, by exact number, the one whose dates cover ``day``, else the one that ends last
+        ("twice"); else none ("unclear"). A number no PD carries links nothing ("number_not_held"): the eTools
+        id is never used alone when a number is given, only with no number at all ("by_id"). It counts
+        nothing itself: :func:`_link_funds` counts each record once, missing too when it links none."""
         if self._pcas_by_etl is None:
             self._load_pcas()
         named = self._pcas_by_etl.get(str(source_id)) if source_id not in (None, "") else None
@@ -214,7 +215,6 @@ class Links:
             text, header = self.header_number(fr_number), True
         if not text:
             if named is None and source_id not in (None, ""):
-                self.missing["programme_document"] += 1
                 return None, ("id_not_held",)
             return named, ("by_id",) if named is not None else ()
         found, how = self._resolver().candidates(text)
@@ -227,7 +227,6 @@ class Links:
             pk = self._resolver().pick(found, day)
             counts.append("twice")
         else:
-            self.missing["programme_document"] += 1
             if found:
                 return None, ("unclear",)
             return None, ("number_not_held",) + (("number_not_held_id_held",) if named is not None else ())
@@ -236,15 +235,10 @@ class Links:
         return pk, tuple(counts)
 
     def header_number(self, fr_number: Any) -> str:
-        """The reference number of the FR header NeuroDB holds under ``fr_number`` (normalised), '' when none:
-        the lines sync before their headers, so these are the last headers sync's."""
+        """The reference number of the FR header NeuroDB holds under ``fr_number`` (normalised), '' when none
+        (:func:`fr_header_numbers`). Lines sync before their headers: these are the last headers run's."""
         if self._header_numbers is None:
-            self._header_numbers = {}
-            for fr, number in dm.FundsReservationHeader.objects.exclude(pd_reference_number="").values_list(
-                "fr_number", "pd_reference_number"
-            ):
-                if fr.strip() and norm_reference(number):
-                    self._header_numbers.setdefault(fr.strip(), norm_reference(number))
+            self._header_numbers = fr_header_numbers()
         return self._header_numbers.get(str(fr_number or "").strip(), "")
 
     def vendor_of(self, pca_id: int | None) -> str:
@@ -632,6 +626,18 @@ FR_HOW = {"exact": "exact", "token": "amended", "base": "amended", "pd_part": "p
 FR_VENDOR_KINDS = ("exact", "amended", "pd_part", "header", "by_id")
 
 
+def fr_header_numbers() -> dict[str, str]:
+    """FR number -> the reference number of the FR header NeuroDB holds under it, normalised (headers without
+    one left out): the number a funds reservation line without one of its own is linked by
+    (:meth:`Links.header_number`). Raw eTools data reads it alike (``raw.FundsNumbers``)."""
+    found: dict[str, str] = {}
+    rows = dm.FundsReservationHeader.objects.exclude(pd_reference_number="")
+    for fr, number in rows.values_list("fr_number", "pd_reference_number"):
+        if fr.strip() and norm_reference(number):
+            found.setdefault(fr.strip(), norm_reference(number))
+    return found
+
+
 def _vendor(value: Any) -> str:
     """A vendor number as compared: no spaces, no leading zeros."""
     return "".join(str(value or "").split()).upper().lstrip("0")
@@ -642,7 +648,8 @@ def _link_funds(row, item, links):
     eTools id only without a number or when both agree (:meth:`Links.by_number_first`; a line with no number
     takes its FR header's). Each record is counted once a run in ``links.fr_link`` (``details.pd_link``): how
     it was linked, "moved" when it leaves another PD it was on for this one, and, per link kind, whether the
-    vendor number it carries is the PD's partner's (the proof the user reads on Raw eTools data)."""
+    vendor number it carries is the PD's partner's (the proof the user reads on Raw eTools data); and, when it
+    links none, once in ``links.missing`` (``details.not_linked``), so the two agree on the page."""
     before = row.intervention_id
     line = isinstance(row, dm.FundsReservation)
     pk, counts = links.by_number_first(
@@ -656,6 +663,8 @@ def _link_funds(row, item, links):
         return
     links.fr_counted.add(row.datamart_id)
     links.fr_link.update(counts)
+    if pk is None and counts:  # a number or an eTools id of no PD NeuroDB holds, or several PDs fit
+        links.missing["programme_document"] += 1
     if pk is not None and before is not None and before != pk:
         links.fr_link["moved"] += 1
     kind = next((k for k in FR_VENDOR_KINDS if k in counts), "")

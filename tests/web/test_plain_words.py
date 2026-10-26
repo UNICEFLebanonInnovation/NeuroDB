@@ -87,6 +87,7 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         raw.Filters(pd="LEB/PD1", updated="unsent").words(),
         # how the funds reservation lines and the funds reservations link to their programme document
         *raw.FR_LINK_WORDS.values(),
+        raw.FR_SEVERAL,  # a line's PD in NeuroDB when its number fits several
         raw.fr_link_words(
             {
                 "by_number": 9,

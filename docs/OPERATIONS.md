@@ -1985,17 +1985,20 @@ removed: the removal failed. Its run in Import and sync runs says why." The figu
 programme document twice, by `pd_reference_number` and by `source_intervention_id` (the eTools id), and the
 two can disagree: the id first put lines Power BI shows on one PD on another PD of another partner. So the
 number decides, normalised (case aside, spaces collapsed: `fm.norm_reference`); a line with no number takes
-the number of its FR header NeuroDB holds (`Links.header_number`: lines sync before headers, so the last
+the number of its FR header NeuroDB holds (`fr_header_numbers`: lines sync before headers, so the last
 headers sync's). The candidates are the first step of `fm.PDResolver.candidates` that finds any: the exact
 number; else another amendment's (the same PCA/PD pair, or the same number without country prefix and
 amendment suffix); else the PD part alone ("PD2020001", an SSFA or GDD number: `fm.pd_part`). Of the
 candidates, the one the eTools id names; else the only one; else, by exact number, the one whose dates cover
-the line's start date (`PDResolver.pick`); else none (several amendments or PD parts fit). A number no PD
-NeuroDB holds carries links nothing, whatever the id: the id is used only when no number is given (none on the
-line, none on its header). Not linked counts in `details.not_linked.programme_document`, so Data health's and
-Raw eTools data's "not linked" rise by the lines whose number names a PD NeuroDB does not hold. Each run
+the line's start date, else the one that ends last (`PDResolver.pick`); else none (several amendments or PD
+parts fit). A number no PD NeuroDB holds carries links nothing, whatever the id: the id is used only when no
+number is given (none on the line, none on its header). Not linked counts in
+`details.not_linked.programme_document`, once per record as `details.pd_link` (a record the Datamart returns
+twice in one read counts once in both), so Data health's and Raw eTools data's "not linked" rise by the lines
+whose number names a PD NeuroDB does not hold or fits several. Each run
 records `details.pd_link`, counted once per record: `by_number` with how (`exact`, `amended`, `pd_part`,
-`header`) and `twice` (several PDs carry the exact number), `by_id` (no number), `number_not_held` (and
+`header`) and `twice` (several PDs carry the exact number: dates, else the one that ends last, decide),
+`by_id` (no number), `number_not_held` (and
 `number_not_held_id_held`: the id names a PD NeuroDB holds), `unclear`, `id_not_held` (no number, an id of no PD
 NeuroDB holds), `id_other` (linked by number while the id names another PD NeuroDB holds: where the old rule
 put them; it stays near its first value every night, since the Datamart still sends both), `moved` (the row
@@ -2007,9 +2010,13 @@ PDs). Every run rewrites every record, so the first FR run after the change reli
 `_refresh_donor_sets` rebuilds `PCA.donors_set` for the PDs that lose lines and those that gain them. Raw
 eTools data → Funds reservation lines (and → Funds reservations) says it in one line under the counts
 (`raw.fr_link_words`), and its *Programme document link* filter "Their number names no PD NeuroDB holds"
-(`fr_link=number_not_held`, `raw.numbers_not_held`: the same rule) lists the lines whose own number names no
-PD NeuroDB holds; their CSV carries `pd_reference_number` beside `pd_number_in_neurodb`. Partner report rows
-still link by eTools id first (`_link_report`).
+(`fr_link=number_not_held`, `raw.FundsNumbers.not_held`: the same rule) lists the lines the sync counted
+`number_not_held`: those whose own number names no PD NeuroDB holds, and those without one whose FR header's
+number names none. A line linked to no PD says why as its PD in NeuroDB (the list, its page and the CSV's
+`pd_number_in_neurodb`, by the same rule, `raw.pd_words`): "several PDs fit" when its number (its own, else its
+header's) fits several, "not in NeuroDB" when that number, or with no number its eTools id, names none NeuroDB
+holds, "names none" when it carries neither. Their CSV carries `pd_reference_number` beside
+`pd_number_in_neurodb`. Partner report rows still link by eTools id first (`_link_report`).
 
 **Records the Datamart sends twice** (`windows.Reading`, `windows.Copies`). One answer of the Datamart (a
 page: one query) never lists a row twice. So a record whose every copy came identical in one answer is held

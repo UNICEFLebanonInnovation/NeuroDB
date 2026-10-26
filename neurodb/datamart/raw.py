@@ -16,8 +16,8 @@ for the people who check a page's figures against it (the Validators group, supe
   counts (:func:`no_longer_sent`) and the reports a superuser reviews before removing them
   (:func:`unsent_reports`);
 * how the last sync linked the funds reservation lines and headers to their programme document, by the
-  number they carry first (``datamart_sync.Links.by_number_first``, :func:`fr_link_words`), and the lines
-  whose number names no programme document NeuroDB holds (:func:`numbers_not_held`).
+  number they carry first (``datamart_sync.Links.by_number_first``, :func:`fr_link_words`), the lines whose
+  number names no programme document NeuroDB holds, and why a line links to none (:class:`FundsNumbers`).
 
 People are never shown or written: every record goes through ``raw_people.public_record``.
 """
@@ -46,7 +46,15 @@ from neurodb.partnerships.models import PCA, PartnerOrganization
 
 from . import catalogue, raw_people, reporting
 from . import query as dmq
-from .models import DatamartDocument, RawFieldReview, ReportedIndicator, RestRecord
+from .fm import PDResolver, norm_reference
+from .models import (
+    DatamartDocument,
+    FundsReservation,
+    FundsReservationHeader,
+    RawFieldReview,
+    ReportedIndicator,
+    RestRecord,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -877,10 +885,12 @@ PD_LINK_WORDS = {
     "not_held": "not in NeuroDB",
     "no_pd": "names none",
 }
-# The funds reservation lines' and headers' "Programme document link": those with a number of their own that
-# names no programme document NeuroDB holds (by the rule the sync links them by: PDResolver.candidates)
+# The funds reservation lines' and headers' "Programme document link": those whose number (their own, else a
+# line's FR header's) names no programme document NeuroDB holds, by the rule the sync links them by
+# (FundsNumbers.not_held); and a line's PD in NeuroDB when its number fits several (the sync links it to none)
 FR_SOURCES = ("funds_reservations", "funds_reservation_headers")
 FR_LINK_WORDS = {"number_not_held": "Their number names no PD NeuroDB holds"}
+FR_SEVERAL = "several PDs fit"
 UPDATED = {"last": "the last sync", "earlier": "an earlier sync"}
 # the partner reports' "Updated by" choices for the rows eTools no longer sends (datamart_sync.keep_unsent):
 # those whose number eTools sends for another period (to review first), then all of them
@@ -1039,20 +1049,52 @@ class Filters:
             if self.pd_link:
                 rows = rows.filter(PD_LINKS[self.pd_link])
         if name in FR_SOURCES and self.fr_link == "number_not_held":
-            rows = rows.filter(pd_reference_number__in=numbers_not_held(rows))
+            rows = rows.filter(FundsNumbers().not_held(rows))
         return rows
 
 
-def numbers_not_held(rows: QuerySet) -> list[str]:
-    """The reference numbers of ``rows`` (funds reservation lines or headers) that name no programme document
-    NeuroDB holds, by the rule the sync links them by (``fm.PDResolver.candidates``: the exact number, another
-    amendment's, the PD part alone). A blank number is none: such a row links by its header's number or its
-    eTools id."""
-    from .fm import PDResolver, norm_reference
+class FundsNumbers:
+    """The reference number a funds reservation line or header is linked by, read as the sync reads it
+    (``datamart_sync.Links.by_number_first``): its own, else, for a line, its FR header's
+    (``datamart_sync.fr_header_numbers``); and the programme documents NeuroDB holds that it may name
+    (``fm.PDResolver.candidates``: the exact number, another amendment's, the PD part alone). One for a page,
+    a download or a filter: the programme documents and the headers are each read once, when first needed."""
 
-    resolver = PDResolver()
-    numbers = rows.exclude(pd_reference_number="").order_by().values_list("pd_reference_number", flat=True)
-    return [n for n in numbers.distinct() if norm_reference(n) and not resolver.candidates(n)[0]]
+    def __init__(self) -> None:
+        self._resolver: PDResolver | None = None
+        self._headers: dict[str, str] | None = None
+
+    def headers(self) -> dict[str, str]:
+        if self._headers is None:
+            from neurodb.integrations.etools.datamart_sync import fr_header_numbers  # lazy: the Datamart sync
+
+            self._headers = fr_header_numbers()
+        return self._headers
+
+    def number_of(self, row: Any) -> str:
+        """The number ``row`` is linked by, normalised; '' when it has none (it links by its eTools id)."""
+        own = norm_reference(row.pd_reference_number)
+        if own or not isinstance(row, FundsReservation):
+            return own
+        return self.headers().get((row.fr_number or "").strip(), "")
+
+    def fit(self, number: Any) -> list[int]:
+        """The programme documents NeuroDB holds that ``number`` may name."""
+        if self._resolver is None:
+            self._resolver = PDResolver()
+        return self._resolver.candidates(number)[0]
+
+    def not_held(self, rows: QuerySet) -> Q:
+        """Of ``rows`` (funds reservation lines or headers), those whose number names no programme document
+        NeuroDB holds (what the sync counts "number_not_held"): their own number, or, for a line without one,
+        its FR header's. A row with no number at all links by its eTools id: never one of them."""
+        numbered = rows.exclude(pd_reference_number="").order_by()
+        numbers = numbered.values_list("pd_reference_number", flat=True).distinct()
+        found = Q(pd_reference_number__in=[n for n in numbers if norm_reference(n) and not self.fit(n)])
+        if rows.model is FundsReservation:
+            frs = [fr for fr, number in self.headers().items() if not self.fit(number)]
+            found |= Q(pd_reference_number="", fr_number__in=frs)
+        return found
 
 
 def _rest_partner(name: str, rows: QuerySet, value: str) -> QuerySet:
@@ -1246,9 +1288,12 @@ def related(name: str, rows: QuerySet) -> QuerySet:
     return rows.select_related(*joins) if joins else rows
 
 
-def pd_words(row: Any) -> str:
+def pd_words(row: Any, funds: FundsNumbers | None = None) -> str:
     """A record's programme document in NeuroDB: its number, else why none ("" for an eTools REST record that
-    is not a programme document's; :func:`link_rest` gives the others theirs)."""
+    is not a programme document's; :func:`link_rest` gives the others theirs). A funds reservation line or
+    header is read by the rule the sync links it by (``funds``: one for a page or a download): "several PDs
+    fit" when its number fits several (the sync then links none), "not in NeuroDB" when its number, or with no
+    number its eTools id, names none NeuroDB holds."""
     if isinstance(row, RestRecord) and row.entity not in REST_PCA:
         return ""
     pd = getattr(row, "intervention", None)
@@ -1256,6 +1301,12 @@ def pd_words(row: Any) -> str:
         return pd.number or f"PD {pd.pk}"
     if isinstance(row, RestRecord):
         return "not in NeuroDB" if row.source_id else "names none"
+    if isinstance(row, FundsReservation | FundsReservationHeader):
+        funds = funds or FundsNumbers()
+        if number := funds.number_of(row):
+            return FR_SEVERAL if len(funds.fit(number)) > 1 else "not in NeuroDB"
+        data = row.data if isinstance(row.data, dict) else {}
+        return "not in NeuroDB" if data.get("source_intervention_id") not in (None, "") else "names none"
     data = getattr(row, "data", None) or {}
     named = (getattr(row, "pd_reference_number", "") or "") or data.get("etools_intervention_id") not in (
         None,
@@ -1391,8 +1442,10 @@ def cells(
     names: frozenset[str],
     reviewed: frozenset[str],
     run: SyncRun | None,
+    funds: FundsNumbers | None = None,
 ) -> list[Any]:
-    """A record's cells for the list, cleaned with only the fields shown (``raw_people``)."""
+    """A record's cells for the list, cleaned with only the fields shown (``raw_people``); ``funds``: the
+    funds reservations' numbers, one for the page (:func:`pd_words`)."""
     fields = [what[2:] for _, what in columns if what.startswith("d:")]
     if not typed(name) and any(what == "report" for _, what in columns):
         fields += list(REPORT_COLUMNS)
@@ -1403,7 +1456,7 @@ def cells(
         if what == "id":
             out.append(record_id(name, row))
         elif what == "pd":
-            out.append(pd_words(row))
+            out.append(pd_words(row, funds))
         elif what == "partner":
             partner = partner_of(row)
             out.append(partner.name if partner is not None else "—")
@@ -1611,9 +1664,11 @@ def csv_record(
     names: frozenset[str],
     reviewed: frozenset[str],
     as_of: str,
+    funds: FundsNumbers | None = None,
 ) -> dict[str, Any]:
     """One record as a download's row, through the people rule: NeuroDB's columns, then the fields of
-    ``wanted`` (the header's), then the tail. The figure trail's CSVs write their records with it too."""
+    ``wanted`` (the header's), then the tail. The figure trail's CSVs write their records with it too.
+    ``funds``: the funds reservations' numbers, one for the download (:func:`pd_words`)."""
     shown, withheld = raw_people.public_record(row.data, name, names, reviewed=reviewed)
     pd = getattr(row, "intervention", None)
     partner = partner_of(row)
@@ -1622,7 +1677,7 @@ def csv_record(
         "record_id": record_id(name, row),
         "synced_at": local_moment(row.synced_at),
         "updated_by_last_sync": "yes" if updated_by_last(row, run) else "no",
-        "pd_number_in_neurodb": pd.number if pd is not None else pd_words(row),
+        "pd_number_in_neurodb": pd.number if pd is not None else pd_words(row, funds),
         "pd_status_in_neurodb": pd.status if pd is not None else "",
         "partner_in_neurodb": partner.name if partner is not None else "",
         "vendor_number": partner.vendor_number if partner is not None else "",
@@ -1667,6 +1722,7 @@ def csv_rows(
     reviewed = reviewed_keys(name)
     as_of = local_moment(run.finished_at if run else None)
     wanted = set(keys)
+    funds = FundsNumbers() if name in FR_SOURCES else None
     try:
         with snapshot(STREAM_TIMEOUT_MS):
             found = related(name, rows).order_by("-pk").iterator(chunk_size=CSV_CHUNK)
@@ -1674,7 +1730,7 @@ def csv_rows(
                 chunks = itertools.batched(found, CSV_CHUNK)
                 found = (row for chunk in chunks for row in link_rest(name, list(chunk)))
             for row in found:
-                yield csv_record(name, row, wanted, run, names, reviewed, as_of)
+                yield csv_record(name, row, wanted, run, names, reviewed, as_of, funds)
     except DatabaseError:
         logger.warning("raw eTools data: the download of %s stopped (took too long)", name, exc_info=True)
         yield {"figures_as_of": STOPPED}  # after the snapshot: the cut is in the file, never a complete one
@@ -1889,15 +1945,15 @@ def fr_link_words(found: dict[str, int], name: str) -> str:
     ]
     if lines:
         ways.append(f"the FR's header number {n('header')}")
-    ways.append(f"shared by several PDs, the one whose dates cover it taken: {n('twice')}")
     said = (
         f"Linked to their programme document by reference number: {n('by_number')} ({'; '.join(ways)}). "
-        f"By eTools id only (no number): {n('by_id')}."
+        f"Of these, {n('twice')} carry the number of several PDs: each went to the PD whose dates cover it, "
+        f"else to the one that ends last. By eTools id only (no number): {n('by_id')}."
     )
     gone = f"a number of a PD NeuroDB does not hold {n('number_not_held')}"
     if found.get("number_not_held"):
         gone += f" (the eTools id names a PD NeuroDB holds on {n('number_not_held_id_held')} of them)"
-    gone += f"; another amendment's number or a PD part several PDs fit {n('unclear')}"
+    gone += f"; a number several PDs fit (another amendment's or the PD part alone) {n('unclear')}"
     if found.get("id_not_held"):
         gone += f"; no number, and an eTools id of a PD NeuroDB does not hold {n('id_not_held')}"
     said += (

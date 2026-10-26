@@ -7,6 +7,7 @@ from django.core.management import CommandError, call_command
 
 from neurodb.core.models import SyncRun
 from neurodb.datamart import models as dm
+from neurodb.datamart import raw
 from neurodb.geo.models import Location
 from neurodb.integrations.etools import datamart_sync as sync
 from neurodb.integrations.etools.datamart import DatamartClient
@@ -416,21 +417,54 @@ def test_the_vendor_check_counts_lines_whose_vendor_is_the_pd_s_partner_per_link
 
 @responses.activate
 def test_a_funds_line_returned_twice_is_counted_once(two_pds):
+    """Linked or not: "not linked" beside the sentence counts each record once, as the sentence does."""
     pd1, _ = two_pds
-    first = [fr_line(1, PD1_NUMBER, 12)]
+    first = [fr_line(1, PD1_NUMBER, 12), fr_line(2, "LEBA/PCA2020009/PD2020009-1", 11)]
     responses.get(
         f"{API}/funds-reservation/",
         match=[responses.matchers.query_param_matcher({"page_size": "500", "country_name": "Lebanon"})],
-        json={"count": 2, "next": f"{API}/funds-reservation/?page=2", "results": first},
+        json={"count": 4, "next": f"{API}/funds-reservation/?page=2", "results": first},
     )
     responses.get(
         f"{API}/funds-reservation/",
         match=[responses.matchers.query_param_matcher({"page": "2"})],
-        json={"count": 2, "next": None, "results": first},
+        json={"count": 4, "next": None, "results": first},
     )
     (run,) = run_all("funds_reservations")
-    assert pd_of(1) == pd1.pk
-    assert run.details["pd_link"] == {"by_number": 1, "exact": 1, "id_other": 1}
+    assert (pd_of(1), pd_of(2)) == (pd1.pk, None)
+    assert run.details["pd_link"] == {
+        "by_number": 1,
+        "exact": 1,
+        "id_other": 1,
+        "number_not_held": 1,
+        "number_not_held_id_held": 1,
+    }
+    assert run.details["not_linked"] == {"programme_document": 1}
+
+
+@responses.activate
+def test_the_lines_listed_as_naming_no_pd_are_those_the_sync_counted_so(two_pds):
+    """Raw eTools data's "Their number names no PD NeuroDB holds" lists every line the sync counted so: by its
+    own number, or by its FR header's for a line without one, never a line its own number links."""
+    pd1, _ = two_pds
+    gone = "LEBA/PCA2020009/PD2020009-1"
+    dm.FundsReservationHeader.objects.create(datamart_id=1, fr_number="0400001", pd_reference_number=gone)
+    dm.FundsReservationHeader.objects.create(
+        datamart_id=2, fr_number="0400002", pd_reference_number=PD1_NUMBER
+    )
+    run = read_funds(
+        fr_line(1, "", 11),  # its header's number names no PD NeuroDB holds
+        fr_line(2, "LEBA/PCA2020008/PD2020008-1"),  # its own names none
+        fr_line(3, "", 12, fr_number="0400002"),  # its header's names PD1
+        fr_line(4, PD1_NUMBER),  # its own number decides, whatever its header's
+        fr_line(5, "", 11, fr_number="0400003"),  # no header: by its eTools id
+    )
+    assert run.details["pd_link"]["number_not_held"] == 2
+    assert [pd_of(pk) for pk in range(1, 6)] == [None, None, pd1.pk, pd1.pk, pd1.pk]
+    listed = raw.Filters(fr_link="number_not_held").apply(
+        "funds_reservations", raw.base("funds_reservations"), run
+    )
+    assert sorted(listed.values_list("datamart_id", flat=True)) == [1, 2]
 
 
 @responses.activate

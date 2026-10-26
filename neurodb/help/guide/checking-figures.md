@@ -386,14 +386,17 @@ programme documents, trips, engagements, action points and their details).
 - **How funds reservations link to their programme document** (funds reservation lines and funds
   reservations). A line goes to the programme document whose reference number it carries: the exact number,
   else another amendment's number of the same PD, else the PD part alone ("PD2020001"); a line with no number
-  takes its FR's number. The eTools id decides only when no number is given, or between PDs that carry the
-  same number. The line under the counts says how the last sync linked them: by which kind of number, by
-  eTools id only, not linked (a number of a PD NeuroDB does not hold, and on how many of those the eTools id
-  names a PD NeuroDB holds), how many the eTools id would put on another PD, and how many this sync moved to
-  another PD. It also says on how many lines of each kind the vendor number is the partner's of the PD they
-  sit on: nearly all, for each kind. The filter's *Programme document link* choice "Their number names no PD
-  NeuroDB holds" lists the lines left unlinked so; if they are many, tell the NeuroDB team before using the
-  Funds pages.
+  takes its FR's number. The eTools id decides only when no number is given, or between the PDs the number
+  fits. When it names none of them, a line whose exact number several PDs carry goes to the one whose dates
+  cover it, else to the one that ends last; a line whose number fits several PDs in another way goes to none,
+  and its PD in NeuroDB reads "several PDs fit". The line under the counts says how the last sync linked
+  them: by which kind of number, by eTools id only, not linked (a number of a PD NeuroDB does not hold, and on
+  how many of those the eTools id names a PD NeuroDB holds; a number several PDs fit), how many the eTools id
+  would put on another PD, and how many this sync moved to another PD. It also says on how many lines of each
+  kind the vendor number is the partner's of the PD they sit on: nearly all, for each kind. The filter's
+  *Programme document link* choice "Their number names no PD NeuroDB holds" lists the lines left unlinked so,
+  those without a number of their own by their FR's number: as many as the line under the counts says. If
+  they are many, tell the NeuroDB team before using the Funds pages.
 - **Records eTools sent twice.** One answer of the eTools Datamart (one page) never lists a record twice, so
   when every copy of a record comes identical in one answer, eTools holds it twice: NeuroDB keeps one, counts
   the copy with what it received ("1,939 the Datamart sent twice (identical)" under *Not kept*) and the sync
