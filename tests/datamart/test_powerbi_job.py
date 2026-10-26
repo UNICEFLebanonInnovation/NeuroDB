@@ -839,3 +839,122 @@ def test_a_stopped_upload_says_the_step_it_stopped_at(checker, started, monkeypa
         "The comparison stopped while writing the summary (DataError 22012, a division by zero): press Compare "
         "again."
     )
+
+
+@pytest.mark.parametrize(
+    "kind, named",
+    [
+        ("program_performance", "Program Performance"),  # the page's only visual, a bare "Table"
+        ("pd_indicators", "PD/SPD Indicator"),
+        ("funded_programmes", "Funded Programs"),
+        ("dq_list", "Indicators without Reached or with Zero Reached"),  # a page of two visuals: the visual
+    ],
+)
+def test_a_stopped_upload_names_the_export_it_stopped_at(checker, started, monkeypatch, kind, named):
+    """Seven exports' visual is a bare "Table": the upload names their page ("while comparing Table" said
+    nothing of which export)."""
+    from neurodb.datamart import powerbi_kinds
+
+    def too_much(job):
+        raise MemoryError
+
+    monkeypatch.setitem(powerbi_kinds.COMPARERS, kind, too_much)
+    upload = _upload(checker, (f"{kind}.xlsx", pf.export(kind)))
+    ended = pc.run(upload.pk)
+    assert (
+        ended.error == f"The comparison stopped while comparing {named} (MemoryError): press Compare again."
+    )
+
+
+@pytest.mark.parametrize("kind", ["locations", "disaggregations"])
+def test_an_error_in_a_page_module_a_comparer_calls_itself_is_at_neurodb_s_page(
+    checker, started, monkeypatch, kind
+):
+    """By location's and By disaggregation's comparers call NeuroDB's page code themselves
+    (``reporting.location_rows``, ``disaggregation_rows``): an error there is at NeuroDB's page, never "while
+    matching the rows"."""
+    from neurodb.datamart import reporting
+
+    def cells(*args, **kwargs):
+        raise OverflowError("Jane Doe")
+
+    monkeypatch.setattr(reporting, "_location_cells", cells)
+    upload = _upload(checker, (f"{kind}.xlsx", pf.export(kind)))
+    pc.run(upload.pk)
+    export = PowerBIExport.objects.get(upload=upload)
+    assert export.state == "failed"
+    assert export.error == "The comparison stopped at NeuroDB's page: OverflowError."
+    assert export.counts == {"failure": {"step": "page", "cls": "OverflowError"}}
+
+
+# ------------------------------------------------------------------------------------- the job's own memory
+@pytest.mark.parametrize(
+    "status, inherited_mb, at_limit, peak_mb",
+    [
+        (
+            "VmHWM:\t  102400 kB\nVmData:\t   81920 kB\n",
+            600,
+            False,
+            100.0,
+        ),  # the web worker's 600 MB: not its own
+        ("VmHWM:\t  235520 kB\nVmData:\t   81920 kB\n", 100, True, 230.0),  # its own 230 MB, past 90% of 250
+        ("VmHWM:\t  102400 kB\nVmData:\t  235520 kB\n", 100, True, 100.0),  # its data now, past 90%
+        (None, 240, True, 240.0),  # /proc cannot be read: ru_maxrss
+        (None, 100, False, 100.0),
+    ],
+)
+def test_the_memory_limit_and_the_peak_are_the_job_s_own(
+    monkeypatch, tmp_path, status, inherited_mb, at_limit, peak_mb
+):
+    """The job is started by a web worker, whose memory peak Linux keeps in the job's ``ru_maxrss`` across exec:
+    "at the job's memory limit" and ``peak_memory_mb`` read the job's own peak (VmHWM), never the worker's."""
+    import types
+
+    mb = 1024 * 1024
+    path = tmp_path / "status"
+    if status is not None:
+        path.write_text(f"Name:\tpython\n{status}VmRSS:\t   90000 kB\n")
+    monkeypatch.setattr(pc, "PROC_STATUS", str(path))
+    monkeypatch.setattr(resource, "getrlimit", lambda what: (250 * mb, resource.RLIM_INFINITY))
+    monkeypatch.setattr(
+        resource, "getrusage", lambda who: types.SimpleNamespace(ru_maxrss=inherited_mb * 1024)
+    )
+    assert pc.at_memory_limit() is at_limit
+    upload = PowerBIUpload()
+    pc._measure(upload, time.monotonic())
+    assert upload.peak_memory_mb == peak_mb
+
+
+def test_a_job_started_by_a_process_that_held_much_memory_is_not_at_its_limit():
+    """The real thing: a process that held 300 MB execs into a job whose data limit is 320 MB. Its
+    ``ru_maxrss`` is the 300 MB it inherited (past 90% of the limit); the job itself is far below it."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    job = (
+        "import resource, django\n"
+        "django.setup()\n"
+        "from neurodb.datamart import powerbi_compare as pc\n"
+        "_soft, hard = resource.getrlimit(resource.RLIMIT_DATA)\n"
+        "resource.setrlimit(resource.RLIMIT_DATA, (320 * pc.MB, hard))\n"
+        "inherited = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024\n"
+        "print(inherited // pc.MB, pc._own_peak() // pc.MB, pc.at_memory_limit())\n"
+    )
+    worker = (
+        "import os, sys\n"
+        "held = b'x' * (300 * 1024 * 1024)\n"
+        "del held\n"
+        f"os.execv(sys.executable, [sys.executable, '-c', {job!r}])\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", worker],
+        cwd=Path(pc.__file__).resolve().parents[2],
+        env={"DJANGO_SETTINGS_MODULE": "config.settings", **os.environ},
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=True,
+    )
+    inherited, own, at_limit = done.stdout.split()
+    assert int(inherited) >= 300 and int(own) < 200 and at_limit == "False", done.stdout

@@ -94,6 +94,8 @@ EVERY_KIND_APPLIES = frozenset({"country_name", "status"})
 ONE_YEAR = frozenset({"program_performance", "dq_card", "dq_list", "pd_indicators"})
 # the kinds whose NeuroDB page has no year: the comparison applies it to Reached itself
 YEAR_WHILE_COMPARING = frozenset({"pd_indicators"})
+# PDs whose indicators of every status are read at once, why a Power BI row has none on the page (``_titles``)
+TITLE_PDS = 50
 
 
 def clause_states(kind: str, parsed: Filter) -> Filter:
@@ -1441,8 +1443,10 @@ def _joined(job: Job, pairs, left_pb, left_nd, shown_reached: str = "reached"):
 def _titles(context: pf.Context, parsed: Filter, wanted: Iterable[Any]) -> dict[str, list[dict[str, Any]]]:
     """The indicators NeuroDB holds of these titles, of any PD status, by title (why a Power BI row has none
     on the page). Read for the PDs that hold one of the titles only (each PD's titles first, one small
-    query): never every PD indicator of every status, which production holds by the hundred thousand (a read
-    past the job's memory). An indicator's Reached is its PD's rows' alone: each title's are the same."""
+    query), :data:`TITLE_PDS` PDs at a time, and only these titles' indicators kept: never every PD indicator
+    of every status, which production holds by the hundred thousand (a read past the job's memory), even
+    when a title is shared by most PDs (a renewed PD keeps its logframe's titles). An indicator's Reached is
+    its PD's rows' alone: each title's are the same, whatever PDs are read with it."""
     from . import models as dm
 
     titles = {pm.text(t) for t in wanted}
@@ -1451,11 +1455,14 @@ def _titles(context: pf.Context, parsed: Filter, wanted: Iterable[Any]) -> dict[
     pairs = (
         dm.PDIndicator.objects.exclude(intervention=None).order_by().values_list("intervention_id", "title")
     )
-    ids = {pd for pd, title in pairs.distinct() if pm.text(context.clean(title)) in titles}
+    ids = sorted({pd for pd, title in pairs.distinct() if pm.text(context.clean(title)) in titles})
     every = dataclasses.replace(parsed, pd_statuses=[], sections=[])
     found: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for n in page.indicators(every, context, pd_ids=ids):
-        found[pm.text(n["title"])].append(n)
+    for start in range(0, len(ids), TITLE_PDS):
+        for n in page.indicators(every, context, pd_ids=ids[start : start + TITLE_PDS]):
+            title = pm.text(n["title"])
+            if title in titles:  # another title of the same PD: never kept
+                found[title].append(n)
     return found
 
 

@@ -3010,16 +3010,21 @@ each export in Power BI's order. `close_stale` fails an upload reading or compar
 or queued for more than two minutes since `queued_at` ("The comparison stopped before it finished (the server
 restarted or ran out of memory)"; "press Compare again" when every row is kept). A start that fails fails the upload in
 the request. Logs carry counts, kinds, steps, class names and SQLSTATE codes only. Each upload keeps its own
-`seconds` and `peak_memory_mb`: read them on the first production uploads to size the next steps.
+`seconds` and `peak_memory_mb`: read them on the first production uploads to size the next steps. The peak is the
+job's own (its `VmHWM` in `/proc/self/status`), never `ru_maxrss`, in which Linux keeps the peak of the web worker
+that started the job across exec (`ru_maxrss` only when `/proc` cannot be read).
 
 **A comparison that stops says where and why** (`powerbi_compare.failure`, `powerbi_words.failure`), so it can
 be fixed without the server's logs: the step (an export's: reading its rows, NeuroDB's page, the facts behind
 the reasons, matching the rows, saving its result, writing its differences, found from the modules the error
-went through; the upload's: reading the files, the day and the sync, preparing, comparing a named visual,
-writing the differences, the summary), the exception's class and, for a database error, its SQLSTATE code with
-what it means ("Could not be compared at NeuroDB's page: DataError 22012, a division by zero"). A database
-error with no code is the database client's own (libpq's "out of memory for query result" is one): it says
-so, and "at the job's memory limit" when the job's memory peak reached 90% of its data limit. Never a value, a
+went through, `powerbi_compare.STEP_MODULES`: NeuroDB's page is `powerbi_page` and the pages' own modules a
+comparer calls itself, `reporting`, `monitoring`, `funds` and `services`; the upload's: reading the files, the
+day and the sync, preparing, comparing a named export (its visual, or its Power BI page when the visual is a
+bare "Table": "while comparing Program Performance"), writing the differences, the summary), the exception's
+class and, for a database error, its SQLSTATE code with what it means ("Could not be compared at NeuroDB's
+page: DataError 22012, a division by zero"). A database error with no code is the database client's own
+(libpq's "out of memory for query result" is one): it says so, and "at the job's memory limit" when the job's
+own memory peak (`VmHWM`) or its data reached 90% of its data limit. Never a value, a
 query or the database's own message. An export that fails keeps the step in `counts["failure"]` and nothing
 else of its counts or fit tables (no "Needs a look" over lines that were removed). One row whose values NeuroDB
 cannot compute with (an arithmetic, value or type error while the row is compared: `powerbi_kinds.RowGuard`)
@@ -3044,9 +3049,10 @@ the card are explained from them), then Power BI's order.
   location), `reporting.disaggregation_rows` + `fill_block` month by month (By disaggregation, read PD by PD
   when a month passes the tab's limit), `funds.partner_contributions` and `funds.funded_programmes`. Why a Program Performance row has no indicator
   on the page reads the indicators of every PD status for the PDs that hold one of the left-over rows' titles
-  only (`powerbi_kinds._titles`: each PD's titles first, one DISTINCT query), never for every PD: production's
-  273,253 PD indicator rows read whole took the job past its memory (a `DatabaseError` with no code from libpq,
-  or a `MemoryError`). Nothing
+  only (`powerbi_kinds._titles`: each PD's titles first, one DISTINCT query), `TITLE_PDS` (50) PDs at a time,
+  keeping only those titles' indicators, never for every PD at once: production's 273,253 PD indicator rows read
+  whole took the job past its memory (a `DatabaseError` with no code from libpq, or a `MemoryError`), and a
+  title most PDs share (a renewed PD keeps its logframe's titles) would read most of them again. Nothing
   cached is read (`compute.once` would write the shared cache in a read-only transaction). Every value kept
   passes `powerbi_page.shown` (explicit field lists): no focal point, no `submitted_by`, no narrative, no whole
   `data`; NeuroDB's free texts pass the same people cleaner as Power BI's.
@@ -3090,8 +3096,9 @@ the card are explained from them), then Power BI's order.
   step "export PD/SPD Report again in parts"; the visual's verdict is "Power BI may have cut PD/SPD Report: n",
   never that the visual itself is cut, and *What to do now* counts the report list among the exports to export
   again, not the visual), a filter NeuroDB cannot apply, a value NeuroDB cannot read (a number beyond any
-  float, Infinity or NaN in eTools' or PRP's texts, left empty in its line: JSON and the database hold none;
-  group 4), not explained yet. Not in the Datamart read says
+  float, Infinity or NaN in eTools' or PRP's texts, or a JSON number PRP sent beyond any float, which
+  `reached.number` reads as infinite as its text; never the same as Power BI's value, left empty in its line:
+  JSON and the database hold none; group 4), not explained yet. Not in the Datamart read says
   "Check in PRP that the report exists", or "Check in eTools that this PD exists" for a row of a PD NeuroDB
   does not hold and on the PD indicators' and funds exports (`powerbi_results.PD_ROWS`). A different rule
   points to *Choices for you* (its line, and the export's "counted another way" verdict) only when the upload

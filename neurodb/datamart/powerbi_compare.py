@@ -82,8 +82,16 @@ COMPARERS = powerbi_kinds.COMPARERS  # an export's kind -> the function that com
 BATCH = 1_000  # lines written at once
 SQLSTATE = re.compile(r"[0-9A-Z]{5}")
 AT_LIMIT = 0.9  # a memory peak this close to the job's data limit is at it
-# where in a comparer an error stopped it: the first of these modules it went through, else its own matching
-STEP_MODULES = {powerbi_page.__name__: "page", powerbi_facts.__name__: "facts", powerbi_read.__name__: "rows"}
+# where in a comparer an error stopped it: the first of these modules it went through, else its own matching.
+# NeuroDB's page is also its pages' own modules (a comparer calls some itself: By location's rows); never
+# ``reached``, which the comparers also use to read Power BI's own values
+PAGE_MODULES = ("reporting", "monitoring", "funds", "services")
+STEP_MODULES = {
+    powerbi_page.__name__: "page",
+    powerbi_facts.__name__: "facts",
+    powerbi_read.__name__: "rows",
+    **{f"{__name__.rpartition('.')[0]}.{name}": "page" for name in PAGE_MODULES},
+}
 
 
 def exports_of(upload: PowerBIUpload | int) -> QuerySet[PowerBIExport]:
@@ -148,6 +156,7 @@ def limit_process() -> int:
 CGROUP_V2 = "/sys/fs/cgroup"
 CGROUP_V1 = "/sys/fs/cgroup/memory"
 NO_LIMIT = 1 << 60  # cgroup v1 writes a huge number for "no limit"
+PROC_STATUS = "/proc/self/status"
 
 
 def memory_room() -> int | None:
@@ -184,16 +193,29 @@ def memory_room() -> int | None:
     return max(0, total - (used - cache))
 
 
-def _own_data() -> int:
-    """This process's data segment now (its VmData: what RLIMIT_DATA limits), in bytes."""
+def _status(name: str) -> int:
+    """One of this process's memory figures in /proc (``VmData``, ``VmHWM``: kB), in bytes; 0 when it cannot
+    be read."""
     try:
-        with open("/proc/self/status", encoding="ascii") as found:
+        with open(PROC_STATUS, encoding="ascii") as found:
             for line in found:
-                if line.startswith("VmData:"):
+                if line.startswith(f"{name}:"):
                     return int(line.split()[1]) * 1024
     except (OSError, ValueError, IndexError):
         pass
     return 0
+
+
+def _own_data() -> int:
+    """This process's data segment now (its VmData: what RLIMIT_DATA limits), in bytes."""
+    return _status("VmData")
+
+
+def _own_peak() -> int:
+    """This process's own memory peak since it started (its VmHWM), in bytes. Never ``ru_maxrss`` while /proc
+    can be read: Linux keeps the parent's peak in it across exec, and the job is started by a web worker that
+    may have held hundreds of MB (Partner monitoring's read), while exec gives the job a memory of its own."""
+    return _status("VmHWM") or resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024  # KB on Linux
 
 
 def _empty_content(upload_pk: int) -> None:
@@ -517,12 +539,12 @@ def sqlstate(exc: BaseException) -> str:
 
 
 def at_memory_limit() -> bool:
-    """The job's memory peak reached its data limit (:func:`limit_process`), or nearly (False: no limit)."""
+    """The job's own memory peak (:func:`_own_peak`) or its data now reached its data limit
+    (:func:`limit_process`), or nearly (False: no limit)."""
     soft, _hard = resource.getrlimit(resource.RLIMIT_DATA)
     if soft == resource.RLIM_INFINITY or soft <= 0:
         return False
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024  # KB on Linux
-    return max(peak, _own_data()) >= soft * AT_LIMIT
+    return max(_own_peak(), _own_data()) >= soft * AT_LIMIT
 
 
 def _logged(found: dict[str, Any]) -> str:
@@ -531,14 +553,19 @@ def _logged(found: dict[str, Any]) -> str:
 
 
 def _visual(kind: str) -> str:
+    """An export as a failed upload names it: its visual, or its Power BI page when the visual is the page's
+    only one, a bare "Table" (Program Performance, PD/SPD Indicator, ...)."""
     found = px.KINDS.get(kind)
-    return found.visual[1] if found else kind
+    if not found:
+        return kind
+    page_name, visual = found.visual
+    return page_name if visual == "Table" else visual
 
 
 def _step_of(exc: BaseException) -> str:
-    """Where a comparer stopped: NeuroDB's page (``powerbi_page``), the facts behind the reasons
-    (``powerbi_facts``), the export's rows (``powerbi_read``): the first of them the error went through, else
-    the comparer's own matching."""
+    """Where a comparer stopped: NeuroDB's page (``powerbi_page``, or a page's own module the comparer called
+    itself), the facts behind the reasons (``powerbi_facts``), the export's rows (``powerbi_read``): the first
+    of them the error went through (:data:`STEP_MODULES`), else the comparer's own matching."""
     for frame, _line in traceback.walk_tb(exc.__traceback__):
         step = STEP_MODULES.get(frame.f_globals.get("__name__", ""))
         if step:
@@ -562,7 +589,7 @@ def _fail(upload: PowerBIUpload, error: str, started: float) -> PowerBIUpload:
 
 
 def _measure(upload: PowerBIUpload, started: float) -> None:
-    upload.peak_memory_mb = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)  # KB on Linux
+    upload.peak_memory_mb = round(_own_peak() / MB, 1)
     upload.seconds = round(time.monotonic() - started, 1)
 
 

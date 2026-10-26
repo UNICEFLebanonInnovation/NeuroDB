@@ -171,6 +171,8 @@ def same_number(powerbi: Any, neurodb: Any, *, zero_is_none: bool = False) -> bo
         b = None if b == 0 else b
     if a is None or b is None:
         return a is None and b is None
+    if not (math.isfinite(a) and math.isfinite(b)):  # a value NeuroDB cannot read is never the same (the
+        return False  # tolerance of an infinite one is infinite): its line says so (``readable``)
     return abs(a - b) <= TOLERANCE * max(1.0, abs(a), abs(b))
 
 

@@ -1824,6 +1824,85 @@ def test_program_performance_reads_every_pd_status_only_for_the_pds_of_the_title
     assert [ids for statuses, ids in calls if statuses == []] == []
 
 
+def test_program_performance_reads_the_pds_of_a_shared_title_a_few_at_a_time(checker, world, monkeypatch):
+    """A left-over title most PDs share (a renewed PD keeps its logframe's titles; sector indicators are
+    standard) is read a few PDs at a time, and only its own indicators are kept: never most PD indicators of
+    every status at once again (past the job's memory). The reasons stay the same."""
+    from neurodb.datamart import monitoring, powerbi_kinds
+    from neurodb.datamart import powerbi_match as pm
+    from neurodb.partnerships.models import PCA
+
+    pd, _ended = world
+    monkeypatch.setattr(powerbi_kinds, "TITLE_PDS", 2)
+    holding = []
+    for n in range(5):  # PDs of other statuses holding the title, beside many indicators of other titles
+        other = PCA.objects.create(
+            etl_id=f"fake-renewed-{n}", partner=pd.partner, partner_name=pf.WORLD_PARTNER,
+            number=f"FAKE/PCA2024{n:03}/PD2024{n:03}", status=("ended", "closed")[n % 2],
+            start=D(2024, 1, 1), end=D(2025, 12, 31),
+        )  # fmt: skip
+        _indicator(other, 400 + 10 * n, "Fake shared indicator")
+        for k in range(1, 6):
+            _indicator(other, 400 + 10 * n + k, f"Fake own indicator {n}-{k}")
+        holding.append(other.pk)
+    calls, kept = [], []
+    real, real_titles = monitoring.indicators, powerbi_kinds._titles
+
+    def spy(filters, today=None, **options):
+        found = real(filters, today, **options)
+        if filters.statuses_read == []:
+            calls.append((sorted(filters.pd_ids), len(found)))
+        return found
+
+    def titles(*args):
+        kept.append(real_titles(*args))
+        return kept[-1]
+
+    monkeypatch.setattr(monitoring, "indicators", spy)
+    monkeypatch.setattr(powerbi_kinds, "_titles", titles)
+    rows = [_pp(indicator_title="Fake shared indicator", target=100, reached=3, achieved=0.03)]
+    upload = pf.compared(checker, _one("program_performance", rows, filters=PP_FILTERS))
+    export, lines = _lines(upload, "program_performance")
+    assert export.state == "compared", export.error
+    assert calls == [(holding[:2], 12), (holding[2:4], 12), (holding[4:], 6)]  # 2 PDs at most at once
+    (found,) = kept
+    assert list(found) == [pm.text("Fake shared indicator")]  # the PDs' other titles: never kept
+    assert sorted(n["pd_id"] for n in found[pm.text("Fake shared indicator")]) == holding
+    (line,) = [x for x in lines if x.kind == "only_powerbi"]
+    assert line.reason == "pd_not_running"
+
+
+def test_a_prp_value_written_as_a_json_number_beyond_any_float_stops_no_export(checker, world):
+    """PRP keeps a disaggregation as received: a JSON number of 401 digits (not its text) reads as a whole
+    number no float holds, which once stopped six exports at NeuroDB's page (OverflowError). It reads as its
+    text does: every export is compared and its location's value is one NeuroDB cannot read."""
+    from django.db import connection
+
+    from neurodb.datamart import models as dm
+
+    pd, _ended = world
+    record = dm.ReportedIndicator.objects.get(intervention=pd, report_number="QPR2")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "UPDATE datamart_reportedindicator SET disaggregation = jsonb_build_object('()', "
+            "('1' || repeat('0', 400))::jsonb) WHERE id = %s",
+            [record.pk],
+        )
+    assert dm.ReportedIndicator.objects.get(pk=record.pk).disaggregation == {"()": 10**400}
+    upload = pf.compared(checker, *pf.every_export())
+    states = dict(PowerBIExport.objects.filter(upload=upload).values_list("kind", "state"))
+    assert upload.status == PowerBIUpload.Status.DONE, upload.error
+    assert set(states.values()) == {"compared"}, states
+    assert reached.number(10**400) == float("inf") and reached.number(-(10**400)) == float("-inf")
+    rows = [_location(report="QPR2", p_code="LB9_9_1", reached=20, report_status="Submitted",
+                      period_end=D(2026, 6, 30))]  # fmt: skip
+    upload = pf.compared(checker, _one("locations", rows, filters=LOCATION_FILTERS, drop=LOCATION_DROP))
+    export, lines = _lines(upload, "locations")
+    assert export.state == "compared", export.error
+    (line,) = [x for x in lines if x.match[1] == "QPR2"]
+    assert (line.reason, line.group, line.found["reached"][:2]) == ("unreadable", 4, [20.0, None]), line.found
+
+
 @pytest.mark.parametrize("powerbi, second", [(100, "Submitted"), (350, "Accepted")])
 def test_a_financial_contribution_counted_another_way_is_written(checker, world, powerbi, second):
     """Two progress reports whose contributions differ: Power BI's fits its latest Accepted report (100) or their

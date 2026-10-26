@@ -34,6 +34,7 @@ from __future__ import annotations
 import ast
 import datetime
 import json
+import math
 import re
 from collections import defaultdict
 from collections.abc import Callable, Iterable
@@ -188,13 +189,18 @@ def number(value: Any) -> float | None:
     """A PRP value as a number: ``1234``, ``"1,234"``, ``"12.5 %"``, ``Decimal``, or PRP's
     ``{"v": .., "d": .., "c": ..}`` (as a dict or as its text). None when the text holds no number
     or several (``"45/100"``, a date): the digits of separate numbers are never glued into one,
-    which once turned a structured value into billions of children."""
+    which once turned a structured value into billions of children. A whole number beyond any float (PRP
+    keeps JSON as received: a JSON number of 400 digits reads as a Python int) is infinite, as its text reads
+    (``float`` raises on it)."""
     if value in (None, ""):
         return None
     if isinstance(value, bool):
         return None
     if isinstance(value, int | float | Decimal):
-        return float(value)
+        try:
+            return float(value)
+        except OverflowError:
+            return math.inf if value > 0 else -math.inf
     if isinstance(value, dict):
         return _from_parts(value)
     text = str(value).strip()
