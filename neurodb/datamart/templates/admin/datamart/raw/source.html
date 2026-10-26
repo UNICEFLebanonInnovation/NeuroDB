@@ -160,6 +160,7 @@
             {% for k, v in review.query.items %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
             <input type="hidden" name="count" value="{{ review.rows|unlocalize }}">
             <input type="hidden" name="newest" value="{{ review.newest }}">
+            <input type="hidden" name="rows" value="{{ review.rows_key }}">
             <p class="mb-2">{{ review.words }} {% trans "Remove them only once the eTools Datamart team confirms PRP deleted these reports." %}</p>
             <p class="mb-2"><label><input type="checkbox" name="reviewed" value="yes"> {% trans "I have reviewed them" %}</label></p>
             <button type="submit" class="nd-found__button">{% trans "Remove these rows" %}</button>

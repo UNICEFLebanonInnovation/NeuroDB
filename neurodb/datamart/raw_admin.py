@@ -483,7 +483,9 @@ def source_view(request, source: str):
 def _review(filters: raw.Filters, rows: Any, names: frozenset[str]) -> dict[str, Any] | None:
     """The partner reports of the list's filter eTools no longer sends, for review (one line each, at most
     ``raw.REVIEW_REPORTS``), and what the superusers' button removes: their rows up to the newest mark shown,
-    with the filter, the count and that mark it posts (``unsent_view``). None when the filter holds none."""
+    with the filter, the count, the rows themselves (``raw.rows_key``: every mark is at or before the newest
+    now, so these are the rows the post filters again) and that mark it posts (``unsent_view``). None when the
+    filter holds none."""
     found = raw.no_longer_sent(rows)
     if not found["rows"]:
         return None
@@ -493,6 +495,7 @@ def _review(filters: raw.Filters, rows: Any, names: frozenset[str]) -> dict[str,
         "lines": lines,
         "more": more,
         "rows": found["rows"],
+        "rows_key": raw.rows_key(rows.exclude(not_sent_since=None).order_by().values_list("pk", flat=True)),
         "words": (
             f"eTools no longer sends {these} of this list (last sent "
             f"{raw.between(found['first'], found['last'])}). They still count on every page."
@@ -575,11 +578,13 @@ def _report_status(row: Any, names: frozenset[str], own: frozenset[str]) -> dict
 
 def _written_by(name: str, row: Any, run: SyncRun | None) -> dict[str, Any]:
     """The sync that last updated a record: the last one, or an earlier one (its date); a partner report row
-    eTools no longer sends says so, as its cell does (``raw.updated_words``)."""
+    eTools no longer sends, the earlier sync that last sent it and since when eTools no longer sends it (the
+    facts of its cell, ``raw.updated_words``, in words that follow "Updated by:")."""
     from django.db.models import Q
 
     if getattr(row, "not_sent_since", None) is not None:
-        return {"last": False, "when": row.synced_at, "unsent": raw.updated_words(row, run)}
+        since = raw.local_day(row.not_sent_since)
+        return {"last": False, "when": row.synced_at, "unsent": raw.NOT_SENT_SINCE.format(since=since)}
     if run is not None and raw.updated_by_last(row, run):
         return {"last": True, "when": run.finished_at}
     jobs = Q(job=SyncRun.Job.ETOOLS_DATAMART, target=name)
@@ -789,12 +794,16 @@ def rest_read_view(request):
 
 
 # ------------------------------------------------------------------------- partner reports no longer sent
+ROWS_KEY = re.compile(r"[0-9a-f]{64}")  # the rows the page listed, as raw.rows_key writes them
+
+
 @require_POST
 def unsent_view(request):
     """ "Remove these rows" (superusers only; anyone else gets a 404): the partner report rows of the list's
     filter eTools no longer sends, up to the newest mark the page showed, once the reviewer ticked "I have
-    reviewed them" and only while they are the rows the page counted (``backfill.remove_unsent``: the eTools
-    update clean-up, never a sync; refused while a sync or a clean-up runs)."""
+    reviewed them" and only while they are the rows the page listed, the same rows, not only as many
+    (``raw.rows_key``; ``backfill.remove_unsent``: the eTools update clean-up, never a sync; refused while a
+    sync or a clean-up runs). A form that posts no rows (a page opened before it did) removes nothing."""
     from django.utils.dateparse import parse_datetime
 
     from . import backfill
@@ -808,7 +817,8 @@ def unsent_view(request):
     back = f"{reverse('admin:datamart_raw_source', args=[name])}?{urlencode(query)}#no-longer-sent"
     newest = parse_datetime(str(request.POST.get("newest") or ""))
     shown = str(request.POST.get("count") or "")
-    if filters.refused or newest is None or not shown.isdigit():
+    seen = str(request.POST.get("rows") or "")
+    if filters.refused or newest is None or not shown.isdigit() or not ROWS_KEY.fullmatch(seen):
         messages.error(request, backfill.UNSENT_CHANGED)
         return redirect(back)
     if request.POST.get("reviewed") != "yes":
@@ -820,7 +830,7 @@ def unsent_view(request):
         .exclude(not_sent_since=None)
         .filter(not_sent_since__lte=newest)
     )
-    done = backfill.remove_unsent(rows, int(shown), filters.words(), request.user.get_username())
+    done = backfill.remove_unsent(rows, int(shown), seen, filters.words(), request.user.get_username())
     if isinstance(done, str):
         messages.error(request, done)
         return redirect(back)
@@ -830,6 +840,10 @@ def unsent_view(request):
     removed = raw.rows_of_reports(done.details.get("removed", 0), done.details.get("reports", 0))
     messages.success(
         request,
-        _("Removed %(removed)s eTools no longer sends: the eTools update clean-up.") % {"removed": removed},
+        _(
+            "Removed %(removed)s eTools no longer sends. The removal is recorded in Import and sync runs as "
+            "the eTools update clean-up."
+        )
+        % {"removed": removed},
     )
     return redirect(back)

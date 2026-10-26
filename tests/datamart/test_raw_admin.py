@@ -944,8 +944,9 @@ def test_the_funds_lines_page_says_how_the_last_sync_linked_them_to_their_pd(cli
     said = raw.fr_link_words(FUNDS_LINKED, "funds_reservations")
     assert said == (
         "Linked to their programme document by reference number: 1,234 (exact 1,200; another amendment's number "
-        "5; the PD part alone 9; the FR's header number 20). Of these, 0 carry the number of several PDs: each "
-        "went to the PD whose dates cover it, else to the one that ends last. By eTools id only (no number): 12. "
+        "5; the PD part alone 9; the FR's header number 20). Of these, 0 carry a number several PDs share and an "
+        "eTools id that names none of them: each went to the PD whose dates cover it, else to the one that ends "
+        "last. By eTools id only (no number): 12. "
         "Not linked: a number of a PD NeuroDB does not hold 20 (the eTools id names a PD NeuroDB holds on 15 of "
         "them); a number several PDs fit (another amendment's or the PD part alone) 0. The eTools id names "
         "another PD NeuroDB holds on 343 of the lines linked by number (the old rule put them there); moved to "

@@ -1794,10 +1794,11 @@ def _history_words(history: rc.HistoryFrom) -> str:
 
 def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool]:
     """What the latest partner reports sync did, for check 10: its sentence (what it asked, what the Datamart
-    announced, what was read, kept, marked no longer sent (kept and counted) and removed, then the windows and
-    why, the limit, a page cut, the business area filter it read with or why none, and records that came
-    twice: pages that shifted, or records held twice), its figures, the table of its windows, and whether it
-    calls for a warning (a cut answer, nothing removed, a window not whole, a page cut)."""
+    announced, what was read, kept, marked no longer sent tonight and how many are so in all, counted from
+    the rows (kept and counted), and removed, then the windows and why, the limit, a page cut, the business
+    area filter it read with or why none, and records that came twice: pages that shifted, or records held
+    twice), its figures, the table of its windows, and whether it calls for a warning (a cut answer, nothing
+    removed, a window not whole, a page cut)."""
     from neurodb.integrations.etools.datamart_sync import area_words, capped, shift_words
     from neurodb.reports.services import WINDOWS_WHY
 
@@ -1823,10 +1824,17 @@ def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool
         else "the Datamart announced no count, "
     )
     said += f"NeuroDB read {read:,}" + (f" ({other:,} of another country)" if other else "")
-    marked = _count(details.get("no_longer_sent"))
+    # the rows eTools no longer sends, counted from the rows as Raw eTools data counts them
+    # (raw.no_longer_sent): right after a superuser removed some, and after a failed read, which records none
+    marked = dm.ReportedIndicator.objects.exclude(not_sent_since=None).count()
     if "no_longer_sent_new" in details:  # a whole read keeps the rows it no longer returns (keep_unsent)
-        again = _count(details.get("same_number_other_period"))
-        said += f", kept {_plural(kept, 'row', 'rows')}, marked {marked:,} no longer sent (kept and counted"
+        new, again = (
+            _count(details.get("no_longer_sent_new")),
+            _count(details.get("same_number_other_period")),
+        )
+        said += f", kept {_plural(kept, 'row', 'rows')}, marked {new:,} no longer sent ("
+        said += f"{marked:,} in all, " if marked != new else ""
+        said += "kept and counted"
         said += f"; {_plural(again, 'report', 'reports')} sent again for another period)" if again else ")"
         said += f", removed {removed:,} replaced by a new copy." if removed else ", removed none."
     else:
@@ -1895,7 +1903,7 @@ def _partner_read(run) -> tuple[str, list[tuple[str, Any]], dict[str, Any], bool
         ("… of another country skipped", other),
         ("… returned twice", _count(details.get("duplicates_read"))),
         ("… rows removed", removed),
-        ("… rows no longer sent (kept and counted)", _count(details.get("no_longer_sent"))),
+        ("… rows no longer sent (kept and counted)", marked),
         ("… rows held before", _count(details.get("held_before"))),
         ("… windows read", _count(details.get("windows_read"))),
         ("… windows not read whole", not_whole),

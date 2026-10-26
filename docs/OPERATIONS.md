@@ -1470,7 +1470,8 @@ button on Raw eTools data (and in Run a job); the fields count is written by the
 | Admin → *KM Database* → *Versions* → **Upload a new version** (superusers and Administrators) | `load_km_database` (reads the uploaded workbook into the KM Database; writes only the KM tables) | background |
 | *Data and sync* → *Compare with Power BI* → **Upload and compare**, and an upload's **Compare again** (validators) | `compare_powerbi` (reads Power BI's exports and compares them with NeuroDB's pages, in read-only snapshots; writes the Compare with Power BI tables and nothing else; lock 7140443; not an import run; refused while a Datamart sync or a KM Database load runs) | background |
 | Run a job → *Population figures* | `load_population_figures --bundled --replace` | in the request (seconds) |
-| *Data and sync* → *Raw eTools data* (validators) | (no command: pages and a streamed CSV; the fields of each source are counted by the existing syncs as they write, `details.keys_kept`; a superuser's *Reviewed: show it* writes one row) | in the request |
+| *Data and sync* → *Raw eTools data* (validators) | (no command: pages and a streamed CSV; the fields of each source are counted by the existing syncs as they write, `details.keys_kept`; a superuser's *Reviewed: show it* writes one row, and *Remove these rows* removes reviewed partner report rows, below) | in the request |
+| *Raw eTools data* → *Partner reports* → *I have reviewed them*, **Remove these rows** (superusers) | (no command: `backfill.remove_unsent` deletes the filter's partner report rows eTools no longer sends, up to the newest mark shown, in one transaction; recorded as the **eTools update clean-up**, `DATAMART_BACKFILL`, target `partner_reports:no_longer_sent`, never a sync; refused while a sync or a clean-up runs, or when the rows changed since the page showed them) | in the request |
 | *Raw eTools data* → **Read the eTools REST API now** (superusers and Administrators who are validators), or Run a job → *eTools REST raw copy* | `read_etools_rest_raw` (the raw copy of the eTools REST records; writes no other table) | background |
 | *Check these figures* under Progress reports' tabs, Partner monitoring's views and map, and Home's two partner reporting blocks (validators) | (no command: the figure trail is a page in parts, its rows streamed CSVs; it writes nothing but the shared page figures) | in the request |
 | Run a job → *Check freshness* | `check_sync_freshness` | in the request; changes nothing |
@@ -1945,21 +1946,26 @@ the start of the first whole read that no longer returned it; its `synced_at` st
 sent (`update()` never moves `auto_now`). A report whose rows are all marked keeps the status they last
 carried, read for today: one still to submit turns Due, then Overdue by its dates. Any read that returns the
 record again clears the mark (`upsert_record`). A row is removed only when tonight's read brought its
-replacement (`replaced_rows`). A replacement is a row the read brought under a new Datamart id (one NeuroDB
-did not hold before the read) of the same progress report (`reached.report_key`) and indicator
-(`reached.indicator_key`: eTools id, title and output, never PRP's indicator report id), at the same place
-(P-code; the location name when either has none), or under a new PRP indicator report id while no row of
-tonight's read carries the old one (every place of the old id is then superseded). A place tonight's read did
-not return, under the same id, stays marked. A row returned again under a Datamart id NeuroDB held never
-replaces another, and a new row under a PRP id another held row carries is that other indicator report: two
-PD indicators of one report can share a title and an output and carry no eTools id, told apart by PRP's id
-alone. The run records `details.no_longer_sent_new` (marked tonight), `no_longer_sent` (marked rows of the scope after it),
+replacement (`replaced_rows`), a row of the same progress report (`reached.report_key`) and indicator
+(`reached.indicator_key`: eTools id, title and output, never PRP's indicator report id): its copy, a row under
+any Datamart id that carries its PRP indicator report id at the same place (P-code; the location name when
+either has none), also one NeuroDB first wrote on an earlier night (a read that was not whole, as when the
+Datamart reloads and renumbers its rows while NeuroDB reads, or a read that returned both); or a row under a
+new Datamart id (one NeuroDB did not hold before the read) at the same place, or under a new PRP indicator
+report id while no row of tonight's read carries the old one (every place of the old id is then superseded). A
+place tonight's read did not return, under the same id, stays marked. Under another PRP id, a row returned
+again under a Datamart id NeuroDB held never replaces another, and a new row under a PRP id another held row
+carries is that other indicator report: two PD indicators of one report can share a title and an output and
+carry no eTools id, told apart by PRP's id alone. The run records `details.no_longer_sent_new` (marked tonight), `no_longer_sent` (marked rows of the scope after it),
 `sent_again` (marked before, returned tonight), `replaced` (= `removed`) and `same_number_other_period`
 (marked reports whose programme document, type and number a row still sent holds under another period, mostly
 reports PRP made again after an amendment; their rows `…_rows`). Nothing is held one night (`removal_waits` is
 never asked: nothing is lost) and a mark never makes the run partial. A read not whole, or an empty answer,
-marks nothing and keeps earlier marks, and records `no_longer_sent` too (check 10 and Data health say how many
-rows stay kept and marked, whatever read came last). Rows whose stored record names another country are still
+marks nothing and keeps earlier marks, and records `no_longer_sent` too. Data health and check 10 count the rows
+kept and marked from the rows themselves (every marked row, as Raw eTools data counts them, `raw.no_longer_sent`),
+never from the run: they stay right whatever read came last, also one that failed, and after a removal (check 10
+from its next run). Check 10's sentence says what the latest whole read marked (`no_longer_sent_new`) and, when it
+differs, how many are marked in all. Rows whose stored record names another country are still
 deleted, marked or not (`remove_other_country`, unchanged); a held row whose Datamart id tonight's read returns
 naming another country is no longer sent like any other (a whole read marks it; a read not whole leaves it);
 rows before the scope are left alone; `details.feed_from` counts marked rows. Raw eTools data → Partner reports says
@@ -1968,9 +1974,12 @@ two *Updated by* choices (`unsent_period`, `unsent`), shows the mark in the list
 (`no_longer_sent_since`, also in the figure trail's row CSVs), and the trail's D4 says it; Data health and
 check 10 count them. Only a superuser removes marked rows, after review: the page lists the reports of the
 filter's marked rows (at most 50, no person) and, under it, *I have reviewed them* and **Remove these rows**
-(`raw_admin.unsent_view`, `backfill.remove_unsent`). The post carries the filter, the count shown and the
-newest mark shown; the view applies the filter again up to that mark, refuses without the box or when the
-count changed, takes the clean-up's lock then the Datamart lock (as `backfill.run`; either held: "An eTools
+(`raw_admin.unsent_view`, `backfill.remove_unsent`). The post carries the filter, the count shown, the rows
+shown (`raw.rows_key`: a sha256 of their sorted ids) and the newest mark shown; the view applies the filter again
+up to that mark, refuses without the box or when the rows changed (another count, or other rows at the same
+count: a sync between the look and the post can swap the rows of a filter that reads other rows, such as
+`unsent_period`, or the programme documents' status, such as the *Programme document link*; a form that posts no
+rows), takes the clean-up's lock then the Datamart lock (as `backfill.run`; either held: "An eTools
 sync is running: remove them once it ends"), deletes in one transaction and records a run of the **eTools
 update clean-up** (`DATAMART_BACKFILL`, target `partner_reports:no_longer_sent`, `rows_written`,
 `details.removed`, `reports`, `filter`), never of the sync: `SyncRun.last_success(ETOOLS_DATAMART)`, Data
@@ -1985,8 +1994,9 @@ removed: the removal failed. Its run in Import and sync runs says why." The figu
 programme document twice, by `pd_reference_number` and by `source_intervention_id` (the eTools id), and the
 two can disagree: the id first put lines Power BI shows on one PD on another PD of another partner. So the
 number decides, normalised (case aside, spaces collapsed: `fm.norm_reference`); a line with no number takes
-the number of its FR header NeuroDB holds (`fr_header_numbers`: lines sync before headers, so the last
-headers sync's). The candidates are the first step of `fm.PDResolver.candidates` that finds any: the exact
+the number of its FR header NeuroDB holds (`fr_header_numbers`: the headers sync just before their lines,
+`ENTITY_SYNCS`, so a nightly sync links a line by tonight's headers, and a new FR's lines by its header's number
+from the first night; *Sync this dataset again* on the lines alone reads the headers last synced). The candidates are the first step of `fm.PDResolver.candidates` that finds any: the exact
 number; else another amendment's (the same PCA/PD pair, or the same number without country prefix and
 amendment suffix); else the PD part alone ("PD2020001", an SSFA or GDD number: `fm.pd_part`). Of the
 candidates, the one the eTools id names; else the only one; else, by exact number, the one whose dates cover
@@ -1997,7 +2007,8 @@ number is given (none on the line, none on its header). Not linked counts in
 twice in one read counts once in both), so Data health's and Raw eTools data's "not linked" rise by the lines
 whose number names a PD NeuroDB does not hold or fits several. Each run
 records `details.pd_link`, counted once per record: `by_number` with how (`exact`, `amended`, `pd_part`,
-`header`) and `twice` (several PDs carry the exact number: dates, else the one that ends last, decide),
+`header`) and `twice` (several PDs carry the exact number and the eTools id names none of them: dates, else
+the one that ends last, decide; Raw eTools data says so),
 `by_id` (no number), `number_not_held` (and
 `number_not_held_id_held`: the id names a PD NeuroDB holds), `unclear`, `id_not_held` (no number, an id of no PD
 NeuroDB holds), `id_other` (linked by number while the id names another PD NeuroDB holds: where the old rule
@@ -2423,8 +2434,10 @@ side, and how many PDs differ for each cause of the table above.
 
 `/data/health/` lists every Datamart dataset with its last run, records read and written, records
 that failed, records whose partner, programme document or location is not in NeuroDB yet
-(`not_linked`, per kind), rows removed because the Datamart no longer returns them, and the rows
-NeuroDB holds; a dataset read in windows says how many, why (a round count, or the cut sign of the read
+(`not_linked`, per kind), rows removed because the Datamart no longer returns them (for the partner reports,
+only the rows a read replaced: the rows they no longer return are kept and counted instead, "N rows eTools no
+longer sends, kept and counted", counted from the rows, *Partner report rows the Datamart no longer returns*),
+and the rows NeuroDB holds; a dataset read in windows says how many, why (a round count, or the cut sign of the read
 before) and what they announced and read, and why a read removed nothing (a window not whole, a page cut,
 a count that changed, an answer cut that could not be read in windows, a large removal kept one more night:
 *A large read is read in windows*); the partner reports and PRP's progress reports say which business area
@@ -2515,6 +2528,7 @@ Anyone else sees the pages as before; the addresses answer 404.
 | CSV of the filter | `datamart/raw/<source>/rows.csv` | `admin:datamart_raw_csv` |
 | Review a field (POST, superusers) | `datamart/raw/<source>/fields/` | `admin:datamart_raw_field` |
 | Read the eTools REST API now (POST, superusers and Administrators) | `datamart/raw/rest/read/` | `admin:datamart_raw_rest_read` |
+| Remove the partner report rows eTools no longer sends (POST, superusers) | `datamart/raw/partner_reports/no-longer-sent/` | `admin:datamart_raw_unsent` |
 
 `<source>` is a dataset of the nightly Datamart sync (`ENTITY_SYNCS`): its records are its own table
 (`catalogue.TYPED`) or `DatamartDocument` rows (the raw copies of the partners, programme documents,
@@ -2695,7 +2709,7 @@ an agreement's, an engagement's or an action point's, the partner whose id it na
 **Downloads.** `rows.csv` streams the filter (`exports.stream_csv`: BOM, an apostrophe before a text a
 spreadsheet would run), NeuroDB's columns first (`figures_as_of`, the record id, `synced_at`,
 `updated_by_last_sync`, the programme document and partner in NeuroDB; for the partner reports `pd_link`,
-`progress_report_key`, `indicator_report_key`), then every field (a field that names people as
+`progress_report_key`, `indicator_report_key`, `no_longer_sent_since`), then every field (a field that names people as
 `<field> (people)`, a count; a field named as one of NeuroDB's columns, such as a record's `vendor_number`, as
 `<field> (as received)`), then `people_inside`, `fields_not_shown` and `other_fields` (a field first met after
 the header was made). The file is `raw_<source>_<YYYY-MM-DD>_<HHMM>.csv`, the moment being the end of

@@ -84,6 +84,7 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         *raw.UNSENT.values(),
         raw.unsent_words(312, 14, None, None, 3),
         raw.unsent_words(1, 1, None, None, 0),
+        raw.NOT_SENT_SINCE,  # the record page's "Updated by:" of a row eTools no longer sends
         raw.Filters(pd="LEB/PD1", updated="unsent").words(),
         # how the funds reservation lines and the funds reservations link to their programme document
         *raw.FR_LINK_WORDS.values(),

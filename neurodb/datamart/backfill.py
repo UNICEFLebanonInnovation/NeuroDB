@@ -281,17 +281,19 @@ def _run_steps(triggered_by: str) -> SyncRun:
     return sync_run
 
 
-def remove_unsent(rows: QuerySet, shown: int, words: str, triggered_by: str) -> SyncRun | str:
+def remove_unsent(rows: QuerySet, shown: int, seen: str, words: str, triggered_by: str) -> SyncRun | str:
     """Remove ``rows`` (the partner report rows of a filter of Raw eTools data eTools no longer sends, up to
     the newest mark the page showed), once a superuser has reviewed them and the eTools Datamart team
     confirmed PRP deleted their reports. It takes the clean-up's lock, then the sync's, as :func:`run` does,
     so neither a sync nor a clean-up writes meanwhile and a sync reads it as a clean-up; it refuses when
-    either is held, or when the rows are no longer the ``shown`` the reviewer saw. The run is the clean-up's
+    either is held, or when the rows are no longer those the reviewer saw: ``shown`` of them, ``seen`` their
+    ``raw.rows_key`` (a sync between the look and the post can swap rows of a filter that reads other rows or
+    the programme documents' status, at the same count). The run is the clean-up's
     (target :data:`UNSENT_TARGET`), never a sync: a removal never counts as a fresh eTools sync. ``words``:
     the filter, as the page says it. Returns the run (failed when the removal did, nothing removed), or why
     nothing was removed."""
     from . import models as dm
-    from . import reporting
+    from . import raw, reporting
 
     if not _take(background.DATAMART_BACKFILL_LOCK_ID):
         return UNSENT_BUSY
@@ -300,7 +302,7 @@ def remove_unsent(rows: QuerySet, shown: int, words: str, triggered_by: str) -> 
             return UNSENT_BUSY
         try:
             pks = list(rows.order_by().values_list("pk", flat=True))
-            if len(pks) != shown:
+            if len(pks) != shown or raw.rows_key(pks) != seen:
                 return UNSENT_CHANGED
             sync_run = new_run(SyncRun.Job.DATAMART_BACKFILL, UNSENT_TARGET, triggered_by)
             try:

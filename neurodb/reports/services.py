@@ -642,10 +642,13 @@ def _window_bound(text: Any) -> str:
     return f"{day.day} {day:%b %Y}" if day else text or "open"
 
 
-def quality_row(name: str, run: SyncRun | None, count: int | None) -> dict[str, Any]:
+def quality_row(
+    name: str, run: SyncRun | None, count: int | None, *, unsent: int | None = None
+) -> dict[str, Any]:
     """One dataset's row of :func:`datamart_quality`: what ``run`` (its latest run) read, wrote, failed to
-    link, and ``count``, the rows NeuroDB holds. Raw eTools data (``datamart.runfacts``) reads the same row
-    of the run its records come from, so the two pages tell one story."""
+    link, and ``count``, the rows NeuroDB holds; for the partner reports, ``unsent``, the rows eTools no
+    longer sends, counted from the rows (else the run's own count). Raw eTools data (``datamart.runfacts``)
+    reads the same row of the run its records come from, so the two pages tell one story."""
     from neurodb.core.admin import error_hint
     from neurodb.datamart import runfacts
     from neurodb.datamart.catalogue import DIAGNOSTIC
@@ -677,7 +680,7 @@ def quality_row(name: str, run: SyncRun | None, count: int | None) -> dict[str, 
         "removed": details.get("removed"),
         # the partner reports keep the rows a whole read no longer returns, counted, marked no longer sent:
         # the next complete read never removes them (datamart_sync.keep_unsent)
-        "no_longer_sent": details.get("no_longer_sent"),
+        "no_longer_sent": unsent if unsent is not None else details.get("no_longer_sent"),
         "next_read": ""
         if name in DATASETS and DATASETS[name][1].keep_unsent
         else "; the next complete read removes those it no longer returns",
@@ -783,12 +786,22 @@ def datamart_quality() -> list[dict[str, Any]]:
     for the others, whether the pages shifted (and as many others did not come) or, in a stable order, the
     Datamart likely holds them twice, and the stable order asked or why none. A dataset the Datamart answered
     HTTP 403 says whom to ask: the account not let read it, the sign-in refused, or either when nothing tells
-    them apart (``runfacts.refused``)."""
-    from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
+    them apart (``runfacts.refused``). The partner report rows eTools no longer sends are counted from the
+    rows, as Raw eTools data counts them (``raw.no_longer_sent``): right after a superuser removed some, and
+    after a read that failed."""
+    from neurodb.integrations.etools.datamart_sync import DATASETS, ENTITY_SYNCS
 
     last_by_target = latest_datamart_runs(ENTITY_SYNCS)
     counts = dataset_row_counts()
-    return [quality_row(name, last_by_target.get(name), counts[name]) for name in ENTITY_SYNCS]
+    kept = {
+        name: DATASETS[name][1].model.objects.exclude(not_sent_since=None).count()
+        for name in ENTITY_SYNCS
+        if name in DATASETS and DATASETS[name][1].keep_unsent and last_by_target.get(name) is not None
+    }
+    return [
+        quality_row(name, last_by_target.get(name), counts[name], unsent=kept.get(name))
+        for name in ENTITY_SYNCS
+    ]
 
 
 def _last_status(job: dict[str, Any]) -> str | None:

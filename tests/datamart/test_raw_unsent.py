@@ -101,8 +101,17 @@ def superuser(roles):
     return _user("root", groups=(), superuser=True)
 
 
-def _post(client, *, count: int, newest: datetime.datetime = MARKED, reviewed: bool = True, **query):
-    data = {"count": str(count), "newest": newest.isoformat(), **query}
+def _rows_shown(client, **query) -> str:
+    """The rows the page lists for review under ``query``, as its form posts them."""
+    return client.get(SOURCE, query).context["review"]["rows_key"]
+
+
+def _post(
+    client, *, count: int, newest: datetime.datetime = MARKED, reviewed: bool = True, rows=None, **query
+):
+    """The button's post, with the rows the page shows now unless ``rows`` says those of an earlier look."""
+    shown = _rows_shown(client, **query) if rows is None else rows
+    data = {"count": str(count), "newest": newest.isoformat(), "rows": shown, **query}
     if reviewed:
         data["reviewed"] = "yes"
     return client.post(reverse("admin:datamart_raw_unsent"), data)
@@ -141,6 +150,21 @@ def test_the_source_page_says_what_is_kept_and_lists_the_reports_for_review(clie
     assert NAME not in html
     for words in raw.UNSENT.values():
         assert words in html  # the "updated" choices
+
+
+def test_the_record_page_says_when_etools_stopped_sending_the_row(client, world):
+    """The record page's "Updated by:" reads as a sentence: the earlier sync that last sent it, and since when
+    eTools no longer sends it (the list's cell answers its column with "No: ...")."""
+    import re
+
+    client.force_login(_user("checker", groups=(VIEWER, VALIDATORS)))
+    row = dm.ReportedIndicator.objects.get(datamart_id=1)
+    html = client.get(reverse("admin:datamart_raw_record", args=["partner_reports", row.pk])).content.decode()
+    (line,) = re.findall(r"<li>Updated by: (.*?)</li>", html)
+    assert (
+        line
+        == "an earlier sync (20 Sep 2026, 13:00); eTools no longer sends it since 14 Oct 2026: kept and counted"
+    )
 
 
 def test_the_review_list_shows_at_most_50_reports_then_says_how_many_more(client, roles, superuser):
@@ -202,6 +226,30 @@ def test_the_trail_says_how_many_of_the_rows_kept_from_an_earlier_sync_etools_no
     )
 
 
+def test_data_health_and_check_10_count_the_rows_left_after_a_removal(client, world, superuser):
+    """A superuser removes PD1's 2 rows; PD2's 1 row stays kept and counted. Data health and check 10 say 1 row,
+    as Raw eTools data does, without waiting for the next sync."""
+    from neurodb.datamart import checks
+    from neurodb.reports.services import datamart_quality
+    from tests.web.parts import get_part, text
+
+    def health() -> int:
+        return next(d for d in datamart_quality() if d["name"] == "partner_reports")["no_longer_sent"]
+
+    client.force_login(superuser)
+    assert health() == 3
+    assert "3 rows eTools no longer sends, kept and counted" in text(
+        get_part(client, "/data/health/", "datasets")
+    )
+    _post(client, count=2, pd="LEB/PD1")
+    assert _held() == {3, 4} and raw.no_longer_sent()["rows"] == 1 == health()
+    part = text(get_part(client, "/data/health/", "datasets"))
+    assert "1 row eTools no longer sends, kept and counted" in part and "3 rows eTools" not in part
+    said, figures, _, _ = checks._partner_read(world["run"])
+    assert dict(figures)["… rows no longer sent (kept and counted)"] == 1
+    assert "; 1 row marked no longer sent stays kept and counted." in said, said
+
+
 def test_data_health_counts_them_and_never_says_the_next_read_removes_them(world):
     row = quality_row("partner_reports", world["run"], 4)
     assert row["no_longer_sent"] == 3 and row["next_read"] == ""
@@ -259,14 +307,59 @@ def test_nothing_is_removed_while_a_sync_or_a_clean_up_runs(client, world, super
 
 
 def test_it_removes_only_the_filter_s_marked_rows_up_to_the_newest_mark_shown(client, world, superuser):
-    later = _row(6, pd=world["pd1"], number="QPR3", mark=MARKED + datetime.timedelta(hours=20))
     client.force_login(superuser)
-    response = _post(client, count=2, pd="LEB/PD1")  # the page showed rows 1 and 2, before row 6 was marked
+    shown = _rows_shown(client, pd="LEB/PD1")  # the page showed rows 1 and 2, before row 6 was marked
+    later = _row(6, pd=world["pd1"], number="QPR3", mark=MARKED + datetime.timedelta(hours=20))
+    response = _post(client, count=2, rows=shown, pd="LEB/PD1")
     assert response.status_code == 302 and response["Location"].startswith(SOURCE)
     assert _held() == {3, 4, later.datamart_id}
     assert _said(response) == (
-        "Removed 2 rows of 1 progress report eTools no longer sends: the eTools update clean-up."
+        "Removed 2 rows of 1 progress report eTools no longer sends. The removal is recorded in Import and sync "
+        "runs as the eTools update clean-up."
     )
+
+
+def test_rows_swapped_at_the_same_count_are_refused(client, roles, superuser):
+    """The reviewer sees QPR1's old row in "eTools sends their number for another period" (1 row). Before the
+    post, a sync marks QPR1's copy for another period (QPR1 leaves that list) and brings QPR5's number for
+    another period (QPR5's old row enters it): still 1 row, every mark at or before the newest shown. Nothing is
+    removed: the rows are not those the page listed."""
+    run = _sync(removed=0)
+    _row(1, number="QPR1", end=datetime.date(2026, 3, 31))
+    _row(2, number="QPR1", end=datetime.date(2026, 4, 30), mark=None, sent=run.started_at)
+    _row(10, number="QPR5", end=datetime.date(2026, 3, 31))
+    client.force_login(superuser)
+    review = client.get(SOURCE, {"updated": "unsent_period"}).context["review"]
+    assert review["rows"] == 1 and [line["report"] for line in review["lines"]] == ["QPR QPR1"]
+    later = timezone.now()  # the sync
+    dm.ReportedIndicator.objects.filter(datamart_id=2).update(not_sent_since=later)
+    _row(11, number="QPR5", end=datetime.date(2026, 4, 30), mark=None, sent=later)
+    response = _post(client, count=1, rows=review["rows_key"], updated="unsent_period")
+    assert _said(response) == backfill.UNSENT_CHANGED
+    assert _held() == {1, 2, 10, 11}
+    assert not SyncRun.objects.filter(job=SyncRun.Job.DATAMART_BACKFILL).exists()
+
+
+def test_rows_of_programme_documents_whose_status_changed_since_are_refused(client, world, superuser):
+    """The reviewer sees the 2 marked rows of running programme documents (PD1's). Before the post PD1 ends and
+    PD2, with 2 marked rows, runs again: still 2 rows, other rows. Nothing is removed."""
+    _row(5, pd=world["pd2"], ref="LEB/PD2", number="QPR2", end=datetime.date(2026, 6, 30))
+    PCA.objects.filter(pk=world["pd2"].pk).update(status="ended")
+    client.force_login(superuser)
+    shown = _rows_shown(client, pd_link="running")
+    PCA.objects.filter(pk=world["pd1"].pk).update(status="ended")
+    PCA.objects.filter(pk=world["pd2"].pk).update(status="active")
+    response = _post(client, count=2, rows=shown, pd_link="running")
+    assert _said(response) == backfill.UNSENT_CHANGED
+    assert _held() == {1, 2, 3, 4, 5}
+
+
+def test_a_form_that_posts_no_rows_removes_nothing(client, world, superuser):
+    """A page opened before the form posted its rows (or a form altered) removes nothing."""
+    client.force_login(superuser)
+    for rows in ("", "not-the-rows", "0" * 63):
+        assert _said(_post(client, count=3, rows=rows)) == backfill.UNSENT_CHANGED
+    assert _held() == {1, 2, 3, 4}
 
 
 def test_a_failed_removal_is_said_as_failed(client, world, superuser, monkeypatch):

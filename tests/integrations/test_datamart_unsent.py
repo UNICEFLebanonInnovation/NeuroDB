@@ -4,6 +4,7 @@ replacement. The Datamart is the fake of ``fake_datamart`` (pages of 5, the part
 every value is made up."""
 
 import datetime as dt
+import re
 
 import pytest
 import responses
@@ -317,6 +318,84 @@ def test_the_new_copy_of_one_indicator_never_replaces_another_sharing_its_title_
 
 
 @responses.activate
+def test_a_copy_sent_beside_the_old_row_for_a_night_replaces_it_once_the_old_row_goes():
+    """One whole read returns row 1 and its copy, row 9 (the same report, indicator, PRP id and P-code, a smaller
+    value); the next returns row 9 alone. Row 9 was first written the night before, yet it is row 1's copy: row 1
+    goes, and Reached never takes its old larger value."""
+    fake = FakeDatamart([row(1, value=50)])
+    fake.register(REPORTS)
+    run()
+    fake.records = [row(1, value=50), row(9, value=20)]
+    run()
+    fake.records = [row(9, value=20)]
+    third = run()
+    assert set(held()) == {9} and held()[9].not_sent_since is None
+    assert (third.details["replaced"], third.details["no_longer_sent_new"]) == (1, 0)
+    assert reached_now().reached == 20
+
+
+@responses.activate
+def test_a_copy_first_written_by_a_read_that_is_not_whole_replaces_the_old_row_at_the_next_whole_read():
+    """A read that is not whole writes row 9, row 1's copy, and removes nothing; the next whole read no longer
+    returns row 1: row 9 replaces it, and Reached counts the copy's value, not the old one beside it."""
+    fake = FakeDatamart([row(1, value=50)])
+    fake.register(REPORTS)
+    run()
+    fake.records = [row(9, value=20), row(3, number="QPR3", start="2026-07-01", end="2026-09-30")]
+    fake.cap, fake.cut_count = 1, False  # announces 2, returns 1: not whole
+    second = run()
+    assert second.details["removal_skipped"] is True and set(held()) == {1, 9}
+    fake.cap = None
+    third = run()
+    assert set(held()) == {3, 9}
+    assert (third.details["replaced"], third.details["no_longer_sent_new"]) == (1, 0)
+    assert reached_now().reached == 30
+
+
+@responses.activate
+def test_a_reload_that_renumbers_rows_during_a_read_that_is_not_whole_leaves_no_old_row_marked():
+    """The Datamart reloads (new ids for every row) while NeuroDB reads: that read is not whole and writes 4 of
+    the 5 copies; the next whole read returns all 5. Every old row is replaced, none is kept as no longer sent."""
+
+    def reports_under(first_id: int) -> list[dict]:
+        return [
+            row(first_id + n, number=f"QPR{n}", start=f"2026-0{n}-01", end=f"2026-0{n}-28")
+            for n in range(1, 6)
+        ]
+
+    fake = FakeDatamart(reports_under(0))
+    fake.register(REPORTS)
+    run()
+    fake.records = reports_under(100)
+    fake.cap, fake.cut_count = 4, False  # announces 5, returns 4: not whole
+    second = run()
+    assert second.details["removal_skipped"] is True and len(held()) == 9
+    fake.cap = None
+    third = run()
+    assert set(held()) == {101, 102, 103, 104, 105}
+    details = third.details
+    assert (details["replaced"], details["no_longer_sent_new"], details["no_longer_sent"]) == (5, 0, 0)
+
+
+@responses.activate
+def test_a_copy_of_one_indicator_written_earlier_replaces_its_own_row_never_another_sharing_its_title():
+    """Two PD indicators share a title and an output (PRP ids 501 and 502). A read that is not whole writes row 9,
+    the copy of the first's row 1. The next whole read returns row 9 alone: it replaces row 1, and the second
+    indicator's row 2 is kept and marked."""
+    fake = FakeDatamart([shared(1, "501"), shared(2, "502")])
+    fake.register(REPORTS)
+    run()
+    fake.records = [shared(9, "501"), shared(2, "502")]
+    fake.cap, fake.cut_count = 1, False  # announces 2, returns 1: not whole
+    run()
+    fake.cap, fake.records = None, [shared(9, "501")]
+    third = run()
+    assert set(held()) == {2, 9} and held()[2].not_sent_since == third.started_at
+    assert (third.details["replaced"], third.details["no_longer_sent_new"]) == (1, 1)
+    assert reports()[0]["indicators"] == 2
+
+
+@responses.activate
 def test_a_read_that_is_not_whole_never_deletes_a_row_of_this_country():
     """Rows 1 and 2 are this country's. Tonight's read is cut (3 records announced, 2 returned) and returns
     Datamart id 2 naming another country, as a Datamart that ignores the country filter sends every country's:
@@ -373,3 +452,47 @@ def test_check_10_and_data_health_count_the_marked_rows_after_a_read_not_whole_o
         assert "; 1 row marked no longer sent stays kept and counted." in said, said
         assert quality_row("partner_reports", found, 3)["no_longer_sent"] == 1
     assert "(removal skipped); 1 row marked" in checks._partner_read(third)[0]
+
+
+@responses.activate
+def test_check_10_says_what_each_whole_read_marked_and_how_many_are_kept_in_all():
+    """Three whole reads: 2 rows, then 1 (QPR2 marked), then the same 1 again (nothing marked). Check 10 says the
+    second marked 1, and the third none, of the 1 row kept in all."""
+    from neurodb.datamart import checks
+
+    fake = FakeDatamart([row(1), row(2, number="QPR2", start="2026-04-01", end="2026-06-30")])
+    fake.register(REPORTS)
+    run()
+    fake.records = [row(1)]
+    second = run()
+    third = run()
+    assert (third.details["no_longer_sent_new"], third.details["no_longer_sent"]) == (0, 1)
+    assert "marked 1 no longer sent (kept and counted)" in checks._partner_read(second)[0]
+    said = checks._partner_read(third)[0]
+    assert "marked 0 no longer sent (1 in all, kept and counted)" in said and "marked 1 " not in said
+
+
+@responses.activate
+def test_after_a_failed_read_data_health_and_check_10_still_count_the_rows_kept():
+    """A whole read marks QPR2; the next read fails (HTTP 500) and records nothing of them. QPR2's row is still
+    kept and counted on every page: Data health and check 10 say so, as Raw eTools data does."""
+    from neurodb.datamart import checks
+    from neurodb.reports.services import datamart_quality
+
+    fake = FakeDatamart([row(1), row(2, number="QPR2", start="2026-04-01", end="2026-06-30")])
+    fake.register(REPORTS)
+    run()
+    fake.records = [row(1)]
+    run()  # QPR2 marked
+    responses.reset()
+    responses.add(
+        responses.GET, re.compile(rf"{re.escape(REPORTS)}(\?.*)?$"), status=500, json={"detail": "x"}
+    )
+    failed = run()
+    assert failed.status == SyncRun.Status.FAILED and "no_longer_sent" not in (failed.details or {})
+    assert raw.no_longer_sent()["rows"] == 1
+    health = next(d for d in datamart_quality() if d["name"] == "partner_reports")
+    assert health["run"] == failed and health["no_longer_sent"] == 1
+    said, figures, _, _ = checks._partner_read(failed)
+    assert dict(figures)["… rows no longer sent (kept and counted)"] == 1
+    assert "; 1 row marked no longer sent stays kept and counted." in said, said

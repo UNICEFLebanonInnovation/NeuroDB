@@ -372,17 +372,19 @@ programme documents, trips, engagements, action points and their details).
   saved into NeuroDB's own partners, programme documents, locations...: the ones the pages read. Then
   **Complete?** says *No*. For the partner reports it also says from which date NeuroDB holds them, and
   how many running programme documents have no report row (check 10).
-- **Rows eTools no longer sends** (partner reports only). When a complete sync no longer gets a partner
-  report row, NeuroDB keeps it and counts it on every page, marked "no longer sent" ("no longer sent 312
-  (kept and counted)"; the list's *Updated* cell says since when, and when it was last sent). Its report keeps
-  the status it last had. The mark goes as soon as eTools sends the row again. A row is removed by a sync only
-  when the sync gets its new copy, a record eTools sends under a new record id: the same report and indicator
-  at the same place, or under a new id PRP gave the indicator. A record eTools sends again under its old record
-  id never removes another row, and neither does the new copy of another indicator with the same title and
-  output. Data health and check 10 say how many rows are kept so after every sync, also one that could not
-  read everything. The line under the counts says how many rows of how many reports are kept so, and how many
-  of these reports eTools now sends under the same number for another period (mostly reports PRP made again
-  after an amendment): review those first.
+- **Rows eTools no longer sends** (partner reports only). When a complete sync no longer gets a partner report
+  row, NeuroDB keeps it and counts it on every page, marked "no longer sent" ("no longer sent 312 (kept and
+  counted)"; the list's *Updated* cell says since when, and when it was last sent). Its report keeps the
+  status it last had. The mark goes as soon as eTools sends the row again. A row is removed by a sync only
+  when the sync gets its new copy, a record of the same report and indicator: one PRP gives the same id at the
+  same place, also when an earlier sync got it first (as when eTools renumbers its records while NeuroDB
+  reads), or one eTools sends under a new record id, at the same place or under a new id PRP gave the
+  indicator. The copy of another indicator with the same title and output never removes a row. Data health and
+  check 10 count the rows kept so from the rows themselves, as this page does: they stay right after a sync
+  that could not read everything or failed, and after a removal (check 10 from its next run). Check 10 also
+  says how many the latest complete sync marked. The line under the counts says how many rows of how many
+  reports are kept so, and how many of these reports eTools now sends under the same number for another period
+  (mostly reports PRP made again after an amendment): review those first.
 - **How funds reservations link to their programme document** (funds reservation lines and funds
   reservations). A line goes to the programme document whose reference number it carries: the exact number,
   else another amendment's number of the same PD, else the PD part alone ("PD2020001"); a line with no number

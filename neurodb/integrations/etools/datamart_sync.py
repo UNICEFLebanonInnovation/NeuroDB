@@ -14,9 +14,10 @@ Two kinds of targets:
   returns are deleted. A large dataset is read in windows (``windows.Reading``), and nothing is removed
   unless every window was read whole. The partner reports are the exception (``Dataset.keep_unsent``):
   a whole read keeps the rows it no longer returns, counted on every page, and marks them no longer sent
-  (``ReportedIndicator.not_sent_since``); it removes only a row whose replacement tonight's read brought under
-  a new Datamart id (:func:`keep_unsent`). A row sent again loses its mark, and only a superuser removes
-  marked rows, after review (Raw eTools data, ``raw_admin.unsent_view``).
+  (``ReportedIndicator.not_sent_since``); it removes only a row whose replacement tonight's read brought: its
+  copy (its PRP id at its place, under any Datamart id), or a row under a new Datamart id
+  (:func:`keep_unsent`). A row sent again loses its mark, and only a superuser removes marked rows, after
+  review (Raw eTools data, ``raw_admin.unsent_view``).
 
 Each record is written in its own savepoint (``runs.process_items``): one bad record is logged and
 counted, the rest are written and the run ends PARTIAL. Every request is limited to one country
@@ -236,7 +237,9 @@ class Links:
 
     def header_number(self, fr_number: Any) -> str:
         """The reference number of the FR header NeuroDB holds under ``fr_number`` (normalised), '' when none
-        (:func:`fr_header_numbers`). Lines sync before their headers: these are the last headers run's."""
+        (:func:`fr_header_numbers`). The headers sync just before their lines (:data:`ENTITY_SYNCS`), so a
+        nightly sync links a line by tonight's headers; a lines run read again alone, by the headers last
+        synced."""
         if self._header_numbers is None:
             self._header_numbers = fr_header_numbers()
         return self._header_numbers.get(str(fr_number or "").strip(), "")
@@ -1984,17 +1987,20 @@ def replaced_rows(
     stale: list[dict[str, Any]], seen: set[int], started: dt.datetime, held: set[int]
 ) -> list[int]:
     """The pks of the ``stale`` rows (a whole read no longer returned them) whose replacement tonight's read
-    brought: a row under a new Datamart id (one NeuroDB did not hold before the read, ``held``) of the same
-    progress report (``reached.report_key``) and indicator (``reached.indicator_key``), and either at the
-    same place (:func:`same_place`), or under a new PRP indicator report id while no row of tonight's read
-    carries the stale row's own (PRP gave the indicator report a new id: every place of the old one is
-    superseded). A row returned again under a Datamart id NeuroDB held never replaces another: two PD
-    indicators of one report can share a title and an output and carry no eTools id (one indicator to
-    ``indicator_key``), told apart by PRP's id alone. For the same reason a new row under a PRP id another
-    row NeuroDB held carries (a stale one, or one returned again) is that other indicator report, never the
-    replacement of this one. A place tonight's read did not return, under the same PRP id, is never replaced:
-    a read of the records changed since a date can return one place of a report and not another. Tonight's
-    rows are read for the programme documents and period ends of the stale rows only."""
+    brought, a row of the same progress report (``reached.report_key``) and indicator
+    (``reached.indicator_key``): a row under any Datamart id that carries the stale row's own PRP
+    indicator report id at the same place (:func:`same_place`): its copy, also when NeuroDB first wrote it
+    on an earlier night (a read that was not whole, or a read that returned both); or a row under a new
+    Datamart id (one NeuroDB did not hold before the read, ``held``) at the same place, or under a new PRP
+    indicator report id while no row of tonight's read carries the stale row's own (PRP gave the indicator
+    report a new id: every place of the old one is superseded). Under another PRP id, a row returned again
+    under a Datamart id NeuroDB held never replaces another: two PD indicators of one report can share a
+    title and an output and carry no eTools id (one indicator to ``indicator_key``), told apart by PRP's
+    id alone. For the same reason a new row under a PRP id another row NeuroDB held carries (a stale one,
+    or one returned again) is that other indicator report, never the replacement of this one. A place
+    tonight's read did not return, under the same PRP id, is never replaced: a read of the records changed
+    since a date can return one place of a report and not another. Tonight's rows are read for the
+    programme documents and period ends of the stale rows only."""
     if not stale:
         return []
     pds = {row["intervention_id"] for row in stale if row["intervention_id"] is not None}
@@ -2028,7 +2034,9 @@ def replaced_rows(
         new = [
             other
             for other in sent
-            if other["datamart_id"] not in held and (prp_id(other) == own or prp_id(other) not in others)
+            if (other["datamart_id"] not in held and (prp_id(other) == own or prp_id(other) not in others))
+            # a copy NeuroDB first wrote on an earlier night: its own PRP id at its place
+            or (own and prp_id(other) == own and same_place(row, other))
         ]
         if not new:
             continue
@@ -2047,12 +2055,13 @@ def keep_unsent(
     held: set[int],
 ) -> dict[str, Any]:
     """What a whole read of the partner reports does with the rows of its scope it no longer returned: those
-    tonight's read brought the replacement of under a new Datamart id (:func:`replaced_rows`; ``held``: the
-    Datamart ids NeuroDB held before the read) are removed (``removed``, ``replaced``), every other is kept,
-    counted on every page, and marked no longer sent from ``started`` (``no_longer_sent_new``; a row marked
-    already keeps its first mark, and its ``synced_at`` stays the moment it was last sent). Then the marked
-    rows of the scope (``no_longer_sent``), those marked before the read that it returned (``sent_again``),
-    and the marked reports whose programme document, type and number a row still sent holds under another
+    tonight's read brought the replacement of (:func:`replaced_rows`: a copy under any Datamart id
+    carrying their PRP id at their place, or a row under a new Datamart id; ``held``: the Datamart ids
+    NeuroDB held before the read) are removed (``removed``, ``replaced``), every other is kept, counted on
+    every page, and marked no longer sent from ``started`` (``no_longer_sent_new``; a row marked already
+    keeps its first mark, and its ``synced_at`` stays the moment it was last sent). Then the marked rows
+    of the scope (``no_longer_sent``), those marked before the read that it returned (``sent_again``), and
+    the marked reports whose programme document, type and number a row still sent holds under another
     period (``same_number_other_period``, their rows ``…_rows``). Nothing is held a night
     (:func:`removal_waits`): nothing is lost, and a mark never makes the run partial."""
     from django.db.models import Count
@@ -2161,6 +2170,8 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
             links.missing.clear()
             links.fr_link.clear()
             links.fr_counted.clear()
+            if spec.model is dm.FundsReservation:  # the FR headers as they stand now: synced just before
+                links._header_numbers = None
             seen: set[int] = set()
             linked_before = _funded_pcas() if spec.model is dm.FundsReservation else set()
             since = spec.since() if spec.since else None  # once: the request and the rows it replaces agree
@@ -2195,7 +2206,8 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
                 )
                 params = {**(params or {}), **area.params()}
             reading = windows.Reading(client, dataset, params, date_key=spec.windows, name=name)
-            # the Datamart ids held before the read: only a row under a new one replaces a row (keep_unsent)
+            # the Datamart ids held before the read: a row under one of them replaces only the row whose PRP
+            # id it carries at its place, its copy (keep_unsent)
             held_ids = (
                 set(spec.model.objects.values_list("datamart_id", flat=True)) if spec.keep_unsent else set()
             )
@@ -3707,6 +3719,15 @@ def sync_documents(name: str) -> Callable[..., SyncRun]:
     return sync
 
 
+def _nightly_order(names: Iterable[str]) -> list[str]:
+    """The datasets in their order, the funds reservation headers moved just before their lines: a line
+    without a number of its own links by its header's (:meth:`Links.header_number`), so the lines read
+    tonight's headers. The headers read no line."""
+    order = [name for name in names if name != "funds_reservation_headers"]
+    order.insert(order.index("funds_reservations"), "funds_reservation_headers")
+    return order
+
+
 ENTITY_SYNCS: dict[str, Callable[..., SyncRun]] = {
     "locations": sync_locations,  # first: programme documents, indicators, visits... link to them
     "location_sites": sync_sites,
@@ -3714,7 +3735,7 @@ ENTITY_SYNCS: dict[str, Callable[..., SyncRun]] = {
     "interventions": sync_legacy("interventions", "interventions", upsert_intervention),
     "intervention_budgets": sync_legacy("intervention_budgets", "interventions-budget", update_budget),
     "agreements": sync_legacy("agreements", "partners/agreements", update_agreement),
-    **{name: sync_dataset(name) for name in DATASETS if name != "audit_findings"},
+    **{name: sync_dataset(name) for name in _nightly_order(DATASETS) if name != "audit_findings"},
     **{name: sync_enrichment(name) for name in ENRICHMENTS},
     "audit_findings": sync_dataset("audit_findings"),  # after the engagements they belong to
     **{

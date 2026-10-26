@@ -358,8 +358,10 @@ def twins(two_pds):
 def test_two_pds_sharing_a_line_s_number_take_the_one_the_id_names(twins):
     number, first, _ = twins
     run = read_funds(fr_line(1, number, 15, start_date="2026-03-01"))
-    assert pd_of(1) == first.pk  # the id and the number agree
+    assert pd_of(1) == first.pk  # the id and the number agree, though the second PD's dates cover the line
     assert run.details["pd_link"] == {"by_number": 1, "exact": 1}
+    said = raw.fr_link_words(run.details["pd_link"], "funds_reservations")  # never "went by dates"
+    assert "Of these, 0 carry a number several PDs share and an eTools id that names none of them: " in said
 
 
 @responses.activate
@@ -465,6 +467,76 @@ def test_the_lines_listed_as_naming_no_pd_are_those_the_sync_counted_so(two_pds)
         "funds_reservations", raw.base("funds_reservations"), run
     )
     assert sorted(listed.values_list("datamart_id", flat=True)) == [1, 2]
+
+
+def read_lines_and_headers(lines: list[dict], headers: list[dict]) -> SyncRun:
+    """One nightly sync of the funds reservation lines and their headers (both read, in the nightly order): the
+    lines' run."""
+    responses.upsert(responses.GET, f"{API}/funds-reservation/", json={"results": lines, "next": None})
+    responses.upsert(
+        responses.GET, f"{API}/funds/fundsreservationheader/", json={"results": headers, "next": None}
+    )
+    runs = run_all("funds_reservations,funds_reservation_headers")
+    assert [run.target for run in runs] == ["funds_reservation_headers", "funds_reservations"]
+    return runs[1]
+
+
+def header(number: str, source_id: int | None = None) -> dict:
+    return {
+        "id": 1,
+        "fr_number": "0400001",
+        "pd_reference_number": number,
+        "source_intervention_id": source_id,
+    }
+
+
+def naming_no_pd(run: SyncRun) -> list[int]:
+    """The lines Raw eTools data lists as "Their number names no PD NeuroDB holds"."""
+    listed = raw.Filters(fr_link="number_not_held").apply(
+        "funds_reservations", raw.base("funds_reservations"), run
+    )
+    return sorted(listed.values_list("datamart_id", flat=True))
+
+
+@responses.activate
+def test_a_new_fr_s_line_without_a_number_reads_tonight_s_header_number(two_pds):
+    """A new FR: its line carries no number and PD1's eTools id, its header a number of no PD NeuroDB holds. The
+    first night already leaves the line unlinked, counted and listed as naming no PD NeuroDB holds, never on PD1
+    by its id for a night."""
+    run = read_lines_and_headers([fr_line(1, "", 11)], [header("LEBA/PCA2020009/PD2020009-1", 11)])
+    assert pd_of(1) is None
+    assert run.details["pd_link"] == {"number_not_held": 1, "number_not_held_id_held": 1}
+    assert naming_no_pd(run) == [1]
+    assert raw.pd_words(dm.FundsReservation.objects.get(datamart_id=1)) == "not in NeuroDB"
+
+
+@responses.activate
+def test_a_header_whose_number_changes_tonight_moves_its_lines_the_same_night(two_pds):
+    """Last night the FR's header carried a number of no PD NeuroDB holds; tonight PD1's. Its line without a
+    number goes to PD1 the same night, and nothing is listed as naming no PD."""
+    pd1, _ = two_pds
+    dm.FundsReservationHeader.objects.create(
+        datamart_id=1, fr_number="0400001", pd_reference_number="LEBA/PCA2020009/PD2020009-1"
+    )
+    run = read_lines_and_headers([fr_line(1, "", 11)], [header(PD1_NUMBER, 11)])
+    assert pd_of(1) == pd1.pk
+    assert run.details["pd_link"] == {"by_number": 1, "header": 1}
+    assert naming_no_pd(run) == []
+    assert raw.pd_words(dm.FundsReservation.objects.select_related("intervention").get(datamart_id=1)) == (
+        PD1_NUMBER
+    )
+
+
+@responses.activate
+def test_a_new_fr_s_line_goes_to_its_header_s_pd_on_the_first_night_and_stays(two_pds):
+    """A new FR whose header names PD1 while its line (no number) names PD2 by eTools id: the line is on PD1 from
+    the first night, so the next night moves nothing."""
+    pd1, _ = two_pds
+    first = read_lines_and_headers([fr_line(1, "", 12)], [header(PD1_NUMBER, 12)])
+    assert pd_of(1) == pd1.pk
+    assert first.details["pd_link"] == {"by_number": 1, "header": 1, "id_other": 1}
+    second = read_lines_and_headers([fr_line(1, "", 12)], [header(PD1_NUMBER, 12)])
+    assert second.details["pd_link"] == {"by_number": 1, "header": 1, "id_other": 1}
 
 
 @responses.activate

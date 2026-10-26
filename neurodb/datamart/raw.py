@@ -26,11 +26,12 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import hashlib
 import itertools
 import json
 import logging
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -1423,6 +1424,10 @@ def between(first: datetime.datetime | None, last: datetime.datetime | None) -> 
     return f"between {a} and {b}"
 
 
+# a partner report row eTools no longer sends, on its record page after "Updated by: an earlier sync (…);"
+NOT_SENT_SINCE = "eTools no longer sends it since {since}: kept and counted"
+
+
 def updated_words(row: Any, run: SyncRun | None) -> str:
     """The list's "Updated by the last sync": yes or no; for a partner report row eTools no longer sends,
     since when, and when it was last sent (its ``synced_at``: marking a row never moves it)."""
@@ -1892,6 +1897,13 @@ def no_longer_sent(rows: QuerySet | None = None) -> dict[str, Any]:
     return found
 
 
+def rows_key(pks: Iterable[int]) -> str:
+    """The rows a reviewer saw, as the button posts them and the removal checks them
+    (``backfill.remove_unsent``): a sha256 of their sorted pks, so the same count of other rows never passes
+    for them."""
+    return hashlib.sha256(",".join(str(pk) for pk in sorted(pks)).encode()).hexdigest()
+
+
 def rows_of_reports(rows: int, reports: int) -> str:
     """ "312 rows of 14 progress reports", "1 row of 1 progress report"."""
     return (
@@ -1947,8 +1959,9 @@ def fr_link_words(found: dict[str, int], name: str) -> str:
         ways.append(f"the FR's header number {n('header')}")
     said = (
         f"Linked to their programme document by reference number: {n('by_number')} ({'; '.join(ways)}). "
-        f"Of these, {n('twice')} carry the number of several PDs: each went to the PD whose dates cover it, "
-        f"else to the one that ends last. By eTools id only (no number): {n('by_id')}."
+        f"Of these, {n('twice')} carry a number several PDs share and an eTools id that names none of them: "
+        "each went to the PD whose dates cover it, else to the one that ends last. By eTools id only (no "
+        f"number): {n('by_id')}."
     )
     gone = f"a number of a PD NeuroDB does not hold {n('number_not_held')}"
     if found.get("number_not_held"):
