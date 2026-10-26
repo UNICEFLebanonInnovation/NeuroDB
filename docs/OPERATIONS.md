@@ -1893,9 +1893,10 @@ Pages: *Funds* (funds reservations, Partner contributions, By PD and grant), *Pa
 points), *Field monitoring* (with the *HACT visit plan*, below) and *Action points*, plus sections on the programme, partner and donor
 pages. The PRP endpoints other than `prp/datareport/` carry no country field, so they are not read.
 
-Rows link to programme documents by eTools id or reference number and to partners by eTools id or
-vendor number; `details.not_linked` of a run counts the records whose PD or partner is not in
-NeuroDB. A record that names another country than `ETOOLS_DATAMART_COUNTRY` (a `country_name`
+Rows link to programme documents by eTools id or reference number (funds reservation lines and headers by
+the reference number they carry first: *Funds reservations link to the PD whose number they carry*, below)
+and to partners by eTools id or vendor number; `details.not_linked` of a run counts the records whose PD or
+partner is not in NeuroDB. A record that names another country than `ETOOLS_DATAMART_COUNTRY` (a `country_name`
 filter the Datamart ignored; names compared with case and spaces aside) is never written, in these
 tables, the partner and programme tables and the locations alike: `details.other_country_skipped`
 counts them. In a `datamart` table, a read that returns this country's records also deletes every row
@@ -1978,6 +1979,37 @@ clean-up and Ask NeuroDB's list of jobs read only its own runs (`target=""`, `co
 that fails removes nothing (one transaction); its run is *Failed* with the error, and the page says "Nothing was
 removed: the removal failed. Its run in Import and sync runs says why." The figures' stamp still moves (`keys.ETOOLS_JOBS`). Migration
 `datamart/0020_partner_report_not_sent` adds the nullable column (no default: the table's description only).
+
+**Funds reservations link to the PD whose number they carry** (`datamart_sync._link_funds`,
+`Links.by_number_first`; `funds_reservations` and `funds_reservation_headers`). A line or header names its
+programme document twice, by `pd_reference_number` and by `source_intervention_id` (the eTools id), and the
+two can disagree: the id first put lines Power BI shows on one PD on another PD of another partner. So the
+number decides, normalised (case aside, spaces collapsed: `fm.norm_reference`); a line with no number takes
+the number of its FR header NeuroDB holds (`Links.header_number`: lines sync before headers, so the last
+headers sync's). The candidates are the first step of `fm.PDResolver.candidates` that finds any: the exact
+number; else another amendment's (the same PCA/PD pair, or the same number without country prefix and
+amendment suffix); else the PD part alone ("PD2020001", an SSFA or GDD number: `fm.pd_part`). Of the
+candidates, the one the eTools id names; else the only one; else, by exact number, the one whose dates cover
+the line's start date (`PDResolver.pick`); else none (several amendments or PD parts fit). A number no PD
+NeuroDB holds carries links nothing, whatever the id: the id is used only when no number is given (none on the
+line, none on its header). Not linked counts in `details.not_linked.programme_document`, so Data health's and
+Raw eTools data's "not linked" rise by the lines whose number names a PD NeuroDB does not hold. Each run
+records `details.pd_link`, counted once per record: `by_number` with how (`exact`, `amended`, `pd_part`,
+`header`) and `twice` (several PDs carry the exact number), `by_id` (no number), `number_not_held` (and
+`number_not_held_id_held`: the id names a PD NeuroDB holds), `unclear`, `id_not_held` (no number, an id of no PD
+NeuroDB holds), `id_other` (linked by number while the id names another PD NeuroDB holds: where the old rule
+put them; it stays near its first value every night, since the Datamart still sends both), `moved` (the row
+was on another PD before this run: high on the first run after the change, then near 0) and, per link kind,
+`vendor_compared_<kind>` and `vendor_same_<kind>` (the line's `vendor_code` against the vendor number of the
+PD's partner, spaces and leading zeros aside: the proof, kind by kind, that the lines sit on their partner's
+PDs). Every run rewrites every record, so the first FR run after the change relinks every line and header
+(no data migration); *Sync this dataset again* on a `funds_reservations` run shows it at once, and
+`_refresh_donor_sets` rebuilds `PCA.donors_set` for the PDs that lose lines and those that gain them. Raw
+eTools data → Funds reservation lines (and → Funds reservations) says it in one line under the counts
+(`raw.fr_link_words`), and its *Programme document link* filter "Their number names no PD NeuroDB holds"
+(`fr_link=number_not_held`, `raw.numbers_not_held`: the same rule) lists the lines whose own number names no
+PD NeuroDB holds; their CSV carries `pd_reference_number` beside `pd_number_in_neurodb`. Partner report rows
+still link by eTools id first (`_link_report`).
 
 **Records the Datamart sends twice** (`windows.Reading`, `windows.Copies`). One answer of the Datamart (a
 page: one query) never lists a row twice. So a record whose every copy came identical in one answer is held

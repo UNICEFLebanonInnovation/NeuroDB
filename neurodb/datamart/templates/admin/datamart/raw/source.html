@@ -10,7 +10,9 @@
   each through the people rule: datamart.raw_people) and the CSV of the filter, or the sentence that says which filter
   to choose first. For the partner reports, the rows eTools no longer sends (kept and counted: datamart_sync.keep_unsent)
   are counted, their reports listed for review when the filter holds some, and a superuser removes them after review
-  ("Remove these rows": raw_admin.unsent_view, the eTools update clean-up). A newer sync that failed says why in a few words and links its run for those who open runs; an
+  ("Remove these rows": raw_admin.unsent_view, the eTools update clean-up). For the funds reservation lines and headers,
+  how the last sync linked them to their programme document, by the number they carry first (raw.fr_link_words), and
+  a filter of those whose number names no programme document NeuroDB holds. A newer sync that failed says why in a few words and links its run for those who open runs; an
   eTools REST entity never read says why (_notes.html). A plain page, no script. Printed or saved as PDF, it prints
   whole on A4 landscape, without the filter and the review buttons (admin.css, nd-raw); a record's cell that is one
   word as shown (a reference, a number: nd-raw__atom) never breaks, a date as shown ("Sept. 30, 2026") and a long
@@ -53,6 +55,7 @@
         {% for e in facts.error_lines %}<li class="nd-found__warn">{% blocktrans with n=e.count|intcomma words=e.words %}{{ n }} could not be saved: {{ words }}{% endblocktrans %}{% if e.examples %} ({% trans "record ids" %} {{ e.examples|join:", " }}){% endif %}</li>{% endfor %}
         {% if facts.unexplained %}<li class="nd-found__warn">{% blocktrans with n=facts.unexplained|intcomma %}{{ n }} records are not explained by the sync's counts: tell the NeuroDB team.{% endblocktrans %}</li>{% endif %}
         {% if facts.removal_skipped %}<li>{% trans "The last sync did not get every record, so records eTools may have deleted are still here." %}</li>{% endif %}
+        {% if pd_link_line %}<li>{{ pd_link_line }}{% if facts.pd_link.number_not_held %} <a class="nd-link" href="?fr_link=number_not_held">{% trans "List them" %}</a>{% endif %}</li>{% endif %}
         {% if unsent_line %}<li>{{ unsent_line }}{% if facts.same_number_other_period %} <a class="nd-link" href="?updated=unsent_period#no-longer-sent">{% trans "List them" %}</a>{% endif %}</li>{% endif %}
         {% if facts.removal_held %}<li>{% blocktrans with n=facts.removal_held|intcomma %}{{ n }} records eTools no longer sends are kept one more night (more than half of those in NeuroDB).{% endblocktrans %}</li>{% endif %}
       </ul>
@@ -119,6 +122,7 @@
     {% if shown.section and choices.section %}<label>{% trans "Section" %}<select name="section"><option value="">{% trans "Every section" %}</option>{% for s in choices.section %}<option value="{{ s }}"{% if s == filters.section %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>{% endif %}
     {% if shown.status and choices.status %}<label>{% trans "Status" %}<select name="status"><option value="">{% trans "Every status" %}</option>{% for s in choices.status %}<option value="{{ s }}"{% if s == filters.status %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>{% endif %}
     {% if shown.report_type and choices.report_type %}<label>{% trans "Report type" %}<select name="report_type"><option value="">{% trans "Every type" %}</option>{% for s in choices.report_type %}<option value="{{ s }}"{% if s == filters.report_type %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>{% endif %}
+    {% if shown.fr_link %}<label>{% trans "Programme document link" %}<select name="fr_link"><option value="">{% trans "Any" %}</option>{% for k, words in fr_links.items %}<option value="{{ k }}"{% if k == filters.fr_link %} selected{% endif %}>{{ words }}</option>{% endfor %}</select></label>{% endif %}
     {% if shown.pd_link %}<label>{% trans "Programme document link" %}<select name="pd_link"><option value="">{% trans "Any" %}</option>{% for k, words in pd_links.items %}<option value="{{ k }}"{% if k == filters.pd_link %} selected{% endif %}>{{ words }}</option>{% endfor %}</select></label>{% endif %}
     {% if shown.dates %}
       <label>{% if rest %}{% trans "Updated in (year)" %}{% else %}{% trans "Year" %}{% endif %}<input type="number" name="year" min="2000" max="2100" value="{{ filters.year|default:'' }}"></label>

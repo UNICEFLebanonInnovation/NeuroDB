@@ -9,7 +9,8 @@ test are grouped the same way.
 
 Also here: the rating, status and answer vocabularies (eTools spells them several ways), the entity
 kind of a row, the programme document a row is about (:class:`PDResolver`, by the PCA/PD reference
-pair so that the ``LEBA/`` or ``LEB/`` prefix and the ``-2`` amendment suffix do not matter), and the
+pair so that the ``LEBA/`` or ``LEB/`` prefix and the ``-2`` amendment suffix do not matter; the Datamart sync
+links the funds reservations by the number they carry with it, :meth:`PDResolver.candidates`), and the
 completed programmatic visits per partner that the assurance page sets against HACT, and per programme
 document for the Field monitoring page's HACT visit plan (the same rows: :func:`completed_programmatic_rows`).
 
@@ -69,6 +70,8 @@ STATUS_GROUP = {
 }
 # "LEBA/PCA2023597/PD2025123-2: ..." -> ("PCA2023597", "PD2025123")
 PD_TOKEN = re.compile(r"(PCA\d{4,})\W+((?:S?H?PD|SSFA|GDD)\d{4,})", re.I)
+# a PD part alone, without its PCA: "PD2025123", "SPD2025123", "SSFA2024001"
+PD_PART = re.compile(r"(?:S?H?PD|SSFA|GDD)\d{4,}")
 AMENDMENT = re.compile(r"-\d+$")
 COUNTRY_PREFIX = re.compile(r"^[A-Z]{2,5}/")  # "LEB/" or "LEBA/" before an eTools reference
 
@@ -266,6 +269,16 @@ def _base(number: Any) -> str:
     return AMENDMENT.sub("", COUNTRY_PREFIX.sub("", norm_reference(number)))
 
 
+def pd_part(number: Any) -> str:
+    """The PD part of a reference, its amendment removed: 'PD2025123' of 'LEBA/PCA2023597/PD2025123-2', of
+    ' pd2025123 ' and of 'PD2025123-1'; an SSFA or GDD number alone the same way. '' when it has none."""
+    token = pd_token(number)
+    if token:
+        return token[1]
+    base = _base(number)
+    return base if PD_PART.fullmatch(base) else ""
+
+
 # ---------------------------------------------------------------------------------- programme documents
 class PDResolver:
     """entity text -> PCA pk. Built once per run from PCA(pk, number, title, partner_id, start, end)."""
@@ -280,6 +293,7 @@ class PDResolver:
         self._token: dict[tuple[str, str], list[int]] = defaultdict(list)
         self._base: dict[str, list[int]] = defaultdict(list)
         self._title: dict[tuple[int, str], list[int]] = defaultdict(list)
+        self._part: dict[str, list[int]] = defaultdict(list)
         for pk, number, title, partner_id, start, end in rows:
             self._end[pk] = (start, end)
             folded = norm_reference(number)
@@ -289,12 +303,14 @@ class PDResolver:
                 token = pd_token(folded)
                 if token:
                     self._token[token].append(pk)
+                if part := pd_part(folded):
+                    self._part[part].append(pk)
             if partner_id and norm_reference(title):
                 self._title[(partner_id, norm_reference(title))].append(pk)
 
-    def _pick(self, candidates: list[int], visit_date: datetime.date | None) -> int:
-        """Of several programme documents (amendments, mostly): the one whose dates cover the visit,
-        else the one that ends last, else the highest pk."""
+    def pick(self, candidates: list[int], visit_date: datetime.date | None) -> int:
+        """Of several programme documents (amendments, mostly): the one whose dates cover the visit (or the
+        day of a funds reservation line), else the one that ends last, else the highest pk."""
         if len(candidates) == 1:
             return candidates[0]
 
@@ -321,16 +337,16 @@ class PDResolver:
         if not folded:
             return None, ""
         if found := self._exact.get(folded):
-            return self._pick(found, visit_date), "exact"
+            return self.pick(found, visit_date), "exact"
         token = pd_token(folded)
         if token and (found := self._token.get(token)):
-            return self._pick(found, visit_date), "token"
+            return self.pick(found, visit_date), "token"
         if kind != "pd":
             return None, ""
         if found := self._base.get(_base(folded)):
-            return self._pick(found, visit_date), "base"
+            return self.pick(found, visit_date), "base"
         if partner_id and (found := self._title.get((partner_id, folded))):
-            return self._pick(found, visit_date), "title"
+            return self.pick(found, visit_date), "title"
         return None, ""
 
     def resolve_reference(self, reference: str, visit_date: datetime.date | None) -> tuple[int | None, str]:
@@ -342,12 +358,34 @@ class PDResolver:
             return None, ""
         token = pd_token(folded)
         if token and (found := self._token.get(token)):
-            return self._pick(found, visit_date), "token"
+            return self.pick(found, visit_date), "token"
         if found := self._exact.get(folded):
-            return self._pick(found, visit_date), "exact"
+            return self.pick(found, visit_date), "exact"
         if found := self._base.get(_base(folded)):
-            return self._pick(found, visit_date), "base"
+            return self.pick(found, visit_date), "base"
         return None, ""
+
+    def candidates(self, reference: Any) -> tuple[list[int], str]:
+        """The programme documents a reference number written in a record may name, at the first step that
+        finds any, and how: 'exact' (the same number, case and spaces aside), 'token' (the same PCA/PD pair:
+        another amendment), 'base' (the same number without country prefix and amendment), 'pd_part' (the same
+        PD part alone, the PCA part ignored: a bare 'PD2025123'). Never picks one of several: the caller
+        decides (``datamart_sync.Links.by_number_first``, Raw eTools data's "names no PD" filter). ([], '')
+        when none."""
+        folded = norm_reference(reference)
+        if not folded:
+            return [], ""
+        if found := self._exact.get(folded):
+            return list(found), "exact"
+        token = pd_token(folded)
+        if token and (found := self._token.get(token)):
+            return list(found), "token"
+        if found := self._base.get(_base(folded)):
+            return list(found), "base"
+        part = pd_part(folded)
+        if part and (found := self._part.get(part)):
+            return list(found), "pd_part"
+        return [], ""
 
 
 def update_rows(model: type, rows: list, names: Iterable[str], batch_size: int = 2000) -> None:

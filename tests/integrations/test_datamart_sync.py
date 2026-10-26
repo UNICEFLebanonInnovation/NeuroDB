@@ -1,3 +1,4 @@
+import datetime as dt
 from decimal import Decimal
 
 import pytest
@@ -221,6 +222,215 @@ def test_funds_reservations_link_to_the_pd_and_rebuild_its_donors():
     run_all("funds_reservations")
     pd.refresh_from_db()
     assert pd.donors_set == []
+
+
+# ------------------------------------------------- funds reservations: linked by the number they carry first
+PD1_NUMBER, PD2_NUMBER = "LEBA/PCA2020001/PD2020001-1", "LEBA/PCA2020002/PD2020002-2"
+GRANT = {"donor": "Donor A", "donor_code": "I00001", "grant_number": "SC000001", "value": 100.0}
+
+
+@pytest.fixture
+def two_pds(db):
+    """Two programme documents of two partners (fake numbers): PD1 (eTools id 11, Partner A) and PD2 (12, B)."""
+    a = PartnerOrganization.objects.create(etl_id="1", name="Partner A", vendor_number="2500000001")
+    b = PartnerOrganization.objects.create(etl_id="2", name="Partner B", vendor_number="2500000002")
+    pd1 = PCA.objects.create(etl_id="11", number=PD1_NUMBER, title="PD one", partner=a)
+    pd2 = PCA.objects.create(etl_id="12", number=PD2_NUMBER, title="PD two", partner=b)
+    return pd1, pd2
+
+
+def fr_line(pk: int, number: str = "", source_id: int | None = None, **extra) -> dict:
+    return {
+        "id": pk,
+        "fr_number": "0400001",
+        "line_item": pk,
+        "donor": "Donor A",
+        "donor_code": "I00001",
+        "grant_number": "SC000001",
+        "overall_amount": "100",
+        "vendor_code": "",
+        "pd_reference_number": number,
+        "source_intervention_id": source_id,
+        "start_date": "2026-01-01",
+        **extra,
+    }
+
+
+def read_funds(*records: dict, dataset: str = "funds_reservations") -> SyncRun:
+    path = "funds-reservation" if dataset == "funds_reservations" else "funds/fundsreservationheader"
+    responses.upsert(responses.GET, f"{API}/{path}/", json={"results": list(records), "next": None})
+    (run,) = run_all(dataset)
+    return run
+
+
+def pd_of(datamart_id: int, model: type = dm.FundsReservation) -> int | None:
+    return model.objects.get(datamart_id=datamart_id).intervention_id
+
+
+@responses.activate
+def test_a_funds_line_links_to_the_pd_its_number_names_not_its_etools_id(two_pds):
+    """The line carries PD1's number and PD2's eTools id: it sat on PD2 (the old rule, id first) and moves to PD1,
+    which gains its grant while PD2 loses it."""
+    pd1, pd2 = two_pds
+    dm.FundsReservation.objects.create(datamart_id=1, intervention=pd2, grant_number="SC000001")
+    PCA.objects.filter(pk=pd2.pk).update(donors_set=[GRANT])
+    run = read_funds(fr_line(1, PD1_NUMBER, 12))
+    assert run.status == SyncRun.Status.SUCCEEDED
+    assert pd_of(1) == pd1.pk
+    assert run.details["pd_link"] == {"by_number": 1, "exact": 1, "id_other": 1, "moved": 1}
+    assert "not_linked" not in run.details
+    pd1.refresh_from_db()
+    pd2.refresh_from_db()
+    assert (pd1.donors_set, pd2.donors_set) == ([GRANT], [])
+    # the next read finds it where it is: nothing moves, the id still names another PD
+    run = read_funds(fr_line(1, PD1_NUMBER, 12))
+    assert run.details["pd_link"] == {"by_number": 1, "exact": 1, "id_other": 1}
+
+
+@responses.activate
+def test_a_funds_line_with_no_number_links_by_its_header_s_number_then_its_etools_id(two_pds):
+    pd1, pd2 = two_pds
+    dm.FundsReservationHeader.objects.create(
+        datamart_id=1, fr_number="0400001", pd_reference_number=PD1_NUMBER
+    )
+    dm.FundsReservationHeader.objects.create(datamart_id=2, fr_number="0400002", pd_reference_number="")
+    run = read_funds(fr_line(1, "", 12), fr_line(2, " ", 12, fr_number="0400002"))
+    assert (pd_of(1), pd_of(2)) == (pd1.pk, pd2.pk)
+    assert run.details["pd_link"] == {"by_number": 1, "header": 1, "id_other": 1, "by_id": 1}
+
+
+@responses.activate
+def test_a_funds_line_whose_number_no_pd_carries_is_not_linked_by_its_id(two_pds):
+    pd1, _ = two_pds
+    dm.FundsReservation.objects.create(datamart_id=1, intervention=pd1)
+    run = read_funds(fr_line(1, "LEBA/PCA2020009/PD2020009-1", 11), fr_line(2, "", 99))
+    assert (pd_of(1), pd_of(2)) == (None, None)
+    assert run.details["pd_link"] == {"number_not_held": 1, "number_not_held_id_held": 1, "id_not_held": 1}
+    assert run.details["not_linked"] == {"programme_document": 2}
+
+
+@responses.activate
+def test_a_funds_line_of_an_earlier_amendment_links_to_the_pd_held(two_pds):
+    _, pd2 = two_pds
+    run = read_funds(fr_line(1, "LEBA/PCA2020002/PD2020002-1", 11))
+    assert pd_of(1) == pd2.pk
+    assert run.details["pd_link"] == {"by_number": 1, "amended": 1, "id_other": 1}
+
+
+@responses.activate
+def test_a_bare_pd_number_links_by_its_pd_part(two_pds):
+    pd1, _ = two_pds
+    a = pd1.partner
+    PCA.objects.create(etl_id="13", number="LEBA/PCA2020003/PD2020003-1", title="PD three", partner=a)
+    PCA.objects.create(etl_id="14", number="LEBA/PCA2020004/PD2020003-2", title="PD four", partner=a)
+    run = read_funds(fr_line(1, " pd2020001 "), fr_line(2, "PD2020003"))
+    assert (pd_of(1), pd_of(2)) == (pd1.pk, None)  # a PD part two PDs carry links to neither
+    assert run.details["pd_link"] == {"by_number": 1, "pd_part": 1, "unclear": 1}
+    assert run.details["not_linked"] == {"programme_document": 1}
+
+
+@pytest.fixture
+def twins(two_pds):
+    """Two programme documents under one number: the first runs through 2025, the second through 2026."""
+    a = two_pds[0].partner
+    number = "LEBA/PCA2020005/PD2020005-1"
+    first = PCA.objects.create(
+        etl_id="15",
+        number=number,
+        title="T1",
+        partner=a,
+        start=dt.date(2025, 1, 1),
+        end=dt.date(2025, 12, 31),
+    )
+    second = PCA.objects.create(
+        etl_id="16",
+        number=number,
+        title="T2",
+        partner=a,
+        start=dt.date(2026, 1, 1),
+        end=dt.date(2026, 12, 31),
+    )
+    return number, first, second
+
+
+@responses.activate
+def test_two_pds_sharing_a_line_s_number_take_the_one_the_id_names(twins):
+    number, first, _ = twins
+    run = read_funds(fr_line(1, number, 15, start_date="2026-03-01"))
+    assert pd_of(1) == first.pk  # the id and the number agree
+    assert run.details["pd_link"] == {"by_number": 1, "exact": 1}
+
+
+@responses.activate
+def test_two_pds_sharing_a_line_s_number_else_the_one_whose_dates_cover_the_line(twins):
+    number, first, second = twins
+    run = read_funds(
+        fr_line(1, number, None, start_date="2025-03-01"), fr_line(2, number, 99, start_date="2027-03-01")
+    )
+    assert (pd_of(1), pd_of(2)) == (first.pk, second.pk)  # no date covered: the one that ends last
+    assert run.details["pd_link"] == {"by_number": 2, "exact": 2, "twice": 2}
+
+
+@responses.activate
+def test_a_funds_header_follows_the_same_rule(two_pds):
+    pd1, pd2 = two_pds
+    dm.FundsReservationHeader.objects.create(datamart_id=1, intervention=pd2)
+    run = read_funds(
+        {"id": 1, "fr_number": "0400001", "pd_reference_number": PD1_NUMBER, "source_intervention_id": 12},
+        {"id": 2, "fr_number": "0400002", "pd_reference_number": "", "source_intervention_id": 12},
+        {"id": 3, "fr_number": "0400003", "pd_reference_number": "LEBA/PCA2020009/PD2020009-1"},
+        dataset="funds_reservation_headers",
+    )
+    header = dm.FundsReservationHeader
+    assert (pd_of(1, header), pd_of(2, header), pd_of(3, header)) == (pd1.pk, pd2.pk, None)
+    assert run.details["pd_link"] == {
+        "by_number": 1,
+        "exact": 1,
+        "id_other": 1,
+        "moved": 1,
+        "by_id": 1,
+        "number_not_held": 1,
+    }
+
+
+@responses.activate
+def test_the_vendor_check_counts_lines_whose_vendor_is_the_pd_s_partner_per_link_kind(two_pds):
+    """Partner A carries 2500000001, B 2500000002; spaces and leading zeros aside."""
+    run = read_funds(
+        fr_line(1, PD1_NUMBER, vendor_code="2500000001"),
+        fr_line(2, PD1_NUMBER, vendor_code=" 002500000001"),
+        fr_line(3, PD1_NUMBER, vendor_code="2500000002"),
+        fr_line(4, PD1_NUMBER),  # no vendor: not compared
+        fr_line(5, "LEBA/PCA2020002/PD2020002-1", vendor_code="2500000002"),
+        fr_line(6, "", 11, vendor_code="2500000002"),
+    )
+    found = run.details["pd_link"]
+    assert {k: v for k, v in found.items() if k.startswith("vendor_")} == {
+        "vendor_compared_exact": 3,
+        "vendor_same_exact": 2,
+        "vendor_compared_amended": 1,
+        "vendor_same_amended": 1,
+        "vendor_compared_by_id": 1,
+    }
+
+
+@responses.activate
+def test_a_funds_line_returned_twice_is_counted_once(two_pds):
+    pd1, _ = two_pds
+    first = [fr_line(1, PD1_NUMBER, 12)]
+    responses.get(
+        f"{API}/funds-reservation/",
+        match=[responses.matchers.query_param_matcher({"page_size": "500", "country_name": "Lebanon"})],
+        json={"count": 2, "next": f"{API}/funds-reservation/?page=2", "results": first},
+    )
+    responses.get(
+        f"{API}/funds-reservation/",
+        match=[responses.matchers.query_param_matcher({"page": "2"})],
+        json={"count": 2, "next": None, "results": first},
+    )
+    (run,) = run_all("funds_reservations")
+    assert pd_of(1) == pd1.pk
+    assert run.details["pd_link"] == {"by_number": 1, "exact": 1, "id_other": 1}
 
 
 @responses.activate

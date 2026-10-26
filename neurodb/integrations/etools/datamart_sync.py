@@ -9,7 +9,8 @@ Two kinds of targets:
 * The datasets those tables have no place for (funds reservations, grants, PD indicators,
   assessments, audits and spot checks, action points, TPM visits, field monitoring findings, HACT
   totals) go to the ``datamart`` app, keyed by the Datamart id and linked to the programme
-  document and partner. A dataset read whole replaces its table: rows the Datamart no longer
+  document and partner (a funds reservation line or header to the PD whose reference number it carries,
+  :meth:`Links.by_number_first`). A dataset read whole replaces its table: rows the Datamart no longer
   returns are deleted. A large dataset is read in windows (``windows.Reading``), and nothing is removed
   unless every window was read whole. The partner reports are the exception (``Dataset.keep_unsent``):
   a whole read keeps the rows it no longer returns, counted on every page, and marks them no longer sent
@@ -48,7 +49,7 @@ from neurodb.core.models import DatamartSetting, SyncRun
 from neurodb.datamart import catalogue, identity, tags
 from neurodb.datamart import models as dm
 from neurodb.datamart import reached as rc
-from neurodb.datamart.fm import PDResolver, entity_kind
+from neurodb.datamart.fm import PDResolver, entity_kind, norm_reference
 from neurodb.geo.models import Location, LocationType
 from neurodb.integrations.etools import windows
 from neurodb.integrations.etools.datamart import DatamartClient
@@ -138,16 +139,21 @@ class Links:
         self._tpm_activities: dict[str, int] | None = None
         self._tpm_visits: dict[str, int] | None = None
         self._fm_pds: PDResolver | None = None
+        self._pca_vendor: dict[int, str] | None = None  # each PD's partner's vendor number
+        self._header_numbers: dict[str, str] | None = None  # FR number -> its header's reference number
         self.scope: Any = None  # the CountryScope of the run, once a catalogue dataset needs it
         self.missing: dict[str, int] = defaultdict(int)
+        # how a run linked funds reservation lines or headers to their PD (details.pd_link), each record once
+        self.fr_link: Counter[str] = Counter()
+        self.fr_counted: set[int] = set()
 
     def refresh(self) -> None:
         self._partners_by_etl = self._partners_by_vendor = None
-        self._pcas_by_etl = self._pcas_by_number = None
+        self._pcas_by_etl = self._pcas_by_number = self._pca_vendor = None
         self._engagements = self._engagements_by_source = None
         self._locations_by_pcode = self._location_ids = self._sites = None
         self._tpm_activities = self._tpm_visits = None
-        self._fm_pds = None
+        self._fm_pds = self._header_numbers = None
 
     def _load_partners(self) -> None:
         self._partners_by_etl, self._partners_by_vendor = {}, {}
@@ -157,9 +163,12 @@ class Links:
                 self._partners_by_vendor.setdefault(vendor.strip(), pk)
 
     def _load_pcas(self) -> None:
-        self._pcas_by_etl, self._pcas_by_number = {}, {}
-        for pk, etl_id, number in PCA.objects.values_list("pk", "etl_id", "number"):
+        self._pcas_by_etl, self._pcas_by_number, self._pca_vendor = {}, {}, {}
+        for pk, etl_id, number, vendor in PCA.objects.values_list(
+            "pk", "etl_id", "number", "partner__vendor_number"
+        ):
             self._pcas_by_etl[str(etl_id)] = pk
+            self._pca_vendor[pk] = vendor or ""
             if number:
                 self._pcas_by_number.setdefault(number.strip(), pk)
 
@@ -186,6 +195,71 @@ class Links:
         if pk is None and (source_id or number):
             self.missing["programme_document"] += 1
         return pk
+
+    def by_number_first(
+        self, source_id: Any, number: Any, day: dt.date | None, fr_number: Any = ""
+    ) -> tuple[int | None, tuple[str, ...]]:
+        """The programme document a funds reservation line or header belongs to, by the reference number it
+        carries first, and what the run counts of it (``fr_link``'s keys). A line with no number takes its FR
+        header's (``fr_number``). The candidates are those of :meth:`PDResolver.candidates`: the exact number,
+        else another amendment's ('token', 'base': "amended"), else the PD part alone. Of several, the one the
+        eTools id names; else, by exact number, the one whose dates cover ``day`` ("twice"); else none
+        ("unclear"). A number no PD carries links nothing ("number_not_held"): the eTools id is never used
+        alone when a number is given, only with no number at all ("by_id"). Not linked is counted missing."""
+        if self._pcas_by_etl is None:
+            self._load_pcas()
+        named = self._pcas_by_etl.get(str(source_id)) if source_id not in (None, "") else None
+        text, header = norm_reference(number), False
+        if not text and str(fr_number or "").strip():
+            text, header = self.header_number(fr_number), True
+        if not text:
+            if named is None and source_id not in (None, ""):
+                self.missing["programme_document"] += 1
+                return None, ("id_not_held",)
+            return named, ("by_id",) if named is not None else ()
+        found, how = self._resolver().candidates(text)
+        counts = ["by_number", "header" if header else FR_HOW[how]] if found else []
+        if named in found:
+            pk = named
+        elif len(found) == 1:
+            pk = found[0]
+        elif found and how == "exact":
+            pk = self._resolver().pick(found, day)
+            counts.append("twice")
+        else:
+            self.missing["programme_document"] += 1
+            if found:
+                return None, ("unclear",)
+            return None, ("number_not_held",) + (("number_not_held_id_held",) if named is not None else ())
+        if named is not None and named != pk:
+            counts.append("id_other")  # the old rule, id first, put it there
+        return pk, tuple(counts)
+
+    def header_number(self, fr_number: Any) -> str:
+        """The reference number of the FR header NeuroDB holds under ``fr_number`` (normalised), '' when none:
+        the lines sync before their headers, so these are the last headers sync's."""
+        if self._header_numbers is None:
+            self._header_numbers = {}
+            for fr, number in dm.FundsReservationHeader.objects.exclude(pd_reference_number="").values_list(
+                "fr_number", "pd_reference_number"
+            ):
+                if fr.strip() and norm_reference(number):
+                    self._header_numbers.setdefault(fr.strip(), norm_reference(number))
+        return self._header_numbers.get(str(fr_number or "").strip(), "")
+
+    def vendor_of(self, pca_id: int | None) -> str:
+        """The vendor number of a programme document's partner ('' when none)."""
+        if self._pca_vendor is None:
+            self._load_pcas()
+        return self._pca_vendor.get(pca_id, "") if pca_id is not None else ""
+
+    def _resolver(self) -> PDResolver:
+        """The programme documents by reference number (``datamart.fm.PDResolver``), built once per run."""
+        if self._fm_pds is None:
+            self._fm_pds = PDResolver(
+                PCA.objects.values_list("pk", "number", "title", "partner_id", "start", "end")
+            )
+        return self._fm_pds
 
     def holds_number(self, number: Any) -> bool:
         """Whether a programme document NeuroDB holds has this reference number: a question, never counted
@@ -236,12 +310,8 @@ class Links:
         """The programme document a field monitoring finding is about, and how it was found
         (``datamart.fm.PDResolver``: the reference, its PCA/PD pair, its base number or, for a PD
         entity, the PD title among the partner's). A PD entity that matches none is counted missing."""
-        if self._fm_pds is None:
-            self._fm_pds = PDResolver(
-                PCA.objects.values_list("pk", "number", "title", "partner_id", "start", "end")
-            )
         kind = entity_kind(entity_type, entity)
-        pk, how = self._fm_pds.resolve(str(entity or ""), kind, partner_id, visit_date)
+        pk, how = self._resolver().resolve(str(entity or ""), kind, partner_id, visit_date)
         if pk is None and kind == "pd":
             self.missing["programme_document_fm"] += 1
         return pk, how
@@ -556,6 +626,45 @@ def _link_intervention(key: str = "source_intervention_id", number_key: str = "p
     return link
 
 
+# How a funds reservation line or header was linked by its number (PDResolver.candidates' steps), as counted
+FR_HOW = {"exact": "exact", "token": "amended", "base": "amended", "pd_part": "pd_part"}
+# the link kinds the vendor check counts (details.pd_link "vendor_compared_<kind>", "vendor_same_<kind>")
+FR_VENDOR_KINDS = ("exact", "amended", "pd_part", "header", "by_id")
+
+
+def _vendor(value: Any) -> str:
+    """A vendor number as compared: no spaces, no leading zeros."""
+    return "".join(str(value or "").split()).upper().lstrip("0")
+
+
+def _link_funds(row, item, links):
+    """A funds reservation line or header: to the programme document whose reference number it carries, the
+    eTools id only without a number or when both agree (:meth:`Links.by_number_first`; a line with no number
+    takes its FR header's). Each record is counted once a run in ``links.fr_link`` (``details.pd_link``): how
+    it was linked, "moved" when it leaves another PD it was on for this one, and, per link kind, whether the
+    vendor number it carries is the PD's partner's (the proof the user reads on Raw eTools data)."""
+    before = row.intervention_id
+    line = isinstance(row, dm.FundsReservation)
+    pk, counts = links.by_number_first(
+        item.get("source_intervention_id"),
+        item.get("pd_reference_number"),
+        row.start_date,
+        row.fr_number if line else "",
+    )
+    row.intervention_id = pk
+    if row.datamart_id in links.fr_counted:  # a record returned twice counts once
+        return
+    links.fr_counted.add(row.datamart_id)
+    links.fr_link.update(counts)
+    if pk is not None and before is not None and before != pk:
+        links.fr_link["moved"] += 1
+    kind = next((k for k in FR_VENDOR_KINDS if k in counts), "")
+    if pk is not None and kind and _vendor(row.vendor_code):
+        links.fr_link[f"vendor_compared_{kind}"] += 1
+        if _vendor(row.vendor_code) == _vendor(links.vendor_of(pk)):
+            links.fr_link[f"vendor_same_{kind}"] += 1
+
+
 def _tag(row, title: Any) -> None:
     for name, value in tags.tags_of(str(title or "")).as_dict().items():
         setattr(row, f"tag_{name}", value)
@@ -783,7 +892,7 @@ DATASETS: dict[str, tuple[str, Dataset]] = {
                 "due_date": "due_date",
                 "completed_flag": "completed_flag",
             },
-            link=_link_intervention(),
+            link=_link_funds,
         ),
     ),
     "grants": (
@@ -975,7 +1084,7 @@ DATASETS: dict[str, tuple[str, Dataset]] = {
                     "completed_flag",
                 )
             },
-            link=_link_intervention(),
+            link=_link_funds,
         ),
     ),
     "audit_findings": (
@@ -2041,6 +2150,8 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
     def sync(run: SyncRun, *, client: DatamartClient, links: Links) -> SyncRun:
         def body() -> dict[str, Any]:
             links.missing.clear()
+            links.fr_link.clear()
+            links.fr_counted.clear()
             seen: set[int] = set()
             linked_before = _funded_pcas() if spec.model is dm.FundsReservation else set()
             since = spec.since() if spec.since else None  # once: the request and the rows it replaces agree
@@ -2124,6 +2235,8 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
                 start = reading.whole_from(held_whole_from(name))
                 if start is not None:
                     details["whole_from"] = start.isoformat()
+            if spec.link is _link_funds and seen:  # how the lines or headers were linked to their PD
+                details["pd_link"] = dict(links.fr_link)
             if spec.model is dm.FundsReservation:
                 details["donor_sets"] = _refresh_donor_sets(linked_before)
             if spec.model is dm.ReportedIndicator:

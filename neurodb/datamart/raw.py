@@ -14,7 +14,10 @@ for the people who check a page's figures against it (the Validators group, supe
   ``settings.RAW_CSV_MAX_RUNNING`` large downloads at once on the whole site (advisory locks);
 * the partner report rows eTools no longer sends, kept and counted (``datamart_sync.keep_unsent``): their
   counts (:func:`no_longer_sent`) and the reports a superuser reviews before removing them
-  (:func:`unsent_reports`).
+  (:func:`unsent_reports`);
+* how the last sync linked the funds reservation lines and headers to their programme document, by the
+  number they carry first (``datamart_sync.Links.by_number_first``, :func:`fr_link_words`), and the lines
+  whose number names no programme document NeuroDB holds (:func:`numbers_not_held`).
 
 People are never shown or written: every record goes through ``raw_people.public_record``.
 """
@@ -874,6 +877,10 @@ PD_LINK_WORDS = {
     "not_held": "not in NeuroDB",
     "no_pd": "names none",
 }
+# The funds reservation lines' and headers' "Programme document link": those with a number of their own that
+# names no programme document NeuroDB holds (by the rule the sync links them by: PDResolver.candidates)
+FR_SOURCES = ("funds_reservations", "funds_reservation_headers")
+FR_LINK_WORDS = {"number_not_held": "Their number names no PD NeuroDB holds"}
 UPDATED = {"last": "the last sync", "earlier": "an earlier sync"}
 # the partner reports' "Updated by" choices for the rows eTools no longer sends (datamart_sync.keep_unsent):
 # those whose number eTools sends for another period (to review first), then all of them
@@ -923,6 +930,7 @@ class Filters:
     updated: str = ""
     report_type: str = ""
     pd_link: str = ""
+    fr_link: str = ""
     refused: str = field(default="", compare=False)
 
     @classmethod
@@ -940,6 +948,7 @@ class Filters:
             updated=_text(params, "updated") if params.get("updated") in {**UPDATED, **UNSENT} else "",
             report_type=_text(params, "report_type", 30).upper(),
             pd_link=_text(params, "pd_link") if params.get("pd_link") in PD_LINKS else "",
+            fr_link=_text(params, "fr_link") if params.get("fr_link") in FR_LINK_WORDS else "",
         )
         from neurodb.watch import people
 
@@ -962,6 +971,7 @@ class Filters:
             "updated": self.updated,
             "report_type": self.report_type,
             "pd_link": self.pd_link,
+            "fr_link": self.fr_link,
         }
         return {k: v for k, v in values.items() if v}
 
@@ -973,7 +983,10 @@ class Filters:
             ("Section", self.section),
             ("Status", self.status),
             ("Report type", self.report_type),
-            ("Programme document link", PD_LINK_WORDS.get(self.pd_link, "")),
+            (
+                "Programme document link",
+                PD_LINK_WORDS.get(self.pd_link, "") or FR_LINK_WORDS.get(self.fr_link, ""),
+            ),
             ("Year", str(self.year or "")),
             ("From", self.date_from.isoformat() if self.date_from else ""),
             ("To", self.date_to.isoformat() if self.date_to else ""),
@@ -1025,7 +1038,21 @@ class Filters:
                 rows = rows.filter(report_type=self.report_type)
             if self.pd_link:
                 rows = rows.filter(PD_LINKS[self.pd_link])
+        if name in FR_SOURCES and self.fr_link == "number_not_held":
+            rows = rows.filter(pd_reference_number__in=numbers_not_held(rows))
         return rows
+
+
+def numbers_not_held(rows: QuerySet) -> list[str]:
+    """The reference numbers of ``rows`` (funds reservation lines or headers) that name no programme document
+    NeuroDB holds, by the rule the sync links them by (``fm.PDResolver.candidates``: the exact number, another
+    amendment's, the PD part alone). A blank number is none: such a row links by its header's number or its
+    eTools id."""
+    from .fm import PDResolver, norm_reference
+
+    resolver = PDResolver()
+    numbers = rows.exclude(pd_reference_number="").order_by().values_list("pd_reference_number", flat=True)
+    return [n for n in numbers.distinct() if norm_reference(n) and not resolver.candidates(n)[0]]
 
 
 def _rest_partner(name: str, rows: QuerySet, value: str) -> QuerySet:
@@ -1119,6 +1146,7 @@ def filters_shown(name: str) -> dict[str, bool]:
             "search": True,
             "report_type": False,
             "pd_link": False,
+            "fr_link": False,
         }
     return {
         "pd": bool(spec.pd)
@@ -1134,6 +1162,7 @@ def filters_shown(name: str) -> dict[str, bool]:
         "search": bool(spec.search) or not typed(name),
         "report_type": name == "partner_reports",
         "pd_link": name == "partner_reports",
+        "fr_link": name in FR_SOURCES,
     }
 
 
@@ -1828,6 +1857,61 @@ def unsent_words(rows: int, reports: int, first: Any, last: Any, other: int) -> 
             f" eTools sends the number of {other:,} of these reports again for another period: review those "
             "first."
         )
+    return said
+
+
+# The vendor check of the funds reservation lines and headers, per link kind (datamart_sync.FR_VENDOR_KINDS)
+FR_VENDOR_WORDS = {
+    "exact": "by exact number",
+    "amended": "by another amendment's",
+    "pd_part": "by the PD part",
+    "header": "by the header's number",
+    "by_id": "by eTools id",
+}
+
+
+def fr_link_words(found: dict[str, int], name: str) -> str:
+    """The source page's sentence on how the last sync linked the funds reservation lines (or headers) to
+    their programme document (``details.pd_link``: ``datamart_sync.Links.by_number_first``); "" for a sync
+    before the rule, which counted none."""
+    if not found:
+        return ""
+
+    def n(key: str) -> str:
+        return f"{found.get(key, 0):,}"
+
+    lines = name == "funds_reservations"
+    noun = "lines" if lines else "funds reservations"
+    ways = [
+        f"exact {n('exact')}",
+        f"another amendment's number {n('amended')}",
+        f"the PD part alone {n('pd_part')}",
+    ]
+    if lines:
+        ways.append(f"the FR's header number {n('header')}")
+    ways.append(f"shared by several PDs, the one whose dates cover it taken: {n('twice')}")
+    said = (
+        f"Linked to their programme document by reference number: {n('by_number')} ({'; '.join(ways)}). "
+        f"By eTools id only (no number): {n('by_id')}."
+    )
+    gone = f"a number of a PD NeuroDB does not hold {n('number_not_held')}"
+    if found.get("number_not_held"):
+        gone += f" (the eTools id names a PD NeuroDB holds on {n('number_not_held_id_held')} of them)"
+    gone += f"; another amendment's number or a PD part several PDs fit {n('unclear')}"
+    if found.get("id_not_held"):
+        gone += f"; no number, and an eTools id of a PD NeuroDB does not hold {n('id_not_held')}"
+    said += (
+        f" Not linked: {gone}. The eTools id names another PD NeuroDB holds on {n('id_other')} of the {noun} "
+        f"linked by number (the old rule put them there); moved to another PD by this sync: {n('moved')}."
+    )
+    kinds = [kind for kind in FR_VENDOR_WORDS if found.get(f"vendor_compared_{kind}")]
+    vendor = [
+        f"{n(f'vendor_same_{kind}')} of {n(f'vendor_compared_{kind}')} "
+        f"{f'{noun} linked ' if i == 0 else ''}{FR_VENDOR_WORDS[kind]}"
+        for i, kind in enumerate(kinds)
+    ]
+    if vendor:
+        said += f" The partner's vendor number matches on {', '.join(vendor)}."
     return said
 
 

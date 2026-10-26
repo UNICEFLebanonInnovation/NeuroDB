@@ -146,6 +146,9 @@ class RunFacts:
     same_number_other_period: int = 0
     last_sent_first: datetime.datetime | None = None
     last_sent_last: datetime.datetime | None = None
+    # the funds reservation lines and headers: how the sync linked them to their programme document, by the
+    # number they carry first (details.pd_link: datamart_sync.Links.by_number_first; empty before that rule)
+    pd_link: dict[str, int] = field(default_factory=dict)
 
     @property
     def twice_unproven(self) -> int:
@@ -282,6 +285,9 @@ def build(
         "removal_held": _count(row["removal_held"]),
         "not_linked": {str(k): _count(v) for k, v in row["not_linked"].items()},
         "not_allowed": not_allowed(newer_failed),
+        "pd_link": {str(k): _count(v) for k, v in details.get("pd_link").items()}
+        if isinstance(details.get("pd_link"), dict)
+        else {},
     }
     facts["complete"] = _verdict(facts)
     return RunFacts(**facts)

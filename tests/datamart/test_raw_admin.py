@@ -30,7 +30,7 @@ from neurodb.accounts.roles import ADMIN, SECTION_EDITOR, VALIDATORS, VIEWER
 from neurodb.core.models import SyncRun
 from neurodb.datamart import catalogue, raw, reporting, runfacts
 from neurodb.datamart import models as dm
-from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS
+from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS, FR_VENDOR_KINDS
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
 pytestmark = pytest.mark.django_db
@@ -911,6 +911,75 @@ def test_the_filters_narrow_as_the_pages_do(client_validator, world):
     assert _shown(client_validator, "partner_reports", updated="earlier") == 0
     assert _shown(client_validator, "partner_reports", q="IR-2") == 1
     assert _shown(client_validator, "partner_reports", status="Accepted") == 6
+
+
+FUNDS_LINKED = {
+    "by_number": 1234,
+    "exact": 1200,
+    "amended": 5,
+    "pd_part": 9,
+    "header": 20,
+    "by_id": 12,
+    "number_not_held": 20,
+    "number_not_held_id_held": 15,
+    "id_other": 343,
+    "moved": 343,
+    "vendor_compared_exact": 1190,
+    "vendor_same_exact": 1180,
+    "vendor_compared_by_id": 12,
+    "vendor_same_by_id": 10,
+}
+
+
+def test_the_funds_lines_page_says_how_the_last_sync_linked_them_to_their_pd(client_validator, world):
+    url = f"{INDEX}funds_reservations/"
+    _run("funds_reservations", ago=3, rows_in=2, details={"read": 2, "datamart_count": 2})
+    html = client_validator.get(url).content.decode()
+    assert "Linked to their programme document" not in html  # a sync before the rule says nothing
+    _run(
+        "funds_reservations",
+        rows_in=1286,
+        details={"read": 1286, "datamart_count": 1286, "pd_link": FUNDS_LINKED},
+    )
+    said = raw.fr_link_words(FUNDS_LINKED, "funds_reservations")
+    assert said == (
+        "Linked to their programme document by reference number: 1,234 (exact 1,200; another amendment's number "
+        "5; the PD part alone 9; the FR's header number 20; shared by several PDs, the one whose dates cover it "
+        "taken: 0). By eTools id only (no number): 12. Not linked: a number of a PD NeuroDB does not hold 20 (the "
+        "eTools id names a PD NeuroDB holds on 15 of them); another amendment's number or a PD part several PDs "
+        "fit 0. The eTools id names another PD NeuroDB holds on 343 of the lines linked by number (the old rule "
+        "put them there); moved to another PD by this sync: 343. The partner's vendor number matches on 1,180 of "
+        "1,190 lines linked by exact number, 10 of 12 by eTools id."
+    )
+    html = client_validator.get(url).content.decode()
+    assert escape(said) in html
+    assert 'href="?fr_link=number_not_held"' in html  # lists them
+    assert tuple(raw.FR_VENDOR_WORDS) == FR_VENDOR_KINDS  # one word per kind the sync counts
+    headers = raw.fr_link_words({"by_number": 2, "exact": 2, "id_other": 1}, "funds_reservation_headers")
+    assert "header number" not in headers and "1 of the funds reservations linked by number" in headers
+
+
+def test_the_funds_lines_whose_number_names_no_pd_neurodb_holds_are_listed(client_validator, world):
+    """The same rule as the sync: the exact number (case and spaces aside), another amendment's, the PD part."""
+    pd = world["running"]  # LEB/PD1
+    for pk, number in enumerate(
+        ("LEB/PD1", " leb/pd2 ", "LEB/PD9", "", "LEBA/PCA2020009/PD2020009-1"), start=1
+    ):
+        dm.FundsReservation.objects.create(
+            datamart_id=pk,
+            pd_reference_number=number,
+            intervention=pd if pk == 1 else None,
+            data={"id": pk, "pd_reference_number": number},
+        )
+    assert _shown(client_validator, "funds_reservations") == 5
+    assert _shown(client_validator, "funds_reservations", fr_link="number_not_held") == 2
+    response = client_validator.get(f"{INDEX}funds_reservations/", {"fr_link": "number_not_held"})
+    assert response.context["shown"]["fr_link"] and not response.context["shown"]["pd_link"]
+    assert "Their number names no PD NeuroDB holds" in response.content.decode()
+    rows = _csv(client_validator.get(f"{INDEX}funds_reservations/rows.csv", {"fr_link": "number_not_held"}))
+    assert sorted(r["pd_reference_number"] for r in rows) == ["LEB/PD9", "LEBA/PCA2020009/PD2020009-1"]
+    assert _shown(client_validator, "funds_reservation_headers", fr_link="number_not_held") == 0
+    assert not client_validator.get(f"{INDEX}partner_reports/").context["shown"]["fr_link"]
 
 
 def _rest_world() -> SyncRun:

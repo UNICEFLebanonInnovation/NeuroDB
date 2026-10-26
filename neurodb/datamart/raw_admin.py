@@ -432,6 +432,8 @@ def source_view(request, source: str):
             ),
             "review": _review(filters, rows, names) if n else None,
         }
+    elif name in raw.FR_SOURCES:  # how the last sync linked them to their programme document
+        extra = {"pd_link_line": raw.fr_link_words(facts.pd_link, name)}
     context = _context(
         request,
         raw.NAMES.get(name, name),
@@ -447,6 +449,7 @@ def source_view(request, source: str):
         shown=raw.filters_shown(name),
         choices=raw.choices(name, run),
         pd_links=raw.PD_LINK_WORDS,
+        fr_links=raw.FR_LINK_WORDS,
         updated_choices=raw.updated_choices(name),
         n=n,
         too_slow=raw.TOO_SLOW.format(n=f"{facts.held:,}") if n is None else "",

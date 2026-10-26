@@ -383,6 +383,17 @@ programme documents, trips, engagements, action points and their details).
   read everything. The line under the counts says how many rows of how many reports are kept so, and how many
   of these reports eTools now sends under the same number for another period (mostly reports PRP made again
   after an amendment): review those first.
+- **How funds reservations link to their programme document** (funds reservation lines and funds
+  reservations). A line goes to the programme document whose reference number it carries: the exact number,
+  else another amendment's number of the same PD, else the PD part alone ("PD2020001"); a line with no number
+  takes its FR's number. The eTools id decides only when no number is given, or between PDs that carry the
+  same number. The line under the counts says how the last sync linked them: by which kind of number, by
+  eTools id only, not linked (a number of a PD NeuroDB does not hold, and on how many of those the eTools id
+  names a PD NeuroDB holds), how many the eTools id would put on another PD, and how many this sync moved to
+  another PD. It also says on how many lines of each kind the vendor number is the partner's of the PD they
+  sit on: nearly all, for each kind. The filter's *Programme document link* choice "Their number names no PD
+  NeuroDB holds" lists the lines left unlinked so; if they are many, tell the NeuroDB team before using the
+  Funds pages.
 - **Records eTools sent twice.** One answer of the eTools Datamart (one page) never lists a record twice, so
   when every copy of a record comes identical in one answer, eTools holds it twice: NeuroDB keeps one, counts
   the copy with what it received ("1,939 the Datamart sent twice (identical)" under *Not kept*) and the sync
@@ -394,7 +405,8 @@ programme documents, trips, engagements, action points and their details).
   hold a value, and how NeuroDB uses it (read into one of its columns, names people, written by a person, a
   text, shown as received, or a new field).
 - **The filter** keeps the records of a programme document, a partner, a section, a status, a year or a
-  date range, a reference or number, a record id, and those the last sync updated or not. For the partner
+  date range, a reference or number, a record id, and those the last sync updated or not. For the funds
+  reservation lines and funds reservations, also those whose number names no PD NeuroDB holds. For the partner
   reports, also the report type and the programme document link: running, another status, draft or
   cancelled, not in NeuroDB, or names none. These five choices add up to every partner report row. Its
   *Updated by* choices add the rows eTools no longer sends: "eTools sends their number for another period"
