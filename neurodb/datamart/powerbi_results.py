@@ -154,8 +154,13 @@ def verdict_words(
         error = export.error or ""
         if read_failed(export):  # never read: export it again
             return words.VERDICT_WORDS["not_read"], words.VERDICT_ACTIONS["not_read"]
-        cls = error.rsplit(": ", 1)[-1].rstrip(".") or "Error"
-        return words.VERDICT_WORDS["failed"].format(cls=cls), words.VERDICT_ACTIONS["failed"]
+        found = counts.get("failure") or {}
+        if found.get("step") in words.EXPORT_STEPS:  # the step it stopped at, and what stopped it
+            step = words.EXPORT_STEPS[found["step"]]
+            verdict = words.VERDICT_WORDS["failed"].format(step=step, what=words.failure(found))
+            return verdict, words.VERDICT_ACTIONS["failed"]
+        cls = error.rsplit(": ", 1)[-1].rstrip(".") or "Error"  # one that failed before its step was kept
+        return words.VERDICT_WORDS["failed_before"].format(cls=cls), words.VERDICT_ACTIONS["failed"]
     if code == "cut":
         return words.VERDICT_WORDS["cut"].format(n=export.rows_read), words.VERDICT_ACTIONS["cut"]
     if code == "list_cut":
@@ -625,7 +630,7 @@ def what_to_do(
     return " ".join(x for x in (base, extra.format(history=history)) if x)
 
 
-FIT_OF_RULE = {"reached": "reached", "target": "target", "financial_contribution": "financial_contribution"}
+FIT_OF_RULE = {"reached": "reached", "target": "target", "contribution": "financial_contribution"}
 
 
 def chosen_words(export: PowerBIExport | None, rule: str) -> str:

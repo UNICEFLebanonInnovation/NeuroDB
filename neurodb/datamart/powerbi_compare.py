@@ -23,7 +23,9 @@ by the upload page's *Upload and compare* and *Compare again*; never from a shel
    lose their rows and lines (retention, also applied when an upload is created).
 
 This job writes the three Compare with Power BI tables and nothing else: no import run, no figure of any page.
-Its logs carry counts, kinds and class names only, never a value from the files.
+Its logs carry counts, kinds and class names only, never a value from the files. A comparison that stops (an
+export's, or the upload's) says the step it stopped at and what stopped it: the exception's class and, for a
+database error, its SQLSTATE code (:func:`failure`), never a value, a query or the database's own message.
 """
 
 from __future__ import annotations
@@ -31,8 +33,10 @@ from __future__ import annotations
 import datetime
 import logging
 import os
+import re
 import resource
 import time
+import traceback
 from typing import Any
 
 from django.conf import settings
@@ -43,7 +47,15 @@ from django.utils import timezone
 from neurodb.integrations import background
 
 from . import powerbi_exports as px
-from . import powerbi_facts, powerbi_filters, powerbi_kinds, powerbi_match, powerbi_read, powerbi_xlsx
+from . import (
+    powerbi_facts,
+    powerbi_filters,
+    powerbi_kinds,
+    powerbi_match,
+    powerbi_page,
+    powerbi_read,
+    powerbi_xlsx,
+)
 from . import powerbi_words as words
 from .models import PowerBIDifference, PowerBIExport, PowerBIUpload
 
@@ -68,6 +80,10 @@ BUSY_STATUSES = (Status.QUEUED, Status.READING, Status.COMPARING)
 READ_STATES = ("read", "compared", "empty", "not_compared")  # an export whose rows NeuroDB read
 COMPARERS = powerbi_kinds.COMPARERS  # an export's kind -> the function that compares it with NeuroDB's page
 BATCH = 1_000  # lines written at once
+SQLSTATE = re.compile(r"[0-9A-Z]{5}")
+AT_LIMIT = 0.9  # a memory peak this close to the job's data limit is at it
+# where in a comparer an error stopped it: the first of these modules it went through, else its own matching
+STEP_MODULES = {powerbi_page.__name__: "page", powerbi_facts.__name__: "facts", powerbi_read.__name__: "rows"}
 
 
 def exports_of(upload: PowerBIUpload | int) -> QuerySet[PowerBIExport]:
@@ -388,6 +404,7 @@ def run(pk: int, memory_limit: int | None = None) -> PowerBIUpload | None:
             _empty_content(pk)  # only an upload this call failed: another may be reading its own
         return PowerBIUpload.objects.filter(pk=pk).first()
     started = time.monotonic()
+    step, visual = "starting", ""
     try:
         close_stale(ours=pk)
         if PowerBIUpload.objects.filter(pk=pk, status=Status.QUEUED, trimmed=True).update(
@@ -401,7 +418,9 @@ def run(pk: int, memory_limit: int | None = None) -> PowerBIUpload | None:
             logger.info("Compare with Power BI %s: not waiting, nothing to do", pk)
             return None
         upload = PowerBIUpload.objects.get(pk=pk)
+        step = "reading"
         _read_staged(upload)
+        step = "day"
         before = _partner_reports_run()
         _day(upload, before)
         _record_fields(upload, before)
@@ -409,14 +428,18 @@ def run(pk: int, memory_limit: int | None = None) -> PowerBIUpload | None:
             return _fail(upload, words.OTHER_JOB_LATER, started)
         if not PowerBIUpload.objects.filter(pk=pk, status=Status.READING).update(status=Status.COMPARING):
             return PowerBIUpload.objects.filter(pk=pk).first()
+        step = "preparing"
         context = _context(upload)
         compared = []
         for n, export in enumerate(_in_order(exports_of(upload)), start=1):
+            step, visual = "comparing", _visual(export.kind)
             result = _compare(export, upload, context)
             if result is not None:
                 compared.append((export, result))
             _progress(upload, n)
+        step = "lines"
         _write_lines(compared)
+        step = "summary"
         after = _partner_reports_run()
         upload.sync_moved = _run_id(before) != _run_id(after)
         from . import powerbi_results
@@ -450,19 +473,77 @@ def run(pk: int, memory_limit: int | None = None) -> PowerBIUpload | None:
         )
         logger.info("Compare with Power BI %s: done in %.0f s", pk, upload.seconds or 0)
         return upload
-    except Exception as exc:  # noqa: BLE001 - the upload keeps our sentence and the class name, nothing else
-        logger.warning("Compare with Power BI %s stopped (%s)", pk, type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 - the upload keeps our sentence, its step and class (and code)
+        found = failure(exc, step)
+        logger.warning("Compare with Power BI %s stopped at %s (%s)", pk, step, _logged(found))
         upload = PowerBIUpload.objects.filter(pk=pk).first()
         if upload is None:
             return None
         error = words.STOPPED_UPLOAD if _staged_left(pk) else words.STOPPED_AGAIN  # its copies are emptied
-        return _fail(upload, error.format(cls=type(exc).__name__), started)
+        where = words.UPLOAD_STEPS[step].format(visual=visual)
+        return _fail(upload, error.format(step=where, what=words.failure(found)), started)
     finally:
         try:
             _empty_content(pk)
             retention()
         finally:
             _unlock()
+
+
+def failure(exc: BaseException, step: str) -> dict[str, Any]:
+    """What stopped a step (``powerbi_words.failure`` says it): the step, the exception's class and, for a
+    database error, its SQLSTATE code ("" when it has none: an error of the database client itself, said to be
+    at the job's memory limit when its memory peak reached it). Never a value, a query or the database's own
+    message."""
+    found: dict[str, Any] = {"step": step, "cls": type(exc).__name__}
+    if isinstance(exc, DatabaseError) or hasattr(exc, "sqlstate"):
+        found["code"] = sqlstate(exc)
+        if not found["code"] and at_memory_limit():
+            found["memory"] = True
+    return found
+
+
+def sqlstate(exc: BaseException) -> str:
+    """A database error's SQLSTATE code: its own, else that of the driver's error it wraps ("" when none)."""
+    current: BaseException | None = exc
+    for _depth in range(5):
+        if current is None:
+            break
+        code = getattr(current, "sqlstate", None)
+        if isinstance(code, str) and SQLSTATE.fullmatch(code):
+            return code
+        current = current.__cause__
+    return ""
+
+
+def at_memory_limit() -> bool:
+    """The job's memory peak reached its data limit (:func:`limit_process`), or nearly (False: no limit)."""
+    soft, _hard = resource.getrlimit(resource.RLIMIT_DATA)
+    if soft == resource.RLIM_INFINITY or soft <= 0:
+        return False
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024  # KB on Linux
+    return max(peak, _own_data()) >= soft * AT_LIMIT
+
+
+def _logged(found: dict[str, Any]) -> str:
+    """A failure as the logs keep it: the class and the SQLSTATE code only."""
+    return " ".join(x for x in (found["cls"], found.get("code") or "") if x)
+
+
+def _visual(kind: str) -> str:
+    found = px.KINDS.get(kind)
+    return found.visual[1] if found else kind
+
+
+def _step_of(exc: BaseException) -> str:
+    """Where a comparer stopped: NeuroDB's page (``powerbi_page``), the facts behind the reasons
+    (``powerbi_facts``), the export's rows (``powerbi_read``): the first of them the error went through, else
+    the comparer's own matching."""
+    for frame, _line in traceback.walk_tb(exc.__traceback__):
+        step = STEP_MODULES.get(frame.f_globals.get("__name__", ""))
+        if step:
+            return step
+    return "matching"
 
 
 def _fail(upload: PowerBIUpload, error: str, started: float) -> PowerBIUpload:
@@ -520,14 +601,15 @@ def _read_staged(upload: PowerBIUpload) -> None:
                 newest = stamp
         except MemoryError:
             raise  # past the job's memory limit: the whole comparison stops
-        except Exception as exc:  # noqa: BLE001 - one export never stops the others; its class name only
+        except Exception as exc:  # noqa: BLE001 - one export never stops the others; its class (and code) only
+            found = failure(exc, "reading")
             logger.warning(
-                "Compare with Power BI %s: an export could not be read (%s)", upload.pk, type(exc).__name__
+                "Compare with Power BI %s: an export could not be read (%s)", upload.pk, _logged(found)
             )
             PowerBIExport.objects.filter(pk=export.pk).update(
                 state="failed",
                 content=None,
-                error=words.COULD_NOT_READ.format(name=export.file_name, cls=type(exc).__name__)[:300],
+                error=words.COULD_NOT_READ.format(name=export.file_name, cls=words.failure(found))[:300],
             )
     if newest != upload.powerbi_as_of:
         upload.powerbi_as_of = newest
@@ -651,6 +733,7 @@ def _compare(
     parsed = powerbi_kinds.clause_states(export.kind, powerbi_filters.Filter.from_json(export.filters))
     export.filters = parsed.to_json()
     export.clauses = _clauses(parsed)
+    step = "rows"
     try:
         result = None
         if parsed.country_ok is False:
@@ -658,6 +741,7 @@ def _compare(
             note = words.OTHER_COUNTRY.format(country=settings.ETOOLS_DATAMART_COUNTRY)
             export.notes = [*export.notes, note] if note not in export.notes else export.notes
         elif export.rows_read == 0:
+            step = "page"
             with raw.snapshot(raw.STREAM_TIMEOUT_MS):
                 count = powerbi_kinds.neurodb_count(export.kind, parsed, context)
             export.state, export.verdict = "empty", "empty"
@@ -676,8 +760,10 @@ def _compare(
                 result=result,
                 rows_read=export.rows_read,
             )
+            step = "comparing"
             with raw.snapshot(raw.STREAM_TIMEOUT_MS):
                 COMPARERS[export.kind](job)
+            step = "saving"
             result.close()
             counts = result.summary()
             counts["written"] = 0
@@ -692,25 +778,34 @@ def _compare(
             export.verdict = powerbi_results.verdict_code(export)
         else:
             export.state, export.verdict = "read", ""
+        step = "saving"
         export.save(
             update_fields=["state", "verdict", "notes", "counts", "fits", "set_aside", "filters", "clauses"]
         )
         return result
     except MemoryError:
         raise  # past the job's memory limit: the whole comparison stops
-    except Exception as exc:  # noqa: BLE001 - one export never stops the others; its class name only
-        _failed(export, upload.pk, exc)
+    except Exception as exc:  # noqa: BLE001 - one export never stops the others; its step and class only
+        _failed(export, upload.pk, exc, _step_of(exc) if step == "comparing" else step)
         return None
 
 
-def _failed(export: PowerBIExport, upload_pk: int, exc: Exception) -> None:
-    """One export that could not be compared (or its lines not written): its lines removed, its class name."""
+def _failed(export: PowerBIExport, upload_pk: int, exc: Exception, step: str) -> None:
+    """One export that could not be compared (or its lines not written): its lines and counts removed (never
+    a difference to look at that no line shows); the step it stopped at and what stopped it (:func:`failure`),
+    kept in its counts for its verdict."""
+    found = failure(exc, step)
     logger.warning(
-        "Compare with Power BI %s: %s could not be compared (%s)", upload_pk, export.kind, type(exc).__name__
+        "Compare with Power BI %s: %s could not be compared at %s (%s)",
+        upload_pk,
+        export.kind,
+        step,
+        _logged(found),
     )
     PowerBIDifference.objects.filter(export=export).delete()
+    error = words.STOPPED.format(step=words.EXPORT_STEPS[step], what=words.failure(found))
     PowerBIExport.objects.filter(pk=export.pk).update(
-        state="failed", verdict="failed", error=words.STOPPED.format(cls=type(exc).__name__)[:300]
+        state="failed", verdict="failed", error=error[:300], counts={"failure": found}, fits=[]
     )
 
 
@@ -733,9 +828,9 @@ def _write_lines(compared: list[tuple[PowerBIExport, powerbi_match.Result]]) -> 
                 n = _write_group(export, result, group, room, sum(mine.values()))
             except MemoryError:
                 raise  # past the job's memory limit: the whole comparison stops
-            except Exception as exc:  # noqa: BLE001 - one export never stops the others; its class name only
+            except Exception as exc:  # noqa: BLE001 - one export never stops the others; its step and class only
                 failed.add(export.pk)
-                _failed(export, export.upload_id, exc)
+                _failed(export, export.upload_id, exc, "lines")
                 continue
             if n:
                 mine[group] = n

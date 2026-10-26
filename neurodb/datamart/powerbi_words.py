@@ -98,9 +98,65 @@ TRIMMED_QUEUED = (
     "The details of these files were removed meanwhile (only the last 3 uploads keep them): upload them "
     "again."
 )
-STOPPED = "The comparison stopped: {cls}."  # an export's
-STOPPED_UPLOAD = "The comparison stopped ({cls}): upload the files again."  # an upload's, a copy not read
-STOPPED_AGAIN = "The comparison stopped ({cls}): press Compare again."  # an upload's, every row kept
+# a comparison that stopped: the step it stopped at, and what stopped it (``failure``: the exception's class,
+# a database error's SQLSTATE code with what it means; never a value, a query or the database's own message)
+STOPPED = "The comparison stopped {step}: {what}."  # an export's
+STOPPED_UPLOAD = (
+    "The comparison stopped {step} ({what}): upload the files again."  # an upload's, a copy not read
+)
+STOPPED_AGAIN = "The comparison stopped {step} ({what}): press Compare again."  # an upload's, every row kept
+# the step an export's comparison stopped at
+EXPORT_STEPS = {
+    "rows": "while reading its rows",
+    "page": "at NeuroDB's page",
+    "facts": "while reading the facts behind the reasons",
+    "matching": "while matching the rows",
+    "saving": "while saving its result",
+    "lines": "while writing its differences",
+}
+# the step an upload's comparison stopped at
+UPLOAD_STEPS = {
+    "starting": "as it started",
+    "reading": "while reading the files",
+    "day": "while reading the day and the sync",
+    "preparing": "while preparing the comparison",
+    "comparing": "while comparing {visual}",
+    "lines": "while writing the differences",
+    "summary": "while writing the summary",
+}
+NO_CODE = "{cls} with no code"  # a database error without SQLSTATE: the database client's own
+AT_MEMORY_LIMIT = "at the job's memory limit"
+# what a database error's SQLSTATE code means (PostgreSQL's codes), else its class (the first two characters)
+SQLSTATE_WORDS = {
+    "22001": "a text too long for its column",
+    "22003": "a number out of range",
+    "22007": "a date written in a form the database cannot read",
+    "22008": "a date out of range",
+    "22012": "a division by zero",
+    "22021": "a character the database cannot hold",
+    "22P02": "a value written in a form the database cannot read",
+    "22P05": "a character the database cannot hold",
+    "23502": "a value missing",
+    "23505": "the same row twice",
+    "25006": "a write in a read-only step",
+    "40001": "the data changed meanwhile",
+    "40P01": "two jobs waited for each other",
+    "53100": "the database's disk is full",
+    "53200": "the database ran out of memory",
+    "57014": "it took too long",
+    "72000": "the data changed meanwhile",
+}
+SQLSTATE_CLASS_WORDS = {
+    "08": "the connection to the database was lost",
+    "22": "a value the database cannot take",
+    "23": "a rule of the database",
+    "40": "the data changed meanwhile",
+    "42": "a fault in NeuroDB's query",
+    "53": "the database ran short of resources",
+    "54": "a limit of the database",
+    "57": "the database stopped it",
+    "58": "an error of the database server",
+}
 NOT_AGAIN = "These files cannot be compared again: upload them again."
 
 # ------------------------------------------------------------------------------------------- an export read
@@ -270,6 +326,7 @@ REASON_ORDER = (
     "cut",
     "list_cut",
     "filter",
+    "unreadable",
     "unknown",
 )
 REASON_GROUPS = {
@@ -288,6 +345,7 @@ REASON_GROUPS = {
     "cut": 4,
     "list_cut": 4,
     "filter": 4,
+    "unreadable": 4,
     "unknown": 4,
 }
 REASON_WORDS = {
@@ -306,6 +364,7 @@ REASON_WORDS = {
     "cut": "Power BI may have cut its export",
     "list_cut": "Power BI may have cut PD/SPD Report",
     "filter": "A filter NeuroDB cannot apply",
+    "unreadable": "A value NeuroDB cannot read",
     "unknown": "Not explained yet",
 }
 # what to do, beyond the group's sentence
@@ -330,6 +389,7 @@ REASON_ACTIONS = {
         "Export PD/SPD Report again one section or one partner at a time and upload the files with this one."
     ),
     "filter": "Or clear that slicer in Power BI and export again.",
+    "unreadable": "Its values are left empty: check them in eTools or PRP.",
 }
 # not in the Datamart read, where NeuroDB holds no such PD: the PD is checked in eTools (a report in PRP)
 NOT_IN_READ_PD = "Check in eTools that this PD exists."
@@ -366,6 +426,9 @@ DETAIL_REPEATED = (
     "PRP repeats the report's total on every location: NeuroDB gives this location no value of its own."
 )
 DETAIL_PARTNER = "Partner written differently."
+# a row NeuroDB could not compare: a value beyond any number it can hold (eTools and PRP keep amounts and
+# values as text), or one it cannot compute with
+DETAIL_UNREADABLE = "A value of this row is too large, or not a number NeuroDB can compute with."
 DETAIL_AMENDMENT = "Amendment number differs."
 # each value with its side: NeuroDB's records counted Power BI's way, then NeuroDB's own rule
 DETAIL_ALTERNATIVE = "Counted Power BI's way ({words}): {alt}. NeuroDB's own rule gives {value}."
@@ -388,6 +451,7 @@ DETAIL_GAP_PART = {
     "left_out": "{n:,} are left out by NeuroDB's page",
     "rule": "{n:,} are counted another way",
     "filter": "{n:,} are under a filter NeuroDB cannot apply",
+    "unreadable": "{n:,} hold a value NeuroDB cannot read",
     "unknown": "{n:,} are not explained yet",
 }
 DETAIL_GAP_ONE = "Of the 1 report behind this gap: {parts}."
@@ -402,6 +466,7 @@ DETAIL_GAP_PART_ONE = {
     "left_out": "1 is left out by NeuroDB's page",
     "rule": "1 is counted another way",
     "filter": "1 is under a filter NeuroDB cannot apply",
+    "unreadable": "1 holds a value NeuroDB cannot read",
     "unknown": "1 is not explained yet",
 }
 DETAIL_LIST_CUT = (
@@ -434,7 +499,7 @@ RULE_WORDS = {
     "combined": "NeuroDB's page shows this value only combined with another; added up, it is the same",
     "fr_only": "NeuroDB's page lists PDs with a funds reservation only",
     "partner_name": "Power BI and NeuroDB write this partner's name differently",
-    "financial_contribution": (
+    "contribution": (
         "Financial contribution: Power BI {words}; NeuroDB takes PRP's on the latest Accepted or Submitted "
         "report"
     ),
@@ -578,7 +643,8 @@ VERDICT_WORDS = {
     "not_uploaded": NOT_UPLOADED,
     "other_country": "Not compared: another country",
     "not_read": "Not compared: could not be read",
-    "failed": "Could not be compared: {cls}",
+    "failed": "Could not be compared {step}: {what}",
+    "failed_before": "Could not be compared: {cls}",  # an export that failed before its step was kept
 }
 VERDICT_ACTIONS = {
     "same": "Nothing.",
@@ -698,3 +764,18 @@ def plural(n: int, one: str, many: str) -> str:
 def either(n: int, one: str, many: str) -> str:
     """``one`` for 1, else ``many``, not yet filled in (for a sentence with other values than ``{n}``)."""
     return one if n == 1 else many
+
+
+def failure(found: dict) -> str:
+    """What stopped a comparison, in words (``found``: ``powerbi_compare.failure``'s): the exception's class;
+    a database error's SQLSTATE code and what it means ("DataError 22012, a division by zero"); a database
+    error without a code (the database client's own), and whether the job was at its memory limit then."""
+    cls = found.get("cls") or "Error"
+    if "code" not in found:
+        return cls
+    code = found["code"]
+    if code:
+        meaning = SQLSTATE_WORDS.get(code) or SQLSTATE_CLASS_WORDS.get(code[:2], "")
+        return f"{cls} {code}, {meaning}" if meaning else f"{cls} {code}"
+    text = NO_CODE.format(cls=cls)
+    return f"{text}, {AT_MEMORY_LIMIT}" if found.get("memory") else text

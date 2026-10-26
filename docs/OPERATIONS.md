@@ -2974,7 +2974,7 @@ once), and the export's note says whether every partner report record of the las
 **What is kept** (`datamart/models.py`, migration `datamart/0019_powerbi_compare`, three new tables):
 `PowerBIUpload` (status, who, when, `queued_at`, the day the statuses are read for, Power BI's refresh, the
 partner reports sync it reads, the files not read as sentences, a summary, `seconds` and `peak_memory_mb`, an
-error of our sentence and a class name only), `PowerBIExport` (its kind, cleaned file name, state, the staged
+error of our sentence, the step and a class name only, with a database error's SQLSTATE code), `PowerBIExport` (its kind, cleaned file name, state, the staged
 copy until read, its rows as gzip JSON lines of the kept columns only, the parsed filter, the dropped and not
 compared columns, notes, its counts (by group, reason and rule, the comparison's notes, the PDs to check), fit
 tables and verdict; never the sheet's name, which can name anyone) and `PowerBIDifference` (one line of the
@@ -2993,8 +2993,9 @@ exports take a few MB; the lines at most 60,000 an upload.
 (`os.nice(10)`) and caps its data (`RLIMIT_DATA`) at what its container has left (`powerbi_compare.memory_room`:
 the cgroup's limit less what the container uses, reclaimable page cache not counted, less 150 MB for the web
 workers and the scheduler's jobs), at most 600 MB and at least 250 MB, kept as the upload's
-`summary["memory_limit_mb"]` beside `peak_memory_mb`: an overrun ends as "The comparison stopped (MemoryError):
-upload the files again." instead of the container being stopped ("press Compare again" when every row is kept).
+`summary["memory_limit_mb"]` beside `peak_memory_mb`: an overrun ends as "The comparison stopped while comparing
+Program Performance (MemoryError): upload the files again." instead of the container being stopped ("press
+Compare again" when every row is kept).
 Its lock `background.POWERBI_COMPARE_LOCK_ID = 7140443` (not a `SyncRun` job, not in `LOCK_IDS`): a second job
 fails its upload ("Another comparison was running"). An upload is refused while a comparison, a Datamart sync or
 a KM Database load runs (their locks); the check and the queueing are one step under a transaction lock of their
@@ -3008,8 +3009,22 @@ note when it ran before Power BI's refresh, their moments compared; `sync_moved`
 each export in Power BI's order. `close_stale` fails an upload reading or comparing while nobody holds the lock,
 or queued for more than two minutes since `queued_at` ("The comparison stopped before it finished (the server
 restarted or ran out of memory)"; "press Compare again" when every row is kept). A start that fails fails the upload in
-the request. Logs carry counts, kinds and class names only. Each upload keeps its own `seconds` and
-`peak_memory_mb`: read them on the first production uploads to size the next steps.
+the request. Logs carry counts, kinds, steps, class names and SQLSTATE codes only. Each upload keeps its own
+`seconds` and `peak_memory_mb`: read them on the first production uploads to size the next steps.
+
+**A comparison that stops says where and why** (`powerbi_compare.failure`, `powerbi_words.failure`), so it can
+be fixed without the server's logs: the step (an export's: reading its rows, NeuroDB's page, the facts behind
+the reasons, matching the rows, saving its result, writing its differences, found from the modules the error
+went through; the upload's: reading the files, the day and the sync, preparing, comparing a named visual,
+writing the differences, the summary), the exception's class and, for a database error, its SQLSTATE code with
+what it means ("Could not be compared at NeuroDB's page: DataError 22012, a division by zero"). A database
+error with no code is the database client's own (libpq's "out of memory for query result" is one): it says
+so, and "at the job's memory limit" when the job's memory peak reached 90% of its data limit. Never a value, a
+query or the database's own message. An export that fails keeps the step in `counts["failure"]` and nothing
+else of its counts or fit tables (no "Needs a look" over lines that were removed). One row whose values NeuroDB
+cannot compute with (an arithmetic, value or type error while the row is compared: `powerbi_kinds.RowGuard`)
+is a line of its own, "A value NeuroDB cannot read", and the export goes on; a database or memory error still
+stops it.
 
 **The comparison** (`datamart/powerbi_kinds.py`, with `powerbi_match.py`, `powerbi_page.py`,
 `powerbi_facts.py` and `powerbi_results.py`). Each export is compared in its own `raw.snapshot` (REPEATABLE READ
@@ -3027,7 +3042,11 @@ the card are explained from them), then Power BI's order.
   `reporting.pd_indicators` on `partnerships.programme_documents` (PD/SPD Indicator), `reporting.location_rows`
   with a recorder that only gives each line's chosen record (By location; the record's own target, per
   location), `reporting.disaggregation_rows` + `fill_block` month by month (By disaggregation, read PD by PD
-  when a month passes the tab's limit), `funds.partner_contributions` and `funds.funded_programmes`. Nothing
+  when a month passes the tab's limit), `funds.partner_contributions` and `funds.funded_programmes`. Why a Program Performance row has no indicator
+  on the page reads the indicators of every PD status for the PDs that hold one of the left-over rows' titles
+  only (`powerbi_kinds._titles`: each PD's titles first, one DISTINCT query), never for every PD: production's
+  273,253 PD indicator rows read whole took the job past its memory (a `DatabaseError` with no code from libpq,
+  or a `MemoryError`). Nothing
   cached is read (`compute.once` would write the shared cache in a read-only transaction). Every value kept
   passes `powerbi_page.shown` (explicit field lists): no focal point, no `submitted_by`, no narrative, no whole
   `data`; NeuroDB's free texts pass the same people cleaner as Power BI's.
@@ -3070,7 +3089,9 @@ the card are explained from them), then Power BI's order.
   a counted visual's gap whose reports may be beyond the report list's cut (reason `list_cut`, group 4, its own
   step "export PD/SPD Report again in parts"; the visual's verdict is "Power BI may have cut PD/SPD Report: n",
   never that the visual itself is cut, and *What to do now* counts the report list among the exports to export
-  again, not the visual), a filter NeuroDB cannot apply, not explained yet. Not in the Datamart read says
+  again, not the visual), a filter NeuroDB cannot apply, a value NeuroDB cannot read (a number beyond any
+  float, Infinity or NaN in eTools' or PRP's texts, left empty in its line: JSON and the database hold none;
+  group 4), not explained yet. Not in the Datamart read says
   "Check in PRP that the report exists", or "Check in eTools that this PD exists" for a row of a PD NeuroDB
   does not hold and on the PD indicators' and funds exports (`powerbi_results.PD_ROWS`). A different rule
   points to *Choices for you* (its line, and the export's "counted another way" verdict) only when the upload
@@ -3091,7 +3112,8 @@ the card are explained from them), then Power BI's order.
   counted (`counts["written_groups"]`: those listed, by group). *What to do now* and the pages link only to
   listed lines, and say how many lines that need a look are counted but not listed. A detail is at most 300
   characters by design (the other rules that fit by their short names, or how many), cut on a word if ever
-  longer. Rules that apply to every row are notes, never lines. The upload's summary keeps one verdict per
+  longer; a Program Performance line's figure trail address leaves Power BI's sections out when they would take
+  it past its 300 characters (the indicator's Reached is the same in every section), never no address. Rules that apply to every row are notes, never lines. The upload's summary keeps one verdict per
   Power BI page, the lines by group and the Reached sentence; `choices` keeps *Choices for you* (Reached,
   progress or indicator reports, Due and not yet due, Emergency) with their evidence, each offered only when its
   rule fits more than half the rows (`powerbi_results.clear_majority`; Reached: of the rows where Power BI shows

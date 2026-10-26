@@ -327,7 +327,9 @@ def test_the_command_says_nothing_to_do_or_raises_the_stored_sentence(
     with pytest.raises(CommandError) as raised:
         call_command("compare_powerbi", "--upload-id", str(failing.pk))
     failing.refresh_from_db()
-    stopped = "The comparison stopped (MemoryError): upload the files again."  # its copy was not read
+    stopped = (
+        "The comparison stopped while reading the files (MemoryError): upload the files again."  # not read
+    )
     assert failing.status == Status.FAILED and failing.error == stopped
     assert str(raised.value).endswith(stopped)
     assert _content_left(failing) == 0
@@ -687,3 +689,153 @@ def test_a_staged_copy_of_a_large_export_is_read_the_same(big):
     assert copy.rows_read == whole.rows_read == 100_000
     assert list(pr.rows_of(copy.rows)) == list(pr.rows_of(whole.rows))
     assert copy.filter == whole.filter
+
+
+# ------------------------------------------------------------------------------------- a failure, explained
+def _sql(statement, *params):
+    """A comparison step that runs one statement (the database refuses it)."""
+
+    def run(*args, **kwargs):
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            cursor.execute(statement, list(params))
+
+    return run
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "where, target, statement, step, code, meaning",
+    [
+        ("page", "partner_contributions", "SELECT 1 / (%s - 1)", "at NeuroDB's page", "22012",
+         "a division by zero"),
+        ("page", "partner_contributions", "SELECT %s::numeric", "at NeuroDB's page", "22P02",
+         "a value written in a form the database cannot read"),
+        ("facts", "Pds", "SELECT %s::numeric", "while reading the facts behind the reasons", "22P02",
+         "a value written in a form the database cannot read"),
+    ],
+)  # fmt: skip
+def test_a_failed_export_says_its_step_and_the_database_s_code_never_a_value(
+    checker, started, monkeypatch, caplog, where, target, statement, step, code, meaning
+):
+    """The next failure is explained without the server's logs: the step and the SQLSTATE code (with its
+    meaning), never a value, a query or the database's own message."""
+    from neurodb.datamart import funds, powerbi_facts, powerbi_results
+
+    module = funds if where == "page" else powerbi_facts
+    value = 1 if "/" in statement else "Jane Doe"
+    monkeypatch.setattr(module, target, _sql(statement, value))
+    rows = [pf.row("fund_monitoring", pd="FAKE/PCA1/PD1", cash=1)]  # a PD NeuroDB does not hold
+    funds_file = pf.export("fund_monitoring", rows, drop=("financial_contribution",))
+    upload = _upload(checker, ("funds.xlsx", funds_file), ("cards.xlsx", pf.export("partner_cards")))
+    pc.run(upload.pk)
+    upload.refresh_from_db()
+    assert upload.status == Status.DONE
+    export = PowerBIExport.objects.get(upload=upload, kind="fund_monitoring")
+    assert export.state == "failed" and export.verdict == "failed"
+    assert export.error == f"The comparison stopped {step}: DataError {code}, {meaning}."
+    assert export.counts == {"failure": {"step": where, "cls": "DataError", "code": code}}
+    verdict, action = powerbi_results.verdict_words(export)
+    assert verdict == f"Could not be compared {step}: DataError {code}, {meaning}"
+    assert action == words.VERDICT_ACTIONS["failed"]
+    html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    assert verdict.replace("'", "&#x27;") in html
+    for seen in (export.error, html, caplog.text):
+        assert "Jane" not in seen and "SELECT" not in seen and "numeric" not in seen
+    assert f"DataError {code}" in caplog.text
+    assert PowerBIExport.objects.get(upload=upload, kind="partner_cards").state == "compared"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_an_export_whose_lines_cannot_be_written_says_so_and_keeps_no_count(checker, started, monkeypatch):
+    monkeypatch.setattr(pc, "_write_group", _sql("SELECT 1 / (%s - 1)", 1))
+    upload = _upload(checker, ("sector.xlsx", pf.export("by_sector")))
+    pc.run(upload.pk)
+    export = PowerBIExport.objects.get(upload=upload)
+    assert export.state == "failed"
+    assert (
+        export.error
+        == "The comparison stopped while writing its differences: DataError 22012, a division by zero."
+    )
+    # never "Needs a look" over lines that were removed
+    assert (
+        export.counts == {"failure": {"step": "lines", "cls": "DataError", "code": "22012"}}
+        and not export.fits
+    )
+
+
+def _no_code(*args, **kwargs):
+    """The database client's own error (libpq's "out of memory for query result"): no SQLSTATE."""
+    import psycopg
+    from django.db import DatabaseError
+
+    raise DatabaseError("Jane Doe") from psycopg.DatabaseError("Jane Doe")
+
+
+@pytest.mark.parametrize("memory", [True, False])
+def test_a_database_error_without_a_code_says_whether_the_job_was_at_its_memory_limit(
+    checker, started, monkeypatch, memory
+):
+    from neurodb.datamart import monitoring, powerbi_kinds, powerbi_results
+
+    monkeypatch.setattr(monitoring, "indicators", _no_code)
+    monkeypatch.setattr(pc, "at_memory_limit", lambda: memory)
+    rows = [pf.row("program_performance", partner="FAKEORG PARTNER 1", indicator_title="Fake 1", target=1)]
+    upload = _upload(checker, ("pp.xlsx", pf.export("program_performance", rows)))
+    pc.run(upload.pk)
+    export = PowerBIExport.objects.get(upload=upload)
+    tail = ", at the job's memory limit" if memory else ""
+    assert export.error == f"The comparison stopped at NeuroDB's page: DatabaseError with no code{tail}."
+    assert powerbi_results.verdict_words(export)[0] == (
+        f"Could not be compared at NeuroDB's page: DatabaseError with no code{tail}"
+    )
+    assert "Jane" not in export.error and powerbi_kinds.COMPARERS  # the comparer itself is untouched
+
+
+def test_a_comparison_error_names_the_step_and_its_class_only(checker, started, monkeypatch):
+    from neurodb.datamart import powerbi_kinds
+
+    def broken(job):
+        raise TypeError("Jane Doe")
+
+    monkeypatch.setitem(powerbi_kinds.COMPARERS, "by_sector", broken)
+    upload = _upload(checker, ("sector.xlsx", pf.export("by_sector")))
+    pc.run(upload.pk)
+    export = PowerBIExport.objects.get(upload=upload)
+    assert export.error == "The comparison stopped while matching the rows: TypeError."
+
+
+def test_an_old_failure_without_its_step_still_shows_its_class():
+    """Exports that failed before the step was kept (their error alone)."""
+    from neurodb.datamart import powerbi_results
+
+    export = PowerBIExport(
+        state="failed", verdict="failed", error="The comparison stopped: DataError.", counts={}
+    )
+    assert powerbi_results.verdict_words(export)[0] == "Could not be compared: DataError"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_stopped_upload_says_the_step_it_stopped_at(checker, started, monkeypatch):
+    from neurodb.datamart import powerbi_kinds
+
+    def too_much(job):
+        raise MemoryError
+
+    monkeypatch.setitem(powerbi_kinds.COMPARERS, "by_sector", too_much)
+    upload = _upload(checker, ("sector.xlsx", pf.export("by_sector")))
+    ended = pc.run(upload.pk)
+    visual = px.KINDS["by_sector"].visual[1]
+    assert ended.status == Status.FAILED
+    assert (
+        ended.error == f"The comparison stopped while comparing {visual} (MemoryError): press Compare again."
+    )
+    monkeypatch.setattr(pc, "_summary", _sql("SELECT 1 / (%s - 1)", 1))
+    monkeypatch.setitem(powerbi_kinds.COMPARERS, "by_sector", lambda job: None)
+    assert pc.again(ended)
+    ended = pc.run(upload.pk)
+    assert ended.error == (
+        "The comparison stopped while writing the summary (DataError 22012, a division by zero): press Compare "
+        "again."
+    )

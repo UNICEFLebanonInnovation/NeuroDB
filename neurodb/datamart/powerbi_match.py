@@ -12,6 +12,9 @@ lines of differences an export's comparison writes (``powerbi_kinds`` compares e
   and the line says so.
 * **Pairing** (:func:`pair`): the rows with the same match values on each side, most similar first; a row
   left over is only in Power BI or only in NeuroDB.
+* **A value NeuroDB cannot read** (a number beyond any float, Infinity, NaN: eTools and PRP keep amounts and
+  values as text) is left empty in its line, and the line's reason says so (``unreadable``): JSON, and so the
+  database, holds no such number, and one would stop the export's lines from being written.
 * **Lines** (:class:`Result`): each difference with its reason, group and what to do, kept compactly while
   the export is compared (no database write in the comparison's read-only snapshot) and written once every
   export is compared, group by group across the exports (needs a look first, the expected ones last), at most
@@ -21,10 +24,12 @@ lines of differences an export's comparison writes (``powerbi_kinds`` compares e
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import gzip
 import io
 import json
+import math
 import re
 from collections import Counter
 from collections.abc import Callable, Hashable, Iterable, Iterator
@@ -32,11 +37,14 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
+from . import powerbi_words as words
+
 TOLERANCE = 1e-9  # relative: float noise only
 MONEY_TOLERANCE = 0.005  # half a cent
 PAIR_LIMIT = 60  # rows of one match on a side beyond which they pair in order (no similarity computed)
 GROUP_ORDER = (4, 3, 2, 1)  # the lines' groups, needs a look first: the order they are written and kept
 DETAIL_LIMIT = 300  # characters of a line's detail (PowerBIDifference.detail)
+LINK_LIMIT = 300  # characters of a line's address (PowerBIDifference.link)
 GRANTLESS = frozenset({"", "non-grant", "non grant", "nongrant"})
 AMENDMENT = re.compile(r"-\d+$")
 ETOOLS_SUFFIX = re.compile(r"\s*\(etools\s*\d+\)\s*$", re.I)
@@ -208,12 +216,24 @@ def same(column_type: str, powerbi: Any, neurodb: Any, **options: Any) -> bool:
     return same_text(powerbi, neurodb, cut=options.get("cut", False))
 
 
-def shown(value: Any) -> Any:
-    """A value as a line keeps it: a number, a text, an ISO date (never an object)."""
-    if value is None or isinstance(value, bool | int | float | str):
-        return value
+def readable(value: Any) -> bool:
+    """A value a line can keep: never a number beyond a float, Infinity or NaN (JSON holds none of them)."""
+    if isinstance(value, float):
+        return math.isfinite(value)
     if isinstance(value, Decimal):
-        return float(value)
+        return value.is_finite() and math.isfinite(float(value))
+    if isinstance(value, list | tuple | set | frozenset):
+        return all(readable(v) for v in value)
+    return True
+
+
+def shown(value: Any) -> Any:
+    """A value as a line keeps it: a number, a text, an ISO date (never an object); empty when it cannot be
+    read (:func:`readable`)."""
+    if value is None or isinstance(value, bool | int | str):
+        return value
+    if isinstance(value, float | Decimal):
+        return float(value) if readable(value) else None
     if isinstance(value, datetime.datetime | datetime.date):
         return iso(value)
     if isinstance(value, list | tuple | set | frozenset):
@@ -318,6 +338,12 @@ class Line:
     link: str = ""
     pd: str = ""  # the PD to check in eTools (group 3), as Power BI writes it
 
+    def readable(self) -> bool:
+        """Every value of the line can be kept (:func:`readable`)."""
+        return all(readable(v) for v in self.match) and all(
+            readable(x) for values in self.found.values() for x in values
+        )
+
     def as_json(self) -> list[Any]:
         return [
             self.kind,
@@ -327,7 +353,7 @@ class Line:
             cut(self.detail),
             [shown(v) for v in self.match],
             {k: [shown(x) for x in v] for k, v in self.found.items()},
-            self.link if len(self.link) <= 300 else "",  # a cut address would open the wrong page: none
+            self.link if len(self.link) <= LINK_LIMIT else "",  # a cut address opens the wrong page: none
         ]
 
 
@@ -354,7 +380,16 @@ class Result:
 
     def add(self, line: Line, *, row: bool = True) -> None:
         """One difference; ``row``: it is a row of its own (False: another column of a row counted
-        already)."""
+        already). A line holding a value NeuroDB cannot read (:func:`readable`) takes that as its reason, the
+        value left empty."""
+        if not line.readable():
+            line = dataclasses.replace(
+                line,
+                reason="unreadable",
+                group=words.REASON_GROUPS["unreadable"],
+                rule="",
+                detail=words.DETAIL_UNREADABLE,
+            )
         if row:
             self.counts["rows"] += 1
             self.counts[line.kind] += 1
@@ -370,7 +405,9 @@ class Result:
         if spool is None:
             buffer = io.BytesIO()
             spool = self._spools[line.group] = (buffer, gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0))
-        spool[1].write(json.dumps(line.as_json(), ensure_ascii=False, separators=(",", ":")).encode())
+        # never Infinity or NaN: the database refuses them (every value is readable here)
+        kept = json.dumps(line.as_json(), ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        spool[1].write(kept.encode())
         spool[1].write(b"\n")
         self._kept[line.group] += 1
 

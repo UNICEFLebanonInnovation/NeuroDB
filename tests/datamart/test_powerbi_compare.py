@@ -1757,3 +1757,172 @@ def test_neurodbs_own_rows_before_its_history_are_set_aside_like_power_bis(check
             kind,
             export.counts["notes"],
         )
+
+
+# ------------------------------------------------------------------------------- production-shaped data
+def _contribution(pd, number, status, end, value):
+    """One PRP indicator report record of ``pd`` carrying the financial contribution to date (as PRP sends it:
+    a text)."""
+    from neurodb.datamart import models as dm
+
+    return dm.DatamartDocument.objects.create(
+        dataset="prp_indicator_reports", record_key=f"fake-fc-{pd.pk}-{number}", intervention=pd,
+        data={"report_type": "QPR", "report_number": number, "pr_status": status, "time_period_end": end,
+              "due_date": "2026-12-31", "submission_date": "2026-07-10", "financial_contribution_to_date": value,
+              "financial_contribution_currency": "USD"},
+    )  # fmt: skip
+
+
+def _fund(**values):
+    base = {"pd": PD, "unicef_planned": 9000, "cash": 10000, "partner_contribution": 1000, "partner": PARTNER,
+            "partner_type": "Civil Society Organization", "currency": "USD", "partner_share": 0.1}  # fmt: skip
+    return pf.row("fund_monitoring", **{**base, **values})
+
+
+def test_program_performance_reads_every_pd_status_only_for_the_pds_of_the_titles_left_over(
+    checker, world, monkeypatch
+):
+    """Why a Power BI row has no indicator on the page is read from the PDs that hold its title only, never from
+    every PD indicator NeuroDB holds of every status (273,253 rows in production: past the job's memory, a
+    DatabaseError). The reasons stay the same."""
+    from neurodb.datamart import monitoring
+    from neurodb.partnerships.models import PCA
+
+    pd, ended = world
+    _indicator(ended, 201, "Fake ended indicator")
+    for n in range(3):  # PDs of other titles, of every status: never read
+        other = PCA.objects.create(
+            etl_id=f"fake-old-{n}", partner=pd.partner, partner_name=pf.WORLD_PARTNER,
+            number=f"FAKE/PCA2025{n:03}/PD2025{n:03}", status=("ended", "closed", "active")[n],
+            start=D(2025, 1, 1), end=D(2026, 12, 31),
+        )  # fmt: skip
+        _indicator(other, 300 + n, f"Fake other indicator {n}")
+    calls = []
+    real = monitoring.indicators
+
+    def spy(filters, today=None, **options):
+        calls.append((filters.statuses_read, sorted(filters.pd_ids)))
+        return real(filters, today, **options)
+
+    monkeypatch.setattr(monitoring, "indicators", spy)
+    rows = [
+        _pp(indicator_title="Fake indicator 1", target=100, reached=10, achieved=0.1),
+        _pp(indicator_title="Fake ended indicator", target=100, reached=3, achieved=0.03),
+        _pp(indicator_title="Fake indicator never held", target=10, reached=1, achieved=0.1),
+    ]
+    upload = pf.compared(checker, _one("program_performance", rows, filters=PP_FILTERS))
+    export, lines = _lines(upload, "program_performance")
+    assert export.state == "compared", export.error
+    every_status = [ids for statuses, ids in calls if statuses == []]
+    assert every_status == [[ended.pk]], calls  # never every PD
+    found = {line.match[1]: line for line in lines if line.kind == "only_powerbi"}
+    assert found["Fake ended indicator"].reason == "pd_not_running"
+    assert found["Fake indicator never held"].reason == "not_in_read"
+    # nothing left over: nothing of every status is read
+    calls.clear()
+    pf.compared(checker, _one("program_performance", rows[:1], filters=PP_FILTERS))
+    assert [ids for statuses, ids in calls if statuses == []] == []
+
+
+@pytest.mark.parametrize("powerbi, second", [(100, "Submitted"), (350, "Accepted")])
+def test_a_financial_contribution_counted_another_way_is_written(checker, world, powerbi, second):
+    """Two progress reports whose contributions differ: Power BI's fits its latest Accepted report (100) or their
+    sum (350), NeuroDB takes the latest Accepted or Submitted (250). The line names that rule and is written
+    (its code once overran its column: the export failed with DataError)."""
+    from neurodb.datamart import powerbi_results
+
+    pd, _ended = world
+    _contribution(pd, "1", "Accepted", "2026-03-31", "100")
+    _contribution(pd, "2", second, "2026-06-30", "250")
+    upload = pf.compared(checker, _one("fund_monitoring", [_fund(financial_contribution=powerbi)]))
+    export, lines = _lines(upload, "fund_monitoring")
+    assert export.state == "compared", export.error
+    (line,) = lines
+    assert line.reason == "rule" and line.found["financial_contribution"][:2] == [float(powerbi), 250.0]
+    words = powerbi_results.rule_words(line.rule, "1 Jan 2026", export)
+    assert words.startswith("Financial contribution: Power BI "), words
+
+
+def test_every_code_a_line_keeps_fits_its_column():
+    from neurodb.datamart import powerbi_words
+
+    width = {name: PowerBIDifference._meta.get_field(name).max_length for name in ("kind", "reason", "rule")}
+    assert all(len(code) <= width["kind"] for code in powerbi_words.LINE_KINDS)
+    assert all(len(code) <= width["reason"] for code in powerbi_words.REASON_WORDS)
+    assert all(len(code) <= width["rule"] for code in powerbi_words.RULE_WORDS)
+    assert (
+        set(powerbi_words.REASON_WORDS) == set(powerbi_words.REASON_GROUPS) == set(powerbi_words.REASON_ORDER)
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"total_budget": "1e400"}, {"cso_contribution": "1e999"}, {"total_unicef_budget": "-1e400"}],
+)
+def test_a_neurodb_amount_beyond_any_number_is_a_value_neurodb_cannot_read(checker, world, change):
+    """eTools keeps budgets as text: one too large for a number (production holds huge ones) makes its row a
+    difference, "A value NeuroDB cannot read", its value left empty, never the end of the export (the line's
+    Infinity once failed it with DataError)."""
+    from neurodb.partnerships.models import PCA
+
+    pd, _ended = world
+    PCA.objects.filter(pk=pd.pk).update(**change)
+    upload = pf.compared(checker, _one("fund_monitoring", [_fund()], drop=("financial_contribution",)))
+    export, lines = _lines(upload, "fund_monitoring")
+    assert export.state == "compared", export.error
+    (line,) = lines
+    assert (line.kind, line.reason, line.group) == ("different", "unreadable", 4)
+    assert all(None in values[:2] for values in line.found.values()), line.found
+    assert "unreadable" in export.counts["reasons"]
+
+
+def test_a_prp_contribution_beyond_any_number_is_a_value_neurodb_cannot_read(checker, world):
+    pd, _ended = world
+    _contribution(pd, "1", "Accepted", "2026-03-31", "9" * 400)
+    upload = pf.compared(checker, _one("fund_monitoring", [_fund(financial_contribution=100)]))
+    export, lines = _lines(upload, "fund_monitoring")
+    assert export.state == "compared", export.error
+    assert [(x.reason, x.found["financial_contribution"][1]) for x in lines] == [("unreadable", None)]
+
+
+def test_one_row_whose_comparison_raises_is_a_line_of_its_own(checker, world, monkeypatch):
+    """A value NeuroDB cannot compute with (an arithmetic or value error while one row is compared) makes that
+    row a difference, "A value NeuroDB cannot read", and the export goes on with the next row."""
+    import decimal
+
+    from neurodb.datamart import powerbi_kinds
+
+    real = powerbi_kinds.pm.same_money
+
+    def same_money(powerbi, neurodb):
+        if powerbi == 7777:
+            raise decimal.InvalidOperation
+        return real(powerbi, neurodb)
+
+    monkeypatch.setattr(powerbi_kinds.pm, "same_money", same_money)
+    rows = [_fund(cash=7777), _fund(pd=ENDED, cash=1)]
+    upload = pf.compared(checker, _one("fund_monitoring", rows, drop=("financial_contribution",)))
+    export, lines = _lines(upload, "fund_monitoring")
+    assert export.state == "compared", export.error
+    found = {(x.match[0], x.kind): x for x in lines}
+    first = found[(PD, "different")]
+    assert (first.reason, first.group, first.found) == ("unreadable", 4, {})
+    assert found[(ENDED, "only_powerbi")].reason == "pd_not_running"
+
+
+def test_a_program_performance_link_fits_its_column_whatever_the_sections(db):
+    """Power BI's filter can name many sections: the figure trail's address leaves them out when they would
+    take it past its column (the indicator's Reached is the same for every section), never no address."""
+    from neurodb.datamart import powerbi_exports as px
+    from neurodb.datamart import powerbi_facts, powerbi_filters, powerbi_kinds
+    from neurodb.datamart import powerbi_match as pm
+
+    context = powerbi_facts.Context(day=D(2026, 10, 15), history=D(2026, 1, 1))
+    width = PowerBIDifference._meta.get_field("link").max_length
+    sections = [f"Fake section {n} with a long name" for n in range(8)]
+    for chosen, kept in ((sections[:1], True), (sections, False)):
+        parsed = powerbi_filters.Filter(pd_statuses=["active"], years=[2026], sections=chosen)
+        job = powerbi_kinds.Job(px.KINDS["program_performance"], [], None, parsed, context, pm.Result(10))
+        link = powerbi_kinds.trail_link(job, {"pd_id": 123456, "key": "r1234567"})
+        assert 0 < len(link) <= width and "figure=pp.reached.123456.r1234567" in link, link
+        assert ("section=" in link) is kept

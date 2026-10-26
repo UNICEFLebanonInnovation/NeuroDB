@@ -193,14 +193,23 @@ def monitoring_filters(parsed: Filter, context: pf.Context, view: str, *, sectio
     return monitoring.Filters.from_params(params, context.day, default_year=False)
 
 
-def indicators(parsed: Filter, context: pf.Context, view: str = "table") -> list[dict[str, Any]]:
+def indicators(
+    parsed: Filter, context: pf.Context, view: str = "table", *, pd_ids: Iterable[int] | None = None
+) -> list[dict[str, Any]]:
     """Partner monitoring's indicators for Power BI's filter (every section: the comparison reads which ones
-    the page's section filter keeps, ``in_section``), each as :data:`INDICATOR_FIELDS`."""
+    the page's section filter keeps, ``in_section``), each as :data:`INDICATOR_FIELDS`. ``pd_ids``: those of
+    these PDs only (none when it is empty), read for this call alone: never kept for another export."""
     from . import monitoring
 
     filters = monitoring_filters(parsed, context, view, sections=False)
-    key = ("indicators", filters.cache_key())
-    found = context.once(key, lambda: monitoring.indicators(filters, context.day))
+    if pd_ids is None:
+        key = ("indicators", filters.cache_key())
+        found = context.once(key, lambda: monitoring.indicators(filters, context.day))
+    else:
+        ids = sorted(set(pd_ids))
+        if not ids:
+            return []
+        found = monitoring.indicators(dataclasses.replace(filters, pd_ids=ids), context.day)
     held = pf.pds(context)
     out = []
     for entry in found:

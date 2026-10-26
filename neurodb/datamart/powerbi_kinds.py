@@ -155,6 +155,10 @@ class Job:
     def add(self, kind: str, why: Reason, *, row: bool = True, **parts: Any) -> None:
         self.result.add(self.line(kind, why, **parts), row=row)
 
+    def row(self, kind: str, match: list[Any]) -> RowGuard:
+        """One row compared (``with job.row(kind, match):``), see :class:`RowGuard`."""
+        return RowGuard(self, kind, match)
+
     def present(self, names: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(n for n in names if self.has(n))
 
@@ -186,6 +190,34 @@ class Job:
             n = self.neurodb_set_aside
             sentence = words.either(n, words.NOTE_SET_ASIDE_NEURODB_ONE, words.NOTE_SET_ASIDE_NEURODB)
             self.result.note(sentence.format(n=n, history=self.context.history_words))
+
+
+# what one value NeuroDB cannot compute with raises while its row is compared (eTools and PRP keep amounts and
+# values as text: a huge number, a decimal beyond its precision)
+ROW_ERRORS = (ArithmeticError, ValueError, TypeError)
+
+
+class RowGuard:
+    """One row being compared: an error a value of the row causes (:data:`ROW_ERRORS`) makes the row a
+    difference of its own, "A value NeuroDB cannot read" (its values left out), and the comparison goes on
+    with the next row. Any other error still stops the export's comparison: a database error (its snapshot
+    cannot go on after one), a memory error (the whole comparison stops), a fault of the comparer itself."""
+
+    __slots__ = ("job", "kind", "match", "rows")
+
+    def __init__(self, job: Job, kind: str, match: list[Any]) -> None:
+        self.job, self.kind, self.match = job, kind, match
+
+    def __enter__(self) -> RowGuard:
+        self.rows = self.job.result.counts["rows"]
+        return self
+
+    def __exit__(self, kind: Any, error: Any, trace: Any) -> bool:
+        if kind is None or not issubclass(kind, ROW_ERRORS):
+            return False
+        if self.job.result.counts["rows"] == self.rows:  # the row's own line was not added yet
+            self.job.add(self.kind, ("unreadable", "", words.DETAIL_UNREADABLE), match=self.match)
+        return True
 
 
 def pick(options: list[Reason], context: pf.Context) -> Reason:
@@ -1251,80 +1283,95 @@ def program_performance(job: Job) -> None:
     emergency = [0, 0]
     names = job.present(("target", "reached", "achieved", "emergency", "section", "cp_output"))
     for p, n, *joined in pairs:
-        fact = facts.get(n["ident"]) or pf.IndicatorFact(n["ident"])
-        target, reached = n["target"], n[shown_reached]
-        if joined:
-            target, reached = joined[0]
-        if "emergency" in names:
-            emergency[1] += 1
-            emergency[0] += pm.yes_no(p.get("emergency")) == n["spd"]
-        diffs: dict[str, list[Any]] = {}
-        options: list[Reason] = []
-        # the characters a detail may take: the partner's sentence comes after it
-        room = pm.DETAIL_LIMIT - (len(words.DETAIL_PARTNER) + 1 if id(p) in partner_by else 0)
-        if "target" in names and not pm.same_number(p.get("target"), target, zero_is_none=True):
-            candidates = fact.target(n["target"])
-            diffs["target"] = [p.get("target"), target, _first_fit(p.get("target"), candidates, target)]
-            options.append(
-                candidate_reason(
-                    job, "target", p.get("target"), {**n, "target": target}, candidates, chosen_target, room
+        with job.row("different", [p.get("partner"), p.get("indicator_title")]):
+            fact = facts.get(n["ident"]) or pf.IndicatorFact(n["ident"])
+            target, reached = n["target"], n[shown_reached]
+            if joined:
+                target, reached = joined[0]
+            if "emergency" in names:
+                emergency[1] += 1
+                emergency[0] += pm.yes_no(p.get("emergency")) == n["spd"]
+            diffs: dict[str, list[Any]] = {}
+            options: list[Reason] = []
+            # the characters a detail may take: the partner's sentence comes after it
+            room = pm.DETAIL_LIMIT - (len(words.DETAIL_PARTNER) + 1 if id(p) in partner_by else 0)
+            if "target" in names and not pm.same_number(p.get("target"), target, zero_is_none=True):
+                candidates = fact.target(n["target"])
+                diffs["target"] = [p.get("target"), target, _first_fit(p.get("target"), candidates, target)]
+                options.append(
+                    candidate_reason(
+                        job,
+                        "target",
+                        p.get("target"),
+                        {**n, "target": target},
+                        candidates,
+                        chosen_target,
+                        room,
+                    )
                 )
-            )
-        if "reached" in names and not pm.same_number(p.get("reached"), reached, zero_is_none=True):
-            candidates = reached_candidates(fact, n, year)
-            diffs["reached"] = [p.get("reached"), reached, _first_fit(p.get("reached"), candidates, reached)]
-            options.append(
-                candidate_reason(
-                    job,
-                    "reached",
+            if "reached" in names and not pm.same_number(p.get("reached"), reached, zero_is_none=True):
+                candidates = reached_candidates(fact, n, year)
+                diffs["reached"] = [
                     p.get("reached"),
-                    {**n, "reached": reached},
-                    candidates,
-                    chosen_reached,
-                    room,
-                    year,
+                    reached,
+                    _first_fit(p.get("reached"), candidates, reached),
+                ]
+                options.append(
+                    candidate_reason(
+                        job,
+                        "reached",
+                        p.get("reached"),
+                        {**n, "reached": reached},
+                        candidates,
+                        chosen_reached,
+                        room,
+                        year,
+                    )
                 )
-            )
-        if "achieved" in names and "target" not in diffs and "reached" not in diffs:
-            ours = (reached or 0) * 100 / target if target else None
-            theirs = pm.number(p.get("achieved"))
-            if not pm.same_number(theirs * 100 if theirs is not None else None, ours, zero_is_none=True):
-                diffs["achieved"] = [p.get("achieved"), ours / 100 if ours is not None else None, None]
+            if "achieved" in names and "target" not in diffs and "reached" not in diffs:
+                ours = (reached or 0) * 100 / target if target else None
+                theirs = pm.number(p.get("achieved"))
+                if not pm.same_number(theirs * 100 if theirs is not None else None, ours, zero_is_none=True):
+                    diffs["achieved"] = [p.get("achieved"), ours / 100 if ours is not None else None, None]
+                    options.append(fallback(job))
+            if "emergency" in names and pm.yes_no(p.get("emergency")) != n["spd"]:
+                diffs["emergency"] = [p.get("emergency"), "Yes" if n["spd"] else "No", None]
                 options.append(fallback(job))
-        if "emergency" in names and pm.yes_no(p.get("emergency")) != n["spd"]:
-            diffs["emergency"] = [p.get("emergency"), "Yes" if n["spd"] else "No", None]
-            options.append(fallback(job))
-        if "section" in names and not section_same(
-            p.get("section"),
-            n["pd_sections"],
-            pm.sections(n["section"], context.sections),
-            known=context.sections,
-        ):
-            diffs["section"] = [p.get("section"), n["pd_section_text"] or n["section"], None]
-            options.append(fallback(job))
-        if "cp_output" in names and not (
-            pm.cp_outputs_fit(p.get("cp_output"), n["pd_cp_outputs"])
-            or pm.same_text(p.get("cp_output"), n["cp_output"])
-        ):
-            diffs["cp_output"] = [p.get("cp_output"), ", ".join(n["pd_cp_outputs"]) or n["cp_output"], None]
-            options.append(fallback(job))
-        if not diffs:
-            job.result.same()
-            continue
-        why = pick(options, context)
-        detail = [why[2]]
-        rule = why[1]
-        if joined and why[0] != "rule":
-            rule = "joined"
-        if id(p) in partner_by:
-            detail.append(words.DETAIL_PARTNER)
-        job.add(
-            "different",
-            (why[0], rule, " ".join(d for d in detail if d)),
-            match=[p.get("partner"), p.get("indicator_title")],
-            found=diffs,
-            link=trail_link(job, n),
-        )
+            if "section" in names and not section_same(
+                p.get("section"),
+                n["pd_sections"],
+                pm.sections(n["section"], context.sections),
+                known=context.sections,
+            ):
+                diffs["section"] = [p.get("section"), n["pd_section_text"] or n["section"], None]
+                options.append(fallback(job))
+            if "cp_output" in names and not (
+                pm.cp_outputs_fit(p.get("cp_output"), n["pd_cp_outputs"])
+                or pm.same_text(p.get("cp_output"), n["cp_output"])
+            ):
+                diffs["cp_output"] = [
+                    p.get("cp_output"),
+                    ", ".join(n["pd_cp_outputs"]) or n["cp_output"],
+                    None,
+                ]
+                options.append(fallback(job))
+            if not diffs:
+                job.result.same()
+                continue
+            why = pick(options, context)
+            detail = [why[2]]
+            rule = why[1]
+            if joined and why[0] != "rule":
+                rule = "joined"
+            if id(p) in partner_by:
+                detail.append(words.DETAIL_PARTNER)
+            job.add(
+                "different",
+                (why[0], rule, " ".join(d for d in detail if d)),
+                match=[p.get("partner"), p.get("indicator_title")],
+                found=diffs,
+                link=trail_link(job, n),
+            )
     if "emergency" in names:
         if emergency[0] * 2 > emergency[1]:  # stated only where the evidence says so (most rows)
             job.result.note(words.NOTE_RULE.format(words=words.RULE_WORDS["emergency"]))
@@ -1336,15 +1383,16 @@ def program_performance(job: Job) -> None:
     if any(pm.number(p.get("reached")) == 0 or pm.number(p.get("target")) == 0 for p in powerbi):
         job.result.note(words.NOTE_ZERO)
     job.result.note(words.NOTE_FOLLOWS)
-    titled = _titles(context, parsed)
+    titled = _titles(context, parsed, [p.get("indicator_title") for p in left_pb])
     for p in left_pb:
-        why = _pp_missing(job, p, titled, facts)
-        job.add(
-            "only_powerbi",
-            why,
-            match=[p.get("partner"), p.get("indicator_title")],
-            found={name: [p.get(name), None, None] for name in names},
-        )
+        with job.row("only_powerbi", [p.get("partner"), p.get("indicator_title")]):
+            why = _pp_missing(job, p, titled, facts)
+            job.add(
+                "only_powerbi",
+                why,
+                match=[p.get("partner"), p.get("indicator_title")],
+                found={name: [p.get(name), None, None] for name in names},
+            )
     for n in left_nd:
         job.add(
             "only_neurodb",
@@ -1390,11 +1438,23 @@ def _joined(job: Job, pairs, left_pb, left_nd, shown_reached: str = "reached"):
     return pairs, left_pb, left_nd
 
 
-def _titles(context: pf.Context, parsed: Filter) -> dict[str, list[dict[str, Any]]]:
-    """Every indicator NeuroDB holds, of any PD status, by title (why a Power BI row has none on the page)."""
+def _titles(context: pf.Context, parsed: Filter, wanted: Iterable[Any]) -> dict[str, list[dict[str, Any]]]:
+    """The indicators NeuroDB holds of these titles, of any PD status, by title (why a Power BI row has none
+    on the page). Read for the PDs that hold one of the titles only (each PD's titles first, one small
+    query): never every PD indicator of every status, which production holds by the hundred thousand (a read
+    past the job's memory). An indicator's Reached is its PD's rows' alone: each title's are the same."""
+    from . import models as dm
+
+    titles = {pm.text(t) for t in wanted}
+    if not titles:
+        return {}
+    pairs = (
+        dm.PDIndicator.objects.exclude(intervention=None).order_by().values_list("intervention_id", "title")
+    )
+    ids = {pd for pd, title in pairs.distinct() if pm.text(context.clean(title)) in titles}
     every = dataclasses.replace(parsed, pd_statuses=[], sections=[])
     found: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for n in page.indicators(every, context):
+    for n in page.indicators(every, context, pd_ids=ids):
         found[pm.text(n["title"])].append(n)
     return found
 
@@ -1429,21 +1489,27 @@ def _pp_missing(job: Job, p: dict[str, Any], titled, facts) -> Reason:
 
 
 def trail_link(job: Job, n: dict[str, Any]) -> str:
-    """Program Performance's Reached of the indicator on its figure trail, for Power BI's filter and day."""
+    """Program Performance's Reached of the indicator on its figure trail, for Power BI's filter and day;
+    without Power BI's sections when they would take the address past a line's (the indicator's Reached is the
+    same in every section)."""
     from urllib.parse import urlencode
 
     from . import monitoring, trail
 
     key = f"pp.reached.{n['pd_id']}.{n['key']}"
-    query: list[tuple[str, str]] = [("pd_status", s) for s in job.parsed.pd_statuses] or [("pd_status", "")]
-    query.append(("year", str(job.parsed.years[0]) if len(job.parsed.years) == 1 else monitoring.ALL_YEARS))
-    query.append(("view", "table"))
-    query += [("section", s) for s in job.parsed.sections]
-    if job.context.day != monitoring.today():
-        query.append(("day", job.context.day.isoformat()))
-    query.append(("figure", key))
     path = reverse("reports:check_figures", args=["partner-monitoring"])
-    return f"{path}?{urlencode(query)}#{trail.anchor(key)}"
+    statuses = [("pd_status", s) for s in job.parsed.pd_statuses] or [("pd_status", "")]
+    year = str(job.parsed.years[0]) if len(job.parsed.years) == 1 else monitoring.ALL_YEARS
+    for sections in (job.parsed.sections, []):
+        query: list[tuple[str, str]] = [*statuses, ("year", year), ("view", "table")]
+        query += [("section", s) for s in sections]
+        if job.context.day != monitoring.today():
+            query.append(("day", job.context.day.isoformat()))
+        query.append(("figure", key))
+        link = f"{path}?{urlencode(query)}#{trail.anchor(key)}"
+        if len(link) <= pm.LINK_LIMIT:
+            break
+    return link
 
 
 PD_INDICATOR_COLUMNS = (
@@ -1503,86 +1569,87 @@ def pd_indicators(job: Job) -> None:
     section_rule = False
     in_page = {id(n) for n in every if page.in_section(n, parsed)}
     for p, n in pairs:
-        if id(n) not in in_page:
-            why: Reason = ("left_out", "section", words.DETAIL_SECTION)
+        with job.row("different", [p["pd"], p["indicator_title"]]):
+            if id(n) not in in_page:
+                why: Reason = ("left_out", "section", words.DETAIL_SECTION)
+                job.add(
+                    "only_powerbi",
+                    why,
+                    match=[p["pd"], p["indicator_title"]],
+                    found={name: [p.get(name), None, None] for name in names},
+                    link=pd_link(n["pd_id"]),
+                )
+                continue
+            fact = facts.get(n["ident"]) or pf.IndicatorFact(n["ident"])
+            diffs: dict[str, list[Any]] = {}
+            options: list[Reason] = []
+            # the room a detail has: the amendment's and Partner monitoring's sentences come after it
+            room = pm.DETAIL_LIMIT - len(words.DETAIL_FROM_MONITORING) - 1
+            if id(p) in amended:
+                room -= len(words.DETAIL_AMENDMENT) + 1
+            for name in names:
+                a = p.get(name)
+                if name == "pd_status":
+                    same = pm.text(a) in (pm.text(n["pd_status"]), pm.text(pd_statuses.label(n["pd_status"])))
+                    b = pd_statuses.label(n["pd_status"])
+                elif name == "partner":
+                    same, b = pm.partner(a) == pm.partner(n["partner"]), n["partner"]
+                elif name == "document_type":
+                    same, b = pm.document_type(a) == pm.document_type(n["document_type"]), n["document_type"]
+                elif name == "pd_title":
+                    same, b = pm.same_text(a, n["pd_title"], cut=bool(p.get("pd_title__cut"))), n["pd_title"]
+                elif name in ("start", "end"):
+                    same, b = pm.same_date(a, n[name]), n[name]
+                elif name == "offices":
+                    same, b = pm.sections(a) == n["offices"], sorted(n["offices"])
+                elif name == "section":
+                    own = pm.sections(n["section"], context.sections)
+                    same = section_same(a, own, n["pd_sections"], known=context.sections)
+                    section_rule = section_rule or (same and pm.sections(a, context.sections) != own)
+                    b = n["section"]
+                elif name == "cp_output":
+                    same = pm.same_text(a, n["cp_output"]) or pm.cp_outputs_fit(a, n["pd_cp_outputs"])
+                    b = n["cp_output"]
+                elif name == "target":
+                    same, b = pm.same_number(a, n["target"], zero_is_none=True), n["target"]
+                else:
+                    same, b = pm.same_number(a, n["reached"], zero_is_none=True), n["reached"]
+                if same:
+                    continue
+                alt = None
+                if name in ("target", "reached"):
+                    if name == "target":
+                        candidates = fact.target(n["target"])
+                    else:
+                        candidates = reached_candidates(fact, n, year)
+                    alt = _first_fit(a, candidates, b)
+                    chosen = chosen_target if name == "target" else chosen_reached
+                    options.append(candidate_reason(job, name, a, n, candidates, chosen, room, year))
+                elif name == "partner":
+                    options.append(("rule", "partner_name", words.DETAIL_PARTNER))
+                else:
+                    options.append(fallback(job))
+                diffs[name] = [a, b, alt]
+            if not diffs:
+                job.result.same()
+                continue
+            why = pick(options, context)
+            detail = " ".join(
+                x
+                for x in (
+                    why[2],
+                    words.DETAIL_AMENDMENT if id(p) in amended else "",
+                    words.DETAIL_FROM_MONITORING if "reached" in diffs else "",
+                )
+                if x
+            )
             job.add(
-                "only_powerbi",
-                why,
+                "different",
+                (why[0], why[1], detail),
                 match=[p["pd"], p["indicator_title"]],
-                found={name: [p.get(name), None, None] for name in names},
+                found=diffs,
                 link=pd_link(n["pd_id"]),
             )
-            continue
-        fact = facts.get(n["ident"]) or pf.IndicatorFact(n["ident"])
-        diffs: dict[str, list[Any]] = {}
-        options: list[Reason] = []
-        # the characters a detail may take: the amendment's and Partner monitoring's sentences come after it
-        room = pm.DETAIL_LIMIT - len(words.DETAIL_FROM_MONITORING) - 1
-        if id(p) in amended:
-            room -= len(words.DETAIL_AMENDMENT) + 1
-        for name in names:
-            a = p.get(name)
-            if name == "pd_status":
-                same = pm.text(a) in (pm.text(n["pd_status"]), pm.text(pd_statuses.label(n["pd_status"])))
-                b = pd_statuses.label(n["pd_status"])
-            elif name == "partner":
-                same, b = pm.partner(a) == pm.partner(n["partner"]), n["partner"]
-            elif name == "document_type":
-                same, b = pm.document_type(a) == pm.document_type(n["document_type"]), n["document_type"]
-            elif name == "pd_title":
-                same, b = pm.same_text(a, n["pd_title"], cut=bool(p.get("pd_title__cut"))), n["pd_title"]
-            elif name in ("start", "end"):
-                same, b = pm.same_date(a, n[name]), n[name]
-            elif name == "offices":
-                same, b = pm.sections(a) == n["offices"], sorted(n["offices"])
-            elif name == "section":
-                own = pm.sections(n["section"], context.sections)
-                same = section_same(a, own, n["pd_sections"], known=context.sections)
-                section_rule = section_rule or (same and pm.sections(a, context.sections) != own)
-                b = n["section"]
-            elif name == "cp_output":
-                same = pm.same_text(a, n["cp_output"]) or pm.cp_outputs_fit(a, n["pd_cp_outputs"])
-                b = n["cp_output"]
-            elif name == "target":
-                same, b = pm.same_number(a, n["target"], zero_is_none=True), n["target"]
-            else:
-                same, b = pm.same_number(a, n["reached"], zero_is_none=True), n["reached"]
-            if same:
-                continue
-            alt = None
-            if name in ("target", "reached"):
-                if name == "target":
-                    candidates = fact.target(n["target"])
-                else:
-                    candidates = reached_candidates(fact, n, year)
-                alt = _first_fit(a, candidates, b)
-                chosen = chosen_target if name == "target" else chosen_reached
-                options.append(candidate_reason(job, name, a, n, candidates, chosen, room, year))
-            elif name == "partner":
-                options.append(("rule", "partner_name", words.DETAIL_PARTNER))
-            else:
-                options.append(fallback(job))
-            diffs[name] = [a, b, alt]
-        if not diffs:
-            job.result.same()
-            continue
-        why = pick(options, context)
-        detail = " ".join(
-            x
-            for x in (
-                why[2],
-                words.DETAIL_AMENDMENT if id(p) in amended else "",
-                words.DETAIL_FROM_MONITORING if "reached" in diffs else "",
-            )
-            if x
-        )
-        job.add(
-            "different",
-            (why[0], why[1], detail),
-            match=[p["pd"], p["indicator_title"]],
-            found=diffs,
-            link=pd_link(n["pd_id"]),
-        )
     if section_rule:
         job.result.note(words.NOTE_RULE.format(words=words.RULE_WORDS["section"]))
     if any(pm.number(p.get("reached")) == 0 or pm.number(p.get("target")) == 0 for p in powerbi):
@@ -1750,51 +1817,52 @@ def locations(job: Job) -> None:
         job.result.note(words.NOTE_SHARED_TITLE)
     newest = _newest_values([n for _p, n in pairs if n["records"] > 1])
     for p, n in pairs:
-        diffs: dict[str, list[Any]] = {}
-        options: list[Reason] = []
-        for name in names:
-            a = p.get(name)
-            if name == "reached":
-                same, b = pm.same_number(a, n["reached"], zero_is_none=True), n["reached"]
-            elif name == "report_status":
-                label, ours = pm.text(a), n["status"]
-                same = label == pm.text(page.CHART_LABELS[ours]) or (
-                    label == "due" and ours == rc.NOT_YET_DUE
-                )
-                b = page.CHART_LABELS[ours]
-            elif name == "location":
-                same, b = pm.same_text(a, n["location"]), n["location"]
-            elif name == "target":
-                same, b = pm.same_number(a, n["target"]), n["target"]
-            else:
-                same, b = pm.same_date(a, n.get(name)), n.get(name)
-            if same:
+        with job.row("different", [p["pd"], p["report"], p["indicator_title"], p["p_code"]]):
+            diffs: dict[str, list[Any]] = {}
+            options: list[Reason] = []
+            for name in names:
+                a = p.get(name)
+                if name == "reached":
+                    same, b = pm.same_number(a, n["reached"], zero_is_none=True), n["reached"]
+                elif name == "report_status":
+                    label, ours = pm.text(a), n["status"]
+                    same = label == pm.text(page.CHART_LABELS[ours]) or (
+                        label == "due" and ours == rc.NOT_YET_DUE
+                    )
+                    b = page.CHART_LABELS[ours]
+                elif name == "location":
+                    same, b = pm.same_text(a, n["location"]), n["location"]
+                elif name == "target":
+                    same, b = pm.same_number(a, n["target"]), n["target"]
+                else:
+                    same, b = pm.same_date(a, n.get(name)), n.get(name)
+                if same:
+                    continue
+                diffs[name] = [a, b, None]
+                if name == "reached":
+                    options.append(_location_reached(job, a, n, newest))
+                elif name == "report_status":
+                    report = pf.HeldReport(
+                        n["pd_id"], n["report_type"], n["report"], None, None, None, n["status"]
+                    )
+                    options.append(status_reason(job, [report], a or ""))
+                elif name == "target" and _units(a, n["target"]):
+                    options.append(("rule", "units", ""))
+                else:
+                    options.append(older_or_fallback(job))
+            if not diffs:
+                job.result.same()
                 continue
-            diffs[name] = [a, b, None]
-            if name == "reached":
-                options.append(_location_reached(job, a, n, newest))
-            elif name == "report_status":
-                report = pf.HeldReport(
-                    n["pd_id"], n["report_type"], n["report"], None, None, None, n["status"]
-                )
-                options.append(status_reason(job, [report], a or ""))
-            elif name == "target" and _units(a, n["target"]):
-                options.append(("rule", "units", ""))
-            else:
-                options.append(older_or_fallback(job))
-        if not diffs:
-            job.result.same()
-            continue
-        why = pick(options, context)
-        if id(p) in amended:
-            why = (why[0], why[1], " ".join(x for x in (why[2], words.DETAIL_AMENDMENT) if x))
-        job.add(
-            "different",
-            why,
-            match=[p["pd"], p["report"], p["indicator_title"], p["p_code"]],
-            found=diffs,
-            link=_record_link(n),
-        )
+            why = pick(options, context)
+            if id(p) in amended:
+                why = (why[0], why[1], " ".join(x for x in (why[2], words.DETAIL_AMENDMENT) if x))
+            job.add(
+                "different",
+                why,
+                match=[p["pd"], p["report"], p["indicator_title"], p["p_code"]],
+                found=diffs,
+                link=_record_link(n),
+            )
     if any(pm.number(p.get("reached")) == 0 for p in powerbi):
         job.result.note(words.NOTE_ZERO)
     location_facts = _held_locations(context, {p["pd"] for p in left_pb})
@@ -2032,57 +2100,62 @@ def disaggregations(job: Job) -> None:
                 zero += 1
                 continue
             match = (a or b)["match"]
-            if a is None:
+            with job.row("different", match):
+                if a is None:
+                    job.add(
+                        "only_neurodb",
+                        neurodb_only(job),
+                        match=match,
+                        found={"reached": [None, bv, None]},
+                        link=raw_link(b["pd"], b["report_type"], context=context),
+                    )
+                    continue
+                if b is None:
+                    if key[:-1] in unlabelled:
+                        why: Reason = ("not_in_read", "", words.DETAIL_UNLABELLED)
+                    elif cut:
+                        why = (
+                            "left_out",
+                            "",
+                            words.DETAIL_LIMIT.format(limit=reporting.DISAGGREGATION_LIMIT),
+                        )
+                    else:
+                        why = _disaggregation_missing(job, a)
+                    job.add(
+                        "only_powerbi",
+                        why,
+                        match=match,
+                        found={"reached": [av, None, None]},
+                    )
+                    continue
+                diffs: dict[str, list[Any]] = {}
+                options: list[Reason] = []
+                if not pm.same_number(av, bv, zero_is_none=True):
+                    diffs["reached"] = [av, bv, b.get("combined")]
+                    if _units(av, bv):
+                        options.append(("rule", "units", ""))
+                    elif b.get("combined") is not None and pm.same_number(av, b["combined"]):
+                        options.append(("rule", "combined", ""))
+                        combined = True
+                    elif b["repeated"]:
+                        options.append(("repeated", "", words.DETAIL_REPEATED))
+                    elif b["unlabelled"]:
+                        options.append(("not_in_read", "", words.DETAIL_UNLABELLED))
+                    else:
+                        options.append(older_or_fallback(job))
+                if job.has("report_status") and a["statuses"] and not (a["statuses"] & b["statuses"]):
+                    diffs["report_status"] = [sorted(a["statuses"]), sorted(b["statuses"]), None]
+                    options.append(("status", "", ""))
+                if not diffs:
+                    job.result.same()
+                    continue
                 job.add(
-                    "only_neurodb",
-                    neurodb_only(job),
+                    "different",
+                    pick(options, context),
                     match=match,
-                    found={"reached": [None, bv, None]},
+                    found=diffs,
                     link=raw_link(b["pd"], b["report_type"], context=context),
                 )
-                continue
-            if b is None:
-                if key[:-1] in unlabelled:
-                    why: Reason = ("not_in_read", "", words.DETAIL_UNLABELLED)
-                elif cut:
-                    why = ("left_out", "", words.DETAIL_LIMIT.format(limit=reporting.DISAGGREGATION_LIMIT))
-                else:
-                    why = _disaggregation_missing(job, a)
-                job.add(
-                    "only_powerbi",
-                    why,
-                    match=match,
-                    found={"reached": [av, None, None]},
-                )
-                continue
-            diffs: dict[str, list[Any]] = {}
-            options: list[Reason] = []
-            if not pm.same_number(av, bv, zero_is_none=True):
-                diffs["reached"] = [av, bv, b.get("combined")]
-                if _units(av, bv):
-                    options.append(("rule", "units", ""))
-                elif b.get("combined") is not None and pm.same_number(av, b["combined"]):
-                    options.append(("rule", "combined", ""))
-                    combined = True
-                elif b["repeated"]:
-                    options.append(("repeated", "", words.DETAIL_REPEATED))
-                elif b["unlabelled"]:
-                    options.append(("not_in_read", "", words.DETAIL_UNLABELLED))
-                else:
-                    options.append(older_or_fallback(job))
-            if job.has("report_status") and a["statuses"] and not (a["statuses"] & b["statuses"]):
-                diffs["report_status"] = [sorted(a["statuses"]), sorted(b["statuses"]), None]
-                options.append(("status", "", ""))
-            if not diffs:
-                job.result.same()
-                continue
-            job.add(
-                "different",
-                pick(options, context),
-                match=match,
-                found=diffs,
-                link=raw_link(b["pd"], b["report_type"], context=context),
-            )
     job.note_neurodb_set_aside()
     if labels_shared:
         job.result.note(words.NOTE_SHARED_LABEL)
@@ -2343,67 +2416,69 @@ def fund_monitoring(job: Job) -> None:
         job.result.fits.append({"title": "financial_contribution", "rows": table, "set_aside": 0})
     best = pf.chosen(job.result.fits[-1]["rows"]) if fit_rows else ""
     for p, n in pairs:
-        diffs: dict[str, list[Any]] = {}
-        options: list[Reason] = []
-        for name in names:
-            a = p.get(name)
-            if name == "partner":
-                same, b = pm.partner(a) == pm.partner(n["partner"]), n["partner"]
-            elif name == "partner_type":
-                same = pm.text(a) in (pm.text(n["partner_type"]), pm.text(n["cso_type"]))
-                b = n["partner_type"] or n["cso_type"]
-            elif name == "currency":
-                same, b = pm.same_text(a, n["currency"]), n["currency"]
-            elif name == "unicef_planned":
-                same, b = pm.same_money(a, n["unicef_planned"]), n["unicef_planned"]
-            elif name == "cash":
-                same, b = pm.same_money(a, n["total"]), n["total"]
-            elif name == "partner_contribution":
-                same, b = pm.same_money(a, n["partner_contribution"]), n["partner_contribution"]
-            elif name == "partner_share":
-                if "cash" in diffs or "partner_contribution" in diffs:
-                    continue  # it follows the two amounts
-                theirs = pm.number(a)
-                b = pm.number(n["partner_share"]) / 100 if n["partner_share"] is not None else None
-                same = pm.same_number(theirs, b, zero_is_none=True)
-            else:
-                b = n["financial_contribution"]
-                same = pm.same_money(a, b)
-            if same:
-                continue
-            alt = None
-            if name == "financial_contribution":
-                mine = candidates.get(n["pd_id"], {})
-                fitting = [c for c, v in mine.items() if pm.same_money(a, v)]
-                if best and best in fitting:
-                    alt = mine[best]
-                    detail = words.DETAIL_ALTERNATIVE.format(
-                        words=words.CANDIDATE_WORDS[best], alt=_number_words(alt), value=_number_words(b)
-                    )
-                    options.append(("rule", "financial_contribution", detail))
+        with job.row("different", [p["pd"]]):
+            diffs: dict[str, list[Any]] = {}
+            options: list[Reason] = []
+            for name in names:
+                a = p.get(name)
+                if name == "partner":
+                    same, b = pm.partner(a) == pm.partner(n["partner"]), n["partner"]
+                elif name == "partner_type":
+                    same = pm.text(a) in (pm.text(n["partner_type"]), pm.text(n["cso_type"]))
+                    b = n["partner_type"] or n["cso_type"]
+                elif name == "currency":
+                    same, b = pm.same_text(a, n["currency"]), n["currency"]
+                elif name == "unicef_planned":
+                    same, b = pm.same_money(a, n["unicef_planned"]), n["unicef_planned"]
+                elif name == "cash":
+                    same, b = pm.same_money(a, n["total"]), n["total"]
+                elif name == "partner_contribution":
+                    same, b = pm.same_money(a, n["partner_contribution"]), n["partner_contribution"]
+                elif name == "partner_share":
+                    if "cash" in diffs or "partner_contribution" in diffs:
+                        continue  # it follows the two amounts
+                    theirs = pm.number(a)
+                    b = pm.number(n["partner_share"]) / 100 if n["partner_share"] is not None else None
+                    same = pm.same_number(theirs, b, zero_is_none=True)
                 else:
-                    options.append(fallback(job))
-            elif name == "partner":
-                options.append(("rule", "partner_name", words.DETAIL_PARTNER))
-            else:
-                options.append(older_or_fallback(job))
-            diffs[name] = [a, b, alt]
-        if not diffs:
-            job.result.same()
-            continue
-        why = pick(options, context)
-        if id(p) in amended:
-            why = (why[0], why[1], " ".join(x for x in (why[2], words.DETAIL_AMENDMENT) if x))
-        job.add("different", why, match=[p["pd"]], found=diffs, link=pd_link(n["pd_id"]))
+                    b = n["financial_contribution"]
+                    same = pm.same_money(a, b)
+                if same:
+                    continue
+                alt = None
+                if name == "financial_contribution":
+                    mine = candidates.get(n["pd_id"], {})
+                    fitting = [c for c, v in mine.items() if pm.same_money(a, v)]
+                    if best and best in fitting:
+                        alt = mine[best]
+                        detail = words.DETAIL_ALTERNATIVE.format(
+                            words=words.CANDIDATE_WORDS[best], alt=_number_words(alt), value=_number_words(b)
+                        )
+                        options.append(("rule", "contribution", detail))
+                    else:
+                        options.append(fallback(job))
+                elif name == "partner":
+                    options.append(("rule", "partner_name", words.DETAIL_PARTNER))
+                else:
+                    options.append(older_or_fallback(job))
+                diffs[name] = [a, b, alt]
+            if not diffs:
+                job.result.same()
+                continue
+            why = pick(options, context)
+            if id(p) in amended:
+                why = (why[0], why[1], " ".join(x for x in (why[2], words.DETAIL_AMENDMENT) if x))
+            job.add("different", why, match=[p["pd"]], found=diffs, link=pd_link(n["pd_id"]))
     for p in left_pb:
-        why = pd_reason(job, p["pd"]) or fallback(job)
-        job.add(
-            "only_powerbi",
-            why,
-            match=[p["pd"]],
-            found={name: [p.get(name), None, None] for name in names},
-            pd=p["pd"] if why[0] == "pd_not_running" else "",
-        )
+        with job.row("only_powerbi", [p["pd"]]):
+            why = pd_reason(job, p["pd"]) or fallback(job)
+            job.add(
+                "only_powerbi",
+                why,
+                match=[p["pd"]],
+                found={name: [p.get(name), None, None] for name in names},
+                pd=p["pd"] if why[0] == "pd_not_running" else "",
+            )
     for n in left_nd:
         job.add(
             "only_neurodb",
@@ -2457,64 +2532,68 @@ def funded_programmes(job: Job) -> None:
     pd_names = job.present(FUNDED_PD_COLUMNS)
     seen_pds: set[str] = set()
     for p, n in pairs:
-        diffs: dict[str, list[Any]] = {}
-        options: list[Reason] = []
-        for name in grant_names:
-            a = p.get(name)
-            if name == "donor":
-                same = pm.same_text(a, n["donor"]) or pm.sections(a) == pm.sections(n["donor"])
-                b = n["donor"]
-            else:
-                same, b = pm.same_money(a, n["reserved"]), n["reserved"]
-            if not same:
-                diffs[name] = [a, b, None]
-                options.append(older_or_fallback(job))
-        pd_key = pm.pd_number(n["pd"])
-        if pd_key not in seen_pds:  # the PD's own values: once per PD, never added over its grants
-            seen_pds.add(pd_key)
-            for name in pd_names:
+        with job.row("different", [p["pd"], p["grant"]]):
+            diffs: dict[str, list[Any]] = {}
+            options: list[Reason] = []
+            for name in grant_names:
                 a = p.get(name)
-                if name == "pd_status":
-                    same = pm.text(a) in (pm.text(n["pd_status"]), pm.text(pd_statuses.label(n["pd_status"])))
-                    b = pd_statuses.label(n["pd_status"])
-                elif name in ("start", "end"):
-                    same, b = pm.same_date(a, n[name]), n[name]
-                elif name == "days_to_end":
-                    same, b = pm.same_count(a, n["days_to_end"]), n["days_to_end"]
-                elif name == "partner":
-                    same, b = pm.partner(a) == pm.partner(n["partner"]), n["partner"]
-                elif name == "currency":
-                    same, b = pm.same_text(a, n["currency"]), n["currency"]
-                elif name == "cash":
-                    same, b = pm.same_money(a, n["total"]), n["total"]
-                elif name == "partner_share":
-                    if "cash" in diffs or "partner_contribution" in diffs:
-                        continue
-                    total, part = pm.number(n["total"]), pm.number(n["partner_contribution"])
-                    b = part / total if total and part is not None else None
-                    same = pm.same_number(a, b, zero_is_none=True)
+                if name == "donor":
+                    same = pm.same_text(a, n["donor"]) or pm.sections(a) == pm.sections(n["donor"])
+                    b = n["donor"]
                 else:
-                    same, b = pm.same_money(a, n.get(name)), n.get(name)
-                if same:
-                    continue
-                diffs[name] = [a, b, None]
-                if name == "partner":
-                    options.append(("rule", "partner_name", words.DETAIL_PARTNER))
-                elif (
-                    name == "days_to_end"
-                    and job.context.refreshed
-                    and job.context.refreshed != job.context.day
-                ):
-                    options.append(("status", "", words.DETAIL_OTHER_DAY))
-                else:
+                    same, b = pm.same_money(a, n["reserved"]), n["reserved"]
+                if not same:
+                    diffs[name] = [a, b, None]
                     options.append(older_or_fallback(job))
-        if not diffs:
-            job.result.same()
-            continue
-        why = pick(options, context)
-        if id(p) in amended:
-            why = (why[0], why[1], " ".join(x for x in (why[2], words.DETAIL_AMENDMENT) if x))
-        job.add("different", why, match=[p["pd"], p["grant"]], found=diffs, link=pd_link(n["pd_id"]))
+            pd_key = pm.pd_number(n["pd"])
+            if pd_key not in seen_pds:  # the PD's own values: once per PD, never added over its grants
+                seen_pds.add(pd_key)
+                for name in pd_names:
+                    a = p.get(name)
+                    if name == "pd_status":
+                        same = pm.text(a) in (
+                            pm.text(n["pd_status"]),
+                            pm.text(pd_statuses.label(n["pd_status"])),
+                        )
+                        b = pd_statuses.label(n["pd_status"])
+                    elif name in ("start", "end"):
+                        same, b = pm.same_date(a, n[name]), n[name]
+                    elif name == "days_to_end":
+                        same, b = pm.same_count(a, n["days_to_end"]), n["days_to_end"]
+                    elif name == "partner":
+                        same, b = pm.partner(a) == pm.partner(n["partner"]), n["partner"]
+                    elif name == "currency":
+                        same, b = pm.same_text(a, n["currency"]), n["currency"]
+                    elif name == "cash":
+                        same, b = pm.same_money(a, n["total"]), n["total"]
+                    elif name == "partner_share":
+                        if "cash" in diffs or "partner_contribution" in diffs:
+                            continue
+                        total, part = pm.number(n["total"]), pm.number(n["partner_contribution"])
+                        b = part / total if total and part is not None else None
+                        same = pm.same_number(a, b, zero_is_none=True)
+                    else:
+                        same, b = pm.same_money(a, n.get(name)), n.get(name)
+                    if same:
+                        continue
+                    diffs[name] = [a, b, None]
+                    if name == "partner":
+                        options.append(("rule", "partner_name", words.DETAIL_PARTNER))
+                    elif (
+                        name == "days_to_end"
+                        and job.context.refreshed
+                        and job.context.refreshed != job.context.day
+                    ):
+                        options.append(("status", "", words.DETAIL_OTHER_DAY))
+                    else:
+                        options.append(older_or_fallback(job))
+            if not diffs:
+                job.result.same()
+                continue
+            why = pick(options, context)
+            if id(p) in amended:
+                why = (why[0], why[1], " ".join(x for x in (why[2], words.DETAIL_AMENDMENT) if x))
+            job.add("different", why, match=[p["pd"], p["grant"]], found=diffs, link=pd_link(n["pd_id"]))
     funded = {pm.pd_base(n["pd"]) for n in neurodb}
     for p in left_pb:
         why = pd_reason(job, p["pd"])
