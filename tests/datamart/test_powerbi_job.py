@@ -67,6 +67,23 @@ def memory(monkeypatch):
     monkeypatch.setattr(pc, "_own_peak", lambda: 290 * MB)
 
 
+@pytest.fixture
+def cannot_record(monkeypatch):
+    """The job cannot write an export's failure (a MemoryError as it records it): the comparison stops. Only
+    the first time: as the upload stops, the export it stopped at is recorded (what the failure held, let go)."""
+    original = pc._record_failure
+    calls = []
+
+    def record(*args, **kwargs):
+        calls.append(args[0].kind)
+        if len(calls) == 1:
+            raise MemoryError
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(pc, "_record_failure", record)
+    return calls
+
+
 def _upload(client, *files) -> PowerBIUpload:
     response = pf.post(client, *files)
     assert response.status_code == 302, response.content[:300]
@@ -828,8 +845,8 @@ def test_an_old_failure_without_its_step_still_shows_its_class():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_a_stopped_upload_says_the_step_it_stopped_at(checker, started, monkeypatch, memory):
-    """An export out of memory stops the upload only when the job cannot free its memory again: the upload
+def test_a_stopped_upload_says_the_step_it_stopped_at(checker, started, monkeypatch, memory, cannot_record):
+    """An export out of memory stops the upload only when the job cannot even record its failure: the upload
     then says where it stopped, with the job's memory peak and limit."""
     from neurodb.datamart import powerbi_kinds
 
@@ -837,7 +854,6 @@ def test_a_stopped_upload_says_the_step_it_stopped_at(checker, started, monkeypa
         raise MemoryError
 
     monkeypatch.setitem(powerbi_kinds.COMPARERS, "by_sector", too_much)
-    monkeypatch.setattr(pc, "_freed", lambda: False)
     upload = _upload(checker, ("sector.xlsx", pf.export("by_sector")))
     ended = pc.run(upload.pk)
     visual = px.KINDS["by_sector"].visual[1]
@@ -865,7 +881,9 @@ def test_a_stopped_upload_says_the_step_it_stopped_at(checker, started, monkeypa
         ("dq_list", "Indicators without Reached or with Zero Reached"),  # a page of two visuals: the visual
     ],
 )
-def test_a_stopped_upload_names_the_export_it_stopped_at(checker, started, monkeypatch, kind, named):
+def test_a_stopped_upload_names_the_export_it_stopped_at(
+    checker, started, monkeypatch, cannot_record, kind, named
+):
     """Seven exports' visual is a bare "Table": the upload names their page ("while comparing Table" said
     nothing of which export)."""
     from neurodb.datamart import powerbi_kinds
@@ -874,7 +892,6 @@ def test_a_stopped_upload_names_the_export_it_stopped_at(checker, started, monke
         raise MemoryError
 
     monkeypatch.setitem(powerbi_kinds.COMPARERS, kind, broken)
-    monkeypatch.setattr(pc, "_freed", lambda: False)
     monkeypatch.setattr(pc, "_limit", lambda: None)  # no data limit: the peak alone
     monkeypatch.setattr(pc, "_own_peak", lambda: 120 * MB)
     upload = _upload(checker, (f"{kind}.xlsx", pf.export(kind)))
@@ -1027,16 +1044,80 @@ def test_an_export_out_of_memory_fails_alone_once_it_let_go_of_what_it_held(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_exports_read_but_not_compared_when_the_upload_stopped_say_so(checker, started, monkeypatch, memory):
-    """The upload stops when the job cannot free its memory again: the exports it read and never compared
-    were uploaded and read, never "Not uploaded"; the stopped line names the job's memory peak and limit."""
+def test_an_export_out_of_memory_under_a_real_data_limit_leaves_the_next_one_compared(checker, started):
+    """The real thing, in a process of its own under a real data limit: By sector's comparer fills the job's
+    memory with records shaped like the Datamart's (a few kB of JSON text and a long title each) until a real
+    MemoryError, one in 200 kept alive into the next export (as cleaned texts are). The heap keeps the address
+    space it freed: a fresh block of 16 MB is refused, while the next export's own objects fit in what was
+    freed. The next export is compared and the upload is done (judged by such a block, it stopped there)."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    from urllib.parse import quote
+
+    from django.db import connection
+
+    upload = _upload(checker, ("sector.xlsx", pf.export("by_sector")), ("month.xlsx", pf.export("by_month")))
+    job = (
+        "import resource, sys, django\n"
+        "django.setup()\n"
+        "from neurodb.datamart import powerbi_compare as pc, powerbi_kinds\n"
+        "kept, seen = [], []\n"
+        "def too_much(job):\n"
+        "    _soft, hard = resource.getrlimit(resource.RLIMIT_DATA)\n"
+        "    resource.setrlimit(resource.RLIMIT_DATA, (pc._own_data() + 120 * pc.MB, hard))\n"
+        "    held = []\n"
+        "    while True:\n"
+        "        n = len(held)\n"
+        "        held.append({'id': n, 'data': '{' + 'x' * (1500 + n % 3000) + '}', 'title': 't' * 600 + str(n)})\n"
+        "        if n % 200 == 0:\n"
+        "            kept.append(held[-1]['data'][:600] + str(n))\n"
+        "original = powerbi_kinds.COMPARERS['by_month']\n"
+        "def next_one(job):\n"
+        "    try:\n"
+        "        bytearray(16 * pc.MB)\n"
+        "        seen.append('taken')\n"
+        "    except MemoryError:\n"
+        "        seen.append('refused')\n"
+        "    return original(job)\n"
+        "powerbi_kinds.COMPARERS['by_sector'] = too_much\n"
+        "powerbi_kinds.COMPARERS['by_month'] = next_one\n"
+        "ended = pc.run(int(sys.argv[1]))\n"
+        "print(ended.status, len(kept) > 100, *seen)\n"
+    )
+    db = connection.settings_dict  # the test database, where the upload is
+    login = quote(db["USER"]) + (f":{quote(db['PASSWORD'])}" if db.get("PASSWORD") else "")
+    url = f"postgres://{login}@{db['HOST']}:{db['PORT']}/{quote(db['NAME'])}"
+    done = subprocess.run(
+        [sys.executable, "-c", job, str(upload.pk)],
+        cwd=Path(pc.__file__).resolve().parents[2],
+        env={**os.environ, "DJANGO_SETTINGS_MODULE": "config.settings", "DATABASE_URL": url},
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert done.stdout.split() == ["done", "True", "refused"], (done.stdout, done.stderr[-3000:])
+    states = dict(PowerBIExport.objects.filter(upload=upload).values_list("kind", "state"))
+    assert states == {"by_sector": "failed", "by_month": "compared"}
+    assert PowerBIExport.objects.get(upload=upload, kind="by_sector").error.startswith(
+        "The comparison stopped: not enough memory (peak "
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_exports_read_but_not_compared_when_the_upload_stopped_say_so(
+    checker, started, monkeypatch, memory, cannot_record
+):
+    """The upload stops when the job cannot even record an export's failure: the exports it read and never
+    compared were uploaded and read, never "Not uploaded"; the stopped line names the job's memory peak and
+    limit."""
     from neurodb.datamart import powerbi_kinds, powerbi_results
 
     def too_much(job):
         raise MemoryError
 
     monkeypatch.setitem(powerbi_kinds.COMPARERS, "by_sector", too_much)
-    monkeypatch.setattr(pc, "_freed", lambda: False)
     upload = _upload(
         checker,
         ("cards.xlsx", pf.export("partner_cards")),
@@ -1080,6 +1161,127 @@ def test_exports_read_but_not_compared_when_the_upload_stopped_say_so(checker, s
     )
 
 
+def _three(client) -> PowerBIUpload:
+    return _upload(
+        client,
+        ("cards.xlsx", pf.export("partner_cards")),
+        ("sector.xlsx", pf.export("by_sector")),
+        ("funded.xlsx", pf.export("funded_programmes")),
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("route", ["record", "database", "before"])
+def test_the_export_a_comparison_stopped_at_could_not_be_compared_never_stopped_before_it(
+    request, checker, started, monkeypatch, memory, route
+):
+    """The upload names the export it stopped at ("while comparing Reporting Progress by Sector"): that export
+    could not be compared, never "the comparison stopped before it", which only the exports after it say. The
+    job could not write its failure (out of memory as it wrote it, once its comparer ran out of memory, or once
+    the database client did), or the error came before its comparer ran (its filter)."""
+    from neurodb.datamart import powerbi_admin, powerbi_kinds, powerbi_results
+
+    upload = _three(checker)
+    if route == "before":
+        original = powerbi_kinds.clause_states
+
+        def states(kind, parsed):
+            if kind == "by_sector":
+                raise ValueError
+            return original(kind, parsed)
+
+        monkeypatch.setattr(powerbi_kinds, "clause_states", states)
+        what, verdict = "ValueError", "Could not be compared while matching the rows: ValueError"
+    else:
+
+        def broken(job):
+            if route == "record":
+                raise MemoryError
+            _no_code()  # libpq's "out of memory": no SQLSTATE
+
+        monkeypatch.setitem(powerbi_kinds.COMPARERS, "by_sector", broken)
+        request.getfixturevalue("cannot_record")
+        what = "MemoryError, peak 290 MB of 300 MB allowed"
+        verdict = "Could not be compared: not enough memory (peak 290 MB of 300 MB allowed)"
+    ended = pc.run(upload.pk, memory_limit=300 * MB)
+    sector = px.KINDS["by_sector"].visual[1]
+    assert ended.status == Status.FAILED
+    assert ended.error == f"The comparison stopped while comparing {sector} ({what}): press Compare again."
+    exports = list(pc.exports_of(ended))
+    assert {e.kind: e.state for e in exports} == {
+        "partner_cards": "compared",
+        "by_sector": "failed",
+        "funded_programmes": "read",
+    }
+    pages = {p["name"]: p for p in powerbi_results.page_lines(ended, exports)}
+    rows = {e.kind: powerbi_admin._export_row(ended, e, exports) for e in exports}
+    assert pages[px.KINDS["by_sector"].visual[0]]["verdict"] == verdict == rows["by_sector"]["state"]
+    assert rows["by_sector"]["action"] == words.VERDICT_ACTIONS["failed"]
+    funded = pages[px.KINDS["funded_programmes"].visual[0]]
+    assert funded["verdict"] == words.STOPPED_BEFORE == rows["funded_programmes"]["state"]
+    html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    assert html.count(words.STOPPED_BEFORE) == 2  # Funded Programs' page and its export, never By sector's
+
+
+@pytest.mark.django_db(transaction=True)
+def test_an_export_compared_before_the_comparison_stopped_stays_compared(checker, started, monkeypatch):
+    """The comparison stops after an export was compared and saved (writing how far it got): that export is
+    never recorded as the one it stopped at."""
+
+    def broken(upload, n):
+        raise RuntimeError
+
+    monkeypatch.setattr(pc, "_progress", broken)
+    upload = _upload(checker, ("sector.xlsx", pf.export("by_sector")), ("month.xlsx", pf.export("by_month")))
+    ended = pc.run(upload.pk)
+    sector = px.KINDS["by_sector"].visual[1]
+    assert ended.error == f"The comparison stopped while comparing {sector} (RuntimeError): {words.AGAIN}."
+    states = dict(PowerBIExport.objects.filter(upload=upload).values_list("kind", "state"))
+    assert states == {"by_sector": "compared", "by_month": "read"}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_stopped_upload_whose_details_were_removed_says_to_upload_the_files_again(
+    checker, started, monkeypatch, memory, cannot_record
+):
+    """Once retention removed a stopped upload's rows, Compare again is refused: no Power BI page, no export,
+    no line of What to do now and not the upload's own error says to press it; they say to upload the files
+    again."""
+    from neurodb.datamart import powerbi_admin, powerbi_kinds, powerbi_results
+
+    def too_much(job):
+        raise MemoryError
+
+    monkeypatch.setitem(powerbi_kinds.COMPARERS, "by_sector", too_much)
+    upload = _three(checker)
+    ended = pc.run(upload.pk, memory_limit=300 * MB)
+    assert ended.status == Status.FAILED and pc.can_compare_again(ended)
+    monkeypatch.setattr(pc, "KEEP_FULL", 0)
+    assert pc.retention() == 1
+    ended.refresh_from_db()
+    assert ended.trimmed and not pc.can_compare_again(ended)
+    exports = list(pc.exports_of(ended))
+    rows = {e.kind: powerbi_admin._export_row(ended, e, exports) for e in exports}
+    said = [(p["verdict"], p["action"]) for p in powerbi_results.page_lines(ended, exports)]
+    said += [(r["state"], r["action"]) for r in rows.values()]
+    todo = powerbi_results.todo(ended, exports, powerbi_results.before(ended, exports))
+    said += [(line["text"], "") for line in todo]
+    assert not [x for x in said if "Compare again" in " ".join(x)], said
+    assert (rows["funded_programmes"]["state"], rows["funded_programmes"]["action"]) == (
+        words.STOPPED_BEFORE,
+        words.NOT_READ_ACTION,
+    )
+    assert rows["by_sector"]["action"] == words.TRIMMED_FAILED_ACTION
+    html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    assert "Compare again" not in html  # nor its button
+    sector = px.KINDS["by_sector"].visual[1]
+    stopped = f"The comparison stopped while comparing {sector} (MemoryError, peak 290 MB of 300 MB allowed)"
+    assert f"{stopped}: upload the files again." in html
+    assert words.TODO_NOT_COMPARED_TRIMMED_ONE in html and words.DETAILS_REMOVED in html
+    response = checker.post(reverse("admin:datamart_powerbi_again", args=[upload.pk]))
+    assert response.status_code == 200 and words.NOT_AGAIN in response.content.decode()
+
+
 def test_an_export_waiting_while_the_comparison_runs_is_never_not_uploaded():
     from neurodb.datamart import powerbi_results
 
@@ -1109,6 +1311,54 @@ def test_the_upload_page_shows_the_job_s_memory_peak_and_limit(checker, started,
     )
     html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
     assert ("data-pbi-memory" in html) is bool(said) and said in html
+
+
+class _Killed(BaseException):
+    """The job's process killed (the container ran out of memory, the server restarted)."""
+
+
+@pytest.mark.parametrize("ends", ["stale", "locked", "queued"])
+def test_compare_again_never_shows_the_earlier_run_s_memory(
+    checker, started, monkeypatch, other_session, ends
+):
+    """Compare again clears the earlier run's memory peak, time and limit: a run that never measures its own
+    (killed while it compares and closed as stale, refused by the lock, never started) shows none of the
+    earlier figures, and never the earlier peak beside its own limit."""
+    from neurodb.datamart import powerbi_kinds
+
+    monkeypatch.setattr(pc, "_own_peak", lambda: 150 * MB)
+    upload = _upload(checker, ("cards.xlsx", pf.export("partner_cards")))
+    assert pc.run(upload.pk, memory_limit=600 * MB).status == Status.DONE
+    page = reverse("admin:datamart_powerbi_upload", args=[upload.pk])
+    assert "Memory: peak 150 MB of 600 MB allowed." in checker.get(page).content.decode()
+    assert checker.post(reverse("admin:datamart_powerbi_again", args=[upload.pk])).status_code == 302
+    if ends == "stale":
+
+        def killed(job):
+            raise _Killed
+
+        monkeypatch.setitem(powerbi_kinds.COMPARERS, "partner_cards", killed)
+        with pytest.raises(_Killed):
+            pc.run(upload.pk, memory_limit=250 * MB)
+        assert PowerBIUpload.objects.get(pk=upload.pk).summary["memory_limit_mb"] == 250
+        assert pc.close_stale() == 1
+    elif ends == "locked":
+        with other_session.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_lock(%s)", [pc.LOCK_ID])
+        try:
+            assert pc.run(upload.pk, memory_limit=250 * MB).error == words.LOCKED_AGAIN
+        finally:
+            with other_session.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", [pc.LOCK_ID])
+    else:
+        PowerBIUpload.objects.filter(pk=upload.pk).update(
+            queued_at=timezone.now() - datetime.timedelta(minutes=3)
+        )
+        assert pc.close_stale() == 1
+    upload.refresh_from_db()
+    assert upload.status == Status.FAILED and upload.peak_memory_mb is None and upload.seconds is None
+    html = checker.get(page).content.decode()
+    assert "data-pbi-memory" not in html and "150 MB" not in html and "600 MB" not in html
 
 
 def test_the_job_s_links_are_the_site_s_own_without_importing_the_whole_site():

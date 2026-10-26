@@ -131,12 +131,21 @@ def code_of(upload: PowerBIUpload, export: PowerBIExport) -> str:
     return "stopped" if upload.status == PowerBIUpload.Status.FAILED else code
 
 
-def stopped(exports: Iterable[PowerBIExport]) -> tuple[str, str]:
+def stopped(upload: PowerBIUpload, exports: Iterable[PowerBIExport]) -> tuple[str, str]:
     """An export a stopped comparison never reached (:func:`code_of`), in words, and what to do: compare
-    again, or upload the files again when a copy waiting to be read was emptied (a stopped upload's are)."""
-    if any(e.state == "staged" for e in exports):
+    again, or upload the files again when a copy waiting to be read was emptied (a stopped upload's are) or
+    the upload's rows were removed since (trimmed: Compare again is refused)."""
+    if upload.trimmed or any(e.state == "staged" for e in exports):
         return words.VERDICT_WORDS["stopped"], words.NOT_READ_ACTION
     return words.VERDICT_WORDS["stopped"], words.VERDICT_ACTIONS["stopped"]
+
+
+def upload_error(upload: PowerBIUpload) -> str:
+    """The upload's error as its pages say it: once its rows were removed (trimmed), Compare again is refused,
+    so a comparison that stopped says to upload the files again (its error was kept before)."""
+    if upload.trimmed:
+        return (upload.error or "").replace(words.AGAIN, words.UPLOAD_AGAIN)
+    return upload.error or ""
 
 
 def apart(export: PowerBIExport) -> tuple[str, str]:
@@ -178,15 +187,15 @@ def verdict_words(
         if read_failed(export):  # never read: export it again
             return words.VERDICT_WORDS["not_read"], words.VERDICT_ACTIONS["not_read"]
         found = counts.get("failure") or {}
+        # its rows removed since (trimmed): Compare again is refused
+        action = words.TRIMMED_FAILED_ACTION if trimmed else words.VERDICT_ACTIONS["failed"]
         if found.get("cls") == "MemoryError":  # out of memory: the job's peak and limit, never a step
-            verdict = words.VERDICT_WORDS["failed_memory"].format(what=words.out_of_memory(found))
-            return verdict, words.VERDICT_ACTIONS["failed"]
+            return words.VERDICT_WORDS["failed_memory"].format(what=words.out_of_memory(found)), action
         if found.get("step") in words.EXPORT_STEPS:  # the step it stopped at, and what stopped it
             step = words.EXPORT_STEPS[found["step"]]
-            verdict = words.VERDICT_WORDS["failed"].format(step=step, what=words.failure(found))
-            return verdict, words.VERDICT_ACTIONS["failed"]
+            return words.VERDICT_WORDS["failed"].format(step=step, what=words.failure(found)), action
         cls = error.rsplit(": ", 1)[-1].rstrip(".") or "Error"  # one that failed before its step was kept
-        return words.VERDICT_WORDS["failed_before"].format(cls=cls), words.VERDICT_ACTIONS["failed"]
+        return words.VERDICT_WORDS["failed_before"].format(cls=cls), action
     if code == "cut":
         return words.VERDICT_WORDS["cut"].format(n=export.rows_read), words.VERDICT_ACTIONS["cut"]
     if code == "list_cut":
@@ -240,7 +249,7 @@ def page_lines(upload: PowerBIUpload, exports: list[PowerBIExport]) -> list[dict
         code = worst(codes) if mine else "not_uploaded"
         chosen = next((e for e, found in zip(mine, codes, strict=True) if found == code), None)
         if code == "stopped":
-            verdict, action = stopped(exports)
+            verdict, action = stopped(upload, exports)
         elif code == "waiting":
             verdict, action = words.VERDICT_WORDS["waiting"], words.VERDICT_ACTIONS["waiting"]
         elif chosen is not None and code not in ("", "not_uploaded"):
@@ -306,8 +315,13 @@ def before(upload: PowerBIUpload, exports: list[PowerBIExport]) -> list[str]:
     if not_read:
         lines.append(words.plural(not_read, words.TODO_NOT_READ_ONE, words.TODO_NOT_READ))
     stopped = sum(1 for e in exports if e.state == "failed" and not read_failed(e))
-    if stopped:
-        lines.append(words.plural(stopped, words.TODO_NOT_COMPARED_ONE, words.TODO_NOT_COMPARED))
+    if stopped:  # its rows removed since (trimmed): Compare again is refused
+        one, many = (
+            (words.TODO_NOT_COMPARED_TRIMMED_ONE, words.TODO_NOT_COMPARED_TRIMMED)
+            if upload.trimmed
+            else (words.TODO_NOT_COMPARED_ONE, words.TODO_NOT_COMPARED)
+        )
+        lines.append(words.plural(stopped, one, many))
     missing = sum(len(page["missing"]) for page in page_lines(upload, exports))
     if missing:
         lines.append(words.plural(missing, words.TODO_MISSING_ONE, words.TODO_MISSING))
@@ -345,7 +359,7 @@ def todo(upload: PowerBIUpload, exports: list[PowerBIExport], before: list[str])
     found = totals(exports)
     lines: list[dict[str, str]] = []
     if upload.status == PowerBIUpload.Status.FAILED and upload.error:
-        lines.append({"text": upload.error, "url": ""})
+        lines.append({"text": upload_error(upload), "url": ""})
 
     def first(group: int) -> str:
         """The lines of the first export that lists some of this group (never a link to an empty list)."""

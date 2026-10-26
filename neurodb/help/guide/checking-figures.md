@@ -248,7 +248,8 @@ compared, the same, different, only in Power BI, only in NeuroDB. While NeuroDB 
 itself every few seconds. Once it ran, the page says how much memory the comparison took and how much it may
 take ("Memory: peak 203 MB of 250 MB allowed."). An export it had no memory left for says "Could not be compared:
 not enough memory" with the same two figures, and the others are still compared; if the comparison stops, the
-exports it had not reached yet say "Not compared: the comparison stopped before it": press *Compare again*.
+exports it had not reached yet say "Not compared: the comparison stopped before it": press *Compare again* (or
+upload the files again once its details were removed).
 
 **An export's page** shows its filters one by one, its notes (rules that apply to every row are said once
 there: Power BI's Emergency indicator is Yes for an SPD, its Section and CP Output are the PD's), the

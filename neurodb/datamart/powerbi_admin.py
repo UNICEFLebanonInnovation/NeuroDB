@@ -229,7 +229,7 @@ def _export_row(upload: PowerBIUpload, export: PowerBIExport, exports: list[Powe
     if not_read:
         state, action = words.NOT_READ_STATE, words.NOT_READ_ACTION
     elif stopped:
-        state, action = powerbi_results.stopped(exports)
+        state, action = powerbi_results.stopped(upload, exports)
     elif export.state in ("compared", "empty", "not_compared", "failed"):
         state, action = powerbi_results.verdict_words(
             export, trimmed=upload.trimmed, offered=powerbi_results.offered(upload)
@@ -327,6 +327,7 @@ def _upload_page(request, upload: PowerBIUpload, refused: list[str] | None = Non
         busy=busy,
         status_words=_status_words(upload, exports),
         memory=_memory(upload),
+        upload_error=powerbi_results.upload_error(upload),
         pages=pages,
         todo=[] if busy else powerbi_results.todo(upload, exports, powerbi_results.before(upload, exports)),
         choices=upload.choices if done else [],

@@ -18,9 +18,10 @@ by the upload page's *Upload and compare* and *Compare again*; never from a shel
    the data. Its lines are kept compactly during the snapshot, and every export's are written once all are
    compared, group by group across the exports (needs a look first, the expected ones last), at most
    :data:`LINE_LIMIT` per export and :data:`UPLOAD_LINE_LIMIT` per upload (the rest are counted). What an
-   export read of NeuroDB's pages is let go before the next (:func:`_release`); an export that runs out of
-   memory lets go of what it held and fails alone, with the job's memory peak and limit (the comparison stops
-   only when its memory cannot be freed: :func:`_out_of_memory`).
+   export read of NeuroDB's pages is let go before the next (:func:`_release`); an export that fails (out of
+   memory too: with the job's memory peak and limit) is recorded once what it held was let go, and fails alone
+   (:class:`Failed`). The comparison stops only when the job cannot even record that; the export it stopped
+   at is then recorded as it stops (:func:`_stopped_during`).
 6. The upload is done: its summary (a verdict per Power BI page, what to do now, the choices for the user,
    ``powerbi_results``), its memory peak and time are kept; uploads older than the newest :data:`KEEP_FULL`
    lose their rows and lines (retention, also applied when an upload is created).
@@ -33,6 +34,7 @@ database error, its SQLSTATE code (:func:`failure`), never a value, a query or t
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import gc
 import logging
@@ -78,12 +80,12 @@ MB = 1024 * 1024
 MEMORY_LIMIT = 600 * MB  # the job's data limit at most: past it, a MemoryError (never the container stopped)
 MEMORY_MARGIN = 150 * MB  # left to the web workers and the scheduler's jobs beside the comparison
 MEMORY_FLOOR = 250 * MB  # the comparison's data limit at least (else it cannot start)
-MEMORY_PROBE = 16 * MB  # what the job takes again once an export that ran out of memory let go of it
 NICE = 10
 MAX_REFUSED = 100
 Status = PowerBIUpload.Status
 BUSY_STATUSES = (Status.QUEUED, Status.READING, Status.COMPARING)
 READ_STATES = ("read", "compared", "empty", "not_compared")  # an export whose rows NeuroDB read
+RUN_SUMMARY = ("memory_limit_mb", "compared")  # what one run keeps in the summary as it runs
 COMPARERS = powerbi_kinds.COMPARERS  # an export's kind -> the function that compares it with NeuroDB's page
 BATCH = 1_000  # lines written at once
 SQLSTATE = re.compile(r"[0-9A-Z]{5}")
@@ -144,7 +146,7 @@ def heavy_job_running() -> bool:
 
 def limit_process() -> int:
     """The job's own process gives way to the web workers: a lower CPU priority, and a data limit past which a
-    MemoryError fails an export (:func:`_out_of_memory`) instead of the container being stopped. The limit is
+    MemoryError fails an export (:class:`Failed`) instead of the container being stopped. The limit is
     what the container has left (:func:`memory_room`, less :data:`MEMORY_MARGIN`), at most
     :data:`MEMORY_LIMIT` and at least :data:`MEMORY_FLOOR`. Returns it, in bytes."""
     os.nice(NICE)
@@ -417,6 +419,9 @@ def again(upload: PowerBIUpload) -> bool:
         exports = PowerBIExport.objects.filter(upload=locked)
         PowerBIDifference.objects.filter(export__upload=locked).delete()
         exports.exclude(rows=None).update(state="read", counts={}, fits=[], verdict="", set_aside=0, error="")
+        # the earlier run's memory and time go with its results: a run that never measures its own (stopped
+        # by a restart, refused by the lock) never shows the earlier peak, nor beside its own limit
+        summary = {k: v for k, v in (locked.summary or {}).items() if k not in RUN_SUMMARY}
         PowerBIUpload.objects.filter(pk=locked.pk).update(
             status=Status.QUEUED,
             queued_at=timezone.now(),
@@ -426,6 +431,9 @@ def again(upload: PowerBIUpload) -> bool:
             compared_at=None,
             sync_moved=False,
             choices=[],
+            summary=summary,
+            peak_memory_mb=None,
+            seconds=None,
         )
     return True
 
@@ -460,6 +468,7 @@ def run(pk: int, memory_limit: int | None = None) -> PowerBIUpload | None:
         return PowerBIUpload.objects.filter(pk=pk).first()
     started = time.monotonic()
     step, visual = "starting", ""
+    current: PowerBIExport | None = None  # the export being compared
     try:
         close_stale(ours=pk)
         if PowerBIUpload.objects.filter(pk=pk, status=Status.QUEUED, trimmed=True).update(
@@ -468,7 +477,7 @@ def run(pk: int, memory_limit: int | None = None) -> PowerBIUpload | None:
             logger.warning("Compare with Power BI %s: its rows were removed before it started", pk)
             return PowerBIUpload.objects.filter(pk=pk).first()
         if not PowerBIUpload.objects.filter(pk=pk, status=Status.QUEUED).update(
-            status=Status.READING, started_at=timezone.now()
+            status=Status.READING, started_at=timezone.now(), peak_memory_mb=None, seconds=None
         ):
             logger.info("Compare with Power BI %s: not waiting, nothing to do", pk)
             return None
@@ -490,11 +499,11 @@ def run(pk: int, memory_limit: int | None = None) -> PowerBIUpload | None:
         context = _context(upload)
         compared = []
         for n, export in enumerate(_in_order(exports_of(upload)), start=1):
-            step, visual = "comparing", _visual(export.kind)
+            step, visual, current = "comparing", _visual(export.kind), export
             result = _compare(export, upload, context)
             _release(context)
-            if isinstance(result, OutOfMemory):
-                _out_of_memory(export, upload.pk, result.found)
+            if isinstance(result, Failed):  # recorded once what it held was let go
+                _record_failure(export, upload.pk, result.found)
             elif result is not None:
                 compared.append((export, result))
             _progress(upload, n)
@@ -538,6 +547,8 @@ def run(pk: int, memory_limit: int | None = None) -> PowerBIUpload | None:
         upload = PowerBIUpload.objects.filter(pk=pk).first()
         if upload is None:
             return None
+        if step == "comparing" and current is not None:
+            _stopped_during(current, pk, exc, found)
         error = words.STOPPED_UPLOAD if _staged_left(pk) else words.STOPPED_AGAIN  # its copies are emptied
         where = words.UPLOAD_STEPS[step].format(visual=visual)
         return _fail(upload, error.format(step=where, what=words.failure(found)), started)
@@ -781,29 +792,30 @@ def _in_order(exports: QuerySet[PowerBIExport]) -> list[PowerBIExport]:
 
 
 @dataclass(frozen=True)
-class OutOfMemory:
-    """An export whose comparison ran out of memory (:func:`_compare`): what stopped it (:func:`failure`)."""
+class Failed:
+    """An export whose comparison failed (:func:`_compare`): what stopped it (:func:`failure`). The job
+    records it once what the export held was let go (the comparer's frames, then :func:`_release`), and it
+    alone could not be compared (out of memory: "not enough memory", with the job's memory peak and limit);
+    the next export is compared, and fails alone the same way if memory is short still. Nothing is taken
+    first to judge whether the memory was freed: the heap keeps the address space it freed (the job's data
+    does not shrink, and its data limit counts it), so a fresh block of a few MB is refused while the next
+    export's own objects still fit in what was freed. The comparison stops only when the job cannot even
+    record the failure (:func:`_stopped_during`)."""
 
     found: dict[str, Any]
 
 
-def _out_of_memory(export: PowerBIExport, upload_pk: int, found: dict[str, Any]) -> None:
-    """An export that ran out of memory, once what it held was let go (:func:`_release`): it alone could not
-    be compared ("not enough memory", with the job's memory peak and limit), and the next export is compared.
-    When the job cannot take :data:`MEMORY_PROBE` again even so, its memory could not be freed: a MemoryError,
-    and the whole comparison stops."""
-    _record_failure(export, upload_pk, found)
-    if not _freed():
-        raise MemoryError
-
-
-def _freed() -> bool:
-    """Whether the job can take :data:`MEMORY_PROBE` again (what an export held, let go)."""
-    try:
-        bytearray(MEMORY_PROBE)
-    except MemoryError:
-        return False
-    return True
+def _stopped_during(export: PowerBIExport, upload_pk: int, exc: BaseException, found: dict[str, Any]) -> None:
+    """The export a stopped comparison was comparing, when nothing recorded it yet (the job could not record
+    its failure, or the error came before its comparer ran): it could not be compared, as an export that fails
+    alone, never "stopped before it" (the upload names it). One compared or recorded already is left as it is.
+    Best effort: the upload's own failure is recorded whatever happens here."""
+    with contextlib.suppress(Exception):
+        if not PowerBIExport.objects.filter(pk=export.pk, state__in=("staged", "read")).exists():
+            return
+        if found["cls"] != "MemoryError":  # an export's step ("comparing" is the upload's)
+            found = {**found, "step": _step_of(exc)}
+        _record_failure(export, upload_pk, found)
 
 
 def _release(context: powerbi_facts.Context) -> None:
@@ -822,11 +834,10 @@ def _progress(upload: PowerBIUpload, n: int) -> None:
 
 def _compare(
     export: PowerBIExport, upload: PowerBIUpload, context: powerbi_facts.Context
-) -> powerbi_match.Result | OutOfMemory | None:
+) -> powerbi_match.Result | Failed | None:
     """One export against NeuroDB, in its own snapshot of the data; one that fails leaves the others. Returns
     its result, whose lines are written once every export is compared (:func:`_write_lines`), None (no
-    comparer ran, or it failed), or :class:`OutOfMemory` (the job then lets go of what the export held and
-    records it: :func:`_out_of_memory`)."""
+    comparer ran), or :class:`Failed` (the job then lets go of what the export held and records it)."""
     from . import powerbi_results, raw
 
     if export.state == "failed":
@@ -885,24 +896,24 @@ def _compare(
             update_fields=["state", "verdict", "notes", "counts", "fits", "set_aside", "filters", "clauses"]
         )
         return result
-    except MemoryError as exc:  # past the job's memory limit
-        traceback.clear_frames(exc.__traceback__)  # the comparer's frames let go of what they held
-        return OutOfMemory(failure(exc, step))
     except Exception as exc:  # noqa: BLE001 - one export never stops the others; its step and class only
-        _failed(export, upload.pk, exc, _step_of(exc) if step == "comparing" else step)
-        return None
+        if step == "comparing" and not isinstance(exc, MemoryError):  # out of memory: no step (failure)
+            step = _step_of(exc)
+        traceback.clear_frames(exc.__traceback__)  # the comparer's frames let go of what they held
+        return Failed(failure(exc, step))
 
 
 def _failed(export: PowerBIExport, upload_pk: int, exc: Exception, step: str) -> None:
-    """One export that could not be compared (or its lines not written): its lines and counts removed (never
-    a difference to look at that no line shows); the step it stopped at and what stopped it (:func:`failure`),
-    kept in its counts for its verdict."""
+    """An export whose lines could not be written (:func:`_write_lines`), recorded as one that could not be
+    compared (:func:`_record_failure`)."""
     _record_failure(export, upload_pk, failure(exc, step))
 
 
 def _record_failure(export: PowerBIExport, upload_pk: int, found: dict[str, Any]) -> None:
-    """An export that could not be compared, as :func:`_failed` records it: out of memory, without its step
-    (the export's whole comparison took the memory) but with the job's memory peak and limit."""
+    """An export that could not be compared (:class:`Failed`), or its lines not written: its lines and counts
+    removed (never a difference to look at that no line shows); the step it stopped at and what stopped it
+    (:func:`failure`), kept in its counts for its verdict; out of memory, without its step (the export's whole
+    comparison took the memory) but with the job's memory peak and limit."""
     logger.warning(
         "Compare with Power BI %s: %s could not be compared at %s (%s)",
         upload_pk,

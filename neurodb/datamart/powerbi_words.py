@@ -262,6 +262,9 @@ TODO_NOT_READ_ONE = "1 file was not read: see why below, then export it again."
 # an export read, whose comparison stopped: nothing to export again
 TODO_NOT_COMPARED = "{n:,} exports could not be compared: press Compare again."
 TODO_NOT_COMPARED_ONE = "1 export could not be compared: press Compare again."
+# the same once the upload's rows were removed (trimmed): Compare again is refused
+TODO_NOT_COMPARED_TRIMMED = "{n:,} exports could not be compared: upload the files again."
+TODO_NOT_COMPARED_TRIMMED_ONE = "1 export could not be compared: upload the files again."
 TODO_EMPTY = (
     "{n:,} exports are empty in Power BI while NeuroDB's page has rows for their filter: check the visuals' "
     "filters in Power BI and export them again."
@@ -681,6 +684,13 @@ VERDICT_ACTIONS = {
 }
 # a trimmed upload keeps its verdicts, not its lines: no Excel file to send
 TRIMMED_ACTION = "Upload the files again to see these differences."
+# nor its rows: Compare again is refused, the files are compared from the start again (an export that could
+# not be compared; an upload that stopped, whose error says UPLOAD_AGAIN in place of AGAIN)
+TRIMMED_FAILED_ACTION = (
+    "Upload the files again. If it fails again, tell the NeuroDB team which export it was."
+)
+AGAIN = "press Compare again"
+UPLOAD_AGAIN = "upload the files again"
 
 VERDICT_COUNTED_ALSO = "{verdict}; also {parts}"
 # the expected rows NeuroDB cannot hold, in an export's verdict, and what they need

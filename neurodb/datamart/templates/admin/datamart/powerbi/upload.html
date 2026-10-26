@@ -32,8 +32,8 @@
   {% endif %}
   {% if busy %}
     <p class="nd-fixed__note" role="status" data-pbi-busy>{{ words.STARTED }}</p>
-  {% elif upload.error %}
-    <p class="text-red-600 dark:text-red-500" role="alert" data-pbi-error>{{ upload.error }}</p>
+  {% elif upload_error %}
+    <p class="text-red-600 dark:text-red-500" role="alert" data-pbi-error>{{ upload_error }}</p>
   {% endif %}
   {% if trimmed %}<p class="nd-menu__note">{{ trimmed }}</p>{% endif %}
 

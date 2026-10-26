@@ -3082,11 +3082,13 @@ comparison: its kind, group, reason, rule, detail, the values it is matched by, 
 NeuroDB, another reading] and its "Check in NeuroDB" address). Every queryset defers `content` and `rows`.
 Retention (`powerbi_compare.KEEP_FULL = 3`): when an upload is created and after every job, older uploads lose
 their rows, copies and lines and keep their summary and counts ("Details removed": no link to a line, no Excel
-file, "Upload the files again to see these differences"). An upload waiting to be compared or being compared is
-never trimmed, nor counted among the newest: its job trims the others when it ends. A queued upload trimmed all
-the same fails ("upload them again"), and an export whose rows are gone fails alone: never compared against
-nothing. Kept rows of a full set of
-exports take a few MB; the lines at most 60,000 an upload.
+file, "Upload the files again to see these differences"; *Compare again* is refused, so an export that could not
+be compared or that a stopped comparison never reached, What to do now and the upload's own error say to upload
+the files again, never to press *Compare again*: `powerbi_results.upload_error`). An upload waiting to be
+compared or being compared is never trimmed, nor counted among the newest: its job trims the others when it
+ends. A queued upload trimmed all the same fails ("upload them again"), and an export whose rows are gone fails
+alone: never compared against nothing. Kept rows of a full set of exports take a few MB; the lines at most
+60,000 an upload.
 
 **The job** (`datamart/powerbi_compare.py`, `compare_powerbi --upload-id <pk> --triggered-by <user>`, started by
 *Upload and compare* and *Compare again* through `background.start_command`). It first lowers its CPU priority
@@ -3094,14 +3096,20 @@ exports take a few MB; the lines at most 60,000 an upload.
 the cgroup's limit less what the container uses, reclaimable page cache not counted, less 150 MB for the web
 workers and the scheduler's jobs), at most 600 MB and at least 250 MB, kept as the upload's
 `summary["memory_limit_mb"]` from the job's start beside `peak_memory_mb`; the upload's page shows both to the
-validators ("Memory: peak 203 MB of 250 MB allowed."). An export that runs out of memory (a `MemoryError`) lets
-go of what it held (its comparer's frames, `traceback.clear_frames`; the page figures it kept, then a full
-collection) and fails alone: "Could not be compared: not enough memory (peak 249 MB of 250 MB allowed)", and the
-next export is compared. The comparison stops only when its memory cannot be freed (the job cannot take
-`MEMORY_PROBE`, 16 MB, again): "The comparison stopped while comparing Program Performance (MemoryError, peak 249
-MB of 250 MB allowed): press Compare again." ("upload the files again" when a copy waits unread), never the
-container stopped; the exports it read and never compared say "Not compared: the comparison stopped before it"
-(never "Not uploaded": their files were uploaded), "Waiting to be compared" while it runs.
+validators ("Memory: peak 203 MB of 250 MB allowed."); *Compare again* clears the earlier run's peak, time and
+limit, so a run that never measures its own (closed as stale, refused by the lock) shows none of them. An export
+that fails, out of memory (a `MemoryError`) or otherwise, lets go of what it held (its comparer's frames,
+`traceback.clear_frames`; the page figures it kept, then a full collection) before its failure is written, and
+fails alone: "Could not be compared: not enough memory (peak 249 MB of 250 MB allowed)", and the next export is
+compared (if memory is still short, it fails alone the same way). No block is taken first to judge whether the
+memory was freed: glibc's heap keeps the address space it freed (`VmData` stays at the limit, which counts it),
+so a fresh 16 MB block was refused while the next exports' own objects still fitted (a run under 160 MB on
+production-shaped data). The comparison stops only when the job cannot even write the failure: "The comparison
+stopped while comparing Program Performance (MemoryError, peak 249 MB of 250 MB allowed): press Compare again."
+("upload the files again" when a copy waits unread, or once the upload's rows were removed), never the container
+stopped; the export it stopped at is then written as one that could not be compared (best effort), and the
+exports it read and never compared say "Not compared: the comparison stopped before it" (never "Not uploaded":
+their files were uploaded), "Waiting to be compared" while it runs.
 Its lock `background.POWERBI_COMPARE_LOCK_ID = 7140443` (not a `SyncRun` job, not in `LOCK_IDS`): a second job
 fails its upload ("Another comparison was running"). An upload is refused while a comparison, a Datamart sync or
 a KM Database load runs (their locks); the check and the queueing are one step under a transaction lock of their
