@@ -91,6 +91,7 @@ TARGET_TOLERANCE = 1e-6  # two targets within this (relative) are one: a decimal
 CALIBRATED_BY = ("partner_reports", "pd_indicators")  # the sync runs that store the proof
 SIGNATURE_CHUNK = 5000  # rows whose signature is read in one query
 CALIBRATION_CHUNK = 2000  # partner report rows :func:`calibrate` reads at a time
+INDICATOR_CHUNK = 2000  # PD indicator rows :class:`Idents` reads at a time
 ACTIVE_NOTE = (
     "Its programme document also holds an inactive indicator with this title and output: the partner "
     "reports are read as this one's."
@@ -294,6 +295,53 @@ class Group:
         return found.pop() if len(found) == 1 else None
 
 
+class Seen:
+    """What the PD indicator rows of one identity say for the tie-breakers (:class:`Candidate`): the values
+    each field takes over its rows, gathered as they are read. The rows themselves are never kept: the
+    Datamart lists an indicator once per location and disaggregation, hundreds of thousands of rows."""
+
+    __slots__ = (
+        "active",
+        "cluster",
+        "disaggregations",
+        "high_frequency",
+        "kinds",
+        "means",
+        "planned",
+        "sections",
+        "targets",
+    )
+
+    def __init__(self) -> None:
+        self.high_frequency: set[bool] = set()
+        self.cluster = False
+        self.targets: set[tuple[float, float] | None] = set()
+        self.kinds: set[tuple[str, str]] = set()
+        self.disaggregations: set[str] = set()
+        self.planned: set[str] = set()
+        self.active: set[bool] = set()
+        self.means: set[str] = set()
+        self.sections: set[str] = set()
+
+    def add(self, row: tuple) -> None:
+        """One row of the identity (its :data:`_FIELDS`)."""
+        (_pd, _source, _title, _output, high_frequency, cluster, numerator, denominator, display_type, unit,
+         disaggregation_name, p_code, active, means, section) = row  # fmt: skip
+        self.high_frequency.add(bool(high_frequency))
+        self.cluster = self.cluster or bool((cluster or "").strip())
+        self.targets.add(_pair(numerator, denominator))
+        self.kinds.add((norm(display_type), norm(unit)))
+        if norm(disaggregation_name):
+            self.disaggregations.add(norm(disaggregation_name))
+        if (p_code or "").strip():
+            self.planned.add(p_code.strip().upper())
+        self.active.add(bool(active))
+        if norm(means):
+            self.means.add(norm(means))
+        if norm(section):
+            self.sections.add(norm(section))
+
+
 @dataclass(frozen=True)
 class Candidate:
     """A PD indicator as the tie-breakers read it, from every row of its identity (None: its rows disagree, or
@@ -311,25 +359,18 @@ class Candidate:
     section: str
 
     @classmethod
-    def of(cls, ident: tuple[int, str], rows: list[tuple]) -> Candidate:
-        field_of = {name: n for n, name in enumerate(_FIELDS)}
-
-        def each(name: str) -> list[Any]:
-            return [row[field_of[name]] for row in rows]
-
+    def of(cls, ident: tuple[int, str], seen: Seen) -> Candidate:
         return cls(
             ident=ident,
-            high_frequency=_agreed(bool(v) for v in each("is_high_frequency")),
-            cluster=any((v or "").strip() for v in each("cluster_name")),
-            target=_agreed(
-                _pair(n, d) for n, d in zip(each("target_numerator"), each("target_denominator"), strict=True)
-            ),
-            kind=_agreed((norm(t), norm(u)) for t, u in zip(each("display_type"), each("unit"), strict=True)),
-            disaggregations=frozenset(norm(v) for v in each("disaggregation_name") if norm(v)),
-            planned=frozenset((v or "").strip().upper() for v in each("location_pcode") if (v or "").strip()),
-            active=_agreed(bool(v) for v in each("is_active")),
-            means=_agreed(norm(v) for v in each("means_of_verification") if norm(v)) or "",
-            section=_agreed(norm(v) for v in each("section_name") if norm(v)) or "",
+            high_frequency=_agreed(seen.high_frequency),
+            cluster=seen.cluster,
+            target=_agreed(seen.targets),
+            kind=_agreed(seen.kinds),
+            disaggregations=frozenset(seen.disaggregations),
+            planned=frozenset(seen.planned),
+            active=_agreed(seen.active),
+            means=_agreed(seen.means) or "",
+            section=_agreed(seen.sections) or "",
         )
 
     def value(self, name: str) -> Any:
@@ -488,7 +529,10 @@ class Idents:
         self.by_source: dict[tuple[int, str], tuple[int, str]] = {}
         titles: dict[tuple[int, str], set[tuple[int, str]]] = defaultdict(set)
         outputs: dict[tuple[int, str, str], set[tuple[int, str]]] = defaultdict(set)
-        self._rows: dict[tuple[int, str], list[tuple]] = defaultdict(list)
+        # each identity's rows as the tie-breakers read them, and its definition (its first row's, in the
+        # order Partner monitoring reads them): never the rows themselves
+        self._seen: dict[tuple[int, str], Seen] = defaultdict(Seen)
+        self._definitions: dict[tuple[int, str], tuple[str, str, float | None]] = {}
         self._order: dict[tuple[int, str], int] = {}  # each identity's first row, in the definition order
         self._candidates: dict[tuple[int, str], Candidate] = {}
         rows = (
@@ -496,15 +540,18 @@ class Idents:
             .order_by("lower_result_name", "title", "datamart_id")
             .values_list(*_FIELDS)
         )
-        for row in rows:
+        for row in rows.iterator(chunk_size=INDICATOR_CHUNK):
             pd_id, source_id, title, output = row[:4]
             ident = ident_of(pd_id, source_id, title)
             if source_id:
                 self.by_source.setdefault((pd_id, str(source_id)), ident)
             titles[(pd_id, norm(title))].add(ident)
             outputs[(pd_id, norm(output), norm(title))].add(ident)
-            self._rows[ident].append(row)
-            self._order.setdefault(ident, len(self._order))
+            self._seen[ident].add(row)
+            if ident not in self._order:
+                self._order[ident] = len(self._order)
+                first = dict(zip(_FIELDS, row, strict=True))
+                self._definitions[ident] = (first["display_type"], first["unit"], target_of(first))
         self._titles = titles
         self.by_title = {key: next(iter(found)) for key, found in titles.items() if len(found) == 1}
         # the titles two or more indicators of a PD share: a row is then placed by its output and title,
@@ -558,7 +605,7 @@ class Idents:
     def candidate(self, ident: tuple[int, str]) -> Candidate:
         found = self._candidates.get(ident)
         if found is None:
-            found = self._candidates[ident] = Candidate.of(ident, self._rows.get(ident, []))
+            found = self._candidates[ident] = Candidate.of(ident, self._seen.get(ident) or Seen())
         return found
 
     def candidates(self, pd_id: Any, output: str | None, title: str | None) -> list[Candidate]:
@@ -572,11 +619,7 @@ class Idents:
     def definition(self, ident: tuple[int, str]) -> tuple[str, str, float | None] | None:
         """(display type, unit, target) of an indicator: its first row, in the order Partner monitoring
         reads them (output, title, Datamart id)."""
-        rows = self._rows.get(ident)
-        if not rows:
-            return None
-        row = dict(zip(_FIELDS, rows[0], strict=True))
-        return row["display_type"], row["unit"], target_of(row)
+        return self._definitions.get(ident)
 
     @functools.cached_property
     def read_whole(self) -> bool:

@@ -1008,6 +1008,50 @@ def test_a_comparison_changes_no_figure_of_neurodbs_pages_and_writes_nothing_els
     assert SyncRun.objects.count() == runs
 
 
+@pytest.mark.parametrize("year", ["2026", "all"])
+def test_reading_each_rows_total_alone_gives_the_pages_figures(world, year):
+    """The comparison reads each partner report row's disaggregation as its total alone, never its narrative
+    (``monitoring.indicators(totals=True)``): every figure Partner monitoring shows is the same; only Reached by
+    disaggregation, which the comparison never reads, is left out."""
+    from neurodb.datamart import monitoring
+
+    day = D(2026, 10, 15)
+    filters = monitoring.Filters.from_params({"pd_status": [], "year": year}, day, default_year=False)
+    page = {e.ident: e for e in monitoring.indicators(filters, day)}
+    light = {e.ident: e for e in monitoring.indicators(filters, day, totals=True)}
+    assert page and page.keys() == light.keys()
+    names = (
+        "reached", "reached_in_year", "in_year_item", "to_quarter", "months", "years", "by_location", "reports",
+        "awaiting", "awaiting_reports", "as_of", "prp_cumulative", "mismatch", "value_status", "partial",
+        "report_type", "partner_status", "report_status", "tracking", "achieved", "method", "period_method",
+        "ratio", "percentage", "rows_placed", "placed_by",
+    )  # fmt: skip
+    for ident, entry in page.items():
+        assert [getattr(light[ident], n) for n in names] == [getattr(entry, n) for n in names], ident
+    keys = [{k for found in e.result.disaggregation.values() for k in found} for e in page.values()]
+    assert {"()", "(1,)", "(2,)"} in keys  # Akkar's 10 by sex, on the page alone
+    assert all(set(found) <= {"()"} for e in light.values() for found in e.result.disaggregation.values())
+
+
+def test_why_a_power_bi_row_has_no_indicator_on_the_page_never_reads_a_report(world):
+    """``_titles`` reads the indicators of the PDs holding the titles alone, never their partner reports: their
+    Reached is never needed (production's renewed PDs share most titles, and their reports read whole took the
+    job past its memory)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from neurodb.datamart import powerbi_facts, powerbi_filters, powerbi_kinds
+
+    context = powerbi_facts.Context(day=D(2026, 10, 15), history=D(2026, 1, 1))
+    with CaptureQueriesContext(connection) as queries:
+        found = powerbi_kinds._titles(
+            context, powerbi_filters.Filter(), ["Fake indicator 1", "Fake percentage 2"]
+        )
+    assert {n["pd"] for rows in found.values() for n in rows} == {PD}
+    assert all(n["reached"] is None and n["partial"] is False for rows in found.values() for n in rows)
+    assert not [q for q in queries.captured_queries if "datamart_reportedindicator" in q["sql"]]
+
+
 def test_compare_again_compares_the_same_rows_with_neurodbs_newest_data(checker, world):
     from django.urls import reverse
 
@@ -1784,7 +1828,8 @@ def test_program_performance_reads_every_pd_status_only_for_the_pds_of_the_title
 ):
     """Why a Power BI row has no indicator on the page is read from the PDs that hold its title only, never from
     every PD indicator NeuroDB holds of every status (273,253 rows in production: past the job's memory, a
-    DatabaseError). The reasons stay the same."""
+    DatabaseError), and from their indicators alone (``monitoring.collect``, never their reports). The reasons
+    stay the same."""
     from neurodb.datamart import monitoring
     from neurodb.partnerships.models import PCA
 
@@ -1798,13 +1843,13 @@ def test_program_performance_reads_every_pd_status_only_for_the_pds_of_the_title
         )  # fmt: skip
         _indicator(other, 300 + n, f"Fake other indicator {n}")
     calls = []
-    real = monitoring.indicators
+    real = monitoring.collect
 
-    def spy(filters, today=None, **options):
+    def spy(filters, steps=None):
         calls.append((filters.statuses_read, sorted(filters.pd_ids)))
-        return real(filters, today, **options)
+        return real(filters, steps)
 
-    monkeypatch.setattr(monitoring, "indicators", spy)
+    monkeypatch.setattr(monitoring, "collect", spy)
     rows = [
         _pp(indicator_title="Fake indicator 1", target=100, reached=10, achieved=0.1),
         _pp(indicator_title="Fake ended indicator", target=100, reached=3, achieved=0.03),
@@ -1846,10 +1891,10 @@ def test_program_performance_reads_the_pds_of_a_shared_title_a_few_at_a_time(che
             _indicator(other, 400 + 10 * n + k, f"Fake own indicator {n}-{k}")
         holding.append(other.pk)
     calls, kept = [], []
-    real, real_titles = monitoring.indicators, powerbi_kinds._titles
+    real, real_titles = monitoring.collect, powerbi_kinds._titles
 
-    def spy(filters, today=None, **options):
-        found = real(filters, today, **options)
+    def spy(filters, steps=None):
+        found = real(filters, steps)
         if filters.statuses_read == []:
             calls.append((sorted(filters.pd_ids), len(found)))
         return found
@@ -1858,7 +1903,7 @@ def test_program_performance_reads_the_pds_of_a_shared_title_a_few_at_a_time(che
         kept.append(real_titles(*args))
         return kept[-1]
 
-    monkeypatch.setattr(monitoring, "indicators", spy)
+    monkeypatch.setattr(monitoring, "collect", spy)
     monkeypatch.setattr(powerbi_kinds, "_titles", titles)
     rows = [_pp(indicator_title="Fake shared indicator", target=100, reached=3, achieved=0.03)]
     upload = pf.compared(checker, _one("program_performance", rows, filters=PP_FILTERS))

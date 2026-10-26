@@ -194,22 +194,39 @@ def monitoring_filters(parsed: Filter, context: pf.Context, view: str, *, sectio
 
 
 def indicators(
-    parsed: Filter, context: pf.Context, view: str = "table", *, pd_ids: Iterable[int] | None = None
+    parsed: Filter,
+    context: pf.Context,
+    view: str = "table",
+    *,
+    pd_ids: Iterable[int] | None = None,
+    reached: bool = True,
 ) -> list[dict[str, Any]]:
     """Partner monitoring's indicators for Power BI's filter (every section: the comparison reads which ones
-    the page's section filter keeps, ``in_section``), each as :data:`INDICATOR_FIELDS`. ``pd_ids``: those of
-    these PDs only (none when it is empty), read for this call alone: never kept for another export."""
-    from . import monitoring
-
+    the page's section filter keeps, ``in_section``), each as :data:`INDICATOR_FIELDS`, kept for the export
+    as these fields alone (never the page's own entries, which hold every report read). Each report row's
+    disaggregation is read as its total alone (``monitoring.indicators``' ``totals``: the figures are the
+    page's). ``pd_ids``: those of these PDs only (none when it is empty), read for this call alone.
+    ``reached``: False for the indicators alone (``monitoring.collect``: no report is read), their Reached,
+    Reached in the year, % and Accepted-only figure None."""
     filters = monitoring_filters(parsed, context, view, sections=False)
     if pd_ids is None:
-        key = ("indicators", filters.cache_key())
-        found = context.once(key, lambda: monitoring.indicators(filters, context.day))
-    else:
-        ids = sorted(set(pd_ids))
-        if not ids:
-            return []
-        found = monitoring.indicators(dataclasses.replace(filters, pd_ids=ids), context.day)
+        key = ("indicators", filters.cache_key(), reached)
+        return context.once(key, lambda: _indicators(filters, context, reached))
+    ids = sorted(set(pd_ids))
+    if not ids:
+        return []
+    return _indicators(dataclasses.replace(filters, pd_ids=ids), context, reached)
+
+
+def _indicators(filters, context: pf.Context, reached: bool) -> list[dict[str, Any]]:
+    from . import monitoring
+
+    if reached:
+        found = monitoring.indicators(filters, context.day, totals=True)
+    else:  # what Reached would say of its history: a PD that started before it has a partial one
+        found = list(monitoring.collect(filters).values())
+        for entry in found:
+            entry.partial = bool(entry.pd.start and entry.pd.start < context.history)
     held = pf.pds(context)
     out = []
     for entry in found:

@@ -245,7 +245,10 @@ data, counted another way", "Same, apart from reports still owed: 12", "Wait for
 in eTools", "Needs a look: 2", "Power BI may have cut PD/SPD Report: 4", "Empty in Power BI", "Not uploaded") and what to do, and each export with its
 file, the rows read, what its filter covers ("2026", "Every year", "Education only") and its counts: rows
 compared, the same, different, only in Power BI, only in NeuroDB. While NeuroDB compares, the page refreshes by
-itself every few seconds.
+itself every few seconds. Once it ran, the page says how much memory the comparison took and how much it may
+take ("Memory: peak 203 MB of 250 MB allowed."). An export it had no memory left for says "Could not be compared:
+not enough memory" with the same two figures, and the others are still compared; if the comparison stops, the
+exports it had not reached yet say "Not compared: the comparison stopped before it": press *Compare again*.
 
 **An export's page** shows its filters one by one, its notes (rules that apply to every row are said once
 there: Power BI's Emergency indicator is Yes for an SPD, its Section and CP Output are the PD's), the

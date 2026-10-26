@@ -126,6 +126,12 @@ UPLOAD_STEPS = {
 }
 NO_CODE = "{cls} with no code"  # a database error without SQLSTATE: the database client's own
 AT_MEMORY_LIMIT = "at the job's memory limit"
+# the job's memory (``powerbi_compare.memory``): its data peak and its data limit, numbers only
+MEMORY = "peak {peak:,} MB of {limit:,} MB allowed"
+MEMORY_NO_LIMIT = "peak {peak:,} MB"  # a job run without a data limit
+MEMORY_USED = "Memory: {memory}."  # the upload's page, once its comparison ran
+NOT_ENOUGH_MEMORY = "not enough memory ({memory})"  # an export that ran out of memory (it alone)
+STOPPED_MEMORY = "The comparison stopped: {what}."  # its sentence
 # what a database error's SQLSTATE code means (PostgreSQL's codes), else its class (the first two characters)
 SQLSTATE_WORDS = {
     "22001": "a text too long for its column",
@@ -204,6 +210,10 @@ STATE_ACTIONS = {
 }
 NOT_UPLOADED = "Not uploaded"
 NOT_UPLOADED_ACTION = "Export this visual too (see How to export)."
+# an export uploaded (and read) the comparison never reached: it stopped before it, or it still runs
+STOPPED_BEFORE = "Not compared: the comparison stopped before it"
+STOPPED_BEFORE_ACTION = "Press Compare again."
+WAITING = "Waiting to be compared"
 # an export waiting to be read when its upload failed: its copy was emptied, it never will be
 NOT_READ_STATE = "Not read"
 NOT_READ_ACTION = "Upload the files again."
@@ -645,6 +655,9 @@ VERDICT_WORDS = {
     "not_read": "Not compared: could not be read",
     "failed": "Could not be compared {step}: {what}",
     "failed_before": "Could not be compared: {cls}",  # an export that failed before its step was kept
+    "failed_memory": "Could not be compared: {what}",  # out of memory (``NOT_ENOUGH_MEMORY``)
+    "stopped": STOPPED_BEFORE,
+    "waiting": WAITING,
 }
 VERDICT_ACTIONS = {
     "same": "Nothing.",
@@ -663,6 +676,8 @@ VERDICT_ACTIONS = {
     "other_country": "Export it again with Country name {country}.",  # the country NeuroDB holds
     "not_read": "Export it again.",
     "failed": "Press Compare again. If it fails again, tell the NeuroDB team which export it was.",
+    "stopped": STOPPED_BEFORE_ACTION,  # or upload the files again, when a copy was emptied unread
+    "waiting": "",
 }
 # a trimmed upload keeps its verdicts, not its lines: no Excel file to send
 TRIMMED_ACTION = "Upload the files again to see these differences."
@@ -767,15 +782,31 @@ def either(n: int, one: str, many: str) -> str:
 
 
 def failure(found: dict) -> str:
-    """What stopped a comparison, in words (``found``: ``powerbi_compare.failure``'s): the exception's class;
-    a database error's SQLSTATE code and what it means ("DataError 22012, a division by zero"); a database
-    error without a code (the database client's own), and whether the job was at its memory limit then."""
+    """What stopped a comparison, in words (``found``: ``powerbi_compare.failure``'s): the exception's class
+    (a MemoryError with the job's memory peak and limit: "MemoryError, peak 290 MB of 300 MB allowed"); a
+    database error's SQLSTATE code and what it means ("DataError 22012, a division by zero"); a database error
+    without a code (the database client's own), and whether the job was at its memory limit then."""
     cls = found.get("cls") or "Error"
     if "code" not in found:
-        return cls
+        return f"{cls}, {memory(found)}" if "peak_mb" in found else cls
     code = found["code"]
     if code:
         meaning = SQLSTATE_WORDS.get(code) or SQLSTATE_CLASS_WORDS.get(code[:2], "")
         return f"{cls} {code}, {meaning}" if meaning else f"{cls} {code}"
     text = NO_CODE.format(cls=cls)
-    return f"{text}, {AT_MEMORY_LIMIT}" if found.get("memory") else text
+    if not found.get("memory"):
+        return text
+    text = f"{text}, {AT_MEMORY_LIMIT}"
+    return f"{text} ({memory(found)})" if "peak_mb" in found else text
+
+
+def memory(found: dict) -> str:
+    """The job's memory, numbers only ("peak 290 MB of 300 MB allowed"): ``found``'s ``peak_mb`` and
+    ``limit_mb`` (None: the job ran without a data limit)."""
+    peak, limit = round(found.get("peak_mb") or 0), found.get("limit_mb")
+    return MEMORY.format(peak=peak, limit=round(limit)) if limit else MEMORY_NO_LIMIT.format(peak=peak)
+
+
+def out_of_memory(found: dict) -> str:
+    """An export that ran out of memory: "not enough memory (peak 290 MB of 300 MB allowed)"."""
+    return NOT_ENOUGH_MEMORY.format(memory=memory(found))

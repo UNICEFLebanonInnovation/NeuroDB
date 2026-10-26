@@ -34,8 +34,6 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from django.urls import reverse
-
 from neurodb.partnerships import statuses as pd_statuses
 
 from . import powerbi_exports as px
@@ -46,6 +44,7 @@ from . import powerbi_read
 from . import powerbi_words as words
 from . import reached as rc
 from .powerbi_filters import Filter
+from .powerbi_links import reverse
 
 # compared first: the counted visuals are explained from the report list, Data Quality's card from its list
 FIRST = ("report_list", "dq_list")
@@ -203,7 +202,8 @@ class RowGuard:
     """One row being compared: an error a value of the row causes (:data:`ROW_ERRORS`) makes the row a
     difference of its own, "A value NeuroDB cannot read" (its values left out), and the comparison goes on
     with the next row. Any other error still stops the export's comparison: a database error (its snapshot
-    cannot go on after one), a memory error (the whole comparison stops), a fault of the comparer itself."""
+    cannot go on after one), a memory error (the export alone fails, once it let go of what it held), a fault
+    of the comparer itself."""
 
     __slots__ = ("job", "kind", "match", "rows")
 
@@ -1442,11 +1442,11 @@ def _joined(job: Job, pairs, left_pb, left_nd, shown_reached: str = "reached"):
 
 def _titles(context: pf.Context, parsed: Filter, wanted: Iterable[Any]) -> dict[str, list[dict[str, Any]]]:
     """The indicators NeuroDB holds of these titles, of any PD status, by title (why a Power BI row has none
-    on the page). Read for the PDs that hold one of the titles only (each PD's titles first, one small
-    query), :data:`TITLE_PDS` PDs at a time, and only these titles' indicators kept: never every PD indicator
-    of every status, which production holds by the hundred thousand (a read past the job's memory), even
-    when a title is shared by most PDs (a renewed PD keeps its logframe's titles). An indicator's Reached is
-    its PD's rows' alone: each title's are the same, whatever PDs are read with it."""
+    on the page): the indicators alone, never their reports (:func:`_pp_missing` reads their PD, section and
+    partner, and the facts of the page's own PDs). Read for the PDs that hold one of the titles only (each
+    PD's titles first, one small query), :data:`TITLE_PDS` PDs at a time, and only these titles' indicators
+    kept: never every PD indicator of every status, which production holds by the hundred thousand, even
+    when a title is shared by most PDs (a renewed PD keeps its logframe's titles)."""
     from . import models as dm
 
     titles = {pm.text(t) for t in wanted}
@@ -1459,7 +1459,7 @@ def _titles(context: pf.Context, parsed: Filter, wanted: Iterable[Any]) -> dict[
     every = dataclasses.replace(parsed, pd_statuses=[], sections=[])
     found: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for start in range(0, len(ids), TITLE_PDS):
-        for n in page.indicators(every, context, pd_ids=ids[start : start + TITLE_PDS]):
+        for n in page.indicators(every, context, pd_ids=ids[start : start + TITLE_PDS], reached=False):
             title = pm.text(n["title"])
             if title in titles:  # another title of the same PD: never kept
                 found[title].append(n)
@@ -2197,14 +2197,21 @@ def _disaggregation_key(
 def _disaggregation_sums(
     job: Job, data: bytes, with_start: bool, with_type: bool
 ) -> dict[tuple, dict[str, Any]]:
-    """Power BI's rows of one month, added up by their match values: the sum and the statuses."""
+    """Power BI's rows of one month, added up by their match values: the sum and the statuses. Each title is
+    kept once, as written and as compared (Power BI repeats it on every row of a report, place and label)."""
     out: dict[tuple, dict[str, Any]] = {}
     names = job.columns
+    titles: dict[Any, tuple[Any, str]] = {}
     with gzip.GzipFile(fileobj=io.BytesIO(data), mode="rb") as stream:
         for raw in stream:
             row = dict(zip(names, json.loads(raw), strict=False))
+            found = titles.get(row["indicator_title"])
+            if found is None:
+                title = row["indicator_title"]
+                found = titles[title] = (title, pm.text(title))
+            title, text = found
             key = _disaggregation_key(
-                pm.text(row["indicator_title"]),
+                text,
                 row["p_code"],
                 row.get("period_start"),
                 row["period_end"],
@@ -2218,7 +2225,7 @@ def _disaggregation_sums(
             if mine is None:
                 mine = out[key] = {
                     "match": [
-                        row["indicator_title"],
+                        title,
                         row["p_code"],
                         row.get("period_start"),
                         row["period_end"],
@@ -2309,11 +2316,12 @@ def _neurodb_disaggregations(
                     singles[pm.text(line.label)] = singles.get(pm.text(line.label), 0.0) + line.value
             shared = shared or any(len(t) > 1 for t in types.values())
             title = context.clean(block["indicator"])
+            text = pm.text(title)  # one for the block's labels
             for label in dict.fromkeys([*singles, *crosses]):
                 value = singles.get(label)
                 from_cross = crosses.get(label) if value is None else None
                 key = _disaggregation_key(
-                    pm.text(title),
+                    text,
                     block["p_code"],
                     block["period_start"],
                     block["period_end"],

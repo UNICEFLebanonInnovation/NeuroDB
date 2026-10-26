@@ -3093,9 +3093,15 @@ exports take a few MB; the lines at most 60,000 an upload.
 (`os.nice(10)`) and caps its data (`RLIMIT_DATA`) at what its container has left (`powerbi_compare.memory_room`:
 the cgroup's limit less what the container uses, reclaimable page cache not counted, less 150 MB for the web
 workers and the scheduler's jobs), at most 600 MB and at least 250 MB, kept as the upload's
-`summary["memory_limit_mb"]` beside `peak_memory_mb`: an overrun ends as "The comparison stopped while comparing
-Program Performance (MemoryError): upload the files again." instead of the container being stopped ("press
-Compare again" when every row is kept).
+`summary["memory_limit_mb"]` from the job's start beside `peak_memory_mb`; the upload's page shows both to the
+validators ("Memory: peak 203 MB of 250 MB allowed."). An export that runs out of memory (a `MemoryError`) lets
+go of what it held (its comparer's frames, `traceback.clear_frames`; the page figures it kept, then a full
+collection) and fails alone: "Could not be compared: not enough memory (peak 249 MB of 250 MB allowed)", and the
+next export is compared. The comparison stops only when its memory cannot be freed (the job cannot take
+`MEMORY_PROBE`, 16 MB, again): "The comparison stopped while comparing Program Performance (MemoryError, peak 249
+MB of 250 MB allowed): press Compare again." ("upload the files again" when a copy waits unread), never the
+container stopped; the exports it read and never compared say "Not compared: the comparison stopped before it"
+(never "Not uploaded": their files were uploaded), "Waiting to be compared" while it runs.
 Its lock `background.POWERBI_COMPARE_LOCK_ID = 7140443` (not a `SyncRun` job, not in `LOCK_IDS`): a second job
 fails its upload ("Another comparison was running"). An upload is refused while a comparison, a Datamart sync or
 a KM Database load runs (their locks); the check and the queueing are one step under a transaction lock of their
@@ -3111,8 +3117,28 @@ or queued for more than two minutes since `queued_at` ("The comparison stopped b
 restarted or ran out of memory)"; "press Compare again" when every row is kept). A start that fails fails the upload in
 the request. Logs carry counts, kinds, steps, class names and SQLSTATE codes only. Each upload keeps its own
 `seconds` and `peak_memory_mb`: read them on the first production uploads to size the next steps. The peak is the
-job's own (its `VmHWM` in `/proc/self/status`), never `ru_maxrss`, in which Linux keeps the peak of the web worker
-that started the job across exec (`ru_maxrss` only when `/proc` cannot be read).
+job's own data at its highest, what its data limit limits (`powerbi_compare._own_peak`: `VmPeak` less `VmSize`
+less `VmData` in `/proc/self/status`, the address space's peak less what of it is not data; never `VmHWM`, the
+resident memory's, which counts the libraries: a run stopped at a limit of 250 MB had a `VmHWM` of 273 MB), never
+`ru_maxrss`, in which Linux keeps the peak of the web worker that started the job across exec (`ru_maxrss` only
+when `/proc` cannot be read).
+
+**Its memory at production size** (Compare with Power BI's 13 exports of 26 Oct 2026 against 1,156 PDs, 267,716
+PD indicator rows and 22,595 partner report rows shaped like production's: the record kept as received, a
+cross-tab of disaggregation values, the partner's narrative and titles of 400 characters on every row): the
+job's data peaked at 203 MB (598 MB before: under any lower limit a MemoryError stopped it, in the Data Quality
+list or Program Performance) and compares every export under the 250 MB floor. What keeps it there: every comparer reads
+a partner report row's disaggregation as its total `"()"` alone and never its narrative (`reached.with_totals`,
+`monitoring.indicators(totals=True)`: the figures are the page's; By disaggregation reads every value it shows,
+never the narrative), in chunks, the texts a report repeats on each row kept once; an indicator's identity
+keeps what its PD indicator rows say for the tie-breakers, never the rows (`identity.Seen`); the facts behind
+the reasons are read 25 PDs at a time (`powerbi_facts.FACT_PDS`), their reports without their locations; why a
+Program Performance row has no indicator on the page reads the indicators alone, never their reports
+(`powerbi_page.indicators(reached=False)`); what an export reads of the pages is kept for that export alone, as
+the fields it compares (`powerbi_page.shown`), and let go before the next (`Context.release`, a full
+collection); and the job's links are reversed against the admin's and the reports' parts of the URLconf alone
+(`powerbi_links`, `powerbi_urls`), so its process never imports the rest of the site (the AI assistant's SDKs,
+some 50 MB). `tests/datamart/test_powerbi_job.py` bounds the job's allocations on production-shaped records.
 
 **A comparison that stops says where and why** (`powerbi_compare.failure`, `powerbi_words.failure`), so it can
 be fixed without the server's logs: the step (an export's: reading its rows, NeuroDB's page, the facts behind
@@ -3123,13 +3149,13 @@ day and the sync, preparing, comparing a named export (its visual, or its Power 
 bare "Table": "while comparing Program Performance"), writing the differences, the summary), the exception's
 class and, for a database error, its SQLSTATE code with what it means ("Could not be compared at NeuroDB's
 page: DataError 22012, a division by zero"). A database error with no code is the database client's own
-(libpq's "out of memory for query result" is one): it says so, and "at the job's memory limit" when the job's
-own memory peak (`VmHWM`) or its data reached 90% of its data limit. Never a value, a
+(libpq's "out of memory for query result" is one): it says so, and "at the job's memory limit (peak 249 MB of
+250 MB allowed)" when the job's data peak or its data now reached 90% of its data limit. Never a value, a
 query or the database's own message. An export that fails keeps the step in `counts["failure"]` and nothing
 else of its counts or fit tables (no "Needs a look" over lines that were removed). One row whose values NeuroDB
 cannot compute with (an arithmetic, value or type error while the row is compared: `powerbi_kinds.RowGuard`)
 is a line of its own, "A value NeuroDB cannot read", and the export goes on; a database or memory error still
-stops it.
+stops it (a memory error that export alone, above).
 
 **The comparison** (`datamart/powerbi_kinds.py`, with `powerbi_match.py`, `powerbi_page.py`,
 `powerbi_facts.py` and `powerbi_results.py`). Each export is compared in its own `raw.snapshot` (REPEATABLE READ
@@ -3148,11 +3174,12 @@ the card are explained from them), then Power BI's order.
   with a recorder that only gives each line's chosen record (By location; the record's own target, per
   location), `reporting.disaggregation_rows` + `fill_block` month by month (By disaggregation, read PD by PD
   when a month passes the tab's limit), `funds.partner_contributions` and `funds.funded_programmes`. Why a Program Performance row has no indicator
-  on the page reads the indicators of every PD status for the PDs that hold one of the left-over rows' titles
-  only (`powerbi_kinds._titles`: each PD's titles first, one DISTINCT query), `TITLE_PDS` (50) PDs at a time,
-  keeping only those titles' indicators, never for every PD at once: production's 273,253 PD indicator rows read
-  whole took the job past its memory (a `DatabaseError` with no code from libpq, or a `MemoryError`), and a
-  title most PDs share (a renewed PD keeps its logframe's titles) would read most of them again. Nothing
+  on the page reads the indicators of every PD status, without their reports, for the PDs that hold one of the
+  left-over rows' titles only (`powerbi_kinds._titles`: each PD's titles first, one DISTINCT query), `TITLE_PDS`
+  (50) PDs at a time, keeping only those titles' indicators, never for every PD at once: production's 273,253 PD
+  indicator rows read whole took the job past its memory (a `DatabaseError` with no code from libpq, or a
+  `MemoryError`), and a title most PDs share (a renewed PD keeps its logframe's titles) would read most of them
+  again. Nothing
   cached is read (`compute.once` would write the shared cache in a read-only transaction). Every value kept
   passes `powerbi_page.shown` (explicit field lists): no focal point, no `submitted_by`, no narrative, no whole
   `data`; NeuroDB's free texts pass the same people cleaner as Power BI's.

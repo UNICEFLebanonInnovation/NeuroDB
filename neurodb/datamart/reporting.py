@@ -29,7 +29,6 @@ from typing import Any
 
 from django.conf import settings
 from django.db.models import Case, CharField, Count, Exists, Max, OuterRef, Q, QuerySet, Value, When
-from django.db.models.fields.json import KeyTransform
 from django.db.models.functions import Cast, Coalesce, Concat, ExtractYear, NullIf, Trim, Upper
 
 from neurodb.core import compute
@@ -952,14 +951,7 @@ def location_rows(
     # only the disaggregation total "()" of each row (the value the tab shows), never every value of
     # every disaggregation, nor the partner's narrative: a web worker holds every row at once
     fields = [f for f in LOCATION_FIELDS if f not in ("disaggregation", "narrative_assessment")]
-    rows = list(
-        queryset.order_by(*rc.ROW_ORDER)
-        .annotate(_total=KeyTransform("()", "disaggregation"))
-        .values(*fields, "_total")
-    )
-    for row in rows:
-        found = row.pop("_total")
-        row["disaggregation"] = {"()": found} if found is not None else {}
+    rows = list(rc.with_totals(queryset.order_by(*rc.ROW_ORDER), fields))
     out = [
         {
             **fields,
@@ -1060,7 +1052,10 @@ def disaggregation_rows(
         record.count("limit", total, DISAGGREGATION_LIMIT)
     if total > DISAGGREGATION_LIMIT:
         return {"blocks": [], "too_many": total, "limit": DISAGGREGATION_LIMIT, "filters": tab}
-    rows = list(queryset.order_by(*rc.ROW_ORDER).values(*LOCATION_FIELDS))
+    # every value of every disaggregation (the tab shows them), never the partner's narrative
+    fields = [f for f in LOCATION_FIELDS if f != "narrative_assessment"]
+    found = queryset.order_by(*rc.ROW_ORDER).values(*fields).iterator(chunk_size=rc.ROW_CHUNK)
+    rows = list(rc.texts_once(found))
     keys = {k for r in rows if isinstance(r["disaggregation"], dict) for k in r["disaggregation"]}
     labels = dg.load_labels(dg.ids_in(keys))
     blocks: list[dict[str, Any]] = []

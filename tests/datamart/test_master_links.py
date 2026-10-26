@@ -780,7 +780,7 @@ def test_a_family_that_is_a_ratio_by_its_prp_methods_is_proposed_and_suggested_a
     monkeypatch.setattr(
         monitoring,
         "_attach_reached",
-        lambda found, *args: read.append({k[0] for k in found}) or attach(found, *args),
+        lambda found, *args, **kwargs: read.append({k[0] for k in found}) or attach(found, *args, **kwargs),
     )
     run()
     assert read == [{a.id, b.id}]

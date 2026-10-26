@@ -37,7 +37,7 @@ import json
 import math
 import re
 from collections import defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
@@ -428,6 +428,9 @@ ROW_FIELDS = (
 )
 # a fixed reading order: "the first non-empty field" never depends on the query plan
 ROW_ORDER = ("period_end", "progress_report", "location", "p_code", "datamart_id")
+# the fields Reached reads of a row whose disaggregation is read as its total "()" alone (:func:`with_totals`)
+TOTAL_FIELDS = tuple(f for f in ROW_FIELDS if f not in ("disaggregation", "narrative_assessment"))
+ROW_CHUNK = 2000  # report rows read at a time
 
 
 # the fields that tell one progress report from another (:func:`report_identity`)
@@ -1212,17 +1215,41 @@ def reports_read_from(today: datetime.date | None = None) -> datetime.date:
     return history_from(today).date
 
 
-def report_rows(pd_ids: Iterable[int], report_types: Iterable[str]):
-    """The partner report rows of these PDs and report types, every year, in ``ROW_ORDER``."""
+def report_rows(pd_ids: Iterable[int], report_types: Iterable[str], *, totals: bool = False):
+    """The partner report rows of these PDs and report types, every year, in ``ROW_ORDER``. ``totals``: each
+    row's disaggregation read as its total alone, without the partner's narrative (:func:`with_totals`), for a
+    reader that shows neither the values by disaggregation nor the narrative."""
     from . import models as dm
 
-    return (
-        dm.ReportedIndicator.objects.filter(
-            intervention_id__in=list(pd_ids), report_type__in=list(report_types)
-        )
-        .order_by(*ROW_ORDER)
-        .values(*ROW_FIELDS)
-    )
+    rows = dm.ReportedIndicator.objects.filter(
+        intervention_id__in=list(pd_ids), report_type__in=list(report_types)
+    ).order_by(*ROW_ORDER)
+    return with_totals(rows) if totals else rows.values(*ROW_FIELDS)
+
+
+def with_totals(queryset, fields: Iterable[str] = TOTAL_FIELDS) -> Iterator[dict[str, Any]]:
+    """The rows of ``queryset`` (in its order) as ``fields``, each row's disaggregation its total "()" alone:
+    the value of its location (:func:`_cell`), never every value of every disaggregation (a row of PRP's
+    cross-tabs holds kilobytes once read, several times its total). Read :data:`ROW_CHUNK` rows at a time
+    (:func:`texts_once`)."""
+    from django.db.models.fields.json import KeyTransform
+
+    found = queryset.annotate(_total=KeyTransform("()", "disaggregation")).values(*fields, "_total")
+    for row in texts_once(found.iterator(chunk_size=ROW_CHUNK)):
+        total = row.pop("_total")
+        row["disaggregation"] = {"()": total} if total is not None else {}
+        yield row
+
+
+def texts_once(rows: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    """``rows``, the texts PRP repeats on each row of an indicator (its title, its output, the location) kept
+    once: a title of 400 characters on every row of every report and place."""
+    texts: dict[str, str] = {}
+    for row in rows:
+        for name, value in row.items():
+            if isinstance(value, str):
+                row[name] = texts.setdefault(value, value)
+        yield row
 
 
 def progress_values(

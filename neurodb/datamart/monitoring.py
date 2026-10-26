@@ -66,6 +66,7 @@ ALL_YEARS = "all"
 # Ask NeuroDB tool reads every indicator of the filter (``indicators`` returns them all)
 MAX_INDICATORS = 2000
 PAGE_SIZE = 100
+ROWS_CHUNK = 2000  # PD indicator rows read at a time
 NO_SECTION = "—"  # the section of an indicator that names none (a section tile and filter value)
 # what the partner monitoring page and its map keep in the shared cache (compute.once): the indicators of a
 # filter and the map's places two minutes, the filter options ten (they only change with a sync)
@@ -481,6 +482,7 @@ def indicators(
     section_counts: Counter | None = None,
     steps: list | None = None,
     record: Any = None,
+    totals: bool = False,
 ) -> list[Indicator]:
     """One entry per PD indicator, with its Reached from the selected report type.
 
@@ -489,7 +491,10 @@ def indicators(
     section's Reached is then computed. Every indicator of the filter is returned: the country figures,
     the counts and the exports read them all, and a page that lists them cuts the list itself
     (:data:`MAX_INDICATORS`). ``steps`` and ``record``: the figure trail's record of each filter and of
-    what Reached reads (:mod:`neurodb.datamart.trail_monitoring`); None on the pages."""
+    what Reached reads (:mod:`neurodb.datamart.trail_monitoring`); None on the pages. ``totals``: each report
+    row's disaggregation read as its total alone (``reached.with_totals``), for a reader of the figures that
+    never shows Reached by disaggregation nor the reports' narratives (Compare with Power BI): the figures
+    are the same."""
     today = today or datetime.date.today()
     found = collect(filters, steps)
     # the chosen sections: NO_SECTION (the tile of the indicators that name none) keeps those
@@ -497,7 +502,7 @@ def indicators(
     if section_counts is None and sections:  # only the chosen sections' Reached is computed
         found = {k: e for k, e in found.items() if (e.section or NO_SECTION) in sections}
         _stage(steps, "sections", set(found))
-    _attach_reached(found, filters, today, record)
+    _attach_reached(found, filters, today, record, totals=totals)
     result = [e for e in found.values() if not filters.status or e.tracking == filters.status]
     if filters.status:
         _stage(steps, "status", {e.ident for e in result})
@@ -538,7 +543,8 @@ def collect(filters: Filters, steps: list | None = None) -> dict[tuple[int, str]
         *(f"tag_{t}" for t in TAG_FIELDS),
     )
     found: dict[tuple[int, str], Indicator] = {}
-    for row in rows.order_by("lower_result_name", "title", "datamart_id"):
+    # read in chunks: the Datamart lists an indicator once per location and disaggregation
+    for row in rows.order_by("lower_result_name", "title", "datamart_id").iterator(chunk_size=ROWS_CHUNK):
         ident = ident_of(row["intervention_id"], row["source_id"], row["title"])
         entry = found.get(ident)
         if entry is None:
@@ -616,13 +622,18 @@ def location_filter(filters: Filters) -> set[str] | None:
 
 
 def _attach_reached(
-    found: dict[tuple[int, str], Indicator], filters: Filters, today: datetime.date, record: Any = None
+    found: dict[tuple[int, str], Indicator],
+    filters: Filters,
+    today: datetime.date,
+    record: Any = None,
+    *,
+    totals: bool = False,
 ) -> None:
     """Reached for every indicator (:func:`neurodb.datamart.reached.compute`), from the selected report
     type; an indicator with no quarterly report at all is read from its humanitarian reports. An
     indicator with no counted value is "not reported", never off track. ``record``: the figure trail's
     recorder (``trail.Recorder``), told where each row went and what each indicator's Reached read; None on
-    the pages."""
+    the pages. ``totals``: as :func:`indicators`'."""
     if not found:
         return
     pd_ids = sorted({ident[0] for ident in found})
@@ -660,7 +671,7 @@ def _attach_reached(
             out.append((row, spot))
         return out
 
-    for row, spot in place(rc.report_rows(pd_ids, [filters.report_type]), filters.report_type):
+    for row, spot in place(rc.report_rows(pd_ids, [filters.report_type], totals=totals), filters.report_type):
         if spot.ident in found:
             per[spot.ident].append(row)
             if spot.way in identity.BREAKERS:
@@ -672,7 +683,8 @@ def _attach_reached(
     if filters.report_type == "QPR" and missing:
         humanitarian: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
         wanted = set(missing)
-        for row, spot in place(rc.report_rows(sorted({ident[0] for ident in missing}), ["HR"]), "HR"):
+        hr = rc.report_rows(sorted({ident[0] for ident in missing}), ["HR"], totals=totals)
+        for row, spot in place(hr, "HR"):
             if spot.ident in wanted:
                 humanitarian[spot.ident].append(row)
                 if spot.way in identity.BREAKERS:

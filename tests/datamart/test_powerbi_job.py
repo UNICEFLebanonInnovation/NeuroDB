@@ -57,6 +57,16 @@ def no_limits(monkeypatch):
     return seen
 
 
+MB = 1024 * 1024
+
+
+@pytest.fixture
+def memory(monkeypatch):
+    """The job's data limit (300 MB) and its data peak (290 MB), as the job reads them in /proc."""
+    monkeypatch.setattr(pc, "_limit", lambda: 300 * MB)
+    monkeypatch.setattr(pc, "_own_peak", lambda: 290 * MB)
+
+
 def _upload(client, *files) -> PowerBIUpload:
     response = pf.post(client, *files)
     assert response.status_code == 302, response.content[:300]
@@ -310,7 +320,7 @@ def test_a_broken_tidy_up_never_stops_the_scheduler(monkeypatch, caplog):
 
 # ---------------------------------------------------------------------------------------------- the command
 def test_the_command_says_nothing_to_do_or_raises_the_stored_sentence(
-    checker, started, no_limits, monkeypatch
+    checker, started, no_limits, monkeypatch, memory
 ):
     upload = _upload(checker, ("cards.xlsx", pf.export("partner_cards")))
     pc.run(upload.pk)
@@ -327,8 +337,9 @@ def test_the_command_says_nothing_to_do_or_raises_the_stored_sentence(
     with pytest.raises(CommandError) as raised:
         call_command("compare_powerbi", "--upload-id", str(failing.pk))
     failing.refresh_from_db()
-    stopped = (
-        "The comparison stopped while reading the files (MemoryError): upload the files again."  # not read
+    stopped = (  # not read
+        "The comparison stopped while reading the files (MemoryError, peak 290 MB of 300 MB allowed): upload "
+        "the files again."
     )
     assert failing.status == Status.FAILED and failing.error == stopped
     assert str(raised.value).endswith(stopped)
@@ -773,19 +784,19 @@ def _no_code(*args, **kwargs):
     raise DatabaseError("Jane Doe") from psycopg.DatabaseError("Jane Doe")
 
 
-@pytest.mark.parametrize("memory", [True, False])
+@pytest.mark.parametrize("at_limit", [True, False])
 def test_a_database_error_without_a_code_says_whether_the_job_was_at_its_memory_limit(
-    checker, started, monkeypatch, memory
+    checker, started, monkeypatch, memory, at_limit
 ):
     from neurodb.datamart import monitoring, powerbi_kinds, powerbi_results
 
     monkeypatch.setattr(monitoring, "indicators", _no_code)
-    monkeypatch.setattr(pc, "at_memory_limit", lambda: memory)
+    monkeypatch.setattr(pc, "at_memory_limit", lambda: at_limit)
     rows = [pf.row("program_performance", partner="FAKEORG PARTNER 1", indicator_title="Fake 1", target=1)]
     upload = _upload(checker, ("pp.xlsx", pf.export("program_performance", rows)))
     pc.run(upload.pk)
     export = PowerBIExport.objects.get(upload=upload)
-    tail = ", at the job's memory limit" if memory else ""
+    tail = ", at the job's memory limit (peak 290 MB of 300 MB allowed)" if at_limit else ""
     assert export.error == f"The comparison stopped at NeuroDB's page: DatabaseError with no code{tail}."
     assert powerbi_results.verdict_words(export)[0] == (
         f"Could not be compared at NeuroDB's page: DatabaseError with no code{tail}"
@@ -817,19 +828,23 @@ def test_an_old_failure_without_its_step_still_shows_its_class():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_a_stopped_upload_says_the_step_it_stopped_at(checker, started, monkeypatch):
+def test_a_stopped_upload_says_the_step_it_stopped_at(checker, started, monkeypatch, memory):
+    """An export out of memory stops the upload only when the job cannot free its memory again: the upload
+    then says where it stopped, with the job's memory peak and limit."""
     from neurodb.datamart import powerbi_kinds
 
     def too_much(job):
         raise MemoryError
 
     monkeypatch.setitem(powerbi_kinds.COMPARERS, "by_sector", too_much)
+    monkeypatch.setattr(pc, "_freed", lambda: False)
     upload = _upload(checker, ("sector.xlsx", pf.export("by_sector")))
     ended = pc.run(upload.pk)
     visual = px.KINDS["by_sector"].visual[1]
     assert ended.status == Status.FAILED
-    assert (
-        ended.error == f"The comparison stopped while comparing {visual} (MemoryError): press Compare again."
+    assert ended.error == (
+        f"The comparison stopped while comparing {visual} (MemoryError, peak 290 MB of 300 MB allowed): press "
+        "Compare again."
     )
     monkeypatch.setattr(pc, "_summary", _sql("SELECT 1 / (%s - 1)", 1))
     monkeypatch.setitem(powerbi_kinds.COMPARERS, "by_sector", lambda job: None)
@@ -855,14 +870,17 @@ def test_a_stopped_upload_names_the_export_it_stopped_at(checker, started, monke
     nothing of which export)."""
     from neurodb.datamart import powerbi_kinds
 
-    def too_much(job):
+    def broken(job):
         raise MemoryError
 
-    monkeypatch.setitem(powerbi_kinds.COMPARERS, kind, too_much)
+    monkeypatch.setitem(powerbi_kinds.COMPARERS, kind, broken)
+    monkeypatch.setattr(pc, "_freed", lambda: False)
+    monkeypatch.setattr(pc, "_limit", lambda: None)  # no data limit: the peak alone
+    monkeypatch.setattr(pc, "_own_peak", lambda: 120 * MB)
     upload = _upload(checker, (f"{kind}.xlsx", pf.export(kind)))
     ended = pc.run(upload.pk)
-    assert (
-        ended.error == f"The comparison stopped while comparing {named} (MemoryError): press Compare again."
+    assert ended.error == (
+        f"The comparison stopped while comparing {named} (MemoryError, peak 120 MB): press Compare again."
     )
 
 
@@ -891,14 +909,10 @@ def test_an_error_in_a_page_module_a_comparer_calls_itself_is_at_neurodb_s_page(
 @pytest.mark.parametrize(
     "status, inherited_mb, at_limit, peak_mb",
     [
-        (
-            "VmHWM:\t  102400 kB\nVmData:\t   81920 kB\n",
-            600,
-            False,
-            100.0,
-        ),  # the web worker's 600 MB: not its own
-        ("VmHWM:\t  235520 kB\nVmData:\t   81920 kB\n", 100, True, 230.0),  # its own 230 MB, past 90% of 250
-        ("VmHWM:\t  102400 kB\nVmData:\t  235520 kB\n", 100, True, 100.0),  # its data now, past 90%
+        # its data at its peak: 200 MB of address space at most, 100 MB of it not data (code, libraries)
+        ("VmPeak:\t  204800 kB\nVmSize:\t  184320 kB\nVmData:\t   81920 kB\n", 600, False, 100.0),
+        ("VmPeak:\t  337920 kB\nVmSize:\t  184320 kB\nVmData:\t   81920 kB\n", 100, True, 230.0),
+        ("VmPeak:\t  337920 kB\nVmSize:\t  337920 kB\nVmData:\t  235520 kB\n", 100, True, 230.0),
         (None, 240, True, 240.0),  # /proc cannot be read: ru_maxrss
         (None, 100, False, 100.0),
     ],
@@ -907,13 +921,16 @@ def test_the_memory_limit_and_the_peak_are_the_job_s_own(
     monkeypatch, tmp_path, status, inherited_mb, at_limit, peak_mb
 ):
     """The job is started by a web worker, whose memory peak Linux keeps in the job's ``ru_maxrss`` across exec:
-    "at the job's memory limit" and ``peak_memory_mb`` read the job's own peak (VmHWM), never the worker's."""
+    "at the job's memory limit" and ``peak_memory_mb`` read the job's own peak, never the worker's (the web
+    worker's 600 MB above), and the peak of what its limit limits: its data (VmData), whose peak is its
+    address space's (VmPeak) less what of it is not data (VmSize less VmData), never its resident memory's
+    (VmHWM, which counts libraries: a run stopped at a limit of 250 MB had a VmHWM of 273 MB)."""
     import types
 
     mb = 1024 * 1024
     path = tmp_path / "status"
     if status is not None:
-        path.write_text(f"Name:\tpython\n{status}VmRSS:\t   90000 kB\n")
+        path.write_text(f"Name:\tpython\n{status}VmHWM:\t  307200 kB\nVmRSS:\t   90000 kB\n")
     monkeypatch.setattr(pc, "PROC_STATUS", str(path))
     monkeypatch.setattr(resource, "getrlimit", lambda what: (250 * mb, resource.RLIM_INFINITY))
     monkeypatch.setattr(
@@ -958,3 +975,287 @@ def test_a_job_started_by_a_process_that_held_much_memory_is_not_at_its_limit():
     )
     inherited, own, at_limit = done.stdout.split()
     assert int(inherited) >= 300 and int(own) < 200 and at_limit == "False", done.stdout
+
+
+# ------------------------------------------------------------------------------- an export out of memory
+class _Held(list):
+    """What a comparer reads (a list a weak reference can follow)."""
+
+
+def test_an_export_out_of_memory_fails_alone_once_it_let_go_of_what_it_held(
+    checker, started, monkeypatch, memory
+):
+    """A MemoryError in one export: what it held is let go (its own rows, the page figures it kept for the
+    export), it alone could not be compared, with the job's memory peak and limit, and the next export is
+    compared."""
+    import weakref
+
+    from neurodb.datamart import powerbi_kinds, powerbi_results
+
+    held: list[weakref.ref] = []
+    seen: list[list[bool]] = []
+    original = powerbi_kinds.COMPARERS["by_month"]
+
+    def too_much(job):
+        rows = _Held(range(1000))
+        job.context.cache["figures"] = _Held(range(1000))
+        held.extend([weakref.ref(rows), weakref.ref(job.context.cache["figures"])])
+        raise MemoryError
+
+    def next_one(job):
+        seen.append([ref() is None for ref in held])
+        return original(job)
+
+    monkeypatch.setitem(powerbi_kinds.COMPARERS, "by_sector", too_much)
+    monkeypatch.setitem(powerbi_kinds.COMPARERS, "by_month", next_one)
+    upload = _upload(checker, ("sector.xlsx", pf.export("by_sector")), ("month.xlsx", pf.export("by_month")))
+    ended = pc.run(upload.pk, memory_limit=300 * MB)
+    assert ended.status == Status.DONE and ended.error == ""
+    assert seen == [[True, True]]  # let go of before the next export
+    failed = PowerBIExport.objects.get(upload=upload, kind="by_sector")
+    assert failed.state == "failed" and failed.verdict == "failed"
+    assert failed.error == "The comparison stopped: not enough memory (peak 290 MB of 300 MB allowed)."
+    assert powerbi_results.verdict_words(failed) == (
+        "Could not be compared: not enough memory (peak 290 MB of 300 MB allowed)",
+        words.VERDICT_ACTIONS["failed"],
+    )
+    assert PowerBIExport.objects.get(upload=upload, kind="by_month").state == "compared"
+    assert ended.summary["memory_limit_mb"] == 300 and ended.peak_memory_mb == 290
+    html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    assert "Could not be compared: not enough memory (peak 290 MB of 300 MB allowed)" in html
+    assert "Memory: peak 290 MB of 300 MB allowed." in html  # for the validators, who alone see the page
+
+
+@pytest.mark.django_db(transaction=True)
+def test_exports_read_but_not_compared_when_the_upload_stopped_say_so(checker, started, monkeypatch, memory):
+    """The upload stops when the job cannot free its memory again: the exports it read and never compared
+    were uploaded and read, never "Not uploaded"; the stopped line names the job's memory peak and limit."""
+    from neurodb.datamart import powerbi_kinds, powerbi_results
+
+    def too_much(job):
+        raise MemoryError
+
+    monkeypatch.setitem(powerbi_kinds.COMPARERS, "by_sector", too_much)
+    monkeypatch.setattr(pc, "_freed", lambda: False)
+    upload = _upload(
+        checker,
+        ("cards.xlsx", pf.export("partner_cards")),
+        ("sector.xlsx", pf.export("by_sector")),
+        ("funded.xlsx", pf.export("funded_programmes")),
+    )
+    ended = pc.run(upload.pk, memory_limit=300 * MB)
+    sector = px.KINDS["by_sector"].visual[1]
+    assert ended.status == Status.FAILED
+    assert ended.error == (
+        f"The comparison stopped while comparing {sector} (MemoryError, peak 290 MB of 300 MB allowed): press "
+        "Compare again."
+    )
+    states = dict(PowerBIExport.objects.filter(upload=upload).values_list("kind", "state"))
+    assert states == {"partner_cards": "compared", "by_sector": "failed", "funded_programmes": "read"}
+    pages = {p["name"]: p for p in powerbi_results.page_lines(ended, list(pc.exports_of(ended)))}
+    funded = pages[px.KINDS["funded_programmes"].visual[0]]
+    assert (funded["code"], funded["verdict"], funded["action"]) == (
+        "stopped",
+        "Not compared: the comparison stopped before it",
+        "Press Compare again.",
+    )
+    assert pages[px.KINDS["by_sector"].visual[0]]["verdict"] == (
+        "Could not be compared: not enough memory (peak 290 MB of 300 MB allowed)"
+    )
+    html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    assert 'data-pbi-verdict="stopped"' in html and "Not compared: the comparison stopped before it" in html
+    assert "(MemoryError, peak 290 MB of 300 MB allowed)" in html
+    assert "Memory: peak 290 MB of 300 MB allowed." in html
+    # stopped while reading: the copies not read were emptied, so the files are uploaded again
+    PowerBIExport.objects.filter(upload=upload).update(state="staged")
+    PowerBIUpload.objects.filter(pk=upload.pk).update(error=words.STALE)
+    ended.refresh_from_db()
+    pages = {p["name"]: p for p in powerbi_results.page_lines(ended, list(pc.exports_of(ended)))}
+    assert (funded["name"] in pages) and (
+        pages[funded["name"]]["verdict"],
+        pages[funded["name"]]["action"],
+    ) == (
+        "Not compared: the comparison stopped before it",
+        words.NOT_READ_ACTION,
+    )
+
+
+def test_an_export_waiting_while_the_comparison_runs_is_never_not_uploaded():
+    from neurodb.datamart import powerbi_results
+
+    upload = PowerBIUpload(status=Status.COMPARING)
+    exports = [
+        PowerBIExport(kind="by_sector", state="read", counts={}),
+        PowerBIExport(kind="dq_list", state="staged"),
+    ]
+    pages = {p["name"]: p for p in powerbi_results.page_lines(upload, exports)}
+    for kind in ("by_sector", "dq_list"):
+        page = pages[px.KINDS[kind].visual[0]]
+        assert (page["code"], page["verdict"]) == ("waiting", "Waiting to be compared")
+
+
+@pytest.mark.parametrize(
+    "summary, peak, said",
+    [
+        ({"memory_limit_mb": 600}, 211.4, "Memory: peak 211 MB of 600 MB allowed."),
+        ({}, 211.4, "Memory: peak 211 MB."),  # an upload compared before the limit was kept
+        ({}, None, ""),
+    ],
+)
+def test_the_upload_page_shows_the_job_s_memory_peak_and_limit(checker, started, summary, peak, said):
+    upload = _upload(checker, ("cards.xlsx", pf.export("partner_cards")))
+    PowerBIUpload.objects.filter(pk=upload.pk).update(
+        status=Status.DONE, summary=summary, peak_memory_mb=peak
+    )
+    html = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    assert ("data-pbi-memory" in html) is bool(said) and said in html
+
+
+def test_the_job_s_links_are_the_site_s_own_without_importing_the_whole_site():
+    """The comparison writes the site's own addresses, reversed against the admin's and the reports' parts of
+    its URLconf alone: the job's process never imports the rest (the AI assistant's SDKs, some 50 MB)."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from neurodb.datamart import powerbi_links
+
+    for name, args in (
+        ("admin:datamart_raw_source", ["partner_reports"]),
+        ("admin:datamart_raw_record", ["partner_reports", 7]),
+        ("admin:datamart_powerbi_export", [1, 2]),
+        ("reports:programme_detail", [7]),
+        ("reports:pd_indicator", [7, "101"]),
+        ("reports:check_figures", ["partner-monitoring"]),
+        ("reports:pd_monitoring", None),
+    ):
+        assert powerbi_links.reverse(name, args) == reverse(name, args=args)
+    job = (
+        "import sys, django\n"
+        "django.setup()\n"
+        "from neurodb.datamart import powerbi_kinds, powerbi_links\n"
+        "powerbi_kinds.raw_link('FAKE/PCA1/PD1'); powerbi_kinds.pd_link(7)\n"
+        "powerbi_links.reverse('admin:datamart_powerbi_export', [1, 2])\n"
+        "print('neurodb.watch.urls' in sys.modules, 'anthropic' in sys.modules, 'openai' in sys.modules)\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", job],
+        cwd=Path(pc.__file__).resolve().parents[2],
+        env={"DJANGO_SETTINGS_MODULE": "config.settings", **os.environ},
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=True,
+    )
+    assert done.stdout.split() == ["False", "False", "False"], done.stdout
+
+
+# --------------------------------------------------------------------------- production's records, smaller
+HEAVY_TITLE = " of a long logframe that names every group it reaches" * 7  # titles of some 400 characters
+HEAVY_CELLS = [f"({a}, {b})" for a in range(1, 6) for b in range(6, 11)] + [f"({a},)" for a in range(1, 11)]
+
+
+def _heavy_neurodb(pds: int, indicators: int, places: int) -> tuple[list[pf.Row], list[pf.Row]]:
+    """Production's records at a smaller scale, as the Datamart sends them: running PDs (each with an ended
+    predecessor holding the same titles) whose indicators each list every place for two disaggregations under
+    a long title, and three quarterly reports per indicator and place whose rows keep a cross-tab of values by
+    disaggregation, the partner's narrative and the whole record as received. Returns Program Performance's
+    and the Data Quality list's rows for them."""
+    from neurodb.datamart import models as dm
+    from neurodb.partnerships.models import PCA, PartnerOrganization
+
+    partner = PartnerOrganization.objects.create(
+        etl_id="fake-heavy", name="Fakeorg Partner 1", vendor_number="V-H"
+    )
+    narrative = "The partner reached the planned groups in every place this quarter. " * 25
+    pp_rows, dq_rows = [], []
+    indicator_rows, report_rows = [], []
+    n = 5_000_000
+    for p in range(pds):
+        for status, suffix in (("active", ""), ("ended", "-OLD")):
+            pd = PCA.objects.create(
+                etl_id=f"fake-heavy-{p}{suffix}", partner=partner, partner_name=partner.name,
+                number=f"FAKE/PCA2026{p:03d}/PD2026{p:03d}{suffix}", title="Fake programme", status=status,
+                document_type="PD", start=datetime.date(2026, 1, 1), end=datetime.date(2026, 12, 31),
+                section_names=["Section Alpha"],
+            )  # fmt: skip
+            for i in range(indicators):
+                title = f"Fake indicator {i}{HEAVY_TITLE}"
+                source = 10_000 * (p + 1) + 100 * (status == "ended") + i
+                for place in range(places):
+                    for name in ("Sex", "Age"):
+                        n += 1
+                        indicator_rows.append(
+                            dm.PDIndicator(
+                                datamart_id=n, source_id=source, intervention=pd, pd_reference_number=pd.number,
+                                title=title, unit="number", section_name="Section Alpha",
+                                lower_result_name="Fake output 1", cp_output="Output One", target_numerator=100,
+                                location_name=f"Fake place {place}", location_pcode=f"LB9_{place}",
+                                disaggregation_name=name, means_of_verification="Fake partner records " * 10,
+                                data={"title": title, "means": "Fake partner records " * 40},
+                            )
+                        )  # fmt: skip
+                    for quarter in range(1, 4):
+                        start = datetime.date(2026, 3 * quarter - 2, 1)
+                        end = (start + datetime.timedelta(days=95)).replace(day=1) - datetime.timedelta(
+                            days=1
+                        )
+                        values = {"()": {"c": 50.0, "v": 50.0, "d": 1}}
+                        values |= {key: {"c": 2.0, "v": 2.0, "d": 1} for key in HEAVY_CELLS}
+                        n += 1
+                        report_rows.append(
+                            dm.ReportedIndicator(
+                                datamart_id=n, partner_id=partner.pk, intervention=pd, partner_name=partner.name,
+                                pd_reference_number=pd.number, progress_report=f"PR-{pd.pk}-{quarter}",
+                                indicator_report=f"{n}", report_number=f"QPR{quarter}", report_type="QPR",
+                                report_status="Accepted", period_start=start, period_end=end,
+                                due_date=end + datetime.timedelta(days=15),
+                                submission_date=end + datetime.timedelta(days=10), indicator=title,
+                                etools_indicator_id=str(source), pd_output="Fake output 1", section="Section Alpha",
+                                location=f"Fake place {place}", p_code=f"LB9_{place}", cp_output="Output One",
+                                disaggregation=values, narrative_assessment=narrative, target="100",
+                                data={"disaggregation": values, "narrative_assessment": narrative, "title": title},
+                            )
+                        )  # fmt: skip
+                if status == "active":
+                    pp_rows.append(
+                        pf.row("program_performance", partner=partner.name, indicator_title=title[:255],
+                               section="Section Alpha", cp_output="Output One", target=100, reached=150)
+                    )  # fmt: skip
+                    dq_rows.append(
+                        pf.row("dq_list", section="Section Alpha", pd=pd.number, cp_output="Output One",
+                               pd_output="Fake output 1", indicator_title=title[:255], reached=0)
+                    )  # fmt: skip
+                elif i < 3:  # a title NeuroDB's page has only on an ended PD
+                    pp_rows.append(
+                        pf.row("program_performance", partner=partner.name, indicator_title=f"{title[:200]} ended",
+                               section="Section Alpha", target=100, reached=1)
+                    )  # fmt: skip
+    dm.PDIndicator.objects.bulk_create(indicator_rows, batch_size=1000)
+    dm.ReportedIndicator.objects.bulk_create(report_rows, batch_size=500)
+    return pp_rows, dq_rows
+
+
+def test_comparing_production_shaped_records_stays_within_its_measured_memory(checker, started):
+    """Program Performance and the Data Quality list against records shaped like production's (a cross-tab of
+    disaggregation values, the partner's narrative and the whole record kept on every row): the job's own
+    allocations stay below a ceiling measured on these records (9 MB, where reading every row whole and keeping
+    each export's figures for the next took 61 MB): each row is read as its total alone, never its narrative,
+    the indicators without their reports where their Reached is not needed, and no export's figures outlive
+    it."""
+    pp_rows, dq_rows = _heavy_neurodb(pds=4, indicators=10, places=12)
+    upload = _upload(
+        checker,
+        ("pp.xlsx", pf.export("program_performance", pp_rows)),
+        ("dq.xlsx", pf.export("dq_list", dq_rows, filters=(*pf.FILTERS, "reporting_year is 2026"))),
+    )
+    tracemalloc.start()
+    try:
+        ended = pc.run(upload.pk)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert ended.status == Status.DONE, ended.error
+    exports = PowerBIExport.objects.filter(upload=upload)
+    assert set(exports.values_list("state", flat=True)) == {"compared"}
+    assert peak < 20 * MB, peak / MB

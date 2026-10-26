@@ -14,14 +14,15 @@ from collections.abc import Iterable, Iterator
 from typing import Any
 
 from django.conf import settings
-from django.urls import reverse
 
 from . import comparison, powerbi_filters
 from . import powerbi_exports as px
 from . import powerbi_words as words
 from .models import PowerBIDifference, PowerBIExport, PowerBIUpload
+from .powerbi_links import reverse
 
 TODO_LINES = 4
+BUSY = (PowerBIUpload.Status.QUEUED, PowerBIUpload.Status.READING, PowerBIUpload.Status.COMPARING)
 TODO_CLAUSES = 4  # clauses "what to do now" names
 CANNOT = ("cannot", "unknown_field", "unknown_value", "unread")  # the clauses NeuroDB does not apply
 NOT_READ = words.COULD_NOT_READ.split("{")[0]  # how the sentence of an export NeuroDB could not read starts
@@ -29,6 +30,8 @@ NOT_READ = words.COULD_NOT_READ.split("{")[0]  # how the sentence of an export N
 SEVERITY = (
     "failed",
     "not_read",
+    "stopped",
+    "waiting",
     "look",
     "cut",
     "list_cut",
@@ -116,6 +119,26 @@ def verdict_code(export: PowerBIExport) -> str:
     return "same"
 
 
+def code_of(upload: PowerBIUpload, export: PowerBIExport) -> str:
+    """An export's verdict on its upload's pages (:func:`verdict_code`). One uploaded that the comparison has
+    not reached is waiting while the comparison runs, and once it stopped, was stopped before (never "Not
+    uploaded": its file was uploaded, and read when its rows are kept)."""
+    code = export.verdict or verdict_code(export)
+    if code or export.state not in ("staged", "read"):
+        return code
+    if upload.status in BUSY:
+        return "waiting"
+    return "stopped" if upload.status == PowerBIUpload.Status.FAILED else code
+
+
+def stopped(exports: Iterable[PowerBIExport]) -> tuple[str, str]:
+    """An export a stopped comparison never reached (:func:`code_of`), in words, and what to do: compare
+    again, or upload the files again when a copy waiting to be read was emptied (a stopped upload's are)."""
+    if any(e.state == "staged" for e in exports):
+        return words.VERDICT_WORDS["stopped"], words.NOT_READ_ACTION
+    return words.VERDICT_WORDS["stopped"], words.VERDICT_ACTIONS["stopped"]
+
+
 def apart(export: PowerBIExport) -> tuple[str, str]:
     """The expected rows NeuroDB cannot hold, in words, and what they need ("reports still owed: 3", "The
     partners have not sent these reports yet."): empty when none."""
@@ -155,6 +178,9 @@ def verdict_words(
         if read_failed(export):  # never read: export it again
             return words.VERDICT_WORDS["not_read"], words.VERDICT_ACTIONS["not_read"]
         found = counts.get("failure") or {}
+        if found.get("cls") == "MemoryError":  # out of memory: the job's peak and limit, never a step
+            verdict = words.VERDICT_WORDS["failed_memory"].format(what=words.out_of_memory(found))
+            return verdict, words.VERDICT_ACTIONS["failed"]
         if found.get("step") in words.EXPORT_STEPS:  # the step it stopped at, and what stopped it
             step = words.EXPORT_STEPS[found["step"]]
             verdict = words.VERDICT_WORDS["failed"].format(step=step, what=words.failure(found))
@@ -210,10 +236,14 @@ def page_lines(upload: PowerBIUpload, exports: list[PowerBIExport]) -> list[dict
         kinds = [k for k in px.KINDS.values() if k.visual[0] == name]
         mine = [e for k in kinds for e in by_kind.get(k.key, [])]
         missing = [k.visual[1] for k in kinds if not by_kind.get(k.key)]
-        codes = [e.verdict or verdict_code(e) for e in mine]
+        codes = [code_of(upload, e) for e in mine]
         code = worst(codes) if mine else "not_uploaded"
-        chosen = next((e for e in mine if (e.verdict or verdict_code(e)) == code), None)
-        if chosen is not None and code not in ("", "not_uploaded"):
+        chosen = next((e for e, found in zip(mine, codes, strict=True) if found == code), None)
+        if code == "stopped":
+            verdict, action = stopped(exports)
+        elif code == "waiting":
+            verdict, action = words.VERDICT_WORDS["waiting"], words.VERDICT_ACTIONS["waiting"]
+        elif chosen is not None and code not in ("", "not_uploaded"):
             verdict, action = verdict_words(chosen, trimmed=upload.trimmed, offered=offered(upload))
         else:
             verdict, action = words.VERDICT_WORDS["not_uploaded"], words.VERDICT_ACTIONS["not_uploaded"]

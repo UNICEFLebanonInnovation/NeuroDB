@@ -210,7 +210,8 @@ def test_every_slicer_what_to_do_now_names_is_on_the_report():
 @pytest.mark.parametrize("how", ["stale", "start_failed", "locked", "other_job_later", "stopped"])
 def test_a_failed_upload_says_why_first_and_never_that_there_is_nothing_to_do(checker, monkeypatch, how):
     """The error's own instruction comes first; an export a failed upload never read says "Not read" with what to
-    do, never "Waiting to be read"."""
+    do, never "Waiting to be read"; every Power BI page of its files says the comparison stopped before it, never
+    "Not uploaded"."""
     if how == "start_failed":
 
         def broken(*args):
@@ -244,12 +245,14 @@ def test_a_failed_upload_says_why_first_and_never_that_there_is_nothing_to_do(ch
     assert todo and todo[0] == upload.error.replace("'", "&#x27;") and words.TODO_NOTHING not in todo
     assert words.STATE_WORDS["staged"] not in html
     table = html.split("data-pbi-pages", 1)[1].split("</table>", 1)[0]
-    if how == "other_job_later":  # read already: Compare again
+    assert words.NOT_UPLOADED not in table and table.count('data-pbi-verdict="stopped"') == 10  # every page
+    if how == "other_job_later":  # read already, never compared: Compare again (each export and each page)
         assert upload.error == words.OTHER_JOB_LATER and words.AGAIN_BUTTON in html
-        assert table.count(f'<td class="nd-pbi__long">{words.STATE_WORDS["read"]}') == 13
+        assert table.count(words.STOPPED_BEFORE) == 13 + 10
+        assert table.count(words.STOPPED_BEFORE_ACTION) == 13 + 10
     else:  # the copies were emptied: upload the files again
         assert "upload the files again" in upload.error and words.AGAIN_BUTTON not in html
-        assert table.count(words.NOT_READ_STATE) == 13 and table.count(words.NOT_READ_ACTION) == 13
+        assert table.count(words.NOT_READ_STATE) == 13 and table.count(words.NOT_READ_ACTION) == 13 + 10
         assert words.COVERS_EVERY_YEAR not in table  # nothing of their filters was read
 
 

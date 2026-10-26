@@ -219,13 +219,17 @@ def _covers(parsed: powerbi_filters.Filter) -> str:
 _to_clear = powerbi_results.to_clear
 
 
-def _export_row(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
+def _export_row(upload: PowerBIUpload, export: PowerBIExport, exports: list[PowerBIExport]) -> dict[str, Any]:
     kind = px.KINDS.get(export.kind)
     parsed = powerbi_filters.Filter.from_json(export.filters)
     # a failed upload's copies are emptied: an export still waiting will never be read
     not_read = export.state == "staged" and upload.status == PowerBIUpload.Status.FAILED
+    # read, and never compared: the comparison stopped before it (its file was uploaded)
+    stopped = powerbi_results.code_of(upload, export) == "stopped" and not not_read
     if not_read:
         state, action = words.NOT_READ_STATE, words.NOT_READ_ACTION
+    elif stopped:
+        state, action = powerbi_results.stopped(exports)
     elif export.state in ("compared", "empty", "not_compared", "failed"):
         state, action = powerbi_results.verdict_words(
             export, trimmed=upload.trimmed, offered=powerbi_results.offered(upload)
@@ -245,7 +249,7 @@ def _export_row(upload: PowerBIUpload, export: PowerBIExport) -> dict[str, Any]:
         "url": reverse("admin:datamart_powerbi_export", args=[upload.pk, export.pk]),
         "failed": powerbi_results.read_failed(export),  # not read: export it again
         "stopped": export.state == "failed" and not powerbi_results.read_failed(export),  # Compare again
-        "warn": export.state == "failed" or not_read or bool(look),
+        "warn": export.state == "failed" or not_read or stopped or bool(look),
         "counts": _counts_words(export) if export.state == "compared" else "",
         "set_aside": words.EXPORT_SET_ASIDE.format(n=export.set_aside) if export.set_aside else "",
         "look": look,
@@ -279,7 +283,7 @@ def _pages(upload: PowerBIUpload, exports: list[PowerBIExport]) -> list[dict[str
             found = [e for e in page["exports"] if e.kind == kind.key]
             if not found:
                 lines.append({"visual": kind.visual[1], "missing": True})
-            lines.extend(_export_row(upload, e) for e in found)
+            lines.extend(_export_row(upload, e, exports) for e in found)
         pages.append({**page, "lines": lines})
     return pages
 
@@ -299,6 +303,15 @@ def _status_words(upload: PowerBIUpload, exports: list[PowerBIExport]) -> str:
     return words_
 
 
+def _memory(upload: PowerBIUpload) -> str:
+    """The job's memory, once it ran: its data peak and its data limit (an upload compared before the limit
+    was kept: its peak alone)."""
+    if upload.status in powerbi_compare.BUSY_STATUSES or upload.peak_memory_mb is None:
+        return ""
+    found = {"peak_mb": upload.peak_memory_mb, "limit_mb": (upload.summary or {}).get("memory_limit_mb")}
+    return words.MEMORY_USED.format(memory=words.memory(found))
+
+
 def _upload_page(request, upload: PowerBIUpload, refused: list[str] | None = None, status: int = 200):
     exports = list(powerbi_compare.exports_of(upload))
     pages = _pages(upload, exports)
@@ -313,6 +326,7 @@ def _upload_page(request, upload: PowerBIUpload, refused: list[str] | None = Non
         upload=upload,
         busy=busy,
         status_words=_status_words(upload, exports),
+        memory=_memory(upload),
         pages=pages,
         todo=[] if busy else powerbi_results.todo(upload, exports, powerbi_results.before(upload, exports)),
         choices=upload.choices if done else [],
@@ -379,7 +393,7 @@ def export_view(request, pk: int, export_pk: int):
     export = get_object_or_404(PowerBIExport.objects.defer("content", "rows"), pk=export_pk, upload_id=pk)
     kind = px.KINDS.get(export.kind)
     captions = {c.name: c.caption for c in kind.columns} if kind else {}
-    row = _export_row(upload, export)
+    row = _export_row(upload, export, list(powerbi_compare.exports_of(upload)))
     history = _history(upload)
     counts = export.counts or {}
     chosen = {

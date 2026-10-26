@@ -6,9 +6,9 @@
   (the page reloads itself every 5 seconds while it is queued, read or compared: a meta refresh, no script),
   what to do now (at most four lines, each with a link to its lines), one line per Power BI page in Power BI's
   order (comparison.POWERBI_PAGE_ORDER) with its verdict, what to do, its lines that need a look, and each export
-  compared or "Not uploaded"; the Reached sentence and the choices for the user; the files not read and why, the
-  hidden files skipped, the columns that name people dropped as the files were read; the Excel file and Compare
-  again. Every sentence comes from datamart.powerbi_words; no value from the files is shown here.
+  compared, not reached by a comparison that stopped, or "Not uploaded"; the job's memory peak and limit; the
+  Reached sentence and the choices for the user; the files not read and why, the hidden files skipped, the
+  columns that name people dropped as the files were read; the Excel file and Compare again. Every sentence comes from datamart.powerbi_words; no value from the files is shown here.
 {% endcomment %}
 
 {% block extrahead %}{{ block.super }}{% if busy %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
@@ -20,6 +20,7 @@
     <span>
       {% blocktrans trimmed with when=upload.uploaded_at|date:"j M Y, H:i" %}Uploaded on {{ when }}{% endblocktrans %}{% if upload.uploaded_by %} · {{ upload.uploaded_by }}{% endif %}.
       <strong data-pbi-status>{{ status_words }}</strong>
+      {% if memory %}<span data-pbi-memory>{{ memory }}</span>{% endif %}
       <a class="nd-link" href="{{ index_url }}">{% trans "Upload other files" %}</a>
     </span>
   </p>
@@ -71,7 +72,7 @@
               <tr>
                 {% if forloop.first %}
                   <th scope="row" rowspan="{{ page.lines|length }}">{{ page.name }}</th>
-                  <td class="nd-pbi__long" rowspan="{{ page.lines|length }}" data-pbi-verdict="{{ page.code }}">{% if page.code == "look" or page.code == "failed" or page.code == "not_read" %}<span class="nd-found__warn">{{ page.verdict }}</span>{% else %}{{ page.verdict }}{% endif %}<small class="nd-menu__note">{{ page.action }}</small>{% if page.look_url %}<a class="nd-link" href="{{ page.look_url }}">{{ words.TODO_SEE }}</a>{% endif %}</td>
+                  <td class="nd-pbi__long" rowspan="{{ page.lines|length }}" data-pbi-verdict="{{ page.code }}">{% if page.code == "look" or page.code == "failed" or page.code == "not_read" or page.code == "stopped" %}<span class="nd-found__warn">{{ page.verdict }}</span>{% else %}{{ page.verdict }}{% endif %}<small class="nd-menu__note">{{ page.action }}</small>{% if page.look_url %}<a class="nd-link" href="{{ page.look_url }}">{{ words.TODO_SEE }}</a>{% endif %}</td>
                 {% endif %}
                 <td>{{ line.visual }}</td>
                 {% if line.missing %}

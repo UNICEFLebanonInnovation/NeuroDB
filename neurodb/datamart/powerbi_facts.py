@@ -39,8 +39,10 @@ from . import powerbi_match as pm
 from . import powerbi_words as words
 from . import reached as rc
 
-# the partner report fields the facts read: Partner monitoring's, without the partner's narrative
-ROW_FIELDS = tuple(f for f in rc.ROW_FIELDS if f != "narrative_assessment")
+# the partner report fields the facts read: Reached's, each row's disaggregation read as its total alone,
+# without the partner's narrative (``reached.with_totals``)
+ROW_FIELDS = rc.TOTAL_FIELDS
+FACT_PDS = 25  # PDs whose report rows :func:`indicator_facts` reads at once
 REACHED_CANDIDATES = ("qpr_sum", "every_sum", "latest", "prp_cumulative", "accepted")
 TARGET_CANDIDATES = ("etools", "prp_sum", "prp_one")
 
@@ -102,10 +104,16 @@ class Context:
         return powerbi_read.clean(str(text or ""), self.names, self._memo) if text else ""
 
     def once(self, key: Any, build):
-        """``build()`` once per comparison (the pages' figures one export shares with another)."""
+        """``build()`` once per export (a page's figures the export reads more than once), until
+        :meth:`release`."""
         if key not in self.cache:
             self.cache[key] = build()
         return self.cache[key]
+
+    def release(self) -> None:
+        """Let go of every figure :meth:`once` kept: the job calls it after each export, so no export's data
+        stays alive into the next (each reads its own)."""
+        self.cache.clear()
 
 
 # ---------------------------------------------------------------------------------------- programme documents
@@ -386,16 +394,29 @@ def indicator_facts(
     pd_ids: Iterable[int], day: datetime.date, context: Context | None = None
 ) -> dict[tuple[int, str], IndicatorFact]:
     """Each indicator of these PDs, with its quarterly and monthly reports (placed as Partner monitoring
-    places them; each report's status from all its rows); read once per comparison for the same PDs."""
+    places them; each report's status from all its rows); read once per export for the same PDs, and
+    :data:`FACT_PDS` PDs at a time (an indicator's facts are its PD's rows alone)."""
     ids = sorted({i for i in pd_ids if i})
     if not ids:
         return {}
     if context is not None:
         return context.once(("indicator_facts", tuple(ids)), lambda: indicator_facts(ids, day))
+    out: dict[tuple[int, str], IndicatorFact] = {}
+    for start in range(0, len(ids), FACT_PDS):
+        out.update(_facts(ids[start : start + FACT_PDS], day))
+    return out
+
+
+def _facts(ids: list[int], day: datetime.date) -> dict[tuple[int, str], IndicatorFact]:
+    """:func:`indicator_facts` of a few PDs. Each report is kept without its locations (its value, status and
+    period are what the readings read; ``cells`` keeps each location's value)."""
     rows = list(
-        dm.ReportedIndicator.objects.filter(intervention_id__in=ids, report_type__in=["QPR", "HR"])
-        .order_by(*rc.ROW_ORDER)
-        .values(*ROW_FIELDS)
+        rc.with_totals(
+            dm.ReportedIndicator.objects.filter(
+                intervention_id__in=ids, report_type__in=["QPR", "HR"]
+            ).order_by(*rc.ROW_ORDER),
+            ROW_FIELDS,
+        )
     )
     idents = identity.Idents(ids)
     statuses = rc.report_status_texts(rows)
@@ -433,6 +454,9 @@ def indicator_facts(
                 place = rc.location_key(row.get("p_code"), row.get("location"))
                 targets[place] = max(targets.get(place, value), value)
         fact.targets = targets
+    for fact in out.values():
+        for report in fact.every:
+            report.cells, report.places = {}, {}
     return out
 
 
