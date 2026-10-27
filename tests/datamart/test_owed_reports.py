@@ -205,7 +205,8 @@ def test_nothing_is_said_while_neurodb_holds_none_of_prp_s_progress_reports(worl
         ("few_days", "and cannot tie PRP's own list"),
         (
             "one_day",
-            "PRP's own list was tied to its programme documents on 14 Oct 2026: NeuroDB shows it once",
+            "PRP's own list was tied to its programme documents on 14 Oct 2026: NeuroDB shows it once a read on "
+            "the next day agrees too.",
         ),
     ],
 )
@@ -213,6 +214,35 @@ def test_the_closed_line_follows_why(world, why, said):
     _verdict(shown=False, why=why)
     line = owed.link_state().line
     assert line.startswith(owed.HIDDEN_START) and said in line
+
+
+@pytest.mark.parametrize(
+    "why, link, said",
+    [
+        ("not_checked", {"proven": True, "linked": 4}, "and has not yet checked whether PRP's own list"),
+        (
+            "check_failed",
+            {"proven": True, "linked": 4, "proof_error": "x"},
+            "and the last sync could not check",
+        ),
+        ("not_synced", {}, "and has not yet checked whether PRP's own list"),
+    ],
+)
+def test_the_closed_line_says_when_the_tie_was_not_checked(world, why, link, said):
+    """A run made before the verdict was recorded (not checked), one whose check failed, or one that found no
+    progress report to check (the first sync of PRP's list still running): the line says the tie was not
+    checked, as check 11 does, never that NeuroDB cannot tie the list."""
+    started = timezone.make_aware(dt.datetime.combine(TODAY - dt.timedelta(days=1), dt.time(20, 30)))
+    SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART, target="prp_programme_documents", status=SyncRun.Status.SUCCEEDED,
+        started_at=started, finished_at=started + dt.timedelta(minutes=5),
+        details={"progress_reports_pd_link": link, "read": 3},
+    )  # fmt: skip
+    state = owed.link_state()
+    assert (state.shown, state.why) == (False, why)
+    assert state.line == owed.HIDDEN[why] and said in state.line
+    assert "cannot tie" not in state.line
+    assert hub()["owed"]["line"] == state.line
 
 
 def test_an_old_read_closes_the_gate_and_says_its_day(world):
@@ -451,6 +481,51 @@ def test_a_draft_or_cancelled_pd_s_reports_are_never_owed(world):
     PCA.objects.filter(pk=world["spd"].pk).update(status="cancelled")
     _verdict()
     assert owed_keys(hub({"pd_status": ""})) == {("LEB/PD1", "QPR3")}
+
+
+def test_check_11_counts_the_reports_still_owed_the_pages_can_show(world):
+    """LEB/SPD2 is cancelled: the pages never show its HR9, whatever the PD status filter, so neither do the
+    sync's counts of reports still owed, which check 11 says NeuroDB shows."""
+    from neurodb.datamart import checks
+
+    PCA.objects.filter(pk=world["spd"].pk).update(status="cancelled")
+    _verdict()
+    proof = datamart_sync.pd_link_proof(True, TODAY)
+    widest = owed.owed_reports(reporting.ReportFilters(pd_statuses=[]), TODAY)
+    assert proof["owed"] == len(widest) == 1 and proof["stale"] == 0
+    assert "NeuroDB shows the 1 report still owed." in checks._shown_sentence({**proof, "shown": True})
+    PCA.objects.filter(pk=world["spd"].pk).update(status="active")
+    assert datamart_sync.pd_link_proof(True, TODAY)["owed"] == 2
+
+
+def test_a_programme_document_object_never_shows_a_person(world, roles):
+    """The link step reads only an id from a progress report's programme_document: that key is counted on every
+    read (keys_seen), never shown as a field NeuroDB reads, so an object holding a person NeuroDB does not know
+    is withheld by the people rule in the CSV of reports still owed, Raw eTools data's CSV and its record page;
+    the report is still owed and counted."""
+    from neurodb.datamart import catalogue, raw
+
+    stranger = "Zorba Quintel"
+    record = world["records"]["qpr3"]
+    record.data = {**record.data, "programme_document": {"id": 77, "title": f"Support for {stranger}",
+                                                         "name": stranger}}  # fmt: skip
+    record.save(update_fields=["data"])
+    _verdict()
+    assert ("LEB/PD1", "QPR3") in owed_keys(hub())
+    assert "programme_document" not in raw.reviewed_keys("prp_progress_reports")
+    assert "programme_document" in datamart_sync.Census(catalogue.DOCUMENTS["prp_progress_reports"]).watched
+    staff = User.objects.create_user(username="staff-validator", password="pass-123456-x", is_staff=True)
+    staff.groups.set(Group.objects.filter(name__in=(VIEWER, VALIDATORS)))
+    client = Client()
+    client.force_login(staff)
+    owed_csv = client.get(reverse("reports:check_rows", args=["progress-reports"]), {"what": "owed"})
+    raw_csv = client.get(reverse("admin:datamart_raw_csv", args=["prp_progress_reports"]))
+    for response in (owed_csv, raw_csv):
+        assert response.status_code == 200
+        content = b"".join(response.streaming_content).decode("utf-8-sig")
+        assert "QPR3" in content and stranger not in content and "Quintel" not in content
+    page = client.get(reverse("admin:datamart_raw_record", args=["prp_progress_reports", record.pk]))
+    assert page.status_code == 200 and "Quintel" not in page.content.decode()
 
 
 def test_the_filter_steps_record_the_reports_each_filter_leaves_out(world):

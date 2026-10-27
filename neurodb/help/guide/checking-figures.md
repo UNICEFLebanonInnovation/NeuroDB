@@ -258,7 +258,9 @@ order: needs a look, check the PD in eTools, wait for the next sync, NeuroDB can
   report, place and title, written exactly alike), and a note counts them. Values Power BI rounds at the sixth
   decimal are the same. Rows Power BI lists under its *Section* filter whose only difference is the section
   (Power BI reads the programme document's sections, NeuroDB the indicator's own) are counted in one note of
-  the export, not listed.
+  the export, not listed, on Indicators with Missing Targets too; a Data Quality card that Power BI counts so
+  says so, with NeuroDB's figure counted Power BI's way. A copy of an indicator is said to be one Power BI
+  lists once only when Power BI lists another copy, or another copy has a value in the year.
 - **NeuroDB cannot show this yet.** A report still owed for a period that has ended (Due or Overdue): the
   partner reports feed never sends it, and NeuroDB does not show PRP's own progress reports until their link
   to the programme documents is proven (eTools reporting checks, check 11). A value Power BI shows in a report
@@ -266,6 +268,8 @@ order: needs a look, check the PD in eTools, wait for the next sync, NeuroDB can
   fix in NeuroDB now; these are never counted as expected. Once the pages show PRP's own reports still owed,
   a report found there compares as NeuroDB's (the export's notes say how many come from PRP's own list). One
   PRP's own list has under another status says so and why (moved on since Power BI's refresh, for one); one
+  PRP's own list still has as Due or Overdue, which the pages do not show as NeuroDB counts each report once
+  (the partner reports hold its number for another period, or PRP's list a newer version), needs a look; one
   no read of the list returned in the last 7 days is no longer counted (PRP may have deleted it); and one
   neither feed has was not in the Datamart read. A draft value stays in this group (PRP's own list carries no
   value), on the location and disaggregation exports alike. A report Power BI lists as Due whose period has not
@@ -481,10 +485,12 @@ programme documents, trips, engagements, action points and their details).
   and whether the pages show them: "yes, since 16 Oct 2026", or why not ("their link to the programme
   documents is not proven", "too few of the reports also in the partner reports end on the same day", "the link
   passed every test on 16 Oct 2026 only, and must pass on the next day too", "the last sync of PRP's progress
-  reports or of their programme documents failed or received nothing", "the check failed on the last sync:
-  tell the NeuroDB team"...). The link must pass on two days in a row before they can be shown (a day with no
-  sync, or with a sync that failed or received nothing, starts the count again), and closes at once when a
-  read fails it. Check 11 gives the figures. Once shown, Home, Progress reports, its Partners tab, Partner
+  reports or of their programme documents failed or received nothing", "no sync of PRP's progress reports has
+  checked it yet", "the check failed on the last sync: tell the NeuroDB team"...). The link must pass on two
+  days in a row with the same pair of keys before they can be shown (a day with no sync, or whose last read of
+  PRP's progress reports failed or received nothing, starts the count again), and closes at once when a read
+  fails it, or fails: a later sync of their programme documents does not open it again. Reports of draft or
+  cancelled programme documents are never counted, as the pages never show them. Check 11 gives the figures. Once shown, Home, Progress reports, its Partners tab, Partner
   monitoring's Overdue reports, the PD and partner pages, the daily review and Ask NeuroDB count them. The
   first page says the same
   beside the dataset, and the list gives each report's programme document and partner in NeuroDB ("not

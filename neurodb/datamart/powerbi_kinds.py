@@ -274,24 +274,53 @@ def period_ended(end: Any, day: datetime.date) -> bool:
 
 
 def owed_reason(
-    job: Job, detail: str = words.DETAIL_OWED, *, prp: list[pf.HeldReport] | None = None, powerbi: str = ""
+    job: Job,
+    detail: str = words.DETAIL_OWED,
+    *,
+    prp: list[pf.HeldReport] | None = None,
+    powerbi: str = "",
+    pd: Any = None,
 ) -> Reason:
     """A report still owed for a period that has ended, that NeuroDB does not list: NeuroDB cannot show it
     yet (group 5) while it does not show PRP's own progress reports. Once it does (``context.owed_shown``),
     PRP's own list may still hold it (``prp``: its records of the report, ``pf.prp_reports``, the latest
-    first): under another status (the status reason, :func:`status_reason`: moved on since Power BI's refresh,
-    for one), or only in records no read returned for 7 days (NeuroDB no longer counts them); else neither
-    feed has it: not in the Datamart read. For report lines only (the report list, the follow-up list)."""
+    first): still owed there (Due or Overdue), which NeuroDB does not show as it counts each report once, the
+    pages showing another record of it (:func:`counted_once_detail`: needs a look, whatever the sync's
+    timing); under another status (the status reason, :func:`status_reason`: moved on since Power BI's
+    refresh, for one); or only in records no read returned for 7 days (NeuroDB no longer counts them); else
+    neither feed has it: not in the Datamart read. For report lines only (the report list, the follow-up list,
+    ``pd`` the line's PD)."""
     if not job.context.owed_shown:
         return ("owed", "", detail)
     fresh = [r for r in prp or [] if not r.stale]
     if fresh:
-        reason, label, said = status_reason(job, fresh, powerbi)
         status = rc.STATUS_LABELS.get(fresh[0].status, fresh[0].status)
-        return (reason, label, " ".join(x for x in (words.DETAIL_IN_PRP.format(status=status), said) if x))
+        in_prp = words.DETAIL_IN_PRP.format(status=status)
+        if fresh[0].status in (rc.DUE, rc.OVERDUE):
+            return ("counted_once", "", f"{in_prp} {counted_once_detail(job, pd, fresh[0])}")
+        reason, label, said = status_reason(job, fresh, powerbi)
+        return (reason, label, " ".join(x for x in (in_prp, said) if x))
     if prp:
         return ("not_in_read", "", words.DETAIL_PRP_STALE)
     return ("not_in_read", "", f"{words.DETAIL_NOT_IN_PRP} {job.context.not_in_read_detail()}")
+
+
+def counted_once_detail(job: Job, pd: Any, report: pf.HeldReport) -> str:
+    """Why the pages do not show a report PRP's own list still owes (``owed.every_owed`` counts each report
+    once, and only one the partner report rows do not hold): the rows hold its number for another period, or
+    the pages show another version of PRP's list (another period end); else they do not show it (no period
+    end, for one)."""
+    number = pm.text(report.number)
+    others = [
+        h
+        for h in pf.reports(job.context).of_pd(pd)
+        if pm.text(h.number) == number and h.period_end != report.period_end
+    ]
+    if any(h.source != "prp" for h in others):
+        return words.DETAIL_ROWS_OTHER_PERIOD
+    if others:
+        return words.DETAIL_PRP_OTHER_PERIOD
+    return words.DETAIL_PRP_NOT_SHOWN
 
 
 def _prp_found(
@@ -783,7 +812,7 @@ def report_missing(job: Job, p: dict[str, Any], held: pf.Reports) -> Reason:
     owed = pm.text(p.get("report_status")) in OWED_LABELS
     if owed and not found and period_ended(p.get("period_end"), job.context.day):
         prp = _prp_found(job, p["pd"], p["report"], p["period_end"])
-        return owed_reason(job, prp=prp, powerbi=p.get("report_status") or "")
+        return owed_reason(job, prp=prp, powerbi=p.get("report_status") or "", pd=p["pd"])
     if not found:
         return not_in_read(job)
     if job.parsed.sections:
@@ -887,7 +916,7 @@ def follow_up(job: Job) -> None:
                 why = not_in_read(job)
             else:
                 prp = _prp_found(job, p["pd"], due=p["due_date"])
-                why = owed_reason(job, prp=prp, powerbi=p["status"])
+                why = owed_reason(job, prp=prp, powerbi=p["status"], pd=p["pd"])
         elif not found:
             why = not_in_read(job)
         else:
@@ -1111,15 +1140,28 @@ def dq_reason(job: Job, *, with_reached: bool = False) -> Reason:
 
 def missing_targets(job: Job) -> None:
     """Data Quality's Indicators with Missing Targets against Data quality's indicators without a target (a
-    target of 0 counts as none), by PD and title; a row only Power BI has whose indicator NeuroDB holds with a
-    target differs in its target."""
+    target of 0 counts as none), by PD and title. A row only Power BI has whose indicator NeuroDB holds with a
+    target differs in its target; one NeuroDB holds without a target, outside the filter's sections by its own
+    section but inside them by its PD's, is the section rule (counted in a note, as on Data Quality's list);
+    one NeuroDB holds otherwise is not explained yet, never "not in the read". A row only NeuroDB has, inside
+    the filter's sections by its own section but not by its PD's, is the section rule too."""
     context, parsed = job.context, job.parsed
     neurodb = page.missing_targets(parsed, context)
-    targeted = {
-        (pm.pd_number(n["pd"]), pm.text(n["title"])): n
-        for n in page.indicators(parsed, context, view="quality")
-        if n["target"]
-    }
+    # every indicator NeuroDB holds, any target and section (one with a target first), by PD and title
+    held: dict[tuple, dict[str, Any]] = {}
+    for n in page.indicators(parsed, context, view="quality"):
+        for key in ((pm.pd_number(n["pd"]), pm.text(n["title"])), (pm.pd_base(n["pd"]), pm.text(n["title"]))):
+            if key not in held or (n["target"] and not held[key]["target"]):
+                held[key] = n
+
+    def holds(row: dict[str, Any]) -> dict[str, Any] | None:
+        title = pm.text(row.get("indicator_title"))
+        found = held.get((pm.pd_number(row.get("pd")), title))
+        return found if found is not None else held.get((pm.pd_base(row.get("pd")), title))
+
+    def pd_section_only(n: dict[str, Any]) -> bool:
+        return bool(parsed.sections) and not page.in_section(n, parsed) and page.in_pd_sections(n, parsed)
+
     powerbi = list(job.rows())
 
     def key_pb(row: dict[str, Any], title: str) -> tuple:
@@ -1154,14 +1196,25 @@ def missing_targets(job: Job) -> None:
             )
     for p in left_pb:
         with job.row("only_powerbi", [p.get("pd"), p.get("indicator_title")]):
-            held = targeted.get((pm.pd_number(p.get("pd")), pm.text(p.get("indicator_title"))))
-            if held is not None:  # NeuroDB has a target for it
+            n = holds(p)
+            if n is not None and n["target"]:  # NeuroDB has a target for it
                 job.add(
                     "different",
                     older_or_fallback(job),
                     match=[p.get("pd"), p.get("indicator_title")],
-                    found={"target": [p.get("target"), held["target"], None]},
-                    link=reverse("reports:pd_indicator", args=[held["pd_id"], held["key"]]),
+                    found={"target": [p.get("target"), n["target"], None]},
+                    link=reverse("reports:pd_indicator", args=[n["pd_id"], n["key"]]),
+                )
+                continue
+            if n is not None:  # held without a target, outside the page's section filter
+                section = pd_section_only(n)
+                job.add(
+                    "only_powerbi",
+                    ("left_out", "section", words.DETAIL_SECTION) if section else fallback(job),
+                    listed=not section,  # only the section differs: a note says it once
+                    match=[p.get("pd"), p.get("indicator_title")],
+                    found={"target": [p.get("target"), None, None]},
+                    link=reverse("reports:pd_indicator", args=[n["pd_id"], n["key"]]),
                 )
                 continue
             why = pd_reason(job, p.get("pd")) or not_in_read(job)
@@ -1173,13 +1226,15 @@ def missing_targets(job: Job) -> None:
                 pd=p.get("pd") if why[0] == "pd_not_running" else "",
             )
     for n in left_nd:
+        outside = bool(parsed.sections) and not page.in_pd_sections(n, parsed)
         job.add(
             "only_neurodb",
-            neurodb_only(job),
+            ("rule", "section", words.DETAIL_SECTION) if outside else neurodb_only(job),
             match=[n["pd"], n["title"]],
             found={"target": [None, n["target"], None]},
             link=reverse("reports:pd_indicator", args=[n["pd_id"], n["key"]]),
         )
+    note_sections(job)
 
 
 # ======================================================================================== the cards
@@ -1207,14 +1262,15 @@ DQ_CARDS = (
 )
 
 
-def _card(job: Job, neurodb: Any, why: Callable[[Any], Reason]) -> None:
-    """A card: its one figure against NeuroDB's; a difference takes ``why(Power BI's value)``."""
+def _card(job: Job, neurodb: Any, why: Callable[[Any], Reason], alternative: Any = None) -> None:
+    """A card: its one figure against NeuroDB's; a difference takes ``why(Power BI's value)``, and shows
+    ``alternative`` (NeuroDB's figure counted Power BI's way) when there is one."""
     for row in job.rows():
         a = row.get("count")
         if pm.same_count(a, neurodb):
             job.result.same()
             continue
-        job.add("different", why(a), match=[], found={"count": [a, neurodb, None]})
+        job.add("different", why(a), match=[], found={"count": [a, neurodb, alternative]})
 
 
 def partner_count(job: Job) -> None:
@@ -1239,11 +1295,21 @@ def status_card(job: Job) -> None:
 
 
 def dq_figure(job: Job) -> None:
-    """Data Quality's cards of programme documents and indicators (``powerbi_page.quality``); its card with
-    Reached is explained from the list of the same upload, as its card without Reached is."""
-    neurodb = page.quality(job.parsed, job.context)[job.kind.key]
-    with_reached = job.kind.key == "dq_with_reached"
-    _card(job, neurodb, lambda _a: dq_reason(job, with_reached=True) if with_reached else fallback(job))
+    """Data Quality's cards of programme documents and indicators (``powerbi_page.quality``). Under a Section
+    filter, a card Power BI counts by the PD's sections (``quality(by_pd=True)``: NeuroDB's page reads the
+    indicator's own) is the section rule; else its card with Reached is explained from the list of the same
+    upload, as its card without Reached is."""
+    key, parsed = job.kind.key, job.parsed
+    neurodb = page.quality(parsed, job.context)[key]
+    by_pd = page.quality(parsed, job.context, by_pd=True)[key] if parsed.sections else None
+    by_pd = None if by_pd == neurodb else by_pd
+
+    def why(powerbi: Any) -> Reason:
+        if by_pd is not None and pm.same_count(powerbi, by_pd):
+            return ("left_out", "section", words.DETAIL_SECTION)
+        return dq_reason(job, with_reached=True) if key == "dq_with_reached" else fallback(job)
+
+    _card(job, neurodb, why, by_pd)
 
 
 def title_pair(
@@ -1307,7 +1373,8 @@ def dq_list(job: Job) -> None:
     Power BI's possible readings of its filter ranked by the indicators they agree on (in on both sides, or
     out on both). An indicator only NeuroDB lists is, in this order: one eTools marks inactive with no report
     row, a copy of another of its PD's indicators (same title and PD output) Power BI lists or that has the
-    year's rows, one whose report of the year was not in the Datamart read (the location export names it
+    year's rows with a value (:func:`_has_value`; never a copy NeuroDB lists too: Power BI then lists none of
+    them), one whose report of the year was not in the Datamart read (the location export names it
     under that report), one of a PD that ends after the year (Power BI lists an indicator only in its PD's
     last year: only while Power BI lists no indicator of such a PD), one with no report in the year, one with
     draft values, one outside the PD's sections, else not explained yet."""
@@ -1400,7 +1467,7 @@ def dq_list(job: Job) -> None:
             others = [c for c in copies[(n["pd_id"], n["title"], n["output"])] if c is not n]
             if n["ident"] in inactive and f["no_rows"]:
                 why: Reason = ("inactive", "", words.DETAIL_INACTIVE)
-            elif any(id(c) in listed or marks[id(c)]["row"] for c in others):
+            elif any(id(c) in listed or (marks[id(c)]["row"] and _has_value(marks[id(c)])) for c in others):
                 why = ("rule", "canonical", words.DETAIL_CANONICAL)
             elif _report_not_in_read(context, n, year):
                 why = not_in_read(job)
@@ -1490,6 +1557,12 @@ def dq_list(job: Job) -> None:
     note_sections(job)
     context.dq = {"neurodb": len(neurodb_list), **gaps}
     del left_nd
+
+
+def _has_value(f: dict[str, bool]) -> bool:
+    """A copy of an indicator has a value in the year (Accepted or Submitted, or a draft's, which Power BI may
+    count): the one copy Power BI keeps has a Reached, so its list holds none of them."""
+    return not f["none"] or not f["every_none"]
 
 
 def _ends_after(pd: pf.Pd | None, year: int) -> bool:

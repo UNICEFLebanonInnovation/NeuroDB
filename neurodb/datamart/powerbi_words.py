@@ -339,9 +339,10 @@ GROUP_ACTIONS = {
     3: "Check this PD's status in eTools. If it is active there, wait for the next sync and press Compare "
     "again.",
     4: "Download the Excel file and send it to the NeuroDB team.",
-    5: "Nothing to fix in NeuroDB now: the eTools Datamart never sent these. NeuroDB shows reports still "
-    "owed once PRP's progress reports are tied to their programme documents (eTools reporting checks, check "
-    "11).",
+    # true whether NeuroDB shows PRP's reports still owed or not (a report line written while it does not
+    # says why: DETAIL_OWED)
+    5: "Nothing to fix in NeuroDB now: the eTools Datamart never sent these (reports still owed, or values "
+    "partners entered in reports not submitted yet).",
 }
 # the reasons, in the order they are tried (powerbi_kinds), and the group each belongs to
 REASON_ORDER = (
@@ -349,6 +350,7 @@ REASON_ORDER = (
     "pd_not_running",
     "owed",
     "not_in_read",
+    "counted_once",
     "inactive",
     "funds_elsewhere",
     "left_out",
@@ -370,6 +372,7 @@ REASON_GROUPS = {
     "pd_not_running": 3,
     "owed": 5,  # an earlier upload's lines keep the group they were written with (1)
     "not_in_read": 2,  # 4 when NeuroDB's sync ran after Power BI's refresh
+    "counted_once": 4,
     "inactive": 4,
     "funds_elsewhere": 4,
     "left_out": 1,
@@ -391,6 +394,7 @@ REASON_WORDS = {
     "pd_not_running": "Not in NeuroDB: the PD is not running there",
     "owed": "A report still owed",
     "not_in_read": "Not in NeuroDB: not in the Datamart read",
+    "counted_once": "NeuroDB counts another record of this report",
     "inactive": "NeuroDB lists an indicator eTools marks inactive",
     "funds_elsewhere": "NeuroDB has its funds on another PD, or on none",
     "left_out": "NeuroDB's page leaves it out",
@@ -412,6 +416,7 @@ REASON_ACTIONS = {
     "before_history": "NeuroDB's partner reports start on {history}.",
     "owed": "The partner has not sent this report yet.",
     "not_in_read": "Check in PRP that the report exists.",  # when NeuroDB's sync ran after the refresh
+    "counted_once": "Check the report's period in PRP and in eTools.",
     "inactive": "Check in eTools whether it is an older version of the PD's indicator.",
     "funds_elsewhere": (
         "The funds reservation lines name this PD but NeuroDB links them elsewhere (Raw eTools data → Funds "
@@ -452,7 +457,8 @@ DETAIL_NOT_RUNNING = "NeuroDB has this PD as {status}."
 DETAIL_NO_PD = "NeuroDB holds no PD with this number."
 DETAIL_OWED = (
     "A report still owed for a period that has ended: the partner reports feed never sent it, and NeuroDB "
-    "cannot tie PRP's own progress reports to their programme documents yet."
+    "cannot tie PRP's own progress reports to their programme documents yet. NeuroDB shows such reports once "
+    "they are tied (eTools reporting checks, check 11)."
 )
 # a value Power BI shows in a report still owed: the partner's draft (PRP's progress reports carry no value)
 DETAIL_OWED_DRAFT = (
@@ -463,6 +469,17 @@ DETAIL_NOT_IN_PRP = "Neither NeuroDB's partner reports nor PRP's progress report
 # ... and when PRP's own list holds it, but NeuroDB does not show it: under another status, said before the
 # status reason, or no read of the list returned it for 7 days
 DETAIL_IN_PRP = "PRP's own list of progress reports has it as {status}."
+# ... still owed there, but the pages count each report once and show another record of it
+# (powerbi_kinds.counted_once_detail)
+DETAIL_ROWS_OTHER_PERIOD = (
+    "NeuroDB's partner reports hold this report number for another period, and the pages count that one "
+    "(Raw eTools data → Partner reports)."
+)
+DETAIL_PRP_OTHER_PERIOD = (
+    "PRP's own list also holds a newer version of this report for another period, and the pages count that "
+    "one."
+)
+DETAIL_PRP_NOT_SHOWN = "The pages do not show it."
 DETAIL_PRP_STALE = (
     "PRP's own list of progress reports has it, but no read of the list returned it in the last 7 days, so "
     "NeuroDB no longer counts it (PRP may have deleted it)."
@@ -522,6 +539,7 @@ DETAIL_GAP = "Of the {n:,} reports behind this gap: {parts}."
 DETAIL_GAP_PART = {
     "owed": "{n:,} are reports still owed",
     "not_in_read": "{n:,} were not in the Datamart read",
+    "counted_once": "{n:,} are reports NeuroDB counts under another record",
     "inactive": "{n:,} are indicators eTools marks inactive",
     "funds_elsewhere": "{n:,} have their funds on another PD, or on none",
     "status": "{n:,} are counted under another status",
@@ -539,6 +557,7 @@ DETAIL_GAP_ONE = "Of the 1 report behind this gap: {parts}."
 DETAIL_GAP_PART_ONE = {
     "owed": "1 is a report still owed",
     "not_in_read": "1 was not in the Datamart read",
+    "counted_once": "1 is a report NeuroDB counts under another record",
     "inactive": "1 is an indicator eTools marks inactive",
     "funds_elsewhere": "1 has its funds on another PD, or on none",
     "status": "1 is counted under another status",
@@ -564,9 +583,7 @@ DETAIL_DQ_GAP_ONE = "Of the 1 indicator behind this gap: {parts}."
 # the Data Quality card: the indicators behind both sides of its gap
 DETAIL_DQ_BOTH = "{nd:,} more in NeuroDB, {pb:,} more in Power BI, net {net:,}: {parts}."
 # the card with Reached: the same list, named, as its sides are the other way round
-DETAIL_DQ_WITH = (
-    "Indicators without Reached: {nd:,} more in NeuroDB's list, {pb:,} more in Power BI's: {parts}."
-)
+DETAIL_DQ_WITH = f"{_DQ_LIST}: {{nd:,}} more in NeuroDB's list, {{pb:,}} more in Power BI's: {{parts}}."
 # the rules a "different rule" names (each also a choice the user may make, see CHOICES)
 RULE_WORDS = {
     "reached": "Reached: Power BI {words}; NeuroDB adds Accepted and Submitted reports",
@@ -851,10 +868,12 @@ TODO_CHECK_ONE = "Check 1 PD in eTools: NeuroDB has it as not running."
 TODO_WAIT = "Wait for the next sync: {n:,} differences. " + GROUP_ACTIONS[2]
 TODO_WAIT_ONE = "Wait for the next sync: 1 difference. " + GROUP_ACTIONS[2]
 TODO_NOT_SHOWN = (
-    "NeuroDB cannot show {n:,} differences yet: reports still owed the eTools Datamart never sent."
+    "NeuroDB cannot show {n:,} differences: reports still owed, or values in reports not submitted yet, "
+    "which the eTools Datamart never sent."
 )
 TODO_NOT_SHOWN_ONE = (
-    "NeuroDB cannot show 1 difference yet: a report still owed the eTools Datamart never sent."
+    "NeuroDB cannot show 1 difference: a report still owed, or a value in a report not submitted yet, which "
+    "the eTools Datamart never sent."
 )
 TODO_EXPECTED = "Expected, nothing to fix: {n:,} differences ({parts})."
 TODO_EXPECTED_ONE = "Expected, nothing to fix: 1 difference ({parts})."

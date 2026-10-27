@@ -2548,10 +2548,14 @@ def _shown_sentence(verdict: dict[str, Any]) -> str:
         f"{compared:,} reports the partner reports also have, {same:,} end on the same day."
     )
     if verdict.get("shown"):
-        return f"{tied} NeuroDB shows the {_count(verdict.get('owed')):,} reports still owed."
+        owed = _plural(_count(verdict.get("owed")), "report", "reports")
+        return f"{tied} NeuroDB shows the {owed} still owed."
     if why == "one_day":
         day = day_words(verdict.get("checked_on"))
-        return f"{tied} The link passed every test on {day}: NeuroDB shows them once the next read agrees."
+        return (
+            f"{tied} The link passed every test on {day}: NeuroDB shows them once a read on the next day "
+            "agrees too."
+        )
     failed = {
         "few": f"only {compared:,} of them are also in the partner reports, too few to check it "
         f"({LINK_AGREE_MIN} are needed)",
@@ -2577,6 +2581,11 @@ def _shown_sentence(verdict: dict[str, Any]) -> str:
         )
     if why == "not_checked":
         return "Whether NeuroDB shows PRP's reports still owed is checked from the next sync of them."
+    if why == "not_synced":
+        return (
+            "Whether NeuroDB shows PRP's reports still owed is checked once PRP's progress reports are "
+            "synced."
+        )
     if why == "check_failed":
         return (
             "Whether NeuroDB shows PRP's reports still owed could not be checked on the last sync: tell "
@@ -3387,22 +3396,28 @@ CHECKS: tuple[Check, ...] = (
         "This year, do the partner reports, PRP's indicator reports and PRP's own progress reports list the "
         "same reports per status for the running programme documents, and which reports does the partner "
         "reports feed miss?",
-        "Progress reports and Partner monitoring read the partner reports (prp/datareport); PRP's indicator "
-        "reports (prp/indicator-report-v2) are kept whole for Ask NeuroDB and the Funds page, and PRP's own "
-        "progress reports (sources/prp/unicefprogressreport) for Ask NeuroDB, each linked to its programme "
-        "document through PRP's programme documents after their sync, by the pair of keys the data proves "
-        "(the id each programme document is held under when none is). This check counts each progress report "
-        "once, as the latest read wrote it: an older version a read not whole kept is linked to none and "
-        "counted nowhere here, while Ask NeuroDB, which has no look-up by PD or partner for them, lists it "
-        "until a whole read removes it. All are read with the same status rule (PRP's word, then the dates); "
-        "indicator reports are compared with indicator reports, progress reports with progress reports. A "
-        "report the partner reports feed does not carry is counted nowhere else: the number gaps (a QPR2 "
-        "missing between QPR1 and QPR3) are estimated here only. Each sync of PRP's progress reports or of "
-        "their programme documents also records whether the pages could show PRP's reports still owed: only "
-        "when the pair of keys is proven, at least 10 of the reports the partner reports also have are "
-        "compared, 9 in 10 of them end on the same day, at least 10 were submitted on both sides and 9 in 10 "
-        "of those on the same day, on two days in a row; a read that fails one of these closes it at once. "
-        "The pages do not show them yet.",
+        "Progress reports, Home and Partner monitoring read the partner reports (prp/datareport); PRP's "
+        "indicator reports (prp/indicator-report-v2) are kept whole for Ask NeuroDB and the Funds page, and "
+        "PRP's own progress reports (sources/prp/unicefprogressreport) for the list of reports still owed "
+        "and for Ask NeuroDB, each linked to its programme document through PRP's programme documents after "
+        "their sync, by the pair of keys the data proves (the id each programme document is held under when "
+        "none is). This check counts each progress report once, as the latest read wrote it: an older "
+        "version a read not whole kept is linked to none and counted nowhere here, while Ask NeuroDB, which "
+        "has no look-up by PD or partner for them, lists it until a whole read removes it. All are read with "
+        "the same status rule (PRP's word, then the dates); indicator reports are compared with indicator "
+        "reports, progress reports with progress reports. A report the partner reports feed does not carry "
+        "is counted elsewhere only through that list of reports still owed, while it is shown: the number "
+        "gaps (a QPR2 missing between QPR1 and QPR3) are estimated here only. While this check's figure "
+        "PRP's progress reports shown on the pages reads yes, Home, Progress reports and its Partners tab, "
+        "the PD and partner pages, Partner monitoring's Overdue reports, the daily review, Ask NeuroDB and "
+        "the exports also count PRP's own reports still owed: Due or Overdue with the period ended, returned "
+        "by a read within 7 days, of a programme document that is not a draft or cancelled, and not held by "
+        "any partner report row of the PD; never as indicator reports. Each sync of PRP's progress reports "
+        "or of their programme documents records whether the pages show them: only when the pair of keys is "
+        "proven, at least 10 of the reports the partner reports also have are compared, 9 in 10 of them end "
+        "on the same day, at least 10 were submitted on both sides and 9 in 10 of those on the same day, on "
+        "two days in a row with the same pair of keys; a read that fails one of these, or fails, closes it "
+        "at once. While it is closed, the pages count the partner reports alone.",
         _two_feeds,
     ),
     Check(

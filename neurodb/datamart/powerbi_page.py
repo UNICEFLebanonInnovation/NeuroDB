@@ -288,15 +288,24 @@ def in_section(row: dict[str, Any], parsed: Filter) -> bool:
     return not chosen or pm.text(row["section"] or monitoring.NO_SECTION) in chosen
 
 
-def quality(parsed: Filter, context: pf.Context) -> dict[str, int]:
+def in_pd_sections(row: dict[str, Any], parsed: Filter) -> bool:
+    """Power BI's Section slicer: the indicator's programme document has one of the sections chosen."""
+    chosen = {pm.text(s) for s in parsed.sections}
+    return not chosen or bool(chosen & row["pd_sections"])
+
+
+def quality(parsed: Filter, context: pf.Context, *, by_pd: bool = False) -> dict[str, int]:
     """Data quality's figures for Power BI's filter, as its cards count them, of the indicators the page's
     section filter keeps (``monitoring.data_quality``'s rules, ``FIGURE_TESTS``): the programme documents
     (active, ended), the indicators, those with a Reached above 0 (Power BI's card without Reached counts the
-    zeros), those with a target (a target of 0 counts as none) and those without one."""
+    zeros), those with a target (a target of 0 counts as none) and those without one. ``by_pd``: the same
+    figures with the section read Power BI's way, by the PD's sections (:func:`in_pd_sections`), never the
+    page's."""
     from neurodb.partnerships import statuses as pd_statuses
 
     year = parsed.years[0] if len(parsed.years) == 1 else None
-    rows = [r for r in indicators(parsed, context, view="quality") if in_section(r, parsed)]
+    kept = in_pd_sections if by_pd else in_section
+    rows = [r for r in indicators(parsed, context, view="quality") if kept(r, parsed)]
     pds = {r["pd_id"]: r["pd_status"] for r in rows}
     reached = [r["reached_in_year"] if year else r["reached"] for r in rows]
     with_target = sum(1 for r in rows if r["target"])

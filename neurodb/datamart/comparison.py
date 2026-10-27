@@ -299,6 +299,11 @@ OVERDUE_NOTE = (
     "PRP's own list only while their link to the programme documents is proven: see check 11 (Admin → Data "
     "and sync → eTools reporting checks)."
 )
+# Data quality counts indicators: PRP's reports still owed have none, so NeuroDB never counts them there
+NO_REACHED_NOTE = (
+    "Power BI can count reports owed that the partner reports feed does not carry: see check 11 (Admin → "
+    "Data and sync → eTools reporting checks)."
+)
 PDS_NOTE = (
     "The programme documents of these indicators: a running programme document with no indicator of this "
     "filter is not counted (see check 10: running programme documents with no report row)."
@@ -649,7 +654,7 @@ def _dq_tiles(r: Read) -> Iterator[Line]:
     yield ("dq.reached_above_zero", item, figure, above, "indicators", note)
     yield ("dq.zero_reached", items["zero_reached"] + in_year, figure, q["zero_reached"], "indicators", "")
     item = items["without_reached"] + in_year
-    yield ("dq.without_reached", item, figure, q["without_reached"], "indicators", OVERDUE_NOTE)
+    yield ("dq.without_reached", item, figure, q["without_reached"], "indicators", NO_REACHED_NOTE)
     note = "A target of 0 counts as none."
     yield ("dq.with_target", card("dq.with_target"), figure, q["with_target"], "indicators", note)
     yield ("dq.without_target", card("dq.without_target"), figure, q["without_target"], "indicators", "")

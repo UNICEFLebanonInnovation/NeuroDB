@@ -1416,12 +1416,15 @@ def test_too_few_reports_to_check_the_link(linked):
     assert (link["passes"], link["shown_why"]) == (False, "few")
 
 
+BY = ["programme_document", "prp_id"]  # the key pair _agreeing's reports are linked by
+
+
 def test_a_failing_read_closes_the_link_at_once(linked, site_today):
     """Shown since 13 Oct (two days): today's read agrees again and it stays shown, since 13 Oct. A read whose
     reports end on other days closes it at once (days 0), whatever the days before; so does a read that fails
     before the link step (not read), and the next agreeing read starts again from one day."""
     _, pd = linked
-    shown = {"proven": True, "passes": True, "days": 2, "shown": True, "shown_since": "2026-10-13"}
+    shown = {"by": BY, "proven": True, "passes": True, "days": 2, "shown": True, "shown_since": "2026-10-13"}
     _verdict_run("prp_progress_reports", shown, day=TODAY - dt.timedelta(days=1))
     _agreeing(pd)
     link = sync.link_progress_reports()
@@ -1445,6 +1448,64 @@ def test_a_failing_read_closes_the_link_at_once(linked, site_today):
 FIRST_DAY = (True, 1, False, "one_day", "")  # an agreeing read the day before did not pass: not shown yet
 
 
+def _at(run, day: dt.date, hour: int) -> None:
+    """``run`` started on ``day`` at ``hour`` and ended ten minutes later."""
+    from django.utils import timezone
+
+    SyncRun.objects.filter(pk=run.pk).update(
+        started_at=timezone.make_aware(dt.datetime.combine(day, dt.time(hour))),
+        finished_at=timezone.make_aware(dt.datetime.combine(day, dt.time(hour, 10))),
+    )
+
+
+def test_a_failed_read_of_the_progress_reports_is_never_opened_again_by_a_programme_documents_sync(
+    linked, site_today
+):
+    """The link passed yesterday (one day). Tonight's read of PRP's progress reports failed before the link step:
+    the pages do not show them (not read). A sync of their programme documents later today links the same records
+    again and passes: the pages still do not show them, as the last read of the progress reports failed, and the
+    next day's agreeing read is its first day, never its second."""
+    from neurodb.datamart import owed
+
+    _, pd = linked
+    one = {"by": BY, "proven": True, "passes": True, "days": 1, "shown": False, "shown_why": "one_day"}
+    _verdict_run("prp_progress_reports", one, day=TODAY - dt.timedelta(days=1))
+    _agreeing(pd)
+    _at(_verdict_run("prp_progress_reports", None, day=TODAY, status=SyncRun.Status.FAILED), TODAY, 1)
+    assert sync.recorded_pd_link()["why"] == "not_read"
+    _at(_verdict_run("prp_programme_documents", sync.link_progress_reports(), day=TODAY), TODAY, 8)
+    found = sync.recorded_pd_link()
+    assert (found["shown"], found["why"]) == (False, "not_read")
+    assert owed.link_state().shown is False
+    site_today.set(TODAY + dt.timedelta(days=1))
+    link = sync.link_progress_reports()
+    assert (link["passes"], link["days"], link["shown"], link["shown_why"], link["shown_since"]) == FIRST_DAY
+
+
+def test_another_key_pair_starts_the_days_again(linked):
+    """Yesterday another key pair passed, shown or not: today's pair passes once, its first day (another pair
+    links other reports). The same pair goes on."""
+    _, pd = linked
+    other = {"by": ["programme_document_id", "external_id"], "proven": True, "passes": True, "days": 1,
+             "shown": False, "shown_why": "one_day"}  # fmt: skip
+    run_ = _verdict_run("prp_progress_reports", other, day=TODAY - dt.timedelta(days=1))
+    _agreeing(pd)
+
+    def verdict():
+        link = sync.link_progress_reports()
+        assert link["by"] == BY
+        return link["passes"], link["days"], link["shown"], link["shown_why"], link["shown_since"]
+
+    assert verdict() == FIRST_DAY
+    for link in (
+        {**other, "days": 2, "shown": True, "shown_since": "2026-10-13", "shown_why": ""},
+        {**other, "by": BY},
+    ):
+        SyncRun.objects.filter(pk=run_.pk).update(details={"progress_reports_pd_link": link})
+        expected = (True, 2, True, "", "2026-10-15") if link["by"] == BY else FIRST_DAY
+        assert verdict() == expected
+
+
 @pytest.mark.parametrize("ago", [2, 30])
 def test_a_day_without_a_sync_starts_the_days_again(linked, ago):
     """Shown since 1 Sep, then no sync of PRP's two datasets for a day or more: today's agreeing read is its first
@@ -1463,8 +1524,8 @@ def test_a_read_that_received_nothing_starts_the_days_again(linked):
     day again, also when the programme documents' sync ran after that read on 14 Oct and passed. Once that read
     received records the days go on; a read of the progress reports more than 7 days old closes them again."""
     _, pd = linked
-    one = {"proven": True, "passes": True, "days": 1, "shown": False, "shown_why": "one_day"}
-    two = {"proven": True, "passes": True, "days": 2, "shown": True, "shown_since": "2026-10-14"}
+    one = {"by": BY, "proven": True, "passes": True, "days": 1, "shown": False, "shown_why": "one_day"}
+    two = {"by": BY, "proven": True, "passes": True, "days": 2, "shown": True, "shown_since": "2026-10-14"}
     _verdict_run("prp_progress_reports", one, day=TODAY - dt.timedelta(days=2))
     empty = _verdict_run("prp_progress_reports", two, day=TODAY - dt.timedelta(days=1), empty_response=True)
     assert sync.recorded_pd_link()["why"] == "not_read"
@@ -1615,13 +1676,21 @@ def test_two_versions_from_one_read_count_once(linked):
 
 def test_recorded_pd_link_reads_not_read_when_the_latest_run_recorded_none(db):
     """The verdict is the latest finished run's of PRP's two datasets: a later programme documents run that
-    recorded none (nothing held, or it failed before the link step) is not_read, never the progress reports'
-    older verdict; a run before the verdict was recorded is not checked yet; with no run, not read."""
-    assert sync.recorded_pd_link() == {"shown": False, "why": "not_read"}
+    recorded none is never read over the progress reports' older verdict: not_read when it failed before the
+    link step, not_synced when it found no progress report held (nothing was checked); a run before the verdict
+    was recorded is not checked yet; with no run, or only one under way, not synced (never "failed")."""
+    assert sync.recorded_pd_link() == {"shown": False, "why": "not_synced"}
+    first = SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="prp_progress_reports",
+                                   status=SyncRun.Status.RUNNING)  # fmt: skip
+    assert sync.recorded_pd_link() == {"shown": False, "why": "not_synced"}
+    first.delete()
     shown = {"proven": True, "passes": True, "days": 2, "shown": True, "shown_since": "2026-10-13"}
     _verdict_run("prp_progress_reports", shown, day=TODAY - dt.timedelta(days=1))
     assert sync.recorded_pd_link()["shown"] is True
-    _verdict_run("prp_programme_documents", {}, day=TODAY)
+    documents = _verdict_run("prp_programme_documents", {}, day=TODAY)
+    assert (sync.recorded_pd_link()["shown"], sync.recorded_pd_link()["why"]) == (False, "not_synced")
+    assert "failed" not in sync.shown_words(sync.recorded_pd_link())
+    SyncRun.objects.filter(pk=documents.pk).update(status=SyncRun.Status.FAILED, details={"read": 3})
     assert (sync.recorded_pd_link()["shown"], sync.recorded_pd_link()["why"]) == (False, "not_read")
     _verdict_run("prp_progress_reports", {"proven": True, "linked": 12}, day=TODAY + dt.timedelta(days=1))
     assert sync.recorded_pd_link()["why"] == "not_checked"
@@ -1692,7 +1761,7 @@ def test_a_proof_that_fails_never_fails_the_link_and_is_said(linked, monkeypatch
     _, pd = linked
     _agreeing(pd)
 
-    def broken(proven, today):
+    def broken(proven, today, **_):
         raise ValueError("a fake failure")
 
     monkeypatch.setattr(sync, "pd_link_proof", broken)

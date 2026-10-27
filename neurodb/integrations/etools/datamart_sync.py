@@ -58,6 +58,7 @@ from neurodb.integrations.etools.fields import assign, coerce, parse_iso_date
 from neurodb.integrations.etools.locations import parse_point
 from neurodb.integrations.http import IntegrationError
 from neurodb.integrations.runs import fail, finish_by_counts, new_run, process_items
+from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA, Agreement, PartnerOrganization
 
 logger = logging.getLogger(__name__)
@@ -3229,7 +3230,7 @@ class Census:
         self.read = 0
         self.codes: Counter[str] = Counter()
         keys = ("id", "source_id", "country_name", spec.filter_key, spec.date, *spec.partner)
-        keys += (*spec.intervention, *spec.title, *spec.reads)
+        keys += (*spec.intervention, *spec.title, *spec.reads, *spec.counts)
         self.watched = tuple(dict.fromkeys(k for k in keys if k))
         self.keys: Counter[str] = Counter()
         self.ids: Counter[str] = Counter()
@@ -3616,7 +3617,7 @@ def link_progress_reports() -> dict[str, Any]:
     dm.DatamartDocument.objects.bulk_update(changed, ["intervention_id", "partner_id"], batch_size=2000)
     try:  # the proof never fails the link: without it, the pages may not show them ("check_failed")
         with transaction.atomic():
-            proof = pd_link_proof(link.proven, timezone.localdate())
+            proof = pd_link_proof(link.proven, timezone.localdate(), by=[link.report_key, link.pd_key])
     except Exception as exc:
         logger.warning("etools datamart: the proof of the progress reports' link was not read: %s", exc)
         proof = {"proof_error": str(exc)[:300]}
@@ -3664,6 +3665,7 @@ SHOWN_WHY = {
     "one_day": "the link passed every test on {day} only, and must pass on the next day too",
     "not_read": "the last sync of PRP's progress reports or of their programme documents failed or received "
     "nothing",
+    "not_synced": "no sync of PRP's progress reports has checked it yet",
     "not_checked": "not checked yet: the next sync of PRP's progress reports checks it",
     "check_failed": "the check failed on the last sync: tell the NeuroDB team",
     "old": "PRP's progress reports were last read on {day}",
@@ -3883,8 +3885,8 @@ def _previous_verdict(today: dt.date) -> dict[str, Any]:
     either of PRP's two datasets that started before ``today`` recorded, never an older run's. {} (the days
     start again from one) when that run recorded none (it failed before the link step, its proof failed, or
     it was made before the verdict was recorded), when it did not start on the day before, or when the latest
-    read of the progress reports by then received nothing or is old (:func:`_read_closes`: the pages did not
-    show them)."""
+    read of the progress reports by then failed, received nothing or is old (:func:`_read_closes`: the pages
+    did not show them). :func:`pd_link_proof` also starts again when its key pair (``by``) is not today's."""
     start = timezone.make_aware(dt.datetime.combine(today, dt.time.min))
     latest = (
         SyncRun.objects.filter(
@@ -3906,30 +3908,31 @@ def _previous_verdict(today: dt.date) -> dict[str, Any]:
 
 
 def _read_closes(before: dt.datetime) -> dict[str, str]:
-    """Why the latest finished read of PRP's progress reports that started before ``before`` closes the
-    verdict: ``{"why": "not_read"}`` when there is none or it received nothing (``empty_response``),
-    ``{"why": "old", "read_on": its day}`` when it ended more than :data:`OWED_STALE_DAYS` days before; {}
-    when it does not."""
+    """Why the latest read of PRP's progress reports that started before ``before`` and finished, failed or
+    not, closes the verdict: ``{"why": "not_read"}`` when there is none, it failed or it received nothing
+    (``empty_response``), so a later sync of their programme documents never opens it again over the same
+    records; ``{"why": "old", "read_on": its day}`` when it ended more than :data:`OWED_STALE_DAYS` days
+    before; {} when it does not."""
     read = (
         SyncRun.objects.filter(
             job=SyncRun.Job.ETOOLS_DATAMART,
             target=PROGRESS_REPORTS,
-            status__in=(SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL),
             started_at__lt=before,
         )
+        .exclude(status=SyncRun.Status.RUNNING)
         .order_by("-started_at", "-pk")
         .annotate(_empty=KeyTransform("empty_response", "details"))
-        .values_list("finished_at", "_empty")
+        .values_list("finished_at", "_empty", "status")
         .first()
     )
-    if read is None or read[1]:
+    if read is None or read[1] or read[2] == SyncRun.Status.FAILED:
         return {"why": "not_read"}
     if read[0] is not None and read[0] < before - dt.timedelta(days=OWED_STALE_DAYS):
         return {"why": "old", "read_on": timezone.localtime(read[0]).date().isoformat()}
     return {}
 
 
-def pd_link_proof(proven: bool, today: dt.date) -> dict[str, Any]:
+def pd_link_proof(proven: bool, today: dt.date, *, by: list[str] | None = None) -> dict[str, Any]:
     """Whether the pages may show PRP's progress reports still owed, and the figures that prove it, over the
     reports linked (:func:`linked_progress_reports`, :func:`counted_once`), names and counts only:
 
@@ -3939,18 +3942,22 @@ def pd_link_proof(proven: bool, today: dt.date) -> dict[str, Any]:
       (``same_day``);
     * ``passes``: the key pair is proven and at least :data:`LINK_AGREE_MIN` compared, :data:`LINK_AGREE` of
       them the same, at least :data:`LINK_AGREE_MIN` dated, :data:`LINK_AGREE` of those on the same day;
-      ``days`` it passed in a row (the previous day's verdict, :func:`_previous_verdict`); ``shown`` from
+      ``days`` it passed in a row with the same key pair ``by`` (the previous day's verdict,
+      :func:`_previous_verdict`, whose ``by`` is the same: another pair links other reports, so it starts
+      again from one day, and a pair renamed costs one day); ``shown`` from
       :data:`LINK_DAYS` days, ``shown_since`` the day it first showed; ``shown_why`` why not (``not_proven``,
       ``few``, ``periods``, ``few_days``, ``days``, ``one_day``) or "";
-    * of the reports a read returned within :data:`OWED_STALE_DAYS` (:func:`fresh_since`): ``owed`` (Due or
-      Overdue, their period ended, not in the rows), ``owed_before_history`` (of them, ending before the
-      partner reports' history, ``reached.history_from``), ``twins`` (:func:`counted_once`),
+    * of the reports a read returned within :data:`OWED_STALE_DAYS` (:func:`fresh_since`), those of draft or
+      cancelled programme documents left out (``pd_statuses.NOT_A_PARTNERSHIP``: the pages never show them):
+      ``owed`` (Due or Overdue, their period ended, not in the rows), ``owed_before_history`` (of them, ending
+      before the partner reports' history, ``reached.history_from``), ``twins`` (:func:`counted_once`),
       ``ove_read_due`` (PRP says Overdue, read as Due: no due date passed), ``lacking`` (Accepted or Submitted
       this year, not in the rows), ``unsent_other_word`` (:func:`unsent_other_word`, 0 while the key pair is
       not proven); and ``stale``, those that would be owed but no read returned since (counted once, not in
-      the rows).
+      the rows, draft or cancelled programme documents left out too).
 
-    No figure of a page changes: the pages do not show them yet."""
+    It changes no figure itself: the pages show the reports still owed only while the recorded verdict shows
+    them (``owed.link_state``, :func:`recorded_pd_link`)."""
     reports = linked_progress_reports(today)
     since = fresh_since()
     numbers = PartnerNumbers.read()
@@ -3978,16 +3985,23 @@ def pd_link_proof(proven: bool, today: dt.date) -> dict[str, Any]:
     def held(report: dict[str, Any]) -> bool:
         return bool(report["key"] and report["base"]) and numbers.of(report) is not None
 
-    owed = [r for r in current if r["status"] in OWED and ended(r) and not held(r)]
+    # the reports of draft or cancelled programme documents: the pages never show them (owed._filters'
+    # not_a_partnership step), so neither do the counts of reports still owed
+    gone = set(
+        PCA.objects.filter(
+            pk__in={r["pd"] for r in reports}, status__in=pd_statuses.NOT_A_PARTNERSHIP
+        ).values_list("pk", flat=True)
+    )
+
+    def owes(report: dict[str, Any]) -> bool:
+        return report["status"] in OWED and ended(report) and not held(report) and report["pd"] not in gone
+
+    owed = [r for r in current if owes(r)]
     history = rc.history_from(today).date
     counts = {
         "owed": len(owed),
         "owed_before_history": sum(1 for r in owed if r["end"] < history),
-        "stale": sum(
-            1
-            for r in counted_once([r for r in reports if r["synced_at"] < since])[0]
-            if r["status"] in OWED and ended(r) and not held(r)
-        ),
+        "stale": sum(1 for r in counted_once([r for r in reports if r["synced_at"] < since])[0] if owes(r)),
         "twins": twins,
         "ove_read_due": sum(
             1
@@ -4020,12 +4034,14 @@ def pd_link_proof(proven: bool, today: dt.date) -> dict[str, Any]:
     )
     passes = not why
     previous = _previous_verdict(today)
-    days = (_count(previous.get("days")) or 0) + 1 if previous.get("passes") is True else 1
+    # the days go on only from a verdict of the same key pair: another pair links other reports
+    same = previous.get("passes") is True and previous.get("by") == by
+    days = (_count(previous.get("days")) or 0) + 1 if same else 1
     days = days if passes else 0
     shown = days >= LINK_DAYS
     since_day = ""
     if shown:
-        since_day = str(previous.get("shown_since") or "") if previous.get("shown") is True else ""
+        since_day = str(previous.get("shown_since") or "") if same and previous.get("shown") is True else ""
         since_day = since_day or today.isoformat()
     if passes and not shown:
         why = "one_day"
@@ -4044,11 +4060,12 @@ def recorded_pd_link() -> dict[str, Any]:
     """Whether the pages may show PRP's progress reports still owed, as the sync recorded it
     (:func:`pd_link_proof`): the verdict of the latest finished run (not running) of PRP's progress reports or
     of their programme documents, whichever started later, so an older verdict is never read over newer links.
-    ``{"shown": False, "why": "not_read"}`` when that run recorded none (it failed before the link step, or no
-    progress report was held), ``why`` "check_failed" when its proof failed (``proof_error``),
+    ``{"shown": False, "why": "not_synced"}`` when no such run has finished yet, or when that run did not fail
+    and found no progress report held (its link step recorded nothing); ``why`` "not_read" when that run
+    recorded none (it failed before the link step), "check_failed" when its proof failed (``proof_error``),
     "not_checked" for a run made before the verdict was recorded. A verdict that shows them still closes when
-    the latest read of the progress reports that finished received nothing (``not_read``) or ended more than
-    :data:`OWED_STALE_DAYS` days ago (``old``, ``read_on`` its day). Else:
+    the latest read of the progress reports that finished failed or received nothing (``not_read``) or ended
+    more than :data:`OWED_STALE_DAYS` days ago (``old``, ``read_on`` its day). Else:
     ``shown``, ``why`` (``pd_link_proof``'s ``shown_why``), ``since``, ``days``, ``passes``, ``proven``,
     ``link_why`` (why no key pair is proven, :data:`LINK_WHY`), ``linked``, ``agrees``, the counts of
     :data:`PROOF_COUNTS` and ``checked_on``, the day of the verdict's run. Check 11 and Raw eTools data read
@@ -4060,12 +4077,14 @@ def recorded_pd_link() -> dict[str, Any]:
         .exclude(status=SyncRun.Status.RUNNING)
         .order_by("-started_at", "-pk")
         .annotate(_link=KeyTransform("progress_reports_pd_link", "details"))
-        .values_list("started_at", "_link")[:1]
+        .values_list("started_at", "_link", "status")[:1]
     )
     if not latest:
-        return {"shown": False, "why": "not_read"}
-    started, link = latest[0]
+        return {"shown": False, "why": "not_synced"}
+    started, link, status = latest[0]
     checked_on = timezone.localtime(started).date().isoformat()
+    if link == {} and status != SyncRun.Status.FAILED:  # no progress report was held: nothing checked yet
+        return {"shown": False, "why": "not_synced", "checked_on": checked_on}
     if not isinstance(link, dict) or not link:
         return {"shown": False, "why": "not_read", "checked_on": checked_on}
     if "passes" not in link:

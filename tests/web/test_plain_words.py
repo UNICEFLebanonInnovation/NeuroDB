@@ -170,6 +170,7 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         # the Power BI comparison sheet's own words
         comparison.REFUSED_DAY,
         comparison.OVERDUE_NOTE,
+        comparison.NO_REACHED_NOTE,
         comparison.PDS_NOTE,
         *(words for line in comparison.WHY_THEY_DIFFER for words in line),
         *(words for page in comparison.NEURODB_ONLY.values() for words in page.values()),

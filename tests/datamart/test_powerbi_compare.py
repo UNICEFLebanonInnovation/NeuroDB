@@ -2147,6 +2147,43 @@ def _prp_record(number: str, end: D, due: D, word: str, sub: D | None = None):
     )  # fmt: skip
 
 
+def test_gate_open_a_report_prp_still_owes_that_the_pages_count_once_needs_a_look(checker, world):
+    """With the gate open, PRP's own list holds QPR3 as Overdue for 1 to 15 Sep (made again after an amendment)
+    while NeuroDB's partner reports hold QPR3 for July to September, and PRP's list holds HR5 twice, Overdue
+    both times (July, and a newer version for August). NeuroDB counts each report once, so the pages show the
+    rows' QPR3 and the newer HR5. Power BI lists PRP's QPR3 and the older HR5: same status as PRP's, yet not
+    shown; their report list lines and QPR3's follow-up line (by due date) need a look and say why, never
+    "status counted differently"."""
+    from neurodb.datamart import powerbi_words as words
+    from neurodb.datamart.models import DatamartDocument
+
+    _owed_shown("HR1", D(2026, 8, 31), D(2026, 9, 15))
+    _prp_record("QPR3", D(2026, 9, 15), D(2026, 9, 30), "Overdue")
+    older = _prp_record("HR5", D(2026, 7, 31), D(2026, 8, 15), "Overdue")
+    DatamartDocument.objects.filter(pk=older.pk).update(record_key="h-HR5-older")
+    _prp_record("HR5", D(2026, 8, 31), D(2026, 9, 15), "Overdue")
+    qpr3 = _with(REPORTS[2], period_start=D(2026, 9, 1), period_end=D(2026, 9, 15), due_date=D(2026, 9, 30))
+    hr5 = _with(REPORTS[0], report="HR5", report_status="Overdue", period_start=D(2026, 7, 1),
+                period_end=D(2026, 7, 31), due_date=D(2026, 8, 15))  # fmt: skip
+    upload = pf.compared(
+        checker,
+        _one("report_list", [REPORTS[0], REPORTS[1], qpr3, hr5]),
+        _one("follow_up", [_follow(status="Overdue", due_date=D(2026, 9, 30))], filters=FOLLOW_FILTERS),
+    )
+    in_prp = words.DETAIL_IN_PRP.format(status="Overdue")
+    _export, lines = _lines(upload, "report_list")
+    found = {line.match[1]: line for line in lines if line.kind == "only_powerbi"}
+    assert (found["QPR3"].reason, found["QPR3"].group) == ("counted_once", 4)
+    assert found["QPR3"].detail == f"{in_prp} {words.DETAIL_ROWS_OTHER_PERIOD}"
+    assert (found["HR5"].reason, found["HR5"].group) == ("counted_once", 4)
+    assert found["HR5"].detail == f"{in_prp} {words.DETAIL_PRP_OTHER_PERIOD}"
+    _export, lines = _lines(upload, "follow_up")
+    (line,) = [line for line in lines if line.match[2] == "2026-09-30"]
+    assert (line.reason, line.group) == ("counted_once", 4)
+    assert line.detail == f"{in_prp} {words.DETAIL_ROWS_OTHER_PERIOD}"
+    assert not [line for line in lines if words.DETAIL_OWED_WORDS in line.detail]
+
+
 def test_gate_open_a_report_prp_s_own_list_holds_otherwise_is_never_in_neither_feed(checker, world):
     """With the gate open, an Overdue report of Power BI's lists that NeuroDB does not show may still be in
     PRP's own list: HR2 is Submitted there (it moved on), HR3 no read returned for 8 days (NeuroDB no longer

@@ -525,6 +525,17 @@ def test_operations_says_what_ask_neurodb_and_check_11_make_of_prp_progress_repo
     assert "Ask NeuroDB still lists an older version until a whole read removes it" in text
 
 
+def test_operations_names_check_11_s_figure_by_its_label():
+    """Check 11's last figure is "PRP's progress reports shown on the pages": OPERATIONS.md named it by its
+    old label, "can be shown", in two places, and by the new one in a third."""
+    from neurodb.datamart import checks
+
+    label = checks._proof_figures({})[-1][0]
+    assert label == "PRP's progress reports shown on the pages"
+    assert "can be shown on the pages" not in OPERATIONS_WORDS
+    assert OPERATIONS_WORDS.count(f"*{label}*") >= 3
+
+
 def test_operations_and_the_guide_say_why_check_10_s_dates_print_whole():
     """break-word keeps a word whole, never a date: "1 Mar 2025" is three words, and check 10's Start and End
     printed as "1 Mar" over "2025". Its dates are written with non-breaking spaces; the docs said the CSS did it."""

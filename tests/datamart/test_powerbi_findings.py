@@ -1036,6 +1036,46 @@ def test_dq_indicator_of_a_report_not_in_read_needs_a_look(checker, world):
     assert _dq_line(upload, "Fake copy").rule == "canonical"
 
 
+def test_dq_copies_power_bi_lists_neither_go_on_to_the_next_reasons(checker, world):
+    """Two copies of one indicator (the same PD, title and PD output), each with 2026 rows of Reached 0, and
+    Power BI's list holds neither: Power BI lists none of them (its copy has a Reached, from QPR9, which the
+    Datamart read did not bring: the location export names it), so neither is "a copy Power BI lists once";
+    both are not in the read, needing a look."""
+    pd, _ended = world
+    _copies(pd)
+    for source, number, start, end in (
+        (501, "QPR1", D(2026, 1, 1), D(2026, 3, 31)),
+        (502, "QPR2", D(2026, 4, 1), D(2026, 6, 30)),
+    ):
+        pf.report_row(pd, number, "Accepted", start, end, title="Fake copy", source=source, value=0,
+                      submitted=end + datetime.timedelta(days=5))  # fmt: skip
+    locations = [_location(indicator_title="Fake copy", report="QPR9", p_code="LB9_9_1", reached=7, **APRIL)]
+    upload = _compared(
+        checker,
+        _one("report_list", [*REPORTS, _report(report="QPR9", **APRIL)]),
+        _one("locations", locations, filters=LOCATION_FILTERS, drop=LOCATION_DROP),
+        _one("dq_list", [_dq("Fake other", pd=OTHER_PD)], filters=DQ_FILTERS),
+        sync=AFTER,
+    )
+    _export, lines = _lines(upload, "dq_list")
+    copies = [x for x in lines if x.match[1] == "Fake copy"]
+    assert len(copies) == 2
+    assert {(x.kind, x.reason, x.group) for x in copies} == {("only_neurodb", "not_in_read", 4)}
+    assert not [x for x in copies if x.rule == "canonical"]
+
+
+def test_dq_a_copy_whose_other_copy_has_a_reached_is_a_copy_power_bi_lists_once(checker, world):
+    """One copy has a 2026 report with a Reached, the other none: Power BI lists neither (its one copy has a
+    Reached), and the copy without rows is the copy Power BI lists once."""
+    pd, _ended = world
+    _copies(pd)
+    pf.report_row(pd, "QPR1", "Accepted", D(2026, 1, 1), D(2026, 3, 31), title="Fake copy", source=501, value=8,
+                  submitted=D(2026, 4, 5))  # fmt: skip
+    upload = _compared(checker, _one("dq_list", [_dq("Fake other", pd=OTHER_PD)], filters=DQ_FILTERS))
+    line = _dq_line(upload, "Fake copy")
+    assert (line.kind, line.reason, line.rule, line.group) == ("only_neurodb", "rule", "canonical", 1)
+
+
 def _funds_pd(number="FAKE/PCA2026005/PD2026005"):
     from neurodb.partnerships.models import PCA, PartnerOrganization
 
@@ -1274,6 +1314,91 @@ def test_indicators_with_missing_targets_compare_with_neurodb_s(checker, world):
     assert found["Fake other"].detail.startswith(words.DETAIL_NO_PD)
 
 
+def _beta_pd():
+    """An active PD whose only section is Section Beta."""
+    from neurodb.partnerships.models import PCA, PartnerOrganization
+
+    partner = PartnerOrganization.objects.get(name=pf.WORLD_PARTNER)
+    return PCA.objects.create(etl_id="fake-beta", partner=partner, partner_name=pf.WORLD_PARTNER,
+                              number="FAKE/PCA2026006/PD2026006", title="Fake programme 6", status="active",
+                              document_type="PD", start=D(2026, 1, 1), end=D(2026, 12, 31),
+                              section_names=["Section Beta"], cp_outputs=["Output One"])  # fmt: skip
+
+
+def test_missing_targets_read_power_bi_s_section_slicer_as_the_pd_s_sections(checker, world):
+    """Power BI's Section slicer reads the PD's sections. Under Section Alpha it lists two indicators of the
+    world's PD (sections Alpha and Beta) whose own section is Beta: NeuroDB holds one without a target (the
+    section rule, counted in the export's note, never "not in the read") and one with a target (it differs in
+    its target). NeuroDB lists an Alpha indicator without a target of a PD whose only section is Beta, which
+    Power BI does not list: the section rule too."""
+    pd, _ended = world
+    _indicator(pd, 103, "Fake beta no target", target=None, section="Section Beta", cp_output="Output One")
+    _indicator(pd, 104, "Fake beta target", section="Section Beta", cp_output="Output One")
+    _indicator(_beta_pd(), 601, "Fake alpha of a beta PD", target=None, cp_output="Output One")
+    dq = (*YEAR, "section_name is Section Alpha")
+    rows = [
+        pf.row("missing_targets", section="Section Alpha, Section Beta", pd=PD, indicator_title=title)
+        for title in ("Fake beta no target", "Fake beta target")
+    ]
+    upload = _compared(checker, _one("missing_targets", rows, filters=dq), sync=AFTER)
+    export, lines = _lines(upload, "missing_targets")
+    found = {x.match[1]: x for x in lines}
+    assert "Fake beta no target" not in found and export.counts["noted"] == {"section": 1}
+    assert words.NOTE_PD_SECTIONS_ONE in export.counts["notes"]
+    assert (found["Fake beta target"].kind, found["Fake beta target"].found["target"][1]) == (
+        "different",
+        100.0,
+    )
+    line = found["Fake alpha of a beta PD"]
+    assert (line.kind, line.reason, line.rule, line.group) == ("only_neurodb", "rule", "section", 1)
+    assert not [x for x in lines if x.reason == "not_in_read"]
+
+
+def test_a_data_quality_card_power_bi_counts_by_the_pd_s_sections_is_the_section_rule(checker, world):
+    """Under Section Alpha, Power BI's Data Quality counts the world's PD's Beta indicator too (the PD's
+    sections): its cards of indicators and of those with a target are one above NeuroDB's, exactly NeuroDB's
+    figure counted Power BI's way, so they are the section rule (expected), never "not explained yet". A card
+    that differs otherwise is still not explained."""
+    pd, _ended = world
+    _indicator(pd, 103, "Fake beta indicator", section="Section Beta", cp_output="Output One")
+    dq = (*YEAR, "section_name is Section Alpha")
+    upload = _compared(checker, *_cards({"dq_total": 3, "dq_with_target": 3, "dq_without_target": 7}, dq))
+    for kind in ("dq_total", "dq_with_target"):
+        export, (line,) = _lines(upload, kind)
+        powerbi, neurodb, by_pd = line.found["count"]
+        assert powerbi == by_pd == neurodb + 1, kind
+        assert (line.reason, line.rule, line.group, line.detail) == (
+            "left_out", "section", 1, words.DETAIL_SECTION
+        ), kind  # fmt: skip
+        assert export.verdict != "look", kind
+    _export, (other,) = _lines(upload, "dq_without_target")
+    assert (other.reason, other.group, other.found["count"][2]) == ("unknown", 4, None)
+
+
+def _strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _strings(item)
+    elif isinstance(value, list | tuple | set | frozenset):
+        for item in value:
+            yield from _strings(item)
+
+
+def test_the_comparison_names_power_bi_s_list_without_reached_exactly():
+    """Every sentence of the comparison naming Power BI's Data Quality list names it as Power BI's report does
+    (powerbi_names, the one place), never by a shortened name."""
+    from neurodb.datamart import powerbi_names
+
+    name = powerbi_names.visual("dq_list")
+    assert words.DETAIL_DQ_WITH.startswith(f"{name}: ")
+    for key, value in vars(words).items():
+        for text in _strings(value):
+            if "Indicators without Reached" in text:
+                assert name in text, key
+
+
 def test_how_to_export_asks_for_every_visual_and_card_by_its_exact_name():
     from neurodb.datamart import powerbi_admin
     from neurodb.datamart import powerbi_exports as px
@@ -1352,7 +1477,7 @@ def test_the_data_quality_cards_say_their_gap_from_their_own_side(checker, world
     _export, (with_reached,) = _lines(upload, "dq_with_reached")
     assert with_reached.found["count"][:2] == [3, 2]  # NeuroDB below: one more without Reached in NeuroDB
     assert with_reached.detail.startswith(
-        "Indicators without Reached: 1 more in NeuroDB's list, 0 more in Power BI's"
+        "Indicators without Reached or with Zero Reached: 1 more in NeuroDB's list, 0 more in Power BI's"
     )
     assert "more in NeuroDB, 0 more in Power BI, net" not in with_reached.detail
 
@@ -1467,6 +1592,26 @@ def test_gate_open_draft_values_of_owed_reports_stay_cannot_show(checker, world)
         )
         value = _of(values, report)
         assert (value.reason, value.group, value.detail) == ("owed", 5, words.DETAIL_OWED_DRAFT), report
+    # these draft values are never shown, and NeuroDB already shows PRP's reports still owed: no page promises
+    # either will be
+    promise = "once PRP's progress reports are tied"
+    page = _page(checker, "admin:datamart_powerbi_upload", upload.pk)
+    assert promise not in page and "reports still owed the eTools Datamart never sent" not in page
+    assert "or values in reports not submitted yet, which the eTools Datamart never sent." in page
+    for kind in ("locations", "disaggregations"):
+        export = PowerBIExport.objects.get(upload=upload, kind=kind)
+        page = _page(checker, "admin:datamart_powerbi_export", upload.pk, export.pk)
+        assert words.GROUP_ACTIONS[5] in page and promise not in page, kind
+
+
+def test_gate_closed_only_a_report_line_points_to_check_11(checker, world):
+    """While the gate is closed, a report still owed says NeuroDB shows such reports once PRP's progress reports
+    are tied (check 11); the group's sentence, true whatever the gate, never promises it."""
+    upload = _compared(checker, _one("report_list", [*REPORTS, _owed()]))
+    _export, lines = _lines(upload, "report_list")
+    line = _only(lines, PD, "HR1")
+    assert line.detail == words.DETAIL_OWED and "check 11" in line.detail
+    assert "check 11" not in words.GROUP_ACTIONS[5] and "check 11" not in words.TODO_NOT_SHOWN
 
 
 # ============================================================ stage 4: a comparison made before the decisions

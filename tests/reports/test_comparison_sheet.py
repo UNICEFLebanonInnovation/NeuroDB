@@ -149,6 +149,15 @@ def test_partner_monitoring_figures_are_the_page_s(validator, more, frozen, para
         assert found[key].value == quality[name], key
 
 
+def test_only_the_overdue_row_says_neurodb_counts_prp_s_reports_still_owed(more, frozen):
+    """Data quality counts indicators, and PRP's reports still owed have none: NeuroDB never counts them there,
+    gate open or closed, so the Without Reached row's note never says it does; the Overdue row's does."""
+    found = _figures(PM, {"pd_status": ""})
+    assert found["dq.without_reached"].note == comparison.NO_REACHED_NOTE
+    assert "NeuroDB counts" not in found["dq.without_reached"].note
+    assert _figures(PR, {"pd_status": ""})["pr.status.overdue"].note == comparison.OVERDUE_NOTE
+
+
 def test_rows_follow_power_bi_s_pages_and_visuals(more, frozen):
     """Every block once, in Power BI's order of pages and visuals; each row on the card or the visual of Power
     BI that shows its figure, or on none (NeuroDB's own figure)."""

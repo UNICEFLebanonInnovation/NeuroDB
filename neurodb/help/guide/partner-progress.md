@@ -64,12 +64,12 @@ that PRP's list is tied to the right programme documents:
 
 - the pair of keys that ties them is proven, and the reports both feeds have end on the same day (9 in 10, at
   least 10 of them) and were submitted on the same day (9 in 10 of at least 10 submitted on both sides), on
-  two days in a row;
-- the last read of PRP's list received records, at most 7 days ago.
+  two days in a row with the same pair of keys;
+- the last read of PRP's list did not fail and received records, at most 7 days ago.
 
 A read that fails one of these hides them again at once. A report counts when PRP says Due or Overdue, its
 period has ended, a read returned it in the last 7 days (a report PRP deleted would read Overdue for ever),
-and the partner reports have no row of it: when they have one, whatever its period or status, the partner
+its programme document is not a draft or cancelled, and the partner reports have no row of it: when they have one, whatever its period or status, the partner
 reports decide. They carry no indicator: the tiles' indicator report counts, Reached and the indicator pages
 leave them out. In the tables they read "from PRP's own list" and do not open (they have no indicator to
 show); the exports say their source.
@@ -79,7 +79,10 @@ include. While they are hidden, the line says why reports still owed may be miss
 
 - NeuroDB cannot tie PRP's own list to its programme documents yet (the pair of keys is not proven, or the
   reports both feeds have do not agree often enough);
-- the list was tied on one day only: NeuroDB shows it once the next read agrees;
+- NeuroDB has not checked the tie yet: the next sync of the list does;
+- the last sync could not check the tie (check 11 says so: tell the NeuroDB team);
+- the list was tied on one day only: NeuroDB shows it once a read on the next day agrees too (a second read
+  the same day does not count);
 - the list was last read more than 7 days ago;
 - the last sync of the list or of its programme documents failed or received nothing.
 

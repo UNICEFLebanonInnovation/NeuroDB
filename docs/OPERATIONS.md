@@ -3223,7 +3223,12 @@ Quality's cards are explained from them), then Power BI's order.
   without Reached counts the zeros: explained from the Data Quality list), with and without a target). Data
   Quality's *Indicators with Missing Targets* against the indicators without a target (a target of 0 counts as
   none), by PD and title: one only Power BI lists whose indicator NeuroDB holds with a target differs in its
-  target.
+  target; one NeuroDB holds without a target, outside the Section filter by its own section but inside it by
+  its PD's sections (`powerbi_page.in_pd_sections`), is the section rule (`left_out`, counted in the section
+  note, never "not in the read"), and one NeuroDB holds otherwise is not explained yet; one only NeuroDB lists
+  whose PD's sections hold none of the filter's is the section rule too. A Data Quality card that differs under
+  a Section filter and equals NeuroDB's figure counted by the PD's sections (`quality(by_pd=True)`, shown as
+  "Counted Power BI's way") is the section rule (`left_out`, group 1), never "not explained yet".
 
 - **NeuroDB's side** (`powerbi_page`) is the page's own function with Power BI's filter given explicitly: its PD
   statuses (`status is active` is `active` only; no status clause, every status), its reporting years (period
@@ -3271,7 +3276,8 @@ Quality's cards are explained from them), then Power BI's order.
 - **Groups** (`powerbi_match.GROUP_ORDER = (4, 3, 2, 5, 1)`: the order lines are written, kept and listed, and
   their severity): needs a look, check the PD in eTools, wait for the sync, **NeuroDB cannot show this yet**
   (5: a report still owed for a period that has ended, reason `owed`, `owed_reason`; a draft value of one,
-  `draft_reason`, whatever the gate), expected. `pick` chooses a line's reason by that order, then
+  `draft_reason`, whatever the gate: the group's sentence and the to-do line name both, true whatever the
+  gate, and only a report line written while the gate is closed points to check 11, `DETAIL_OWED`), expected. `pick` chooses a line's reason by that order, then
   `REASON_ORDER`, and so does a counted visual's gap (`explain`) and Data Quality's card (both sides of its gap:
   "273 more in NeuroDB, 39 more in Power BI, net 234: …"). An export with group-5 lines and none worse has the
   verdict `not_shown` ("NeuroDB cannot show 3 rows yet", never settled); *What to do now* gives them one line
@@ -3322,7 +3328,9 @@ Quality's cards are explained from them), then Power BI's order.
   Power BI lists no indicator of a PD that may end after the year, one NeuroDB cannot tell included; also a
   reading of the fit table, `dq_pd_year`; the readings ranked by the indicators they agree on, in or out on
   both sides), `canonical` (a copy of an indicator, the same PD, title and PD output, that Power BI lists or
-  that has the year's rows), `shared_output` (a title two PD outputs of a PD share: Power BI lists one),
+  that has the year's rows with a value, `_has_value`: never a copy NeuroDB lists too, as Power BI then lists
+  none of them, so such copies go on to the next reasons, not in the read first), `shared_output` (a title two
+  PD outputs of a PD share: Power BI lists one),
   `accepted_only` (no rule chosen, Power BI's Reached 0, NeuroDB's Accepted-only figure fits it and NeuroDB's own
   is above 0). Two indicators of a PD that share a title exactly (case and spaces too) are added up per report,
   P-code and period end before By location is compared (`_added_up`; a note counts the rows the same; one that
@@ -3343,7 +3351,8 @@ Quality's cards are explained from them), then Power BI's order.
   the draft of a report still owed only when its period has ended, on By location as on By disaggregation (a
   report not yet due is no report still owed). The Data Quality card with Reached says its gap from the list of
   indicators without Reached, named ("1 more in NeuroDB's list": one fewer with Reached in NeuroDB), the card
-  without Reached as before; a Data Quality indicator only NeuroDB lists whose report of the
+  without Reached as before (named exactly as Power BI's list is, `powerbi_names.visual("dq_list")`); a Data
+  Quality indicator only NeuroDB lists whose report of the
   year the location table names and the report list says was not read is not in the read. A budget column that
   differs says NeuroDB's budget fields of the PD (`powerbi_facts.budgets`). Rows that differ only by Power BI's
   section rule (PD/SPD Indicator's paired indicators outside the section, equal in every other column; Data
@@ -3850,7 +3859,7 @@ and business area codes at most).
   reports linked by*, *… of the reports naming one*); when their last read had records twice, what that
   read found; whether the pages could show PRP's reports still owed, as the last sync of either dataset
   recorded it (figures *PRP progress reports linked that the partner reports also have (same type and
-  number)* to *PRP's progress reports can be shown on the pages*, and one sentence by reason: see "Can the
+  number)* to *PRP's progress reports shown on the pages*, and one sentence by reason: see "Can the
   pages show PRP's reports still owed?" below); the partner report rows whose eTools id and reference number
   name different programme documents (*… progress reports they belong to*); and, among the progress reports
   due or overdue in the partner reports, those kept from earlier syncs (eTools no longer sends them).
@@ -4505,13 +4514,15 @@ at least `LINK_AGREE_MIN` = 10 compared and `LINK_AGREE` = 9 in 10 of them the s
 in 10 of those the same day: many PDs share quarter calendars, so a chance link can match a period end, never
 a submission day), `days` it passed in a row (the verdict of the latest finished run of either dataset that
 started on an earlier day, plus one; from one again when that run recorded none, did not start on the day
-before, or the latest read of the progress reports by then received nothing or is old), `shown` from
+before, or the latest read of the progress reports by then failed, received nothing or is old), `shown` from
 `LINK_DAYS` = 2 days, `shown_since` the day it first showed, and `shown_why` (`not_proven`, `few`, `periods`,
-`few_days`, `days`, `one_day`, or ""). A read that
+`few_days`, `days`, `one_day`, or ""). The days go on only from a verdict of the same key pair (`by`): another
+pair starts again from one day, a pair renamed costs one day. A read that
 fails any test closes it at once (`days` 0): a wrong link would show wrong overdue reports, a late one only
 delays them. The step also counts, over the reports a read returned within `OWED_STALE_DAYS` = 7 days of the
 latest read of them (`fresh_since`: their reads are never whole, so a report PRP deleted would read Overdue
-for ever): `owed` (Due or Overdue, their period ended, not in the rows), `owed_before_history` (of them,
+for ever), those of draft or cancelled PDs left out as the pages never show them: `owed` (Due or Overdue,
+their period ended, not in the rows), `owed_before_history` (of them,
 ending before the partner reports' history), `twins` (other versions `counted_once` leaves out),
 `ove_read_due` (PRP says Overdue, read as Due: no due date has passed), `lacking` (Accepted or Submitted this
 year, not in the rows), `unsent_other_word` (reports only rows eTools no longer sends hold, whose status there
@@ -4521,16 +4532,19 @@ rows). A failure of the proof never fails the run
 (`proof_error`; the verdict then reads "the check failed on the last sync: tell the NeuroDB team",
 `check_failed`). The one reader is
 `datamart_sync.recorded_pd_link()`: the verdict of the latest finished run of either dataset, whichever
-started later, so an older verdict is never read over newer links; "not read" when that run recorded none (it
-failed before the link step, or no progress report was held: "the last sync of PRP's progress reports or of
-their programme documents failed or received nothing"), "not checked" for a run before this release,
-and a verdict that shows them still closes when the latest finished read of the progress reports received
-nothing ("not read") or ended more than 7 days ago ("old"). Check 11 (its figures *PRP progress reports linked
-that the partner reports also have…* to *PRP's progress reports can be shown on the pages*, and one sentence
+started later, so an older verdict is never read over newer links; "not synced" when no such run has
+finished, or when that run did not fail and its link step found no progress report held ("no sync of PRP's
+progress reports has checked it yet"); "not read" when that run recorded none (it failed before the link
+step: "the last sync of PRP's progress reports or of their programme documents failed or received
+nothing"), "not checked" for a run before this release, and a verdict that shows them still closes when the
+latest finished read of the progress reports failed or received nothing ("not read": a later sync of the
+programme documents never opens it again over the same records) or ended more than 7 days ago ("old"). Check 11 (its figures *PRP progress reports linked
+that the partner reports also have…* to *PRP's progress reports shown on the pages*, and one sentence
 by reason) and Raw eTools data → PRP progress reports (one line under the counts, a note on the first page)
 read it. The catalogue counts the fields the proof reads on every record read (`reads`: `status`,
-`due_date`, `start_date`, `submission_date`, `programme_document_id`, `programme_document`, in
-`details.keys_seen`), so a field the Datamart does not send shows at once. Check 11 also counts the partner report rows whose eTools id linked them to a PD whose
+`due_date`, `start_date`, `submission_date`, `programme_document_id`; and `counts`: `programme_document`,
+counted only, never a field Raw eTools data shows as read, so the people rule still withholds it when it is
+not plain; in `details.keys_seen`), so a field the Datamart does not send shows at once. Check 11 also counts the partner report rows whose eTools id linked them to a PD whose
 number is not the one they carry (bases compared: the link problem the funds reservation lines had; their
 link is unchanged), and, among the progress reports due or overdue in the partner reports, those kept from
 earlier syncs (eTools no longer sends them).
@@ -4573,7 +4587,9 @@ Compare with Power BI (`Context.owed_shown` and `prp_synced_at`; `Reports` adds 
 `source` "prp", so a report owed in both compares as held; `owed_reason` then reads `pf.prp_reports`, every
 linked record of PRP's list, any version and status, `stale` when no read returned it for 7 days: one held
 under another status gets the status reason after "PRP's own list of progress reports has it as …", one
-only stale "no longer counts it", and only one no record matches is not in the read, neither feed having
+only stale "no longer counts it", one still Due or Overdue there that the pages do not show (they count each
+report once: the rows hold its number for another period, or PRP's list a newer version) is `counted_once`
+(group 4, `counted_once_detail`), and only one no record matches is not in the read, neither feed having
 it; a draft value stays group 5, on the location export too when NeuroDB shows the report only from PRP's
 list; `report_list` notes how many come from PRP's list). Not on them: Watch (its alerts are
 keyed by PRP's report ids, which these records lack) and the brief. PRP's word is never put on a partner

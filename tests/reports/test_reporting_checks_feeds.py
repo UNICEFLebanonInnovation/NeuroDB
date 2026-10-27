@@ -850,6 +850,7 @@ CAN_SHOW = "PRP's progress reports shown on the pages"
 NOT_READ = (
     "no: the last sync of PRP's progress reports or of their programme documents failed or received nothing"
 )
+NOT_SYNCED = "no: no sync of PRP's progress reports has checked it yet"
 
 
 def test_check_11_says_the_proof_that_prp_s_progress_reports_can_be_shown(pd):
@@ -894,6 +895,27 @@ def test_check_11_says_the_proof_that_prp_s_progress_reports_can_be_shown(pd):
     assert "Partner A" not in json.dumps(found) and "LEB/PD/CHK1" not in json.dumps(found)
 
 
+def test_check_11_says_what_the_pages_count_whether_they_show_prp_s_reports_or_not(pd):
+    """The check's "What NeuroDB does" is fixed text, read beside its figure "PRP's progress reports shown on the
+    pages" (yes here): it never says the pages do not show them, nor that a report the partner reports feed lacks
+    is counted nowhere else; it names the pages that count them while that figure reads yes."""
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    _progress_run(business_area="2490", business_area_from="admin", progress_reports_pd_link=SHOWN)
+    assert figures(one("11"))[CAN_SHOW] == "yes, since 14 Oct 2026"
+    said = next(c for c in checks.CHECKS if c.key == "11").neurodb
+    for stale in ("do not show them yet", "counted nowhere else", "unicefprogressreport) for Ask NeuroDB,"):
+        assert stale not in said, stale
+    assert (
+        "While this check's figure PRP's progress reports shown on the pages reads yes, Home, Progress "
+        in said
+    )
+    assert (
+        "Partner monitoring's Overdue reports, the daily review, Ask NeuroDB and the exports also count"
+        in said
+    )
+    assert "While it is closed, the pages count the partner reports alone." in said
+
+
 @pytest.mark.parametrize(
     ("verdict", "sentence", "figure"),
     [
@@ -901,7 +923,7 @@ def test_check_11_says_the_proof_that_prp_s_progress_reports_can_be_shown(pd):
             {"passes": True, "days": 1, "shown": False, "shown_since": "", "shown_why": "one_day"},
             "PRP's progress reports are tied to their programme documents: of the 12 reports the partner reports "
             "also have, 12 end on the same day. The link passed every test on 14 Oct 2026: NeuroDB shows them "
-            "once the next read agrees.",
+            "once a read on the next day agrees too.",
             "no: the link passed every test on 14 Oct 2026 only, and must pass on the next day too",
         ),
         (
@@ -1023,7 +1045,25 @@ def test_check_11_counts_partner_report_rows_whose_id_and_number_name_other_pds(
     assert numbers["… progress reports they belong to"] == 1
     assert numbers["Progress reports due or overdue in the partner reports"] == 1
     assert numbers["… of which kept from earlier syncs (eTools no longer sends them)"] == 1
-    assert numbers[CAN_SHOW] == NOT_READ
+
+
+@pytest.mark.parametrize("state", ["none", "running", "documents_only"])
+def test_check_11_never_says_a_sync_failed_before_any_sync_of_prp_s_progress_reports(pd, state):
+    """No sync of PRP's progress reports has checked the link yet: none ran, the first one is running, or only
+    their programme documents were synced (no progress report held: the link step recorded nothing). Check 11
+    and its figure say so, never that the last sync failed or received nothing."""
+    report_row(pd, "QPR1", end=D(2026, 3, 31))
+    if state == "running":
+        SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="prp_progress_reports",
+                               status=SyncRun.Status.RUNNING)  # fmt: skip
+    if state == "documents_only":
+        _documents_run(progress_reports_pd_link={})
+    found = one("11")
+    assert figures(found)[CAN_SHOW] == NOT_SYNCED
+    assert "failed or received nothing" not in found["verdict"]
+    assert (
+        "Whether NeuroDB shows PRP's reports still owed is checked once PRP's progress reports are synced."
+    ) in found["verdict"]
 
 
 def test_check_11_says_when_the_proof_failed(pd):

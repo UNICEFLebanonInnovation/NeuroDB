@@ -42,7 +42,11 @@ class Source:
     id_is_source: bool = False
     # Keys a page, figure or check reads besides those above: each run counts how many records carry them
     # (``details.keys_seen``, business-area datasets), so a key the Datamart does not send shows at once.
+    # Raw eTools data shows them as fields NeuroDB reads (``raw.read_into``, the people rule's reviewed ones).
     reads: tuple[str, ...] = ()
+    # Keys each run only counts in ``details.keys_seen``: no page shows them as read, so the people rule still
+    # withholds a value that is not plain (its shape is not confirmed, and an object may hold a name).
+    counts: tuple[str, ...] = ()
 
 
 DOCUMENTS: dict[str, Source] = {
@@ -296,8 +300,9 @@ DOCUMENTS: dict[str, Source] = {
             "start_date",
             "submission_date",
             "programme_document_id",
-            "programme_document",
         ),
+        # the link step reads only an id from it (datamart_sync.PROGRESS_REPORT_PD_KEYS): counted, never shown
+        counts=("programme_document",),
     ),
     # ---- reference data
     "locations": Source(

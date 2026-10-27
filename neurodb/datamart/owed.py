@@ -41,7 +41,8 @@ SOURCE_WORDS = "PRP progress reports"  # and the exports' "source" column (the p
 ROWS_WORDS = "Partner reports"
 
 # the line under the tiles, on the Partners tab, on the follow-up list and in Home's block while the gate is
-# closed, by why (``datamart_sync.recorded_pd_link``); the first part is always said
+# closed, by why (``datamart_sync.recorded_pd_link``, as check 11 says it: ``datamart_sync.SHOWN_WHY``); the
+# first part is always said
 HIDDEN_START = (
     "Some reports still owed for a period that has ended may be missing: eTools stops sending a report once "
     "its period ends unsent. NeuroDB keeps those it received before"
@@ -50,12 +51,19 @@ HIDDEN = {
     "": f"{HIDDEN_START}, and cannot tie PRP's own list of progress reports to their programme documents "
     "yet.",
     "one_day": f"{HIDDEN_START}. PRP's own list was tied to its programme documents on {{day}}: NeuroDB "
-    "shows it once the next read agrees.",
+    "shows it once a read on the next day agrees too.",
     "old": f"{HIDDEN_START}. PRP's own list of progress reports was last read on {{day}}.",
     # the last run of either PRP dataset recorded no verdict (it failed, or received nothing), or the last
     # read of the progress reports received nothing: as check 11 says it (datamart_sync.SHOWN_WHY)
     "not_read": f"{HIDDEN_START}, and the last sync of PRP's own list of progress reports or of its "
     "programme documents failed or received nothing.",
+    # no sync has checked the tie yet (none ran, or a run before the check was recorded), or the check failed
+    "not_synced": f"{HIDDEN_START}, and has not yet checked whether PRP's own list of progress reports is "
+    "tied to their programme documents: the next sync of it does.",
+    "not_checked": f"{HIDDEN_START}, and has not yet checked whether PRP's own list of progress reports is "
+    "tied to their programme documents: the next sync of it does.",
+    "check_failed": f"{HIDDEN_START}, and the last sync could not check whether PRP's own list of progress "
+    "reports is tied to their programme documents.",
 }
 # the line while the gate is open and the filter keeps at least one of them
 SHOWN = (
