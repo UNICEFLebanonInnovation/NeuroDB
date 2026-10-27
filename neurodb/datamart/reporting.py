@@ -8,7 +8,8 @@ Report/Location and Report/Disaggregation, as the eTools Power BI report shows t
   a progress report has the report's status.
 * **To follow up.** The reports to follow up (the Partners tab, Home) are those Overdue, Sent back, Due and
   Submitted, a report not yet due among the Due ones, as Power BI's follow-up list has them (the user's
-  decision of 26 Oct 2026): :data:`FOLLOW_UP_STATUSES`, :func:`follow_up_status`.
+  decision of 26 Oct 2026): :data:`FOLLOW_UP_STATUSES`, :func:`follow_up_status`. The Report status Due keeps
+  them there too, as Power BI's slicer does (:func:`follow_up_kept`).
 * **Emergency indicator**: the programme document is an SPD (``reached.is_spd``), as Power BI's (the user's
   decision of 26 Oct 2026), never the indicator's high frequency.
 * **Statuses.** The six report statuses of :func:`neurodb.datamart.reached.status_of` (Accepted,
@@ -810,6 +811,15 @@ def follow_up_status(status: str) -> str:
     return rc.DUE if status == rc.NOT_YET_DUE else status
 
 
+def follow_up_kept(status: str, statuses: Iterable[str]) -> bool:
+    """Whether the reports to follow up keep a report of ``status`` under the Report status filter
+    (``statuses``, none: every status): its own status chosen, or the one the lists to follow up give it
+    (:func:`follow_up_status`), so Due keeps the reports not yet due listed as Due there, as Power BI's Report
+    status slicer keeps them on its follow-up list. The tiles and the other tabs keep the six statuses."""
+    chosen = set(statuses)
+    return not chosen or status in chosen or follow_up_status(status) in chosen
+
+
 def follow_up_reports(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The reports to follow up (:data:`FOLLOW_UP_STATUSES`), the most pressing first: Overdue, Sent back,
     Due (a report not yet due among them) and Submitted, each by due date. A report not yet due is listed as
@@ -830,11 +840,14 @@ def follow_up_reports(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def partner_performance(reports: list[dict[str, Any]]) -> dict[str, Any]:
+def partner_performance(
+    reports: list[dict[str, Any]], followed: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     """Partners with reports in the filter (every status), those with at least one Submitted or
     Accepted report and those without, the number of partners with a report in each status, and the
     reports to follow up (:func:`follow_up_reports`: Overdue, Sent back, Due, a report not yet due among
-    them, and Submitted), the most pressing first."""
+    them, and Submitted), the most pressing first, read from ``followed`` (the reports the Report status
+    filter keeps there, :func:`follow_up_kept`; None: ``reports``)."""
     names: dict[Any, str] = {}
     ids: dict[Any, int | None] = {}
     by_status: dict[str, set[Any]] = defaultdict(set)
@@ -852,7 +865,7 @@ def partner_performance(reports: list[dict[str, Any]]) -> dict[str, Any]:
             pds_of[key].add(r["pd_reference_number"])
     reported = set().union(*(by_status[k] for k in rc.COUNTED))
     not_reported = sorted(set(names) - reported, key=lambda k: names[k].lower())
-    follow_up = follow_up_reports(reports)
+    follow_up = follow_up_reports(reports if followed is None else followed)
     return {
         "partners": len(names),
         "reported": len(reported),

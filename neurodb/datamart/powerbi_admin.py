@@ -460,7 +460,7 @@ def export_view(request, pk: int, export_pk: int):
         not_compared=words.NOT_COMPARED_COLUMNS.format(columns=", ".join(_not_compared(export)))
         if export.not_compared or export.unknown_columns
         else "",
-        notes=[*export.notes, *(counts.get("notes") or [])],
+        notes=powerbi_results.notes(export),
         fits=powerbi_results.fit_tables(export, history),
         by_reason=_by_reason(upload, export),
         chosen=chosen,

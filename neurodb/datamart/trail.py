@@ -256,11 +256,12 @@ class Block:
 @dataclass(frozen=True)
 class Report:
     """What the trail reads of one progress report the filter keeps (``progress_reports`` and
-    ``with_pd_details``): its status and whether the status filter keeps it, the month its period ends in, its
-    partner (``partner_key``) and whether that partner has reported, its programme document
-    (``pd_follow_up_key``), whether it was submitted late, each indicator report's section and the section the
-    report is counted under (``reporting.report_section``), the status word and the newest record carrying
-    it, and its rows the filter leaves out."""
+    ``with_pd_details``): its status and whether the status filter keeps it (``chosen``; ``followed``: in the
+    reports to follow up, where Due keeps a report not yet due, ``reporting.follow_up_kept``), the month its
+    period ends in, its partner (``partner_key``) and whether that partner has reported, its programme
+    document (``pd_follow_up_key``), whether it was submitted late, each indicator report's section and the
+    section the report is counted under (``reporting.report_section``), the status word and the newest record
+    carrying it, and its rows the filter leaves out."""
 
     status: str
     chosen: bool
@@ -274,6 +275,7 @@ class Report:
     word_from: Any
     rows_outside: int
     section: str = ""
+    followed: bool = True
 
 
 @dataclass(frozen=True)
@@ -523,6 +525,7 @@ def chain(
             word_from=r["record"] if r.get("source") else newest[1] if newest else None,
             rows_outside=every_row[key] - kept_rows[key],
             section=reporting.report_section(r),
+            followed=reporting.follow_up_kept(r["status"], chosen),
         )
     trail_rows = TrailRows(
         stages=tuple(name for name, _ in steps),
@@ -534,15 +537,16 @@ def chain(
 
 
 # the selections PRP's reports still owed can be in (TrailRows.documents): they are no report row
-DOCUMENT_SETS = ("kept", "chosen", "status_out", "no_partner")
+DOCUMENT_SETS = ("kept", "chosen", "followed", "status_out", "no_partner")
 
 
 def _base(rows: TrailRows, name: str) -> Callable[[int, tuple], bool]:
     """The rows a selection starts from: ``all`` (every row in NeuroDB), ``kept`` (by the filter), ``chosen``
-    (and by the report status), ``status_out`` (kept, of a report status not chosen), ``stage:<filter>`` (left
-    out by that filter), ``reason:<why>`` (left out by the PD status filter for that reason, or for any of
-    ``<why>|<why>``), ``history`` (a period starting before the date NeuroDB holds partner reports from),
-    ``no_partner`` (chosen, of a report naming no partner)."""
+    (and by the report status), ``followed`` (kept, of a report the reports to follow up keep under the report
+    status: Due keeps one not yet due), ``status_out`` (kept, of a report status not chosen),
+    ``stage:<filter>`` (left out by that filter), ``reason:<why>`` (left out by the PD status filter for that
+    reason, or for any of ``<why>|<why>``), ``history`` (a period starting before the date NeuroDB holds
+    partner reports from), ``no_partner`` (chosen, of a report naming no partner)."""
     kept_at = rows.kept_at
     reports = rows.reports
     if name == "all":
@@ -551,6 +555,8 @@ def _base(rows: TrailRows, name: str) -> Callable[[int, tuple], bool]:
         return lambda pk, r: r[3] == kept_at
     if name == "chosen":
         return lambda pk, r: r[3] == kept_at and reports[r[1]].chosen
+    if name == "followed":
+        return lambda pk, r: r[3] == kept_at and reports[r[1]].followed
     if name == "status_out":
         return lambda pk, r: r[3] == kept_at and not reports[r[1]].chosen
     if name == "no_partner":
@@ -699,6 +705,9 @@ class _Index:
 
 # ------------------------------------------------------------------------------------------------ the figures
 CHOSEN = (("set", "chosen"),)
+# the rows of the reports to follow up: under the report status Due, those not yet due too
+# (reporting.follow_up_kept)
+FOLLOWED = (("set", "followed"),)
 
 
 def _tiles(counts: dict[str, Any]) -> list[Figure]:
@@ -902,6 +911,12 @@ def _reports(reports: list[dict[str, Any]]) -> list[Figure]:
             select=CHOSEN,
         )
     ]
+    return [*out, *_indicators_of(reports, CHOSEN)]
+
+
+def _indicators_of(reports: list[dict[str, Any]], base: tuple) -> list[Figure]:
+    """Each listed progress report's Indicators cell (``base``: the rows it is read from)."""
+    out = []
     for r in reports:
         if r.get("source"):  # a report still owed from PRP's own list has no indicator: its cell says "—"
             continue
@@ -912,11 +927,18 @@ def _reports(reports: list[dict[str, Any]]) -> list[Figure]:
                 IR,
                 r["indicators"],
                 how="The indicator reports of this progress report",
-                select=(*CHOSEN, ("report", r["key"])),
+                select=(*base, ("report", r["key"])),
                 listed=True,
             )
         )
     return out
+
+
+def _followed_only(follow_up: list[dict[str, Any]], reports: list[dict[str, Any]]) -> list[Figure]:
+    """The Indicators cells of the reports to follow up the table does not list: under the report status Due,
+    those not yet due (``reporting.follow_up_kept``), read from the rows of the reports to follow up."""
+    listed = {r["key"] for r in reports}
+    return _indicators_of([r for r in follow_up if r["key"] not in listed], FOLLOWED)
 
 
 def _partners(partners: dict[str, Any], *, every: bool = True, drawn: bool = True) -> list[Figure]:
@@ -989,8 +1011,9 @@ def _partners(partners: dict[str, Any], *, every: bool = True, drawn: bool = Tru
             PR,
             len(partners["follow_up"]),
             how="Progress reports Overdue, Sent back, Due (one not yet due among them, as in Power BI's "
-            "list) or Submitted",
-            select=(*CHOSEN, ("follow_up", True)),
+            "list) or Submitted, of the report statuses chosen (Due keeps those not yet due, as Power BI's "
+            "slicer does)",
+            select=(*FOLLOWED, ("follow_up", True)),
         )
     )
     return out
@@ -1533,7 +1556,10 @@ def _progress_trail(page: str, params: Any, day: datetime.date) -> Trail:
                     "partners",
                     "Partners",
                     "partners",
-                    tuple(_partners(data["partners"])),
+                    (
+                        *_partners(data["partners"]),
+                        *_followed_only(data["partners"]["follow_up"], data["reports"]),
+                    ),
                     notes=(
                         Line(
                             "Progress reports with neither a partner id nor a partner name: "

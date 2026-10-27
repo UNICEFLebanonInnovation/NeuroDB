@@ -219,12 +219,19 @@ def test_every_status_is_counted_and_what_no_page_counts_stays_out(client_viewer
 
 @pytest.mark.parametrize("query", ["?section=", f"?section={EDU}"])
 def test_each_programme_document_row_counts_what_its_link_opens(client_viewer, world, query):
+    """A row's reference opens Progress reports' Partners tab on its programme document, whose reports to follow
+    up are the row's, status by status: a report not yet due is Due in both, as in Power BI's follow-up list
+    (the Reporting progress tab's tiles count it Not yet due). Its other reports are Accepted."""
     figures = _figures(_home(client_viewer, query))
     rows = figures["pd_rows"]
     assert rows, "the world has reports to follow up"
+    not_yet_due = 0
     for row in rows:
         page = client_viewer.get(row["reports_url"])
-        summary = page.context["data"]["summary"]["statuses"]
+        assert page.context["tab"] == "partners", row["pd_reference_number"]
+        data = page.context["data"]
+        summary = data["summary"]["statuses"]
+        not_yet_due += summary.get("not_yet_due", 0)
         # its reports per status as the lists to follow up name them: one not yet due is Due there
         expected = {key: summary.get(key, 0) for key in reporting.STATUS_KEYS}
         expected["due"] += expected.pop("not_yet_due")
@@ -232,11 +239,17 @@ def test_each_programme_document_row_counts_what_its_link_opens(client_viewer, w
         assert {key: row["counts"][key] for key in reporting.STATUS_KEYS} == expected, row[
             "pd_reference_number"
         ]
-        partners_tab = client_viewer.get(row["reports_url"] + "&tab=partners")
-        assert len(partners_tab.context["data"]["partners"]["follow_up"]) == row["follow_up"]
+        # the list the link opens: the row's Overdue, Sent back, Due and Submitted, one by one
+        listed = {key: 0 for key in reporting.FOLLOW_UP}
+        for r in data["partners"]["follow_up"]:
+            listed[r["status"]] += 1
+        assert listed == {key: row["counts"][key] for key in reporting.FOLLOW_UP}, row["pd_reference_number"]
+        assert page.context["page_obj"].paginator.count == row["follow_up"]
         assert _query(row["reports_url"])["pd"] == [row["pd_reference_number"]]
         # Home's sections, written out (none for every section: the page's own default)
         assert _query(row["reports_url"]).get("section", []) == ([] if query == "?section=" else [EDU])
+    if query == "?section=":
+        assert not_yet_due, "a row's Due holds a report not yet due"
 
 
 def test_the_rows_name_their_programme_document_by_its_number_whatever_the_reports_say(client_viewer, world):

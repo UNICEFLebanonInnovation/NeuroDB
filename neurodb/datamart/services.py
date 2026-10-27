@@ -1327,7 +1327,9 @@ def partner_reporting(params, today: datetime.date | None = None, *, options: bo
     their PD's status, document type and UNICEF focal points), the progress reports per status
     (``summary``; ``counts``: what the tiles show, as Power BI's Reporting Progress counts them, with the
     indicator reports in them), by section and by month of the reporting period's end, and Partner
-    Performance (its reports to follow up count a report not yet due as Due, as Power BI's list does).
+    Performance (its reports to follow up count a report not yet due as Due, as Power BI's list does, and the
+    Report status Due keeps it there, as Power BI's slicer does: :func:`neurodb.datamart.reporting.
+    follow_up_kept`).
     ``statuses``: the status of every progress report of the filter, read before the status filter
     (Report/Location reads each report's status there, so a report left out by the status filter is never
     let back in by one of its rows);
@@ -1351,9 +1353,11 @@ def partner_reporting(params, today: datetime.date | None = None, *, options: bo
     if extra:
         reports = reporting.in_order(reports + extra)
     statuses = {r["key"]: r["status"] for r in reports}
+    followed = None  # the reports to follow up: under Due, also those not yet due (reporting.follow_up_kept)
     if filters.statuses:
+        followed = [r for r in reports if reporting.follow_up_kept(r["status"], filters.statuses)]
         reports = [r for r in reports if r["status"] in filters.statuses]
-    reporting.with_pd_details(reports)
+    reporting.with_pd_details(reports if followed is None else followed)  # every report of both lists
     summary = _status_summary(reports)  # progress reports per status
     counts = reporting.counts(reports)  # progress reports per status (the tiles), and their indicator reports
     return {
@@ -1366,7 +1370,7 @@ def partner_reporting(params, today: datetime.date | None = None, *, options: bo
         "by_status": [(reached.STATUS_LABELS[k], n) for k, n in summary["statuses"].items() if n],
         "by_section": reporting.by_section(reports),
         "by_month": reporting.by_month(reports),
-        "partners": reporting.partner_performance(reports),
+        "partners": reporting.partner_performance(reports, followed),
         "left_out": reporting.left_out(filters, today) if options else {},
         "owed": owed.state(sum(1 for r in reports if r.get("source") == owed.SOURCE)),
         "today": today,

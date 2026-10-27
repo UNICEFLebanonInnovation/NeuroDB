@@ -1483,53 +1483,120 @@ OLD_CHOICES = [
         zip(("progress_reports", "due", "emergency"), DECIDED_QUESTIONS, strict=True)
     )
 ]
+# what else such a comparison stored, word for word as the code of 26 Oct 2026 wrote it: the notes of Reporting
+# Progress's table by sector and chart by month, Program Performance's note on the Emergency indicator, and the
+# detail of a follow-up row Power BI calls Due that NeuroDB then called Not yet due
+OLD_NOTE_UNIT = "Same unit as Power BI: progress reports. NeuroDB's own table counts indicator reports."
+OLD_NOTE_EMERGENCY = (
+    "Stated once for every row: Power BI's Emergency indicator is Yes for an SPD; NeuroDB's is the indicator's "
+    "high frequency."
+)
+OLD_DUE_DETAIL = "Power BI's Due also covers reports not yet due."
 
 
-def test_a_comparison_made_before_the_decisions_no_longer_asks_them(checker, world):
-    """An upload compared before the user's decision of 26 Oct 2026 kept the three choices it asked and lines
-    naming the rule NeuroDB had then. Its page and its Excel file no longer ask them: they say NeuroDB counts
-    Power BI's way since, and to compare again. Its lines name the old rule in words, never its code, and send the
-    user to compare again, not to Choices for you; the export's verdict too."""
+def _page(client, name, *args):
+    from django.urls import reverse
+
+    return client.get(reverse(name, args=args)).content.decode().replace("&#x27;", "'")
+
+
+def _summary_cells(client, upload):
     import io
 
     import openpyxl
     from django.urls import reverse
 
+    response = client.get(reverse("admin:datamart_powerbi_xlsx", args=[upload.pk]))
+    summary = openpyxl.load_workbook(io.BytesIO(response.content)).worksheets[0]
+    return [str(c).strip() for row in summary.iter_rows(values_only=True) for c in row if c]
+
+
+def test_a_comparison_made_before_the_decisions_no_longer_asks_them(checker, world):
+    """An upload compared before the user's decision of 26 Oct 2026 kept the three choices it asked, and its
+    follow-up list's rows Power BI calls Due that NeuroDB then called Not yet due (counted another way, Expected).
+    Its page and its Excel file no longer ask them: they say NeuroDB counts Power BI's way since, and to compare
+    again; so does the follow-up export's verdict, never "see Choices for you"."""
     from neurodb.datamart.models import PowerBIDifference
 
-    upload = pf.compared(checker, _one("by_sector", [pf.row("by_sector", section=SECTIONS, accepted=1,
-                                                              submitted=1, due=0, overdue=2)], filters=YEAR))  # fmt: skip
-    export, (line,) = _lines(upload, "by_sector")
-    # as the comparison wrote them before the decision: the unit rule, counted another way
-    PowerBIDifference.objects.filter(pk=line.pk).update(reason="rule", rule="progress_reports", group=1)
-    export.counts = {**export.counts, "rules": {"progress_reports": 1}, "groups": {"1": 1}}
+    upload = _compared(
+        checker,
+        _one("follow_up", [_follow(status="Due", due_date=D(2027, 1, 15))], filters=FOLLOW_FILTERS),
+    )
+    export, lines = _lines(upload, "follow_up")
+    line = _only(lines, PD, "Due", D(2027, 1, 15))
+    # as the comparison stored it before the decision: the row's status counted another way, Expected
+    PowerBIDifference.objects.filter(pk=line.pk).update(
+        reason="status", rule="", group=1, detail=OLD_DUE_DETAIL
+    )
+    export.counts = {
+        **export.counts,
+        "groups": {"1": 1},
+        "reasons": {"status": 1},
+        "reason_groups": {"status": 1},
+        "extra": {**(export.counts.get("extra") or {}), "due_not_yet": 1},
+    }
     export.verdict = "counted"
     export.save(update_fields=["counts", "verdict"])
     upload.choices = OLD_CHOICES
     upload.save(update_fields=["choices"])
-    page = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    page = _page(checker, "admin:datamart_powerbi_upload", upload.pk)
     for question in DECIDED_QUESTIONS:
-        assert question not in page.replace("&#x27;", "'"), question
+        assert question not in page, question
     assert "data-pbi-choices" not in page and "See Choices for you" not in page
-    assert words.CHOICES_DECIDED in page.replace("&#x27;", "'")
+    assert words.CHOICES_DECIDED in page
     offered = powerbi_results.offered(upload)
     assert offered == frozenset()
     export.refresh_from_db()
     assert powerbi_results.verdict_words(export, offered=offered)[1] == words.COUNTED_DECIDED
-    shown = checker.get(
-        reverse("admin:datamart_powerbi_export", args=[upload.pk, export.pk])
-    ).content.decode()
-    shown = shown.replace("&#x27;", "'")
-    assert words.RULE_WORDS["progress_reports"] in shown and ">progress_reports<" not in shown
-    assert words.RULE_DECIDED in shown and "Choices for you" not in shown.split("data-pbi-lines", 1)[1]
+    shown = _page(checker, "admin:datamart_powerbi_export", upload.pk, export.pk)
+    assert OLD_DUE_DETAIL in shown and "Choices for you" not in shown.split("data-pbi-lines", 1)[1]
     line.refresh_from_db()
-    assert powerbi_results.what_to_do(line, "1 Jan 2026", offered).endswith(words.RULE_DECIDED)
-    response = checker.get(reverse("admin:datamart_powerbi_xlsx", args=[upload.pk]))
-    summary = openpyxl.load_workbook(io.BytesIO(response.content)).worksheets[0]
-    cells = [c for row in summary.iter_rows(values_only=True) for c in row if c]
+    assert "Choices for you" not in powerbi_results.what_to_do(line, "1 Jan 2026", offered)
+    cells = _summary_cells(checker, upload)
     assert not [c for c in cells if c in DECIDED_QUESTIONS] and words.CHOICES_DECIDED in cells
     # a comparison made since asks none of them and says nothing of them
     again = pf.compared(checker, _one("by_sector", [pf.row("by_sector", section=SECTIONS, accepted=1,
                                                              submitted=1, due=0, overdue=2)], filters=YEAR))  # fmt: skip
-    fresh = checker.get(reverse("admin:datamart_powerbi_upload", args=[again.pk])).content.decode()
-    assert words.CHOICES_DECIDED not in fresh.replace("&#x27;", "'")
+    assert words.CHOICES_DECIDED not in _page(checker, "admin:datamart_powerbi_upload", again.pk)
+
+
+def test_a_comparison_made_before_the_decisions_no_longer_states_the_old_rules_in_its_notes(checker, world):
+    """The notes such a comparison stored state NeuroDB's rules of then: Reporting Progress's table by sector and
+    chart by month said NeuroDB's own table counts indicator reports, Program Performance that NeuroDB's
+    Emergency indicator is the indicator's high frequency. The export page and the Excel file's Summary say
+    instead what NeuroDB counted then, what it counts since the decision and to compare again; the comparison's
+    other notes stay as they were."""
+    from tests.datamart.test_powerbi_compare import PP_FILTERS, _pp
+
+    sector = [pf.row("by_sector", section=SECTIONS, accepted=1, submitted=1, due=0, overdue=2)]
+    upload = _compared(
+        checker,
+        _one("by_sector", sector, filters=YEAR),
+        _one(
+            "program_performance", [_pp(indicator_title="Fake indicator 1", target=100)], filters=PP_FILTERS
+        ),
+    )
+    old = {"by_sector": OLD_NOTE_UNIT, "program_performance": OLD_NOTE_EMERGENCY}
+    kept = {}
+    for kind, note in old.items():
+        export = PowerBIExport.objects.get(upload=upload, kind=kind)
+        kept[kind] = list(export.counts.get("notes") or [])
+        export.counts = {**export.counts, "notes": [note, *kept[kind]]}
+        export.save(update_fields=["counts"])
+    upload.choices = OLD_CHOICES
+    upload.save(update_fields=["choices"])
+    cells = _summary_cells(checker, upload)
+    for kind, note in old.items():
+        export = PowerBIExport.objects.get(upload=upload, kind=kind)
+        shown = _page(checker, "admin:datamart_powerbi_export", upload.pk, export.pk)
+        assert note not in shown, kind
+        assert words.NOTES_DECIDED[note] in shown, kind
+        assert all(n in shown for n in kept[kind]), kind
+        assert note not in cells and words.NOTES_DECIDED[note] in cells, kind
+    # what they say now: what NeuroDB counted then, what it counts since, and to compare again
+    assert "indicator reports" in words.NOTES_DECIDED[OLD_NOTE_UNIT]
+    assert "high frequency" in words.NOTES_DECIDED[OLD_NOTE_EMERGENCY]
+    for sentence in words.NOTES_DECIDED.values():
+        assert "26 Oct 2026" in sentence and sentence.endswith(
+            "Compare again to see the differences as they are now."
+        )

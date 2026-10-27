@@ -30,8 +30,9 @@ pages on the same sections:
 - **Programme documents to follow up**: one row per programme document with progress reports that are
   Overdue, Sent back, Due or Submitted (awaiting acceptance), the most overdue first: its partner, how
   many of its progress reports are in each of those statuses, and its oldest due date (of its Due or
-  Overdue reports, so a past date when one is overdue). Its reference opens Progress reports on that
-  programme document alone, with the same counts; *Indicators* opens all its indicators on Program
+  Overdue reports, so a past date when one is overdue). Its reference opens the Partners tab of Progress
+  reports on that programme document alone, whose reports to follow up are the row's (the tiles of the
+  *Reporting progress* tab count a report not yet due as Not yet due); *Indicators* opens all its indicators on Program
   Performance, whatever their section. Home lists the first ten, and says so when there are more (*The
   first 10 of 37 programme documents*); *Every report to follow up, on Progress reports* opens the full
   list there. With no progress report at all in the sections, the block says *No progress reports here*;

@@ -439,8 +439,8 @@ NOT_IN_READ_PD = "Check in eTools that this PD exists."
 # a different rule no choice is offered for (Choices for you would show nothing about it)
 RULE_NO_CHOICE = "NeuroDB counts it another way."
 COUNTED_NO_CHOICE = "Nothing to fix: NeuroDB counts these another way."
-# a rule the user decided on 26 Oct 2026, named by a comparison made before: NeuroDB counts Power BI's way now
-RULE_DECIDED = "NeuroDB counts Power BI's way since your decision of 26 Oct 2026: compare again to see."
+# the verdict of an export a comparison made before the user's decision of 26 Oct 2026 counted another way by
+# a rule decided then (the follow-up list's Due): NeuroDB counts Power BI's way now
 COUNTED_DECIDED = (
     "Nothing to fix. NeuroDB counts Power BI's way since your decision of 26 Oct 2026: compare again."
 )
@@ -598,15 +598,6 @@ RULE_WORDS = {
     "shared_output": "Power BI lists one indicator of a title two PD outputs of the PD share",
     "accepted_only": (
         "Reached: Power BI adds Accepted reports only; NeuroDB adds Accepted and Submitted reports"
-    ),
-    # the rules the user decided on 26 Oct 2026, which the lines of a comparison made before still name
-    "progress_reports": (
-        "Power BI counts progress reports; NeuroDB counted indicator reports until your decision of 26 Oct "
-        "2026"
-    ),
-    "emergency": (
-        "Power BI's Emergency indicator is Yes for an SPD; NeuroDB's was the indicator's high frequency "
-        "until your decision of 26 Oct 2026"
     ),
 }
 # Power BI's possible rules NeuroDB counts from its records, where Power BI's own rule is not known
@@ -903,6 +894,22 @@ CHOICES_DECIDED = (
     "Emergency indicator means the programme document is an SPD, as Power BI does. Compare again to see the "
     "differences as they are now."
 )
+# the notes a comparison made before that decision stored, word for word, which state NeuroDB's rules of
+# then (Reporting Progress's table by sector and chart by month; Program Performance): the export page and the
+# Excel file show what NeuroDB counts since instead (powerbi_results.notes)
+NOTES_DECIDED = {
+    "Same unit as Power BI: progress reports. NeuroDB's own table counts indicator reports.": (
+        "Same unit as Power BI: progress reports. When this comparison was made, NeuroDB's own table counted "
+        "indicator reports; since your decision of 26 Oct 2026 it counts progress reports, as Power BI does. "
+        "Compare again to see the differences as they are now."
+    ),
+    "Stated once for every row: Power BI's Emergency indicator is Yes for an SPD; NeuroDB's is the "
+    "indicator's high frequency.": (
+        "Power BI's Emergency indicator is Yes for an SPD. When this comparison was made, NeuroDB's was the "
+        "indicator's high frequency; since your decision of 26 Oct 2026 it means the programme document is "
+        "an SPD, as Power BI's does. Compare again to see the differences as they are now."
+    ),
+}
 
 # ----------------------------------------------------------------------------------------------- the pages
 EXPORT_COUNTS = (

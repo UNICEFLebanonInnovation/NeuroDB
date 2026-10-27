@@ -465,6 +465,41 @@ def test_partners_tab(client_viewer, more, frozen):
     assert statuses == ["Overdue", "Sent back", "Due"]
 
 
+def test_the_due_filter_keeps_the_reports_the_follow_up_list_calls_due(client_viewer, more, frozen):
+    """Power BI's Report status slicer set to Due keeps, on its follow-up list, the reports not yet due the list
+    calls Due (the user's decision of 26 Oct 2026). So do the Partners tab's reports to follow up and their
+    export: PR-3, not yet due, stays under Report status Due, listed as Due, as under its own status. The tiles
+    and the other tabs keep the six statuses: no report is Due there."""
+    due = _reporting(status="due")
+    assert [(r["progress_report"], r["status_label"]) for r in due["partners"]["follow_up"]] == [
+        ("PR-3", "Due")
+    ]
+    assert due["reports"] == [] and due["counts"]["progress_reports"] == 0
+    not_yet = _reporting(status="not_yet_due")["partners"]["follow_up"]
+    assert [(r["progress_report"], r["status_label"]) for r in not_yet] == [("PR-3", "Due")]
+    both = _reporting(status=["due", "overdue"])["partners"]["follow_up"]
+    assert [r["progress_report"] for r in both] == ["PR-9", "PR-3"]
+    assert [r["progress_report"] for r in _reporting(status="overdue")["partners"]["follow_up"]] == ["PR-9"]
+    url = reverse("reports:partner_reporting")
+    page = client_viewer.get(url, {"tab": "partners", "status": "due", "pd_status": ""})
+    assert page.context["page_obj"].paginator.count == 1
+    assert "every report in the filter is Accepted" not in page.text
+    workbook = load_workbook(
+        io.BytesIO(
+            client_viewer.get(
+                url, {"tab": "partners", "status": "due", "export": "xlsx", "pd_status": ""}
+            ).content
+        )
+    )
+    assert [r[3] for r in workbook["Follow up"].iter_rows(min_row=2, values_only=True)] == ["Due"]
+    # a filter that keeps no report at all says so; "every report is Accepted" is for Accepted reports only
+    nothing = client_viewer.get(url, {"tab": "partners", "status": "sent_back", "pd_status": ""})
+    assert "every report in the filter is Accepted" not in nothing.text
+    assert "No progress report in the filter." in nothing.text
+    accepted = client_viewer.get(url, {"tab": "partners", "status": "accepted", "pd_status": ""})
+    assert "Nothing to follow up: every report in the filter is Accepted." in accepted.text
+
+
 # ------------------------------------------------------------------------------- Report/Location
 def test_report_by_location_reads_each_location_once(client_viewer, more, frozen):
     girls = more["girls"]

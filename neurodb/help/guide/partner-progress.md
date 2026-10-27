@@ -215,8 +215,10 @@ programme documents are never listed, nor reports that name no programme documen
   (names only).
 - **Partners**: partners with reports, with at least one submitted or accepted, and without; partners
   per status; the reports to follow up (Overdue, Sent back, Due, Submitted). A report not yet due is one
-  of the Due ones there, as in Power BI's follow-up list (your decision of 26 Oct 2026); Home's programme
-  documents to follow up count it the same way. Everywhere else it is *Not yet due*.
+  of the Due ones there, as in Power BI's follow-up list (your decision of 26 Oct 2026), and the Report
+  status *Due* keeps it there, as Power BI's slicer does; Home's programme documents to follow up count it
+  the same way. Everywhere else it is *Not yet due*. When the filter keeps no report at all, the list says
+  *No progress report in the filter*; *Nothing to follow up* means every report in the filter is Accepted.
 - **By location**: one row per indicator, report and location, with the value in the period and PRP's
   figure to date there.
 - **By disaggregation**: per indicator, report and location, the value of each disaggregation (female,

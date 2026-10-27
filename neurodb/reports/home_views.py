@@ -72,16 +72,18 @@ def _url(name: str, query: QueryDict, **extra: str) -> str:
 
 
 def _pd_row(row: dict[str, Any], progress: QueryDict, every_section: QueryDict) -> dict[str, Any]:
-    """A row of "Programme documents to follow up" with its links: Progress reports on its reports (``pd=``:
-    its number, or the reports' own reference; none for a row with neither), and Program Performance on its
-    indicators (only for a programme document NeuroDB holds with a number: Partner monitoring's ``pd=`` reads
-    that number). The indicators link names no section (``every_section``): Progress reports counts a
-    programme document under every section its reports (or the PD) name, Partner monitoring keeps the
-    indicators of the sections chosen, and a PD of two sections may hold its indicators in one of them."""
+    """A row of "Programme documents to follow up" with its links: Progress reports' Partners tab on its
+    reports (``tab=partners&pd=``: its number, or the reports' own reference; none for a row with neither),
+    whose reports to follow up are the row's (a report not yet due is Due in both, while the tiles of the
+    Reporting progress tab count it Not yet due), and Program Performance on its indicators (only for a
+    programme document NeuroDB holds with a number: Partner monitoring's ``pd=`` reads that number). The
+    indicators link names no section (``every_section``): Progress reports counts a programme document under
+    every section its reports (or the PD) name, Partner monitoring keeps the indicators of the sections
+    chosen, and a PD of two sections may hold its indicators in one of them."""
     ref, number = row["pd_reference_number"], row["pd_number"]
     return {
         **row,
-        "reports_url": _url("reports:partner_reporting", progress, pd=ref) if ref else "",
+        "reports_url": _url("reports:partner_reporting", progress, tab="partners", pd=ref) if ref else "",
         "indicators_url": (
             _url("reports:pd_monitoring", every_section, view="table", pd=number) if number else ""
         ),

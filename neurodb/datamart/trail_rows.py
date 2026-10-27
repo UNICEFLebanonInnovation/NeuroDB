@@ -72,6 +72,7 @@ ROW_HEAD = (
     "kept_by_the_filter",
     "report_status_neurodb",
     "report_status_chosen",
+    "follow_up_chosen",
     "status_word_used",
     "status_word_from_record_id",
     "status_word_of_this_row",
@@ -369,6 +370,8 @@ def _report_columns(report: trail.Report, r: tuple, names: frozenset[str]) -> di
     return {
         "report_status_neurodb": rc.STATUS_LABELS.get(report.status, report.status),
         "report_status_chosen": _yes(report.chosen),
+        # in the reports to follow up under the report statuses chosen (Due keeps one not yet due)
+        "follow_up_chosen": _yes(report.followed),
         "status_word_used": clean("report_status", report.word),
         "status_word_from_record_id": report.word_from if report.word_from is not None else "",
         "status_rows_outside_filter": report.rows_outside,

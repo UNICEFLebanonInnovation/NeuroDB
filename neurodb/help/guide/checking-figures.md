@@ -157,8 +157,8 @@ To check it in Excel: open *Kept indicators*, filter `status_off_track` on *yes*
 ## Rebuilding a page in Excel
 
 *Kept rows (CSV)* holds one row per report row the filter keeps. Its first columns are what NeuroDB read of
-the row: `report_status_neurodb` (the report's status), `report_status_chosen`, `section_counted`,
-`period_end_month`, and one column per unit (`indicator_report_unit`, `progress_report_unit`, `partner_unit`,
+the row: `report_status_neurodb` (the report's status), `report_status_chosen`, `follow_up_chosen`,
+`section_counted`, `period_end_month`, and one column per unit (`indicator_report_unit`, `progress_report_unit`, `partner_unit`,
 `pd_unit`) with `counts_once_*`: 1 on the first row of each unit. Then the record as Raw eTools data writes it
 (people as counts).
 
@@ -171,7 +171,9 @@ the row: `report_status_neurodb` (the report's status), `report_status_chosen`, 
    `counts_once_indicator_report` gives the indicator reports under each tile, and the sum of
    `counts_once_partner` the Partners tab's *Partners*. A distinct count of `progress_report_unit`,
    `indicator_report_unit` or `partner_unit` gives the same. The reports to follow up are those Overdue, Sent
-   back, Due, Not yet due (listed as Due there, as Power BI does) and Submitted.
+   back, Due, Not yet due (listed as Due there, as Power BI does) and Submitted: filter `follow_up_chosen` on
+   *yes* instead (with the Report status *Due*, it keeps the reports not yet due too, as Power BI's slicer
+   does).
 
 While the page shows PRP's own reports still owed, the tiles, the section table, the month chart and the
 Partners tab also count them. *Kept rows (CSV)* then lists those the filter keeps after the rows, one line

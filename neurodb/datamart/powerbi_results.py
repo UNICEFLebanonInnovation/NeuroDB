@@ -54,10 +54,11 @@ RULE_CHOICES = {
     "reached": "reached",
     "accepted_only": "reached",
 }
-# the choices the user decided on 26 Oct 2026 (NeuroDB counts Power BI's way there since), and the rules their
-# lines named: an upload compared before keeps them, and its pages no longer offer them
+# the choices the user decided on 26 Oct 2026 (NeuroDB counts Power BI's way there since): an upload compared
+# before keeps them, and its pages no longer offer them. Such a comparison wrote no line of these rules: it
+# stated them in notes (words.NOTES_DECIDED) and counted the follow-up list's Due rows of reports not yet due
+# (``due_not_yet``)
 DECIDED_CHOICES = frozenset({"progress_reports", "due", "emergency"})
-DECIDED_RULES = frozenset({"progress_reports", "emergency"})
 # not in the Datamart read: the PD indicators' exports check the PD in eTools, as any row of a PD NeuroDB
 # does not hold; the others a report in PRP
 PD_ROWS = frozenset({"pd_indicators", "dq_list", "fund_monitoring", "funded_programmes"})
@@ -184,11 +185,18 @@ def offered(upload: PowerBIUpload) -> frozenset[str]:
 
 def decided_rule(export: PowerBIExport) -> bool:
     """Whether the export, compared before the user's decision of 26 Oct 2026, counted rows another way by a
-    rule decided since: Reporting Progress's unit, the Emergency indicator, or Power BI's Due covering reports
-    not yet due on the follow-up list."""
-    counts = export.counts or {}
-    rules = counts.get("rules") or {}
-    return bool(DECIDED_RULES & set(rules)) or bool((counts.get("extra") or {}).get("due_not_yet"))
+    rule decided since: Power BI's Due covering reports not yet due on the follow-up list (the only one such a
+    comparison counted in rows; it stated the others in notes, :func:`notes`)."""
+    return bool(((export.counts or {}).get("extra") or {}).get("due_not_yet"))
+
+
+def notes(export: PowerBIExport) -> list[str]:
+    """The export's notes as its page and the Excel file show them: the read's, then the comparison's. A note
+    a comparison made before the user's decision of 26 Oct 2026 stored about a rule decided then (NeuroDB's
+    own table counting indicator reports, its Emergency indicator being the indicator's high frequency) is
+    said as it is since (``words.NOTES_DECIDED``)."""
+    found = [*(export.notes or []), *((export.counts or {}).get("notes") or [])]
+    return [words.NOTES_DECIDED.get(note, note) for note in found]
 
 
 def has_choice(export: PowerBIExport, choices: frozenset[str] | None) -> bool:
@@ -726,8 +734,6 @@ def what_to_do(
             extra = words.NOT_IN_READ_PD
     if line.reason == "rule" and offered is not None and RULE_CHOICES.get(line.rule) not in offered:
         extra = words.RULE_NO_CHOICE
-    if line.reason == "rule" and line.rule in DECIDED_RULES:  # a comparison made before the decision
-        extra = words.RULE_DECIDED
     base = group_action(line.group, line.reason)
     return " ".join(x for x in (base, extra.format(history=history)) if x)
 
@@ -851,7 +857,7 @@ def _summary_rows(
             for clause in export.clauses or []:
                 state = words.CLAUSE_STATES.get(clause.get("state"), clause.get("state"))
                 yield {"Item": f"    {clause.get('words') or '—'}", "Value": state}
-            for note in [*export.notes, *(counts.get("notes") or [])]:
+            for note in notes(export):
                 yield {"Item": f"    {note}"}
             for table in fit_tables(export, history):
                 yield {"Item": f"    {table['title']}"}

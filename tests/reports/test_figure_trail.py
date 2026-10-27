@@ -45,6 +45,8 @@ FILTERS = [
     {"year": "2026"},
     {"pd_status": "", "status": "accepted"},
     {"pd_status": "", "status": ["overdue", "not_yet_due"]},
+    # Due: the reports to follow up keep PR-3, not yet due, as Power BI's slicer keeps it (the tiles do not)
+    {"pd_status": "", "status": "due"},
     {"pd_status": "closed"},
     {"partner": PARTNER},
     {"report_type": "HR"},
@@ -262,13 +264,17 @@ def _expected(reports, partners) -> dict[str, int]:
     for row in perf["not_reported_list"]:
         for label, n in row["statuses"].items():
             out[f"pr.partner.{row['key']}.{labels[label]}"] = n
+    # the reports to follow up the table does not list (under Due, those not yet due): their Indicators cells
+    for r in perf["follow_up"]:
+        out.setdefault(f"pr.report.{r['key']}.indicators", r["indicators"])
     return out
 
 
 def evaluate(rows: list[dict[str, str]], figure: trail.Figure) -> int:
-    """A figure counted again on the Kept rows CSV: its rows (the report statuses chosen, its conditions), then
-    a distinct count of its unit's column."""
-    found = [r for r in rows if r["report_status_chosen"] == "yes"]
+    """A figure counted again on the Kept rows CSV: its rows (the report statuses chosen, or for the reports to
+    follow up those their list keeps under them; its conditions), then a distinct count of its unit's column."""
+    base = "follow_up_chosen" if dict(figure.select).get("set") == "followed" else "report_status_chosen"
+    found = [r for r in rows if r[base] == "yes"]
     for name, value in figure.select:
         if name != "set":
             found = [r for r in found if CONDITIONS[name](r, value)]
@@ -321,7 +327,7 @@ def test_each_figure_is_the_page_s_rebuilt_from_the_rows_and_in_the_kept_rows(va
     kept = _csv(validator, PR, params, "kept")
     assert len(kept) == next(s for s in found.steps if s.key == "K").kept.rows
     for f in found.figures:
-        if dict(f.select).get("set") == "chosen":
+        if dict(f.select).get("set") in ("chosen", "followed"):
             assert evaluate(kept, f) == f.page, f.key
     # ... and by a sum of counts_once_* over the rows of the report statuses chosen (the help's pivot table)
     chosen = [r for r in kept if r["report_status_chosen"] == "yes"]
