@@ -415,8 +415,10 @@ def todo(upload: PowerBIUpload, exports: list[PowerBIExport], before: list[str])
     """What to do now, at most four lines, the most pressing first: the upload's error, the differences that
     need a look, the PDs to check in eTools, the differences waiting for the sync, the exports to export again
     (cut by Power BI, empty while NeuroDB has rows, another country), then ``before`` (:func:`before`: the
-    files not read, the visuals not uploaded, the filters to clear), what NeuroDB cannot show yet (reports
-    still owed), and a closing line on what is expected (its parts by the groups each export wrote).
+    files not read, the visuals not uploaded, the filters to clear); then, always, one more line on what
+    NeuroDB cannot show yet (reports still owed, draft values: no Power BI page's verdict names them while a
+    worse one is there, so four more pressing lines must not hide them), and a closing line on what is
+    expected (its parts by the groups each export wrote) while fewer than four lines are said.
     Each line with the address of its lines (none on a trimmed upload: it keeps no line)."""
     found = totals(exports)
     lines: list[dict[str, str]] = []
@@ -477,6 +479,7 @@ def todo(upload: PowerBIUpload, exports: list[PowerBIExport], before: list[str])
             url = "" if upload.trimmed and query else export_url(upload, found_exports[0], **query)
             lines.append({"text": words.plural(len(found_exports), one, many), "url": url})
     lines += [{"text": text, "url": ""} for text in before]
+    lines = lines[:TODO_LINES]
     not_shown = found["groups"].get(5, 0)
     if not_shown:
         text = words.plural(not_shown, words.TODO_NOT_SHOWN_ONE, words.TODO_NOT_SHOWN)
@@ -492,7 +495,7 @@ def todo(upload: PowerBIUpload, exports: list[PowerBIExport], before: list[str])
         lines.append({"text": text.format(n=expected, parts=parts or words.GROUP_NAMES[1]), "url": first(1)})
     if not lines and upload.status == PowerBIUpload.Status.DONE and all(settled(e) for e in exports):
         lines.append({"text": words.TODO_NOTHING, "url": ""})
-    return lines[:TODO_LINES]
+    return lines
 
 
 def clear_majority(fits: int, of: int) -> bool:

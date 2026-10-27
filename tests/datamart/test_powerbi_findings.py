@@ -179,6 +179,37 @@ def test_verdict_not_shown_and_its_todo_line(checker, world):
     assert powerbi_results.verdict_words(one)[0] == "NeuroDB cannot show 1 row yet"
 
 
+def test_four_more_pressing_lines_never_hide_what_neurodb_cannot_show_yet(checker, world):
+    """The browser check's upload of the real exports: needs a look, PDs to check, an export cut and the visuals
+    not uploaded made four lines, and the cap cut the fifth, the reports still owed (772 differences with the gate
+    closed): no Power BI page's verdict named them either. It is now always said, after the four; the expected
+    line still waits for room."""
+    upload = _compared(checker, _one("report_list", [*REPORTS, *(_owed(n) for n in (1, 2, 3))]))
+    exports = list(PowerBIExport.objects.filter(upload=upload))
+    export = next(e for e in exports if e.kind == "report_list")
+    pressing = [
+        "1 file could not be read.",
+        "3 visuals are not uploaded.",
+        "Clear a slicer.",
+        "Clear another one.",
+    ]
+    lines = powerbi_results.todo(upload, exports, pressing)
+    assert [x["text"] for x in lines[:4]] == pressing
+    assert lines[4:] == [
+        {"text": words.TODO_NOT_SHOWN.format(n=3), "url": powerbi_results.export_url(upload, export, group=5)}
+    ]
+    # with room, the expected line follows it as before
+    export.counts = {
+        **export.counts,
+        "groups": {"5": 3, "1": 2},
+        "reasons": {"owed": 3, "before_history": 2},
+        "reason_groups": {"owed": 5, "before_history": 1},
+    }
+    lines = powerbi_results.todo(upload, [export], pressing[:2])
+    assert [x["text"] for x in lines][2] == words.TODO_NOT_SHOWN.format(n=3)
+    assert len(lines) == 4 and lines[3]["text"].startswith("Expected, nothing to fix: 2 differences")
+
+
 def test_an_earlier_upload_s_owed_lines_keep_group_1(checker, world):
     """An upload compared before reports still owed had their own group wrote them as expected: its verdict
     and What to do now still say so, from what it stored (never today's groups)."""

@@ -1185,6 +1185,20 @@ def test_the_records_keep_short_values_on_one_line_and_wrap_long_texts(client_va
     )
 
 
+def test_a_record_id_made_from_its_content_keeps_a_column_wide_enough_to_read(client_validator, world):
+    """PRP's progress reports carry no id: each is held under a hash of 64 letters and digits. The browser check
+    found the list's dates and links squeezing that id to seven characters a line, eleven lines a row; it now
+    keeps a column wide enough for three lines (on screen; a print breaks it where it must)."""
+    dm.DatamartDocument.objects.create(dataset="prp_progress_reports", record_key=f"{7:064x}",
+                                       data={"report_number": "QPR1", "end_date": "2026-03-31"})  # fmt: skip
+    html = client_validator.get(f"{INDEX}prp_progress_reports/").content.decode()
+    table = html.split('class="nd-jobs nd-found__table nd-raw__records"', 1)[1].split("</table>", 1)[0]
+    assert '<th scope="row" class="nd-raw__long"><a class="nd-link"' in table and f"{7:064x}" in table
+    css = (Path(settings.BASE_DIR) / "neurodb" / "web" / "static" / "css" / "admin.css").read_text()
+    # at the top level (on screen): the print rules are indented in their @media block
+    assert '\n.nd-raw__records th[scope="row"].nd-raw__long { min-width: 12rem; }\n' in css
+
+
 def test_a_field_s_key_in_a_heading_may_break_after_its_underscores(client_validator, world):
     """PRP indicator reports printed: its headings financial_contribution_currency and the like are one long word
     each, so the list ran past the sheet and its last columns were cut. They may now break after each "_" (in

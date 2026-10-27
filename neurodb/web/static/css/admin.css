@@ -163,9 +163,12 @@
 .dark .nd-raw__filters input, .dark .nd-raw__filters select { border-color: var(--color-base-700); color: inherit; }
 .nd-raw__json { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-width: 60rem; }
 /* A source's records: a reference, a date or a status on one line (the list scrolls sideways); a long text (an
-   indicator, a title) wraps in a column wide enough to read; a record id made from its content wraps. */
+   indicator, a title) wraps in a column wide enough to read; a record id made from its content (64 letters and
+   digits: PRP's progress reports and programme documents carry no id) wraps in a column wide enough for three
+   lines, else the dates and links beside it squeeze it to seven characters and each row runs eleven lines. */
 .nd-raw__records th, .nd-raw__records td { white-space: nowrap; }
 .nd-raw__records th[scope="row"] { min-width: 0; max-width: 16rem; white-space: normal; overflow-wrap: anywhere; }
+.nd-raw__records th[scope="row"].nd-raw__long { min-width: 12rem; }
 .nd-raw__records td.nd-raw__long { white-space: normal; min-width: 16rem; max-width: 28rem; }
 /* A field's key in a heading may break after its "_" in print only (raw_admin._heading): on screen it keeps one
    line, as Chrome breaks at a <wbr> even under nowrap. */

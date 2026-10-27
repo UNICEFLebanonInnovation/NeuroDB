@@ -251,6 +251,14 @@ def programme_datamart(pd: PCA, today: datetime.date | None = None) -> dict[str,
             monitoring["flag_unused"] = "not_number"  # now a percentage or a ratio
         else:
             monitoring["flag_unused"] = "implausible"  # set aside: its value cannot be true
+    # its progress reports, with PRP's reports still owed once their link is proven: the 12 latest listed, all
+    # of them counted by status (the latest are often not yet due: the overdue ones are older), as the
+    # partner page counts its own
+    reports = _with_owed(
+        progress_reports(pd.reported_indicators.all()),
+        reporting.ReportFilters(pds=[pd.number], pd_statuses=[]),
+        today,
+    )
     return {
         "fr_lines": lines,
         **_fr_totals(pd, lines),
@@ -261,11 +269,8 @@ def programme_datamart(pd: PCA, today: datetime.date | None = None) -> dict[str,
         "engagements": _with_type_labels(list(pd.datamart_engagements.order_by("-start_date"))),
         "visits": visits_by_year(pd),
         "tpm_activities": list(pd.tpm_activities.order_by("-date")[:20]),
-        "reports": _with_owed(
-            progress_reports(pd.reported_indicators.all()),
-            reporting.ReportFilters(pds=[pd.number], pd_statuses=[]),
-            today,
-        )[:12],
+        "reports": reports[:12],
+        "reporting": _status_summary(reports),
         "latest_progress": latest_progress(pd, rows=monitoring["rows"]),
         "monitoring": monitoring,
     }

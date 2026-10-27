@@ -564,6 +564,36 @@ def test_the_pd_and_partner_pages_list_them(world):
     assert partner["reporting"]["due"] == 1 and partner["reporting"]["reports"] == 1
 
 
+def test_the_pd_page_counts_every_report_by_status_beyond_the_12_it_lists(client_viewer, world):
+    """The browser check: an SPD's 12 latest reports were all Not yet due, so the hundreds of reports it still
+    owes from PRP's own list were neither listed nor counted on its page, where the reports to follow up link.
+    The page now counts every report of the PD by status, as the partner page does, says that the 12 latest are
+    listed, and links to all of them on Progress reports. Gate closed, the owed report is counted nowhere."""
+    pd = world["pd"]
+    for n in range(1, 13):  # 12 later monthly reports, their periods still running: Not yet due
+        _row(pd, f"HR{n}", D(2026, 10, 1), D(2026, 11, n), "", kind="HR")
+    url = reverse("reports:programme_detail", args=[pd.pk])
+
+    def said() -> str:
+        html = client_viewer.get(url).content.decode()
+        return html.split("data-pd-reporting>", 1)[1].split("</p>", 1)[0]
+
+    closed = said()
+    assert closed.startswith(
+        "14 reports · 2 accepted · 0 awaiting acceptance · 0 sent back · 0 due · 0 overdue"
+    )
+    _verdict()
+    shown = said()
+    assert shown.startswith(
+        "15 reports · 2 accepted · 0 awaiting acceptance · 0 sent back · 0 due · 1 overdue"
+    )
+    assert "the 12 latest below" in shown
+    assert f'href="{reverse("reports:partner_reporting")}?pd=LEB/PD1&amp;pd_status="' in shown
+    listed = datamart.programme_datamart(pd, TODAY)
+    assert len(listed["reports"]) == 12 and "QPR3" not in {r["report_number"] for r in listed["reports"]}
+    assert listed["reporting"]["overdue"] == 1 and listed["reporting"]["not_yet_due"] == 12
+
+
 def test_partner_monitoring_overdue_counts_owed_overdue_reports_once(world):
     """Partner monitoring's Overdue reports: the rows' (none) and PRP's QPR3, once; HR9 is Due."""
     filters = monitoring.Filters(pd_ids=[world["pd"].pk, world["spd"].pk], scope="all")

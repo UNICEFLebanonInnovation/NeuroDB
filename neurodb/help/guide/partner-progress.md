@@ -242,7 +242,9 @@ a new eTools sync shows at once.
   status, read by the same rule. Administrators, and Section editors of one of its sections, can choose
   its *unique beneficiaries indicator* there (*Make it the unique beneficiaries indicator*). The page
   also gives the budget, the partner's contribution (with a link to its share on the Funds page) and
-  the funds reserved and disbursed.
+  the funds reserved and disbursed. Under *Partner reporting* it counts every progress report of the
+  programme document by status (with PRP's reports still owed while they are shown) and lists the 12
+  latest; *All reports* opens every one of them on Progress reports.
 - **Programme documents → Indicators** lists every indicator of every programme document in one table
   (PD number and status, partner, document type, dates, office, section, CP output, indicator,
   baseline, target, emergency), with its own filters and an export of the whole filter.

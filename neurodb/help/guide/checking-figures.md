@@ -299,18 +299,18 @@ order: needs a look, check the PD in eTools, wait for the next sync, NeuroDB can
 **The upload's page** opens with *What to do now* (at most four lines, each with a link to its differences:
 what needs a look, the PDs to check in eTools, what waits for the sync, the exports to export again (cut by
 Power BI, empty while NeuroDB's page has rows, or of another country), the files not read, the exports to
-compare again, and a last line on what is expected). It says "Power BI and NeuroDB agree" only when every
-export is the same. Then one line per Power BI page, in Power BI's order, with its verdict ("Same", "Same
-data, counted another way", "Same, apart from rows before NeuroDB's history: 12", "NeuroDB cannot show 595 rows
-yet", "Wait for the next sync: 3", "Check 1 PD in eTools", "Needs a look: 2", "Power BI may have cut PD/SPD
-Report: 4", "Empty in Power BI", "Not uploaded") and what to do, and each export with its
-file, the rows read, what its filter covers ("2026", "Every year", "Education only") and its counts: rows
-compared, the same, different, only in Power BI, only in NeuroDB. While NeuroDB compares, the page refreshes by
-itself every few seconds. Once it ran, the page says how much memory the comparison took and how much it may
-take ("Memory: peak 214 MB of 250 MB allowed."). An export it had no memory left for says "Could not be compared:
-not enough memory" with the same two figures, and the others are still compared; if the comparison stops, the
-exports it had not reached yet say "Not compared: the comparison stopped before it": press *Compare again* (or
-upload the files again once its details were removed).
+compare again, then always one line on what NeuroDB cannot show yet, and a last line on what is expected). It
+says "Power BI and NeuroDB agree" only when every export is the same. Then one line per Power BI page, in
+Power BI's order, with its verdict ("Same", "Same data, counted another way", "Same, apart from rows before
+NeuroDB's history: 12", "NeuroDB cannot show 595 rows yet", "Wait for the next sync: 3", "Check 1 PD in
+eTools", "Needs a look: 2", "Power BI may have cut PD/SPD Report: 4", "Empty in Power BI", "Not uploaded") and
+what to do, and each export with its file, the rows read, what its filter covers ("2026", "Every year",
+"Education only") and its counts: rows compared, the same, different, only in Power BI, only in NeuroDB. While
+NeuroDB compares, the page refreshes by itself every few seconds. Once it ran, the page says how much memory
+the comparison took and how much it may take ("Memory: peak 214 MB of 250 MB allowed."). An export it had no
+memory left for says "Could not be compared: not enough memory" with the same two figures, and the others are
+still compared; if the comparison stops, the exports it had not reached yet say "Not compared: the comparison
+stopped before it": press *Compare again* (or upload the files again once its details were removed).
 
 **An export's page** shows its filters one by one, its notes (rules that apply to every row are said once
 there: Power BI's Section and CP Output are the PD's), the

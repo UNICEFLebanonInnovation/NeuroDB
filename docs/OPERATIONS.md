@@ -3281,7 +3281,8 @@ Quality's cards are explained from them), then Power BI's order.
   `REASON_ORDER`, and so does a counted visual's gap (`explain`) and Data Quality's card (both sides of its gap:
   "273 more in NeuroDB, 39 more in Power BI, net 234: …"). An export with group-5 lines and none worse has the
   verdict `not_shown` ("NeuroDB cannot show 3 rows yet", never settled); *What to do now* gives them one line
-  before the expected one. Each export keeps each reason's group as written (`counts["reason_groups"]`): the
+  before the expected one, always, even after four more pressing lines (no page's verdict names them while a
+  worse one is there). Each export keeps each reason's group as written (`counts["reason_groups"]`): the
   expected parts of *What to do now* are read from them, and an upload compared before (no `reason_groups`)
   keeps its reports still owed as expected ("Same, apart from reports still owed: n"). The export's page lists
   the reasons in group order (`_by_reason`), group 5 open, group 1 on one line.
@@ -3384,9 +3385,9 @@ Quality's cards are explained from them), then Power BI's order.
   (`CHOICES_DECIDED`); its export pages and the Excel Summary show those notes as they are since
   (`powerbi_results.notes`, `words.NOTES_DECIDED`: what NeuroDB counted then, what it counts now, compare again);
   the follow-up export's verdict says to compare again (`COUNTED_DECIDED`, `decided_rule`).
-- **Pages and the Excel file** (`powerbi_results`): *What to do now* (at most four lines, counting
-  differences, not rows: a counted visual's row can differ in several columns; the exports to export again, cut,
-  empty while NeuroDB has rows, or of another country; the files not read, an export whose comparison stopped
+- **Pages and the Excel file** (`powerbi_results`): *What to do now* (at most four lines, and one more for
+  what NeuroDB cannot show yet; counting differences, not rows: a counted visual's row can differ in several
+  columns; the exports to export again, cut, empty while NeuroDB has rows, or of another country; the files not read, an export whose comparison stopped
   told to press *Compare again* instead and counted among the exports read; "Power BI and NeuroDB agree" only
   when every export is settled; the same lines in the Excel file's Summary, `powerbi_results.before`, with the
   files not read and why and each page's visuals not uploaded), *How to export* filled in from NeuroDB's
@@ -4572,7 +4573,8 @@ sections for a report with no indicator report) count them, and never in an indi
 in the filter), drawn by `reports/partials/_owed_line.html` under the tiles, on the Partners tab and in Home's
 block (the check 11 link for Administrators, and validators with staff status, as on Data health: the checks
 open in the admin; the closed line for `not_read` says the last sync of either PRP dataset failed or received
-nothing, as check 11 does). Also: the PD and partner pages (`programme_datamart`, `partner_datamart`),
+nothing, as check 11 does). Also: the PD and partner pages (`programme_datamart`, `partner_datamart`: each
+counts every report by status, `reporting`, and lists the latest, 12 on the PD page with an *All reports* link),
 Partner monitoring's Overdue reports (`monitoring.summary` adds `owed.overdue_count`, the number of
 `owed.overdue_reports`: Overdue ones of those PDs and type; the trail's `Chain.owed_overdue` lists their
 records, O5 has their CSV `what=overdue:O5`, and the figure's CSV lists them after the rows), the daily review's overdue reports (QPRs of active
