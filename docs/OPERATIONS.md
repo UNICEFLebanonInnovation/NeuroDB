@@ -4537,17 +4537,26 @@ Partners tab, the follow-up list and its export, Home's block (`reporting_figure
 sections for a report with no indicator report) count them, and never in an indicator report count; the hub's
 `owed` says shown, `n`, `why` and the `line` (`owed.HIDDEN` by why while closed, `owed.SHOWN` with at least one
 in the filter), drawn by `reports/partials/_owed_line.html` under the tiles, on the Partners tab and in Home's
-block (the check 11 link for Administrators and validators only). Also: the PD and partner pages
-(`programme_datamart`, `partner_datamart`), Partner monitoring's Overdue reports (`monitoring.summary` adds
-`owed.overdue_count`: Overdue ones of those PDs and type), the daily review's overdue reports (QPRs of active
+block (the check 11 link for Administrators, and validators with staff status, as on Data health: the checks
+open in the admin; the closed line for `not_read` says the last sync of either PRP dataset failed or received
+nothing, as check 11 does). Also: the PD and partner pages (`programme_datamart`, `partner_datamart`),
+Partner monitoring's Overdue reports (`monitoring.summary` adds `owed.overdue_count`, the number of
+`owed.overdue_reports`: Overdue ones of those PDs and type; the trail's `Chain.owed_overdue` lists their
+records, O5 has their CSV `what=overdue:O5`, and the figure's CSV lists them after the rows), the daily review's overdue reports (QPRs of active
 PDs, said "from PRP's progress reports"), Ask (`partner_reporting`: `owed_shown`, `owed_note`, each report's
 `source`; the PD's reports), the exports' `source` column, `raw.PAGE_SOURCES` (Home, Progress reports and
 Partner monitoring read `prp_progress_reports` and `prp_programme_documents`), the figure trail (step P, the
 second source, its CSV `what=owed`, and `TrailRows.documents`, which `_Index` counts beside the rows: the
-figures stay the page's; each filter step says how many it leaves out; Partner monitoring's O5) and Compare
-with Power BI (`Context.owed_shown` and `prp_synced_at`; `Reports` adds `every_owed` as held reports,
-`source` "prp", so a report owed in both compares as held and one neither has is not in the read; a draft
-value stays group 5; `report_list` notes how many come from PRP's list). Not on them: Watch (its alerts are
+figures stay the page's; each filter step says how many it leaves out; a figure's, K's and S's CSV list those
+they count after the rows, `trail_rows.document_selection` and `with_owed`: `source` after `reason`, their
+record's fields after the rows' columns, so `counts_once` adds up to the figure; Partner monitoring's O5) and
+Compare with Power BI (`Context.owed_shown` and `prp_synced_at`; `Reports` adds `every_owed` as held reports,
+`source` "prp", so a report owed in both compares as held; `owed_reason` then reads `pf.prp_reports`, every
+linked record of PRP's list, any version and status, `stale` when no read returned it for 7 days: one held
+under another status gets the status reason after "PRP's own list of progress reports has it as …", one
+only stale "no longer counts it", and only one no record matches is not in the read, neither feed having
+it; a draft value stays group 5, on the location export too when NeuroDB shows the report only from PRP's
+list; `report_list` notes how many come from PRP's list). Not on them: Watch (its alerts are
 keyed by PRP's report ids, which these records lack) and the brief. PRP's word is never put on a partner
 report row's report: a report every row of which eTools no longer sends keeps its rows' word on every page
 (`monitoring.pending_q` is the one rule), and check 11 and Raw eTools data list those whose PRP status

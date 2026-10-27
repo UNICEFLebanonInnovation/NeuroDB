@@ -81,10 +81,10 @@ include. While they are hidden, the line says why reports still owed may be miss
   reports both feeds have do not agree often enough);
 - the list was tied on one day only: NeuroDB shows it once the next read agrees;
 - the list was last read more than 7 days ago;
-- the last read of the list received nothing.
+- the last sync of the list or of its programme documents failed or received nothing.
 
-Administrators and validators also get a link to check 11 of the eTools reporting checks, which says which
-test failed. Watch and the management brief still read the partner reports only: Watch keys its alerts by
+Administrators, and validators with staff status, also get a link to check 11 of the eTools reporting
+checks, which says which test failed. Watch and the management brief still read the partner reports only: Watch keys its alerts by
 PRP's report ids, which PRP's own list does not carry.
 
 ## Partner monitoring

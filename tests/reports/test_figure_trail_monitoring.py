@@ -477,6 +477,39 @@ def test_overdue_reports_step_by_step(validator, world):
     }
 
 
+def test_gate_open_overdue_reports_add_prp_s_reports_still_owed_once(validator, world):
+    """With the link of PRP's progress reports proven (the gate open), Partner monitoring's Overdue reports add
+    the Overdue reports still owed in PRP's own list that the partner reports do not have: the rows' QPR6 and
+    PRP's QPR8 of the same PD, each once. O5 says so with its CSV, and the figure's CSV lists both."""
+    from tests.datamart.test_owed_reports import EMAIL, PERSON, _record, _verdict
+
+    params = {"year": "2026", "section": ""}
+    pd, d = world["pd"], datetime.date
+    _record(pd, "QPR8", d(2026, 4, 1), d(2026, 4, 30), "Overdue", due=d(2026, 5, 15))
+    _record(pd, "QPR6", d(2026, 3, 1), d(2026, 5, 31), "Overdue", due=d(2026, 6, 15))  # the rows have it
+    filters = tm.filters_of(QueryDict(_query(params)))
+    rows = monitoring.indicators(filters, TODAY)
+    assert monitoring.summary(rows, filters, TODAY)["overdue_reports"] == 1  # gate closed: the rows' QPR6
+    _verdict()
+    compute.clear()
+    assert monitoring.summary(rows, filters, TODAY)["overdue_reports"] == 2
+    found = tm.monitoring_trail(params, TODAY)
+    figure = found.figure("pm.overdue_reports")
+    assert (figure.page, figure.rebuilt) == (2, 2) and not found.differences
+    steps = {s.key: s for s in found.overdue}
+    assert (steps["O4"].kept, steps["O5"].kept) == (1, 1)
+    assert steps["O5"].what == "overdue:O5"
+    shown, _context = _page_figures(validator, params)
+    assert shown["pm.overdue_reports"] == 2
+    figure_rows = _csv(validator, params, figure.what)
+    assert sum(int(r["counts_once_progress_report"]) for r in figure_rows) == 2
+    o5 = _csv(validator, params, "overdue:O5")
+    assert [(r["source"], r["counts_once_progress_report"]) for r in o5] == [("PRP progress reports", "1")]
+    assert o5[0]["progress_report_unit"] in {r["progress_report_unit"] for r in figure_rows}
+    said = repr(figure_rows + o5)
+    assert PERSON not in said and EMAIL not in said
+
+
 # ------------------------------------------------------------------------------------- Program Performance
 @pytest.mark.parametrize(("section", "builds"), [("", 1), ("Education", 2)])
 def test_program_performance_without_a_section_reads_the_trail_s_one_build(

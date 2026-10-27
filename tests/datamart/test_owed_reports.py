@@ -33,6 +33,7 @@ from neurodb.datamart import models as dm
 from neurodb.datamart import monitoring, owed, reporting, trail
 from neurodb.datamart import reached as rc
 from neurodb.datamart import services as datamart
+from neurodb.integrations.etools import datamart_sync
 from neurodb.partnerships.models import PCA, PartnerOrganization
 from tests.web.parts import get_part, text
 from tests.web.test_plain_words import NEVER
@@ -229,7 +230,7 @@ def test_an_empty_last_read_closes_the_gate(world):
     SyncRun.objects.filter(details__empty_response=True).update(details={"empty_response": True})
     state = owed.link_state()
     assert (state.shown, state.why) == (False, "not_read")
-    assert "the last read of PRP's own list of progress reports received nothing" in state.line
+    assert state.line == owed.HIDDEN["not_read"]
     assert not owed_keys(hub())
 
 
@@ -239,6 +240,7 @@ def test_a_newer_programme_documents_run_without_a_verdict_closes_the_gate(world
     run.details = {"read": 3}
     run.save(update_fields=["details"])
     assert owed.link_state().shown is False
+    assert owed.link_state().line.endswith("or of its programme documents failed or received nothing.")
     assert not owed_keys(hub())
 
 
@@ -252,12 +254,39 @@ def test_an_unproven_link_linked_by_today_s_lookup_is_not_shown(world):
     assert not owed_keys(hub()) and owed.every_owed(TODAY) == []
 
 
-def test_only_administrators_and_validators_get_the_check_11_link(viewer, checker, world):
+def test_a_failed_read_of_prp_s_progress_reports_closes_the_gate_and_says_so(world):
+    """A shown verdict two days old, then a read of PRP's progress reports that failed (no verdict): the line
+    says the last sync failed or received nothing, as check 11 does, never that it received nothing."""
+    _verdict(day=TODAY - dt.timedelta(days=2))
+    started = timezone.make_aware(dt.datetime.combine(TODAY - dt.timedelta(days=1), dt.time(20, 30)))
+    SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART, target="prp_progress_reports", status=SyncRun.Status.FAILED,
+        started_at=started, finished_at=started + dt.timedelta(minutes=5),
+        details={"read": 600, "error": "timeout"},
+    )  # fmt: skip
+    state = owed.link_state()
+    assert (state.shown, state.why) == (False, "not_read")
+    assert state.line == owed.HIDDEN["not_read"]
+    assert state.line.endswith(
+        "and the last sync of PRP's own list of progress reports or of its programme documents failed or "
+        "received nothing."
+    )
+    assert "failed or received nothing" in datamart_sync.shown_words(datamart_sync.recorded_pd_link())
+    assert not owed_keys(hub())
+
+
+def test_only_administrators_and_staff_validators_get_the_check_11_link_and_it_opens(viewer, checker, world):
+    """The link opens the eTools reporting checks, which need staff status: a validator without it reads the
+    line only, as on Data health."""
     _verdict(shown=False, why="periods")
     checks = reverse("admin:datamart_reporting_checks")
     plain = Client()
     plain.force_login(viewer)
-    for client, linked in ((plain, False), (checker, True)):
+    staff = User.objects.create_user(username="staff-checker", password="pass-123456-x", is_staff=True)
+    staff.groups.set(Group.objects.filter(name__in=(VIEWER, VALIDATORS)))
+    staff_client = Client()
+    staff_client.force_login(staff)
+    for client, linked in ((plain, False), (checker, False), (staff_client, True)):
         for address in ("/partner-reporting/", "/partner-reporting/?tab=partners"):
             page = text(client.get(address))
             assert owed.HIDDEN_START in page, address
@@ -265,6 +294,7 @@ def test_only_administrators_and_validators_get_the_check_11_link(viewer, checke
         home = text(get_part(client, "/?section=", "reporting"))
         assert owed.HIDDEN_START in home
         assert (checks in home) is linked
+    assert staff_client.get(checks).status_code == 200
 
 
 # ------------------------------------------------------------------------------------------- the gate open
@@ -543,6 +573,68 @@ def test_owed_figure_trail_equals_the_page(checker, world, params):
     out = next(s for s in found.steps if s.key == "report_type")
     assert "Of PRP's own reports still owed: 1 progress report left out." in [x.words for x in out.lines]
     assert found.figure("pr.status.overdue").page == 1
+
+
+def _csv(client, page: str, what: str, params: dict | None = None) -> list[dict[str, str]]:
+    response = client.get(reverse("reports:check_rows", args=[page]), {**(params or {}), "what": what})
+    assert response.status_code == 200, (what, response.content[:300])
+    return list(csv.DictReader(io.StringIO(b"".join(response.streaming_content).decode("utf-8-sig"))))
+
+
+@pytest.mark.parametrize("page", ["progress-reports", "home"])
+def test_gate_open_each_figure_s_csv_gives_the_figure_with_prp_s_reports_still_owed(checker, world, page):
+    """A figure's rows as CSV list the reports still owed it counts beside the partner report rows (their record
+    through the people rule, "PRP progress reports" in their source column), so its counts_once adds up to the
+    figure the page shows."""
+    _verdict()
+    params = {"block": "reporting"} if page == "home" else {}
+    found = trail.progress_trail(page, params, TODAY)
+    with_owed = set()
+    for f in found.figures:
+        if not f.what or f.page is None or dict(f.select).get("set", "kept") not in trail.DOCUMENT_SETS:
+            continue
+        rows = _csv(checker, page, f.what, params)
+        assert sum(int(r["counts_once"]) for r in rows) == f.page, f.key
+        assert len({r["unit_key"] for r in rows if r["counts_once"] == "1"}) == f.page, f.key
+        owed_rows = (
+            [r for r in rows if r["source"] == owed.SOURCE_WORDS] if rows and "source" in rows[0] else []
+        )
+        if owed_rows:
+            with_owed.add(f.key)
+            assert {r["report_status_neurodb"] for r in owed_rows} <= {"Overdue", "Due"}, f.key
+            assert all(
+                r["indicator_report_unit"] == "" and r["counts_once_indicator_report"] == "0"
+                for r in owed_rows
+            )
+        said = json.dumps(rows)
+        assert PERSON not in said and EMAIL not in said, f.key
+    assert {"pr.progress_reports", "pr.status.overdue", "pr.status.due"} <= with_owed
+    assert found.figure("pr.status.overdue").page == 1 and found.figure("pr.status.due").page == 1
+
+
+def test_gate_open_the_kept_and_status_csvs_list_prp_s_reports_still_owed(checker, world):
+    """K's CSV (the rows kept) lists the reports still owed the filter keeps, so a sum of counts_once_* over the
+    statuses chosen gives the tiles again; S's CSV those of a status not chosen."""
+    _verdict()
+    found = trail.progress_trail("progress-reports", {}, TODAY)
+    kept = _csv(checker, "progress-reports", "kept")
+    chosen = [r for r in kept if r["report_status_chosen"] == "yes"]
+    assert (
+        sum(int(r["counts_once_progress_report"]) for r in chosen) == found.figure("pr.progress_reports").page
+    )
+    assert sum(int(r["counts_once_partner"]) for r in chosen) == found.figure("pr.partners").page
+    assert {(r["progress_report_key"].split("|")[2], r["source"]) for r in kept if r["source"] != owed.ROWS_WORDS} == {
+        ("QPR3", owed.SOURCE_WORDS), ("HR9", owed.SOURCE_WORDS),
+    }  # fmt: skip
+    k = next(s for s in found.steps if s.key == "K")
+    assert "2 progress reports still owed from PRP's own list" in " ".join(x.words for x in k.lines)
+    found = trail.progress_trail("progress-reports", {"status": "overdue"}, TODAY)
+    s = next(s for s in found.steps if s.key == "S")
+    assert s.what == "step:S"
+    left = _csv(checker, "progress-reports", "step:S", {"status": "overdue"})
+    assert [r["progress_report_key"].split("|")[2] for r in left if r["source"] == owed.SOURCE_WORDS] == [
+        "HR9"
+    ]
 
 
 def test_the_trail_says_the_closed_line_and_counts_none(world):

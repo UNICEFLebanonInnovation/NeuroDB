@@ -1430,3 +1430,40 @@ def test_a_disaggregation_key_keeps_no_empty_set_and_no_set_of_pds():
     by_label = {key[-1]: value for key, value in found.items()}
     assert by_label["female"]["valued"] is None and by_label["female"]["statuses"] == {"accepted"}
     assert by_label["male"]["valued"] == {"accepted"}
+
+
+def test_gate_open_draft_values_of_owed_reports_stay_cannot_show(checker, world):
+    """With the gate open (NeuroDB shows PRP's own reports still owed), a value Power BI shows in an Overdue
+    report whose period has ended is still the partner's draft (group 5): HR1, which PRP's own list holds and
+    NeuroDB shows, and HR2, which neither feed has (the report list's line reads not in the read), on the
+    location export and on the disaggregation export, whose rows (no Report Status) are tied to their PD
+    through the location export."""
+    from tests.datamart.test_powerbi_compare import _owed_shown
+
+    _owed_shown("HR1", D(2026, 8, 31), D(2026, 9, 15))
+    august = {"period_start": D(2026, 8, 1), "period_end": D(2026, 8, 31)}
+    september = {"period_start": D(2026, 9, 1), "period_end": D(2026, 9, 30)}
+    upload = _compared(
+        checker,
+        *_tie_files(
+            [_location(report="HR1", p_code="LB9_9_1", reached=4, report_status="Overdue", **august),
+             _location(report="HR2", p_code="LB9_9_1", reached=6, report_status="Overdue", **september)],
+            [_value(report="HR1", report_type="HR", reached=4, **august),
+             _value(report="HR2", report_type="HR", reached=6, **september)],
+            [*REPORTS, _owed(), _owed(2, due_date=D(2026, 10, 10), **september)],
+            drop=(*DISAGGREGATION_DROP, "report_status"),
+        ),
+        sync=AFTER,
+    )  # fmt: skip
+    _export, listed = _lines(upload, "report_list")
+    assert not [x for x in listed if x.match[1] == "HR1"]  # NeuroDB shows it from PRP's own list
+    assert _only(listed, PD, "HR2").reason == "not_in_read"
+    _export, locations = _lines(upload, "locations")
+    _export, values = _lines(upload, "disaggregations")
+    for report in ("HR1", "HR2"):
+        (location,) = [x for x in locations if pm.text(x.match[1]) == pm.text(report)]
+        assert (location.reason, location.group, location.detail) == ("owed", 5, words.DETAIL_OWED_DRAFT), (
+            report
+        )
+        value = _of(values, report)
+        assert (value.reason, value.group, value.detail) == ("owed", 5, words.DETAIL_OWED_DRAFT), report

@@ -63,7 +63,8 @@ SOURCE = "pd_indicators"  # the Datamart dataset the indicators are read from
 PDS = "interventions"  # and their programme documents (Raw eTools data's, for a download too large)
 REPORTS = "partner_reports"  # and what partners reached on them
 TOTALS = "prp_indicator_reports"  # PRP's own report totals
-CACHE_VERSION = 2  # 2: the Reached fold is one chain, in report rows and indicator reports
+# 2: the Reached fold is one chain, in report rows and indicator reports; 3: Chain.owed_overdue lists records
+CACHE_VERSION = 3
 # the folded parts of the page's trail, each its own computation: Program Performance reads the filter without
 # its sections, the map its places
 TABLES = ("performance", "map")
@@ -217,9 +218,10 @@ class Chain:
     overdue: dict[int, int]  # partner report row pk -> the Overdue reports step that left it out (3: kept)
     overdue_reports: int  # the progress reports of the rows kept, counted from their keys
     broken: tuple[str, ...] = ()  # the steps that kept records a step before them had left out (never)
-    # the Overdue reports still owed in PRP's own list that the rows do not have (owed.overdue_count; 0 while
-    # the gate is closed), which the page's Overdue reports adds
-    owed_overdue: int = 0
+    # the Overdue reports still owed in PRP's own list that the rows do not have (owed.overdue_reports; none
+    # while the gate is closed), which the page's Overdue reports adds: each its record's pk and its progress
+    # report key (O5 and the figure's CSV list them)
+    owed_overdue: tuple[tuple[int, str], ...] = ()
 
     def stage_of(self, kind: str) -> list[tuple[int, str]]:
         return [(i, name) for i, (k, name) in enumerate(self.stages) if k == kind]
@@ -453,7 +455,9 @@ def chain(
         overdue=overdue,
         overdue_reports=overdue_reports,
         broken=tuple(broken),
-        owed_overdue=owed.overdue_count(owed_pds, filters.report_type, day),
+        owed_overdue=tuple(
+            (r["record"], r["key"]) for r in owed.overdue_reports(owed_pds, filters.report_type, day)
+        ),
     )
 
 
@@ -1181,10 +1185,11 @@ def _owed_stage(rows: Chain) -> Stage:
     not (``owed.link_state``)."""
     link = owed.link_state()
     if link.shown:
+        found = len(rows.owed_overdue)
         said = (
-            f"Shown since {trail._day(link.since)}: {words(rows.owed_overdue, PR)} of these programme "
-            "documents and report type that the partner reports do not have (counted once). Overdue reports: "
-            f"{rows.overdue_reports + rows.owed_overdue:,}."
+            f"Shown since {trail._day(link.since)}: {words(found, PR)} of these programme documents and "
+            "report type that the partner reports do not have (counted once), added to O4's. Overdue "
+            f"reports: {rows.overdue_reports + found:,}."
         )
     else:
         why = link.line or "NeuroDB has none of PRP's own progress reports."
@@ -1193,8 +1198,9 @@ def _owed_stage(rows: Chain) -> Stage:
         "O5",
         "Overdue reports still owed in PRP's own list of progress reports",
         PR,
-        kept=rows.owed_overdue,
+        kept=len(rows.owed_overdue),
         lines=(Line(said),),
+        what="overdue:O5" if rows.owed_overdue else "",
     )
 
 
@@ -1287,9 +1293,10 @@ def tile_figures(summary: dict[str, Any], rows: Chain, *, home: bool = False) ->
                 "Overdue reports",
                 PR,
                 summary["overdue_reports"],
-                rows.overdue_reports + rows.owed_overdue,
+                rows.overdue_reports + len(rows.owed_overdue),
                 how="Progress reports of these programme documents and report type with a row not submitted "
-                "after its due date (see Overdue reports, step by step)",
+                "after its due date, and, once shown, PRP's own Overdue reports still owed (see Overdue "
+                "reports, step by step: O4 and O5)",
                 select=(("set", "overdue"),),
             )
         )

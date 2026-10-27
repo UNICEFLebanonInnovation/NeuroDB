@@ -312,17 +312,48 @@ class HeldReport:
     stamps: dict[str, rc.Stamp] = field(default_factory=dict)
     submission_date: datetime.date | None = None
     source: str = ""  # "prp": a report still owed found only in PRP's own list (records 0, no value)
+    stale: bool = False  # a record of PRP's own list no read returned in the last 7 days (PrpReports)
 
 
-class Reports:
+class _ByNumber:
+    """Held reports by programme document number (with and without the amendment suffix), report number and
+    period end; and by programme document and due date (Power BI's follow-up list has no report number)."""
+
+    def __init__(self) -> None:
+        self.by_report: dict[tuple[str, str, str], list[HeldReport]] = defaultdict(list)
+        self.by_due: dict[tuple[str, str], list[HeldReport]] = defaultdict(list)
+        self.by_pd: dict[str, list[HeldReport]] = defaultdict(list)
+
+    def add(self, report: HeldReport, numbers: set[str]) -> None:
+        end = report.period_end.isoformat() if report.period_end else ""
+        due = report.due_date.isoformat() if report.due_date else ""
+        for number in numbers:
+            self.by_report[(number, pm.text(report.number), end)].append(report)
+            self.by_due[(number, due)].append(report)
+            self.by_pd[number].append(report)
+
+    def find(self, pd: Any, number: Any, end: Any, report_type: Any = "") -> list[HeldReport]:
+        end = pm.iso(end)
+        key = pm.text(pm.report_number(number, report_type))
+        return self.by_report.get((pm.pd_number(pd), key, end)) or self.by_report.get(
+            (pm.pd_base(pd), key, end), []
+        )
+
+    def due(self, pd: Any, due: Any) -> list[HeldReport]:
+        due = pm.iso(due)
+        return self.by_due.get((pm.pd_number(pd), due)) or self.by_due.get((pm.pd_base(pd), due), [])
+
+    def of_pd(self, pd: Any) -> list[HeldReport]:
+        return self.by_pd.get(pm.pd_number(pd)) or self.by_pd.get(pm.pd_base(pd), [])
+
+
+class Reports(_ByNumber):
     """Every progress report NeuroDB holds (one query, grouped by the database): by programme document number
     (the PD's, else the report's own reference; with and without the amendment suffix), report number and
     period end; and by programme document and due date (Power BI's follow-up list has no report number)."""
 
     def __init__(self, context: Context, held: Pds) -> None:
-        self.by_report: dict[tuple[str, str, str], list[HeldReport]] = defaultdict(list)
-        self.by_due: dict[tuple[str, str], list[HeldReport]] = defaultdict(list)
-        self.by_pd: dict[str, list[HeldReport]] = defaultdict(list)
+        super().__init__()
         found: dict[str, HeldReport] = {}
         rows = (
             dm.ReportedIndicator.objects.values(*rc.IDENTITY_FIELDS, "progress_report", "report_status")
@@ -391,30 +422,49 @@ class Reports:
                     numbers[key].add(pm.pd_number(r["pd_reference_number"]))
                     numbers[key].add(pm.pd_base(r["pd_reference_number"]))
         for key, report in found.items():
-            end = report.period_end.isoformat() if report.period_end else ""
-            due = report.due_date.isoformat() if report.due_date else ""
-            for number in numbers[key]:
-                self.by_report[(number, pm.text(report.number), end)].append(report)
-                self.by_due[(number, due)].append(report)
-                self.by_pd[number].append(report)
-
-    def find(self, pd: Any, number: Any, end: Any, report_type: Any = "") -> list[HeldReport]:
-        end = pm.iso(end)
-        key = pm.text(pm.report_number(number, report_type))
-        return self.by_report.get((pm.pd_number(pd), key, end)) or self.by_report.get(
-            (pm.pd_base(pd), key, end), []
-        )
-
-    def due(self, pd: Any, due: Any) -> list[HeldReport]:
-        due = pm.iso(due)
-        return self.by_due.get((pm.pd_number(pd), due)) or self.by_due.get((pm.pd_base(pd), due), [])
-
-    def of_pd(self, pd: Any) -> list[HeldReport]:
-        return self.by_pd.get(pm.pd_number(pd)) or self.by_pd.get(pm.pd_base(pd), [])
+            self.add(report, numbers[key])
 
 
 def reports(context: Context) -> Reports:
     return context.once("reports", lambda: Reports(context, pds(context)))
+
+
+class PrpReports(_ByNumber):
+    """Every record of PRP's own list of progress reports linked to a programme document NeuroDB holds
+    (``datamart_sync.linked_progress_reports``: every version, any status, ``stale`` when no read returned it
+    in the last 7 days), as held reports of source "prp", the latest version first: why a report still owed
+    that NeuroDB does not show is missing once it shows them (``powerbi_kinds.owed_reason``). Read field by
+    field: no person."""
+
+    def __init__(self, context: Context, held: Pds) -> None:
+        from neurodb.integrations.etools import datamart_sync as sync
+
+        super().__init__()
+        since = sync.fresh_since()
+        found = sync.linked_progress_reports(context.day)
+        found.sort(key=lambda r: (r["read"], r["end"] or datetime.date.min, r["pk"]), reverse=True)
+        for r in found:
+            pd = held.by_id.get(r["pd"])
+            if pd is None or not pd.number:
+                continue
+            report = HeldReport(
+                pd_id=r["pd"],
+                report_type=r["kind"],
+                number=r["key"],
+                period_start=r["start"],
+                period_end=r["end"],
+                due_date=r["due"],
+                status=r["status"],
+                words={r["word"]},
+                submission_date=r["sub"],
+                source="prp",
+                stale=r["synced_at"] < since,
+            )
+            self.add(report, {pm.pd_number(pd.number), pm.pd_base(pd.number)})
+
+
+def prp_reports(context: Context) -> PrpReports:
+    return context.once("prp-reports", lambda: PrpReports(context, pds(context)))
 
 
 # ---------------------------------------------------------------------------------- each indicator's reports

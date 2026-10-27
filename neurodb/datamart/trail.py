@@ -47,7 +47,7 @@ PAGES = {"progress-reports": "Progress reports", "partner-monitoring": "Partner 
 HOME_BLOCKS = {"reporting": "Progress reports", "indicators": "Indicator progress"}  # Home's, with a trail
 TABLES = ("locations", "disaggregations")  # Progress reports' tabs with a trail of their own
 STORED_SECONDS = 120
-CACHE_VERSION = 1
+CACHE_VERSION = 2  # 2: TrailRows.documents (PRP's own reports still owed)
 SOURCE = "partner_reports"  # the Datamart dataset the Progress reports figures are counted from
 # figures whose key holds a partner, a report, a PD or a title
 NAMED_KEYS = ("pr.partner.", "pr.report.", "home.pd.", "dq.same_title.", "pm.section.", "pp.section_tile.")
@@ -1358,12 +1358,15 @@ def filter_steps(
 
 def kept_steps(rows: TrailRows, filters: reporting.ReportFilters) -> list[Step]:
     """K, the rows kept by the filter, and S, the report status (one per progress report, read from all its
-    rows) when a status is chosen."""
+    rows) when a status is chosen. Each says how many of PRP's own reports still owed its CSV lists after the
+    rows (counted in its units' figures: step P)."""
     kept, irs, prs = _units_of(rows, rows.kept_at)
-    out = [Step("K", "kept", "Kept by the filter", kept=kept, what="kept")]
+    documents = [r for r in rows.documents.values() if r[3] == rows.kept_at]
+    out = [Step("K", "kept", "Kept by the filter", _owed_listed(len(documents)), kept=kept, what="kept")]
     if filters.statuses:
         labels = ", ".join(rc.STATUS_LABELS[s] for s in filters.statuses)
         left = [r for r in rows.rows.values() if r[3] == rows.kept_at and not rows.reports[r[1]].chosen]
+        left_owed = [r for r in documents if not rows.reports[r[1]].chosen]
         gone = reporting.Units(len(left), len({(r[1], r[2]) for r in left}), len({r[1] for r in left}))
         after = reporting.Units(
             kept.rows - gone.rows,
@@ -1376,12 +1379,24 @@ def kept_steps(rows: TrailRows, filters: reporting.ReportFilters) -> list[Step]:
                 "status",
                 f"Report status not chosen ({labels} chosen; one status per progress report, read from all "
                 "its rows)",
+                _owed_listed(len(left_owed)),
                 kept=after,
                 out=gone,
-                what="step:S" if left else "",
+                what="step:S" if left or left_owed else "",
             )
         )
     return out
+
+
+def _owed_listed(n: int) -> tuple[Line, ...]:
+    """A line saying how many of PRP's own reports still owed a step's CSV lists after its rows."""
+    if not n:
+        return ()
+    return (
+        Line(
+            f"And {words(n, PR)} still owed from PRP's own list (step P), listed in its CSV after the rows."
+        ),
+    )
 
 
 def filter_words(filters: Any, tab_filters: Any = None) -> tuple[str, ...]:

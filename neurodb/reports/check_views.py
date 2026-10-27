@@ -304,12 +304,14 @@ def check_rows(request: HttpRequest, page: str) -> HttpResponse:
         raise Http404
     found = trail.progress_trail(page, params, day)
     pks: list[int] = []
+    docs: list[int] = []  # PRP's own reports still owed a rows CSV lists after its rows
     if kind == "rows":
         if trail_rows.selection(found, what) is None:
             raise Http404
         pks = trail_rows.row_pks(found, what)
-        if len(pks) > raw.csv_limit(trail.SOURCE):
-            return _plain(raw.too_many(trail.SOURCE, len(pks)), 400)
+        docs = trail_rows.document_selection(found, what)
+        if len(pks) + len(docs) > raw.csv_limit(trail.SOURCE):
+            return _plain(raw.too_many(trail.SOURCE, len(pks) + len(docs)), 400)
     elif kind == "documents":  # PRP's own reports still owed (a few thousand at most)
         pks = trail_rows.document_pks(found)
         if not pks:
@@ -321,7 +323,8 @@ def check_rows(request: HttpRequest, page: str) -> HttpResponse:
         names = people.known_names()
         if kind == "rows":
             columns, keys = trail_rows.row_columns(names, pks)
-            rows = trail_rows.stream_rows(found, what, pks, keys, names)
+            columns, doc_keys = trail_rows.with_owed(columns, names, docs)
+            rows = trail_rows.stream_rows(found, what, pks, keys, names, docs, doc_keys)
         elif kind == "reports":
             columns = list(trail_rows.REPORT_COLUMNS)
             rows = trail_rows.report_rows(found, what, params, names)
@@ -392,13 +395,14 @@ def _monitoring_rows(request: HttpRequest, page: str, block: str) -> HttpRespons
     try:
         names = people.known_names()
         columns, keys = trail_rows.pm_columns(selection, names)
+        columns, owed_keys = trail_rows.with_owed(columns, names, trail_rows.owed_pks(selection))
         reads = trail_rows.PageReads(
             filters=filters,
             rows=lambda: monitoring.stored_indicators(filters, day),
             points=lambda: monitoring.stored_map_points(filters, day),
             base_url=request.build_absolute_uri("/").rstrip("/"),
         )
-        rows = trail_rows.pm_rows(found, selection, keys, names, reads)
+        rows = trail_rows.pm_rows(found, selection, keys, names, reads, owed_keys)
     except Exception:
         slot.free()
         raise

@@ -455,6 +455,13 @@ DETAIL_OWED_DRAFT = (
 )
 # a report still owed that neither feed has, once NeuroDB shows PRP's own progress reports (stage 3)
 DETAIL_NOT_IN_PRP = "Neither NeuroDB's partner reports nor PRP's progress reports contain it."
+# ... and when PRP's own list holds it, but NeuroDB does not show it: under another status, said before the
+# status reason, or no read of the list returned it for 7 days
+DETAIL_IN_PRP = "PRP's own list of progress reports has it as {status}."
+DETAIL_PRP_STALE = (
+    "PRP's own list of progress reports has it, but no read of the list returned it in the last 7 days, so "
+    "NeuroDB no longer counts it (PRP may have deleted it)."
+)
 DETAIL_SYNC_BEFORE = "NeuroDB's last sync ran before Power BI's refresh."
 DETAIL_SYNC_AFTER = "The Datamart did not send this row."
 DETAIL_SYNC_UNKNOWN = "NeuroDB cannot tell whether its last sync ran before Power BI's refresh."

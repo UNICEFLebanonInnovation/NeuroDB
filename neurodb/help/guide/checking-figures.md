@@ -52,7 +52,8 @@ is written as the page writes it (a Reached of 33.33% reads 33); point at it to 
    reports and progress reports left out entirely or partly (some of their rows kept). The PD status filter
    gives the three lines of the page's note (another status, not in NeuroDB, names no programme document);
 4. the rows the filter keeps, then the report status when one is chosen (one status per progress report, read
-   from all its rows).
+   from all its rows). Their CSVs list PRP's own reports still owed after the rows, and each step says how
+   many.
 
 Each step with rows has *Download these rows (CSV)*. A download holds at most 25,000 rows: past that, the
 step links to Raw eTools data, where choosing a year, a section, a partner or a programme document makes it
@@ -116,7 +117,10 @@ count, and the indicators with Reached. Each step's count is the one before less
 what the monthly pass adds), and from the rows read on only the rows of the indicators kept go on: a step
 that does not follow says so in red. **Overdue reports, step by step**
 (folded) gives the rows of these programme documents and report type, those not submitted, those due before
-the day, and the progress reports they make: this is not Progress reports' *Overdue* tile.
+the day, and the progress reports they make (O4); then O5 adds PRP's own Overdue reports still owed of these
+programme documents and report type that the partner reports do not have, once the page shows them (with its
+CSV), or says why it does not. The figure is O4's and O5's together, and its own CSV lists both (`source`
+says which). This is not Progress reports' *Overdue* tile.
 
 **Program Performance** and **Map** have folds of their own, open when the trail was opened from them.
 Program Performance reads the filter without its sections (every section's Reached, then the tracking
@@ -170,12 +174,13 @@ the row: `report_status_neurodb` (the report's status), `report_status_chosen`, 
    back, Due, Not yet due (listed as Due there, as Power BI does) and Submitted.
 
 While the page shows PRP's own reports still owed, the tiles, the section table, the month chart and the
-Partners tab also count them: add the rows of their CSV (step *PRP's own reports still owed*) whose
-`kept_by_the_filter` and `report_status_chosen` are *yes*, by `report_status_neurodb`, `section_counted` or
-`period_end_month`, and the sum of their `counts_once`. They have no indicator report.
+Partners tab also count them. *Kept rows (CSV)* then lists those the filter keeps after the rows, one line
+each (`source` *PRP progress reports*, then their record's fields after the rows' columns), so the same pivot
+table counts them: they have no indicator report (`counts_once_indicator_report` 0). The step *PRP's own
+reports still owed* has the CSV of every one, with whether the filter keeps it and why not.
 
-Each figure's own *Rows (CSV)* holds only the rows it counts, with `unit_key` (its unit) and `counts_once`:
-their sum is the figure. In a step's CSV, `counts_once` is 1 only on a unit the step leaves out entirely
+Each figure's own *Rows (CSV)* holds only the rows it counts, PRP's own reports still owed among them, with
+`unit_key` (its unit) and `counts_once`: their sum is the figure. In a step's CSV, `counts_once` is 1 only on a unit the step leaves out entirely
 (`unit_partly_kept` marks the others), so its sum is what the step leaves out entirely.
 
 When the database takes too long, a file ends with the row "The download stopped here: the database took too
@@ -257,9 +262,11 @@ order: needs a look, check the PD in eTools, wait for the next sync, NeuroDB can
   to the programme documents is proven (eTools reporting checks, check 11). A value Power BI shows in a report
   not submitted yet (the partner's draft) is in this group too: the eTools Datamart never sends it. Nothing to
   fix in NeuroDB now; these are never counted as expected. Once the pages show PRP's own reports still owed,
-  a report found there compares as NeuroDB's (the export's notes say how many come from PRP's own list), and
-  one neither feed has was not in the Datamart read; a draft value stays in this group (PRP's own list
-  carries no value). A report Power BI lists as Due whose period has not
+  a report found there compares as NeuroDB's (the export's notes say how many come from PRP's own list). One
+  PRP's own list has under another status says so and why (moved on since Power BI's refresh, for one); one
+  no read of the list returned in the last 7 days is no longer counted (PRP may have deleted it); and one
+  neither feed has was not in the Datamart read. A draft value stays in this group (PRP's own list carries no
+  value), on the location and disaggregation exports alike. A report Power BI lists as Due whose period has not
   ended yet, and that NeuroDB lacks, was not in the Datamart read: the feed carries those. Uploads compared
   before this group existed keep their reports still owed under *Expected*.
 - **Wait for the next sync.** NeuroDB's last sync ran before Power BI's refresh (or NeuroDB cannot tell which

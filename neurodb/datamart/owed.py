@@ -52,7 +52,10 @@ HIDDEN = {
     "one_day": f"{HIDDEN_START}. PRP's own list was tied to its programme documents on {{day}}: NeuroDB "
     "shows it once the next read agrees.",
     "old": f"{HIDDEN_START}. PRP's own list of progress reports was last read on {{day}}.",
-    "not_read": f"{HIDDEN_START}, and the last read of PRP's own list of progress reports received nothing.",
+    # the last run of either PRP dataset recorded no verdict (it failed, or received nothing), or the last
+    # read of the progress reports received nothing: as check 11 says it (datamart_sync.SHOWN_WHY)
+    "not_read": f"{HIDDEN_START}, and the last sync of PRP's own list of progress reports or of its "
+    "programme documents failed or received nothing.",
 }
 # the line while the gate is open and the filter keeps at least one of them
 SHOWN = (
@@ -328,17 +331,22 @@ def every_owed(today: datetime.date) -> list[dict[str, Any]]:
     return compute.per_request(f"owed-every:{today.isoformat()}", lambda: _build(None, today))
 
 
-def overdue_count(pd_ids: Any, report_type: str, today: datetime.date) -> int:
+def overdue_reports(pd_ids: Any, report_type: str, today: datetime.date) -> list[dict[str, Any]]:
     """The Overdue reports still owed in PRP's progress reports of these programme documents and report type
-    that the partner reports do not have (Partner monitoring's Overdue reports adds them to the rows'): 0
-    while the gate is closed."""
+    that the partner reports do not have (Partner monitoring's Overdue reports adds them to the rows', and its
+    trail's O5 lists them): none while the gate is closed."""
     wanted = set(pd_ids)
     kind = (report_type or "").strip().upper()
-    return sum(
-        1
+    return [
+        r
         for r in every_owed(today)
         if r["status"] == rc.OVERDUE and r["intervention_id"] in wanted and r["report_type"] == kind
-    )
+    ]
+
+
+def overdue_count(pd_ids: Any, report_type: str, today: datetime.date) -> int:
+    """How many :func:`overdue_reports` there are: 0 while the gate is closed."""
+    return len(overdue_reports(pd_ids, report_type, today))
 
 
 def source_words(report: dict[str, Any]) -> str:

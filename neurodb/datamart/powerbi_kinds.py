@@ -273,14 +273,36 @@ def period_ended(end: Any, day: datetime.date) -> bool:
     return found is None or found <= day
 
 
-def owed_reason(job: Job, detail: str = words.DETAIL_OWED) -> Reason:
+def owed_reason(
+    job: Job, detail: str = words.DETAIL_OWED, *, prp: list[pf.HeldReport] | None = None, powerbi: str = ""
+) -> Reason:
     """A report still owed for a period that has ended, that NeuroDB does not list: NeuroDB cannot show it
-    yet (group 5) while it does not show PRP's own progress reports; once it does (``context.owed_shown``),
-    neither feed has it: not in the Datamart read. For report lines only (the report list, the follow-up
-    list)."""
+    yet (group 5) while it does not show PRP's own progress reports. Once it does (``context.owed_shown``),
+    PRP's own list may still hold it (``prp``: its records of the report, ``pf.prp_reports``, the latest
+    first): under another status (the status reason, :func:`status_reason`: moved on since Power BI's refresh,
+    for one), or only in records no read returned for 7 days (NeuroDB no longer counts them); else neither
+    feed has it: not in the Datamart read. For report lines only (the report list, the follow-up list)."""
     if not job.context.owed_shown:
         return ("owed", "", detail)
+    fresh = [r for r in prp or [] if not r.stale]
+    if fresh:
+        reason, label, said = status_reason(job, fresh, powerbi)
+        status = rc.STATUS_LABELS.get(fresh[0].status, fresh[0].status)
+        return (reason, label, " ".join(x for x in (words.DETAIL_IN_PRP.format(status=status), said) if x))
+    if prp:
+        return ("not_in_read", "", words.DETAIL_PRP_STALE)
     return ("not_in_read", "", f"{words.DETAIL_NOT_IN_PRP} {job.context.not_in_read_detail()}")
+
+
+def _prp_found(
+    job: Job, pd: Any, report: Any = None, end: Any = None, due: Any = None
+) -> list[pf.HeldReport]:
+    """PRP's own records of a report (by number and period end, else by due date), read only once NeuroDB
+    shows PRP's reports still owed."""
+    if not job.context.owed_shown:
+        return []
+    held = pf.prp_reports(job.context)
+    return held.find(pd, report, end) if report is not None else held.due(pd, due)
 
 
 def draft_reason(job: Job) -> Reason:
@@ -760,7 +782,8 @@ def report_missing(job: Job, p: dict[str, Any], held: pf.Reports) -> Reason:
         return ("not_in_read", "", f"{words.DETAIL_NO_PD} {job.context.not_in_read_detail()}")
     owed = pm.text(p.get("report_status")) in OWED_LABELS
     if owed and not found and period_ended(p.get("period_end"), job.context.day):
-        return owed_reason(job)
+        prp = _prp_found(job, p["pd"], p["report"], p["period_end"])
+        return owed_reason(job, prp=prp, powerbi=p.get("report_status") or "")
     if not found:
         return not_in_read(job)
     if job.parsed.sections:
@@ -860,7 +883,11 @@ def follow_up(job: Job) -> None:
             running_still = bool(group) and all(
                 r["period_end"] is not None and r["period_end"] > context.day for r in group
             )
-            why = not_in_read(job) if label == "due" and running_still else owed_reason(job)
+            if label == "due" and running_still:
+                why = not_in_read(job)
+            else:
+                prp = _prp_found(job, p["pd"], due=p["due_date"])
+                why = owed_reason(job, prp=prp, powerbi=p["status"])
         elif not found:
             why = not_in_read(job)
         else:
@@ -2318,6 +2345,9 @@ def locations(job: Job) -> None:
     location_facts = _held_locations(context, {p["pd"] for p in left_pb})
     for p in left_pb:
         found = held.find(p["pd"], p["report"], p.get("period_end"))
+        # a report NeuroDB shows only from PRP's own list (the gate open) carries no value: a value Power BI
+        # shows in it is the draft too
+        with_rows = [r for r in found if r.source != "prp"]
         pd, _amended = pf.pds(context).find(p["pd"])
         where = (
             pm.pd_base(p["pd"]),
@@ -2329,7 +2359,7 @@ def locations(job: Job) -> None:
             why: Reason = ("pd_not_running", "", words.DETAIL_NOT_RUNNING.format(status=pd.status_label))
         elif pd is None:
             why = ("not_in_read", "", f"{words.DETAIL_NO_PD} {context.not_in_read_detail()}")
-        elif pm.text(p.get("report_status")) in OWED_LABELS and not found and _location_ended(job, p):
+        elif pm.text(p.get("report_status")) in OWED_LABELS and not with_rows and _location_ended(job, p):
             why = draft_reason(job)  # a value in a report the partner still owes: its draft
         elif not found or where not in location_facts:
             why = not_in_read(job)

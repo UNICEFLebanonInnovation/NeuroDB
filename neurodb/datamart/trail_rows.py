@@ -18,7 +18,10 @@
   export columns with the Datamart ids of each location's rows and the one read.
 * **PRP's own reports still owed** (``owed``, once their link is proven: :mod:`neurodb.datamart.owed`): one
   row per report the page could add, with whether the filter keeps it and why not, its status as the page
-  reads it, then its record as Raw eTools data writes it (field by field, the people rule).
+  reads it, then its record as Raw eTools data writes it (field by field, the people rule). A figure's CSV,
+  K's and S's list those they count after the rows (``source`` "PRP progress reports", their record's fields
+  after the rows' columns: :func:`with_owed`), so counts_once adds up to the figure; Partner monitoring's
+  Overdue reports figure and its step O5 alike.
 
 Every CSV streams (``exports.stream_csv``) inside one read-only snapshot, 2,000 records at a time, takes one
 of the site's two large download slots and holds at most ``raw.csv_limit("partner_reports")`` records. A query
@@ -182,6 +185,16 @@ def row_pks(found: trail.Trail, what: str) -> list[int]:
     return trail.selected(found.rows, select[0])
 
 
+def document_selection(found: trail.Trail, what: str) -> list[int]:
+    """PRP's reports still owed (their records' pks) a report rows CSV lists after its rows: those a figure,
+    K (the rows kept), S (a status not chosen) or the reports with no partner count
+    (``trail.selected_documents``); none for every other CSV, or while the gate is closed."""
+    select = selection(found, what)
+    if select is None or what == "status":
+        return []
+    return trail.selected_documents(found.rows, select[0])
+
+
 def row_columns(names: frozenset[str], pks: list[int]) -> tuple[list[str], list[str]]:
     """The columns of a report rows CSV, and the record fields among them (``raw.header_keys``)."""
     counted, _left_out = raw.field_counts(SOURCE, names)
@@ -205,10 +218,18 @@ def _first_out(rows: trail.TrailRows) -> tuple[dict[tuple[str, str], int], dict[
 
 
 def stream_rows(
-    found: trail.Trail, what: str, pks: list[int], keys: list[str], names: frozenset[str]
+    found: trail.Trail,
+    what: str,
+    pks: list[int],
+    keys: list[str],
+    names: frozenset[str],
+    docs: list[int] | None = None,
+    doc_keys: list[str] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """The rows of a report rows CSV, read 2,000 at a time inside one snapshot, each written as Raw eTools
-    data writes it (``raw.csv_record``) with what the trail read of it."""
+    data writes it (``raw.csv_record``) with what the trail read of it; then PRP's reports still owed it
+    counts too (``docs``: :func:`document_selection`; ``doc_keys``: their fields, :func:`with_owed`), so its
+    counts_once columns add up to the figure."""
     rows = found.rows
     _select, unit, step_words, reason_words = selection(found, what)
     # a figure's words can name a partner as the report rows give it: cleaned as that column is
@@ -257,6 +278,7 @@ def stream_rows(
                     out.update(
                         step=step_words,
                         reason=reason_words or left,
+                        source=owed.ROWS_WORDS,
                         indicator_report_unit=f"{out['progress_report_key']}#{out['indicator_report_key']}",
                         progress_report_unit=out["progress_report_key"],
                         partner_unit=_partner_unit(partner, names),
@@ -294,6 +316,10 @@ def stream_rows(
                         text = raw_people.column(SOURCE, "report_status", row.report_status, names, own)
                         out["status_word_of_this_row"] = text
                     yield out
+            # PRP's own reports still owed the figure counts (never in a step's CSV: no filter's rows)
+            for pk, out in owed_records(docs or [], doc_keys or [], names, as_of):
+                out.update(step=step_words, reason=reason_words)
+                yield _owed_row(rows, pk, out, unit, seen, names)
     except DatabaseError:
         logger.warning("figure trail: the download of %s stopped (took too long)", what, exc_info=True)
         yield {"figures_as_of": raw.STOPPED}
@@ -377,14 +403,50 @@ def document_pks(found: trail.Trail) -> list[int]:
     return sorted(found.rows.documents)
 
 
-def document_columns(names: frozenset[str], pks: list[int]) -> tuple[list[str], list[str]]:
-    """The columns of the owed reports' CSV, and the record fields among them (``raw.header_keys``)."""
+def owed_keys(names: frozenset[str], pks: list[int]) -> list[str]:
+    """The fields of PRP's progress reports a CSV of reports still owed writes (``raw.header_keys``)."""
     counted, _left_out = raw.field_counts(owed.SOURCE, names)
     if pks:
-        keys = raw.header_keys(owed.SOURCE, dm.DatamartDocument.objects.filter(pk__in=pks), counted)
-    else:
-        keys = [f.key for f in counted]
+        return raw.header_keys(owed.SOURCE, dm.DatamartDocument.objects.filter(pk__in=pks), counted)
+    return [f.key for f in counted]
+
+
+def document_columns(names: frozenset[str], pks: list[int]) -> tuple[list[str], list[str]]:
+    """The columns of the owed reports' CSV, and the record fields among them (``raw.header_keys``)."""
+    keys = owed_keys(names, pks)
     return [*OWED_HEAD, *raw.csv_columns(owed.SOURCE, keys)[1:]], keys
+
+
+def with_owed(columns: list[str], names: frozenset[str], pks: list[int]) -> tuple[list[str], list[str]]:
+    """The columns of a CSV of partner report rows that lists PRP's reports still owed after them (``pks``:
+    their records): ``source`` after ``reason``, then the fields of their records the CSV has no column for
+    yet; and those fields. The columns as they were, and no field, when it lists none."""
+    if not pks:
+        return list(columns), []
+    keys = owed_keys(names, pks)
+    out = list(columns)
+    out.insert(out.index("reason") + 1, "source")
+    out += [c for c in raw.csv_columns(owed.SOURCE, keys)[1:] if c not in out]
+    return out, keys
+
+
+def owed_records(
+    pks: list[int], keys: list[str], names: frozenset[str], as_of: str
+) -> Iterator[tuple[int, dict[str, Any]]]:
+    """PRP's reports still owed (their records' pks, in order), each its record as Raw eTools data writes it
+    (``raw.csv_record``: field by field, the people rule, never a person), 2,000 at a time, inside the
+    caller's snapshot. A record removed since the trail was read is skipped."""
+    source = owed.SOURCE
+    run = runfacts.runs([source])[source][0]
+    reviewed = raw.reviewed_keys(source)
+    wanted = set(keys)
+    for start in range(0, len(pks), raw.CSV_CHUNK):
+        chunk = pks[start : start + raw.CSV_CHUNK]
+        by_pk = {d.pk: d for d in raw.related(source, dm.DatamartDocument.objects.filter(pk__in=chunk))}
+        for pk in chunk:
+            record = by_pk.get(pk)
+            if record is not None:
+                yield pk, raw.csv_record(source, record, wanted, run, names, reviewed, as_of)
 
 
 def document_rows(
@@ -392,48 +454,76 @@ def document_rows(
 ) -> Iterator[dict[str, Any]]:
     """One row per report still owed from PRP's own list the trail read: whether the filter keeps it (and the
     step that left it out), its status and section as the page counts them, then its record through the people
-    rule (``raw.csv_record``), read 2,000 at a time inside one snapshot."""
+    rule (:func:`owed_records`), read 2,000 at a time inside one snapshot."""
     rows = found.rows
-    source = owed.SOURCE
-    run = runfacts.runs([source])[source][0]
-    reviewed = raw.reviewed_keys(source)
-    wanted = set(keys)
-    as_of = raw.local_moment(found.as_of)
     stages = dict(enumerate(rows.stages))
     seen: set = set()
     try:
         with raw.snapshot(raw.STREAM_TIMEOUT_MS):
-            for start in range(0, len(pks), raw.CSV_CHUNK):
-                chunk = pks[start : start + raw.CSV_CHUNK]
-                by_pk = {
-                    d.pk: d for d in raw.related(source, dm.DatamartDocument.objects.filter(pk__in=chunk))
-                }
-                for pk in chunk:
-                    record = by_pk.get(pk)
-                    if record is None:  # removed since the trail was read
-                        continue
-                    r = rows.documents[pk]
-                    kept = r[3] == rows.kept_at
-                    report = rows.reports.get(r[1]) if kept else None
-                    out = raw.csv_record(source, record, wanted, run, names, reviewed, as_of)
-                    out.update(
-                        step="PRP's own reports still owed",
-                        reason="" if kept else trail_reason(found, stages.get(r[3], ""), ""),
-                        progress_report_key=r[1],
-                        unit_key=r[1],
-                        counts_once=int(kept and report is not None and report.chosen and _first(seen, r[1])),
-                        kept_by_the_filter=_yes(kept),
-                        report_status_neurodb=rc.STATUS_LABELS.get(report.status, "") if report else "",
-                        report_status_chosen=_yes(report.chosen) if report else "",
-                        section_counted=report.section if report else "",
-                        period_end_month=report.month if report else "",
-                        partner_unit=_partner_unit(report.partner, names) if report else "",
-                        pd_unit=report.pd if report else "",
-                    )
-                    yield out
+            for pk, out in owed_records(pks, keys, names, raw.local_moment(found.as_of)):
+                r = rows.documents[pk]
+                kept = r[3] == rows.kept_at
+                report = rows.reports.get(r[1]) if kept else None
+                out.update(
+                    step="PRP's own reports still owed",
+                    reason="" if kept else trail_reason(found, stages.get(r[3], ""), ""),
+                    progress_report_key=r[1],
+                    unit_key=r[1],
+                    counts_once=int(kept and report is not None and report.chosen and _first(seen, r[1])),
+                    kept_by_the_filter=_yes(kept),
+                    report_status_neurodb=rc.STATUS_LABELS.get(report.status, "") if report else "",
+                    report_status_chosen=_yes(report.chosen) if report else "",
+                    section_counted=report.section if report else "",
+                    period_end_month=report.month if report else "",
+                    partner_unit=_partner_unit(report.partner, names) if report else "",
+                    pd_unit=report.pd if report else "",
+                )
+                yield out
     except DatabaseError:
         logger.warning("figure trail: the download of PRP's reports still owed stopped", exc_info=True)
         yield {"figures_as_of": raw.STOPPED}
+
+
+def _owed_row(
+    rows: trail.TrailRows,
+    pk: int,
+    out: dict[str, Any],
+    unit: str,
+    seen: dict[str, set],
+    names: frozenset[str],
+) -> dict[str, Any]:
+    """A report still owed from PRP's own list in a CSV of report rows (a figure's, K's, S's): its record
+    (``out``), then its units and counts_once_* as a row's, with the same seen-sets, so a sum over the CSV is
+    the figure. It has no indicator report: it counts in no indicator report unit."""
+    r = rows.documents[pk]
+    report = rows.reports.get(r[1])
+    partner = report.partner if report is not None else None
+    out.update(
+        source=owed.SOURCE_WORDS,
+        progress_report_key=r[1],
+        indicator_report_key="",
+        indicator_report_unit="",
+        progress_report_unit=r[1],
+        partner_unit=_partner_unit(partner, names),
+        pd_unit=_pd_unit(report.pd if report is not None else "", names),
+        kept_by_the_filter=_yes(r[3] == rows.kept_at),
+        counts_once_indicator_report=0,
+        counts_once_progress_report=int(_first(seen["pr"], r[1])),
+        unit_partly_kept="",
+        progress_report_partly_kept="",
+        counts_once_partner=int(partner is not None and _first(seen["partner"], (report.chosen, partner))),
+    )
+    out["unit_key"] = {
+        trail.IR: "",
+        trail.PR: out["progress_report_unit"],
+        trail.PARTNER: out["partner_unit"],
+        trail.PD: out["pd_unit"],
+    }.get(unit, "")
+    unit_value = trail.unit_of(rows, unit)(r)
+    out["counts_once"] = int(unit_value is not None and _first(seen["unit"], unit_value))
+    if report is not None:
+        out.update(_report_columns(report, r, names))
+    return out
 
 
 # ------------------------------------------------------------------------------------------ progress reports
@@ -605,8 +695,10 @@ PLACE_COLUMNS = (
 @dataclass(frozen=True)
 class Selection:
     """What a Partner monitoring CSV holds: its ``kind`` (``indicators``, ``pds``, ``pd_rows``,
-    ``report_rows``, ``places`` or ``documents``: every record of a source NeuroDB keeps whole), its records
-    (idents, PD ids, pks, the source), its step and its reason in words."""
+    ``report_rows``, ``places``, ``documents``: every record of a source NeuroDB keeps whole, or ``owed``:
+    PRP's own reports still owed only), its records (idents, PD ids, pks, the source), its step and its
+    reason in words; ``owed``: PRP's own Overdue reports still owed it lists after them (O5's, and the
+    Overdue reports figure's: each its record's pk and its progress report key)."""
 
     kind: str
     items: tuple
@@ -615,6 +707,7 @@ class Selection:
     unit: str = (
         ""  # what counts_once counts, when not the record (``title``: a title of one programme document)
     )
+    owed: tuple[tuple[int, str], ...] = ()
 
 
 def _stage_index(rows: tm.Chain, key: str) -> tuple[int, str] | None:
@@ -672,6 +765,8 @@ def pm_selection(found: Any, what: str) -> Selection | None:
         step = found.step(what[8:])
         if step is None:
             return None
+        if step.key == "O5":  # PRP's own Overdue reports still owed, which the page adds to O4's
+            return Selection("owed", (), step.title, owed=rows.owed_overdue)
         stage = int(step.key[1:]) - 1
         pks = sorted(pk for pk, s in rows.overdue.items() if (s >= 0 if stage == 0 else s == stage))
         return Selection("report_rows", tuple(pks), step.title)
@@ -737,7 +832,11 @@ def _figure_selection(found: Any, figure: Any) -> Selection | None:
         ("set", "pds"): lambda: pds(lambda k: True),
         ("set", "partners"): lambda: pds(lambda k: k.partner is not None),
         ("set", "overdue"): lambda: Selection(
-            "report_rows", tuple(sorted(pk for pk, s in rows.overdue.items() if s == 3)), step, reason
+            "report_rows",
+            tuple(sorted(pk for pk, s in rows.overdue.items() if s == 3)),
+            step,
+            reason,
+            owed=rows.owed_overdue,
         ),
         ("set", "map"): lambda: Selection("places", (), step, reason),
     }
@@ -767,12 +866,14 @@ def pm_count(selection: Selection) -> int:
     if selection.items in (("all",), ("orphans",)):
         rows = dm.PDIndicator.objects.all()
         return (rows if selection.items == ("all",) else rows.filter(intervention=None)).count()
-    return len(selection.items)
+    return len(selection.items) + len(selection.owed)
 
 
 def _source(selection: Selection) -> str:
     if selection.kind == "documents":
         return selection.items[0]
+    if selection.kind == "owed":
+        return owed.SOURCE
     return tm.REPORTS if selection.kind == "report_rows" else tm.SOURCE
 
 
@@ -782,8 +883,16 @@ def pm_limit(selection: Selection) -> tuple[str, int]:
     return source, raw.csv_limit(source)
 
 
+def owed_pks(selection: Selection) -> list[int]:
+    """The records of PRP's own reports still owed a CSV lists (:func:`with_owed` adds their columns)."""
+    return [pk for pk, _key in selection.owed]
+
+
 def pm_columns(selection: Selection, names: frozenset[str]) -> tuple[list[str], list[str]]:
-    """The columns of a CSV, and the record fields among them (``raw.header_keys``)."""
+    """The columns of a CSV, and the record fields among them (``raw.header_keys``); those of PRP's reports
+    still owed it lists come from :func:`with_owed`."""
+    if selection.kind == "owed":
+        return list(REPORT_ROW_HEAD), []
     if selection.kind == "indicators":
         return [*INDICATOR_HEAD, *monitoring.TABLE_COLUMNS], []
     if selection.kind == "pds":
@@ -825,10 +934,16 @@ class PageReads:
 
 
 def pm_rows(
-    found: Any, selection: Selection, keys: list[str], names: frozenset[str], page: PageReads
+    found: Any,
+    selection: Selection,
+    keys: list[str],
+    names: frozenset[str],
+    page: PageReads,
+    owed_keys: list[str] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """The rows of a Partner monitoring CSV, people never written (``raw.csv_record``; a programme document's
-    focal points as a count)."""
+    focal points as a count); then PRP's own reports still owed it lists (``owed_keys``: their fields,
+    :func:`with_owed`)."""
     clean = lambda value: raw_people.text(value, tm.REPORTS, "partner_name", names, frozenset())  # noqa: E731
     head = {
         "figures_as_of": raw.local_moment(found_moment(found)),
@@ -845,8 +960,11 @@ def pm_rows(
         yield from _pd_indicator_rows(found.rows, selection, head, keys, names)
     elif selection.kind == "documents":
         yield from _document_rows(selection.items[0], head, keys, names)
-    else:
-        yield from _report_rows(found.rows, selection, head, keys, names)
+    elif selection.kind == "report_rows":
+        rows_head = {**head, "source": owed.ROWS_WORDS} if selection.owed else head
+        yield from _report_rows(found.rows, selection, rows_head, keys, names)
+    if selection.owed:
+        yield from _owed_report_rows(selection, head, owed_keys or [], names)
 
 
 def found_moment(found: Any) -> Any:
@@ -1018,6 +1136,31 @@ def _document_rows(source: str, head, keys, names) -> Iterator[dict[str, Any]]:
                 }
     except DatabaseError:
         logger.warning("figure trail: the download of %s stopped (took too long)", source, exc_info=True)
+        yield {"figures_as_of": raw.STOPPED}
+
+
+def _owed_report_rows(selection: Selection, head, keys, names) -> Iterator[dict[str, Any]]:
+    """PRP's own Overdue reports still owed that the page adds (O5), each its record as Raw eTools data writes
+    it (:func:`owed_records`) and its progress report as the rows' CSV counts it, once."""
+    reports = dict(selection.owed)
+    seen: set = set()
+    try:
+        with raw.snapshot(raw.STREAM_TIMEOUT_MS):
+            for pk, record in owed_records(list(reports), keys, names, head["figures_as_of"]):
+                yield {
+                    **record,
+                    **head,
+                    "source": owed.SOURCE_WORDS,
+                    "progress_report_unit": reports[pk],
+                    "indicator_report_unit": "",
+                    "counts_once_progress_report": int(_first(seen, reports[pk])),
+                    "counts_once_indicator_report": 0,
+                    "placed_to": "",
+                    "how": "",
+                    "counted": "",
+                }
+    except DatabaseError:
+        logger.warning("figure trail: the download of PRP's reports still owed stopped", exc_info=True)
         yield {"figures_as_of": raw.STOPPED}
 
 

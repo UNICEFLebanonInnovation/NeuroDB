@@ -2131,3 +2131,64 @@ def test_gate_open_an_owed_report_prp_lacks_is_not_in_read(checker, world):
     (line,) = [line for line in lines if line.match[1] == "HR2"]
     assert (line.kind, line.reason) == ("only_powerbi", "not_in_read")
     assert line.detail.startswith(words.DETAIL_NOT_IN_PRP)
+
+
+def _prp_record(number: str, end: D, due: D, word: str, sub: D | None = None):
+    """One more record of PRP's own list, linked to the world's PD (no verdict: see :func:`_owed_shown`)."""
+    from neurodb.datamart.models import DatamartDocument
+    from neurodb.partnerships.models import PCA
+
+    pd = PCA.objects.get(number=PD)
+    return DatamartDocument.objects.create(
+        dataset="prp_progress_reports", record_key=f"h-{number}", intervention=pd, partner=pd.partner, date=end,
+        data={"report_type": number.rstrip("0123456789"), "report_number": number, "start_date":
+              end.replace(day=1).isoformat(), "end_date": end.isoformat(), "due_date": due.isoformat(),
+              "submission_date": sub.isoformat() if sub else None, "status": word},
+    )  # fmt: skip
+
+
+def test_gate_open_a_report_prp_s_own_list_holds_otherwise_is_never_in_neither_feed(checker, world):
+    """With the gate open, an Overdue report of Power BI's lists that NeuroDB does not show may still be in
+    PRP's own list: HR2 is Submitted there (it moved on), HR3 no read returned for 8 days (NeuroDB no longer
+    counts it). Only HR4, which no record of PRP's list matches, is in neither feed. The follow-up list reads
+    the same by due date."""
+    from django.utils import timezone
+
+    from neurodb.datamart import powerbi_words as words
+    from neurodb.datamart.models import DatamartDocument
+
+    _owed_shown("HR1", D(2026, 8, 31), D(2026, 9, 15))
+    _prp_record("HR2", D(2026, 9, 30), D(2026, 10, 10), "Submitted", sub=D(2026, 10, 12))
+    stale = _prp_record("HR3", D(2026, 7, 31), D(2026, 8, 15), "Overdue")
+    DatamartDocument.objects.filter(pk=stale.pk).update(
+        synced_at=timezone.now() - datetime.timedelta(days=8, hours=12)
+    )
+
+    def overdue(number, end, due):
+        return _with(REPORTS[0], report=number, report_status="Overdue", period_start=end.replace(day=1),
+                     period_end=end, due_date=due)  # fmt: skip
+
+    listed = [
+        overdue("HR2", D(2026, 9, 30), D(2026, 10, 10)),
+        overdue("HR3", D(2026, 7, 31), D(2026, 8, 15)),
+        overdue("HR4", D(2026, 6, 30), D(2026, 7, 10)),
+    ]
+    follow = [
+        _follow(status="Overdue", due_date=D(2026, 10, 10)),
+        _follow(status="Overdue", due_date=D(2026, 8, 15)),
+    ]
+    upload = pf.compared(
+        checker, _one("report_list", [*REPORTS, *listed]), _one("follow_up", follow, filters=FOLLOW_FILTERS)
+    )
+    _export, lines = _lines(upload, "report_list")
+    found = {line.match[1]: line for line in lines if line.match[1] in ("HR2", "HR3", "HR4")}
+    assert (found["HR2"].kind, found["HR2"].reason) == ("only_powerbi", "moved_on")
+    assert found["HR2"].detail.startswith("PRP's own list of progress reports has it as Submitted.")
+    assert (found["HR3"].kind, found["HR3"].reason) == ("only_powerbi", "not_in_read")
+    assert found["HR3"].detail == words.DETAIL_PRP_STALE
+    assert found["HR4"].detail.startswith(words.DETAIL_NOT_IN_PRP)
+    assert not [line for line in lines if words.DETAIL_NOT_IN_PRP in line.detail and line.match[1] != "HR4"]
+    _export, lines = _lines(upload, "follow_up")
+    by_due = {line.match[2]: line for line in lines}
+    assert by_due["2026-10-10"].reason == "moved_on"
+    assert by_due["2026-08-15"].detail == words.DETAIL_PRP_STALE
