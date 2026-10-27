@@ -280,7 +280,7 @@ Report: 4", "Empty in Power BI", "Not uploaded") and what to do, and each export
 file, the rows read, what its filter covers ("2026", "Every year", "Education only") and its counts: rows
 compared, the same, different, only in Power BI, only in NeuroDB. While NeuroDB compares, the page refreshes by
 itself every few seconds. Once it ran, the page says how much memory the comparison took and how much it may
-take ("Memory: peak 203 MB of 250 MB allowed."). An export it had no memory left for says "Could not be compared:
+take ("Memory: peak 214 MB of 250 MB allowed."). An export it had no memory left for says "Could not be compared:
 not enough memory" with the same two figures, and the others are still compared; if the comparison stops, the
 exports it had not reached yet say "Not compared: the comparison stopped before it": press *Compare again* (or
 upload the files again once its details were removed).
@@ -331,7 +331,9 @@ The file has these sheets:
   the last sync of the data, a yellow cell for the day of Power BI's refresh, and *Everything NeuroDB
   holds* whatever the filter (with the earliest reporting period NeuroDB holds). Then **Set these in
   Power BI**: each slicer with its value, as the report names it on the Power BI pages of the sheet (both
-  spellings where they differ: *Reporting Year / Reporting year*), and a *Done?* cell to tick; **Clear these
+  spellings where they differ: *Reporting Year / Reporting year*), and a *Done?* cell to tick, with a note
+  when a Power BI page of the sheet has no such slicer (Partner Performance has no year slicer: with a year
+  chosen, the sheet gives its figures and its Partners list for every year, as Power BI does); **Clear these
   in Power BI**: every other slicer and box of those pages (*Report status*, *Report type*, *Report #*,
   *Partner type*, *PD Reference #*...), among them those whose namesake means something else in NeuroDB
   (Power BI's *CP Output* search matches every CP output of the programme document, and its *Indicator Title*

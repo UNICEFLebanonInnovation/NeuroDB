@@ -451,6 +451,37 @@ def test_the_slicers_to_set_and_the_neurodb_filters_to_clear(validator, more, fr
     assert clear["Tags"] == "Gender: Female; Age group: 12-17, Under 5"
 
 
+def test_partner_performance_has_no_year_slicer_so_its_rows_are_of_every_year(validator, more, frozen):
+    """Power BI's Partner Performance page has no year slicer: with a year chosen, the sheet gives its cards,
+    its table and its follow-up list for every year (the closed PD's 2024 report PR-9 counts), and says so on
+    the year's row of "Set these in Power BI", in their notes and on the Partners sheet; their trail opens
+    without the year. Reporting Progress's cards keep the year."""
+    params = {"pd_status": "", "year": "2026"}
+    found = _figures(PR, params)
+    every = services.partner_reporting({"pd_status": ""}, TODAY)
+    in_year = services.partner_reporting(params, TODAY)
+    assert in_year["partners"]["partners"] == 1 and every["partners"]["partners"] == 2
+    assert found["pr.partners"].value == 2
+    assert found["pr.partners_not_reported"].value == every["partners"]["not_reported"]
+    assert found["pr.follow_up"].value == len(every["partners"]["follow_up"]) == 2  # PR-9 and PR-3
+    for key in ("pr.partners", "pr.partners_reported", "pr.follow_up", "pr.partners_status.overdue"):
+        assert comparison.EVERY_YEAR in found[key].note, key
+    assert found["pr.status.overdue"].value == in_year["counts"]["overdue"] == 0  # the year's cards
+    year = comparison.POWERBI_SLICERS[PR]["year"]
+    note = comparison.slicer_notes(comparison.read(PR, params, TODAY))[year]
+    assert note.startswith("Partner Performance has no year slicer")
+    assert comparison.slicer_notes(comparison.read(PR, {"pd_status": ""}, TODAY)) == {}
+    book = _book(validator, PR, params)
+    rows = list(book["Compare"].iter_rows(values_only=True))
+    (row,) = [r for r in rows if len(r) > 4 and r[1] == year and r[2] == "2026"]
+    assert row[4] == note
+    partners = [r[0] for r in book["Partners"].iter_rows(min_row=3, values_only=True) if r and r[0]]
+    assert len(partners) == 2
+    link = comparison.trail_link(comparison.read(PR, params, TODAY), "", "pr.partners")
+    assert "year=" not in link and "tab=partners" in link
+    assert "year=2026" in comparison.trail_link(comparison.read(PR, params, TODAY), "", "pr.status.overdue")
+
+
 def test_a_neurodb_filter_that_means_something_else_in_power_bi_is_cleared_on_both_sides(more, frozen):
     """Partner monitoring's search (an indicator's title or output) is not Power BI's Indicator Title box, nor
     its CP output Power BI's CP Output search (every CP output of the PD). Set, they are NeuroDB filters to

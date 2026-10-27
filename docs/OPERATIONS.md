@@ -2762,8 +2762,12 @@ whole; its name is `powerbi-comparison-<page>_<YYYY-MM-DD>_<HHMM>.xlsx`, the end
   partner reports sync, and PD indicators for Partner monitoring; PRP's last change in the rows), a yellow
   *Power BI refreshed on*; *Everything NeuroDB holds* whatever the filter (indicator and progress reports of
   every PD status and year, programme documents for Partner monitoring, the earliest reporting period from
-  `reached.history_from`); *Set these in Power BI* (every slicer with its value, a yellow *Done?*) and *Clear
-  these in NeuroDB before comparing* (the filters Power BI has no slicer for, those set). Then one row per
+  `reached.history_from`); *Set these in Power BI* (every slicer with its value, a yellow *Done?*, and a
+  *Note* naming the sheet's Power BI pages that have no such slicer, `comparison.slicer_notes`) and *Clear
+  these in NeuroDB before comparing* (the filters Power BI has no slicer for, those set). Partner Performance
+  has no year slicer: with a year chosen, its rows (the Partners tab's cards and table, the reports to follow
+  up) and the *Partners* sheet are NeuroDB's of every year (`read`'s `every_year`), their notes and the year's
+  row say so, and their *Trail* opens without the year. Then one row per
   figure, in Power BI's page and visual order: `#`, Power BI page, visual, name in Power BI, NeuroDB page and
   figure, NeuroDB value, unit, a yellow *Power BI value*, *Difference* `=IF(ISNUMBER(H),H-F,"")` and *Same?*
   (the only formulas; none on a row with no NeuroDB number, such as By location over its 20,000 rows),
@@ -3003,7 +3007,7 @@ one build; the same queries whatever the number of indicators; the sync note; th
 The user downloads the PRP Power BI report's visuals as Excel files and uploads them; NeuroDB recognises each
 export by its columns, reads Power BI's filters, and compares every row with the NeuroDB page that shows the
 same thing, for the same filter (`powerbi_kinds.COMPARERS`, one per kind; below). Each difference gets a reason
-and one of four groups, each with what to do. No figure of any page changes: the comparison only reads.
+and one of five groups, each with what to do. No figure of any page changes: the comparison only reads.
 
 **Who and where.** Validators (`roles.can_validate`) with staff status; a 404 for anyone else, as Raw eTools data.
 *Data and sync* lists it third, after Raw eTools data (`admin_site._datamart_pages`); the admin home has a Quick
@@ -3011,7 +3015,7 @@ action and Raw eTools data's first page a link. Pages (`datamart/powerbi_admin.p
 site_urls`): `datamart/powerbi/` (`datamart_powerbi`: the form, *How to export* with every visual and card in
 Power BI's order, a page's cards on one line, `powerbi_admin.how_visuals`, the last 20 uploads with their exports read and files not read, refused or failed),
 `datamart/powerbi/<pk>/` (`datamart_powerbi_upload`: *What to do now*, a failed upload's error first and never
-"Nothing to do now", the filters to clear named by their slicer, `comparison.POWERBI_FIELD_SLICERS`; one line per
+"Nothing to do now", the filters to clear named by their slicer, `powerbi_names.slicer` and `FIELD_SLICERS`; one line per
 Power BI page in `POWERBI_PAGE_ORDER`, an export a failed upload never read as *Not read*; the files not read, the
 hidden files, the columns dropped; a meta refresh every 5 s while queued, reading or comparing),
 `datamart/powerbi/<pk>/<export_pk>/` (`datamart_powerbi_export`: its filters clause by clause, its columns, its
@@ -3115,7 +3119,7 @@ alone: never compared against nothing. Kept rows of a full set of exports take a
 the cgroup's limit less what the container uses, reclaimable page cache not counted, less 150 MB for the web
 workers and the scheduler's jobs), at most 600 MB and at least 250 MB, kept as the upload's
 `summary["memory_limit_mb"]` from the job's start beside `peak_memory_mb`; the upload's page shows both to the
-validators ("Memory: peak 203 MB of 250 MB allowed."); *Compare again* clears the earlier run's peak, time and
+validators ("Memory: peak 214 MB of 250 MB allowed."); *Compare again* clears the earlier run's peak, time and
 limit, so a run that never measures its own (closed as stale, refused by the lock) shows none of them. An export
 that fails, out of memory (a `MemoryError`) or otherwise, lets go of what it held (its comparer's frames,
 `traceback.clear_frames`; the page figures it kept, then a full collection) before its failure is written, and
@@ -3153,8 +3157,9 @@ when `/proc` cannot be read).
 **Its memory at production size** (Compare with Power BI's 13 exports of 26 Oct 2026, before the cards against 1,156 PDs, 267,716
 PD indicator rows and 22,595 partner report rows shaped like production's: the record kept as received, a
 cross-tab of disaggregation values, the partner's narrative and titles of 400 characters on every row): the
-job's data peaked at 203 MB (598 MB before: under any lower limit a MemoryError stopped it, in the Data Quality
-list or Program Performance) and compares every export under the 250 MB floor. What keeps it there: every comparer reads
+job's data peaked at 214 MB, measured again on 26 Oct 2026 (203 MB before the comparison's findings fixes, 229
+MB after them and before their check fixes; 598 MB before the memory work: under any lower limit a MemoryError
+stopped it, in the Data Quality list or Program Performance) and compares every export under the 250 MB floor. What keeps it there: every comparer reads
 a partner report row's disaggregation as its total `"()"` alone and never its narrative (`reached.with_totals`,
 `monitoring.indicators(totals=True)`: the figures are the page's; By disaggregation reads every value it shows,
 never the narrative), in chunks, the texts a report repeats on each row kept once; an indicator's identity
@@ -3165,7 +3170,11 @@ Program Performance row has no indicator on the page reads the indicators alone,
 the fields it compares (`powerbi_page.shown`), and let go before the next (`Context.release`, a full
 collection); and the job's links are reversed against the admin's and the reports' parts of the URLconf alone
 (`powerbi_links`, `powerbi_urls`), so its process never imports the rest of the site (the AI assistant's SDKs,
-some 50 MB). `tests/datamart/test_powerbi_job.py` bounds the job's allocations on production-shaped records.
+some 50 MB); the location export's facts for the later exports keep one string per distinct text (titles,
+reports, places, PD numbers, shared with NeuroDB's own location rows) and are let go once no export left reads
+them (`powerbi_kinds.LOCATION_READERS`: after By disaggregation); a Power BI disaggregation key keeps its valued
+statuses only once a valued row comes (most have none), and NeuroDB's keys a flag for several PDs, never a set.
+`tests/datamart/test_powerbi_job.py` bounds the job's allocations on production-shaped records.
 
 **A comparison that stops says where and why** (`powerbi_compare.failure`, `powerbi_words.failure`), so it can
 be fixed without the server's logs: the step (an export's: reading its rows, NeuroDB's page, the facts behind
@@ -3329,7 +3338,11 @@ Quality's cards are explained from them), then Power BI's order.
   indicator eTools marks inactive in every row with no report row: `powerbi_facts.inactive`, first among an
   indicator only NeuroDB lists, and a note) and `funds_elsewhere` (a Funded Programs row whose funds
   reservation lines name its PD while NeuroDB links them to another PD, or to none: `powerbi_facts.fr_elsewhere`,
-  never "funds reservation only"), both group 4; a Data Quality indicator only NeuroDB lists whose report of the
+  never "funds reservation only"), both group 4. A value Power BI shows in a report NeuroDB holds without one is
+  the draft of a report still owed only when its period has ended, on By location as on By disaggregation (a
+  report not yet due is no report still owed). The Data Quality card with Reached says its gap from the list of
+  indicators without Reached, named ("1 more in NeuroDB's list": one fewer with Reached in NeuroDB), the card
+  without Reached as before; a Data Quality indicator only NeuroDB lists whose report of the
   year the location table names and the report list says was not read is not in the read. A budget column that
   differs says NeuroDB's budget fields of the PD (`powerbi_facts.budgets`). Rows that differ only by Power BI's
   section rule (PD/SPD Indicator's paired indicators outside the section, equal in every other column; Data

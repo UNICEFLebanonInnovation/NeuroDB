@@ -551,6 +551,10 @@ DETAIL_DQ_GAP = "Of the {n:,} indicators behind this gap: {parts}."
 DETAIL_DQ_GAP_ONE = "Of the 1 indicator behind this gap: {parts}."
 # the Data Quality card: the indicators behind both sides of its gap
 DETAIL_DQ_BOTH = "{nd:,} more in NeuroDB, {pb:,} more in Power BI, net {net:,}: {parts}."
+# the card with Reached: the same list, named, as its sides are the other way round
+DETAIL_DQ_WITH = (
+    "Indicators without Reached: {nd:,} more in NeuroDB's list, {pb:,} more in Power BI's: {parts}."
+)
 # the rules a "different rule" names (each also a choice the user may make, see CHOICES)
 RULE_WORDS = {
     "reached": "Reached: Power BI {words}; NeuroDB adds Accepted and Submitted reports",

@@ -1288,3 +1288,145 @@ def test_how_to_export_asks_for_every_visual_and_card_by_its_exact_name():
     assert "Partner Fund Monitoring and Funded Programs have no year slicer" in steps
     for name in ("Report status", "Report type", "Report #", "Emergency indicator", "PD Reference #"):
         assert name in steps, name
+
+
+# ===================================================================================== the stage 2 check
+NOT_YET = {"period_start": D(2026, 10, 1), "period_end": D(2026, 12, 31)}
+
+
+def test_a_draft_value_of_a_report_not_yet_due_reads_the_same_on_location_and_disaggregation(checker, world):
+    """NeuroDB holds QPR4 (October to December, its period still running) without a value; Power BI shows a
+    value at a place in both exports. A report not yet due is no report still owed: neither export calls the
+    value a draft (group 5); both give the same reason."""
+    pd, _ended = world
+    pf.report_row(pd, "QPR4", "", D(2026, 10, 1), D(2026, 12, 31), due=D(2027, 1, 15))
+    upload = _compared(
+        checker,
+        *_tie_files(
+            [_location(report="QPR4", p_code="LB9_9_1", reached=4, report_status="Due", **NOT_YET)],
+            [_value(report="QPR4", report_status="Due", reached=4, **NOT_YET)],
+        ),
+        sync=AFTER,
+    )
+    _export, locations = _lines(upload, "locations")
+    (location,) = [x for x in locations if pm.text(x.match[1]) == "qpr4"]
+    _export, values = _lines(upload, "disaggregations")
+    value = _of(values, "QPR4")
+    assert location.reason != "owed" and location.group != 5
+    assert (location.reason, location.group) == (value.reason, value.group)
+
+
+def test_a_draft_value_of_a_report_whose_period_has_ended_stays_cannot_show_yet(checker, world):
+    """The same with the period ended (NeuroDB holds the Overdue QPR3 without a value): the draft (group 5)."""
+    upload = _compared(
+        checker,
+        *_tie_files(
+            [_location(report="QPR3", p_code="LB9_9_1", reached=4, report_status="Overdue",
+                       period_start=D(2026, 7, 1), period_end=D(2026, 9, 30))],
+            [_value(report="QPR3", report_status="Overdue", reached=4, period_start=D(2026, 7, 1),
+                    period_end=D(2026, 9, 30))],
+        ),
+        sync=AFTER,
+    )  # fmt: skip
+    _export, locations = _lines(upload, "locations")
+    (location,) = [x for x in locations if pm.text(x.match[1]) == "qpr3" and x.kind == "different"]
+    assert (location.reason, location.group, location.detail) == ("owed", 5, words.DETAIL_OWED_DRAFT)
+
+
+def test_the_data_quality_cards_say_their_gap_from_their_own_side(checker, world):
+    """NeuroDB lists two indicators without Reached, Power BI's list one of them: NeuroDB's card without Reached
+    is 1 above Power BI's, its card with Reached 1 below. Each card's detail says the gap its own way round."""
+    pd, _ended = world
+    _indicator(pd, 130, "Fake no reach a", cp_output="Output One")
+    _indicator(pd, 131, "Fake no reach b", cp_output="Output One")
+    dq = (*YEAR, "section_name is Section Alpha")
+    upload = _compared(
+        checker,
+        _one("dq_list", [_dq("Fake no reach a")], filters=DQ_FILTERS),
+        *_cards({"dq_with_reached": 3}, dq),
+        _one("dq_card", [pf.row("dq_card", indicators=1)], filters=dq),
+    )
+    _export, (without,) = _lines(upload, "dq_card")
+    assert without.found["indicators"][:2] == [1, 2]  # NeuroDB above
+    assert without.detail.startswith("1 more in NeuroDB, 0 more in Power BI")
+    _export, (with_reached,) = _lines(upload, "dq_with_reached")
+    assert with_reached.found["count"][:2] == [3, 2]  # NeuroDB below: one more without Reached in NeuroDB
+    assert with_reached.detail.startswith(
+        "Indicators without Reached: 1 more in NeuroDB's list, 0 more in Power BI's"
+    )
+    assert "more in NeuroDB, 0 more in Power BI, net" not in with_reached.detail
+
+
+def test_the_location_facts_share_one_string_per_title_and_go_after_their_last_reader(
+    checker, world, monkeypatch
+):
+    """What the location export tells the later exports keeps one string per distinct title (NeuroDB's own
+    location rows share it), and the job lets it go once no export left reads it: Funded Programs, compared
+    after By disaggregation, finds none of it."""
+    from neurodb.datamart import powerbi_kinds
+
+    seen = {}
+    for kind in ("disaggregations", "funded_programmes"):
+        original = powerbi_kinds.COMPARERS[kind]
+
+        def wrapped(job, kind=kind, original=original):
+            context = job.context
+            seen[kind] = {
+                "location_pds": context.location_pds,
+                "held": set(context.held_locations or ()),
+                "titles": {id(key[0]) for key in (context.location_pds or {})},
+            }
+            return original(job)
+
+        monkeypatch.setitem(powerbi_kinds.COMPARERS, kind, wrapped)
+    upload = _compared(
+        checker,
+        *_tie_files(
+            [_location(report="QPR1", p_code="LB9_9_1", reached=7, period_end=D(2026, 3, 31)),
+             _location(report="QPR1", p_code="LB9_9_2", reached=3, period_end=D(2026, 3, 31))],
+            [_value(report="QPR1", reached=7)],
+        ),
+        _one("funded_programmes", [pf.row("funded_programmes", pd=PD)]),
+        sync=AFTER,
+    )  # fmt: skip
+    assert upload.status == "done"
+    before = seen["disaggregations"]
+    assert before["location_pds"]  # By disaggregation reads them
+    # one string per title: the two places' keys, and NeuroDB's own location rows of the title, share it
+    assert len(before["titles"]) == 1
+    held = {id(t[1]) for t in before["held"] if t[1] == "fake indicator 1"}
+    assert held and held <= before["titles"]
+    after = seen["funded_programmes"]
+    assert after["location_pds"] is None and after["held"] == set()
+
+
+def test_a_disaggregation_key_keeps_no_empty_set_and_no_set_of_pds():
+    """Power BI's disaggregation keys whose rows carry no value keep no set of valued statuses (most keys: an
+    empty set each weighed on the job's memory)."""
+    import gzip
+    import io
+    import json
+
+    from neurodb.datamart import powerbi_exports as px
+    from neurodb.datamart import powerbi_facts as pfacts
+    from neurodb.datamart import powerbi_kinds
+    from neurodb.datamart.powerbi_filters import Filter
+
+    names = ["indicator_title", "p_code", "period_start", "period_end", "report_type", "report", "disaggregation",
+             "reached", "report_status"]  # fmt: skip
+    rows = [
+        ["Fake indicator 1", "LB9_9_1", "2026-01-01", "2026-03-31", "QPR", "QPR1", "Female", 0, "Accepted"],
+        ["Fake indicator 1", "LB9_9_1", "2026-01-01", "2026-03-31", "QPR", "QPR1", "Male", 5, "Accepted"],
+    ]
+    buffer = io.BytesIO()
+    with gzip.GzipFile(fileobj=buffer, mode="wb") as stream:
+        for row in rows:
+            stream.write(json.dumps(row).encode() + b"\n")
+    context = pfacts.Context(day=D(2026, 10, 15), history=D(2026, 1, 1))
+    job = powerbi_kinds.Job(
+        px.KINDS["disaggregations"], names, buffer.getvalue(), Filter(), context, pm.Result(10)
+    )
+    found = powerbi_kinds._disaggregation_sums(job, buffer.getvalue(), True, True)
+    by_label = {key[-1]: value for key, value in found.items()}
+    assert by_label["female"]["valued"] is None and by_label["female"]["statuses"] == {"accepted"}
+    assert by_label["male"]["valued"] == {"accepted"}

@@ -50,6 +50,9 @@ from .powerbi_links import reverse
 # disaggregations (which have no PD #) tied to their PDs through the location export, Data Quality's card from
 # its list
 FIRST = ("report_list", "locations", "dq_list")
+# the exports that read what the location export tells them (``Context.location_*``, ``held_locations``):
+# once none is left to compare, the job lets those facts go (``powerbi_compare``)
+LOCATION_READERS = frozenset({"locations", "dq_list", "disaggregations"})
 OWED_LABELS = frozenset({"overdue", "due", "not yet due"})
 # a report's steps: one Power BI is further along has moved on since NeuroDB's sync
 STEPS = {
@@ -1051,10 +1054,12 @@ def dq_card(job: Job) -> None:
         job.add("different", dq_reason(job), match=[], found={"indicators": [a, neurodb, None]})
 
 
-def dq_reason(job: Job) -> Reason:
+def dq_reason(job: Job, *, with_reached: bool = False) -> Reason:
     """Why a Data Quality card of indicators without (or with) Reached differs, from the list of the same
     upload: both sides of its gap, the indicators only NeuroDB lists and those only Power BI lists, the reason
-    that most needs doing among them (:func:`pick`)."""
+    that most needs doing among them (:func:`pick`). The list counts indicators without Reached: the card
+    without Reached says "more in NeuroDB" of them; the card with Reached (``with_reached``) names the list,
+    as one more without Reached in NeuroDB is one fewer with Reached there."""
     dq = job.context.dq
     if dq is None:
         return ("see_dq_list", "", "")
@@ -1064,7 +1069,8 @@ def dq_reason(job: Job) -> Reason:
     if not found:
         return ("unknown", "", "")
     nd, pb = sum(ours.values()), sum(theirs.values())
-    detail = words.DETAIL_DQ_BOTH.format(nd=nd, pb=pb, net=nd - pb, parts=gap_parts(found))
+    sentence = words.DETAIL_DQ_WITH if with_reached else words.DETAIL_DQ_BOTH
+    detail = sentence.format(nd=nd, pb=pb, net=nd - pb, parts=gap_parts(found))
     return (pick([(r, "", "") for r in found], job.context)[0], "", detail)
 
 
@@ -1202,7 +1208,7 @@ def dq_figure(job: Job) -> None:
     Reached is explained from the list of the same upload, as its card without Reached is."""
     neurodb = page.quality(job.parsed, job.context)[job.kind.key]
     with_reached = job.kind.key == "dq_with_reached"
-    _card(job, neurodb, lambda _a: dq_reason(job) if with_reached else fallback(job))
+    _card(job, neurodb, lambda _a: dq_reason(job, with_reached=True) if with_reached else fallback(job))
 
 
 def title_pair(
@@ -2213,7 +2219,8 @@ def locations(job: Job) -> None:
         copies += 1
         differ |= {n for n in names if pm.shown(first.get(n)) != pm.shown(row.get(n))}
     powerbi = list(seen.values())
-    told = _location_index(job, powerbi)
+    texts: dict[str, str] = {}  # one string per distinct text of the facts kept for later exports
+    told = _location_index(job, powerbi, texts)
     job.note_set_aside()
     if copies:
         job.result.note(words.NOTE_COPIES.format(n=copies))
@@ -2352,13 +2359,17 @@ def locations(job: Job) -> None:
             },
             link=_record_link(n),
         )
+    share = texts.setdefault
     told["held_locations"] = {
-        (
-            pm.pd_base(n["pd"]),
-            pm.text(n["title"]),
-            pm.text(n["report"]),
-            pm.iso(n["period_end"]),
-            pm.text(n["p_code"]),
+        tuple(
+            share(text, text)
+            for text in (
+                pm.pd_base(n["pd"]),
+                pm.text(n["title"]),
+                pm.text(n["report"]),
+                pm.iso(n["period_end"]),
+                pm.text(n["p_code"]),
+            )
         )
         for n in neurodb
     }
@@ -2366,10 +2377,12 @@ def locations(job: Job) -> None:
         setattr(context, name, value)
 
 
-def _location_index(job: Job, powerbi: list[dict[str, Any]]) -> dict[str, Any]:
+def _location_index(job: Job, powerbi: list[dict[str, Any]], texts: dict[str, str]) -> dict[str, Any]:
     """What the location export tells the later exports (``powerbi_facts.Context``): its rows' PDs by title,
     report, period (start when it has one) and P-code; the reports of each PD, title and period end; each
-    PD and title's reports; each report's Report Status."""
+    PD and title's reports; each report's Report Status. Each distinct text is one string (``texts``, which
+    NeuroDB's own location rows share too): they stay until the last export that reads them."""
+    share = texts.setdefault
     with_start = job.has("period_start")
     pds: dict[tuple, set[str]] = defaultdict(set)
     every: dict[tuple, set[str]] = defaultdict(set)
@@ -2378,9 +2391,13 @@ def _location_index(job: Job, powerbi: list[dict[str, Any]]) -> dict[str, Any]:
     status: dict[tuple, str] = {}
     for row in powerbi:
         pd, base = pm.pd_number(row["pd"]), pm.pd_base(row["pd"])
+        pd, base = share(pd, pd), share(base, base)
         title, report = pm.text(row.get("indicator_title")), pm.text(pm.report_number(row.get("report")))
+        title, report = share(title, title), share(report, report)
         end, p_code = pm.iso(row.get("period_end")), pm.text(row.get("p_code"))
+        end, p_code = share(end, end), share(p_code, p_code)
         start = pm.iso(row.get("period_start")) if with_start else ""
+        start = share(start, start)
         pds[(title, report, start, end, p_code)].add(pd)
         every[(title, report, end, p_code)].add(pd)
         reports[(base, title, end)].add(report)
@@ -2483,14 +2500,21 @@ def _record_link(n: dict[str, Any]) -> str:
 
 def _location_reached(job: Job, powerbi: Any, n: dict[str, Any], newest: dict[Any, float | None]) -> Reason:
     """Why a location's value differs: PRP's report total repeated on every location (NeuroDB gives it none),
-    a factor of 100 (units), the newest of several records (the page reads the largest: a rule, as NeuroDB
-    holds the newest too, unless its sync ran before Power BI's refresh and the next one may bring the
-    change), an earlier step, else not explained yet."""
+    the draft of a report still owed for a period that has ended (NeuroDB holds it without a value), a factor
+    of 100 (units), the newest of several records (the page reads the largest: a rule, as NeuroDB holds the
+    newest too, unless its sync ran before Power BI's refresh and the next one may bring the change), an
+    earlier step, else not explained yet."""
     a = pm.number(powerbi)
     if n["repeated"]:
         return ("repeated", "", words.DETAIL_REPEATED)
-    if n["reached"] is None and n["status"] in (rc.DUE, rc.OVERDUE, rc.NOT_YET_DUE):
-        return draft_reason(job)  # a value in a report the partner has not sent yet: its draft
+    if (
+        n["reached"] is None
+        and n["status"] in (rc.DUE, rc.OVERDUE)
+        and period_ended(n.get("period_end"), job.context.day)
+    ):
+        # a value in a report still owed for a period that has ended: its draft (as By disaggregation reads
+        # one; a report not yet due is no report still owed)
+        return draft_reason(job)
     if _units(a, n["reached"]):
         return ("rule", "units", "")
     if n["records"] > 1 and n["chosen"] in newest:
@@ -2648,7 +2672,7 @@ def disaggregations(job: Job) -> None:
             with job.row("different", match):
                 if a is None:
                     # Power BI kept another report of the same PD and period end (one PD's rows only)
-                    latest = len(b["pds"]) == 1 and period_latest(
+                    latest = not b["several"] and period_latest(
                         context, context.location_reports, b["pd"], b["match"][0], b["match"][5], key[3]
                     )
                     rule: Reason = ("rule", "period_latest", words.DETAIL_PERIOD_LATEST)
@@ -2780,7 +2804,9 @@ def _disaggregation_sums(
                     ],
                     "reached": None,
                     "statuses": set(),
-                    "valued": set(),  # the statuses of its rows whose Reached is a number other than 0
+                    # the statuses of its rows whose Reached is a number other than 0 (None: no such row yet;
+                    # most keys have none, and an empty set each would weigh on the job's memory)
+                    "valued": None,
                 }
             value = pm.number(row.get("reached"))
             if value is not None:
@@ -2788,6 +2814,8 @@ def _disaggregation_sums(
             if row.get("report_status"):
                 mine["statuses"].add(pm.text(row["report_status"]))
                 if value:
+                    if mine["valued"] is None:
+                        mine["valued"] = set()
                     mine["valued"].add(pm.text(row["report_status"]))
     return out
 
@@ -2898,9 +2926,11 @@ def _neurodb_disaggregations(
                         "repeated": block["repeated"],
                         "unlabelled": block.get("unlabelled", 0),
                         "combined": None,
-                        "pds": set(),  # every PD whose blocks add up under this key (``pd``: the first)
+                        # its blocks add up several PDs' (``pd`` is the first): a flag, never a set per key
+                        "several": False,
                     }
-                mine["pds"].add(block["programme_document"])
+                if block["programme_document"] != mine["pd"]:
+                    mine["several"] = True
                 if value is not None:
                     mine["reached"] = (mine["reached"] or 0.0) + value / scale
                 if from_cross is not None:

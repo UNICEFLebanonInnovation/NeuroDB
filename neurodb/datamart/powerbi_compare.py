@@ -499,9 +499,12 @@ def run(pk: int, memory_limit: int | None = None) -> PowerBIUpload | None:
         step = "preparing"
         context = _context(upload)
         compared = []
-        for n, export in enumerate(_in_order(exports_of(upload)), start=1):
+        ordered = _in_order(exports_of(upload))
+        for n, export in enumerate(ordered, start=1):
             step, visual, current = "comparing", _visual(export.kind), export
             result = _compare(export, upload, context)
+            if not powerbi_kinds.LOCATION_READERS & {e.kind for e in ordered[n:]}:
+                context.reset("locations")  # no export left reads the location export's facts: let them go
             _release(context)
             if isinstance(result, Failed):  # recorded once what it held was let go
                 _record_failure(export, upload.pk, result.found)
@@ -832,7 +835,7 @@ def _release(context: powerbi_facts.Context) -> None:
 
 
 def _progress(upload: PowerBIUpload, n: int) -> None:
-    """How many exports are compared so far (the upload's page says "Comparing… n of 13 exports")."""
+    """How many exports are compared so far (the upload's page says "Comparing… n of N exports")."""
     summary = {**(upload.summary or {}), "compared": n}
     upload.summary = summary
     PowerBIUpload.objects.filter(pk=upload.pk).update(summary=summary)

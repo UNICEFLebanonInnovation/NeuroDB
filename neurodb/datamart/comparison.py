@@ -181,6 +181,29 @@ POWERBI_SLICERS: dict[str, dict[str, str]] = {
         "emergency": names.slicer("Emergency indicator", _PM_PAGES),
     },
 }
+
+
+def _has_slicer(powerbi_page: str, slicer: str) -> bool:
+    """Whether a Power BI page has a slicer (or a box) of this name (one of its spellings, its case aside)."""
+    own = {
+        s.casefold()
+        for s in (
+            *names.POWERBI_PAGE_SLICERS.get(powerbi_page, ()),
+            *names.POWERBI_PAGE_BOXES.get(powerbi_page, ()),
+        )
+    }
+    return any(part.casefold() in own for part in slicer.split(" / "))
+
+
+# each sheet's filter fields set as a Power BI slicer, and the sheet's Power BI pages that have no such slicer
+# (said on the slicer's row: :func:`slicer_notes`)
+SLICER_MISSING: dict[str, dict[str, tuple[str, ...]]] = {
+    page: {
+        name: tuple(p for p in SHEET_POWERBI_PAGES[page] if not _has_slicer(p, slicer))
+        for name, slicer in found.items()
+    }
+    for page, found in POWERBI_SLICERS.items()
+}
 # Power BI's slicers NeuroDB's page has no filter for: set as said on every page, or cleared. Its Emergency
 # indicator is NeuroDB's (the PD is an SPD, by the user's decision of 26 Oct 2026): set on Partner monitoring,
 # cleared on Progress reports, where most of the Power BI pages compared have no such slicer. Its CP Output
@@ -200,6 +223,13 @@ CLEAR_IN_POWERBI = (
     "Clear these in Power BI: NeuroDB's page has no such filter, or its filter of that name means something "
     "else"
 )
+# a slicer of "Set these in Power BI" that some of the sheet's Power BI pages do not have: said on its row
+NOT_ON = "{pages} {verb} no such slicer: Power BI's figures there are of every value of it."
+NOT_ON_YEAR = (
+    "{pages} {verb} no year slicer: this file reads its figures for every year, as Power BI shows them."
+)
+# the notes of Partner Performance's figures, read for every year whatever the year chosen
+EVERY_YEAR = f"{names.PARTNER_PERFORMANCE} has no year slicer: NeuroDB's figure of every year, as Power BI's."
 COMPARE_FOR_YOU = (
     "Or let NeuroDB compare for you: upload Power BI's exports in Admin → Data and sync → Compare with Power "
     "BI."
@@ -410,8 +440,16 @@ def read(page: str, params: Any, day: datetime.date) -> Read:
     if page == "progress-reports":
         found = Read(page, params, day, reporting.ReportFilters.from_params(params))
         found.tab_filters = reporting.DisaggregationFilters.from_params(params)
+        data = services.partner_reporting(params, day, options=False)
+        every_year = data
+        if found.filters.year:  # Partner Performance has no year slicer: its figures are of every year
+            wider = params.copy()
+            wider.pop("year", None)
+            every_year = services.partner_reporting(wider, day, options=False)
         found.data = {
-            "page": services.partner_reporting(params, day, options=False),
+            "page": data,
+            # what the Partner Performance rows and the Partners sheet read: every year, whatever the filter
+            "every_year": {"reports": every_year["reports"], "partners": every_year["partners"]},
             "left_out": reporting.left_out(found.filters, day),
             "locations": services.reporting_table("locations", params, day)["locations"],
             "disaggregations": services.reporting_table("disaggregations", params, day)["disaggregations"],
@@ -501,11 +539,18 @@ def _report_list(r: Read) -> Iterator[Line]:
     )
 
 
+def _every_year(r: Read, note: str = "") -> str:
+    """A Partner Performance figure's note: with a year chosen, that it is of every year (Power BI's page
+    has no year slicer)."""
+    return " ".join(x for x in (note, EVERY_YEAR if r.filters.year else "") if x)
+
+
 def _partner_cards(r: Read) -> Iterator[Line]:
-    p, figure = r.data["page"]["partners"], "Progress reports → Partners"
-    note = "The Partners sheet lists them, one row each."
+    """Partner Performance's cards and table, read for every year (its page has no year slicer)."""
+    p, figure = r.data["every_year"]["partners"], "Progress reports → Partners"
+    note = _every_year(r, "The Partners sheet lists them, one row each.")
     yield ("pr.partners", card("pr.partners"), figure, p["partners"], "partners", note)
-    note = "Submitted or Accepted."
+    note = _every_year(r, "Submitted or Accepted.")
     yield (
         "pr.partners_reported",
         card("pr.partners_reported"),
@@ -515,19 +560,20 @@ def _partner_cards(r: Read) -> Iterator[Line]:
         note,
     )
     item = card("pr.partners_not_reported")
-    yield ("pr.partners_not_reported", item, figure, p["not_reported"], "partners", "")
+    yield ("pr.partners_not_reported", item, figure, p["not_reported"], "partners", _every_year(r))
     # the statuses Power BI's visual does not show first (on no visual), then the five it shows
     shown = VISUAL_FIGURES["partner_cards"]
     for s in sorted(p["by_status"], key=lambda s: f"pr.partners_status.{s['key']}" in shown):
         item = POWERBI_ITEMS["partners_status"].format(status=s["label"])
-        yield (f"pr.partners_status.{s['key']}", item, figure, s["partners"], "partners", "")
+        yield (f"pr.partners_status.{s['key']}", item, figure, s["partners"], "partners", _every_year(r))
 
 
 def _follow_up(r: Read) -> Iterator[Line]:
-    n = len(r.data["page"]["partners"]["follow_up"])
+    """The reports to follow up, read for every year (Partner Performance has no year slicer)."""
+    n = len(r.data["every_year"]["partners"]["follow_up"])
     figure, note = (
         "Progress reports → Partners: reports to follow up",
-        "Overdue, Sent back, Due or Submitted.",
+        _every_year(r, "Overdue, Sent back, Due (a report not yet due among them) or Submitted."),
     )
     yield ("pr.follow_up", POWERBI_ITEMS["reports"], figure, n, PR, note)
 
@@ -731,6 +777,24 @@ def _words(page: str, name: str, value: Any, filters: Any, partners: dict[str, s
     return str(value or "")
 
 
+def slicer_notes(found: Read) -> dict[str, str]:
+    """For each slicer of "Set these in Power BI" set to a value, the sheet's Power BI pages that have no such
+    slicer, in words: their figures in Power BI are of every value of it. Partner Performance has no year
+    slicer: this file reads its figures for every year (:func:`read`), and says so."""
+    page, out = found.page, {}
+    for name, slicer in POWERBI_SLICERS[page].items():
+        if not getattr(found.filters, name, None):  # every value: nothing to say
+            continue
+        missing = SLICER_MISSING[page].get(name, ())
+        if not missing:
+            continue
+        verb = "has" if len(missing) == 1 else "have"
+        every_year = page == "progress-reports" and name == "year" and missing == (names.PARTNER_PERFORMANCE,)
+        words = NOT_ON_YEAR if every_year else NOT_ON
+        out[slicer] = words.format(pages=", ".join(missing), verb=verb)
+    return out
+
+
 def settings_rows(found: Read) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """The two blocks of the filter: the Power BI slicers to set, each with its value (every slicer, also one
     left at every value), and the NeuroDB filters to clear before comparing (those set only). Raises
@@ -896,9 +960,10 @@ def _compare_sheet(book: Workbook, found: Read, base_url: str) -> None:
     sheet.add()
     slicers, clear = settings_rows(found)
     sheet.add(None, Bold("Set these in Power BI"))
-    sheet.header("", "Power BI slicer", "Value", "Done?")
+    sheet.header("", "Power BI slicer", "Value", "Done?", "Note")
+    notes = slicer_notes(found)  # the sheet's Power BI pages that have no such slicer
     for slicer, words in slicers:
-        sheet.add(None, slicer, _clean(words, names), INPUT)
+        sheet.add(None, slicer, _clean(words, names), INPUT, notes.get(slicer, ""))
     for slicer in POWERBI_ONLY_SLICERS:
         sheet.add(None, slicer, ONE_COUNTRY.format(country=settings.ETOOLS_DATAMART_COUNTRY), INPUT)
     sheet.add()
@@ -988,6 +1053,8 @@ def trail_link(found: Read, base_url: str, key: str) -> str | None:
     tab = next((t for prefix, t in tabs.items() if key.startswith(prefix)), "")
     if not tab and key.startswith(("pr.partner", "pr.follow_up")):
         tab = "partners"
+        # Partner Performance's figures are of every year: its page has no year slicer (:func:`read`)
+        query.pop("year", None)
     if tab:
         query["tab"] = tab
     query["figure"] = key
@@ -1102,13 +1169,16 @@ def partner_rows(reports: list[dict[str, Any]], names: frozenset[str]) -> tuple[
 def _partners_sheet(book: Workbook, found: Read) -> None:
     from neurodb.watch import people
 
-    rows, nameless = partner_rows(found.data["page"]["reports"], people.known_names())
+    # Partner Performance's partners: of every year, as its page has no year slicer (:func:`read`)
+    rows, nameless = partner_rows(found.data["every_year"]["reports"], people.known_names())
     labels = [rc.STATUS_LABELS[k] for k in reporting.STATUS_KEYS]
     sheet = Sheet(book, "Partners", (36, 14, *([12] * len(labels)), 10, 26), freeze="A3")
     note = (
         f"Every partner with a progress report in the filter: {len(rows):,}. Match key: the vendor number, "
     )
     note += "else the partner's name."
+    if found.filters.year:
+        note += f" {EVERY_YEAR}"
     if nameless:
         note += f" {nameless:,} progress reports name no partner: they are in no Partners figure."
     sheet.add(note)
