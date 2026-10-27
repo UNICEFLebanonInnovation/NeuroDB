@@ -354,7 +354,9 @@ def _upload_page(request, upload: PowerBIUpload, refused: list[str] | None = Non
         upload_error=powerbi_results.upload_error(upload),
         pages=pages,
         todo=[] if busy else powerbi_results.todo(upload, exports, powerbi_results.before(upload, exports)),
-        choices=upload.choices if done else [],
+        # the choices still asked; an upload compared before the user's decision of 26 Oct 2026 says so
+        choices=powerbi_results.asked(upload) if done else [],
+        decided=words.CHOICES_DECIDED if done and powerbi_results.decided(upload) else "",
         # the Reached sentence alone when no choice carries it (no rule fits)
         reached=summary.get("reached", "")
         if done and not any(c.get("code") == "reached" for c in upload.choices or [])

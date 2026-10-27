@@ -435,6 +435,7 @@ class Indicator:
             "cp_output": self.cp_output,
             "output": self.output,
             "indicator": self.title,
+            "emergency": self.emergency,  # the PD is an SPD, as Program Performance's column and Power BI's
             "tags": {k: v for k, v in self.tags.items() if v},
             "unit": self.unit,
             "baseline": self.baseline,

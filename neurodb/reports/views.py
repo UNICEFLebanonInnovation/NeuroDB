@@ -2039,7 +2039,8 @@ def _too_many(found: dict[str, Any]) -> HttpResponse:
 
 def _reporting_export(data: dict[str, Any], tab: str, fmt: str, params=None) -> HttpResponse:
     """The tab's table, every row of the filter (not only the page shown). The Excel file adds the
-    counts of the tiles: indicator reports and progress reports per status, and by section."""
+    counts of the tiles: progress reports per status with the indicator reports in them, and progress reports
+    by section."""
     if tab == "disaggregations":
         found = _reporting_disaggregations(data, params or {})
         if found["too_many"]:

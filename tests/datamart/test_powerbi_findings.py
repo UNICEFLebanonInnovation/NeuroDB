@@ -1467,3 +1467,69 @@ def test_gate_open_draft_values_of_owed_reports_stay_cannot_show(checker, world)
         )
         value = _of(values, report)
         assert (value.reason, value.group, value.detail) == ("owed", 5, words.DETAIL_OWED_DRAFT), report
+
+
+# ============================================================ stage 4: a comparison made before the decisions
+# what Choices for you kept on an upload compared before the user's decision of 26 Oct 2026 (the questions as the
+# comparison asked them then; the evidence is fake)
+DECIDED_QUESTIONS = (
+    "Should NeuroDB's Reporting Progress count progress reports, as Power BI does?",
+    "Should NeuroDB's follow-up list include reports not yet due, as Power BI does?",
+    "Should NeuroDB's Emergency indicator mean 'the PD is an SPD', as Power BI's does?",
+)
+OLD_CHOICES = [
+    {"code": code, "question": question, "evidence": f"Fake evidence {n}.", "default": f"Fake default {n}."}
+    for n, (code, question) in enumerate(
+        zip(("progress_reports", "due", "emergency"), DECIDED_QUESTIONS, strict=True)
+    )
+]
+
+
+def test_a_comparison_made_before_the_decisions_no_longer_asks_them(checker, world):
+    """An upload compared before the user's decision of 26 Oct 2026 kept the three choices it asked and lines
+    naming the rule NeuroDB had then. Its page and its Excel file no longer ask them: they say NeuroDB counts
+    Power BI's way since, and to compare again. Its lines name the old rule in words, never its code, and send the
+    user to compare again, not to Choices for you; the export's verdict too."""
+    import io
+
+    import openpyxl
+    from django.urls import reverse
+
+    from neurodb.datamart.models import PowerBIDifference
+
+    upload = pf.compared(checker, _one("by_sector", [pf.row("by_sector", section=SECTIONS, accepted=1,
+                                                              submitted=1, due=0, overdue=2)], filters=YEAR))  # fmt: skip
+    export, (line,) = _lines(upload, "by_sector")
+    # as the comparison wrote them before the decision: the unit rule, counted another way
+    PowerBIDifference.objects.filter(pk=line.pk).update(reason="rule", rule="progress_reports", group=1)
+    export.counts = {**export.counts, "rules": {"progress_reports": 1}, "groups": {"1": 1}}
+    export.verdict = "counted"
+    export.save(update_fields=["counts", "verdict"])
+    upload.choices = OLD_CHOICES
+    upload.save(update_fields=["choices"])
+    page = checker.get(reverse("admin:datamart_powerbi_upload", args=[upload.pk])).content.decode()
+    for question in DECIDED_QUESTIONS:
+        assert question not in page.replace("&#x27;", "'"), question
+    assert "data-pbi-choices" not in page and "See Choices for you" not in page
+    assert words.CHOICES_DECIDED in page.replace("&#x27;", "'")
+    offered = powerbi_results.offered(upload)
+    assert offered == frozenset()
+    export.refresh_from_db()
+    assert powerbi_results.verdict_words(export, offered=offered)[1] == words.COUNTED_DECIDED
+    shown = checker.get(
+        reverse("admin:datamart_powerbi_export", args=[upload.pk, export.pk])
+    ).content.decode()
+    shown = shown.replace("&#x27;", "'")
+    assert words.RULE_WORDS["progress_reports"] in shown and ">progress_reports<" not in shown
+    assert words.RULE_DECIDED in shown and "Choices for you" not in shown.split("data-pbi-lines", 1)[1]
+    line.refresh_from_db()
+    assert powerbi_results.what_to_do(line, "1 Jan 2026", offered).endswith(words.RULE_DECIDED)
+    response = checker.get(reverse("admin:datamart_powerbi_xlsx", args=[upload.pk]))
+    summary = openpyxl.load_workbook(io.BytesIO(response.content)).worksheets[0]
+    cells = [c for row in summary.iter_rows(values_only=True) for c in row if c]
+    assert not [c for c in cells if c in DECIDED_QUESTIONS] and words.CHOICES_DECIDED in cells
+    # a comparison made since asks none of them and says nothing of them
+    again = pf.compared(checker, _one("by_sector", [pf.row("by_sector", section=SECTIONS, accepted=1,
+                                                             submitted=1, due=0, overdue=2)], filters=YEAR))  # fmt: skip
+    fresh = checker.get(reverse("admin:datamart_powerbi_upload", args=[again.pk])).content.decode()
+    assert words.CHOICES_DECIDED not in fresh.replace("&#x27;", "'")

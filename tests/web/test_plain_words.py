@@ -231,3 +231,25 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
     ]
     for sentence in sentences:
         assert not NEVER.findall(sentence), sentence
+
+
+def test_every_rule_a_comparison_line_names_is_said_in_words():
+    """A line of Compare with Power BI names its rule in words (``powerbi_words.RULE_WORDS``), never its code:
+    every rule the comparison writes, and the two a comparison made before the user's decision of 26 Oct 2026
+    wrote (Reporting Progress's unit and the Emergency indicator), which the lines it kept still name. The words
+    of that decision say none of the code's words either."""
+    from neurodb.datamart import powerbi_results
+
+    source = (ROOT / "datamart/powerbi_kinds.py").read_text(encoding="utf-8")
+    written = set(re.findall(r'\("rule", "([a-z_]+)"', source))
+    assert len(written) > 15
+    named = written | set(powerbi_results.RULE_CHOICES) | powerbi_results.DECIDED_RULES
+    assert not named - set(powerbi_words.RULE_WORDS), named - set(powerbi_words.RULE_WORDS)
+    for sentence in (
+        *(powerbi_words.RULE_WORDS[rule] for rule in powerbi_results.DECIDED_RULES),
+        powerbi_words.CHOICES_DECIDED,
+        powerbi_words.RULE_DECIDED,
+        powerbi_words.COUNTED_DECIDED,
+    ):
+        assert not NEVER.findall(sentence), sentence
+        assert "_" not in sentence, sentence

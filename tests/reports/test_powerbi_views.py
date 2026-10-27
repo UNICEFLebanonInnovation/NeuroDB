@@ -695,6 +695,34 @@ def test_ask_counts_progress_reports_by_status_like_its_totals(more):
     assert out["to_follow_up"] == {"Due": 1}
 
 
+def test_ask_reads_the_emergency_indicator_as_the_pages_do(more, frozen):
+    """Ask NeuroDB's Emergency indicator is the pages' (the user's decision of 26 Oct 2026): the programme
+    document is an SPD. Its indicator and progress report tools filter by it as Program Performance and Progress
+    reports do, and each indicator says it, as Program Performance's column does; eTools' high frequency (the
+    girls' indicator) is not it."""
+    girls, boys = more["girls"], more["boys"]
+    PCA.objects.filter(pk=more["pd"].pk).update(document_type="SPD")
+    detail = tools.run("pd_indicator_progress", {"include_closed": True})["indicators_detail"]
+    assert {i["indicator"]: i["emergency"] for i in detail} == {
+        girls: True,
+        boys: True,
+        CLASSROOMS: True,
+        "# of schools": False,  # the closed SSFA's
+    }
+    yes = tools.run("pd_indicator_progress", {"include_closed": True, "emergency": "yes"})
+    assert {i["indicator"] for i in yes["indicators_detail"]} == {girls, boys, CLASSROOMS}
+    assert yes["indicators"] == len(_rows(pd_status="", emergency="yes")) == 3
+    no = tools.run("pd_indicator_progress", {"include_closed": True, "emergency": "no"})
+    assert [i["indicator"] for i in no["indicators_detail"]] == ["# of schools"]
+    # Progress reports' filter: the reports of SPDs, the same count as the page's
+    reports = tools.run("partner_reporting", {"emergency": "yes"})
+    page = services.partner_reporting({"emergency": "yes"}, today=TODAY)
+    assert reports["reports"] == page["summary"]["reports"] == 4
+    assert tools.run("partner_reporting", {"emergency": "no"})["reports"] == 0
+    with pytest.raises(tools.ToolInputError):
+        tools.run("partner_reporting", {"emergency": "high frequency"})
+
+
 def test_report_by_location_keeps_each_report_by_its_own_status(client_viewer, more, frozen):
     # one row of PR-1 names no status and no submission date: alone, it would read as overdue, but the
     # progress report is Accepted (its other rows say so), as the tiles and the report table count it

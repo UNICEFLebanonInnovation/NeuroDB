@@ -54,6 +54,10 @@ RULE_CHOICES = {
     "reached": "reached",
     "accepted_only": "reached",
 }
+# the choices the user decided on 26 Oct 2026 (NeuroDB counts Power BI's way there since), and the rules their
+# lines named: an upload compared before keeps them, and its pages no longer offer them
+DECIDED_CHOICES = frozenset({"progress_reports", "due", "emergency"})
+DECIDED_RULES = frozenset({"progress_reports", "emergency"})
 # not in the Datamart read: the PD indicators' exports check the PD in eTools, as any row of a PD NeuroDB
 # does not hold; the others a report in PRP
 PD_ROWS = frozenset({"pd_indicators", "dq_list", "fund_monitoring", "funded_programmes"})
@@ -162,9 +166,29 @@ def apart(export: PowerBIExport) -> tuple[str, str]:
     return parts, " ".join(words.VERDICT_APART_ACTIONS[r] for r, _n in found)
 
 
+def asked(upload: PowerBIUpload) -> list[dict[str, Any]]:
+    """The choices Choices for you offers on this upload: those it kept that are still asked (an upload
+    compared before the user's decision of 26 Oct 2026 kept three choices decided since)."""
+    return [c for c in upload.choices or [] if c.get("code") in words.CHOICE_QUESTIONS]
+
+
+def decided(upload: PowerBIUpload) -> bool:
+    """Whether the upload was compared before the user's decision of 26 Oct 2026 and asked about it."""
+    return any(c.get("code") in DECIDED_CHOICES for c in upload.choices or [])
+
+
 def offered(upload: PowerBIUpload) -> frozenset[str]:
     """The choices Choices for you offers on this upload (their codes)."""
-    return frozenset(c.get("code", "") for c in upload.choices or [])
+    return frozenset(c.get("code", "") for c in asked(upload))
+
+
+def decided_rule(export: PowerBIExport) -> bool:
+    """Whether the export, compared before the user's decision of 26 Oct 2026, counted rows another way by a
+    rule decided since: Reporting Progress's unit, the Emergency indicator, or Power BI's Due covering reports
+    not yet due on the follow-up list."""
+    counts = export.counts or {}
+    rules = counts.get("rules") or {}
+    return bool(DECIDED_RULES & set(rules)) or bool((counts.get("extra") or {}).get("due_not_yet"))
 
 
 def has_choice(export: PowerBIExport, choices: frozenset[str] | None) -> bool:
@@ -224,7 +248,10 @@ def verdict_words(
         if code == "owed":
             verdict = words.VERDICT_WORDS["owed"].format(parts=parts)
             return verdict, f"{words.VERDICT_ACTIONS['owed']} {actions}"
-        counted = words.VERDICT_ACTIONS["counted"] if has_choice(export, offered) else words.COUNTED_NO_CHOICE
+        if has_choice(export, offered):
+            counted = words.VERDICT_ACTIONS["counted"]
+        else:
+            counted = words.COUNTED_DECIDED if decided_rule(export) else words.COUNTED_NO_CHOICE
         if parts:
             verdict = words.VERDICT_COUNTED_ALSO.format(verdict=words.VERDICT_WORDS["counted"], parts=parts)
             return verdict, f"{counted} {actions}"
@@ -699,6 +726,8 @@ def what_to_do(
             extra = words.NOT_IN_READ_PD
     if line.reason == "rule" and offered is not None and RULE_CHOICES.get(line.rule) not in offered:
         extra = words.RULE_NO_CHOICE
+    if line.reason == "rule" and line.rule in DECIDED_RULES:  # a comparison made before the decision
+        extra = words.RULE_DECIDED
     base = group_action(line.group, line.reason)
     return " ".join(x for x in (base, extra.format(history=history)) if x)
 
@@ -829,10 +858,12 @@ def _summary_rows(
                 for row in table["rows"]:
                     mark = f" ({words.FIT_CHOSEN})" if row["chosen"] else ""
                     yield {"Item": f"      {row['words']}{mark}", "Value": row["fits"]}
-    choices_ = upload.choices or []
-    if choices_:
+    choices_ = asked(upload)
+    if choices_ or decided(upload):
         yield {}
         yield {"Item": words.CHOICES_TITLE}
+        if decided(upload):  # compared before the user's decision: its three choices are no longer asked
+            yield {"Item": words.CHOICES_DECIDED}
         for choice in choices_:
             yield {
                 "Item": choice.get("question"),

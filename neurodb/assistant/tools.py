@@ -858,12 +858,21 @@ def funds_overview(
 
 
 def partner_reporting(
-    partner: str | None = None, year: int | None = None, overdue_only: bool = False
+    partner: str | None = None,
+    year: int | None = None,
+    overdue_only: bool = False,
+    emergency: str | None = None,
 ) -> dict[str, Any]:
-    """Progress reports from the Partner Reporting Portal (through the eTools Datamart)."""
+    """Progress reports from the Partner Reporting Portal (through the eTools Datamart). ``emergency``: the
+    Progress reports page's Emergency indicator filter (yes: the reports of SPDs, as Power BI's)."""
     data = datamart.partner_reporting(
         _Params(
-            {"q": partner or "", "year": str(year) if year else "", "overdue": "1" if overdue_only else ""}
+            {
+                "q": partner or "",
+                "year": str(year) if year else "",
+                "overdue": "1" if overdue_only else "",
+                "emergency": emergency or "",
+            }
         )
     )
     rows = [
@@ -974,15 +983,18 @@ def pd_indicator_progress(
     report_type: str | None = None,
     year: int | None = None,
     include_closed: bool = False,
+    emergency: str | None = None,
 ) -> dict[str, Any]:
     """Partner implementation monitoring: PD indicators with what partners reached (PRP, the rule of
     ``neurodb.datamart.reached``) against the PD target, with Reached in the year by month and the
-    on/off-track status."""
+    on/off-track status. ``emergency``: Partner monitoring's Emergency filter (yes: the indicators of SPDs, as
+    Power BI's Emergency indicator); each indicator says whether it is one."""
     params: dict[str, Any] = {
         "report_type": report_type or monitoring.DEFAULT_REPORT_TYPE,
         "year": str(year) if year else "",
         "status": status or "",
         "scope": "all" if include_closed else "active",
+        "emergency": emergency or "",
     }
     if partner:
         ids = [
@@ -1447,12 +1459,14 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "list of progress reports once their link to the programme documents is proven (owed_shown; "
         "owed_note says what the page says; their source is 'PRP progress reports'), and have no indicator "
         "reports. "
-        "Filter by partner name/vendor/PD text, year the period ends, or overdue only.",
+        "Filter by partner name/vendor/PD text, year the period ends, overdue only, or the Emergency "
+        "indicator (yes: the reports of SPDs, as on the page and in Power BI; never eTools' high frequency).",
         _schema(
             {
                 "partner": {"type": "string"},
                 "year": {"type": "integer"},
                 "overdue_only": {"type": "boolean"},
+                "emergency": {"type": "string", "enum": ["yes", "no"]},
             }
         ),
         "Reading partner reporting",
@@ -1466,8 +1480,10 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "period elapsed), PRP's own cumulative for comparison, the partner's assessment, Reached in the "
         "year and per month of that year (quarterly QPR by default, or monthly humanitarian HR reports). "
         "Filter by partner, PD number, section, status (on_track, off_track, over_target, no_target, "
-        "not_reported: no counted report yet), report type and year. This is the only correct source for "
-        "how many people an "
+        "not_reported: no counted report yet), report type, year and the Emergency indicator (yes: the "
+        "indicators of SPDs, as Program Performance's Emergency column and Power BI's; each indicator's "
+        "emergency says it; never eTools' high frequency). This is the only correct source for how many "
+        "people an "
         "indicator reached: never add partner report rows. Different indicators are never added together. "
         "Use it for 'is partner X on track', 'how many did PD Y reach', 'which indicators are off track', "
         "'what did the partner report in March'.",
@@ -1483,6 +1499,7 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
                 "report_type": {"type": "string", "enum": ["QPR", "HR"]},
                 "year": {"type": "integer"},
                 "include_closed": {"type": "boolean"},
+                "emergency": {"type": "string", "enum": ["yes", "no"]},
             }
         ),
         "Reading partner monitoring",

@@ -7,7 +7,8 @@
   what to do now (at most four lines, each with a link to its lines), one line per Power BI page in Power BI's
   order (comparison.POWERBI_PAGE_ORDER) with its verdict, what to do, its lines that need a look, and each export
   compared, not reached by a comparison that stopped, or "Not uploaded"; the job's memory peak and limit; the
-  Reached sentence and the choices for the user; the files not read and why, the hidden files skipped, the
+  Reached sentence and the choices for the user (an upload compared before the user's decision of 26 Oct 2026 says
+  so instead of the three choices decided then); the files not read and why, the hidden files skipped, the
   columns that name people dropped as the files were read; the Excel file and Compare again. Every sentence comes from datamart.powerbi_words; no value from the files is shown here.
 {% endcomment %}
 
@@ -92,8 +93,9 @@
     </div>
   {% endcomponent %}
 
-  {% if reached or choices %}
+  {% if reached or choices or decided %}
   {% component "unfold/components/card.html" with title=words.CHOICES_TITLE title_icon="rule" %}
+    {% if decided %}<p class="mb-3" data-pbi-decided>{{ decided }}</p>{% endif %}
     {% if reached %}<p class="mb-3" data-pbi-reached>{{ reached }}</p>{% endif %}
     {% if choices %}
       <p class="mb-3">{{ words.CHOICES_INTRO }}</p>

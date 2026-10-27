@@ -34,6 +34,12 @@ The points a quality rule takes off its category when it fires.
 A breakdown of a reported value, as PRP records it: by sex (female, male), nationality, age... Values add
 up only within one disaggregation, never across: each has its own subtotal next to the location total.
 
+## Emergency indicator
+The programme document is an SPD (a simplified programme document), as Power BI's Emergency indicator is
+(your decision of 26 Oct 2026): Partner monitoring, Progress reports, the programme documents' indicators
+and Ask NeuroDB filter and show it so. eTools' *high frequency* is another thing: an indicator reported
+monthly, in humanitarian reports.
+
 ## Entity
 What a monitoring visit looked at: a partner, a programme document (PD/SSFA) or a CP output. Each
 entity assessed is one **record** of the visit.
@@ -49,8 +55,8 @@ each programme document's programmatic visits against its plan (see
 [Field monitoring and the HACT visit plan](/help/field-monitoring/)).
 
 ## Indicator report
-One indicator in one progress report: the unit the Progress reports tiles count, as the eTools Power BI
-report does.
+One indicator in one progress report. The Progress reports tiles count progress reports, as Power BI's
+Reporting Progress does, and give the indicator reports in them under each figure.
 
 ## Master indicator (eTools)
 A section's indicator over the partners' own PD indicators, one figure a year: numbers added up (*up to*,

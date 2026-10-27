@@ -607,3 +607,28 @@ def test_the_guide_says_the_action_points_files_name_no_one_and_clean_their_text
         assert "*assigned_to_count*" in text and "never to whom" in text, key
         assert "the description and the action taken" in text, key
         assert "names, e-mail addresses, links and phone numbers" in text, key
+
+
+def test_the_guide_and_operations_say_what_progress_reports_count_and_what_emergency_means():
+    """The user's three decisions of 26 Oct 2026: the glossary said the Progress reports tiles count indicator
+    reports, and OPERATIONS that Progress reports counts indicator reports by status. Both say progress reports
+    now, with the indicator reports in them, and the glossary says what the Emergency indicator is (the PD is
+    an SPD, never eTools' high frequency). Ask NeuroDB's filter on it is said where its tools are."""
+    glossary = " ".join(GUIDE_TEXT["glossary"].split())
+    assert "the unit the Progress reports tiles count" not in glossary
+    assert (
+        "One indicator in one progress report. The Progress reports tiles count progress reports, as Power BI's "
+        "Reporting Progress does, and give the indicator reports in them under each figure."
+    ) in glossary
+    assert (
+        "## Emergency indicator The programme document is an SPD (a simplified programme document), as Power "
+        "BI's Emergency indicator is"
+    ) in glossary
+    assert "*Progress reports* counts indicator reports by the six statuses" not in OPERATIONS_WORDS
+    assert (
+        "*Progress reports* counts progress reports by the six statuses, as Power BI's Reporting Progress does "
+        "(the user's decision of 26 Oct 2026), with the indicator reports in them under each"
+    ) in OPERATIONS_WORDS
+    assert "`pd_indicator_progress` and `partner_reporting` take `emergency` (yes or no)" in OPERATIONS_WORDS
+    # Home's "Nothing to follow up": every report is Accepted, as a report not yet due is one to follow up
+    assert "for reports that are all Accepted or not yet due" not in OPERATIONS_WORDS

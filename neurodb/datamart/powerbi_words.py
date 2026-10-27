@@ -439,6 +439,11 @@ NOT_IN_READ_PD = "Check in eTools that this PD exists."
 # a different rule no choice is offered for (Choices for you would show nothing about it)
 RULE_NO_CHOICE = "NeuroDB counts it another way."
 COUNTED_NO_CHOICE = "Nothing to fix: NeuroDB counts these another way."
+# a rule the user decided on 26 Oct 2026, named by a comparison made before: NeuroDB counts Power BI's way now
+RULE_DECIDED = "NeuroDB counts Power BI's way since your decision of 26 Oct 2026: compare again to see."
+COUNTED_DECIDED = (
+    "Nothing to fix. NeuroDB counts Power BI's way since your decision of 26 Oct 2026: compare again."
+)
 # the reasons whose own step replaces their group's (nothing to send to the NeuroDB team: export again)
 OWN_ACTION = frozenset({"cut", "list_cut"})
 # the details a reason gives
@@ -593,6 +598,15 @@ RULE_WORDS = {
     "shared_output": "Power BI lists one indicator of a title two PD outputs of the PD share",
     "accepted_only": (
         "Reached: Power BI adds Accepted reports only; NeuroDB adds Accepted and Submitted reports"
+    ),
+    # the rules the user decided on 26 Oct 2026, which the lines of a comparison made before still name
+    "progress_reports": (
+        "Power BI counts progress reports; NeuroDB counted indicator reports until your decision of 26 Oct "
+        "2026"
+    ),
+    "emergency": (
+        "Power BI's Emergency indicator is Yes for an SPD; NeuroDB's was the indicator's high frequency "
+        "until your decision of 26 Oct 2026"
     ),
 }
 # Power BI's possible rules NeuroDB counts from its records, where Power BI's own rule is not known
@@ -882,6 +896,13 @@ CHOICE_EVIDENCE = {
 CHOICE_DEFAULTS = {
     "reached": "Until then NeuroDB adds Accepted and Submitted reports.",
 }
+# an upload compared before that decision kept those choices: its page and its Excel file say this instead
+CHOICES_DECIDED = (
+    "This comparison was made before your decision of 26 Oct 2026. Since then NeuroDB counts progress "
+    "reports on Reporting Progress, lists reports not yet due among the Due ones to follow up, and its "
+    "Emergency indicator means the programme document is an SPD, as Power BI does. Compare again to see the "
+    "differences as they are now."
+)
 
 # ----------------------------------------------------------------------------------------------- the pages
 EXPORT_COUNTS = (

@@ -325,7 +325,9 @@ on 18 of 20 rows NeuroDB can check"), each with one question; a rule that fits o
 no choice is offered. NeuroDB's pages keep their own rules until you decide: nothing on them changes.
 NeuroDB follows Power BI in three rules you decided on 26 Oct 2026, so the comparison no longer asks them:
 Reporting Progress counts progress reports, the reports to follow up count a report not yet due as Due, and the
-Emergency indicator means the programme document is an SPD.
+Emergency indicator means the programme document is an SPD. A comparison made before that day no longer asks
+them either: its page and its Excel file say NeuroDB counts Power BI's way since; press *Compare again* to see
+the differences as they are now.
 
 **Download every difference (Excel)** gives a *Summary* sheet (what to do now as the page says it, the files
 not read and why, one line per Power BI page and export, the visuals not uploaded, the filters, the notes and
