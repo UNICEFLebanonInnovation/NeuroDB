@@ -38,7 +38,7 @@ from neurodb.indicators.services.tracking import NO_TARGET
 from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA
 
-from . import identity, keys, monitoring, reporting, runfacts, trail
+from . import identity, keys, monitoring, owed, reporting, runfacts, trail
 from . import models as dm
 from . import reached as rc
 from .trail import (
@@ -217,6 +217,9 @@ class Chain:
     overdue: dict[int, int]  # partner report row pk -> the Overdue reports step that left it out (3: kept)
     overdue_reports: int  # the progress reports of the rows kept, counted from their keys
     broken: tuple[str, ...] = ()  # the steps that kept records a step before them had left out (never)
+    # the Overdue reports still owed in PRP's own list that the rows do not have (owed.overdue_count; 0 while
+    # the gate is closed), which the page's Overdue reports adds
+    owed_overdue: int = 0
 
     def stage_of(self, kind: str) -> list[tuple[int, str]]:
         return [(i, name) for i, (k, name) in enumerate(self.stages) if k == kind]
@@ -436,6 +439,7 @@ def chain(
             title_rows_left_out=shared[(ident[0], rc.norm(entry.title))],
         )
     overdue, overdue_reports = _overdue(kept, filters, day)
+    owed_pds = {monitoring.FIGURE_KEYS["pds"](e) for e in kept}
     return Chain(
         stages=tuple(stages),
         pds={pk: tuple(v) for pk, v in pds.items()},
@@ -449,6 +453,7 @@ def chain(
         overdue=overdue,
         overdue_reports=overdue_reports,
         broken=tuple(broken),
+        owed_overdue=owed.overdue_count(owed_pds, filters.report_type, day),
     )
 
 
@@ -1167,7 +1172,30 @@ def overdue_steps(rows: Chain, filters: monitoring.Filters, day: datetime.date) 
             what=what,
         )
     )
-    return adds_up(out)
+    return adds_up(out) + [_owed_stage(rows)]
+
+
+def _owed_stage(rows: Chain) -> Stage:
+    """O5: the Overdue reports still owed in PRP's own list of progress reports that the partner reports do
+    not have, which the page adds to O4 once the link to their programme documents is proven, or why it does
+    not (``owed.link_state``)."""
+    link = owed.link_state()
+    if link.shown:
+        said = (
+            f"Shown since {trail._day(link.since)}: {words(rows.owed_overdue, PR)} of these programme "
+            "documents and report type that the partner reports do not have (counted once). Overdue reports: "
+            f"{rows.overdue_reports + rows.owed_overdue:,}."
+        )
+    else:
+        why = link.line or "NeuroDB has none of PRP's own progress reports."
+        said = f"Not shown. {why} The figure counts the partner reports only."
+    return Stage(
+        "O5",
+        "Overdue reports still owed in PRP's own list of progress reports",
+        PR,
+        kept=rows.owed_overdue,
+        lines=(Line(said),),
+    )
 
 
 # ------------------------------------------------------------------------------------------------ the figures
@@ -1259,7 +1287,7 @@ def tile_figures(summary: dict[str, Any], rows: Chain, *, home: bool = False) ->
                 "Overdue reports",
                 PR,
                 summary["overdue_reports"],
-                rows.overdue_reports,
+                rows.overdue_reports + rows.owed_overdue,
                 how="Progress reports of these programme documents and report type with a row not submitted "
                 "after its due date (see Overdue reports, step by step)",
                 select=(("set", "overdue"),),

@@ -1297,13 +1297,16 @@ def overdue_rows(
 
 
 def summary(rows: list[Indicator], filters: Filters, today: datetime.date | None = None) -> dict[str, Any]:
+    from . import owed
     from .reporting import report_count
 
     today = today or datetime.date.today()
     counts = Counter(r.tracking for r in rows)
     pd_ids = {FIGURE_KEYS["pds"](r) for r in rows}
-    # progress reports, each its PD, type, number and period (reached.report_key)
+    # progress reports, each its PD, type, number and period (reached.report_key); with the Overdue reports
+    # still owed in PRP's own list that the partner reports do not have, once their link is proven (owed)
     overdue = report_count(overdue_rows(pd_ids, filters.report_type, today))
+    overdue += owed.overdue_count(pd_ids, filters.report_type, today)
     with_reached = counted(rows, "with_reached", filters)
     return {
         "indicators": len(rows),

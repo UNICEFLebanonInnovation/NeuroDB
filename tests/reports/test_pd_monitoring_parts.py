@@ -74,16 +74,17 @@ LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # the indicator flags); cold it also computes the filter options (13 queries) and the navigation: 23. The results
 # shell of a filter change is 5 (no page around it). Drawn inline (the indicators stored), the grid's frame adds the
 # summary's overdue reports: 10. Each part with nothing stored computes the indicators of its filter (the PDs, the
-# indicator rows, their identities, the report rows, PRP's totals, the first period held): 11, the summary 12 with
-# its overdue reports, the section tiles 12 (the filter without its sections); a part of the group reading what the
-# first one stored: 5, the summary 6.
+# indicator rows, their identities, the report rows, PRP's totals, the first period held): 11, the summary 13 with
+# its overdue reports and whether PRP's own reports still owed are shown (owed.link_state: one query while NeuroDB
+# holds none of them), the section tiles 12 (the filter without its sections); a part of the group reading what the
+# first one stored: 5, the summary 7.
 # Cold the menu also reads the ActivityInfo state and its sources, kept per worker (SPEC_HOME §4): 29.
 FRAME_QUERIES_COLD = 31
 FRAME_QUERIES_WARM = 11
 FRAME_QUERIES_INLINE = 12
 RESULTS_QUERIES = 7
 PART_QUERIES = {
-    "summary": 14,
+    "summary": 15,
     "grid": 13,
     "sections": 14,
     "table": 13,

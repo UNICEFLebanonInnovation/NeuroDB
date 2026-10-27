@@ -3212,7 +3212,8 @@ Quality's cards are explained from them), then Power BI's order.
   under a row guard (the report list's, the follow-up list's and the location table's rows only in Power BI,
   the Data Quality list, By location's rows only in NeuroDB, PD/SPD Indicator's rows only in NeuroDB, Funded
   Programs' rows only in Power BI) read every value with `.get` and compare only values that are there: an error
-  there fails the whole export. `owed_shown` is False until NeuroDB shows PRP's own progress reports (stage 3).
+  there fails the whole export. `owed_shown` is the gate (`owed.link_state().shown`): with it, the reports
+  still owed from PRP's own list are held reports (`HeldReport.source` "prp", their moment `prp_synced_at`).
 - **The cards** (`powerbi_names.POWERBI_CARDS`, one export kind each, its one column the card's name):
   Partner Performance's against Progress reports → Partners (`powerbi_page.partner_performance`: partners,
   with at least one report, not reported; a difference not explained yet), Reporting Progress's against the
@@ -4510,11 +4511,47 @@ that the partner reports also have…* to *PRP's progress reports can be shown o
 by reason) and Raw eTools data → PRP progress reports (one line under the counts, a note on the first page)
 read it. The catalogue counts the fields the proof reads on every record read (`reads`: `status`,
 `due_date`, `start_date`, `submission_date`, `programme_document_id`, `programme_document`, in
-`details.keys_seen`), so a field the Datamart does not send shows at once. No page shows these reports yet:
-no figure changes. Check 11 also counts the partner report rows whose eTools id linked them to a PD whose
+`details.keys_seen`), so a field the Datamart does not send shows at once. Check 11 also counts the partner report rows whose eTools id linked them to a PD whose
 number is not the one they carry (bases compared: the link problem the funds reservation lines had; their
 link is unchanged), and, among the progress reports due or overdue in the partner reports, those kept from
 earlier syncs (eTools no longer sends them).
+
+**PRP's reports still owed on the pages** (`neurodb/datamart/owed.py`, the user's decision of 26 Oct 2026).
+`owed.link_state()` is the gate, read once per request: NeuroDB holds PRP's progress reports at all, and
+`recorded_pd_link()` shows them (the key pair proven, the agreement on two days in a row, the latest read of
+the progress reports received records at most `OWED_STALE_DAYS` days ago). The pages never gate on
+`intervention_id`: with no proven pair the link step still links "by today's lookup". `owed.owed_reports(
+filters, today, steps=None)` (and `every_owed(today)`, no filter, read once per request) return `[]` while
+it is closed; else the linked latest versions a read returned within `OWED_STALE_DAYS` (`fresh_since`), one
+per PD, type and number (`counted_once`), Due or Overdue (`reached.prp_document_status`) with a period end on
+or before the day, that the partner report rows do not hold (`reporting.held_report_numbers` over every row
+of those PDs, never the filtered rows: the rows then decide, whatever their period, status or mark), each in
+the shape of `reporting.progress_reports`' rows (`report_number` the number key, `indicators` 0, `sections`
+{} and `section` the PD's sections joined, `source` "prp_progress_reports", `record` its pk). Every filter of
+`ReportFilters.queryset` applies, in its order and under its step names (type, year, search on the PD number
+and the partner's names and vendor number, the PD's sections any case, report # by its number key, PD,
+partner, partner type, draft or cancelled PDs never, the Emergency indicator: the PD is an SPD, dates, overdue,
+PD status). They join at the hub, `services.partner_reporting`, before the status filter (`reporting.in_order`
+keeps the page's order), so the tiles (progress reports), the table by section, the chart by month, the
+Partners tab, the follow-up list and its export, Home's block (`reporting_figures`, `pd_follow_up`: the PD's
+sections for a report with no indicator report) count them, and never in an indicator report count; the hub's
+`owed` says shown, `n`, `why` and the `line` (`owed.HIDDEN` by why while closed, `owed.SHOWN` with at least one
+in the filter), drawn by `reports/partials/_owed_line.html` under the tiles, on the Partners tab and in Home's
+block (the check 11 link for Administrators and validators only). Also: the PD and partner pages
+(`programme_datamart`, `partner_datamart`), Partner monitoring's Overdue reports (`monitoring.summary` adds
+`owed.overdue_count`: Overdue ones of those PDs and type), the daily review's overdue reports (QPRs of active
+PDs, said "from PRP's progress reports"), Ask (`partner_reporting`: `owed_shown`, `owed_note`, each report's
+`source`; the PD's reports), the exports' `source` column, `raw.PAGE_SOURCES` (Home, Progress reports and
+Partner monitoring read `prp_progress_reports` and `prp_programme_documents`), the figure trail (step P, the
+second source, its CSV `what=owed`, and `TrailRows.documents`, which `_Index` counts beside the rows: the
+figures stay the page's; each filter step says how many it leaves out; Partner monitoring's O5) and Compare
+with Power BI (`Context.owed_shown` and `prp_synced_at`; `Reports` adds `every_owed` as held reports,
+`source` "prp", so a report owed in both compares as held and one neither has is not in the read; a draft
+value stays group 5; `report_list` notes how many come from PRP's list). Not on them: Watch (its alerts are
+keyed by PRP's report ids, which these records lack) and the brief. PRP's word is never put on a partner
+report row's report: a report every row of which eTools no longer sends keeps its rows' word on every page
+(`monitoring.pending_q` is the one rule), and check 11 and Raw eTools data list those whose PRP status
+differs. Check 11's figure reads *PRP's progress reports shown on the pages*.
 
 **A record identity for records without an id.** A dataset kept whole whose records carry no `id` was held
 under a hash of each record, so a record that changed became a new row. Each read now looks for an id-like

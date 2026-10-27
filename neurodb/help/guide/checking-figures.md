@@ -42,6 +42,12 @@ is written as the page writes it (a Reached of 33.33% reads 33); point at it to 
    country, records that could not be saved): counts only, NeuroDB never keeps these records;
 2. what is in NeuroDB (updated by the last sync, updated since, kept from an earlier sync), and from which
    date NeuroDB holds partner reports;
+   then **PRP's own reports still owed (a second source)**: whether the page shows them (since when, or the
+   line the page says while it does not), how many are still owed for a period that has ended and are not in
+   the partner reports (counted once), how many the filter keeps, and how many the last sync left out (no
+   longer returned for 7 days, or two versions of one report). *Download these rows (CSV)* lists each of
+   them, whether the filter keeps it and why not, its status as the page reads it, then its record (people as
+   counts). Each filter step also says how many of them it leaves out;
 3. what the page leaves out, filter by filter, in the order the page applies them: the rows, and the indicator
    reports and progress reports left out entirely or partly (some of their rows kept). The PD status filter
    gives the three lines of the page's note (another status, not in NeuroDB, names no programme document);
@@ -163,6 +169,11 @@ the row: `report_status_neurodb` (the report's status), `report_status_chosen`, 
    `indicator_report_unit` or `partner_unit` gives the same. The reports to follow up are those Overdue, Sent
    back, Due, Not yet due (listed as Due there, as Power BI does) and Submitted.
 
+While the page shows PRP's own reports still owed, the tiles, the section table, the month chart and the
+Partners tab also count them: add the rows of their CSV (step *PRP's own reports still owed*) whose
+`kept_by_the_filter` and `report_status_chosen` are *yes*, by `report_status_neurodb`, `section_counted` or
+`period_end_month`, and the sum of their `counts_once`. They have no indicator report.
+
 Each figure's own *Rows (CSV)* holds only the rows it counts, with `unit_key` (its unit) and `counts_once`:
 their sum is the figure. In a step's CSV, `counts_once` is 1 only on a unit the step leaves out entirely
 (`unit_partly_kept` marks the others), so its sum is what the step leaves out entirely.
@@ -245,7 +256,10 @@ order: needs a look, check the PD in eTools, wait for the next sync, NeuroDB can
   partner reports feed never sends it, and NeuroDB does not show PRP's own progress reports until their link
   to the programme documents is proven (eTools reporting checks, check 11). A value Power BI shows in a report
   not submitted yet (the partner's draft) is in this group too: the eTools Datamart never sends it. Nothing to
-  fix in NeuroDB now; these are never counted as expected. A report Power BI lists as Due whose period has not
+  fix in NeuroDB now; these are never counted as expected. Once the pages show PRP's own reports still owed,
+  a report found there compares as NeuroDB's (the export's notes say how many come from PRP's own list), and
+  one neither feed has was not in the Datamart read; a draft value stays in this group (PRP's own list
+  carries no value). A report Power BI lists as Due whose period has not
   ended yet, and that NeuroDB lacks, was not in the Datamart read: the feed carries those. Uploads compared
   before this group existed keep their reports still owed under *Expected*.
 - **Wait for the next sync.** NeuroDB's last sync ran before Power BI's refresh (or NeuroDB cannot tell which
@@ -453,13 +467,15 @@ programme documents, trips, engagements, action points and their details).
   the data proves it", or why not); of the reports the partner reports also have, how many end on the same day,
   and how many of those submitted on both sides were submitted on the same day; how many reports are still
   owed for a period that has ended (and how many more no read of PRP's list returned for a week: not counted);
-  and whether the pages can show them: "yes, since 16 Oct 2026", or why not ("their link to the programme
+  and whether the pages show them: "yes, since 16 Oct 2026", or why not ("their link to the programme
   documents is not proven", "too few of the reports also in the partner reports end on the same day", "the link
   passed every test on 16 Oct 2026 only, and must pass on the next day too", "the last sync of PRP's progress
   reports or of their programme documents failed or received nothing", "the check failed on the last sync:
   tell the NeuroDB team"...). The link must pass on two days in a row before they can be shown (a day with no
   sync, or with a sync that failed or received nothing, starts the count again), and closes at once when a
-  read fails it. Check 11 gives the figures. No page shows these reports yet. The first page says the same
+  read fails it. Check 11 gives the figures. Once shown, Home, Progress reports, its Partners tab, Partner
+  monitoring's Overdue reports, the PD and partner pages, the daily review and Ask NeuroDB count them. The
+  first page says the same
   beside the dataset, and the list gives each report's programme document and partner in NeuroDB ("not
   linked" when none), its period end, due date and submission date, never its narrative or the people who
   wrote it.
@@ -584,7 +600,8 @@ The comparison sheet's last sheet lists these too, each with where to see it.
 - NeuroDB holds partner reports from the date the partner reports' page says; Power BI may show older
   ones.
 - PRP's other feeds list reports still owed that the partner reports feed does not carry (check 11 of
-  the eTools reporting checks).
+  the eTools reporting checks). NeuroDB counts those of PRP's own list of progress reports once their link
+  to the programme documents is proven, as Power BI does; until then a line on the pages says so.
 - Draft and cancelled programme documents are never read by NeuroDB.
 - A report's status is the newest word across all its rows.
 - Reached: Power BI's Program Performance counts Accepted reports only (its filter says so); NeuroDB adds

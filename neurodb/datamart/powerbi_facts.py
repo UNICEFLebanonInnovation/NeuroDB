@@ -86,7 +86,11 @@ class Context:
     location_titles: dict[tuple[str, str], set[tuple[str, str, str]]] | None = None
     location_status: dict[tuple[str, str, str], str] | None = None
     held_locations: set[tuple] | None = None
-    owed_shown: bool = False  # NeuroDB shows PRP's reports still owed (stage 3: never yet)
+    # NeuroDB shows PRP's own reports still owed (datamart.owed: the gate open), and when the last read of
+    # PRP's progress reports finished (a report found only there is as recent as that read, not as the partner
+    # reports' sync)
+    owed_shown: bool = False
+    prp_synced_at: datetime.datetime | None = None
     cache: dict[Any, Any] = field(default_factory=dict)
     _memo: dict[str, str] = field(default_factory=dict)
 
@@ -105,6 +109,19 @@ class Context:
     def sync_before_refresh(self) -> bool:
         """The sync finished before Power BI's refresh. False when either moment is not known."""
         return bool(self.synced_at and self.refreshed_at and self.synced_at < self.refreshed_at)
+
+    def before_refresh(self, report: Any) -> bool:
+        """The read a held report comes from finished before Power BI's refresh: the partner reports' sync, or
+        the last read of PRP's progress reports for a report found only there (``source == "prp"``)."""
+        if getattr(report, "source", "") != "prp":
+            return self.sync_before_refresh
+        return bool(self.prp_synced_at and self.refreshed_at and self.prp_synced_at < self.refreshed_at)
+
+    def after_refresh(self, report: Any) -> bool:
+        """The read a held report comes from finished after Power BI's refresh (:meth:`before_refresh`)."""
+        if getattr(report, "source", "") != "prp":
+            return self.sync_after_refresh
+        return bool(self.prp_synced_at and self.refreshed_at and self.prp_synced_at > self.refreshed_at)
 
     def group(self, reason: str) -> int:
         if reason == "not_in_read":
@@ -294,6 +311,7 @@ class HeldReport:
     records: int = 0
     stamps: dict[str, rc.Stamp] = field(default_factory=dict)
     submission_date: datetime.date | None = None
+    source: str = ""  # "prp": a report still owed found only in PRP's own list (records 0, no value)
 
 
 class Reports:
@@ -344,7 +362,7 @@ class Reports:
                 if number:
                     numbers[key].add(pm.pd_number(number))
                     numbers[key].add(pm.pd_base(number))
-        for key, report in found.items():
+        for report in found.values():
             report.status = rc.status_of(
                 rc.newest_status(report.stamps),
                 period_end=report.period_end,
@@ -352,6 +370,27 @@ class Reports:
                 submission_date=report.submission_date,
                 today=context.day,
             )
+        if context.owed_shown:  # PRP's own reports still owed the pages show (none the rows hold)
+            from . import owed
+
+            for r in owed.every_owed(context.day):
+                key = f"prp:{r['record']}"
+                found[key] = HeldReport(
+                    pd_id=r["intervention_id"],
+                    report_type=r["report_type"],
+                    number=pm.report_number(r["report_number"], r["report_type"]),
+                    period_start=r["period_start"],
+                    period_end=r["period_end"],
+                    due_date=r["due_date"],
+                    status=r["status"],
+                    words={r["report_status"]},
+                    submission_date=r["submission_date"],
+                    source="prp",
+                )
+                if r["pd_reference_number"]:  # its PD's number, as NeuroDB holds it
+                    numbers[key].add(pm.pd_number(r["pd_reference_number"]))
+                    numbers[key].add(pm.pd_base(r["pd_reference_number"]))
+        for key, report in found.items():
             end = report.period_end.isoformat() if report.period_end else ""
             due = report.due_date.isoformat() if report.due_date else ""
             for number in numbers[key]:

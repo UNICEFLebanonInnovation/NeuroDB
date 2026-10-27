@@ -310,6 +310,10 @@ def check_rows(request: HttpRequest, page: str) -> HttpResponse:
         pks = trail_rows.row_pks(found, what)
         if len(pks) > raw.csv_limit(trail.SOURCE):
             return _plain(raw.too_many(trail.SOURCE, len(pks)), 400)
+    elif kind == "documents":  # PRP's own reports still owed (a few thousand at most)
+        pks = trail_rows.document_pks(found)
+        if not pks:
+            raise Http404
     slot = raw.take_slot()
     if slot is None:
         return _plain(raw.BUSY, 503)
@@ -321,6 +325,9 @@ def check_rows(request: HttpRequest, page: str) -> HttpResponse:
         elif kind == "reports":
             columns = list(trail_rows.REPORT_COLUMNS)
             rows = trail_rows.report_rows(found, what, params, names)
+        elif kind == "documents":
+            columns, keys = trail_rows.document_columns(names, pks)
+            rows = trail_rows.document_rows(found, pks, keys, names)
         else:
             tab = "locations" if what == "lines" else "disaggregations"
             columns = trail_rows.line_columns(tab)

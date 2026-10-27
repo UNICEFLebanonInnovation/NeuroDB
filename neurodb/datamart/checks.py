@@ -2420,7 +2420,7 @@ def _proof_figures(verdict: dict[str, Any]) -> list[tuple[str, Any]]:
             "Reports eTools no longer sends whose status differs in PRP's progress reports",
             got(verdict.get("unsent_other_word")) if verdict.get("proven") is True else "—",
         ),
-        ("PRP's progress reports can be shown on the pages", shown_words(verdict)),
+        ("PRP's progress reports shown on the pages", shown_words(verdict)),
     ]
 
 
@@ -2548,10 +2548,10 @@ def _shown_sentence(verdict: dict[str, Any]) -> str:
         f"{compared:,} reports the partner reports also have, {same:,} end on the same day."
     )
     if verdict.get("shown"):
-        return f"{tied} NeuroDB can show the {_count(verdict.get('owed')):,} reports still owed."
+        return f"{tied} NeuroDB shows the {_count(verdict.get('owed')):,} reports still owed."
     if why == "one_day":
         day = day_words(verdict.get("checked_on"))
-        return f"{tied} The link passed every test on {day}: NeuroDB can show them once the next read agrees."
+        return f"{tied} The link passed every test on {day}: NeuroDB shows them once the next read agrees."
     failed = {
         "few": f"only {compared:,} of them are also in the partner reports, too few to check it "
         f"({LINK_AGREE_MIN} are needed)",
@@ -2576,10 +2576,10 @@ def _shown_sentence(verdict: dict[str, Any]) -> str:
             "show reports still owed until a newer read."
         )
     if why == "not_checked":
-        return "Whether NeuroDB can show PRP's reports still owed is checked from the next sync of them."
+        return "Whether NeuroDB shows PRP's reports still owed is checked from the next sync of them."
     if why == "check_failed":
         return (
-            "Whether NeuroDB can show PRP's reports still owed could not be checked on the last sync: tell "
+            "Whether NeuroDB shows PRP's reports still owed could not be checked on the last sync: tell "
             "the NeuroDB team."
         )
     return ""

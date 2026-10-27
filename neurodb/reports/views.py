@@ -36,7 +36,7 @@ from neurodb.assistant import llm
 from neurodb.core import years
 from neurodb.core.models import PopulationFigure, SavedView, SyncRun
 from neurodb.core.services import population as population_service
-from neurodb.datamart import hact_plan, headline, masters_tab
+from neurodb.datamart import hact_plan, headline, masters_tab, owed
 from neurodb.datamart import keys as etools_keys
 from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import reporting as reporting_service
@@ -1732,6 +1732,8 @@ REPORT_COLUMNS = (
     "submission_date",
     "indicator_reports",
     "unicef_focal_points_count",  # a count: a person is never written in an export (the page shows them)
+    # the partner reports, or PRP's own list of progress reports (a report still owed: datamart.owed)
+    "source",
 )
 FOLLOW_UP_COLUMNS = (
     "programme_document",
@@ -1742,6 +1744,7 @@ FOLLOW_UP_COLUMNS = (
     "report",
     "report_type",
     "indicator_reports",
+    "source",
 )
 LOCATION_COLUMNS = (
     "programme_document",
@@ -1780,6 +1783,7 @@ def _report_row(r: dict[str, Any]) -> dict[str, Any]:
         "submission_date": r["submission_date"],
         "indicator_reports": r["indicators"],
         "unicef_focal_points_count": len(r.get("focal_points", [])),
+        "source": owed.source_words(r),
     }
 
 

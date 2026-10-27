@@ -365,11 +365,14 @@ def status_reason(job: Job, held: list[pf.HeldReport], powerbi: str) -> Reason:
     context = job.context
     label = pm.text(powerbi)
     same_label = label == "due" and report.status == rc.NOT_YET_DUE
-    if earlier_step(report.status, powerbi) and context.sync_before_refresh:
+    # the read the report comes from: the partner reports' sync, or PRP's own list for a report still owed
+    # found only there (Context.before_refresh)
+    before, after = context.before_refresh(report), context.after_refresh(report)
+    if earlier_step(report.status, powerbi) and before:
         detail = words.DETAIL_EARLIER_STEP.format(status=rc.STATUS_LABELS[report.status], powerbi=powerbi)
         return ("older_version", "", detail)
-    if later_step(report.status, powerbi) and not context.sync_before_refresh:
-        detail = words.DETAIL_MOVED_ON if context.sync_after_refresh else words.DETAIL_MAY_HAVE_MOVED_ON
+    if later_step(report.status, powerbi) and not before:
+        detail = words.DETAIL_MOVED_ON if after else words.DETAIL_MAY_HAVE_MOVED_ON
         return ("moved_on", "", detail)
     if label in OWED_LABELS and report.status in (rc.DUE, rc.OVERDUE, rc.NOT_YET_DUE) and not same_label:
         return ("status", "", owed_detail(context, powerbi, report.status, report.due_date))
@@ -577,6 +580,11 @@ def report_list(job: Job) -> None:
     reasons: dict[tuple[str, str, str], str] = {}
     neurodb = job.after_history(page.reports(parsed, context))
     job.note_neurodb_set_aside()
+    from_prp = sum(1 for n in neurodb if n.get("source"))
+    if from_prp:  # PRP's own reports still owed, which the pages show once their link is proven
+        job.result.note(
+            words.either(from_prp, words.NOTE_FROM_PRP_ONE, words.NOTE_FROM_PRP).format(n=from_prp)
+        )
 
     def key_pb(row: dict[str, Any], base: bool = False) -> tuple:
         number = pm.pd_base(row["pd"]) if base else pm.pd_number(row["pd"])

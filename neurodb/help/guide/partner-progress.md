@@ -54,6 +54,39 @@ A report eTools stops sending stays, with the status it last had: one still to s
 Overdue, by its dates, until eTools sends it again. So reports still owed can appear here although the
 partner reports feed no longer sends them.
 
+### Reports still owed, from PRP's own list
+
+The partner reports feed stops sending a report once its period ends unsent, so the reports partners still
+owe are missing from it. PRP's own list of progress reports has them, as Power BI counts them. Home, Progress
+reports, its Partners tab, the programme document and partner pages, Partner monitoring's *Overdue reports*,
+the daily review and Ask NeuroDB add them (your decision of 26 Oct 2026), but only while NeuroDB can prove
+that PRP's list is tied to the right programme documents:
+
+- the pair of keys that ties them is proven, and the reports both feeds have end on the same day (9 in 10, at
+  least 10 of them) and were submitted on the same day (9 in 10 of at least 10 submitted on both sides), on
+  two days in a row;
+- the last read of PRP's list received records, at most 7 days ago.
+
+A read that fails one of these hides them again at once. A report counts when PRP says Due or Overdue, its
+period has ended, a read returned it in the last 7 days (a report PRP deleted would read Overdue for ever),
+and the partner reports have no row of it: when they have one, whatever its period or status, the partner
+reports decide. They carry no indicator: the tiles' indicator report counts, Reached and the indicator pages
+leave them out. In the tables they read "from PRP's own list" and do not open (they have no indicator to
+show); the exports say their source.
+
+While they are shown and the filter keeps some, a line under the tiles says how many Overdue and Due
+include. While they are hidden, the line says why reports still owed may be missing:
+
+- NeuroDB cannot tie PRP's own list to its programme documents yet (the pair of keys is not proven, or the
+  reports both feeds have do not agree often enough);
+- the list was tied on one day only: NeuroDB shows it once the next read agrees;
+- the list was last read more than 7 days ago;
+- the last read of the list received nothing.
+
+Administrators and validators also get a link to check 11 of the eTools reporting checks, which says which
+test failed. Watch and the management brief still read the partner reports only: Watch keys its alerts by
+PRP's report ids, which PRP's own list does not carry.
+
 ## Partner monitoring
 
 [Partner monitoring](/partner-monitoring/) has five views on one filter:
@@ -276,7 +309,8 @@ only when the pair of keys is proven, the reports the partner reports also have 
 at least 10 of them) and were submitted on the same day (9 in 10 of at least 10 submitted on both sides), on
 two days in a row; a read that fails one of these closes it at once. They also count those reports still
 owed, the partner report rows whose eTools id and reference number name different programme documents, and
-the reports kept although eTools no longer sends them; no page shows PRP's reports yet. Check 12 counts, per section, the PD indicators with and
+the reports kept although eTools no longer sends them. *PRP's progress reports shown on the pages* says
+whether Home and Progress reports show them now (see Reports still owed, from PRP's own list). Check 12 counts, per section, the PD indicators with and
 without an eTools id and a CP output, the percentages reported with their numerator and denominator, and
 how many master indicators the next night would propose; it changes nothing. Checks 10 and 11 run first. The checks run every night as a job and the page shows their latest
 result at once, with when they were checked; **Run the checks now** runs them again in the background

@@ -774,11 +774,14 @@ def _context(upload: PowerBIUpload) -> powerbi_facts.Context:
     (their dates and their moments), the people cleaner's names and the section names NeuroDB knows."""
     from neurodb.watch import people
 
-    from . import reached
+    from . import owed, reached, runfacts
 
     refreshed = timezone.localtime(upload.powerbi_as_of).date() if upload.powerbi_as_of else None
     synced = timezone.localtime(upload.synced_at).date() if upload.synced_at else None
     day = upload.day or timezone.localdate()
+    # PRP's own reports still owed, compared as NeuroDB holds them once the pages show them (the gate), as
+    # recent as the last read of PRP's progress reports
+    shown = owed.link_state().shown
     return powerbi_facts.Context(
         day=day,
         history=reached.history_from(day).date,
@@ -788,6 +791,8 @@ def _context(upload: PowerBIUpload) -> powerbi_facts.Context:
         synced_at=upload.synced_at,
         names=people.known_names(),
         sections=tuple(known_sections()),
+        owed_shown=shown,
+        prp_synced_at=runfacts.moment(runfacts.runs([owed.SOURCE])[owed.SOURCE][0]) if shown else None,
     )
 
 

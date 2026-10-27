@@ -846,7 +846,7 @@ SHOWN = {**PROVEN, "agrees": {"compared": 12, "same": 12, "elsewhere": 0, "dated
          "owed": 3, "owed_before_history": 1, "stale": 1, "twins": 1, "ove_read_due": 1, "lacking": 2,
          "unsent_other_word": 1, "passes": True, "days": 2, "shown": True, "shown_since": "2026-10-14",
          "shown_why": ""}  # fmt: skip
-CAN_SHOW = "PRP's progress reports can be shown on the pages"
+CAN_SHOW = "PRP's progress reports shown on the pages"
 NOT_READ = (
     "no: the last sync of PRP's progress reports or of their programme documents failed or received nothing"
 )
@@ -855,7 +855,7 @@ NOT_READ = (
 def test_check_11_says_the_proof_that_prp_s_progress_reports_can_be_shown(pd):
     """The last sync recorded the proof: the twelve reports the partner reports also have end on the same day,
     eleven submitted on both sides on the same day, on two days in a row. Check 11 gives its figures, and says the
-    pages can show the three reports still owed. Counts only."""
+    pages show the three reports still owed. Counts only."""
     report_row(pd, "QPR1", end=D(2026, 3, 31))
     _progress_run(business_area="2490", business_area_from="admin", progress_reports_pd_link=SHOWN)
     found = one("11")
@@ -889,7 +889,7 @@ def test_check_11_says_the_proof_that_prp_s_progress_reports_can_be_shown(pd):
     assert numbers[CAN_SHOW] == "yes, since 14 Oct 2026"
     assert (
         "PRP's progress reports are tied to their programme documents: of the 12 reports the partner reports also "
-        "have, 12 end on the same day. NeuroDB can show the 3 reports still owed."
+        "have, 12 end on the same day. NeuroDB shows the 3 reports still owed."
     ) in found["verdict"]
     assert "Partner A" not in json.dumps(found) and "LEB/PD/CHK1" not in json.dumps(found)
 
@@ -900,7 +900,7 @@ def test_check_11_says_the_proof_that_prp_s_progress_reports_can_be_shown(pd):
         (
             {"passes": True, "days": 1, "shown": False, "shown_since": "", "shown_why": "one_day"},
             "PRP's progress reports are tied to their programme documents: of the 12 reports the partner reports "
-            "also have, 12 end on the same day. The link passed every test on 14 Oct 2026: NeuroDB can show them "
+            "also have, 12 end on the same day. The link passed every test on 14 Oct 2026: NeuroDB shows them "
             "once the next read agrees.",
             "no: the link passed every test on 14 Oct 2026 only, and must pass on the next day too",
         ),
@@ -1037,7 +1037,7 @@ def test_check_11_says_when_the_proof_failed(pd):
     found = one("11")
     assert figures(found)[CAN_SHOW] == "no: the check failed on the last sync: tell the NeuroDB team"
     assert (
-        "Whether NeuroDB can show PRP's reports still owed could not be checked on the last sync: tell the NeuroDB "
+        "Whether NeuroDB shows PRP's reports still owed could not be checked on the last sync: tell the NeuroDB "
         "team."
     ) in found["verdict"]
     assert "x" not in figures(found).values()

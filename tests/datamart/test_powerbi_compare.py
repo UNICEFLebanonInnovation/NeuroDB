@@ -2076,3 +2076,58 @@ def test_a_program_performance_link_fits_its_column_whatever_the_sections(db):
         link = powerbi_kinds.trail_link(job, {"pd_id": 123456, "key": "r1234567"})
         assert 0 < len(link) <= width and "figure=pp.reached.123456.r1234567" in link, link
         assert ("section=" in link) is kept
+
+
+# ------------------------------------------------- stage 3: PRP's own reports still owed, once the pages show them
+def _owed_shown(number: str, end: D, due: D, word: str = "Overdue") -> None:
+    """PRP's own list holds ``number`` of the world's PD (linked to it), and the sync's verdict shows PRP's
+    reports still owed on the pages (datamart.owed: the gate open)."""
+    from django.utils import timezone
+
+    from neurodb.core.models import SyncRun
+    from neurodb.datamart.models import DatamartDocument
+    from neurodb.partnerships.models import PCA
+
+    pd = PCA.objects.get(number=PD)
+    DatamartDocument.objects.create(
+        dataset="prp_progress_reports", record_key=f"h-{number}", intervention=pd, partner=pd.partner, date=end,
+        data={"report_type": number.rstrip("0123456789"), "report_number": number, "start_date":
+              end.replace(day=1).isoformat(), "end_date": end.isoformat(), "due_date": due.isoformat(),
+              "status": word},
+    )  # fmt: skip
+    started = timezone.make_aware(datetime.datetime(2026, 10, 14, 20, 30))
+    SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART, target="prp_progress_reports", status=SyncRun.Status.SUCCEEDED,
+        started_at=started, finished_at=started + datetime.timedelta(minutes=5),
+        details={"progress_reports_pd_link": {"passes": True, "shown": True, "shown_since": "2026-10-13",
+                                              "shown_why": "", "days": 3, "proven": True}},
+    )  # fmt: skip
+
+
+def test_gate_open_an_owed_report_neurodb_shows_compares_as_held(checker, world):
+    """HR1 (Overdue, ended 31 Aug) is in PRP's own list and the pages show it: Power BI's HR1 pairs with it, and
+    the export says how many of NeuroDB's reports come from PRP's own list."""
+    _owed_shown("HR1", D(2026, 8, 31), D(2026, 9, 15))
+    hr1 = _with(REPORTS[0], report="HR1", report_status="Overdue", period_start=D(2026, 8, 1),
+                period_end=D(2026, 8, 31), due_date=D(2026, 9, 15))  # fmt: skip
+    upload = pf.compared(checker, _one("report_list", [*REPORTS, hr1]))
+    export, lines = _lines(upload, "report_list")
+    assert not [line for line in lines if line.match[1] == "HR1"]
+    assert export.counts["same"] == 4
+    assert "1 of NeuroDB's reports comes from PRP's own list of progress reports" in " ".join(
+        export.counts["notes"]
+    )
+
+
+def test_gate_open_an_owed_report_prp_lacks_is_not_in_read(checker, world):
+    """HR2 is in neither feed: with the gate open, NeuroDB could show it, so it is not in the Datamart read."""
+    _owed_shown("HR1", D(2026, 8, 31), D(2026, 9, 15))
+    hr2 = _with(REPORTS[0], report="HR2", report_status="Overdue", period_start=D(2026, 9, 1),
+                period_end=D(2026, 9, 30), due_date=D(2026, 10, 10))  # fmt: skip
+    upload = pf.compared(checker, _one("report_list", [*REPORTS, hr2]))
+    _export, lines = _lines(upload, "report_list")
+    from neurodb.datamart import powerbi_words as words
+
+    (line,) = [line for line in lines if line.match[1] == "HR2"]
+    assert (line.kind, line.reason) == ("only_powerbi", "not_in_read")
+    assert line.detail.startswith(words.DETAIL_NOT_IN_PRP)

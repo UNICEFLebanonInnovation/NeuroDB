@@ -142,7 +142,7 @@ def _prp_notes(request, name: str, facts: runfacts.RunFacts) -> list[dict] | Non
         return None
     from neurodb.integrations.etools.datamart_sync import recorded_pd_link, shown_words
 
-    words = f"reports still owed can be shown on the pages: {shown_words(recorded_pd_link())}"
+    words = f"reports still owed shown on the pages: {shown_words(recorded_pd_link())}"
     return [*_datamart_notes(request, name, facts), _note(request, words, warn=False)]
 
 

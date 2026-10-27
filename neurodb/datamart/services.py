@@ -17,7 +17,7 @@ from neurodb.core import compute
 from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
-from . import fm, headline, identity, keys, reached, reporting
+from . import fm, headline, identity, keys, owed, reached, reporting
 from . import models as dm
 from . import monitoring as pd_monitoring
 
@@ -261,10 +261,24 @@ def programme_datamart(pd: PCA, today: datetime.date | None = None) -> dict[str,
         "engagements": _with_type_labels(list(pd.datamart_engagements.order_by("-start_date"))),
         "visits": visits_by_year(pd),
         "tpm_activities": list(pd.tpm_activities.order_by("-date")[:20]),
-        "reports": list(progress_reports(pd.reported_indicators.all())[:12]),
+        "reports": _with_owed(
+            progress_reports(pd.reported_indicators.all()),
+            reporting.ReportFilters(pds=[pd.number], pd_statuses=[]),
+            today,
+        )[:12],
         "latest_progress": latest_progress(pd, rows=monitoring["rows"]),
         "monitoring": monitoring,
     }
+
+
+def _with_owed(
+    reports: list[dict[str, Any]], filters: reporting.ReportFilters, today: datetime.date | None = None
+) -> list[dict[str, Any]]:
+    """``reports`` (``progress_reports`` of a PD's or a partner's rows) with PRP's reports still owed that
+    ``filters`` keeps (:func:`neurodb.datamart.owed.owed_reports`: none while the gate is closed), in the
+    order of the reports' lists, as the Progress reports page counts them for the same PD or partner."""
+    extra = owed.owed_reports(filters, today or datetime.date.today())
+    return reporting.in_order(reports + extra) if extra else reports
 
 
 def _monitoring_summary(filters: pd_monitoring.Filters) -> dict[str, Any]:
@@ -343,7 +357,10 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
     reported = partner.reported_indicators.exclude(
         intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP
     ).exclude(reporting.NO_PD)
-    reports = progress_reports(reported)
+    # with PRP's reports still owed of the partner's programme documents, once their link is proven
+    reports = _with_owed(
+        progress_reports(reported), reporting.ReportFilters(partners=[str(partner.pk)], pd_statuses=[])
+    )
     return {
         "assessments": list(
             dm.PartnerAssessment.objects.filter(partner=partner).order_by("-completed_date")[:20]
@@ -1300,6 +1317,7 @@ def reporting_figures(params, day: datetime.date | None = None) -> dict[str, Any
         "summary": data["summary"],
         "partners": {key: partners[key] for key in ("partners", "reported", "not_reported", "by_status")},
         "pds": reporting.pd_follow_up(data["reports"]),
+        "owed": data["owed"],  # PRP's reports still owed: shown or not, and the line Home's block says
         "today": data["today"],
     }
 
@@ -1317,11 +1335,21 @@ def partner_reporting(params, today: datetime.date | None = None, *, options: bo
     indicator reports the PD status filter leaves out, and those naming no PD (:func:`neurodb.datamart.
     reporting.left_out`; only with ``options``, as the page draws it). ``options``:
     the filter bar's choices (:func:`neurodb.datamart.reporting.stored_options`); ``options=False`` leaves
-    them out, for a caller that draws no filter bar (the stored tables of :func:`reporting_table`)."""
+    them out, for a caller that draws no filter bar (the stored tables of :func:`reporting_table`).
+
+    PRP's own reports still owed for a period that has ended join the reports here, once the link to their
+    programme documents is proven (:mod:`neurodb.datamart.owed`: the gate), before the status filter: every
+    figure above then counts them, and none of their indicator reports (they have none). ``owed``: what the
+    pages say of them (:func:`neurodb.datamart.owed.state`)."""
     today = today or datetime.date.today()
     filters = reporting.ReportFilters.from_params(params)
     rows = filters.queryset(today)
     reports = reporting.progress_reports(rows, today)
+    # the partner reports feed stops sending a report whose period ended unsent; PRP's own list holds it (none
+    # the rows hold: the rows decide)
+    extra = owed.owed_reports(filters, today)
+    if extra:
+        reports = reporting.in_order(reports + extra)
     statuses = {r["key"]: r["status"] for r in reports}
     if filters.statuses:
         reports = [r for r in reports if r["status"] in filters.statuses]
@@ -1340,6 +1368,7 @@ def partner_reporting(params, today: datetime.date | None = None, *, options: bo
         "by_month": reporting.by_month(reports),
         "partners": reporting.partner_performance(reports),
         "left_out": reporting.left_out(filters, today) if options else {},
+        "owed": owed.state(sum(1 for r in reports if r.get("source") == owed.SOURCE)),
         "today": today,
         **({"options": reporting.stored_options()} if options else {}),
     }

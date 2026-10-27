@@ -13,6 +13,7 @@ from neurodb.datamart import (
     checks,
     comparison,
     identity,
+    owed,
     powerbi_words,
     raw,
     runfacts,
@@ -28,6 +29,7 @@ TEMPLATES = [
     # Compare with Power BI (its sentences: datamart.powerbi_words, below)
     *sorted((ROOT / "datamart/templates/admin/datamart/powerbi").glob("*.html")),
     ROOT / "reports/templates/reports/partials/_check_link.html",
+    ROOT / "reports/templates/reports/partials/_owed_line.html",  # PRP's own reports still owed
     # the figure trail (its sentences are tested on a trail: tests/reports/test_figure_trail.py)
     ROOT / "reports/templates/reports/check_figures.html",
     ROOT / "reports/templates/reports/parts/check_figures.html",
@@ -138,11 +140,19 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         *(raw.prp_link_words(verdict) for verdict in PRP_VERDICTS),
         *(checks._shown_sentence(verdict) for verdict in PRP_VERDICTS),
         *(label for label, _ in checks._proof_figures(PRP_VERDICTS[0])),
-        *(
-            f"reports still owed can be shown on the pages: {datamart_sync.shown_words(v)}"
-            for v in PRP_VERDICTS
-        ),
+        *(f"reports still owed shown on the pages: {datamart_sync.shown_words(v)}" for v in PRP_VERDICTS),
         raw.Filters(updated="unsent_word").words(),
+        # PRP's own reports still owed on the pages: the line while hidden (by why) and while shown, the trail's
+        *owed.HIDDEN.values(),
+        owed.SHOWN,
+        owed.SHOWN_ONE,
+        owed.SOURCE_WORDS,
+        owed.ROWS_WORDS,
+        powerbi_words.NOTE_FROM_PRP,
+        # the line on the trail page while they are hidden, and the CSV's step
+        "Not counted: {line} See eTools reporting checks, check 11. The figures count the partner reports only.",
+        "PRP's own reports still owed (a second source)",
+        "Of PRP's own reports still owed: 2 progress reports left out.",
         # the PD indicators eTools marks inactive in every row, and the budget records of a sync
         raw.inactive_words({"indicators": 280, "without_rows": 182, "pds": 40}),
         raw.inactive_words({"indicators": 1, "without_rows": 1, "pds": 1}),

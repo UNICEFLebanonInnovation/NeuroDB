@@ -49,6 +49,7 @@ REPORT_FIELDS = (
     "document_type",
     "pd_status",
     "section_text",
+    "source",  # "prp_progress_reports": a report still owed from PRP's own list (datamart.owed); else ""
 )
 
 
@@ -128,6 +129,7 @@ def reports(parsed: Filter, context: pf.Context, *, sections: bool = True) -> li
                     "document_type": report["document_type"] or (pd.document_type if pd else ""),
                     "pd_status": pd.status if pd else "",
                     "section_text": ", ".join(pd.sections) if pd and pd.sections else ", ".join(own),
+                    "source": report.get("source") or "",
                 },
             )
         )

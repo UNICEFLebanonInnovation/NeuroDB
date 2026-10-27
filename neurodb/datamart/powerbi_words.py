@@ -658,6 +658,15 @@ NOTE_SET_ASIDE_NEURODB = (
 NOTE_SET_ASIDE_NEURODB_ONE = (
     "NeuroDB still holds 1 row of a period before {history} from an earlier sync: it was not compared either."
 )
+# PRP's own reports still owed, which the pages show once their link to the programme documents is proven
+NOTE_FROM_PRP = (
+    "{n:,} of NeuroDB's reports come from PRP's own list of progress reports: reports still owed for a "
+    "period that has ended, which the partner reports feed no longer sends."
+)
+NOTE_FROM_PRP_ONE = (
+    "1 of NeuroDB's reports comes from PRP's own list of progress reports: a report still owed for a period "
+    "that has ended, which the partner reports feed no longer sends."
+)
 NOTE_ZERO = "Power BI shows no value as 0: a 0 against no value in NeuroDB is the same."
 NOTE_RULE = "Stated once for every row: {words}."
 NOTE_JOINED_SECTIONS = "{n:,} Power BI rows join the same sections written differently."

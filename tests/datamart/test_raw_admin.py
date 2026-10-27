@@ -1255,7 +1255,7 @@ def test_the_prp_progress_reports_page_says_whether_they_are_tied_to_their_progr
     assert said == (
         "Tied to their programme document: yes, the data proves it. Of the 12 reports also in the partner "
         "reports, 11 end on the same day (10 of 11 on the same submission day). Still owed for a period that has "
-        "ended: 3 (2 more no longer returned by PRP's reads, not counted). Can be shown on the pages: yes, since "
+        "ended: 3 (2 more no longer returned by PRP's reads, not counted). Shown on the pages: yes, since "
         "14 Oct 2026."
     )
     response = client_validator.get(url)
@@ -1267,7 +1267,7 @@ def test_the_prp_progress_reports_page_says_whether_they_are_tied_to_their_progr
     assert "2026-04-15" in html  # the due day
     assert NAME not in html and EMAIL not in html and "Reached as planned" not in html
     index = client_validator.get(INDEX).content.decode()
-    assert "reports still owed can be shown on the pages: yes, since 14 Oct 2026" in index
+    assert "reports still owed shown on the pages: yes, since 14 Oct 2026" in index
 
     unproven = {**PROOF, "proven": False, "why": "not_clear", "passes": False, "days": 0, "shown": False,
                 "shown_since": "", "shown_why": "not_proven"}  # fmt: skip
@@ -1275,12 +1275,12 @@ def test_the_prp_progress_reports_page_says_whether_they_are_tied_to_their_progr
     assert raw.prp_link_words(sync.recorded_pd_link()) == (
         "Tied to their programme document: no, two ways of matching them disagree (see check 11). Of the 12 "
         "reports also in the partner reports, 11 end on the same day (10 of 11 on the same submission day). "
-        "Still owed for a period that has ended: 3 (2 more no longer returned by PRP's reads, not counted). Can "
-        "be shown on the pages: no: their link to the programme documents is not proven."
+        "Still owed for a period that has ended: 3 (2 more no longer returned by PRP's reads, not counted). "
+        "Shown on the pages: no: their link to the programme documents is not proven."
     )
     _run("prp_programme_documents", ago=0, status=SyncRun.Status.FAILED)
     assert raw.prp_link_words(sync.recorded_pd_link()) == (
-        "Can be shown on the pages: no: the last sync of PRP's progress reports or of their programme documents "
+        "Shown on the pages: no: the last sync of PRP's progress reports or of their programme documents "
         "failed or received nothing."
     )
 

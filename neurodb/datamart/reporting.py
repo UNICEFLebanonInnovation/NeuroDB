@@ -553,9 +553,7 @@ def progress_reports(
         if known is None or (not known and section):
             sections[key][row["_ir"]] = section
     words.update(_status_words(queryset, set(reports), record))
-    out = sorted(reports.values(), key=lambda r: (r["pd_reference_number"], r["report_number"]))
-    # latest period first, reports without a period end at the top (as the database sorts them)
-    out.sort(key=lambda r: r["period_end"] or datetime.date.max, reverse=True)
+    out = in_order(list(reports.values()))
     for report in out:  # one of the six statuses, the same on every page that lists the report
         key = report.pop("_group")
         report["report_status"] = rc.newest_status(words[key])
@@ -567,6 +565,15 @@ def progress_reports(
         report["status"] = report_status(report, today)
         report["status_label"] = rc.STATUS_LABELS[report["status"]]
         report["key"] = key
+    return out
+
+
+def in_order(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Progress reports in the order :func:`progress_reports` gives them: the latest period end first, those
+    without one at the top (as the database sorts them), then by programme document and report number. The
+    hub merges PRP's reports still owed (:mod:`neurodb.datamart.owed`) into the rows' by it."""
+    out = sorted(reports, key=lambda r: (r["pd_reference_number"] or "", r["report_number"] or ""))
+    out.sort(key=lambda r: r["period_end"] or datetime.date.max, reverse=True)
     return out
 
 
@@ -913,7 +920,9 @@ def pd_follow_up(reports: list[dict[str, Any]]) -> dict[str, Any]:
             row["partner_id"] = r["partner_id"]
         if not row["partner_name"] and r["partner_name"]:
             row["partner_name"] = r["partner_name"]
-        for name in r["sections"]:  # as the page's Section column names them
+        # as the page's Section column names them; a report still owed from PRP's own list has no indicator
+        # report, so its PD's sections (joined, one entry, as with_pd_details joins them)
+        for name in r["sections"] or ([r["section"]] if r["section"] else []):
             if name != NO_SECTION and name not in row["_sections"]:
                 row["_sections"].append(name)
         status = follow_up_status(r["status"])

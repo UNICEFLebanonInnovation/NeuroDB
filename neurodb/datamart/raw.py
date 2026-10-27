@@ -167,8 +167,18 @@ PAGE_SOURCES: dict[str, tuple[str, ...]] = {  # page (navigation key) -> the sou
         "tpm_activities",
         "action_points",
         "funds_reservation_headers",
+        # PRP's own reports still owed, once their link is proven (datamart.owed)
+        "prp_progress_reports",
+        "prp_programme_documents",
     ),
-    "reports:partner_reporting": ("partner_reports", "pd_indicators", "interventions", "partners"),
+    "reports:partner_reporting": (
+        "partner_reports",
+        "pd_indicators",
+        "interventions",
+        "partners",
+        "prp_progress_reports",
+        "prp_programme_documents",
+    ),
     # the grid, Program Performance, Data quality and the map (its places), Reached with PRP's report totals
     "reports:pd_monitoring": (
         "pd_indicators",
@@ -177,6 +187,9 @@ PAGE_SOURCES: dict[str, tuple[str, ...]] = {  # page (navigation key) -> the sou
         "interventions",
         "partners",
         "locations",
+        # its Overdue reports add PRP's own reports still owed, once their link is proven (datamart.owed)
+        "prp_progress_reports",
+        "prp_programme_documents",
     ),
     # every dataset the Field monitoring view reads (its two tabs: findings and visits, the HACT visit plan)
     "reports:monitoring": (
@@ -2072,7 +2085,7 @@ PRP_LINK_WHY = {
 def prp_link_words(verdict: dict[str, Any]) -> str:
     """The PRP progress reports page's sentence on their link to the programme documents, as the last sync
     recorded it (``datamart_sync.recorded_pd_link``): whether the data proves it, how the reports the partner
-    reports also have agree, the reports still owed, and whether the pages can show them. Counts only."""
+    reports also have agree, the reports still owed, and whether the pages show them. Counts only."""
     from neurodb.integrations.etools.datamart_sync import shown_words  # lazy: the Datamart sync
 
     said = []
@@ -2092,7 +2105,7 @@ def prp_link_words(verdict: dict[str, Any]) -> str:
         if verdict.get("stale"):
             owed += f" ({verdict['stale']:,} more no longer returned by PRP's reads, not counted)"
         said.append(f"{owed}.")
-    said.append(f"Can be shown on the pages: {shown_words(verdict)}.")
+    said.append(f"Shown on the pages: {shown_words(verdict)}.")
     return " ".join(said)
 
 

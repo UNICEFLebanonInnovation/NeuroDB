@@ -1,0 +1,8 @@
+{% load i18n %}{% comment %}The line on PRP's own reports still owed for a period that has ended (datamart.owed.state, the hub's "owed"):
+under the tiles of Progress reports, on its Partners tab and in Home's Progress reports block. With the link to their
+programme documents proven (the gate open) and at least one in the filter, how many Overdue and Due include; while it
+is closed, why the reports still owed may be missing, and, for Administrators and validators only (who can open it),
+a link to check 11 of the eTools reporting checks. Nothing while NeuroDB holds none of PRP's progress reports.
+Context: owed; css (the paragraph's classes).{% endcomment %}{% if owed.line %}
+<p class="{{ css|default:'small text-muted mb-3' }}" data-owed-line="{% if owed.shown %}shown{% else %}closed{% endif %}">{{ owed.line }}{% if not owed.shown %}{% if user_role == "Administrator" or can_validate %} ({% url 'admin:datamart_reporting_checks' as checks_url %}<a href="{{ checks_url }}">{% trans "eTools reporting checks, check 11" %}</a>){% endif %}{% endif %}</p>
+{% endif %}

@@ -295,8 +295,9 @@ KEY_WITHHELD = "A name, e-mail or phone is withheld here: match this row by PD a
 NO_SECTION = "(no section)"
 IR, PR = "indicator reports", "progress reports"
 OVERDUE_NOTE = (
-    "Power BI can count reports owed that the partner reports feed does not carry: see check 11 (Admin → "
-    "Data and sync → eTools reporting checks)."
+    "Power BI can count reports owed that the partner reports feed does not carry; NeuroDB counts those of "
+    "PRP's own list only while their link to the programme documents is proven: see check 11 (Admin → Data "
+    "and sync → eTools reporting checks)."
 )
 PDS_NOTE = (
     "The programme documents of these indicators: a running programme document with no indicator of this "
@@ -322,7 +323,8 @@ WHY_THEY_DIFFER = (  # (why, where to see it); {history} and the Power BI pages 
         "This file: Everything NeuroDB holds; Raw eTools data → Partner reports.",
     ),
     (
-        "PRP's other feeds list reports still owed that the partner reports feed does not carry.",
+        "PRP's other feeds list reports still owed that the partner reports feed does not carry; NeuroDB "
+        "counts those of PRP's own list only while their link to the programme documents is proven.",
         "eTools reporting checks: check 11.",
     ),
     (

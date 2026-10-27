@@ -26,8 +26,9 @@ from django.utils import timezone
 
 from neurodb.core.jobs import NEVER_AN_ALARM, PARTIAL_IS_NOT_AN_ALARM
 from neurodb.core.models import SyncRun
-from neurodb.datamart import children, headline, monitoring, reporting
+from neurodb.datamart import children, headline, monitoring, owed, reporting
 from neurodb.datamart import models as dm
+from neurodb.datamart import reached as rc
 from neurodb.datamart.catalogue import DIAGNOSTIC
 from neurodb.datamart.monitoring import ACTIVE_PD_STATUSES, NOT_REPORTED, Filters, Indicator
 from neurodb.indicators.services.tracking import OFF_TRACK, ON_TRACK, OVER_TARGET, percentage_elapsed
@@ -359,7 +360,10 @@ def check_not_reported(ctx: Context) -> list[Draft]:
 
 def check_reports_overdue(ctx: Context) -> list[Draft]:
     """Progress reports past their due date and not submitted (:func:`monitoring.pending_q`, the
-    rule every page uses), per programme document."""
+    rule every page uses), per programme document, with the overdue reports still owed in PRP's own list of
+    progress reports that the partner reports do not have, once their link is proven
+    (:func:`neurodb.datamart.owed.every_owed`; said "from PRP's progress reports"). Watch does not alert on
+    those: its alerts are keyed by PRP's report ids, which PRP's own list does not carry."""
     rows = (
         dm.ReportedIndicator.objects.filter(
             monitoring.pending_q(),
@@ -375,6 +379,15 @@ def check_reports_overdue(ctx: Context) -> list[Draft]:
     per_pd: dict[int, dict[str, tuple[str, datetime.date]]] = defaultdict(dict)
     for r in rows:
         per_pd[r["intervention_id"]][r["_report"]] = (r["report_number"], r["due_date"])
+    # the overdue reports still owed in PRP's own list that the partner reports do not have, once their link
+    # to the programme documents is proven (owed: none while it is not)
+    from_prp: set[str] = set()
+    for r in owed.every_owed(ctx.today):
+        if r["status"] != rc.OVERDUE or r["report_type"] != REPORT_TYPE or r["due_date"] is None:
+            continue
+        if r["intervention_id"] in ctx.active_pds:
+            per_pd[r["intervention_id"]][r["key"]] = (r["report_number"], r["due_date"])
+            from_prp.add(r["key"])
     drafts = []
     for pd_id, reports in per_pd.items():
         pd = ctx.active_pds.get(pd_id)
@@ -383,6 +396,8 @@ def check_reports_overdue(ctx: Context) -> list[Draft]:
         oldest = min(due for _, due in reports.values())
         days = (ctx.today - oldest).days
         n = len(reports)
+        prp = sum(1 for key in reports if key in from_prp)
+        also = f" {prp} of them {'is' if prp == 1 else 'are'} from PRP's progress reports." if prp else ""
         drafts.append(
             Draft(
                 key=f"reports_overdue:{pd_number(pd)}",
@@ -392,12 +407,16 @@ def check_reports_overdue(ctx: Context) -> list[Draft]:
                 title=f"{n} progress {plural(n, 'report')} overdue for {pd_label(pd)}",
                 detail=(
                     f"The oldest was due on {oldest:%d %b %Y}, {days} days ago, and has not been "
-                    "submitted in the Partner Reporting Portal."
+                    f"submitted in the Partner Reporting Portal.{also}"
                 ),
                 evidence=_evidence(
                     "Ask the partner for the report; the indicators of this PD keep their last "
                     "reported values until it comes in.",
-                    [f"{number or key}: due {_day(due)}" for key, (number, due) in sorted(reports.items())],
+                    [
+                        f"{number or key}: due {_day(due)}"
+                        + (" (from PRP's progress reports)" if key in from_prp else "")
+                        for key, (number, due) in sorted(reports.items())
+                    ],
                     reports=n,
                     oldest_due=_day(oldest),
                     days_overdue=days,

@@ -39,7 +39,7 @@ from django.utils import timezone
 from neurodb.core import compute
 from neurodb.partnerships import statuses as pd_statuses
 
-from . import keys, reporting, runfacts
+from . import keys, owed, reporting, runfacts
 from . import reached as rc
 
 # the pages with a trail, by address
@@ -281,12 +281,16 @@ class TrailRows:
     """The chain computed once (SPEC_validation §3.6): ``stages`` the filters in their order ("start" first),
     ``rows`` every report row in NeuroDB by pk: (Datamart id, progress report, indicator report, the index of
     the stage that left it out, or ``len(stages)`` when kept, why the PD status filter left it out, period
-    start), ``reports`` the progress reports the filter keeps. Never a record's payload."""
+    start), ``reports`` the progress reports the filter keeps. ``documents``: PRP's own reports still owed the
+    page adds once their link is proven (:mod:`neurodb.datamart.owed`), by their record's pk, in the shape of
+    a row: (the record's pk, progress report, "" (no indicator report), the index of the stage that left it
+    out, "", period start); none while the gate is closed. Never a record's payload."""
 
     stages: tuple[str, ...]
     rows: dict[int, tuple[Any, str, str, int, str, Any]]
     reports: dict[str, Report]
     history: datetime.date | None = None
+    documents: dict[int, tuple[Any, str, str, int, str, Any]] = dataclasses.field(default_factory=dict)
 
     @property
     def kept_at(self) -> int:
@@ -473,6 +477,25 @@ def chain(
         previous = current & previous
     recorder = Recorder()
     reports = reporting.with_pd_details(reporting.progress_reports(kept, day, record=recorder))
+    # PRP's own reports still owed, as the page adds them (owed.owed_reports, the same filters in the same
+    # order): each with the stage that left it out
+    owed_steps: list[tuple[str, list[dict[str, Any]]]] = []
+    extra = reporting.with_pd_details(owed.owed_reports(filters, day, steps=owed_steps))
+    documents: dict[int, list] = {}
+    if owed_steps:
+        stage_names = [name for name, _ in steps]
+        for r in owed_steps[0][1]:
+            documents[r["record"]] = [r["record"], r["key"], "", len(steps), "", r["period_start"]]
+        previous = set(documents)
+        for name, found in owed_steps[1:]:
+            current = {r["record"] for r in found}
+            if name not in stage_names or current - previous:
+                broken.append(name)
+            for pk in previous - current:
+                documents[pk][3] = stage_names.index(name) if name in stage_names else 0
+            previous &= current
+    if extra:
+        reports = reporting.in_order(reports + extra)
     chosen = set(filters.statuses)
     reported = {
         reporting.partner_key(r)
@@ -496,7 +519,8 @@ def chain(
             late=reporting.submitted_late(r),
             sections=dict(r["indicator_sections"]),
             word=word,
-            word_from=newest[1] if newest else None,
+            # PRP's own report still owed: its word is its record's
+            word_from=r["record"] if r.get("source") else newest[1] if newest else None,
             rows_outside=every_row[key] - kept_rows[key],
             section=reporting.report_section(r),
         )
@@ -504,8 +528,13 @@ def chain(
         stages=tuple(name for name, _ in steps),
         rows={pk: tuple(r) for pk, r in rows.items()},
         reports=facts,
+        documents={pk: tuple(r) for pk, r in documents.items()},
     )
     return trail_rows, reports, recorder, broken
+
+
+# the selections PRP's reports still owed can be in (TrailRows.documents): they are no report row
+DOCUMENT_SETS = ("kept", "chosen", "status_out", "no_partner")
 
 
 def _base(rows: TrailRows, name: str) -> Callable[[int, tuple], bool]:
@@ -583,11 +612,31 @@ def selected(
     return out
 
 
+def selected_documents(
+    rows: TrailRows, select: Iterable[tuple[str, Any]], pks: Iterable[int] | None = None
+) -> list[int]:
+    """PRP's reports still owed (their records' pks, in order) a selection keeps, as :func:`selected` keeps
+    rows: only the selections of :data:`DOCUMENT_SETS` hold any (they are no report row)."""
+    select = tuple(select)
+    name = next((v for k, v in select if k == "set"), "kept")
+    if name not in DOCUMENT_SETS or not rows.documents:
+        return []
+    base = _base(rows, name)
+    checks = [_check(rows, k, v) for k, v in select if k != "set"]
+    out = []
+    for pk in sorted(rows.documents) if pks is None else pks:
+        r = rows.documents[pk]
+        if base(pk, r) and all(c(pk, r) for c in checks):
+            out.append(pk)
+    return out
+
+
 def unit_of(rows: TrailRows, unit: str) -> Callable[[tuple], Any]:
     """A row's unit of a figure: its indicator report, progress report, partner or programme document (None:
-    the row counts in no unit, such as a report naming no partner)."""
+    the row counts in no unit, such as a report naming no partner, or the indicator report of a report still
+    owed from PRP's own list, which has none)."""
     if unit == IR:
-        return lambda r: (r[1], r[2])
+        return lambda r: (r[1], r[2]) if r[2] else None
     if unit == PR:
         return lambda r: r[1]
     if unit == PARTNER:
@@ -598,38 +647,52 @@ def unit_of(rows: TrailRows, unit: str) -> Callable[[tuple], Any]:
 
 
 class _Index:
-    """The rows the filter keeps, by report status, report, partner and programme document: each figure reads
-    the rows of its narrowest condition only, so a trail of many figures stays one pass per figure kind."""
+    """The rows the filter keeps, by report status, report, partner and programme document, and PRP's reports
+    still owed alike (``documents``): each figure reads the rows of its narrowest condition only, so a trail
+    of many figures stays one pass per figure kind."""
 
     FIELDS = ("status", "report", "partner", "pd")
 
     def __init__(self, rows: TrailRows) -> None:
         self.rows = rows
-        self.by: dict[str, dict[Any, list[int]]] = {name: defaultdict(list) for name in self.FIELDS}
-        self.kept: list[int] = []
-        for pk in sorted(rows.rows):
-            r = rows.rows[pk]
-            if r[3] != rows.kept_at:
-                continue
-            report = rows.reports[r[1]]
-            self.kept.append(pk)
-            self.by["status"][report.status].append(pk)
-            self.by["report"][r[1]].append(pk)
-            self.by["partner"][report.partner].append(pk)
-            self.by["pd"][report.pd].append(pk)
+        self.by, self.kept = self._index(rows.rows)
+        self.docs_by, self.docs_kept = self._index(rows.documents)
 
-    def count(self, select: tuple[tuple[str, Any], ...], unit: str) -> int:
+    def _index(self, items: dict[int, tuple]) -> tuple[dict[str, dict[Any, list[int]]], list[int]]:
+        by: dict[str, dict[Any, list[int]]] = {name: defaultdict(list) for name in self.FIELDS}
+        kept: list[int] = []
+        for pk in sorted(items):
+            r = items[pk]
+            if r[3] != self.rows.kept_at:
+                continue
+            report = self.rows.reports[r[1]]
+            kept.append(pk)
+            by["status"][report.status].append(pk)
+            by["report"][r[1]].append(pk)
+            by["partner"][report.partner].append(pk)
+            by["pd"][report.pd].append(pk)
+        return by, kept
+
+    def _candidates(self, select, by, kept) -> list[int] | None:
         candidates: list[int] | None = None
         for name, value in select:
-            if name in self.by:
-                found = self.by[name].get(value, [])
+            if name in by:
+                found = by[name].get(value, [])
                 if candidates is None or len(found) < len(candidates):
                     candidates = found
         base = dict(select).get("set", "kept")
-        if candidates is None and base in ("kept", "chosen", "no_partner", "status_out"):
-            candidates = self.kept
+        if candidates is None and base in DOCUMENT_SETS:
+            candidates = kept
+        return candidates
+
+    def count(self, select: tuple[tuple[str, Any], ...], unit: str) -> int:
         of = unit_of(self.rows, unit)
+        candidates = self._candidates(select, self.by, self.kept)
         units = {of(self.rows.rows[pk]) for pk in selected(self.rows, select, candidates)}
+        if self.rows.documents:
+            candidates = self._candidates(select, self.docs_by, self.docs_kept)
+            found = selected_documents(self.rows, select, candidates)
+            units |= {of(self.rows.documents[pk]) for pk in found}
         units.discard(None)
         return len(units)
 
@@ -840,6 +903,8 @@ def _reports(reports: list[dict[str, Any]]) -> list[Figure]:
         )
     ]
     for r in reports:
+        if r.get("source"):  # a report still owed from PRP's own list has no indicator: its cell says "—"
+            continue
         out.append(
             Figure(
                 f"pr.report.{r['key']}.indicators",
@@ -1138,6 +1203,50 @@ def source_steps(
     return out
 
 
+def owed_steps(rows: TrailRows) -> list[Step]:
+    """P, PRP's own reports still owed for a period that has ended (:mod:`neurodb.datamart.owed`): shown once
+    their link to the programme documents is proven, how many the page adds (counted once) and the filter
+    keeps, with their CSV; while the gate is closed, the line the pages say and that no figure counts them.
+    None when NeuroDB holds none of PRP's progress reports."""
+    link = owed.link_state()
+    if not link.held:
+        return []
+    title = "PRP's own reports still owed (a second source)"
+    if not link.shown:
+        line = Line(
+            f"Not counted: {link.line} See {owed.CHECKS}. The figures count the partner reports only."
+        )
+        return [Step("P", "dataset", title, (line,), counts_only=True)]
+    recorded = link.recorded
+    every = len(rows.documents)
+    kept = sum(1 for r in rows.documents.values() if r[3] == rows.kept_at)
+    lines = [
+        Line(
+            f"Shown since {_day(link.since)}: their link to the programme documents passed every test on two "
+            f"days in a row ({owed.CHECKS})."
+        ),
+        Line(
+            "Still owed for a period that has ended (Due or Overdue), returned by a read of the last 7 days, "
+            "and not in the partner reports (whatever its period or status: the rows decide): "
+            f"{words(every, PR)}, of which the filter keeps {kept:,}. They have no indicator reports.",
+            what="owed" if every else "",
+        ),
+        Line(
+            f"At the last sync, {_count(recorded.get('stale')):,} more were no longer returned for 7 days "
+            f"(not counted) and {_count(recorded.get('twins')):,} came as two versions of one report "
+            "(counted once)."
+        ),
+    ]
+    return [Step("P", "dataset", title, tuple(lines), what="owed" if every else "")]
+
+
+def _count(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _filter_title(name: str, filters: reporting.ReportFilters) -> str:
     """A filter of ``ReportFilters.queryset`` in plain words: what it leaves out."""
     f = filters
@@ -1224,6 +1333,9 @@ def filter_steps(
                 lines.append(
                     Line(f"These do not add up to the indicator reports left out. {DIFFERS}", alert=True)
                 )
+        owed_out = sum(1 for r in rows.documents.values() if r[3] == index)
+        if owed_out:  # PRP's own reports still owed the page adds (owed): the same filter leaves these out
+            lines.append(Line(f"Of PRP's own reports still owed: {words(owed_out, PR)} left out."))
         if name in broken:
             lines.append(
                 Line(f"This filter kept rows the step before it had left out. {DIFFERS}", alert=True)
@@ -1325,7 +1437,7 @@ def _progress_trail(page: str, params: Any, day: datetime.date) -> Trail:
         filters = reporting.ReportFilters.from_params(params)
         left = reporting.left_out(filters, day)
         rows, _kept, _recorder, broken = chain(filters, day)
-        rows = TrailRows(rows.stages, rows.rows, rows.reports, rc.history_from(day).date)
+        rows = dataclasses.replace(rows, history=rc.history_from(day).date)
         facts = runfacts.facts(SOURCE)
         held, _irs, _prs = _units_of(rows, 0)
         if page == "home":
@@ -1366,7 +1478,10 @@ def _progress_trail(page: str, params: Any, day: datetime.date) -> Trail:
                 how="Progress reports submitted after their due date (any status)",
                 select=(*CHOSEN, ("late", True)),
             )
-            no_partner = len({rows.rows[pk][1] for pk in selected(rows, (("set", "no_partner"),))})
+            no_partner = len(
+                {rows.rows[pk][1] for pk in selected(rows, (("set", "no_partner"),))}
+                | {rows.documents[pk][1] for pk in selected_documents(rows, (("set", "no_partner"),))}
+            )
             blocks = [
                 Block("tiles", "Reporting progress: tiles", "reports", (*_tiles(counts), late)),
                 Block(
@@ -1417,6 +1532,7 @@ def _progress_trail(page: str, params: Any, day: datetime.date) -> Trail:
             notes = NOTES
         steps = [
             *dataset_steps(facts, rows, held, day),
+            *owed_steps(rows),
             *filter_steps(rows, filters, left, broken),
             *kept_steps(rows, filters),
         ]

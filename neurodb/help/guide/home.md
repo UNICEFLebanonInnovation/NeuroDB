@@ -21,8 +21,12 @@ pages on the same sections:
 
 - **Progress reports**: the seven tiles of the Progress reports page, for the running programme documents
   and every reporting period, exactly the figures that page shows for the same sections. Each tile counts
-  indicator reports (one indicator in one progress report), with the number of progress reports under
-  it, and opens the page on that status.
+  progress reports, as Power BI's Reporting Progress does, with the indicator reports in them under it
+  (one indicator in one progress report), and opens the page on that status. Once NeuroDB can prove that
+  PRP's own list of progress reports is tied to the right programme documents, Overdue and Due also count
+  the reports partners still owe from that list, and a line under the tiles says how many; until then the
+  line says why reports still owed may be missing (see *Reports still owed, from PRP's own list* in
+  [Partner progress](/help/partner-progress/)).
 - **Programme documents to follow up**: one row per programme document with progress reports that are
   Overdue, Sent back, Due or Submitted (awaiting acceptance), the most overdue first: its partner, how
   many of its progress reports are in each of those statuses, and its oldest due date (of its Due or
@@ -31,7 +35,9 @@ pages on the same sections:
   Performance, whatever their section. Home lists the first ten, and says so when there are more (*The
   first 10 of 37 programme documents*); *Every report to follow up, on Progress reports* opens the full
   list there. With no progress report at all in the sections, the block says *No progress reports here*;
-  *Nothing to follow up* means every report is Accepted or not yet due.
+  *Nothing to follow up* means every report is Accepted. A report not yet due is one of the Due ones, as in
+  Power BI's follow-up list, and the reports still owed from PRP's own list are counted too once they are
+  shown.
 - One line with the partners that have progress reports here, how many have reported (Submitted or
   Accepted) and how many have not yet: the figures of the Partners tab of Progress reports (left out
   when there is no progress report).

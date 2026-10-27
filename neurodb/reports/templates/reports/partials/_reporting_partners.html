@@ -5,6 +5,7 @@
   {% trans "With at least one report" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=p.reported|intcomma status=p.reported|yesno:"on_track," hint=_("Submitted or Accepted") figure_key="pr.partners_reported" %}
   {% trans "Not reported" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=p.not_reported|intcomma status=p.not_reported|yesno:"off_track," hint=_("no Submitted or Accepted report yet") figure_key="pr.partners_not_reported" %}
 </div>
+{% include "reports/partials/_owed_line.html" with owed=data.owed %}
 <div class="grid grid--2 mb-3">
   <section class="panel p-0">
     {% include "components/table_toolbar.html" with title=_("Partners with a report in each status") count=None table_id="partners-by-status" filename="partners-by-status" downloads=None %}
@@ -35,8 +36,8 @@
       <td class="small">{{ r.section|default:"—" }}</td>
       <td>{% status_pill r.status r.status_label "sm" %}</td>
       <td class="small text-nowrap">{{ r.due_date|date:"j M Y"|default:"—" }}</td>
-      <td class="text-nowrap">{% if r.key %}<a class="mono small" href="{{ report_url }}?report={{ r.key|urlencode }}" hx-get="{{ report_url }}?report={{ r.key|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ r.report_number|default:"—" }}</a>{% else %}{{ r.report_number|default:"—" }}{% endif %}<span class="cell-sub">{{ r.report_type }}</span></td>
-      <td class="num" data-figure="pr.report.{{ r.key }}.indicators">{{ r.indicators }}</td>
+      <td class="text-nowrap">{% if r.key and not r.source %}<a class="mono small" href="{{ report_url }}?report={{ r.key|urlencode }}" hx-get="{{ report_url }}?report={{ r.key|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ r.report_number|default:"—" }}</a>{% else %}{{ r.report_number|default:"—" }}{% endif %}<span class="cell-sub">{{ r.report_type }}{% if r.source %} · {% trans "from PRP's own list" %}{% endif %}</span></td>
+      {% if r.source %}<td class="num">—</td>{% else %}<td class="num" data-figure="pr.report.{{ r.key }}.indicators">{{ r.indicators }}</td>{% endif %}
     </tr>{% endfor %}</tbody>
   </table></div>
   {% include "components/pagination.html" with hx_target="#reporting-results" %}

@@ -16,6 +16,9 @@
   points as a count) with the vendor number and the match key of the Power BI comparison sheet.
 * **By location's lines** (``lines``) and **By disaggregation's location blocks** (``blocks``): the tab's
   export columns with the Datamart ids of each location's rows and the one read.
+* **PRP's own reports still owed** (``owed``, once their link is proven: :mod:`neurodb.datamart.owed`): one
+  row per report the page could add, with whether the filter keeps it and why not, its status as the page
+  reads it, then its record as Raw eTools data writes it (field by field, the people rule).
 
 Every CSV streams (``exports.stream_csv``) inside one read-only snapshot, 2,000 records at a time, takes one
 of the site's two large download slots and holds at most ``raw.csv_limit("partner_reports")`` records. A query
@@ -36,7 +39,7 @@ from django.db import DatabaseError
 
 from neurodb.partnerships.models import PCA
 
-from . import catalogue, monitoring, raw, raw_people, reporting, runfacts, trail
+from . import catalogue, monitoring, owed, raw, raw_people, reporting, runfacts, trail
 from . import models as dm
 from . import query as dmq
 from . import reached as rc
@@ -103,6 +106,7 @@ REPORT_COLUMNS = (
     "submission_date",
     "indicator_reports",
     "unicef_focal_points_count",
+    "source",
     "match_key",
 )
 LINE_TAIL = ("progress_report_key", "record_ids", "chosen_record_id")
@@ -114,8 +118,10 @@ def _yes(value: bool) -> str:
 
 # ----------------------------------------------------------------------------------------- what a CSV holds
 def kind_of(what: str) -> str:
-    """``rows`` (report rows), ``reports`` (one row per progress report) or ``lines`` (a tab's lines or
-    blocks); "" for an address the trail does not know."""
+    """``rows`` (report rows), ``reports`` (one row per progress report), ``lines`` (a tab's lines or blocks)
+    or ``documents`` (PRP's own reports still owed); "" for an address the trail does not know."""
+    if what == "owed":
+        return "documents"
     if what in ("kept", "no_partner", "status") or what.startswith(("step:", "reason:", "figure:")):
         return "rows"
     if what in ("reports", "follow_up"):
@@ -346,6 +352,88 @@ def _report_columns(report: trail.Report, r: tuple, names: frozenset[str]) -> di
         "submitted_late": _yes(report.late),
         "partner_has_reported": _yes(report.reported) if report.partner is not None else "",
     }
+
+
+# ---------------------------------------------------------------------------- PRP's own reports still owed
+OWED_HEAD = (
+    "figures_as_of",
+    "step",
+    "reason",
+    "progress_report_key",
+    "unit_key",
+    "counts_once",
+    "kept_by_the_filter",
+    "report_status_neurodb",
+    "report_status_chosen",
+    "section_counted",
+    "period_end_month",
+    "partner_unit",
+    "pd_unit",
+)
+
+
+def document_pks(found: trail.Trail) -> list[int]:
+    """The records of PRP's reports still owed the trail read (every one before the filter), in order."""
+    return sorted(found.rows.documents)
+
+
+def document_columns(names: frozenset[str], pks: list[int]) -> tuple[list[str], list[str]]:
+    """The columns of the owed reports' CSV, and the record fields among them (``raw.header_keys``)."""
+    counted, _left_out = raw.field_counts(owed.SOURCE, names)
+    if pks:
+        keys = raw.header_keys(owed.SOURCE, dm.DatamartDocument.objects.filter(pk__in=pks), counted)
+    else:
+        keys = [f.key for f in counted]
+    return [*OWED_HEAD, *raw.csv_columns(owed.SOURCE, keys)[1:]], keys
+
+
+def document_rows(
+    found: trail.Trail, pks: list[int], keys: list[str], names: frozenset[str]
+) -> Iterator[dict[str, Any]]:
+    """One row per report still owed from PRP's own list the trail read: whether the filter keeps it (and the
+    step that left it out), its status and section as the page counts them, then its record through the people
+    rule (``raw.csv_record``), read 2,000 at a time inside one snapshot."""
+    rows = found.rows
+    source = owed.SOURCE
+    run = runfacts.runs([source])[source][0]
+    reviewed = raw.reviewed_keys(source)
+    wanted = set(keys)
+    as_of = raw.local_moment(found.as_of)
+    stages = dict(enumerate(rows.stages))
+    seen: set = set()
+    try:
+        with raw.snapshot(raw.STREAM_TIMEOUT_MS):
+            for start in range(0, len(pks), raw.CSV_CHUNK):
+                chunk = pks[start : start + raw.CSV_CHUNK]
+                by_pk = {
+                    d.pk: d for d in raw.related(source, dm.DatamartDocument.objects.filter(pk__in=chunk))
+                }
+                for pk in chunk:
+                    record = by_pk.get(pk)
+                    if record is None:  # removed since the trail was read
+                        continue
+                    r = rows.documents[pk]
+                    kept = r[3] == rows.kept_at
+                    report = rows.reports.get(r[1]) if kept else None
+                    out = raw.csv_record(source, record, wanted, run, names, reviewed, as_of)
+                    out.update(
+                        step="PRP's own reports still owed",
+                        reason="" if kept else trail_reason(found, stages.get(r[3], ""), ""),
+                        progress_report_key=r[1],
+                        unit_key=r[1],
+                        counts_once=int(kept and report is not None and report.chosen and _first(seen, r[1])),
+                        kept_by_the_filter=_yes(kept),
+                        report_status_neurodb=rc.STATUS_LABELS.get(report.status, "") if report else "",
+                        report_status_chosen=_yes(report.chosen) if report else "",
+                        section_counted=report.section if report else "",
+                        period_end_month=report.month if report else "",
+                        partner_unit=_partner_unit(report.partner, names) if report else "",
+                        pd_unit=report.pd if report else "",
+                    )
+                    yield out
+    except DatabaseError:
+        logger.warning("figure trail: the download of PRP's reports still owed stopped", exc_info=True)
+        yield {"figures_as_of": raw.STOPPED}
 
 
 # ------------------------------------------------------------------------------------------ progress reports

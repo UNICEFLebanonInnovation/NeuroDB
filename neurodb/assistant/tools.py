@@ -24,7 +24,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from neurodb.core.services import population as population_service
-from neurodb.datamart import hact_plan, monitoring
+from neurodb.datamart import hact_plan, monitoring, owed
 from neurodb.datamart import models as dm
 from neurodb.datamart import query as dmq
 from neurodb.datamart import services as datamart
@@ -462,6 +462,7 @@ def programme_details(number: str) -> dict[str, Any]:
                 # one of the six statuses, as the pages show it (never PRP's raw word: "Due" may be
                 # Overdue or Not yet due)
                 "status": r["status_label"],
+                "source": owed.source_words(r),  # the partner reports, or PRP's own list (still owed)
             }
             for r in extra["reports"]
         ],
@@ -876,6 +877,7 @@ def partner_reporting(
             "submitted": r["submission_date"],
             "status": r["status_label"],
             "indicators": r["indicators"],
+            "source": owed.source_words(r),
         }
         for r in data["reports"][: MAX_ROWS + 1]
     ]
@@ -897,6 +899,10 @@ def partner_reporting(
         "to_follow_up": dict(Counter(r["status_label"] for r in data["partners"]["follow_up"])),
         # progress reports per status, by name: the same counts as ``reports`` and the status keys above
         "by_status": dict(data["by_status"]),
+        # PRP's own reports still owed for a period that has ended, counted once their link to the programme
+        # documents is proven (none while it is not): what the page says of them
+        "owed_shown": data["owed"]["shown"],
+        "owed_note": data["owed"]["line"],
         **_cut(rows, "progress_reports"),
         "url": reverse("reports:partner_reporting"),
     }
@@ -1437,8 +1443,11 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "reports to follow up by status (to_follow_up: Overdue, Sent back, Due and Submitted, a report not "
         "yet due counted as Due, as in Power BI's follow-up list), and the list of reports with period, due "
         "and submission dates, of the running programme documents (active, signed or suspended: "
-        "pd_statuses), as the page opens. Filter by partner name/vendor/PD text, year the period ends, or "
-        "overdue only.",
+        "pd_statuses), as the page opens. Reports still owed for a period that has ended come from PRP's own "
+        "list of progress reports once their link to the programme documents is proven (owed_shown; "
+        "owed_note says what the page says; their source is 'PRP progress reports'), and have no indicator "
+        "reports. "
+        "Filter by partner name/vendor/PD text, year the period ends, or overdue only.",
         _schema(
             {
                 "partner": {"type": "string"},

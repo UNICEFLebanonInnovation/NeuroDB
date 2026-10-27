@@ -19,6 +19,7 @@ parity world (an administrator's and a viewer's are the same): height at 1366 px
 {% else %}
 {% with c=data.counts %}
 {% include "reports/partials/_reporting_tiles.html" with counts=c %}
+{% include "reports/partials/_owed_line.html" with owed=data.owed %}
 <p class="small text-muted mb-3">{% blocktrans with late=data.summary.late|intcomma %}Each tile counts progress reports, as the eTools Power BI report's Reporting Progress does; the indicator reports in them (one indicator in one progress report) are under it. Every report has one status, so the tiles add up to the total. Submitted means awaiting acceptance; Not yet due, that the reporting period is still running. <span data-figure="pr.late">{{ late }}</span> progress reports were submitted after their due date.{% endblocktrans %}</p>
 {% endwith %}
 {% with lo=data.left_out %}{% if lo.by_pd_status or lo.no_pd %}
@@ -52,7 +53,7 @@ parity world (an administrator's and a viewer's are the same): height at 1366 px
       <td class="small text-nowrap">{% if r.intervention_id %}<a href="{% url 'reports:programme_detail' r.intervention_id %}">{{ r.pd_reference_number|default:"—" }}</a>{% else %}<span class="mono">{{ r.pd_reference_number|default:"—" }}</span>{% endif %}{% if r.pd_status %}<span class="cell-sub">{{ r.pd_status_label }}</span>{% endif %}</td>
       <td class="small cell-wrap">{% if r.partner_id %}<a href="{% url 'reports:partner_profile' r.partner_id %}">{{ r.partner_name|default:"—" }}</a>{% else %}{{ r.partner_name|default:"—" }}{% endif %}</td>
       <td class="small">{{ r.section|default:"—" }}</td>
-      <td class="text-nowrap">{% if r.key %}<a class="mono small" href="{{ report_url }}?report={{ r.key|urlencode }}" hx-get="{{ report_url }}?report={{ r.key|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ r.report_number|default:"—" }}</a>{% else %}<span class="mono small">{{ r.report_number|default:"—" }}</span>{% endif %}<span class="cell-sub">{{ r.report_type }}</span></td>
+      <td class="text-nowrap">{% if r.key and not r.source %}<a class="mono small" href="{{ report_url }}?report={{ r.key|urlencode }}" hx-get="{{ report_url }}?report={{ r.key|urlencode }}" hx-target="#modal-content" hx-push-url="false">{{ r.report_number|default:"—" }}</a>{% else %}<span class="mono small">{{ r.report_number|default:"—" }}</span>{% endif %}<span class="cell-sub">{{ r.report_type }}{% if r.source %} · {% trans "from PRP's own list" %}{% endif %}</span></td>
       <td>{% status_pill r.status r.status_label "sm" %}</td>
       <td class="small">{{ r.document_type|default:"—" }}</td>
       <td class="small text-nowrap" data-value="{{ r.due_date|date:'Y-m-d' }}">{{ r.due_date|date:"j M Y"|default:"—" }}</td>
@@ -60,7 +61,7 @@ parity world (an administrator's and a viewer's are the same): height at 1366 px
       <td class="small text-nowrap" data-value="{{ r.period_end|date:'Y-m-d' }}">{{ r.period_end|date:"j M Y"|default:"—" }}</td>
       <td class="small text-nowrap" data-value="{{ r.submission_date|date:'Y-m-d' }}">{% if r.submission_date %}{{ r.submission_date|date:"j M Y" }}{% if r.due_date and r.submission_date > r.due_date %}<span class="cell-sub text-warning">{% trans "Late" %}</span>{% endif %}{% elif r.status == "overdue" %}<span class="text-danger">{% trans "Overdue" %}</span>{% else %}—{% endif %}</td>
       <td class="small cell-wrap">{{ r.focal_points|join:", "|default:"—" }}</td>
-      <td class="num" data-figure="pr.report.{{ r.key }}.indicators">{{ r.indicators }}</td>
+      {% if r.source %}<td class="num">—</td>{% else %}<td class="num" data-figure="pr.report.{{ r.key }}.indicators">{{ r.indicators }}</td>{% endif %}
     </tr>{% endfor %}</tbody>
   </table></div>
   {% include "components/pagination.html" with hx_target="#reporting-results" %}

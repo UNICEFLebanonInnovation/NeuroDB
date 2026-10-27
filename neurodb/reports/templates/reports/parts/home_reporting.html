@@ -23,6 +23,7 @@ the hint, for the people who check the figures). Every number carries its figure
   {% else %}
   {% include "reports/partials/_reporting_tiles.html" with counts=reporting.counts %}
   <p class="home-also">{% trans "Each tile counts progress reports, as Power BI's Reporting Progress does; the indicator reports in them (one indicator in one progress report) are under it." %}</p>
+  {% include "reports/partials/_owed_line.html" with owed=reporting.owed css="home-also" %}
   <div class="home-prp__title home-prp__title--split">
     <h3 class="home-block__title" id="home-pds-title">{% trans "Programme documents to follow up" %}</h3>
     <span class="home-prp__hint">{% if reporting.pds.count > pd_rows|length %}{% blocktrans with n=pd_rows|length total=reporting.pds.count|intcomma %}The first {{ n }} of <span data-figure="home.pds">{{ total }}</span> programme documents, the most overdue first{% endblocktrans %}{% else %}{% blocktrans count counter=reporting.pds.count with n=reporting.pds.count|intcomma %}<span data-figure="home.pds">{{ n }}</span> programme document{% plural %}<span data-figure="home.pds">{{ n }}</span> programme documents{% endblocktrans %}{% endif %}</span>
