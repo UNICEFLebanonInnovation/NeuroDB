@@ -469,10 +469,12 @@ programme documents, trips, engagements, action points and their details).
   fits. When it names none of them, a line whose exact number several PDs carry goes to the one whose dates
   cover it, else to the one that ends last; a line whose number fits several PDs in another way goes to none,
   and its PD in NeuroDB reads "several PDs fit". A line with no number at all goes to the PD its eTools id
-  names only when its vendor number is that PD's partner's, or when it carries no vendor number: with another
-  partner's vendor number it goes to none, and its PD in NeuroDB reads "another partner's PD" (the eTools id
-  alone often names another partner's PD). The line under the counts says how the last sync linked them: by
-  which kind of number, by eTools id only (and how many of those carry no vendor number), not linked (a number
+  names only when its vendor number is that PD's partner's, when it carries no vendor number, or when NeuroDB
+  does not know that partner's vendor number: with another partner's vendor number it goes to none, and its PD
+  in NeuroDB reads "none (its eTools id names another partner's PD)" (the eTools id alone often names another
+  partner's PD). The line under the counts says how the last sync linked them: by which kind of number, by
+  eTools id only (and how many of those carry no vendor number, and how many are on a PD whose partner's
+  vendor number NeuroDB does not know, so could not be checked), not linked (a number
   of a PD NeuroDB does not hold, and on how many of those the eTools id names a PD NeuroDB holds; a number
   several PDs fit; no number and an eTools id of another partner's PD), how many the eTools id would put on
   another PD, and how many this sync moved to another PD. It also says on how many lines of each kind the
@@ -480,8 +482,8 @@ programme documents, trips, engagements, action points and their details).
   document link* choice "Their number names no PD NeuroDB holds" lists the lines left unlinked so, those
   without a number of their own by their FR's number: as many as the line under the counts says; "No number,
   and their eTools id names another partner's PD" lists those left unlinked for that reason (also *List those
-  on another partner's PD by their eTools id* under the counts). If they are many, tell the NeuroDB team before
-  using the Funds pages.
+  not linked because their eTools id names another partner's PD* under the counts). If they are many, tell the
+  NeuroDB team before using the Funds pages.
 - **PRP's own progress reports and their programme documents** (PRP progress reports). PRP's own list holds
   the reports partners still owe for a period that has ended, which the partner reports stop sending. The line
   under the counts says, as the last sync recorded it, whether they are tied to their programme document ("yes,
@@ -509,8 +511,9 @@ programme documents, trips, engagements, action points and their details).
 - **Programme document budgets.** Each budget record writes the budget of the programme document whose
   reference number it carries (its eTools id decides only when it carries no number: the id often names
   another programme document). A number no programme document in NeuroDB carries writes nothing, nor does
-  another amendment's number. When several records carry one programme document's number, NeuroDB keeps the
-  one whose eTools id also names it, else the newest, else the last one read. A programme document that a
+  another amendment's number. When several records name one programme document, NeuroDB keeps one that carries
+  its number before one named by its eTools id alone, then the one whose eTools id also names it, then the
+  newest, then the last one read. A programme document that a
   record's eTools id named against its number (where NeuroDB used to write another programme document's
   budget), and that no record names now, has its budget emptied: it shows none rather than another's. The line
   under the counts says how the last sync wrote them: by number, by eTools id, not written (and why), the

@@ -2006,17 +2006,22 @@ candidates, the one the eTools id names; else the only one; else, by exact numbe
 the line's start date, else the one that ends last (`PDResolver.pick`); else none (several amendments or PD
 parts fit). A number no PD NeuroDB holds carries links nothing, whatever the id: the id is used only when no
 number is given (none on the line, none on its header), and then only when the line's `vendor_code` is the
-vendor number of that PD's partner (spaces and leading zeros aside, `_vendor`) or the line carries none (as
-before, counted `by_id_no_vendor`): the eTools id is not reliably the PD's (on 27 Oct 2026, 1,501 lines were
-linked by it alone, and the vendor number was the PD's partner's on 20 of them). A line whose vendor number
-is another partner's links to no PD (`by_id_other_partner`); a header follows the same rule. Not linked counts in
+vendor number of that PD's partner (spaces and leading zeros aside, `_vendor`), the line carries none (as
+before, counted `by_id_no_vendor`), or NeuroDB holds no vendor number for that PD's partner (the partner has
+none, or the PD has no partner: as before, counted `by_id_vendor_unknown`, since nothing shows another
+partner's): the eTools id is not reliably the PD's (on 27 Oct 2026, 1,501 lines were linked by it alone, and
+the vendor number was the PD's partner's on 20 of them). A line whose vendor number is another partner's
+links to no PD (`by_id_other_partner`); a header follows the same rule. Not linked counts in
 `details.not_linked.programme_document`, once per record as `details.pd_link` (a record the Datamart returns
 twice in one read counts once in both), so Data health's and Raw eTools data's "not linked" rise by the lines
-whose number names a PD NeuroDB does not hold or fits several. Each run
+whose number names a PD NeuroDB does not hold or fits several, and by those with no number whose eTools id
+names a PD of another partner than their vendor number's (`by_id_other_partner`: about 1,481 lines on 27 Oct
+2026, the largest part, all of them linked by the eTools id before). Each run
 records `details.pd_link`, counted once per record: `by_number` with how (`exact`, `amended`, `pd_part`,
 `header`) and `twice` (several PDs carry the exact number and the eTools id names none of them: dates, else
 the one that ends last, decide; Raw eTools data says so),
-`by_id` (no number; of these `by_id_no_vendor`: the line carries no vendor number), `by_id_other_partner`
+`by_id` (no number; of these `by_id_no_vendor`: the line carries no vendor number, and
+`by_id_vendor_unknown`: NeuroDB holds no vendor number for the PD's partner), `by_id_other_partner`
 (no number, and the id names a PD of another partner: not linked, below), `number_not_held` (and
 `number_not_held_id_held`: the id names a PD NeuroDB holds), `unclear`, `id_not_held` (no number, an id of no PD
 NeuroDB holds), `id_other` (linked by number while the id names another PD NeuroDB holds: where the old rule
@@ -2033,13 +2038,14 @@ eTools data → Funds reservation lines (and → Funds reservations) says it in 
 `number_not_held`: those whose own number names no PD NeuroDB holds, and those without one whose FR header's
 number names none; and its choice "No number, and their eTools id names another partner's PD"
 (`fr_link=by_id_other_partner`, `raw.FundsNumbers.other_partner_q`, the same rule) lists the lines counted
-`by_id_other_partner` (the sentence's "List those on another partner's PD by their eTools id"). A line linked
-to no PD says why as its PD in NeuroDB (the list, its page and the CSV's `pd_number_in_neurodb`, by the same
-rule, `raw.pd_words`): "several PDs fit" when its number (its own, else its header's) fits several, "another
-partner's PD" when, with no number, its eTools id names a PD of another partner than its vendor number's, "not
-in NeuroDB" when its number, or with no number its eTools id, names none NeuroDB holds, "names none" when it
-carries neither. Their CSV carries `pd_reference_number` beside `pd_number_in_neurodb`. Partner report rows
-still link by eTools id first (`_link_report`).
+`by_id_other_partner` (the sentence's "List those not linked because their eTools id names another partner's
+PD"; never a line whose PD's partner has no vendor number in NeuroDB). A line linked to no PD says why as its PD
+in NeuroDB (the list, its page and the CSV's `pd_number_in_neurodb`, by the same rule, `raw.pd_words`):
+"several PDs fit" when its number (its own, else its header's) fits several, "none (its eTools id names
+another partner's PD)" (`raw.FR_OTHER_PARTNER`) when, with no number, its eTools id names a PD of another
+partner than its vendor number's, "not in NeuroDB" when its number, or with no number its eTools id, names
+none NeuroDB holds, "names none" when it carries neither. Their CSV carries `pd_reference_number` beside
+`pd_number_in_neurodb`. Partner report rows still link by eTools id first (`_link_report`).
 
 **Budgets link to the PD whose number they carry** (`datamart_sync.update_budget`, `Links.plan_budgets`,
 `Links.budget_pd`; `intervention_budgets`). A budget record names its programme document by `number` and by
@@ -4336,7 +4342,7 @@ matching names. Every `datamart` row keeps `datamart_id` (the Datamart record) a
 |---|---|---|
 | Programme document (`etools.PCA`) | partner, agreement | eTools ids (`partner_source_id`, `agreement_id`) |
 | Programme document | implementation locations (`PCA.locations`, `location_p_codes`) | the P-codes of `locations_data`, resolved in the locations table |
-| Programme document | funding: UNICEF cash, partner contribution, total budget, donors, grants, FRs | donors and grants: the interventions dataset by eTools id; the budget: the budget record carrying the PD's reference number (its eTools id only without one); FRs by PD reference number (without one, by eTools id when the vendor number is the PD's partner's) |
+| Programme document | funding: UNICEF cash, partner contribution, total budget, donors, grants, FRs | donors and grants: the interventions dataset by eTools id; the budget: the budget record carrying the PD's reference number (its eTools id only without one); FRs by PD reference number (without one, by eTools id unless the vendor number is another partner's) |
 | PD indicator (`PDIndicator`) | PD, location (`location`) | PD reference number; eTools location id, then P-code |
 | Partner report row (`ReportedIndicator`) | partner, PD, location (`location_ref`), reporting period, status | vendor number, eTools PD id / reference number, P-code, the report's period and status fields |
 | TPM activity | partner, PD, locations (`location_links`) | vendor number, PD reference number, P-codes of `locations_data` |

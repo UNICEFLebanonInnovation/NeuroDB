@@ -465,9 +465,9 @@ def test_a_funds_line_with_no_number_sits_on_its_etools_id_s_pd_only_with_its_pa
     )
     assert sorted(listed.values_list("datamart_id", flat=True)) == [1, 4]
     said = raw.fr_link_words(run.details["pd_link"], "funds_reservations")
-    assert "By eTools id only (no number): 2 (1 of them carry no vendor number)." in said
+    assert "By eTools id only (no number): 2 (1 of them carries no vendor number)." in said
     assert (
-        "no number, and an eTools id that names a PD of another partner (the line's vendor number is not that "
+        "no number, and an eTools id that names a PD of another partner (its vendor number is not that "
         "partner's) 2" in said
     )
 
@@ -490,6 +490,44 @@ def test_a_funds_header_with_no_number_follows_the_same_vendor_rule(two_pds):
         "vendor_compared_by_id": 1,
         "vendor_same_by_id": 1,
     }
+    # the headers page says it of funds reservations, not of lines
+    said = raw.fr_link_words(run.details["pd_link"], "funds_reservation_headers")
+    assert "line" not in said
+    assert (
+        "no number, and an eTools id that names a PD of another partner (its vendor number is not that "
+        "partner's) 1" in said
+    )
+
+
+@responses.activate
+def test_a_funds_line_with_no_number_stays_on_its_etools_id_s_pd_when_its_partner_s_vendor_number_is_unknown(
+    db,
+):
+    """The PD's partner has no vendor number in NeuroDB, or the PD has no partner: nothing shows the line is
+    another partner's, so it stays on the PD its eTools id names, as before, counted apart; never said, listed or
+    read as another partner's."""
+    a = PartnerOrganization.objects.create(etl_id="1", name="Partner A", vendor_number="")
+    pd1 = PCA.objects.create(etl_id="11", number=PD1_NUMBER, title="PD one", partner=a)
+    pd3 = PCA.objects.create(etl_id="13", number="LEBA/PCA2020003/PD2020003-1", title="PD three")
+    run = read_funds(
+        fr_line(1, "", 11, vendor_code="2500000001"),
+        fr_line(2, "", 13, vendor_code="2500000001", fr_number="0400002"),
+    )
+    assert (pd_of(1), pd_of(2)) == (pd1.pk, pd3.pk)
+    assert run.details["pd_link"] == {"by_id": 2, "by_id_vendor_unknown": 2, "vendor_compared_by_id": 2}
+    assert "not_linked" not in run.details
+    listed = raw.Filters(fr_link="by_id_other_partner").apply(
+        "funds_reservations", raw.base("funds_reservations"), run
+    )
+    assert not listed.exists()
+    funds = raw.FundsNumbers()
+    assert not any(funds.other_partner(line) for line in dm.FundsReservation.objects.all())
+    said = raw.fr_link_words(run.details["pd_link"], "funds_reservations")
+    assert (
+        "By eTools id only (no number): 2 (2 of them are on a PD whose partner's vendor number NeuroDB does not "
+        "know, so they could not be checked)." in said
+    )
+    assert "another partner" not in said
 
 
 @responses.activate
@@ -1907,14 +1945,15 @@ def test_two_budget_records_crossed_write_each_pd_its_own_budget(three_pds):
     assert budget_pds() == {"61": AMENDED, "63": OLD_PD}
     assert raw.budget_link_words(found) == (
         "Of the 2 budget records of the last sync, each writes the budget of the programme document whose "
-        "reference number it carries: 2 by their number, 0 by their eTools id (no number). Not written: 0 whose "
-        "number names no programme document NeuroDB holds; 0 set aside for another record of the same programme "
-        "document. 0 programme documents were named by several budget records: NeuroDB keeps the one whose "
-        "eTools id also names it, else the newest, else the last one read. 2 carry an eTools id that names "
-        "another programme document than their number: the number decides. Of the records linked by number, "
-        "their eTools id names the same programme document on 0 of 2, their second eTools id (intervention_id) on "
-        "0 of 2. The budget of 1 programme document was emptied: only an eTools id named it, against the number, "
-        "so the budget it had was another programme document's."
+        "reference number it carries: 2 by number, 0 by eTools id (no number). Not written: 0 whose number "
+        "names no programme document NeuroDB holds; 0 set aside for another record of the same programme "
+        "document. 0 programme documents were named by several budget records: NeuroDB keeps one that carries "
+        "the number before one named by its eTools id alone, then the one whose eTools id also names it, then "
+        "the newest, then the last one read. 2 carry an eTools id that names another programme document than "
+        "their number: the number decides. Of the records linked by number, their eTools id names the same "
+        "programme document on 0 of 2, their second eTools id (intervention_id) on 0 of 2. The budget of 1 "
+        "programme document was emptied: only an eTools id named it, against the number, so the budget it had "
+        "was another programme document's."
     )
     # the next night finds each where it is: nothing more to empty
     run = read_budgets(budget(61, AMENDED, 102, total="6654.01"), budget(63, OLD_PD, 101, total="110.21"))
@@ -2013,6 +2052,64 @@ def test_several_budget_records_of_one_pd_keep_one_by_their_id_then_their_date_t
 
 
 @responses.activate
+def test_a_budget_record_carrying_the_pd_s_number_is_kept_before_one_its_etools_id_alone_names(three_pds):
+    """As on 27 Oct 2026, the amended PD's own record carries its number and the SPD's eTools id. Another record,
+    newer, carries no number and the amended PD's eTools id (an old PD's budget, by the id alone). The record
+    carrying the number is kept, whatever the ids and the dates say, and the page says so."""
+    amended, _, _ = three_pds
+    run = read_budgets(
+        budget(1, AMENDED, 102, total="6654", modified="2026-01-01T10:00:00Z"),
+        budget(2, "", 101, total="110", modified="2026-05-01T10:00:00Z"),
+    )
+    assert budget_of(amended)[0] == "6654"
+    found = run.details["budget_link"]
+    assert [found.get(k) for k in ("by_number", "by_id", "several", "set_aside")] == [1, 1, 1, 1]
+    assert budget_pds() == {"1": AMENDED, "2": AMENDED}
+    assert (
+        "1 programme document was named by several budget records: NeuroDB keeps one that carries the number "
+        "before one named by its eTools id alone, then the one whose eTools id also names it, then the newest, "
+        "then the last one read." in raw.budget_link_words(found)
+    )
+    # both eTools ids name the PD, no dates: the record carrying the number, though read first
+    read_budgets(budget(1, AMENDED, 101, total="6654"), budget(2, "", 101, total="110"))
+    assert budget_of(amended)[0] == "6654"
+
+
+TWIN = "LEBA/PCA2020105/PD2020105-1"
+
+
+@responses.activate
+def test_a_budget_number_several_pds_carry_goes_to_the_one_an_etools_id_names_else_by_their_dates(three_pds):
+    """Two PDs carry the exact number (PCA.number is not unique): the one an eTools id of the record names (either
+    id); else the one whose dates cover the record's start; else the one that ends last."""
+    amended, _, old = three_pds
+    ends_last, ended = (
+        PCA.objects.create(
+            etl_id=etl_id, number=TWIN, title=f"PD {etl_id}", partner=old.partner, start=start, end=end
+        )
+        for etl_id, start, end in (
+            ("105", dt.date(2026, 1, 1), dt.date(2026, 12, 31)),
+            ("106", dt.date(2025, 1, 1), dt.date(2025, 12, 31)),
+        )
+    )
+
+    def written(record: dict) -> tuple[str | None, str | None, int]:
+        """The budget total each of the two PDs holds after a read of ``record`` alone, and "twice"."""
+        PCA.objects.filter(pk__in=(ends_last.pk, ended.pk)).update(total_budget=None)
+        run = read_budgets(record)
+        return budget_of(ends_last)[0], budget_of(ended)[0], run.details["budget_link"].get("twice", 0)
+
+    # source_id names a PD without the number, intervention_id one with it: that one, though dates cover the other
+    by_id = budget(1, TWIN, 101, total="7", intervention_id=106, start_date="2026-03-01")
+    assert written(by_id) == (None, "7", 0)
+    # no id names either: the one whose dates cover the record's start
+    assert written(budget(1, TWIN, 101, total="8", start_date="2025-06-01")) == (None, "8", 1)
+    # nor do dates cover it: the one that ends last
+    assert written(budget(1, TWIN, None, total="9", start_date="2030-01-01")) == ("9", None, 1)
+    assert budget_of(amended) == NO_BUDGET
+
+
+@responses.activate
 def test_a_pd_the_old_rule_gave_another_pd_s_budget_is_emptied_after_a_whole_read(three_pds):
     """The SPD's budget is the amended PD's (the old rule wrote it by the eTools id of the amended PD's record);
     no record names the SPD by number. A read not whole leaves it (the record naming it may not have come); the
@@ -2087,4 +2184,42 @@ def test_a_sync_before_the_number_decided_keeps_its_words():
         "Of the 6 budget records of the last sync, 2 name by their number another programme document than their "
         "eTools id (NeuroDB linked them by the id); 1 programme document was written by several budget records "
         "(the last one read was kept)."
+    )
+
+
+def test_the_budget_sentence_reads_right_for_one_record_and_for_many():
+    """Each count is followed by a verb and words that agree with it, one or many."""
+    one = raw.budget_link_words(
+        {"records": 3, "by_number": 3, "number_other": 1, "several": 0, "twice": 1, "clear_failed": 1}
+    )
+    assert (
+        "1 carries a number several programme documents share and an eTools id that names none of them: it went "
+        "to the one whose dates cover it, else to the one that ends last." in one
+    )
+    assert (
+        "1 carries an eTools id that names another programme document than its number: the number "
+        "decides." in one
+    )
+    assert (
+        "Emptying the budget of 1 programme document, which another programme document's record had written, "
+        "failed: the next sync tries again." in one
+    )
+    many = raw.budget_link_words(
+        {"records": 90, "by_number": 90, "number_other": 40, "several": 0, "twice": 2, "cleared": 40}
+    )
+    assert (
+        "2 carry a number several programme documents share and an eTools id that names none of them: "
+        "each went" in many
+    )
+    assert "40 carry an eTools id that names another programme document than their number" in many
+    assert many.endswith(
+        "The budgets of 40 programme documents were emptied: only an eTools id named each, against the number, so "
+        "the budget each had was another programme document's."
+    )
+    failed = raw.budget_link_words(
+        {"records": 9, "by_number": 9, "number_other": 2, "several": 0, "clear_failed": 2}
+    )
+    assert (
+        "Emptying the budgets of 2 programme documents, which other programme documents' records had written, "
+        "failed: the next sync tries again." in failed
     )

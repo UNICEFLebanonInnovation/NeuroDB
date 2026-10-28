@@ -270,8 +270,8 @@ currency, funds reservations and disbursements in US dollars.
 
 A programme document's budget is the one of the eTools budget record that carries its reference number, and a
 funds reservation line belongs to the programme document whose number it carries (a line without a number, to
-the one its eTools id names when it is the same partner's). *Checking the figures* says how, and where to see
-the records.
+the one its eTools id names unless its vendor number is another partner's). *Checking the figures* says how,
+and where to see the records.
 
 ## Exports
 

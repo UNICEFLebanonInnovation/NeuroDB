@@ -128,6 +128,7 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
                 "id_not_held": 1,
                 "by_id_no_vendor": 1,
                 "by_id_other_partner": 2,
+                "by_id_vendor_unknown": 1,
                 "id_other": 4,
                 "moved": 4,
                 **{f"vendor_compared_{kind}": 2 for kind in raw.FR_VENDOR_WORDS},
@@ -136,6 +137,10 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
             "funds_reservations",
         ),
         raw.fr_link_words({"by_number": 1, "exact": 1}, "funds_reservation_headers"),
+        raw.fr_link_words(
+            {"by_id": 3, "by_id_other_partner": 2, "by_id_no_vendor": 2, "by_id_vendor_unknown": 2},
+            "funds_reservation_headers",
+        ),
         raw.Filters(fr_link="number_not_held").words(),
         raw.Filters(fr_link="by_id_other_partner").words(),
         # PRP's progress reports: tied to their programme documents? may the pages show their reports still owed?

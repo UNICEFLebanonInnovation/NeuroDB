@@ -827,12 +827,14 @@ def _link_funds(row, item, links):
     """A funds reservation line or header: to the programme document whose reference number it carries, the
     eTools id only without a number or when both agree (:meth:`Links.by_number_first`; a line with no number
     takes its FR header's). Linked by the eTools id alone, it goes to that PD only when the vendor number it
-    carries is the vendor number of the PD's partner (spaces and leading zeros aside), or when it carries none
-    ("by_id_no_vendor", as before); another vendor number links it to no PD ("by_id_other_partner": the id
-    names another partner's PD). Each record is counted once a run in ``links.fr_link`` (``details.pd_link``):
-    how it was linked, "moved" when it leaves another PD it was on for this one, and, per link kind, whether
-    the vendor number it carries is the PD's partner's (the proof the user reads on Raw eTools data); and,
-    when it links none, once in ``links.missing`` (``details.not_linked``), so the two agree on the page."""
+    carries is the vendor number of the PD's partner (spaces and leading zeros aside), when it carries none
+    ("by_id_no_vendor", as before), or when NeuroDB holds no vendor number for that PD's partner (none, or no
+    partner: "by_id_vendor_unknown", as before, since nothing shows another partner's); another vendor
+    number links it to no PD ("by_id_other_partner": the id names another partner's PD). Each record is
+    counted once a run in ``links.fr_link`` (``details.pd_link``): how it was linked, "moved" when it leaves
+    another PD it was on for this one, and, per link kind, whether the vendor number it carries is the PD's
+    partner's (the proof the user reads on Raw eTools data); and, when it links none, once in
+    ``links.missing`` (``details.not_linked``), so the two agree on the page."""
     before = row.intervention_id
     line = isinstance(row, dm.FundsReservation)
     pk, counts = links.by_number_first(
@@ -842,10 +844,14 @@ def _link_funds(row, item, links):
         row.fr_number if line else "",
     )
     vendor = _vendor(row.vendor_code)
-    if "by_id" in counts and vendor and vendor != _vendor(links.vendor_of(pk)):
-        pk, counts = None, ("by_id_other_partner",)  # no number, and the id names another partner's PD
-    elif "by_id" in counts and not vendor:
-        counts += ("by_id_no_vendor",)
+    if "by_id" in counts:
+        own = _vendor(links.vendor_of(pk))
+        if not vendor:
+            counts += ("by_id_no_vendor",)
+        elif not own:  # the PD's partner's vendor number is unknown: nothing to compare it with
+            counts += ("by_id_vendor_unknown",)
+        elif vendor != own:
+            pk, counts = None, ("by_id_other_partner",)  # no number, and the id names another partner's PD
     row.intervention_id = pk
     if row.datamart_id in links.fr_counted:  # a record returned twice counts once
         return

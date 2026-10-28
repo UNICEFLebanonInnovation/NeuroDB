@@ -921,7 +921,9 @@ FR_LINK_WORDS = {
     "by_id_other_partner": "No number, and their eTools id names another partner's PD",
 }
 FR_SEVERAL = "several PDs fit"
-FR_OTHER_PARTNER = "another partner's PD"  # a line's PD in NeuroDB when its eTools id names one (no number)
+# a line's or header's PD in NeuroDB when, with no number, its eTools id names another partner's PD: the sync
+# links it to none, and says why, as the other words of that column do
+FR_OTHER_PARTNER = "none (its eTools id names another partner's PD)"
 UPDATED = {"last": "the last sync", "earlier": "an earlier sync"}
 # the partner reports' "Updated by" choices for the rows eTools no longer sends (datamart_sync.keep_unsent):
 # those whose number eTools sends for another period (to review first), all of them, and those whose status
@@ -1145,7 +1147,8 @@ class FundsNumbers:
     def other_partner(self, row: Any) -> bool:
         """Whether ``row`` links to no PD because, with no number (none of its own, nor its FR header's), its
         eTools id names a PD NeuroDB holds of another partner than its vendor number's (the sync counts it
-        "by_id_other_partner")."""
+        "by_id_other_partner"). Not when NeuroDB holds no vendor number for that PD's partner: the sync then
+        leaves it on the PD ("by_id_vendor_unknown")."""
         from neurodb.integrations.etools.datamart_sync import _vendor  # lazy: the Datamart sync
 
         vendor = _vendor(row.vendor_code)
@@ -1156,7 +1159,8 @@ class FundsNumbers:
         if self._vendors is None:
             pds = PCA.objects.values_list("etl_id", "partner__vendor_number")
             self._vendors = {str(etl_id): _vendor(number) for etl_id, number in pds}
-        return str(named) in self._vendors and self._vendors[str(named)] != vendor
+        own = self._vendors.get(str(named), "")  # '' when its partner has no vendor number, or none
+        return bool(own) and own != vendor
 
     def other_partner_q(self, rows: QuerySet) -> Q:
         """Of ``rows`` (funds reservation lines or headers), those :meth:`other_partner` (one query for the
@@ -2054,8 +2058,18 @@ def fr_link_words(found: dict[str, int], name: str) -> str:
         "each went to the PD whose dates cover it, else to the one that ends last. By eTools id only (no "
         f"number): {n('by_id')}."
     )
-    if found.get("by_id_no_vendor"):
-        said = said[:-1] + f" ({n('by_id_no_vendor')} of them carry no vendor number)."
+    apart = []  # linked by the eTools id with no vendor number to compare
+    if no_vendor := found.get("by_id_no_vendor", 0):
+        apart.append(_n(no_vendor, "of them carries no vendor number", "of them carry no vendor number"))
+    if unknown := found.get("by_id_vendor_unknown", 0):
+        apart.append(
+            _n(unknown, "of them is", "of them are")
+            + " on a PD whose partner's vendor number NeuroDB does not know, so "
+            + ("it" if unknown == 1 else "they")
+            + " could not be checked"
+        )
+    if apart:
+        said = said[:-1] + f" ({'; '.join(apart)})."
     gone = f"a number of a PD NeuroDB does not hold {n('number_not_held')}"
     if found.get("number_not_held"):
         gone += f" (the eTools id names a PD NeuroDB holds on {n('number_not_held_id_held')} of them)"
@@ -2064,8 +2078,8 @@ def fr_link_words(found: dict[str, int], name: str) -> str:
         gone += f"; no number, and an eTools id of a PD NeuroDB does not hold {n('id_not_held')}"
     if found.get("by_id_other_partner"):
         gone += (
-            "; no number, and an eTools id that names a PD of another partner (the line's vendor number is "
-            f"not that partner's) {n('by_id_other_partner')}"
+            "; no number, and an eTools id that names a PD of another partner (its vendor number is not that "
+            f"partner's) {n('by_id_other_partner')}"
         )
     said += (
         f" Not linked: {gone}. The eTools id names another PD NeuroDB holds on {n('id_other')} of the {noun} "
@@ -2129,10 +2143,12 @@ def budget_link_words(found: Any) -> str:
     def n(key: str) -> str:
         return f"{found.get(key, 0):,}"
 
+    def one(key: str, single: str, many: str) -> str:  # a count and the words that agree with it
+        return _n(found.get(key, 0), single, many)
+
     said = [
         f"Of the {records} of the last sync, each writes the budget of the programme document whose "
-        f"reference number it carries: {n('by_number')} by their number, {n('by_id')} by their eTools id (no "
-        "number)."
+        f"reference number it carries: {n('by_number')} by number, {n('by_id')} by eTools id (no number)."
     ]
     gone = [f"{n('number_not_held')} whose number names no programme document NeuroDB holds"]
     if found.get("number_not_held_amended"):
@@ -2146,18 +2162,25 @@ def budget_link_words(found: Any) -> str:
     gone.append(f"{n('set_aside')} set aside for another record of the same programme document")
     said.append(f"Not written: {'; '.join(gone)}.")
     several = _n(found.get("several", 0), "programme document was", "programme documents were")
-    said.append(
-        f"{several} named by several budget records: NeuroDB keeps the one whose eTools id also names it, "
-        "else the newest, else the last one read."
+    said.append(  # the order of Links.plan_budgets
+        f"{several} named by several budget records: NeuroDB keeps one that carries the number before one "
+        "named by its eTools id alone, then the one whose eTools id also names it, then the newest, then the "
+        "last one read."
     )
     if found.get("twice"):
+        went = "it went" if found["twice"] == 1 else "each went"
         said.append(
-            f"{n('twice')} carry a number several programme documents share and an eTools id that names none "
-            "of them: each went to the one whose dates cover it, else to the one that ends last."
+            f"{one('twice', 'carries', 'carry')} a number several programme documents share and an eTools "
+            f"id that names none of them: {went} to the one whose dates cover it, else to the one that ends "
+            "last."
         )
     said.append(
-        f"{n('number_other')} carry an eTools id that names another programme document than their number: "
-        "the number decides."
+        one(
+            "number_other",
+            "carries an eTools id that names another programme document than its number",
+            "carry an eTools id that names another programme document than their number",
+        )
+        + ": the number decides."
     )
     if found.get("source_id_compared") or found.get("intervention_id_compared"):
         said.append(
@@ -2167,14 +2190,19 @@ def budget_link_words(found: Any) -> str:
         )
     if failed := found.get("clear_failed"):
         said.append(
-            f"Emptying the budget of {_n(failed, 'programme document', 'programme documents')} another "
-            "programme document's record had written failed: the next sync tries again."
+            "Emptying the budget of 1 programme document, which another programme document's record had "
+            "written, failed: the next sync tries again."
+            if failed == 1
+            else f"Emptying the budgets of {failed:,} programme documents, which other programme documents' "
+            "records had written, failed: the next sync tries again."
         )
     if cleared := found.get("cleared"):
-        emptied = _n(cleared, "programme document was", "programme documents were")
         said.append(
-            f"The budget of {emptied} emptied: only an eTools id named it, against the number, so the "
-            "budget it had was another programme document's."
+            "The budget of 1 programme document was emptied: only an eTools id named it, against the number, "
+            "so the budget it had was another programme document's."
+            if cleared == 1
+            else f"The budgets of {cleared:,} programme documents were emptied: only an eTools id named "
+            "each, against the number, so the budget each had was another programme document's."
         )
     return " ".join(said)
 

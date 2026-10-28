@@ -643,3 +643,29 @@ def test_the_guide_and_operations_say_what_progress_reports_count_and_what_emerg
     assert "`pd_indicator_progress` and `partner_reporting` take `emergency` (yes or no)" in OPERATIONS_WORDS
     # Home's "Nothing to follow up": every report is Accepted, as a report not yet due is one to follow up
     assert "for reports that are all Accepted or not yet due" not in OPERATIONS_WORDS
+
+
+def test_operations_and_the_guide_say_which_funds_lines_with_no_number_are_left_unlinked():
+    """A funds line with no number whose vendor number is another partner's is linked to no PD: OPERATIONS said
+    "not linked" rises by the lines whose number names no PD or fits several only. A line whose PD's partner
+    has no vendor number in NeuroDB stays on it, and so does one with no vendor number: the guide said only "the
+    same partner's". Both read the line's PD in NeuroDB as the page writes it."""
+    from neurodb.datamart import raw
+
+    assert (
+        '"not linked" rise by the lines whose number names a PD NeuroDB does not hold or fits several, and by '
+        "those with no number whose eTools id names a PD of another partner than their vendor number's "
+        "(`by_id_other_partner`:"
+    ) in OPERATIONS_WORDS
+    assert "`by_id_vendor_unknown`" in OPERATIONS_WORDS
+    assert f'"{raw.FR_OTHER_PARTNER}"' in OPERATIONS_WORDS
+    figures = " ".join(GUIDE_TEXT["checking-figures"].split())
+    assert f'"{raw.FR_OTHER_PARTNER}"' in figures
+    assert 'reads "another partner\'s PD"' not in figures + OPERATIONS_WORDS
+    assert "List those on another partner's PD by their eTools id" not in figures + OPERATIONS_WORDS
+    progress = " ".join(GUIDE_TEXT["partner-progress"].split())
+    assert "to the one its eTools id names when it is the same partner's" not in progress
+    assert (
+        "(a line without a number, to the one its eTools id names unless its vendor number is another partner's)"
+        in progress
+    )

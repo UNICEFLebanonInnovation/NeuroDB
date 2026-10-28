@@ -1355,7 +1355,7 @@ def test_the_budgets_page_says_which_budget_records_name_another_pd(client_valid
     assert escape(said) in html
     assert said.startswith(
         "Of the 4 budget records of the last sync, each writes the budget of the programme document whose "
-        "reference number it carries: 3 by their number, 1 by their eTools id (no number)."
+        "reference number it carries: 3 by number, 1 by eTools id (no number)."
     )
     assert "1 set aside for another record of the same programme document" in said
     assert said.endswith(
@@ -1383,7 +1383,8 @@ def test_a_budget_record_is_listed_under_the_pd_its_number_names(client_validato
 
 def test_funds_lines_with_no_number_on_another_partner_s_pd_are_said_and_listed(client_validator, world):
     """No number, and the eTools id names a PD of another partner than the line's vendor number: the sync links
-    it to none. The page says how many, lists them, and reads "another partner's PD" as their PD in NeuroDB."""
+    it to none. The page says how many and lists them; the link, the list, the line's page and the CSV say it is
+    on no PD and why, never that it is on another partner's PD."""
     running = world["running"]  # eTools id 11, the partner's vendor number V1
     for pk, vendor, source in ((1, "V2", 11), (2, "V1", 11), (3, "", 11), (4, "V2", 99)):
         dm.FundsReservation.objects.create(
@@ -1398,14 +1399,23 @@ def test_funds_lines_with_no_number_on_another_partner_s_pd_are_said_and_listed(
     url = f"{INDEX}funds_reservations/"
     html = client_validator.get(url).content.decode()
     said = raw.fr_link_words(found, "funds_reservations")
-    assert escape(said) in html and 'href="?fr_link=by_id_other_partner"' in html
-    assert "By eTools id only (no number): 2 (1 of them carry no vendor number)." in said
+    assert escape(said) in html
+    link = "List those not linked because their eTools id names another partner's PD"
+    assert f'<a class="nd-link" href="?fr_link=by_id_other_partner">{link}</a>' in html
+    assert "on another partner&#x27;s PD" not in html and "on another partner's PD" not in html
+    assert "By eTools id only (no number): 2 (1 of them carries no vendor number)." in said
     assert _shown(client_validator, "funds_reservations", fr_link="by_id_other_partner") == 1
     response = client_validator.get(url, {"fr_link": "by_id_other_partner"})
-    assert escape(raw.FR_LINK_WORDS["by_id_other_partner"]) in response.content.decode()
+    page = response.content.decode()
+    assert escape(raw.FR_LINK_WORDS["by_id_other_partner"]) in page
+    none = "none (its eTools id names another partner's PD)"
+    assert escape(none) in page
+    line = dm.FundsReservation.objects.get(datamart_id=1)
+    record = client_validator.get(reverse("admin:datamart_raw_record", args=["funds_reservations", line.pk]))
+    assert f"Programme document: {escape(none)}" in record.content.decode()
     rows = _csv(client_validator.get(f"{INDEX}funds_reservations/rows.csv"))
     words = {r["record_id"]: r["pd_number_in_neurodb"] for r in rows}
-    assert words == {"1": raw.FR_OTHER_PARTNER, "2": "LEB/PD1", "3": "LEB/PD1", "4": "not in NeuroDB"}
+    assert words == {"1": none, "2": "LEB/PD1", "3": "LEB/PD1", "4": "not in NeuroDB"}
 
 
 def test_a_record_held_by_its_content_says_so(client_validator, world):
