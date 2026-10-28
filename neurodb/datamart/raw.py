@@ -283,9 +283,14 @@ LEGACY_READS: dict[str, dict[str, str]] = {
         "budget_unicef_supply": "the programme document's budget",
         "budget_cso_contribution": "the programme document's budget",
         "budget_currency": "the programme document's budget",
-        "number": "the programme document's number",
-        "source_id": "the programme document's eTools id",
-        "intervention_id": "the programme document's eTools id",
+        "number": "the programme document whose budget it is",
+        "source_id": "the programme document, when no number is given",
+        "intervention_id": "the programme document, when no number is given",
+        "start_date": "which programme document, when several carry its number",
+        **dict.fromkeys(
+            ("modified", "updated", "last_modify_date", "created"),
+            "which record is kept, when several name one programme document",
+        ),
     },
     "agreements": {
         k: "the agreement"
@@ -910,8 +915,13 @@ PD_LINK_WORDS = {
 # line's FR header's) names no programme document NeuroDB holds, by the rule the sync links them by
 # (FundsNumbers.not_held); and a line's PD in NeuroDB when its number fits several (the sync links it to none)
 FR_SOURCES = ("funds_reservations", "funds_reservation_headers")
-FR_LINK_WORDS = {"number_not_held": "Their number names no PD NeuroDB holds"}
+FR_LINK_WORDS = {
+    "number_not_held": "Their number names no PD NeuroDB holds",
+    # no number, and their eTools id names a PD of another partner than their vendor number's (FundsNumbers)
+    "by_id_other_partner": "No number, and their eTools id names another partner's PD",
+}
 FR_SEVERAL = "several PDs fit"
+FR_OTHER_PARTNER = "another partner's PD"  # a line's PD in NeuroDB when its eTools id names one (no number)
 UPDATED = {"last": "the last sync", "earlier": "an earlier sync"}
 # the partner reports' "Updated by" choices for the rows eTools no longer sends (datamart_sync.keep_unsent):
 # those whose number eTools sends for another period (to review first), all of them, and those whose status
@@ -1091,6 +1101,8 @@ class Filters:
                 rows = rows.filter(PD_LINKS[self.pd_link])
         if name in FR_SOURCES and self.fr_link == "number_not_held":
             rows = rows.filter(FundsNumbers().not_held(rows))
+        elif name in FR_SOURCES and self.fr_link == "by_id_other_partner":
+            rows = rows.filter(FundsNumbers().other_partner_q(rows))
         if name == "pd_indicators" and self.active:
             rows = rows.filter(is_active=self.active == "yes")
         return rows
@@ -1100,12 +1112,15 @@ class FundsNumbers:
     """The reference number a funds reservation line or header is linked by, read as the sync reads it
     (``datamart_sync.Links.by_number_first``): its own, else, for a line, its FR header's
     (``datamart_sync.fr_header_numbers``); and the programme documents NeuroDB holds that it may name
-    (``fm.PDResolver.candidates``: the exact number, another amendment's, the PD part alone). One for a page,
-    a download or a filter: the programme documents and the headers are each read once, when first needed."""
+    (``fm.PDResolver.candidates``: the exact number, another amendment's, the PD part alone). With no number,
+    whether its eTools id names another partner's PD (``datamart_sync._link_funds``: its vendor number is not
+    the vendor number of that PD's partner, and it links to none). One for a page, a download or a filter: the
+    programme documents and the headers are each read once, when first needed."""
 
     def __init__(self) -> None:
         self._resolver: PDResolver | None = None
         self._headers: dict[str, str] | None = None
+        self._vendors: dict[str, str] | None = None
 
     def headers(self) -> dict[str, str]:
         if self._headers is None:
@@ -1126,6 +1141,30 @@ class FundsNumbers:
         if self._resolver is None:
             self._resolver = PDResolver()
         return self._resolver.candidates(number)[0]
+
+    def other_partner(self, row: Any) -> bool:
+        """Whether ``row`` links to no PD because, with no number (none of its own, nor its FR header's), its
+        eTools id names a PD NeuroDB holds of another partner than its vendor number's (the sync counts it
+        "by_id_other_partner")."""
+        from neurodb.integrations.etools.datamart_sync import _vendor  # lazy: the Datamart sync
+
+        vendor = _vendor(row.vendor_code)
+        data = row.data if isinstance(row.data, dict) else {}
+        named = data.get("source_intervention_id")
+        if not vendor or named in (None, "") or self.number_of(row):
+            return False
+        if self._vendors is None:
+            pds = PCA.objects.values_list("etl_id", "partner__vendor_number")
+            self._vendors = {str(etl_id): _vendor(number) for etl_id, number in pds}
+        return str(named) in self._vendors and self._vendors[str(named)] != vendor
+
+    def other_partner_q(self, rows: QuerySet) -> Q:
+        """Of ``rows`` (funds reservation lines or headers), those :meth:`other_partner` (one query for the
+        rows without a number of their own that carry a vendor number)."""
+        fields = ("pk", "pd_reference_number", "vendor_code", "data")
+        fields += ("fr_number",) if rows.model is FundsReservation else ()
+        candidates = rows.filter(pd_reference_number="").exclude(vendor_code="").order_by().only(*fields)
+        return Q(pk__in=[row.pk for row in candidates.iterator() if self.other_partner(row)])
 
     def not_held(self, rows: QuerySet) -> Q:
         """Of ``rows`` (funds reservation lines or headers), those whose number names no programme document
@@ -1350,10 +1389,16 @@ def pd_words(row: Any, funds: FundsNumbers | None = None) -> str:
         funds = funds or FundsNumbers()
         if number := funds.number_of(row):
             return FR_SEVERAL if len(funds.fit(number)) > 1 else "not in NeuroDB"
+        if funds.other_partner(row):
+            return FR_OTHER_PARTNER
         data = row.data if isinstance(row.data, dict) else {}
         return "not in NeuroDB" if data.get("source_intervention_id") not in (None, "") else "names none"
     if isinstance(row, DatamartDocument) and row.dataset == "prp_progress_reports":
         return "not linked"  # through PRP's programme documents (datamart_sync.link_progress_reports)
+    if isinstance(row, DatamartDocument) and row.dataset == "intervention_budgets":
+        data = row.data if isinstance(row.data, dict) else {}  # its number, else its ids (Links.budget_pd)
+        named = any(data.get(k) not in (None, "") for k in ("number", "source_id", "intervention_id"))
+        return "not in NeuroDB" if named else "names none"
     data = getattr(row, "data", None) or {}
     named = (getattr(row, "pd_reference_number", "") or "") or data.get("etools_intervention_id") not in (
         None,
@@ -2009,12 +2054,19 @@ def fr_link_words(found: dict[str, int], name: str) -> str:
         "each went to the PD whose dates cover it, else to the one that ends last. By eTools id only (no "
         f"number): {n('by_id')}."
     )
+    if found.get("by_id_no_vendor"):
+        said = said[:-1] + f" ({n('by_id_no_vendor')} of them carry no vendor number)."
     gone = f"a number of a PD NeuroDB does not hold {n('number_not_held')}"
     if found.get("number_not_held"):
         gone += f" (the eTools id names a PD NeuroDB holds on {n('number_not_held_id_held')} of them)"
     gone += f"; a number several PDs fit (another amendment's or the PD part alone) {n('unclear')}"
     if found.get("id_not_held"):
         gone += f"; no number, and an eTools id of a PD NeuroDB does not hold {n('id_not_held')}"
+    if found.get("by_id_other_partner"):
+        gone += (
+            "; no number, and an eTools id that names a PD of another partner (the line's vendor number is "
+            f"not that partner's) {n('by_id_other_partner')}"
+        )
     said += (
         f" Not linked: {gone}. The eTools id names another PD NeuroDB holds on {n('id_other')} of the {noun} "
         f"linked by number (the old rule put them there); moved to another PD by this sync: {n('moved')}."
@@ -2051,24 +2103,80 @@ def inactive_words(found: dict[str, int] | None) -> str:
 
 def budget_link_words(found: Any) -> str:
     """The programme document budgets page's sentence on the budget records of the last sync
-    (``details.budget_link``, ``datamart_sync.Links.budget``): those whose number names another programme
-    document than their eTools id (linked by the id, as always), and the programme documents several records
-    wrote (the last one read is kept). "" for a sync before they were counted."""
+    (``details.budget_link``, ``datamart_sync.Links.plan_budgets``): each writes the budget of the programme
+    document whose reference number it carries (its eTools id only without a number); those that write none,
+    and why; the programme documents several records named (one kept); the records whose eTools id names
+    another programme document than their number, and how far each id agrees with the number; the budgets
+    emptied, which another programme document's record had written. A sync before the number decided
+    (no ``by_number``) is said as it was. "" for a sync before any was counted."""
     if not isinstance(found, dict) or "records" not in found:
         return ""
-    other, several = found.get("number_other", 0), found.get("several", 0)
-    names = (
-        "names by its number another programme document than its eTools id (NeuroDB links it by the id)"
-        if other == 1
-        else "name by their number another programme document than their eTools id (NeuroDB links them by "
-        "the id)"
-    )
     records = _n(found["records"], "budget record", "budget records")
-    written = _n(several, "programme document was", "programme documents were")
-    return (
-        f"Of the {records} of the last sync, {other:,} {names}; {written} written by several budget records "
-        "(the last one read is kept)."
+    if "by_number" not in found:
+        other, several = found.get("number_other", 0), found.get("several", 0)
+        names = (
+            "names by its number another programme document than its eTools id (NeuroDB linked it by the id)"
+            if other == 1
+            else "name by their number another programme document than their eTools id (NeuroDB linked them "
+            "by the id)"
+        )
+        written = _n(several, "programme document was", "programme documents were")
+        return (
+            f"Of the {records} of the last sync, {other:,} {names}; {written} written by several budget "
+            "records (the last one read was kept)."
+        )
+
+    def n(key: str) -> str:
+        return f"{found.get(key, 0):,}"
+
+    said = [
+        f"Of the {records} of the last sync, each writes the budget of the programme document whose "
+        f"reference number it carries: {n('by_number')} by their number, {n('by_id')} by their eTools id (no "
+        "number)."
+    ]
+    gone = [f"{n('number_not_held')} whose number names no programme document NeuroDB holds"]
+    if found.get("number_not_held_amended"):
+        gone[0] += f" (another amendment's number of one it holds on {n('number_not_held_amended')} of them)"
+    if found.get("id_not_held"):
+        gone.append(
+            f"{n('id_not_held')} with no number and an eTools id of no programme document NeuroDB holds"
+        )
+    if found.get("names_none"):
+        gone.append(f"{n('names_none')} with neither a number nor an eTools id")
+    gone.append(f"{n('set_aside')} set aside for another record of the same programme document")
+    said.append(f"Not written: {'; '.join(gone)}.")
+    several = _n(found.get("several", 0), "programme document was", "programme documents were")
+    said.append(
+        f"{several} named by several budget records: NeuroDB keeps the one whose eTools id also names it, "
+        "else the newest, else the last one read."
     )
+    if found.get("twice"):
+        said.append(
+            f"{n('twice')} carry a number several programme documents share and an eTools id that names none "
+            "of them: each went to the one whose dates cover it, else to the one that ends last."
+        )
+    said.append(
+        f"{n('number_other')} carry an eTools id that names another programme document than their number: "
+        "the number decides."
+    )
+    if found.get("source_id_compared") or found.get("intervention_id_compared"):
+        said.append(
+            "Of the records linked by number, their eTools id names the same programme document on "
+            f"{n('source_id_same')} of {n('source_id_compared')}, their second eTools id (intervention_id) "
+            f"on {n('intervention_id_same')} of {n('intervention_id_compared')}."
+        )
+    if failed := found.get("clear_failed"):
+        said.append(
+            f"Emptying the budget of {_n(failed, 'programme document', 'programme documents')} another "
+            "programme document's record had written failed: the next sync tries again."
+        )
+    if cleared := found.get("cleared"):
+        emptied = _n(cleared, "programme document was", "programme documents were")
+        said.append(
+            f"The budget of {emptied} emptied: only an eTools id named it, against the number, so the "
+            "budget it had was another programme document's."
+        )
+    return " ".join(said)
 
 
 # why the data does not prove the link of PRP's progress reports to their programme documents

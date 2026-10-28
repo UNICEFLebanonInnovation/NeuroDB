@@ -468,14 +468,20 @@ programme documents, trips, engagements, action points and their details).
   takes its FR's number. The eTools id decides only when no number is given, or between the PDs the number
   fits. When it names none of them, a line whose exact number several PDs carry goes to the one whose dates
   cover it, else to the one that ends last; a line whose number fits several PDs in another way goes to none,
-  and its PD in NeuroDB reads "several PDs fit". The line under the counts says how the last sync linked
-  them: by which kind of number, by eTools id only, not linked (a number of a PD NeuroDB does not hold, and on
-  how many of those the eTools id names a PD NeuroDB holds; a number several PDs fit), how many the eTools id
-  would put on another PD, and how many this sync moved to another PD. It also says on how many lines of each
-  kind the vendor number is the partner's of the PD they sit on: nearly all, for each kind. The filter's
-  *Programme document link* choice "Their number names no PD NeuroDB holds" lists the lines left unlinked so,
-  those without a number of their own by their FR's number: as many as the line under the counts says. If
-  they are many, tell the NeuroDB team before using the Funds pages.
+  and its PD in NeuroDB reads "several PDs fit". A line with no number at all goes to the PD its eTools id
+  names only when its vendor number is that PD's partner's, or when it carries no vendor number: with another
+  partner's vendor number it goes to none, and its PD in NeuroDB reads "another partner's PD" (the eTools id
+  alone often names another partner's PD). The line under the counts says how the last sync linked them: by
+  which kind of number, by eTools id only (and how many of those carry no vendor number), not linked (a number
+  of a PD NeuroDB does not hold, and on how many of those the eTools id names a PD NeuroDB holds; a number
+  several PDs fit; no number and an eTools id of another partner's PD), how many the eTools id would put on
+  another PD, and how many this sync moved to another PD. It also says on how many lines of each kind the
+  vendor number is the partner's of the PD they sit on: nearly all, for each kind. The filter's *Programme
+  document link* choice "Their number names no PD NeuroDB holds" lists the lines left unlinked so, those
+  without a number of their own by their FR's number: as many as the line under the counts says; "No number,
+  and their eTools id names another partner's PD" lists those left unlinked for that reason (also *List those
+  on another partner's PD by their eTools id* under the counts). If they are many, tell the NeuroDB team before
+  using the Funds pages.
 - **PRP's own progress reports and their programme documents** (PRP progress reports). PRP's own list holds
   the reports partners still owe for a period that has ended, which the partner reports stop sending. The line
   under the counts says, as the last sync recorded it, whether they are tied to their programme document ("yes,
@@ -500,10 +506,19 @@ programme documents, trips, engagements, action points and their details).
   eTools marks inactive in every row, of how many programme documents, and how many of them have no partner
   report row: mostly an older wording of a PD's indicator, still listed on Programmes → Indicators and Partner
   monitoring. The filter's *Active* choice ("no") lists their rows. Nothing on the pages changes.
-- **Programme document budgets.** The line under the counts says how many budget records the last sync read,
-  how many name by their number another programme document than their eTools id (NeuroDB links them by the
-  id, as always), and how many programme documents several budget records wrote (the last one read is kept):
-  a budget that differs from Power BI's may come from one of these.
+- **Programme document budgets.** Each budget record writes the budget of the programme document whose
+  reference number it carries (its eTools id decides only when it carries no number: the id often names
+  another programme document). A number no programme document in NeuroDB carries writes nothing, nor does
+  another amendment's number. When several records carry one programme document's number, NeuroDB keeps the
+  one whose eTools id also names it, else the newest, else the last one read. A programme document that a
+  record's eTools id named against its number (where NeuroDB used to write another programme document's
+  budget), and that no record names now, has its budget emptied: it shows none rather than another's. The line
+  under the counts says how the last sync wrote them: by number, by eTools id, not written (and why), the
+  programme documents several records named, how many records carry an eTools id of another programme
+  document than their number, how often each of their two eTools ids agrees with the number, and how many
+  budgets were emptied. The list gives each record's programme document as its number names it ("not in
+  NeuroDB" when no programme document NeuroDB holds carries it); filter on a programme document to see every
+  record that names it. A budget that still differs from Power BI's: check the record's number in eTools.
 - **Records eTools sent twice.** One answer of the eTools Datamart (one page) never lists a record twice, so
   when every copy of a record comes identical in one answer, eTools holds it twice: NeuroDB keeps one, counts
   the copy with what it received ("1,939 the Datamart sent twice (identical)" under *Not kept*) and the sync

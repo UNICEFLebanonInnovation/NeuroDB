@@ -3275,8 +3275,9 @@ BUDGET_COLUMNS = frozenset({"unicef_planned", "cash", "partner_contribution", "p
 
 
 def with_budget(why: Reason, diffs: dict[str, Any], budget: tuple[Any, ...] | None) -> Reason:
-    """A line whose PD budget columns differ says the budget fields NeuroDB has for the PD (a diagnostic of
-    amended PDs' budgets: an earlier amendment's, or another record's)."""
+    """A line whose PD budget columns differ says the budget fields NeuroDB has for the PD (a diagnostic: the
+    budget of the record carrying the PD's number, the one kept of several, or "no value" when the sync
+    emptied another PD's budget there; Raw eTools data → Programme document budgets lists the records)."""
     if budget is None or not BUDGET_COLUMNS & set(diffs):
         return why
     from .funds import amount

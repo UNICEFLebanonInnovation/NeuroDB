@@ -112,6 +112,7 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         # how the funds reservation lines and the funds reservations link to their programme document
         *raw.FR_LINK_WORDS.values(),
         raw.FR_SEVERAL,  # a line's PD in NeuroDB when its number fits several
+        raw.FR_OTHER_PARTNER,  # and when, with no number, its eTools id names another partner's PD
         raw.fr_link_words(
             {
                 "by_number": 9,
@@ -125,6 +126,8 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
                 "number_not_held_id_held": 1,
                 "unclear": 1,
                 "id_not_held": 1,
+                "by_id_no_vendor": 1,
+                "by_id_other_partner": 2,
                 "id_other": 4,
                 "moved": 4,
                 **{f"vendor_compared_{kind}": 2 for kind in raw.FR_VENDOR_WORDS},
@@ -134,6 +137,7 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         ),
         raw.fr_link_words({"by_number": 1, "exact": 1}, "funds_reservation_headers"),
         raw.Filters(fr_link="number_not_held").words(),
+        raw.Filters(fr_link="by_id_other_partner").words(),
         # PRP's progress reports: tied to their programme documents? may the pages show their reports still owed?
         *raw.PRP_LINK_WHY.values(),
         *datamart_sync.SHOWN_WHY.values(),
@@ -159,6 +163,31 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         raw.Filters(active="no").words(),
         raw.budget_link_words({"records": 120, "number_other": 7, "several": 3}),
         raw.budget_link_words({"records": 1, "number_other": 1, "several": 1}),
+        # the budget records of a sync by the number they carry
+        raw.budget_link_words(
+            {
+                "records": 120,
+                "by_number": 100,
+                "by_id": 3,
+                "number_not_held": 9,
+                "number_not_held_amended": 2,
+                "id_not_held": 1,
+                "names_none": 1,
+                "set_aside": 6,
+                "several": 5,
+                "twice": 1,
+                "number_other": 70,
+                "source_id_compared": 100,
+                "source_id_same": 30,
+                "intervention_id_compared": 100,
+                "intervention_id_same": 99,
+                "cleared": 40,
+            }
+        ),
+        raw.budget_link_words({"records": 1, "by_number": 1, "number_other": 0, "several": 0, "cleared": 1}),
+        raw.budget_link_words(
+            {"records": 1, "by_number": 1, "number_other": 0, "several": 0, "clear_failed": 2}
+        ),
         backfill.UNSENT_BUSY,
         backfill.UNSENT_CHANGED,
         backfill.UNSENT_FAILED,

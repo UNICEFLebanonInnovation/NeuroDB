@@ -297,7 +297,13 @@ def test_a_funds_line_with_no_number_links_by_its_header_s_number_then_its_etool
     dm.FundsReservationHeader.objects.create(datamart_id=2, fr_number="0400002", pd_reference_number="")
     run = read_funds(fr_line(1, "", 12), fr_line(2, " ", 12, fr_number="0400002"))
     assert (pd_of(1), pd_of(2)) == (pd1.pk, pd2.pk)
-    assert run.details["pd_link"] == {"by_number": 1, "header": 1, "id_other": 1, "by_id": 1}
+    assert run.details["pd_link"] == {
+        "by_number": 1,
+        "header": 1,
+        "id_other": 1,
+        "by_id": 1,
+        "by_id_no_vendor": 1,
+    }
 
 
 @responses.activate
@@ -392,6 +398,7 @@ def test_a_funds_header_follows_the_same_rule(two_pds):
         "id_other": 1,
         "moved": 1,
         "by_id": 1,
+        "by_id_no_vendor": 1,
         "number_not_held": 1,
     }
 
@@ -405,7 +412,7 @@ def test_the_vendor_check_counts_lines_whose_vendor_is_the_pd_s_partner_per_link
         fr_line(3, PD1_NUMBER, vendor_code="2500000002"),
         fr_line(4, PD1_NUMBER),  # no vendor: not compared
         fr_line(5, "LEBA/PCA2020002/PD2020002-1", vendor_code="2500000002"),
-        fr_line(6, "", 11, vendor_code="2500000002"),
+        fr_line(6, "", 11, vendor_code="2500000001"),
     )
     found = run.details["pd_link"]
     assert {k: v for k, v in found.items() if k.startswith("vendor_")} == {
@@ -414,6 +421,74 @@ def test_the_vendor_check_counts_lines_whose_vendor_is_the_pd_s_partner_per_link
         "vendor_compared_amended": 1,
         "vendor_same_amended": 1,
         "vendor_compared_by_id": 1,
+        "vendor_same_by_id": 1,
+    }
+
+
+@responses.activate
+def test_a_funds_line_with_no_number_sits_on_its_etools_id_s_pd_only_with_its_partner_s_vendor_number(
+    two_pds,
+):
+    """No number of its own nor from its FR header: the eTools id links it only when the line's vendor number is
+    the vendor number of that PD's partner (spaces and leading zeros aside), or when it carries none (as before,
+    counted). Another partner's vendor number links it to no PD: counted, said and listed on Raw eTools data. PD1
+    loses the line it held so, and its donors with it."""
+    pd1, _ = two_pds
+    dm.FundsReservation.objects.create(datamart_id=1, intervention=pd1, grant_number="SC000001")
+    PCA.objects.filter(pk=pd1.pk).update(donors_set=[GRANT])
+    run = read_funds(
+        fr_line(1, "", 11, vendor_code="2500000002"),  # Partner B's vendor number, PD1 is Partner A's
+        fr_line(2, "", 11, vendor_code=" 002500000001"),  # Partner A's
+        fr_line(3, "", 11),  # no vendor number: by the eTools id, as before
+        fr_line(4, "", 12, vendor_code="2500000001", fr_number="0400009"),  # PD2 is Partner B's
+    )
+    assert [pd_of(pk) for pk in (1, 2, 3, 4)] == [None, pd1.pk, pd1.pk, None]
+    assert run.details["pd_link"] == {
+        "by_id": 2,
+        "by_id_no_vendor": 1,
+        "by_id_other_partner": 2,
+        "vendor_compared_by_id": 1,
+        "vendor_same_by_id": 1,
+    }
+    assert run.details["not_linked"] == {"programme_document": 2}
+    pd1.refresh_from_db()
+    assert pd1.donors_set == [{**GRANT, "value": 200.0}]
+    lines = dm.FundsReservation.objects.select_related("intervention")
+    assert [raw.pd_words(line) for line in lines.order_by("datamart_id")] == [
+        raw.FR_OTHER_PARTNER,
+        PD1_NUMBER,
+        PD1_NUMBER,
+        raw.FR_OTHER_PARTNER,
+    ]
+    listed = raw.Filters(fr_link="by_id_other_partner").apply(
+        "funds_reservations", raw.base("funds_reservations"), run
+    )
+    assert sorted(listed.values_list("datamart_id", flat=True)) == [1, 4]
+    said = raw.fr_link_words(run.details["pd_link"], "funds_reservations")
+    assert "By eTools id only (no number): 2 (1 of them carry no vendor number)." in said
+    assert (
+        "no number, and an eTools id that names a PD of another partner (the line's vendor number is not that "
+        "partner's) 2" in said
+    )
+
+
+@responses.activate
+def test_a_funds_header_with_no_number_follows_the_same_vendor_rule(two_pds):
+    pd1, _ = two_pds
+    run = read_funds(
+        {"id": 1, "fr_number": "0400001", "pd_reference_number": "", "source_intervention_id": 11,
+         "vendor_code": "2500000002"},
+        {"id": 2, "fr_number": "0400002", "pd_reference_number": "", "source_intervention_id": 11,
+         "vendor_code": "2500000001"},
+        dataset="funds_reservation_headers",
+    )  # fmt: skip
+    header = dm.FundsReservationHeader
+    assert (pd_of(1, header), pd_of(2, header)) == (None, pd1.pk)
+    assert run.details["pd_link"] == {
+        "by_id": 1,
+        "by_id_other_partner": 1,
+        "vendor_compared_by_id": 1,
+        "vendor_same_by_id": 1,
     }
 
 
@@ -1736,47 +1811,280 @@ def test_the_locations_job_reads_the_datamart_by_default(db):
     assert Location.objects.get(p_code="LB11").parent_id == akkar.pk
 
 
-# ------------------------------------------------------------------- budget records: a diagnostic, no figure
-def _budget(pk: int, source_id: int, number: str, total: str) -> dict:
-    """One record of interventions-budget, as the Datamart sends it."""
+# ----------------------------------------------------- budget records: written to the PD whose number they carry
+AMENDED, OTHER_SPD, OLD_PD = (
+    "LEBA/PCA2020101/PD2020101-6",
+    "LEBA/PCA2020102/SPD2020102",
+    "LEBA/PCA2020103/PD2020103",
+)
+NO_BUDGET = (None, None, None, None)
+
+
+@pytest.fixture
+def three_pds(db):
+    """Three programme documents of three partners (fake numbers): an amended PD (eTools id 101, Partner A), an SPD
+    (102, Partner B) and an old PD (103, Partner C)."""
+    found = []
+    for n, number in enumerate((AMENDED, OTHER_SPD, OLD_PD), start=1):
+        partner = PartnerOrganization.objects.create(
+            etl_id=str(n), name=f"Partner {'ABC'[n - 1]}", vendor_number=f"250000000{n}"
+        )
+        found.append(PCA.objects.create(etl_id=str(100 + n), number=number, title=f"PD {n}", partner=partner))
+    return found
+
+
+def budget(pk: int, number: str, source_id: int | None = None, total: str = "100", **extra) -> dict:
+    """One record of interventions-budget, as the Datamart sends it (both its eTools ids alike unless given)."""
     return {"id": pk, "source_id": source_id, "intervention_id": source_id, "number": number,
-            "budget_total": total, "budget_unicef_cash": "800", "budget_unicef_supply": "0",
-            "budget_cso_contribution": "200", "budget_currency": "USD"}  # fmt: skip
+            "budget_total": total, "budget_unicef_cash": "80", "budget_unicef_supply": "0",
+            "budget_cso_contribution": "20", "budget_currency": "USD", **extra}  # fmt: skip
+
+
+def read_budgets(*records: dict, count: int | None = None) -> SyncRun:
+    body = {"count": len(records) if count is None else count, "next": None, "results": list(records)}
+    responses.upsert(responses.GET, f"{API}/interventions-budget/", json=body)
+    (run,) = run_all("intervention_budgets")
+    return run
+
+
+def budget_of(pd: PCA) -> tuple:
+    pd.refresh_from_db()
+    return (pd.total_budget, pd.unicef_cash, pd.total_unicef_budget, pd.cso_contribution)
+
+
+def set_budget(pd: PCA, total: str) -> None:
+    PCA.objects.filter(pk=pd.pk).update(
+        total_budget=total,
+        unicef_cash=total,
+        total_unicef_budget=total,
+        cso_contribution="0",
+        budget_currency="USD",
+    )
+
+
+def budget_pds() -> dict[str, str | None]:
+    """Each budget record's programme document in NeuroDB, as Raw eTools data lists it."""
+    rows = dm.DatamartDocument.objects.filter(dataset="intervention_budgets")
+    return dict(rows.values_list("record_key", "intervention__number"))
 
 
 @responses.activate
-def test_budget_records_whose_number_names_another_pd_or_that_share_a_pd_are_counted():
-    """PD 11 gets five budget records: an amendment's, the latest, one whose number names PD 12 while its eTools id
-    names PD 11 (linked by the id, as before; the last read wins), one naming an amendment of PD 12 NeuroDB does
-    not hold, and one naming another amendment of PD 11 (the same PD). The run counts the two records whose
-    number names another PD and the PD several records wrote; nothing else changes. Two runs sharing one sync's
-    links count their own records only, and no other dataset says it."""
+def test_two_budget_records_crossed_write_each_pd_its_own_budget(three_pds):
+    """As on 27 Oct 2026, with fake numbers: the amended PD's own record carries its number and the SPD's eTools
+    id; the old PD's record carries its number and the amended PD's eTools id. By id first, the amended PD showed
+    the old PD's budget and the SPD the amended PD's. Now each record writes the PD its number names, Raw eTools
+    data lists each under that PD, and the SPD, which no record names by number, loses the amended PD's budget."""
+    amended, spd, old = three_pds
+    PCA.objects.filter(pk=amended.pk).update(
+        total_budget="110.21", unicef_cash="99.08", total_unicef_budget="99.08", cso_contribution="11.13"
+    )
+    PCA.objects.filter(pk=spd.pk).update(
+        total_budget="6654.01",
+        unicef_cash="3330.15",
+        total_unicef_budget="6360.35",
+        cso_contribution="293.66",
+    )
+    run = read_budgets(
+        budget(61, AMENDED, 102, total="6654.01", budget_unicef_cash="3330.15", budget_unicef_supply="3030.20",
+               budget_cso_contribution="293.66"),
+        budget(63, OLD_PD, 101, total="110.21", budget_unicef_cash="99.08", budget_cso_contribution="11.13"),
+    )  # fmt: skip
+    assert run.status == SyncRun.Status.SUCCEEDED
+    assert budget_of(amended) == ("6654.01", "3330.15", "6360.35", "293.66")
+    assert budget_of(old) == ("110.21", "99.08", "99.08", "11.13")
+    assert budget_of(spd) == NO_BUDGET and spd.budget_currency is None
+    found = run.details["budget_link"]
+    assert found == {
+        "records": 2,
+        "by_number": 2,
+        "number_other": 2,
+        "several": 0,
+        "source_id_compared": 2,
+        "intervention_id_compared": 2,
+        "cleared": 1,
+    }
+    assert "not_linked" not in run.details
+    assert budget_pds() == {"61": AMENDED, "63": OLD_PD}
+    assert raw.budget_link_words(found) == (
+        "Of the 2 budget records of the last sync, each writes the budget of the programme document whose "
+        "reference number it carries: 2 by their number, 0 by their eTools id (no number). Not written: 0 whose "
+        "number names no programme document NeuroDB holds; 0 set aside for another record of the same programme "
+        "document. 0 programme documents were named by several budget records: NeuroDB keeps the one whose "
+        "eTools id also names it, else the newest, else the last one read. 2 carry an eTools id that names "
+        "another programme document than their number: the number decides. Of the records linked by number, "
+        "their eTools id names the same programme document on 0 of 2, their second eTools id (intervention_id) on "
+        "0 of 2. The budget of 1 programme document was emptied: only an eTools id named it, against the number, "
+        "so the budget it had was another programme document's."
+    )
+    # the next night finds each where it is: nothing more to empty
+    run = read_budgets(budget(61, AMENDED, 102, total="6654.01"), budget(63, OLD_PD, 101, total="110.21"))
+    assert "cleared" not in run.details["budget_link"]
+    assert budget_of(spd) == NO_BUDGET
+
+
+@responses.activate
+def test_a_budget_record_without_a_number_links_by_its_etools_id(three_pds):
+    amended, spd, _ = three_pds
+    set_budget(spd, "1")
+    run = read_budgets(
+        budget(1, "", 101, total="500"),
+        budget(2, " ", 999),  # an eTools id of no PD NeuroDB holds
+        budget(3, "", None),  # neither
+        budget(1, "", 101, total="500"),  # the Datamart sent it twice: one record
+    )
+    assert budget_of(amended)[0] == "500"
+    assert budget_of(spd)[0] == "1"  # named by none: kept as it was
+    assert run.details["budget_link"] == {
+        "records": 3,
+        "by_number": 0,
+        "by_id": 1,
+        "id_not_held": 1,
+        "names_none": 1,
+        "number_other": 0,
+        "several": 0,
+    }
+    assert run.details["not_linked"] == {"programme_document": 1}
+    assert budget_pds() == {"1": AMENDED, "2": None, "3": None}
+    words = {
+        d.record_key: raw.pd_words(d)
+        for d in dm.DatamartDocument.objects.filter(dataset="intervention_budgets")
+    }
+    assert words == {"1": AMENDED, "2": "not in NeuroDB", "3": "names none"}
+
+
+@responses.activate
+def test_a_budget_record_whose_number_no_pd_carries_writes_no_pd(three_pds):
+    """Whatever its eTools id names: here the amended PD, whose own record is read first. Another amendment's
+    number is not the PD's (its budget may be an earlier version's): counted, written nowhere."""
+    amended, _, _ = three_pds
+    run = read_budgets(
+        budget(2, AMENDED, 101, total="500"),
+        budget(1, "LEBA/PCA2020109/PD2020109-1", 101, total="999"),
+        budget(3, "LEBA/PCA2020101/PD2020101-7", None, total="700"),
+    )
+    assert budget_of(amended)[0] == "500"
+    assert run.details["budget_link"] == {
+        "records": 3,
+        "by_number": 1,
+        "number_not_held": 2,
+        "number_not_held_amended": 1,
+        "number_other": 1,
+        "several": 0,
+        "source_id_compared": 1,
+        "source_id_same": 1,
+        "intervention_id_compared": 1,
+        "intervention_id_same": 1,
+    }
+    assert run.details["not_linked"] == {"programme_document": 2}
+    assert budget_pds() == {"1": None, "2": AMENDED, "3": None}
+    said = raw.budget_link_words(run.details["budget_link"])
+    assert (
+        "Not written: 2 whose number names no programme document NeuroDB holds (another amendment's number of "
+        in said
+    )
+
+
+@responses.activate
+def test_several_budget_records_of_one_pd_keep_one_by_their_id_then_their_date_then_the_last_read(three_pds):
+    amended, spd, old = three_pds
+    run = read_budgets(
+        budget(1, AMENDED, 102, total="1", modified="2026-03-01T10:00:00Z"),
+        budget(
+            2, AMENDED, 101, total="2", modified="2026-01-01T10:00:00Z"
+        ),  # its eTools id names the PD: kept
+        budget(3, AMENDED, 103, total="3", modified="2026-05-01T10:00:00Z"),
+        budget(4, OTHER_SPD, None, total="4", modified="2026-02-01"),
+        budget(5, OTHER_SPD, None, total="5", modified="2026-04-01T08:00:00+03:00"),  # the newest: kept
+        budget(6, OTHER_SPD, None, total="6"),  # no date
+        budget(7, OLD_PD, None, total="7"),
+        budget(8, " leba/pca2020103/pd2020103 ", None, total="8"),  # the same number: the last read, kept
+    )
+    assert (budget_of(amended)[0], budget_of(spd)[0], budget_of(old)[0]) == ("2", "5", "8")
+    found = run.details["budget_link"]
+    assert (found["records"], found["by_number"], found["several"], found["set_aside"]) == (8, 8, 3, 5)
+    # every record is listed under the PD its number names, the one kept and those set aside alike
+    assert budget_pds() == {
+        "1": AMENDED, "2": AMENDED, "3": AMENDED, "4": OTHER_SPD, "5": OTHER_SPD, "6": OTHER_SPD, "7": OLD_PD,
+        "8": OLD_PD,
+    }  # fmt: skip
+    # the same records read in another order keep the same ones
+    run = read_budgets(*reversed([budget(1, AMENDED, 102, total="1"), budget(2, AMENDED, 101, total="2")]))
+    assert budget_of(amended)[0] == "2"
+
+
+@responses.activate
+def test_a_pd_the_old_rule_gave_another_pd_s_budget_is_emptied_after_a_whole_read(three_pds):
+    """The SPD's budget is the amended PD's (the old rule wrote it by the eTools id of the amended PD's record);
+    no record names the SPD by number. A read not whole leaves it (the record naming it may not have come); the
+    whole read empties it. A PD no record names at all, and one whose own record carries another amendment's
+    number (its budget is its own), keep theirs."""
+    amended, spd, old = three_pds
+    fourth = PCA.objects.create(
+        etl_id="104", number="LEBA/PCA2020104/PD2020104-2", title="PD 4", partner=old.partner
+    )
+    for pd in (amended, spd, old, fourth):
+        set_budget(pd, "1")
+    records = (budget(1, AMENDED, 102, total="500"), budget(2, "LEBA/PCA2020104/PD2020104-3", 104))
+    run = read_budgets(*records, count=5)
+    assert run.details["removal_skipped"] is True
+    assert "cleared" not in run.details["budget_link"]
+    assert (budget_of(amended)[0], budget_of(spd)[0]) == ("500", "1")
+    run = read_budgets(*records)
+    assert run.details["budget_link"]["cleared"] == 1
+    assert budget_of(spd) == NO_BUDGET
+    assert (budget_of(amended)[0], budget_of(old)[0], budget_of(fourth)[0]) == ("500", "1", "1")
+
+
+@responses.activate
+def test_budgets_that_cannot_be_emptied_leave_the_others_written_and_say_so(three_pds, monkeypatch):
+    amended, spd, _ = three_pds
+    set_budget(spd, "1")
+
+    def refuse(self):
+        PCA.objects.filter(pk__in=self.budget_stale).update(total_budget="0")
+        raise RuntimeError("no privilege")
+
+    monkeypatch.setattr(sync.Links, "clear_stale_budgets", refuse)
+    run = read_budgets(budget(1, AMENDED, 102, total="500"))
+    assert run.status == SyncRun.Status.PARTIAL
+    assert run.details["budget_link"]["clear_failed"] == 1 and "cleared" not in run.details["budget_link"]
+    assert (budget_of(amended)[0], budget_of(spd)[0]) == ("500", "1")  # its own written; nothing half emptied
+    assert "the next sync tries again" in raw.budget_link_words(run.details["budget_link"])
+
+
+@responses.activate
+def test_the_budget_counts_are_the_budget_run_s_own():
+    """Two runs sharing one sync's links count their own records only, and no other dataset says it."""
     p = PartnerOrganization.objects.create(etl_id="1", name="Partner A", vendor_number="2500000001")
-    pd11 = PCA.objects.create(etl_id="11", number="LEBA/PCA2020001/PD2020001-1", title="PD 1", partner=p)
-    PCA.objects.create(etl_id="12", number="LEBA/PCA2020002/PD2020002-1", title="PD 2", partner=p)
-    records = [
-        _budget(1, 11, "LEBA/PCA2020001/PD2020001-1", "900"),
-        _budget(2, 11, "LEBA/PCA2020001/PD2020001-1", "1000"),
-        _budget(3, 11, "LEBA/PCA2020002/PD2020002-1", "1100"),
-        _budget(4, 12, "LEBA/PCA2020002/PD2020002-1", "500"),
-        _budget(5, 11, "LEBA/PCA2020002/PD2020002-3", "1200"),
-        _budget(6, 11, "leba/pca2020001/pd2020001-2", "1300"),
-    ]
-    page("interventions-budget", records)
+    PCA.objects.create(etl_id="11", number="LEBA/PCA2020001/PD2020001-1", title="PD 1", partner=p)
+    page("interventions-budget", [budget(1, "LEBA/PCA2020001/PD2020001-1", 11), budget(2, "", 11)])
     page("partners/agreements", [])
     budgets, agreements = run_all("intervention_budgets,agreements")
-    assert budgets.details["budget_link"] == {"records": 6, "number_other": 2, "several": 1}
+    expected = {
+        "records": 2,
+        "by_number": 1,
+        "by_id": 1,
+        "number_other": 0,
+        "several": 1,
+        "set_aside": 1,
+        "source_id_compared": 1,
+        "source_id_same": 1,
+        "intervention_id_compared": 1,
+        "intervention_id_same": 1,
+    }
+    assert budgets.details["budget_link"] == expected
     assert "budget_link" not in agreements.details
-    pd11.refresh_from_db()
-    assert pd11.total_budget == "1300"  # the last read, linked by its eTools id: unchanged
-    assert raw.budget_link_words(budgets.details["budget_link"]) == (
-        "Of the 6 budget records of the last sync, 2 name by their number another programme document than their "
-        "eTools id (NeuroDB links them by the id); 1 programme document was written by several budget records "
-        "(the last one read is kept)."
-    )
     links = sync.Links()
     for _ in range(2):
         run = SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="intervention_budgets")
         sync.ENTITY_SYNCS["intervention_budgets"](run, client=make_client(), links=links)
         run.refresh_from_db()
-        assert run.details["budget_link"] == {"records": 6, "number_other": 2, "several": 1}
+        assert run.details["budget_link"] == expected
+
+
+def test_a_sync_before_the_number_decided_keeps_its_words():
+    assert raw.budget_link_words({"records": 6, "number_other": 2, "several": 1}) == (
+        "Of the 6 budget records of the last sync, 2 name by their number another programme document than their "
+        "eTools id (NeuroDB linked them by the id); 1 programme document was written by several budget records "
+        "(the last one read was kept)."
+    )

@@ -5,7 +5,8 @@ Two kinds of targets:
 * The existing eTools tables the whole site reads (``etools.PartnerOrganization``, ``etools.PCA``,
   ``etools.Agreement``) are upserted by their eTools id (``etl_id`` = the Datamart ``source_id``),
   so the programme, partner and donor pages, the filters and the assistant keep working unchanged
-  on Datamart data. Rows are never deleted from them.
+  on Datamart data. Rows are never deleted from them. A programme document's budget is the one of the budget
+  record that carries its reference number (:meth:`Links.plan_budgets`), not of the one its eTools id names.
 * The datasets those tables have no place for (funds reservations, grants, PD indicators,
   assessments, audits and spot checks, action points, TPM visits, field monitoring findings, HACT
   totals) go to the ``datamart`` app, keyed by the Datamart id and linked to the programme
@@ -142,46 +143,146 @@ class Links:
         self._tpm_visits: dict[str, int] | None = None
         self._fm_pds: PDResolver | None = None
         self._pca_vendor: dict[int, str] | None = None  # each PD's partner's vendor number
-        self._pca_numbers: dict[int, str] = {}  # each PD's reference number (:meth:`budget`)
+        self._pca_numbers: dict[int, str] = {}  # each PD's reference number (:meth:`plan_budgets`)
         self._header_numbers: dict[str, str] | None = None  # FR number -> its header's reference number
         self.scope: Any = None  # the CountryScope of the run, once a catalogue dataset needs it
         self.missing: dict[str, int] = defaultdict(int)
         # how a run linked funds reservation lines or headers to their PD (details.pd_link), each record once
         self.fr_link: Counter[str] = Counter()
         self.fr_counted: set[int] = set()
-        # the budget records of a run (details.budget_link, :meth:`budget`) and the PDs each wrote
+        # the budget records of a run (details.budget_link, :meth:`plan_budgets`): the PD each names by the
+        # rule (by record key), the record each PD's budget is written from, the PDs whose budget is emptied
         self.budget_link: Counter[str] = Counter()
-        self.budget_written: Counter[int] = Counter()
+        self.budget_pds: dict[str, int | None] = {}
+        self.budget_kept: dict[str, dict[str, Any]] = {}
+        self.budget_stale: set[int] = set()
 
     def clear(self) -> None:
         """What a dataset's run counts, cleared at its start and end: ``sync_all`` shares one ``Links`` across
         the datasets."""
         self.missing.clear()
         self.budget_link.clear()
-        self.budget_written.clear()
+        self.budget_pds.clear()
+        self.budget_kept.clear()
+        self.budget_stale.clear()
 
-    def budget(self, source_id: Any, number: Any, pk: int | None) -> None:
-        """Count one budget record (a diagnostic, :func:`update_budget`): its number naming another PD than
-        its eTools id (``number_other``: the bases differ, ``reached.pd_base``, so another amendment of the
-        same PD is the same PD, and a number NeuroDB does not hold still names another; it is linked by the
-        id, as always), and the PD it wrote (``pk``)."""
+    def budget_pd(self, item: dict[str, Any]) -> tuple[int | None, tuple[str, ...]]:
+        """The programme document a budget record writes the budget of, and what the run counts of it: the PD
+        whose reference number it carries, the exact number (case aside, spaces collapsed, as the funds link
+        reads it: ``fm.norm_reference``); its eTools id (``source_id``, else ``intervention_id``) only when it
+        carries no number ("by_id"). A number no PD carries links nothing, whatever the id
+        ("number_not_held"; "number_not_held_amended" when it is another amendment's number of a PD NeuroDB
+        holds: its budget may be an earlier version's); so does an id of no PD with no number ("id_not_held"),
+        or neither ("names_none"). Several PDs carrying the number: the one an eTools id names, else the one
+        whose dates cover the record's start, else the one that ends last ("twice", ``PDResolver.pick``)."""
         if self._pcas_by_etl is None:
             self._load_pcas()
-        self.budget_link["records"] += 1
-        by_id = self._pcas_by_etl.get(str(source_id)) if source_id not in (None, "") else None
-        named, own = rc.pd_base(number), rc.pd_base(self._pca_numbers.get(by_id))
-        if named and own and named != own:
-            self.budget_link["number_other"] += 1
-        if pk is not None:
-            self.budget_written[pk] += 1
+        ids = [self._pcas_by_etl.get(v) for v in _budget_ids(item)]
+        text = norm_reference(item.get("number"))
+        if not text:
+            if ids and ids[0] is not None:
+                return ids[0], ("by_id",)
+            return None, ("id_not_held",) if ids else ("names_none",)
+        found, how = self._resolver().candidates(text)
+        if how != "exact":
+            amended = ("number_not_held_amended",) if how in ("token", "base") else ()
+            return None, ("number_not_held", *amended)
+        chosen = [pk for pk in ids if pk in found]
+        if chosen or len(found) == 1:
+            return (chosen or found)[0], ("by_number",)
+        return self._resolver().pick(found, parse_iso_date(item.get("start_date"))), ("by_number", "twice")
+
+    def plan_budgets(self, items: list[dict[str, Any]], *, whole: bool) -> None:
+        """Which budget record writes which programme document's budget, decided over the whole read before
+        any is written (:func:`update_budget`), and counted once per record in ``budget_link``
+        (``details.budget_link``) and, when it names a PD NeuroDB does not hold, in ``missing``.
+
+        Each record names its PD by :meth:`budget_pd`. When several name one PD, the one kept is the one
+        linked by number, then one of whose eTools ids also names the PD, then the newest by its dates
+        (:data:`BUDGET_MOMENTS`), then the last read ("several": the PDs, "set_aside": the records not
+        written). A record the Datamart sent twice is one record, its last copy.
+
+        A PD the old rule (eTools id first) gave another PD's budget keeps none: a record's eTools id names it
+        while the record's number names another PD (``reached.pd_base``: another amendment of the same PD is
+        the same PD), and no record names it tonight. After a whole read only (the record naming it may not
+        have come), its budget fields are emptied (:meth:`clear_stale_budgets`, "cleared"). The interventions
+        dataset is not read for a budget (none of the fields NeuroDB reads of it is one), so every PD holds
+        the budget of the record that carries its number, or none; a PD no record names, and that no record's
+        id named against its number, keeps what it holds (an earlier sync's, of its own record).
+
+        Also counted: "number_other" (a record whose number names another PD than its eTools id, bases
+        compared: the count before this rule), and, of the records linked by number, those whose
+        ``source_id`` and ``intervention_id`` name a PD NeuroDB holds ("<key>_compared") and that same PD
+        ("<key>_same"): the proof, night after night, of how far each id can be trusted."""
+        if self._pcas_by_etl is None:
+            self._load_pcas()
+        last: dict[str, tuple[int, dict[str, Any]]] = {}
+        for order, item in enumerate(items):
+            last[record_key(item)] = (order, item)
+        ranked: dict[int, list[tuple[tuple, str, dict[str, Any]]]] = defaultdict(list)
+        named_by_id: set[int] = set()
+        count = self.budget_link
+        for key, (order, item) in last.items():
+            pk, how = self.budget_pd(item)
+            self.budget_pds[key] = pk
+            count["records"] += 1
+            count.update(how)
+            if pk is None and how[0] in ("number_not_held", "id_not_held"):
+                self.missing["programme_document"] += 1
+            ids = {
+                name: self._pcas_by_etl.get(str(item[name])) if item.get(name) not in (None, "") else None
+                for name in BUDGET_ID_KEYS
+            }
+            by_id = next((ids[name] for name in BUDGET_ID_KEYS if item.get(name) not in (None, "")), None)
+            number, own = rc.pd_base(item.get("number")), rc.pd_base(self._pca_numbers.get(by_id))
+            if number and own and number != own:  # where the old rule, id first, wrote another PD's budget
+                count["number_other"] += 1
+                named_by_id.add(by_id)
+            if pk is None:
+                continue
+            if "by_number" in how:
+                for name in BUDGET_ID_KEYS:
+                    if ids[name] is not None:
+                        count[f"{name}_compared"] += 1
+                        count[f"{name}_same"] += ids[name] == pk
+            rank = ("by_number" in how, pk in ids.values(), _budget_moments(item), order)
+            ranked[pk].append((rank, key, item))
+        for records in ranked.values():
+            _rank, key, item = max(records, key=lambda found: found[0])
+            self.budget_kept[key] = item
+            if len(records) > 1:
+                count["several"] += 1
+                count["set_aside"] += len(records) - 1
+        if whole:
+            self.budget_stale = named_by_id - set(ranked)
+
+    def budget_written(self, item: dict[str, Any]) -> int | None:
+        """The programme document whose budget this record writes (:meth:`plan_budgets`); None when it writes
+        none: it names none, or another record of its PD is kept (of a record sent twice, its last copy)."""
+        key = record_key(item)
+        return self.budget_pds.get(key) if self.budget_kept.get(key) is item else None
+
+    def clear_stale_budgets(self) -> int:
+        """Empty the budget fields of the PDs another PD's budget was written on (:meth:`plan_budgets`) that
+        still hold one; how many."""
+        if not self.budget_stale:
+            return 0
+        holding = models.Q()
+        for name in BUDGET_FIELDS:
+            holding |= models.Q(**{f"{name}__gt": ""})
+        rows = PCA.objects.filter(holding, pk__in=sorted(self.budget_stale))
+        cleared = rows.update(**dict.fromkeys(BUDGET_FIELDS), updated_at=timezone.now())
+        self.budget_link["cleared"] += cleared
+        return cleared
 
     def budget_details(self) -> dict[str, int]:
-        """The budget records counted (:meth:`budget`), and the PDs several of them wrote (``several``: the
-        last read is kept)."""
+        """The budget records counted (:meth:`plan_budgets`): ``records``, ``by_number``, ``number_other``
+        and ``several`` always (a run before the number decided counted the first, third and fourth only), the
+        others when any."""
+        always = ("records", "by_number", "number_other", "several")
         return {
-            "records": self.budget_link["records"],
-            "number_other": self.budget_link["number_other"],
-            "several": sum(1 for n in self.budget_written.values() if n > 1),
+            **{key: self.budget_link[key] for key in always},
+            **{key: n for key, n in self.budget_link.items() if n and key not in always},
         }
 
     def refresh(self) -> None:
@@ -588,13 +689,46 @@ def upsert_intervention(item: dict[str, Any], links: Links) -> None:
             links.missing["locations"] += 1
 
 
+# The budget fields of a programme document a budget record writes (:func:`update_budget`), emptied on a PD
+# the old rule gave another PD's budget (Links.clear_stale_budgets)
+BUDGET_FIELDS = ("total_budget", "unicef_cash", "cso_contribution", "budget_currency", "total_unicef_budget")
+# a budget record's eTools ids, in the order the old rule read them (Links.budget_pd)
+BUDGET_ID_KEYS = ("source_id", "intervention_id")
+# the dates of a budget record that tell the newest of several naming one PD, compared in this order
+BUDGET_MOMENTS = ("modified", "updated", "last_modify_date", "created")
+_NO_MOMENT = dt.datetime.min.replace(tzinfo=dt.UTC)
+
+
+def _budget_ids(item: dict[str, Any]) -> list[str]:
+    """The eTools ids a budget record carries, as text, in :data:`BUDGET_ID_KEYS` order."""
+    return [str(item[name]) for name in BUDGET_ID_KEYS if item.get(name) not in (None, "")]
+
+
+def _moment(value: Any) -> dt.datetime:
+    """A date or a moment as written in a record, comparable with any other (UTC); the earliest when none."""
+    from django.utils.dateparse import parse_date, parse_datetime
+
+    text = str(value or "").strip()
+    try:
+        found = parse_datetime(text)
+        if found is None and (day := parse_date(text[:10])) is not None:
+            found = dt.datetime.combine(day, dt.time())
+    except ValueError:
+        found = None
+    if found is None:
+        return _NO_MOMENT
+    return found if found.tzinfo else found.replace(tzinfo=dt.UTC)
+
+
+def _budget_moments(item: dict[str, Any]) -> tuple[dt.datetime, ...]:
+    return tuple(_moment(item.get(name)) for name in BUDGET_MOMENTS)
+
+
 def update_budget(item: dict[str, Any], links: Links) -> None:
-    """A PD's budget fields from one budget record, linked by its eTools id (else its number). Each record is
-    also counted (:meth:`Links.budget`): a number naming another PD than the id, and a PD several records
-    write (the last read wins), so the budgets that differ from Power BI's can be explained."""
-    source_id = item.get("source_id") or item.get("intervention_id")
-    pk = links.intervention(source_id, item.get("number"))
-    links.budget(source_id, item.get("number"), pk)
+    """A PD's budget fields from one budget record: the record :meth:`Links.plan_budgets` chose for the PD
+    whose reference number it carries (its eTools id only when it carries no number); any other record writes
+    nothing. The plan counts every record (``details.budget_link``)."""
+    pk = links.budget_written(item)
     if pk is None:
         return
     pca = PCA.objects.get(pk=pk)
@@ -692,10 +826,13 @@ def _vendor(value: Any) -> str:
 def _link_funds(row, item, links):
     """A funds reservation line or header: to the programme document whose reference number it carries, the
     eTools id only without a number or when both agree (:meth:`Links.by_number_first`; a line with no number
-    takes its FR header's). Each record is counted once a run in ``links.fr_link`` (``details.pd_link``): how
-    it was linked, "moved" when it leaves another PD it was on for this one, and, per link kind, whether the
-    vendor number it carries is the PD's partner's (the proof the user reads on Raw eTools data); and, when it
-    links none, once in ``links.missing`` (``details.not_linked``), so the two agree on the page."""
+    takes its FR header's). Linked by the eTools id alone, it goes to that PD only when the vendor number it
+    carries is the vendor number of the PD's partner (spaces and leading zeros aside), or when it carries none
+    ("by_id_no_vendor", as before); another vendor number links it to no PD ("by_id_other_partner": the id
+    names another partner's PD). Each record is counted once a run in ``links.fr_link`` (``details.pd_link``):
+    how it was linked, "moved" when it leaves another PD it was on for this one, and, per link kind, whether
+    the vendor number it carries is the PD's partner's (the proof the user reads on Raw eTools data); and,
+    when it links none, once in ``links.missing`` (``details.not_linked``), so the two agree on the page."""
     before = row.intervention_id
     line = isinstance(row, dm.FundsReservation)
     pk, counts = links.by_number_first(
@@ -704,6 +841,11 @@ def _link_funds(row, item, links):
         row.start_date,
         row.fr_number if line else "",
     )
+    vendor = _vendor(row.vendor_code)
+    if "by_id" in counts and vendor and vendor != _vendor(links.vendor_of(pk)):
+        pk, counts = None, ("by_id_other_partner",)  # no number, and the id names another partner's PD
+    elif "by_id" in counts and not vendor:
+        counts += ("by_id_no_vendor",)
     row.intervention_id = pk
     if row.datamart_id in links.fr_counted:  # a record returned twice counts once
         return
@@ -714,9 +856,9 @@ def _link_funds(row, item, links):
     if pk is not None and before is not None and before != pk:
         links.fr_link["moved"] += 1
     kind = next((k for k in FR_VENDOR_KINDS if k in counts), "")
-    if pk is not None and kind and _vendor(row.vendor_code):
+    if pk is not None and kind and vendor:
         links.fr_link[f"vendor_compared_{kind}"] += 1
-        if _vendor(row.vendor_code) == _vendor(links.vendor_of(pk)):
+        if vendor == _vendor(links.vendor_of(pk)):
             links.fr_link[f"vendor_same_{kind}"] += 1
 
 
@@ -1649,14 +1791,15 @@ class DocumentWriter:
         # a record kept by its reference number alone: its eTools id is not proven the country's (they repeat
         # across countries), so it is linked by that reference number only
         by_number = bool(self.by_number) and content_key(item) in self.by_number
-        intervention_id = (
-            self.links.intervention(
+        if self.name == "intervention_budgets":  # the PD its number names, else its id (Links.budget_pd)
+            intervention_id = self.links.budget_pds.get(key)
+        elif pd_key or number_key:
+            intervention_id = self.links.intervention(
                 item.get(pd_key) if pd_key and not by_number else None,
                 item.get(number_key) if number_key else None,
             )
-            if pd_key or number_key
-            else None
-        )
+        else:
+            intervention_id = None
         if not self.linked_after:
             (self.linked.add if intervention_id is not None else self.linked.discard)(key)
         if partner_id is None and intervention_id is not None:
@@ -1896,15 +2039,28 @@ def sync_legacy(
             aligned = align_sequences()
             found = OfCountry(windows.Reading(client, dataset, name=name))
             items = list(found)
+            budgets = name == "intervention_budgets"
+            if budgets:  # one record per PD, by the number it carries, chosen before any is written
+                links.plan_budgets(items, whole=found.whole)
             process_items(run, items, lambda item: handler(item, links), _label)
+            if budgets:
+                try:
+                    with transaction.atomic():
+                        links.clear_stale_budgets()
+                except Exception as exc:  # the budgets are written; the next whole read empties these
+                    logger.warning("etools datamart: stale budgets not emptied: %s", exc)
+                    links.budget_link["clear_failed"] += len(links.budget_stale)
             links.refresh()  # new partners and programme documents are linkable from here on
             details = {**links.details(), **found.details()}
-            if name == "intervention_budgets":  # a diagnostic: numbers naming another PD, PDs written twice
+            if budgets:
                 details["budget_link"] = links.budget_details()
-            links.clear()
+                if details["budget_link"].get("clear_failed"):
+                    details["partial"] = True
             if aligned:
                 details["sequences_aligned"] = aligned
-            return {**details, **_write_documents(name, items, links, found)}
+            documents = _write_documents(name, items, links, found)  # a budget record under the PD it names
+            links.clear()
+            return {**details, **documents}
 
         return _run(run, body)
 

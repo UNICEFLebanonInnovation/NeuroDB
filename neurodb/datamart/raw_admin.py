@@ -455,7 +455,7 @@ def source_view(request, source: str):
         from . import identity
 
         extra = {"inactive_line": raw.inactive_words(identity.inactive_indicators())}
-    elif name == "intervention_budgets":  # their numbers against their eTools ids, and PDs written twice
+    elif name == "intervention_budgets":  # each written to the PD its number names, those written nowhere
         extra = {
             "budget_line": raw.budget_link_words((run.details or {}).get("budget_link") if run else None)
         }

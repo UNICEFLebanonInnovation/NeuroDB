@@ -1336,8 +1336,76 @@ def test_the_budgets_page_says_which_budget_records_name_another_pd(client_valid
     before = client_validator.get(url).content.decode()
     assert "budget records of the last sync" not in before  # a sync before they were counted
     found = {"records": 4, "number_other": 1, "several": 1}
-    _run("intervention_budgets", rows_in=4, details={"read": 4, "budget_link": found})
+    _run("intervention_budgets", ago=2, rows_in=4, details={"read": 4, "budget_link": found})
     assert escape(raw.budget_link_words(found)) in client_validator.get(url).content.decode()
+    assert "NeuroDB linked them by the id" in raw.budget_link_words({**found, "number_other": 2})
+    # a sync by the number: how each record was written, and the budgets it emptied
+    found = {
+        "records": 4,
+        "by_number": 3,
+        "by_id": 1,
+        "number_other": 2,
+        "several": 1,
+        "set_aside": 1,
+        "cleared": 1,
+    }
+    _run("intervention_budgets", rows_in=4, details={"read": 4, "budget_link": found})
+    html = client_validator.get(url).content.decode()
+    said = raw.budget_link_words(found)
+    assert escape(said) in html
+    assert said.startswith(
+        "Of the 4 budget records of the last sync, each writes the budget of the programme document whose "
+        "reference number it carries: 3 by their number, 1 by their eTools id (no number)."
+    )
+    assert "1 set aside for another record of the same programme document" in said
+    assert said.endswith(
+        "The budget of 1 programme document was emptied: only an eTools id named it, against the number, so "
+        "the budget it had was another programme document's."
+    )
+
+
+def test_a_budget_record_is_listed_under_the_pd_its_number_names(client_validator, world):
+    """The list, the PD filter and the CSV read the record's programme document as the sync wrote it: by its
+    number (the eTools id names another PD), "not in NeuroDB" for a number no PD carries."""
+    running, ended = world["running"], world["ended"]  # LEB/PD1 (eTools id 11), LEB/PD2 (12)
+    for key, number, pd in (("1", "LEB/PD1", running), ("2", "LEB/PD9", None)):
+        dm.DatamartDocument.objects.create(
+            dataset="intervention_budgets",
+            record_key=key,
+            intervention=pd,
+            data={"id": int(key), "number": number, "source_id": int(ended.etl_id), "budget_total": "100"},
+        )
+    rows = _csv(client_validator.get(f"{INDEX}intervention_budgets/rows.csv"))
+    assert {r["pd_number_in_neurodb"] for r in rows} == {"LEB/PD1", "not in NeuroDB"}
+    assert _shown(client_validator, "intervention_budgets", pd="LEB/PD1") == 1
+    assert _shown(client_validator, "intervention_budgets", pd="LEB/PD2") == 0
+
+
+def test_funds_lines_with_no_number_on_another_partner_s_pd_are_said_and_listed(client_validator, world):
+    """No number, and the eTools id names a PD of another partner than the line's vendor number: the sync links
+    it to none. The page says how many, lists them, and reads "another partner's PD" as their PD in NeuroDB."""
+    running = world["running"]  # eTools id 11, the partner's vendor number V1
+    for pk, vendor, source in ((1, "V2", 11), (2, "V1", 11), (3, "", 11), (4, "V2", 99)):
+        dm.FundsReservation.objects.create(
+            datamart_id=pk,
+            fr_number=f"040000{pk}",
+            vendor_code=vendor,
+            intervention=running if pk in (2, 3) else None,
+            data={"id": pk, "pd_reference_number": "", "source_intervention_id": source},
+        )
+    found = {"by_id": 2, "by_id_no_vendor": 1, "by_id_other_partner": 1, "id_not_held": 1}
+    _run("funds_reservations", rows_in=4, details={"read": 4, "datamart_count": 4, "pd_link": found})
+    url = f"{INDEX}funds_reservations/"
+    html = client_validator.get(url).content.decode()
+    said = raw.fr_link_words(found, "funds_reservations")
+    assert escape(said) in html and 'href="?fr_link=by_id_other_partner"' in html
+    assert "By eTools id only (no number): 2 (1 of them carry no vendor number)." in said
+    assert _shown(client_validator, "funds_reservations", fr_link="by_id_other_partner") == 1
+    response = client_validator.get(url, {"fr_link": "by_id_other_partner"})
+    assert escape(raw.FR_LINK_WORDS["by_id_other_partner"]) in response.content.decode()
+    rows = _csv(client_validator.get(f"{INDEX}funds_reservations/rows.csv"))
+    words = {r["record_id"]: r["pd_number_in_neurodb"] for r in rows}
+    assert words == {"1": raw.FR_OTHER_PARTNER, "2": "LEB/PD1", "3": "LEB/PD1", "4": "not in NeuroDB"}
 
 
 def test_a_record_held_by_its_content_says_so(client_validator, world):

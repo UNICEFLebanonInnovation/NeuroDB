@@ -268,6 +268,11 @@ PD status, partner, partner type):
 Amounts in different currencies are never added together: budgets are in each programme document's
 currency, funds reservations and disbursements in US dollars.
 
+A programme document's budget is the one of the eTools budget record that carries its reference number, and a
+funds reservation line belongs to the programme document whose number it carries (a line without a number, to
+the one its eTools id names when it is the same partner's). *Checking the figures* says how, and where to see
+the records.
+
 ## Exports
 
 Program Performance (the *Table* view of Partner monitoring), every tab of Progress reports and the two

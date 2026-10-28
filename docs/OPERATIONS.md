@@ -1868,7 +1868,7 @@ Datamart host (a pagination link to any other host is refused). Every request is
 | `location_sites` | `location-sites/` | `datamart.MonitoringSite`: field-monitoring sites with their point and parent location |
 | `partners` | `partners/` | the existing partner table (`etools.PartnerOrganization`, by eTools id) |
 | `interventions` | `interventions/` | the existing programme documents (`etools.PCA`) and their agreements, sections, offices, focal points, donors, grants and planned locations |
-| `intervention_budgets` | `interventions-budget/` | the budget columns of the programme documents, linked by eTools id as before; `details.budget_link` counts the `records`, those whose `number` names another PD than their id (`number_other`; bases compared, `reached.pd_base`: another amendment of the same PD is the same PD) and the PDs several records wrote (`several`: the last read wins), a diagnostic shown on Raw eTools data → Programme document budgets |
+| `intervention_budgets` | `interventions-budget/` | the budget columns of the programme documents (`total_budget`, `unicef_cash`, `cso_contribution`, `budget_currency`, `total_unicef_budget` = UNICEF cash + supply), each written by the budget record that carries the PD's reference number (below, *Budgets link to the PD whose number they carry*); `details.budget_link` counts how, shown on Raw eTools data → Programme document budgets |
 | `agreements` | `partners/agreements/` | type and dates of the agreements |
 | `funds_reservations` | `funds-reservation/` | `datamart.FundsReservation`, linked to the PD; rebuilds each PD's donor amounts (donor page) |
 | `grants` | `funds/grants/` | `datamart.Grant` (expiry dates on the donor page) |
@@ -2005,14 +2005,19 @@ amendment suffix); else the PD part alone ("PD2020001", an SSFA or GDD number: `
 candidates, the one the eTools id names; else the only one; else, by exact number, the one whose dates cover
 the line's start date, else the one that ends last (`PDResolver.pick`); else none (several amendments or PD
 parts fit). A number no PD NeuroDB holds carries links nothing, whatever the id: the id is used only when no
-number is given (none on the line, none on its header). Not linked counts in
+number is given (none on the line, none on its header), and then only when the line's `vendor_code` is the
+vendor number of that PD's partner (spaces and leading zeros aside, `_vendor`) or the line carries none (as
+before, counted `by_id_no_vendor`): the eTools id is not reliably the PD's (on 27 Oct 2026, 1,501 lines were
+linked by it alone, and the vendor number was the PD's partner's on 20 of them). A line whose vendor number
+is another partner's links to no PD (`by_id_other_partner`); a header follows the same rule. Not linked counts in
 `details.not_linked.programme_document`, once per record as `details.pd_link` (a record the Datamart returns
 twice in one read counts once in both), so Data health's and Raw eTools data's "not linked" rise by the lines
 whose number names a PD NeuroDB does not hold or fits several. Each run
 records `details.pd_link`, counted once per record: `by_number` with how (`exact`, `amended`, `pd_part`,
 `header`) and `twice` (several PDs carry the exact number and the eTools id names none of them: dates, else
 the one that ends last, decide; Raw eTools data says so),
-`by_id` (no number), `number_not_held` (and
+`by_id` (no number; of these `by_id_no_vendor`: the line carries no vendor number), `by_id_other_partner`
+(no number, and the id names a PD of another partner: not linked, below), `number_not_held` (and
 `number_not_held_id_held`: the id names a PD NeuroDB holds), `unclear`, `id_not_held` (no number, an id of no PD
 NeuroDB holds), `id_other` (linked by number while the id names another PD NeuroDB holds: where the old rule
 put them; it stays near its first value every night, since the Datamart still sends both), `moved` (the row
@@ -2026,11 +2031,49 @@ eTools data → Funds reservation lines (and → Funds reservations) says it in 
 (`raw.fr_link_words`), and its *Programme document link* filter "Their number names no PD NeuroDB holds"
 (`fr_link=number_not_held`, `raw.FundsNumbers.not_held`: the same rule) lists the lines the sync counted
 `number_not_held`: those whose own number names no PD NeuroDB holds, and those without one whose FR header's
-number names none. A line linked to no PD says why as its PD in NeuroDB (the list, its page and the CSV's
-`pd_number_in_neurodb`, by the same rule, `raw.pd_words`): "several PDs fit" when its number (its own, else its
-header's) fits several, "not in NeuroDB" when that number, or with no number its eTools id, names none NeuroDB
-holds, "names none" when it carries neither. Their CSV carries `pd_reference_number` beside
-`pd_number_in_neurodb`. Partner report rows still link by eTools id first (`_link_report`).
+number names none; and its choice "No number, and their eTools id names another partner's PD"
+(`fr_link=by_id_other_partner`, `raw.FundsNumbers.other_partner_q`, the same rule) lists the lines counted
+`by_id_other_partner` (the sentence's "List those on another partner's PD by their eTools id"). A line linked
+to no PD says why as its PD in NeuroDB (the list, its page and the CSV's `pd_number_in_neurodb`, by the same
+rule, `raw.pd_words`): "several PDs fit" when its number (its own, else its header's) fits several, "another
+partner's PD" when, with no number, its eTools id names a PD of another partner than its vendor number's, "not
+in NeuroDB" when its number, or with no number its eTools id, names none NeuroDB holds, "names none" when it
+carries neither. Their CSV carries `pd_reference_number` beside `pd_number_in_neurodb`. Partner report rows
+still link by eTools id first (`_link_report`).
+
+**Budgets link to the PD whose number they carry** (`datamart_sync.update_budget`, `Links.plan_budgets`,
+`Links.budget_pd`; `intervention_budgets`). A budget record names its programme document by `number` and by
+two eTools ids (`source_id`, `intervention_id`), and on 27 Oct 2026, 705 of 1,156 records carried an id of
+another PD than their number: by id first, a PD showed another PD's budget (an amended PD of one partner read
+an old PD's 99,085.21 of another partner, and its own 6,654,939.01 sat on a third partner's SPD). So the number
+decides, as for the funds lines: the exact number (case aside, spaces collapsed, `fm.norm_reference`); the id
+(`source_id`, else `intervention_id`) only when the record carries no number. A number no PD NeuroDB holds
+writes nothing, whatever the id; so does another amendment's number (counted
+`number_not_held_amended`: that budget may be an earlier version's, and the PD keeps the one it holds). Several
+PDs carrying the exact number: the one an id names, else the one whose dates cover the record's `start_date`,
+else the one that ends last (`twice`). The whole read is planned before any budget is written: when several
+records name one PD, the one kept is the one linked by number, then the one whose eTools id also names the PD,
+then the newest by `modified`, `updated`, `last_modify_date`, `created` (compared in that order), then the last
+read; the others are set aside. A PD the old rule gave another PD's budget keeps none: when a record's eTools id
+names it while its number names another PD (`reached.pd_base`), and no record names it tonight, its five budget
+fields are emptied after a whole read (`clear_stale_budgets`; a read not whole empties nothing). The
+interventions dataset is not read for a budget (no field NeuroDB reads of it is one: Raw eTools data →
+Programme documents (as the Datamart sends them) → *Fields this source sends* shows whether it sends any), so
+every PD holds the budget of the record that carries its number, or none; a PD no record names and no record's
+id named against its number keeps what it holds. Each run records `details.budget_link`, each record once (a
+record sent twice counts once, its last copy): `records`, `by_number`, `by_id`, `number_not_held` (and
+`number_not_held_amended`), `id_not_held` (no number, an id of no PD NeuroDB holds), `names_none` (neither),
+`twice`, `several` (PDs several records named) and `set_aside` (records not written), `number_other` (the
+record's number names another PD than its id, bases compared: the count before this rule), `cleared` (PDs
+emptied; `clear_failed` when emptying them failed: the budgets are written, the run ends *Succeeded with
+errors* and the next whole read empties them), and, of the records linked by number, `source_id_compared`/`source_id_same` and
+`intervention_id_compared`/`intervention_id_same` (the id names a PD NeuroDB holds / the same PD as the number:
+how far each id can be trusted). `details.not_linked.programme_document` counts `number_not_held` and
+`id_not_held`. Raw eTools data → Programme document budgets says it in one line under the counts
+(`raw.budget_link_words`; a run before this rule keeps its own words), and lists each record under the PD its
+number names (the kept record and those set aside alike; "not in NeuroDB" for a number or id of no PD NeuroDB
+holds). No migration: every budgets run reads every record, so the first run after this change rewrites every
+budget (*Sync this dataset again* on an `intervention_budgets` run shows it at once).
 
 **Records the Datamart sends twice** (`windows.Reading`, `windows.Copies`). One answer of the Datamart (a
 page: one query) never lists a row twice. So a record whose every copy came identical in one answer is held
@@ -4293,7 +4336,7 @@ matching names. Every `datamart` row keeps `datamart_id` (the Datamart record) a
 |---|---|---|
 | Programme document (`etools.PCA`) | partner, agreement | eTools ids (`partner_source_id`, `agreement_id`) |
 | Programme document | implementation locations (`PCA.locations`, `location_p_codes`) | the P-codes of `locations_data`, resolved in the locations table |
-| Programme document | funding: UNICEF cash, partner contribution, total budget, donors, grants, FRs | the interventions and budget datasets by eTools id; FRs by PD reference number |
+| Programme document | funding: UNICEF cash, partner contribution, total budget, donors, grants, FRs | donors and grants: the interventions dataset by eTools id; the budget: the budget record carrying the PD's reference number (its eTools id only without one); FRs by PD reference number (without one, by eTools id when the vendor number is the PD's partner's) |
 | PD indicator (`PDIndicator`) | PD, location (`location`) | PD reference number; eTools location id, then P-code |
 | Partner report row (`ReportedIndicator`) | partner, PD, location (`location_ref`), reporting period, status | vendor number, eTools PD id / reference number, P-code, the report's period and status fields |
 | TPM activity | partner, PD, locations (`location_links`) | vendor number, PD reference number, P-codes of `locations_data` |
