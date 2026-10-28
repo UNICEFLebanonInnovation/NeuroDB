@@ -749,3 +749,19 @@ def test_the_trail_says_the_closed_line_and_counts_none(world):
     assert step.lines[0].words.startswith("Not counted: " + owed.HIDDEN_START)
     assert not NEVER.findall(step.lines[0].words)
     assert not found.rows.documents and found.figure("pr.status.overdue").page == 0
+
+
+def test_a_section_spelt_with_a_stray_space_is_one_row_of_the_table_by_section(world):
+    """eTools writes a PD's section "PSEA " (a stray space): PRP's report still owed takes its PD's sections, the
+    partner reports' rows "Child Protection, PSEA". The table by section counts them under one Section, as
+    Power BI's Reporting Progress by Sector does, and the figure trail says the same."""
+    PCA.objects.filter(pk=world["pd"].pk).update(section_names=["Child Protection", "PSEA "])
+    dm.ReportedIndicator.objects.filter(intervention=world["pd"]).update(section="Child Protection, PSEA")
+    _verdict()
+    rows = {row["section"]: row for row in hub({"pd_status": ""})["by_section"]["rows"]}
+    assert set(rows) == {"Child Protection, PSEA", "Health"}
+    counts = dict(zip(reporting.STATUS_KEYS, rows["Child Protection, PSEA"]["counts"], strict=True))
+    assert (counts["accepted"], counts["overdue"]) == (2, 1)
+    assert reporting.report_section({"section": "Child Protection, PSEA , Social & Behavioral Change "}) == (
+        "Child Protection, PSEA, Social & Behavioral Change"
+    )

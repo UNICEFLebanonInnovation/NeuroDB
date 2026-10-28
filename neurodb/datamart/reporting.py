@@ -753,9 +753,10 @@ def counts(reports: list[dict[str, Any]]) -> dict[str, Any]:
 
 def report_section(report: dict[str, Any]) -> str:
     """The section a progress report is counted under by :func:`by_section`: its Section as the reports' table
-    shows it (its indicator reports' own sections, joined; for those that name none, their PD's sections), or
-    :data:`NO_SECTION`."""
-    return report["section"] or NO_SECTION
+    shows it (its indicator reports' own sections, joined; for those that name none, their PD's sections), its
+    spaces tidied (:func:`_spaced`: eTools may write a PD's section "PSEA ", and PRP's report still owed takes
+    its PD's sections, so one Section is never two rows), or :data:`NO_SECTION`."""
+    return _spaced(report["section"]) or NO_SECTION
 
 
 def by_section(reports: list[dict[str, Any]]) -> dict[str, Any]:
