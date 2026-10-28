@@ -672,8 +672,9 @@ def test_the_lines_of_shared_copies_read_their_common_type_or_none():
 def test_an_inactive_indicator_without_rows_is_counted(client, roles):
     """PD B lists an older version of its indicator, inactive in every row and with no report row, beside the
     active one its rows go to; PD C's inactive indicator still has rows (placed by its title), and a third, active
-    in one of its rows, is not inactive. The proof counts two indicators of two PDs inactive in every row, one of
-    them without rows; Raw eTools data → PD indicators says so and lists them under Active: no."""
+    in one of its rows, is not inactive. The proof the sync stores counts two indicators of two PDs inactive in
+    every row, one of them without rows, which the pages leave out (its two rows); Raw eTools data → PD indicators
+    says so and lists them under Active: no."""
     pd = make_pd("B")
     indicator(pd, X)
     indicator(pd, Y, "# of children reached (old wording)", active=False)
@@ -685,15 +686,17 @@ def test_an_inactive_indicator_without_rows_is_counted(client, roles):
                                   is_active=False)  # fmt: skip
     dm.PDIndicator.objects.create(datamart_id=next(_ids), source_id=602, intervention=other, title="Mixed",
                                   is_active=True)  # fmt: skip
-    found = identity.calibrate()
-    assert found["inactive"] == {"indicators": 2, "without_rows": 1, "pds": 2}
+    assert "inactive" not in identity.calibrate()  # counted when the sync marks them
+    found = identity.calibrate_and_list()
+    assert found["inactive"] == {"indicators": 2, "without_rows": 1, "pds": 2, "rows_left_out": 2}
     whole()  # the PD indicators' last sync, then the partner reports' with the proof
     proof(found)
     from neurodb.datamart import raw
 
     assert raw.inactive_words(identity.inactive_indicators()) == (
         "eTools marks 2 indicators of 2 programme documents inactive in every row; 1 of them has no partner report "
-        "row and is still listed on Programmes → Indicators and Partner monitoring."
+        "row and is left out of Programmes → Indicators, Partner monitoring (Data quality too) and the programme "
+        "document pages; the 1 other stays listed: partner report rows name it."
     )
     staff = _validator()
     client.force_login(staff)

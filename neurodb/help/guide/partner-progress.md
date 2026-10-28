@@ -117,6 +117,16 @@ PRP's report ids, which PRP's own list does not carry.
 - **Master indicators**: each section's eTools master indicators, one figure a year combined from the
   partners' PD indicators (see [Master indicators](#master-indicators) below).
 
+**Indicators eTools marks inactive.** When a programme document is amended, eTools often keeps the older
+version of an indicator beside the new one and marks it inactive. NeuroDB leaves out an indicator eTools marks
+inactive in every row that no partner report names (your decision of 28 Oct 2026): Partner monitoring and its
+Data quality, Programme documents → Indicators, the programme document pages, their exports and Ask
+NeuroDB's indicator progress do not list or count it (Raw eTools data and Ask NeuroDB's eTools records still
+show every record eTools sent). An inactive indicator partners reported on stays listed, as their values sit on it:
+its pop-up says it is inactive in eTools. The eTools Datamart sync decides this each time it reads the PD
+indicators or the partner reports, so an indicator a new report names comes back after the next sync. Raw
+eTools data → PD indicators says how many are left out and lists their rows.
+
 Switching views keeps the year shown; the year menu at the top offers *All years* on these pages (not on
 *Master indicators*, which shows one year at a time). The
 **location** filter shows each indicator's Reached at the chosen place (a place is found by its name and
@@ -245,9 +255,11 @@ a new eTools sync shows at once.
   the funds reserved and disbursed. Under *Partner reporting* it counts every progress report of the
   programme document by status (with PRP's reports still owed while they are shown) and lists the 12
   latest; *All reports* opens every one of them on Progress reports.
-- **Programme documents → Indicators** lists every indicator of every programme document in one table
+- **Programme documents → Indicators** lists the indicators of every programme document in one table
   (PD number and status, partner, document type, dates, office, section, CP output, indicator,
-  baseline, target, emergency), with its own filters and an export of the whole filter.
+  baseline, target, emergency), with its own filters and an export of the whole filter. Like every page, it
+  leaves out an indicator eTools marks inactive that no partner report names (see Partner monitoring above);
+  one partners reported on reads *Inactive in eTools* under its title.
 
 ## Funds
 

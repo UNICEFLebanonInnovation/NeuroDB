@@ -97,8 +97,9 @@ same."** Below, **Where the indicators come from**:
 3. the programme documents NeuroDB holds, then those each filter leaves out (draft or cancelled, the PD
    status or running, the year, a partner, a programme document, a document type, an office, a partner
    type), each with its PD indicator rows;
-4. the PD indicator rows of the programme documents kept, then those each filter leaves out (a search, a
-   tag, emergency, humanitarian reports), with the indicators left out entirely or partly;
+4. the PD indicator rows of the programme documents kept, then those of the indicators eTools marks inactive
+   that no partner report row names (never listed), then those each filter leaves out (a search, a tag,
+   emergency, humanitarian reports), with the indicators left out entirely or partly;
 5. one per indicator ("4 PD indicator rows are 3 indicators"), then the indicators each filter leaves out
    (CP output, location, section, tracking status);
 6. the indicators kept, and **Programme documents kept with no indicator of this filter**: they count in no
@@ -260,7 +261,11 @@ order: needs a look, check the PD in eTools, wait for the next sync, NeuroDB can
   (Power BI reads the programme document's sections, NeuroDB the indicator's own) are counted in one note of
   the export, not listed, on Indicators with Missing Targets too; a Data Quality card that Power BI counts so
   says so, with NeuroDB's figure counted Power BI's way. A copy of an indicator is said to be one Power BI
-  lists once only when Power BI lists another copy, or another copy has a value in the year.
+  lists once only when Power BI lists another copy, or another copy has a value in the year. *NeuroDB lists an
+  indicator eTools marks inactive*: Power BI lists only the current version of an indicator, while NeuroDB
+  keeps an inactive one as long as partner reports name it (partners' values sit on it; your decision of 28 Oct
+  2026). An inactive indicator no partner report names is left out of NeuroDB's pages: a Power BI row of one
+  says *NeuroDB's page leaves it out*.
 - **NeuroDB cannot show this yet.** A report still owed for a period that has ended (Due or Overdue): the
   partner reports feed never sends it, and NeuroDB does not show PRP's own progress reports until their link
   to the programme documents is proven (eTools reporting checks, check 11). A value Power BI shows in a report
@@ -276,18 +281,18 @@ order: needs a look, check the PD in eTools, wait for the next sync, NeuroDB can
   ended yet, and that NeuroDB lacks, was not in the Datamart read: the feed carries those. Uploads compared
   before this group existed keep their reports still owed under *Expected*.
 - **Wait for the next sync.** NeuroDB's last sync ran before Power BI's refresh (or NeuroDB cannot tell which
-  came first): the row is not in NeuroDB yet, or NeuroDB still has an older version. Wait for tonight's sync
-  (20:30), or ask an Administrator to run the eTools Datamart sync, then press *Compare again*.
+  came first): the row is not in NeuroDB yet, or NeuroDB still has an older version. An inactive indicator no
+  partner report names that NeuroDB still lists says the same: no sync has left such indicators out since the
+  update that brought the rule. Wait for tonight's sync (20:30), or ask an Administrator to run the eTools
+  Datamart sync, then press *Compare again*.
 - **Check the PD in eTools.** NeuroDB has the PD under another status (ended, for instance). If it is active in
   eTools, wait for the next sync and press *Compare again*.
 - **Needs a look.** Nothing above explains it (a row the Datamart did not send although NeuroDB's sync ran after
   Power BI's refresh, later the same day too, or a difference not explained yet). Download the Excel file and
   send it to the NeuroDB team. A report missing from the Datamart read is checked in PRP; a row of a PD
-  NeuroDB does not hold, a PD indicator or a funds row, in eTools. Two reasons say more: *NeuroDB lists an
-  indicator eTools marks inactive* (with no partner report naming it: check in eTools whether it is an older
-  version of the programme document's indicator; Raw eTools data → PD indicators, Active: no), and *NeuroDB
-  has its funds on another PD, or on none* (the funds reservation lines name this programme document, and
-  NeuroDB links them elsewhere: Raw eTools data → Funds reservation lines). A line whose programme document's
+  NeuroDB does not hold, a PD indicator or a funds row, in eTools. One reason says more: *NeuroDB has its
+  funds on another PD, or on none* (the funds reservation lines name this programme document, and NeuroDB
+  links them elsewhere: Raw eTools data → Funds reservation lines). A line whose programme document's
   budget differs says the budget NeuroDB has for it. A gap of a counted visual takes the reason that most
   needs doing among its reports, never the most common one. An export of exactly 1,000 rows (or 30,000,
   or 150,000) may be cut by Power BI: NeuroDB's rows beyond it say so. Check in Power BI that the visual shows
@@ -506,8 +511,11 @@ programme documents, trips, engagements, action points and their details).
   wrote it.
 - **PD indicators eTools marks inactive** (PD indicators). The line under the counts says how many indicators
   eTools marks inactive in every row, of how many programme documents, and how many of them have no partner
-  report row: mostly an older wording of a PD's indicator, still listed on Programmes → Indicators and Partner
-  monitoring. The filter's *Active* choice ("no") lists their rows. Nothing on the pages changes.
+  report row: mostly an older wording of a PD's indicator. Those are left out of Programmes → Indicators,
+  Partner monitoring (Data quality too) and the programme document pages (your decision of 28 Oct 2026); the
+  others stay listed, as partners' values sit on them. The PD indicators and partner reports syncs mark them
+  each time, so the pages follow the next sync. The filter's *Active* choice "no" lists the rows of every
+  inactive indicator, and "no, and left out of the pages" only those the pages leave out.
 - **Programme document budgets.** Each budget record writes the budget of the programme document whose
   reference number it carries (its eTools id decides only when it carries no number: the id often names
   another programme document). A number no programme document in NeuroDB carries writes nothing, nor does

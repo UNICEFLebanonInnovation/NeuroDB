@@ -165,7 +165,12 @@ def test_the_sentences_the_code_writes_on_these_pages_say_none_either():
         # the PD indicators eTools marks inactive in every row, and the budget records of a sync
         raw.inactive_words({"indicators": 280, "without_rows": 182, "pds": 40}),
         raw.inactive_words({"indicators": 1, "without_rows": 1, "pds": 1}),
+        raw.inactive_words({"indicators": 280, "without_rows": 182, "pds": 40, "rows_left_out": 400}),
+        raw.inactive_words({"indicators": 2, "without_rows": 1, "pds": 1, "rows_left_out": 3}),
         raw.Filters(active="no").words(),
+        raw.Filters(active="left_out").words(),
+        trail_monitoring.stage_title("listed", trail_monitoring.monitoring.Filters()),
+        identity.INACTIVE_NOTE,
         raw.budget_link_words({"records": 120, "number_other": 7, "several": 3}),
         raw.budget_link_words({"records": 1, "number_other": 1, "several": 1}),
         # the budget records of a sync by the number they carry

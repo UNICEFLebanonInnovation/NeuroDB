@@ -64,8 +64,8 @@ class GrantAdmin(DatamartAdmin):
 
 @admin.register(dm.PDIndicator)
 class PDIndicatorAdmin(DatamartAdmin):
-    list_display = ("title", "pd_reference_number", "section_name", "location_name", "is_active")
-    list_filter = ("section_name", "is_active", "is_high_frequency")
+    list_display = ("title", "pd_reference_number", "section_name", "location_name", "is_active", "listed")
+    list_filter = ("section_name", "is_active", "listed", "is_high_frequency")
     search_fields = ("title", "pd_reference_number", "lower_result_name")
     raw_id_fields = ("intervention",)
 

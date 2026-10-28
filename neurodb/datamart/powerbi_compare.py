@@ -743,7 +743,8 @@ def _record_fields(upload: PowerBIUpload, run: Any) -> None:
     """Each clause on one of Power BI's own fields is applied as NeuroDB reads it: none of NeuroDB's pages
     reads those fields, even where the records carry them, and the comparison compares with the pages.
     ``is_blueprint_canonical`` has its own state (``all_listed``): NeuroDB's pages list every PD indicator
-    eTools sends, never "cannot apply" (its rows would all read "A filter NeuroDB cannot apply"). The export's
+    eTools sends but those eTools marks inactive that no partner report row names (``identity.listed``), never
+    "cannot apply" (its rows would all read "A filter NeuroDB cannot apply"). The export's
     note says whether the records carry the field (Raw eTools data's fields)."""
     carried = fields_in_records(run)
     for export in exports_of(upload).exclude(state="failed"):

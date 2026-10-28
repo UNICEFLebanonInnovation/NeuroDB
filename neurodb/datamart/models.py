@@ -154,6 +154,13 @@ class PDIndicator(DatamartRecord):
     tag_age_group = models.CharField(**TAG)
     tag_nationality = models.CharField(**TAG)
     tag_disability = models.CharField(**TAG)
+    # Whether the pages list it (neurodb.datamart.identity.listed): set at the end of each PD indicators and
+    # partner reports sync (identity.mark_listed), on every row of the indicator
+    listed = models.BooleanField(
+        default=True,
+        help_text="listed on the pages; no for an indicator eTools marks inactive in every row that no "
+        "partner report row names (set by the PD indicators and partner reports syncs)",
+    )
 
     class Meta:
         ordering = ("pd_reference_number", "title")

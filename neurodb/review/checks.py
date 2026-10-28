@@ -26,7 +26,7 @@ from django.utils import timezone
 
 from neurodb.core.jobs import NEVER_AN_ALARM, PARTIAL_IS_NOT_AN_ALARM
 from neurodb.core.models import SyncRun
-from neurodb.datamart import children, headline, monitoring, owed, reporting
+from neurodb.datamart import children, headline, identity, monitoring, owed, reporting
 from neurodb.datamart import models as dm
 from neurodb.datamart import reached as rc
 from neurodb.datamart.catalogue import DIAGNOSTIC
@@ -805,9 +805,12 @@ def check_data_quality(ctx: Context) -> list[Draft]:
 
 
 def check_locations_unplaced(ctx: Context) -> list[Draft]:
-    """PD indicator rows of active PDs naming a location that no eTools location resolves."""
+    """PD indicator rows of active PDs naming a location that no eTools location resolves, of the indicators
+    the pages list (``identity.listed``)."""
     count = (
-        dm.PDIndicator.objects.filter(location=None, intervention__status__in=ACTIVE_PD_STATUSES)
+        identity.listed(
+            dm.PDIndicator.objects.filter(location=None, intervention__status__in=ACTIVE_PD_STATUSES)
+        )
         .exclude(location_name="")
         .count()
     )

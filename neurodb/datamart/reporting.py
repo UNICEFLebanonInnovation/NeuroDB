@@ -1378,7 +1378,9 @@ INDICATOR_COLUMNS = (
 def pd_indicators(pds: QuerySet[PCA], params) -> list[dict[str, Any]]:
     """PD/SPD Indicators: one row per indicator of these programme documents (the Datamart lists an
     indicator once per location and disaggregation; it is identified by its eTools id, else its title,
-    as on Partner monitoring), with its PD's attributes, its target and baseline. ``params``: ``emergency``
+    as on Partner monitoring), with its PD's attributes, its target and baseline: the indicators the pages
+    list (``identity.listed``: never one eTools marks inactive in every row that no partner report row names;
+    ``inactive`` marks one eTools marks inactive that partners reported on). ``params``: ``emergency``
     (yes/no: the indicators of SPDs, NeuroDB's Emergency indicator as Power BI's), ``section`` (the
     indicator's own section), ``indicator`` (words in its title) and ``pd_q`` (words in the PD reference)."""
     from .monitoring import _target, ident_of, pd_cp_outputs
@@ -1389,7 +1391,7 @@ def pd_indicators(pds: QuerySet[PCA], params) -> list[dict[str, Any]]:
     by_id = {pd.id: pd for pd in pds}
     if not by_id:
         return []
-    rows = dm.PDIndicator.objects.filter(intervention_id__in=list(by_id))
+    rows = identity.listed(dm.PDIndicator.objects.filter(intervention_id__in=list(by_id)))
     emergency = str(params.get("emergency") or "").strip().lower()
     if emergency in ("yes", "no"):  # the programme document is an SPD (reached.is_spd)
         spd = rc.spd_q("intervention__")
@@ -1411,12 +1413,14 @@ def pd_indicators(pds: QuerySet[PCA], params) -> list[dict[str, Any]]:
         "baseline_numerator",
         "target_numerator",
         "target_denominator",
+        "is_active",
     )
     for row in rows.order_by("lower_result_name", "title", "datamart_id").values(*fields):
         ident = ident_of(row["intervention_id"], row["source_id"], row["title"])
         entry = found.get(ident)
         if entry is not None:
             entry["cp_output"] = entry["cp_output"] or row["cp_output"] or ""
+            entry["inactive"] = entry["inactive"] and not row["is_active"]
             continue
         pd = by_id[row["intervention_id"]]
         offices = [x for x in pd.offices_set or [] if x]
@@ -1440,6 +1444,7 @@ def pd_indicators(pds: QuerySet[PCA], params) -> list[dict[str, Any]]:
             "target": _target(row),
             "emergency": "Yes" if rc.is_spd(pd.document_type) else "No",  # the PD is an SPD
             "ident": ident,  # its identity in its PD, as Partner monitoring's (Compare with Power BI's)
+            "inactive": not row["is_active"],  # in every row: listed only because partners reported on it
         }
     out = []
     for entry in found.values():

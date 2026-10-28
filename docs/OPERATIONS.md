@@ -3393,11 +3393,17 @@ Quality's cards are explained from them), then Power BI's order.
   through the location table (title, report, period, P-code; never the title alone) and read the report
   list's reason for that report (not in the read, or still owed: a draft); a row tied to several PDs, one of
   which NeuroDB has with a location row there, stays not explained yet; a value above NeuroDB's is a report not
-  read or a draft only then; Power BI's status is that of its rows that carry a value. Reasons `inactive` (an
-  indicator eTools marks inactive in every row with no report row: `powerbi_facts.inactive`, first among an
-  indicator only NeuroDB lists, and a note) and `funds_elsewhere` (a Funded Programs row whose funds
-  reservation lines name its PD while NeuroDB links them to another PD, or to none: `powerbi_facts.fr_elsewhere`,
-  never "funds reservation only"), both group 4. A value Power BI shows in a report NeuroDB holds without one is
+  read or a draft only then; Power BI's status is that of its rows that carry a value. Reason `inactive`
+  (group 1, expected: an indicator eTools marks inactive in every row that the pages still list because partner
+  report rows name it, `identity.listed`; Power BI lists only the current version of an indicator:
+  `powerbi_facts.inactive`, first among an indicator only NeuroDB lists, and a note; `kinds.inactive_reason`).
+  An inactive one no report row names, still listed because no sync has marked the indicators the pages leave
+  out since the update (`powerbi_facts.listing_marked`), is `older_version` (group 2: the next sync leaves it
+  out). A Power BI row whose indicator NeuroDB holds only as one the pages leave out is `left_out` with
+  `DETAIL_LEFT_OUT_INACTIVE` (`kinds.left_out_reason`, by the PD and title: PD/SPD Indicator, Data Quality's
+  list, Missing Targets; by partner and title on Program Performance), never "not in the read". Reason
+  `funds_elsewhere` (a Funded Programs row whose funds reservation lines name its PD while NeuroDB links them
+  to another PD, or to none: `powerbi_facts.fr_elsewhere`, never "funds reservation only"), group 4. A value Power BI shows in a report NeuroDB holds without one is
   the draft of a report still owed only when its period has ended, on By location as on By disaggregation (a
   report not yet due is no report still owed). The Data Quality card with Reached says its gap from the list of
   indicators without Reached, named ("1 more in NeuroDB's list": one fewer with Reached in NeuroDB), the card
@@ -3408,7 +3414,8 @@ Quality's cards are explained from them), then Power BI's order.
   section rule (PD/SPD Indicator's paired indicators outside the section, equal in every other column; Data
   Quality's with no Reached in NeuroDB either) are counted exactly as lines (`Result.add(listed=False)`,
   `counts["noted"]`) in one note, never listed. `is_blueprint_canonical` has its own state, `all_listed`
-  ("NeuroDB does not read this field: its pages list every PD indicator eTools sends").
+  ("NeuroDB does not read this field: its pages list every PD indicator eTools sends, except those eTools marks
+  inactive that no partner report row names").
 - **Lines** are kept in gzip buffers per group during the snapshot and written once every export is compared,
   group by group across the exports (every export's group 4, then 3, 2, 5 and 1: the limit drops expected
   lines first), at most `LINE_LIMIT` (20,000) per export and `UPLOAD_LINE_LIMIT` (60,000) per upload; the rest are
@@ -3557,13 +3564,30 @@ under: it is used when it was compared on 20 groups or more (`CALIBRATION_MIN`) 
 indicator type when, besides, each type goes with one display type and unit, and no pair with two types).
 The proof is stored in the run's details, `details.identity` (`version`, `enabled`, `types`, and per
 tie-breaker `compared`, `same`, `differ` and `not_given`: counts and fixed words only); a failure is
-`details.identity_error` and never fails the run. It also counts, a diagnostic, the PD indicators of those PDs
-eTools marks inactive in every row (`details.identity.inactive`: `indicators`, `without_rows` — no row was placed
-on them in any way, by id, title or output, or as one of the indicators a shared title could go to — and
-`pds`): Raw eTools data → PD indicators says "eTools marks N indicators of K programme documents inactive in
-every row; M of them have no partner report row and are still listed on Programmes → Indicators and Partner
-monitoring", from the newest run that counted them (`identity.inactive_indicators`), and its *Active* filter
-(`active=yes|no`) lists their rows. No page changes. Every page reads the proof of the newest finished
+`details.identity_error` and never fails the run. The same step (`identity.calibrate_and_list`) marks
+the PD indicators the pages list (`PDIndicator.listed`, `identity.mark_listed`, the user's decision of 28 Oct
+2026): an indicator (by its identity, every PD with PD indicators) eTools marks inactive in every row on which no
+partner report row is placed in any way (by id, title or output, or as one of the indicators a shared title
+could go to) is left out: `listed` false on each of its rows, written only where it changes, never touching
+`synced_at`. Every reader of PD indicators goes through `identity.listed`: Partner monitoring
+(`monitoring._indicator_rows`, its step `listed` on the figure trail; so every reader of
+`monitoring.indicators`: the grid, Program Performance, Data quality, the map, Home, the overview, the daily
+review, Ask NeuroDB's indicator progress, the eTools master indicators, field monitoring and the CPD links), Programmes → Indicators (`reporting.pd_indicators`) and its exports, the programme
+document page (`services.programme_datamart`), the filters' section lists and the daily review's unplaced
+locations; the Power BI comparison compares with those pages. The placement (`identity.Idents`) still reads
+every indicator: one left out has no row. An inactive indicator a row is placed on stays listed and carries the
+note `identity.INACTIVE_NOTE` (its pop-up, Ask) and "Inactive in eTools" on Programmes → Indicators and the PD
+page. The counts are stored in the proof (`details.identity.inactive`: `indicators`, `without_rows` — those left
+out — `pds`, and `rows_left_out`, the PD indicator rows marked): Raw eTools data → PD indicators says "eTools
+marks N indicators of K programme documents inactive in every row; M of them have no partner report row and are
+left out of Programmes → Indicators, Partner monitoring (Data quality too) and the programme document pages; the
+L others stay listed: partner report rows name them", from the newest run that counted them
+(`identity.inactive_indicators`), and its *Active* filter (`active=yes|no|left_out`) lists their rows. A run
+stored before this rule has no `rows_left_out`: the sentence then says the next sync leaves them out. After the
+update that adds the column (datamart 0021, every row listed), nothing changes on the pages until the next
+`pd_indicators` or `partner_reports` sync (nightly, 20:30); to apply it at once, open the latest `pd_indicators`
+run in Import and sync runs and press **Sync this dataset again**. The superuser's removal of partner report
+rows eTools no longer sends (`backfill.remove_unsent`) does not mark them: the next sync does. Every page reads the proof of the newest finished
 `partner_reports` or `pd_indicators` run, once per request, and ignores one stored under another
 `identity.CALIBRATION_VERSION` (bumped whenever a rule changes). With no proof (a new install, a run before
 this release) no tie-breaker is used, exactly as before. To see what each tie-breaker says and why it is or

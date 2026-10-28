@@ -333,6 +333,22 @@ def test_the_humanitarian_reports_never_call_an_indicator_without_them_gone(clie
     assert quarterly_lines[PERCENT_NAME].subs and quarterly_lines[MOVED_NAME].subs
 
 
+def test_an_indicator_the_pages_leave_out_is_never_called_gone(client_viewer, world):
+    """A confirmed PD indicator eTools marks inactive in every row that no partner report names is left out of
+    the pages once a sync marked it (``identity.listed``): it is still in eTools, so it is not listed, as under
+    a location filter; one that has left eTools still reads so."""
+    from neurodb.datamart import identity
+
+    a, _b, _c = world["pds"]
+    enrolled = world["enrolled"]
+    w.indicator(a, 171, "# of children enrolled in NFE (older wording)", is_active=False)
+    w.link(enrolled, a, 171)
+    w.link(enrolled, a, 199)  # its indicator is no longer in eTools
+    identity.calibrate_and_list()
+    reasons = {s.link.ident: s.sub.reason for s in _lines(_tab(client_viewer))[SUM_NAME].subs}
+    assert "s171" not in reasons and reasons["s199"] == masters.GONE
+
+
 def test_subs_in_another_section_are_read_with_one_more_read_by_programme_document(
     client_viewer, world, monkeypatch
 ):

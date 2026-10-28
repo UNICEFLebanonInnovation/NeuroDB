@@ -385,6 +385,41 @@ def not_in_read(job: Job) -> Reason:
     return ("not_in_read", "", job.context.not_in_read_detail())
 
 
+def inactive_reason(job: Job, *, reported: bool) -> Reason:
+    """Why NeuroDB lists an indicator eTools marks inactive in every row that Power BI does not (Power BI
+    lists only the current version of an indicator): the pages keep it because partners reported on it
+    (``reported``: report rows are counted on it) or because report rows of its title may be its own
+    (``identity.listed``: expected); else no report row names it and no sync has marked the indicators the
+    pages leave out yet, so NeuroDB still has an older version (the next sync leaves it out)."""
+    if reported:
+        return ("inactive", "", words.DETAIL_INACTIVE)
+    if pf.listing_marked(job.context):
+        return ("inactive", "", words.DETAIL_INACTIVE_TITLE)
+    return ("older_version", "", words.DETAIL_INACTIVE_NOT_YET)
+
+
+def left_out_reason(job: Job, title: Any, *, number: Any = None, partner: Any = None) -> Reason | None:
+    """A Power BI row whose indicator NeuroDB holds only as one its pages leave out (``identity.listed``:
+    eTools marks it inactive in every row and no partner report row names it), found by its title in the row's
+    PD
+    (``number``), else in a PD of the row's partner (``partner``; any PD when the row names none); None
+    otherwise."""
+    left = pf.left_out(job.context)
+    if not left:
+        return None
+    if number is not None:
+        pd, _amended = pf.pds(job.context).find(number)
+        ids = [pd.id] if pd is not None else []
+    else:
+        by_id = pf.pds(job.context).by_id
+        named = pm.partner(partner) if partner else ""
+        ids = [i for i in left if not named or (i in by_id and pm.partner(by_id[i].partner) == named)]
+    title = pm.text(title)
+    if not any(title in left.get(i, ()) for i in ids):
+        return None
+    return ("left_out", "", words.DETAIL_LEFT_OUT_INACTIVE)
+
+
 def earlier_step(neurodb: str, powerbi: str) -> bool:
     """NeuroDB's status is an earlier step of the same report than Power BI's (Submitted against Accepted, Due
     against Submitted)."""
@@ -1217,7 +1252,11 @@ def missing_targets(job: Job) -> None:
                     link=reverse("reports:pd_indicator", args=[n["pd_id"], n["key"]]),
                 )
                 continue
-            why = pd_reason(job, p.get("pd")) or not_in_read(job)
+            why = (
+                pd_reason(job, p.get("pd"))
+                or left_out_reason(job, p.get("indicator_title"), number=p.get("pd"))
+                or not_in_read(job)
+            )
             job.add(
                 "only_powerbi",
                 why,
@@ -1371,13 +1410,15 @@ def title_pair(
 def dq_list(job: Job) -> None:
     """Data Quality's list against Partner monitoring → Data quality's "without or with zero Reached", with
     Power BI's possible readings of its filter ranked by the indicators they agree on (in on both sides, or
-    out on both). An indicator only NeuroDB lists is, in this order: one eTools marks inactive with no report
-    row, a copy of another of its PD's indicators (same title and PD output) Power BI lists or that has the
-    year's rows with a value (:func:`_has_value`; never a copy NeuroDB lists too: Power BI then lists none of
-    them), one whose report of the year was not in the Datamart read (the location export names it
-    under that report), one of a PD that ends after the year (Power BI lists an indicator only in its PD's
-    last year: only while Power BI lists no indicator of such a PD), one with no report in the year, one with
-    draft values, one outside the PD's sections, else not explained yet."""
+    out on both). An indicator only NeuroDB lists is, in this order: one eTools marks inactive (the pages keep
+    it while partner report rows name it: :func:`inactive_reason`), a copy of another of its PD's indicators
+    (same title and PD output) Power BI lists or that has the year's rows with a value (:func:`_has_value`;
+    never a copy NeuroDB lists too: Power BI then lists none of them), one whose report of the year was not
+    in the Datamart read (the location export names it under that report), one of a PD that ends after the
+    year (Power BI lists an indicator only in its PD's last year: only while Power BI lists no indicator of
+    such a PD), one with no report in the year, one with draft values, one outside the PD's sections, else not
+    explained yet. A row only Power BI lists whose indicator NeuroDB's pages leave out says so
+    (:func:`left_out_reason`)."""
     context, parsed = job.context, job.parsed
     year = parsed.years[0] if len(parsed.years) == 1 else None
     every = page.indicators(parsed, context, view="quality")  # every section: the readings need them all
@@ -1465,8 +1506,8 @@ def dq_list(job: Job) -> None:
         link = reverse("reports:pd_indicator", args=[n["pd_id"], n["key"]])
         if p is None:
             others = [c for c in copies[(n["pd_id"], n["title"], n["output"])] if c is not n]
-            if n["ident"] in inactive and f["no_rows"]:
-                why: Reason = ("inactive", "", words.DETAIL_INACTIVE)
+            if n["ident"] in inactive:
+                why: Reason = inactive_reason(job, reported=not f["no_rows"])
             elif any(id(c) in listed or (marks[id(c)]["row"] and _has_value(marks[id(c)])) for c in others):
                 why = ("rule", "canonical", words.DETAIL_CANONICAL)
             elif _report_not_in_read(context, n, year):
@@ -1543,7 +1584,11 @@ def dq_list(job: Job) -> None:
             link=link,
         )
     for p in left_pb:
-        why = pd_reason(job, p["pd"]) or not_in_read(job)
+        why = (
+            pd_reason(job, p["pd"])
+            or left_out_reason(job, p["indicator_title"], number=p["pd"])
+            or not_in_read(job)
+        )
         job.add(
             "only_powerbi",
             why,
@@ -1980,7 +2025,7 @@ def _pp_missing(job: Job, p: dict[str, Any], titled, facts) -> Reason:
     context = job.context
     found = titled.get(pm.text(p.get("indicator_title"))) or []
     if not found:
-        return not_in_read(job)
+        return left_out_reason(job, p.get("indicator_title"), partner=p.get("partner")) or not_in_read(job)
     held = [pf.pds(context).by_id.get(n["pd_id"]) for n in found]
     if all(pd is not None and not running(job, pd) for pd in held):
         pd = held[0]
@@ -2047,8 +2092,9 @@ def pd_indicators(job: Job) -> None:
     title, one in the section). One paired with an indicator outside the section is compared column by
     column all the same: equal in every other column, a note counts it (Power BI reads the PD's sections);
     one that also differs is listed with its own reason. An indicator only NeuroDB lists is one eTools marks
-    inactive with no report row, one of a title two PD outputs share (Power BI lists the other), one outside
-    the PD's sections, else not explained yet."""
+    inactive (the pages keep it while partner report rows name it: :func:`inactive_reason`), one of a title
+    two PD outputs share (Power BI lists the other), one outside the PD's sections, else not explained yet. A
+    row only Power BI lists whose indicator NeuroDB's pages leave out says so (:func:`left_out_reason`)."""
     context, parsed = job.context, job.parsed
     year = one_year(parsed)
     every = page.pd_indicators(parsed, context)
@@ -2179,7 +2225,11 @@ def pd_indicators(job: Job) -> None:
     if any(pm.number(p.get("reached")) == 0 or pm.number(p.get("target")) == 0 for p in powerbi):
         job.result.note(words.NOTE_ZERO)
     for p in left_pb:
-        why = pd_reason(job, p["pd"]) or not_in_read(job)
+        why = (
+            pd_reason(job, p["pd"])
+            or left_out_reason(job, p["indicator_title"], number=p["pd"])
+            or not_in_read(job)
+        )
         job.add(
             "only_powerbi",
             why,
@@ -2198,9 +2248,9 @@ def pd_indicators(job: Job) -> None:
         fact = facts.get(n["ident"])
         own = pm.sections(n["section"], context.sections)
         twins = paired_outputs.get((n["pd_id"], n["title"]), set())
-        if n["ident"] in inactive and (fact is None or not fact.every):
-            why = ("inactive", "", words.DETAIL_INACTIVE)
-            lapsed += 1
+        if n["ident"] in inactive:
+            why = inactive_reason(job, reported=bool(fact is not None and fact.every))
+            lapsed += why[0] == "inactive"
         elif twins and pm.text(n["output"]) not in twins:
             why = ("rule", "shared_output", words.DETAIL_SHARED_OUTPUT)
         elif parsed.sections and not ({pm.text(s) for s in parsed.sections} & n["pd_sections"]) and own:

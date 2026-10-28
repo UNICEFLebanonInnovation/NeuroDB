@@ -551,6 +551,8 @@ PD_TITLES = {
 }
 ROW_TITLES = {
     "rows": "PD indicator rows of the programme documents kept",
+    # identity.listed: the user's decision of 28 Oct 2026
+    "listed": "eTools marks the indicator inactive and no partner report row names it (never listed)",
     "q": 'Does not match "{q}" (indicator or PD output)',
     "hr_only": "Humanitarian reports: only high-frequency or cluster indicators",
 }

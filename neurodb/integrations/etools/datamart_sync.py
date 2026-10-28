@@ -2486,10 +2486,12 @@ def sync_dataset(name: str) -> Callable[..., SyncRun]:
                     details["partial"] = True
             if spec.model in (dm.ReportedIndicator, dm.PDIndicator):
                 # the proof of the tie-breakers that tell apart indicators sharing a title and an output,
-                # read by every page from this run (identity.calibration); it never fails the run
+                # read by every page from this run (identity.calibration), and the PD indicators the pages
+                # leave out marked (eTools marks them inactive and no partner report row names them:
+                # identity.listed); it never fails the run
                 try:
                     with transaction.atomic():
-                        details["identity"] = identity.calibrate()
+                        details["identity"] = identity.calibrate_and_list()
                 except Exception as exc:
                     logger.warning("etools datamart: indicator identity not calibrated: %s", exc)
                     details["identity_error"] = str(exc)[:300]

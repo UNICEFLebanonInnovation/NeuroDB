@@ -72,7 +72,8 @@ def _year(params) -> int | None:
 
 # ------------------------------------------------------------------------------ programme documents
 def indicators_for(queryset: QuerySet[dm.PDIndicator]) -> list[dict[str, Any]]:
-    """One entry per indicator (the Datamart repeats it per location and disaggregation)."""
+    """One entry per indicator (the Datamart repeats it per location and disaggregation), of the rows given:
+    the programme document page gives the indicators the pages list (``identity.listed``)."""
     grouped: dict[Any, dict[str, Any]] = {}
     for row in queryset.order_by("lower_result_name", "title", "datamart_id"):
         key = row.source_id or ("row", row.datamart_id)
@@ -262,7 +263,7 @@ def programme_datamart(pd: PCA, today: datetime.date | None = None) -> dict[str,
     return {
         "fr_lines": lines,
         **_fr_totals(pd, lines),
-        "indicators": indicators_for(dm.PDIndicator.objects.filter(intervention=pd)),
+        "indicators": indicators_for(identity.listed(dm.PDIndicator.objects.filter(intervention=pd))),
         "workplan": workplan(pd.workplan_activities.all()),
         "action_points": _flag_overdue(list(action_points.order_by("status", "due_date")[:50])),
         "open_action_points": action_points.filter(status__in=dm.ActionPoint.OPEN_STATUSES).count(),

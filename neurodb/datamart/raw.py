@@ -937,8 +937,9 @@ UNSENT = {
 
 
 # The PD indicators' "Active" choices (eTools' is_active): an indicator inactive in every row is mostly an
-# older version of the PD's indicator (identity.inactive_indicators, inactive_words)
-ACTIVE_WORDS = {"yes": "yes", "no": "no"}
+# older version of the PD's indicator (identity.inactive_indicators, inactive_words); "left_out", the rows of
+# those the pages leave out (no partner report row names them: identity.left_out)
+ACTIVE_WORDS = {"yes": "yes", "no": "no", "left_out": "no, and left out of the pages (no partner report row)"}
 
 
 def updated_choices(name: str) -> dict[str, str]:
@@ -982,7 +983,7 @@ class Filters:
     report_type: str = ""
     pd_link: str = ""
     fr_link: str = ""
-    active: str = ""  # the PD indicators': "yes" or "no" (is_active)
+    active: str = ""  # the PD indicators': "yes" or "no" (is_active), or "left_out" (identity.left_out)
     refused: str = field(default="", compare=False)
 
     @classmethod
@@ -1105,7 +1106,11 @@ class Filters:
             rows = rows.filter(FundsNumbers().not_held(rows))
         elif name in FR_SOURCES and self.fr_link == "by_id_other_partner":
             rows = rows.filter(FundsNumbers().other_partner_q(rows))
-        if name == "pd_indicators" and self.active:
+        if name == "pd_indicators" and self.active == "left_out":
+            from . import identity
+
+            rows = identity.left_out(rows)
+        elif name == "pd_indicators" and self.active:
             rows = rows.filter(is_active=self.active == "yes")
         return rows
 
@@ -2102,17 +2107,36 @@ def _n(n: int, one: str, many: str) -> str:
 
 def inactive_words(found: dict[str, int] | None) -> str:
     """The PD indicators page's sentence on the indicators eTools marks inactive in every row, as the last
-    proof counted them (``identity.inactive_indicators``); "" before a sync counted them, or when there are
-    none."""
+    proof counted them (``identity.inactive_indicators``): those with no partner report row are left out of
+    the pages (``identity.listed``), once a sync has marked them (``rows_left_out``; a run before this rule
+    did not, and the pages still list them until the next one); "" before a sync counted them, or when there
+    are none."""
     if not found or not found.get("indicators"):
         return ""
     without = found.get("without_rows", 0)
-    return (
+    said = (
         f"eTools marks {_n(found['indicators'], 'indicator', 'indicators')} of "
         f"{_n(found.get('pds', 0), 'programme document', 'programme documents')} inactive in every row; "
-        f"{without:,} of them {'has' if without == 1 else 'have'} no partner report row and "
-        f"{'is' if without == 1 else 'are'} still listed on Programmes → Indicators and Partner monitoring."
+        f"{without:,} of them {'has' if without == 1 else 'have'} no partner report row"
     )
+    if "rows_left_out" not in found:
+        return (
+            f"{said}: the next PD indicators or partner reports sync leaves "
+            f"{'it' if without == 1 else 'them'} out of {LEFT_OUT_OF}."
+        )
+    kept = found["indicators"] - without
+    return f"{said} and {'is' if without == 1 else 'are'} left out of {LEFT_OUT_OF}" + (
+        f"; the {_n(kept, 'other stays', 'others stay')} listed: partner report rows name "
+        f"{'it' if kept == 1 else 'them'}."
+        if kept
+        else "."
+    )
+
+
+# the pages that leave out the indicators eTools marks inactive with no partner report row (identity.listed)
+LEFT_OUT_OF = (
+    "Programmes → Indicators, Partner monitoring (Data quality too) and the programme document pages"
+)
 
 
 def budget_link_words(found: Any) -> str:

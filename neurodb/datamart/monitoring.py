@@ -299,9 +299,11 @@ def _pd_queryset(filters: Filters, steps: list | None = None) -> QuerySet[PCA]:
 def _indicator_rows(
     filters: Filters, pd_ids: list[int], steps: list | None = None
 ) -> QuerySet[dm.PDIndicator]:
-    """The PD indicator rows the filters keep (the section is chosen per indicator, in :func:`indicators`).
-    ``steps``: as :func:`_pd_queryset`'s."""
+    """The PD indicator rows the filters keep (the section is chosen per indicator, in :func:`indicators`), of
+    the indicators the pages list (``identity.listed``: never one eTools marks inactive in every row that no
+    partner report row names). ``steps``: as :func:`_pd_queryset`'s."""
     qs = _stage(steps, "rows", dm.PDIndicator.objects.filter(intervention_id__in=pd_ids))
+    qs = _stage(steps, "listed", identity.listed(qs))
     if filters.q:
         qs = _stage(
             steps, "q", qs.filter(Q(title__icontains=filters.q) | Q(lower_result_name__icontains=filters.q))
@@ -375,6 +377,8 @@ class Indicator:
     title_rows_left_out: int = 0
     title_rows_unmatched: int = 0
     placed_by: str = ""  # the tie-breakers that placed its rows ("" for its id, title or output)
+    # eTools marks it inactive in every row: listed only because partner report rows name it (identity.listed)
+    inactive: bool = False
 
     @property
     def emergency(self) -> bool:
@@ -548,6 +552,7 @@ def collect(filters: Filters, steps: list | None = None) -> dict[tuple[int, str]
         "location_name",
         "location_pcode",
         "location_id",
+        "is_active",
         *(f"tag_{t}" for t in TAG_FIELDS),
     )
     found: dict[tuple[int, str], Indicator] = {}
@@ -573,7 +578,9 @@ def collect(filters: Filters, steps: list | None = None) -> dict[tuple[int, str]
                 ident=ident,
                 source_id=row["source_id"],
                 cp_output=row["cp_output"] or "",
+                inactive=True,
             )
+        entry.inactive = entry.inactive and not row["is_active"]
         if not entry.cp_output and row["cp_output"]:
             entry.cp_output = row["cp_output"]
         if row["location_name"] and row["location_name"] not in entry.locations:
@@ -730,6 +737,8 @@ def _attach_reached(
             record.reached(ident, result, read_from.get(ident, filters.report_type))
         if "active" in ways.get(ident, ()):
             result.notes.append(identity.ACTIVE_NOTE)
+        if entry.inactive:
+            result.notes.append(identity.INACTIVE_NOTE)
         _apply(entry, result, read_from.get(ident, filters.report_type))
         if result.reached is None:
             entry.tracking, entry.achieved = NOT_REPORTED, None
@@ -1563,10 +1572,10 @@ def stored_options(filters: Filters) -> dict[str, Any]:
 
 
 def filter_options(filters: Filters) -> dict[str, Any]:
-    base = dm.PDIndicator.objects.exclude(intervention=None)
-    pds = (
-        PCA.objects.exclude(status__in=("draft", "cancelled")).filter(pd_indicators__isnull=False).distinct()
-    )
+    """The filter's choices, from the indicators the pages list (``identity.listed``) and their programme
+    documents."""
+    base = identity.listed(dm.PDIndicator.objects.exclude(intervention=None))
+    pds = PCA.objects.exclude(status__in=("draft", "cancelled")).filter(pd_indicators__listed=True).distinct()
     partners = (
         PartnerOrganization.objects.filter(interventions__in=pds)
         .distinct()

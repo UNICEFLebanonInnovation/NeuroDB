@@ -13,9 +13,9 @@
   ("Remove these rows": raw_admin.unsent_view, the eTools update clean-up). For PRP's progress reports, whether the data
   proves their link to the programme documents and whether the pages could show their reports still owed
   (raw.prp_link_words, as the last sync recorded it). For the PD indicators, those eTools marks inactive in every row
-  (raw.inactive_words) and an "Active" filter; for the programme document budgets, how the last sync wrote each budget
-  record to the PD whose number it carries, those it wrote nowhere, the PDs several records named and the budgets it
-  emptied (raw.budget_link_words). For the funds reservation lines and headers,
+  and those of them the pages leave out (raw.inactive_words) and an "Active" filter; for the programme document budgets,
+  how the last sync wrote each budget record to the PD whose number it carries, those it wrote nowhere, the PDs several
+  records named and the budgets it emptied (raw.budget_link_words). For the funds reservation lines and headers,
   how the last sync linked them to their programme document, by the number they carry first (raw.fr_link_words), and
   a filter of those whose number names no programme document NeuroDB holds, and of those with no number whose eTools
   id names another partner's PD (left unlinked). A newer sync that failed says why in a few words and links its run for those who open runs; an
@@ -62,7 +62,7 @@
         {% if facts.unexplained %}<li class="nd-found__warn">{% blocktrans with n=facts.unexplained|intcomma %}{{ n }} records are not explained by the sync's counts: tell the NeuroDB team.{% endblocktrans %}</li>{% endif %}
         {% if facts.removal_skipped %}<li>{% trans "The last sync did not get every record, so records eTools may have deleted are still here." %}</li>{% endif %}
         {% if pd_link_line %}<li>{{ pd_link_line }}{% if facts.pd_link.number_not_held %} <a class="nd-link" href="?fr_link=number_not_held">{% trans "List them" %}</a>{% endif %}{% if facts.pd_link.by_id_other_partner %} <a class="nd-link" href="?fr_link=by_id_other_partner">{% trans "List those not linked because their eTools id names another partner's PD" %}</a>{% endif %}</li>{% endif %}
-        {% if inactive_line %}<li>{{ inactive_line }} <a class="nd-link" href="?active=no">{% trans "List their rows" %}</a></li>{% endif %}
+        {% if inactive_line %}<li>{{ inactive_line }} <a class="nd-link" href="?active=no">{% trans "List their rows" %}</a>{% if inactive_left_out %} · <a class="nd-link" href="?active=left_out">{% trans "Only those left out" %}</a>{% endif %}</li>{% endif %}
         {% if budget_line %}<li>{{ budget_line }}</li>{% endif %}
         {% if prp_link_line %}<li>{{ prp_link_line }} <a class="nd-link" href="{{ checks_url }}">{% trans "eTools reporting checks, check 11" %}</a></li>{% endif %}
         {% if unsent_line %}<li>{{ unsent_line }}{% if facts.same_number_other_period %} <a class="nd-link" href="?updated=unsent_period#no-longer-sent">{% trans "List them" %}</a>{% endif %}</li>{% endif %}

@@ -15,7 +15,7 @@
       <td class="small">{{ i.office|default:"—" }}</td>
       <td class="small">{{ i.section|default:"—" }}</td>
       <td class="small cell-wrap">{{ i.cp_output|default:"—" }}</td>
-      <td class="cell-wrap">{{ i.indicator }}{% if i.pd_output %}<span class="cell-sub">{{ i.pd_output|truncatechars:120 }}</span>{% endif %}</td>
+      <td class="cell-wrap">{{ i.indicator }}{% if i.pd_output %}<span class="cell-sub">{{ i.pd_output|truncatechars:120 }}</span>{% endif %}{% if i.inactive %}<span class="cell-sub">{% trans "Inactive in eTools: listed because partner reports name it" %}</span>{% endif %}</td>
       <td class="num" data-value="{{ i.baseline|default:'' }}">{{ i.baseline|number:0 }}</td>
       <td class="num" data-value="{{ i.target|default:'' }}">{{ i.target|number:0 }}{% if i.display_type == "percentage" and i.target is not None %}%{% endif %}{% if i.unit and i.unit != "number" and i.unit != "percentage" %}<span class="cell-sub">{{ i.unit }}</span>{% endif %}</td>
       <td class="small">{{ i.emergency }}</td>
@@ -23,7 +23,7 @@
   {% endfor %}</tbody>
 </table></div>
 {% include "components/pagination.html" with hx_target="#pd-table" %}
-<p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}One row per indicator of the programme documents of the filter (eTools lists an indicator once per location and disaggregation). Section is the indicator's own. What partners reached on each is on Partner monitoring. The Excel and CSV files hold every indicator of the filter.{% endblocktrans %}</p>
+<p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}One row per indicator of the programme documents of the filter (eTools lists an indicator once per location and disaggregation). Section is the indicator's own. An indicator eTools marks inactive (mostly an older version) is listed only when partner reports name it. What partners reached on each is on Partner monitoring. The Excel and CSV files hold every indicator of the filter.{% endblocktrans %}</p>
 {% else %}
 {% include "components/empty_state.html" with icon="filter" title=_("No indicators match") message=_("Remove some filters. If the list stays empty, the eTools data has not been synced yet.") action_url=request.path %}
 {% endif %}

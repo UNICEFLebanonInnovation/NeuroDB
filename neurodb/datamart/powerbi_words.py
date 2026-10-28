@@ -245,14 +245,19 @@ CLAUSE_STATES = {
     "unread": "A filter NeuroDB could not read (its text is not kept)",
     "other_country": "Another country: NeuroDB holds one country",
     # Power BI's is_blueprint_canonical: never "cannot" (its rows would read "A filter NeuroDB cannot apply")
-    "all_listed": "NeuroDB does not read this field: its pages list every PD indicator eTools sends",
+    "all_listed": (
+        "NeuroDB does not read this field: its pages list every PD indicator eTools sends, except those "
+        "eTools marks inactive that no partner report row names"
+    ),
 }
 # how NeuroDB reads Power BI's own fields (none of its pages reads them, even where the records carry them)
 AS_READ = {
     "is_period_latest": (
         "within one report, the newest row of each location; Power BI also keeps one report per period end"
     ),
-    "is_blueprint_canonical": "every PD indicator eTools sends",
+    "is_blueprint_canonical": (
+        "every PD indicator eTools sends, except those eTools marks inactive that no partner report row names"
+    ),
 }
 NOT_IN_RECORDS = "Power BI's field {field} is not in the records NeuroDB reads: NeuroDB reads it as {words}."
 IN_RECORDS = (
@@ -373,7 +378,7 @@ REASON_GROUPS = {
     "owed": 5,  # an earlier upload's lines keep the group they were written with (1)
     "not_in_read": 2,  # 4 when NeuroDB's sync ran after Power BI's refresh
     "counted_once": 4,
-    "inactive": 4,
+    "inactive": 1,  # listed by the user's decision of 28 Oct 2026: partner report rows name it
     "funds_elsewhere": 4,
     "left_out": 1,
     "older_version": 2,
@@ -417,7 +422,10 @@ REASON_ACTIONS = {
     "owed": "The partner has not sent this report yet.",
     "not_in_read": "Check in PRP that the report exists.",  # when NeuroDB's sync ran after the refresh
     "counted_once": "Check the report's period in PRP and in eTools.",
-    "inactive": "Check in eTools whether it is an older version of the PD's indicator.",
+    "inactive": (
+        "Power BI lists only the current version of an indicator; NeuroDB keeps an inactive one while "
+        "partner report rows name it."
+    ),
     "funds_elsewhere": (
         "The funds reservation lines name this PD but NeuroDB links them elsewhere (Raw eTools data → Funds "
         "reservation lines)."
@@ -501,7 +509,23 @@ DETAIL_PD_YEAR = "Power BI lists an indicator only in the year its programme doc
 DETAIL_CANONICAL = "This PD has another copy of the indicator (same title and PD output): Power BI lists one."
 DETAIL_SHARED_OUTPUT = "Two PD outputs of this PD share the indicator's title: Power BI lists it once."
 DETAIL_ADDED_UP = "NeuroDB's value adds up {n:,} indicators that share this title."
-DETAIL_INACTIVE = "eTools marks this indicator inactive, and no partner report names it."
+DETAIL_INACTIVE = "eTools marks this indicator inactive, but partners reported on it, so NeuroDB lists it."
+# an indicator eTools marks inactive that NeuroDB lists although no report row is counted on it: rows of its
+# title could be its own (a title and an output several indicators of the PD share)
+DETAIL_INACTIVE_TITLE = (
+    "eTools marks this indicator inactive, but partner report rows with its title may be its own, so NeuroDB "
+    "lists it."
+)
+# ... and one no partner report row names, still listed until a sync marks the indicators the pages leave out
+DETAIL_INACTIVE_NOT_YET = (
+    "eTools marks this indicator inactive and no partner report names it: the next sync of the PD indicators "
+    "or the partner reports leaves it out of NeuroDB's pages."
+)
+# a Power BI row whose indicator NeuroDB holds only as one its pages leave out (identity.listed)
+DETAIL_LEFT_OUT_INACTIVE = (
+    "NeuroDB holds this indicator, but eTools marks it inactive and no partner report names it: NeuroDB's "
+    "pages leave such indicators out."
+)
 # NeuroDB's budget fields of the PD, beside a budget column that differs (diagnostic)
 DETAIL_BUDGET = "NeuroDB has this PD's budget as UNICEF {unicef}, total {total}, partner {partner}."
 DETAIL_FUNDS_ELSEWHERE = "NeuroDB links the funds reservation lines naming this PD to {pd}."
@@ -734,12 +758,12 @@ NOTE_PD_SECTIONS_ONE = (
 )
 NOTED_COUNT = "and {n:,} counted in the notes above, not listed"
 NOTE_INACTIVE = (
-    "NeuroDB lists {n:,} indicators eTools marks inactive that have no report row (Raw eTools data → PD "
-    "indicators, Active: no)."
+    "NeuroDB lists {n:,} indicators eTools marks inactive because partner report rows name them; Power BI "
+    "lists only the current version of an indicator (Raw eTools data → PD indicators, Active: no)."
 )
 NOTE_INACTIVE_ONE = (
-    "NeuroDB lists 1 indicator eTools marks inactive that has no report row (Raw eTools data → PD "
-    "indicators, Active: no)."
+    "NeuroDB lists 1 indicator eTools marks inactive because partner report rows name it; Power BI lists "
+    "only the current version of an indicator (Raw eTools data → PD indicators, Active: no)."
 )
 NOTE_SHARED_LABEL = "Two disaggregations share a value's name: their values are added together on both sides."
 NOTE_CROSS_TAB = "Some values are only in NeuroDB's combined table; they were added up to compare."

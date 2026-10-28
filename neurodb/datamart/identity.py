@@ -20,6 +20,14 @@ per row, so a report is never half placed, and only:
   it was compared at least :data:`CALIBRATION_MIN` times and never differed. The sync stores that proof in
   its run (:func:`calibration`); without it no tie-breaker is used, and the rows stay left out as before.
 
+**The indicators the pages list** (:func:`listed`, the one rule every page reads): every PD indicator but
+one eTools marks inactive in every row (``is_active`` false: mostly an older version of the PD's indicator)
+on which no partner report row is placed in any way (by id, title or output, nor as one of the indicators a
+shared title could go to): the user's decision of 28 Oct 2026. An inactive indicator a row is placed on stays
+listed: partners' values sit on it. The sync marks them (``PDIndicator.listed``, :func:`mark_listed`) when
+it stores the proof, after each PD indicators and partner reports sync, and counts them (``inactive`` in the
+proof). The placement itself still reads every indicator (:class:`Idents`): one left out has no row to lose.
+
 Nothing here reads a title, an output or a name beyond comparing it (case and spaces aside, ``reached.norm``).
 """
 
@@ -96,6 +104,13 @@ ACTIVE_NOTE = (
     "Its programme document also holds an inactive indicator with this title and output: the partner "
     "reports are read as this one's."
 )
+# an indicator eTools marks inactive in every row that the pages still list (:func:`listed`): partners' values
+# sit on it
+INACTIVE_NOTE = (
+    "eTools marks this indicator inactive (mostly an older version of the programme document's indicator): "
+    "NeuroDB still lists it because partner report rows name it."
+)
+LISTED_CHUNK = 2000  # PD indicator rows :func:`mark_listed` reads, and writes, at a time
 # PRP's cluster_indicator: the words for no, and placeholders that say nothing (other text names a cluster)
 NO = frozenset({"false", "0", "no", "f", "n"})
 NOTHING = frozenset({"", "none", "null", "n/a", "na", "-"})
@@ -462,10 +477,24 @@ def calibration() -> Calibration:
     return compute.per_request("datamart_identity_calibration", read)
 
 
+def listed(rows: QuerySet) -> QuerySet:
+    """The PD indicator rows the pages list (the module docstring): none of an indicator eTools marks inactive
+    in every row that no partner report row names, as the last PD indicators or partner reports sync marked
+    them (:func:`mark_listed`). Every page that lists or counts PD indicators reads them through this."""
+    return rows.filter(listed=True)
+
+
+def left_out(rows: QuerySet) -> QuerySet:
+    """The PD indicator rows the pages leave out (:func:`listed`): those of an indicator eTools marks inactive
+    in every row that no partner report row names."""
+    return rows.filter(listed=False)
+
+
 def inactive_indicators() -> dict[str, int] | None:
     """The PD indicators eTools marks inactive in every row, as the newest proof that counted them stored them
-    (:func:`calibrate`: ``inactive``): ``indicators``, ``without_rows`` and ``pds``; None before a sync
-    counted them."""
+    (:func:`calibrate_and_list`: ``inactive``): ``indicators``, ``without_rows`` (those the pages leave out)
+    and ``pds``, and ``rows_left_out`` once a sync has marked them (:func:`mark_listed`; absent from a run
+    before this rule, whose indicators the pages still list); None before a sync counted them."""
     from neurodb.core.models import SyncRun
 
     found = (
@@ -484,7 +513,7 @@ def inactive_indicators() -> dict[str, int] | None:
     return {
         k: v if isinstance(v, int) else 0
         for k, v in found.items()
-        if k in ("indicators", "without_rows", "pds")
+        if k in ("indicators", "without_rows", "pds", "rows_left_out")
     }
 
 
@@ -628,11 +657,6 @@ class Idents:
         return "shared_output" if place in self.shared_output else "output_unmatched"
 
     # ------------------------------------------------------------------------------- the indicators
-    def inactive(self) -> set[tuple[int, str]]:
-        """The indicators eTools marks inactive in every row (``is_active`` false): mostly an older version of
-        a PD's indicator, still listed beside it on Programmes → Indicators and Partner monitoring."""
-        return {ident for ident, seen in self._seen.items() if seen.active == {False}}
-
     def candidate(self, ident: tuple[int, str]) -> Candidate:
         found = self._candidates.get(ident)
         if found is None:
@@ -898,11 +922,63 @@ def calibrate() -> dict[str, Any]:
     every page, whatever its filter): the rows placed by id, title or output, grouped as :meth:`Idents.place`
     groups them, compared with the indicator they were placed under. A tie-breaker is enabled when it was
     compared on :data:`CALIBRATION_MIN` groups or more and never differed; the indicator type when, besides,
-    each type seen goes with one (display type, unit) and no pair with two types. Also (``inactive``, a
-    diagnostic) the indicators of those PDs eTools marks inactive in every row (:meth:`Idents.inactive`), how
-    many of them no row was placed on in any way (``without_rows``: by id, title or output, or one of the
-    indicators a shared title could go to), and their PDs. Counts and fixed words only (the indicator types),
-    stored by the sync in its run's details (``identity``)."""
+    each type seen goes with one (display type, unit) and no pair with two types. Counts and fixed words only
+    (the indicator types); the sync stores it in its run's details (``identity``) with the indicators eTools
+    marks inactive (:func:`calibrate_and_list`)."""
+    return _calibrate()[0]
+
+
+def calibrate_and_list() -> dict[str, Any]:
+    """What the PD indicators and partner reports syncs store in their run (``details.identity``): the proof
+    (:func:`calibrate`), once the PD indicators the pages leave out are marked (:func:`mark_listed`), with
+    their counts (``inactive``, a diagnostic Raw eTools data → PD indicators says). One read of the partner
+    report rows for both."""
+    proof, placed = _calibrate()
+    proof["inactive"] = mark_listed(placed)
+    return proof
+
+
+def mark_listed(placed: set[tuple[int, str]]) -> dict[str, int]:
+    """Mark the PD indicator rows the pages list (``PDIndicator.listed``, read by :func:`listed`): not those
+    of an indicator eTools marks inactive in every row (``is_active`` false on each of its rows: mostly an
+    older version of the PD's indicator) that is not in ``placed`` (the indicators a partner report row may go
+    to, in any way: by id, title or output, or one of those a shared title could go to); every other row of a
+    programme document. Reads each PD indicator row of a PD once (its identity and flags only) and writes
+    only the rows whose mark changes, :data:`LISTED_CHUNK` at a time (never their ``synced_at``). Returns the
+    counts the proof stores: the ``indicators`` inactive in every row, ``without_rows`` (those left out),
+    their ``pds``, and the ``rows_left_out``."""
+    seen: dict[tuple[int, str], set[bool]] = defaultdict(set)
+    inactive_rows: dict[tuple[int, str], list[int]] = defaultdict(list)
+    marked: set[int] = set()  # the rows left out now
+    rows = (
+        dm.PDIndicator.objects.exclude(intervention=None)
+        .order_by()
+        .values_list("pk", "intervention_id", "source_id", "title", "is_active", "listed")
+    )
+    for pk, pd_id, source_id, title, active, shown in rows.iterator(chunk_size=LISTED_CHUNK):
+        ident = ident_of(pd_id, source_id, title)
+        seen[ident].add(bool(active))
+        if not active:
+            inactive_rows[ident].append(pk)
+        if not shown:
+            marked.add(pk)
+    inactive = {ident for ident, found in seen.items() if found == {False}}
+    out = inactive - placed
+    hidden = {pk for ident in out for pk in inactive_rows[ident]}
+    for value, pks in ((False, sorted(hidden - marked)), (True, sorted(marked - hidden))):
+        for start in range(0, len(pks), LISTED_CHUNK):
+            dm.PDIndicator.objects.filter(pk__in=pks[start : start + LISTED_CHUNK]).update(listed=value)
+    return {
+        "indicators": len(inactive),
+        "without_rows": len(out),
+        "pds": len({pd for pd, _ in inactive}),
+        "rows_left_out": len(hidden),
+    }
+
+
+def _calibrate() -> tuple[dict[str, Any], set[tuple[int, str]]]:
+    """:func:`calibrate`, and the indicators a partner report row may go to, in any way (by id, title or
+    output, or one of the indicators a shared title could go to): those :func:`mark_listed` keeps listed."""
     rows = dm.ReportedIndicator.objects.exclude(intervention=None).order_by()
     pd_ids = sorted(set(rows.values_list("intervention_id", flat=True).distinct()))
     idents = Idents(pd_ids, Calibration())
@@ -970,8 +1046,7 @@ def calibrate() -> dict[str, Any]:
     counts["same"] = sum(n for (kind, _), n in pairs.items() if kind in types)
     counts["differ"] = counts["compared"] - counts["same"]
     enabled = [n for n in BREAKERS if tally[n]["compared"] >= CALIBRATION_MIN and not tally[n]["differ"]]
-    inactive = idents.inactive()
-    return {
+    proof = {
         "version": CALIBRATION_VERSION,
         "computed_at": timezone.now().isoformat(),
         "rows": read,
@@ -982,9 +1057,5 @@ def calibrate() -> dict[str, Any]:
             name: {k: counts[k] for k in ("compared", "same", "differ", "not_given")}
             for name, counts in tally.items()
         },
-        "inactive": {
-            "indicators": len(inactive),
-            "without_rows": len(inactive - placed),
-            "pds": len({pd for pd, _ in inactive}),
-        },
     }
+    return proof, placed

@@ -40,7 +40,7 @@ from django.db.models import Count, Max, Q, Sum
 from django.urls import reverse
 
 from neurodb.core import compute, years
-from neurodb.datamart import fm, headline, monitoring
+from neurodb.datamart import fm, headline, identity, monitoring
 from neurodb.datamart import models as dm
 from neurodb.datamart import reached as rc
 from neurodb.datamart.children import counts_children
@@ -216,7 +216,9 @@ def _options() -> dict[str, list[str]]:
 
 
 def _sections() -> list[str]:
-    names = dm.PDIndicator.objects.order_by().values_list("section_name", flat=True).distinct()
+    """The sections the indicators the pages list name (``identity.listed``)."""
+    names = identity.listed(dm.PDIndicator.objects.order_by()).values_list("section_name", flat=True)
+    names = names.distinct()
     return sorted({(s or "").strip() for s in names} - {""})
 
 

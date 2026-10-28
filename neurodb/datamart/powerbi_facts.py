@@ -668,8 +668,9 @@ def chosen(table: list[dict[str, Any]]) -> str:
 
 def inactive(context: Context, pd_ids: Iterable[int]) -> set[tuple[int, str]]:
     """The indicators of these PDs eTools marks inactive in every row (``is_active`` false), by their identity
-    (``identity.ident_of``): mostly an older version of a PD's indicator, still listed beside it on Programmes
-    → Indicators and Partner monitoring (Raw eTools data → PD indicators, Active: no). One query."""
+    (``identity.ident_of``): mostly an older version of a PD's indicator. The pages list one only while a
+    partner report row names it (``identity.listed``), beside the current version Power BI lists (Raw eTools
+    data → PD indicators, Active: no). One query."""
     ids = sorted({i for i in pd_ids if i})
     if not ids:
         return set()
@@ -684,6 +685,28 @@ def inactive(context: Context, pd_ids: Iterable[int]) -> set[tuple[int, str]]:
         return {ident for ident, found in seen.items() if found == {False}}
 
     return context.once(("inactive", tuple(ids)), build)
+
+
+def left_out(context: Context) -> dict[int, set[str]]:
+    """The titles of the indicators the pages leave out (``identity.left_out``: eTools marks them inactive in
+    every row and no partner report row names them), by PD id, as a Power BI title is compared (cleaned,
+    ``pm.text``): why a Power BI row has no indicator on NeuroDB's page. One query."""
+
+    def build() -> dict[int, set[str]]:
+        out: dict[int, set[str]] = defaultdict(set)
+        rows = identity.left_out(dm.PDIndicator.objects.exclude(intervention=None))
+        for pd_id, title in rows.order_by().values_list("intervention_id", "title").distinct():
+            out[pd_id].add(pm.text(context.clean(title)))
+        return out
+
+    return context.once("left_out", build)
+
+
+def listing_marked(context: Context) -> bool:
+    """Whether a sync has marked the indicators the pages leave out (``identity.inactive_indicators`` carries
+    ``rows_left_out``): until one has, after the update that brought the rule, the pages still list an
+    indicator eTools marks inactive that no partner report row names."""
+    return context.once("listing_marked", lambda: "rows_left_out" in (identity.inactive_indicators() or {}))
 
 
 def fr_elsewhere(context: Context) -> dict[str, set[str]]:

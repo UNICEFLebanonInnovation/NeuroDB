@@ -36,7 +36,7 @@ from neurodb.assistant import llm
 from neurodb.core import years
 from neurodb.core.models import PopulationFigure, SavedView, SyncRun
 from neurodb.core.services import population as population_service
-from neurodb.datamart import hact_plan, headline, masters_tab, owed
+from neurodb.datamart import hact_plan, headline, identity, masters_tab, owed
 from neurodb.datamart import keys as etools_keys
 from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import reporting as reporting_service
@@ -1233,10 +1233,11 @@ def programmes(request: HttpRequest) -> HttpResponse:
 def _programme_options(tab: str) -> dict[str, Any]:
     """The Programmes filter's options. The Indicators tab filters on each indicator's own section, so
     its Section list also holds the sections the indicators name (a section only an indicator names
-    can be chosen too)."""
+    can be chosen too), of the indicators the pages list (``identity.listed``)."""
     options = partnerships.pd_filter_options()
     if tab == "indicators":
-        named = PDIndicator.objects.order_by().values_list("section_name", flat=True).distinct()
+        named = identity.listed(PDIndicator.objects.order_by()).values_list("section_name", flat=True)
+        named = named.distinct()
         options["sections"] = sorted(set(options["sections"]) | {(x or "").strip() for x in named} - {""})
     return options
 

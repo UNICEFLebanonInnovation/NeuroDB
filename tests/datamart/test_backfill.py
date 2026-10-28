@@ -347,6 +347,9 @@ QUICK_MIGRATIONS = {
     # the moment eTools stopped sending a partner report row (kept and counted): a nullable column, no default
     # (catalogue only on PostgreSQL), AddField only, no code runs; listed so the migration is accounted for here
     ("datamart", "0020_partner_report_not_sent", "AddField"),
+    # whether the pages list a PD indicator: a column with a constant default (catalogue only on PostgreSQL),
+    # AddField only, no code runs; the next PD indicators or partner reports sync marks the rows (identity)
+    ("datamart", "0021_pd_indicator_listed", "AddField"),
 }
 
 

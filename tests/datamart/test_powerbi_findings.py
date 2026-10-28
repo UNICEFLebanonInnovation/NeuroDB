@@ -22,12 +22,14 @@ from tests.datamart.test_powerbi_compare import (
     LOCATION_FILTERS,
     PARTNER,
     PD,
+    PP_FILTERS,
     REPORTS,
     SECTIONS,
     YEAR,
     _indicator,
     _lines,
     _one,
+    _pp,
     _with,
 )
 
@@ -1022,23 +1024,101 @@ def test_dq_canonical_copy_not_by_target_alone(checker, world):
     assert _dq_line(upload, "Fake other title").rule != "canonical"
 
 
-def test_an_inactive_copy_without_rows_reads_inactive_not_shared_output_or_canonical(checker, world):
+def _marked(finished=AFTER):
+    """The PD indicators the pages leave out, marked as the sync marks them (``identity.calibrate_and_list``),
+    in a partner reports run that finished at ``finished``."""
+    from neurodb.datamart import identity
+
+    run = pf.sync(finished)
+    run.details = {**run.details, "identity": identity.calibrate_and_list()}
+    run.save(update_fields=["details"])
+
+
+def test_an_inactive_copy_without_rows_waits_for_the_sync_that_leaves_it_out(checker, world):
+    """Before a sync has marked the indicators the pages leave out (the user's decision of 28 Oct 2026), an
+    inactive copy with no report row is an older version NeuroDB still has (wait for the next sync), never a
+    shared output or a canonical copy; once a sync has marked it, NeuroDB lists it nowhere and no line names
+    it."""
     pd, _ended = world
     _shared(pd, active=False)
     _copies(pd, active=False)
-    upload = _compared(
-        checker,
+    files = (
         _one("pd_indicators", [_pdi("Fake twin"), _pdi("Fake copy")], drop=PDI_DROP),
         _one("dq_list", [_dq("Fake copy")], filters=DQ_FILTERS),
     )
+    upload = _compared(checker, *files)
     (line,) = _pdi_line(upload, "Fake twin")
-    assert (line.kind, line.reason, line.group) == ("only_neurodb", "inactive", 4)
-    assert line.detail == words.DETAIL_INACTIVE
+    assert (line.kind, line.reason, line.group) == ("only_neurodb", "older_version", 2)
+    assert line.detail == words.DETAIL_INACTIVE_NOT_YET
     export = PowerBIExport.objects.get(upload=upload, kind="pd_indicators")
-    assert words.NOTE_INACTIVE.format(n=2) in export.counts["notes"]
+    assert not any(n.startswith("NeuroDB lists") for n in export.counts["notes"])
     line = _dq_line(upload, "Fake copy")
-    assert (line.reason, line.group) == ("inactive", 4)
-    assert powerbi_results.what_to_do(line, "1 Jan 2026").endswith(words.REASON_ACTIONS["inactive"])
+    assert (line.reason, line.group, line.detail) == ("older_version", 2, words.DETAIL_INACTIVE_NOT_YET)
+    _marked()
+    upload = _compared(checker, *files)
+    assert _pdi_line(upload, "Fake twin") == [] and _pdi_line(upload, "Fake copy") == []
+    _export, lines = _lines(upload, "dq_list")
+    assert not [x for x in lines if x.match[1] == "Fake copy"]
+
+
+def test_an_inactive_indicator_partners_reported_on_is_expected(checker, world):
+    """An inactive indicator with an Accepted report stays listed (partners' values sit on it): Power BI lists
+    only the current version of an indicator, so the line only NeuroDB has is expected, with its note."""
+    pd, _ended = world
+    _indicator(pd, 601, "Fake lapsed", cp_output="Output One", is_active=False)
+    pf.report_row(pd, "QPR1", "Accepted", D(2026, 1, 1), D(2026, 3, 31), title="Fake lapsed", source=601, value=5,
+                  submitted=D(2026, 4, 10))  # fmt: skip
+    _marked()
+    upload = _compared(checker, _one("pd_indicators", [_pdi("Fake indicator 1")], drop=PDI_DROP))
+    (line,) = _pdi_line(upload, "Fake lapsed")
+    assert (line.kind, line.reason, line.group, line.detail) == (
+        "only_neurodb",
+        "inactive",
+        1,
+        words.DETAIL_INACTIVE,
+    )
+    export = PowerBIExport.objects.get(upload=upload, kind="pd_indicators")
+    assert words.NOTE_INACTIVE_ONE in export.counts["notes"]
+    assert powerbi_results.what_to_do(line, "1 Jan 2026") == (
+        f"{words.GROUP_ACTIONS[1]} {words.REASON_ACTIONS['inactive']}"
+    )
+
+
+def test_a_power_bi_row_of_an_indicator_neurodb_leaves_out_says_so(checker, world):
+    """Power BI lists an indicator NeuroDB holds only as one its pages leave out (inactive, no partner report
+    row): never "not in the Datamart read"."""
+    pd, _ended = world
+    _indicator(pd, 602, "Fake retired", cp_output="Output One", is_active=False, target=None)
+    _marked()
+    missing = pf.row("missing_targets", section="Section Alpha", pd=PD, indicator_title="Fake retired")
+    upload = _compared(
+        checker,
+        _one("pd_indicators", [_pdi("Fake indicator 1"), _pdi("Fake retired")], drop=PDI_DROP),
+        _one("dq_list", [_dq("Fake retired")], filters=DQ_FILTERS),
+        _one("missing_targets", [missing], filters=(*YEAR, "section_name is Section Alpha")),
+        _one(
+            "program_performance",
+            [_pp(indicator_title="Fake retired", target=10, reached=1)],
+            filters=PP_FILTERS,
+        ),
+    )
+    (line,) = _pdi_line(upload, "Fake retired")
+    assert (line.kind, line.reason, line.group) == ("only_powerbi", "left_out", 1)
+    assert line.detail == words.DETAIL_LEFT_OUT_INACTIVE
+    line = _dq_line(upload, "Fake retired")
+    assert (line.kind, line.reason, line.detail) == (
+        "only_powerbi",
+        "left_out",
+        words.DETAIL_LEFT_OUT_INACTIVE,
+    )
+    for kind in ("missing_targets", "program_performance"):
+        _export, lines = _lines(upload, kind)
+        (line,) = [x for x in lines if x.match[1] == "Fake retired"]
+        assert (line.kind, line.reason, line.detail) == (
+            "only_powerbi",
+            "left_out",
+            words.DETAIL_LEFT_OUT_INACTIVE,
+        ), kind
 
 
 # ============================================================================ item 11: reasons made right
@@ -1230,18 +1310,27 @@ def test_a_dq_section_line_with_a_neurodb_reached_is_listed(checker, world):
 
 
 # =============================================================================================== diagnostics
-def test_an_inactive_indicator_without_rows_is_reason_inactive_never_no_report_in_year(checker, world):
+def test_an_inactive_indicator_without_rows_is_never_no_report_in_year(checker, world):
+    """Not marked yet: an older version NeuroDB still has; marked: Data quality no longer lists it."""
     pd, _ended = world
     _indicator(pd, 601, "Fake lapsed", cp_output="Output One", is_active=False)
-    upload = _compared(checker, _one("dq_list", [_dq("Fake indicator 1", reached=35)], filters=DQ_FILTERS))
-    line = _dq_line(upload, "Fake lapsed")
-    assert (line.kind, line.reason, line.group) == ("only_neurodb", "inactive", 4)
+    files = (_one("dq_list", [_dq("Fake indicator 1", reached=35)], filters=DQ_FILTERS),)
+    line = _dq_line(_compared(checker, *files), "Fake lapsed")
+    assert (line.kind, line.reason, line.group) == ("only_neurodb", "older_version", 2)
+    _marked()
+    _export, lines = _lines(_compared(checker, *files), "dq_list")
+    assert not [x for x in lines if x.match[1] == "Fake lapsed"]
 
 
 def test_a_gap_of_inactive_indicators_says_so(checker, world):
+    """An inactive indicator partners reported 0 on stays in NeuroDB's list without Reached: the card's gap
+    says so, expected."""
     pd, _ended = world
     _indicator(pd, 103, "Fake never reported", cp_output="Output One")
     _indicator(pd, 601, "Fake lapsed", cp_output="Output One", is_active=False)
+    pf.report_row(pd, "QPR1", "Accepted", D(2026, 1, 1), D(2026, 3, 31), title="Fake lapsed", source=601, value=0,
+                  submitted=D(2026, 4, 10))  # fmt: skip
+    _marked()
     upload = _compared(
         checker,
         _one("dq_list", [_dq("Fake never reported")], filters=DQ_FILTERS),
@@ -1249,7 +1338,7 @@ def test_a_gap_of_inactive_indicators_says_so(checker, world):
     )
     _card, (line,) = _lines(upload, "dq_card")
     assert words.DETAIL_GAP_PART_ONE["inactive"] in line.detail
-    assert (line.reason, line.group) == ("inactive", 4)
+    assert (line.reason, line.group) == ("inactive", 1)
 
 
 def test_budget_lines_carry_neurodb_s_budget_fields(checker, world):
@@ -1269,12 +1358,16 @@ def test_canonical_clause_says_neurodb_does_not_read_it(checker, world):
     export, lines = _lines(upload, "pd_indicators")
     clause = next(c for c in export.clauses if c["words"].startswith("is_blueprint_canonical"))
     assert clause["state"] == "all_listed"
-    assert (
-        words.CLAUSE_STATES["all_listed"]
-        == "NeuroDB does not read this field: its pages list every PD indicator eTools sends"
+    assert words.CLAUSE_STATES["all_listed"] == (
+        "NeuroDB does not read this field: its pages list every PD indicator eTools sends, except those eTools "
+        "marks inactive that no partner report row names"
     )
     assert not any(x.reason == "filter" for x in lines)
-    assert any("every PD indicator eTools sends" in n for n in export.notes)
+    assert any(
+        "every PD indicator eTools sends, except those eTools marks inactive that no partner report row names"
+        in n
+        for n in export.notes
+    )
 
 
 # ========================================================== the cards and Indicators with Missing Targets

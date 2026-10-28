@@ -451,10 +451,14 @@ def source_view(request, source: str):
         }
     elif name in raw.FR_SOURCES:  # how the last sync linked them to their programme document
         extra = {"pd_link_line": raw.fr_link_words(facts.pd_link, name)}
-    elif name == "pd_indicators":  # those eTools marks inactive in every row
+    elif name == "pd_indicators":  # those eTools marks inactive in every row, and those the pages leave out
         from . import identity
 
-        extra = {"inactive_line": raw.inactive_words(identity.inactive_indicators())}
+        inactive = identity.inactive_indicators()
+        extra = {
+            "inactive_line": raw.inactive_words(inactive),
+            "inactive_left_out": bool(inactive and inactive.get("rows_left_out")),
+        }
     elif name == "intervention_budgets":  # each written to the PD its number names, those written nowhere
         extra = {
             "budget_line": raw.budget_link_words((run.details or {}).get("budget_link") if run else None)

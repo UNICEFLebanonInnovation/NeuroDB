@@ -24,7 +24,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from neurodb.core.services import population as population_service
-from neurodb.datamart import hact_plan, monitoring, owed
+from neurodb.datamart import hact_plan, identity, monitoring, owed
 from neurodb.datamart import models as dm
 from neurodb.datamart import query as dmq
 from neurodb.datamart import services as datamart
@@ -1020,7 +1020,9 @@ def pd_indicator_progress(
             section,
             sorted(
                 x
-                for x in dm.PDIndicator.objects.order_by().values_list("section_name", flat=True).distinct()
+                for x in identity.listed(dm.PDIndicator.objects.order_by())
+                .values_list("section_name", flat=True)
+                .distinct()
                 if x
             ),
         )
