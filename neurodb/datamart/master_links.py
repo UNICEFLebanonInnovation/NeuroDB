@@ -16,9 +16,11 @@ method among them.
 and a type its method takes as the indicator's role (the type the pages read).
 
 a. *Replacement* (1.0): a confirmed link of the same programme document is no longer in eTools and its title
-   reads the same (:func:`neurodb.datamart.masters.base_title`). A suggestion only: the link is never moved.
-   It is suggested in every master whose link it replaces, with that link's role (one master's total and
-   another's denominator, say), and stays suggested in the others once a person confirms it in one's total.
+   reads the same (:func:`neurodb.datamart.masters.base_title`); one whose indicator the pages leave out
+   (``identity.listed``) is still in eTools, so it is never replaced. A suggestion only: the link is never
+   moved. It is suggested in every master whose link it replaces, with that link's role (one master's total
+   and another's denominator, say), and stays suggested in the others once a person confirms it in one's
+   total.
 b. *Same structure* (0.95): the same section, CP output, type and base title
    (:func:`neurodb.datamart.masters.structure_key`) as one of the master's confirmed totals.
 c. *Similar title* (0.6 to 0.89): the share of the master's words (its name, its keywords or a confirmed
@@ -404,11 +406,20 @@ def _targets(
     out: Plan,
 ) -> list[_Target]:
     """The active masters with what the rules read of their confirmed links; notes the links no longer in
-    eTools and those whose type reads as changed (``out``, checked by :func:`_changed`)."""
+    eTools and those whose type reads as changed (``out``, checked by :func:`_changed`). A link whose
+    indicator the pages leave out (``masters.left_out``: eTools marks it inactive and no partner report row
+    names it) is still in eTools: neither gone nor read, as the Master indicators tab does not list it."""
     by_master: dict[int, list[EtoolsMasterLink]] = defaultdict(list)
     for link in links:
         if link.status == Status.CONFIRMED:
             by_master[link.master_id].append(link)
+    missing = {
+        link.pd_id
+        for found in by_master.values()
+        for link in found
+        if link.pd_id in running and (link.pd_id, link.ident) not in rows
+    }
+    kept = masters.left_out(missing)  # in eTools, left out of the pages
     targets = []
     for master in active:
         target = _Target(master=master)
@@ -419,7 +430,7 @@ def _targets(
                 target.classes.add(link.unit_class)
             row = rows.get((link.pd_id, link.ident))
             if row is None:
-                if link.pd_id in running:  # its PD runs, its indicator is gone
+                if link.pd_id in running and (link.pd_id, link.ident) not in kept:  # its PD runs, it is gone
                     target.vanished[link.pd_id].append(link)
                     out.gone.append(link)
                 continue
@@ -1022,8 +1033,9 @@ def _why_not(link: EtoolsMasterLink, row: Row | None) -> str:
     refused = masters.not_active(link.master)  # a proposal's links are confirmed by accepting it
     if refused:
         return refused
-    if row is None:
-        return masters.GONE
+    if row is None:  # gone from eTools, or left out of the pages
+        left = (link.pd_id, link.ident) in masters.left_out([link.pd_id])
+        return masters.LEFT_OUT if left else masters.GONE
     unit = masters.unit_class(row)
     problem = masters.misfit(link.master.method, link.role, unit)
     if not problem and link.role == Role.TOTAL:

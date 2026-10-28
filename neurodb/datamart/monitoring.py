@@ -377,7 +377,9 @@ class Indicator:
     title_rows_left_out: int = 0
     title_rows_unmatched: int = 0
     placed_by: str = ""  # the tie-breakers that placed its rows ("" for its id, title or output)
-    # eTools marks it inactive in every row: listed only because partner report rows name it (identity.listed)
+    # eTools marks it inactive in every row: listed only because partner report rows name it
+    # (identity.listed); never before a sync has marked the indicators the pages leave out
+    # (identity.listing_marked)
     inactive: bool = False
 
     @property
@@ -595,7 +597,10 @@ def collect(filters: Filters, steps: list | None = None) -> dict[tuple[int, str]
                 },
             )
     _stage(steps, "one_per_indicator", dict(found))  # the indicators themselves: their attributes
+    # read when one is inactive: before a sync marked them, it is listed as before, for no reason of its own
+    marked = any(e.inactive for e in found.values()) and identity.listing_marked()
     for entry in found.values():
+        entry.inactive = entry.inactive and marked
         if not entry.cp_output:  # not reported yet: the PD's own CP outputs, joined (as Power BI shows them)
             entry.cp_output = pd_cp_outputs(entry.pd)
     if filters.cp_output:

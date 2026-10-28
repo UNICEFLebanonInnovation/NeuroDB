@@ -3395,9 +3395,15 @@ Quality's cards are explained from them), then Power BI's order.
   which NeuroDB has with a location row there, stays not explained yet; a value above NeuroDB's is a report not
   read or a draft only then; Power BI's status is that of its rows that carry a value. Reason `inactive`
   (group 1, expected: an indicator eTools marks inactive in every row that the pages still list because partner
-  report rows name it, `identity.listed`; Power BI lists only the current version of an indicator:
-  `powerbi_facts.inactive`, first among an indicator only NeuroDB lists, and a note; `kinds.inactive_reason`).
-  An inactive one no report row names, still listed because no sync has marked the indicators the pages leave
+  report rows name it, `identity.listed`, or because no partner report names its PD yet,
+  `DETAIL_INACTIVE_NO_REPORT` via `powerbi_facts.reported_pds`, not counted in the note; Power BI lists only the
+  current version of an indicator:
+  `powerbi_facts.inactive`, first among an indicator only NeuroDB lists, and a note; `kinds.inactive_reason`):
+  an export with no other line reads "Same data, counted another way" (`powerbi_results.COUNTED_REASONS`), and
+  the upload's Expected line names them (`TODO_EXPECTED_PART`). An upload compared before that decision wrote an
+  inactive indicator no report row named as group 4 ("no partner report names it"): its line keeps its group and
+  detail, and says to compare again (`words.INACTIVE_EARLIER`, `powerbi_results.what_to_do`). An inactive one no
+  report row names, still listed because no sync has marked the indicators the pages leave
   out since the update (`powerbi_facts.listing_marked`), is `older_version` (group 2: the next sync leaves it
   out). A Power BI row whose indicator NeuroDB holds only as one the pages leave out is `left_out` with
   `DETAIL_LEFT_OUT_INACTIVE` (`kinds.left_out_reason`, by the PD and title: PD/SPD Indicator, Data Quality's
@@ -3566,18 +3572,34 @@ The proof is stored in the run's details, `details.identity` (`version`, `enable
 tie-breaker `compared`, `same`, `differ` and `not_given`: counts and fixed words only); a failure is
 `details.identity_error` and never fails the run. The same step (`identity.calibrate_and_list`) marks
 the PD indicators the pages list (`PDIndicator.listed`, `identity.mark_listed`, the user's decision of 28 Oct
-2026): an indicator (by its identity, every PD with PD indicators) eTools marks inactive in every row on which no
-partner report row is placed in any way (by id, title or output, or as one of the indicators a shared title
-could go to) is left out: `listed` false on each of its rows, written only where it changes, never touching
-`synced_at`. Every reader of PD indicators goes through `identity.listed`: Partner monitoring
+2026): of a programme document partner report rows name (the PDs the proof reads, so exactly the indicators
+Raw eTools data counts), an indicator (by its identity) eTools marks inactive in every row on which no partner
+report row is placed in any way (by id, title or output, or as one of the indicators a shared title could go
+to) is left out: `listed` false on each of its rows, written only where it changes, never touching
+`synced_at`. Every indicator of a programme document no partner report row names stays listed (a running PD
+with only inactive indicators keeps its place in Home's running programmes and partners, and in the filters).
+The pages that list or count PD indicators read them through `identity.listed`: Partner monitoring
 (`monitoring._indicator_rows`, its step `listed` on the figure trail; so every reader of
 `monitoring.indicators`: the grid, Program Performance, Data quality, the map, Home, the overview, the daily
-review, Ask NeuroDB's indicator progress, the eTools master indicators, field monitoring and the CPD links), Programmes → Indicators (`reporting.pd_indicators`) and its exports, the programme
-document page (`services.programme_datamart`), the filters' section lists and the daily review's unplaced
-locations; the Power BI comparison compares with those pages. The placement (`identity.Idents`) still reads
-every indicator: one left out has no row. An inactive indicator a row is placed on stays listed and carries the
-note `identity.INACTIVE_NOTE` (its pop-up, Ask) and "Inactive in eTools" on Programmes → Indicators and the PD
-page. The counts are stored in the proof (`details.identity.inactive`: `indicators`, `without_rows` — those left
+review, Ask NeuroDB's indicator progress, the eTools master indicators and their nightly suggestions (check
+12), field monitoring and the CPD links), Programmes → Indicators (`reporting.pd_indicators`) and its exports,
+the programme document page (`services.programme_datamart`), the filters' section lists and the daily
+review's unplaced locations; the Power BI comparison compares with those pages. These read every PD indicator
+row on purpose, as diagnostics of what eTools sent: Raw eTools data (its *Active* filter included), Ask
+NeuroDB's eTools records search (`query.py`), check 7 (Table C and the stale count), check 10, check 12's
+record keys and ratio count, the placement (`identity.Idents`: one left out has no row), the masters admin's
+section list and lookup (`curation`), the CPD label lookup (`cpd.sources`), the ML readiness counts
+(`insights.readiness`), the indicator pop-up of an old link (`monitoring.indicator_detail`), the location
+filter's keys, the section editor's right to edit (`headline`), the figure trail's held and orphan counts and
+the comparison's own reads (`powerbi_kinds`, `powerbi_facts`). Do not add `identity.listed` to them. A
+confirmed master link to an indicator the pages leave out is still in eTools (`masters.left_out`): the Master
+indicators tab does not list it, the nightly job neither counts it as "no longer in eTools" (check 12) nor
+suggests a replacement for it, and confirming one says "Left out of the pages" (`masters.LEFT_OUT`); a unique
+beneficiaries indicator chosen on one says so on the PD page (`flag_unused` `left_out`), and its largest
+children indicator stands in. An inactive indicator a row is placed on stays listed and carries the note
+`identity.INACTIVE_NOTE` (its pop-up, Ask) and "Inactive in eTools" on Programmes → Indicators and the PD
+page, once a sync has marked the indicators (`identity.listing_marked`; before, no indicator carries it). The
+counts are stored in the proof (`details.identity.inactive`: `indicators`, `without_rows` — those left
 out — `pds`, and `rows_left_out`, the PD indicator rows marked): Raw eTools data → PD indicators says "eTools
 marks N indicators of K programme documents inactive in every row; M of them have no partner report row and are
 left out of Programmes → Indicators, Partner monitoring (Data quality too) and the programme document pages; the

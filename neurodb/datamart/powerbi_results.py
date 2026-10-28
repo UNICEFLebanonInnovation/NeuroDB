@@ -45,9 +45,10 @@ SEVERITY = (
     "same",
     "not_uploaded",
 )
-# the expected reasons that are a rule or a reading of NeuroDB ("Same data, counted another way"); the others
-# (APART) are rows NeuroDB cannot hold yet or never holds: "Same, apart from reports still owed: n"
-COUNTED_REASONS = ("rule", "status", "repeated", "left_out")
+# the expected reasons that are a rule or a reading of NeuroDB ("Same data, counted another way": an inactive
+# indicator partner reports name, which NeuroDB lists by the user's decision of 28 Oct 2026, among them); the
+# others (APART) are rows NeuroDB cannot hold yet or never holds: "Same, apart from reports still owed: n"
+COUNTED_REASONS = ("rule", "status", "repeated", "left_out", "inactive")
 APART_REASONS = ("owed", "before_history", "moved_on")
 # the choice of Choices for you a rule's lines and an export's verdict point to (no other rule has one)
 RULE_CHOICES = {
@@ -728,8 +729,13 @@ def what_to_do(
 ) -> str:
     """A line's group sentence, and its reason's step when it adds one: a row of a PD NeuroDB does not hold,
     or of the PD indicators' exports, is checked in eTools (a report in PRP); a different rule points to
-    Choices for you only when one is offered about it (``offered``: the upload's choices, None not known)."""
+    Choices for you only when one is offered about it (``offered``: the upload's choices, None not known). An
+    inactive indicator's line an upload compared before the user's decision of 28 Oct 2026 wrote as needs a
+    look (no partner report names it) keeps its step, and says to compare again
+    (``words.INACTIVE_EARLIER``)."""
     extra = words.REASON_ACTIONS.get(line.reason, "")
+    if line.reason == "inactive" and line.group != words.REASON_GROUPS["inactive"]:
+        extra = words.INACTIVE_EARLIER
     if line.reason == "not_in_read":
         if line.group != 4:
             extra = ""

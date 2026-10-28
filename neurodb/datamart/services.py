@@ -228,6 +228,18 @@ def _flag_overdue(points: list[dm.ActionPoint]) -> list[dm.ActionPoint]:
     return points
 
 
+def _left_out(pd: PCA, key: str) -> bool:
+    """Whether the PD's indicator of this page key (its eTools id, else ``r`` and a row's Datamart id) is one
+    the pages leave out (``identity.listed``: eTools marks it inactive in every row and no partner report row
+    names it): still in eTools, never "no longer among its indicators"."""
+    rows = identity.left_out(dm.PDIndicator.objects.filter(intervention=pd))
+    if key.isdigit():
+        return rows.filter(source_id=int(key)).exists()
+    if key.startswith("r") and key[1:].isdigit():
+        return rows.filter(datamart_id=int(key[1:])).exists()
+    return False
+
+
 def programme_datamart(pd: PCA, today: datetime.date | None = None) -> dict[str, Any]:
     lines = list(dm.FundsReservation.objects.filter(intervention=pd))
     action_points = dm.ActionPoint.objects.filter(intervention=pd)
@@ -246,7 +258,9 @@ def programme_datamart(pd: PCA, today: datetime.date | None = None) -> dict[str,
     monitoring["flag_unused"] = ""
     if flagged and not (main is not None and main.flagged):
         row = next((r for r in monitoring["rows"] if r.key == flagged), None)
-        if row is None:
+        if row is None and _left_out(pd, flagged):
+            monitoring["flag_unused"] = "left_out"  # still in eTools, left out of the pages (identity.listed)
+        elif row is None:
             monitoring["flag_unused"] = "missing"  # no longer among the PD's indicators in eTools
         elif not headline.is_number(row):
             monitoring["flag_unused"] = "not_number"  # now a percentage or a ratio

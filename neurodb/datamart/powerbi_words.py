@@ -447,6 +447,13 @@ REASON_ACTIONS = {
     "filter": "Or clear that slicer in Power BI and export again.",
     "unreadable": "Its values are left empty: check them in eTools or PRP.",
 }
+# an earlier upload's inactive line (written as needs a look, 4, before the user's decision of 28 Oct 2026,
+# for an inactive indicator no partner report names): it keeps its group and detail, and says what to do now
+INACTIVE_EARLIER = (
+    "Check in eTools whether it is an older version of the PD's indicator. Since your decision of 28 Oct "
+    "2026 NeuroDB leaves out an inactive indicator no partner report names: press Compare again to see the "
+    "differences as they are now."
+)
 # not in the Datamart read, where NeuroDB holds no such PD: the PD is checked in eTools (a report in PRP)
 NOT_IN_READ_PD = "Check in eTools that this PD exists."
 # a different rule no choice is offered for (Choices for you would show nothing about it)
@@ -515,6 +522,11 @@ DETAIL_INACTIVE = "eTools marks this indicator inactive, but partners reported o
 DETAIL_INACTIVE_TITLE = (
     "eTools marks this indicator inactive, but partner report rows with its title may be its own, so NeuroDB "
     "lists it."
+)
+# ... and one of a programme document no partner report names yet: the pages keep every indicator of it
+DETAIL_INACTIVE_NO_REPORT = (
+    "eTools marks this indicator inactive, but no partner report names its programme document yet, so "
+    "NeuroDB lists every indicator of it."
 )
 # ... and one no partner report row names, still listed until a sync marks the indicators the pages leave out
 DETAIL_INACTIVE_NOT_YET = (
@@ -906,6 +918,7 @@ TODO_EXPECTED_PART = {
     "owed": "reports still owed {n:,}",
     "moved_on": "moved on since Power BI's refresh {n:,}",
     "left_out": "left out by NeuroDB's page {n:,}",
+    "inactive": "inactive indicators NeuroDB still lists {n:,}",
     "rule": "counted another way {n:,}",
     "status": "statuses counted differently {n:,}",
     "repeated": "repeated values {n:,}",

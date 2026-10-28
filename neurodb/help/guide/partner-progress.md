@@ -118,12 +118,13 @@ PRP's report ids, which PRP's own list does not carry.
   partners' PD indicators (see [Master indicators](#master-indicators) below).
 
 **Indicators eTools marks inactive.** When a programme document is amended, eTools often keeps the older
-version of an indicator beside the new one and marks it inactive. NeuroDB leaves out an indicator eTools marks
-inactive in every row that no partner report names (your decision of 28 Oct 2026): Partner monitoring and its
-Data quality, Programme documents → Indicators, the programme document pages, their exports and Ask
-NeuroDB's indicator progress do not list or count it (Raw eTools data and Ask NeuroDB's eTools records still
-show every record eTools sent). An inactive indicator partners reported on stays listed, as their values sit on it:
-its pop-up says it is inactive in eTools. The eTools Datamart sync decides this each time it reads the PD
+version of an indicator beside the new one and marks it inactive. In a programme document partners have
+reported on, NeuroDB leaves out an indicator eTools marks inactive in every row that no partner report names
+(your decision of 28 Oct 2026; a programme document no partner report names yet keeps all its indicators):
+Partner monitoring and its Data quality, Programme documents → Indicators, the programme document pages,
+their exports and Ask NeuroDB's indicator progress do not list or count it (Raw eTools data and Ask NeuroDB's
+eTools records still show every record eTools sent). An inactive indicator partners reported on stays listed,
+as their values sit on it: its pop-up says it is inactive in eTools. The eTools Datamart sync decides this each time it reads the PD
 indicators or the partner reports, so an indicator a new report names comes back after the next sync. Raw
 eTools data → PD indicators says how many are left out and lists their rows.
 

@@ -264,7 +264,7 @@ order: needs a look, check the PD in eTools, wait for the next sync, NeuroDB can
   lists once only when Power BI lists another copy, or another copy has a value in the year. *NeuroDB lists an
   indicator eTools marks inactive*: Power BI lists only the current version of an indicator, while NeuroDB
   keeps an inactive one as long as partner reports name it (partners' values sit on it; your decision of 28 Oct
-  2026). An inactive indicator no partner report names is left out of NeuroDB's pages: a Power BI row of one
+  2026), and every indicator of a programme document no partner report names yet. An inactive indicator no partner report names is left out of NeuroDB's pages: a Power BI row of one
   says *NeuroDB's page leaves it out*.
 - **NeuroDB cannot show this yet.** A report still owed for a period that has ended (Due or Overdue): the
   partner reports feed never sends it, and NeuroDB does not show PRP's own progress reports until their link
@@ -292,7 +292,11 @@ order: needs a look, check the PD in eTools, wait for the next sync, NeuroDB can
   send it to the NeuroDB team. A report missing from the Datamart read is checked in PRP; a row of a PD
   NeuroDB does not hold, a PD indicator or a funds row, in eTools. One reason says more: *NeuroDB has its
   funds on another PD, or on none* (the funds reservation lines name this programme document, and NeuroDB
-  links them elsewhere: Raw eTools data → Funds reservation lines). A line whose programme document's
+  links them elsewhere: Raw eTools data → Funds reservation lines). An upload compared before 28 Oct 2026 may
+  also list here *NeuroDB lists an indicator eTools marks inactive* with no partner report naming it: check in
+  eTools whether it is an older version of the programme document's indicator. Since your decision of that
+  day NeuroDB leaves such indicators out: press *Compare again* to see the differences as they are now. A line
+  whose programme document's
   budget differs says the budget NeuroDB has for it. A gap of a counted visual takes the reason that most
   needs doing among its reports, never the most common one. An export of exactly 1,000 rows (or 30,000,
   or 150,000) may be cut by Power BI: NeuroDB's rows beyond it say so. Check in Power BI that the visual shows
@@ -510,8 +514,9 @@ programme documents, trips, engagements, action points and their details).
   linked" when none), its period end, due date and submission date, never its narrative or the people who
   wrote it.
 - **PD indicators eTools marks inactive** (PD indicators). The line under the counts says how many indicators
-  eTools marks inactive in every row, of how many programme documents, and how many of them have no partner
-  report row: mostly an older wording of a PD's indicator. Those are left out of Programmes → Indicators,
+  eTools marks inactive in every row, of how many programme documents partners have reported on, and how many
+  of them have no partner report row: mostly an older wording of a PD's indicator. Those are left out of
+  Programmes → Indicators,
   Partner monitoring (Data quality too) and the programme document pages (your decision of 28 Oct 2026); the
   others stay listed, as partners' values sit on them. The PD indicators and partner reports syncs mark them
   each time, so the pages follow the next sync. The filter's *Active* choice "no" lists the rows of every

@@ -1380,7 +1380,8 @@ def pd_indicators(pds: QuerySet[PCA], params) -> list[dict[str, Any]]:
     indicator once per location and disaggregation; it is identified by its eTools id, else its title,
     as on Partner monitoring), with its PD's attributes, its target and baseline: the indicators the pages
     list (``identity.listed``: never one eTools marks inactive in every row that no partner report row names;
-    ``inactive`` marks one eTools marks inactive that partners reported on). ``params``: ``emergency``
+    ``inactive`` marks one eTools marks inactive that partners reported on, once a sync has marked them:
+    ``identity.listing_marked``). ``params``: ``emergency``
     (yes/no: the indicators of SPDs, NeuroDB's Emergency indicator as Power BI's), ``section`` (the
     indicator's own section), ``indicator`` (words in its title) and ``pd_q`` (words in the PD reference)."""
     from .monitoring import _target, ident_of, pd_cp_outputs
@@ -1447,7 +1448,10 @@ def pd_indicators(pds: QuerySet[PCA], params) -> list[dict[str, Any]]:
             "inactive": not row["is_active"],  # in every row: listed only because partners reported on it
         }
     out = []
+    # read when one is inactive: before a sync marked them, it is listed as before, for no reason of its own
+    marked = any(e["inactive"] for e in found.values()) and identity.listing_marked()
     for entry in found.values():
+        entry["inactive"] = entry["inactive"] and marked
         if not entry["cp_output"]:  # not reported yet: the PD's own CP outputs, joined (as Power BI)
             entry["cp_output"] = pd_cp_outputs(entry["pd"])
         if sections and entry["section"] not in sections:

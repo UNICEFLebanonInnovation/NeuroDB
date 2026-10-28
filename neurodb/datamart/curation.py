@@ -171,8 +171,8 @@ def _now_rows(pd_ids: Iterable[int]) -> dict[tuple[int, str], Row]:
 
 
 def _why_left(master: EtoolsMaster, row: Row | None, key: tuple[int, str], role: str) -> str:
-    if row is None:
-        return masters.GONE
+    if row is None:  # gone from eTools, or left out of the pages
+        return masters.LEFT_OUT if key in masters.left_out([key[0]]) else masters.GONE
     if norm(row.section) != norm(master.section):
         return f"It is in section {row.section or 'none'}, not in {master.section}."
     if master.links.filter(pd_id=key[0], ident=key[1], status=Status.CONFIRMED).exists():

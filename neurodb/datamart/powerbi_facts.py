@@ -669,8 +669,8 @@ def chosen(table: list[dict[str, Any]]) -> str:
 def inactive(context: Context, pd_ids: Iterable[int]) -> set[tuple[int, str]]:
     """The indicators of these PDs eTools marks inactive in every row (``is_active`` false), by their identity
     (``identity.ident_of``): mostly an older version of a PD's indicator. The pages list one only while a
-    partner report row names it (``identity.listed``), beside the current version Power BI lists (Raw eTools
-    data → PD indicators, Active: no). One query."""
+    partner report row names it, or no partner report names its PD yet (``identity.listed``), beside the
+    current version Power BI lists (Raw eTools data → PD indicators, Active: no). One query."""
     ids = sorted({i for i in pd_ids if i})
     if not ids:
         return set()
@@ -702,11 +702,22 @@ def left_out(context: Context) -> dict[int, set[str]]:
     return context.once("left_out", build)
 
 
+def reported_pds(context: Context) -> set[int]:
+    """The PDs partner report rows name: the only ones whose indicators the pages may leave out
+    (``identity.listed``). One DISTINCT read."""
+
+    def build() -> set[int]:
+        rows = dm.ReportedIndicator.objects.exclude(intervention=None).order_by()
+        return set(rows.values_list("intervention_id", flat=True).distinct())
+
+    return context.once("reported_pds", build)
+
+
 def listing_marked(context: Context) -> bool:
-    """Whether a sync has marked the indicators the pages leave out (``identity.inactive_indicators`` carries
-    ``rows_left_out``): until one has, after the update that brought the rule, the pages still list an
-    indicator eTools marks inactive that no partner report row names."""
-    return context.once("listing_marked", lambda: "rows_left_out" in (identity.inactive_indicators() or {}))
+    """Whether a sync has marked the indicators the pages leave out (``identity.listing_marked``): until one
+    has, after the update that brought the rule, the pages still list an indicator eTools marks inactive that
+    no partner report row names."""
+    return context.once("listing_marked", identity.listing_marked)
 
 
 def fr_elsewhere(context: Context) -> dict[str, set[str]]:

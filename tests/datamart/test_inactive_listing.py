@@ -1,8 +1,10 @@
-"""The PD indicators the pages list (``identity.listed``, the user's decision of 28 Oct 2026): an indicator eTools
-marks inactive in every row on which no partner report row is placed is left out of every page that lists or
-counts PD indicators; one a row is placed on stays (partners' values sit on it), and so do the active ones and
-those inactive in some rows only. The PD indicators and partner reports syncs mark them when they store the
-proof, and Raw eTools data → PD indicators says how many. Fake programme documents and titles only."""
+"""The PD indicators the pages list (``identity.listed``, the user's decision of 28 Oct 2026): of a programme
+document partner report rows name, an indicator eTools marks inactive in every row on which none of them is
+placed is left out of every page that lists or counts PD indicators; one a row is placed on stays (partners'
+values sit on it), and so do the active ones, those inactive in some rows only and every indicator of a
+programme document no partner report names yet. The PD indicators and partner reports syncs mark them when
+they store the proof, and Raw eTools data → PD indicators says how many. Fake programme documents and titles
+only."""
 
 from __future__ import annotations
 
@@ -14,9 +16,11 @@ from django.utils import timezone
 from neurodb.core.models import SyncRun
 from neurodb.datamart import identity, monitoring, raw, reporting, services, trail_monitoring
 from neurodb.datamart import models as dm
+from neurodb.datamart.models import IndicatorFlag
 from neurodb.integrations.etools import datamart_sync as sync
 from neurodb.partnerships.models import PCA
 from neurodb.review import checks as review
+from neurodb.web import services as web
 from tests.datamart.test_identity import (
     CHILDREN,
     TODAY,
@@ -38,8 +42,9 @@ SPARE = "# of kits (spare)"
 
 def _world():
     """PD B: X active with a report row, Y inactive in every row with none (left out). PD C: an inactive indicator a
-    row is placed on by its title (kept), and one inactive in one of its rows only (kept). PD D, no partner report
-    at all: an inactive indicator (left out) in a section no other indicator names, and an active one (kept)."""
+    row is placed on by its title (kept), and one inactive in one of its rows only (kept). PD D: an inactive
+    indicator no report row names (left out) in a section no other indicator names, and an active one a report
+    row names (kept)."""
     b = make_pd("B")
     indicator(b, X)
     indicator(b, Y, OLD, active=False)
@@ -55,6 +60,7 @@ def _world():
     indicator(d, 701, SPARE, "3.1 Kits", active=False, places=("Tripoli",))
     dm.PDIndicator.objects.filter(source_id=701).update(section_name="Spare Section")
     indicator(d, 702, "# of kits", "3.1 Kits")
+    row(d, title="# of kits", output="3.1 Kits")
     return b, c, d
 
 
@@ -114,6 +120,27 @@ def test_an_inactive_indicator_a_shared_title_could_go_to_stays():
     assert _listed(802) == {True}
 
 
+def test_a_programme_document_no_partner_report_names_keeps_every_indicator():
+    """The rule reads the programme documents partner report rows name, as Raw eTools data's count always did
+    (the 947 of the user's decision): PD F runs, no partner report names it yet, and eTools marks each of its
+    indicators inactive. They stay listed, so Home still counts PD F among the running programme documents and
+    their partners, and the filter still offers it."""
+    b = make_pd("B")
+    indicator(b, X)
+    row(b)
+    f = make_pd("F")
+    indicator(f, 901, SPARE, "3.1 Kits", active=False)
+    kept = ("running_programmes", "etools_partners", "pd_indicators")
+    before = {k: web._etools_counts(2026)[k] for k in kept}
+    assert before == {"running_programmes": 2, "etools_partners": 2, "pd_indicators": 2}
+    found = _marked()
+    assert found["inactive"] == {"indicators": 0, "without_rows": 0, "pds": 0, "rows_left_out": 0}
+    assert _listed(901) == {True}
+    assert {k: web._etools_counts(2026)[k] for k in kept} == before
+    assert monitoring.filter_options(monitoring.Filters())["pds"] == [b.number, f.number]
+    assert raw.inactive_words(identity.inactive_indicators()) == ""  # nothing to say: no PD of them was read
+
+
 @responses.activate
 @pytest.mark.parametrize(
     "name, url",
@@ -141,6 +168,30 @@ def test_programmes_indicators_leave_them_out_and_mark_an_inactive_one_kept():
     found = {e["indicator"]: e for e in reporting.pd_indicators(pds, {})}
     assert set(found) == {CHILDREN, TEACHERS, "Mixed", "# of kits"}
     assert found[TEACHERS]["inactive"] and not found["Mixed"]["inactive"] and not found[CHILDREN]["inactive"]
+
+
+def test_before_a_sync_marks_them_no_indicator_says_partner_reports_name_it(client, roles):
+    """After the update and before the first sync marks the indicators (every row listed), the pages list what
+    they listed before, and none says it is listed because partner reports name it: no report row names Y.
+    Once a sync has marked them, Y is left out and the teachers' indicator, which a row names, says so."""
+    b, c, _d = _world()
+    filters = monitoring.Filters(pd_ids=[b.id, c.id], scope="all", year=None)
+    found = {i.title: i for i in monitoring.indicators(filters, TODAY)}
+    assert not found[OLD].inactive and identity.INACTIVE_NOTE not in found[OLD].notes
+    assert not found[TEACHERS].inactive and identity.INACTIVE_NOTE not in found[TEACHERS].notes
+    entries = {
+        e["indicator"]: e for e in reporting.pd_indicators(PCA.objects.filter(pk__in=[b.pk, c.pk]), {})
+    }
+    assert not entries[OLD]["inactive"] and not entries[TEACHERS]["inactive"]
+    client.force_login(_validator())
+    label = "listed because partner reports name it"
+    page = client.get(reverse("reports:programmes"), {"tab": "indicators", "scope": "all"}).content.decode()
+    assert OLD in page and label not in page
+    page = client.get(reverse("reports:programme_detail", args=[b.pk])).content.decode()
+    assert OLD in page and label not in page
+    _marked()
+    found = {i.title: i for i in monitoring.indicators(filters, TODAY)}
+    assert OLD not in found and found[TEACHERS].inactive and identity.INACTIVE_NOTE in found[TEACHERS].notes
 
 
 def test_programmes_indicators_page_and_its_csv_leave_them_out(client, roles):
@@ -196,6 +247,27 @@ def test_the_programme_document_page_leaves_them_out(client, roles):
     assert OLD not in page and CHILDREN in page
 
 
+def test_a_unique_beneficiaries_indicator_the_pages_leave_out_is_not_said_gone_from_etools(client, roles):
+    """A section editor chose Y, an older version, as PD B's unique beneficiaries indicator while the pages
+    listed it. Once a sync leaves it out, the PD page says why it does not count (still in eTools, but inactive
+    with no partner report naming it), never that it is no longer among its indicators in eTools; an indicator
+    that has left eTools still reads so."""
+    b, _c, _d = _world()
+    IndicatorFlag.objects.create(
+        source=IndicatorFlag.Source.ETOOLS, key=str(Y), label=OLD, unique_beneficiaries=True, intervention=b
+    )
+    assert services.programme_datamart(b, TODAY)["monitoring"]["flag_unused"] == ""
+    _marked()
+    found = services.programme_datamart(b, TODAY)["monitoring"]
+    assert found["flag_unused"] == "left_out" and found["flagged_key"] == str(Y)
+    client.force_login(_validator())
+    page = client.get(reverse("reports:programme_detail", args=[b.pk])).content.decode()
+    assert "is no longer among its indicators in eTools" not in page
+    assert "is one eTools marks inactive that no partner report names" in page
+    IndicatorFlag.objects.filter(key=str(Y)).update(key="599")  # an indicator no longer in eTools
+    assert services.programme_datamart(b, TODAY)["monitoring"]["flag_unused"] == "missing"
+
+
 def test_the_daily_review_counts_no_row_of_them():
     """No row names an eTools location here: the rows that name a place count, but not Y's two nor the spare
     one once they are left out."""
@@ -206,6 +278,27 @@ def test_the_daily_review_counts_no_row_of_them():
     _marked()
     (draft,) = review.check_locations_unplaced(ctx)
     assert draft.title.startswith("6 indicator location rows ")
+
+
+def test_the_diagnostics_still_read_every_row_and_operations_names_them():
+    """Only the pages that list or count PD indicators leave them out: the diagnostics of what eTools sent still
+    read every row (the masters admin's section list, the CPD label lookup, an old link's pop-up), and
+    docs/OPERATIONS.md names them so no one adds the rule to them."""
+    from pathlib import Path
+
+    from neurodb.cpd import sources
+    from neurodb.datamart import curation
+
+    b, _c, d = _world()
+    _marked()
+    assert "Spare Section" in curation.sections()
+    assert sources._etools_title(d.id, "701") == SPARE
+    assert monitoring.indicator_detail(b, str(Y), "QPR", None, TODAY) is not None
+    text = " ".join((Path(__file__).resolve().parents[2] / "docs" / "OPERATIONS.md").read_text().split())
+    assert "Every reader of PD indicators goes through" not in text
+    for named in ("Raw eTools data (its *Active* filter included)", "check 10", "(`curation`)", "(`cpd.sources`)",
+                  "(`monitoring.indicator_detail`)", "Do not add `identity.listed` to them."):  # fmt: skip
+        assert named in text, named
 
 
 # ----------------------------------------------------------------------------------------- Raw eTools data

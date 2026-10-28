@@ -20,13 +20,16 @@ per row, so a report is never half placed, and only:
   it was compared at least :data:`CALIBRATION_MIN` times and never differed. The sync stores that proof in
   its run (:func:`calibration`); without it no tie-breaker is used, and the rows stay left out as before.
 
-**The indicators the pages list** (:func:`listed`, the one rule every page reads): every PD indicator but
-one eTools marks inactive in every row (``is_active`` false: mostly an older version of the PD's indicator)
-on which no partner report row is placed in any way (by id, title or output, nor as one of the indicators a
-shared title could go to): the user's decision of 28 Oct 2026. An inactive indicator a row is placed on stays
-listed: partners' values sit on it. The sync marks them (``PDIndicator.listed``, :func:`mark_listed`) when
-it stores the proof, after each PD indicators and partner reports sync, and counts them (``inactive`` in the
-proof). The placement itself still reads every indicator (:class:`Idents`): one left out has no row to lose.
+**The indicators the pages list** (:func:`listed`, the rule the pages that list or count PD indicators
+read): every PD indicator but one eTools marks inactive in every row (``is_active`` false: mostly an older
+version of the PD's indicator) of a programme document partner report rows name, on which none of those rows
+is placed in any way (by id, title or output, nor as one of the indicators a shared title could go to): the
+user's decision of 28 Oct 2026, over the indicators Raw eTools data → PD indicators counted (the proof's
+``inactive``). An inactive indicator a row is placed on stays listed: partners' values sit on it; so does
+every indicator of a programme document no partner report row names yet (a running one keeps its place on
+Home and in the filters). The sync marks them (``PDIndicator.listed``, :func:`mark_listed`) when it stores
+the proof, after each PD indicators and partner reports sync, and counts them. The placement itself still
+reads every indicator (:class:`Idents`): one left out has no row to lose.
 
 Nothing here reads a title, an output or a name beyond comparing it (case and spaces aside, ``reached.norm``).
 """
@@ -479,8 +482,9 @@ def calibration() -> Calibration:
 
 def listed(rows: QuerySet) -> QuerySet:
     """The PD indicator rows the pages list (the module docstring): none of an indicator eTools marks inactive
-    in every row that no partner report row names, as the last PD indicators or partner reports sync marked
-    them (:func:`mark_listed`). Every page that lists or counts PD indicators reads them through this."""
+    in every row that no partner report row names, of a PD partner reports name, as the last PD indicators or
+    partner reports sync marked them (:func:`mark_listed`). Every page that lists or counts PD indicators
+    reads them through this; the diagnostics of what eTools sent read every row (docs/OPERATIONS.md)."""
     return rows.filter(listed=True)
 
 
@@ -515,6 +519,16 @@ def inactive_indicators() -> dict[str, int] | None:
         for k, v in found.items()
         if k in ("indicators", "without_rows", "pds", "rows_left_out")
     }
+
+
+def listing_marked() -> bool:
+    """Whether a sync has marked the PD indicators the pages leave out (:func:`mark_listed`: the newest proof
+    that counted them carries ``rows_left_out``), read once per request. Until one has, after the update that
+    brought the rule, the pages list every indicator as before, and none reads as kept because partner
+    reports name it (:data:`INACTIVE_NOTE`)."""
+    return compute.per_request(
+        "datamart_identity_listing_marked", lambda: "rows_left_out" in (inactive_indicators() or {})
+    )
 
 
 def _stored() -> Calibration:
@@ -933,20 +947,22 @@ def calibrate_and_list() -> dict[str, Any]:
     (:func:`calibrate`), once the PD indicators the pages leave out are marked (:func:`mark_listed`), with
     their counts (``inactive``, a diagnostic Raw eTools data → PD indicators says). One read of the partner
     report rows for both."""
-    proof, placed = _calibrate()
-    proof["inactive"] = mark_listed(placed)
+    proof, placed, pd_ids = _calibrate()
+    proof["inactive"] = mark_listed(placed, pd_ids)
     return proof
 
 
-def mark_listed(placed: set[tuple[int, str]]) -> dict[str, int]:
+def mark_listed(placed: set[tuple[int, str]], pd_ids: Iterable[int]) -> dict[str, int]:
     """Mark the PD indicator rows the pages list (``PDIndicator.listed``, read by :func:`listed`): not those
-    of an indicator eTools marks inactive in every row (``is_active`` false on each of its rows: mostly an
-    older version of the PD's indicator) that is not in ``placed`` (the indicators a partner report row may go
-    to, in any way: by id, title or output, or one of those a shared title could go to); every other row of a
-    programme document. Reads each PD indicator row of a PD once (its identity and flags only) and writes
-    only the rows whose mark changes, :data:`LISTED_CHUNK` at a time (never their ``synced_at``). Returns the
-    counts the proof stores: the ``indicators`` inactive in every row, ``without_rows`` (those left out),
-    their ``pds``, and the ``rows_left_out``."""
+    of an indicator of ``pd_ids`` (the programme documents partner report rows name, those the proof reads)
+    eTools marks inactive in every row (``is_active`` false on each of its rows: mostly an older version of
+    the PD's indicator) that is not in ``placed`` (the indicators a partner report row may go to, in any way:
+    by id, title or output, or one of those a shared title could go to); every other row, those of a
+    programme document no partner report row names included. Reads each PD indicator row once (its identity
+    and flags only) and writes only the rows whose mark changes, :data:`LISTED_CHUNK` at a time (never their
+    ``synced_at``). Returns the counts the proof stores: the ``indicators`` of ``pd_ids`` inactive in every
+    row, ``without_rows`` (those left out), their ``pds``, and the ``rows_left_out``."""
+    reported = set(pd_ids)
     seen: dict[tuple[int, str], set[bool]] = defaultdict(set)
     inactive_rows: dict[tuple[int, str], list[int]] = defaultdict(list)
     marked: set[int] = set()  # the rows left out now
@@ -956,12 +972,14 @@ def mark_listed(placed: set[tuple[int, str]]) -> dict[str, int]:
         .values_list("pk", "intervention_id", "source_id", "title", "is_active", "listed")
     )
     for pk, pd_id, source_id, title, active, shown in rows.iterator(chunk_size=LISTED_CHUNK):
+        if not shown:
+            marked.add(pk)
+        if pd_id not in reported:  # no partner report row names its PD: listed (one left out, listed again)
+            continue
         ident = ident_of(pd_id, source_id, title)
         seen[ident].add(bool(active))
         if not active:
             inactive_rows[ident].append(pk)
-        if not shown:
-            marked.add(pk)
     inactive = {ident for ident, found in seen.items() if found == {False}}
     out = inactive - placed
     hidden = {pk for ident in out for pk in inactive_rows[ident]}
@@ -976,9 +994,10 @@ def mark_listed(placed: set[tuple[int, str]]) -> dict[str, int]:
     }
 
 
-def _calibrate() -> tuple[dict[str, Any], set[tuple[int, str]]]:
-    """:func:`calibrate`, and the indicators a partner report row may go to, in any way (by id, title or
-    output, or one of the indicators a shared title could go to): those :func:`mark_listed` keeps listed."""
+def _calibrate() -> tuple[dict[str, Any], set[tuple[int, str]], list[int]]:
+    """:func:`calibrate`, the indicators a partner report row may go to, in any way (by id, title or output,
+    or one of the indicators a shared title could go to): those :func:`mark_listed` keeps listed, and the
+    programme documents partner report rows name (the only ones whose indicators it may leave out)."""
     rows = dm.ReportedIndicator.objects.exclude(intervention=None).order_by()
     pd_ids = sorted(set(rows.values_list("intervention_id", flat=True).distinct()))
     idents = Idents(pd_ids, Calibration())
@@ -1058,4 +1077,4 @@ def _calibrate() -> tuple[dict[str, Any], set[tuple[int, str]]]:
             for name, counts in tally.items()
         },
     }
-    return proof, placed
+    return proof, placed, pd_ids

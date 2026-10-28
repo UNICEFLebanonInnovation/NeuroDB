@@ -43,10 +43,10 @@ from django.db.models import Prefetch
 from neurodb.cpd.services import _norm as output_norm
 from neurodb.indicators.services.tracking import NO_TARGET, label_for, tracking
 
-from . import headline, monitoring, tags
+from . import headline, identity, monitoring, tags
 from . import reached as rc
 from .children import NUMBER_TYPES
-from .models import EtoolsMaster, EtoolsMasterLink, EtoolsMasterYear
+from .models import EtoolsMaster, EtoolsMasterLink, EtoolsMasterYear, PDIndicator
 from .reached import norm
 
 Row = Any  # neurodb.datamart.monitoring.Row (a stored row) or Indicator: the same fields
@@ -101,6 +101,8 @@ ONE_CLASS = frozenset({Method.AVERAGE, Method.MAXIMUM, Method.MINIMUM})  # every
 # Why a sub is not counted (the page's sub rows, the exports)
 SUGGESTED = "Suggested, not confirmed"
 GONE = "No longer in eTools"
+# still in eTools, but left out of the pages (identity.listed): never "no longer in eTools"
+LEFT_OUT = "Left out of the pages: eTools marks it inactive and no partner report names it"
 TYPE_CHANGED = "Type changed in eTools"
 WRONG_TYPE = "Its type does not fit this master's method"
 SHOWN = "Shown only"
@@ -140,6 +142,20 @@ def ident_code(ident: tuple[int, str] | str) -> str:
 def key_of(row: Row) -> tuple[int, str]:
     """``(PD id, ident code)``: how a link finds its row."""
     return (row.pd.id, ident_code(row.ident))
+
+
+def left_out(pd_ids: Iterable[int]) -> set[tuple[int, str]]:
+    """The PD indicators of these programme documents the pages leave out (``identity.listed``: eTools marks
+    them inactive in every row and no partner report row names them), by key (:func:`key_of`). They are still
+    in eTools: a link to one is never "no longer in eTools" (:data:`GONE`). One query."""
+    ids = sorted({i for i in pd_ids if i})
+    if not ids:
+        return set()
+    rows = identity.left_out(PDIndicator.objects.filter(intervention_id__in=ids)).order_by()
+    return {
+        (pd_id, ident_code(monitoring.ident_of(pd_id, source_id, title)))
+        for pd_id, source_id, title in rows.values_list("intervention_id", "source_id", "title").distinct()
+    }
 
 
 # ---------------------------------------------------------------------------------------------------- type

@@ -385,14 +385,17 @@ def not_in_read(job: Job) -> Reason:
     return ("not_in_read", "", job.context.not_in_read_detail())
 
 
-def inactive_reason(job: Job, *, reported: bool) -> Reason:
+def inactive_reason(job: Job, pd_id: int, *, reported: bool) -> Reason:
     """Why NeuroDB lists an indicator eTools marks inactive in every row that Power BI does not (Power BI
     lists only the current version of an indicator): the pages keep it because partners reported on it
-    (``reported``: report rows are counted on it) or because report rows of its title may be its own
-    (``identity.listed``: expected); else no report row names it and no sync has marked the indicators the
-    pages leave out yet, so NeuroDB still has an older version (the next sync leaves it out)."""
+    (``reported``: report rows are counted on it), because no partner report names its PD yet (the rule reads
+    only the PDs partner reports name: ``identity.listed``) or because report rows of its title may be its own
+    (expected, all three); else no report row names it and no sync has marked the indicators the pages leave
+    out yet, so NeuroDB still has an older version (the next sync leaves it out)."""
     if reported:
         return ("inactive", "", words.DETAIL_INACTIVE)
+    if pd_id not in pf.reported_pds(job.context):
+        return ("inactive", "", words.DETAIL_INACTIVE_NO_REPORT)
     if pf.listing_marked(job.context):
         return ("inactive", "", words.DETAIL_INACTIVE_TITLE)
     return ("older_version", "", words.DETAIL_INACTIVE_NOT_YET)
@@ -1507,7 +1510,7 @@ def dq_list(job: Job) -> None:
         if p is None:
             others = [c for c in copies[(n["pd_id"], n["title"], n["output"])] if c is not n]
             if n["ident"] in inactive:
-                why: Reason = inactive_reason(job, reported=not f["no_rows"])
+                why: Reason = inactive_reason(job, n["pd_id"], reported=not f["no_rows"])
             elif any(id(c) in listed or (marks[id(c)]["row"] and _has_value(marks[id(c)])) for c in others):
                 why = ("rule", "canonical", words.DETAIL_CANONICAL)
             elif _report_not_in_read(context, n, year):
@@ -2249,8 +2252,8 @@ def pd_indicators(job: Job) -> None:
         own = pm.sections(n["section"], context.sections)
         twins = paired_outputs.get((n["pd_id"], n["title"]), set())
         if n["ident"] in inactive:
-            why = inactive_reason(job, reported=bool(fact is not None and fact.every))
-            lapsed += why[0] == "inactive"
+            why = inactive_reason(job, n["pd_id"], reported=bool(fact is not None and fact.every))
+            lapsed += why[0] == "inactive" and why[2] != words.DETAIL_INACTIVE_NO_REPORT  # partners name them
         elif twins and pm.text(n["output"]) not in twins:
             why = ("rule", "shared_output", words.DETAIL_SHARED_OUTPUT)
         elif parsed.sections and not ({pm.text(s) for s in parsed.sections} & n["pd_sections"]) and own:

@@ -312,6 +312,44 @@ def test_an_indicator_no_longer_in_etools_is_flagged_and_its_replacement_suggest
     assert (sub.reason, sub.counted) == (masters.GONE, False)
 
 
+def test_a_link_to_an_indicator_the_pages_leave_out_is_still_in_etools(pds):
+    """PD A amended its indicator: 101, the current version, has a report; 171, the older one with the same title,
+    is inactive in every row and no partner report names it, so once a sync marks it the pages leave it out
+    (``identity.listed``). It is still in eTools: its confirmed link is never counted as no longer in eTools
+    (check 12 stays as it was), no replacement is suggested for it (101 is suggested by its structure, as before
+    the sync), and confirming it again says why it cannot be. A link whose indicator has left eTools still reads
+    so."""
+    from django.db import connection
+
+    from neurodb.datamart import checks, identity
+
+    a, b = pds["A"], pds["B"]
+    family((a, 101), (b, 201))
+    w.indicator(a, 171, ENROLLED, cp_output=OUTPUT, is_active=False)
+    w.report(a, 101, ENROLLED, "QPR1", day(3, 31), {"Akkar": 10})
+    m = w.master("Children enrolled in NFE")
+    w.link(m, b, 201, title=ENROLLED)
+    left = w.link(m, a, 171, title=ENROLLED)
+    gone = w.link(m, a, 199, title=TRAINED)  # no longer in eTools (another title: nothing replaces it)
+
+    def suggestion(found):
+        return next((x.rule, x.score) for x in found.suggestions if masters.key_of(x.row) == (a.id, "s101"))
+
+    before = master_links.plan(master_links.pool(w.YEAR), w.YEAR)
+    identity.calibrate_and_list()
+    assert set(dm.PDIndicator.objects.filter(source_id=171).values_list("listed", flat=True)) == {False}
+    found = master_links.plan(master_links.pool(w.YEAR), w.YEAR)
+    assert found.gone == [gone] and found.totals()["no_longer_in_etools"] == 1
+    assert suggestion(found) == suggestion(before) == ("structure", master_links.STRUCTURE_SCORE)
+    assert master_links._why_not(left, None) == masters.LEFT_OUT
+    assert master_links._why_not(gone, None) == masters.GONE
+    assert curation._why_left(m, None, (a.id, "s171"), "total") == masters.LEFT_OUT
+    with connection.cursor() as cursor:
+        check = checks._grouping(cursor)
+    assert dict(check["figures"])["Confirmed links no longer in eTools"] == 1
+    assert "1 confirmed link no longer in eTools" in check["verdict"]
+
+
 def test_a_replacement_is_suggested_in_every_master_whose_link_it_replaces_with_that_role(pds):
     """PD A's indicator is in one master's total and another's denominator. eTools replaces it (an amendment:
     the same title, a new id): the replacement is suggested in both, as each had it. They are no rivals: only

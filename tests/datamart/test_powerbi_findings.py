@@ -1121,6 +1121,110 @@ def test_a_power_bi_row_of_an_indicator_neurodb_leaves_out_says_so(checker, worl
         ), kind
 
 
+def test_an_inactive_copy_a_title_row_may_go_to_stays_listed_and_is_expected(checker, world):
+    """Two indicators of the PD share a title and a PD output, one of them inactive, and a partner report row
+    names the title only (no eTools id): it may be either's, so the sync keeps the inactive one listed, though no
+    report is counted on it. Its line only NeuroDB has is expected, saying its title's rows may be its own, on
+    PD/SPD Indicator and on Data Quality's list."""
+    from neurodb.datamart import models as dm
+
+    pd, _ended = world
+    _copies(pd, active=False)
+    pf.report_row(pd, "QPR1", "Accepted", D(2026, 1, 1), D(2026, 3, 31), title="Fake copy", source="", value=5,
+                  submitted=D(2026, 4, 10))  # fmt: skip
+    _marked()
+    assert set(dm.PDIndicator.objects.filter(source_id=502).values_list("listed", flat=True)) == {True}
+    upload = _compared(
+        checker,
+        _one("pd_indicators", [_pdi("Fake indicator 1"), _pdi("Fake copy")], drop=PDI_DROP),
+        _one("dq_list", [_dq("Fake copy")], filters=DQ_FILTERS),
+    )
+    expected = ("only_neurodb", "inactive", "", 1, words.DETAIL_INACTIVE_TITLE)
+    lines = [x for x in _pdi_line(upload, "Fake copy") if x.kind == "only_neurodb"]
+    assert [(x.kind, x.reason, x.rule, x.group, x.detail) for x in lines] == [expected]
+    line = _dq_line(upload, "Fake copy")
+    assert (line.kind, line.reason, line.rule, line.group, line.detail) == expected
+
+
+def test_an_inactive_indicator_of_a_pd_no_partner_report_names_is_expected_and_says_why(checker, world):
+    """No partner report names the PD yet, so the sync keeps every indicator of it, the inactive one too (the
+    rule reads the PDs partner reports name, as Raw eTools data counts them): the line only NeuroDB has says so,
+    never that report rows of its title may be its own, nor that the next sync leaves it out; the export's note
+    on indicators partner reports name does not count it."""
+    from neurodb.datamart import models as dm
+
+    pd, _ended = world
+    dm.ReportedIndicator.objects.filter(intervention=pd).delete()
+    _indicator(pd, 601, "Fake lapsed", cp_output="Output One", is_active=False)
+    for marked in (False, True):
+        if marked:
+            _marked()
+        assert set(dm.PDIndicator.objects.filter(source_id=601).values_list("listed", flat=True)) == {True}
+        upload = _compared(checker, _one("pd_indicators", [_pdi("Fake indicator 1")], drop=PDI_DROP))
+        (line,) = _pdi_line(upload, "Fake lapsed")
+        assert (line.kind, line.reason, line.group, line.detail) == (
+            "only_neurodb",
+            "inactive",
+            1,
+            words.DETAIL_INACTIVE_NO_REPORT,
+        ), marked
+        export = PowerBIExport.objects.get(upload=upload, kind="pd_indicators")
+        assert not any(n.startswith("NeuroDB lists") for n in export.counts["notes"])
+
+
+def test_every_expected_reason_is_named_in_the_verdict_and_the_expected_line():
+    """Each reason of the expected group is a rule or reading of NeuroDB ("counted another way") or a row NeuroDB
+    cannot hold ("Same, apart from ..."), and the upload's Expected line names it: an inactive indicator partners
+    reported on became expected on 28 Oct 2026."""
+    expected = {reason for reason, group in words.REASON_GROUPS.items() if group == 1}
+    assert expected <= {*powerbi_results.COUNTED_REASONS, *powerbi_results.APART_REASONS}
+    assert expected <= set(words.TODO_EXPECTED_PART)
+
+
+def test_an_export_of_inactive_lines_only_reads_counted_another_way(checker, world):
+    """An export whose only differences are inactive indicators partners reported on reads "Same data, counted
+    another way", never "Same, apart from " with nothing after it; the upload's Expected line names them, so its
+    parts add up to its count."""
+    counts = {"groups": {"1": 3}, "reasons": {"inactive": 3}, "reason_groups": {"inactive": 1}}
+    only = PowerBIExport(state="compared", kind="pd_indicators", counts=counts)
+    assert powerbi_results.verdict_code(only) == "counted"
+    assert powerbi_results.verdict_words(only, offered=frozenset()) == (
+        words.VERDICT_WORDS["counted"],
+        words.COUNTED_NO_CHOICE,
+    )
+    upload = _compared(checker, _one("pd_indicators", [_pdi("Fake indicator 1")], drop=PDI_DROP))
+    export = PowerBIExport.objects.get(upload=upload, kind="pd_indicators")
+    export.counts = {
+        **export.counts,
+        "groups": {"1": 5},
+        "reasons": {"inactive": 3, "rule": 2},
+        "reason_groups": {"inactive": 1, "rule": 1},
+    }
+    export.verdict = ""
+    assert [x["text"] for x in powerbi_results.todo(upload, [export], [])] == [
+        "Expected, nothing to fix: 5 differences (inactive indicators NeuroDB still lists 3, counted another way 2)."
+    ]
+
+
+def test_an_earlier_upload_s_inactive_line_keeps_its_step_and_says_to_compare_again():
+    """A comparison made before the user's decision of 28 Oct 2026 wrote an inactive indicator no partner report
+    named as needs a look; the line keeps its group and detail, so it keeps its step and says to compare again,
+    never that NeuroDB keeps such an indicator because partner report rows name it."""
+    from neurodb.datamart.models import PowerBIDifference
+
+    export = PowerBIExport(kind="pd_indicators")
+    earlier = PowerBIDifference(export=export, group=4, kind="only_neurodb", reason="inactive",
+                                detail="eTools marks this indicator inactive, and no partner report names it.")  # fmt: skip
+    action = powerbi_results.what_to_do(earlier, "1 Jan 2026")
+    assert action == f"{words.GROUP_ACTIONS[4]} {words.INACTIVE_EARLIER}"
+    assert words.REASON_ACTIONS["inactive"] not in action and "older version" in action
+    now = PowerBIDifference(export=export, group=1, kind="only_neurodb", reason="inactive",
+                            detail=words.DETAIL_INACTIVE)  # fmt: skip
+    assert powerbi_results.what_to_do(now, "1 Jan 2026") == (
+        f"{words.GROUP_ACTIONS[1]} {words.REASON_ACTIONS['inactive']}"
+    )
+
+
 # ============================================================================ item 11: reasons made right
 def test_dq_indicator_of_a_report_not_in_read_needs_a_look(checker, world):
     """A PD with one missing report and two indicators only NeuroDB lists, one of which the location export
