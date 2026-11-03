@@ -35,10 +35,14 @@ class ContentSecurityPolicyMiddleware:
 
 
 class PublicPagesLoginRequiredMiddleware(LoginRequiredMiddleware):
-    """Django's LoginRequiredMiddleware, plus read-only access to the pages in settings.PUBLIC_PAGES."""
+    """Django's LoginRequiredMiddleware, plus read-only access to the pages in settings.PUBLIC_PAGES, and sign
+    out for everyone: a Sign out sent after the session ended (a new temporary password given meanwhile, the
+    session's time up) leads straight to the sign-in page, not to a sign-in that ends on the sign-out page."""
 
     def process_view(self, request, view_func, view_args, view_kwargs):
         match = getattr(request, "resolver_match", None)
+        if match is not None and match.view_name == "account_logout":
+            return None
         if (
             match is not None
             and request.method in ("GET", "HEAD")

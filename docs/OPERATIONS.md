@@ -7075,9 +7075,11 @@ this to the donor under "How to read these figures".
 Send a temporary password to the donor separately from the sign-in address; the donor must choose
 their own at the next sign-in. The password page says that the current password is the temporary one
 and has **Sign out**, so the donor (or an administrator testing the account) can always leave it and sign
-in with another account. A donor who no longer has the temporary password signs out and asks their UNICEF
-focal point, who replaces it in the admin (Users and access → Donor accounts → the account) with
-**New temporary password**. Once the password is changed the donor lands on `/donor/`.
+in with another account. Sign out works even after the session has ended (a new temporary password was
+given meanwhile, or 12 hours have passed), and a sixth try within a minute gets a page that says to wait a
+minute, with Sign out. A donor who no longer has the temporary password signs out and asks their UNICEF
+focal point, who asks a NeuroDB administrator to replace it in the admin (Users and access → Donor accounts →
+the account) with **New temporary password**. Once the password is changed the donor lands on `/donor/`.
 
 The rest of the account: the page title, the donor names as eTools writes them on funds reservations
 (chosen from a list; type a name in "Other donor names" for a donor with no funds synced yet), optionally

@@ -517,7 +517,7 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 
 /* ------------------------------------------------------------------ auth pages */
 .auth-body { min-height: 100vh; display: grid; place-items: center; padding: 1.5rem; background: radial-gradient(1200px 600px at 10% -10%, var(--nd-primary-soft), transparent), var(--nd-bg); }
-.auth-card { width: min(100%, 420px); padding: 2rem; }
+.auth-card { width: min(100%, 420px); min-width: 0; overflow-wrap: break-word; padding: 2rem; } /* a long sign-in name wraps on a phone */
 .auth-card .brand { justify-content: center; margin: 0 0 1.5rem; }
 .auth-divider { display: flex; align-items: center; gap: 0.75rem; color: var(--nd-muted); font-size: 0.78rem; margin: 1.25rem 0; }
 .auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--nd-border); }

@@ -7,9 +7,11 @@ focal point for a new temporary password. A reset link from an email still works
 """
 
 import re
+from pathlib import Path
 
 import pytest
 from django.core import mail
+from django.test import Client
 from django.urls import reverse
 
 from neurodb.donors.models import DonorAccount
@@ -39,6 +41,10 @@ def sign_out_form(text: str) -> str | None:
     if match and 'name="csrfmiddlewaretoken"' in match.group(1) and 'type="submit"' in match.group(1):
         return match.group(1)
     return None
+
+
+def csrf_token(text: str) -> str:
+    return re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', text).group(1)
 
 
 def forms_are_not_nested(text: str) -> bool:
@@ -77,9 +83,32 @@ def test_sign_out_from_the_password_page_then_another_user_signs_in(forced, view
     assert "_auth_user_id" not in forced.session
     assert forced.get(reverse("account_login")).status_code == 200
     response = forced.post(reverse("account_login"), {"login": "viewer", "password": "viewer-pass-123456"})
-    assert response.status_code == 302
+    assert response.status_code == 302 and response["Location"] == reverse("reports:overview")
     assert forced.session["_auth_user_id"] == str(viewer.pk)
-    assert forced.get(reverse("account_change_password")).status_code == 200  # no longer confined
+    home = forced.get(response["Location"])
+    assert home.status_code == 200  # Home itself, not the password page or the donor page
+
+
+def test_sign_out_after_the_session_ended_then_staff_sign_in_lands_on_home(db, viewer):
+    """The password page is open in one browser; meanwhile the administrator gives the donor a new temporary
+    password (or the session runs out), which ends the session. Sign out then still leads straight to the sign-in
+    page, not to a sign-in that ends on the sign-out confirmation."""
+    browser = Client(enforce_csrf_checks=True)
+    account = make_donor("fresh-donor", must_change_password=True)
+    browser.force_login(account.user)
+    token = csrf_token(sign_out_form(browser.get(reverse("account_change_password")).text))
+    account.user.set_password("another-temporary-pass-1")  # as "New temporary password" does
+    account.user.save()
+    response = browser.post(reverse("account_logout"), {"csrfmiddlewaretoken": token})
+    assert response.status_code == 302 and response["Location"] == reverse("account_login")
+    page = browser.get(response["Location"])
+    assert "Sign in to open this page." not in page.text
+    response = browser.post(
+        reverse("account_login"),
+        {"login": "viewer", "password": "viewer-pass-123456", "csrfmiddlewaretoken": csrf_token(page.text)},
+    )
+    assert response.status_code == 302 and response["Location"] == reverse("reports:overview")
+    assert browser.get(response["Location"]).status_code == 200
 
 
 def test_the_sign_out_confirmation_opens_for_a_forced_donor(forced):
@@ -93,6 +122,60 @@ def test_the_logo_of_the_password_page_is_not_a_dead_end(forced):
     link then (it is one for everyone else)."""
     text = forced.get(reverse("account_change_password")).text
     assert '<a class="brand"' not in text and 'class="brand"' in text
+
+
+@pytest.mark.parametrize("name", ["account_reset_password_done", "account_logout", "account_reauthenticate"])
+def test_on_the_other_sign_in_pages_the_logo_leads_to_the_password_page(forced, settings, name):
+    """Those pages have no Sign out of their own (or only allauth's): their logo leads to the password page."""
+    settings.PASSWORD_RESET_BY_EMAIL = True
+    response = forced.get(reverse(name))
+    assert response.status_code == 200
+    assert f'<a class="brand" href="{reverse("account_change_password")}">' in response.text
+
+
+def test_too_many_tries_on_the_password_page_keeps_a_way_out(forced):
+    """allauth allows 5 tries a minute on the password page; the next one gets NeuroDB's page, not a bare one."""
+    wrong = {"oldpassword": "not-the-password", "password1": NEW_PASSWORD, "password2": NEW_PASSWORD}
+    responses = [forced.post(reverse("account_change_password"), wrong) for _ in range(6)]
+    assert [response.status_code for response in responses] == [200] * 5 + [429]
+    text = responses[-1].text
+    assert 'class="panel auth-card"' in text
+    assert "Too many tries" in text and "Wait a minute, then try again." in text
+    assert f'href="{reverse("account_change_password")}"' in text
+    assert sign_out_form(text) is not None
+    assert forced.get(reverse("account_change_password")).status_code == 200
+
+
+def test_the_too_many_tries_page_of_a_visitor_leads_to_sign_in(rf):
+    from allauth.core.internal.ratelimit import handler429
+    from django.contrib.auth.models import AnonymousUser
+
+    request = rf.get(reverse("account_login"))
+    request.user = AnonymousUser()
+    response = handler429(request)
+    assert response.status_code == 429
+    text = response.content.decode()
+    assert "Wait a minute, then try again." in text
+    assert f'href="{reverse("account_login")}"' in text
+    assert sign_out_form(text) is None
+
+
+def test_a_long_sign_in_name_wraps_on_the_password_page(client, db, settings):
+    """A donor added as a new sign-in has the email address as username: on a phone it must wrap, not push the
+    page wider than the screen."""
+    account = make_donor("fresh-donor", must_change_password=True)
+    account.user.username = "programme.reporting@delegation.example.org"
+    account.user.save()
+    client.force_login(account.user)
+    text = client.get(reverse("account_change_password")).text
+    match = re.search(
+        r'<span class="([^"]*)"[^>]*>Signed in as programme\.reporting@delegation\.example\.org', text
+    )
+    assert match and "text-break" in match.group(1).split()
+    # and allauth's own pages ("You are already logged in as ..."): the card never grows wider than the screen
+    css = (Path(settings.BASE_DIR) / "neurodb" / "web" / "static" / "css" / "app.css").read_text()
+    card = re.search(r"^\.auth-card \{([^}]*)\}", css, re.M).group(1)
+    assert "min-width: 0" in card and "overflow-wrap: break-word" in card
 
 
 # ------------------------------------------------------------------------------ the reset pages
@@ -177,6 +260,32 @@ def test_a_next_address_after_the_change_still_ends_on_the_donor_page(forced):
     )
     assert response.status_code == 302
     assert forced.get(response["Location"])["Location"] == reverse("donors:page")
+
+
+def test_field_errors_are_tied_to_their_inputs(forced):
+    """A screen reader on a field with an error hears the error: it is named in aria-describedby, and the field
+    is marked aria-invalid."""
+    url = reverse("account_change_password")
+    short = forced.post(url, {"oldpassword": "", "password1": "short", "password2": "short"}).text
+    mismatch = forced.post(
+        url, {"oldpassword": PASSWORD, "password1": NEW_PASSWORD, "password2": "other"}
+    ).text
+    for field, text in (("oldpassword", short), ("password1", short), ("password2", mismatch)):
+        tag = re.search(rf'<input [^>]*name="{field}"[^>]*>', text).group(0)
+        assert 'aria-invalid="true"' in tag, field
+        described = re.search(r'aria-describedby="([^"]*)"', tag).group(1).split()
+        assert described[0] == f"id_{field}_error", field
+        assert re.search(rf'<div class="invalid-feedback" id="id_{field}_error"><div>\S', text), field
+        if field != "password2":
+            assert f"id_{field}_helptext" in described, field  # the help text is still read
+    tag = re.search(r'<input [^>]*name="password2"[^>]*>', short).group(0)
+    assert "aria-invalid" not in tag and "aria-describedby" not in tag  # no error on it there
+
+
+def test_fields_without_errors_are_not_marked_invalid(forced):
+    text = forced.get(reverse("account_change_password")).text
+    assert "aria-invalid" not in text
+    assert not any(f"id_{field}_error" in text for field in ("oldpassword", "password1", "password2"))
 
 
 def test_a_wrong_temporary_password_keeps_the_page_and_its_way_out(forced):
