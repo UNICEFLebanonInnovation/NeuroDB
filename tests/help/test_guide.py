@@ -558,6 +558,25 @@ def test_operations_and_the_guide_say_why_check_10_s_dates_print_whole():
     )
 
 
+def test_operations_and_the_guide_give_the_first_rows_of_the_full_menu_their_places():
+    """Where OPERATIONS.md or the guide numbers a row of the full menu's first group ("fourth in the full
+    menu") and names the row above it ("under Ask NeuroDB"), that is its place in the menu (SPEC_HOME §4)."""
+    from neurodb.indicators.services import navigation
+
+    first = [str(item.label) for item in navigation.MENU[0].items]
+    assert first == ["Home", "Ask NeuroDB", "For you", "Daily review", "What's new"]
+    places = ("first", "second", "third", "fourth", "fifth")
+    said = re.compile(
+        r"\*{1,2}([^*]+)\*{1,2} \([^;)]*?\b(" + "|".join(places) + r") in the full menu(?:, under ([^;)]+))?"
+    )
+    texts = [OPERATIONS_WORDS, *(" ".join(text.split()) for text in GUIDE_TEXT.values())]
+    found = [match for text in texts for match in said.findall(text)]
+    assert {label for label, _place, _above in found} >= {"For you", "Daily review"}
+    for label, place, above in found:
+        assert places.index(place) == first.index(label), (label, place)
+        assert not above or above == first[first.index(label) - 1], (label, above)
+
+
 def test_the_guide_and_operations_say_what_only_the_full_menu_holds():
     """The focused menu has no ActivityInfo block, no Monitoring insights and no Data health: the guide and
     OPERATIONS.md no longer put them in every sidebar, and Home's visits link follows Monitoring insights

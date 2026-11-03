@@ -5160,7 +5160,7 @@ is in.
 
 Every morning the `daily-review` job (`manage daily_review`) runs fourteen fixed checks over the
 synced data and stores the result as a dated review with its findings (admin → Daily review). Its own
-page, **Daily review** (`/daily-review/`, third in the full menu; see *Daily review page*), shows the latest
+page, **Daily review** (`/daily-review/`, fourth in the full menu; see *Daily review page*), shows the latest
 one in its card, with tabs for the day before and the last seven days; the card follows the page's section
 filter (country-wide findings always show). Home shows a digest of it (counts by severity, the findings
 that matter most grouped by check, what changed) with a link to the page. The
@@ -5234,8 +5234,8 @@ you** page. The AI only writes a short morning note and looks into a few critica
 never decides what is followed, how serious it is, when it is due or who is told. The code is in
 `neurodb/watch` (one module per step, each with notes at its top).
 
-**What staff see.** *For you* (second in the full menu, under Home; in a role's menu once a superuser ticks
-it in *Menu*), with the number of "Needs you"
+**What staff see.** *For you* (third in the full menu, under Ask NeuroDB; in a role's menu once a
+superuser ticks it in *Menu*), with the number of "Needs you"
 points told today and not yet seen, and a *For you* card on Home (not drawn while Watch is switched off;
 an account without a role is told "For you is for people with a role. Your account has none yet, so it
 opens with the Viewer's pages only. Ask an administrator to give you a role."). The page shows, in order:

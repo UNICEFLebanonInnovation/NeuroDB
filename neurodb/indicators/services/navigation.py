@@ -496,7 +496,8 @@ def entries() -> list[dict[str, Any]]:
     for group in MENU:
         for item in group.items:
             if item.key not in placed:
-                # the untitled first group's rows follow the focused part's last rows, untitled too
+                # the untitled first group's other rows (For you, Daily review, What's new) follow
+                # Partner reporting, under "Below Partner reporting"
                 add(item, group.title or below, group)
     found.append(
         {

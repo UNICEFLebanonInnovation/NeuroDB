@@ -141,9 +141,12 @@ def test_the_menu_item_equals_the_page_title(built, client_viewer, settings, ful
     assert 'href="#i-ruler"' in item.group(1)
     page = client_viewer.get(PAGE).content.decode()
     assert re.search(r"<title>(.*?) · ", page).group(1) == label
-    # the item comes after Field monitoring (right after it in the full menu; Field monitoring is at the top
-    # of a role's menu)
-    assert sidebar.index('href="/field-monitoring/"') < sidebar.index('href="/fmm/"')
+    # the item comes right after Field monitoring, under Funds and assurance, in a role's menu as in the full
+    # menu
+    links = re.findall(r'<a class="nav-item-link[^"]*" href="([^"]+)"', sidebar)
+    assert links[links.index("/fmm/") - 1] == "/field-monitoring/"
+    funds = sidebar[sidebar.index('aria-labelledby="nav-title-funds"') :].split("</div>", 2)[1]
+    assert 'href="/field-monitoring/"' in funds and 'href="/fmm/"' in funds
 
 
 def test_the_crumbs_name_the_menu_group_of_the_page(built, client_viewer):

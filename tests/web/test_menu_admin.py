@@ -121,6 +121,21 @@ def test_the_grid_lists_the_entries_in_the_order_a_role_sees_them(client_super):
     assert "Holds the only menu links to the Neuro reports and HPM reports" in html
 
 
+def test_the_rows_below_partner_reporting_are_drawn_right_after_it(roles, settings, full_menu):
+    """The Menu page's "Below Partner reporting" lists the first group's other rows (For you, Daily review,
+    What's new) right after Partner reporting's, and a role's sidebar draws them there, as one untitled
+    group."""
+    settings.AI_ASSISTANT_ENABLED = True
+    listed = navigation.entries()
+    keys = [entry["key"] for entry in listed]
+    below = [entry["key"] for entry in listed if str(entry["group"]) == "Below Partner reporting"]
+    assert below == ["watch:for_you", "reports:daily_review", "graph:whats_new"]
+    assert keys.index(below[0]) == keys.index("reports:pd_monitoring") + 1
+    drawn = navigation.sidebar(_person("below-prp", VIEWER, is_staff=False))["groups"]
+    after = drawn[[group["key"] for group in drawn].index("prp") + 1]
+    assert after["title"] is None and [item["key"] for item in after["items"]] == below
+
+
 def _sections(html: str) -> list[tuple[str, list[str]]]:
     """The grid's headings, in order, each with the entries listed under it."""
     grid = html.split('<table class="nd-jobs nd-menu__grid">', 1)[1].split("</table>", 1)[0]
