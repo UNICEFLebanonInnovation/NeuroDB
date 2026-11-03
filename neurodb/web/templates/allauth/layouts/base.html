@@ -21,7 +21,9 @@
 <body class="auth-body">
 {% block body %}
   <main class="panel auth-card">
-    <a class="brand" href="/">{% include "components/logo.html" with height=44 %}</a>
+    {% comment %}A donor still on the temporary password is led back to the password page from every address: the logo is
+    no link then (the page's Sign out is the way out).{% endcomment %}
+    {% if must_change_password %}<span class="brand">{% include "components/logo.html" with height=44 %}</span>{% else %}<a class="brand" href="/">{% include "components/logo.html" with height=44 %}</a>{% endif %}
     {% if messages %}
     <div role="status">{% for message in messages %}<div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} py-2 small">{{ message }}</div>{% endfor %}</div>
     {% endif %}

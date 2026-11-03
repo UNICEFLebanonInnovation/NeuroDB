@@ -1,12 +1,15 @@
 """Keeps a donor account on the donor page.
 
-A user with a ``DonorAccount`` reaches the donor page, the password change page and sign out, and
-nothing else: any other page (or an address that matches none) redirects to the donor page, and the
-internal API, the assistants (Ask NeuroDB, Chat with Data, the Help assistant) and HTMX requests are
-refused with 403 (a redirect would hand them a page they did not ask for). An account that is switched
-off or past its end date is signed out. Until the donor replaces the temporary password, every page
-leads to the password change page. The Power BI feed, read with a key and never with a session, is left
-out.
+A user with a ``DonorAccount`` reaches the donor page, the password pages (below) and sign out, and nothing
+else: any other page (or an address that matches none) redirects to the donor page, and the internal API, the
+assistants (Ask NeuroDB, Chat with Data, the Help assistant) and HTMX requests are refused with 403 (a
+redirect would hand them a page they did not ask for). An account that is switched off or past its end date is
+signed out. Until the donor replaces the temporary password, every page but the password pages leads to the
+password change page, which has a Sign out button of its own. The password pages (``PASSWORD_PAGES``) are the
+change and set password pages, sign out, reauthentication, and allauth's four password reset pages, so that a
+reset link from an email works in any state of the account; they show no figures. ``ALLOWED`` holds every one
+of them, so no state of an account can send a request back and forth between the donor page and the password
+page. The Power BI feed, read with a key and never with a session, is left out.
 """
 
 from __future__ import annotations
@@ -20,8 +23,19 @@ from django.utils.translation import gettext as _
 
 from .models import DonorAccount
 
-ALLOWED = {"donors:page", "account_logout", "account_change_password", "account_reauthenticate", "healthz"}
-PASSWORD_PAGES = {"account_change_password", "account_logout", "account_reauthenticate"}
+PASSWORD_PAGES = {
+    "account_change_password",
+    "account_set_password",  # where allauth sends a sign-in without a usable password
+    "account_logout",
+    "account_reauthenticate",
+    # "Forgot password?" and the link it emails (allauth's names while ACCOUNT_PASSWORD_RESET_BY_CODE_ENABLED
+    # is off, its default); a reset clears must_change_password (apps.py)
+    "account_reset_password",
+    "account_reset_password_done",
+    "account_reset_password_from_key",
+    "account_reset_password_from_key_done",
+}
+ALLOWED = PASSWORD_PAGES | {"donors:page", "healthz"}
 SEEN_EVERY_SECONDS = 300
 
 

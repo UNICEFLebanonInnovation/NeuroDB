@@ -7073,17 +7073,34 @@ this to the donor under "How to read these figures".
   **temporary password shown once**.
 
 Send a temporary password to the donor separately from the sign-in address; the donor must choose
-their own at the next sign-in. Then: the page title, the donor names as eTools writes them on funds
-reservations (chosen from a list; type a name in "Other donor names" for a donor with no funds
-synced yet), optionally only some grant numbers, whether partner names show ("Partner 1 (civil
-society)" otherwise), the UNICEF contact shown on the page, and an optional end date.
+their own at the next sign-in. The password page says that the current password is the temporary one
+and has **Sign out**, so the donor (or an administrator testing the account) can always leave it and sign
+in with another account. A donor who no longer has the temporary password signs out and asks their UNICEF
+focal point, who replaces it in the admin (Users and access → Donor accounts → the account) with
+**New temporary password**. Once the password is changed the donor lands on `/donor/`.
+
+The rest of the account: the page title, the donor names as eTools writes them on funds reservations
+(chosen from a list; type a name in "Other donor names" for a donor with no funds synced yet), optionally
+only some grant numbers, whether partner names show ("Partner 1 (civil society)" otherwise), the UNICEF
+contact shown on the page, and an optional end date.
 
 **Rules enforced for every donor request** (`neurodb/donors/middleware.py`):
 - signing in lands on `/donor/`, whatever `next` says; any other page, the admin and unknown
   addresses redirect there; the internal API, the assistant and HTMX calls get 403;
-- until the temporary password is changed, every page leads to the password change page;
+- until the temporary password is changed, every page leads to the password change page (the internal
+  API and HTMX calls get 403), except the password pages: change or set the password, sign out, and
+  allauth's four password reset pages ("Forgot password?" and the link it emails). A donor may open these
+  in any state of the account, so a reset link always works and no address sends the donor back and forth.
+  Changing the password, or resetting it through the emailed link, ends the temporary password;
 - a switched-off account or one past its end date is signed out at its next request;
 - the page never reads a donor or grant from the address: only the year can be chosen.
+
+**"Forgot password?"** (the sign-in page, and the password page of staff and of a donor past the temporary
+password) emails a reset link only when `EMAIL_URL` is set (`PASSWORD_RESET_BY_EMAIL`). Without it the page
+says that resetting by email is not set up and to ask a NeuroDB administrator (a donor: their UNICEF focal
+point), and shows no form: Django would send through an SMTP server on the machine itself, which does not
+exist, and the form failed with a server error. A donor still on the temporary password is shown no reset
+link at all, only the line to sign out and ask the focal point.
 
 **Staff**: "Open the donor's page" in the account list previews exactly what the donor sees
 (administrators only; the page does not exist for other staff). "New temporary password" on the

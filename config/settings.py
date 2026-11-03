@@ -171,6 +171,7 @@ ACCOUNT_LOGIN_METHODS = {"username", "email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
 ACCOUNT_EMAIL_VERIFICATION = "none"
 ACCOUNT_ADAPTER = "neurodb.accounts.adapters.AccountAdapter"  # closes self-registration
+ACCOUNT_FORMS = {"reset_password": "neurodb.accounts.forms.ResetPasswordForm"}  # refused without email
 SOCIALACCOUNT_ADAPTER = "neurodb.accounts.adapters.SocialAccountAdapter"  # links pre-registered users only
 SOCIALACCOUNT_AUTO_SIGNUP = False
 SOCIALACCOUNT_LOGIN_ON_GET = True
@@ -355,6 +356,9 @@ if EMAIL_URL:
     vars().update(env.email_url("EMAIL_URL"))
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="") or "NeuroDB <noreply@localhost>"
 DIGEST_EMAIL_ENABLED = bool(EMAIL_URL)
+# "Forgot password?" emails a reset link only when NeuroDB can send email; without it the reset page says
+# whom to ask for a new password (account/password_reset.html, accounts.forms.ResetPasswordForm)
+PASSWORD_RESET_BY_EMAIL = bool(EMAIL_URL)
 
 # ---------------------------------------------------------------------------- upstream systems
 ACTIVITYINFO_BASE_URL = env("ACTIVITYINFO_BASE_URL", default="https://www.activityinfo.org")

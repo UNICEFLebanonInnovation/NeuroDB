@@ -18,6 +18,8 @@ def site(request):
         "can_validate": SimpleLazyObject(lambda: can_validate(user)) if user is not None else False,
         "PUBLIC_PAGES": settings.PUBLIC_PAGES,
         "SUPPORT_EMAIL": settings.SUPPORT_EMAIL,
+        # whether "Forgot password?" can email a reset link (EMAIL_URL set); else the page says whom to ask
+        "PASSWORD_RESET_BY_EMAIL": settings.PASSWORD_RESET_BY_EMAIL,
         "USER_GUIDE_URL": settings.USER_GUIDE_URL,
         # whether the AI is on, and how to name its provider (AI_PROVIDER.label...): read when a template
         # uses them, from the AI settings kept in memory (no query)
@@ -144,7 +146,10 @@ def navigation(request):
         return {}
     from neurodb.donors.middleware import donor_account
 
-    if donor_account(request) is not None:  # a donor sees no menu (an error page included)
+    account = donor_account(request)
+    if account is not None:  # a donor sees no menu (an error page included)
+        if account.must_change_password:  # every page leads to the password page: it says so, offers Sign out
+            return {"is_donor": True, "must_change_password": True}
         return {"is_donor": True}
     from neurodb.indicators.services import activityinfo
     from neurodb.indicators.services.navigation import build_navigation
