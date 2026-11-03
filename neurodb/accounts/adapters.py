@@ -6,11 +6,19 @@ from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.contrib import messages
 from django.shortcuts import redirect
 from django.urls import reverse
+from django.utils.translation import gettext_lazy as _
 
 from .models import User
 
 
 class AccountAdapter(DefaultAccountAdapter):
+    # allauth's "Please type your current password." answered a current password that was typed but wrong (an
+    # empty field gets "This field is required."), so a donor on the password page thought the field was empty
+    error_messages = {
+        **DefaultAccountAdapter.error_messages,
+        "enter_current_password": _("This is not your current password."),
+    }
+
     def is_open_for_signup(self, request):
         return False
 

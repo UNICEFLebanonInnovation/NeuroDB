@@ -541,6 +541,11 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .auth-card form input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) { display: block; width: 100%; padding: 0.45rem 0.7rem; border: 1px solid var(--nd-border); border-radius: var(--nd-radius-sm); background: var(--nd-surface); color: var(--nd-text); }
 .auth-card form button[type="submit"]:not(.btn) { width: 100%; padding: 0.5rem; border: 0; border-radius: var(--nd-radius-sm); background: var(--nd-primary); color: #fff; font-weight: 600; }
 .auth-card h1 { font-size: 1.3rem; }
+/* Dark theme: the buttons' words read at 4.5:1 or more on the sign-in pages (WCAG 1.4.3). White on the light blue read
+   at 2.6:1 (Change password, Sign in), Bootstrap's grey outline at 3.6:1 (Sign out, Home, the ways back). */
+[data-bs-theme="dark"] .auth-card .btn-primary { --bs-btn-color: var(--nd-bg); --bs-btn-hover-color: var(--nd-bg); --bs-btn-active-color: var(--nd-bg); }
+[data-bs-theme="dark"] .auth-card form button[type="submit"]:not(.btn) { color: var(--nd-bg); }
+[data-bs-theme="dark"] .auth-card .btn-outline-secondary { --bs-btn-color: var(--nd-muted); --bs-btn-border-color: var(--nd-muted); }
 
 /* Partner monitoring grid (eTools PD indicators by month) */
 .monitoring-grid__month { min-width: 3.4em; font-size: 0.8rem; }

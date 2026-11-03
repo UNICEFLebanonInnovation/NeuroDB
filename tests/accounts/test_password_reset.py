@@ -106,3 +106,33 @@ def test_without_email_signed_in_staff_are_not_given_the_donor_line(client_viewe
     assert NOT_SET_UP in text and ASK_ADMIN in text
     assert DONOR_LINE not in text  # they are signed in and have no donor account
     assert f'href="{reverse("account_change_password")}"' in text
+
+
+@pytest.mark.parametrize("signed_in", [False, True])
+def test_without_email_the_sent_page_does_not_say_an_email_was_sent(client, viewer, no_email, signed_in):
+    """allauth's "We have sent you an email" page is reached by its address only (a bookmark, the browser's
+    history): without email nothing was sent, so it says what the reset page says."""
+    if signed_in:
+        client.force_login(viewer)
+    response = client.get(reverse("account_reset_password_done"))
+    assert response.status_code == 200
+    text = response.text
+    assert "We have sent you an email" not in text
+    assert NOT_SET_UP in text and ASK_ADMIN in text
+    back = reverse("account_change_password") if signed_in else reverse("account_login")
+    assert f'href="{back}"' in text
+
+
+def test_without_email_a_forced_donor_on_the_sent_page_is_told_to_ask_the_focal_point(client, no_email):
+    account = make_donor("fresh-donor", must_change_password=True)
+    client.force_login(account.user)
+    text = client.get(reverse("account_reset_password_done")).text
+    assert "We have sent you an email" not in text
+    assert NOT_SET_UP in text and ASK_FOCAL_POINT in text and ASK_ADMIN not in text
+    assert f'href="{reverse("account_change_password")}"' in text
+
+
+def test_with_email_the_sent_page_says_so(client, settings):
+    settings.PASSWORD_RESET_BY_EMAIL = True
+    text = client.get(reverse("account_reset_password_done")).text
+    assert "We have sent you an email" in text and NOT_SET_UP not in text

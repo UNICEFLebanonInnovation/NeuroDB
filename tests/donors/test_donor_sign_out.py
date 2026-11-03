@@ -178,6 +178,42 @@ def test_a_long_sign_in_name_wraps_on_the_password_page(client, db, settings):
     assert "min-width: 0" in card and "overflow-wrap: break-word" in card
 
 
+def _contrast(one: str, two: str) -> float:
+    """WCAG contrast ratio of two #rrggbb colours."""
+
+    def luminance(colour: str) -> float:
+        channels = [int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+        r, g, b = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    high, low = sorted((luminance(one), luminance(two)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+def test_in_the_dark_theme_the_buttons_of_the_password_page_read_well(settings):
+    """Dark theme: white on the light blue (Change password) read at 2.6:1, Bootstrap's grey outline (Sign out, Home,
+    the ways back) at 3.6:1 on the card. On the sign-in pages their words now read at 4.5:1 or more."""
+    css = (Path(settings.BASE_DIR) / "neurodb" / "web" / "static" / "css" / "app.css").read_text()
+    dark = re.search(r'^\[data-bs-theme="dark"\] \{([^}]*)\}', css, re.M).group(1)
+    tokens = dict(re.findall(r"(--nd-[\w-]+):\s*(#[0-9a-f]{6})", dark))
+
+    def rule(selector: str) -> str:
+        return re.search(rf"^{re.escape(selector)} \{{([^}}]*)\}}", css, re.M).group(1)
+
+    primary = rule('[data-bs-theme="dark"] .auth-card .btn-primary')
+    for state in ("--bs-btn-color", "--bs-btn-hover-color", "--bs-btn-active-color"):
+        assert f"{state}: var(--nd-bg)" in primary, state
+    assert "color: var(--nd-bg)" in rule(
+        '[data-bs-theme="dark"] .auth-card form button[type="submit"]:not(.btn)'
+    )
+    outline = rule('[data-bs-theme="dark"] .auth-card .btn-outline-secondary')
+    assert "--bs-btn-color: var(--nd-muted)" in outline
+    assert _contrast(tokens["--nd-bg"], tokens["--nd-primary"]) >= 4.5
+    assert _contrast(tokens["--nd-bg"], tokens["--nd-primary-strong"]) >= 4.5  # hovered, pressed
+    assert _contrast(tokens["--nd-muted"], tokens["--nd-surface"]) >= 4.5  # the card
+    assert _contrast("#6c757d", tokens["--nd-surface"]) < 4.5  # Bootstrap's grey, as it was
+
+
 # ------------------------------------------------------------------------------ the reset pages
 @pytest.mark.parametrize("name", RESET_PAGES)
 def test_a_forced_donor_reaches_the_reset_pages(forced, settings, name):
@@ -200,6 +236,36 @@ def test_a_forced_donor_still_reaches_nothing_else(forced):
     assert forced.get(reverse("account_login"))["Location"] == change
     assert forced.get(reverse("api:donors")).status_code == 403
     assert forced.get(reverse("reports:overview"), HTTP_HX_REQUEST="true").status_code == 403
+
+
+@pytest.mark.parametrize("address", ["/no-such-page/", "/reports/"])
+def test_an_address_that_matches_no_page_leads_to_the_password_page(forced, address):
+    """A stale link or a typed address: the password page with its explanation, as every other address (a
+    donor no longer on the temporary password goes to the donor page, test_donor_access)."""
+    response = forced.get(address)
+    assert response.status_code == 302 and response["Location"] == reverse("account_change_password")
+    page = forced.get(response["Location"])
+    assert "Choose your own password to continue." in page.text
+    assert sign_out_form(page.text) is not None
+    assert forced.get(address, HTTP_HX_REQUEST="true").status_code == 404  # not a page for HTMX: as before
+
+
+def test_a_page_not_found_from_a_password_page_is_not_sent_round(forced, monkeypatch):
+    """Only an address that matches no page is sent to the password page: a "not found" from a password page
+    itself (a reset link's page) is shown as it is, so nothing can go round in a loop."""
+    from django.http import Http404
+
+    from neurodb.donors import middleware
+
+    original = middleware.DonorScopeMiddleware.process_view
+
+    def not_found(self, request, view_func, view_args, view_kwargs):
+        if request.resolver_match.view_name == "account_reset_password_done":
+            raise Http404
+        return original(self, request, view_func, view_args, view_kwargs)
+
+    monkeypatch.setattr(middleware.DonorScopeMiddleware, "process_view", not_found)
+    assert forced.get(reverse("account_reset_password_done")).status_code == 404
 
 
 def test_a_reset_through_the_email_link_clears_the_flag(forced, settings):
@@ -295,9 +361,23 @@ def test_a_wrong_temporary_password_keeps_the_page_and_its_way_out(forced):
     )
     assert response.status_code == 200
     assert 'class="form-control is-invalid"' in response.text
+    # what was typed is wrong, not missing (allauth said "Please type your current password.")
+    error = '<div class="invalid-feedback" id="id_oldpassword_error"><div>This is not your current password.</div>'
+    assert error in response.text
+    assert "Please type your current password." not in response.text
     assert sign_out_form(response.text) is not None
     forced.account.refresh_from_db()
     assert forced.account.must_change_password is True
+
+
+def test_an_empty_current_password_is_asked_for(forced):
+    response = forced.post(
+        reverse("account_change_password"),
+        {"oldpassword": "", "password1": NEW_PASSWORD, "password2": NEW_PASSWORD},
+    )
+    assert response.status_code == 200
+    assert "This field is required." in response.text
+    assert "This is not your current password." not in response.text
 
 
 def test_a_forced_donor_without_a_usable_password_sets_one(client, db):

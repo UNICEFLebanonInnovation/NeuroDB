@@ -7089,11 +7089,12 @@ contact shown on the page, and an optional end date.
 **Rules enforced for every donor request** (`neurodb/donors/middleware.py`):
 - signing in lands on `/donor/`, whatever `next` says; any other page, the admin and unknown
   addresses redirect there; the internal API, the assistant and HTMX calls get 403;
-- until the temporary password is changed, every page leads to the password change page (the internal
-  API and HTMX calls get 403), except the password pages: change or set the password, sign out, and
-  allauth's four password reset pages ("Forgot password?" and the link it emails). A donor may open these
-  in any state of the account, so a reset link always works and no address sends the donor back and forth.
-  Changing the password, or resetting it through the emailed link, ends the temporary password;
+- until the temporary password is changed, every page and every unknown address leads to the password
+  change page (the internal API and HTMX calls get 403), except the password pages: change or set the
+  password, sign out, and allauth's four password reset pages ("Forgot password?" and the link it emails).
+  A donor may open these in any state of the account, so a reset link always works and no address sends
+  the donor back and forth. Changing the password, or resetting it through the emailed link, ends the
+  temporary password;
 - a switched-off account or one past its end date is signed out at its next request;
 - the page never reads a donor or grant from the address: only the year can be chosen.
 
@@ -7101,8 +7102,10 @@ contact shown on the page, and an optional end date.
 password) emails a reset link only when `EMAIL_URL` is set (`PASSWORD_RESET_BY_EMAIL`). Without it the page
 says that resetting by email is not set up and to ask a NeuroDB administrator (a donor: their UNICEF focal
 point), and shows no form: Django would send through an SMTP server on the machine itself, which does not
-exist, and the form failed with a server error. A donor still on the temporary password is shown no reset
-link at all, only the line to sign out and ask the focal point.
+exist, and the form failed with a server error. The page that would say the email was sent says the same
+when it is opened by its address. A donor still on the temporary password is shown no reset link at all,
+only the line to sign out and ask the focal point. A wrong current password on the password page gets "This
+is not your current password." (allauth said "Please type your current password.").
 
 **Staff**: "Open the donor's page" in the account list previews exactly what the donor sees
 (administrators only; the page does not exist for other staff). "New temporary password" on the

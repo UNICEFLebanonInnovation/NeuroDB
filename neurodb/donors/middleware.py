@@ -4,12 +4,13 @@ A user with a ``DonorAccount`` reaches the donor page, the password pages (below
 else: any other page (or an address that matches none) redirects to the donor page, and the internal API, the
 assistants (Ask NeuroDB, Chat with Data, the Help assistant) and HTMX requests are refused with 403 (a
 redirect would hand them a page they did not ask for). An account that is switched off or past its end date is
-signed out. Until the donor replaces the temporary password, every page but the password pages leads to the
-password change page, which has a Sign out button of its own. The password pages (``PASSWORD_PAGES``) are the
-change and set password pages, sign out, reauthentication, and allauth's four password reset pages, so that a
-reset link from an email works in any state of the account; they show no figures. ``ALLOWED`` holds every one
-of them, so no state of an account can send a request back and forth between the donor page and the password
-page. The Power BI feed, read with a key and never with a session, is left out.
+signed out. Until the donor replaces the temporary password, every page but the password pages (and every
+address that matches none) leads to the password change page, which has a Sign out button of its own. The
+password pages (``PASSWORD_PAGES``) are the change and set password pages, sign out, reauthentication, and
+allauth's four password reset pages, so that a reset link from an email works in any state of the account;
+they show no figures. ``ALLOWED`` holds every one of them, so no state of an account can send a request back
+and forth between the donor page and the password page. The Power BI feed, read with a key and never with a
+session, is left out.
 """
 
 from __future__ import annotations
@@ -65,11 +66,17 @@ class DonorScopeMiddleware:
         if _key_feed(getattr(getattr(request, "resolver_match", None), "func", None)):
             return response
         # An address that matches no page (a stale link, a ``next`` from before sign-in) leads a
-        # donor back to the donor page rather than to a "not found" page.
+        # donor back to the donor page rather than to a "not found" page, and a donor still on the
+        # temporary password to the password page, as every other address does.
         if response.status_code == 404 and request.method == "GET" and not self._is_api(request):
             account = donor_account(request)
-            if account is not None and account.is_valid_now() and not account.must_change_password:
-                return redirect("donors:page")
+            if account is not None and account.is_valid_now():
+                if not account.must_change_password:
+                    return redirect("donors:page")
+                match = getattr(request, "resolver_match", None)
+                if match is None or match.view_name not in PASSWORD_PAGES:  # never from a password page
+                    messages.info(request, _("Choose your own password to continue."))
+                    return redirect("account_change_password")
         return response
 
     def process_view(self, request, view_func, view_args, view_kwargs):
