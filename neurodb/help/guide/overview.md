@@ -29,17 +29,19 @@ are answered by [Ask NeuroDB](/ask/) and, for the visits of a filter, by Chat wi
 
 ## The sidebar
 
-Most people see a short menu, the pages of partner reporting and field monitoring first:
+Most people see a short menu: Home and Ask NeuroDB at the top, then the pages of partner reporting and
+field monitoring:
 
 - **Home**, the first page after you sign in ([Home](/help/home/)).
+- **Ask NeuroDB** (marked AI), right under Home: questions in plain language answered from the data
+  ([Ask NeuroDB](/help/ask-neurodb/)).
 - **Partner reporting (PRP)**: **Progress reports**, how partners report on their programme documents
   (due, submitted, accepted, sent back and overdue reports), and **Partner monitoring**, what each
   programme document indicator reached, with Program Performance one tab away
   ([Partner progress](/help/partner-progress/)).
-- **Field monitoring**, with the HACT visit plan
-  ([Field monitoring and the HACT visit plan](/help/field-monitoring/)).
-- **Ask NeuroDB** (marked AI), questions in plain language answered from the data
-  ([Ask NeuroDB](/help/ask-neurodb/)).
+- **Funds and assurance**: **Field monitoring**, with the HACT visit plan
+  ([Field monitoring and the HACT visit plan](/help/field-monitoring/)). A page of this group added to
+  your menu (Monitoring insights, say) shows under the same title, in the full menu's order.
 
 Superusers see the full menu below, and choose in the administration's *Menu* page what each role sees:
 any page of the full menu can be added to a role's sidebar there. A page left out of your menu still opens
@@ -52,11 +54,11 @@ The full menu puts the pages of every day first and the ActivityInfo history las
 every section:
 
 - At the top, without a title: **Home**, the first page after you sign in ([Home](/help/home/));
-  **For you**, NeuroDB Watch, with the number of points that need you ([For you](/help/watch/));
-  **Daily review**, the morning check's findings
-  ([Daily review](/help/briefs-and-overview/#the-daily-review)); **What's new**, the changes NeuroDB
-  noticed in any source ([What's new](/help/watch/#whats-new)); and **Ask NeuroDB** (marked AI),
-  questions in plain language answered from the data ([Ask NeuroDB](/help/ask-neurodb/)).
+  **Ask NeuroDB** (marked AI), right under it, questions in plain language answered from the data
+  ([Ask NeuroDB](/help/ask-neurodb/)); **For you**, NeuroDB Watch, with the number of points that need
+  you ([For you](/help/watch/)); **Daily review**, the morning check's findings
+  ([Daily review](/help/briefs-and-overview/#the-daily-review)); and **What's new**, the changes NeuroDB
+  noticed in any source ([What's new](/help/watch/#whats-new)).
 - **Programme results**: **Country overview**, every figure of the year
   ([Country overview](/help/briefs-and-overview/#the-country-overview)); **Management brief**, the
   overview read for decisions ([Management brief](/help/briefs-and-overview/#the-management-brief));

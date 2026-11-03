@@ -99,15 +99,38 @@ def test_the_grid_lists_the_entries_in_the_order_a_role_sees_them(client_super):
     assert values == [entry["key"] for entry in navigation.entries()]
     assert values[:5] == [
         "reports:overview",
+        "assistant:ask",
         "reports:partner_reporting",
         "reports:pd_monitoring",
-        "reports:monitoring",
-        "assistant:ask",
+        "watch:for_you",
     ]
     assert values[-2:] == [navigation.ARCHIVE_KEY, navigation.HELP_KEY]
     assert sorted(values) == sorted(navigation.keys())
+    # each heading once, over its own rows: Ask NeuroDB at the top, Field monitoring in Funds and assurance
+    sections = _sections(html)
+    titles = [title for title, _keys in sections]
+    assert len(titles) == len(set(titles))
+    listed = dict(sections)
+    assert listed["Top of the menu"] == ["reports:overview", "assistant:ask"]
+    assert listed["Partner reporting (PRP)"] == ["reports:partner_reporting", "reports:pd_monitoring"]
+    assert listed["Below Partner reporting"] == ["watch:for_you", "reports:daily_review", "graph:whats_new"]
+    funds = next(g for g in navigation.MENU if g.key == "funds")
+    assert listed["Funds and assurance"] == [item.key for item in funds.items]
+    assert "reports:monitoring" in listed["Funds and assurance"]
     # the archive's note says it holds the only menu links to the Neuro and HPM reports
     assert "Holds the only menu links to the Neuro reports and HPM reports" in html
+
+
+def _sections(html: str) -> list[tuple[str, list[str]]]:
+    """The grid's headings, in order, each with the entries listed under it."""
+    grid = html.split('<table class="nd-jobs nd-menu__grid">', 1)[1].split("</table>", 1)[0]
+    return [
+        (
+            re.search(r'<th scope="rowgroup" colspan="4">([^<]+)</th>', body)[1],
+            re.findall(r'name="role-viewer" value="([^"]+)"', body),
+        )
+        for body in grid.split("<tbody>")[1:]
+    ]
 
 
 def test_the_hidden_label_rule_is_in_admin_css():

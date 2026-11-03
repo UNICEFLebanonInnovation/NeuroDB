@@ -7,11 +7,12 @@ has something to show (:func:`sources`); the people who can set such a source up
 (:func:`neurodb.accounts.roles.can_set_up`) see a muted "Set up" row instead, which links to the row's own
 page (it says what is missing).
 
-Superusers see the full menu. Everyone else sees the focused menu (:data:`FOCUS`: Home, Partner reporting
-with Progress reports and Partner monitoring, Field monitoring, Ask NeuroDB), or the entries a superuser
-ticked for their role in the administration's Menu page (:func:`shown`, :func:`sidebar`). Only the menu is
-shorter: a page left out of it still opens from links, bookmarks and the search, whose *Pages* group lists
-every page of the full menu under the same conditions (:func:`pages`).
+Superusers see the full menu. Everyone else sees the focused menu (:data:`FOCUS`, :data:`FOCUSED`: Home and
+Ask NeuroDB, Partner reporting with Progress reports and Partner monitoring, then Field monitoring under
+Funds and assurance), or the entries a superuser ticked for their role in the administration's Menu page
+(:func:`shown`, :func:`sidebar`). Only the menu is shorter: a page left out of it still opens from links,
+bookmarks and the search, whose *Pages* group lists every page of the full menu under the same conditions
+(:func:`pages`).
 """
 
 from __future__ import annotations
@@ -254,10 +255,10 @@ MENU: tuple[MenuGroup, ...] = (
         None,
         (
             MenuItem(_("Home"), "reports:overview", "home"),
+            MenuItem(_("Ask NeuroDB"), "assistant:ask", "sparkle", when="ask", badge="ai"),
             MenuItem(_("For you"), "watch:for_you", "bell", count=True),
             MenuItem(_("Daily review"), "reports:daily_review", "list"),
             MenuItem(_("What's new"), "graph:whats_new", "inbox"),
-            MenuItem(_("Ask NeuroDB"), "assistant:ask", "sparkle", when="ask", badge="ai"),
         ),
     ),
     MenuGroup(
@@ -388,10 +389,13 @@ ARCHIVE_KEY = "archive"  # the ActivityInfo archive (or Monthly results) at the 
 HELP_KEY = HELP.route
 
 # The focused menu (SPEC_focus_menu §1.2): what every role sees until a superuser ticks otherwise in the
-# administration's Menu page, in this order. Superusers always see the full menu (MENU). Help is not in it:
-# the "?" panel links to the Help pages and the search finds them (a superuser can tick it for a role).
+# administration's Menu page. Superusers always see the full menu (MENU). FOCUS is the part drawn first, in
+# its order: Home and Ask NeuroDB at the top, then Partner reporting; every other entry shown follows in
+# MENU's order under its usual title, so Field monitoring (in FOCUSED, not in FOCUS) is under Funds and
+# assurance, with any other entry of that group ticked for the role. Help is not in it: the "?" panel links
+# to the Help pages and the search finds them (a superuser can tick it for a role).
 PRP = MenuGroup("prp", _("Partner reporting (PRP)"), (PROGRESS_REPORTS, PARTNER_MONITORING))
-FOCUS: tuple[str | MenuGroup, ...] = ("reports:overview", PRP, "reports:monitoring", "assistant:ask")
+FOCUS: tuple[str | MenuGroup, ...] = ("reports:overview", "assistant:ask", PRP)
 FOCUSED = frozenset(
     {"reports:overview", PROGRESS_REPORTS.key, PARTNER_MONITORING.key, "reports:monitoring", "assistant:ask"}
 )
@@ -467,9 +471,10 @@ def keys() -> list[str]:
 
 def entries() -> list[dict[str, Any]]:
     """Every entry as the Menu page lists it, in the order a role's sidebar draws them (:func:`sidebar`): the
-    focused part first (:data:`FOCUS`), then each group of :data:`MENU` without the entries already listed,
-    then the ActivityInfo archive and Help. Each is ``{"key", "label", "group", "note"}``: ``group`` the
-    heading the page lists it under, ``note`` when it shows ("" when always)."""
+    focused part first (:data:`FOCUS`: its rows before Partner reporting under "Top of the menu"), then each
+    group of :data:`MENU` without the entries already listed, then the ActivityInfo archive and Help. Each is
+    ``{"key", "label", "group", "note"}``: ``group`` the heading the page lists it under, ``note`` when it
+    shows ("" when always)."""
     rows = {item.key: (item, group) for group in MENU for item in group.items}
     top, below = _("Top of the menu"), _("Below Partner reporting")
     found: list[dict[str, Any]] = []
@@ -480,12 +485,14 @@ def entries() -> list[dict[str, Any]]:
         found.append({"key": item.key, "label": item.label, "group": heading, "note": NOTES.get(when, "")})
         placed.add(item.key)
 
-    for n, part in enumerate(FOCUS):
+    heading = top
+    for part in FOCUS:
         if isinstance(part, MenuGroup):
             for item in part.items:
                 add(item, part.title, rows[item.key][1])
+            heading = below
         elif part in rows:
-            add(rows[part][0], top if n == 0 else below, rows[part][1])
+            add(rows[part][0], heading, rows[part][1])
     for group in MENU:
         for item in group.items:
             if item.key not in placed:
@@ -526,8 +533,9 @@ def sidebar(user, can_set_up: Callable[[], bool] | None = None) -> dict[str, Any
 
     A superuser gets the full menu. Anyone else gets the entries :func:`shown` names, laid out focus
     first: the rows of :data:`FOCUS` in its order (an untitled row each, Partner reporting a group of its
-    own), then every other entry shown, in :data:`MENU`'s order under its usual title. The layout does not
-    change with what is ticked: one more tick adds a row and moves none."""
+    own), then every other entry shown, in :data:`MENU`'s order under its usual title (Field monitoring
+    under Funds and assurance). The layout does not change with what is ticked: one more tick adds a row and
+    moves none."""
     full = menu(user, can_set_up)
     chosen = shown(user)
     if chosen is None:

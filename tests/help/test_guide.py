@@ -262,15 +262,20 @@ def test_the_guide_lists_the_focused_menu_as_it_is_drawn():
     sidebar = " ".join(guide.section("overview", "the-sidebar").text.split())
     order = [
         "**Home**",
+        "**Ask NeuroDB**",
         "**Partner reporting (PRP)**",
         "**Progress reports**",
         "**Partner monitoring**",
+        "**Funds and assurance**",
         "**Field monitoring**",
-        "**Ask NeuroDB**",
     ]
     places = [sidebar.index(label) for label in order]
     assert places == sorted(places)
     assert str(navigation.PRP.title) == "Partner reporting (PRP)"
+    assert (
+        navigation.FOCUS[:2] == ("reports:overview", "assistant:ask")
+        and navigation.FOCUS[2] is navigation.PRP
+    )
     assert "Superusers see the full menu" in sidebar and "administration's *Menu* page" in sidebar
     assert "still opens from the search, from links and from bookmarks" in sidebar
     assert "**For you**" not in sidebar and "**Funds**" not in sidebar  # the full menu is its own section
@@ -282,10 +287,10 @@ def test_the_guide_lists_the_full_menu_as_it_is_drawn():
     sidebar = guide.section("overview", "the-full-menu").text
     order = [
         "**Home**",
+        "**Ask NeuroDB**",
         "**For you**",
         "**Daily review**",
         "**What's new**",
-        "**Ask NeuroDB**",
         "**Programme results**",
         "**Country overview**",
         "**Management brief**",

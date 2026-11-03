@@ -59,18 +59,21 @@ and re-running the deployment.
 
 Management found the full sidebar too long for most people, PD managers above all, who want partner reporting
 in numbers and tables in as few taps as possible. So every role sees a **focused menu** by default:
-*Home*, *Partner reporting (PRP)* (*Progress reports* and *Partner monitoring*), *Field monitoring* and
-*Ask NeuroDB* (`navigation.FOCUS`, `navigation.FOCUSED`). That is Administrators, Section editors and
-Viewers, with or without staff status, and the members of the Management group (a group, not a role).
+*Home* and *Ask NeuroDB* at the top, *Partner reporting (PRP)* (*Progress reports* and *Partner monitoring*),
+then *Field monitoring* under *Funds and assurance* (`navigation.FOCUS`, `navigation.FOCUSED`). That is
+Administrators, Section editors and Viewers, with or without staff status, and the members of the Management
+group (a group, not a role).
 **Superusers** always see the full menu (`navigation.MENU`). Donor accounts are unchanged: they see their
 own page only. Visitors are unchanged.
 
 **Choosing what a role sees: Users and access → *Menu*** (`/manage/web/menuchoice/`, also a Quick action on
 the dashboard: *Choose what each role sees in the menu*). One tick per entry and role, the entries in the
-order a role's sidebar draws them: the focused part first, then the rest of the full menu under its usual
-group titles, then *ActivityInfo* (the monthly results or the archive) and *Help*. **Save** stores the
-ticks; **Reset every role to the focused menu** removes every saved choice. Each role that changed is in
-the audit trail (the entries added and removed), and the page links each saved role's *History*. A role
+order a role's sidebar draws them: the focused part first (*Home* and *Ask NeuroDB* under *Top of the
+menu*, then *Partner reporting (PRP)*), then the rest of the full menu under its usual group titles (*Field
+monitoring* under *Funds and assurance*), then *ActivityInfo* (the monthly results or the archive) and
+*Help*. **Save** stores the ticks; **Reset every role to the focused menu** removes every saved choice. Each
+role that changed is in the audit trail (the entries added and removed), and the page links each saved role's
+*History*. A role
 cannot be saved with nothing ticked. The page is for a **superuser with staff status** (a superuser without
 staff status cannot open the administration at all); an Administrator gets a 403 there even though the
 Administrator group holds every permission, and only a superuser can make someone a superuser or give a
@@ -2266,8 +2269,8 @@ The admin shows these tables read-only under *eTools Datamart*.
 
 ### HACT visit plan (Field monitoring page)
 
-`/field-monitoring/?tab=plan` (sidebar *Field monitoring*, tab *HACT visit plan*) answers the
-programme monitoring team's quarterly "HACT FMM plan" e-mail and its workbook from NeuroDB itself: one
+`/field-monitoring/?tab=plan` (sidebar *Funds and assurance* › *Field monitoring*, tab *HACT visit plan*)
+answers the programme monitoring team's quarterly "HACT FMM plan" e-mail and its workbook from NeuroDB itself: one
 row per programme document (PD) of a HACT year with its programmatic visits planned, completed and
 still needed, the PDs not visited, the end-of-year missing visits and the sections' comments on them.
 The default tab, *Findings and visits*, is unchanged apart from a one-line strip of the plan's figures

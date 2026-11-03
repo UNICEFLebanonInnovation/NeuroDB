@@ -42,8 +42,8 @@ needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
 # Every row a person sees when every source is live, in order, with its icon
 FULL_TREE = [
-    (None, [("Home", "home"), ("For you", "bell"), ("Daily review", "list"), ("What's new", "inbox"),
-            ("Ask NeuroDB", "sparkle")]),
+    (None, [("Home", "home"), ("Ask NeuroDB", "sparkle"), ("For you", "bell"), ("Daily review", "list"),
+            ("What's new", "inbox")]),
     ("Programme results", [("Country overview", "grid"), ("Management brief", "briefcase"),
                            ("Country programme", "route")]),
     ("Partner progress (eTools)", [("Partner monitoring", "target"), ("Progress reports", "file"),
