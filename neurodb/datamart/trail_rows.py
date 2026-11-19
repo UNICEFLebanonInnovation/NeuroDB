@@ -671,7 +671,9 @@ def indicator_rows(
     and status, its eTools id (the PD indicator's, from its key, when Partner monitoring's rule places its
     rows; else as one of its rows gives it), its title and PD output as that row gives them, and the progress
     reports it is in (their statuses and keys), read inside one snapshot; people never written (the title,
-    output and keys are cleaned as the rows CSV cleans them)."""
+    output and keys are cleaned as the rows CSV cleans them). In the order a person reads them: by programme
+    document, then by title (case and spaces aside), never by their keys as text, which put "pd:12|..." before
+    "pd:1|..." (the browser check of 19 Nov 2026)."""
     figure = found.figure(what[7:])
     rows = found.rows
     first = {key: pks[0] for key, pks in indicators.items()}
@@ -685,10 +687,16 @@ def indicator_rows(
                 records[record["pk"]] = record
     as_of = raw.local_moment(found.as_of)
     clean = lambda column, value: raw_people.text(value, SOURCE, column, names, frozenset())  # noqa: E731
-    for key, pks in indicators.items():
-        record = records.get(first[key])
-        if record is None:  # removed since the trail was read
-            continue
+
+    def reading(key: str) -> tuple[str, str, str]:
+        record = records[first[key]]
+        pd = record["intervention__number"] or record["pd_reference_number"] or ""
+        return rc.norm(pd), rc.norm(record["indicator"]), key
+
+    # an indicator whose row was removed since the trail was read is left out
+    for key in sorted((k for k in indicators if first[k] in records), key=reading):
+        pks = indicators[key]
+        record = records[first[key]]
         reports = sorted({rows.rows[pk][1] for pk in pks})
         statuses = Counter(rc.STATUS_LABELS.get(rows.reports[k].status, "") for k in reports)
         unit = _indicator_unit(key, names)

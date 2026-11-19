@@ -2966,7 +2966,7 @@ tab). Each part is computed in one `REPEATABLE READ READ ONLY` snapshot and kept
   the match key), `figure:pr.indicators[.<status>]` (one row per indicator the hint counts,
   `trail_rows.indicator_rows`: its key as `unit_key` with `counts_once` 1, its programme document's number and status, its
   eTools id (the PD indicator's, from its key, when the rule places its rows; else as one of its rows gives it), its title
-  and PD output as that row gives them, how many progress reports it is in, their statuses and keys; at most `raw.csv_limit` indicators), `lines` and `blocks` (By location's lines and By disaggregation's blocks, computed again with
+  and PD output as that row gives them, how many progress reports it is in, their statuses and keys; by programme document, then title; at most `raw.csv_limit` indicators), `lines` and `blocks` (By location's lines and By disaggregation's blocks, computed again with
   their record ids); the texts of these four (partner, PD reference, report #, section, CP output, indicator,
   location, progress report key) are cleaned by the people rule as the partner reports' columns they come from
   (`trail_rows.REPORT_TEXTS`), and the match key is built from them. A row CSV starts with `figures_as_of`, `step`, `reason`, then the units (`unit_key`,

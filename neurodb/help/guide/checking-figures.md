@@ -193,7 +193,7 @@ reports still owed* has the CSV of every one, with whether the filter keeps it a
 
 Each figure's own *Rows (CSV)* holds only the rows it counts, PRP's own reports still owed among them, with
 `unit_key` (its unit) and `counts_once`: their sum is the figure. The indicators under the tiles are listed
-instead, one row per indicator: its programme document and its status, its eTools indicator id, title and
+instead, one row per indicator, by programme document and then title: its programme document and its status, its eTools indicator id, title and
 PD output, how many progress reports it is in, their statuses and their keys; `unit_key` and `counts_once` give the figure
 the same way. In a step's CSV, `counts_once` is 1 only on a unit the step leaves out entirely
 (`unit_partly_kept` marks the others), so its sum is what the step leaves out entirely.

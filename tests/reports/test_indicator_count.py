@@ -468,6 +468,30 @@ def test_the_trail_places_each_row_as_the_page_does(validator, placed):
     assert sum(int(r["counts_once_indicator"]) for r in kept) == 3
 
 
+def test_the_indicators_csv_lists_them_by_programme_document_then_title(validator, db):
+    """The browser check of 19 Nov 2026 read the CSV in the order of its keys as text ("pd:12|..." before
+    "pd:1|...", "s1000" before "s900"): the programme documents out of order. A person reads it by programme
+    document, then by indicator title."""
+    partner = PartnerOrganization.objects.create(etl_id="83", name="Partner Tau", partner_type="CSO")
+    first = PCA.objects.create(id=99_999, etl_id="LEB/AA", partner=partner, number="LEB/AA", status="active")
+    second = PCA.objects.create(
+        id=100_000, etl_id="LEB/BB", partner=partner, number="LEB/BB", status="active"
+    )
+    for pd in (second, first):
+        _accepted(pd, "QPR1", D(2026, 3, 31), [("Zebra crossings built", "1000"), ("access ramps built", "900"),
+                                               ("Benches placed", "")])  # fmt: skip
+    found = trail.progress_trail(PR, {}, TODAY)
+    rows = _csv(validator, PR, {}, found.figure("pr.indicators").what)
+    assert [(r["programme_document"], r["indicator"]) for r in rows] == [
+        ("LEB/AA", "access ramps built"),
+        ("LEB/AA", "Benches placed"),
+        ("LEB/AA", "Zebra crossings built"),
+        ("LEB/BB", "access ramps built"),
+        ("LEB/BB", "Benches placed"),
+        ("LEB/BB", "Zebra crossings built"),
+    ]
+
+
 # ------------------------------------------------------------------------------------------------ the Excel file
 def test_the_excel_by_status_sheet_holds_the_first_tile_and_says_its_indicators_do_not_add_up(
     validator, world
