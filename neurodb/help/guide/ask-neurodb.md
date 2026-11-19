@@ -17,6 +17,26 @@ read-only look-ups, and it links each answer to the pages its figures come from.
   line) from figures they looked up; a chart cannot show a figure that was not looked up.
 - Answers can contain mistakes: check figures that matter on the page the answer links to.
 
+## What goes to the AI
+
+NeuroDB sends no person to the AI. Before your question, the earlier questions and answers and the result
+of each look-up leave NeuroDB, it takes out:
+
+- e-mail addresses, also written out ("name at example dot org");
+- web links (links to NeuroDB's own pages stay);
+- phone numbers;
+- the names of the people NeuroDB knows (its users, partner staff, focal points, the people eTools
+  records name) and any name written after a title such as Mr, Mrs, Dr or Sheikh.
+
+Each one becomes a note such as *[name withheld]* or *[email withheld]*. This covers what people wrote
+too: document passages and summaries, document review quotes, staff comments on Neuro and HPM reports
+and the daily review's details. Figures, dates, references and the names of partners, sections, places
+and documents stay. In a look-up's result, a partner or place named after Dr or Sheikh keeps its name;
+in your question it does not, so ask about it by its short name or vendor number.
+
+NeuroDB cannot spot the name of a person it does not know when no title comes before it, so do not type
+personal data. Your own list of questions keeps each question as you typed it.
+
 ## What it can and cannot read
 
 - Field monitoring visits are given as **structured fields only** (visits, entities, ratings, HACT Q1,

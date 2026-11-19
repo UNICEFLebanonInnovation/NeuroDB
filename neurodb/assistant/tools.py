@@ -5,7 +5,8 @@ returns JSON-safe data with a ``url`` to the page it came from, so answers can l
 Nothing here writes; a run nobody watches (NeuroDB Watch's look-up) also runs each tool inside
 ``read_only()``, where a write fails. Signed-in users may read all of this data on the site (there are
 no per-section read restrictions), so the tools apply no extra filtering; the assistant itself
-requires sign-in.
+requires sign-in. People are another matter: Ask NeuroDB's model reads every result without people's
+names, e-mail addresses, links and phone numbers (``privacy.result``, applied by ``agent._lookup``).
 """
 
 from __future__ import annotations

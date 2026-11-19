@@ -202,13 +202,43 @@ come from.
   `AI_ASSISTANT_ENABLED=false` to switch every AI feature off whatever key is set or entered. A
   question counts towards the hourly limit from the moment it is asked, and a user can have at most
   two questions being answered at the same time.
+- **People never go to the AI** (`neurodb/assistant/privacy.py`): Ask NeuroDB sends a text to the
+  provider only after people's names, e-mail addresses, links and phone numbers are taken out of it. This
+  covers the question and the earlier questions and answers sent with it (`agent.answer`, cleaned at
+  every request), and every lookup's result, its input errors included, before the model reads it
+  (`agent._lookup`: every text at any depth, keys too). One cleaner does it, the eTools Datamart's
+  (`datamart.query.clean_written`): e-mail addresses (whole, cut short, spaced or spelled out, "x at
+  example dot org"), links, phone numbers, the person names NeuroDB knows (`watch.people.known_names`:
+  users, partner staff, programme document focal points, finding owners, the people the eTools records
+  name, the field monitoring teams) and any name written after a title, each replaced by a placeholder
+  ("[name withheld]", "[email withheld]", "[link withheld]", "[phone withheld]"), with the text's line
+  breaks kept (an earlier answer keeps its Markdown, a document its paragraphs; a known name split over
+  two lines is still found). A name after Sheikh, Dr or Doctor stays only in the name of a thing (the
+  keys `name`, `title`, `partner`, `section`, `place`, `governorate`, `donor`... of `privacy.LABEL_KEYS`
+  and the Datamart's keys of places and organisations), never in a text or in the question: a partner
+  named "Dr. ... Foundation" keeps its name in a lookup's result, and is asked about by its short name.
+  Numbers, yes/no and empty values are never changed, and the chart check counts the numbers of the
+  cleaned result, the ones the model read; NeuroDB's own page links under a url key (`url`, `urls`,
+  `..._url`, a path such as `/partners/3/`) stay, a link elsewhere does not. Ids, dates, codes,
+  references, section, place and partner names stay as they are. So knowledge base passages, document
+  text and summaries, document review findings and quotes, the comments staff write on Neuro and HPM
+  reports, the daily review's summary and details and library summaries go without people. The eTools
+  Datamart lookups (`etools_*`) clean their own results with the same cleaner and more (below) and are
+  not cleaned twice. The cleaning is deterministic (the same text and names give the same bytes, so the
+  prompt cache holds) and a cleaned text is not changed again. The question log keeps what the person
+  typed: it stays in NeuroDB, the person sees their own words in the conversation and under Recent
+  questions, and each request cleans them again with the names NeuroDB knows then. A person NeuroDB does
+  not know, named without a title, is not found: the page still asks people not to enter personal data.
+  Help, Monitoring insights and NeuroDB Watch run the same loop with their own options and filters, which
+  this does not change.
 - **Data leaves Azure**: each question, up to six earlier questions and answers of the same
   conversation, and the data looked up to answer it are sent to the provider in use: the Claude API
-  (api.anthropic.com) or the OpenAI API (api.openai.com), over HTTPS. That data is the figures plus
-  partner, programme-document, donor and library details, such as partner names, vendor numbers, risk
-  ratings, HACT and assurance results, programme document titles, library summaries and the free-text comments staff write on Neuro and HPM reports. When a filter
-  matches nothing, the list of known partner, donor or office names is sent too. It is organisational
-  data. The summary lookups send field visits as counts. The HACT visit plan lookup (`hact_visit_plan`)
+  (api.anthropic.com) or the OpenAI API (api.openai.com), over HTTPS, without people (above). That data
+  is the figures plus partner, programme-document, donor and library details, such as partner names,
+  vendor numbers, risk ratings, HACT and assurance results, programme document titles, library summaries,
+  knowledge base passages and the free-text comments staff write on Neuro and HPM reports, all cleaned
+  as above. When a filter matches nothing, the list of known partner, donor or office names is sent too.
+  It is organisational data. The summary lookups send field visits as counts. The HACT visit plan lookup (`hact_visit_plan`)
   sends counts, section names and the remarks' labels only: never a partner, a programme document
   reference, a section comment or a focal point. The lookups that return eTools records as eTools holds
   them (`etools_query`, `etools_record`, `etools_datasets` and the examples of `etools_search`) read
@@ -412,7 +442,7 @@ come from.
   stops after 4 rounds or 150 seconds and keeps an answer only when its figures are in what was
   looked up. It uses its own prompt cache key (OpenAI) or cached prompt (Claude), and no person
   identifier; its tokens count in the watch's own daily cap, never in anyone's hourly limit. A question
-  asked on `/ask/` is sent exactly as before: same instructions, all tools, same cache key.
+  asked on `/ask/` keeps its own request: same instructions, all tools, same cache key.
 - **Azure OpenAI is a different service**: Microsoft's Azure OpenAI hosts OpenAI models inside an
   Azure subscription, with its own endpoint (`https://<resource>.openai.azure.com`), its own keys
   or Entra ID sign-in, and deployment names instead of model ids. A platform.openai.com key does
@@ -467,7 +497,8 @@ minutes; the page refreshes until it is ready; several files added at once are r
 The assistant has two tools for it: `search_knowledge` (best passages for some words, optionally
 only in the documents linked to a partner, programme document, section or year) and
 `read_knowledge` (a document's summary, links and text in parts of 8,000 characters). It quotes
-and links the documents it uses. Their text is sent to the AI provider in use as part of the answer; the
+and links the documents it uses. Their text is sent to the AI provider in use as part of the answer,
+without the people NeuroDB can find in it (see *People never go to the AI* above); the
 instructions tell the model that it is material, never instructions to follow, and the AI cannot
 change or add documents. Do not add personal data of children, beneficiaries or staff.
 

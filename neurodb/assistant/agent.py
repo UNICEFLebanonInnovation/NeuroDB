@@ -32,7 +32,6 @@ from __future__ import annotations
 import datetime
 import json
 import logging
-import re
 import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, nullcontext
@@ -46,7 +45,7 @@ from django.utils import timezone
 from django.utils.crypto import salted_hmac
 from markdown.extensions.tables import TableExtension
 
-from . import charts, llm, tools
+from . import charts, llm, privacy, tools
 from .llm import CONNECT_TIMEOUT, READ_TIMEOUT, ServiceError, claude_backend, openai_backend
 from .llm import AssistantUnavailable as AssistantUnavailable  # the features catch agent.AssistantUnavailable
 from .llm.openai_backend import client  # agent.client: the tests replace it with a scripted client
@@ -507,9 +506,9 @@ def history_messages(history: list[dict[str, str]]) -> list[dict[str, Any]]:
     return messages
 
 
-# A link to one of NeuroDB's own pages: a path, not "//host" or "/\host" (both leave the site),
-# with no spaces or control characters (browsers drop tabs and newlines inside a URL).
-_SITE_PATH = re.compile(r"/(?![/\\])[^\x00-\x20\x7f\\]*")
+# A link to one of NeuroDB's own pages: a path, not "//host" or "/\host" (both leave the site), with no
+# spaces or control characters (the rule that also keeps them in Ask's lookup results)
+_SITE_PATH = privacy.SITE_PATH
 
 
 def _site_links_only(tag: str, attr: str, value: str) -> str | None:
@@ -645,11 +644,12 @@ def _arguments(raw: str | None) -> Any:
 
 
 def _lookup(name: str, args: Any, options: RunOptions | None) -> Any:
-    """One tool's result as the model reads it. A background run (``options``) may only call its own
-    tools, runs them read-only when it asks to, and passes every result through its filter, all inside
-    its ``tool_context`` when it has one (entered anew for each call)."""
+    """One tool's result as the model reads it. Ask NeuroDB's (no ``options``) without people
+    (``privacy.result``). A background run (``options``) may only call its own tools, runs them read-only
+    when it asks to, and passes every result through its own filter, all inside its ``tool_context`` when
+    it has one (entered anew for each call)."""
     if options is None:
-        return tools.run(name, args)
+        return privacy.result(name, tools.run(name, args))
     with options.tool_context() if options.tool_context else nullcontext():
         if options.read_only:
             with tools.read_only():
@@ -688,9 +688,11 @@ def _run_calls(
             output, ok = json.dumps(result, ensure_ascii=False), True
         except tools.ToolInputError as exc:
             # Unknown tool, unreadable JSON or arguments outside the schema: the model can correct it.
-            # A background run's filter reads the error too (it may name what the data holds).
+            # The filter reads the error too (it may name what the data holds, and echoes the input).
             error: Any = {"error": str(exc), "received": args}
-            if options is not None and options.tool_filter:
+            if options is None:
+                error = privacy.cleaned(error)
+            elif options.tool_filter:
                 with options.tool_context() if options.tool_context else nullcontext():
                     error = options.tool_filter(call.name, error)
             output = json.dumps(error, ensure_ascii=False, default=str)
@@ -729,8 +731,11 @@ def answer(
     ``outcome``.
 
     ``user`` (the person asking) is only used for the hashed identifier sent to the provider.
-    ``options`` is for a run no person asks for (see RunOptions); None is Ask NeuroDB's request.
+    ``options`` is for a run no person asks for (see RunOptions); None is Ask NeuroDB's request, whose
+    question and earlier turns are sent without people (``privacy``), as its lookups' results are.
     """
+    if options is None:
+        question, history = privacy.question(question), privacy.history(history[-HISTORY_TURNS:])
     if llm.provider() == llm.CLAUDE:
         yield from _answer_claude(question, history, outcome, user, options)
         return

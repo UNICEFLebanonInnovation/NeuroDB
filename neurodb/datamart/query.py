@@ -88,7 +88,6 @@ AT_WORD = re.compile(
     r"(?<![\w.+'-])(?:[\w.+'-]+(?:[@＠﹫]|\s*[\[(]\s*[@＠﹫]\s*[\])]\s*|[\[({<](?i:at)[\])}>])"
     r"|(?:[a-z0-9.+'_-]+|[\w+'-]*[._\d][\w.+'-]*)\s+[@＠﹫](?=[^\W\d_])|[\w.+'-]+\s+[@＠﹫](?=[a-z]))[\w.-]*"
 )
-UNCUT = 10**9
 _SPELLED_HINT = re.compile(r"[@＠﹫]|\bat\b|at[\])}>]", re.IGNORECASE)
 _AT_HINT = re.compile(r"[@＠﹫]|at[\])}>]", re.IGNORECASE)
 _DIGIT = re.compile(r"\d")
@@ -544,35 +543,57 @@ def _phones(text: str, fm: bool) -> str:
 def _clean_text(
     value: str, rules: Rules, own: frozenset[str], keeps: bool = False, amount: bool = False
 ) -> str:
-    """A text on one line without e-mail addresses (whole, cut short, spaced or spelled out), links,
-    known person names and the record's own (NeuroDB Watch's ``redact.text``), phone numbers
+    """A text on one line, cleaned by :func:`clean_written`: without e-mail addresses (whole, cut short,
+    spaced or spelled out), links, known person names and the record's own, phone numbers
     (:func:`_phones`) and names written after a title ("Mrs Layla Saab", "السيدة ..."; after Sheikh or Dr
     only outside a key that holds a place or an organisation: ``keeps``, and always in field monitoring);
     field monitoring's texts then cut at ``FM_TEXT_MAX`` (after: a marker can be longer than what it
     replaces). A number written alone stays unless it has a phone's shape (:func:`_phone_number`), and
     always under a key that holds an amount (``amount``)."""
-    from neurodb.watch import people, redact  # lazy: watch already reads the datamart lazily
+    from neurodb.watch import people  # lazy: watch already reads the datamart lazily
 
     value = people.visible(value)
     if PLAIN_NUMBER.fullmatch(value):
         return value if amount or not _phone_number(value, rules.fm) else people.PHONE_WITHHELD
     value = " ".join(value.split())  # on one line, as NeuroDB Watch's redact.text reads it
+    text = clean_written(value, rules.names, own, keeps, rules.fm)
+    return text[: catalogue.FM_TEXT_MAX] if rules.fm and not rules.whole else text
+
+
+def clean_written(
+    text: str, names: frozenset[str], own: frozenset[str] = frozenset(), keeps: bool = False, fm: bool = False
+) -> str:
+    """``text`` without e-mail addresses (whole, cut short, spaced or spelled out), links, the person names
+    NeuroDB knows (``names``) and ``own``, phone numbers (:func:`_phones`; field monitoring's rule with
+    ``fm``) and names written after a title (after Sheikh or Dr only without ``keeps``, and always in field
+    monitoring), each replaced by its placeholder, with its line breaks and spaces as written (a name
+    written over two lines is still found: names are compared word by word). The cleaning of
+    :func:`_clean_text`, which first puts a record's text on one line (``redact.text`` then changes
+    nothing more); Ask NeuroDB cleans its question, its earlier turns and its other lookups' results with
+    it (``assistant.privacy``). The same text always gives the same text, and a cleaned text is not
+    changed again."""
+    from neurodb.watch import people, redact  # lazy: watch already reads the datamart lazily
+
+    text = people.visible(text)
     # each pattern only where what it needs is written (an at sign, "at", a digit, an Arabic letter): the
     # same text, much faster on the thousands of records a search checks
-    text = people.SPELLED_EMAIL.sub(people.EMAIL_WITHHELD, value) if _SPELLED_HINT.search(value) else value
-    text = redact.text(text, UNCUT, rules.names, own)
+    text = people.SPELLED_EMAIL.sub(people.EMAIL_WITHHELD, text) if _SPELLED_HINT.search(text) else text
+    # redact.text without putting the text on one line: addresses first (an address holds a domain),
+    # links, then the names
+    text = people.EMAIL.sub(people.EMAIL_WITHHELD, text)
+    text = people.scrub(redact.LINK.sub(redact.LINK_WITHHELD, text), names, own)
     if _AT_HINT.search(text):
         text = AT_WORD.sub(people.EMAIL_WITHHELD, text)
     if _DIGIT.search(text):
-        text = _phones(text, rules.fm)
+        text = _phones(text, fm)
     text = people.PERSON_TITLE_NAME.sub(people.NAME_WITHHELD, text)
     arabic = not text.isascii()
     if arabic:
         text = people.ARABIC_PERSON_TITLE_NAME.sub(people.NAME_WITHHELD, text)
-    if rules.fm or not keeps:
+    if fm or not keeps:
         text = people.HONORIFIC_NAME.sub(people.NAME_WITHHELD, text)
         text = people.ARABIC_TITLE_NAME.sub(people.NAME_WITHHELD, text) if arabic else text
-    return text[: catalogue.FM_TEXT_MAX] if rules.fm and not rules.whole else text
+    return text
 
 
 # The language a name is written in, after its key ("partner_name_ar")
