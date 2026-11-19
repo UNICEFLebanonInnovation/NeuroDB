@@ -641,8 +641,9 @@ def test_ask_says_whether_they_are_shown(world):
     _verdict()
     found = tools.partner_reporting()
     assert found["owed_shown"] is True and found["owed_note"] == owed.SHOWN.format(n=2)
-    sources = {r["report"]: r["source"] for r in found["progress_reports"]}
-    assert sources["QPR3"] == "PRP progress reports" and sources["QPR1"] == "Partner reports"
+    sources = {r["report"]: r.get("source") for r in found["progress_reports"]}
+    # PRP's own report says where it comes from; a partner report, the default, gives no source
+    assert sources["QPR3"] == "PRP progress reports" and sources["QPR1"] is None
 
 
 def test_no_person_in_any_owed_dict_or_csv(checker, world):

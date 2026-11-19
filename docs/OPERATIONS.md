@@ -246,7 +246,8 @@ come from.
   event's `notice`, in Monitoring insights' words ("These figures could not be checked against the data:
   4950."; at most 20). Set aside: references, dates, link texts and addresses, years ("2026", "2025/26",
   but not "2,000"), page numbers ("p. 41"), whole numbers up to 10, the numbers of the question and of the
-  earlier questions, and the numbers of the earlier answers but those their checks listed. The figures are
+  earlier questions, and the numbers of the earlier answers as they were sent (an older answer's first
+  paragraph, see *Keeping each request small*) but those their checks listed. The figures are
   never changed and nothing is held back; if the check itself fails, the answer is shown as written and
   the error is logged. People are not looked for in the answer: nothing about them reaches the AI (above).
   Help, Monitoring insights and NeuroDB Watch are not checked here. In the question log (AI questions), an
@@ -413,6 +414,42 @@ come from.
   and the indicators of `partner_activityinfo`; `count` in `connected`), and whether the list was cut
   (`truncated`, or `<list>_truncated`). The instructions tell the model to give that number and to say
   when the list it shows is partial; the whole list is on the page the answer links to.
+- **Keeping each request small** (`neurodb/assistant/agent.py`, `tools.py`): most of a question's cost is
+  the new text each model call sends, written to the prompt cache: the lookups' results and the earlier
+  turns. Every call sends everything before it again, so Ask NeuroDB keeps that text short without
+  leaving out what answers need:
+  - **Narrower rows, not fewer rows.** `pd_indicator_progress` on a list of more than 15 indicators
+    (`DETAIL_ROWS`) sends each indicator without `by_month`, `by_year`, `locations`, `tags`,
+    `cp_output`, `output` and `method`, and gives `differs_from_prp_cumulative` and `partial_history`
+    only when they are true; the result's `left_out` says so, and `detail=true` (or a narrower filter)
+    sends every row whole. The figures, status, partner, PD, link and every total and count stay. A
+    list of 15 or fewer comes whole. `partner_reporting` gives a report's `source` only for PRP's own
+    reports still owed ("PRP progress reports"); a row without one is a partner report.
+    `read_knowledge` sends the document's summary, key points and links with part 1 only. The other
+    lookups keep their rows: their fields are what common questions need (`search_programmes`,
+    `funds_overview`), the records leave out empty fields already and the model chooses `fields`
+    (`etools_query`), or the text is the answer (`search_knowledge`). NeuroDB Watch, which shares
+    `pd_indicator_progress` and `partner_reporting`, reads the same rows.
+  - **Compact JSON.** Every lookup's result and input error goes to the model, whichever provider is in
+    use, without spaces between items and with Arabic and other letters as they are written
+    (`agent.COMPACT`). The answer's check still reads each figure of a list apart (`figures.Looked`).
+  - **Earlier turns** (Ask NeuroDB only; Help, Monitoring insights and Watch send theirs as they
+    are): the last 6 questions go whole, the latest earlier answer whole, and each older answer only
+    its first paragraph (the direct answer, with a heading before it) followed by "(The rest of this
+    earlier answer is left out here. Look up again what you need from it.)" (`agent.ask_history`).
+    The same turns always give the same text, and within a question each call only adds to the one
+    before it, so the cache keeps working. The answer's check counts the earlier answers as they were
+    sent: a figure only the left-out part of an older answer gave is listed when it is repeated.
+  - **Lookups together.** The instructions ask the model to run, in the same round, every lookup that
+    does not need another lookup's result; the limit stays 8 rounds (`AI_ASSISTANT_MAX_TOOL_ROUNDS`).
+
+  Measured on the demo data (characters sent to the model, before and after): `pd_indicator_progress`
+  with no filter (33 indicators) 34,992 to 19,627 (about 1,030 to 560 per indicator, so a full list of
+  60 drops from about 62,000 to 34,000); `partner_reporting` 7,997 to 6,605; `search_programmes` 4,384
+  to 4,088; `funds_overview` 4,024 to 3,668; `etools_query` (50 records) 5,799 to 5,443;
+  `search_knowledge` 14,155 to 13,993; `read_knowledge` part 2 9,856 to 8,305; a follow-up's five
+  earlier turns 4,270 to 1,970. The tool definitions (34,956) and instructions (8,085) are cached as
+  before.
 - **Cost and review**: every question is logged in Admin → Data and sync → AI questions with the
   lookups made, tokens used and time taken. Every AI feature on the key (Ask NeuroDB, the daily
   review, What's new, document summaries, periodic figures, country programme reading, NeuroDB

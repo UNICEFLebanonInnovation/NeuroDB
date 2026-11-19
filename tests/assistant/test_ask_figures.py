@@ -223,8 +223,8 @@ def test_on_openai_the_answer_is_checked_too(monkeypatch, lookup):
 # ------------------------------------------------------------------------------------------- the parts
 def test_the_lookups_give_their_links_figures_shares_and_totals():
     looked = figures.Looked()
-    looked.add(LOOKUP, json.dumps(LOOKUP))
-    looked.add({"urls": ["/a/", "https://example.org/x"], "edition_url": "/b/", "link": "/c/"}, "{}")
+    looked.add(LOOKUP)
+    looked.add({"urls": ["/a/", "https://example.org/x"], "edition_url": "/b/", "link": "/c/"})
     assert looked.urls == {"/partners/3/", "/partners/4/", "/knowledge/12/", "/a/", "/b/"}
     assert {"1200", "1500", "76.923077", "76.9", "77", "2345", "2026"} <= looked.numbers
     assert {80.0, 90.0} <= looked.shares  # one row's two figures

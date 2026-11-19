@@ -40,6 +40,17 @@ from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports import services as report_services
 
 MAX_ROWS = 60  # rows per list; longer lists are cut and flagged so the model can narrow the question
+# a list of PD indicators longer than this sends each row without its detail (PD_INDICATOR_DETAIL), unless
+# the model asks for it (detail=true): every round sends the earlier results again, and few questions about a
+# long list need each indicator's months, locations or tags
+DETAIL_ROWS = 15
+PD_INDICATOR_DETAIL = ("by_month", "by_year", "locations", "tags", "cp_output", "output", "method")
+PD_INDICATOR_FLAGS = ("differs_from_prp_cumulative", "partial_history")  # on a long list, only when true
+PD_INDICATOR_LEFT_OUT = (
+    f"This list has more than {DETAIL_ROWS} indicators, so each row leaves out "
+    f"{', '.join(PD_INDICATOR_DETAIL)} (and {' and '.join(PD_INDICATOR_FLAGS)} when false). Ask again with "
+    "detail=true for them, or narrow the filter."
+)
 MAX_PARTNER_PDS = 30  # programme documents listed by partner_details
 MAX_LIBRARY = 25  # library resources listed by search_library
 
@@ -914,7 +925,9 @@ def partner_reporting(
             "submitted": r["submission_date"],
             "status": r["status_label"],
             "indicators": r["indicators"],
-            "source": owed.source_words(r),
+            # where the report comes from, only when it is PRP's own list (a report still owed): the partner
+            # reports, the default, are most rows of a long list
+            **({"source": owed.source_words(r)} if r.get("source") == owed.SOURCE else {}),
         }
         for r in data["reports"][:MAX_ROWS]
     ]
@@ -1020,11 +1033,14 @@ def pd_indicator_progress(
     year: int | None = None,
     include_closed: bool = False,
     emergency: str | None = None,
+    detail: bool = False,
 ) -> dict[str, Any]:
     """Partner implementation monitoring: PD indicators with what partners reached (PRP, the rule of
     ``neurodb.datamart.reached``) against the PD target, with Reached in the year by month and the
     on/off-track status. ``emergency``: Partner monitoring's Emergency filter (yes: the indicators of SPDs, as
-    Power BI's Emergency indicator); each indicator says whether it is one."""
+    Power BI's Emergency indicator); each indicator says whether it is one. A list of more than DETAIL_ROWS
+    indicators sends narrower rows (:func:`_narrow_indicator`) unless ``detail`` asks for each row whole; the
+    totals and counts are the same either way."""
     params: dict[str, Any] = {
         "report_type": report_type or monitoring.DEFAULT_REPORT_TYPE,
         "year": str(year) if year else "",
@@ -1067,6 +1083,8 @@ def pd_indicator_progress(
     filters = monitoring.Filters.from_params(_Params(params))
     rows = monitoring.indicators(filters)
     data = monitoring.summary(rows, filters)
+    whole = detail or len(rows) <= DETAIL_ROWS
+    listed = [r.as_dict() if whole else _narrow_indicator(r.as_dict()) for r in rows[:MAX_ROWS]]
     return {
         "filters": {
             "report_type": filters.report_type,
@@ -1087,8 +1105,19 @@ def pd_indicator_progress(
             "period elapsed; ±10 points is on track. Never add Reached of different indicators: partners "
             "and indicators may reach the same people."
         ),
-        **_cut([r.as_dict() for r in rows], "indicators_detail"),
+        **_cut(listed, "indicators_detail", len(rows)),
+        **({} if whole else {"left_out": PD_INDICATOR_LEFT_OUT}),
         "url": reverse("reports:pd_monitoring"),
+    }
+
+
+def _narrow_indicator(row: dict[str, Any]) -> dict[str, Any]:
+    """One indicator of a long list: its figures, status, partner, PD and link, without its detail
+    (PD_INDICATOR_DETAIL) and with its flags only when they are true."""
+    return {
+        key: value
+        for key, value in row.items()
+        if key not in PD_INDICATOR_DETAIL and (key not in PD_INDICATOR_FLAGS or value)
     }
 
 
@@ -1251,6 +1280,16 @@ def read_knowledge(document_id: int, part: int = 1) -> dict[str, Any]:
     parts = max(1, -(-len(text) // KNOWLEDGE_PART))
     if part > parts:
         raise ToolInputError(f"The document has {parts} part(s).")
+    # the summary, key points and links come with part 1 only: a later part is read after it
+    first = (
+        {
+            "summary": document.summary,
+            "key_points": document.key_points,
+            "linked_to": _knowledge_links(document),
+        }
+        if part == 1
+        else {}
+    )
     return {
         "note": KNOWLEDGE_NOTE,
         "document_id": document.pk,
@@ -1258,9 +1297,7 @@ def read_knowledge(document_id: int, part: int = 1) -> dict[str, Any]:
         "source": document.source,
         "date": document.document_date or document.year,
         "section": document.section.name if document.section else None,
-        "summary": document.summary,
-        "key_points": document.key_points,
-        "linked_to": _knowledge_links(document),
+        **first,
         "part": part,
         "parts": parts,
         "text": text[(part - 1) * KNOWLEDGE_PART : part * KNOWLEDGE_PART],
@@ -1497,8 +1534,8 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "and submission dates, of the running programme documents (active, signed or suspended: "
         "pd_statuses), as the page opens. Reports still owed for a period that has ended come from PRP's own "
         "list of progress reports once their link to the programme documents is proven (owed_shown; "
-        "owed_note says what the page says; their source is 'PRP progress reports'), and have no indicator "
-        "reports. "
+        "owed_note says what the page says; only these reports give a source ('PRP progress reports')), and "
+        "have no indicator reports. "
         "Filter by partner name/vendor/PD text, year the period ends, overdue only, or the Emergency "
         "indicator (yes: the reports of SPDs, as on the page and in Power BI; never eTools' high frequency).",
         _schema(
@@ -1526,7 +1563,9 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "people an "
         "indicator reached: never add partner report rows. Different indicators are never added together. "
         "Use it for 'is partner X on track', 'how many did PD Y reach', 'which indicators are off track', "
-        "'what did the partner report in March'.",
+        "'what did the partner report in March'. "
+        f"A list of more than {DETAIL_ROWS} indicators leaves out each one's by_month, by_year, locations, "
+        "tags, cp_output, output and method (left_out says so): set detail=true when a question needs them.",
         _schema(
             {
                 "partner": {"type": "string"},
@@ -1540,6 +1579,10 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
                 "year": {"type": "integer"},
                 "include_closed": {"type": "boolean"},
                 "emergency": {"type": "string", "enum": ["yes", "no"]},
+                "detail": {
+                    "type": "boolean",
+                    "description": "Each indicator whole (per month, locations...) on a long list too.",
+                },
             }
         ),
         "Reading partner monitoring",
@@ -1645,9 +1688,9 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     ),
     "read_knowledge": (
         read_knowledge,
-        "Read one knowledge base document: summary, key points, links, and its text in parts of 8,000 "
-        "characters (part 1 first; 'parts' says how many). Use after search_knowledge when the passages "
-        "are not enough.",
+        "Read one knowledge base document: its text in parts of 8,000 characters (part 1 first; 'parts' says "
+        "how many), with part 1 its summary, key points and links. Use after search_knowledge when the "
+        "passages are not enough.",
         _schema(
             {"document_id": {"type": "integer"}, "part": {"type": "integer", "minimum": 1, "maximum": 400}},
             ["document_id"],

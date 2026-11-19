@@ -197,7 +197,8 @@ def test_the_start_and_year_rules_point_to_etools_for_this_year():
     assert (
         "For this year's programme documents, partners and indicators start from the eTools tools "
         "(programme_details, partner_details, pd_indicator_progress); for ActivityInfo years start from "
-        "list_databases or find_indicators. Several lookups can run in parallel."
+        "list_databases or find_indicators. Run together, in the same round, every lookup that does not "
+        "need another lookup's result; wait for a result only when the next lookup needs it."
     ) in agent.SYSTEM_PROMPT
     assert (
         "When no ActivityInfo year is given, use this year if ActivityInfo is in use (see the line after "

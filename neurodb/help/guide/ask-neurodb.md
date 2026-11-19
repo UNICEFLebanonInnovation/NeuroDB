@@ -11,8 +11,9 @@ read-only look-ups, and it links each answer to the pages its figures come from.
 
 - Type a question on the page, or in the search box (Ctrl K) and choose *Ask NeuroDB AI*: the question
   is filled in and sent only when you press Ask.
-- A follow-up in the same conversation re-sends the last 6 questions and answers. *New conversation*
-  starts afresh.
+- A follow-up in the same conversation sends the AI your last 6 questions, the last answer in full and
+  the first paragraph of each older answer. To build on figures from an older answer, ask for them
+  again: the AI looks them up afresh. *New conversation* starts afresh.
 - The steps above an answer show the look-ups it made. Answers can draw a chart (pie, bar, column or
   line) from figures they looked up; a chart cannot show a figure that was not looked up.
 - Answers can contain mistakes: check figures that matter on the page the answer links to.
@@ -26,10 +27,11 @@ Before you see an answer, NeuroDB compares it with the data it looked up for tha
   links to before you use them. NeuroDB never changes a figure or hides an answer; the line only tells
   you what it could not find. It does not list years, dates, programme document references, page
   numbers, small counts (up to 10), figures your question gives, figures an earlier answer of the same
-  conversation gave (unless they were listed then), or simple percentages and totals: a reached figure
-  over its target in the same row of a look-up (1,200 of 1,500 is 80%), the total of a column, or the
-  share, sum or difference of two figures written in the same sentence ("450 of 1,500, 30%", "from 450 to
-  1,200, 750 more"). Other sums and percentages are listed, so check them too.
+  conversation gave in the part the AI was sent (the last answer, and the first paragraph of older ones),
+  unless they were listed then, or simple percentages and totals: a reached figure over its target in the
+  same row of a look-up (1,200 of 1,500 is 80%), the total of a column, or the share, sum or difference of
+  two figures written in the same sentence ("450 of 1,500, 30%", "from 450 to 1,200, 750 more"). Other
+  sums and percentages are listed, so check them too.
 - **Links.** A link to a NeuroDB page that no look-up gave (and no earlier answer of the conversation
   gave) keeps its words but stops being a link.
 

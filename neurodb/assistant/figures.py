@@ -44,6 +44,7 @@ from __future__ import annotations
 import bisect
 import html
 import itertools
+import json
 import math
 import re
 from collections.abc import Iterable, Mapping
@@ -97,11 +98,12 @@ class Looked:
     shares: set[float] = field(default_factory=set)
     totals: set[float] = field(default_factory=set)
 
-    def add(self, result: Any, output: str) -> None:
-        """One lookup's result, and ``output``: its JSON text, as the model reads it."""
+    def add(self, result: Any) -> None:
+        """One lookup's result, as the model reads it. Its numbers are read from its JSON written with a space
+        between items: the compact text the model is sent runs a list of figures together ("[1200,300]")."""
         from neurodb.watch import grounding
 
-        self.numbers |= grounding._allowed_numbers(output)
+        self.numbers |= grounding._allowed_numbers(json.dumps(result, ensure_ascii=False, default=str))
         self._walk(result, "")
 
     def _walk(self, value: Any, key: str) -> None:

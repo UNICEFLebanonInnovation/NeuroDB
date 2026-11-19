@@ -19,7 +19,9 @@ is kept on OpenAI's side for later retrieval) it replays the previous rounds' ou
 items with their encrypted content, messages and function calls) followed by the tool results. On Claude
 (the Messages API keeps nothing either) each round appends the assistant's whole content, thinking
 blocks and their signatures unchanged, then one user message with every tool result; the instructions
-and tools are marked for caching, and the conversation is cached as it grows.
+and tools are marked for caching, and the conversation is cached as it grows. Every call sends all that
+came before it again, so what is sent is kept short: every tool result is compact JSON (``COMPACT``), and
+Ask NeuroDB's older earlier answers keep only their first paragraph (``ask_history``).
 
 A run other than an Ask NeuroDB question (NeuroDB Watch's look-up, Monitoring insights' chat) passes
 ``RunOptions``: fewer tools, extra instructions after the date (or its own whole prompt in place of
@@ -36,6 +38,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import re
 import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, nullcontext
@@ -58,6 +61,10 @@ logger = logging.getLogger(__name__)
 
 MAX_OUTPUT_TOKENS = 25000  # per model call; reasoning tokens count too, so leave room for them
 HISTORY_TURNS = 6  # earlier question/answer pairs sent back for follow-up questions
+# Ask NeuroDB's older earlier answers (all but the latest) keep their first paragraph, then this line
+LEFT_OUT = "(The rest of this earlier answer is left out here. Look up again what you need from it.)"
+# JSON for the model: no spaces between items, Arabic and other letters as they are
+COMPACT = {"ensure_ascii": False, "separators": (",", ":")}
 PROMPT_CACHE_KEY = "neurodb-assistant"  # every request shares the same tools + instructions prefix
 MIN_WAIT = 60.0  # the SDK only retries a call while each attempt can still wait this long
 
@@ -84,7 +91,9 @@ which one you used, and answer.
 How to work:
 - For this year's programme documents, partners and indicators start from the eTools tools \
 (programme_details, partner_details, pd_indicator_progress); for ActivityInfo years start from \
-list_databases or find_indicators. Several lookups can run in parallel.
+list_databases or find_indicators. Run together, in the same round, every lookup that does not need \
+another lookup's result; wait for a result only when the next lookup needs it. Each round sends all \
+earlier results again.
 - Indicator progress and achievement come from database_results (the official aggregation). \
 activity_breakdown counts raw activity reports; its summed_value is only a total for one indicator.
 - Reporting years are named like "2026". When no ActivityInfo year is given, use this year if \
@@ -503,6 +512,37 @@ def _claude_history(history: list[dict[str, str]]) -> list[dict[str, Any]]:
     return messages
 
 
+_PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n")
+
+
+def _lead(answer: str) -> str:
+    """An answer's first paragraph (the direct answer the instructions ask for), with a heading before it."""
+    kept = []
+    for block in _PARAGRAPH_BREAK.split(answer.strip()):
+        if not block.strip():
+            continue
+        kept.append(block.rstrip())
+        if not all(line.lstrip().startswith("#") for line in block.splitlines() if line.strip()):
+            break
+    return "\n\n".join(kept)
+
+
+def ask_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ask NeuroDB's earlier turns as they are sent: every question whole, the latest answer whole, and each
+    older answer shortened to its first paragraph and LEFT_OUT (an answer of one paragraph is sent as it is).
+    The same turns always give the same text, so a request only adds to the one before it. Help, Monitoring
+    insights and NeuroDB Watch send their earlier turns as they are."""
+    shaped = []
+    for n, turn in enumerate(history):
+        answer = turn.get("answer")
+        if n < len(history) - 1 and isinstance(answer, str) and answer.strip():
+            lead = _lead(answer)
+            if lead != answer.strip():
+                turn = {**turn, "answer": f"{lead}\n\n{LEFT_OUT}"}
+        shaped.append(turn)
+    return shaped
+
+
 def history_messages(history: list[dict[str, str]]) -> list[dict[str, Any]]:
     """Earlier turns as plain text (tool calls are not replayed; follow-ups re-query as needed).
     Answers are labelled final answers, as newer models expect the phase of assistant messages."""
@@ -693,7 +733,7 @@ def _run_calls(
             else:
                 result = _lookup(call.name, args, options)
                 charts.numbers_in(result, outcome.numbers)
-            output, ok = json.dumps(result, ensure_ascii=False), True
+            output, ok = json.dumps(result, **COMPACT), True
         except tools.ToolInputError as exc:
             # Unknown tool, unreadable JSON or arguments outside the schema: the model can correct it.
             # The filter reads the error too (it may name what the data holds, and echoes the input).
@@ -703,14 +743,14 @@ def _run_calls(
             elif options.tool_filter:
                 with options.tool_context() if options.tool_context else nullcontext():
                     error = options.tool_filter(call.name, error)
-            output = json.dumps(error, ensure_ascii=False, default=str)
+            output = json.dumps(error, default=str, **COMPACT)
             ok = False
         except Exception:
             logger.exception("assistant tool %s failed", call.name)
-            output, ok = json.dumps({"error": "The lookup failed on the server."}), False
+            output, ok = json.dumps({"error": "The lookup failed on the server."}, **COMPACT), False
         if ok and options is None and call.name != "make_chart":
             try:  # what Ask's answer is checked against (figures.py); never costs the lookup
-                outcome.looked.add(result, output)
+                outcome.looked.add(result)
             except Exception:
                 logger.exception("Ask NeuroDB: the result of %s could not be read for the check", call.name)
         outcome.tools.append(
@@ -748,7 +788,7 @@ def answer(
     question and earlier turns are sent without people (``privacy``), as its lookups' results are.
     """
     if options is None:
-        question, history = privacy.question(question), privacy.history(history[-HISTORY_TURNS:])
+        question, history = privacy.question(question), ask_history(privacy.history(history[-HISTORY_TURNS:]))
     if llm.provider() == llm.CLAUDE:
         yield from _answer_claude(question, history, outcome, user, options)
         return
