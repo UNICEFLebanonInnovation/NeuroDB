@@ -55,8 +55,9 @@ each programme document's programmatic visits against its plan (see
 [Field monitoring and the HACT visit plan](/help/field-monitoring/)).
 
 ## Indicator report
-One indicator in one progress report. The Progress reports tiles count progress reports, as Power BI's
-Reporting Progress does, and give the indicator reports in them under each figure.
+One indicator in one progress report: the report table's *Indicators* column counts them. The Progress
+reports tiles count progress reports, as Power BI's Reporting Progress does, and give under each figure the
+indicators in them, each indicator once, of active programme documents only.
 
 ## Master indicator (eTools)
 A section's indicator over the partners' own PD indicators, one figure a year: numbers added up (*up to*,

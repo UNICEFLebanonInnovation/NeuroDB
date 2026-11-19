@@ -1346,7 +1346,8 @@ def partner_reporting(params, today: datetime.date | None = None, *, options: bo
     """The Progress reports page: the progress reports of the filter (one of six statuses each, with
     their PD's status, document type and UNICEF focal points), the progress reports per status
     (``summary``; ``counts``: what the tiles show, as Power BI's Reporting Progress counts them, with the
-    indicator reports in them), by section and by month of the reporting period's end, and Partner
+    indicators in them under each, each once, of active programme documents: :func:`neurodb.datamart.
+    reporting.counts`), by section and by month of the reporting period's end, and Partner
     Performance (its reports to follow up count a report not yet due as Due, as Power BI's list does, and the
     Report status Due keeps it there, as Power BI's slicer does: :func:`neurodb.datamart.reporting.
     follow_up_kept`).
@@ -1379,7 +1380,8 @@ def partner_reporting(params, today: datetime.date | None = None, *, options: bo
         reports = [r for r in reports if r["status"] in filters.statuses]
     reporting.with_pd_details(reports if followed is None else followed)  # every report of both lists
     summary = _status_summary(reports)  # progress reports per status
-    counts = reporting.counts(reports)  # progress reports per status (the tiles), and their indicator reports
+    # progress reports per status (the tiles), and under each its indicators, each once, of active PDs
+    counts = reporting.counts(reports, filters.indicator_statuses)
     return {
         "filters": filters,
         "rows": rows,

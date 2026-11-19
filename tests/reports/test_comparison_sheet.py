@@ -96,7 +96,9 @@ def test_progress_reports_figures_are_the_page_s(validator, more, frozen, params
     # Reporting Progress's cards, table and chart count progress reports, on the page and in the sheet (the
     # user's decision of 26 Oct 2026)
     assert found["pr.progress_reports"].value == data["counts"]["progress_reports"]
-    assert "pr.indicator_reports" not in found
+    # the hints under the tiles (each indicator once) are not Power BI's figures: never compared
+    assert "pr.indicator_reports" not in found and "pr.indicators" not in found
+    assert not any(k.startswith("pr.indicators.") for k in found)
     for s in data["counts"]["statuses"]:
         assert found[f"pr.status.{s['key']}"].value == s["progress_reports"]
     units = {f.unit for k, f in found.items() if k.startswith(("pr.status.", "pr.section", "pr.month."))}

@@ -21,8 +21,9 @@ pages on the same sections:
 
 - **Progress reports**: the seven tiles of the Progress reports page, for the running programme documents
   and every reporting period, exactly the figures that page shows for the same sections. Each tile counts
-  progress reports, as Power BI's Reporting Progress does, with the indicator reports in them under it
-  (one indicator in one progress report), and opens the page on that status. Once NeuroDB can prove that
+  progress reports, as Power BI's Reporting Progress does, and opens the page on that status; under it, the
+  indicators in those reports, each indicator once, of active programme documents only (they do not add up
+  to the total). Once NeuroDB can prove that
   PRP's own list of progress reports is tied to the right programme documents, Overdue and Due also count
   the reports partners still owe from that list, and a line under the tiles says how many; until then the
   line says why reports still owed may be missing (see *Reports still owed, from PRP's own list* in

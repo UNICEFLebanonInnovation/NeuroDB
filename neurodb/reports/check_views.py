@@ -305,7 +305,15 @@ def check_rows(request: HttpRequest, page: str) -> HttpResponse:
     found = trail.progress_trail(page, params, day)
     pks: list[int] = []
     docs: list[int] = []  # PRP's own reports still owed a rows CSV lists after its rows
-    if kind == "rows":
+    indicators: dict[str, list[int]] = {}  # a hint under the tiles: its indicators and their rows
+    if kind == "indicators":
+        selected = trail_rows.indicator_selection(found, what)
+        if selected is None:
+            raise Http404
+        indicators = selected
+        if len(indicators) > raw.csv_limit(trail.SOURCE):
+            return _plain(raw.too_many(trail.SOURCE, len(indicators)), 400)
+    elif kind == "rows":
         if trail_rows.selection(found, what) is None:
             raise Http404
         pks = trail_rows.row_pks(found, what)
@@ -328,6 +336,9 @@ def check_rows(request: HttpRequest, page: str) -> HttpResponse:
         elif kind == "reports":
             columns = list(trail_rows.REPORT_COLUMNS)
             rows = trail_rows.report_rows(found, what, params, names)
+        elif kind == "indicators":
+            columns = list(trail_rows.INDICATOR_COLUMNS)
+            rows = trail_rows.indicator_rows(found, what, indicators, names)
         elif kind == "documents":
             columns, keys = trail_rows.document_columns(names, pks)
             rows = trail_rows.document_rows(found, pks, keys, names)

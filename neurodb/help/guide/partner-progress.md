@@ -222,8 +222,14 @@ documents with another status, or not in NeuroDB), with a link that shows every 
 programme documents are never listed, nor reports that name no programme document.
 
 - **Reporting progress**: the tiles count *progress reports* per status, as Power BI's Reporting Progress
-  does (your decision of 26 Oct 2026), with the indicator reports in them under each (one indicator in one
-  progress report); then the progress reports by section (each report once, under its Section as the
+  does (your decision of 26 Oct 2026). Under each tile, the indicators in those reports (your decision of
+  19 Nov 2026): each indicator once, by its eTools indicator id in its programme document (else its title),
+  however many reports carry it (QPR1 to QPR4, monthly reports, every year), of active programme documents
+  only. Signed and suspended programme documents count in the progress reports, not in the indicators. If
+  you choose PD statuses without Active, the indicators are those of the statuses chosen, and the note says
+  so. An indicator can be in reports of several statuses, so the indicator numbers do not add up to the
+  total; the report table's *Indicators* column still counts each report's own. Then the progress reports
+  by section (each report once, under its Section as the
   report table shows it) and by month of the end of the reporting period (the month a report is about, as
   Power BI shows it), and the report table with the PD status, document type and UNICEF focal points
   (names only).

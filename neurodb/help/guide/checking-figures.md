@@ -79,7 +79,9 @@ status, the tab's own filters) and their lines.
 > 6. With the status Overdue: 12 progress reports.
 
 The rows that set a report's status (its newest word, across all its rows, also those the filter leaves out)
-download beside step 5: *Rows that set the status (CSV)*.
+download beside step 5: *Rows that set the status (CSV)*. The hint under the tile (*9 indicators*) is a
+figure of its own: the indicators of those 12 reports, each indicator once, of active programme documents
+only. Its CSV has one row per indicator, with the progress reports it is in.
 
 ## Partner monitoring's figure trail
 
@@ -159,9 +161,10 @@ To check it in Excel: open *Kept indicators*, filter `status_off_track` on *yes*
 
 *Kept rows (CSV)* holds one row per report row the filter keeps. Its first columns are what NeuroDB read of
 the row: `report_status_neurodb` (the report's status), `report_status_chosen`, `follow_up_chosen`,
-`section_counted`, `period_end_month`, and one column per unit (`indicator_report_unit`, `progress_report_unit`, `partner_unit`,
-`pd_unit`) with `counts_once_*`: 1 on the first row of each unit. Then the record as Raw eTools data writes it
-(people as counts).
+`indicator_counted` (its programme document's indicators are counted under the tiles: active, else the PD
+statuses chosen), `section_counted`, `period_end_month`, and one column per unit (`indicator_report_unit`,
+`progress_report_unit`, `partner_unit`, `pd_unit`, `indicator_unit`) with `counts_once_*`: 1 on the first row
+of each unit. Then the record as Raw eTools data writes it (people as counts).
 
 1. Open the file in Excel and insert a pivot table.
 2. Filter `report_status_chosen` on *yes*.
@@ -169,9 +172,13 @@ the row: `report_status_neurodb` (the report's status), `report_status_chosen`, 
    `period_end_month`, for the month chart).
 4. Put the sum of `counts_once_progress_report` in Values: the tiles, the section table and the month chart
    (they count progress reports, as Power BI's Reporting Progress does). The sum of
-   `counts_once_indicator_report` gives the indicator reports under each tile, and the sum of
-   `counts_once_partner` the Partners tab's *Partners*. A distinct count of `progress_report_unit`,
-   `indicator_report_unit` or `partner_unit` gives the same. The reports to follow up are those Overdue, Sent
+   `counts_once_indicator_report` gives the indicator reports in them (the report table's *Indicators*), and
+   the sum of `counts_once_partner` the Partners tab's *Partners*. A distinct count of `progress_report_unit`,
+   `indicator_report_unit` or `partner_unit` gives the same.
+5. The indicators under the tiles: filter `indicator_counted` on *yes* too. The sum of
+   `counts_once_indicator` gives the first tile's (each indicator once); a distinct count of `indicator_unit`
+   by `report_status_neurodb` gives each status tile's (an indicator in reports of two statuses is under
+   both). The reports to follow up are those Overdue, Sent
    back, Due, Not yet due (listed as Due there, as Power BI does) and Submitted: filter `follow_up_chosen` on
    *yes* instead (with the Report status *Due*, it keeps the reports not yet due too, as Power BI's slicer
    does).
@@ -179,11 +186,15 @@ the row: `report_status_neurodb` (the report's status), `report_status_chosen`, 
 While the page shows PRP's own reports still owed, the tiles, the section table, the month chart and the
 Partners tab also count them. *Kept rows (CSV)* then lists those the filter keeps after the rows, one line
 each (`source` *PRP progress reports*, then their record's fields after the rows' columns), so the same pivot
-table counts them: they have no indicator report (`counts_once_indicator_report` 0). The step *PRP's own
+table counts them: they have no indicator report and no indicator (`counts_once_indicator_report` and
+`counts_once_indicator` 0). The step *PRP's own
 reports still owed* has the CSV of every one, with whether the filter keeps it and why not.
 
 Each figure's own *Rows (CSV)* holds only the rows it counts, PRP's own reports still owed among them, with
-`unit_key` (its unit) and `counts_once`: their sum is the figure. In a step's CSV, `counts_once` is 1 only on a unit the step leaves out entirely
+`unit_key` (its unit) and `counts_once`: their sum is the figure. The indicators under the tiles are listed
+instead, one row per indicator: its programme document and its status, its eTools indicator id and title, how
+many progress reports it is in, their statuses and their keys; `unit_key` and `counts_once` give the figure
+the same way. In a step's CSV, `counts_once` is 1 only on a unit the step leaves out entirely
 (`unit_partly_kept` marks the others), so its sum is what the step leaves out entirely.
 
 When the database takes too long, a file ends with the row "The download stopped here: the database took too
@@ -657,7 +668,7 @@ The comparison sheet's last sheet lists these too, each with where to see it.
   for a partial history.
 - An indicator is counted once, although eTools lists it once per location and disaggregation.
 - Reporting Progress counts progress reports, in Power BI and in NeuroDB; NeuroDB's tiles also give the
-  indicator reports in them.
+  indicators in them (each indicator once, of active programme documents), which the sheet never compares.
 - Both call a report not yet due "Due" in their lists of reports to follow up; NeuroDB's own lists and charts
   call it Not yet due.
 - Power BI joins rows that are the same in every column it shows, and repeats a location's row once per CP

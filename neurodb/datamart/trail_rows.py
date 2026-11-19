@@ -14,6 +14,11 @@
   Raw eTools data writes it (``raw.csv_record``: the people rule, never a person).
 * **One row per progress report** (``reports``, ``follow_up``): the export's columns (``_report_row``, focal
   points as a count) with the vendor number and the match key of the Power BI comparison sheet.
+* **One row per indicator** (``figure:pr.indicators`` and ``figure:pr.indicators.<status>``, the hints under
+  the tiles: :func:`indicator_rows`): each indicator the figure counts once (``reporting.pd_indicator_key``),
+  its programme document, eTools id and title, and the progress reports it is in. The rows CSVs carry each
+  row's indicator too (``indicator_unit``, ``indicator_counted``, ``counts_once_indicator``), so the Kept rows
+  give these figures again.
 * **By location's lines** (``lines``) and **By disaggregation's location blocks** (``blocks``): the tab's
   export columns with the Datamart ids of each location's rows and the one read.
 * **PRP's own reports still owed** (``owed``, once their link is proven: :mod:`neurodb.datamart.owed`): one
@@ -40,6 +45,7 @@ from typing import Any
 
 from django.db import DatabaseError
 
+from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA
 
 from . import catalogue, monitoring, owed, raw, raw_people, reporting, runfacts, trail
@@ -63,16 +69,19 @@ ROW_HEAD = (
     "progress_report_unit",
     "partner_unit",
     "pd_unit",
+    "indicator_unit",
     "counts_once",
     "counts_once_indicator_report",
     "counts_once_progress_report",
     "counts_once_partner",
+    "counts_once_indicator",
     "unit_partly_kept",
     "progress_report_partly_kept",
     "kept_by_the_filter",
     "report_status_neurodb",
     "report_status_chosen",
     "follow_up_chosen",
+    "indicator_counted",
     "status_word_used",
     "status_word_from_record_id",
     "status_word_of_this_row",
@@ -114,6 +123,22 @@ REPORT_COLUMNS = (
     "match_key",
 )
 LINE_TAIL = ("progress_report_key", "record_ids", "chosen_record_id")
+# one row per indicator a hint under the tiles counts (indicator_rows)
+INDICATOR_COLUMNS = (
+    "figures_as_of",
+    "step",
+    "reason",
+    "indicator_key",
+    "unit_key",
+    "counts_once",
+    "programme_document",
+    "pd_status_in_neurodb",
+    "etools_indicator_id",
+    "indicator",
+    "progress_reports",
+    "report_statuses",
+    "progress_report_keys",
+)
 
 
 def _yes(value: bool) -> str:
@@ -121,11 +146,19 @@ def _yes(value: bool) -> str:
 
 
 # ----------------------------------------------------------------------------------------- what a CSV holds
+def is_indicators(what: str) -> bool:
+    """Whether ``what`` is the CSV of a hint under the tiles (``figure:pr.indicators[.<status>]``)."""
+    return what == f"figure:{trail.INDICATORS}" or what.startswith(f"figure:{trail.INDICATORS}.")
+
+
 def kind_of(what: str) -> str:
-    """``rows`` (report rows), ``reports`` (one row per progress report), ``lines`` (a tab's lines or blocks)
-    or ``documents`` (PRP's own reports still owed); "" for an address the trail does not know."""
+    """``rows`` (report rows), ``reports`` (one row per progress report), ``indicators`` (one row per
+    indicator a hint under the tiles counts), ``lines`` (a tab's lines or blocks) or ``documents`` (PRP's own
+    reports still owed); "" for an address the trail does not know."""
     if what == "owed":
         return "documents"
+    if is_indicators(what):
+        return "indicators"
     if what in ("kept", "no_partner", "status") or what.startswith(("step:", "reason:", "figure:")):
         return "rows"
     if what in ("reports", "follow_up"):
@@ -247,7 +280,7 @@ def stream_rows(
     elif what.startswith("reason:"):
         stage = rows.stages.index("pd_status")
     last_irs, last_prs = _first_out(rows) if stage is not None else ({}, {})
-    seen: dict[str, set] = {"unit": set(), "ir": set(), "pr": set(), "partner": set()}
+    seen: dict[str, set] = {"unit": set(), "ir": set(), "pr": set(), "partner": set(), "indicator": set()}
     stages = {i: name for i, name in enumerate(rows.stages)}
     reasons: dict[tuple[int, str], str] = {}  # each step's words, cleaned once (a search can name anyone)
     try:
@@ -284,6 +317,7 @@ def stream_rows(
                         progress_report_unit=out["progress_report_key"],
                         partner_unit=_partner_unit(partner, names),
                         pd_unit=_pd_unit(report.pd if report is not None else "", names),
+                        indicator_unit=_indicator_unit(r[6], names),
                         kept_by_the_filter=_yes(r[3] == rows.kept_at),
                     )
                     out["unit_key"] = {
@@ -291,6 +325,7 @@ def stream_rows(
                         trail.PR: out["progress_report_unit"],
                         trail.PARTNER: out["partner_unit"],
                         trail.PD: out["pd_unit"],
+                        trail.INDICATOR: out["indicator_unit"],
                     }.get(unit, out["indicator_report_unit"])
                     unit_value = of(r)
                     if stage is not None:  # a step's CSV: once per unit it leaves out entirely
@@ -309,6 +344,14 @@ def stream_rows(
                     # sum over the rows of report_status_chosen "yes" is the page's Partners
                     out["counts_once_partner"] = int(
                         partner is not None and _first(seen["partner"], (report.chosen, partner))
+                    )
+                    # once per indicator among the reports of the statuses chosen whose programme document's
+                    # indicators the hints count: a sum over the rows is the first tile's hint
+                    out["counts_once_indicator"] = int(
+                        report is not None
+                        and report.chosen
+                        and report.indicators_counted
+                        and _first(seen["indicator"], r[6])
                     )
                     if report is not None:
                         out.update(_report_columns(report, r, names))
@@ -365,6 +408,17 @@ def _pd_unit(key: str, names: frozenset[str]) -> str:
     return "ref:" + str(raw_people.text(key[4:], SOURCE, "pd_reference_number", names, frozenset()) or "")
 
 
+def _indicator_unit(key: str, names: frozenset[str]) -> str:
+    """A row's PD indicator (``reporting.pd_indicator_key``) as the CSV writes it: its programme document as
+    ``pd_unit`` is, its title cleaned as the indicator column is (a name in it is withheld)."""
+    if not key:
+        return ""
+    pd, _bar, ident = key.partition("|")
+    if ident.startswith("t"):
+        ident = "t" + str(raw_people.text(ident[1:], SOURCE, "indicator", names, frozenset()) or "")
+    return f"{_pd_unit(pd, names)}|{ident}"
+
+
 def _report_columns(report: trail.Report, r: tuple, names: frozenset[str]) -> dict[str, Any]:
     clean = lambda column, value: raw_people.text(value, SOURCE, column, names, frozenset())  # noqa: E731
     return {
@@ -372,6 +426,8 @@ def _report_columns(report: trail.Report, r: tuple, names: frozenset[str]) -> di
         "report_status_chosen": _yes(report.chosen),
         # in the reports to follow up under the report statuses chosen (Due keeps one not yet due)
         "follow_up_chosen": _yes(report.followed),
+        # of a programme document whose indicators the hints under the tiles count (active, else chosen)
+        "indicator_counted": _yes(report.indicators_counted),
         "status_word_used": clean("report_status", report.word),
         "status_word_from_record_id": report.word_from if report.word_from is not None else "",
         "status_rows_outside_filter": report.rows_outside,
@@ -506,11 +562,13 @@ def _owed_row(
         progress_report_key=r[1],
         indicator_report_key="",
         indicator_report_unit="",
+        indicator_unit="",
         progress_report_unit=r[1],
         partner_unit=_partner_unit(partner, names),
         pd_unit=_pd_unit(report.pd if report is not None else "", names),
         kept_by_the_filter=_yes(r[3] == rows.kept_at),
         counts_once_indicator_report=0,
+        counts_once_indicator=0,
         counts_once_progress_report=int(_first(seen["pr"], r[1])),
         unit_partly_kept="",
         progress_report_partly_kept="",
@@ -518,6 +576,7 @@ def _owed_row(
     )
     out["unit_key"] = {
         trail.IR: "",
+        trail.INDICATOR: "",
         trail.PR: out["progress_report_unit"],
         trail.PARTNER: out["partner_unit"],
         trail.PD: out["pd_unit"],
@@ -582,6 +641,70 @@ def report_rows(
                 }
             )
     yield from rows
+
+
+# ------------------------------------------------------------------------------------------- the indicators
+def indicator_selection(found: trail.Trail, what: str) -> dict[str, list[int]] | None:
+    """The indicators a hint under the tiles counts (``what``: ``figure:pr.indicators[.<status>]``), each with
+    the rows (pks) that carry it, in order; None for a figure the trail does not have."""
+    figure = found.figure(what[7:]) if is_indicators(what) else None
+    if figure is None or not figure.select:
+        return None
+    rows = found.rows
+    out: dict[str, list[int]] = defaultdict(list)
+    for pk in trail.selected(rows, figure.select):
+        if rows.rows[pk][6]:
+            out[rows.rows[pk][6]].append(pk)
+    return dict(sorted(out.items()))
+
+
+def indicator_rows(
+    found: trail.Trail, what: str, indicators: dict[str, list[int]], names: frozenset[str]
+) -> Iterator[dict[str, Any]]:
+    """One row per indicator a hint under the tiles counts (:func:`indicator_selection`): its key (the unit,
+    so ``counts_once`` and a distinct count of ``unit_key`` give the figure), its programme document's number
+    and status, its eTools id and title as one of its rows gives them, and the progress reports it is in
+    (their statuses and keys), read inside one snapshot; people never written (the title and keys are cleaned
+    as the rows CSV cleans them)."""
+    figure = found.figure(what[7:])
+    rows = found.rows
+    first = {key: pks[0] for key, pks in indicators.items()}
+    records: dict[int, dict[str, Any]] = {}
+    fields = ("pk", "pd_reference_number", "intervention__number", "intervention__status")
+    with raw.snapshot(raw.STREAM_TIMEOUT_MS):
+        wanted = sorted(first.values())
+        for start in range(0, len(wanted), raw.CSV_CHUNK):
+            chunk = dm.ReportedIndicator.objects.filter(pk__in=wanted[start : start + raw.CSV_CHUNK])
+            for record in chunk.values(*fields, "etools_indicator_id", "indicator"):
+                records[record["pk"]] = record
+    as_of = raw.local_moment(found.as_of)
+    clean = lambda column, value: raw_people.text(value, SOURCE, column, names, frozenset())  # noqa: E731
+    for key, pks in indicators.items():
+        record = records.get(first[key])
+        if record is None:  # removed since the trail was read
+            continue
+        reports = sorted({rows.rows[pk][1] for pk in pks})
+        statuses = Counter(rc.STATUS_LABELS.get(rows.reports[k].status, "") for k in reports)
+        unit = _indicator_unit(key, names)
+        yield {
+            "figures_as_of": as_of,
+            "step": f"Figure: {figure.label}",
+            "reason": figure.how,
+            "indicator_key": unit,
+            "unit_key": unit,
+            "counts_once": 1,
+            "programme_document": clean(
+                "pd_reference_number", record["intervention__number"] or record["pd_reference_number"]
+            ),
+            "pd_status_in_neurodb": pd_statuses.label(record["intervention__status"])
+            if record["intervention__status"]
+            else "",
+            "etools_indicator_id": record["etools_indicator_id"],
+            "indicator": clean("indicator", record["indicator"]),
+            "progress_reports": len(reports),
+            "report_statuses": "; ".join(f"{label} {n}" for label, n in sorted(statuses.items())),
+            "progress_report_keys": " ; ".join(str(clean("progress_report_key", k) or "") for k in reports),
+        }
 
 
 # ------------------------------------------------------------------------------------------------ the lines

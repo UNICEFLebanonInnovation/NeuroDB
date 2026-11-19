@@ -11,7 +11,9 @@ decision of 26 Oct 2026). The table sits in a panel, as on Progress reports: the
 cues of .table-wrap are painted in the panel's colour, and on the page's own background they showed as pale patches at
 both ends of every row. A server whose eTools Datamart sync never ran (no_etools) reads one line instead. Context:
 reporting, pd_rows, tile_urls, partners_url, no_etools, check_url (the block's figure trail: "Check these figures" under
-the hint, for the people who check the figures). Every number carries its figure trail key (data-figure).{% endcomment %}
+the hint, for the people who check the figures). Every number carries its figure trail key (data-figure). Under each
+tile, the indicators in its reports, each once, of active programme documents (Home reads no PD status: the running
+ones, whose active ones count their indicators), as on Progress reports.{% endcomment %}
 <div class="home-prp__block">
   <div class="home-prp__title">
     <h3 class="home-block__title" id="home-pr-title">{% trans "Progress reports" %}</h3>
@@ -22,7 +24,7 @@ the hint, for the people who check the figures). Every number carries its figure
   <p class="home-empty">{% trans "No eTools data yet: the eTools Datamart sync has not run on this server." %}</p>
   {% else %}
   {% include "reports/partials/_reporting_tiles.html" with counts=reporting.counts %}
-  <p class="home-also">{% trans "Each tile counts progress reports, as Power BI's Reporting Progress does; the indicator reports in them (one indicator in one progress report) are under it." %}</p>
+  <p class="home-also">{% trans "Each tile counts progress reports, as Power BI's Reporting Progress does. Under it, the indicators in those reports, each indicator once, of active programme documents only. An indicator can be in reports of several statuses, so the indicator numbers do not add up to the total." %}</p>
   {% include "reports/partials/_owed_line.html" with owed=reporting.owed css="home-also" %}
   <div class="home-prp__title home-prp__title--split">
     <h3 class="home-block__title" id="home-pds-title">{% trans "Programme documents to follow up" %}</h3>

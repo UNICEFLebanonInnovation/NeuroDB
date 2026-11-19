@@ -16,8 +16,8 @@ link to their programme documents is proven (the gate).
   last seven days, one per programme document, type and number (``datamart_sync.counted_once``), and the
   partner reports hold no row of that report (``reporting.held_report_numbers``: any period, status or
   filter; the rows then decide).
-* **No indicator, no value.** They carry no indicator report (``indicators`` 0): the tiles' indicator report
-  hints and Reached leave them out. They are never put on a partner report row's report.
+* **No indicator, no value.** They carry no indicator report (``indicators`` 0, no ``indicator_keys``): the
+  indicators under the tiles and Reached leave them out. They are never put on a partner report row's report.
 * **People.** Each record is read field by field (``KT``), never whole: PRP's records hold narratives and
   the people who wrote and reviewed them.
 """
@@ -287,6 +287,7 @@ def _result(r: dict[str, Any], pd: dict[str, Any]) -> dict[str, Any]:
         "acceptance_date": None,
         "indicator_sections": {},
         "indicators": 0,
+        "indicator_keys": (),
         "sections": {},
         "section": ", ".join(sections),
         "status": r["status"],

@@ -394,7 +394,9 @@ def test_report_table_columns_and_focal_point_names_only(client_viewer, more, fr
     )
     for label in ("Progress reports", "Accepted", "Submitted", "Sent back", "Due", "Overdue", "Not yet due"):
         assert f">{label}<" in page.text
-    assert "4 indicator reports" in page.text  # the hint under Accepted (3 progress reports)
+    # the hint under Accepted (3 progress reports, of 4 indicator reports): its 2 indicators, each once
+    assert 'data-figure="pr.indicators.accepted">2 indicators<' in page.text
+    assert "indicator reports</span>" not in page.text
     assert "Progress reports by section" in page.text and "Indicator reports by section" not in page.text
 
 
@@ -416,15 +418,17 @@ def test_report_exports_hold_every_report_and_the_tile_counts(client_viewer, mor
     )
     assert workbook.sheetnames == ["Progress reports", "By status", "By section"]
     header = next(workbook["By status"].iter_rows(max_row=1, values_only=True))
-    assert header[:3] == ("status", "progress_reports", "indicator_reports")
-    by_status = {r[0]: (r[1], r[2]) for r in workbook["By status"].iter_rows(min_row=2, values_only=True)}
-    assert by_status["Accepted"] == (3, 4) and by_status["Overdue"] == (1, 1)
+    # the tiles: progress reports, the indicators under each (each once, of active programme documents: the
+    # closed PD's overdue PR-9 has none) and the indicator reports in them
+    assert header[:4] == ("status", "progress_reports", "indicators", "indicator_reports")
+    by_status = {r[0]: r[1:4] for r in workbook["By status"].iter_rows(min_row=2, values_only=True)}
+    assert by_status["Accepted"] == (3, 2, 4) and by_status["Overdue"] == (1, 0, 1)
     # By section counts progress reports, as the page's table
     by_section = {r[0]: r[-1] for r in workbook["By section"].iter_rows(min_row=2, values_only=True)}
     assert sum(by_section.values()) == 5
     # Ask NeuroDB gives the tiles' figures
     out = tools.run("partner_reporting", {})
-    assert out["tiles"]["Accepted"] == {"progress_reports": 3, "indicator_reports": 4}
+    assert out["tiles"]["Accepted"] == {"progress_reports": 3, "indicators": 2, "indicator_reports": 4}
 
 
 # --------------------------------------------------------------------------- Partner Performance
@@ -725,7 +729,7 @@ def test_ask_counts_progress_reports_by_status_like_its_totals(more):
     assert sum(out["by_status"].values()) == out["reports"] == 4
     assert out["pd_statuses"] == ["active", "signed", "suspended"]
     assert out["by_status"]["Accepted"] == out["accepted"] == 3
-    assert out["tiles"]["Accepted"] == {"progress_reports": 3, "indicator_reports": 4}
+    assert out["tiles"]["Accepted"] == {"progress_reports": 3, "indicators": 2, "indicator_reports": 4}
     # the reports to follow up, as the Partners tab lists them: PR-3, not yet due, is one of the Due ones
     assert out["to_follow_up"] == {"Due": 1}
 

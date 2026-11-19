@@ -199,6 +199,7 @@ def test_the_tiles_are_the_progress_reports_page_s_at_their_link(client_viewer, 
     for s in counts["statuses"]:  # each status tile opens the page on that status, with the same number
         status_page = client_viewer.get(figures["tile_urls"][s["key"]])
         assert status_page.context["data"]["counts"]["indicator_reports"] == s["indicator_reports"]
+        assert status_page.context["data"]["counts"]["indicators"] == s["indicators"]
         assert status_page.context["data"]["counts"]["progress_reports"] == s["progress_reports"]
 
 
@@ -215,6 +216,16 @@ def test_every_status_is_counted_and_what_no_page_counts_stays_out(client_viewer
     }
     # two indicators per report; the draft PD's and the report naming no PD are never read
     assert (counts["progress_reports"], counts["indicator_reports"]) == (10, 20)
+    # under the tiles, each indicator once: the two titles of each of the three active programme documents
+    assert counts["indicators"] == 6
+    assert {s["key"]: s["indicators"] for s in counts["statuses"]} == {
+        "accepted": 4,
+        "submitted": 2,
+        "sent_back": 2,
+        "due": 4,
+        "overdue": 4,
+        "not_yet_due": 2,
+    }
 
 
 @pytest.mark.parametrize("query", ["?section=", f"?section={EDU}"])

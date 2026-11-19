@@ -1895,10 +1895,10 @@ def _reporting_locations(data: dict[str, Any]) -> dict[str, Any]:
 
 @require_GET
 def partner_reporting(request: HttpRequest) -> HttpResponse:
-    """Progress reports: Reporting Progress (indicator reports by status, section and month of the
-    reporting period's end, and the report table), Partner Performance (``tab=partners``), Report/Location
-    (``tab=locations``) and Report/Disaggregation (``tab=disaggregations``), with one filter for all of
-    them and exports of the whole filtered set.
+    """Progress reports: Reporting Progress (progress reports by status, with the indicators under each,
+    section and month of the reporting period's end, and the report table), Partner Performance
+    (``tab=partners``), Report/Location (``tab=locations``) and Report/Disaggregation
+    (``tab=disaggregations``), with one filter for all of them and exports of the whole filtered set.
 
     Report/Location and Report/Disaggregation load in parts (:func:`_reporting_table_tab`); the other two tabs
     are one request, as before (they take about a tenth of a second on a large database)."""
@@ -2040,8 +2040,8 @@ def _too_many(found: dict[str, Any]) -> HttpResponse:
 
 def _reporting_export(data: dict[str, Any], tab: str, fmt: str, params=None) -> HttpResponse:
     """The tab's table, every row of the filter (not only the page shown). The Excel file adds the
-    counts of the tiles: progress reports per status with the indicator reports in them, and progress reports
-    by section."""
+    counts of the tiles: progress reports per status with the indicators under each (each once, of active
+    programme documents) and the indicator reports in them, and progress reports by section."""
     if tab == "disaggregations":
         found = _reporting_disaggregations(data, params or {})
         if found["too_many"]:
@@ -2063,17 +2063,20 @@ def _reporting_export(data: dict[str, Any], tab: str, fmt: str, params=None) -> 
     if fmt == "csv":
         return exports.stream_csv(exports.export_filename(label, "csv"), columns, rows)
     sheets: list[tuple[str, Any, Any]] = [(title, columns, rows)]
-    # the tiles: progress reports per status (as Power BI's Reporting Progress counts them), the indicator
-    # reports in them beside
+    # the tiles: progress reports per status (as Power BI's Reporting Progress counts them), the indicators
+    # under each (each once, of active programme documents) and the indicator reports in them beside
     status_rows = [
         {
             "status": s["label"],
             "progress_reports": s["progress_reports"],
+            "indicators": s["indicators"],
             "indicator_reports": s["indicator_reports"],
         }
         for s in data["counts"]["statuses"]
     ]
-    sheets.append(("By status", ("status", "progress_reports", "indicator_reports"), status_rows))
+    sheets.append(
+        ("By status", ("status", "progress_reports", "indicators", "indicator_reports"), status_rows)
+    )
     labels = list(reporting_service.rc.STATUS_LABELS.values())
     section_rows = [
         {"section": row["section"], **dict(zip(labels, row["counts"], strict=True)), "Total": row["total"]}

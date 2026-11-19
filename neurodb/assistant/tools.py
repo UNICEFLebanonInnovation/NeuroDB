@@ -895,14 +895,19 @@ def partner_reporting(
         # the programme documents read, as the page opens: the running ones (never draft or cancelled)
         "pd_statuses": data["filters"].status_choice,
         # what the Progress reports page's tiles count: progress reports per status, as Power BI's
-        # Reporting Progress does, with the indicator reports (one indicator in one progress report) in them
+        # Reporting Progress does, with the indicators under each (each indicator once, of active programme
+        # documents, as the page's hint) and the indicator reports in them (one indicator in one progress
+        # report)
         "tiles": {
             s["label"]: {
                 "progress_reports": s["progress_reports"],
+                "indicators": s["indicators"],
                 "indicator_reports": s["indicator_reports"],
             }
             for s in data["counts"]["statuses"]
         },
+        # the first tile's hint: every indicator of these reports, each once, of active programme documents
+        "indicators": data["counts"]["indicators"],
         # the reports to follow up, as the Partners tab lists them: Overdue, Sent back, Due (a report not yet
         # due is one of the Due ones, as in Power BI's follow-up list) and Submitted
         "to_follow_up": dict(Counter(r["status_label"] for r in data["partners"]["follow_up"])),
@@ -1453,7 +1458,9 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         partner_reporting,
         "Partner progress reports (Partner Reporting Portal): progress reports per status (Accepted, "
         "Submitted, Sent back, Due, Overdue, Not yet due: what the Progress reports page's tiles count, as "
-        "Power BI does) and late, the indicator reports in them (one indicator in one progress report), the "
+        "Power BI does) and late, the indicators under each tile (tiles[...].indicators, and indicators for "
+        "all: each indicator once however many reports carry it, of active programme documents only, as the "
+        "page's hints), the indicator reports in them (one indicator in one progress report), the "
         "reports to follow up by status (to_follow_up: Overdue, Sent back, Due and Submitted, a report not "
         "yet due counted as Due, as in Power BI's follow-up list), and the list of reports with period, due "
         "and submission dates, of the running programme documents (active, signed or suspended: "

@@ -352,7 +352,7 @@ WHY_THEY_DIFFER = (  # (why, where to see it); {history} and the Power BI pages 
     ),
     (
         "{reporting_progress} counts progress reports, in Power BI and in NeuroDB; NeuroDB's tiles give the "
-        "indicator reports in them too.",
+        "indicators in them too (each once, of active programme documents), which this file never compares.",
         "This file: Progress reports; Compare with Power BI: {reporting_progress}.",
     ),
     (

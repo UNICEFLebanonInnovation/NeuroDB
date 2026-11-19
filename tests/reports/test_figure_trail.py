@@ -76,9 +76,11 @@ CONDITIONS = {  # a figure's conditions, read on the Kept rows CSV's columns
         {"Not yet due": "Due"}.get(row["report_status_neurodb"], row["report_status_neurodb"])
         == rc.STATUS_LABELS[v]
     ),
+    # of a programme document whose indicators the tiles' hints count (active, else the PD statuses chosen)
+    "indicator_counted": lambda row, v: row["indicator_counted"] == ("yes" if v else "no"),
 }
 ONCE_COLUMNS = {  # the Kept rows CSV's counts_once_* columns and the figure each sums to
-    "pr.indicator_reports": "counts_once_indicator_report",
+    "pr.indicators": "counts_once_indicator",
     "pr.progress_reports": "counts_once_progress_report",
     "pr.partners": "counts_once_partner",
 }
@@ -87,6 +89,7 @@ UNIT_COLUMNS = {
     trail.PR: "progress_report_unit",
     trail.PARTNER: "partner_unit",
     trail.PD: "pd_unit",
+    trail.INDICATOR: "indicator_unit",
 }
 
 
@@ -227,15 +230,17 @@ def _expected(reports, partners) -> dict[str, int]:
     """Each figure as the view's context gives it: the Reporting progress tab and the Partners tab."""
     data = reports.context["data"]
     out = {
-        "pr.indicator_reports": data["counts"]["indicator_reports"],
+        "pr.indicators": data["counts"]["indicators"],
         "pr.progress_reports": data["counts"]["progress_reports"],
         "pr.late": data["summary"]["late"],
         "pr.reports_listed": reports.context["page_obj"].paginator.count,
         "pr.section_total.total": data["by_section"]["total"],
     }
-    for s in data["counts"]["statuses"]:  # the tiles count progress reports, their hints indicator reports
+    for s in data["counts"][
+        "statuses"
+    ]:  # the tiles count progress reports, their hints indicators (each once)
         out[f"pr.status.{s['key']}"] = s["progress_reports"]
-        out[f"pr.status_indicators.{s['key']}"] = s["indicator_reports"]
+        out[f"pr.indicators.{s['key']}"] = s["indicators"]
     for name in ("by_pd_status", "other_status", "not_held", "no_pd"):
         out[f"pr.left_out.{name}"] = data["left_out"][name]
     for row in data["by_section"]["rows"]:
@@ -335,7 +340,7 @@ def test_each_figure_is_the_page_s_rebuilt_from_the_rows_and_in_the_kept_rows(va
         assert sum(int(r[column]) for r in chosen) == found.figure(key).page, key
     # ... and the figure's own CSV, by counts_once and by a distinct count of unit_key
     for f in found.figures:
-        if f.key.startswith(("pr.status.", "pr.left_out.", "pr.partners", "pr.late", "pr.indicator_reports")):
+        if f.key.startswith(("pr.status.", "pr.left_out.", "pr.partners", "pr.late", "pr.indicators")):
             rows = _csv(validator, PR, params, f.what)
             assert sum(int(r["counts_once"]) for r in rows) == f.page, f.key
             assert len({r["unit_key"] for r in rows} - {""}) == f.page, f.key
@@ -556,7 +561,7 @@ def test_home_s_block_is_home_s_tiles_rows_and_partners_line(validator, world, m
     for key, value in shown.items():
         assert value == figures[key].page, key
     counts = context["reporting"]["counts"]
-    assert figures["pr.indicator_reports"].page == counts["indicator_reports"]
+    assert figures["pr.indicators"].page == counts["indicators"]
     assert figures["home.pds"].page == context["reporting"]["pds"]["count"]
     (row,) = context["pd_rows"]
     for key in reporting.FOLLOW_UP:

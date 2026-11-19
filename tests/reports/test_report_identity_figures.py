@@ -112,10 +112,13 @@ def figures(world: World) -> dict[str, Any]:
             for r in data["reports"]
         )
         # the indicator reports per status and per month, as frozen (the tiles and the chart count progress
-        # reports since the user's decision of 26 Oct 2026: "summary" and "reports" freeze those)
+        # reports since the user's decision of 26 Oct 2026: "summary" and "reports" freeze those; the
+        # indicators under the tiles, each once, came after the figures were frozen, the user's decision of 19
+        # Nov 2026: tests/reports/test_indicator_count.py)
         counts = data["counts"]
+        later = ("indicators", "indicator_pd_statuses", "indicator_pd_words", "indicators_of_active")
         out[f"progress/{choice}/counts"] = {
-            **{k: v for k, v in counts.items() if k not in ("statuses", *reporting.STATUS_KEYS)},
+            **{k: v for k, v in counts.items() if k not in ("statuses", *reporting.STATUS_KEYS, *later)},
             **{s["key"]: s["indicator_reports"] for s in counts["statuses"]},
         }
         out[f"progress/{choice}/summary"] = data["summary"]["statuses"]

@@ -6,7 +6,8 @@ block's are :mod:`neurodb.datamart.trail_monitoring`, built from the pieces here
 
 * **The page's own functions, never a copy.** The steps are the filters of ``ReportFilters.queryset``, in its
   order (its ``steps`` list); a row's progress report and indicator report are the keys ``progress_reports``
-  groups with (``reporting.unit_key``); each report's status, sections and partner are ``progress_reports``,
+  groups with (``reporting.unit_key``), its PD indicator the key the tiles' hints count once
+  (``reporting.pd_indicator_key``); each report's status, sections and partner are ``progress_reports``,
   ``with_pd_details`` and ``partner_key``'s own; the PD status filter's lines are ``left_out``'s; By location
   and By disaggregation are recorded from inside ``location_rows`` and ``disaggregation_rows`` (their
   ``record``). *On the page* is the page's own call (``services.partner_reporting``, Home's
@@ -47,7 +48,9 @@ PAGES = {"progress-reports": "Progress reports", "partner-monitoring": "Partner 
 HOME_BLOCKS = {"reporting": "Progress reports", "indicators": "Indicator progress"}  # Home's, with a trail
 TABLES = ("locations", "disaggregations")  # Progress reports' tabs with a trail of their own
 STORED_SECONDS = 120
-CACHE_VERSION = 2  # 2: TrailRows.documents (PRP's own reports still owed)
+# 2: TrailRows.documents (PRP's own reports still owed); 3: each row's PD indicator (the tiles' hints count
+# indicators)
+CACHE_VERSION = 3
 SOURCE = "partner_reports"  # the Datamart dataset the Progress reports figures are counted from
 # figures whose key holds a partner, a report, a PD or a title
 NAMED_KEYS = ("pr.partner.", "pr.report.", "home.pd.", "dq.same_title.", "pm.section.", "pp.section_tile.")
@@ -276,6 +279,9 @@ class Report:
     rows_outside: int
     section: str = ""
     followed: bool = True
+    # its programme document's status is one whose indicators the tiles' hints count (active, else the PD
+    # statuses chosen: ReportFilters.indicator_statuses)
+    indicators_counted: bool = False
 
 
 @dataclass(frozen=True)
@@ -283,16 +289,17 @@ class TrailRows:
     """The chain computed once (SPEC_validation §3.6): ``stages`` the filters in their order ("start" first),
     ``rows`` every report row in NeuroDB by pk: (Datamart id, progress report, indicator report, the index of
     the stage that left it out, or ``len(stages)`` when kept, why the PD status filter left it out, period
-    start), ``reports`` the progress reports the filter keeps. ``documents``: PRP's own reports still owed the
-    page adds once their link is proven (:mod:`neurodb.datamart.owed`), by their record's pk, in the shape of
-    a row: (the record's pk, progress report, "" (no indicator report), the index of the stage that left it
-    out, "", period start); none while the gate is closed. Never a record's payload."""
+    start, PD indicator: ``reporting.pd_indicator_key``), ``reports`` the progress reports the filter keeps.
+    ``documents``: PRP's own reports still owed the page adds once their link is proven
+    (:mod:`neurodb.datamart.owed`), by their record's pk, in the shape of a row: (the record's pk, progress
+    report, "" (no indicator report), the index of the stage that left it out, "", period start, "" (no
+    indicator)); none while the gate is closed. Never a record's payload."""
 
     stages: tuple[str, ...]
-    rows: dict[int, tuple[Any, str, str, int, str, Any]]
+    rows: dict[int, tuple[Any, str, str, int, str, Any, str]]
     reports: dict[str, Report]
     history: datetime.date | None = None
-    documents: dict[int, tuple[Any, str, str, int, str, Any]] = dataclasses.field(default_factory=dict)
+    documents: dict[int, tuple[Any, str, str, int, str, Any, str]] = dataclasses.field(default_factory=dict)
 
     @property
     def kept_at(self) -> int:
@@ -460,6 +467,7 @@ def chain(
     rows: dict[int, list] = {}
     for row in reporting.unit_rows(steps[0][1]).annotate(_why=_why()):
         report, ir = reporting.unit_key(row)
+        indicator = reporting.pd_indicator_key(row)
         rows[row["pk"]] = [
             row["datamart_id"],
             names.setdefault(report, report),
@@ -467,6 +475,7 @@ def chain(
             len(steps),
             row["_why"],
             row["period_start"],
+            names.setdefault(indicator, indicator),
         ]
     broken: list[str] = []
     previous = set(rows)
@@ -487,7 +496,7 @@ def chain(
     if owed_steps:
         stage_names = [name for name, _ in steps]
         for r in owed_steps[0][1]:
-            documents[r["record"]] = [r["record"], r["key"], "", len(steps), "", r["period_start"]]
+            documents[r["record"]] = [r["record"], r["key"], "", len(steps), "", r["period_start"], ""]
         previous = set(documents)
         for name, found in owed_steps[1:]:
             current = {r["record"] for r in found}
@@ -499,6 +508,7 @@ def chain(
     if extra:
         reports = reporting.in_order(reports + extra)
     chosen = set(filters.statuses)
+    counted = set(filters.indicator_statuses)  # the PD statuses whose indicators the tiles' hints count
     reported = {
         reporting.partner_key(r)
         for r in reports
@@ -526,6 +536,7 @@ def chain(
             rows_outside=every_row[key] - kept_rows[key],
             section=reporting.report_section(r),
             followed=reporting.follow_up_kept(r["status"], chosen),
+            indicators_counted=r.get("pd_status") in counted,
         )
     trail_rows = TrailRows(
         stages=tuple(name for name, _ in steps),
@@ -599,6 +610,8 @@ def _check(rows: TrailRows, name: str, value: Any) -> Callable[[int, tuple], boo
         return lambda pk, r: (reports[r[1]].status in reporting.FOLLOW_UP_STATUSES) == value
     if name == "follow_up_status":  # its status in the lists to follow up: one not yet due is Due there
         return lambda pk, r: reporting.follow_up_status(reports[r[1]].status) == value
+    if name == "indicator_counted":  # of a PD whose indicators the tiles' hints count (active, else chosen)
+        return lambda pk, r: reports[r[1]].indicators_counted == value
     raise ValueError(f"no condition named {name!r}")
 
 
@@ -638,11 +651,14 @@ def selected_documents(
 
 
 def unit_of(rows: TrailRows, unit: str) -> Callable[[tuple], Any]:
-    """A row's unit of a figure: its indicator report, progress report, partner or programme document (None:
-    the row counts in no unit, such as a report naming no partner, or the indicator report of a report still
-    owed from PRP's own list, which has none)."""
+    """A row's unit of a figure: its indicator report, PD indicator (``reporting.pd_indicator_key``), progress
+    report, partner or programme document (None: the row counts in no unit, such as a report naming no
+    partner, or the indicator report or indicator of a report still owed from PRP's own list, which has
+    none)."""
     if unit == IR:
         return lambda r: (r[1], r[2]) if r[2] else None
+    if unit == INDICATOR:
+        return lambda r: r[6] or None
     if unit == PR:
         return lambda r: r[1]
     if unit == PARTNER:
@@ -705,6 +721,12 @@ class _Index:
 
 # ------------------------------------------------------------------------------------------------ the figures
 CHOSEN = (("set", "chosen"),)
+INDICATORS = "pr.indicators"  # the hints under the tiles: pr.indicators and pr.indicators.<status>
+# the rows the hints under the tiles read: of a programme document whose indicators they count (active, else
+# the PD statuses chosen: reporting.ReportFilters.indicator_statuses)
+COUNTED = (("indicator_counted", True),)
+INDICATOR_RULE = "each indicator once (its eTools id in its programme document, else its title)"
+INDICATOR_CSV = "Its CSV: one row per indicator, with the progress reports it is in."
 # the rows of the reports to follow up: under the report status Due, those not yet due too
 # (reporting.follow_up_kept)
 FOLLOWED = (("set", "followed"),)
@@ -712,7 +734,10 @@ FOLLOWED = (("set", "followed"),)
 
 def _tiles(counts: dict[str, Any]) -> list[Figure]:
     """The tiles: progress reports per status (as Power BI's Reporting Progress counts them, the user's
-    decision of 26 Oct 2026), and under each the indicator reports in them."""
+    decision of 26 Oct 2026), and under each the indicators in them, each once, of active programme documents
+    (the user's decision of 19 Nov 2026; of the PD statuses chosen when Active is not among them): its
+    CSV lists them, one row per indicator (``trail_rows.indicator_rows``)."""
+    whose = f"of {counts['indicator_pd_words']} programme documents only"
     out = [
         Figure(
             "pr.progress_reports",
@@ -736,23 +761,25 @@ def _tiles(counts: dict[str, Any]) -> list[Figure]:
         )
     out.append(
         Figure(
-            "pr.indicator_reports",
-            "Progress reports: the indicator reports under it",
-            IR,
-            counts["indicator_reports"],
-            how="Every indicator report kept, of the report statuses chosen",
-            select=CHOSEN,
+            INDICATORS,
+            "Progress reports: the indicators under it",
+            INDICATOR,
+            counts["indicators"],
+            how="The indicators of the progress reports kept, of the report statuses chosen: "
+            f"{INDICATOR_RULE}, {whose}. {INDICATOR_CSV}",
+            select=(*CHOSEN, *COUNTED),
         )
     )
     for s in counts["statuses"]:
         out.append(
             Figure(
-                f"pr.status_indicators.{s['key']}",
-                f"{s['label']}: the indicator reports under it",
-                IR,
-                s["indicator_reports"],
-                how=f"Indicator reports of the progress reports with the status {s['label']}",
-                select=(*CHOSEN, ("status", s["key"])),
+                f"{INDICATORS}.{s['key']}",
+                f"{s['label']}: the indicators under it",
+                INDICATOR,
+                s["indicators"],
+                how=f"The indicators of the progress reports with the status {s['label']}: {INDICATOR_RULE}, "
+                f"{whose} (an indicator can be under several tiles). {INDICATOR_CSV}",
+                select=(*CHOSEN, ("status", s["key"]), *COUNTED),
             )
         )
     return out
