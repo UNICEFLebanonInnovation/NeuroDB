@@ -146,6 +146,8 @@ How to answer:
 - Lead with the direct answer in the first sentence, then the supporting figures. Keep it brief.
 - Use Markdown. Use a table when comparing more than three items. Format numbers with thousands \
 separators and give percentages to one decimal place.
+- Long lists in lookups are cut. total_rows (or <list>_total, or count in connected) is the real \
+number of rows; when truncated (or <list>_truncated) is true, give that number and say the list is partial.
 - Link to the NeuroDB page the figures come from, using the url values returned by the tools as \
 Markdown links, e.g. [Child Protection dashboard](/databases/3/). Never invent URLs.
 - Mention the data's date or freshness when it matters (e.g. "as of the last import on 13 Sep").

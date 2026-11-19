@@ -105,9 +105,10 @@ def neighbours(entity: Entity, per_group: int = 25) -> list[dict[str, Any]]:
     return out
 
 
-def reach(entity: Entity, kind: str, limit: int = 40) -> list[dict[str, Any]]:
+def reach(entity: Entity, kind: str, limit: int | None = 40) -> list[dict[str, Any]]:
     """Things of ``kind`` one or two links away, with what connects them (e.g. the donors of the
-    programme documents that take place in a governorate)."""
+    programme documents that take place in a governorate): the first ``limit``, or all of them when
+    ``limit`` is None."""
 
     def linked(ids: set[int]) -> dict[int, set[int]]:
         out: dict[int, set[int]] = defaultdict(set)
@@ -142,4 +143,4 @@ def reach(entity: Entity, kind: str, limit: int = 40) -> list[dict[str, Any]]:
         if not direct:
             entry["through"] = [names[v].name for v in sorted(via, key=lambda v: names[v].name)[:5]]
         rows.append(entry)
-    return rows[:limit]
+    return rows if limit is None else rows[:limit]

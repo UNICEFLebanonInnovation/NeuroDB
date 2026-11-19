@@ -16,10 +16,11 @@ from django.db.models import Q
 from django.http import QueryDict
 from django.urls import reverse
 
-from .tools import ToolInputError, _clean, _schema
+from .tools import ToolInputError, _clean, _cut_named, _schema
 
 MAX_LIST = 40
 MAX_TEXT = 1500
+MAX_PER_OUTPUT = 30  # programme documents and partners listed under each country programme output
 
 
 def _trim(obj: Any, depth: int = 0) -> Any:
@@ -92,8 +93,14 @@ def connected(kind: str, key: str, to_kind: str) -> dict[str, Any]:
         raise ToolInputError(f"No {kind} with key '{key}' in the knowledge hub; use find_anything first.")
     if to_kind not in dict(Entity.Kind.choices):
         raise ToolInputError(f"Unknown kind '{to_kind}'.")
-    rows = query.reach(entity, to_kind)
-    return {"from": query.card(entity), "to_kind": to_kind, "found": rows, "count": len(rows)}
+    rows = query.reach(entity, to_kind, limit=None)
+    return {
+        "from": query.card(entity),
+        "to_kind": to_kind,
+        "found": rows[:MAX_LIST],
+        "count": len(rows),  # every thing reached, not only those listed
+        "truncated": len(rows) > MAX_LIST,
+    }
 
 
 # --------------------------------------------------------------------- country programme
@@ -142,8 +149,10 @@ def country_programme(cycle: int | None = None) -> dict[str, Any]:
                             "code": r["output"].code,
                             "title": r["output"].title,
                             "indicators": [indicator(p) for p in r["indicators"]],
-                            "programme_documents": [pd.number for pd in r["pds"]][:30],
-                            "partners": r["partners"][:30],
+                            **_cut_named(
+                                [pd.number for pd in r["pds"]], "programme_documents", limit=MAX_PER_OUTPUT
+                            ),
+                            **_cut_named(r["partners"], "partners", limit=MAX_PER_OUTPUT),
                             "partner_reporting_status": r["reporting"],
                         }
                         for r in o["outputs"]

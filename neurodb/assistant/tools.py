@@ -39,6 +39,8 @@ from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports import services as report_services
 
 MAX_ROWS = 60  # rows per list; longer lists are cut and flagged so the model can narrow the question
+MAX_PARTNER_PDS = 30  # programme documents listed by partner_details
+MAX_LIBRARY = 25  # library resources listed by search_library
 
 
 class ToolInputError(ValueError):
@@ -79,8 +81,19 @@ def _clean(obj: Any) -> Any:
     return str(obj)
 
 
-def _cut(rows: list, key: str = "rows") -> dict[str, Any]:
-    return {key: rows[:MAX_ROWS], "total_rows": len(rows), "truncated": len(rows) > MAX_ROWS}
+def _cut(rows: list, key: str = "rows", total: int | None = None, limit: int | None = None) -> dict[str, Any]:
+    """The first ``limit`` rows (MAX_ROWS by default), the real number of rows (``total``: counted over
+    every match when ``rows`` holds only the first ones) and whether the list was cut."""
+    kept = rows[: MAX_ROWS if limit is None else limit]
+    total = len(rows) if total is None else total
+    return {key: kept, "total_rows": total, "truncated": total > len(kept)}
+
+
+def _cut_named(rows: list, key: str, total: int | None = None, limit: int | None = None) -> dict[str, Any]:
+    """As :func:`_cut`, for a list that shares its dict with other lists: ``<key>_total`` and
+    ``<key>_truncated``."""
+    cut = _cut(rows, key, total, limit)
+    return {key: cut[key], f"{key}_total": cut["total_rows"], f"{key}_truncated": cut["truncated"]}
 
 
 def _database(database_id: int) -> Database:
@@ -157,9 +170,9 @@ def find_indicators(query: str, year: str | None = None) -> dict[str, Any]:
             "target": _num(m.awp_target),
             "url": reverse("reports:indicator_detail", args=[m.database_id, m.id]),
         }
-        for m in qs[: MAX_ROWS + 1]
+        for m in qs[:MAX_ROWS]
     ]
-    return {"reporting_year": ry.name if ry else None, **_cut(rows, "master_indicators")}
+    return {"reporting_year": ry.name if ry else None, **_cut(rows, "master_indicators", qs.count())}
 
 
 def database_results(database_id: int) -> dict[str, Any]:
@@ -295,7 +308,7 @@ def activity_breakdown(
             "partners": r["partners"],
             "summed_value": _num(r["summed_value"]),
         }
-        for r in grouped[: MAX_ROWS + 1]
+        for r in grouped[:MAX_ROWS]
     ]
     return {
         "database": _db_name(db),
@@ -306,7 +319,7 @@ def activity_breakdown(
             "activity_reports, sites and partners. Official results per indicator come from database_results."
         ),
         "url": reverse("reports:database_analytical", args=[db.id]),
-        **_cut(rows),
+        **_cut(rows, total=grouped.count()),
     }
 
 
@@ -318,19 +331,22 @@ def neuro_report(report_id: int, month: int | None = None, quarter: str | None =
     sections = [
         {
             "database": _db_name(s["database"]),
-            "indicators": [
-                {
-                    "name": i["label"],
-                    "awp_code": i["awp_code"],
-                    "target": _num(i["target"]),
-                    "value": _num(i["value"]),
-                    "previous_period_value": _num(i["previous"]),
-                    "change": _num(i["delta"]),
-                    "percent_of_target": _num(i["achieved"]),
-                    "status": i["tracking_label"],
-                }
-                for i in s["items"]
-            ][:MAX_ROWS],
+            **_cut(
+                [
+                    {
+                        "name": i["label"],
+                        "awp_code": i["awp_code"],
+                        "target": _num(i["target"]),
+                        "value": _num(i["value"]),
+                        "previous_period_value": _num(i["previous"]),
+                        "change": _num(i["delta"]),
+                        "percent_of_target": _num(i["achieved"]),
+                        "status": i["tracking_label"],
+                    }
+                    for i in s["items"]
+                ],
+                "indicators",
+            ),
         }
         for s in data["sections"]
     ]
@@ -413,16 +429,16 @@ def search_programmes(
     qs = partnerships.programme_documents(filters, scope="active" if active_only else "all")
     if text:
         qs = qs.filter(Q(title__icontains=text) | Q(number__icontains=text))
-    pds = list(qs[: MAX_ROWS + 1])
+    count = qs.count()
     budget = 0.0
     for pd in qs.select_related(None).only("total_budget"):
         budget += partnerships._to_float(pd.total_budget)
     return {
         "matched_filter_values": matched,
-        "count": qs.count(),
+        "count": count,
         "total_budget_of_all_matches": round(budget, 2),
         "url": reverse("reports:programmes"),
-        **_cut([_pd_row(pd) for pd in pds], "programme_documents"),
+        **_cut([_pd_row(pd) for pd in qs[:MAX_ROWS]], "programme_documents", count),
     }
 
 
@@ -545,9 +561,10 @@ def search_partners(text: str | None = None, partner_type: str | None = None) ->
             "active_programme_documents": p.active_pd_count,
             "url": reverse("reports:partner_profile", args=[p.id]),
         }
-        for p in qs[: MAX_ROWS + 1]
+        for p in qs[:MAX_ROWS]
     ]
-    return {"count": qs.count(), **_cut(rows, "partners")}
+    count = qs.count()
+    return {"count": count, **_cut(rows, "partners", count)}
 
 
 def partner_details(partner_id: int) -> dict[str, Any]:
@@ -566,7 +583,12 @@ def partner_details(partner_id: int) -> dict[str, Any]:
         "risk_rating": profile["risk_rating"],
         "hact": _clean(profile["hact"]),
         "active_programme_documents": profile["active_count"],
-        "programme_documents": [_pd_row(pd) for pd in profile["programme_documents"][:30]],
+        **_cut_named(
+            [_pd_row(pd) for pd in profile["programme_documents"][:MAX_PARTNER_PDS]],
+            "programme_documents",
+            len(profile["programme_documents"]),
+            MAX_PARTNER_PDS,
+        ),
         "assurance_engagements": extra["engagement_counts"] or profile["engagement_counts"],
         "field_visits_by_year": _clean(profile["visits_by_year"]),
         # the same figure as the profile's 'ActivityInfo records' tile: records of its linked names
@@ -652,21 +674,26 @@ def search_library(
     text: str | None = None, year: str | None = None, programme: str | None = None
 ) -> dict[str, Any]:
     params = {"q": text or "", "year": [year] if year else [], "section": [programme] if programme else []}
-    page = search_resources(_Params(params), 1, per_page=25)
+    page = search_resources(_Params(params), 1, per_page=MAX_LIBRARY)
     return {
         "count": page.paginator.count,
-        "resources": [
-            {
-                "title": r.title,
-                "year": r.publication_year,
-                "programme": r.section,
-                "type": r.type.name if r.type else None,
-                "topic": r.topic.name if r.topic else None,
-                "summary": (r.description or "")[:600],
-                "url": reverse("reports:library_item", args=[r.id]),
-            }
-            for r in page
-        ],
+        **_cut(
+            [
+                {
+                    "title": r.title,
+                    "year": r.publication_year,
+                    "programme": r.section,
+                    "type": r.type.name if r.type else None,
+                    "topic": r.topic.name if r.topic else None,
+                    "summary": (r.description or "")[:600],
+                    "url": reverse("reports:library_item", args=[r.id]),
+                }
+                for r in page
+            ],
+            "resources",
+            page.paginator.count,
+            MAX_LIBRARY,
+        ),
         "maps": [
             {
                 "name": m.name,
@@ -888,7 +915,7 @@ def partner_reporting(
             "indicators": r["indicators"],
             "source": owed.source_words(r),
         }
-        for r in data["reports"][: MAX_ROWS + 1]
+        for r in data["reports"][:MAX_ROWS]
     ]
     return {
         **data["summary"],
@@ -917,7 +944,7 @@ def partner_reporting(
         # documents is proven (none while it is not): what the page says of them
         "owed_shown": data["owed"]["shown"],
         "owed_note": data["owed"]["line"],
-        **_cut(rows, "progress_reports"),
+        **_cut(rows, "progress_reports", len(data["reports"])),
         "url": reverse("reports:partner_reporting"),
     }
 
@@ -956,18 +983,21 @@ def partner_activityinfo(
                 "database": name,
                 "section": d["section"],
                 "records": d["records"],
-                "sites": [s["name"] for s in detail["sites"][:MAX_ROWS]],
-                "indicators": [
-                    {
-                        "indicator": i["label"],
-                        "code": i["awp_code"],
-                        "value": i["value"],
-                        "database_total": i["total"],
-                        "share_percent": i["share"],
-                        "by_month": i["months"],
-                    }
-                    for i in detail["indicators"][:MAX_ROWS]
-                ],
+                **_cut_named([s["name"] for s in detail["sites"]], "sites"),
+                **_cut_named(
+                    [
+                        {
+                            "indicator": i["label"],
+                            "code": i["awp_code"],
+                            "value": i["value"],
+                            "database_total": i["total"],
+                            "share_percent": i["share"],
+                            "by_month": i["months"],
+                        }
+                        for i in detail["indicators"]
+                    ],
+                    "indicators",
+                ),
                 "url": d["url"],
             }
         )

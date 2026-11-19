@@ -352,6 +352,14 @@ come from.
   OpenAI's API data terms (openai.com/policies) before switching on. Clear this with the data
   protection focal point before switching it on; outbound HTTPS to api.anthropic.com (Claude) or
   api.openai.com (OpenAI) must be allowed.
+- **Long lists**: a lookup sends at most 60 rows of a list (`MAX_ROWS` in `neurodb/assistant/tools.py`),
+  and fewer in a few places: 30 programme documents in `partner_details`, 30 programme documents and 30
+  partners under each output in `country_programme`, 25 resources in `search_library` and 40 things in
+  `connected`. Next to every cut list it gives the real number of rows, counted over every match and never
+  over the rows sent (`total_rows`; `<list>_total` where one result holds several lists, such as the sites
+  and the indicators of `partner_activityinfo`; `count` in `connected`), and whether the list was cut
+  (`truncated`, or `<list>_truncated`). The instructions tell the model to give that number and to say
+  when the list it shows is partial; the whole list is on the page the answer links to.
 - **Cost and review**: every question is logged in Admin → Data and sync → AI questions with the
   lookups made, tokens used and time taken. Every AI feature on the key (Ask NeuroDB, the daily
   review, What's new, document summaries, periodic figures, country programme reading, NeuroDB
