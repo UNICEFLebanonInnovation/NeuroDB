@@ -103,15 +103,13 @@ class AIUsageAdmin(ReadOnlyModelAdmin):
         return llm.names_of(obj.model).label
 
     # On Claude the prompt tokens not read from the cache include those written to it: the next column is
-    # part of this one, never added to it
+    # part of this one, never added to it ("Of these"). The headings stay short, and the three cache ones
+    # wrap (admin.css), so the table fits a laptop screen with Cost in view.
     @admin.display(description=_("Prompt tokens not read from the cache"), ordering="input_tokens")
     def prompt_tokens(self, obj):
         return f"{obj.input_tokens:,}"
 
-    @admin.display(
-        description=_("Written to the cache (part of the prompt tokens not read from it)"),
-        ordering="cache_write_tokens",
-    )
+    @admin.display(description=_("Of these, written to the cache"), ordering="cache_write_tokens")
     def written(self, obj):
         return f"{obj.cache_write_tokens:,}"
 

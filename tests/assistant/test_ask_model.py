@@ -15,7 +15,7 @@ from django.test import override_settings
 from django.urls import reverse
 
 from neurodb.assistant import agent, llm, usage
-from neurodb.assistant.admin import AISettingsAdmin, AISettingsForm
+from neurodb.assistant.admin import AISettingsAdmin, AISettingsForm, AIUsageAdmin
 from neurodb.assistant.llm import claude_backend
 from neurodb.assistant.models import AISettings, AIUsage, AssistantQuestion
 from neurodb.fmm.ai import chat, profiles, sampling
@@ -315,11 +315,25 @@ def test_the_ai_use_columns_say_what_they_count(client, admin_user):
     page = client.get(reverse("admin:assistant_aiusage_changelist")).content.decode()
     assert "Prompt tokens (not cached)" not in page
     assert "Prompt tokens not read from the cache" in page
-    assert "Written to the cache (part of the prompt tokens not read from it)" in page
-    assert page.index("Prompt tokens not read from the cache") < page.index("Written to the cache")
+    # the next column is part of this one: "Of these"
+    assert "Of these, written to the cache" in page
+    assert page.index("Prompt tokens not read from the cache") < page.index("Of these, written to the cache")
     # the third column says read, as the model's field and OPERATIONS do, never just "cached"
     assert "Cached prompt tokens" not in page
-    assert page.index("Written to the cache") < page.index("Prompt tokens read from the cache")
+    assert page.index("Of these, written to the cache") < page.index("Prompt tokens read from the cache")
+
+
+def test_the_ai_use_table_fits_a_laptop_screen():
+    """Browser check: a heading of 63 characters ("Written to the cache (part of the prompt tokens not read
+    from it)") made the table 1,863 px wide, so Cost was off screen even at 1,920 px. The headings stay
+    short, and the three cache headings wrap onto more lines (admin.css)."""
+    for name in AIUsageAdmin.list_display:
+        heading = str(getattr(getattr(AIUsageAdmin, name, None), "short_description", name))
+        assert len(heading) <= 40, heading
+    css = (settings.BASE_DIR / "neurodb/web/static/css/admin.css").read_text()
+    rule = css.split(".model-aiusage :is(th.column-prompt_tokens, th.column-written, th.column-cached) {", 1)
+    assert len(rule) == 2, "no rule for the AI use headings"
+    assert "white-space: normal" in rule[1].split("}", 1)[0]
 
 
 def test_the_connection_test_says_when_it_tries_asks_pair(page):

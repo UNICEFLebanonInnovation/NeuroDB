@@ -434,6 +434,6 @@ def test_the_admin_lists_the_provider_the_cache_writes_and_claudes_cost(client, 
     client.force_login(admin_user)
     page = client.get(reverse("admin:assistant_aiusage_changelist")).content.decode()
     assert "Provider" in page and "Claude (Anthropic)" in page and "ChatGPT (OpenAI)" in page
-    assert "Written to the cache" in page and "500,000" in page
+    assert "Of these, written to the cache" in page and "500,000" in page
     # a Claude row is priced from the table: 1M x 4 + 0.5M x (5 - 4) + 0.1M x 20
     assert "Cost (USD)" in page and "$6.50" in page

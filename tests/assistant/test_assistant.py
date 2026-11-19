@@ -880,6 +880,16 @@ def test_ask_page_and_search_entry(client_viewer, hierarchy):
     assert keyword.index("Children") < keyword.index("Ask NeuroDB AI")  # keyword search: results first
 
 
+def test_on_a_phone_the_ask_buttons_stay_inside_the_box():
+    """Browser check at 390 px: once an answer is shown, "New conversation" joins "Add a document or text"
+    and Ask, and the row of buttons ran 43 px past the screen. On a phone the row wraps inside the box."""
+    css = (settings.BASE_DIR / "neurodb/web/static/css/app.css").read_text()
+    phone = [block.split("\n}", 1)[0] for block in css.split("@media (max-width: 575.98px) {")[1:]]
+    rules = [found for block in phone for found in re.findall(r"\.ask__actions \{([^}]*)\}", block)]
+    assert rules, "no phone rule for the Ask buttons"
+    assert any("flex-wrap: wrap" in r and "flex-shrink: 1" in r and "min-width: 0" in r for r in rules)
+
+
 @override_settings(**ENABLED)
 def test_a_stopped_answer_is_logged_as_stopped(rf, viewer, fake):
     from neurodb.assistant.views import _stream

@@ -36,6 +36,9 @@
 .dark .nd-jobs tbody tr + tr > * { border-top-color: var(--color-base-800); }
 .nd-jobs th[scope="row"] { font-weight: 500; min-width: 12rem; white-space: normal; }
 
+/* AI use: the three cache headings wrap, so the table fits a laptop screen with Cost in view */
+.model-aiusage :is(th.column-prompt_tokens, th.column-written, th.column-cached) { white-space: normal; min-width: 8rem; }
+
 .nd-groups {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));

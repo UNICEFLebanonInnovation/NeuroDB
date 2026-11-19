@@ -480,7 +480,8 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 @media (max-width: 575.98px) {
   .ask__form { flex-wrap: wrap; }
   .ask__input { flex-basis: 100%; }
-  .ask__actions { margin-left: auto; }
+  /* "Add a document or text", "New conversation", Stop and Ask wrap inside the box, never past the screen */
+  .ask__actions { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 1; min-width: 0; }
   .ask__intro { padding-top: 0.5rem; }
 }
 @media (prefers-reduced-motion: reduce) { .ask-step.is-running::before, .ask-turn__live::after { animation: none; } }
