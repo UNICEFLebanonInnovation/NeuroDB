@@ -350,6 +350,10 @@ QUICK_MIGRATIONS = {
     # whether the pages list a PD indicator: a column with a constant default (catalogue only on PostgreSQL),
     # AddField only, no code runs; the next PD indicators or partner reports sync marks the rows (identity)
     ("datamart", "0021_pd_indicator_listed", "AddField"),
+    # Ask NeuroDB's own model and effort in AI settings: two columns with an empty database default on a table
+    # of one row (catalogue only on PostgreSQL), a longer test result (a varchar made longer: catalogue only)
+    # and a help text (AddField and AlterField only, no code runs; listed so the migration is accounted for)
+    ("assistant", "0005_ask_model", "AddField"),
 }
 
 

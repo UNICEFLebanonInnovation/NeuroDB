@@ -127,7 +127,7 @@ CLAUDE_PRICES = {
         "5.00", "0.50", "25.00", name="Claude Opus 4.8", fallbacks=False, choice=False
     ),
     "claude-sonnet-5-5": _claude(
-        "2.00", "0.20", "10.00", name="Claude Sonnet 5.5", fallbacks=True, choice=True
+        "2.00", "0.10", "10.00", name="Claude Sonnet 5.5", fallbacks=True, choice=True
     ),
     "claude-sonnet-5": _claude(
         "2.00", "0.20", "10.00", name="Claude Sonnet 5", fallbacks=False, choice=False

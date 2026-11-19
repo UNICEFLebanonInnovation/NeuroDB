@@ -6,7 +6,8 @@ Which provider runs, first match: ``AI_PROVIDER`` when the hosting team set it t
 Anthropic key is available, from the environment or entered in AI settings, and OpenAI otherwise. A key in
 the environment comes before one entered in AI settings (sealed with the site's secret key, :mod:`.keys`);
 a model or default effort chosen in AI settings comes before ``CLAUDE_MODEL``, ``CLAUDE_EFFORT``,
-``AI_ASSISTANT_MODEL`` and ``AI_ASSISTANT_EFFORT``.
+``AI_ASSISTANT_MODEL`` and ``AI_ASSISTANT_EFFORT``. Ask NeuroDB alone may have a model and effort of its
+own on Claude (:func:`ask_model`, :func:`ask_effort`); every other feature keeps the Claude model and effort.
 
 A caller describes a model call once (:class:`Request`) and sends it through a connection to the provider
 in use (:func:`connect`), which renders it for that provider and reads the answer back as a
@@ -219,6 +220,8 @@ class Snapshot:
     provider: str = AUTO
     claude_model: str = ""
     claude_effort: str = ""
+    ask_model: str = ""  # Ask NeuroDB's own, on Claude only; "" for the Claude model
+    ask_effort: str = ""
     claude_fallbacks: bool = True
     openai_model: str = ""
     openai_effort: str = ""
@@ -250,6 +253,8 @@ def _read() -> Snapshot:
         provider=row.provider or AUTO,
         claude_model=row.claude_model.strip(),
         claude_effort=row.claude_effort.strip(),
+        ask_model=row.ask_model.strip(),
+        ask_effort=row.ask_effort.strip(),
         claude_fallbacks=row.claude_fallbacks,
         openai_model=row.openai_model.strip(),
         openai_effort=row.openai_effort.strip(),
@@ -475,6 +480,33 @@ def default_effort(p: str | None = None) -> str:
     return snapshot().openai_effort or settings.AI_ASSISTANT_EFFORT
 
 
+def ask_model(p: str | None = None) -> str:
+    """The model Ask NeuroDB runs on (its request, question log and AI use): on Claude the Ask NeuroDB model
+    chosen in AI settings, else the Claude model (:func:`default_model`); on OpenAI the OpenAI model. Every
+    other feature keeps :func:`model_for`. The choice is used as it is, never through :func:`model_for`
+    (which would read a choice equal to CLAUDE_MODEL as "the default" and run the Claude model)."""
+    p = p or provider()
+    chosen = snapshot().ask_model if p == CLAUDE else ""
+    return chosen if chosen and provider_of(chosen) == CLAUDE else default_model(p)
+
+
+def ask_effort(p: str | None = None) -> str:
+    """Ask NeuroDB's effort: on Claude the Ask NeuroDB effort chosen in AI settings, else
+    :func:`default_effort` (on OpenAI always)."""
+    p = p or provider()
+    chosen = snapshot().ask_effort if p == CLAUDE else ""
+    return chosen or default_effort(p)
+
+
+def ask_pair(p: str | None = None) -> tuple[str, str] | None:
+    """Ask NeuroDB's own (model, effort as sent) when AI settings choose either on Claude, else None."""
+    p = p or provider()
+    entered = snapshot()
+    if p != CLAUDE or not (entered.ask_model or entered.ask_effort):
+        return None
+    return ask_model(p), effort_for(ask_effort(p), p)
+
+
 def effort_for(effort: str, p: str | None = None) -> str:
     """``effort`` as the provider in use (or ``p``) takes it: unchanged on OpenAI; on Claude a value it
     does not have (``none``, ``minimal``) runs as ``low``."""
@@ -647,18 +679,74 @@ def record(feature: str, model: str, outcome: Any) -> None:
 
 # ----------------------------------------------------------------------------- test the connection
 PROBE = "Reply with the word OK."  # all a connection test sends: no NeuroDB data
-CHECK_CHARS = 300
+CHECK_CHARS = 300  # each line of a test (AI settings keeps two at most: the Claude pair, then Ask NeuroDB's)
 SWITCHED_OFF = "The hosting team switched the AI off (AI_ASSISTANT_ENABLED=false): nothing was sent."
 
 
 @dataclass(frozen=True)
 class Check:
-    """What a connection test found (AI settings shows ``text`` and keeps it)."""
+    """What a connection test found (AI settings shows ``text`` and keeps it): ``ok`` when every pair tested
+    answered; ``text`` its lines, one per pair (the provider's model and default effort, then Ask NeuroDB's
+    own when AI settings choose one on Claude), and ``lines`` each of them with whether its pair answered."""
 
     ok: bool
     text: str
     model: str
     seconds: float
+    lines: tuple[tuple[bool, str], ...] = ()
+
+
+def _probe(p: str, model: str, effort: str) -> tuple[Result | None, Exception | None, float]:
+    """One test call of ``model`` at ``effort``: its result or its error, and the seconds it took."""
+    started = time.monotonic()
+    try:
+        result = connect(timeout=30, retries=0, p=p).check(effort, model)
+    except Exception as exc:
+        logger.warning("AI settings: the connection test failed: %s", type(exc).__name__)
+        return None, exc, time.monotonic() - started
+    return result, None, time.monotonic() - started
+
+
+def _failed(exc: Exception, p: str, refused_effort: str) -> str:
+    """What a failed test call says: the message a feature would show, ``refused_effort`` when the model does
+    not take the effort sent, with the API's own words for a refused request (a 400 holds no secret)."""
+    text = friendly(exc) or f"The AI service could not be tested ({type(exc).__name__})."
+    if effort_refused(exc):
+        text = refused_effort
+    if getattr(exc, "status_code", None) == 400:
+        text = f"{text} The API said: {api_message(exc)}"
+        if p == CLAUDE and "anthropic-beta" in api_message(exc):
+            text += " Untick Retry a declined answer on another Claude model and test again."
+    return text
+
+
+def _test_ask(
+    p: str, pair: tuple[str, str], general: tuple[str, str], first: tuple[bool, str], error: Exception | None
+) -> tuple[bool, str]:
+    """The line of Ask NeuroDB's own model and effort (``pair``): the same as the line above when it is the
+    general pair; not tested when the call above failed for a reason both calls share (the key, the credit,
+    the network, the service: anything but a refused request, 400, or a model not found, 404); else its own
+    call, booked in AI use as the connection test too."""
+    from neurodb.assistant import usage
+
+    if pair == general:
+        return first[0], "Ask NeuroDB: the same model and effort as above."
+    if error is not None and getattr(error, "status_code", None) not in (400, 404):
+        return False, "Ask NeuroDB: not tested, as the test above failed."
+    model, effort = pair
+    result, exc, seconds = _probe(p, model, effort)
+    if exc is not None:
+        refused = (
+            f"the model {model} does not take the effort {effort}: choose another Ask NeuroDB effort here "
+            "and test again."
+        )
+        return False, f"Ask NeuroDB: {_failed(exc, p, refused)}"[:CHECK_CHARS]
+    record(usage.TEST, result.model, result)
+    text = (
+        f"Ask NeuroDB: {names(p).label} answered with {result.ledger_model} at effort {effort} in "
+        f"{seconds:.1f} s."
+    )
+    return True, text[:CHECK_CHARS]
 
 
 def test_connection(p: str | None = None) -> Check:
@@ -667,41 +755,43 @@ def test_connection(p: str | None = None) -> Check:
     the key, the model, the effort and the credit work. With the AI switched off by the hosting team, or
     no key for the provider, nothing is sent and the check says which. A failure gives the message a
     feature would show (said for the effort when the model does not take it), with the API's own words
-    for a refused request (a 400 holds no secret). The tokens go to AI use as the connection test."""
+    for a refused request (a 400 holds no secret). When AI settings choose Ask NeuroDB's own model or
+    effort on Claude, that pair is tested too, on a line of its own (:func:`_test_ask`). The tokens go to
+    AI use as the connection test."""
     from neurodb.assistant import usage
 
     p = p or provider()
     model = default_model(p)
     effort = effort_for(default_effort(p), p)
     if not getattr(settings, "AI_ASSISTANT_SWITCH", True):
-        return Check(False, SWITCHED_OFF, model, 0.0)
+        return Check(False, SWITCHED_OFF, model, 0.0, ((False, SWITCHED_OFF),))
     if not available(p):
         text = (
             f"{names(p).label} has no API key yet, so nothing was sent: enter one here, or ask the hosting "
             f"team to set {names(p).key_setting}."
         )
-        return Check(False, text, model, 0.0)
-    started = time.monotonic()
-    try:
-        result = connect(timeout=30, retries=0, p=p).check(effort)
-    except Exception as exc:
-        seconds = time.monotonic() - started
-        text = friendly(exc) or f"The AI service could not be tested ({type(exc).__name__})."
-        if effort_refused(exc):
-            text = (
-                f"The model {model} does not take the default effort {effort}: choose another default "
-                "effort here and test again."
-            )
-        if getattr(exc, "status_code", None) == 400:
-            text = f"{text} The API said: {api_message(exc)}"
-            if p == CLAUDE and "anthropic-beta" in api_message(exc):
-                text += " Untick Retry a declined answer on another Claude model and test again."
-        logger.warning("AI settings: the connection test failed: %s", type(exc).__name__)
-        return Check(False, text[:CHECK_CHARS], model, round(seconds, 1))
-    seconds = time.monotonic() - started
-    record(usage.TEST, result.model, result)
-    text = (
-        f"{names(p).label} answered with {result.ledger_model} in {seconds:.1f} s: the key, the model and "
-        "the credit work."
+        return Check(False, text, model, 0.0, ((False, text),))
+    result, exc, seconds = _probe(p, model, effort)
+    if exc is None:
+        record(usage.TEST, result.model, result)
+        model = result.ledger_model
+        text = (
+            f"{names(p).label} answered with {model} in {seconds:.1f} s: the key, the model and the credit "
+            "work."
+        )
+    else:
+        refused = (
+            f"The model {model} does not take the default effort {effort}: choose another default effort "
+            "here and test again."
+        )
+        text = _failed(exc, p, refused)
+    lines = [(exc is None, text[:CHECK_CHARS])]
+    if (pair := ask_pair(p)) is not None:
+        lines.append(_test_ask(p, pair, (default_model(p), effort), lines[0], exc))
+    return Check(
+        all(ok for ok, _line in lines),
+        "\n".join(line for _ok, line in lines),
+        model,
+        round(seconds, 1),
+        tuple(lines),
     )
-    return Check(True, text[:CHECK_CHARS], result.ledger_model, round(seconds, 1))

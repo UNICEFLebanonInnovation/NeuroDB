@@ -81,7 +81,7 @@ class AIUsageAdmin(ReadOnlyModelAdmin):
     in, OpenAI's come from the optional AI_PRICE_* settings ("-" for a row with no known price)."""
 
     list_display = (
-        "day", "feature_name", "provider", "model", "calls", "prompt_tokens", "cached", "written", "output",
+        "day", "feature_name", "provider", "model", "calls", "prompt_tokens", "written", "cached", "output",
         "total",
     )  # fmt: skip
     list_filter = (FeatureFilter, "day", "model")
@@ -102,17 +102,22 @@ class AIUsageAdmin(ReadOnlyModelAdmin):
     def provider(self, obj):
         return llm.names_of(obj.model).label
 
-    @admin.display(description=_("Prompt tokens (not cached)"), ordering="input_tokens")
+    # On Claude the prompt tokens not read from the cache include those written to it: the next column is
+    # part of this one, never added to it
+    @admin.display(description=_("Prompt tokens not read from the cache"), ordering="input_tokens")
     def prompt_tokens(self, obj):
         return f"{obj.input_tokens:,}"
+
+    @admin.display(
+        description=_("Written to the cache (part of the prompt tokens not read from it)"),
+        ordering="cache_write_tokens",
+    )
+    def written(self, obj):
+        return f"{obj.cache_write_tokens:,}"
 
     @admin.display(description=_("Cached prompt tokens"), ordering="cached_tokens")
     def cached(self, obj):
         return f"{obj.cached_tokens:,}"
-
-    @admin.display(description=_("Written to the cache"), ordering="cache_write_tokens")
-    def written(self, obj):
-        return f"{obj.cache_write_tokens:,}"
 
     @admin.display(description=_("Output tokens"), ordering="output_tokens")
     def output(self, obj):
@@ -166,7 +171,8 @@ def _env_key(prefix: str) -> str:
 
 def _feature_models() -> list[tuple[str, str, str, str]]:
     """Each AI feature's (name, what it asks for, the model it runs on now, a note): a model of the other
-    provider is not used, the provider in use's runs instead (``llm.model_for``; nothing stored changes)."""
+    provider is not used, the provider in use's runs instead (``llm.model_for``; nothing stored changes).
+    Ask NeuroDB runs on its own model when one is chosen and Claude is in use (``llm.ask_model``)."""
     from neurodb.fmm.ai import profiles
     from neurodb.fmm.models import ScoreSetting
 
@@ -176,8 +182,14 @@ def _feature_models() -> list[tuple[str, str, str, str]]:
     insights_model = (version.model or "").strip() if version is not None else ""
     setting = ScoreSetting.objects.filter(pk=1).first()  # read only: the row is made by its own page
     checks_model = (setting.ai_model or "").strip() if setting is not None else ""
+    ask_model = llm.snapshot().ask_model
     asked = [
-        (_("Ask NeuroDB and the Help assistant"), "", default),
+        (
+            _("Ask NeuroDB"),
+            ask_model,
+            _("Ask NeuroDB model: %(model)s") % {"model": ask_model} if ask_model else default,
+        ),
+        (_("Help assistant"), "", default),
         (
             _(
                 "Daily review, What's new note, document summaries, periodic report figures, country "
@@ -204,7 +216,8 @@ def _feature_models() -> list[tuple[str, str, str, str]]:
     ]
     rows = []
     for name, model, said in asked:
-        runs = llm.model_for(model, p)
+        # Ask NeuroDB's choice is used as it is (llm.ask_model), every other feature's through model_for
+        runs = llm.ask_model(p) if name == asked[0][0] else llm.model_for(model, p)
         note = ""
         if model and llm.provider_of(model) != p:
             note = _("%(model)s is an %(vendor)s model: %(runs)s runs instead.") % {
@@ -254,6 +267,18 @@ class AISettingsForm(forms.ModelForm):
         widget=UnfoldAdminSelectWidget,
         help_text=AISettings._meta.get_field("claude_effort").help_text,
     )
+    ask_model = forms.ChoiceField(
+        label=_("Ask NeuroDB model"),
+        required=False,
+        widget=UnfoldAdminSelectWidget,
+        help_text=AISettings._meta.get_field("ask_model").help_text,
+    )
+    ask_effort = forms.ChoiceField(
+        label=_("Ask NeuroDB effort"),
+        required=False,
+        widget=UnfoldAdminSelectWidget,
+        help_text=AISettings._meta.get_field("ask_effort").help_text,
+    )
     openai_key = forms.CharField(
         label=_("OpenAI API key"),
         required=False,
@@ -275,6 +300,8 @@ class AISettingsForm(forms.ModelForm):
             "provider",
             "claude_model",
             "claude_effort",
+            "ask_model",
+            "ask_effort",
             "claude_fallbacks",
             "openai_model",
             "openai_effort",
@@ -286,6 +313,11 @@ class AISettingsForm(forms.ModelForm):
         self.fields["claude_effort"].choices = _choices(
             _("The default: %(effort)s (CLAUDE_EFFORT)") % {"effort": settings.CLAUDE_EFFORT},
             settings.CLAUDE_EFFORTS,
+        )
+        # Ask NeuroDB's own: the same choices, blank for the Claude model and effort above
+        self.fields["ask_model"].choices = [("", _("Same as the Claude model above")), *_claude_models()[1:]]
+        self.fields["ask_effort"].choices = _choices(
+            _("Same as Claude's default effort above"), settings.CLAUDE_EFFORTS
         )
         self.fields["openai_effort"].choices = _choices(
             _("The default: %(effort)s (AI_ASSISTANT_EFFORT)") % {"effort": settings.AI_ASSISTANT_EFFORT},
@@ -387,6 +419,8 @@ class AISettingsAdmin(ModelAdmin):
                     "remove_anthropic_key",
                     "claude_model",
                     "claude_effort",
+                    "ask_model",
+                    "ask_effort",
                     "claude_fallbacks",
                 )
             },
@@ -465,6 +499,11 @@ class AISettingsAdmin(ModelAdmin):
         else:
             why = _("chosen automatically, as no Anthropic key is available.")
         text = f"{said}: {why}"
+        if llm.ask_pair(p) is not None:  # Ask NeuroDB's own, on Claude only
+            text += " " + _("Ask NeuroDB runs on model %(model)s, effort %(effort)s.") % {
+                "model": llm.ask_model(p),
+                "effort": llm.ask_effort(p),
+            }
         if not getattr(settings, "AI_ASSISTANT_SWITCH", True):
             text += " " + _(
                 "The hosting team switched the AI off (AI_ASSISTANT_ENABLED=false): no AI feature runs."
@@ -507,8 +546,9 @@ class AISettingsAdmin(ModelAdmin):
             "title": _("Test the connection"),
             "description": _(
                 'Sends the AI provider in use one short message ("Reply with the word OK."), with no NeuroDB '
-                "data, and says whether the key, the model and the credit work. It takes a few seconds and a "
-                "few tokens, counted in AI use as the connection test."
+                "data, and says whether the key, the model and the credit work. When an Ask NeuroDB model or "
+                "effort is chosen, it sends that one too and says so on a line of its own. It takes a few "
+                "seconds and a few tokens, counted in AI use as the connection test."
             ),
             "form_class": TestConnectionForm,
             "form_submit_text": _("Test"),
@@ -516,11 +556,13 @@ class AISettingsAdmin(ModelAdmin):
     )
     def test_connection(self, request, form, object_id):
         check = llm.test_connection()
+        kept = AISettings._meta.get_field("check_result").max_length
         # an update, not a save: the snapshot of AI settings stays as it is
         AISettings.objects.filter(pk=AISettings.load().pk).update(
-            checked_at=timezone.now(), check_result=check.text[: llm.CHECK_CHARS]
+            checked_at=timezone.now(), check_result=check.text[:kept]
         )
-        (messages.success if check.ok else messages.warning)(request, check.text)
+        for ok, line in check.lines or ((check.ok, check.text),):  # each pair tested on a line of its own
+            (messages.success if ok else messages.warning)(request, line)
         url = reverse("admin:assistant_aisettings_change", args=[AISettings.load().pk])
         if request.headers.get("HX-Request"):  # the dialog posts with HTMX: redirect the whole page
             response = HttpResponse(status=204)

@@ -89,13 +89,14 @@ class AIUsage(models.Model):
 
 class AISettings(models.Model):
     """The one row (pk=1) of "AI settings": which AI provider the AI features run on (Automatic, Claude or
-    OpenAI), the API keys entered here, the models, the default effort, whether a declined answer is retried
-    on another Claude model, and the last connection test. No row means Automatic with nothing entered: the
-    row is made when an administrator first opens the page (:meth:`load`). The keys are sealed with the
-    site's secret key (:mod:`neurodb.assistant.llm.keys`) and never shown again, only their last 4
-    characters. A provider or key the hosting team sets in the environment comes first. Readers go
-    through :func:`neurodb.assistant.llm.snapshot` (``filter(pk=1).first()``, cached) and never write. The
-    choices are the form's, so a new model or effort needs no migration."""
+    OpenAI), the API keys entered here, the models, the default effort, Ask NeuroDB's own model and effort
+    on Claude, whether a declined answer is retried on another Claude model, and the last connection test.
+    No row means Automatic with nothing entered: the row is made when an administrator first opens the page
+    (:meth:`load`). The keys are sealed with the site's secret key (:mod:`neurodb.assistant.llm.keys`) and
+    never shown again, only their last 4 characters. A provider or key the hosting team sets in the
+    environment comes first. Readers go through :func:`neurodb.assistant.llm.snapshot`
+    (``filter(pk=1).first()``, cached) and never write. The choices are the form's, so a new model or effort
+    needs no migration."""
 
     provider = models.CharField(
         _("AI provider"),
@@ -117,7 +118,10 @@ class AISettings(models.Model):
         _("Claude model"),
         max_length=64,
         blank=True,
-        help_text=_("Empty: the default model (CLAUDE_MODEL). It applies to every AI feature on Claude."),
+        help_text=_(
+            "Empty: the default model (CLAUDE_MODEL). It applies to every AI feature on Claude, and to Ask "
+            "NeuroDB unless an Ask NeuroDB model is chosen below."
+        ),
     )
     claude_effort = models.CharField(
         _("Claude's default effort"),
@@ -126,6 +130,28 @@ class AISettings(models.Model):
         help_text=_(
             "How much Claude thinks before it answers, where a feature does not set its own: low is quicker "
             "and cheaper, high and above more thorough. Empty: the default (CLAUDE_EFFORT)."
+        ),
+    )
+    # Ask NeuroDB's own model and effort, read only while Claude is the provider (llm.ask_model, ask_effort);
+    # db_default too: while a release starts, the revision before it may still make the row without them
+    ask_model = models.CharField(
+        _("Ask NeuroDB model"),
+        max_length=64,
+        blank=True,
+        db_default="",
+        help_text=_(
+            "Only Ask NeuroDB, and only while Claude is the provider. Leave blank to use the Claude model "
+            "above."
+        ),
+    )
+    ask_effort = models.CharField(
+        _("Ask NeuroDB effort"),
+        max_length=8,
+        blank=True,
+        db_default="",
+        help_text=_(
+            "Only Ask NeuroDB, and only while Claude is the provider. Leave blank to use Claude's default "
+            "effort above."
         ),
     )
     claude_fallbacks = models.BooleanField(
@@ -152,7 +178,8 @@ class AISettings(models.Model):
         help_text=_("Where a feature does not set its own. Empty: the default (AI_ASSISTANT_EFFORT)."),
     )
     checked_at = models.DateTimeField(_("Tested on"), null=True, blank=True, editable=False)
-    check_result = models.CharField(_("Result"), max_length=300, blank=True, editable=False)
+    # a line per pair tested (the Claude model and effort, then Ask NeuroDB's own), each up to 300 characters
+    check_result = models.CharField(_("Result"), max_length=700, blank=True, editable=False)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )

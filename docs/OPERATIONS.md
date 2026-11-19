@@ -154,7 +154,18 @@ come from.
   the hosting team sets comes first: `AI_PROVIDER` for the provider and `ANTHROPIC_API_KEY` /
   `OPENAI_API_KEY` for the keys (the page shows their last 4 characters and disables the key box); a
   model or default effort chosen on the page comes before `CLAUDE_MODEL`, `CLAUDE_EFFORT`,
-  `AI_ASSISTANT_MODEL` and `AI_ASSISTANT_EFFORT`. Keys entered on the page are sealed with the site's
+  `AI_ASSISTANT_MODEL` and `AI_ASSISTANT_EFFORT`. Under Claude (Anthropic), **Ask NeuroDB model** and
+  **Ask NeuroDB effort** choose a model and an effort for Ask NeuroDB alone, from the same choices as the
+  Claude model and default effort; blank (the default) uses those. They count only while Claude is the
+  provider (on OpenAI, Ask NeuroDB runs on the OpenAI model), and only for Ask NeuroDB: the Help
+  assistant, Monitoring insights, NeuroDB Watch and every background feature keep the Claude model and
+  effort. Ask NeuroDB's refusal fallback goes with its own model (a model that does not take it is sent
+  without it), and its question log and AI use name the model that answered. *In use now* and the table
+  of models say which model Ask NeuroDB runs on. A change applies within about 10 seconds, with no
+  restart. When either is chosen, **Test the connection** also sends Ask NeuroDB's model and effort, and
+  says what happened on a line of its own ("Ask NeuroDB: ..."); a model that does not take that effort is
+  said as for the default effort. When the first call failed for a reason both share (the key, the credit,
+  the network), the second is not sent. Keys entered on the page are sealed with the site's
   secret key (`DJANGO_SECRET_KEY`): after that key changes they cannot be read any more, Needs attention
   says so, and an administrator enters them again. A save applies with no restart: the worker that
   saved at once, the others within 10 seconds. A run already going (the AI checks, the action point
@@ -456,7 +467,8 @@ come from.
   Watch, Monitoring insights, the Help assistant, the document review, the KM Database assistant, AI
   settings' connection test)
   is also counted per day and model in one ledger, Admin → Data and sync → **AI use**, with the
-  provider of each row and the prompt tokens read from and written to the cache, in tokens and in US
+  provider of each row and the prompt tokens read from and written to the cache (the tokens written to
+  the cache are part of the prompt tokens not read from it, never added to them), in tokens and in US
   dollars where the model's price is known: Claude's prices are built in (per million tokens on the
   default Claude model, `CLAUDE_MODEL`: $4 input, $0.20 read from the cache, $5 written to it, $20 output; check
   Anthropic's pricing page), OpenAI's come from `AI_PRICE_INPUT_PER_MTOK`, `AI_PRICE_CACHED_PER_MTOK`

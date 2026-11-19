@@ -166,7 +166,7 @@ def _stream(request: HttpRequest, row: AssistantQuestion) -> Iterator[str]:
         row.status = outcome.status
         # the lookups, then what the check of the answer found when it listed a figure or took a link out
         row.tools = _storable([*outcome.tools, outcome.check] if outcome.check else outcome.tools)
-        row.model = outcome.model or llm.model_for("")
+        row.model = outcome.model or llm.ask_model()  # the model that answered, else the one asked
         row.input_tokens = outcome.input_tokens
         row.cache_read_tokens = outcome.cache_read_tokens
         row.output_tokens = outcome.output_tokens
@@ -176,8 +176,9 @@ def _stream(request: HttpRequest, row: AssistantQuestion) -> Iterator[str]:
             row.save()
         except Exception:  # the answer has been sent: a failed log write must not break the stream
             logger.exception("AI assistant: could not log question %s", row.pk)
-        # the answer's model calls in the day's AI use of the shared key (never raises)
-        llm.record(usage.ASK, llm.model_for(""), outcome)
+        # the answer's model calls in the day's AI use of the shared key, each under the model that ran it
+        # (Claude), else Ask NeuroDB's model (never raises)
+        llm.record(usage.ASK, llm.ask_model(), outcome)
 
 
 @require_POST
@@ -219,7 +220,7 @@ def ask_stream(request: HttpRequest) -> HttpResponse:
             question=question,
             status=AssistantQuestion.Status.FAILED,  # not ANSWERED: kept out of history and recent
             error=IN_PROGRESS,
-            model=llm.model_for(""),  # the model of the provider in use
+            model=llm.ask_model(),  # Ask NeuroDB's model on the provider in use
         )
     response = StreamingHttpResponse(_stream(request, row), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"

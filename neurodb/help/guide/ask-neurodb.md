@@ -81,6 +81,16 @@ personal data. Your own list of questions keeps each question as you typed it.
 - It does not read the [KM Database](/help/km-database/), which has its own assistant on its page.
 - Nothing is written back; it reads only what any signed-in person can already see.
 
+## The model that answers
+
+Administrators choose the AI model in AI settings. Next to the Claude model, they can choose a model and
+an effort for Ask NeuroDB alone: *Ask NeuroDB model* and *Ask NeuroDB effort*. The effort is how much the
+AI thinks before it answers: lower is quicker and cheaper, higher is more thorough. Left blank, Ask
+NeuroDB uses the Claude model and effort. The two count only while Claude is the AI in use, and only for
+Ask NeuroDB: the Help assistant, Chat with Data and NeuroDB Watch keep the Claude model. A change applies
+within about 10 seconds, with no restart. *Test the connection* in AI settings then tries Ask NeuroDB's
+model and effort too, on a line of its own.
+
 ## Limits
 
 30 questions an hour per person, and at most 2 being answered at the same time. A question counts from

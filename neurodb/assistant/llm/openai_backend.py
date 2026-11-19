@@ -233,11 +233,11 @@ class Connection:
     def complete(self, request: llm.Request) -> llm.Result:
         return self.read(self.api.responses.create(**self.render(request)), request)
 
-    def check(self, effort: str) -> llm.Result:
-        """The connection test's call: one short input and 16 output tokens at most, at ``effort`` (the
-        default the features send, so a model that does not take it shows here); any status counts (a
-        reasoning model may spend them all before it writes)."""
-        model = llm.default_model(llm.OPENAI)
+    def check(self, effort: str, model: str | None = None) -> llm.Result:
+        """The connection test's call: one short input and 16 output tokens at most, to ``model`` (the
+        OpenAI model when None) at ``effort`` (the default the features send, so a model that does not take
+        it shows here); any status counts (a reasoning model may spend them all before it writes)."""
+        model = model or llm.default_model(llm.OPENAI)
         response = self.api.responses.create(
             model=model,
             input=llm.PROBE,

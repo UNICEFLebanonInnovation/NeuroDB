@@ -329,9 +329,10 @@ def answer_text(message: Any) -> str:
     return text
 
 
-def read(message: Any, req: llm.Request) -> llm.Result:
+def read(message: Any, req: llm.Request, asked: str = "") -> llm.Result:
     """A final message as a Result. A refused answer keeps no text (a partial one is never used); a stream
-    that stopped before its end raises ServiceError."""
+    that stopped before its end raises ServiceError. ``asked``: the model the call was sent to, when it was
+    not chosen through ``llm.model_for`` (the connection test of Ask NeuroDB's own model)."""
     stop_reason = getattr(message, "stop_reason", None)
     if message is None or stop_reason is None:
         raise llm.ServiceError("stream_ended", "the answer stopped before its end")
@@ -352,7 +353,7 @@ def read(message: Any, req: llm.Request) -> llm.Result:
             parsed = json.loads(text)
         except ValueError:
             parsed = None
-    model = llm.model_for(req.model, llm.CLAUDE)
+    model = asked or llm.model_for(req.model, llm.CLAUDE)
     wrote = getattr(message, "model", "") or ""
     return llm.Result(
         text=text,
@@ -522,12 +523,13 @@ class Connection:
     def complete(self, req: llm.Request) -> llm.Result:
         return read(send(self.api, request(req)), req)
 
-    def check(self, effort: str) -> llm.Result:
-        """The connection test's call, not streamed: one short message and 16 output tokens at most, at
-        ``effort`` (the default the features send, so a model that does not take it shows here), with the
-        fallback when it is on (an account that refuses it shows it here, with no retry). Any stop counts:
-        the thinking may use the 16 tokens."""
-        model = llm.default_model(llm.CLAUDE)
+    def check(self, effort: str, model: str | None = None) -> llm.Result:
+        """The connection test's call, not streamed: one short message and 16 output tokens at most, to
+        ``model`` (the Claude model when None; Ask NeuroDB's own when AI settings choose one) at ``effort``
+        (what the features send, so a model that does not take it shows here), with the fallback that goes
+        with that model when it is on (an account that refuses it shows it here, with no retry). Any stop
+        counts: the thinking may use the 16 tokens."""
+        model = model or llm.default_model(llm.CLAUDE)
         params = {
             "model": model,
             "max_tokens": 16,
@@ -541,4 +543,4 @@ class Connection:
                 caches["shared"].delete(REFUSED_KEY)
             except Exception:
                 logger.warning("Claude: the refused fallback could not be forgotten", exc_info=True)
-        return read(message, llm.Request(model=model))
+        return read(message, llm.Request(model=model), asked=model)

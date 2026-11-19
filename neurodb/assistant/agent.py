@@ -239,7 +239,8 @@ class RunOptions:
       call takes at least 2,000 tokens: its thinking counts too);
     - ``cache_key``: its own prompt cache key (OpenAI), since its tools and instructions differ from Ask's;
     - ``model``: empty for the default model; a model of the other provider is not used, the default
-      model of the provider in use runs instead (``llm.model_for``);
+      model of the provider in use runs instead (``llm.model_for``). Ask NeuroDB's own model and effort of
+      AI settings never apply to a run with options;
     - ``text_format``: the format of the answer, e.g. a strict JSON schema;
     - ``tool_filter``: ``(tool name, result) -> result``, through which every tool result passes before
       the model reads it (and before its numbers count as looked up);
@@ -455,9 +456,12 @@ def _background_request(options: RunOptions) -> dict[str, Any]:
 
 def _claude_request(user: Any, options: RunOptions | None = None) -> dict[str, Any]:
     """The parameters shared by every Claude call of one answer (``messages`` is set per round), with
-    ``options`` a background run's. The tools come first in the prompt, then the stable instructions,
-    marked for caching (across people: the person's hash is not part of the prompt), then the date and
-    the run's own instructions; the conversation is cached as it grows (the top-level ``cache_control``).
+    ``options`` a background run's. Ask NeuroDB's (no ``options``) run on the Ask NeuroDB model and effort
+    of AI settings when chosen (``llm.ask_model``, ``llm.ask_effort``), else on the Claude model and effort,
+    with the refusal fallback that goes with that model. The tools come first in the prompt, then the
+    stable instructions, marked for caching (across people: the person's hash is not part of the prompt),
+    then the date and the run's own instructions; the conversation is cached as it grows (the top-level
+    ``cache_control``).
     Never sent: sampling parameters (Claude Opus 5.5 refuses them), ``thinking`` (always on) and
     ``tool_choice`` (Claude decides, several tools at once if it wants)."""
     offered = (
@@ -468,8 +472,10 @@ def _claude_request(user: Any, options: RunOptions | None = None) -> dict[str, A
     stable, rest = _instruction_parts(
         options.instructions if options else "", options.base_prompt if options else None
     )
-    model = llm.model_for(options.model if options else "", llm.CLAUDE)
-    effort = llm.default_effort(llm.CLAUDE) if options is None else options.effort
+    if options is None:  # Ask NeuroDB: its own model and effort when AI settings choose them
+        model, effort = llm.ask_model(llm.CLAUDE), llm.ask_effort(llm.CLAUDE)
+    else:  # a run's own: never Ask NeuroDB's
+        model, effort = llm.model_for(options.model, llm.CLAUDE), options.effort
     limit = MAX_OUTPUT_TOKENS if options is None else options.max_output_tokens
     if stable.strip():
         system = [
