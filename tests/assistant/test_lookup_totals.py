@@ -228,3 +228,72 @@ def test_search_library_flags_the_resources_cut_short(monkeypatch, db):
 def test_the_model_is_told_the_total_is_real_and_a_cut_list_is_partial():
     assert "total_rows" in agent.SYSTEM_PROMPT and "truncated" in agent.SYSTEM_PROMPT
     assert "partial" in agent.SYSTEM_PROMPT
+
+
+# ---------------------------------------------------- (e) the shorter lists of a partner, a report, the library
+
+
+def test_partner_details_flags_its_findings_and_assessments_and_counts_every_tpm_visit(db):
+    from neurodb.datamart import models as dm
+
+    partner = PartnerOrganization.objects.create(etl_id="1", name="Cedar Relief", partner_type="CSO")
+    for n in range(14):
+        dm.AuditFinding.objects.create(datamart_id=100 + n, partner=partner, title=f"Finding {n}", amount=10)
+        dm.PartnerAssessment.objects.create(datamart_id=200 + n, partner=partner, type="Micro Assessment")
+    for n in range(25):
+        dm.TPMVisit.objects.create(datamart_id=300 + n, partner=partner, reference_number=f"TPM-{n}")
+    result = tools.run("partner_details", {"partner_id": partner.id})
+    assert len(result["financial_findings"]) == 10
+    assert (result["financial_findings_total"], result["financial_findings_truncated"]) == (14, True)
+    assert len(result["hact_assessments"]) == 10
+    assert (result["hact_assessments_total"], result["hact_assessments_truncated"]) == (14, True)
+    assert result["tpm_visits"] == 25 and "tpm_visits_recent" not in result
+
+
+def test_neuro_report_sends_the_latest_comments_and_flags_the_cut(hierarchy, monkeypatch):
+    from neurodb.indicators.models import NeuroReportComment
+
+    monkeypatch.setattr(tools, "MAX_COMMENTS", 3)
+    report = hierarchy["report"]
+    for n in range(1, 6):
+        NeuroReportComment.objects.create(report=report, comment=f"Note {n}", related_month=f"{n:02d}")
+    result = tools.run("neuro_report", {"report_id": report.id, "month": 12})
+    assert (result["comments_total"], result["comments_truncated"]) == (5, True)
+    assert [c["month"] for c in result["comments"]] == ["03", "04", "05"]  # the latest
+
+
+def test_search_library_flags_the_maps_cut_short(monkeypatch, db):
+    from neurodb.library.models import Map
+
+    monkeypatch.setattr(tools, "MAX_MAPS", 2)
+    for n in range(3):
+        Map.objects.create(name=f"Learning map {n}", status="Completed")
+    result = tools.run("search_library", {"text": "learning"})
+    assert len(result["maps"]) == 2
+    assert (result["maps_total"], result["maps_truncated"]) == (3, True)
+
+
+# ------------------------------------------------------- (f) a partner or PD text that matches too many
+
+
+def test_pd_indicator_progress_refuses_a_partner_text_that_matches_too_many(db):
+    for n in range(tools.MAX_MATCHES + 5):
+        PartnerOrganization.objects.create(
+            etl_id=str(n), name=f"Cedar Association {n:02d}", partner_type="CSO"
+        )
+    with pytest.raises(tools.ToolInputError) as raised:
+        tools.run("pd_indicator_progress", {"partner": "Association", "year": 2026})
+    said = str(raised.value)
+    assert f"More than {tools.MAX_MATCHES} partners match 'Association'" in said
+    assert "Cedar Association 00" in said and "narrower" in said
+
+
+def test_pd_indicator_progress_refuses_a_pd_text_that_matches_too_many(db):
+    partner = PartnerOrganization.objects.create(etl_id="1", name="Cedar Relief", partner_type="CSO")
+    for n in range(tools.MAX_MATCHES + 5):
+        PCA.objects.create(
+            etl_id=str(10 + n), partner=partner, partner_name=partner.name, number=f"LEB/PD/2026/{n:03d}"
+        )
+    with pytest.raises(tools.ToolInputError) as raised:
+        tools.run("pd_indicator_progress", {"programme_document": "PD/2026", "year": 2026})
+    assert f"More than {tools.MAX_MATCHES} programme documents" in str(raised.value)

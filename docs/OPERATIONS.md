@@ -157,14 +157,17 @@ come from.
   `AI_ASSISTANT_MODEL` and `AI_ASSISTANT_EFFORT`. Under Claude (Anthropic), **Ask NeuroDB model** and
   **Ask NeuroDB effort** choose a model and an effort for Ask NeuroDB alone, from the same choices as the
   Claude model and default effort; blank (the default) uses those. They count only while Claude is the
-  provider (on OpenAI, Ask NeuroDB runs on the OpenAI model), and only for Ask NeuroDB: the Help
-  assistant, Monitoring insights, NeuroDB Watch and every background feature keep the Claude model and
-  effort. Ask NeuroDB's refusal fallback goes with its own model (a model that does not take it is sent
-  without it), and its question log and AI use name the model that answered. *In use now* and the table
+  provider (on OpenAI, Ask NeuroDB runs on the OpenAI model), and only for Ask NeuroDB: the other AI
+  features are not changed by these two and keep the model and effort they had (the Claude model, or
+  their own: the Help assistant, NeuroDB Watch and the background features send their own effort, most of
+  them `low`; Monitoring insights its prompt version's model and effort; `WATCH_MODEL` and the Score
+  settings name their own model). Ask NeuroDB's refusal fallback goes with its own model (a model that
+  does not take it is sent without it), and its question log and AI use name the model that answered. *In use now* and the table
   of models say which model Ask NeuroDB runs on. A change applies within about 10 seconds, with no
-  restart. When either is chosen, **Test the connection** also sends Ask NeuroDB's model and effort, and
-  says what happened on a line of its own ("Ask NeuroDB: ..."); a model that does not take that effort is
-  said as for the default effort. When the first call failed for a reason both share (the key, the credit,
+  restart. While Claude is in use and either is chosen, **Test the connection** also tries Ask NeuroDB's
+  model and effort, and says what happened on a line of its own ("Ask NeuroDB: ..."; when the pair is the
+  Claude pair, "the same model and effort as above", with nothing sent twice); a model that does not
+  take that effort is said as for the default effort. When the first call failed for a reason both share (the key, the credit,
   the network), the second is not sent. Keys entered on the page are sealed with the site's
   secret key (`DJANGO_SECRET_KEY`): after that key changes they cannot be read any more, Needs attention
   says so, and an administrator enters them again. A save applies with no restart: the worker that
@@ -213,62 +216,101 @@ come from.
   `AI_ASSISTANT_ENABLED=false` to switch every AI feature off whatever key is set or entered. A
   question counts towards the hourly limit from the moment it is asked, and a user can have at most
   two questions being answered at the same time.
-- **People never go to the AI** (`neurodb/assistant/privacy.py`): Ask NeuroDB sends a text to the
-  provider only after people's names, e-mail addresses, links and phone numbers are taken out of it. This
-  covers the question and the earlier questions and answers sent with it (`agent.answer`, cleaned at
-  every request), and every lookup's result, its input errors included, before the model reads it
-  (`agent._lookup`: every text at any depth, keys too). One cleaner does it, the eTools Datamart's
-  (`datamart.query.clean_written`): e-mail addresses (whole, cut short, spaced or spelled out, "x at
-  example dot org"), links, phone numbers, the person names NeuroDB knows (`watch.people.known_names`:
-  users, partner staff, programme document focal points, finding owners, the people the eTools records
-  name, the field monitoring teams) and any name written after a title, each replaced by a placeholder
-  ("[name withheld]", "[email withheld]", "[link withheld]", "[phone withheld]"), with the text's line
-  breaks kept (an earlier answer keeps its Markdown, a document its paragraphs; a known name split over
-  two lines is still found). A name after Sheikh, Dr or Doctor stays only in the name of a thing (the
-  keys `name`, `title`, `partner`, `section`, `place`, `governorate`, `donor`... of `privacy.LABEL_KEYS`
-  and the Datamart's keys of places and organisations), never in a text or in the question: a partner
-  named "Dr. ... Foundation" keeps its name in a lookup's result, and is asked about by its short name.
-  Numbers, yes/no and empty values are never changed, and the chart check counts the numbers of the
-  cleaned result, the ones the model read; NeuroDB's own page links under a url key (`url`, `urls`,
-  `..._url`, a path such as `/partners/3/`) stay, a link elsewhere does not. Ids, dates, codes,
-  references, section, place and partner names stay as they are. So knowledge base passages, document
-  text and summaries, document review findings and quotes, the comments staff write on Neuro and HPM
-  reports, the daily review's summary and details and library summaries go without people. The eTools
-  Datamart lookups (`etools_*`) clean their own results with the same cleaner and more (below) and are
-  not cleaned twice. The cleaning is deterministic (the same text and names give the same bytes, so the
+- **People's names, e-mails, links and phones are taken out** (`neurodb/assistant/privacy.py`): Ask
+  NeuroDB sends a text to the provider only after the people's names, e-mail addresses, links and phone
+  numbers it can find are taken out of it. This covers the question and the earlier questions and
+  answers sent with it (`agent.answer`, cleaned at every request), and every lookup's result, its input
+  errors included, before the model reads it (`agent._lookup`: every text at any depth, keys too). One
+  cleaner does it, the eTools Datamart's (`datamart.query.clean_written`): e-mail addresses (whole, cut
+  short, spaced or spelled out, "x at example dot org"), links, phone numbers, the full names of the
+  people NeuroDB knows (`watch.people.known_names`: users, partner staff, programme document focal points,
+  finding owners, the people the eTools records name, the field monitoring teams) and any name written
+  after a title, each replaced by a placeholder ("[name withheld]", "[email withheld]", "[link withheld]",
+  "[phone withheld]"), with the text's line breaks kept (an earlier answer keeps its Markdown, a document
+  its paragraphs; a known name split over two lines is still found). The patterns of addresses and phones
+  are written for a text on one line, so in a text that keeps its line breaks they run once more on the
+  text with each run of spaces and line breaks read as one space (`query._on_one_line`): "03  123456",
+  "03\n\n123456" (a page break of a document) and "x  @  example . org" are found, and only what they
+  match is replaced. A name after Sheikh, Dr or Doctor stays only where the value names a partner or a
+  place: the Datamart's keys of places and organisations (`partner`, `partner_name`, `governorate`,
+  `donors`, `location`...) and Ask's own (`privacy.PLACE_OR_ORG_KEYS`: `centre`, `activityinfo_names`...),
+  and `name`, `short_name`, `aliases` and `label` in an object that is a partner or a place (an item of
+  `partners`, a knowledge link or a hub thing whose `kind` is a partner, donor, governorate or district,
+  the partner of `partner_details`); a mapping keyed by partners or places (`by_partner`) keeps them in its
+  keys. Everywhere else (a document's title or source, a report, a topic, a category, an indicator, a key,
+  the question) it is taken out: a partner named "Dr. ... Foundation" keeps its name in a lookup's result,
+  and is asked about by its short name. In an earlier answer it stays too (`privacy.history`): the model
+  wrote it from results already cleaned, where only a partner or a place keeps one, so a follow-up can
+  still name "the second one"; the other rules still apply there, and an earlier question gets the full
+  cleaning. Numbers, yes/no and empty values are never changed, and the chart check counts the numbers of
+  the cleaned result, the ones the model read; NeuroDB's own page links under a url key (`url`, `urls`,
+  `..._url`, or a mapping under one: a path such as `/partners/3/`) stay, a link elsewhere does not. Ids,
+  dates, codes, references, section, place and partner names stay as they are. A number written in a text
+  with a phone's prefix (961, a leading 0, 70, 71, 76, 78, 79 or 81: "71 123 456", "71500000") is taken out
+  as a phone, unless a currency (LBP, L.L., USD, $, EUR...) or a count (people, children, households...)
+  is written right next to it and it does not start with 0, 961 or + ("LBP 76 500 000", "USD 71.500.000",
+  "81 250 300 people"; "LBP 03 123 456" is a phone), or its last six digits are 0; a number written alone
+  under a key that holds an amount (`amount`, `local_amount`) stays.
+  So knowledge base passages, document text, titles, sources and summaries, document review findings and
+  quotes, the comments staff write on Neuro and HPM reports, the daily review's summary and details and
+  library summaries go without the people the cleaner finds. A lookup that cuts a long text (a staff
+  comment at 1,000 characters, a summary at 300 or 600, a hub passage at 700, a hub text at 1,500) cleans
+  it whole first, then cuts it, and `read_knowledge` cleans a long document whole before it splits it into
+  parts of 8,000 characters (`tools._short`, inside `tools.for_ask()`, which `agent._lookup` enters for Ask
+  NeuroDB only): a cut never splits a name, a number or an address before the cleaner sees it whole. The
+  eTools Datamart lookups (`etools_*`) clean their own results with the same cleaner and more (below) and
+  are not cleaned twice. The cleaning is deterministic (the same text and names give the same bytes, so the
   prompt cache holds) and a cleaned text is not changed again. The question log keeps what the person
   typed: it stays in NeuroDB, the person sees their own words in the conversation and under Recent
-  questions, and each request cleans them again with the names NeuroDB knows then. A person NeuroDB does
-  not know, named without a title, is not found: the page still asks people not to enter personal data.
-  Help, Monitoring insights and NeuroDB Watch run the same loop with their own options and filters, which
-  this does not change.
+  questions, and each request cleans them again with the names NeuroDB knows then. Not found: a person
+  NeuroDB does not know, named without a title, and a known person's first name or surname written alone
+  ("Layla checked the figures"); the page still asks people not to enter personal data. Help, Monitoring
+  insights and NeuroDB Watch run the same loop with their own options and filters, which this does not
+  change.
 - **The answer is checked against its lookups** (`neurodb/assistant/figures.py`, from `agent._finish`):
-  Monitoring insights' check of a chat answer (`neurodb/fmm/ai/citations.py`, whose parts it reuses) run
-  on Ask's lookups. Each lookup's result, as the model read it, gives its NeuroDB page links (under a url
-  key), every number written in it (with its one-decimal and whole roundings) and the percentages and
-  totals worked out from it (in a row of up to 4 figures, one over another and the figures added; a column
-  of a list added up, and each figure's share of it; a fraction as a percentage; the number of items of a
-  list); two figures written in the same sentence or table row of the answer also give one over the other,
-  the change from one to the other (as percentages), their sum and their difference. Not every pair of a
-  lookup's figures: over a large result almost any percentage could be worked out, and nothing would be
-  listed. A Markdown link whose url no lookup of this answer returned, and that no earlier answer of the
-  conversation gave, becomes its text; the rendered answer gets the same check, so a reference link or raw
-  HTML cannot carry one past it. A figure no lookup returned is listed under the answer in the done
-  event's `notice`, in Monitoring insights' words ("These figures could not be checked against the data:
-  4950."; at most 20). Set aside: references, dates, link texts and addresses, years ("2026", "2025/26",
-  but not "2,000"), page numbers ("p. 41"), whole numbers up to 10, the numbers of the question and of the
-  earlier questions, and the numbers of the earlier answers as they were sent (an older answer's first
-  paragraph, see *Keeping each request small*) but those their checks listed. The figures are
-  never changed and nothing is held back; if the check itself fails, the answer is shown as written and
-  the error is logged. People are not looked for in the answer: nothing about them reaches the AI (above).
-  Help, Monitoring insights and NeuroDB Watch are not checked here. In the question log (AI questions), an
-  answer whose check listed a figure or removed a link gets one more entry after its lookups, `{"check":
-  "answer", "notice", "unchecked_numbers", "links_removed"}` (no migration: the `tools` field), which a
-  follow-up reads back; the list's *Lookups* column counts the lookups only, and *Figures not checked*
-  counts the figures listed.
+  Monitoring insights' check of a chat answer (`neurodb/fmm/ai/citations.py`, some of whose parts it
+  reuses) run on Ask's lookups, once the answer is written (the person sees the answer stream as it is
+  written; the done event then replaces it with the checked one and its notice). Each lookup's result,
+  as the model read it, is walked value by value: it gives its NeuroDB page links (under a url key, or in
+  a mapping under one, such as `assurance_overview`'s `urls`), every number written in it (with its
+  one-decimal and whole roundings; never an id, `id`, `key` or `..._id`, nor the digits of a link), the
+  ones it gives as percentages (a key such as `achieved_percent`, `percent_of_target`, `rate` or `share`,
+  a row whose `unit` is a percentage, "82%" in a text) and the percentages and totals worked out from it:
+  in a row of up to 4 figures, one over another, the change from one to the other and the figures added
+  or taken from each other; in any row, a figure over its target; a column of a list added up, and each
+  figure's share of it; in a mapping of counts (`status_counts`, `by_year`), their sum and each count's
+  share of it and of each figure of the result that holds it (`indicators`); a fraction as a percentage;
+  the number of items of a list. Ids and years are never added up. Two figures written side by side in
+  the answer also give one over the other, the size of the change from one to the other (as percentages:
+  a fall from 1,500 to 1,200 is 20%), their sum and their difference; side by side is the same sentence
+  or the one before it (a colon or a semicolon does not end a sentence), a list item and the line that
+  leads into the list, and a table row with its column's total or the table's Total row. Not every pair
+  of a lookup's figures: over a large result almost any percentage could be worked out, and nothing
+  would be listed. A Markdown link whose url no lookup of this answer returned, and that no earlier answer
+  gave in the part sent (the latest answer whole, the first paragraph of older ones), becomes its text;
+  the rendered answer gets the same check, so a reference link or raw HTML cannot carry one past it. A
+  figure no lookup returned is listed under the answer in the done event's `notice`, as the answer writes
+  it, in Monitoring insights' words ("These figures could not be checked against the data: 4,950,
+  63.5%."; at most 20). A figure in a kept link's text is checked as any other. A percentage passes only
+  as a percentage a lookup gives or one worked out, never because a count has the same number. A figure
+  with a scale ("USD 12.4 million", "$450K", "1.2bn") passes when a looked-up figure or total is that
+  figure at that scale, to the precision written (or the figure itself was looked up: "450 m"). Set aside:
+  references, dates, addresses, years ("2026", "2025/26", but not "2,000"), page numbers ("p. 41"), whole
+  numbers up to 10, "100%", the numbers of the question and of the earlier questions, and the numbers of
+  the earlier answers as they were sent (an older answer's first paragraph, see *Keeping each request
+  small*) but those their checks listed. The figures are never changed and nothing is held back; if the
+  check itself fails, the answer is shown as written and the error is logged. People are not looked for
+  in the answer: the AI was sent what the cleaner left (above). Help, Monitoring insights and NeuroDB
+  Watch are not checked here; Chat with Data's own check uses the same notice sentence but lists more
+  (years, pages, shares) and also checks visit links. In the question log (AI questions), an answer whose
+  check listed a figure or removed a link gets one more entry after its lookups, `{"check": "answer",
+  "notice", "unchecked_numbers", "links_removed"}` (`unchecked_numbers` without thousands separators; no
+  migration: the `tools` field), which a follow-up reads back; the list's *Lookups* column counts the
+  lookups only, and *Figures not checked* counts the figures listed.
 - **Data leaves Azure**: each question, up to six earlier questions and answers of the same
   conversation, and the data looked up to answer it are sent to the provider in use: the Claude API
-  (api.anthropic.com) or the OpenAI API (api.openai.com), over HTTPS, without people (above). That data
+  (api.anthropic.com) or the OpenAI API (api.openai.com), over HTTPS, with the people NeuroDB can find
+  taken out (above). That data
   is the figures plus partner, programme-document, donor and library details, such as partner names,
   vendor numbers, risk ratings, HACT and assurance results, programme document titles, library summaries,
   knowledge base passages and the free-text comments staff write on Neuro and HPM reports, all cleaned
@@ -418,13 +460,20 @@ come from.
   protection focal point before switching it on; outbound HTTPS to api.anthropic.com (Claude) or
   api.openai.com (OpenAI) must be allowed.
 - **Long lists**: a lookup sends at most 60 rows of a list (`MAX_ROWS` in `neurodb/assistant/tools.py`),
-  and fewer in a few places: 30 programme documents in `partner_details`, 30 programme documents and 30
-  partners under each output in `country_programme`, 25 resources in `search_library` and 40 things in
-  `connected`. Next to every cut list it gives the real number of rows, counted over every match and never
-  over the rows sent (`total_rows`; `<list>_total` where one result holds several lists, such as the sites
-  and the indicators of `partner_activityinfo`; `count` in `connected`), and whether the list was cut
-  (`truncated`, or `<list>_truncated`). The instructions tell the model to give that number and to say
-  when the list it shows is partial; the whole list is on the page the answer links to.
+  and fewer in a few places: 30 programme documents, 10 HACT assessments and 10 financial findings in
+  `partner_details`, the latest 20 staff comments in `neuro_report`, 30 programme documents and 30
+  partners under each output in `country_programme`, 25 resources and 15 maps in `search_library` and 40
+  things in `connected`. Next to each of these cut lists it gives the real number of rows, counted over
+  every match and never over the rows sent (`total_rows`; `<list>_total` where one result holds several
+  lists, such as the sites and the indicators of `partner_activityinfo`, or `financial_findings_total` and
+  `comments_total`; `count` in `connected`), and whether the list was cut (`truncated`, or
+  `<list>_truncated`). `partner_details` gives `tpm_visits`, the partner's TPM visits counted over all of
+  them. The instructions tell the model to give that number and to say when the list it shows is partial;
+  the whole list is on the page the answer links to. The lists of the hub lookups cut by `hub_tools._trim`
+  end with "… N more", and the short lists inside a record (a document's 20 links, a hub thing's 15
+  aliases) are not flagged. `pd_indicator_progress` refuses a partner or programme document text that
+  matches more than 20 (`MAX_MATCHES`), naming some of them and asking for a narrower name: its figures
+  are never those of some of the matches only.
 - **Keeping each request small** (`neurodb/assistant/agent.py`, `tools.py`): most of a question's cost is
   the new text each model call sends, written to the prompt cache: the lookups' results and the earlier
   turns. Every call sends everything before it again, so Ask NeuroDB keeps that text short without
@@ -434,13 +483,14 @@ come from.
     `cp_output`, `output` and `method`, and gives `differs_from_prp_cumulative` and `partial_history`
     only when they are true; the result's `left_out` says so, and `detail=true` (or a narrower filter)
     sends every row whole. The figures, status, partner, PD, link and every total and count stay. A
-    list of 15 or fewer comes whole. `partner_reporting` gives a report's `source` only for PRP's own
-    reports still owed ("PRP progress reports"); a row without one is a partner report.
+    list of 15 or fewer comes whole. Only Ask NeuroDB's lookups (`tools.for_ask()`) get the narrower
+    rows: NeuroDB Watch, which asks how a figure changed, reads every row whole. `partner_reporting`
+    gives a report's `source` only for PRP's own reports still owed ("PRP progress reports"); a row without one is a partner report.
     `read_knowledge` sends the document's summary, key points and links with part 1 only. The other
     lookups keep their rows: their fields are what common questions need (`search_programmes`,
     `funds_overview`), the records leave out empty fields already and the model chooses `fields`
     (`etools_query`), or the text is the answer (`search_knowledge`). NeuroDB Watch, which shares
-    `pd_indicator_progress` and `partner_reporting`, reads the same rows.
+    `partner_reporting`, reads the same rows there.
   - **Compact JSON.** Every lookup's result and input error goes to the model, whichever provider is in
     use, without spaces between items and with Arabic and other letters as they are written
     (`agent.COMPACT`). The answer's check still reads each figure of a list apart (`figures.Looked`).
@@ -449,8 +499,14 @@ come from.
     its first paragraph (the direct answer, with a heading before it) followed by "(The rest of this
     earlier answer is left out here. Look up again what you need from it.)" (`agent.ask_history`).
     The same turns always give the same text, and within a question each call only adds to the one
-    before it, so the cache keeps working. The answer's check counts the earlier answers as they were
-    sent: a figure only the left-out part of an older answer gave is listed when it is repeated.
+    before it. From one question to the next they do not: the latest answer goes whole, then shortened
+    one question later, so the next follow-up's messages differ from there on. On Claude the earlier
+    question just before the latest answer therefore carries a cache breakpoint of its own
+    (`agent._mark_for_cache`; with the stable instructions and the conversation's end, 3 of Claude's 4):
+    the next follow-up starts with the same messages up to there and reads them from the cache, and only
+    the rest is written again. OpenAI caches the longest prefix seen before on its own. The answer's check
+    counts the earlier answers as they were sent: a figure, or a link, that only the left-out part of an
+    older answer gave is listed (or loses its link) when it is repeated.
   - **Lookups together.** The instructions ask the model to run, in the same round, every lookup that
     does not need another lookup's result; the limit stays 8 rounds (`AI_ASSISTANT_MAX_TOOL_ROUNDS`).
 
@@ -484,7 +540,9 @@ come from.
   default Claude model instead of $4 (writing the cache costs 1.25 times the input price; prompts under
   512 tokens are not cached); on OpenAI its automatic prompt caching (prompts of 1,024 tokens or more,
   no setup) bills that repeated part at the cheaper cached-input rate. Prices per model are on each
-  provider's pricing page.
+  provider's pricing page. An Ask NeuroDB answer is booked under the model that ran each call (Claude) or
+  the model its requests were sent to (OpenAI, read once when the answer starts), never under one AI
+  settings chose while it was being answered; its question log names the same model.
 - **Refusals and failures**: when the model declines a question, it is logged as "Declined by the
   model" and the user is asked to rephrase. On Claude a declined answer arrives as a refusal, and
   refusal fallbacks are on: Anthropic runs the request again on another Claude model it chooses for the
@@ -570,8 +628,8 @@ The assistant has two tools for it: `search_knowledge` (best passages for some w
 only in the documents linked to a partner, programme document, section or year) and
 `read_knowledge` (a document's summary, links and text in parts of 8,000 characters). It quotes
 and links the documents it uses. Their text is sent to the AI provider in use as part of the answer,
-without the people NeuroDB can find in it (see *People never go to the AI* above); the
-instructions tell the model that it is material, never instructions to follow, and the AI cannot
+without the people NeuroDB can find in it (see *People's names, e-mails, links and phones are taken
+out* above); the instructions tell the model that it is material, never instructions to follow, and the AI cannot
 change or add documents. Do not add personal data of children, beneficiaries or staff.
 
 After new partners or programme documents arrive, `manage.py index_knowledge --all` links the

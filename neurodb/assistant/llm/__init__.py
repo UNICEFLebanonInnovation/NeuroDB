@@ -7,7 +7,8 @@ Anthropic key is available, from the environment or entered in AI settings, and 
 the environment comes before one entered in AI settings (sealed with the site's secret key, :mod:`.keys`);
 a model or default effort chosen in AI settings comes before ``CLAUDE_MODEL``, ``CLAUDE_EFFORT``,
 ``AI_ASSISTANT_MODEL`` and ``AI_ASSISTANT_EFFORT``. Ask NeuroDB alone may have a model and effort of its
-own on Claude (:func:`ask_model`, :func:`ask_effort`); every other feature keeps the Claude model and effort.
+own on Claude (:func:`ask_model`, :func:`ask_effort`); the other features are not changed by these two and
+keep the model and effort they had (the Claude model, or their own).
 
 A caller describes a model call once (:class:`Request`) and sends it through a connection to the provider
 in use (:func:`connect`), which renders it for that provider and reads the answer back as a

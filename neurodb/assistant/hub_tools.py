@@ -16,7 +16,7 @@ from django.db.models import Q
 from django.http import QueryDict
 from django.urls import reverse
 
-from .tools import ToolInputError, _clean, _cut_named, _schema
+from .tools import ToolInputError, _clean, _cut_named, _schema, _short
 
 MAX_LIST = 40
 MAX_TEXT = 1500
@@ -24,7 +24,8 @@ MAX_PER_OUTPUT = 30  # programme documents and partners listed under each countr
 
 
 def _trim(obj: Any, depth: int = 0) -> Any:
-    """Lists cut to MAX_LIST (flagged), long strings cut, and nothing deeper than 6 levels."""
+    """Lists cut to MAX_LIST (flagged), long strings cut (in Ask NeuroDB's lookups cleaned whole first:
+    ``tools._short``), and nothing deeper than 6 levels."""
     if depth > 6:
         return "…"
     if isinstance(obj, dict):
@@ -35,7 +36,7 @@ def _trim(obj: Any, depth: int = 0) -> Any:
         items = [_trim(v, depth + 1) for v in list(obj)[:MAX_LIST]]
         return items + [f"… {len(obj) - MAX_LIST} more"] if len(obj) > MAX_LIST else items
     if isinstance(obj, str) and len(obj) > MAX_TEXT:
-        return obj[:MAX_TEXT] + "…"
+        return _short(obj, MAX_TEXT) + "…"
     return obj
 
 
@@ -54,7 +55,7 @@ def find_anything(text: str, kind: str | None = None) -> dict[str, Any]:
             "document_id": h.document.pk,
             "title": h.document.title,
             "page": h.chunk.page,
-            "text": h.chunk.text[:700],
+            "text": _short(h.chunk.text, 700),
             "url": h.document.get_absolute_url(),
         }
         for h in (knowledge.search(text, limit=3) if not kind or kind == "document" else [])
@@ -77,7 +78,7 @@ def entity_profile(kind: str, key: str) -> dict[str, Any]:
     return {
         **query.card(entity),
         "kind_label": entity.get_kind_display(),
-        "description": entity.description[:MAX_TEXT],
+        "description": _short(entity.description, MAX_TEXT),
         "aliases": entity.aliases.splitlines()[:15],
         "linked": query.neighbours(entity),
         "hub_built": entity.built_at.isoformat(),

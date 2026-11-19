@@ -17,8 +17,9 @@ The notice under the answer says what was done: "All visit references were check
 looked up." or "1 visit reference was removed (not among the visits looked up). These figures could not
 be checked against the data: 444, 1004."
 
-Ask NeuroDB checks its answers with the same parts (``neurodb.assistant.figures``): the links, the figures
-(:func:`_unchecked`, with its own figures set aside) and the sentence that lists them (:func:`figures_line`).
+Ask NeuroDB's check (``neurodb.assistant.figures``) reuses some of these parts: the link patterns, the
+figures (:func:`_unchecked`, with its own figures set aside, link texts included, and simple shares and totals
+worked out) and the sentence that lists them (:func:`figures_line`). It checks no visit links.
 """
 
 from __future__ import annotations

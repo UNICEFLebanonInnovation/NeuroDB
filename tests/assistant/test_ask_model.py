@@ -1,8 +1,9 @@
 """Ask NeuroDB's own model and effort (AI settings): chosen for Ask NeuroDB alone, blank for the Claude model
 and effort above them, and only while Claude is the provider. NeuroDB Watch, Monitoring insights, the Help
-assistant and every background feature keep the Claude model and effort. The question log and AI use name
-the model that answered; Test the connection tests Ask's pair too, on a line of its own. Also: one cache
-read price in the price table, and the AI use page's column names."""
+assistant and every background feature are not changed by them: they keep the model and effort they had
+(the Claude model, or their own). The question log and AI use name the model that answered, or on OpenAI
+the one the requests were sent to; Test the connection tests Ask's pair too, on a line of its own. Also: one
+cache read price in the price table, and the AI use page's column names."""
 
 import json
 from decimal import Decimal
@@ -316,6 +317,19 @@ def test_the_ai_use_columns_say_what_they_count(client, admin_user):
     assert "Prompt tokens not read from the cache" in page
     assert "Written to the cache (part of the prompt tokens not read from it)" in page
     assert page.index("Prompt tokens not read from the cache") < page.index("Written to the cache")
+    # the third column says read, as the model's field and OPERATIONS do, never just "cached"
+    assert "Cached prompt tokens" not in page
+    assert page.index("Written to the cache") < page.index("Prompt tokens read from the cache")
+
+
+def test_the_connection_test_says_when_it_tries_asks_pair(page):
+    url = reverse("admin:assistant_aisettings_test_connection", args=[AISettings.load().pk])
+    html = page.get(url, HTTP_HX_REQUEST="true").content.decode()  # the dialog, as the page opens it
+    assert "sends that one too" not in html
+    assert (
+        "While Claude is in use and an Ask NeuroDB model or effort is chosen, it also tries that pair and "
+        "says what happened on a line of its own."
+    ) in html
 
 
 def test_the_migration_is_quick():
@@ -323,3 +337,44 @@ def test_the_migration_is_quick():
     migration = found[("assistant", "0005_ask_model")]
     assert {type(op).__name__ for op in migration.operations} <= {"AddField", "AlterField"}
     assert ("assistant", "0005_ask_model", "AddField") in QUICK_MIGRATIONS
+
+
+def test_on_openai_ai_use_books_the_model_the_request_went_to(monkeypatch, ai_settings, client_viewer):
+    """AI settings saved while a question is answered: the question's tokens stay under the model they were
+    sent to, not under the one read when it ends."""
+    from tests.assistant.test_assistant import ENABLED, FakeClient, reply, say
+
+    class SavedMeanwhile(FakeClient):
+        def stream(self, **params):
+            stream = super().stream(**params)
+            _choose(ai_settings, openai_model="gpt-other")  # an administrator saves AI settings
+            return stream
+
+    client = SavedMeanwhile([reply(say("Fresh."), input_tokens=100, cached=0, output_tokens=20)])
+    monkeypatch.setattr(agent, "client", lambda: client)
+    with override_settings(**ENABLED, AI_PROVIDER="openai"):
+        assert _ask(client_viewer)[-1]["type"] == "done"
+    assert client.requests[0]["model"] == "gpt-5.5"
+    row = AIUsage.objects.get(feature=usage.ASK)
+    assert (row.model, row.input_tokens, row.output_tokens) == ("gpt-5.5", 100, 20)
+    assert AssistantQuestion.objects.get().model == "gpt-5.5"
+
+
+def test_a_switch_to_claude_while_an_openai_question_runs_books_it_under_openai(
+    monkeypatch, ai_settings, client_viewer
+):
+    from tests.assistant.test_assistant import ENABLED, FakeClient, reply, say
+
+    _choose(ai_settings, provider="openai", ask_model=ASK)
+
+    class SwitchedMeanwhile(FakeClient):
+        def stream(self, **params):
+            stream = super().stream(**params)
+            _choose(ai_settings, provider="claude")
+            return stream
+
+    client = SwitchedMeanwhile([reply(say("Fresh."), input_tokens=100, cached=0, output_tokens=20)])
+    monkeypatch.setattr(agent, "client", lambda: client)
+    with override_settings(**ENABLED, ANTHROPIC_API_KEY="test-key-not-real", AI_PROVIDER="auto"):
+        assert _ask(client_viewer)[-1]["type"] == "done"
+    assert [row.model for row in AIUsage.objects.filter(feature=usage.ASK)] == ["gpt-5.5"]

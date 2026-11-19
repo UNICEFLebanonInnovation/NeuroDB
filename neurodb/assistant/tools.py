@@ -5,12 +5,14 @@ returns JSON-safe data with a ``url`` to the page it came from, so answers can l
 Nothing here writes; a run nobody watches (NeuroDB Watch's look-up) also runs each tool inside
 ``read_only()``, where a write fails. Signed-in users may read all of this data on the site (there are
 no per-section read restrictions), so the tools apply no extra filtering; the assistant itself
-requires sign-in. People are another matter: Ask NeuroDB's model reads every result without people's
-names, e-mail addresses, links and phone numbers (``privacy.result``, applied by ``agent._lookup``).
+requires sign-in. People are another matter: Ask NeuroDB's model reads every result without the people's
+names, e-mail addresses, links and phone numbers the cleaner finds (``privacy.result``, applied by
+``agent._lookup``, which runs the lookups inside :func:`for_ask`).
 """
 
 from __future__ import annotations
 
+import contextvars
 import datetime
 from collections import Counter
 from collections.abc import Callable, Collection, Iterator, Mapping
@@ -39,6 +41,8 @@ from neurodb.partnerships import services as partnerships
 from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports import services as report_services
 
+from . import privacy
+
 MAX_ROWS = 60  # rows per list; longer lists are cut and flagged so the model can narrow the question
 # a list of PD indicators longer than this sends each row without its detail (PD_INDICATOR_DETAIL), unless
 # the model asks for it (detail=true): every round sends the earlier results again, and few questions about a
@@ -53,10 +57,40 @@ PD_INDICATOR_LEFT_OUT = (
 )
 MAX_PARTNER_PDS = 30  # programme documents listed by partner_details
 MAX_LIBRARY = 25  # library resources listed by search_library
+MAX_MAPS = 15  # maps listed by search_library
+MAX_PARTNER_ITEMS = 10  # HACT assessments and financial findings listed by partner_details
+MAX_COMMENTS = 20  # staff comments listed by neuro_report (the latest)
+MAX_MATCHES = 20  # partners or programme documents a text may match in pd_indicator_progress
 
 
 class ToolInputError(ValueError):
     """The model sent arguments that do not match the tool's schema."""
+
+
+# Ask NeuroDB's lookups (``agent._lookup`` without options) run inside ``for_ask()``: a long text is cleaned
+# whole before it is cut (:func:`_short`) and a long list of PD indicators sends narrower rows. NeuroDB
+# Watch, the Help assistant and Monitoring insights read the lookups as before.
+_FOR_ASK: contextvars.ContextVar[bool] = contextvars.ContextVar("ask_lookup", default=False)
+
+
+@contextmanager
+def for_ask() -> Iterator[None]:
+    """Run the lookups inside as Ask NeuroDB's."""
+    token = _FOR_ASK.set(True)
+    try:
+        yield
+    finally:
+        _FOR_ASK.reset(token)
+
+
+def _short(value: str | None, limit: int) -> str:
+    """``value`` cut at ``limit`` characters. In Ask NeuroDB's lookups a text longer than that is cleaned
+    whole first (``privacy.text``), then cut: a cut never splits a name, a phone number or an address
+    before the cleaner sees it whole (the result is cleaned again after, which changes nothing more)."""
+    text = value or ""
+    if len(text) > limit and _FOR_ASK.get():
+        text = privacy.text(text)
+    return text[:limit]
 
 
 # ------------------------------------------------------------------------- helpers
@@ -340,6 +374,7 @@ def neuro_report(report_id: int, month: int | None = None, quarter: str | None =
     if not report:
         raise ToolInputError(f"No Neuro report with id {report_id}. Use list_databases to find report ids.")
     data = facts.neuroreport(report, month=month, quarter=quarter)
+    comments = list(data["comments"])
     sections = [
         {
             "database": _db_name(s["database"]),
@@ -369,14 +404,20 @@ def neuro_report(report_id: int, month: int | None = None, quarter: str | None =
         "period": data["quarter"] or data["month_label"],
         "cutoff_rule": f"records edited after {data['cutoff'].isoformat()} are excluded",
         "sections": sections,
-        "comments": [
-            {
-                "month": c.related_month,
-                "indicator": str(c.master) if c.master_id else None,
-                "text": (c.comment or "")[:1000],  # staff free text, up to 5,000 characters each
-            }
-            for c in data["comments"][:20]
-        ],
+        # the latest MAX_COMMENTS staff comments (sorted by month), each up to 1,000 characters
+        **_cut_named(
+            [
+                {
+                    "month": c.related_month,
+                    "indicator": str(c.master) if c.master_id else None,
+                    "text": _short(c.comment, 1000),  # staff free text, up to 5,000 characters each
+                }
+                for c in comments[-MAX_COMMENTS:]
+            ],
+            "comments",
+            len(comments),
+            MAX_COMMENTS,
+        ),
         "url": reverse(
             "reports:report_hpm" if report.is_hpm else "reports:report_dashboard", args=[report.id]
         ),
@@ -605,10 +646,15 @@ def partner_details(partner_id: int) -> dict[str, Any]:
         "field_visits_by_year": _clean(profile["visits_by_year"]),
         # the same figure as the profile's 'ActivityInfo records' tile: records of its linked names
         "activity_reports": activityinfo["records"],
-        "hact_assessments": [
-            {"type": a.type, "rating": a.rating, "completed": a.completed_date}
-            for a in extra["assessments"][:10]
-        ],
+        **_cut_named(
+            [
+                {"type": a.type, "rating": a.rating, "completed": a.completed_date}
+                for a in extra["assessments"][:MAX_PARTNER_ITEMS]
+            ],
+            "hact_assessments",
+            dm.PartnerAssessment.objects.filter(partner=partner).count(),
+            MAX_PARTNER_ITEMS,
+        ),
         "psea_assessment": (
             {
                 "status": extra["psea"].status,
@@ -649,12 +695,17 @@ def partner_details(partner_id: int) -> dict[str, Any]:
             for d in activityinfo["databases"]
         ],
         "linked_etools_records": dmq.linked_counts(partner=partner),
-        "financial_findings": [
-            {"engagement": f.reference_number, "title": f.title, "amount": f.amount}
-            for f in extra["audit_findings"][:10]
-        ],
+        **_cut_named(
+            [
+                {"engagement": f.reference_number, "title": f.title, "amount": f.amount}
+                for f in extra["audit_findings"][:MAX_PARTNER_ITEMS]
+            ],
+            "financial_findings",
+            partner.audit_findings.count(),
+            MAX_PARTNER_ITEMS,
+        ),
         "field_monitoring_findings_by_rating": extra["finding_ratings"],
-        "tpm_visits_recent": len(extra["tpm_visits"]),
+        "tpm_visits": dm.TPMVisit.objects.filter(partner=partner).count(),  # every one, not only the recent
         "knowledge_documents": _knowledge_documents("partner", partner.id),
         "url": reverse("reports:partner_profile", args=[partner.id]),
     }
@@ -687,6 +738,9 @@ def search_library(
 ) -> dict[str, Any]:
     params = {"q": text or "", "year": [year] if year else [], "section": [programme] if programme else []}
     page = search_resources(_Params(params), 1, per_page=MAX_LIBRARY)
+    maps = [
+        m for m in completed_maps() if not text or text.lower() in f"{m.name} {m.description or ''}".lower()
+    ]
     return {
         "count": page.paginator.count,
         **_cut(
@@ -697,7 +751,7 @@ def search_library(
                     "programme": r.section,
                     "type": r.type.name if r.type else None,
                     "topic": r.topic.name if r.topic else None,
-                    "summary": (r.description or "")[:600],
+                    "summary": _short(r.description, 600),
                     "url": reverse("reports:library_item", args=[r.id]),
                 }
                 for r in page
@@ -706,15 +760,19 @@ def search_library(
             page.paginator.count,
             MAX_LIBRARY,
         ),
-        "maps": [
-            {
-                "name": m.name,
-                "summary": (m.description or "")[:300],
-                "url": reverse("reports:map_item", args=[m.id]),
-            }
-            for m in completed_maps()
-            if not text or text.lower() in f"{m.name} {m.description or ''}".lower()
-        ][:15],
+        **_cut_named(
+            [
+                {
+                    "name": m.name,
+                    "summary": _short(m.description, 300),
+                    "url": reverse("reports:map_item", args=[m.id]),
+                }
+                for m in maps[:MAX_MAPS]
+            ],
+            "maps",
+            len(maps),
+            MAX_MAPS,
+        ),
     }
 
 
@@ -1039,8 +1097,10 @@ def pd_indicator_progress(
     ``neurodb.datamart.reached``) against the PD target, with Reached in the year by month and the
     on/off-track status. ``emergency``: Partner monitoring's Emergency filter (yes: the indicators of SPDs, as
     Power BI's Emergency indicator); each indicator says whether it is one. A list of more than DETAIL_ROWS
-    indicators sends narrower rows (:func:`_narrow_indicator`) unless ``detail`` asks for each row whole; the
-    totals and counts are the same either way."""
+    indicators sends Ask NeuroDB narrower rows (:func:`_narrow_indicator`) unless ``detail`` asks for each
+    row whole; the totals and counts are the same either way, and the other runs (NeuroDB Watch) read every
+    row whole. A partner or PD text that matches more than MAX_MATCHES is refused, with some of the
+    matches: the figures are never those of some of them only."""
     params: dict[str, Any] = {
         "report_type": report_type or monitoring.DEFAULT_REPORT_TYPE,
         "year": str(year) if year else "",
@@ -1049,23 +1109,37 @@ def pd_indicator_progress(
         "emergency": emergency or "",
     }
     if partner:
-        ids = [
-            str(pk)
-            for pk in PartnerOrganization.objects.filter(
+        matched = list(
+            PartnerOrganization.objects.filter(
                 Q(name__icontains=partner)
                 | Q(short_name__icontains=partner)
                 | Q(vendor_number__iexact=partner)
-            ).values_list("pk", flat=True)[:20]
-        ]
-        if not ids:
+            )
+            .order_by("name")
+            .values_list("pk", "name")[: MAX_MATCHES + 1]
+        )
+        if not matched:
             raise ToolInputError(f"No partner matches '{partner}'.")
-        params["partner"] = ids
+        if len(matched) > MAX_MATCHES:  # never the figures of some of them only
+            names = "; ".join(name for _pk, name in matched[:10])
+            raise ToolInputError(
+                f"More than {MAX_MATCHES} partners match '{partner}', for example: {names}. "
+                "Give a narrower name, a short name or a vendor number."
+            )
+        params["partner"] = [str(pk) for pk, _name in matched]
     if programme_document:
         numbers = list(
-            PCA.objects.filter(number__icontains=programme_document).values_list("number", flat=True)[:20]
+            PCA.objects.filter(number__icontains=programme_document)
+            .order_by("number")
+            .values_list("number", flat=True)[: MAX_MATCHES + 1]
         )
         if not numbers:
             raise ToolInputError(f"No programme document numbered like '{programme_document}'.")
+        if len(numbers) > MAX_MATCHES:
+            raise ToolInputError(
+                f"More than {MAX_MATCHES} programme documents are numbered like '{programme_document}', for "
+                f"example: {'; '.join(numbers[:10])}. Give more of the number."
+            )
         params["pd"] = numbers
     if section:
         params["section"] = _match_options(
@@ -1083,7 +1157,7 @@ def pd_indicator_progress(
     filters = monitoring.Filters.from_params(_Params(params))
     rows = monitoring.indicators(filters)
     data = monitoring.summary(rows, filters)
-    whole = detail or len(rows) <= DETAIL_ROWS
+    whole = detail or len(rows) <= DETAIL_ROWS or not _FOR_ASK.get()  # narrower rows: Ask NeuroDB's alone
     listed = [r.as_dict() if whole else _narrow_indicator(r.as_dict()) for r in rows[:MAX_ROWS]]
     return {
         "filters": {
@@ -1200,7 +1274,7 @@ def _knowledge_documents(kind: str, object_id: int) -> list[dict[str, Any]]:
     from neurodb.knowledge.search import linked
 
     return [
-        {"title": d.title, "summary": d.summary[:300], "url": d.get_absolute_url()}
+        {"title": d.title, "summary": _short(d.summary, 300), "url": d.get_absolute_url()}
         for d in linked(kind, object_id)
     ]
 
@@ -1259,7 +1333,7 @@ def search_knowledge(
                 "title": d.title,
                 "source": d.source,
                 "date": d.document_date or d.year,
-                "summary": d.summary[:600],
+                "summary": _short(d.summary, 600),
                 "linked_to": _knowledge_links(d),
                 "url": d.get_absolute_url(),
             }
@@ -1277,6 +1351,9 @@ def read_knowledge(document_id: int, part: int = 1) -> dict[str, Any]:
     if document is None:
         raise ToolInputError(f"No ready knowledge base document {document_id}.")
     text = document.text.replace("\f", "\n\n")
+    if _FOR_ASK.get() and len(text) > KNOWLEDGE_PART:
+        # cleaned whole, then split: a name or a number is never split across two parts before it is cleaned
+        text = privacy.text(text)
     parts = max(1, -(-len(text) // KNOWLEDGE_PART))
     if part > parts:
         raise ToolInputError(f"The document has {parts} part(s).")

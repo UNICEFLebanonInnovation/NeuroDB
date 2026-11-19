@@ -58,6 +58,10 @@ address.
 - **Cleaned before sending**: monitors' notes, checklist answers, action point texts and your question
   to Chat with Data or the Help assistant lose the person names NeuroDB knows, e-mail addresses, phone
   numbers and links.
+- **Ask NeuroDB** sends your question, the earlier questions and answers of the conversation and what it
+  looks up, after taking out the people it can find: e-mail addresses, phone numbers, links, the full
+  names of the people NeuroDB knows and any name after a title (see
+  [Ask NeuroDB](/help/ask-neurodb/#what-goes-to-the-ai)).
 - **The Help assistant** sends your question, the page you are on and the guide sections and settings
   it looks up; never programme data beyond a visit's score explanation, and never a password or a key.
 - **Ask the KM Database** sends your question (cleaned as above, and without the KM Database's authors)

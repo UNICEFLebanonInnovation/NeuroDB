@@ -182,6 +182,9 @@ class Outcome:
     status: str = "answered"
     tools: list[dict[str, Any]] = field(default_factory=list)
     model: str = ""
+    # the model the requests were sent to, read once when the answer starts: what AI use books the answer
+    # under when no tokens are kept per model (OpenAI), whatever AI settings say by the time it ends
+    asked: str = ""
     input_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0  # of input_tokens, those written to the cache (Claude only)
@@ -536,8 +539,11 @@ def _lead(answer: str) -> str:
 def ask_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Ask NeuroDB's earlier turns as they are sent: every question whole, the latest answer whole, and each
     older answer shortened to its first paragraph and LEFT_OUT (an answer of one paragraph is sent as it is).
-    The same turns always give the same text, so a request only adds to the one before it. Help, Monitoring
-    insights and NeuroDB Watch send their earlier turns as they are."""
+    The same turns always give the same text, so within a question each call only adds to the one before
+    it. From one question to the next they do not: the latest answer, whole now, is shortened in the next
+    follow-up. So on Claude the question before it carries a cache breakpoint of its own
+    (:func:`_mark_for_cache`): the next follow-up starts with the same messages up to there and reads them
+    from the cache. Help, Monitoring insights and NeuroDB Watch send their earlier turns as they are."""
     shaped = []
     for n, turn in enumerate(history):
         answer = turn.get("answer")
@@ -547,6 +553,22 @@ def ask_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 turn = {**turn, "answer": f"{lead}\n\n{LEFT_OUT}"}
         shaped.append(turn)
     return shaped
+
+
+def _mark_for_cache(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ask NeuroDB's earlier turns for Claude with the last earlier question marked for the cache: the
+    messages up to it are the same in the next follow-up (its answer, sent whole now, is shortened then:
+    :func:`ask_history`), so that follow-up reads them from the cache instead of writing them again. With
+    the stable instructions and the conversation's end (the top-level ``cache_control``), a request has 3
+    of Claude's 4 breakpoints."""
+    if len(messages) < 2 or messages[-2]["role"] != "user":
+        return messages
+    question = messages[-2]
+    marked = {
+        **question,
+        "content": [{"type": "text", "text": question["content"], "cache_control": claude_backend.EPHEMERAL}],
+    }
+    return [*messages[:-2], marked, messages[-1]]
 
 
 def history_messages(history: list[dict[str, str]]) -> list[dict[str, Any]]:
@@ -698,12 +720,13 @@ def _arguments(raw: str | None) -> Any:
 
 
 def _lookup(name: str, args: Any, options: RunOptions | None) -> Any:
-    """One tool's result as the model reads it. Ask NeuroDB's (no ``options``) without people
-    (``privacy.result``). A background run (``options``) may only call its own tools, runs them read-only
-    when it asks to, and passes every result through its own filter, all inside its ``tool_context`` when
-    it has one (entered anew for each call)."""
+    """One tool's result as the model reads it. Ask NeuroDB's (no ``options``) run inside
+    ``tools.for_ask()`` and without the people the cleaner finds (``privacy.result``). A background run
+    (``options``) may only call its own tools, runs them read-only when it asks to, and passes every result
+    through its own filter, all inside its ``tool_context`` when it has one (entered anew for each call)."""
     if options is None:
-        return privacy.result(name, tools.run(name, args))
+        with tools.for_ask():  # a long text cleaned whole before it is cut; Ask's narrower rows
+            return privacy.result(name, tools.run(name, args))
     with options.tool_context() if options.tool_context else nullcontext():
         if options.read_only:
             with tools.read_only():
@@ -791,7 +814,8 @@ def answer(
 
     ``user`` (the person asking) is only used for the hashed identifier sent to the provider.
     ``options`` is for a run no person asks for (see RunOptions); None is Ask NeuroDB's request, whose
-    question and earlier turns are sent without people (``privacy``), as its lookups' results are.
+    question and earlier turns are sent without the people the cleaner finds (``privacy``), as its
+    lookups' results are.
     """
     if options is None:
         question, history = privacy.question(question), ask_history(privacy.history(history[-HISTORY_TURNS:]))
@@ -803,6 +827,7 @@ def answer(
     max_rounds = settings.AI_ASSISTANT_MAX_TOOL_ROUNDS if options is None else options.max_rounds
     deadline = time.monotonic() + time_limit
     request = _request(user, options)
+    outcome.asked = request["model"]  # the model the answer is booked under (views._stream)
     items: list[dict[str, Any]] = [*history_messages(history), {"role": "user", "content": question}]
     final_text = ""
     round_no = 0
@@ -914,8 +939,11 @@ def _answer_claude(
     max_rounds = settings.AI_ASSISTANT_MAX_TOOL_ROUNDS if options is None else options.max_rounds
     deadline = time.monotonic() + time_limit
     request = _claude_request(user, options)
-    asked = request["model"]
-    messages: list[dict[str, Any]] = [*_claude_history(history), {"role": "user", "content": question}]
+    asked = outcome.asked = request["model"]
+    earlier = _claude_history(history)
+    if options is None:  # Ask NeuroDB: its earlier answers are shaped, so its last earlier question is marked
+        earlier = _mark_for_cache(earlier)
+    messages: list[dict[str, Any]] = [*earlier, {"role": "user", "content": question}]
     final_text = ""
     round_no = 0
     unreadable = False  # the previous round's tool input could not be read

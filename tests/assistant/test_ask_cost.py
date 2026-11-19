@@ -17,6 +17,7 @@ from neurodb.help import assistant as help_assistant
 from neurodb.knowledge.models import Document, Link
 from neurodb.partnerships.models import PCA, PartnerOrganization
 from tests.assistant.anthropic_mock import text, tool_use, turn
+from tests.assistant.test_ask_privacy import _said
 from tests.assistant.test_assistant import ENABLED, FakeClient, call, reply, say
 from tests.reports.test_pd_monitoring import data, frozen_today, report_rows  # noqa: F401 - fixtures
 
@@ -67,12 +68,14 @@ TOTALS = (
 # --------------------------------------------------------------------------- narrower rows, not fewer
 def test_a_long_list_of_pd_indicators_leaves_out_each_rows_detail(data, frozen_today, monkeypatch):  # noqa: F811 - fixtures
     asked = {"partner": "amel", "year": 2026}
-    whole = tools.run("pd_indicator_progress", asked)
+    with tools.for_ask():  # Ask NeuroDB's lookup (agent._lookup without options)
+        whole = tools.run("pd_indicator_progress", asked)
     assert len(whole["indicators_detail"]) == 2 and "left_out" not in whole  # a short list comes whole
     assert all(DETAIL <= set(row) for row in whole["indicators_detail"])
 
     monkeypatch.setattr(tools, "DETAIL_ROWS", 1)  # now the same two rows make a long list
-    narrow = tools.run("pd_indicator_progress", asked)
+    with tools.for_ask():
+        narrow = tools.run("pd_indicator_progress", asked)
     assert {key: narrow[key] for key in TOTALS} == {key: whole[key] for key in TOTALS}  # totals kept
     assert len(narrow["indicators_detail"]) == 2  # narrower rows, not fewer
     for full, row in zip(whole["indicators_detail"], narrow["indicators_detail"], strict=True):
@@ -85,8 +88,24 @@ def test_a_long_list_of_pd_indicators_leaves_out_each_rows_detail(data, frozen_t
             assert (flag in row) is bool(full[flag]) and row.get(flag, False) == full[flag]
     assert "detail=true" in narrow["left_out"] and "by_month" in narrow["left_out"]
 
-    detailed = tools.run("pd_indicator_progress", {**asked, "detail": True})
+    with tools.for_ask():
+        detailed = tools.run("pd_indicator_progress", {**asked, "detail": True})
     assert detailed == whole  # detail=true: every row whole, as before
+
+
+def test_neurodb_watch_and_the_other_runs_read_every_row_whole(data, frozen_today, monkeypatch):  # noqa: F811 - fixtures
+    """The narrower rows are Ask NeuroDB's alone: NeuroDB Watch asks how a figure changed, and its
+    instructions never mention detail=true."""
+    from neurodb.watch import investigate
+
+    monkeypatch.setattr(tools, "DETAIL_ROWS", 1)
+    asked = {"partner": "amel", "year": 2026}
+    watch = agent._lookup("pd_indicator_progress", asked, investigate.run_options([], frozenset()))
+    assert "left_out" not in watch and len(watch["indicators_detail"]) == 2
+    assert all({"by_month", "by_year", "locations"} <= set(row) for row in watch["indicators_detail"])
+    assert "left_out" not in tools.run("pd_indicator_progress", asked)
+    ask = agent._lookup("pd_indicator_progress", asked, None)
+    assert "left_out" in ask and not DETAIL & set(ask["indicators_detail"][0])
 
 
 def test_a_narrow_row_keeps_a_flag_that_is_true():
@@ -257,7 +276,7 @@ def test_ask_sends_the_shaped_turns_and_each_round_only_adds_to_them(claude, db,
     )
     list(agent.answer("And Bekaa?", _turns(3), agent.Outcome()))
     first, second = (r["body"]["messages"] for r in server.requests)
-    assert [m["content"] for m in first] == [
+    assert [_said(m) for m in first] == [
         "Question 1 about Akkar?",
         f"{LEAD}\n\n{agent.LEFT_OUT}",
         "Question 2 about Akkar?",
@@ -291,7 +310,7 @@ def test_a_figure_only_an_older_answers_left_out_part_gave_is_listed(claude, db)
             "And Cedar Relief?", _turns(2)[:1] + [{"question": "Q2?", "answer": "No figure."}], outcome
         )
     )
-    assert events[-1]["notice"].endswith("4950.")  # the model was never sent the table that gave it
+    assert events[-1]["notice"].endswith("4,950.")  # the model was never sent the table that gave it
     assert "1240" not in events[-1]["notice"]  # the first paragraph was sent
 
 
@@ -317,3 +336,53 @@ def test_the_instructions_ask_for_every_independent_lookup_in_the_same_round():
         "for a result only when the next lookup needs it."
     ) in agent.SYSTEM_PROMPT
     assert settings.AI_ASSISTANT_MAX_TOOL_ROUNDS == 8  # the limit of rounds stays
+
+
+# ------------------------------------------------------------------------- the cache across follow-ups
+def _marked(messages: list[dict]) -> list[int]:
+    """The messages that carry a cache breakpoint of their own."""
+    return [
+        n
+        for n, message in enumerate(messages)
+        if isinstance(message["content"], list) and any("cache_control" in b for b in message["content"])
+    ]
+
+
+def test_a_follow_up_marks_the_last_earlier_question_for_the_cache(claude, db):
+    server = claude(turn([text("Done.")]))
+    list(agent.answer("And Bekaa?", _turns(3), agent.Outcome()))
+    body = server.requests[0]["body"]
+    messages = body["messages"]
+    # the question before the latest answer, which is sent whole now and shortened in the next follow-up
+    assert _marked(messages) == [4] and _said(messages[4]) == "Question 3 about Akkar?"
+    breakpoints = json.dumps(body).count('"cache_control"')
+    assert breakpoints == 3  # the stable instructions, this question and the conversation's end: at most 4
+
+
+def test_the_next_follow_up_starts_with_what_the_last_one_cached(claude, db):
+    """Request N caches its messages up to the marked question; request N+1 starts with the same ones, so it
+    reads them from the cache instead of writing them again."""
+    server = claude(turn([text("Done.")]), turn([text("Done.")]), turn([text("Done.")]))
+    for asked in range(2, 5):
+        list(agent.answer("And Bekaa?", _turns(asked), agent.Outcome()))
+    for earlier, later in zip(server.requests, server.requests[1:], strict=False):
+        before, after = earlier["body"]["messages"], later["body"]["messages"]
+        (mark,) = _marked(before)
+        assert [_said(m) for m in after[: mark + 1]] == [_said(m) for m in before[: mark + 1]]
+        assert earlier["body"]["system"] == later["body"]["system"]
+
+
+def test_a_question_without_earlier_turns_marks_nothing_more(claude, db):
+    server = claude(turn([text("Done.")]))
+    list(agent.answer("And Bekaa?", [], agent.Outcome()))
+    assert _marked(server.requests[0]["body"]["messages"]) == []
+
+
+def test_help_and_other_runs_mark_no_earlier_question(claude, viewer):
+    server = claude(turn([text("Done.")]))
+    list(
+        agent.answer(
+            "And?", _turns(3), agent.Outcome(), options=help_assistant.options(viewer, "The page: Home.")
+        )
+    )
+    assert _marked(server.requests[0]["body"]["messages"]) == []

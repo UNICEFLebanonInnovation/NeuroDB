@@ -20,42 +20,66 @@ read-only look-ups, and it links each answer to the pages its figures come from.
 
 ## How NeuroDB checks an answer
 
-Before you see an answer, NeuroDB compares it with the data it looked up for that answer.
+You see the answer as the AI writes it. When the answer is finished, NeuroDB compares it with the data it
+looked up for that answer, and the answer you see then is the checked one, with any figure it could not
+check listed under it.
 
-- **Figures.** A figure that none of the look-ups gave is listed in a line under the answer: *These
-  figures could not be checked against the data: 4950.* Check those figures on the pages the answer
-  links to before you use them. NeuroDB never changes a figure or hides an answer; the line only tells
-  you what it could not find. It does not list years, dates, programme document references, page
-  numbers, small counts (up to 10), figures your question gives, figures an earlier answer of the same
-  conversation gave in the part the AI was sent (the last answer, and the first paragraph of older ones),
-  unless they were listed then, or simple percentages and totals: a reached figure over its target in the
-  same row of a look-up (1,200 of 1,500 is 80%), the total of a column, or the share, sum or difference of
-  two figures written in the same sentence ("450 of 1,500, 30%", "from 450 to 1,200, 750 more"). Other
-  sums and percentages are listed, so check them too.
-- **Links.** A link to a NeuroDB page that no look-up gave (and no earlier answer of the conversation
-  gave) keeps its words but stops being a link.
+- **Figures.** A figure that none of the look-ups gave is listed in a line under the answer, as the answer
+  writes it: *These figures could not be checked against the data: 4,950, 63.5%.* Check those figures on
+  the pages the answer links to before you use them. NeuroDB never changes a figure or hides an answer;
+  the line only tells you what it could not find. It does not list:
+  - years, dates, programme document references, page numbers, small counts (up to 10) and 100%;
+  - figures your question gives, and figures an earlier answer of the same conversation gave in the part
+    the AI was sent (the last answer, and the first paragraph of older ones), unless they were listed then;
+  - a figure written in millions or thousands ("USD 12.4 million", "$450K") that a look-up gave in full;
+  - simple percentages and totals worked out from one look-up: a figure over its target in the same row
+    ("this year it reached 40% of its target", when the row has 600 and 1,500), a count over the total it
+    belongs to ("12 of the 30 indicators are on track: 40%"), the total of a column, or a figure over
+    another in a short row of up to 4 figures;
+  - the share, sum or difference of two figures written side by side: in the same sentence or the one
+    just before, in a line of a list and the line that leads into the list, or in a table row and its
+    column's total ("450 of 1,500, 30%", "from 1,500 to 1,200, a drop of 20%", "a target of 4,000; 2,750
+    to go").
 
-Monitoring insights' Chat with Data checks its answers the same way and uses the same words.
+  Other sums and percentages are listed, so check them too. A percentage must be one the look-up gives
+  as a percentage or one worked out as above: a count that happens to be the same number does not count.
+  Ids and the numbers inside links never count as figures, and a figure in a link's words is checked like
+  any other.
+- **Links.** A link to a NeuroDB page that no look-up gave, and that no earlier answer gave in the part
+  the AI was sent (the last answer, and the first paragraph of older ones), keeps its words but stops
+  being a link.
+
+Chat with Data in Monitoring insights uses the same line to list the figures it could not check. Its
+check is its own: it also checks visit links, and it lists more figures, such as years and percentages it
+could work out.
 
 ## What goes to the AI
 
-NeuroDB sends no person to the AI. Before your question, the earlier questions and answers and the result
-of each look-up leave NeuroDB, it takes out:
+Before your question, the earlier questions and answers and the result of each look-up leave NeuroDB, it
+takes out the people it can find:
 
-- e-mail addresses, also written out ("name at example dot org");
+- e-mail addresses, also written out ("name at example dot org") or with extra spaces or line breaks;
 - web links (links to NeuroDB's own pages stay);
-- phone numbers;
-- the names of the people NeuroDB knows (its users, partner staff, focal points, the people eTools
+- phone numbers, also split by extra spaces or a line break;
+- the full names of the people NeuroDB knows (its users, partner staff, focal points, the people eTools
   records name) and any name written after a title such as Mr, Mrs, Dr or Sheikh.
 
 Each one becomes a note such as *[name withheld]* or *[email withheld]*. This covers what people wrote
-too: document passages and summaries, document review quotes, staff comments on Neuro and HPM reports
-and the daily review's details. Figures, dates, references and the names of partners, sections, places
-and documents stay. In a look-up's result, a partner or place named after Dr or Sheikh keeps its name;
-in your question it does not, so ask about it by its short name or vendor number.
+too: document passages, titles, sources and summaries, document review quotes, staff comments on Neuro
+and HPM reports and the daily review's details. A long text is cleaned whole before it is cut short.
 
-NeuroDB cannot spot the name of a person it does not know when no title comes before it, so do not type
-personal data. Your own list of questions keeps each question as you typed it.
+Dates, references and the names of partners, sections, places and documents stay. Figures stay too, but
+a number written like a phone number (8 digits, or "71 123 456") is taken out, unless a currency or a
+count is written right next to it ("LBP 71 500 000", "81 250 300 people") or it is an amount in a look-up.
+
+A name after Dr or Sheikh stays only where it is the name of a partner or a place (a look-up's partner,
+governorate or donor, a document's linked partner), and in an earlier answer, which the AI wrote from those
+names. In a document's title or source, in a report or a topic, and in your question it is taken out, so
+ask about such a partner by its short name or vendor number.
+
+NeuroDB cannot spot the name of a person it does not know when no title comes before it, nor a first name
+or a surname written alone ("Layla checked the figures"), so do not type personal data. Your own list of
+questions keeps each question as you typed it.
 
 ## What it can and cannot read
 
@@ -87,9 +111,9 @@ Administrators choose the AI model in AI settings. Next to the Claude model, the
 an effort for Ask NeuroDB alone: *Ask NeuroDB model* and *Ask NeuroDB effort*. The effort is how much the
 AI thinks before it answers: lower is quicker and cheaper, higher is more thorough. Left blank, Ask
 NeuroDB uses the Claude model and effort. The two count only while Claude is the AI in use, and only for
-Ask NeuroDB: the Help assistant, Chat with Data and NeuroDB Watch keep the Claude model. A change applies
-within about 10 seconds, with no restart. *Test the connection* in AI settings then tries Ask NeuroDB's
-model and effort too, on a line of its own.
+Ask NeuroDB: the other AI features keep the model and effort they had (the Claude model, or their own). A
+change applies within about 10 seconds, with no restart. While Claude is in use, *Test the connection* in
+AI settings then tries Ask NeuroDB's model and effort too, and says what happened on a line of its own.
 
 ## Limits
 

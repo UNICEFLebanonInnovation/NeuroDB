@@ -38,7 +38,7 @@ import datetime
 import functools
 import json
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -522,22 +522,84 @@ def _phone_number(text: str, fm: bool) -> bool:
     return fm and bool(re.fullmatch(FM_WHOLE_PHONE, text))
 
 
-def _phones(text: str, fm: bool) -> str:
+# A run of spaces or line breaks other than one space ("03  123456", "03\n\n123456", "x  @  example . org"):
+# the patterns of addresses and phones are written for a text on one line, as a record's text is sent
+# (:func:`_clean_text`); in a text that keeps its line breaks they run once more with each run read as one
+# space (:func:`_on_one_line`)
+_SPACING = re.compile(r"\s{2,}|[^\S ]")
+_SPACE_RUN = re.compile(r"\s+")
+# A currency or a count right next to a number (Ask NeuroDB's texts, ``amounts``: "LBP 76 500 000", "USD
+# 71.500.000", "71500000 LBP", "81 250 300 people"): an amount or a count, not a phone
+_CURRENCY = r"LBP|L\.\s?L\.|LL|USD|US\$|EUR|GBP|CHF|SYP"
+_AMOUNT_BEFORE = re.compile(rf"(?:\b(?:{_CURRENCY})|[$€£])\s*$", re.IGNORECASE)
+_AMOUNT_AFTER = re.compile(
+    rf"^\s*(?:(?:{_CURRENCY}|dollars?|pounds?|lira|lire|euros?)\b|[$€£]"
+    r"|(?:people|persons?|individuals|children|boys|girls|youths?|adolescents|students|learners|pupils"
+    r"|beneficiaries|households|families|women|men|refugees|residents|caregivers|parents|teachers)\b)",
+    re.IGNORECASE,
+)
+
+
+def _on_one_line(
+    text: str, find: Callable[[str], Iterable[re.Match]], replace: Callable[[re.Match], str]
+) -> str:
+    """``text`` with what ``find`` finds in it once each run of spaces and line breaks is read as one space
+    replaced (``replace``: the match's replacement, or the match itself to keep it), in the text as
+    written: the other line breaks and spaces stay."""
+    if not _SPACING.search(text):
+        return text
+    parts, where, last = [], [], 0  # the text on one line, and where each of its characters is in ``text``
+    for run in _SPACE_RUN.finditer(text):
+        parts += [text[last : run.start()], " "]
+        where += [*range(last, run.start()), run.start()]
+        last = run.end()
+    parts.append(text[last:])
+    where += [*range(last, len(text)), len(text)]
+    out, last = [], 0
+    for match in find("".join(parts)):
+        new = replace(match)
+        if new == match.group(0):
+            continue
+        out += [text[last : where[match.start()]], new]
+        last = where[match.end()]
+    return "".join([*out, text[last:]]) if out else text
+
+
+def _beside_amount(match: re.Match) -> bool:
+    """A currency or a count is written right before or after the number ``match`` found, and the number
+    reads as an amount: no leading 0, 961 or + ("LBP 03 123 456" is a phone)."""
+    found = match.group(0).lstrip()
+    if found[:1] in "+(0" or re.sub(r"\D", "", found).startswith("961"):
+        return False
+    return bool(
+        _AMOUNT_BEFORE.search(match.string, max(0, match.start() - 12), match.start())
+        or _AMOUNT_AFTER.match(match.string[match.end() : match.end() + 20])
+    )
+
+
+def _phones(text: str, fm: bool, amounts: bool = False) -> str:
     """``text`` without phone numbers: in field monitoring any Lebanese number (``people.PHONE``),
     elsewhere those with a phone's prefix (``people.PREFIXED_PHONE``: "USD 1250000" and "1 500 000" are
     amounts), and every international number. A number with a phone's prefix is never taken for an
     amount, next to a currency or not ("LBP 71.500.000" is withheld), unless its last six digits are 0
-    ("LBP 70.000.000", "81 000 000"): no phone ends so."""
+    ("LBP 70.000.000", "81 000 000"): no phone ends so; with ``amounts`` (Ask NeuroDB's texts), not when a
+    currency or a count is written right next to it and it starts as an amount does, with no 0, 961 or +
+    (:func:`_beside_amount`). A number split by
+    more spaces or a line break ("03  123456", "03\n\n123456") is found too (:func:`_on_one_line`)."""
     from neurodb.watch import people
 
     def withheld(match: re.Match) -> str:
         found = match.group(0)
         if not fm and re.sub(r"\D", "", found).endswith("000000"):
             return found
+        if amounts and not fm and _beside_amount(match):
+            return found
         return people.PHONE_WITHHELD
 
-    text = (people.PHONE if fm else people.PREFIXED_PHONE).sub(withheld, text)
-    return people.INTL_PHONE.sub(people.PHONE_WITHHELD, text)
+    pattern = people.PHONE if fm else people.PREFIXED_PHONE
+    text = _on_one_line(pattern.sub(withheld, text), pattern.finditer, withheld)
+    text = people.INTL_PHONE.sub(people.PHONE_WITHHELD, text)
+    return _on_one_line(text, people.INTL_PHONE.finditer, lambda _match: people.PHONE_WITHHELD)
 
 
 def _clean_text(
@@ -561,13 +623,20 @@ def _clean_text(
 
 
 def clean_written(
-    text: str, names: frozenset[str], own: frozenset[str] = frozenset(), keeps: bool = False, fm: bool = False
+    text: str,
+    names: frozenset[str],
+    own: frozenset[str] = frozenset(),
+    keeps: bool = False,
+    fm: bool = False,
+    amounts: bool = False,
 ) -> str:
     """``text`` without e-mail addresses (whole, cut short, spaced or spelled out), links, the person names
     NeuroDB knows (``names``) and ``own``, phone numbers (:func:`_phones`; field monitoring's rule with
     ``fm``) and names written after a title (after Sheikh or Dr only without ``keeps``, and always in field
     monitoring), each replaced by its placeholder, with its line breaks and spaces as written (a name
-    written over two lines is still found: names are compared word by word). The cleaning of
+    written over two lines is still found: names are compared word by word; an address or a phone number
+    written with more spaces or over two lines too, :func:`_on_one_line`). ``amounts``: a number with a
+    phone's prefix right next to a currency or a count is an amount (:func:`_phones`). The cleaning of
     :func:`_clean_text`, which first puts a record's text on one line (``redact.text`` then changes
     nothing more); Ask NeuroDB cleans its question, its earlier turns and its other lookups' results with
     it (``assistant.privacy``). The same text always gives the same text, and a cleaned text is not
@@ -575,17 +644,25 @@ def clean_written(
     from neurodb.watch import people, redact  # lazy: watch already reads the datamart lazily
 
     text = people.visible(text)
+
     # each pattern only where what it needs is written (an at sign, "at", a digit, an Arabic letter): the
     # same text, much faster on the thousands of records a search checks
-    text = people.SPELLED_EMAIL.sub(people.EMAIL_WITHHELD, text) if _SPELLED_HINT.search(text) else text
+    def email(_match: re.Match) -> str:
+        return people.EMAIL_WITHHELD
+
+    if _SPELLED_HINT.search(text):
+        text = people.SPELLED_EMAIL.sub(people.EMAIL_WITHHELD, text)
+        text = _on_one_line(text, people.SPELLED_EMAIL.finditer, email)
     # redact.text without putting the text on one line: addresses first (an address holds a domain),
     # links, then the names
     text = people.EMAIL.sub(people.EMAIL_WITHHELD, text)
+    if _AT_HINT.search(text):
+        text = _on_one_line(text, people.EMAIL.finditer, email)
     text = people.scrub(redact.LINK.sub(redact.LINK_WITHHELD, text), names, own)
     if _AT_HINT.search(text):
-        text = AT_WORD.sub(people.EMAIL_WITHHELD, text)
+        text = _on_one_line(AT_WORD.sub(people.EMAIL_WITHHELD, text), AT_WORD.finditer, email)
     if _DIGIT.search(text):
-        text = _phones(text, fm)
+        text = _phones(text, fm, amounts)
     text = people.PERSON_TITLE_NAME.sub(people.NAME_WITHHELD, text)
     arabic = not text.isascii()
     if arabic:

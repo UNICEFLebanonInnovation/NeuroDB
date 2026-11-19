@@ -115,7 +115,14 @@ class ClaudeScript:
         return am.http_error(402, am.error_body("billing_error", "Your credit balance is too low."))
 
     def earlier(self, body):
-        return [(message["role"], message["content"]) for message in body["messages"][:-1]]
+        """The earlier turns, as (role, text): the last earlier question is a block marked for the cache."""
+        return [
+            (
+                m["role"],
+                m["content"] if isinstance(m["content"], str) else "".join(b["text"] for b in m["content"]),
+            )
+            for m in body["messages"][:-1]
+        ]
 
     def results(self, body):
         return {

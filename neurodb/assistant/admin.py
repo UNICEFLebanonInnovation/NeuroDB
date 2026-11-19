@@ -115,7 +115,7 @@ class AIUsageAdmin(ReadOnlyModelAdmin):
     def written(self, obj):
         return f"{obj.cache_write_tokens:,}"
 
-    @admin.display(description=_("Cached prompt tokens"), ordering="cached_tokens")
+    @admin.display(description=_("Prompt tokens read from the cache"), ordering="cached_tokens")
     def cached(self, obj):
         return f"{obj.cached_tokens:,}"
 
@@ -546,9 +546,10 @@ class AISettingsAdmin(ModelAdmin):
             "title": _("Test the connection"),
             "description": _(
                 'Sends the AI provider in use one short message ("Reply with the word OK."), with no NeuroDB '
-                "data, and says whether the key, the model and the credit work. When an Ask NeuroDB model or "
-                "effort is chosen, it sends that one too and says so on a line of its own. It takes a few "
-                "seconds and a few tokens, counted in AI use as the connection test."
+                "data, and says whether the key, the model and the credit work. While Claude is in use and "
+                "an Ask NeuroDB model or effort is chosen, it also tries that pair and says what happened on "
+                "a line of its own. It takes a few seconds and a few tokens, counted in AI use as the "
+                "connection test."
             ),
             "form_class": TestConnectionForm,
             "form_submit_text": _("Test"),
