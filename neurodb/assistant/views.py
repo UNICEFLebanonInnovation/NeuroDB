@@ -21,7 +21,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from neurodb.knowledge.access import can_add as can_add_knowledge
 
-from . import agent, llm, usage
+from . import agent, figures, llm, usage
 from .llm import openai_backend
 from .models import AssistantQuestion
 
@@ -79,7 +79,9 @@ def _sse(event: dict) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
-def _history(user, conversation: uuid.UUID | None) -> list[dict[str, str]]:
+def _history(user, conversation: uuid.UUID | None) -> list[dict]:
+    """The last answered turns of the conversation: each question, answer and the figures the answer's
+    check listed (``unchecked``: the check reads them, so a figure listed once is listed again)."""
     if not conversation:
         return []
     rows = (
@@ -87,9 +89,12 @@ def _history(user, conversation: uuid.UUID | None) -> list[dict[str, str]]:
             user=user, conversation=conversation, status=AssistantQuestion.Status.ANSWERED
         )
         .order_by("-created_at")
-        .values("question", "answer")[: agent.HISTORY_TURNS]
+        .values("question", "answer", "tools")[: agent.HISTORY_TURNS]
     )
-    return list(reversed(rows))
+    return [
+        {"question": row["question"], "answer": row["answer"], "unchecked": figures.listed(row["tools"])}
+        for row in reversed(rows)
+    ]
 
 
 def _over_limit(user) -> bool:
@@ -159,7 +164,8 @@ def _stream(request: HttpRequest, row: AssistantQuestion) -> Iterator[str]:
             outcome.status, outcome.error = AssistantQuestion.Status.FAILED, outcome.error or "stopped"
         row.answer = _storable(outcome.answer)
         row.status = outcome.status
-        row.tools = _storable(outcome.tools)
+        # the lookups, then what the check of the answer found when it listed a figure or took a link out
+        row.tools = _storable([*outcome.tools, outcome.check] if outcome.check else outcome.tools)
         row.model = outcome.model or llm.model_for("")
         row.input_tokens = outcome.input_tokens
         row.cache_read_tokens = outcome.cache_read_tokens

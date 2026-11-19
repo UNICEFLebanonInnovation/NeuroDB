@@ -18,7 +18,7 @@ from unfold.widgets import UnfoldAdminPasswordWidget, UnfoldAdminSelectWidget, U
 
 from neurodb.web.admin_helpers import ReadOnlyModelAdmin, badge
 
-from . import llm, usage
+from . import figures, llm, usage
 from .llm import keys
 from .models import AISettings, AIUsage, AssistantQuestion
 
@@ -27,7 +27,9 @@ TONES = {"answered": "ok", "refused": "warn", "failed": "bad", "limited": "muted
 
 @admin.register(AssistantQuestion)
 class AssistantQuestionAdmin(ReadOnlyModelAdmin):
-    list_display = ("created_at", "user", "question_short", "status_badge", "lookups", "tokens", "duration")
+    list_display = (
+        "created_at", "user", "question_short", "status_badge", "lookups", "unchecked", "tokens", "duration",
+    )  # fmt: skip
     list_filter = ("status", "created_at", "model")
     search_fields = ("question", "answer", "user__username")
     date_hierarchy = "created_at"
@@ -44,7 +46,13 @@ class AssistantQuestionAdmin(ReadOnlyModelAdmin):
 
     @admin.display(description=_("Lookups"))
     def lookups(self, obj):
-        return len(obj.tools or [])
+        # the last entry may be the check of the answer (figures.py), not a lookup
+        return sum(1 for entry in obj.tools or [] if isinstance(entry, dict) and "tool" in entry)
+
+    @admin.display(description=_("Figures not checked"))
+    def unchecked(self, obj):
+        """The figures listed under the answer: none of its lookups returned them."""
+        return len(figures.listed(obj.tools)) or ""
 
     @admin.display(description=_("Tokens in / out"))
     def tokens(self, obj):

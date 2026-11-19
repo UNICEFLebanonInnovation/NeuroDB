@@ -16,12 +16,16 @@ and the people or contacts it may name.
 The notice under the answer says what was done: "All visit references were checked against the visits
 looked up." or "1 visit reference was removed (not among the visits looked up). These figures could not
 be checked against the data: 444, 1004."
+
+Ask NeuroDB checks its answers with the same parts (``neurodb.assistant.figures``): the links, the figures
+(:func:`_unchecked`, with its own figures set aside) and the sentence that lists them (:func:`figures_line`).
 """
 
 from __future__ import annotations
 
 import html
 import re
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 from django.utils.translation import gettext as _
@@ -74,11 +78,17 @@ class Checked:
         else:
             parts = [_("All visit references were checked against the visits looked up.")]
         if self.unchecked_numbers:
-            shown = ", ".join(self.unchecked_numbers[:SHOWN_NUMBERS])
-            parts.append(
-                _("These figures could not be checked against the data: %(numbers)s.") % {"numbers": shown}
-            )
+            parts.append(figures_line(self.unchecked_numbers))
         return " ".join(parts)
+
+
+def figures_line(numbers: Sequence[str]) -> str:
+    """The sentence under an answer that lists the figures no look-up returned (at most ``SHOWN_NUMBERS``);
+    "" when there are none. Monitoring insights' chat and Ask NeuroDB say it the same way."""
+    if not numbers:
+        return ""
+    shown = ", ".join(numbers[:SHOWN_NUMBERS])
+    return _("These figures could not be checked against the data: %(numbers)s.") % {"numbers": shown}
 
 
 def _scrub(text: str, names_: frozenset[str]) -> str:
@@ -94,14 +104,16 @@ def _scrub(text: str, names_: frozenset[str]) -> str:
     return "\n".join(lines)
 
 
-def _unchecked(text: str, allowed: set[str]) -> list[str]:
+def _unchecked(text: str, allowed: set[str], aside: Callable[[str], str] | None = None) -> list[str]:
     """The figures of ``text`` that no look-up returned (references, dates, visit names and small whole
-    numbers set aside)."""
+    numbers set aside; then what ``aside`` takes out of the rest, for Ask NeuroDB)."""
     rest = LINK.sub(" ", text)  # link texts are checked as links
     rest = VISIT_NAMED.sub(" ", rest)
     rest = grounding.REFERENCE_IN_TEXT.sub(" ", rest)
     spans = [match.span() for match, *_ in grounding.dates_in(rest)]
     rest = grounding._without(rest, spans)
+    if aside is not None:
+        rest = aside(rest)
     out: list[str] = []
     for written in sorted(numbers_in(rest), key=lambda n: float(n) if _is_number(n) else 0):
         number = grounding._norm(written)

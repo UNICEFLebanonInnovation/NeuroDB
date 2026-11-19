@@ -231,6 +231,29 @@ come from.
   not know, named without a title, is not found: the page still asks people not to enter personal data.
   Help, Monitoring insights and NeuroDB Watch run the same loop with their own options and filters, which
   this does not change.
+- **The answer is checked against its lookups** (`neurodb/assistant/figures.py`, from `agent._finish`):
+  Monitoring insights' check of a chat answer (`neurodb/fmm/ai/citations.py`, whose parts it reuses) run
+  on Ask's lookups. Each lookup's result, as the model read it, gives its NeuroDB page links (under a url
+  key), every number written in it (with its one-decimal and whole roundings) and the percentages and
+  totals worked out from it (in a row of up to 4 figures, one over another and the figures added; a column
+  of a list added up, and each figure's share of it; a fraction as a percentage; the number of items of a
+  list); two figures written in the same sentence or table row of the answer also give one over the other,
+  the change from one to the other (as percentages), their sum and their difference. Not every pair of a
+  lookup's figures: over a large result almost any percentage could be worked out, and nothing would be
+  listed. A Markdown link whose url no lookup of this answer returned, and that no earlier answer of the
+  conversation gave, becomes its text; the rendered answer gets the same check, so a reference link or raw
+  HTML cannot carry one past it. A figure no lookup returned is listed under the answer in the done
+  event's `notice`, in Monitoring insights' words ("These figures could not be checked against the data:
+  4950."; at most 20). Set aside: references, dates, link texts and addresses, years ("2026", "2025/26",
+  but not "2,000"), page numbers ("p. 41"), whole numbers up to 10, the numbers of the question and of the
+  earlier questions, and the numbers of the earlier answers but those their checks listed. The figures are
+  never changed and nothing is held back; if the check itself fails, the answer is shown as written and
+  the error is logged. People are not looked for in the answer: nothing about them reaches the AI (above).
+  Help, Monitoring insights and NeuroDB Watch are not checked here. In the question log (AI questions), an
+  answer whose check listed a figure or removed a link gets one more entry after its lookups, `{"check":
+  "answer", "notice", "unchecked_numbers", "links_removed"}` (no migration: the `tools` field), which a
+  follow-up reads back; the list's *Lookups* column counts the lookups only, and *Figures not checked*
+  counts the figures listed.
 - **Data leaves Azure**: each question, up to six earlier questions and answers of the same
   conversation, and the data looked up to answer it are sent to the provider in use: the Claude API
   (api.anthropic.com) or the OpenAI API (api.openai.com), over HTTPS, without people (above). That data

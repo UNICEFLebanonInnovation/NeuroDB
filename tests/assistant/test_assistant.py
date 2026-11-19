@@ -286,7 +286,17 @@ def test_answer_streams_lookups_and_a_sanitized_answer(client_viewer, viewer, hi
     logged = AssistantQuestion.objects.get()
     assert logged.status == "answered" and logged.user.username == "viewer" and logged.error == ""
     assert logged.model == "gpt-5.5"
-    assert logged.tools == [{"tool": "list_databases", "input": {}, "ok": True, "ms": logged.tools[0]["ms"]}]
+    # the lookup, then the answer's check (figures.py): no lookup gave 300, and the image's address went
+    assert logged.tools == [
+        {"tool": "list_databases", "input": {}, "ok": True, "ms": logged.tools[0]["ms"]},
+        {
+            "check": "answer",
+            "notice": "These figures could not be checked against the data: 300.",
+            "unchecked_numbers": ["300"],
+            "links_removed": 1,
+        },
+    ]
+    assert events[-1]["notice"] == "These figures could not be checked against the data: 300."
     # OpenAI counts cached tokens inside input_tokens: 2 rounds of 150 in (50 cached) and 20 out
     assert logged.input_tokens == 200 and logged.cache_read_tokens == 100 and logged.output_tokens == 40
     assert logged.answer.startswith(f"**{db.label}**")

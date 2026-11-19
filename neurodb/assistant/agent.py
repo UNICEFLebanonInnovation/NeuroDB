@@ -9,6 +9,8 @@ stream them to the browser, whichever provider answers:
     {"type": "tool", "label": "...", "round": n}   a data lookup is starting
     {"type": "chart", "spec": {...}}               a chart to draw under the answer (see charts.py)
     {"type": "done", "html": "...", "answer": "..."}
+                                                   (Ask NeuroDB's adds "notice": "..." when its check
+                                                    lists figures no lookup returned: figures.py)
     {"type": "error", "message": "..."}            (on Claude a declined answer adds "discard": true: the
                                                     text shown so far is taken away)
 
@@ -24,7 +26,9 @@ A run other than an Ask NeuroDB question (NeuroDB Watch's look-up, Monitoring in
 Ask's), its own limits and cache key, sampling parameters (OpenAI only), a filter on every tool result,
 a context entered around each tool call, and tools run read-only. Without options the request is exactly
 the one Ask NeuroDB sends. The tools, their filters and checks run the same way on both providers
-(``_run_calls``).
+(``_run_calls``). Ask NeuroDB's answer is then checked against what its lookups returned (``figures``):
+a NeuroDB link no lookup returned loses its link, and the figures no lookup returned are listed under the
+answer; the other runs' answers are not checked here.
 """
 
 from __future__ import annotations
@@ -45,7 +49,7 @@ from django.utils import timezone
 from django.utils.crypto import salted_hmac
 from markdown.extensions.tables import TableExtension
 
-from . import charts, llm, privacy, tools
+from . import charts, figures, llm, privacy, tools
 from .llm import CONNECT_TIMEOUT, READ_TIMEOUT, ServiceError, claude_backend, openai_backend
 from .llm import AssistantUnavailable as AssistantUnavailable  # the features catch agent.AssistantUnavailable
 from .llm.openai_backend import client  # agent.client: the tests replace it with a scripted client
@@ -176,6 +180,10 @@ class Outcome:
     error: str = ""
     charts: list[dict[str, Any]] = field(default_factory=list)
     numbers: set[float] = field(default_factory=set)  # every number the lookups returned (charts)
+    # Ask NeuroDB: what its lookups returned, and what the check of its answer found (figures.py; the
+    # question log keeps the check when it is not empty)
+    looked: figures.Looked = field(default_factory=figures.Looked)
+    check: dict[str, Any] = field(default_factory=dict)
     calls: int = 0  # model calls that returned a response (for the AI use ledger)
     served_by: str = ""  # Claude: the model that answered after a refusal fallback, else ""
     # Claude: the tokens per model that ran them, and the calls per model that wrote their message (the
@@ -700,6 +708,11 @@ def _run_calls(
         except Exception:
             logger.exception("assistant tool %s failed", call.name)
             output, ok = json.dumps({"error": "The lookup failed on the server."}), False
+        if ok and options is None and call.name != "make_chart":
+            try:  # what Ask's answer is checked against (figures.py); never costs the lookup
+                outcome.looked.add(result, output)
+            except Exception:
+                logger.exception("Ask NeuroDB: the result of %s could not be read for the check", call.name)
         outcome.tools.append(
             {
                 "tool": call.name,
@@ -806,16 +819,34 @@ def answer(
         outcome.status, outcome.error = "failed", "too many lookups"
         yield {"type": "error", "message": TOO_MANY}
         return
-    yield from _finish(outcome, final_text)
+    yield from _finish(outcome, final_text, (question, history) if options is None else None)
 
 
-def _finish(outcome: Outcome, final_text: str) -> Iterator[dict[str, Any]]:
+def _finish(
+    outcome: Outcome, final_text: str, asked: tuple[str, list[dict[str, Any]]] | None = None
+) -> Iterator[dict[str, Any]]:
+    """The answer's last event. Ask NeuroDB's (``asked``: the question and the earlier turns, as sent) is
+    checked first (``figures.check``): never held back, a link no lookup returned loses its link and the
+    figures no lookup returned are listed in the event's "notice"."""
     outcome.answer = final_text.strip()
     if not outcome.answer:  # e.g. only reasoning came back
         outcome.status, outcome.error = "failed", "empty answer"
         yield {"type": "error", "message": NO_ANSWER}
         return
-    yield {"type": "done", "answer": outcome.answer, "html": render(outcome.answer)}
+    if asked is None:  # Help, Monitoring insights, NeuroDB Watch: their own checks, if any
+        yield {"type": "done", "answer": outcome.answer, "html": render(outcome.answer)}
+        return
+    try:
+        checked = figures.check(outcome.answer, outcome.looked, *asked)
+    except Exception:  # the check never costs the answer: it is shown as it was written
+        logger.exception("Ask NeuroDB: the answer could not be checked")
+        yield {"type": "done", "answer": outcome.answer, "html": render(outcome.answer)}
+        return
+    outcome.answer, outcome.check = checked.text, checked.entry
+    done = {"type": "done", "answer": checked.text, "html": checked.html}
+    if checked.notice:
+        done["notice"] = checked.notice
+    yield done
 
 
 def _answer_claude(
@@ -903,4 +934,4 @@ def _answer_claude(
         outcome.status, outcome.error = "failed", "too many lookups"
         yield {"type": "error", "message": TOO_MANY}
         return
-    yield from _finish(outcome, final_text)
+    yield from _finish(outcome, final_text, (question, history) if options is None else None)
