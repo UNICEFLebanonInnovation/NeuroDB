@@ -80,7 +80,10 @@ def test_the_default_page_counts_the_running_pds_and_says_what_it_leaves_out(row
     assert data["counts"]["indicator_reports"] == 2
     assert data["left_out"] == {"other_status": 1, "not_held": 2, "no_pd": 2, "by_pd_status": 3}
     note = _note(page.text)
-    assert "leaves out 3 more indicator reports" in note
+    # the tiles above show progress reports and indicators: what is left out is said in its own unit, never
+    # as "more" of theirs
+    assert "leaves out 3 indicator reports (one indicator in one progress report) of these filters" in note
+    assert " more " not in note
     assert (
         "1 of programme documents with another status, 2 of programme documents NeuroDB does not hold" in note
     )

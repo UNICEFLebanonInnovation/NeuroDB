@@ -587,41 +587,52 @@ def group_labels(groups: Iterable[Group]) -> disaggregation.Labels:
     return disaggregation.load_labels(ids)
 
 
-class Idents:
-    """Which PD indicator a report row belongs to (the module docstring): built over every indicator of the
-    PDs, not only those a filter keeps, so a row of a filtered-out indicator is skipped instead of falling
-    back to another indicator's title. ``calibration``: the tie-breakers' proof (None: the one stored,
-    :func:`calibration`)."""
+class Rule:
+    """Today's rule, per row (:meth:`of`, :meth:`how`; the module docstring): the PD indicator whose eTools id
+    a report row carries, else the one of its PD with its title, else, for a title two or more indicators of
+    the PD share, the one with the row's PD output and title; never the tie-breakers. :meth:`read` builds it
+    from each PD indicator's id, title and output alone, once each (one query, no row the tie-breakers read):
+    what a page that only names the indicator a row is on needs (the progress report tiles' hints,
+    ``reporting.pd_indicator_key``). :class:`Idents` builds the same rule with what the tie-breakers read.
+    A PD's answers depend on its own indicators alone, so a rule read over more PDs answers the same for
+    each."""
 
-    def __init__(self, pd_ids: Iterable[int], calibration: Calibration | None = None) -> None:
-        self.calibration = calibration if calibration is not None else _stored()
+    def __init__(self) -> None:
         self.by_source: dict[tuple[int, str], tuple[int, str]] = {}
-        titles: dict[tuple[int, str], set[tuple[int, str]]] = defaultdict(set)
-        outputs: dict[tuple[int, str, str], set[tuple[int, str]]] = defaultdict(set)
-        # each identity's rows as the tie-breakers read them, and its definition (its first row's, in the
-        # order Partner monitoring reads them): never the rows themselves
-        self._seen: dict[tuple[int, str], Seen] = defaultdict(Seen)
-        self._definitions: dict[tuple[int, str], tuple[str, str, float | None]] = {}
+        self._titles: dict[tuple[int, str], set[tuple[int, str]]] = defaultdict(set)
+        self._outputs: dict[tuple[int, str, str], set[tuple[int, str]]] = defaultdict(set)
         self._order: dict[tuple[int, str], int] = {}  # each identity's first row, in the definition order
-        self._candidates: dict[tuple[int, str], Candidate] = {}
-        rows = (
-            dm.PDIndicator.objects.filter(intervention_id__in=sorted(set(pd_ids)))
-            .order_by("lower_result_name", "title", "datamart_id")
-            .values_list(*_FIELDS)
-        )
-        for row in rows.iterator(chunk_size=INDICATOR_CHUNK):
-            pd_id, source_id, title, output = row[:4]
-            ident = ident_of(pd_id, source_id, title)
-            if source_id:
-                self.by_source.setdefault((pd_id, str(source_id)), ident)
-            titles[(pd_id, norm(title))].add(ident)
-            outputs[(pd_id, norm(output), norm(title))].add(ident)
-            self._seen[ident].add(row)
-            if ident not in self._order:
-                self._order[ident] = len(self._order)
-                first = dict(zip(_FIELDS, row, strict=True))
-                self._definitions[ident] = (first["display_type"], first["unit"], target_of(first))
-        self._titles = titles
+
+    @staticmethod
+    def read(pd_ids: Iterable[int]) -> Rule:
+        """The rule over every indicator of these PDs (each id, title and output once)."""
+        rule = Rule()
+        ids = sorted({pd for pd in pd_ids if pd})
+        if ids:
+            rows = (
+                dm.PDIndicator.objects.filter(intervention_id__in=ids)
+                .order_by("lower_result_name", "title", "intervention_id", "source_id")
+                .values_list("intervention_id", "source_id", "title", "lower_result_name")
+                .distinct()
+            )
+            for row in rows.iterator(chunk_size=INDICATOR_CHUNK):
+                rule.add(*row)
+        rule.finish()
+        return rule
+
+    def add(self, pd_id: int, source_id: Any, title: str | None, output: str | None) -> tuple[int, str]:
+        """One PD indicator row, in the order Partner monitoring reads them (output, title): its identity."""
+        ident = ident_of(pd_id, source_id, title)
+        if source_id:
+            self.by_source.setdefault((pd_id, str(source_id)), ident)
+        self._titles[(pd_id, norm(title))].add(ident)
+        self._outputs[(pd_id, norm(output), norm(title))].add(ident)
+        self._order.setdefault(ident, len(self._order))
+        return ident
+
+    def finish(self) -> None:
+        """The rule's lookups, once every row is added."""
+        titles, outputs = self._titles, self._outputs
         self.by_title = {key: next(iter(found)) for key, found in titles.items() if len(found) == 1}
         # the titles two or more indicators of a PD share: a row is then placed by its output and title,
         # when one of them has both, else told apart by the tie-breakers or left out
@@ -637,6 +648,7 @@ class Idents:
             for key, found in outputs.items()
             if len(found) > 1 and (key[0], key[2]) in self.shared
         }
+        self._outputs = defaultdict(set)  # read into the lookups above: not kept twice
 
     # --------------------------------------------------------------------------- today's rule, per row
     def of(
@@ -670,6 +682,39 @@ class Idents:
             return "output"
         return "shared_output" if place in self.shared_output else "output_unmatched"
 
+    def titled(self, pd_id: Any, title: str | None) -> list[tuple[int, str]]:
+        """The identities of the PD with this title, in the order Partner monitoring reads them."""
+        return sorted(self._titles.get((pd_id, norm(title)), ()), key=self._order.__getitem__)
+
+
+class Idents(Rule):
+    """Which PD indicator a report row belongs to (the module docstring): built over every indicator of the
+    PDs, not only those a filter keeps, so a row of a filtered-out indicator is skipped instead of falling
+    back to another indicator's title. Today's rule (:class:`Rule`), and what the tie-breakers read.
+    ``calibration``: the tie-breakers' proof (None: the one stored, :func:`calibration`)."""
+
+    def __init__(self, pd_ids: Iterable[int], calibration: Calibration | None = None) -> None:
+        super().__init__()
+        self.calibration = calibration if calibration is not None else _stored()
+        # each identity's rows as the tie-breakers read them, and its definition (its first row's, in the
+        # order Partner monitoring reads them): never the rows themselves
+        self._seen: dict[tuple[int, str], Seen] = defaultdict(Seen)
+        self._definitions: dict[tuple[int, str], tuple[str, str, float | None]] = {}
+        self._candidates: dict[tuple[int, str], Candidate] = {}
+        rows = (
+            dm.PDIndicator.objects.filter(intervention_id__in=sorted(set(pd_ids)))
+            .order_by("lower_result_name", "title", "datamart_id")
+            .values_list(*_FIELDS)
+        )
+        for row in rows.iterator(chunk_size=INDICATOR_CHUNK):
+            known = len(self._order)
+            ident = self.add(*row[:4])
+            self._seen[ident].add(row)
+            if len(self._order) > known:  # the identity's first row
+                first = dict(zip(_FIELDS, row, strict=True))
+                self._definitions[ident] = (first["display_type"], first["unit"], target_of(first))
+        self.finish()
+
     # ------------------------------------------------------------------------------- the indicators
     def candidate(self, ident: tuple[int, str]) -> Candidate:
         found = self._candidates.get(ident)
@@ -680,10 +725,6 @@ class Idents:
     def candidates(self, pd_id: Any, output: str | None, title: str | None) -> list[Candidate]:
         """The indicators sharing this title and output in the PD (none: they are not shared)."""
         return [self.candidate(i) for i in self.shared_output.get((pd_id, norm(output), norm(title)), ())]
-
-    def titled(self, pd_id: Any, title: str | None) -> list[tuple[int, str]]:
-        """The identities of the PD with this title, in the order Partner monitoring reads them."""
-        return sorted(self._titles.get((pd_id, norm(title)), ()), key=self._order.__getitem__)
 
     def definition(self, ident: tuple[int, str]) -> tuple[str, str, float | None] | None:
         """(display type, unit, target) of an indicator: its first row, in the order Partner monitoring

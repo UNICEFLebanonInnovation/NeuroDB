@@ -8,8 +8,9 @@ Report/Location and Report/Disaggregation, as the eTools Power BI report shows t
   the report's status.
 * **The indicators under the tiles** (the user's decision of 19 Nov 2026: "unique per indicator number,
   indicators for active PDs"): each tile gives the indicators of its progress reports, each once however many
-  reports, periods, report types and years carry it (:func:`pd_indicator_key`: its eTools id in its programme
-  document, else its title, as Partner monitoring tells indicators apart), of active programme documents only
+  reports, periods, report types and years carry it (:func:`pd_indicator_key`: the PD indicator Partner
+  monitoring's rule places the row on, by its eTools id, else its title, else its PD output and title; a row
+  the rule does not place, by its title), of active programme documents only
   (:attr:`ReportFilters.indicator_statuses`: the statuses chosen when Active is not among them). The tiles are
   counted apart, so these do not add up to the total; the progress report numbers keep the running PDs.
 * **To follow up.** The reports to follow up (the Partners tab, Home) are those Overdue, Sent back, Due and
@@ -470,6 +471,8 @@ class Units:
     progress_reports: int = 0
 
 
+# what a row's PD indicator is read from (pd_indicator_key), in this order
+INDICATOR_FIELDS = ("intervention_id", "pd_reference_number", "etools_indicator_id", "indicator", "pd_output")
 # what tells a row's progress report and indicator report apart, as progress_reports groups them, and its PD
 # indicator (pd_indicator_key)
 UNIT_FIELDS = (
@@ -479,6 +482,7 @@ UNIT_FIELDS = (
     *rc.IDENTITY_FIELDS,
     "etools_indicator_id",
     "indicator",
+    "pd_output",
 )
 
 
@@ -507,17 +511,34 @@ def report_count(queryset: QuerySet[dm.ReportedIndicator]) -> int:
     return queryset.annotate(_report=REPORT_KEY).values("_report").distinct().count()
 
 
-def pd_indicator_key(row: dict[str, Any]) -> str:
-    """The PD indicator a report row is about, as Partner monitoring tells indicators apart (the rule of
-    :func:`neurodb.datamart.identity.ident_of`): its programme document (NeuroDB's link ``pd:<id>``, else the
-    row's reference number ``ref:<reference>``, as :func:`pd_follow_up_key` names it), then its eTools
-    indicator id (``s<id>``), else its title, case and spaces aside (``t<title>``). The hints under the tiles
-    count each once (:func:`counts`), whatever report, period, report type or year carries it; two programme
-    documents' indicators of one title are two."""
-    pd = row.get("intervention_id")
-    where = f"pd:{pd}" if pd else f"ref:{row.get('pd_reference_number') or ''}"
-    source = str(row.get("etools_indicator_id") or "").strip()
-    return f"{where}|s{source}" if source else f"{where}|t{rc.norm(row.get('indicator'))}"
+def indicator_rule(pd_ids: Iterable[int]) -> identity.Rule:
+    """Partner monitoring's rule over the indicators of these programme documents (``identity.Rule``), which
+    :func:`pd_indicator_key` places rows with: one query, each indicator's id, title and output once."""
+    return identity.Rule.read(pd_ids)
+
+
+def pd_indicator_key(row: dict[str, Any], rule: identity.Rule) -> str:
+    """The PD indicator a report row is about: the one Partner monitoring's rule places it on
+    (``identity.Rule.of``: the PD indicator of its eTools id, else of its title, else of its PD output and
+    title, when two of the PD's indicators share the title; the tie-breakers aside), ``pd:<id>|<identity>``
+    (``s<eTools id>``, or ``t<title>`` for an indicator eTools gives no id). A row the rule does not place
+    (a title no indicator of the PD has; a title two of them share, with an output none of them has or two of
+    them share too, which only Partner monitoring's tie-breakers may tell apart): its title,
+    case and spaces aside, whatever eTools id it carries (``pd:<id>|t<title>``), with its PD output when two
+    of the PD's indicators share the title (``|o<output>``). A row naming no programme document NeuroDB holds:
+    the report's reference number and the title (``ref:<reference>|t<title>``, as :func:`pd_follow_up_key`
+    names it). The hints under the tiles count each once (:func:`counts`), whatever report, period, report
+    type or year carries it; two programme documents' indicators of one title are two. ``rule``:
+    :func:`indicator_rule` over (at least) the row's programme document."""
+    pd, title = row.get("intervention_id"), rc.norm(row.get("indicator"))
+    if not pd:
+        return f"ref:{row.get('pd_reference_number') or ''}|t{title}"
+    placed = rule.of(pd, row.get("etools_indicator_id"), row.get("indicator"), row.get("pd_output"))
+    if placed is not None:
+        return f"pd:{pd}|{placed[1]}"
+    if (pd, title) in rule.shared:
+        return f"pd:{pd}|t{title}|o{rc.norm(row.get('pd_output'))}"
+    return f"pd:{pd}|t{title}"
 
 
 # --------------------------------------------------------------------------------- progress reports
@@ -552,8 +573,8 @@ def progress_reports(
     """One row per progress report (the Datamart has one row per indicator and location), with its
     status, its indicator reports (``indicators``) and their sections (``sections``: section ->
     indicator reports; ``indicator_sections``: each indicator report and the section it counts under), and
-    its PD indicators (``indicator_keys``, :func:`pd_indicator_key`, in order), which :func:`counts` counts
-    once each across reports.
+    what its PD indicators are read from (``indicator_rows``: :data:`INDICATOR_FIELDS` of each, once), which
+    :func:`counts` places (:func:`pd_indicator_key`) and counts once each across reports.
 
     A report is its programme document, type, number and period (:func:`report_key`), whatever PRP's ids
     hold. A report whose rows disagree on a field (a partial re-sync, a partner link set on some rows
@@ -564,20 +585,21 @@ def progress_reports(
     of its rows, in a fixed order. ``key``: the report's key, which opens its pop-up. ``record``: the figure
     trail's (:func:`_status_words`); None on the pages."""
     today = today or datetime.date.today()
+    # the rows' own indicator fields (INDICATOR_FIELDS; their programme document's are REPORT_FIELDS')
     grouped = (
         queryset.annotate(_ir=INDICATOR_REPORT)
-        .values("progress_report", *REPORT_FIELDS, "section", "_ir", "etools_indicator_id", "indicator")
+        .values("progress_report", *REPORT_FIELDS, "section", "_ir", *INDICATOR_FIELDS[2:])
         .annotate(
             locations=Count("pk"),
             _changed=Max("last_modify_date"),
             _synced=Max("synced_at"),
             _id=Max("datamart_id"),
         )
-        .order_by("progress_report", *REPORT_FIELDS, "section", "_ir", "etools_indicator_id", "indicator")
+        .order_by("progress_report", *REPORT_FIELDS, "section", "_ir", *INDICATOR_FIELDS[2:])
     )
     reports: dict[Any, dict[str, Any]] = {}
     sections: dict[Any, dict[str, str]] = defaultdict(dict)  # report -> indicator report -> section
-    indicators: dict[Any, set[str]] = defaultdict(set)  # report -> its PD indicators (pd_indicator_key)
+    indicators: dict[Any, set[tuple]] = defaultdict(set)  # report -> its PD indicators' INDICATOR_FIELDS
     words: dict[Any, dict[str, rc.Stamp]] = defaultdict(dict)  # report -> status word -> latest stamp
     for row in grouped:
         key = report_key(row)
@@ -595,7 +617,7 @@ def progress_reports(
         known = sections[key].get(row["_ir"])
         if known is None or (not known and section):
             sections[key][row["_ir"]] = section
-        indicators[key].add(pd_indicator_key(row))
+        indicators[key].add(tuple(row[f] for f in INDICATOR_FIELDS))
     words.update(_status_words(queryset, set(reports), record))
     out = in_order(list(reports.values()))
     for report in out:  # one of the six statuses, the same on every page that lists the report
@@ -604,7 +626,7 @@ def progress_reports(
         report["indicator_sections"] = {ir: s or NO_SECTION for ir, s in sections[key].items()}
         by_section = Counter(report["indicator_sections"].values())
         report["indicators"] = sum(by_section.values())
-        report["indicator_keys"] = tuple(sorted(indicators[key]))
+        report["indicator_rows"] = tuple(indicators[key])
         report["sections"] = dict(by_section)
         report["section"] = ", ".join(s for s in by_section if s != NO_SECTION)
         report["status"] = report_status(report, today)
@@ -775,13 +797,16 @@ def _either(words: list[str]) -> str:
 
 
 def counts(
-    reports: list[dict[str, Any]], indicator_statuses: Iterable[str] = pd_statuses.ACTIVE
+    reports: list[dict[str, Any]],
+    indicator_statuses: Iterable[str] = pd_statuses.ACTIVE,
+    rule: identity.Rule | None = None,
 ) -> dict[str, Any]:
     """Progress reports per status (what the tiles show, as Power BI's Reporting Progress counts them: the
     status keys), adding up to their total, and the progress reports submitted after their due date.
 
     Under each tile, its ``indicators`` (the user's decision of 19 Nov 2026): the PD indicators of its
-    progress reports (``indicator_keys``, :func:`pd_indicator_key`), each once however many of them carry
+    progress reports (their ``indicator_rows`` placed by :func:`pd_indicator_key`, with ``rule``, else
+    :func:`indicator_rule` read over their programme documents), each once however many of them carry
     it, of the programme documents whose status is one of ``indicator_statuses`` (the PD's own,
     :func:`with_pd_details`: active, :attr:`ReportFilters.indicator_statuses`). Each tile is counted apart,
     so they do not add up to the total ``indicators``. ``indicator_pd_statuses`` and ``indicator_pd_words``
@@ -790,6 +815,8 @@ def counts(
     ``indicator_reports``: the indicator reports in them (one indicator in one progress report; each progress
     report's own Indicators), as before, adding up."""
     counted = list(dict.fromkeys(indicator_statuses))
+    if rule is None:  # over the programme documents whose indicators are counted
+        rule = indicator_rule(r.get("intervention_id") for r in reports if r.get("pd_status") in counted)
     indicator_reports: Counter[str] = Counter()
     progress: Counter[str] = Counter()
     indicators: dict[str, set[str]] = defaultdict(set)
@@ -797,7 +824,10 @@ def counts(
         indicator_reports[r["status"]] += r["indicators"]
         progress[r["status"]] += 1
         if r.get("pd_status") in counted:
-            indicators[r["status"]].update(r.get("indicator_keys", ()))
+            indicators[r["status"]].update(
+                pd_indicator_key(dict(zip(INDICATOR_FIELDS, row, strict=True)), rule)
+                for row in r.get("indicator_rows", ())
+            )
     return {
         "indicator_reports": sum(indicator_reports.values()),
         "indicators": len(set().union(*indicators.values())),
@@ -1050,7 +1080,8 @@ def _location_cells(
     pages."""
     definition = identity.definitions(rows)
     details = pd_details({r["intervention_id"] for r in rows if r["intervention_id"]})
-    # one group per indicator report (one indicator in one progress report, as the tiles count them):
+    # one group per indicator report (one indicator in one progress report, as each progress report's
+    # Indicators column counts them):
     # two indicators that share an eTools id or a title are never read as one, nor two programme documents'
     # reports of one number and period
     groups: dict[tuple, list[dict[str, Any]]] = defaultdict(list)

@@ -178,10 +178,11 @@ of each unit. Then the record as Raw eTools data writes it (people as counts).
 5. The indicators under the tiles: filter `indicator_counted` on *yes* too. The sum of
    `counts_once_indicator` gives the first tile's (each indicator once); a distinct count of `indicator_unit`
    by `report_status_neurodb` gives each status tile's (an indicator in reports of two statuses is under
-   both). The reports to follow up are those Overdue, Sent
-   back, Due, Not yet due (listed as Due there, as Power BI does) and Submitted: filter `follow_up_chosen` on
-   *yes* instead (with the Report status *Due*, it keeps the reports not yet due too, as Power BI's slicer
-   does).
+   both).
+6. The reports to follow up are those Overdue, Sent back, Due, Not yet due (listed as Due there, as Power BI
+   does) and Submitted: filter `follow_up_chosen` on *yes* instead of `report_status_chosen` (with the Report
+   status *Due*, it keeps the reports not yet due too, as Power BI's slicer does), and leave
+   `indicator_counted` unfiltered: the reports to follow up are those of every PD status the filter keeps.
 
 While the page shows PRP's own reports still owed, the tiles, the section table, the month chart and the
 Partners tab also count them. *Kept rows (CSV)* then lists those the filter keeps after the rows, one line
@@ -192,8 +193,8 @@ reports still owed* has the CSV of every one, with whether the filter keeps it a
 
 Each figure's own *Rows (CSV)* holds only the rows it counts, PRP's own reports still owed among them, with
 `unit_key` (its unit) and `counts_once`: their sum is the figure. The indicators under the tiles are listed
-instead, one row per indicator: its programme document and its status, its eTools indicator id and title, how
-many progress reports it is in, their statuses and their keys; `unit_key` and `counts_once` give the figure
+instead, one row per indicator: its programme document and its status, its eTools indicator id, title and
+PD output, how many progress reports it is in, their statuses and their keys; `unit_key` and `counts_once` give the figure
 the same way. In a step's CSV, `counts_once` is 1 only on a unit the step leaves out entirely
 (`unit_partly_kept` marks the others), so its sum is what the step leaves out entirely.
 

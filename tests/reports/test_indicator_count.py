@@ -30,12 +30,13 @@ import re
 import pytest
 from django.contrib.auth.models import Group
 from django.urls import reverse
+from openpyxl import load_workbook
 
 from neurodb.accounts.models import User
 from neurodb.accounts.roles import VALIDATORS, VIEWER
 from neurodb.assistant import tools
+from neurodb.datamart import identity, reporting, services, trail
 from neurodb.datamart import models as dm
-from neurodb.datamart import reporting, services, trail
 from neurodb.partnerships.models import PCA, PartnerOrganization
 from tests.web.parts import get_part, text
 
@@ -44,6 +45,7 @@ D = datetime.date
 TODAY = D(2026, 10, 15)  # the suite's day (tests/conftest.py SITE_NOW)
 PR = "progress-reports"
 CHILDREN, CAREGIVERS, TEACHERS = "# of children reached", "# of caregivers reached", "Teachers trained"
+KITS, TENTS = "# of kits", "# of tents"
 _ids = itertools.count(80_000)
 HINT = re.compile(r'<span class="kpi__hint"([^>]*)>([^<]*)</span>')
 ATTRIBUTE = re.compile(r'([a-z-]+)="([^"]*)"')
@@ -65,8 +67,8 @@ def _pd(partner, number, status):
 
 
 def _report(pd, number, start, end, indicators, word="", *, kind="QPR", due=None, submitted=None):
-    """One progress report: each of its indicators ``(title, eTools id)`` at two locations."""
-    for title, etools_id in indicators:
+    """One progress report: each of its indicators ``(title, eTools id[, PD output])`` at two locations."""
+    for title, etools_id, *output in indicators:
         for location in ("Akkar", "Bekaa"):
             dm.ReportedIndicator.objects.create(
                 datamart_id=next(_ids),
@@ -75,7 +77,8 @@ def _report(pd, number, start, end, indicators, word="", *, kind="QPR", due=None
                 partner_name=pd.partner.name,
                 pd_reference_number=pd.number,
                 progress_report=f"PR-{pd.number}-{number}-{end}",
-                indicator_report=f"IR-{pd.number}-{number}-{end}-{etools_id or title}",
+                indicator_report=f"IR-{pd.number}-{number}-{end}-{etools_id or title}-{''.join(output)}",
+                pd_output="".join(output),
                 report_number=number,
                 report_type=kind,
                 report_status=word,
@@ -89,6 +92,20 @@ def _report(pd, number, start, end, indicators, word="", *, kind="QPR", due=None
                 location=location,
                 achievement_in_period="10",
             )
+
+
+def _pd_indicator(pd, source_id, title, output):
+    """One PD indicator in eTools (``PDIndicator``), at two locations, as Partner monitoring reads them."""
+    for location in ("Akkar", "Bekaa"):
+        dm.PDIndicator.objects.create(
+            datamart_id=next(_ids),
+            source_id=source_id,
+            intervention=pd,
+            pd_reference_number=pd.number,
+            title=title,
+            lower_result_name=output,
+            location_name=location,
+        )
 
 
 @pytest.fixture
@@ -160,16 +177,83 @@ def _words(html: str) -> str:
 
 
 # --------------------------------------------------------------------------------------------- the indicator
-def test_an_indicator_is_its_etools_id_in_its_programme_document_else_its_title():
-    key = reporting.pd_indicator_key
-    one = {"intervention_id": 7, "pd_reference_number": "LEB/A", "etools_indicator_id": "101"}
-    assert key({**one, "indicator": CHILDREN}) == key({**one, "indicator": "Another title"})
-    assert key({**one, "indicator": CHILDREN}) != key({**one, "etools_indicator_id": "102"})
-    bare = {"intervention_id": 7, "pd_reference_number": "LEB/A", "etools_indicator_id": ""}
-    assert key({**bare, "indicator": TEACHERS}) == key({**bare, "indicator": " teachers  TRAINED "})
-    assert key({**bare, "indicator": TEACHERS}) != key({**bare, "intervention_id": 8, "indicator": TEACHERS})
-    # a programme document NeuroDB does not hold: by the report's reference number
-    assert key({**bare, "intervention_id": None, "indicator": TEACHERS}) == "ref:LEB/A|tteachers trained"
+@pytest.fixture
+def placed(db):
+    """One active programme document as eTools holds its indicators: two of one title under two PD outputs
+    (7001, 7002), and "# of kits" (7101)."""
+    partner = PartnerOrganization.objects.create(etl_id="82", name="Partner Sigma", partner_type="CSO")
+    pd = _pd(partner, "LEB/T", "active")
+    _pd_indicator(pd, 7001, CHILDREN, "Output 1")
+    _pd_indicator(pd, 7002, CHILDREN, "Output 2")
+    _pd_indicator(pd, 7101, KITS, "Output 1")
+    return pd
+
+
+def _accepted(pd, number, end, indicators):
+    """An Accepted quarterly progress report ending on ``end``."""
+    start = D(end.year, end.month - 2, 1)
+    _report(pd, number, start, end, indicators, "Accepted", submitted=end + datetime.timedelta(days=10))
+
+
+def test_an_indicator_is_the_pd_indicator_partner_monitoring_places_its_row_on(placed):
+    """Partner monitoring's rule (``identity.Rule.of``): the PD indicator of the row's eTools id, else of its
+    title, else of its PD output and title; a row it does not place, by its title (and its PD output when two
+    of the PD's indicators share the title), case and spaces aside."""
+    rule = identity.Rule.read([placed.pk])
+    bare = {
+        "intervention_id": placed.pk,
+        "pd_reference_number": "LEB/T",
+        "etools_indicator_id": "",
+        "pd_output": "",
+    }
+
+    def key(**row):
+        return reporting.pd_indicator_key({**bare, **row}, rule)
+
+    pd = f"pd:{placed.pk}"
+    assert key(etools_indicator_id="7101", indicator="Another title") == key(indicator=KITS) == f"{pd}|s7101"
+    assert key(indicator=CHILDREN, pd_output="Output 1") == f"{pd}|s7001"
+    assert key(indicator=" # OF children  reached", pd_output="output  2") == f"{pd}|s7002"
+    # a title two indicators of the PD share, with a PD output neither has: the title and the output
+    assert key(indicator=CHILDREN, pd_output="Output 9") == f"{pd}|t# of children reached|ooutput 9"
+    assert key(indicator=CHILDREN, pd_output="Output 9") != key(indicator=CHILDREN, pd_output="Output 8")
+    # a title no indicator of the PD has: the title, whatever eTools id the row carries
+    assert key(etools_indicator_id="999", indicator=TEACHERS) == key(indicator=" teachers  TRAINED ")
+    assert key(indicator=TEACHERS) == f"{pd}|tteachers trained"
+    assert key(indicator=TEACHERS) != key(intervention_id=placed.pk + 1, indicator=TEACHERS)
+    # a programme document NeuroDB does not hold: by the report's reference number and the title
+    assert (
+        key(intervention_id=None, etools_indicator_id="7101", indicator=TEACHERS)
+        == "ref:LEB/T|tteachers trained"
+    )
+
+
+def test_two_indicators_of_one_title_under_two_outputs_count_two(placed):
+    """Their rows carry no eTools id (none does in production): Partner monitoring places them by their PD
+    output, and so are they counted, as the report's own Indicators column counts them."""
+    _accepted(placed, "QPR1", D(2026, 3, 31), [(CHILDREN, "", "Output 1"), (CHILDREN, "", "Output 2")])
+    data = services.partner_reporting({}, TODAY, options=False)
+    assert [r["indicators"] for r in data["reports"]] == [2]
+    assert data["counts"]["indicators"] == 2 and _tiles(data["counts"], "indicators")["accepted"] == 2
+
+
+def test_an_indicator_whose_rows_carry_its_etools_id_only_sometimes_counts_once(placed):
+    _accepted(placed, "QPR1", D(2026, 3, 31), [(KITS, "7101", "Output 1")])
+    _accepted(placed, "QPR2", D(2026, 6, 30), [(KITS, "", "Output 1")])
+    counts = _counts()
+    assert counts["progress_reports"] == 2 and counts["indicators"] == 1
+
+
+def test_rows_of_a_shared_title_partner_monitoring_cannot_place_count_by_their_pd_output(placed):
+    _accepted(placed, "QPR1", D(2026, 3, 31), [(CHILDREN, "", "Output 8"), (CHILDREN, "", "Output 9")])
+    _accepted(placed, "QPR2", D(2026, 6, 30), [(CHILDREN, "", "output  9")])
+    assert _counts()["indicators"] == 2
+
+
+def test_rows_of_a_title_no_indicator_has_count_by_their_title_with_or_without_an_etools_id(placed):
+    _accepted(placed, "QPR1", D(2026, 3, 31), [(TENTS, "999", "Output 3")])
+    _accepted(placed, "QPR2", D(2026, 6, 30), [(" # of TENTS", "", "Output 3")])
+    assert _counts()["indicators"] == 1
 
 
 def test_each_indicator_counts_once_in_the_total_and_once_in_each_tile_it_is_in(world):
@@ -358,3 +442,48 @@ def test_home_s_trail_has_the_same_indicators(validator, world):
     for s in counts["statuses"]:
         figure = found.figure(f"pr.indicators.{s['key']}")
         assert figure.page == figure.rebuilt == s["indicators"], s["key"]
+
+
+def test_the_trail_places_each_row_as_the_page_does(validator, placed):
+    _accepted(placed, "QPR1", D(2026, 3, 31), [(CHILDREN, "", "Output 1"), (CHILDREN, "", "Output 2"),
+                                               (KITS, "7101", "Output 1")])  # fmt: skip
+    _report(placed, "QPR2", D(2026, 4, 1), D(2026, 6, 30), [(KITS, "", "Output 1")], "Submitted",
+            submitted=D(2026, 7, 10))  # fmt: skip
+    counts = _counts()
+    assert _tiles(counts, "indicators") == {"total": 3, "accepted": 3, "submitted": 1, **dict.fromkeys(
+        ("sent_back", "due", "overdue", "not_yet_due"), 0)}  # fmt: skip
+    found = trail.progress_trail(PR, {}, TODAY)
+    for key in ("pr.indicators", "pr.indicators.accepted", "pr.indicators.submitted"):
+        figure = found.figure(key)
+        assert figure.page == figure.rebuilt, key
+    assert found.figure("pr.indicators").rebuilt == 3 and not found.differences
+    rows = _csv(validator, PR, {}, found.figure("pr.indicators").what)
+    # each indicator's own eTools id and PD output, also when its rows carry no id
+    assert sorted((r["etools_indicator_id"], r["pd_output"], r["progress_reports"]) for r in rows) == [
+        ("7001", "Output 1", "1"),
+        ("7002", "Output 2", "1"),
+        ("7101", "Output 1", "2"),
+    ]
+    kept = _csv(validator, PR, {}, "kept")
+    assert sum(int(r["counts_once_indicator"]) for r in kept) == 3
+
+
+# ------------------------------------------------------------------------------------------------ the Excel file
+def test_the_excel_by_status_sheet_holds_the_first_tile_and_says_its_indicators_do_not_add_up(
+    validator, world
+):
+    """Summing the indicators of the status rows gives 11, while the first tile's hint is 5: the sheet holds
+    the first tile in a Total row, and says why the status rows' indicators do not add up to it."""
+    response = validator.get(reverse("reports:partner_reporting"), {"export": "xlsx"})
+    rows = list(load_workbook(io.BytesIO(response.content))["By status"].iter_rows(values_only=True))
+    assert rows[0] == ("status", "progress_reports", "indicators", "indicator_reports", "note")
+    statuses, total = rows[1:-1], rows[-1]
+    assert [r[0] for r in statuses] == ["Accepted", "Submitted", "Sent back", "Due", "Overdue", "Not yet due"]
+    assert total[:4] == ("Total", 12, 5, 16)
+    # the progress reports and indicator reports add up to it; the indicators do not, and the note says so
+    assert sum(r[1] for r in statuses) == 12 and sum(r[3] for r in statuses) == 16
+    assert sum(r[2] for r in statuses) == 11
+    assert total[4] == (
+        "Each indicator once, in active programme documents: an indicator in reports of several statuses is "
+        "in each of their rows, so the indicators above do not add up to this total."
+    )

@@ -2929,7 +2929,10 @@ tab). Each part is computed in one `REPEATABLE READ READ ONLY` snapshot and kept
 - **The hooks rule.** The trail never filters, keys or counts a row its own way: `ReportFilters.queryset(steps=)`
   appends each filter's rows to the trail's list; `reporting.unit_rows`/`unit_key`/`units` read a row's progress
   report and indicator report by the keys `progress_reports` groups with, and `reporting.pd_indicator_key` its PD
-  indicator, the key the tiles' hints count once; `progress_reports(record=)` and
+  indicator, the key the tiles' hints count once, with Partner monitoring's rule read over the programme documents
+  of every row (`reporting.indicator_rule`, `identity.Rule`: a PD's answers are its own indicators' alone, so the
+  page's rule, read over the PDs whose indicators it counts, places each of their rows the same);
+  `progress_reports(record=)` and
   `_status_words(record=)` hand the trail the status words read and the same rows one by one (`record.status_rows`:
   the row changed last, then synced last, then of the highest Datamart id, of each word of each report);
   `_location_cells`, `location_rows` and `disaggregation_rows(record=)` the rows counted against the limit, what
@@ -2962,8 +2965,8 @@ tab). Each part is computed in one `REPEATABLE READ READ ONLY` snapshot and kept
   Datamart id), `reports` and `follow_up` (one row per progress report: the export's columns, the vendor number,
   the match key), `figure:pr.indicators[.<status>]` (one row per indicator the hint counts,
   `trail_rows.indicator_rows`: its key as `unit_key` with `counts_once` 1, its programme document's number and status, its
-  eTools id and title as one of its rows gives them, how many progress reports it is in, their statuses and
-  keys; at most `raw.csv_limit` indicators), `lines` and `blocks` (By location's lines and By disaggregation's blocks, computed again with
+  eTools id (the PD indicator's, from its key, when the rule places its rows; else as one of its rows gives it), its title
+  and PD output as that row gives them, how many progress reports it is in, their statuses and keys; at most `raw.csv_limit` indicators), `lines` and `blocks` (By location's lines and By disaggregation's blocks, computed again with
   their record ids); the texts of these four (partner, PD reference, report #, section, CP output, indicator,
   location, progress report key) are cleaned by the people rule as the partner reports' columns they come from
   (`trail_rows.REPORT_TEXTS`), and the match key is built from them. A row CSV starts with `figures_as_of`, `step`, `reason`, then the units (`unit_key`,
@@ -4090,9 +4093,17 @@ figures as everywhere else (they read the rule above; nothing is added across in
     them (the user's decision of 26 Oct 2026). Under each tile, its **indicators** (the user's decision of 19
     Nov 2026, "unique per indicator number, indicators for active PDs"; `reporting.counts`): the indicators of
     its progress reports, each once however many reports carry it (QPR1 to QPR4, monthly HR reports, every
-    year, every status the tile counts), an indicator being its eTools indicator id within its programme
-    document, else its title there, case and spaces aside (`reporting.pd_indicator_key`, Partner monitoring's
-    rule, `identity.ident_of`), of **active** programme documents only: signed and suspended ones count in
+    year, every status the tile counts), an indicator being the PD indicator Partner monitoring's rule
+    places the row on (`identity.Rule.of`, as `Idents.of`: the indicator of its programme document with the
+    row's eTools indicator id, else with its title, else, for a title two of the PD's indicators share, with
+    its PD output and title; the tie-breakers, which Partner monitoring adds for a title and output two
+    indicators share, aside), `pd:<id>|s<eTools id>`; a row the rule does not place (a title no indicator of
+    the PD has; a title two of them share, with an output none of them has or two of them share too) by its
+    title, case and spaces aside, whatever eTools id it carries, with its PD output when two of the PD's
+    indicators share the title (`reporting.pd_indicator_key`; production's rows carry no eTools indicator id, so the
+    title and output decide). The rule is read once per page, over the programme documents whose indicators
+    are counted (`reporting.indicator_rule`: each PD indicator's id, title and output once, one query, never
+    the rows the tie-breakers read). Of **active** programme documents only: signed and suspended ones count in
     the progress reports, not in the indicators. With PD statuses chosen, the active ones among them; when
     Active is not among them, those chosen (`ReportFilters.indicator_statuses`), and the hint's hover title
     and the note under the tiles name them. The seven tiles are counted apart, so their indicators do not add
@@ -4128,7 +4139,10 @@ figures as everywhere else (they read the rule above; nothing is added across in
     once (each can give many lines), and makes the lines of the 25 locations a page shows only; the
     export writes them location by location.
   The exports hold every row of the tab's filter; the Excel file adds, per status, the progress reports,
-  the indicators under each tile and the indicator reports in them (*By status*), and the section table (and, on *Partners*, partners per status and
+  the indicators under each tile and the indicator reports in them (*By status*), then a *Total* row (the
+  first tile: its progress reports, its indicators, each once across the statuses, and its indicator
+  reports) whose `note` says the status rows' indicators do not add up to it (an indicator in reports of
+  several statuses is in each of their rows; the progress reports and indicator reports do), and the section table (and, on *Partners*, partners per status and
   those not reported). The status filter uses the six statuses (an old link with PRP's word, such as
   `status=Accepted`, still works). In every CSV file (these and the others NeuroDB writes), a text
   that a spreadsheet would run as a formula (one starting with `=`, `+`, `-` or `@`, such as a title

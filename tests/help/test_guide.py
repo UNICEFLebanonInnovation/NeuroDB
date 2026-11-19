@@ -672,6 +672,44 @@ def test_the_guide_and_operations_say_what_progress_reports_count_and_what_emerg
     assert "for reports that are all Accepted or not yet due" not in OPERATIONS_WORDS
 
 
+def test_checking_figures_keeps_the_reports_to_follow_up_apart_from_the_indicators_step():
+    """The reports to follow up swap `follow_up_chosen` for `report_status_chosen`; the indicators under the
+    tiles add `indicator_counted` (active programme documents only). The follow-up sentence sat at the end of
+    the indicators' step, where "instead" read as instead of `indicator_counted`: a pivot that kept both
+    dropped the reports of signed and suspended programme documents to follow up."""
+    steps = dict(re.findall(r"^(\d)\. (.*?)(?=^\d\. |\n\n)", GUIDE_TEXT["checking-figures"], re.M | re.S))
+    assert "follow_up_chosen" not in steps["5"] and "indicator_counted" in steps["5"]
+    six = " ".join(steps["6"].split())
+    assert "filter `follow_up_chosen` on *yes* instead of `report_status_chosen`" in six
+    assert "leave `indicator_counted` unfiltered" in six
+
+
+def test_partner_progress_says_what_the_tiles_show_of_reports_still_owed_and_left_out():
+    """The tiles' hints count indicators now, each once, never indicator reports: the guide named a tile figure
+    that no longer exists, and called the PD status filter's left-out indicator reports "more" of them."""
+    progress = " ".join(GUIDE_TEXT["partner-progress"].split())
+    assert "the tiles' indicator report counts" not in progress
+    assert (
+        "They carry no indicator: the indicators under the tiles, Reached and the indicator pages leave them out."
+    ) in progress
+    assert "how many more indicator reports" not in progress
+    assert (
+        "a note says how many indicator reports (one indicator in one progress report) the PD status filter "
+        "leaves out"
+    ) in progress
+    # an indicator is the PD indicator Partner monitoring's rule places a row on, never the row's own id alone
+    assert "by its eTools indicator id in its programme document (else its title)" not in progress
+    assert (
+        "each indicator once, as Partner monitoring places a report row on the indicators of its programme "
+        "document (by its eTools indicator id, else its title, else its PD output and title; a row it cannot "
+        "place counts by its title)"
+    ) in progress
+    assert "Partner monitoring's rule, `identity.ident_of`" not in OPERATIONS_WORDS
+    assert (
+        "the PD indicator Partner monitoring's rule places the row on (`identity.Rule.of`" in OPERATIONS_WORDS
+    )
+
+
 def test_operations_and_the_guide_say_which_funds_lines_with_no_number_are_left_unlinked():
     """A funds line with no number whose vendor number is another partner's is linked to no PD: OPERATIONS said
     "not linked" rises by the lines whose number names no PD or fits several only. A line whose PD's partner

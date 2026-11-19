@@ -1327,7 +1327,9 @@ def reporting_figures(params, day: datetime.date | None = None) -> dict[str, Any
     (``counts``), ``summary``, the partners line (``partners``: ``partners``, ``reported``, ``not_reported``
     and ``by_status``, the Partners tab's tiles) and the programme documents to follow up (``pds``,
     :func:`neurodb.datamart.reporting.pd_follow_up`). Computed at each call, as the page computes its main
-    tab (0.05 s on the x20 parity world, about a tenth of a second on production's report rows), so Home
+    tab (0.05 s on the x20 parity world, about a tenth of a second on production's report rows, measured
+    before the hints read Partner monitoring's rule: one more query, of the active programme documents'
+    indicators' ids, titles and outputs, each once, ``reporting.indicator_rule``), so Home
     shows the page's figure of the moment, also during an eTools sync. Nothing about a person: no focal
     point, no report row."""
     data = partner_reporting(params, day or reporting_today(), options=False)
@@ -1451,8 +1453,8 @@ def report_detail(report: str, today: datetime.date | None = None) -> dict[str, 
     # each indicator report's type, unit and target: those of the PD indicator its rows belong to (the
     # target as Partner monitoring reads it, a percentage × 100), as on Report/Location
     definition = identity.definitions(rows)
-    # one entry per indicator report (one indicator in this report), as the tiles count them: two
-    # indicators that share a title or an eTools id are never one line
+    # one entry per indicator report (one indicator in this report), as the report's Indicators column counts
+    # them: two indicators that share a title or an eTools id are never one line
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         groups[reached.indicator_report_key(row)].append(row)

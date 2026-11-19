@@ -2038,10 +2038,44 @@ def _too_many(found: dict[str, Any]) -> HttpResponse:
     )
 
 
+STATUS_SHEET_COLUMNS = ("status", "progress_reports", "indicators", "indicator_reports", "note")
+
+
+def _status_sheet(counts: dict[str, Any]) -> tuple[str, tuple[str, ...], list[dict[str, Any]]]:
+    """The Excel file's *By status*: the tiles. Per status, its progress reports (as Power BI's Reporting
+    Progress counts them), the indicators under it (each once, of active programme documents) and the
+    indicator reports in them; then *Total*, the first tile, whose indicators are counted once across the
+    statuses: an indicator in reports of several statuses is in each of their rows, so the indicators column
+    does not add up to it, and its note says so (the progress reports and indicator reports do)."""
+    rows: list[dict[str, Any]] = [
+        {
+            "status": s["label"],
+            "progress_reports": s["progress_reports"],
+            "indicators": s["indicators"],
+            "indicator_reports": s["indicator_reports"],
+        }
+        for s in counts["statuses"]
+    ]
+    rows.append(
+        {
+            "status": "Total",
+            "progress_reports": counts["progress_reports"],
+            "indicators": counts["indicators"],
+            "indicator_reports": counts["indicator_reports"],
+            "note": f"Each indicator once, in {counts['indicator_pd_words']} programme documents: an "
+            "indicator in reports of several statuses is in each of their rows, so the indicators above do "
+            "not add up to this total.",
+        }
+    )
+    return "By status", STATUS_SHEET_COLUMNS, rows
+
+
 def _reporting_export(data: dict[str, Any], tab: str, fmt: str, params=None) -> HttpResponse:
     """The tab's table, every row of the filter (not only the page shown). The Excel file adds the
     counts of the tiles: progress reports per status with the indicators under each (each once, of active
-    programme documents) and the indicator reports in them, and progress reports by section."""
+    programme documents) and the indicator reports in them, then the first tile (*Total*, with a note: the
+    status rows' indicators do not add up to its own, :func:`_status_sheet`), and progress reports by
+    section."""
     if tab == "disaggregations":
         found = _reporting_disaggregations(data, params or {})
         if found["too_many"]:
@@ -2062,21 +2096,7 @@ def _reporting_export(data: dict[str, Any], tab: str, fmt: str, params=None) -> 
         rows = (_report_row(r) for r in data["reports"])
     if fmt == "csv":
         return exports.stream_csv(exports.export_filename(label, "csv"), columns, rows)
-    sheets: list[tuple[str, Any, Any]] = [(title, columns, rows)]
-    # the tiles: progress reports per status (as Power BI's Reporting Progress counts them), the indicators
-    # under each (each once, of active programme documents) and the indicator reports in them beside
-    status_rows = [
-        {
-            "status": s["label"],
-            "progress_reports": s["progress_reports"],
-            "indicators": s["indicators"],
-            "indicator_reports": s["indicator_reports"],
-        }
-        for s in data["counts"]["statuses"]
-    ]
-    sheets.append(
-        ("By status", ("status", "progress_reports", "indicators", "indicator_reports"), status_rows)
-    )
+    sheets: list[tuple[str, Any, Any]] = [(title, columns, rows), _status_sheet(data["counts"])]
     labels = list(reporting_service.rc.STATUS_LABELS.values())
     section_rows = [
         {"section": row["section"], **dict(zip(labels, row["counts"], strict=True)), "Total": row["total"]}

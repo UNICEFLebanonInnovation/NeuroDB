@@ -135,6 +135,7 @@ INDICATOR_COLUMNS = (
     "pd_status_in_neurodb",
     "etools_indicator_id",
     "indicator",
+    "pd_output",
     "progress_reports",
     "report_statuses",
     "progress_report_keys",
@@ -410,12 +411,16 @@ def _pd_unit(key: str, names: frozenset[str]) -> str:
 
 def _indicator_unit(key: str, names: frozenset[str]) -> str:
     """A row's PD indicator (``reporting.pd_indicator_key``) as the CSV writes it: its programme document as
-    ``pd_unit`` is, its title cleaned as the indicator column is (a name in it is withheld)."""
+    ``pd_unit`` is, its title and PD output cleaned as the indicator and pd_output columns are (a name in them
+    is withheld)."""
     if not key:
         return ""
     pd, _bar, ident = key.partition("|")
     if ident.startswith("t"):
-        ident = "t" + str(raw_people.text(ident[1:], SOURCE, "indicator", names, frozenset()) or "")
+        title, shared, output = ident[1:].partition("|o")
+        ident = "t" + str(raw_people.text(title, SOURCE, "indicator", names, frozenset()) or "")
+        if shared:
+            ident += "|o" + str(raw_people.text(output, SOURCE, "pd_output", names, frozenset()) or "")
     return f"{_pd_unit(pd, names)}|{ident}"
 
 
@@ -663,9 +668,10 @@ def indicator_rows(
 ) -> Iterator[dict[str, Any]]:
     """One row per indicator a hint under the tiles counts (:func:`indicator_selection`): its key (the unit,
     so ``counts_once`` and a distinct count of ``unit_key`` give the figure), its programme document's number
-    and status, its eTools id and title as one of its rows gives them, and the progress reports it is in
-    (their statuses and keys), read inside one snapshot; people never written (the title and keys are cleaned
-    as the rows CSV cleans them)."""
+    and status, its eTools id (the PD indicator's, from its key, when Partner monitoring's rule places its
+    rows; else as one of its rows gives it), its title and PD output as that row gives them, and the progress
+    reports it is in (their statuses and keys), read inside one snapshot; people never written (the title,
+    output and keys are cleaned as the rows CSV cleans them)."""
     figure = found.figure(what[7:])
     rows = found.rows
     first = {key: pks[0] for key, pks in indicators.items()}
@@ -675,7 +681,7 @@ def indicator_rows(
         wanted = sorted(first.values())
         for start in range(0, len(wanted), raw.CSV_CHUNK):
             chunk = dm.ReportedIndicator.objects.filter(pk__in=wanted[start : start + raw.CSV_CHUNK])
-            for record in chunk.values(*fields, "etools_indicator_id", "indicator"):
+            for record in chunk.values(*fields, "etools_indicator_id", "indicator", "pd_output"):
                 records[record["pk"]] = record
     as_of = raw.local_moment(found.as_of)
     clean = lambda column, value: raw_people.text(value, SOURCE, column, names, frozenset())  # noqa: E731
@@ -686,6 +692,7 @@ def indicator_rows(
         reports = sorted({rows.rows[pk][1] for pk in pks})
         statuses = Counter(rc.STATUS_LABELS.get(rows.reports[k].status, "") for k in reports)
         unit = _indicator_unit(key, names)
+        ident = key.partition("|")[2]
         yield {
             "figures_as_of": as_of,
             "step": f"Figure: {figure.label}",
@@ -699,8 +706,9 @@ def indicator_rows(
             "pd_status_in_neurodb": pd_statuses.label(record["intervention__status"])
             if record["intervention__status"]
             else "",
-            "etools_indicator_id": record["etools_indicator_id"],
+            "etools_indicator_id": ident[1:] if ident.startswith("s") else record["etools_indicator_id"],
             "indicator": clean("indicator", record["indicator"]),
+            "pd_output": clean("pd_output", record["pd_output"]),
             "progress_reports": len(reports),
             "report_statuses": "; ".join(f"{label} {n}" for label, n in sorted(statuses.items())),
             "progress_report_keys": " ; ".join(str(clean("progress_report_key", k) or "") for k in reports),

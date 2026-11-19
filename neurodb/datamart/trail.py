@@ -49,8 +49,8 @@ HOME_BLOCKS = {"reporting": "Progress reports", "indicators": "Indicator progres
 TABLES = ("locations", "disaggregations")  # Progress reports' tabs with a trail of their own
 STORED_SECONDS = 120
 # 2: TrailRows.documents (PRP's own reports still owed); 3: each row's PD indicator (the tiles' hints count
-# indicators)
-CACHE_VERSION = 3
+# indicators); 4: placed by Partner monitoring's rule (identity.Rule)
+CACHE_VERSION = 4
 SOURCE = "partner_reports"  # the Datamart dataset the Progress reports figures are counted from
 # figures whose key holds a partner, a report, a PD or a title
 NAMED_KEYS = ("pr.partner.", "pr.report.", "home.pd.", "dq.same_title.", "pm.section.", "pp.section_tile.")
@@ -465,9 +465,10 @@ def chain(
     kept = filters.queryset(day, steps=steps)
     names: dict[str, str] = {}  # one string per key, shared by its rows (what is kept stays small)
     rows: dict[int, list] = {}
+    # what each row's PD indicator is read from (reporting.INDICATOR_FIELDS), placed once the rule is read
+    fields: dict[int, tuple] = {}
     for row in reporting.unit_rows(steps[0][1]).annotate(_why=_why()):
         report, ir = reporting.unit_key(row)
-        indicator = reporting.pd_indicator_key(row)
         rows[row["pk"]] = [
             row["datamart_id"],
             names.setdefault(report, report),
@@ -475,8 +476,20 @@ def chain(
             len(steps),
             row["_why"],
             row["period_start"],
-            names.setdefault(indicator, indicator),
+            "",
         ]
+        fields[row["pk"]] = tuple(row[f] for f in reporting.INDICATOR_FIELDS)
+    # each row's PD indicator, as the page places it (reporting.counts): Partner monitoring's rule over the
+    # indicators of every programme document the rows name (a PD's answers are its own indicators' alone)
+    rule = reporting.indicator_rule({f[0] for f in fields.values()})
+    placed: dict[tuple, str] = {}
+    for pk, found in fields.items():
+        indicator = placed.get(found)
+        if indicator is None:
+            key = reporting.pd_indicator_key(dict(zip(reporting.INDICATOR_FIELDS, found, strict=True)), rule)
+            indicator = placed[found] = names.setdefault(key, key)
+        rows[pk][6] = indicator
+    del fields, placed
     broken: list[str] = []
     previous = set(rows)
     for index, (name, queryset) in enumerate(steps[1:], start=1):
@@ -725,7 +738,12 @@ INDICATORS = "pr.indicators"  # the hints under the tiles: pr.indicators and pr.
 # the rows the hints under the tiles read: of a programme document whose indicators they count (active, else
 # the PD statuses chosen: reporting.ReportFilters.indicator_statuses)
 COUNTED = (("indicator_counted", True),)
-INDICATOR_RULE = "each indicator once (its eTools id in its programme document, else its title)"
+# how the hints under the tiles tell indicators apart (reporting.pd_indicator_key)
+INDICATOR_RULE = (
+    "each indicator once (the indicator of its programme document Partner monitoring places its rows on: by "
+    "their eTools indicator id, else their title, else their PD output and title; rows it cannot place, by "
+    "their title)"
+)
 INDICATOR_CSV = "Its CSV: one row per indicator, with the progress reports it is in."
 # the rows of the reports to follow up: under the report status Due, those not yet due too
 # (reporting.follow_up_kept)

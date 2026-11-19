@@ -70,7 +70,7 @@ that PRP's list is tied to the right programme documents:
 A read that fails one of these hides them again at once. A report counts when PRP says Due or Overdue, its
 period has ended, a read returned it in the last 7 days (a report PRP deleted would read Overdue for ever),
 its programme document is not a draft or cancelled, and the partner reports have no row of it: when they have one, whatever its period or status, the partner
-reports decide. They carry no indicator: the tiles' indicator report counts, Reached and the indicator pages
+reports decide. They carry no indicator: the indicators under the tiles, Reached and the indicator pages
 leave them out. In the tables they read "from PRP's own list" and do not open (they have no indicator to
 show); the exports say their source.
 
@@ -217,15 +217,16 @@ the period start and end; the section list offers each section once, and a secti
 reports whose rows list several sections). The emergency indicator keeps the reports of SPDs, as Power BI's
 does. Like Partner monitoring, it opens on the running programme
 documents (active, signed or suspended); clear the PD status choice to see every status. Under the
-tiles, a note says how many more indicator reports the PD status filter leaves out (of programme
-documents with another status, or not in NeuroDB), with a link that shows every status. Draft and cancelled
+tiles, a note says how many indicator reports (one indicator in one progress report) the PD status filter
+leaves out (of programme documents with another status, or not in NeuroDB), with a link that shows every status. Draft and cancelled
 programme documents are never listed, nor reports that name no programme document.
 
 - **Reporting progress**: the tiles count *progress reports* per status, as Power BI's Reporting Progress
   does (your decision of 26 Oct 2026). Under each tile, the indicators in those reports (your decision of
-  19 Nov 2026): each indicator once, by its eTools indicator id in its programme document (else its title),
-  however many reports carry it (QPR1 to QPR4, monthly reports, every year), of active programme documents
-  only. Signed and suspended programme documents count in the progress reports, not in the indicators. If
+  19 Nov 2026): each indicator once, as Partner monitoring places a report row on the indicators of its
+  programme document (by its eTools indicator id, else its title, else its PD output and title; a row it
+  cannot place counts by its title), however many reports carry it (QPR1 to QPR4, monthly reports, every
+  year), of active programme documents only. Signed and suspended programme documents count in the progress reports, not in the indicators. If
   you choose PD statuses without Active, the indicators are those of the statuses chosen, and the note says
   so. An indicator can be in reports of several statuses, so the indicator numbers do not add up to the
   total; the report table's *Indicators* column still counts each report's own. Then the progress reports
