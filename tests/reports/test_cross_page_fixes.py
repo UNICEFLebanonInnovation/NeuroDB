@@ -314,11 +314,12 @@ def reporting_pds(pd):
     return {"ended": ended, "draft": draft}
 
 
-def test_progress_reports_open_on_the_running_pds(reporting_pds, client_viewer):
+def test_progress_reports_open_on_the_active_pds(reporting_pds, client_viewer):
+    """The active programme documents only since 21 Nov 2026 (the running ones before)."""
     url = reverse("reports:partner_reporting")
     first = client_viewer.get(url)
     assert {r["pd_reference_number"] for r in first.context["data"]["reports"]} == {"LEB/PCA-C"}
-    assert first.context["f"].status_choice == ["active", "signed", "suspended"]
+    assert first.context["f"].status_choice == ["active"]
     every = client_viewer.get(url, {"pd_status": ""}).context["data"]["reports"]
     assert {r["pd_reference_number"] for r in every} == {"LEB/PCA-C", "LEB/ENDED"}  # never a draft PD
     ended = client_viewer.get(url, {"pd_status": "ended"}).context["data"]["reports"]

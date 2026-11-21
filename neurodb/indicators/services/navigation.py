@@ -240,8 +240,8 @@ class MenuGroup:
     when: str = ""  # the whole group's condition
 
 
-# The two entries of Partner reporting (PRP): under Knowledge base in the full menu, a group of their own in
-# the focused menu (FOCUS), the same rows in both.
+# The two entries of Partner reporting (Results): under Knowledge base in the full menu, a group of their own
+# in the focused menu (FOCUS), the same rows in both.
 PARTNER_MONITORING = MenuItem(
     _("Partner monitoring"),
     "reports:pd_monitoring",
@@ -396,7 +396,8 @@ HELP_KEY = HELP.route
 # MENU's order under its usual title, so Field monitoring (in FOCUSED, not in FOCUS) is under Knowledge base,
 # with any other entry of that group ticked for the role. Help is not in it: the "?" panel links
 # to the Help pages and the search finds them (a superuser can tick it for a role).
-PRP = MenuGroup("prp", _("Partner reporting (PRP)"), (PROGRESS_REPORTS, PARTNER_MONITORING))
+# its title read "Partner reporting (PRP)" until 21 Nov 2026 (the owner's decision); its key stays "prp"
+PRP = MenuGroup("prp", _("Partner reporting (Results)"), (PROGRESS_REPORTS, PARTNER_MONITORING))
 FOCUS: tuple[str | MenuGroup, ...] = ("assistant:ask", "reports:overview", PRP)
 FOCUSED = frozenset(
     {"assistant:ask", "reports:overview", PROGRESS_REPORTS.key, PARTNER_MONITORING.key, "reports:monitoring"}

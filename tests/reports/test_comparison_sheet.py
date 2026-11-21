@@ -406,7 +406,7 @@ def test_the_slicers_to_set_and_the_neurodb_filters_to_clear(validator, more, fr
     assert year == "Reporting year"  # as Reporting Progress and the PD/SPD Report pages write it
     assert slicers[year] == "2026" and slicers["Section"] == "Child Protection"
     assert slicers["Partner"] == "Amel Association"
-    assert slicers["PD status"] == "Active, Signed, Suspended"  # the page's default: the running PDs
+    assert slicers["PD status"] == "Active"  # the page's default: the active PDs (since 21 Nov 2026)
     # Power BI's Report status is not NeuroDB's (its Due covers reports not yet due): cleared on both sides
     assert "Report status" not in slicers and "Report status" in comparison.POWERBI_TO_CLEAR[PR]
     assert dict(clear) == {

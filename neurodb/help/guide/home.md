@@ -22,8 +22,10 @@ Under the title: today's date and the sections the page shows (see
 pages on the same sections:
 
 - **Progress reports**: the seven tiles of the Progress reports page, for the running programme documents
-  and every reporting period, exactly the figures that page shows for the same sections. Each tile counts
-  progress reports, as Power BI's Reporting Progress does, and opens the page on that status; under it, the
+  (active, signed or suspended) and every reporting period. Progress reports opens on the active ones only
+  when you open it from the menu; each of Home's links opens it on the running ones, so it shows exactly
+  Home's figures for the same sections. Each tile counts progress reports, as Power BI's Reporting
+  Progress does, and opens the page on that status; under it, the
   indicators in those reports, each indicator once, of active programme documents only (they do not add up
   to the total). Once NeuroDB can prove that
   PRP's own list of progress reports is tied to the right programme documents, Overdue and Due also count
@@ -47,7 +49,8 @@ pages on the same sections:
   when there is no progress report).
 - **Indicator progress** this year: the tiles of Partner monitoring for every programme document running
   this year (indicators, on track, off track, not reported, programme documents, partners), exactly the
-  figures that page shows at the same link. *On track*, *Off track* and *Not reported* open Partner
+  figures that page shows at the same link. Partner monitoring itself no longer has the programme
+  documents tile (since 21 Nov 2026): Home keeps it. *On track*, *Off track* and *Not reported* open Partner
   monitoring's Data quality tab in that status, with the indicators in the grid under its lists;
   *Program Performance table* opens the table. Overdue reports are counted once on Home,
   on the Progress reports tiles: Partner monitoring counts them its own way.

@@ -263,7 +263,7 @@ def test_the_guide_lists_the_focused_menu_as_it_is_drawn():
     order = [
         "**Ask NeuroDB**",
         "**Home**",
-        "**Partner reporting (PRP)**",
+        "**Partner reporting (Results)**",
         "**Progress reports**",
         "**Partner monitoring**",
         "**Knowledge base**",
@@ -272,7 +272,7 @@ def test_the_guide_lists_the_focused_menu_as_it_is_drawn():
     places = [sidebar.index(label) for label in order]
     assert places == sorted(places)
     assert "Funds and assurance" not in sidebar and "Partner progress (eTools)" not in sidebar
-    assert str(navigation.PRP.title) == "Partner reporting (PRP)"
+    assert str(navigation.PRP.title) == "Partner reporting (Results)"
     assert (
         navigation.FOCUS[:2] == ("assistant:ask", "reports:overview")
         and navigation.FOCUS[2] is navigation.PRP
@@ -724,10 +724,9 @@ def test_partner_progress_says_what_the_tiles_show_of_reports_still_owed_and_lef
         "They carry no indicator: the indicators under the tiles, Reached and the indicator pages leave them out."
     ) in progress
     assert "how many more indicator reports" not in progress
-    assert (
-        "a note says how many indicator reports (one indicator in one progress report) the PD status filter "
-        "leaves out"
-    ) in progress
+    # the page shows no note on what the PD status filter leaves out since 21 Nov 2026: the guide says none
+    assert "the PD status filter leaves out" not in progress
+    assert "It opens on the active programme documents only (your decision of 21 Nov 2026" in progress
     # an indicator is the PD indicator Partner monitoring's rule places a row on, never the row's own id alone
     assert "by its eTools indicator id in its programme document (else its title)" not in progress
     assert (

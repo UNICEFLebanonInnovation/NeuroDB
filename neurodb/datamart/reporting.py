@@ -6,13 +6,19 @@ Report/Location and Report/Disaggregation, as the eTools Power BI report shows t
   report* is one indicator in one progress report (PRP's ``indicator_report``; the Datamart sends it once per
   location): each progress report's Indicators counts its own. Every indicator report of a progress report has
   the report's status.
+* **The PD statuses read.** With no PD status in its address, the page reads the active programme documents
+  only (:data:`PAGE_PD_STATUSES`, the owner's decision of 21 Nov 2026; Active, Signed and Suspended before):
+  its tabs, exports, figure trail and Power BI comparison sheet, and Ask NeuroDB's lookup, which reads "as the
+  page opens". Home, Partner monitoring and the eTools reporting checks keep the running programme documents:
+  Home writes them in its filter and its links, the checks in theirs.
 * **The indicators under the tiles** (the user's decision of 19 Nov 2026: "unique per indicator number,
   indicators for active PDs"): each tile gives the indicators of its progress reports, each once however many
   reports, periods, report types and years carry it (:func:`pd_indicator_key`: the PD indicator Partner
   monitoring's rule places the row on, by its eTools id, else its title, else its PD output and title; a row
   the rule does not place, by its title), of active programme documents only
   (:attr:`ReportFilters.indicator_statuses`: the statuses chosen when Active is not among them). The tiles are
-  counted apart, so these do not add up to the total; the progress report numbers keep the running PDs.
+  counted apart, so these do not add up to the total; the progress report numbers keep every PD status the
+  filter reads.
 * **To follow up.** The reports to follow up (the Partner view tab, Home) are those Overdue, Sent back, Due
   and Submitted, a report not yet due among the Due ones, as Power BI's follow-up list has them (the user's
   decision of 26 Oct 2026): :data:`FOLLOW_UP_STATUSES`, :func:`follow_up_status`. The Report status Due keeps
@@ -110,6 +116,10 @@ OPTIONS_SECONDS = 600
 CACHE_VERSION = 5
 NO_SECTION = "—"
 EMAIL = re.compile(r"[^\s@]+@[^\s@]+")
+# the PD statuses the page reads when its address chooses none (ReportFilters.pd_statuses None): the active
+# programme documents only (the owner's decision of 21 Nov 2026; the running ones before). Home and the eTools
+# reporting checks write the running ones out instead (pd_statuses.RUNNING)
+PAGE_PD_STATUSES = pd_statuses.ACTIVE
 
 # one indicator in one progress report: PRP's indicator report id, else the eTools id, title and PD output
 # (reached.indicator_report_key)
@@ -287,8 +297,8 @@ class ReportFilters:
     pds: list[str] = field(default_factory=list)
     partners: list[str] = field(default_factory=list)  # partner ids as text
     partner_types: list[str] = field(default_factory=list)  # partner type or CSO type
-    # eTools PD statuses chosen: None (no choice made) the running PDs, as on Partner monitoring and in
-    # Power BI; an empty list every status. Draft and cancelled PDs are never read
+    # eTools PD statuses chosen: None (no choice made) the page's default, the active PDs only
+    # (PAGE_PD_STATUSES); an empty list every status. Draft and cancelled PDs are never read
     pd_statuses: list[str] | None = None
     emergency: str = ""  # yes: the reports of SPDs (the Emergency indicator, as Power BI's), no: the others
     start_from: datetime.date | None = None  # period start between
@@ -311,7 +321,7 @@ class ReportFilters:
             pds=_getlist(params, "pd"),
             partners=[x for x in _getlist(params, "partner") if re.fullmatch(r"[0-9]{1,18}", x)],
             partner_types=_getlist(params, "partner_type"),
-            # "pd_status=" alone (nothing chosen) is every status; no key at all, the running PDs
+            # "pd_status=" alone (nothing chosen) is every status; no key at all, the page's default (Active)
             pd_statuses=_getlist(params, "pd_status") if "pd_status" in params else None,
             emergency=emergency
             if (emergency := str(params.get("emergency") or "").strip().lower()) in ("yes", "no")
@@ -325,16 +335,17 @@ class ReportFilters:
 
     @property
     def status_choice(self) -> list[str]:
-        """The PD statuses the filter shows as chosen (none: every status)."""
-        return list(pd_statuses.RUNNING) if self.pd_statuses is None else list(self.pd_statuses)
+        """The PD statuses the filter shows as chosen and reads (none: every status): with no choice made, the
+        page's default, Active (:data:`PAGE_PD_STATUSES`)."""
+        return list(PAGE_PD_STATUSES) if self.pd_statuses is None else list(self.pd_statuses)
 
     @property
     def indicator_statuses(self) -> list[str]:
         """The PD statuses whose indicators the tiles' hints count (:func:`counts`): the active programme
-        documents only (the user's decision of 19 Nov 2026), whether the running ones, every status or
-        statuses with Active among them are read; when the statuses chosen leave Active out, those chosen, so
-        the hint never reads a 0 that says nothing. The progress report numbers read every status the filter
-        keeps."""
+        documents only (the user's decision of 19 Nov 2026), whether the page's default (Active), the running
+        ones, every status or statuses with Active among them are read; when the statuses chosen leave Active
+        out, those chosen, so the hint never reads a 0 that says nothing. The progress report numbers read
+        every status the filter keeps."""
         chosen = self.status_choice
         if not chosen or any(s in chosen for s in pd_statuses.ACTIVE):
             return list(pd_statuses.ACTIVE)
@@ -344,7 +355,7 @@ class ReportFilters:
         """Every field of the filter, as JSON, for the keys of what is stored for it (see
         ``monitoring.Filters.cache_key``): each list in one order, the dates as written, and the PD statuses
         as :meth:`queryset` reads them (:attr:`status_choice`): no ``pd_status`` in the address (the page's
-        own links) and the running statuses the filter bar sends for the same choice share a key, while
+        own links) and Active alone, as the filter bar sends the same choice, share a key, while
         ``pd_status=`` alone (every status) keeps its own."""
         return _json_key(dataclasses.replace(self, pd_statuses=sorted(set(self.status_choice))))
 
@@ -1445,7 +1456,8 @@ def filter_options() -> dict[str, Any]:
         "partner_types": sorted(
             {x for pair in partner_types.values_list("partner_type", "cso_type") for x in pair if x}
         ),
-        # the running statuses first (the filter's default); draft and cancelled PDs are never read
+        # the running statuses first (Active, the filter's default, among them); draft and cancelled PDs are
+        # never read
         "pd_statuses": sorted(
             {x for x in pds.values_list("status", flat=True).distinct() if x}
             - set(pd_statuses.NOT_A_PARTNERSHIP)

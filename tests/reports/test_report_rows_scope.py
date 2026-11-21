@@ -1,12 +1,12 @@
-"""Which partner report rows the Progress reports page counts, and what it says about the others: the
-running programme documents by default; a programme document NeuroDB does not hold only when every PD
-status is chosen; a row that names no programme document never. The eTools reporting checks 10 and 11
-show the rows by country and programme document, and the reports owed in PRP's two feeds."""
+"""Which partner report rows the Progress reports page counts, and where the others are said: the active
+programme documents by default (the running ones until 21 Nov 2026); a programme document NeuroDB does not hold
+only when every PD status is chosen; a row that names no programme document never. The page shows no note on
+what it leaves out since 21 Nov 2026: the figure trail's PD status step says it. The eTools reporting checks 10
+and 11 show the rows by country and programme document, and the reports owed in PRP's two feeds."""
 
 from __future__ import annotations
 
 import datetime
-import re
 
 import pytest
 from django.urls import reverse
@@ -67,28 +67,28 @@ def rows(db):
     return {"running": running, "ended": ended}
 
 
-def _note(html: str) -> str:
-    """The page's note on what the PD status filter leaves out, as a person reads it (without the figure trail's
-    keys)."""
-    note = html.split('id="reporting-left-out"', 1)[1].split("</p>", 1)[0]
-    return re.sub(r'<span data-figure="[^"]*">([^<]*)</span>', r"\1", note)
+def _step(params: dict) -> str:
+    """The figure trail's PD status step: what the PD status filter leaves out, as a person reads it."""
+    from neurodb.datamart import trail
+
+    found = trail.progress_trail("progress-reports", params, TODAY)
+    step = next(s for s in found.steps if s.key == "pd_status")
+    return " ".join(line.words for line in step.lines)
 
 
-def test_the_default_page_counts_the_running_pds_and_says_what_it_leaves_out(rows, client_viewer):
+def test_the_default_page_counts_the_active_pds_and_the_trail_says_what_it_leaves_out(rows, client_viewer):
     page = client_viewer.get(reverse("reports:partner_reporting"))
     data = page.context["data"]
+    assert data["filters"].status_choice == ["active"]
     assert data["counts"]["indicator_reports"] == 2
-    assert data["left_out"] == {"other_status": 1, "not_held": 2, "no_pd": 2, "by_pd_status": 3}
-    note = _note(page.text)
-    # the tiles above show progress reports and indicators: what is left out is said in its own unit, never
-    # as "more" of theirs
-    assert "leaves out 3 indicator reports (one indicator in one progress report) of these filters" in note
-    assert " more " not in note
-    assert (
-        "1 of programme documents with another status, 2 of programme documents NeuroDB does not hold" in note
-    )
-    assert "2 indicator reports of these filters name no programme document" in note
-    assert "pd_status=" in note and "Show every PD status" in note
+    left = reporting.left_out(data["filters"], TODAY)
+    assert left == {"other_status": 1, "not_held": 2, "no_pd": 2, "by_pd_status": 3}
+    # no note on the page; the trail's PD status step gives each reason, in indicator reports
+    assert 'id="reporting-left-out"' not in page.text and "Show every PD status" not in page.text
+    step = _step({})
+    assert "Programme document status not chosen (Active chosen): 1 indicator report" in step
+    assert "Programme document not in NeuroDB: 2 indicator reports" in step
+    assert "Names no programme document: 2 indicator reports" in step
 
 
 def test_every_pd_status_reads_the_pds_not_held_but_never_a_report_of_no_pd(rows, client_viewer):
@@ -102,11 +102,10 @@ def test_every_pd_status_reads_the_pds_not_held_but_never_a_report_of_no_pd(rows
     assert data["by_section"]["total"] == data["counts"]["progress_reports"] == 4 and "Protection" not in {
         r["section"] for r in data["by_section"]["rows"]
     }
-    assert data["left_out"] == {"other_status": 0, "not_held": 0, "no_pd": 2, "by_pd_status": 0}
-    note = _note(page.text)
-    assert (
-        "leaves out" not in note and "2 indicator reports of these filters name no programme document" in note
-    )
+    left = reporting.left_out(data["filters"], TODAY)
+    assert left == {"other_status": 0, "not_held": 0, "no_pd": 2, "by_pd_status": 0}
+    step = _step({"pd_status": ""})
+    assert "status not chosen" not in step and "Names no programme document: 2 indicator reports" in step
 
 
 def test_the_note_follows_the_other_filters(rows):
@@ -118,8 +117,11 @@ def test_the_note_follows_the_other_filters(rows):
     assert found == {"other_status": 2, "not_held": 2, "no_pd": 2, "by_pd_status": 4}
 
 
-def test_the_stored_tables_skip_the_note(rows):
-    assert services.partner_reporting({}, TODAY, options=False)["left_out"] == {}
+def test_the_page_no_longer_reads_what_the_filter_leaves_out(rows):
+    """The hub reads what the PD status filter leaves out for no one: the page shows no note on it, and the
+    figure trail and the comparison sheet read reporting.left_out themselves."""
+    assert "left_out" not in services.partner_reporting({}, TODAY, options=False)
+    assert "left_out" not in services.partner_reporting({}, TODAY)
 
 
 def test_check_10_shows_each_country_and_programme_document_link(rows):
@@ -361,8 +363,10 @@ def test_administrators_find_the_reporting_checks_from_the_menu_and_the_pages(
     admin_home = client.get(reverse("admin:index")).text
     assert admin_home.count(f'href="{checks_url}"') >= 2  # the admin menu and the quick actions
     assert f'href="{checks_url}"' in client.get(reverse("reports:data_health")).text
+    # Progress reports no longer has its grey note for administrators (21 Nov 2026): the admin's menu, its
+    # quick actions and Data health link to the checks
     page = client.get(reverse("reports:partner_reporting")).text
-    assert 'id="reporting-checks-link"' in page and f'href="{checks_url}"' in page
+    assert 'id="reporting-checks-link"' not in page
     client.force_login(viewer)
     assert checks_url not in client.get(reverse("reports:partner_reporting")).text
     assert checks_url not in client.get(reverse("reports:data_health")).text

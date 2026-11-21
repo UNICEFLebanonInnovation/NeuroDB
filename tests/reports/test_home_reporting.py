@@ -194,7 +194,7 @@ def test_the_tiles_are_the_progress_reports_page_s_at_their_link(client_viewer, 
     assert page.context["data"]["counts"] == counts  # indicator reports and progress reports, per status
     home_html, page_html = text(home), text(page)
     drawn = _tiles(home_html, 'id="home-pr-title"', 'id="home-pds-title"')
-    assert drawn == _tiles(page_html, 'class="kpi-grid kpi-grid--7"', '<p class="small text-muted mb-3">')
+    assert drawn == _tiles(page_html, 'class="kpi-grid kpi-grid--7"', '<section class="panel')
     assert len(drawn) == 7
     for s in counts["statuses"]:  # each status tile opens the page on that status, with the same number
         status_page = client_viewer.get(figures["tile_urls"][s["key"]])
@@ -376,7 +376,10 @@ def test_in_january_the_reports_still_owed_from_last_year_stay_on_home(client, v
 
 def test_a_first_load_writes_home_s_sections_into_every_link(client_viewer, own_viewer, world):
     home = _home(client_viewer, "")
-    assert home.context["progress_url"] == reverse("reports:partner_reporting") + "?section=Child+Protection"
+    # Home's sections and the PD statuses Home counts, written out (Progress reports alone opens on Active)
+    assert home.context["progress_url"] == reverse("reports:partner_reporting") + (
+        "?section=Child+Protection&pd_status=active&pd_status=signed&pd_status=suspended"
+    )
     assert _query(home.context["monitoring_url"])["section"] == [CP]
     figures = _figures(home)
     for url in [figures["partners_url"], *figures["tile_urls"].values(), *figures["status_urls"].values()]:
@@ -387,7 +390,8 @@ def test_a_first_load_writes_home_s_sections_into_every_link(client_viewer, own_
     page = client_viewer.get(home.context["progress_url"])
     assert page.context["data"]["counts"] == figures["reporting"]["counts"]
     html = text(home)
-    assert f'href="{home.context["progress_url"]}"' in html and "Partner reporting: your section" in html
+    link = home.context["progress_url"].replace("&", "&amp;")
+    assert f'href="{link}"' in html and "Partner reporting: your section" in html
 
 
 def test_the_page_reads_its_day_where_home_reads_it(client_viewer, world, monkeypatch):

@@ -50,7 +50,9 @@ is written as the page writes it (a Reached of 33.33% reads 33); point at it to 
    counts). Each filter step also says how many of them it leaves out;
 3. what the page leaves out, filter by filter, in the order the page applies them: the rows, and the indicator
    reports and progress reports left out entirely or partly (some of their rows kept). The PD status filter
-   gives the three lines of the page's note (another status, not in NeuroDB, names no programme document);
+   gives three lines (another status, not in NeuroDB, names no programme document). With no PD status in
+   the page's address, the trail reads the page's default, the active programme documents (*PD status:
+   Active (the page's default)*); Home's block reads the running ones Home writes in its links;
 4. the rows the filter keeps, then the report status when one is chosen (one status per progress report, read
    from all its rows). Their CSVs list PRP's own reports still owed after the rows, and each step says how
    many.

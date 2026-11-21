@@ -384,12 +384,12 @@ def test_two_filters_never_share_a_key():
 
 
 def test_the_page_s_links_and_the_filter_bar_share_the_key_of_one_filter(client_viewer, world, monkeypatch):
-    """The page's own links carry no ``pd_status`` (the running PDs); the filter bar sends the running statuses it
-    shows chosen. One filter, the same figures: one stored table (review R1-B-2). ``pd_status=`` alone (every
-    status) and another choice keep keys of their own."""
+    """The page's own links carry no ``pd_status`` (the page's default, Active since 21 Nov 2026); the filter bar
+    sends the status it shows chosen. One filter, the same figures: one stored table (review R1-B-2).
+    ``pd_status=`` alone (every status) and another choice keep keys of their own."""
     link = reporting.ReportFilters.from_params(QueryDict("section=Education&year=2026"))
     bar = reporting.ReportFilters.from_params(
-        QueryDict("section=Education&pd_status=suspended&pd_status=signed&pd_status=active&year=2026")
+        QueryDict("section=Education&pd_status=&pd_status=active&year=2026")
     )
     every = reporting.ReportFilters.from_params(QueryDict("section=Education&pd_status=&year=2026"))
     closed = reporting.ReportFilters.from_params(QueryDict("section=Education&pd_status=closed&year=2026"))
@@ -399,7 +399,7 @@ def test_the_page_s_links_and_the_filter_bar_share_the_key_of_one_filter(client_
     calls = _tables(monkeypatch)
     first = get_part(client_viewer, f"{PAGE}?tab=locations", "table").context["locations"]
     compute.reset_memo()
-    bar_url = f"{PAGE}?tab=locations&pd_status=active&pd_status=signed&pd_status=suspended"
+    bar_url = f"{PAGE}?tab=locations&pd_status=&pd_status=active"
     assert get_part(client_viewer, bar_url, "table").context["locations"] == first
     assert calls["table"] == 1
 

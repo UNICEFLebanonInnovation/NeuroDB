@@ -1,4 +1,4 @@
-"""The focused menu (SPEC_focus_menu §1, §4.1): every role sees Home and Ask NeuroDB, Partner reporting (PRP) with
+"""The focused menu (SPEC_focus_menu §1, §4.1): every role sees Home and Ask NeuroDB, Partner reporting (Results) with
 Progress reports and Partner monitoring, then Field monitoring under Knowledge base until a superuser ticks
 otherwise in the Menu page; superusers see the full menu; donors and visitors are unchanged. Only the menu is
 shorter: every page still opens from links and bookmarks, and the search still lists them. The choices are kept
@@ -67,7 +67,7 @@ def test_every_role_sees_the_focused_menu_by_default(client, roles, hierarchy, a
     # Ask shows to staff even while the AI is off (its page says so), and to no one else then
     expected = FOCUSED_ROWS if is_staff else WITHOUT_ASK
     assert _labels(html) == expected
-    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE]
+    assert groups(html) == [("prp", "Partner reporting (Results)"), KNOWLEDGE_BASE]
     side = sidebar(html)
     # Home and Ask NeuroDB come first, with no title; each group holds its rows, labelled by its title
     top = side[: side.index('aria-labelledby="nav-title-prp"')]
@@ -116,7 +116,7 @@ def test_a_superuser_sees_the_full_menu_the_archive_and_help(client, roles, hier
     shown = [str(e["label"]) for g in navigation.menu(superuser) for e in g["items"]]
     assert _labels(html) == [*shown, "Help"]
     assert "For you" in shown and "Funds" in shown  # the full tree, not the focused one
-    assert ("prp", "Partner reporting (PRP)") not in groups(html)
+    assert ("prp", "Partner reporting (Results)") not in groups(html)
     assert "sidebar__archive" in sidebar(html)
 
 
@@ -154,12 +154,12 @@ def test_ask_then_home_then_partner_reporting_then_knowledge_base(client, roles,
     assert [(g["title"] and str(g["title"]), [str(i["label"]) for i in g["items"]]) for g in drawn] == [
         (None, ["Ask NeuroDB"]),
         (None, ["Home"]),
-        ("Partner reporting (PRP)", ["Progress reports", "Partner monitoring"]),
+        ("Partner reporting (Results)", ["Progress reports", "Partner monitoring"]),
         ("Knowledge base", ["Field monitoring"]),
     ]
     html = _page(client, viewer, reverse("reports:library"))
     assert _labels(html) == FOCUSED_ROWS
-    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE]
+    assert groups(html) == [("prp", "Partner reporting (Results)"), KNOWLEDGE_BASE]
 
 
 def test_field_monitoring_and_monitoring_insights_share_one_knowledge_base_title(
@@ -170,7 +170,7 @@ def test_field_monitoring_and_monitoring_insights_share_one_knowledge_base_title
     viewer = _person("one-title", VIEWER)
     html = _page(client, viewer, reverse("reports:library"))
     assert _labels(html) == [*WITHOUT_ASK, "Monitoring insights"]  # Field monitoring first, as in MENU
-    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE]
+    assert groups(html) == [("prp", "Partner reporting (Results)"), KNOWLEDGE_BASE]
     side = sidebar(html)
     assert side.count(">Knowledge base<") == 1
     # both rows are in that one group, after its title
@@ -184,7 +184,7 @@ def test_field_monitoring_unticked_leaves_no_knowledge_base_title(client, roles,
     viewer = _person("no-field-monitoring", VIEWER)
     html = _page(client, viewer, reverse("reports:library"))
     assert _labels(html) == ["Ask NeuroDB", "Home", "Progress reports", "Partner monitoring"]
-    assert groups(html) == [("prp", "Partner reporting (PRP)")]
+    assert groups(html) == [("prp", "Partner reporting (Results)")]
     assert "Knowledge base" not in sidebar(html)
 
 
@@ -204,7 +204,7 @@ def test_a_choice_saved_in_the_old_order_draws_the_new_one(client, roles, settin
         "Funds",
         "Field monitoring",
     ]
-    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE]
+    assert groups(html) == [("prp", "Partner reporting (Results)"), KNOWLEDGE_BASE]
 
 
 def test_a_superuser_sees_ask_neurodb_first_then_home(client, roles, settings):
@@ -229,7 +229,7 @@ def test_a_saved_row_adds_its_entries_after_the_focused_part(client, roles, hier
         "Field monitoring",
         "Help",
     ]
-    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE]
+    assert groups(html) == [("prp", "Partner reporting (Results)"), KNOWLEDGE_BASE]
     side = sidebar(html)
     assert side.index(">Funds<") < side.index('data-nav-key="archive"') < side.index(">Help<")
     # the other roles keep the focused menu
@@ -250,7 +250,7 @@ def test_a_row_without_home_draws_no_home(client, roles, ai_off, menu_choice):
     html = _page(client, viewer, reverse("reports:library"))
     assert _labels(html) == ["Progress reports", "Funds"]
     assert "nav-item-link--help" not in sidebar(html)
-    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE]
+    assert groups(html) == [("prp", "Partner reporting (Results)"), KNOWLEDGE_BASE]
 
 
 def test_a_choice_saved_before_the_merge_shows_the_same_rows_under_knowledge_base(
@@ -277,7 +277,11 @@ def test_a_choice_saved_before_the_merge_shows_the_same_rows_under_knowledge_bas
     assert menu_choices.for_role(VIEWER) == frozenset(saved)  # every saved name is still in the menu
     viewer = _person("saved-before-merge", VIEWER)
     html = _page(client, viewer, reverse("reports:library"))
-    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE, ("resources", "Resources")]
+    assert groups(html) == [
+        ("prp", "Partner reporting (Results)"),
+        KNOWLEDGE_BASE,
+        ("resources", "Resources"),
+    ]
     drawn = {g["key"]: [str(i["label"]) for i in g["items"]] for g in navigation.sidebar(viewer)["groups"]}
     assert drawn["prp"] == ["Progress reports", "Partner monitoring"]
     assert drawn["knowledge_base"] == [

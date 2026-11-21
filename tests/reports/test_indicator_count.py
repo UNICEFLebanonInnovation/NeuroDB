@@ -4,9 +4,10 @@ user's decision of 19 Nov 2026): "the count should be unique per indicator numbe
 An indicator is its eTools indicator id within its programme document, else its title there (case and spaces
 aside): the rule of Partner monitoring (``identity.ident_of``). Within one tile an indicator in several reports
 (QPR1 to QPR4, monthly HR reports, every year) counts once; the seven tiles are counted apart, so they no
-longer add up. The progress report numbers stay as they were: the running programme documents (active, signed,
-suspended). With PD statuses chosen on Progress reports: the indicators of the active ones among them, else of
-those chosen.
+longer add up. The progress report numbers stay as they were: every PD status the filter reads (the running
+programme documents, active, signed and suspended, as Home reads them and writes them in its links; Progress
+reports alone opens on the active ones since 21 Nov 2026). With PD statuses chosen on Progress reports: the
+indicators of the active ones among them, else of those chosen.
 
 The world, on the suite's day (15 October 2026), each indicator row at two locations:
 
@@ -152,8 +153,12 @@ def validator(client, roles):
     return client
 
 
+# the running programme documents, as Home reads them (Progress reports alone opens on the active ones)
+RUNNING = {"pd_status": ["active", "signed", "suspended"]}
+
+
 def _counts(params=None) -> dict:
-    return services.partner_reporting(params or {}, TODAY, options=False)["counts"]
+    return services.partner_reporting(RUNNING if params is None else params, TODAY, options=False)["counts"]
 
 
 def _tiles(counts: dict, figure: str) -> dict[str, int]:
@@ -285,8 +290,11 @@ def test_each_indicator_counts_once_in_the_total_and_once_in_each_tile_it_is_in(
 
 def test_signed_and_suspended_reports_count_but_not_their_indicators(world):
     counts = _counts()
-    reports = services.partner_reporting({}, TODAY, options=False)["reports"]
+    reports = services.partner_reporting(RUNNING, TODAY, options=False)["reports"]
     assert {r["pd_reference_number"] for r in reports} == {"LEB/A", "LEB/B", "LEB/S", "LEB/U"}
+    # the page's own default, Active, leaves them out
+    bare = services.partner_reporting({}, TODAY, options=False)["reports"]
+    assert {r["pd_reference_number"] for r in bare} == {"LEB/A", "LEB/B"}
     # LEB/S's Accepted report and LEB/U's Overdue one are counted; their indicators are not
     assert _tiles(counts, "progress_reports")["overdue"] == 2 and _tiles(counts, "indicators")["overdue"] == 1
     every = _counts({"pd_status": ""})  # every status: the ended PD's report too, never its indicator
@@ -294,11 +302,11 @@ def test_signed_and_suspended_reports_count_but_not_their_indicators(world):
 
 
 def test_a_report_status_chosen_counts_the_indicators_of_its_reports_only(world):
-    counts = _counts({"status": "accepted"})
+    counts = _counts({**RUNNING, "status": "accepted"})
     assert counts["progress_reports"] == 6 and counts["indicators"] == 5
     assert _tiles(counts, "indicators") == {"total": 5, "accepted": 5, **dict.fromkeys(
         ("submitted", "sent_back", "due", "overdue", "not_yet_due"), 0)}  # fmt: skip
-    assert _counts({"status": "overdue"})["indicators"] == 1  # LEB/U's indicator is not of an active PD
+    assert _counts({**RUNNING, "status": "overdue"})["indicators"] == 1  # LEB/U's is not of an active PD
 
 
 @pytest.mark.parametrize(
@@ -349,12 +357,9 @@ def test_home_and_progress_reports_show_the_same_indicators_and_say_how_they_are
     home_words, page_words = _words(text(home)), _words(text(page))
     assert OLD_NOTE not in home_words and OLD_NOTE not in page_words
     assert "indicator report" not in " ".join(words for words, _ in hints.values())
-    said = (
-        "Under it, the indicators in those reports, each indicator once, of active programme documents only. "
-        "An indicator can be in reports of several statuses, so the indicator numbers do not add up to the total."
-    )
-    assert said in home_words and said in page_words
-    assert "Every report has one status, so the progress report numbers add up to the total." in page_words
+    # Home says how they are counted; Progress reports shows no note (the owner's decision of 21 Nov 2026)
+    assert "An indicator can be in reports of several statuses" in home_words
+    assert "An indicator can be in reports of several statuses" not in page_words
 
 
 def test_progress_reports_says_which_pd_statuses_its_indicators_are_of(client_viewer, world):
@@ -365,11 +370,8 @@ def test_progress_reports_says_which_pd_statuses_its_indicators_are_of(client_vi
         "2 indicators",
         "Each indicator once, in signed or suspended programme documents",
     )
-    words = _words(text(page))
-    assert (
-        "Under it, the indicators in those reports, each indicator once, of signed or suspended programme "
-        "documents (Active is not among the PD statuses chosen)."
-    ) in words
+    # the hint's hover title says it; the page has no note under the tiles
+    assert "Active is not among the PD statuses chosen" not in _words(text(page))
     chosen = client_viewer.get(url, {"pd_status": ["active", "signed"]})
     assert _hints(text(chosen))["pr.indicators"] == (
         "5 indicators",
@@ -378,7 +380,7 @@ def test_progress_reports_says_which_pd_statuses_its_indicators_are_of(client_vi
 
 
 def test_the_table_s_indicators_column_still_counts_each_report_s_own(client_viewer, world):
-    page = client_viewer.get(reverse("reports:partner_reporting"))
+    page = client_viewer.get(reverse("reports:partner_reporting"), RUNNING)
     by_report = {(r["pd_reference_number"], r["report_number"], r["period_end"]): r["indicators"]
                  for r in page.context["data"]["reports"]}  # fmt: skip
     assert by_report[("LEB/A", "QPR1", D(2026, 3, 31))] == 3
@@ -386,10 +388,12 @@ def test_the_table_s_indicators_column_still_counts_each_report_s_own(client_vie
 
 
 def test_ask_neurodb_gives_the_tiles_indicators_too(world):
+    """Ask reads Progress reports as the page opens: the active programme documents (LEB/S's Accepted report
+    and LEB/U's Overdue one are not of them)."""
     out = tools.run("partner_reporting", {})
     assert out["indicators"] == 5
-    assert out["tiles"]["Accepted"] == {"progress_reports": 6, "indicators": 5, "indicator_reports": 9}
-    assert out["tiles"]["Overdue"] == {"progress_reports": 2, "indicators": 1, "indicator_reports": 2}
+    assert out["tiles"]["Accepted"] == {"progress_reports": 5, "indicators": 5, "indicator_reports": 8}
+    assert out["tiles"]["Overdue"] == {"progress_reports": 1, "indicators": 1, "indicator_reports": 1}
 
 
 # ------------------------------------------------------------------------------------------ the figure trail
@@ -498,7 +502,7 @@ def test_the_excel_by_status_sheet_holds_the_first_tile_and_says_its_indicators_
 ):
     """Summing the indicators of the status rows gives 11, while the first tile's hint is 5: the sheet holds
     the first tile in a Total row, and says why the status rows' indicators do not add up to it."""
-    response = validator.get(reverse("reports:partner_reporting"), {"export": "xlsx"})
+    response = validator.get(reverse("reports:partner_reporting"), {**RUNNING, "export": "xlsx"})
     rows = list(load_workbook(io.BytesIO(response.content))["By status"].iter_rows(values_only=True))
     assert rows[0] == ("status", "progress_reports", "indicators", "indicator_reports", "note")
     statuses, total = rows[1:-1], rows[-1]

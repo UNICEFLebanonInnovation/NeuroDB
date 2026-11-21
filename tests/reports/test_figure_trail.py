@@ -242,7 +242,8 @@ def _expected(reports, partners) -> dict[str, int]:
         out[f"pr.status.{s['key']}"] = s["progress_reports"]
         out[f"pr.indicators.{s['key']}"] = s["indicators"]
     for name in ("by_pd_status", "other_status", "not_held", "no_pd"):
-        out[f"pr.left_out.{name}"] = data["left_out"][name]
+        # what the PD status filter leaves out: no note on the page since 21 Nov 2026, the trail gives it
+        out[f"pr.left_out.{name}"] = reporting.left_out(data["filters"], data["today"])[name]
     for row in data["by_section"]["rows"]:
         for key, n in zip(reporting.STATUS_KEYS, row["counts"], strict=True):
             out[f"pr.section.{row['section']}.{key}"] = n
@@ -353,9 +354,9 @@ def test_each_figure_is_the_page_s_rebuilt_from_the_rows_and_in_the_kept_rows(va
         assert step.kept.progress_reports == before.progress_reports - step.out.progress_reports, step.key
         before = step.kept
     assert next(s for s in found.steps if s.key == "K").kept == before
-    # (f) the PD status step leaves out what the page's note says
+    # (f) the PD status step leaves out what reporting.left_out counts
     pd_status = next(s for s in filters if s.key == "pd_status")
-    left = reports.context["data"]["left_out"]
+    left = reporting.left_out(reports.context["data"]["filters"], reports.context["data"]["today"])
     assert pd_status.out.indicator_reports == left["by_pd_status"] + left["no_pd"]
     lines = " ".join(line.words for line in pd_status.lines)
     assert f"Names no programme document: {trail.words(left['no_pd'], trail.IR)}" in lines

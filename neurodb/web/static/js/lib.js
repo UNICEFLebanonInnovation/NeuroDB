@@ -113,7 +113,9 @@ export function isDark() {
 }
 
 /** Plain-text table extraction used by the copy/CSV buttons and the pivot export. A cell marked
- * data-export="no" (e.g. the team names of Monitoring insights) is never copied or exported. */
+ * data-export="no" (e.g. the team names of Monitoring insights) is never copied or exported; a cell marked
+ * data-export="only" and hidden (e.g. the four columns Partner monitoring's grid no longer shows) is only
+ * copied and exported, its value in data-value. */
 export function tableRows(table) {
   return [...table.querySelectorAll("tr")].map((tr) =>
     [...tr.children]

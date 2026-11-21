@@ -59,8 +59,10 @@ and re-running the deployment.
 
 Management found the full sidebar too long for most people, PD managers above all, who want partner reporting
 in numbers and tables in as few taps as possible. So every role sees a **focused menu** by default:
-*Ask NeuroDB* and *Home* at the top, *Partner reporting (PRP)* (*Progress reports* and *Partner monitoring*),
-then *Field monitoring* under *Knowledge base* (`navigation.FOCUS`, `navigation.FOCUSED`). That is
+*Ask NeuroDB* and *Home* at the top, *Partner reporting (Results)* (*Progress reports* and *Partner
+monitoring*; the section read *Partner reporting (PRP)* until 21 Nov 2026, the owner's decision: its key in
+the Menu page's choices, `prp`, is unchanged), then *Field monitoring* under *Knowledge base*
+(`navigation.FOCUS`, `navigation.FOCUSED`). That is
 Administrators, Section editors and Viewers, with or without staff status, and the members of the Management
 group (a group, not a role).
 **Superusers** always see the full menu (`navigation.MENU`). Donor accounts are unchanged: they see their
@@ -69,7 +71,7 @@ own page only. Visitors are unchanged.
 **Choosing what a role sees: Users and access → *Menu*** (`/manage/web/menuchoice/`, also a Quick action on
 the dashboard: *Choose what each role sees in the menu*). One tick per entry and role, the entries in the
 order a role's sidebar draws them: the focused part first (*Ask NeuroDB* and *Home* under *Top of the
-menu*, then *Partner reporting (PRP)*), then the rest of the full menu under its usual group titles (*Field
+menu*, then *Partner reporting (Results)*), then the rest of the full menu under its usual group titles (*Field
 monitoring* under *Knowledge base*), then *ActivityInfo* (the monthly results or the archive) and
 *Help*. **Save** stores the ticks; **Reset every role to the focused menu** removes every saved choice. Each
 role that changed is in the audit trail (the entries added and removed), and the page links each saved role's
@@ -3104,9 +3106,10 @@ else. Every field of the page's filter dataclasses (`ReportFilters`, `Disaggrega
 field in neither stops the sheet, and a test fails.
 
 **The figure trail** (`datamart/trail.py`, `datamart/trail_rows.py`, `reports/check_views.py`). For every figure
-Progress reports draws (the tiles and their hints, the late sentence, the left-out note, the section table, the
-month chart, the report table's count and each row's *Indicators*, the Partner view tab's tiles, table, partners not
-reported and reports to follow up, By location's lines and By disaggregation's location blocks) and every figure
+Progress reports draws (the tiles and their hints, the section table, the month chart, the report table's count
+and each row's *Indicators*, the Partner view tab's tiles, table, partners not reported and reports to follow up,
+By location's lines and By disaggregation's location blocks; and, marked not drawn, the reports submitted after
+their due date and what the PD status filter leaves out) and every figure
 of Home's Progress reports block (the tiles, the programme documents to follow up and the rows shown, the partners
 line): where its rows come from, step by step, and the figure rebuilt from them.
 
@@ -3136,8 +3139,9 @@ tab). Each part is computed in one `REPEATABLE READ READ ONLY` snapshot and kept
   of their rows kept); the PD status step's three lines are `left_out`'s own (another status, not in NeuroDB, names
   no programme document), and the indicator reports it leaves out are `by_pd_status + no_pd` (a red line if not);
   K, the rows kept; S, the report status when one is chosen. A filter that kept rows the step before had left out
-  shows a red line. Home's block has the same chain with Home's own filter (`home.figure_queries`), and the
-  left-out note Home does not draw.
+  shows a red line. Home's block has the same chain with Home's own filter (`home.figure_queries`: its
+  sections and the running PD statuses, written out). With no `pd_status` in its address, the trail reads the
+  page's default, Active (the header says *PD status: Active (the page's default)*).
 - **The hooks rule.** The trail never filters, keys or counts a row its own way: `ReportFilters.queryset(steps=)`
   appends each filter's rows to the trail's list; `reporting.unit_rows`/`unit_key`/`units` read a row's progress
   report and indicator report by the keys `progress_reports` groups with, and `reporting.pd_indicator_key` its PD
@@ -3269,7 +3273,7 @@ page's figure under several filters, Power BI's order, the formulas, the filter 
 `tests/reports/test_check_access.py` (the sheet's and the trail's links and addresses: validators only),
 `tests/reports/test_figure_trail.py` (under fifteen filters, each figure is the page's context and its
 `data-figure`, rebuilt the same, and the Kept rows CSV and its own CSV give it again; the chain adds up; the PD
-status step is the left-out note; the partly kept units of a step's CSV; Home's block and its rows; the two tabs;
+status step gives what that filter leaves out; the partly kept units of a step's CSV; Home's block and its rows; the two tabs;
 the hooks change no SQL and no figure, and no page passes one; the same queries whatever the number of figures;
 the trail's words), `tests/reports/test_figure_trail_monitoring.py` (under fourteen filters every grid, Program
 Performance and Data quality figure is the parts' context and `data-figure`, rebuilt the same, and given again by
@@ -3984,8 +3988,12 @@ the map, the programme and partner pages, the progress report pop-up and Ask Neu
   nor their sum. Several rows of one indicator report at one location still give its largest value.
 
 **The pages.** The grid lists, per indicator: Target, Reached (as of the latest counted report),
-% Reached, Reached in the chosen year, Awaiting acceptance, Status, the partner's own view, and the
-months of the year; *All years* in the year menu shows one column per year instead. The indicator
+Status and the months of the year; *All years* in the year menu shows one column per year instead. It
+showed % Reached, Reached in the chosen year, Awaiting acceptance and the partner's own view too until 21
+Nov 2026 (the owner's decision): those four cells stay in each row for the table's *Copy* and *CSV* buttons
+only (`hidden`, `data-export="only"`, the value in `data-value` as before; `static/js/lib.js` `tableRows`
+reads every cell), so the copied and downloaded columns are unchanged. Program Performance's Excel and CSV
+are built apart (`monitoring.TABLE_COLUMNS`) and are unchanged too. The indicator
 detail is a location × report matrix of every report of the type (every year; not-yet-due reports
 left out): each row ends with the location's Reached, each column with the report's value, the
 corner is Reached; reports that do not count are greyed and stay out of every total. The progress
@@ -4305,15 +4313,27 @@ figures as everywhere else (they read the rule above; nothing is added across in
   programme document rows) keeps one programme document exactly: the reports whose reference is that
   number, or that are linked to the programme document of that number (the sync links a report by its
   eTools id first, so its reference can differ, or be blank); the page says "Programme document … only ·
-  Show every programme document", and its tabs and exports keep it. The PD status filter opens on the running programme documents (active, signed,
-  suspended), as Partner monitoring does; with every status chosen, the reports of programme
-  documents NeuroDB does not hold are listed too. A report row that names no programme document (no
-  link, no PD reference number, no eTools PD id: PRP's reports outside programme documents) is never
-  read, whatever the filter, nor by the partner page, the home page or the management brief. Under the tiles, a note says how many indicator reports of the same
-  filters (whatever their report status) the PD status filter leaves out, of programme documents with
-  another status and of programme documents NeuroDB does not hold, with a link that chooses every PD
-  status, and how many name no programme document (`reporting.left_out`, one query over the rows left
-  out). Draft and cancelled programme documents are never read:
+  Show every programme document", and its tabs and exports keep it. The PD status filter opens on the
+  active programme documents only (`reporting.PAGE_PD_STATUSES`, `ReportFilters.status_choice` with no
+  `pd_status` in the address; the owner's decision of 21 Nov 2026: it opened on the running ones, active,
+  signed and suspended, before). `pd_status=` alone is every status, and any status in the address is read
+  as before. With every status chosen, the reports of programme documents NeuroDB does not hold are listed
+  too. A report row that names no programme document (no link, no PD reference number, no eTools PD id:
+  PRP's reports outside programme documents) is never read, whatever the filter, nor by the partner page,
+  the home page or the management brief. **Who reads the page's default:** the page's tabs (the hidden
+  ones too), its exports, its figure trail and its Power BI comparison sheet (a bare address compares the
+  active programme documents, and the sheet's *Set these in Power BI* says *PD status: Active*), and Ask
+  NeuroDB's `partner_reporting`, which reads "as the page opens" and links to the bare page. **Who does
+  not:** Home keeps the running ones (`home.figure_queries` writes `pd_status=active&pd_status=signed&
+  pd_status=suspended` into its filter, so every link from Home to Progress reports, the tiles, the
+  heading's link, the rows, the partners line and its figure trail, opens the page on Home's numbers);
+  Partner monitoring has its own filter (`monitoring.Filters`) and keeps the running ones; the eTools
+  reporting checks (check 11's two feeds and number gaps) write the running ones out; Compare with Power BI
+  writes Power BI's own statuses out (`powerbi_page.report_params`, and `pd_status=` for every status, as
+  the NeuroDB links of `powerbi_results.neurodb_url`), so the page's default never reaches a comparison,
+  whose results are unchanged. `reporting.left_out` still counts the indicator reports the PD status
+  filter leaves out (another status, not in NeuroDB, naming no programme document) for the figure trail's
+  PD status step and the comparison sheet. Draft and cancelled programme documents are never read:
   * *Reporting progress*: tiles of **progress reports** per status, as Power BI's Reporting Progress counts
     them (the user's decision of 26 Oct 2026). Under each tile, its **indicators** (the user's decision of 19
     Nov 2026, "unique per indicator number, indicators for active PDs"; `reporting.counts`): the indicators of
@@ -4331,10 +4351,10 @@ figures as everywhere else (they read the rule above; nothing is added across in
     the rows the tie-breakers read). Of **active** programme documents only: signed and suspended ones count in
     the progress reports, not in the indicators. With PD statuses chosen, the active ones among them; when
     Active is not among them, those chosen (`ReportFilters.indicator_statuses`), and the hint's hover title
-    and the note under the tiles name them. The seven tiles are counted apart, so their indicators do not add
-    up to the total, and the note says so; the report table's *Indicators* still counts each report's own
-    indicator reports (one indicator in one progress report), and so do the PD status filter's left-out
-    lines. Then progress reports by section and status with a total row (each report once,
+    names them. The seven tiles are counted apart, so their indicators do not add up to the total; the report
+    table's *Indicators* still counts each report's own indicator reports (one indicator in one progress
+    report), and so do the PD status step's lines in the figure trail. Then progress reports by section and
+    status with a total row (each report once,
     under its Section as the report table shows it: `reporting.report_section`); progress reports by month
     of the reporting period's end and status, Not yet due included (the month a report is about, as Power
     BI places it); and the report table (PD, PD status, partner, section, report, status, document type,
@@ -4723,7 +4743,7 @@ Partners reported in ActivityInfo in past years and now report progress in eTool
 the ActivityInfo databases keep their dashboards, analytical views, maps and Neuro/HPM reports
 (the ActivityInfo group at the bottom of the full menu: *Monthly results (ActivityInfo)* while ActivityInfo
 is in use, *ActivityInfo archive* once it is not), the eTools reporting has its own pages (sidebar
-*Partner reporting (PRP)*: *Progress reports*, *Partner monitoring*; in the full menu under *Partner
+*Partner reporting (Results)*: *Progress reports*, *Partner monitoring*; in the full menu under *Partner
 progress (eTools)*), and the **partner page** brings the two together
 under *Partner reporting*: the eTools implementation monitoring on one side, the ActivityInfo
 history per year and database on the other (each database opens the partner's master indicators by
@@ -4971,8 +4991,9 @@ keeps the page's order), so the tiles (progress reports), the table by section, 
 Partner view tab, the follow-up list and its export, Home's block (`reporting_figures`, `pd_follow_up`: the PD's
 sections for a report with no indicator report) count them, and never in an indicator report count; the hub's
 `owed` says shown, `n`, `why` and the `line` (`owed.HIDDEN` by why while closed, `owed.SHOWN` with at least one
-in the filter), drawn by `reports/partials/_owed_line.html` under the tiles, on the Partner view tab and in Home's
-block (the check 11 link for Administrators, and validators with staff status, as on Data health: the checks
+in the filter), drawn by `reports/partials/_owed_line.html` in Home's block, and the closed line alone under
+Progress reports' tiles and on its Partner view tab (`warning_only`) (the check 11 link for Administrators, and
+validators with staff status, as on Data health: the checks
 open in the admin; the closed line for `not_read` says the last sync of either PRP dataset failed or received
 nothing, as check 11 does). Also: the PD and partner pages (`programme_datamart`, `partner_datamart`: each
 counts every report by status, `reporting`, and lists the latest, 12 on the PD page with an *All reports* link),
@@ -5129,8 +5150,8 @@ year>&scope=year`).
 
 | Block | What it shows | Who |
 |---|---|---|
-| *Partner reporting: <who>* → *Progress reports* | Progress reports' seven tiles for Home's sections, exactly as on that page (`datamart.services.reporting_figures`, which is the page's own `partner_reporting`: the running programme documents and every reporting period, the page's default, so a January keeps last year's last reports, the overdue ones; on the page's day, `reporting_today`). Each tile counts progress reports (as Power BI's Reporting Progress) and opens the page on its status; under it, the indicators in those reports, each indicator once, of active programme documents only (`reporting.counts`, the page's own: Home reads no PD status, so the running ones, whose active ones count their indicators), and the note under the tiles says so, and that the indicator numbers do not add up to the total. Then **Programme documents to follow up** (`reporting.pd_follow_up`): the first ten (`home.HOME_PDS`; with more, the hint reads "The first 10 of <n> programme documents, the most overdue first"), one row per programme document with its partner, its progress reports Overdue, Sent back, Due (a report not yet due among them, as in Power BI's follow-up list) and Submitted (awaiting acceptance), the oldest due date of its Due or Overdue reports (a past date as soon as one is overdue) and a link to its indicators on Program Performance (every section, `section=`: Progress reports counts a programme document under every section its reports or the PD name, while Partner monitoring keeps the indicators of the sections chosen, and a PD of two sections may hold its indicators in one); the most overdue first. A row's reference opens Progress reports' Partner view tab on that programme document (`?tab=partners&pd=<its number>`), whose reports to follow up are the row's, status by status (a report not yet due is Due in both; the Reporting progress tab's tiles count it Not yet due). "Every report to follow up, on Progress reports →" opens the Partner view tab. Then the Partner view tab's three figures in one line (partners with progress reports here, reported, not yet). Sections with no progress report at all read "No progress reports here." and no partners line; "Nothing to follow up" is for reports that are all Accepted (a report not yet due is one to follow up, listed as Due) | everyone |
-| *Partner reporting: <who>* → *Indicator progress in <year>* | Partner monitoring's tiles for Home's sections and this year (every programme document running in it): indicators, on track, off track, not reported, programme documents, partners. They are the grid's own `summary` at the same address (`/partner-monitoring/?section=…&year=…&scope=year`), from the same stored indicators (the `pm-rows` key), so the two never differ; the grid's *Overdue reports* tile is left out (Home's Overdue is Progress reports', which counts it another way). On track, Off track and Not reported open the grid on that status; "Program Performance table →" opens `view=table` with the same filter | everyone |
+| *Partner reporting: <who>* → *Progress reports* | Progress reports' seven tiles for Home's sections, exactly as on that page (`datamart.services.reporting_figures`, which is the page's own `partner_reporting`: the running programme documents, written out in Home's filter and in every link to the page (`home.figure_queries`; the page alone opens on the active ones), and every reporting period, so a January keeps last year's last reports, the overdue ones; on the page's day, `reporting_today`). Each tile counts progress reports (as Power BI's Reporting Progress) and opens the page on its status; under it, the indicators in those reports, each indicator once, of active programme documents only (`reporting.counts`, the page's own: Home reads the running ones, whose active ones count their indicators), and the note under the tiles says so, and that the indicator numbers do not add up to the total. Then **Programme documents to follow up** (`reporting.pd_follow_up`): the first ten (`home.HOME_PDS`; with more, the hint reads "The first 10 of <n> programme documents, the most overdue first"), one row per programme document with its partner, its progress reports Overdue, Sent back, Due (a report not yet due among them, as in Power BI's follow-up list) and Submitted (awaiting acceptance), the oldest due date of its Due or Overdue reports (a past date as soon as one is overdue) and a link to its indicators on Program Performance (every section, `section=`: Progress reports counts a programme document under every section its reports or the PD name, while Partner monitoring keeps the indicators of the sections chosen, and a PD of two sections may hold its indicators in one); the most overdue first. A row's reference opens Progress reports' Partner view tab on that programme document (`?tab=partners&pd=<its number>`), whose reports to follow up are the row's, status by status (a report not yet due is Due in both; the Reporting progress tab's tiles count it Not yet due). "Every report to follow up, on Progress reports →" opens the Partner view tab. Then the Partner view tab's three figures in one line (partners with progress reports here, reported, not yet). Sections with no progress report at all read "No progress reports here." and no partners line; "Nothing to follow up" is for reports that are all Accepted (a report not yet due is one to follow up, listed as Due) | everyone |
+| *Partner reporting: <who>* → *Indicator progress in <year>* | Partner monitoring's tiles for Home's sections and this year (every programme document running in it): indicators, on track, off track, not reported, programme documents, partners. Partner monitoring itself draws no Programme documents tile since 21 Nov 2026 (`_pm_tiles.html`'s `no_pds`, set by the page's `pm_summary.html` only; Home and the figure trail's page keep it, and the page's trail gives `pm.pds` and `pm.with_reached` marked not drawn). They are the grid's own `summary` at the same address (`/partner-monitoring/?section=…&year=…&scope=year`), from the same stored indicators (the `pm-rows` key), so the two never differ; the grid's *Overdue reports* tile is left out (Home's Overdue is Progress reports', which counts it another way). On track, Off track and Not reported open the grid on that status; "Program Performance table →" opens `view=table` with the same filter | everyone |
 | *More on Home* (folded) | Everything below, behind one click, with the old purpose line and its links to the Country overview and the management brief. Open for superusers and for a role whose menu shows *For you* or *Daily review* (Users and access → *Menu*); folded, its blocks are not loaded until it opens | everyone |
 | *Needs you today*: For you | The NeuroDB Watch card (not drawn while Watch is switched off: the block says "NeuroDB is not checking at the moment: an administrator switched these checks off."). An account without a role is told "For you is for people with a role…", one without a section that For you shows only whole-country points. When the morning check is late (26 hours), the card shows a warning box ("NeuroDB has not checked since Monday. Ask an administrator to look at Scheduled jobs."; before the first check, an administrator is told to open For you and press *Check now*, with a link) and its title is just "For you" | everyone |
 | *Needs a decision* | The first decisions of the latest daily review in the sections (`brief.decisions`, as the brief's *Things to decide*): severity, title, section, status and due date; never the owner or who should act. "All decisions: Management brief →" | Administrators and Management members |

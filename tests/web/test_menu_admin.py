@@ -87,7 +87,7 @@ def test_a_superuser_gets_the_grid_every_tick_labelled(client_super):
     # each group's title heads the rows of its own tbody: the grid has no column group to head
     assert re.findall(r'<th scope="rowgroup" colspan="4">([^<]+)</th>', html)[:4] == [
         "Top of the menu",
-        "Partner reporting (PRP)",
+        "Partner reporting (Results)",
         "Below Partner reporting",
         "Programme results",
     ]
@@ -115,7 +115,7 @@ def test_the_grid_lists_the_entries_in_the_order_a_role_sees_them(client_super):
     assert len(titles) == len(set(titles))
     assert titles[:7] == [
         "Top of the menu",
-        "Partner reporting (PRP)",
+        "Partner reporting (Results)",
         "Below Partner reporting",
         "Programme results",
         "Knowledge base",
@@ -125,7 +125,7 @@ def test_the_grid_lists_the_entries_in_the_order_a_role_sees_them(client_super):
     assert "Partner progress (eTools)" not in titles and "Funds and assurance" not in titles
     listed = dict(sections)
     assert listed["Top of the menu"] == ["assistant:ask", "reports:overview"]
-    assert listed["Partner reporting (PRP)"] == ["reports:partner_reporting", "reports:pd_monitoring"]
+    assert listed["Partner reporting (Results)"] == ["reports:partner_reporting", "reports:pd_monitoring"]
     assert listed["Below Partner reporting"] == ["watch:for_you", "reports:daily_review", "graph:whats_new"]
     # the rows of Partner progress (eTools) and Funds and assurance, under the one Knowledge base heading
     # (Progress reports and Partner monitoring are listed once, under Partner reporting)

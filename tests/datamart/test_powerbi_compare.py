@@ -2229,3 +2229,69 @@ def test_gate_open_a_report_prp_s_own_list_holds_otherwise_is_never_in_neither_f
     by_due = {line.match[2]: line for line in lines}
     assert by_due["2026-10-10"].reason == "moved_on"
     assert by_due["2026-08-15"].detail == words.DETAIL_PRP_STALE
+
+
+# ------------------------------------------------- Progress reports' default PD status (the owner's 21 Nov 2026)
+SIGNED = "FAKE/PCA2026003/PD2026003"
+
+
+def _signed_pd(pd):
+    """A signed programme document of the world's partner with one Accepted report: the PD status Progress
+    reports no longer reads by default (Active only), and Power BI set to the running PDs does."""
+    from neurodb.partnerships.models import PCA
+
+    signed = PCA.objects.create(
+        etl_id="fake-pd3", partner=pd.partner, partner_name=pd.partner_name, number=SIGNED,
+        title="Fake programme 3", status="signed", document_type="PD", start=D(2026, 1, 1),
+        end=D(2026, 12, 31), section_names=["Section Alpha"],
+    )  # fmt: skip
+    pf.report_row(
+        signed, "QPR1", "Accepted", D(2026, 1, 1), D(2026, 3, 31), value=7, submitted=D(2026, 4, 10)
+    )
+    return pf.row(
+        "report_list", pd=SIGNED, report="QPR1", report_status="Accepted", period_end=D(2026, 3, 31),
+        pd_status="Signed", partner=PARTNER, section="Section Alpha", document_type="PD",
+        due_date=D(2026, 4, 15), period_start=D(2026, 1, 1),
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["status is active", "status is active, signed, or suspended", "status is active or signed"],
+)
+def test_the_progress_reports_page_s_default_changes_no_comparison(checker, world, status):
+    """Compare with Power BI reads NeuroDB's pages for Power BI's own PD statuses, written out (none: every
+    status): the Progress reports page's default (Active only since 21 Nov 2026) never applies, so a comparison
+    gives what it gave, whatever Power BI was set to."""
+    from neurodb.datamart import powerbi_filters, powerbi_page, powerbi_results, services
+
+    pd, _ended = world
+    signed = _signed_pd(pd)
+    rows = REPORTS if status == "status is active" else [*REPORTS, signed]
+    upload = pf.compared(checker, _one("report_list", rows, filters=("country_name is Lebanon", status)))
+    export, lines = _lines(upload, "report_list")
+    assert export.state == "compared", export.error
+    assert not lines and export.verdict == "same", [(line.kind, line.reason, line.match) for line in lines]
+    parsed = powerbi_filters.Filter.from_json(export.filters)
+    # the page's figures it compared with: those of Power BI's statuses, written out
+    params = powerbi_page.report_params(parsed)
+    assert params["pd_status"] == parsed.pd_statuses
+    explicit = services.partner_reporting({"pd_status": parsed.pd_statuses}, D(2026, 10, 15), options=False)
+    assert len(explicit["reports"]) == len(rows)
+    # and the page it links to opens on them, never on the page's own default
+    url = powerbi_results.neurodb_url(export)
+    assert [f"pd_status={s}" in url for s in parsed.pd_statuses] == [True] * len(parsed.pd_statuses)
+
+
+def test_power_bi_with_no_pd_status_is_compared_with_every_status(checker, world):
+    """No PD status clause in Power BI's filter: every status, written out as ``pd_status=``, as before."""
+    from neurodb.datamart import powerbi_results
+
+    pd, _ended = world
+    _signed_pd(pd)
+    upload = pf.compared(checker, _one("report_list", REPORTS, filters=("country_name is Lebanon",)))
+    export, lines = _lines(upload, "report_list")
+    assert export.state == "compared", export.error
+    # the signed and the ended programme documents' reports are NeuroDB's only: every status is read
+    assert {line.match[0] for line in lines} >= {SIGNED, ENDED}
+    assert "pd_status=&" in powerbi_results.neurodb_url(export) + "&"

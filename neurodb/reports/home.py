@@ -30,6 +30,7 @@ from django.utils.translation import gettext as _
 
 from neurodb.accounts.roles import ADMIN, SECTION_EDITOR, can_set_up, in_management, role_of
 from neurodb.datamart import monitoring
+from neurodb.partnerships import statuses as pd_statuses
 
 WELLBEING_SECTIONS = ("Education",)  # the sections whose editors follow up Makani wellbeing flags
 SINCE_SHOWN = 6  # changes "Since {weekday}" lists
@@ -50,11 +51,14 @@ NAME_MATCH = 3  # letters a name needs before "contained either way" counts (mon
 # ------------------------------------------------------------------------------------------- scope
 def figure_queries(sections: list[str], year: int) -> tuple[QueryDict, QueryDict]:
     """Home's two partner reporting filters, which its blocks, their links and their figure trails read:
-    ``progress``, Progress reports' own default for Home's sections (no year and no PD status, so the running
-    programme documents and every reporting period: a January keeps last year's last reports, the overdue
-    ones), and ``keep``, Partner monitoring's (the sections, this year, every PD running in it)."""
+    ``progress``, Progress reports for Home's sections, the running programme documents (active, signed or
+    suspended) and every reporting period (no year: a January keeps last year's last reports, the overdue
+    ones), and ``keep``, Partner monitoring's (the sections, this year, every PD running in it). ``progress``
+    writes the PD statuses out: Progress reports reads the active ones alone by default (since 21 Nov 2026),
+    so each of Home's links opens it on the reports Home counted."""
     progress = QueryDict(mutable=True)
     progress.setlist("section", sections)
+    progress.setlist("pd_status", list(pd_statuses.RUNNING))
     keep = QueryDict(mutable=True)
     keep.setlist("section", sections)
     keep["year"] = str(year)

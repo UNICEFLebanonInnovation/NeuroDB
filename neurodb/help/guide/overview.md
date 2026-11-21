@@ -37,7 +37,7 @@ field monitoring:
   opens first while the AI is on ([Ask NeuroDB](/help/ask-neurodb/)).
 - **Home**, right under it: partner reporting in numbers and tables, and the page NeuroDB opens first when
   the AI is off ([Home](/help/home/)).
-- **Partner reporting (PRP)**: **Progress reports**, how partners report on their programme documents
+- **Partner reporting (Results)**: **Progress reports**, how partners report on their programme documents
   (due, submitted, accepted, sent back and overdue reports), and **Partner monitoring**, what each
   programme document indicator reached, with Program Performance one tab away
   ([Partner progress](/help/partner-progress/)).

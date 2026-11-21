@@ -3,7 +3,8 @@
 The partners' progress reports in the Partner Reporting Portal (PRP) reach NeuroDB through the eTools
 Datamart every night. Four places read them: [Partner monitoring](/partner-monitoring/) (what each
 programme document indicator reached), [Progress reports](/partner-reporting/) (who reported, and what;
-the two are the sidebar's *Partner reporting (PRP)*),
+the two are the sidebar's *Partner reporting (Results)*, named *Partner reporting (PRP)* until 21 Nov
+2026),
 the programme document and partner pages, and the [Funds](/funds/) page (budgets, funds reservations
 and what partners contributed). They show the views of the eTools Power BI report, with the same
 figures on every page for the same filter. [Home](/help/home/) starts with the tiles of the first two
@@ -74,8 +75,9 @@ reports decide. They carry no indicator: the indicators under the tiles, Reached
 leave them out. In the tables they read "from PRP's own list" and do not open (they have no indicator to
 show); the exports say their source.
 
-While they are shown and the filter keeps some, a line under the tiles says how many Overdue and Due
-include. While they are hidden, the line says why reports still owed may be missing:
+While they are shown and the filter keeps some, a line under Home's tiles says how many Overdue and Due
+include. While they are hidden, a line under the tiles of Home and of Progress reports says why reports still
+owed may be missing:
 
 - NeuroDB cannot tie PRP's own list to its programme documents yet (the pair of keys is not proven, or the
   reports both feeds have do not agree often enough);
@@ -96,8 +98,13 @@ PRP's report ids, which PRP's own list does not carry.
 
 - **Data quality**, the first tab, opens when you open the page. At the top, the programme documents and
   indicators with and without a target or Reached, and the lists to fix (see below). Under them, headed
-  *Every indicator*, the grid: by section, programme document and output, each indicator with its target,
-  Reached, % Reached, Reached in the chosen year, awaiting acceptance, status and the months of the year.
+  *Every indicator*, the grid's tiles (indicators, on track, off track, not reported, partners, overdue
+  reports) and the grid: by section, programme document and output, each indicator with its target,
+  Reached, status and the months of the year. Since 21 Nov 2026 (your decision) the grid's tiles have no
+  *Programme documents* tile (Home keeps it, and Data quality still counts the programme documents at the
+  top), and the grid no longer shows % Reached, Reached in the chosen year, awaiting acceptance or the
+  partner's view: its *Copy* and *CSV* buttons still give those four columns, and Program Performance and
+  each programme document's page still show % Reached.
   The lists and the grid use the same filter and the same year: this year when the tab opens, or the year
   you choose (with *All years*, the grid has a column per year instead of the months). The grid was a tab
   of its own until 21 Nov 2026 (your decision): an old link to it opens this tab.
@@ -222,20 +229,21 @@ confirmed in the one kept.
 type, reporting year, section, report number, partner, partner type, PD status, emergency indicator, and
 the period start and end; the section list offers each section once, and a section chosen also finds
 reports whose rows list several sections). The emergency indicator keeps the reports of SPDs, as Power BI's
-does. Like Partner monitoring, it opens on the running programme
-documents (active, signed or suspended); clear the PD status choice to see every status. Under the
-tiles, a note says how many indicator reports (one indicator in one progress report) the PD status filter
-leaves out (of programme documents with another status, or not in NeuroDB), with a link that shows every status. Draft and cancelled
-programme documents are never listed, nor reports that name no programme document.
+does. It opens on the active programme documents only (your decision of 21 Nov 2026; it opened on the
+active, signed and suspended ones before, as Partner monitoring and Home still do): choose more PD statuses
+in the filter, or clear the choice to see every status. Home's links to Progress reports choose active,
+signed and suspended, so the page opens on the numbers Home shows. Draft and cancelled programme documents
+are never listed, nor reports that name no programme document.
 
 - **Reporting progress**: the tiles count *progress reports* per status, as Power BI's Reporting Progress
   does (your decision of 26 Oct 2026). Under each tile, the indicators in those reports (your decision of
   19 Nov 2026): each indicator once, as Partner monitoring places a report row on the indicators of its
   programme document (by its eTools indicator id, else its title, else its PD output and title; a row it
   cannot place counts by its title), however many reports carry it (QPR1 to QPR4, monthly reports, every
-  year), of active programme documents only. Signed and suspended programme documents count in the progress reports, not in the indicators. If
-  you choose PD statuses without Active, the indicators are those of the statuses chosen, and the note says
-  so. An indicator can be in reports of several statuses, so the indicator numbers do not add up to the
+  year), of active programme documents only. When you choose signed or suspended programme documents
+  too, they count in the progress reports, not in the indicators. If you choose PD statuses without Active,
+  the indicators are those of the statuses chosen (the hint's hover text names them). An indicator can be
+  in reports of several statuses, so the indicator numbers do not add up to the
   total; the report table's *Indicators* column still counts each report's own. Then the progress reports
   by section (each report once, under its Section as the
   report table shows it) and by month of the end of the reporting period (the month a report is about, as

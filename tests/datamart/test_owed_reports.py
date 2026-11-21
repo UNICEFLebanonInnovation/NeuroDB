@@ -355,8 +355,13 @@ def test_gate_open_counts_overdue_and_due_reports_from_prp(client_viewer, world)
     home = text(get_part(client_viewer, "/home/?section=", "reporting"))
     assert escape(owed.SHOWN.format(n=2)) in home
     assert "LEB/SPD2" in home
-    tab = text(client_viewer.get("/partner-reporting/?tab=partners"))
-    assert escape(owed.SHOWN.format(n=2)) in tab
+    # Progress reports shows no explanation note (the owner's decision of 21 Nov 2026): its tiles and lists count
+    # them, the line is Home's; while the gate is closed, the warning shows there too
+    for address in ("/partner-reporting/", "/partner-reporting/?tab=partners"):
+        page = text(client_viewer.get(address))
+        assert "data-owed-line" not in page and owed.SHOWN.format(n=2)[:30] not in page, address
+    follow_up = client_viewer.get("/partner-reporting/?tab=partners").context["data"]["partners"]["follow_up"]
+    assert ("LEB/SPD2", rc.DUE) in [(r["pd_reference_number"], r["status"]) for r in follow_up]
 
 
 def test_the_status_filter_keeps_the_line_s_count_to_the_reports_shown(world):
@@ -545,7 +550,8 @@ def test_the_pop_up_is_not_linked_for_a_prp_only_report_and_the_exports_say_thei
     _verdict()
     page = text(client_viewer.get("/partner-reporting/"))
     report = next(r for r in hub()["reports"] if r.get("source"))
-    assert f"report={report['key']}" not in page and "from PRP&#x27;s own list" in page
+    # the table says where it comes from (the page's grey line on them is gone since 21 Nov 2026)
+    assert f"report={report['key']}" not in page and "· from PRP's own list" in page
     for tab in ("reports", "partners"):
         response = client_viewer.get("/partner-reporting/", {"tab": tab, "export": "csv"})
         rows = list(csv.DictReader(io.StringIO(b"".join(response.streaming_content).decode("utf-8-sig"))))

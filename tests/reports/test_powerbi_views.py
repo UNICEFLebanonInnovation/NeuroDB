@@ -727,10 +727,10 @@ def test_program_performance_export_is_not_cut_at_the_page_limit(client_viewer, 
 def test_ask_counts_progress_reports_by_status_like_its_totals(more):
     out = tools.run("partner_reporting", {})
     # "by_status" counts progress reports, as "reports", the status keys and the page's tiles do ("tiles",
-    # with the indicator reports in them). Like the page, it reads the running PDs (the closed PD's PR-9 is
-    # left out)
+    # with the indicator reports in them). Like the page, it reads its default, the active PDs (the closed PD's
+    # PR-9 is left out)
     assert sum(out["by_status"].values()) == out["reports"] == 4
-    assert out["pd_statuses"] == ["active", "signed", "suspended"]
+    assert out["pd_statuses"] == ["active"]
     assert out["by_status"]["Accepted"] == out["accepted"] == 3
     assert out["tiles"]["Accepted"] == {"progress_reports": 3, "indicators": 2, "indicator_reports": 4}
     # the reports to follow up, as the Partners tab lists them: PR-3, not yet due, is one of the Due ones

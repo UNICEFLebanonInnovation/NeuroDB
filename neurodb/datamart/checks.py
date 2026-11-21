@@ -2209,7 +2209,8 @@ def _number_gaps(cursor, today: datetime.date) -> tuple[Counter[int], int, int]:
     # each PD and type: its report numbers -> [period start, period end, indicator reports]
     held: dict[tuple[int, str], dict[int, list[Any]]] = defaultdict(dict)
     grouped = (
-        reporting.ReportFilters()  # the running PDs, every year
+        # the running PDs, every year: written out, the Progress reports page reads the active ones by default
+        reporting.ReportFilters(pd_statuses=list(pd_statuses.RUNNING))
         .queryset(today)
         .order_by()
         .values("intervention_id", "report_type", "report_number")
@@ -2685,7 +2686,9 @@ def _two_feeds(cursor) -> dict[str, Any]:
     today = datetime.date.today()
     zero = dict.fromkeys(rc.STATUS_LABELS, 0)
     _bound(cursor, statements=2)  # the two queries of progress_reports share the time left
-    filters = reporting.ReportFilters(year=today.year)  # the running PDs, as the page by default
+    # the running PDs, written out: the Progress reports page reads the active ones by default (since 21 Nov
+    # 2026), this check the programme documents still under way, as it always did
+    filters = reporting.ReportFilters(year=today.year, pd_statuses=list(pd_statuses.RUNNING))
     ours: dict[Any, dict[str, int]] = {}  # indicator reports
     ours_reports: dict[Any, dict[str, int]] = {}  # progress reports (to compare with PRP's progress reports)
     owed_keys: set[str] = set()  # the progress reports still owed (due or overdue)

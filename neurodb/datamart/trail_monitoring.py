@@ -64,8 +64,9 @@ PDS = "interventions"  # and their programme documents (Raw eTools data's, for a
 REPORTS = "partner_reports"  # and what partners reached on them
 TOTALS = "prp_indicator_reports"  # PRP's own report totals
 # 2: the Reached fold is one chain, in report rows and indicator reports; 3: Chain.owed_overdue lists records;
-# 4: Data quality's blocks come first, the grid's are named as Data quality's (the Grid tab merged into it)
-CACHE_VERSION = 4
+# 4: Data quality's blocks come first, the grid's are named as Data quality's (the Grid tab merged into it);
+# 5: the page's Programme documents tile and its hint not drawn
+CACHE_VERSION = 5
 # the folded parts of the page's trail, each its own computation: Program Performance reads the filter without
 # its sections, the map its places
 TABLES = ("performance", "map")
@@ -1220,11 +1221,15 @@ def _pds_with(rows: Chain, test: str = "") -> int:
 
 
 REACHED = " (see Where Reached comes from)"
+# the page's tiles have no Programme documents tile (the owner's decision of 21 Nov 2026): Home's keeps it
+NO_PDS_TILE = "not drawn: the page has no Programme documents tile (Home has)"
 
 
 def tile_figures(summary: dict[str, Any], rows: Chain, *, home: bool = False) -> list[Figure]:
     """The tiles of Partner monitoring's grid (``_pm_tiles.html``), or Home's Indicator progress block
-    (``home``: no Overdue reports, no No target)."""
+    (``home``: no Overdue reports, no No target). Programme documents and its hint, indicators with Reached,
+    are Home's only: the page has no such tile since 21 Nov 2026 (the owner's decision), so the page's trail
+    gives them, not drawn."""
     n = _counter(rows)
     kept = rows.kept_indicators
     out = [
@@ -1270,6 +1275,8 @@ def tile_figures(summary: dict[str, Any], rows: Chain, *, home: bool = False) ->
             n("with_reached"),
             how=TEST_WORDS["with_reached"] + REACHED,
             select=(("test", "with_reached"),),
+            drawn=home,
+            note="" if home else NO_PDS_TILE,
         ),
         Figure(
             "pm.pds",
@@ -1279,6 +1286,8 @@ def tile_figures(summary: dict[str, Any], rows: Chain, *, home: bool = False) ->
             _pds_with(rows),
             how="Programme documents of these indicators (see Programme documents kept with no indicator)",
             select=(("set", "pds"),),
+            drawn=home,
+            note="" if home else NO_PDS_TILE,
         ),
         Figure(
             "pm.partners",

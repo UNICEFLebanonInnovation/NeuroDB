@@ -102,8 +102,10 @@ def test_same_filter_same_numbers_on_every_page(client_viewer, submitted, frozen
 
 def test_grid_columns_and_the_all_years_view(client_viewer, submitted, frozen_today):
     page = client_viewer.get(reverse("reports:pd_monitoring"), {"year": "2026"})
-    for heading in ("Reached", "% Reached", "Reached in 2026", "Awaiting acceptance"):
-        assert f">{heading}<" in page.text
+    assert '<th scope="col" class="num">Reached</th>' in page.text
+    # no longer drawn (the owner's decision of 21 Nov 2026): kept for the table's Copy and CSV only
+    for heading in ("% Reached", "Reached in 2026", "Awaiting acceptance"):
+        assert f'<th hidden data-export="only">{heading}</th>' in page.text
     assert "never adding a value the reports repeat" in page.text
     report_rows(
         submitted["pd"],

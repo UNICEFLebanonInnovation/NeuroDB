@@ -991,7 +991,7 @@ def partner_reporting(
     ]
     return {
         **data["summary"],
-        # the programme documents read, as the page opens: the running ones (never draft or cancelled)
+        # the programme documents read, as the page opens: the active ones (its default since 21 Nov 2026)
         "pd_statuses": data["filters"].status_choice,
         # what the Progress reports page's tiles count: progress reports per status, as Power BI's
         # Reporting Progress does, with the indicators under each (each indicator once, of active programme
@@ -1013,7 +1013,7 @@ def partner_reporting(
         # progress reports per status, by name: the same counts as ``reports`` and the status keys above
         "by_status": dict(data["by_status"]),
         # PRP's own reports still owed for a period that has ended, counted once their link to the programme
-        # documents is proven (none while it is not): what the page says of them
+        # documents is proven (none while it is not): what Home says of them
         "owed_shown": data["owed"]["shown"],
         "owed_note": data["owed"]["line"],
         **_cut(rows, "progress_reports", len(data["reports"])),
@@ -1608,11 +1608,10 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "page's hints), the indicator reports in them (one indicator in one progress report), the "
         "reports to follow up by status (to_follow_up: Overdue, Sent back, Due and Submitted, a report not "
         "yet due counted as Due, as in Power BI's follow-up list), and the list of reports with period, due "
-        "and submission dates, of the running programme documents (active, signed or suspended: "
-        "pd_statuses), as the page opens. Reports still owed for a period that has ended come from PRP's own "
-        "list of progress reports once their link to the programme documents is proven (owed_shown; "
-        "owed_note says what the page says; only these reports give a source ('PRP progress reports')), and "
-        "have no indicator reports. "
+        "and submission dates, of the active programme documents (pd_statuses), as the page opens. Reports "
+        "still owed for a period that has ended come from PRP's own list of progress reports once their link "
+        "to the programme documents is proven (owed_shown; owed_note says what Home says of them; only these "
+        "reports give a source ('PRP progress reports')), and have no indicator reports. "
         "Filter by partner name/vendor/PD text, year the period ends, overdue only, or the Emergency "
         "indicator (yes: the reports of SPDs, as on the page and in Power BI; never eTools' high frequency).",
         _schema(

@@ -49,8 +49,9 @@ HOME_BLOCKS = {"reporting": "Progress reports", "indicators": "Indicator progres
 TABLES = ("locations", "disaggregations")  # Progress reports' tabs with a trail of their own
 STORED_SECONDS = 120
 # 2: TrailRows.documents (PRP's own reports still owed); 3: each row's PD indicator (the tiles' hints count
-# indicators); 4: placed by Partner monitoring's rule (identity.Rule)
-CACHE_VERSION = 4
+# indicators); 4: placed by Partner monitoring's rule (identity.Rule); 5: the late and left-out figures not
+# drawn
+CACHE_VERSION = 5
 SOURCE = "partner_reports"  # the Datamart dataset the Progress reports figures are counted from
 # figures whose key holds a partner, a report, a PD or a title
 NAMED_KEYS = ("pr.partner.", "pr.report.", "home.pd.", "dq.same_title.", "pm.section.", "pp.section_tile.")
@@ -803,11 +804,14 @@ def _tiles(counts: dict[str, Any]) -> list[Figure]:
     return out
 
 
+# a figure the page no longer draws: its note under the tiles is gone (the owner's decision of 21 Nov 2026)
+NO_NOTE = "not drawn: the page shows no note on it"
+
+
 def _left_out(left: dict[str, int]) -> list[Figure]:
-    """The note on what the PD status filter leaves out (drawn when it leaves out something): P16 to P18
-    themselves, read from ``left_out``."""
-    shown = bool(left.get("by_pd_status") or left.get("no_pd"))
-    by_status = bool(left.get("by_pd_status"))
+    """What the PD status filter leaves out: P16 to P18 themselves, read from ``left_out``. The page drew them
+    in a note under the tiles until 21 Nov 2026; here they stay, not drawn, as the PD status step says
+    them."""
     reasons = {
         "other_status": "Of programme documents with another status",
         "not_held": "Of programme documents NeuroDB does not hold",
@@ -821,8 +825,8 @@ def _left_out(left: dict[str, int]) -> list[Figure]:
             left.get("by_pd_status", 0),
             how="Of programme documents with another status or not in NeuroDB, whatever their report status",
             select=(("set", "reason:other_status|not_held"),),
-            drawn=shown and by_status,
-            note="" if shown and by_status else "not drawn: none left out",
+            drawn=False,
+            note=NO_NOTE,
         )
     ]
     for name, label in reasons.items():
@@ -834,8 +838,8 @@ def _left_out(left: dict[str, int]) -> list[Figure]:
                 left.get(name, 0),
                 how="Left out by the PD status filter, whatever their report status",
                 select=(("set", f"reason:{name}"),),
-                drawn=(drawn := shown and (by_status if name != "no_pd" else bool(left.get("no_pd")))),
-                note="" if drawn else "not drawn: none left out",
+                drawn=False,
+                note=NO_NOTE,
             )
         )
     return out
@@ -1479,8 +1483,8 @@ def filter_words(filters: Any, tab_filters: Any = None) -> tuple[str, ...]:
             if item.name == "pd_statuses":
                 chosen = instance.status_choice
                 text = ", ".join(pd_statuses.label(s) for s in chosen) if chosen else "every status"
-                if instance.pd_statuses is None:
-                    text = f"running programme documents ({text.lower()})"
+                if instance.pd_statuses is None:  # none in the address: the page's default (Active)
+                    text = f"{text} (the page's default)"
                 out.append(f"PD status: {text}")
                 continue
             if item.name == "year" and not value:
@@ -1560,6 +1564,8 @@ def _progress_trail(page: str, params: Any, day: datetime.date) -> Trail:
                 data["summary"]["late"],
                 how="Progress reports submitted after their due date (any status)",
                 select=(*CHOSEN, ("late", True)),
+                drawn=False,
+                note=NO_NOTE,
             )
             no_partner = len(
                 {rows.rows[pk][1] for pk in selected(rows, (("set", "no_partner"),))}
@@ -1569,7 +1575,7 @@ def _progress_trail(page: str, params: Any, day: datetime.date) -> Trail:
                 Block("tiles", "Reporting progress: tiles", "reports", (*_tiles(counts), late)),
                 Block(
                     "left_out",
-                    "The note on what the PD status filter leaves out",
+                    "What the PD status filter leaves out",
                     "reports",
                     tuple(_left_out(left)),
                 ),
@@ -1615,7 +1621,11 @@ def _progress_trail(page: str, params: Any, day: datetime.date) -> Trail:
                     ),
                 ),
             ]
-            notes = NOTES
+            notes = (
+                "The page shows no note on what the PD status filter leaves out: here it is, under The PD "
+                "status filter.",
+                *NOTES,
+            )
         steps = [
             *dataset_steps(facts, rows, held, day),
             *owed_steps(rows),

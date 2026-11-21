@@ -1,8 +1,8 @@
 {% load i18n ui humanize %}{% comment %}Partner monitoring's grid, its figures (part "summary", reports.views.pd_monitoring):
-the tiles, the status donut and the indicators by section, with their chart JSON (pm-summary-data). Context: data =
-monitoring.summary of the filter's indicators (stored for every worker), chart_data, and labels and filters (the
-page's scope).{% endcomment %}
-{% include "reports/partials/_pm_tiles.html" with pm=data overdue=True %}
+the tiles (no Programme documents tile: Home's indicator block keeps it), the status donut and the indicators by
+section, with their chart JSON (pm-summary-data). Context: data = monitoring.summary of the filter's indicators (stored
+for every worker), chart_data, and labels and filters (the page's scope).{% endcomment %}
+{% include "reports/partials/_pm_tiles.html" with pm=data overdue=True no_pds=True %}
 <div class="grid grid--2 mb-3">
   <section class="panel">
     <div class="panel__header"><h2 class="panel__title">{% trans "Tracking status" %}</h2><span class="panel__hint">{% trans "Reached vs share of the PD period elapsed" %}</span></div>

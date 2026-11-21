@@ -5,7 +5,7 @@
   {% trans "With at least one report" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=p.reported|intcomma status=p.reported|yesno:"on_track," hint=_("Submitted or Accepted") figure_key="pr.partners_reported" %}
   {% trans "Not reported" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=p.not_reported|intcomma status=p.not_reported|yesno:"off_track," hint=_("no Submitted or Accepted report yet") figure_key="pr.partners_not_reported" %}
 </div>
-{% include "reports/partials/_owed_line.html" with owed=data.owed %}
+{% include "reports/partials/_owed_line.html" with owed=data.owed warning_only=True %}
 <div class="grid grid--2 mb-3">
   <section class="panel p-0">
     {% include "components/table_toolbar.html" with title=_("Partners with a report in each status") count=None table_id="partners-by-status" filename="partners-by-status" downloads=None %}
@@ -13,7 +13,6 @@
       <thead><tr><th scope="col">{% trans "Report status" %}</th><th scope="col" class="num">{% trans "Partners" %}</th></tr></thead>
       <tbody>{% for s in p.by_status %}<tr><th scope="row" class="fw-normal">{% status_pill s.key s.label "sm" %}</th><td class="num" data-figure="pr.partners_status.{{ s.key }}">{{ s.partners|intcomma }}</td></tr>{% endfor %}</tbody>
     </table></div>
-    <p class="small text-muted px-3 py-2 mb-0">{% trans "A partner with reports in several statuses is counted in each of them, so these do not add up to the number of partners." %}</p>
   </section>
   <section class="panel p-0">
     {% include "components/table_toolbar.html" with title=_("Partners not reported") count=p.not_reported table_id="partners-not-reported" filename="partners-not-reported" downloads=None count_figure_key="pr.partners_not_reported" %}
@@ -41,7 +40,6 @@
     </tr>{% endfor %}</tbody>
   </table></div>
   {% include "components/pagination.html" with hx_target="#reporting-results" %}
-  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}Overdue first, then Sent back, Due and Submitted (awaiting acceptance), each by due date. Due includes the reports not yet due (their reporting period still runs), as Power BI's follow-up list does, and the Report status Due keeps them here, as Power BI's slicer does. Partners here are those with a progress report in the filter; a partner whose programme documents have no report in the Partner Reporting Portal yet is not counted.{% endblocktrans %}</p>
   {% elif data.reports %}
   <p class="small text-muted px-3 py-2 mb-0">{% trans "Nothing to follow up: every report in the filter is Accepted." %}</p>
   {% else %}
