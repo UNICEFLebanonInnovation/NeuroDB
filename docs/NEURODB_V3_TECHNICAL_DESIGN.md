@@ -289,7 +289,7 @@ Power BI: a read-only database role `neurodb_bi` with `SELECT` on the three view
 | Home | `/` | Sections with their current-year databases, Neuro Reports, HPM reports, partnerships, donor, maps, library, population links; landing image | Navigation generated from the database (sections, databases, reports) by a context processor with active state and breadcrumbs; images optimised and lazy-loaded; no external analytics tag |
 | Database | `/databases/<id>/` (dashboard), `/analytical/`, `/snapshot/`, `/map/`, `/raw-data/` | Header with last import, buttons, year switch; master-indicator table with status; sub-indicator modal; pivot with quick switch, presets, TSV export; print snapshot; map/chart/table by area and site | Status has visible text and colour; rows are buttons; raw data streams the latest extract from Blob; filters live in the URL |
 | Neuro Reports | `/reports/<id>/`, `/reports/<id>/analytical/`, `/reports/<id>/hpm/` | Values to period, deltas, inline comments, PDF tables | PDFs from Blob; comments carry author and time; period selector in URL |
-| Programme documents | `/programmes/`, `/programmes/<id>/analytical/`, `/programmes/summary/?scope=active|all` | Filters (section, office, partner, type, CSO type, status, donor, grant, year), detail popup, summaries | One template with a scope parameter (v2 had two 98%-identical files) |
+| Programme documents | `/programmes/`, `/programmes/<id>/analytical/`, `/programmes/?tab=summary&scope=active|all`, `/programmes/?tab=overall` | Filters (section, office, partner, type, CSO type, status, donor, grant, year), detail popup, summaries | One tab with a scope switch (v2 had two 98%-identical files); `/programmes/summary/` redirects to it |
 | Donor mapping | `/donors/` | Interventions, funds since 2014, reported indicators, planned versus actual map, funding history, highlights pivot | Filters in URL (v2 lost them on refresh); all funding lines counted |
 | Partnerships | `/partners/`, `/partners/<id>/` | List with filters; tabbed profile with engagements, interventions, visits | Staff tab links to eTools unless the data-protection review approves replication |
 | Population | `/population/?view=total|children|vulnerable` | Charts and tables by nationality, area, age group | From the `PopulationFigure` table; year selectable |
@@ -468,7 +468,7 @@ Other recurring operations: monthly review of `SyncRun` failures, quarterly depe
 | `/v2/database-intervention-map/?id=N` | `/databases/N/map/` | |
 | `/v2/database-download/?id=N` | `/databases/N/raw-data/` | authenticated, from Blob |
 | `/v2/neuroreport-dashboard/?id=N`, `neuroreport-analytical`, `hpm-neuroreport/` | `/reports/N/`, `/reports/N/analytical/`, `/reports/N/hpm/` | |
-| `/v2/pca-dashboard/`, `pca-analytical`, `pca-summary-active`, `pca-summary-all` | `/programmes/`, `/programmes/N/analytical/`, `/programmes/summary/?scope=active|all` | |
+| `/v2/pca-dashboard/`, `pca-analytical`, `pca-summary-active`, `pca-summary-all` | `/programmes/?tab=overall`, `/programmes/N/analytical/`, `/programmes/?tab=summary&scope=active|all` | |
 | `/v2/donor-dashboard/` | `/donors/` | |
 | `/v2/partnerships/`, `partnership-profile/?id=N` | `/partners/`, `/partners/N/` | |
 | `/v2/population-figures/` | `/population/` | |

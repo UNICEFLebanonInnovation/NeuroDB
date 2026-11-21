@@ -258,6 +258,9 @@ a subtotal that differs from the location total is marked. Each indicator's page
 
 ## Programme documents
 
+The [Programme documents](/programmes/) page has four tabs, each with its own filter bar: *Programme
+documents* (the list), *Indicators*, *Funded programme summary info* and *Funded programme overall*.
+
 - **A programme document's page** lists each of its indicators with its target, Reached, % Reached and
   status, read by the same rule. Administrators, and Section editors of one of its sections, can choose
   its *unique beneficiaries indicator* there (*Make it the unique beneficiaries indicator*). The page
@@ -270,6 +273,26 @@ a subtotal that differs from the location total is marked. Each indicator's page
   baseline, target, emergency), with its own filters and an export of the whole filter. Like every page, it
   leaves out an indicator eTools marks inactive that no partner report names (see Partner monitoring above);
   one partners reported on reads *Inactive in eTools* under its title.
+- **Programme documents → Funded programme summary info** sums up the programme documents. Choose
+  *Active* (the default: those eTools shows as active) or *All* (every one but drafts). The tiles give the
+  number of programme documents and partners, the total budget, the funds reserved and disbursed, and how
+  many active ones end within 90 days. Two charts count them by section and by type. Then come four
+  tables: the active programme documents ending within 90 days (with the days left), the summary by
+  section, the summary by partner and the totals by currency. Each summary row gives the number of
+  programme documents, the UNICEF planned budget, the total budget, the funds reserved and the amount
+  disbursed. A programme document counts once for its partner but under each of its sections, so the
+  section rows add up to more than the total. *Excel of the summary* downloads the three tables; each
+  table also has *Copy* and *CSV*. The old address of the summary page opens this tab.
+- **Programme documents → Funded programme overall** lists every programme document but drafts, 50 to a
+  page. Filter by PD reference, donor, grant, partner, CSO type, section, status and start year (from,
+  to). Each row gives the partner, type, status, sections, start and end dates, the days to the end (green
+  over 120, amber over 60, red below; *Ended* once it has ended), donors and grants, currency, UNICEF
+  planned budget, total budget, UNICEF cash, funds reserved and disbursed. The tiles add up the filter.
+  *Excel of the filter* and *CSV of the filter* download every row.
+- **Amounts on these two tabs.** Budgets and UNICEF cash are in the programme document's currency, and
+  amounts in different currencies are never added. Funds reserved and disbursed are in US dollars, from
+  the eTools funds reservations as on the Funds page, for the whole programme document whatever donor or
+  grant you choose. Neither tab, nor its downloads, names a person: no focal point, e-mail or phone.
 
 ## Funds
 

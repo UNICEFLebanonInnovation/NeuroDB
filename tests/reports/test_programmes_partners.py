@@ -10,6 +10,7 @@ from neurodb.datamart import models as dm
 from neurodb.datamart import services as datamart
 from neurodb.facts.models import ActivityReportNew
 from neurodb.facts.services import partners as partner_facts
+from neurodb.partnerships import funded
 from neurodb.partnerships import services as partnerships
 from neurodb.partnerships.models import PCA, PartnerOrganization
 
@@ -40,12 +41,12 @@ def partner(db):
 
 
 def test_programme_summary_all_counts_every_non_draft_pd(client_viewer, partner):
-    assert (
-        partnerships.pd_summary("all")["count"] == partnerships.programme_documents(scope="all").count() == 4
-    )
-    assert partnerships.pd_summary("all")["budget_total"] == 4000
-    assert partnerships.pd_summary("active")["count"] == 1
-    text = client_viewer.get(reverse("reports:programme_summary"), {"scope": "all"}).text
+    """The summary (Programme documents → Funded programme summary info) counts the PDs of the list."""
+    today = datetime.date.today()
+    assert funded.summary("all", today)["count"] == partnerships.programme_documents(scope="all").count() == 4
+    assert [t["total"] for t in funded.summary("all", today)["totals"]] == [4000]  # one currency (none)
+    assert funded.summary("active", today)["count"] == 1
+    text = client_viewer.get(reverse("reports:programme_summary"), {"scope": "all"}, follow=True).text
     assert "All signed" not in text
 
 

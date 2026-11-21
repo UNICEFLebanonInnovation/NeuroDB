@@ -3,7 +3,48 @@
 {% block content %}
 <div class="filters-collapse" data-filters-collapse>
 <form method="get" class="filter-bar" data-filter-bar data-hx-target="#pd-table" role="search" aria-label="{% trans 'Programme filters' %}">
-  {% if tab == "indicators" %}<input type="hidden" name="tab" value="indicators">{% endif %}
+  {% if tab != "documents" %}<input type="hidden" name="tab" value="{{ tab }}">{% endif %}
+  {% if tab == "summary" %}
+  {% comment %}The old Summary Info (Active PDs) and (All PDs) pages: the scope is the tab's only choice.{% endcomment %}
+  <div class="filter-bar__field filter-bar__field--fit">
+    <span class="form-label">{% trans "Programme documents" %}</span>
+    <div class="segmented" role="radiogroup" aria-label="{% trans 'Active or all programme documents' %}">
+      <label><input class="visually-hidden" type="radio" name="scope" value="active" {% if scope == "active" %}checked{% endif %}><span>{% trans "Active" %}</span></label>
+      <label><input class="visually-hidden" type="radio" name="scope" value="all" {% if scope == "all" %}checked{% endif %}><span>{% trans "All" %}</span></label>
+    </div>
+  </div>
+  {% elif tab == "overall" %}
+  {% comment %}The old Funded Programs page's filters, without office and partner type.{% endcomment %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-pd-q">{% trans "PD reference" %}</label>
+    <input class="form-control form-control-sm" type="search" id="f-pd-q" name="pd_q" value="{{ pd_q }}" placeholder="{% trans 'Part of the reference number' %}">
+  </div>
+  {% trans "Donor" as l %}{% include "reports/_multiselect.html" with name="donor" label=l options=options.donors values=selected.donor %}
+  {% trans "Grant" as l %}{% include "reports/_multiselect.html" with name="grant" label=l options=options.grants values=selected.grant %}
+  {% trans "Partner" as l %}{% include "reports/_multiselect.html" with name="partner" label=l options=options.partners values=selected.partner %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-cso_type"><span class="has-tip" title="{% trans 'Civil society organisation type in eTools: national, international, community based or academic' %}">{% trans "CSO type" %}</span></label>
+    <select class="form-select form-select-sm" id="f-cso_type" name="cso_type" multiple data-tom placeholder="{% trans 'All' %}">
+      {% for opt in options.cso_types %}<option value="{{ opt }}" {% if opt|stringformat:"s" in selected.cso_type %}selected{% endif %}>{{ opt }}</option>{% endfor %}
+    </select>
+  </div>
+  {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=options.sections values=selected.section %}
+  {% trans "Status" as l %}{% include "reports/_multiselect.html" with name="status" label=l options=options.statuses values=selected.status %}
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-start-from">{% trans "Start year from" %}</label>
+    <select class="form-select form-select-sm" id="f-start-from" name="start_from">
+      <option value="">{% trans "Any year" %}</option>
+      {% for y in options.years %}<option value="{{ y }}" {% if y|stringformat:"s" == start_from %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar__field">
+    <label class="form-label" for="f-start-to">{% trans "Start year to" %}</label>
+    <select class="form-select form-select-sm" id="f-start-to" name="start_to">
+      <option value="">{% trans "Any year" %}</option>
+      {% for y in options.years %}<option value="{{ y }}" {% if y|stringformat:"s" == start_to %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+  </div>
+  {% else %}
   <div class="filter-bar__field">
     <label class="form-label" for="f-pd-q">{% trans "PD reference" %}</label>
     <input class="form-control form-control-sm" type="search" id="f-pd-q" name="pd_q" value="{{ pd_q }}" placeholder="{% trans 'Part of the reference number' %}">
@@ -22,7 +63,7 @@
     </select>
   </div>
   {% endif %}
-  <div class="filter-bar__field" style="flex: 0 0 auto; min-width: 0">
+  <div class="filter-bar__field filter-bar__field--fit">
     <span class="form-label">{% trans "Scope" %}</span>
     <div class="segmented" role="radiogroup" aria-label="{% trans 'Scope' %}">
       <label><input class="visually-hidden" type="radio" name="scope" value="all" {% if scope == "all" %}checked{% endif %}><span>{% trans "All" %}</span></label>
@@ -42,9 +83,10 @@
       {% for opt in options.cso_types %}<option value="{{ opt }}" {% if opt|stringformat:"s" in selected.cso_type %}selected{% endif %}>{{ opt }}</option>{% endfor %}
     </select>
   </div>
+  {% endif %}
   <div class="filter-bar__actions">
     <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
-    <a class="btn btn-link btn-sm" href="{{ request.path }}{% if tab == 'indicators' %}?tab=indicators{% endif %}">{% trans "Reset" %}</a>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}{% if tab != 'documents' %}?tab={{ tab }}{% endif %}">{% trans "Reset" %}</a>
   </div>
 </form>
 </div>

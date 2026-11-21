@@ -4435,6 +4435,36 @@ figures as everywhere else (they read the rule above; nothing is added across in
   contribution are the programme document's: shown once (cells spanning its grants; in the export on
   its first row only), so no total counts them twice. Amounts in different currencies are never added:
   the tiles and the currency table give totals per currency. Both tabs export the whole filter.
+* **Programme documents → Funded programme summary info** (`/programmes/?tab=summary`) and
+  **Funded programme overall** (`/programmes/?tab=overall`), added 21 Nov 2026 after the *Programme
+  documents* and *Indicators* tabs: the old NeuroDB's *Summary Info (Active PDs)* / *(All PDs)* pages and its *Funded
+  Programs* page on v3 data (`neurodb/partnerships/funded.py`). The old summary address
+  `/programmes/summary/` now redirects to the summary tab, keeping `scope`, and the page's *Summary* button
+  is gone: there is one summary. Amounts: the PD's text budget fields (`total_unicef_budget`,
+  `total_budget`, `unicef_cash`) are read as numbers in the database (a text that is not a number is no
+  amount); *funds reserved* is the sum of the PD's FR lines' `overall_amount` (USD, what `donors_set` is
+  built from) and *disbursed* the sum of its FR headers' `actual_amt` (USD), for the whole PD whatever
+  donor or grant is chosen. Budgets are never added across currencies: the rows and totals are per budget
+  currency. *Summary info*: `scope=active` (the default, eTools status active) or `all` (every PD but
+  drafts, the list's own "All"); tiles (PDs, partners, total budget of the first currency, funds reserved,
+  disbursed, active PDs ending within 90 days with those within 30 in the hint), two charts (PDs by
+  section, by document type), then *Ending within 90 days* (active PDs, soonest first, days to end
+  coloured as the old page: green over 120, amber over 60, red below), *Summary by section* (a PD under
+  each of its sections, a section named twice once; *No section* for none), *Summary by partner* (each PD
+  once, by partner and currency) and *Totals by currency*, with Copy and CSV per table and *Excel of the
+  summary* (three sheets). Each sum is one SQL query over the scope's PDs joined once to the
+  pre-summed FR lines and headers, so the number of queries does not grow with the PDs. Differences from
+  the old pages, on purpose: the old SQL multiplied each budget by the PD's number of donor rows and left
+  out PDs of several sections and PDs without a UNICEF budget; the old ending list covered 30 days. *Overall*:
+  the old page's filters but office and partner type (removed from every page by the owner): PD reference,
+  donor, grant, partner, CSO type, section, status, start year from/to (`start_from`, `start_to`; `years=a,b`
+  as before for the API; only four-digit years are read); 50 PDs a page with partner, type, status,
+  sections, start, end, days to end (−1 once ended in the files, as on Funds), donors, grants, currency,
+  UNICEF planned budget, total budget, UNICEF cash, funds reserved and disbursed; tiles of the filter;
+  *Excel of the filter* / *CSV of the filter* hold every PD of the filter. Neither tab selects or shows a
+  person (no focal point column, on the page or in a file), and neither reads the office or document type
+  filters, nor are the start years ever read by the *Programme documents* and *Indicators* tabs. The page
+  is drawn whole (not in parts), as its other two tabs.
 * **Privacy.** A UNICEF focal point eTools knows only by an e-mail address is no longer stored under it
   (`person_names`; the eTools REST sync keeps the names the Datamart sync wrote when its list gives
   user ids only, and the report table never shows an id as a name), a progress report's

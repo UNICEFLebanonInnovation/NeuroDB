@@ -40,6 +40,12 @@ def _getlist(params, key: str) -> list[str]:
     return [v for v in values if v]
 
 
+def _year(text: str) -> int | None:
+    """A start year of the filter: four digits (a longer number would be no date), else none."""
+    text = (text or "").strip()
+    return int(text) if len(text) == 4 and text.isdigit() and int(text) >= 1 else None
+
+
 @dataclass(frozen=True)
 class PDFilters:
     partners: list[str]
@@ -56,7 +62,12 @@ class PDFilters:
 
     @classmethod
     def from_params(cls, params) -> PDFilters:
+        """The filter of a page's parameters. The start years come as ``years=2019,2026`` (the API) or as
+        ``start_from`` and ``start_to`` (the *Funded programme overall* tab's two lists), either may be left
+        out."""
         years = (params.get("years") or "").split(",") if params.get("years") else []
+        if not years and (params.get("start_from") or params.get("start_to")):
+            years = [str(params.get("start_from") or "").strip(), str(params.get("start_to") or "").strip()]
         return cls(
             partners=_getlist(params, "partner"),
             cso_types=_getlist(params, "cso_type"),
@@ -67,8 +78,8 @@ class PDFilters:
             grants=_getlist(params, "grant"),
             numbers=_getlist(params, "pd"),
             document_types=_getlist(params, "document_type"),
-            year_from=int(years[0]) if years and years[0].isdigit() else None,
-            year_to=int(years[1]) if len(years) > 1 and years[1].isdigit() else None,
+            year_from=_year(years[0]) if years else None,
+            year_to=_year(years[1]) if len(years) > 1 else None,
         )
 
     def apply(self, qs: QuerySet) -> QuerySet:
@@ -196,40 +207,6 @@ def pd_detail(pd: PCA) -> dict[str, Any]:
         "has_records": has_records(interventions),  # no "ActivityInfo records 0" line
         "sections": pd.section_names or [],
         "offices": pd.offices_set or [],
-    }
-
-
-def pd_summary(scope: str = "active") -> dict[str, Any]:
-    """Counts by partner and by section and PDs ending within 90 days (v2 PCA summary pages).
-
-    The same PDs as :func:`programme_documents` for the scope: every non-draft PD, or the active ones.
-    """
-    qs = PCA.objects.exclude(status__in=EXCLUDED_STATUSES)
-    if scope == "active":
-        qs = qs.filter(status__in=ACTIVE_STATUSES)
-    by_partner = Counter()
-    by_section = Counter()
-    by_type = Counter()
-    budget_total = 0.0
-    for pd in qs.only("partner_name", "section_names", "document_type", "total_budget"):
-        by_partner[pd.partner_name or "Unknown"] += 1
-        for s in pd.section_names or []:
-            by_section[s] += 1
-        by_type[pd.document_type or "Unknown"] += 1
-        budget_total += _to_float(pd.total_budget)
-    today = datetime.date.today()
-    ending_soon = PCA.objects.filter(
-        status__in=ACTIVE_STATUSES, end__gte=today, end__lte=today + datetime.timedelta(days=90)
-    ).order_by("end")
-    return {
-        "scope": scope,
-        "count": qs.count(),
-        "budget_total": budget_total,
-        "by_partner": by_partner.most_common(),
-        "by_section": by_section.most_common(),
-        "by_type": by_type.most_common(),
-        "ending_soon": list(ending_soon.select_related("partner")),
-        "last_sync": qs.order_by("-updated_at").values_list("updated_at", flat=True).first(),
     }
 
 

@@ -50,6 +50,7 @@ from neurodb.indicators.services.tracking import LABELS
 from neurodb.knowledge.search import linked as linked_documents
 from neurodb.library.models import Resource
 from neurodb.library.services import completed_maps, published_resource, resource_filters, search_resources
+from neurodb.partnerships import funded
 from neurodb.partnerships import services as partnerships
 from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports import brief as brief_service
@@ -1145,15 +1146,98 @@ def report_hpm(request: HttpRequest, pk: int) -> HttpResponse:
 # ------------------------------------------------------------------------- programmes / donors / partners
 
 
+# Programme documents' tabs: the list, its indicators, then the old NeuroDB's Summary Info and Funded Programs
+PROGRAMME_TABS = ("documents", "indicators", "summary", "overall")
+# the filters of the Funded programme overall tab: the old Funded Programs page's, without office and
+# partner type
+OVERALL_PARAMS = (
+    "pd_q",
+    "donor",
+    "grant",
+    "partner",
+    "cso_type",
+    "section",
+    "status",
+    "start_from",
+    "start_to",
+)
+START_YEARS = ("start_from", "start_to")  # only the overall tab has them
+
+
+def _query_only(params: QueryDict, keep: tuple[str, ...], **first: Any) -> str:
+    """A query string of ``first`` (in that order), then ``keep`` of ``params`` (the values set)."""
+    out = QueryDict(mutable=True)
+    for key, value in first.items():
+        out[key] = value
+    for key in keep:
+        values = [v for v in params.getlist(key) if v]
+        if values:
+            out.setlist(key, values)
+    return out.urlencode()
+
+
+def _programme_tab_urls(request: HttpRequest) -> dict[str, str]:
+    """The tab bar's addresses: each tab keeps the filters it has (the summary only its scope)."""
+    params = request.GET.copy()
+    path = request.path
+    return {
+        "documents": _with_query(
+            path, _query_with(params, ("tab", "export", "emergency", "indicator", *START_YEARS))
+        ),
+        "indicators": _with_query(path, _query_with(params, ("export", *START_YEARS), tab="indicators")),
+        "summary": _with_query(path, _query_only(params, ("scope",), tab="summary")),
+        "overall": _with_query(path, _query_only(params, OVERALL_PARAMS, tab="overall")),
+    }
+
+
+def _programme_page(request: HttpRequest, tab: str) -> dict[str, Any]:
+    """What every tab of Programme documents shows around its own content."""
+    return {
+        "tab": tab,
+        "tab_urls": _programme_tab_urls(request),
+        "page_title": _("Programme documents"),
+        "page_subtitle": _("eTools partnerships with their donors, grants and ActivityInfo interventions"),
+        "breadcrumbs": [_crumb(_("Programme documents"))],
+        "actions": [
+            {
+                "label": _("Planned locations (Excel)"),
+                "url": reverse("reports:export_etools_locations"),
+                "icon": "download",
+            },
+        ],
+        "pd_q": request.GET.get("pd_q", ""),
+        "selected": {
+            key: request.GET.getlist(key)
+            for key in (
+                "partner",
+                "section",
+                "office",
+                "status",
+                "donor",
+                "grant",
+                "document_type",
+                "cso_type",
+            )
+        },
+    }
+
+
 @require_GET
 def programmes(request: HttpRequest) -> HttpResponse:
     """Programme documents, and their indicators in one flat list (``tab=indicators``, Power BI's PD/SPD
-    Indicators), with the same filter; the indicator list exports whole."""
+    Indicators), with the same filter; the indicator list exports whole. ``tab=summary`` and
+    ``tab=overall`` are the old NeuroDB's Summary Info and Funded Programs pages
+    (:func:`_programme_funded`)."""
+    tab = request.GET.get("tab") if request.GET.get("tab") in PROGRAMME_TABS else "documents"
+    if tab in ("summary", "overall"):
+        return _programme_funded(request, tab)
     scope = request.GET.get("scope", "all")
     if scope not in services.PD_SCOPES:
         scope = "all"
-    tab = "indicators" if request.GET.get("tab") == "indicators" else "documents"
-    filters = partnerships.PDFilters.from_params(request.GET)
+    # the start years belong to the overall tab: never a hidden filter here
+    filters = dataclasses.replace(
+        partnerships.PDFilters.from_params(request.GET), year_from=None, year_to=None
+    )
     params = request.GET.copy()
     if tab == "indicators":
         # the section of each indicator, not of its programme document
@@ -1188,13 +1272,7 @@ def programmes(request: HttpRequest) -> HttpResponse:
             for pd in page_obj
         ]
     context = {
-        "tab": tab,
-        "tab_urls": {
-            "documents": request.path
-            + "?"
-            + _query_with(params, ("tab", "export", "emergency", "indicator")),
-            "indicators": request.path + "?" + _query_with(params, ("export",), tab="indicators"),
-        },
+        **_programme_page(request, tab),
         # the indicator list exports whole; the PD list keeps its Copy and CSV of the page
         "downloads": [
             {
@@ -1210,36 +1288,91 @@ def programmes(request: HttpRequest) -> HttpResponse:
         else [],
         "emergency": request.GET.get("emergency", ""),
         "indicator_q": request.GET.get("indicator", ""),
-        "pd_q": request.GET.get("pd_q", ""),
-        "page_title": _("Programme documents"),
-        "page_subtitle": _("eTools partnerships with their donors, grants and ActivityInfo interventions"),
-        "breadcrumbs": [_crumb(_("Programme documents"))],
-        "actions": [
-            {"label": _("Summary"), "url": reverse("reports:programme_summary"), "icon": "chart"},
-            {
-                "label": _("Planned locations (Excel)"),
-                "url": reverse("reports:export_etools_locations"),
-                "icon": "download",
-            },
-        ],
         "scope": scope,
         "page_obj": page_obj,
         "rows": rows,
         "options": _programme_options(tab),
-        "selected": {
-            key: request.GET.getlist(key)
-            for key in (
-                "partner",
-                "section",
-                "office",
-                "status",
-                "donor",
-                "grant",
-                "document_type",
-                "cso_type",
-            )
-        },
     }
+    template = "reports/partials/programme_table.html" if request.htmx else "reports/programmes.html"
+    return render(request, template, context)
+
+
+def _programme_funded(request: HttpRequest, tab: str) -> HttpResponse:
+    """*Funded programme summary info* (``tab=summary``: the old Summary Info (Active PDs) and (All PDs)
+    pages, switched by ``scope``, Active first) and *Funded programme overall* (``tab=overall``: the old
+    Funded Programs page, on its filters but office and partner type), with their downloads
+    (:mod:`neurodb.partnerships.funded`)."""
+    today = timezone.localdate()
+    params = request.GET.copy()
+    context = _programme_page(request, tab)
+    if tab == "summary":
+        scope = request.GET.get("scope") if request.GET.get("scope") in services.PD_SCOPES else "active"
+        data = funded.summary(scope, today)
+        if request.GET.get("export") == "xlsx":
+            return exports.xlsx_response(
+                exports.export_filename(f"programme-summary-{scope}", "xlsx"),
+                funded.summary_sheets(data),
+                typed=True,
+            )
+        context.update(
+            {
+                "scope": scope,
+                "summary": data,
+                "summary_charts": data["charts"],
+                "downloads": [
+                    {
+                        "label": _("Excel of the summary"),
+                        "url": "?" + _query_only(params, ("scope",), tab="summary", export="xlsx"),
+                    }
+                ],
+            }
+        )
+    else:
+        # the filters the owner removed from every page (office, partner type) are never read, nor the
+        # Programme documents tab's own (document type, PD numbers)
+        filters = dataclasses.replace(
+            partnerships.PDFilters.from_params(request.GET), offices=[], document_types=[], numbers=[]
+        )
+        pds = partnerships.programme_documents(filters)
+        if pd_q := (request.GET.get("pd_q") or "").strip():
+            pds = pds.filter(number__icontains=pd_q)
+        export = request.GET.get("export")
+        if export in exports.FORMATS:
+            rows = (funded.export_row(r) for r in funded.overall_rows(pds, today))
+            if export == "csv":
+                return exports.stream_csv(
+                    exports.export_filename("funded-programme-overall", "csv"), funded.OVERALL_COLUMNS, rows
+                )
+            return exports.xlsx_response(
+                exports.export_filename("funded-programme-overall", "xlsx"),
+                [("Funded programme overall", funded.OVERALL_COLUMNS, rows)],
+                typed=True,
+            )
+        # the pages count the programme documents alone; the amounts are read for the page's rows only
+        page_obj = _paginate(request, pds.select_related(None).only("id"))
+        options = partnerships.pd_filter_options()
+        context.update(
+            {
+                "page_obj": page_obj,
+                "overall": {
+                    **funded.overall_totals(pds),
+                    "rows": funded.overall_page(page_obj, today),
+                },
+                "options": options,
+                "start_from": request.GET.get("start_from", ""),
+                "start_to": request.GET.get("start_to", ""),
+                "downloads": [
+                    {
+                        "label": _("Excel of the filter"),
+                        "url": "?" + _query_only(params, OVERALL_PARAMS, tab="overall", export="xlsx"),
+                    },
+                    {
+                        "label": _("CSV of the filter"),
+                        "url": "?" + _query_only(params, OVERALL_PARAMS, tab="overall", export="csv"),
+                    },
+                ],
+            }
+        )
     template = "reports/partials/programme_table.html" if request.htmx else "reports/programmes.html"
     return render(request, template, context)
 
@@ -1258,22 +1391,13 @@ def _programme_options(tab: str) -> dict[str, Any]:
 
 @require_GET
 def programme_summary(request: HttpRequest) -> HttpResponse:
-    scope = request.GET.get("scope", "active")
-    if scope not in services.PD_SCOPES:
-        return HttpResponse(_("Invalid scope."), status=400)
-    summary = partnerships.pd_summary(scope)
-    context = {
-        "page_title": _("Programme documents · Summary"),
-        "page_subtitle": _("Active partnerships") if scope == "active" else _("All partnerships"),
-        "breadcrumbs": [
-            _crumb(_("Programme documents"), reverse("reports:programmes")),
-            _crumb(_("Summary")),
-        ],
-        "scope": scope,
-        "summary": summary,
-        "chart_data": {"by_section": summary["by_section"][:20], "by_type": summary["by_type"]},
-    }
-    return render(request, "reports/programme_summary.html", context)
+    """The old summary page's address (bookmarks): it opens the *Funded programme summary info* tab, on its
+    scope."""
+    scope = request.GET.get("scope")
+    query = _query_only(
+        QueryDict(f"scope={scope}" if scope in services.PD_SCOPES else ""), ("scope",), tab="summary"
+    )
+    return redirect(reverse("reports:programmes") + "?" + query)
 
 
 @require_GET

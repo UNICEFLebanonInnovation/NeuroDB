@@ -1,11 +1,13 @@
 {% load i18n ui %}
 <div class="toolbar px-3 pt-3">
-  <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Programme documents or their indicators' %}">
-    <a href="{{ tab_urls.documents }}" {% if tab != "indicators" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="file" %} {% trans "Programme documents" %}</a>
+  <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Programme documents views' %}">
+    <a href="{{ tab_urls.documents }}" {% if tab == "documents" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="file" %} {% trans "Programme documents" %}</a>
     <a href="{{ tab_urls.indicators }}" {% if tab == "indicators" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="target" %} {% trans "Indicators" %}</a>
+    <a href="{{ tab_urls.summary }}" {% if tab == "summary" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="chart" %} {% trans "Funded programme summary info" %}</a>
+    <a href="{{ tab_urls.overall }}" {% if tab == "overall" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="database" %} {% trans "Funded programme overall" %}</a>
   </div>
 </div>
-{% if tab == "indicators" %}{% include "reports/partials/_programme_indicators.html" %}{% else %}
+{% if tab == "indicators" %}{% include "reports/partials/_programme_indicators.html" %}{% elif tab == "summary" %}{% include "reports/partials/_programme_summary.html" %}{% elif tab == "overall" %}{% include "reports/partials/_programme_overall.html" %}{% else %}
 {% include "components/table_toolbar.html" with title=_("Programme documents") count=page_obj.paginator.count table_id="pds" filename="programme-documents" %}
 {% if rows %}
 {% comment %}"Records" (ActivityInfo records reported against the programme document) only when one of the rows has some

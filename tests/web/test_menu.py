@@ -320,7 +320,7 @@ def test_for_you_has_no_count_while_watch_is_switched_off(client, roles, setting
     [
         (lambda h: reverse("reports:library"), "Library"),
         (lambda h: reverse("reports:pd_monitoring_map"), "Partner monitoring"),
-        (lambda h: reverse("reports:programme_summary"), "Programme documents"),
+        (lambda h: reverse("reports:programmes") + "?tab=summary", "Programme documents"),
         (lambda h: reverse("help:page", args=["overview"]), "Help"),
         (lambda h: reverse("knowledge:series_index"), "Periodic reports"),
     ],

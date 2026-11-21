@@ -160,7 +160,9 @@ def test_partnership_pages(client_viewer, partnerships, hierarchy):
     html = _get(client_viewer, reverse("reports:programmes") + "?scope=active&donor=Donor+X").content.decode()
     assert "LEB/PCA2026001-1" in html
     _get(client_viewer, reverse("reports:programmes") + "?page=1", HTTP_HX_REQUEST="true")
-    _get(client_viewer, reverse("reports:programme_summary"))
+    assert client_viewer.get(reverse("reports:programme_summary")).status_code == 302  # the summary tab
+    _get(client_viewer, reverse("reports:programmes") + "?tab=summary")
+    _get(client_viewer, reverse("reports:programmes") + "?tab=overall&donor=Donor+X")
     _get(client_viewer, reverse("reports:programme_detail", args=[pd.id]))
     _get(client_viewer, reverse("reports:programme_detail", args=[pd.id]), HTTP_HX_REQUEST="true")
     _get(client_viewer, reverse("reports:donors") + "?donor=Donor+X")

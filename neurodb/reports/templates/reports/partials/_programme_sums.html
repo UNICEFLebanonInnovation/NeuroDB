@@ -1,0 +1,19 @@
+{% load i18n ui %}{% comment %}A table of sums of Funded programme summary info: a name column when name_key is given
+(name_label its heading, blank the words for an empty name, link_partner a link to the partner's page), then the
+currency, programme documents, UNICEF planned budget, total budget, funds reserved and disbursed.{% endcomment %}
+{% if rows %}
+<div class="table-wrap"><table class="table table-sm table-hover" id="{{ table_id }}" data-sortable>
+  <thead><tr>{% if name_key %}<th scope="col">{{ name_label }}</th>{% endif %}<th scope="col">{% trans "Currency" %}</th><th scope="col" class="num">{% trans "Programme documents" %}</th><th scope="col" class="num"><span class="has-tip" title="{% trans 'UNICEF cash and supplies, in the budget currency' %}">{% trans "UNICEF planned budget" %}</span></th><th scope="col" class="num"><span class="has-tip" title="{% trans 'UNICEF cash and supplies with the partner contribution, in the budget currency' %}">{% trans "Total budget" %}</span></th><th scope="col" class="num"><span class="has-tip" title="{% trans 'The funds reservation lines of these programme documents, every donor and grant' %}">{% trans "Funds reserved (USD)" %}</span></th><th scope="col" class="num"><span class="has-tip" title="{% trans 'Paid to the partners for these programme documents' %}">{% trans "Disbursed (USD)" %}</span></th></tr></thead>
+  <tbody>{% for r in rows %}<tr>
+    {% if name_key %}{% with name=r|get_item:name_key %}<td class="small cell-wrap">{% if link_partner and r.partner_id %}<a href="{% url 'reports:partner_profile' r.partner_id %}">{{ name|default:blank }}</a>{% else %}{{ name|default:blank }}{% endif %}</td>{% endwith %}{% endif %}
+    <td class="small">{{ r.currency|default:"—" }}</td>
+    <td class="num" data-value="{{ r.pds }}">{{ r.pds|number }}</td>
+    <td class="num" data-value="{{ r.unicef_planned|default_if_none:'' }}">{{ r.unicef_planned|number:0 }}</td>
+    <td class="num" data-value="{{ r.total|default_if_none:'' }}">{{ r.total|number:0 }}</td>
+    <td class="num" data-value="{{ r.reserved|default_if_none:'' }}">{{ r.reserved|number:0 }}</td>
+    <td class="num" data-value="{{ r.disbursed|default_if_none:'' }}">{{ r.disbursed|number:0 }}</td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+{% else %}
+{% include "components/empty_state.html" with icon="table" title=_("No programme documents here") message=_("If this stays empty, the eTools data has not been synced yet.") %}
+{% endif %}

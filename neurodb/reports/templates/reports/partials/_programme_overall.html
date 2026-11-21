@@ -1,0 +1,54 @@
+{% load i18n ui humanize %}{% comment %}Funded programme overall: the old Funded Programs page (neurodb.partnerships.funded). No
+person is named here, nor in its downloads.{% endcomment %}
+{% with o=overall %}
+<div class="pd-funded px-3 pt-1">
+  <div class="kpi-grid kpi-grid--money">
+    {% trans "Programme documents" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=o.count|intcomma %}
+    {% with t=o.totals.0 %}{% if t %}{% if o.totals|length > 1 %}{% blocktrans asvar h2 count counter=o.totals|length|add:"-1" %}and {{ counter }} other currency{% plural %}and {{ counter }} other currencies{% endblocktrans %}{% else %}{% trans "Each programme document counted once" as h2 %}{% endif %}
+    {% blocktrans asvar l2 with cur=t.currency|default:_("no currency") %}Total budget ({{ cur }}){% endblocktrans %}{% include "components/kpi_tile.html" with label=l2 value=t.total|number:0 hint=h2 %}{% endif %}{% endwith %}
+    {% trans "Funds reserved (USD)" as l3 %}{% trans "Every funds reservation line of these programme documents" as h3 %}{% include "components/kpi_tile.html" with label=l3 value=o.reserved|number:0 hint=h3 %}
+    {% trans "Disbursed (USD)" as l4 %}{% trans "Paid to the partners for these programme documents" as h4 %}{% include "components/kpi_tile.html" with label=l4 value=o.disbursed|number:0 hint=h4 %}
+  </div>
+</div>
+<section class="pd-funded__block" aria-label="{% trans 'Funded programme overall' %}">
+  {% blocktrans asvar count_label count counter=o.count %}{{ counter }} programme document{% plural %}{{ counter }} programme documents{% endblocktrans %}
+  {% include "components/table_toolbar.html" with title=_("Funded programmes") count_label=count_label table_id="pd-overall" filename="funded-programme-overall" downloads=downloads no_copy=True %}
+  {% if o.rows %}
+  <p class="small px-3 pt-2 mb-1 d-flex flex-wrap gap-2">{% status_pill "on_track" _("Active") "sm" %}{% status_pill "planned" _("Signed") "sm" %}{% status_pill "stale" _("Ended, closed, suspended, terminated or cancelled") "sm" %}{% status_pill "off_track" _("In review") "sm" %}</p>
+  <div class="table-wrap"><table class="table table-sm table-hover" id="pd-overall" data-sortable>
+    <thead><tr>
+      <th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col"><span class="has-tip" title="{% trans 'PD: programme document; SPD: simplified programme document' %}">{% trans "Type" %}</span></th><th scope="col">{% trans "Status" %}</th><th scope="col">{% trans "Sections" %}</th><th scope="col">{% trans "Start" %}</th><th scope="col">{% trans "End" %}</th>
+      <th scope="col" class="num"><span class="has-tip" title="{% trans 'Days from today to the end date: green over 120, amber over 60, red below' %}">{% trans "Days to end" %}</span></th>
+      <th scope="col">{% trans "Donors" %}</th><th scope="col">{% trans "Grants" %}</th><th scope="col">{% trans "Currency" %}</th>
+      <th scope="col" class="num"><span class="has-tip" title="{% trans 'UNICEF cash and supplies, in the budget currency' %}">{% trans "UNICEF planned budget" %}</span></th>
+      <th scope="col" class="num"><span class="has-tip" title="{% trans 'UNICEF cash and supplies with the partner contribution, in the budget currency' %}">{% trans "Total budget" %}</span></th>
+      <th scope="col" class="num">{% trans "UNICEF cash" %}</th>
+      <th scope="col" class="num"><span class="has-tip" title="{% trans 'The funds reservation lines of this programme document, every donor and grant' %}">{% trans "Funds reserved (USD)" %}</span></th>
+      <th scope="col" class="num"><span class="has-tip" title="{% trans 'Paid to the partner for this programme document' %}">{% trans "Disbursed (USD)" %}</span></th>
+    </tr></thead>
+    <tbody>{% for pd in o.rows %}<tr>
+      <td class="small"><a class="cell-title" href="{% url 'reports:programme_detail' pd.id %}">{{ pd.number|default:"—" }}</a><span class="cell-sub">{{ pd.title|truncatechars:80 }}</span></td>
+      <td class="small cell-wrap">{% if pd.partner_id %}<a href="{% url 'reports:partner_profile' pd.partner_id %}">{{ pd.partner|default:"—" }}</a>{% else %}{{ pd.partner|default:"—" }}{% endif %}</td>
+      <td class="small">{{ pd.document_type|default:"—" }}</td>
+      <td>{% status_pill pd.tone pd.status_label "sm" %}</td>
+      <td><div class="chips">{% for x in pd.sections|slice:":3" %}<span class="chip">{{ x }}</span>{% empty %}—{% endfor %}{% if pd.sections|length > 3 %}<span class="chip">+{{ pd.sections|length|add:"-3" }}</span>{% endif %}</div></td>
+      <td class="small text-nowrap" data-value="{{ pd.start|date:'Y-m-d' }}">{{ pd.start|date:"j M Y"|default:"—" }}</td>
+      <td class="small text-nowrap" data-value="{{ pd.end|date:'Y-m-d' }}">{{ pd.end|date:"j M Y"|default:"—" }}</td>
+      <td class="num" data-value="{{ pd.days_to_end|default_if_none:'' }}">{% if pd.days_to_end is None %}—{% elif pd.days_to_end < 0 %}<span class="text-muted">{% trans "Ended" %}</span>{% else %}{% status_pill pd.days_tone pd.days_to_end|intcomma "sm" %}{% endif %}</td>
+      <td class="small cell-wrap">{{ pd.donors|join:", "|default:"—" }}</td>
+      <td class="small mono cell-wrap">{{ pd.grants|join:", "|default:"—" }}</td>
+      <td class="small">{{ pd.currency|default:"—" }}</td>
+      <td class="num" data-value="{{ pd.unicef_planned|default_if_none:'' }}">{{ pd.unicef_planned|number:0 }}</td>
+      <td class="num" data-value="{{ pd.total|default_if_none:'' }}">{{ pd.total|number:0 }}</td>
+      <td class="num" data-value="{{ pd.unicef_cash|default_if_none:'' }}">{{ pd.unicef_cash|number:0 }}</td>
+      <td class="num" data-value="{{ pd.reserved|default_if_none:'' }}">{{ pd.reserved|number:0 }}</td>
+      <td class="num" data-value="{{ pd.disbursed|default_if_none:'' }}">{{ pd.disbursed|number:0 }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "components/pagination.html" with hx_target="#pd-table" %}
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}One row per programme document of the filter, drafts left out. Budgets and UNICEF cash are in the programme document's currency; funds reserved and disbursed in US dollars, from the funds reservations of eTools, for the whole programme document whatever donor or grant is chosen. The Excel and CSV files hold every programme document of the filter; their days to end read −1 once it has ended, as on the Funds page.{% endblocktrans %}</p>
+  {% else %}
+  {% include "components/empty_state.html" with icon="filter" title=_("No programme documents match") message=_("Remove some filters. If the list stays empty, the eTools data has not been synced yet.") action_url=request.path|add:"?tab=overall" %}
+  {% endif %}
+</section>
+{% endwith %}

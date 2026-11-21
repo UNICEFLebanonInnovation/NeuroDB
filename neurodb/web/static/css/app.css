@@ -357,6 +357,8 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 /* ------------------------------------------------------------------ filters, tabs */
 .filter-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; padding: 0.85rem 1rem; margin-bottom: 1rem; background: var(--nd-surface); border: 1px solid var(--nd-border); border-radius: var(--nd-radius); box-shadow: var(--nd-shadow); }
 .filter-bar__field { display: flex; flex-direction: column; min-width: 160px; flex: 1 1 180px; max-width: 320px; }
+/* a field as wide as its content (a segmented choice), never stretched or squeezed */
+.filter-bar__field--fit { flex: 0 0 auto; min-width: 0; }
 .filter-bar__field .form-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--nd-muted); margin-bottom: 0.25rem; }
 .filter-bar__actions { display: flex; gap: 0.25rem; margin-left: auto; }
 .segmented { display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; background: var(--nd-surface-2); border: 1px solid var(--nd-border); }
@@ -1448,6 +1450,9 @@ tr.is-uncounted > td { color: var(--nd-muted); }
 /* Funded programmes: one block per programme document, its own amounts once (cells spanning its grants) */
 .funded-table > tbody.fund-block > tr:first-child > * { border-top: 2px solid var(--nd-border); }
 .funded-table td[rowspan] { vertical-align: top; }
+/* Programme documents' funded tabs: a line of words with its download, then the blocks one under the other */
+.pd-funded__lead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.75rem; }
+.pd-funded__block { border-top: 1px solid var(--nd-border); }
 /* money tiles: amounts of ten digits and more fit a phone's two-column tiles */
 .kpi-grid--money .kpi__value { font-size: clamp(1.1rem, 5.2vw, 1.6rem); }
 .status-matrix th, .status-matrix td { white-space: nowrap; }

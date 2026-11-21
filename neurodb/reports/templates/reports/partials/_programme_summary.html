@@ -1,0 +1,60 @@
+{% load i18n ui humanize %}{% comment %}Funded programme summary info: the old Summary Info (Active PDs) and (All PDs) pages
+(neurodb.partnerships.funded.summary). No person is named here.{% endcomment %}
+{% with s=summary %}
+<div class="pd-funded px-3 pt-1">
+  <div class="pd-funded__lead">
+    <p class="small text-muted mb-0">{% if s.scope == "active" %}{% trans "The programme documents eTools shows as active." %}{% else %}{% trans "Every programme document but drafts." %}{% endif %}{% if s.last_sync %} {% blocktrans with when=s.last_sync|naturaltime %}eTools data updated {{ when }}.{% endblocktrans %}{% endif %}</p>
+    {% for d in downloads %}<a class="btn btn-outline-secondary btn-sm" href="{{ d.url }}">{% include "components/icon.html" with name="download" %}<span>{{ d.label }}</span></a>{% endfor %}
+  </div>
+  <div class="kpi-grid kpi-grid--money">
+    {% trans "Programme documents" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=s.count|intcomma %}
+    {% trans "Partners" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=s.partners|intcomma %}
+    {% with t=s.totals.0 %}{% if t %}{% if s.totals|length > 1 %}{% blocktrans asvar h3 count counter=s.totals|length|add:"-1" %}and {{ counter }} other currency: see Totals by currency{% plural %}and {{ counter }} other currencies: see Totals by currency{% endblocktrans %}{% else %}{% trans "Each programme document counted once" as h3 %}{% endif %}
+    {% blocktrans asvar l3 with cur=t.currency|default:_("no currency") %}Total budget ({{ cur }}){% endblocktrans %}{% include "components/kpi_tile.html" with label=l3 value=t.total|number:0 hint=h3 %}{% endif %}{% endwith %}
+    {% trans "Funds reserved (USD)" as l4 %}{% trans "Every funds reservation line of these programme documents" as h4 %}{% include "components/kpi_tile.html" with label=l4 value=s.reserved|number:0 hint=h4 %}
+    {% trans "Disbursed (USD)" as l5 %}{% trans "Paid to the partners for these programme documents" as h5 %}{% include "components/kpi_tile.html" with label=l5 value=s.disbursed|number:0 hint=h5 %}
+    {% blocktrans asvar l6 with days=s.ending_days %}Ending within {{ days }} days{% endblocktrans %}{% blocktrans asvar h6 with n=s.ending_30 days=s.ending_soon_days %}{{ n }} within {{ days }} days{% endblocktrans %}{% include "components/kpi_tile.html" with label=l6 value=s.ending_soon|length hint=h6 status="over_target" %}
+  </div>
+</div>
+{% if s.count %}
+<div class="grid grid--2 px-3 pb-3">
+  <section aria-labelledby="pd-chart-section"><h2 class="h6" id="pd-chart-section">{% trans "Programme documents by section" %}</h2>
+    <div class="chart" data-module="charts" data-chart="bars" data-source="pd-summary-chart-data" data-key="by_section" data-empty-title="{% trans 'No sections' %}"></div></section>
+  <section aria-labelledby="pd-chart-type"><h2 class="h6" id="pd-chart-type">{% trans "Programme documents by type" %}</h2>
+    <div class="chart" data-module="charts" data-chart="pie" data-source="pd-summary-chart-data" data-key="by_type" data-empty-title="{% trans 'No programme documents' %}"></div></section>
+</div>
+{% endif %}
+<section class="pd-funded__block" aria-label="{% blocktrans with days=s.ending_days %}Ending within {{ days }} days{% endblocktrans %}">
+  {% blocktrans asvar ending_title with days=s.ending_days %}Ending within {{ days }} days{% endblocktrans %}
+  {% include "components/table_toolbar.html" with downloads=None title=ending_title count=s.ending_soon|length table_id="pd-ending" filename="pd-ending-soon" %}
+  {% if s.ending_soon %}
+  <div class="table-wrap"><table class="table table-sm table-hover" id="pd-ending" data-sortable>
+    <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Sections" %}</th><th scope="col">{% trans "Start" %}</th><th scope="col">{% trans "End" %}</th><th scope="col" class="num">{% trans "Days to end" %}</th><th scope="col">{% trans "Partner" %}</th></tr></thead>
+    <tbody>{% for pd in s.ending_soon %}<tr>
+      <td class="small"><a class="cell-title" href="{% url 'reports:programme_detail' pd.id %}">{{ pd.number|default:"—" }}</a><span class="cell-sub">{{ pd.title|truncatechars:80 }}</span></td>
+      <td><div class="chips">{% for x in pd.sections %}<span class="chip">{{ x }}</span>{% empty %}—{% endfor %}</div></td>
+      <td class="small text-nowrap" data-value="{{ pd.start|date:'Y-m-d' }}">{{ pd.start|date:"j M Y"|default:"—" }}</td>
+      <td class="small text-nowrap" data-value="{{ pd.end|date:'Y-m-d' }}">{{ pd.end|date:"j M Y" }}</td>
+      <td class="num" data-value="{{ pd.days_to_end }}">{% status_pill pd.tone pd.days_to_end|intcomma "sm" %}</td>
+      <td class="small cell-wrap">{% if pd.partner_id %}<a href="{% url 'reports:partner_profile' pd.partner_id %}">{{ pd.partner|default:"—" }}</a>{% else %}{{ pd.partner|default:"—" }}{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans with days=s.ending_days %}No active programme document ends in the next {{ days }} days.{% endblocktrans %}</p>
+  {% endif %}
+</section>
+<section class="pd-funded__block" aria-label="{% trans 'Summary by section' %}">
+  {% include "components/table_toolbar.html" with downloads=None title=_("Summary by section") count=s.by_section|length table_id="pd-by-section" filename="pd-summary-by-section" %}
+  {% include "reports/partials/_programme_sums.html" with rows=s.by_section table_id="pd-by-section" name_key="section" name_label=_("Section") blank=_("No section") %}
+</section>
+<section class="pd-funded__block" aria-label="{% trans 'Summary by partner' %}">
+  {% include "components/table_toolbar.html" with downloads=None title=_("Summary by partner") count=s.by_partner|length table_id="pd-by-partner" filename="pd-summary-by-partner" %}
+  {% include "reports/partials/_programme_sums.html" with rows=s.by_partner table_id="pd-by-partner" name_key="partner" name_label=_("Partner") blank=_("Unknown partner") link_partner=True %}
+</section>
+<section class="pd-funded__block" aria-label="{% trans 'Totals by currency' %}">
+  {% include "components/table_toolbar.html" with downloads=None title=_("Totals by currency") count=s.totals|length table_id="pd-totals" filename="pd-summary-totals" %}
+  {% include "reports/partials/_programme_sums.html" with rows=s.totals table_id="pd-totals" %}
+</section>
+<p class="small text-muted px-3 py-2 mb-0">{% blocktrans %}Budgets are in each programme document's currency, so each row is one currency: amounts in different currencies are never added. Funds reserved and disbursed are in US dollars, from the funds reservations of eTools, as on the Funds page. A programme document counts once for its partner, but under each of its sections: the section rows add up to more than the totals. The Excel file holds the three tables.{% endblocktrans %}</p>
+{{ s.charts|json_script:"pd-summary-chart-data" }}
+{% endwith %}
