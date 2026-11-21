@@ -184,7 +184,7 @@ def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, wor
     html = text(response)
     assert f"<title>{world[who].name}" in html and ">Partners</a>" in html  # the header and its crumbs
     assert ("marked as deleted in eTools" in html) == (who == "deleted")
-    assert ("In the knowledge base" in html and "Amel field report" in html) == (who == "amel")
+    assert ("In Documents" in html and "Amel field report" in html) == (who == "amel")
     assert list(placeholders(html)) == ["datamart"]
     assert f'id="{DATAMART_JSON}"' not in html and 'id="chart-data"' not in html
     before, after = html.split('id="sidebar"', 1)

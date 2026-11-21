@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load i18n ui %}
 {% block content %}
-<form method="get" class="filter-bar" role="search" aria-label="{% trans 'Search the knowledge base' %}">
+<form method="get" class="filter-bar" role="search" aria-label="{% trans 'Search the documents' %}">
   <div class="filter-bar__field flex-grow-1">
     <label class="form-label" for="k-q">{% trans "Search" %}</label>
     <input class="form-control form-control-sm" type="search" id="k-q" name="q" value="{{ q }}" placeholder="{% trans 'Words in the documents, a partner, a place…' %}">
@@ -40,7 +40,7 @@
     {% endfor %}
   </ul>
   {% else %}
-  {% include "components/empty_state.html" with icon="search" title=_("Nothing in the knowledge base matches") action_url=request.path %}
+  {% include "components/empty_state.html" with icon="search" title=_("No document matches") action_url=request.path %}
   {% endif %}
 </section>
 {% else %}
@@ -58,9 +58,9 @@
   {% include "components/pagination.html" with page_obj=documents %}
   {% else %}
   {% if can_add %}
-  {% include "components/empty_state.html" with icon="book" title=_("The knowledge base is empty") message=_("Add reports, minutes, studies, guidance or notes: Ask NeuroDB will then answer from them too.") action_url=add_url action_label=_("Add a document or text") %}
+  {% include "components/empty_state.html" with icon="book" title=_("No document yet") message=_("Add reports, minutes, studies, guidance or notes: Ask NeuroDB will then answer from them too.") action_url=add_url action_label=_("Add a document or text") %}
   {% else %}
-  {% include "components/empty_state.html" with icon="book" title=_("The knowledge base is empty") message=_("Administrators and section editors add documents to it.") %}
+  {% include "components/empty_state.html" with icon="book" title=_("No document yet") message=_("Administrators and section editors add documents here.") %}
   {% endif %}
   {% endif %}
 </section>

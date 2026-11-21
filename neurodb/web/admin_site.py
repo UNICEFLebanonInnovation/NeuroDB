@@ -57,9 +57,9 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     (
         _("Library and maps"),
         _(
-            "Published resources, their classification, map products, the knowledge base of Ask NeuroDB "
-            "with its document review (settings, batches, topics and what it found), and the knowledge hub "
-            "that links everything, with what changed and the daily notes."
+            "Published resources, their classification, map products, the documents Ask NeuroDB answers from "
+            "(the Documents page) with their document review (settings, batches, topics and what it found), "
+            "and the knowledge hub that links everything, with what changed and the daily notes."
         ),
         [
             "pivoting.Resource",

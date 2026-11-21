@@ -189,7 +189,7 @@ def search(
         ),
         (
             "documents",
-            _("Knowledge base"),
+            _("Documents"),
             Document.objects.filter(title__icontains=q)
             .only("id", "title", "document_date", "created_at", "origin")
             .order_by(F("document_date").desc(nulls_last=True), "-created_at", "-id"),

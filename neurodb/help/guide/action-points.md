@@ -1,6 +1,6 @@
 # Action points
 
-The [action points page](/action-points/) (in the full menu: Funds and assurance › Action points; the
+The [action points page](/action-points/) (in the full menu: Knowledge base › Action points; the
 search finds it for everyone) lists the **eTools action points** (from the Datamart: audits, spot checks,
 TPM, trips and field monitoring) and, under them, the **NeuroDB action points**, kept in NeuroDB only. The
 visit links, the AI review, the PME verification and the NeuroDB action points come from Monitoring

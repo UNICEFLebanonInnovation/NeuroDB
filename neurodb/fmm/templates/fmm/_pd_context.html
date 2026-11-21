@@ -21,7 +21,7 @@ contributes to. Context: blocks. No traveller's name is shown.{% endcomment %}
     <dd class="col-sm-9">{% for v in b.visits %}<span class="d-block"><a href="{{ v.url }}" hx-get="{{ v.url }}" hx-target="#modal-content" hx-push-url="false">{{ v.label }}</a> · {% status_pill v.rating v.rating_label "sm" %} <span class="text-muted">{% if v.not_rated_yet %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}ends {{ day }}{% endblocktrans %}{% else %}{% blocktrans with day=v.end_date|date:"j M Y"|default:"—" %}rated {{ day }}{% endblocktrans %}{% endif %}</span></span>{% empty %}<span class="text-muted">{% if b.around %}{% trans "No other visit in these dates" %}{% else %}{% trans "No visit in these dates" %}{% endif %}</span>{% endfor %}{% if b.visits_count > b.visits|length %}<span class="d-block text-muted">{% blocktrans with n=b.visits_count shown=b.visits|length %}{{ shown }} of {{ n }} listed{% endblocktrans %}</span>{% endif %}</dd>
     {% if b.outputs %}<dt class="col-sm-3 text-muted">{% trans "Country programme outputs" %}</dt>
     <dd class="col-sm-9">{% for o in b.outputs %}<span class="d-block"><a href="{{ o.url }}">{% blocktrans with code=o.code %}Output {{ code }}{% endblocktrans %}</a> <span class="text-muted">{{ o.title|truncatechars:90 }}</span></span>{% endfor %}</dd>{% endif %}
-    {% if b.documents %}<dt class="col-sm-3 text-muted">{% trans "In the knowledge base" %}</dt>
+    {% if b.documents %}<dt class="col-sm-3 text-muted">{% trans "In Documents" %}</dt>
     <dd class="col-sm-9">{% for d in b.documents %}<span class="d-block">{% include "components/icon.html" with name="book" %} <a href="{{ d.get_absolute_url }}" data-synced>{{ d.title }}</a></span>{% endfor %}</dd>{% endif %}
   </dl>
 </div>

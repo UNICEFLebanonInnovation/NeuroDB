@@ -7,7 +7,7 @@ they come from. An administrator uploads it as one Excel workbook; each finding 
 gives it.
 
 - **Kept apart.** The KM Database is not linked to partners, programme documents, indicators or any other
-  NeuroDB data. Ask NeuroDB, the knowledge base, the library, NeuroDB Watch and the search at the top of
+  NeuroDB data. Ask NeuroDB, the Documents page, the library, NeuroDB Watch and the search at the top of
   every page do not read it. It has its own assistant, on its **Ask the KM Database** tab, which reads
   the KM Database only (see below).
 - **Where it is.** In the full menu, under Resources, after Library. Superusers see it there; a superuser
@@ -110,8 +110,8 @@ KM Database, and from nothing else.
   finding, measure, ages, analysis and limitations, with their document's title, year, type, population
   and methods. It looks for your words in each finding's own text, with UK and US spellings and common
   acronyms joined, and reads the best matches (at most 40, and at most 6 from one document). Nothing else
-  from NeuroDB is read: no partner, programme document, indicator, knowledge base document, library entry
-  or person.
+  from NeuroDB is read: no partner, programme document, indicator, document of the Documents page, library
+  entry or person.
 - **Your filters.** Open the tab from the Findings tab after filtering (a pillar, a year, one document...)
   and the answer reads only the findings of that filter; the line over the box names it, with **Clear**.
   The words of the search box are not used: your question is its own search. On a finding's or a

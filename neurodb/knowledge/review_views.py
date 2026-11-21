@@ -263,7 +263,7 @@ def page(request: HttpRequest) -> HttpResponse:
                         "count them, compare them across documents and download the desk review"
                     ),
                     "breadcrumbs": [
-                        {"label": _("Knowledge base"), "url": reverse("knowledge:index")},
+                        {"label": _("Documents"), "url": reverse("knowledge:index")},
                         {"label": _("Document review"), "url": None},
                     ],
                     "header_include": "knowledge/review/_verified_switch.html",

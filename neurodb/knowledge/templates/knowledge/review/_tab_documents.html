@@ -42,7 +42,7 @@
         {% if addable %}
         <form method="post" action="{% url 'knowledge:review_batch_add' batch.pk %}" class="d-flex flex-wrap gap-2 align-items-end flex-grow-1">
           {% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
-          <div class="flex-grow-1" style="min-width: 16rem"><label class="form-label small" for="batch-add-documents">{% trans "Or pick knowledge base documents" %}</label>
+          <div class="flex-grow-1" style="min-width: 16rem"><label class="form-label small" for="batch-add-documents">{% trans "Or pick documents from the Documents page" %}</label>
             <select class="form-select form-select-sm" id="batch-add-documents" name="documents" multiple data-tom placeholder="{% trans 'Documents not in a batch yet' %}">
               {% for pk, title in addable %}<option value="{{ pk }}">{{ title }}</option>{% endfor %}
             </select></div>
@@ -71,13 +71,13 @@
           {% if can_edit %}<td class="text-nowrap">
             {% if d.review_status != "reference" %}<form method="post" action="{% url 'knowledge:review_analyse' d.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}"><button type="submit" class="btn btn-outline-primary btn-sm" {% if not review_on or d.review_status == "running" %}disabled{% endif %}>{% if d.reviewed_at %}{% trans "Re-analyse" %}{% else %}{% trans "Analyse" %}{% endif %}</button></form>{% endif %}
             <form method="post" action="{% url 'knowledge:review_reference' d.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}">{% if d.review_status == "reference" %}<input type="hidden" name="reference" value="0"><button type="submit" class="btn btn-outline-secondary btn-sm">{% trans "Unmark reference" %}</button>{% else %}<input type="hidden" name="reference" value="1"><button type="submit" class="btn btn-outline-secondary btn-sm" title="{% trans 'Kept in its batch but never analysed; its findings leave every count' %}">{% trans "Mark as reference" %}</button>{% endif %}</form>
-            <form method="post" action="{% url 'knowledge:review_remove' d.pk %}" class="d-inline" data-confirm="{% trans 'Take this document out of the review? It stays in the knowledge base; what was found is no longer shown.' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}"><button type="submit" class="btn btn-link btn-sm text-danger">{% trans "Remove from batch" %}</button></form>
+            <form method="post" action="{% url 'knowledge:review_remove' d.pk %}" class="d-inline" data-confirm="{% trans 'Take this document out of the review? It stays on the Documents page; what was found is no longer shown.' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}"><button type="submit" class="btn btn-link btn-sm text-danger">{% trans "Remove from batch" %}</button></form>
           </td>{% endif %}
         </tr>{% endfor %}</tbody>
       </table></div>
       {% else %}
       {% if batch and can_edit %}
-      {% include "components/empty_state.html" with icon="file" title=_("No document in this batch yet") message=_("Upload documents into it, or pick documents already in the knowledge base.") %}
+      {% include "components/empty_state.html" with icon="file" title=_("No document in this batch yet") message=_("Upload documents into it, or pick documents already on the Documents page.") %}
       {% elif can_edit %}
       {% include "components/empty_state.html" with icon="file" title=_("No document in the review yet") message=_("Create a batch, then add documents to it: only documents in a batch are analysed.") %}
       {% else %}

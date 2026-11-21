@@ -51,3 +51,20 @@ def test_the_set_up_hint_names_both_keys_for_administrators_only(client_viewer, 
         "For administrators: enter an Anthropic (Claude) or OpenAI API key in the admin (AI settings), or ask "
         "the hosting team to set ANTHROPIC_API_KEY or OPENAI_API_KEY." in page
     )
+
+
+def test_ask_names_the_documents_page_as_the_menu_does(client_viewer, admin_client, settings):
+    """The menu calls the documents page (reports, studies, evaluations) "Documents" and keeps "Knowledge base"
+    for the section of eTools, funds and assurance pages: what Ask NeuroDB and the add page tell a person
+    names the documents the same way. The tool descriptions only the AI reads are left as they are."""
+    from neurodb.assistant import tools
+
+    settings.AI_ASSISTANT_ENABLED = True
+    ask = client_viewer.get(reverse("assistant:ask")).content.decode()
+    intro = " ".join(ask.split('id="main"', 1)[1].split("</main>", 1)[0].split())
+    assert "the library, the documents people added and data freshness" in intro
+    assert "knowledge base" not in intro.lower()
+    assert tools.label("search_knowledge") == "Searching the documents"
+    add = admin_client.get(reverse("knowledge:add")).content.decode()
+    assert re.search(r"<title>(.*?) · ", add).group(1) == "Add a document or text"
+    assert "knowledge base" not in add.split('id="main"', 1)[1].split("</main>", 1)[0].lower()

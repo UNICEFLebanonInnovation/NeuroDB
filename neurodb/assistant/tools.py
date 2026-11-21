@@ -1761,7 +1761,7 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
                 "document_id": {"type": "integer", "description": "Search within one document only."},
             }
         ),
-        "Searching the knowledge base",
+        "Searching the documents",
     ),
     "read_knowledge": (
         read_knowledge,

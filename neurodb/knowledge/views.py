@@ -100,12 +100,12 @@ def index(request: HttpRequest) -> HttpResponse:
             request.GET.get("page")
         )
     context = {
-        "page_title": _("Knowledge base"),
+        "page_title": _("Documents"),
         "page_subtitle": _(
             "Documents and notes added for Ask NeuroDB: searchable, linked to the partners, programme "
             "documents, sections and places they mention"
         ),
-        "breadcrumbs": [{"label": _("Knowledge base"), "url": None}],
+        "breadcrumbs": [{"label": _("Documents"), "url": None}],
         "q": q,
         "results": results,
         "documents": documents,
@@ -181,9 +181,9 @@ def add(request: HttpRequest) -> HttpResponse:
             return redirect("knowledge:series", pk=series.pop())
         return redirect("knowledge:index")
     context = {
-        "page_title": _("Add to the knowledge base"),
+        "page_title": _("Add a document or text"),
         "breadcrumbs": [
-            {"label": _("Knowledge base"), "url": reverse("knowledge:index")},
+            {"label": _("Documents"), "url": reverse("knowledge:index")},
             {"label": _("Add"), "url": None},
         ],
         "form": form,
@@ -203,7 +203,7 @@ def detail(request: HttpRequest, pk: int) -> HttpResponse:
     context = {
         "page_title": document.title,
         "breadcrumbs": [
-            {"label": _("Knowledge base"), "url": reverse("knowledge:index")},
+            {"label": _("Documents"), "url": reverse("knowledge:index")},
             {"label": document.title[:60], "url": None},
         ],
         "document": document,
@@ -236,7 +236,7 @@ def series_index(request: HttpRequest) -> HttpResponse:
             "so Ask NeuroDB can compare editions, follow trends and draw charts"
         ),
         "breadcrumbs": [
-            {"label": _("Knowledge base"), "url": reverse("knowledge:index")},
+            {"label": _("Documents"), "url": reverse("knowledge:index")},
             {"label": _("Periodic reports"), "url": None},
         ],
         "rows": rows,
@@ -280,7 +280,7 @@ def series_detail(request: HttpRequest, pk: int) -> HttpResponse:
         "page_title": series.name,
         "page_subtitle": _("Periodic report: its figures by date, the newest edition counting for each date"),
         "breadcrumbs": [
-            {"label": _("Knowledge base"), "url": reverse("knowledge:index")},
+            {"label": _("Documents"), "url": reverse("knowledge:index")},
             {"label": _("Periodic reports"), "url": reverse("knowledge:series_index")},
             {"label": series.name[:60], "url": None},
         ],
@@ -329,5 +329,5 @@ def delete(request: HttpRequest, pk: int) -> HttpResponse:
     if document.file:
         document.file.delete(save=False)
     document.delete()
-    messages.success(request, _("“%(title)s” was removed from the knowledge base.") % {"title": title})
+    messages.success(request, _("“%(title)s” was removed from Documents.") % {"title": title})
     return redirect("knowledge:index")

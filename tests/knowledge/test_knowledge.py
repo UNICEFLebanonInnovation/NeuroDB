@@ -549,10 +549,8 @@ def test_files_download_and_documents_show_on_partner_and_programme_pages(
     ):
         response = client_viewer.get(reverse(name, args=[pk]))
         assert response.status_code == 200
-    assert (
-        b"In the knowledge base"
-        in client_viewer.get(reverse("reports:partner_profile", args=[records.partner.pk])).content
-    )
+    page = client_viewer.get(reverse("reports:partner_profile", args=[records.partner.pk])).content
+    assert b"In Documents" in page and b"In the knowledge base" not in page
 
 
 def test_the_ask_page_offers_adding_to_editors_only(client, editor, viewer, settings):

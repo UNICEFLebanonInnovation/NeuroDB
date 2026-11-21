@@ -3,7 +3,7 @@
 NeuroDB brings together the programme monitoring data of the UNICEF Lebanon country office: eTools
 (partners, programme documents, funds, assurance, field monitoring and action points), the country
 programme, the Compiler figures of Makani, Dirasa and the youth programmes, population figures, a
-library of studies and maps, a knowledge base of documents, and the ActivityInfo archive: the monthly
+library of studies and maps, the documents people add, and the ActivityInfo archive: the monthly
 results partners reported there in past years. Every page reads NeuroDB's own copy of these sources, refreshed on a
 schedule (see [When the data is refreshed](/help/overview/#when-the-data-is-refreshed)).
 
@@ -15,8 +15,8 @@ are answered by [Ask NeuroDB](/ask/) and, for the visits of a filter, by Chat wi
 ## The top bar
 
 - **Search** (Ctrl K, or the slash key): finds pages, partners, programme documents, country programme
-  indicators, knowledge base documents and the ActivityInfo archive of every year (its databases, Neuro
-  and HPM reports and indicators, each with its year). It does not look into the KM Database, which is
+  indicators, the documents of the Documents page and the ActivityInfo archive of every year (its
+  databases, Neuro and HPM reports and indicators, each with its year). It does not look into the KM Database, which is
   kept apart (its page is found under Pages). When Ask NeuroDB is switched on, the search box also offers
   to ask your words as a question; nothing is sent until you press Ask.
 - **Year menu**: the calendar year the page shows, on pages that show one year; ActivityInfo pages list
@@ -39,7 +39,7 @@ field monitoring:
   (due, submitted, accepted, sent back and overdue reports), and **Partner monitoring**, what each
   programme document indicator reached, with Program Performance one tab away
   ([Partner progress](/help/partner-progress/)).
-- **Funds and assurance**: **Field monitoring**, with the HACT visit plan
+- **Knowledge base**: **Field monitoring**, with the HACT visit plan
   ([Field monitoring and the HACT visit plan](/help/field-monitoring/)). A page of this group added to
   your menu (Monitoring insights, say) shows under the same title, in the full menu's order.
 
@@ -63,18 +63,19 @@ every section:
   ([Country overview](/help/briefs-and-overview/#the-country-overview)); **Management brief**, the
   overview read for decisions ([Management brief](/help/briefs-and-overview/#the-management-brief));
   **Country programme**, outcomes, outputs, indicators and their progress, once a cycle is uploaded.
-- **Partner progress (eTools)**: **Partner monitoring** (what each programme document indicator
-  reached, by month and location), **Progress reports**, **Programme documents** and **Partners**
-  ([Partner progress](/help/partner-progress/)).
-- **Funds and assurance**: **Funds**, **Donors**, **Assurance**, **Field monitoring** with the HACT
-  visit plan ([Field monitoring and the HACT visit plan](/help/field-monitoring/)), **Monitoring
-  insights** (marked AI while its AI is on; [Monitoring insights](/help/monitoring-insights/)) and
-  **Action points** ([Action points](/help/action-points/)).
+- **Knowledge base**: **Partner monitoring** (what each programme document indicator reached, by month
+  and location), **Progress reports**, **Programme documents** and **Partners**
+  ([Partner progress](/help/partner-progress/)), then **Funds**, **Donors**, **Assurance**, **Field
+  monitoring** with the HACT visit plan ([Field monitoring and the HACT visit
+  plan](/help/field-monitoring/)), **Monitoring insights** (marked AI while its AI is on;
+  [Monitoring insights](/help/monitoring-insights/)) and **Action points**
+  ([Action points](/help/action-points/)).
 - **Education and youth**: **Makani (MSCC)**, **Makani wellbeing**, **Dirasa (Bridging)** and **Youth
   programmes**, once Compiler's figures are there.
-- **Resources**: **Knowledge base**, **Periodic reports**, **Document review** (marked AI, once it is
-  on), **Library**, **KM Database** ([KM Database](/help/km-database/)), **Maps**, **Population** and
-  **Data health** ([Knowledge base and documents](/help/knowledge-and-documents/)).
+- **Resources**: **Documents** (the reports, studies and evaluations people add), **Periodic reports**,
+  **Document review** (marked AI, once it is on), **Library**, **KM Database** ([KM
+  Database](/help/km-database/)), **Maps**, **Population** and **Data health**
+  ([Documents](/help/knowledge-and-documents/)).
 - At the bottom, ActivityInfo: **Monthly results (ActivityInfo)** while ActivityInfo is in use, open by
   default; **ActivityInfo archive**, with the years it holds, once it is no longer used, closed until you
   open it ([ActivityInfo: in use or archive](/help/home/#activityinfo-in-use-or-archive)). Inside:
@@ -129,8 +130,8 @@ in as their figures are ready (the other pages are quick enough to come whole, a
   in grey and the charts are drawn in them as soon as the figures arrive; if they cannot be loaded, a
   box says so with a **Try again** button.
 - In the document review, *By document*, *Themes* and *Repeated findings* show their tabs, links and
-  filters first, then the documents, the themes or the groups. See [Knowledge base and
-  documents](/help/knowledge-and-documents/).
+  filters first, then the documents, the themes or the groups. See
+  [Documents](/help/knowledge-and-documents/).
 - The management brief's **Print** button waits for every box and its charts ("Preparing the
   page…"), then prints. Printing with Ctrl+P before a page is complete prints a short note in place of
   each box still loading: wait until the page is complete.
@@ -145,7 +146,7 @@ Every signed-in person has one role:
 | Role | What it adds |
 |---|---|
 | Viewer | Reads every page, asks Ask NeuroDB, the Help assistant and Chat with Data, and exports. Nothing is changed. |
-| Section editor | Adds documents to the knowledge base; marks the visits of their section reviewed; verifies the action points of their section; adds NeuroDB action points; writes the section comments of the HACT visit plan on the programme documents of their section. |
+| Section editor | Adds documents to the Documents page; marks the visits of their section reviewed; verifies the action points of their section; adds NeuroDB action points; writes the section comments of the HACT visit plan on the programme documents of their section. |
 | Administrator | Everything a section editor does, for every section, plus the administration pages: settings, quality rules, prompt versions, scheduled jobs and the buttons that run them, and the card versions compared with Power BI. |
 
 Every role sees the short menu of [The sidebar](/help/overview/#the-sidebar) unless a superuser chose
@@ -167,7 +168,7 @@ pages in this guide, and not the Help assistant.
 | eTools locations | The gazetteer: governorates, districts and cadasters with their P-codes. |
 | Compiler | Makani and Dirasa figures, youth programme figures and the Makani wellbeing flags (counts only, never a child). |
 | Country programme | The results framework and its progress, added by an administrator in the administration (Country programme cycles) and shown on the country programme page. |
-| Knowledge base and library | Documents people add, library publications and country programme documents. |
+| Documents and library | Documents people add, library publications and country programme documents. |
 | KM Database | The evidence workbook an administrator uploads in the administration (KM Database → Versions): it changes only when a new version is uploaded, and only the KM Database page shows it ([KM Database](/help/km-database/)). |
 
 ## Why NeuroDB's figures may differ from Power BI

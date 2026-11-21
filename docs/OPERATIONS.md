@@ -60,7 +60,7 @@ and re-running the deployment.
 Management found the full sidebar too long for most people, PD managers above all, who want partner reporting
 in numbers and tables in as few taps as possible. So every role sees a **focused menu** by default:
 *Home* and *Ask NeuroDB* at the top, *Partner reporting (PRP)* (*Progress reports* and *Partner monitoring*),
-then *Field monitoring* under *Funds and assurance* (`navigation.FOCUS`, `navigation.FOCUSED`). That is
+then *Field monitoring* under *Knowledge base* (`navigation.FOCUS`, `navigation.FOCUSED`). That is
 Administrators, Section editors and Viewers, with or without staff status, and the members of the Management
 group (a group, not a role).
 **Superusers** always see the full menu (`navigation.MENU`). Donor accounts are unchanged: they see their
@@ -70,7 +70,7 @@ own page only. Visitors are unchanged.
 the dashboard: *Choose what each role sees in the menu*). One tick per entry and role, the entries in the
 order a role's sidebar draws them: the focused part first (*Home* and *Ask NeuroDB* under *Top of the
 menu*, then *Partner reporting (PRP)*), then the rest of the full menu under its usual group titles (*Field
-monitoring* under *Funds and assurance*), then *ActivityInfo* (the monthly results or the archive) and
+monitoring* under *Knowledge base*), then *ActivityInfo* (the monthly results or the archive) and
 *Help*. **Save** stores the ticks; **Reset every role to the focused menu** removes every saved choice. Each
 role that changed is in the audit trail (the entries added and removed), and the page links each saved role's
 *History*. A role
@@ -102,6 +102,14 @@ superuser's password and sign in as them, or deactivate every superuser and leav
     its card on Home. Tick *For you* for a role that should keep the count.
   - *Help*: the "?" panel links to the Help pages (*Help pages*), and the search finds them.
   - *KM Database* is in the full menu only: tick it for a role on the Menu page.
+- **One *Knowledge base* group** (`navigation.MENU`, key `knowledge_base`): the owner merged the two groups
+  *Partner progress (eTools)* and *Funds and assurance* into it, their rows in the same order (Partner
+  monitoring, Progress reports, Programme documents, Partners, Funds, Donors, Assurance, Field monitoring,
+  Monitoring insights, Action points). The Menu page saves each role's ticks by page (its route), not by
+  group, so every saved choice still shows the same rows, now under *Knowledge base*; nothing to redo. The
+  Resources row that opens `/knowledge/` (the documents people add: reports, studies, evaluations) is called
+  **Documents**, so the name is not shown twice; its page, crumbs, the search and the Help guide say
+  *Documents* too. The code, the URLs and the admin keep their names (`neurodb.knowledge`, `knowledge:index`).
 - **Home follows the menu.** Home leads with partner reporting for everyone (see *Home (`/`)*); the rest of
   Home (the Watch card, *Needs a decision*, the daily review, *Since*, the key figures, the sources) is under
   *More on Home*, folded for a role whose menu shows neither *For you* nor *Daily review* (every role by
@@ -582,11 +590,13 @@ come from.
   would need a code change too, and has no server-side refusal fallbacks there; Claude Platform on AWS
   (run by Anthropic) keeps them but also needs its own client.
 
-### Knowledge base (`/knowledge/`)
+### Documents (`/knowledge/`)
 
+The page is called **Documents** (Resources › Documents); the code calls it the knowledge base
+(`neurodb.knowledge`). It is not the menu's *Knowledge base* group (the eTools, funds and assurance pages).
 People give Ask NeuroDB documents and texts to answer from: reports, evaluations, meeting minutes,
 guidance, notes. Administrators and section editors add them (**Add a document or text** on Ask
-NeuroDB or on the Knowledge base page): a file (PDF with a text layer, Word .docx, PowerPoint .pptx,
+NeuroDB or on the Documents page): a file (PDF with a text layer, Word .docx, PowerPoint .pptx,
 Excel .xlsx, CSV, Markdown or text; 50 MB at most) or pasted text, with a title and optionally its
 source, section and year. Every signed-in user reads and searches them; donor accounts cannot. A
 document is read again or removed by the person who added it or an administrator; links are added
@@ -655,7 +665,7 @@ edition is a knowledge base document like any other (searched, quoted), and its 
 kept as data, so Ask NeuroDB can give the counts of a period, compare before and after, work out
 differences, follow trends and draw charts.
 
-- **Adding editions**: Knowledge base → *Add a document or text*, choose the files (several at once,
+- **Adding editions**: Documents → *Add a document or text*, choose the files (several at once,
   e.g. editions 22 to 37) and tick **Periodic report**. Each file becomes a document named after it.
   A later edition of a report already here is recognised without the box ticked. Several files are
   read one after the other by one background process (`manage.py index_knowledge --pending`), oldest
@@ -894,7 +904,7 @@ do the evaluations say about them?"), NeuroDB keeps one index of everything it h
 | ActivityInfo databases, master indicators, Neuro/HPM reports | ActivityInfo | sections, partners, reports |
 | Country programme cycles, outcomes, outputs, indicators | Country programme | PDs (eTools CP outputs and confirmed links), master indicators, youth and education figures |
 | Youth indicators, Makani and Dirasa, Makani centres | Compiler | PDs, partners, governorates |
-| Documents and maps | Knowledge base, library, country programme | the partners, PDs, sections and places they name |
+| Documents and maps | The Documents page, library, country programme | the partners, PDs, sections and places they name |
 | Open daily review findings | Daily review | the PD or partner they are about, section |
 | Field monitoring visits | Monitoring insights (visits dated, by their start date else their end date, in the last `FMM_HUB_MONTHS`, 24, months) | the PDs, partners and country programme outputs they are about, their sections, governorate and district |
 
@@ -1346,7 +1356,7 @@ with a link. Every signed-in person but a donor has it. The code is in `neurodb/
   times), *Home* (what it shows, the first load, ActivityInfo in use or archive), *Monitoring insights* (filters, every tab and card and what it counts from which eTools data,
   Not monitored, the quality score's categories, weights and bands, the rules switched on and what each
   checks, the AI checks, urgency, the AI brief, Chat with Data and the map), *Action points*, *Exports*,
-  *Knowledge base and documents*, *Ask NeuroDB*, *For you and What's new*, *Country overview, management
+  *Documents*, *Ask NeuroDB*, *For you and What's new*, *Country overview, management
   brief and daily review*, *AI limits* and a *Glossary*. Each heading has its own address
   (`/help/monitoring-insights/#urgency`); the search box searches every section. The guide is Markdown in
   `neurodb/help/guide/*.md`, packaged with the code (the `docs` folder is not in the image), rendered and
@@ -2438,7 +2448,7 @@ The admin shows these tables read-only under *eTools Datamart*.
 
 ### HACT visit plan (Field monitoring page)
 
-`/field-monitoring/?tab=plan` (sidebar *Funds and assurance* › *Field monitoring*, tab *HACT visit plan*)
+`/field-monitoring/?tab=plan` (sidebar *Knowledge base* › *Field monitoring*, tab *HACT visit plan*)
 answers the programme monitoring team's quarterly "HACT FMM plan" e-mail and its workbook from NeuroDB itself: one
 row per programme document (PD) of a HACT year with its programmatic visits planned, completed and
 still needed, the PDs not visited, the end-of-year missing visits and the sections' comments on them.
@@ -4610,7 +4620,7 @@ The run's `details.not_linked` counts, per kind (`partner`, `programme_document`
 `site`, `tpm_activity`, `engagement`), the records whose target is not in NeuroDB yet; the
 `locations` dataset runs first and `link_partners`-style re-runs resolve the rest the next night.
 
-**Partner monitoring map** (*Partner progress (eTools) → Partner monitoring → Map*): every implementation
+**Partner monitoring map** (*Knowledge base → Partner monitoring → Map*): every implementation
 location of the filtered indicators, coloured by the worst tracking status there. A location is
 placed by its own eTools coordinates; when it has none, by the nearest parent area that has some
 (drawn hollow, "approximate"); a name alone never places anything, and locations with no

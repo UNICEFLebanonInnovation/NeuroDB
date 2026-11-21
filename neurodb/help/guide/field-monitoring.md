@@ -1,6 +1,6 @@
 # Field monitoring and the HACT visit plan
 
-[Field monitoring](/field-monitoring/) (sidebar: Funds and assurance › Field monitoring, in the short menu
+[Field monitoring](/field-monitoring/) (sidebar: Knowledge base › Field monitoring, in the short menu
 as in the full menu) shows what eTools holds about monitoring the partners: the findings of field
 monitoring visits, the third-party monitoring (TPM) visits and activities, the UNICEF staff trips, and the
 **HACT visit plan**: for each programme document, the programmatic visits planned for the year, those

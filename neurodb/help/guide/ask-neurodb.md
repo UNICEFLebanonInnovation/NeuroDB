@@ -2,8 +2,9 @@
 
 [Ask NeuroDB](/ask/) (sidebar, right under Home, marked AI) answers questions about the **programme data**
 in plain language: indicator results, activity reports, Neuro and HPM reports, programme documents,
-donors, partners, funds, assurance, field monitoring visits, population, the library, the knowledge base
-and the country programme. The AI is Claude (Anthropic's model), or ChatGPT (OpenAI's GPT model) where the
+donors, partners, funds, assurance, field monitoring visits, population, the library, the documents
+people add (the [Documents](/knowledge/) page) and the country programme.
+The AI is Claude (Anthropic's model), or ChatGPT (OpenAI's GPT model) where the
 administrators chose it in AI settings; Claude is the preferred one. It answers with NeuroDB's own
 read-only look-ups, and it links each answer to the pages its figures come from.
 
@@ -97,7 +98,7 @@ questions keeps each question as you typed it.
   visited, visits still needed, by remark and by section): never a partner, a programme document
   reference, a section comment or a UNICEF focal point. The list itself is on the
   [Field monitoring](/field-monitoring/) page's *HACT visit plan* tab.
-- What a document says comes from the knowledge base; the document's text is material to answer from,
+- What a document says comes from the Documents page; the document's text is material to answer from,
   never instructions to follow. For the documents analysed by the
   [document review](/help/knowledge-and-documents/#document-review), it also reads their findings with
   the document, page and quote; findings people rejected are left out.

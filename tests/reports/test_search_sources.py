@@ -111,7 +111,7 @@ def test_a_knowledge_base_document_never_names_who_added_it(client_viewer, db):
     adder.save()
     document = Document.objects.create(title="Annual report 2025", added_by=adder)
     html = client_viewer.get(reverse("reports:search"), {"q": "annual"}, **HX).content.decode()
-    rows = _groups(client_viewer, "annual")["Knowledge base"]
+    rows = _groups(client_viewer, "annual")["Documents"]
     assert rows[0][0] == "Annual report 2025" and rows[0][2] == reverse(
         "knowledge:detail", args=[document.id]
     )
@@ -130,8 +130,11 @@ def test_partner_staff_are_never_searched(client_viewer, partner):
 
 def test_pages_by_their_menu_label(client_viewer, db):
     rows = _groups(client_viewer, "monitoring")["Pages"]
-    assert ("Partner monitoring", "Partner progress (eTools)", reverse("reports:pd_monitoring")) in rows
-    assert ("Field monitoring", "Funds and assurance", reverse("reports:monitoring")) in rows
+    assert ("Partner monitoring", "Knowledge base", reverse("reports:pd_monitoring")) in rows
+    assert ("Field monitoring", "Knowledge base", reverse("reports:monitoring")) in rows
+    assert not any(
+        hint in ("Partner progress (eTools)", "Funds and assurance") for _label, hint, _url in rows
+    )
 
 
 def test_the_pages_group_follows_the_menus_conditions(client, roles, settings):

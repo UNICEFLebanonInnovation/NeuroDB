@@ -30,7 +30,7 @@ The chips next to each feature say how much you have used: "3 of 20 today".
 | AI review of action points | 300,000 tokens | About 150–250 reviews a night, and the content summaries. |
 | NeuroDB Watch | 300,000 tokens and 24 calls | The morning notes and up to 3 look-ups a day. |
 | KM Database assistant | 600,000 tokens | About 25–30 questions a day across the office (each reads up to 40 findings). When it is used, the Ask tab lists the matching findings without a written answer. It stops at 100% of the shared budget too. |
-| Document review | 1,000,000 tokens | The knowledge base documents put in a review batch, read each night; a 100-page report takes roughly 150,000 tokens, so about six such reports a night. What is left waits for the next night. The theme paragraphs of the Synthesis tab count here too, and stop at 100% of the shared budget. |
+| Document review | 1,000,000 tokens | The documents of the Documents page put in a review batch, read each night; a 100-page report takes roughly 150,000 tokens, so about six such reports a night. What is left waits for the next night. The theme paragraphs of the Synthesis tab count here too, and stop at 100% of the shared budget. |
 
 A **token** is a piece of a word, about four characters of English. What is sent (the question, the
 instructions, the data looked up) and what is written (the answer and the model's reasoning, which

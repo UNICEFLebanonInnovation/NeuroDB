@@ -78,6 +78,9 @@ def test_a_superuser_gets_the_grid_every_tick_labelled(client_super):
             field_id
         )
     assert '<label class="nd-sr" for="m-viewer-' in html and "Show Funds to Viewers" in html
+    # the page's note names the focused menu's groups as the sidebar draws them
+    note = " ".join(html.split('class="nd-list-note"', 1)[1].split("</p>", 1)[0].split())
+    assert "then Field monitoring under Knowledge base." in note and "Funds and assurance" not in note
     # no row saved: every role's ticks are the focused menu
     for _name, value, _id, ticked in inputs:
         assert bool(ticked) == (value in navigation.FOCUSED), value
@@ -106,17 +109,40 @@ def test_the_grid_lists_the_entries_in_the_order_a_role_sees_them(client_super):
     ]
     assert values[-2:] == [navigation.ARCHIVE_KEY, navigation.HELP_KEY]
     assert sorted(values) == sorted(navigation.keys())
-    # each heading once, over its own rows: Ask NeuroDB at the top, Field monitoring in Funds and assurance
+    # each heading once, over its own rows: Ask NeuroDB at the top, Field monitoring in Knowledge base
     sections = _sections(html)
     titles = [title for title, _keys in sections]
     assert len(titles) == len(set(titles))
+    assert titles[:7] == [
+        "Top of the menu",
+        "Partner reporting (PRP)",
+        "Below Partner reporting",
+        "Programme results",
+        "Knowledge base",
+        "Education and youth",
+        "Resources",
+    ]
+    assert "Partner progress (eTools)" not in titles and "Funds and assurance" not in titles
     listed = dict(sections)
     assert listed["Top of the menu"] == ["reports:overview", "assistant:ask"]
     assert listed["Partner reporting (PRP)"] == ["reports:partner_reporting", "reports:pd_monitoring"]
     assert listed["Below Partner reporting"] == ["watch:for_you", "reports:daily_review", "graph:whats_new"]
-    funds = next(g for g in navigation.MENU if g.key == "funds")
-    assert listed["Funds and assurance"] == [item.key for item in funds.items]
-    assert "reports:monitoring" in listed["Funds and assurance"]
+    # the rows of Partner progress (eTools) and Funds and assurance, under the one Knowledge base heading
+    # (Progress reports and Partner monitoring are listed once, under Partner reporting)
+    assert listed["Knowledge base"] == [
+        "reports:programmes",
+        "reports:partners",
+        "reports:funds",
+        "reports:donors",
+        "reports:assurance",
+        "reports:monitoring",
+        "fmm:dashboard",
+        "reports:action_points",
+    ]
+    assert "knowledge:index" in listed["Resources"]
+    labels = {str(entry["key"]): str(entry["label"]) for entry in navigation.entries()}
+    assert labels["knowledge:index"] == "Documents"
+    assert ">Documents<" in html and "Show Documents to Viewers" in html
     # the archive's note says it holds the only menu links to the Neuro and HPM reports
     assert "Holds the only menu links to the Neuro reports and HPM reports" in html
 

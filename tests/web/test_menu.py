@@ -46,14 +46,13 @@ FULL_TREE = [
             ("What's new", "inbox")]),
     ("Programme results", [("Country overview", "grid"), ("Management brief", "briefcase"),
                            ("Country programme", "route")]),
-    ("Partner progress (eTools)", [("Partner monitoring", "target"), ("Progress reports", "file"),
-                                   ("Programme documents", "table"), ("Partners", "users")]),
-    ("Funds and assurance", [("Funds", "database"), ("Donors", "gift"), ("Assurance", "shield"),
-                             ("Field monitoring", "eye"), ("Monitoring insights", "ruler"),
-                             ("Action points", "check")]),
+    ("Knowledge base", [("Partner monitoring", "target"), ("Progress reports", "file"),
+                        ("Programme documents", "table"), ("Partners", "users"), ("Funds", "database"),
+                        ("Donors", "gift"), ("Assurance", "shield"), ("Field monitoring", "eye"),
+                        ("Monitoring insights", "ruler"), ("Action points", "check")]),
     ("Education and youth", [("Makani (MSCC)", "child"), ("Makani wellbeing", "shield-plus"),
                              ("Dirasa (Bridging)", "school"), ("Youth programmes", "teacher")]),
-    ("Resources", [("Knowledge base", "layers"), ("Periodic reports", "trend"), ("Document review", "zap"),
+    ("Resources", [("Documents", "layers"), ("Periodic reports", "trend"), ("Document review", "zap"),
                    ("Library", "book"), ("KM Database", "evidence"), ("Maps", "map"), ("Population", "chart"),
                    ("Data health", "pulse")]),
 ]  # fmt: skip
@@ -99,8 +98,7 @@ def test_the_tree_its_order_labels_groups_and_icons(client, roles, everything_li
     assert [(r["label"], r["icon"]) for r in rows] == expected
     assert _groups(html) == [
         ("results", "Programme results"),
-        ("etools", "Partner progress (eTools)"),
-        ("funds", "Funds and assurance"),
+        ("knowledge_base", "Knowledge base"),
         ("education", "Education and youth"),
         ("resources", "Resources"),
     ]
@@ -120,6 +118,84 @@ def test_the_tree_its_order_labels_groups_and_icons(client, roles, everything_li
     assert by_label["Country overview"] == reverse("reports:country_overview")
     assert by_label["Periodic reports"] == reverse("knowledge:series_index")
     assert "nav-item-link--help" in rows[-1]["css"]
+
+
+def test_partner_progress_and_funds_and_assurance_are_one_knowledge_base_group():
+    """The owner merged the two groups: one "Knowledge base" group holds their rows in the same order, each
+    with its route, icon, sub-pages and condition; the old group keys and titles are gone, and the
+    documents page of Resources is called "Documents", so no two places in the menu share a name."""
+    by_key = {group.key: group for group in navigation.MENU}
+    assert "etools" not in by_key and "funds" not in by_key
+    assert [group.key for group in navigation.MENU] == [
+        "today",
+        "results",
+        "knowledge_base",
+        "education",
+        "resources",
+    ]
+    merged = by_key["knowledge_base"]
+    assert str(merged.title) == "Knowledge base" and merged.when == ""
+    assert [item.route for item in merged.items] == [
+        "reports:pd_monitoring",
+        "reports:partner_reporting",
+        "reports:programmes",
+        "reports:partners",
+        "reports:funds",
+        "reports:donors",
+        "reports:assurance",
+        "reports:monitoring",
+        "fmm:dashboard",
+        "reports:action_points",
+    ]
+    rows = {item.route: item for item in merged.items}
+    assert rows["reports:pd_monitoring"] is navigation.PARTNER_MONITORING
+    assert rows["reports:partner_reporting"] is navigation.PROGRESS_REPORTS
+    assert rows["reports:partners"].also == ("reports:partner_profile", "reports:partner_activityinfo")
+    assert rows["reports:assurance"].also == ("reports:engagement_detail",)
+    assert (rows["fmm:dashboard"].when, rows["fmm:dashboard"].badge) == ("fmm", "fmm_ai")
+    assert "reports:local_action_point_new" in rows["reports:action_points"].also
+    titles = [str(group.title) for group in navigation.MENU if group.title]
+    labels = [str(item.label) for group in navigation.MENU for item in group.items]
+    assert "Partner progress (eTools)" not in titles and "Funds and assurance" not in titles
+    assert "Knowledge base" not in labels  # the section's name is not a row's too
+    documents = next(
+        item for group in navigation.MENU for item in group.items if item.route == "knowledge:index"
+    )
+    assert str(documents.label) == "Documents"
+    assert documents.also == ("knowledge:detail", "knowledge:add") and documents.icon == "layers"
+
+
+def test_documents_names_the_resources_row_its_page_and_the_search(client, roles, everything_live):
+    """The Resources row that opens the documents (reports, studies, evaluations) reads "Documents", and so do
+    its page's title and crumbs, its sub-pages' crumbs, the search's Pages group and its group of
+    documents."""
+    from neurodb.knowledge.models import Document
+    from neurodb.reports import services
+
+    superuser = _person("documents-row", ADMIN, is_staff=True, is_superuser=True)
+    html = _page(client, superuser, reverse("knowledge:index"))
+    current = [r for r in _rows(html) if 'aria-current="page"' in r["attrs"]]
+    assert [(r["label"], r["icon"]) for r in current] == [("Documents", "layers")]
+    assert re.search(r"<title>(.*?) · ", html).group(1) == "Documents"
+    assert _crumbs(html) == ["Documents"]
+    page = html.split('id="main"', 1)[-1].split("</main>", 1)[0]
+    assert "knowledge base" not in page.lower()  # the page names itself Documents
+    for url in (reverse("knowledge:add"), reverse("knowledge:series_index"), reverse("knowledge:review")):
+        crumbs = _crumbs(_page(client, superuser, url))
+        assert crumbs[0] == "Documents" and "Knowledge base" not in crumbs, (url, crumbs)
+    pages = {str(p["label"]): str(p["hint"]) for p in navigation.pages(superuser)}
+    assert pages["Documents"] == "Resources" and "Knowledge base" not in pages
+    assert pages["Funds"] == "Knowledge base" and pages["Partners"] == "Knowledge base"
+    Document.objects.create(title="Field evaluation 2026")
+    found = {str(group["label"]): group for group in services.search("evaluation", user=superuser)}
+    assert found["Documents"]["key"] == "documents" and "Knowledge base" not in found
+    pages = {str(group["label"]): group for group in services.search("documents", user=superuser)}["Pages"]
+    assert ("Documents", "Resources") in [(item["label"], item["hint"]) for item in pages["items"]]
+
+
+def _crumbs(html: str) -> list[str]:
+    crumbs = html.split('<ol class="breadcrumb">', 1)[1].split("</ol>", 1)[0]
+    return [" ".join(re.sub(r"<[^>]+>", " ", item).split()) for item in crumbs.split("</li>")[:-1]]
 
 
 def test_the_first_screen_holds_every_etools_and_field_monitoring_page(client, roles, everything_live):

@@ -266,11 +266,12 @@ def test_the_guide_lists_the_focused_menu_as_it_is_drawn():
         "**Partner reporting (PRP)**",
         "**Progress reports**",
         "**Partner monitoring**",
-        "**Funds and assurance**",
+        "**Knowledge base**",
         "**Field monitoring**",
     ]
     places = [sidebar.index(label) for label in order]
     assert places == sorted(places)
+    assert "Funds and assurance" not in sidebar and "Partner progress (eTools)" not in sidebar
     assert str(navigation.PRP.title) == "Partner reporting (PRP)"
     assert (
         navigation.FOCUS[:2] == ("reports:overview", "assistant:ask")
@@ -295,17 +296,16 @@ def test_the_guide_lists_the_full_menu_as_it_is_drawn():
         "**Country overview**",
         "**Management brief**",
         "**Country programme**",
-        "**Partner progress (eTools)**",
+        "**Knowledge base**",
         "**Partner monitoring**",
         "**Progress reports**",
         "**Programme documents**",
         "**Partners**",
-        "**Funds and assurance**",
         "**Funds**",
         "**Donors**",
         "**Assurance**",
-        "**Field monitoring**",
-        "**Monitoring\n  insights**",
+        "**Field\n  monitoring**",
+        "**Monitoring insights**",
         "**Action points**",
         "**Education and youth**",
         "**Makani (MSCC)**",
@@ -313,7 +313,7 @@ def test_the_guide_lists_the_full_menu_as_it_is_drawn():
         "**Dirasa (Bridging)**",
         "**Youth\n  programmes**",
         "**Resources**",
-        "**Knowledge base**",
+        "**Documents**",
         "**Periodic reports**",
         "**Document review**",
         "**Library**",
@@ -327,8 +327,39 @@ def test_the_guide_lists_the_full_menu_as_it_is_drawn():
     ]
     places = [sidebar.index(label) for label in order]
     assert places == sorted(places)
-    for old in ("**Overview**", "**Partnerships**"):
+    for old in (
+        "**Overview**",
+        "**Partnerships**",
+        "**Partner progress (eTools)**",
+        "**Funds and assurance**",
+    ):
         assert old not in sidebar, old
+    assert sidebar.count("**Knowledge base**") == 1  # the section, not the Documents row too
+
+
+def test_the_guide_names_the_merged_section_and_the_documents_page():
+    """The two old sections are one, Knowledge base: no guide page sends a reader to "Partner progress
+    (eTools)" or "Funds and assurance" in the menu, and the documents page (Resources) is called Documents
+    wherever the guide names it."""
+    for key, text in GUIDE_TEXT.items():
+        flat = " ".join(text.split())
+        for old in (
+            "Funds and assurance",
+            "**Partner progress (eTools)**",
+            "Partner progress (eTools) ›",
+            "Resources › Knowledge base",
+            "[Knowledge base and documents]",
+        ):
+            assert old not in flat, (key, old)
+    for key, place in (
+        ("action-points", "in the full menu: Knowledge base › Action points"),
+        ("monitoring-insights", "in the full menu: Knowledge base › Monitoring insights"),
+        ("field-monitoring", "sidebar: Knowledge base › Field monitoring"),
+        ("knowledge-and-documents", "in the full menu: Resources › Documents"),
+    ):
+        assert place in " ".join(GUIDE_TEXT[key].split()), key
+    assert guide.page("knowledge-and-documents").title == "Documents"
+    assert "Partner progress (eTools)" in GUIDE_TEXT["partner-progress"]  # the eTools data, not a menu place
 
 
 def test_the_refresh_table_says_the_activityinfo_import_follows_its_scheduled_job():

@@ -141,22 +141,22 @@ def test_the_menu_item_equals_the_page_title(built, client_viewer, settings, ful
     assert 'href="#i-ruler"' in item.group(1)
     page = client_viewer.get(PAGE).content.decode()
     assert re.search(r"<title>(.*?) · ", page).group(1) == label
-    # the item comes right after Field monitoring, under Funds and assurance, in a role's menu as in the full
+    # the item comes right after Field monitoring, under Knowledge base, in a role's menu as in the full
     # menu
     links = re.findall(r'<a class="nav-item-link[^"]*" href="([^"]+)"', sidebar)
     assert links[links.index("/fmm/") - 1] == "/field-monitoring/"
-    funds = sidebar[sidebar.index('aria-labelledby="nav-title-funds"') :].split("</div>", 2)[1]
-    assert 'href="/field-monitoring/"' in funds and 'href="/fmm/"' in funds
+    group = sidebar[sidebar.index('aria-labelledby="nav-title-knowledge_base"') :].split("</div>", 2)[1]
+    assert 'href="/field-monitoring/"' in group and 'href="/fmm/"' in group
 
 
 def test_the_crumbs_name_the_menu_group_of_the_page(built, client_viewer):
-    """The menu lists Monitoring insights under "Funds and assurance" (SPEC_HOME §4), and so do the guide and
+    """The menu lists Monitoring insights under "Knowledge base" (SPEC_HOME §4), and so do the guide and
     the crumbs (review R1 a11y_words-W-5): no "Partnerships" crumb to the Partners page any more."""
     for url in (PAGE, reverse("fmm:visit", args=["1722"])):
         html = client_viewer.get(url).content.decode()
         crumbs = html.split('<ol class="breadcrumb">', 1)[1].split("</ol>")[0]
         items = [" ".join(re.sub(r"<[^>]+>", " ", li).split()) for li in crumbs.split("</li>")[:-1]]
-        assert items[:2] == ["Funds and assurance", "Monitoring insights"], url
+        assert items[:2] == ["Knowledge base", "Monitoring insights"], url
         assert "Partnerships" not in crumbs and reverse("reports:partners") not in crumbs
 
 

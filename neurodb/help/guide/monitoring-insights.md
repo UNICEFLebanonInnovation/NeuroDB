@@ -1,6 +1,6 @@
 # Monitoring insights
 
-[Monitoring insights](/fmm/) (in the full menu: Funds and assurance › Monitoring insights; the search
+[Monitoring insights](/fmm/) (in the full menu: Knowledge base › Monitoring insights; the search
 finds it for everyone) turns the eTools field monitoring data into **visits** and their **records**: each
 visit's partners, programme documents, place and sections, how complete and coherent the report of each
 record is (the quality rules and a score), how urgent its follow-up is, and what was done about it (action

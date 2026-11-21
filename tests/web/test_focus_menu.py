@@ -1,5 +1,5 @@
 """The focused menu (SPEC_focus_menu §1, §4.1): every role sees Home and Ask NeuroDB, Partner reporting (PRP) with
-Progress reports and Partner monitoring, then Field monitoring under Funds and assurance until a superuser ticks
+Progress reports and Partner monitoring, then Field monitoring under Knowledge base until a superuser ticks
 otherwise in the Menu page; superusers see the full menu; donors and visitors are unchanged. Only the menu is
 shorter: every page still opens from links and bookmarks, and the search still lists them. The choices are kept
 in memory (no query on a warm page), and a save is seen by every worker."""
@@ -27,7 +27,7 @@ pytestmark = pytest.mark.django_db
 HX = {"HTTP_HX_REQUEST": "true"}
 FOCUSED_ROWS = ["Home", "Ask NeuroDB", "Progress reports", "Partner monitoring", "Field monitoring"]
 WITHOUT_ASK = [label for label in FOCUSED_ROWS if label != "Ask NeuroDB"]
-FUNDS = ("funds", "Funds and assurance")
+KNOWLEDGE_BASE = ("knowledge_base", "Knowledge base")
 
 
 def _person(username: str, role: str, *, is_staff=False, is_superuser=False, section=None) -> User:
@@ -67,20 +67,19 @@ def test_every_role_sees_the_focused_menu_by_default(client, roles, hierarchy, a
     # Ask shows to staff even while the AI is off (its page says so), and to no one else then
     expected = FOCUSED_ROWS if is_staff else WITHOUT_ASK
     assert _labels(html) == expected
-    assert groups(html) == [("prp", "Partner reporting (PRP)"), FUNDS]
+    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE]
     side = sidebar(html)
     # Home and Ask NeuroDB come first, with no title; each group holds its rows, labelled by its title
     top = side[: side.index('aria-labelledby="nav-title-prp"')]
     assert ">Home<" in top and (">Ask NeuroDB<" in top) == is_staff and "sidebar__section-title" not in top
-    prp = side[
-        side.index('aria-labelledby="nav-title-prp"') : side.index('aria-labelledby="nav-title-funds"')
-    ]
+    start = side.index('aria-labelledby="nav-title-prp"')
+    prp = side[start : side.index('aria-labelledby="nav-title-knowledge_base"')]
     assert (
         prp.index(">Progress reports<") < prp.index(">Partner monitoring<")
         and ">Field monitoring<" not in prp
     )
-    funds = side[side.index('aria-labelledby="nav-title-funds"') :]
-    assert ">Field monitoring<" in funds.split("</div>", 2)[1]  # in the group, after its title
+    knowledge_base = side[side.index('aria-labelledby="nav-title-knowledge_base"') :]
+    assert ">Field monitoring<" in knowledge_base.split("</div>", 2)[1]  # in the group, after its title
     # no ActivityInfo block (ActivityInfo has a year here), no Help row, no For you count
     assert "sidebar__archive" not in side and "nav-item-link--help" not in side
     assert reverse("watch:badge") not in html
@@ -146,9 +145,9 @@ def test_a_donor_and_a_visitor_are_unchanged(client, db, settings):
 
 
 # ------------------------------------------------------------------------------------- the focused order
-def test_home_then_ask_then_partner_reporting_then_funds_and_assurance(client, roles, settings):
+def test_home_then_ask_then_partner_reporting_then_knowledge_base(client, roles, settings):
     """A role with no saved choice: Home and Ask NeuroDB at the top with no title, then Partner reporting, then
-    Field monitoring under Funds and assurance, right after it."""
+    Field monitoring under Knowledge base, right after it."""
     settings.AI_ASSISTANT_ENABLED = True
     viewer = _person("new-order", VIEWER)
     drawn = navigation.sidebar(viewer)["groups"]
@@ -156,14 +155,14 @@ def test_home_then_ask_then_partner_reporting_then_funds_and_assurance(client, r
         (None, ["Home"]),
         (None, ["Ask NeuroDB"]),
         ("Partner reporting (PRP)", ["Progress reports", "Partner monitoring"]),
-        ("Funds and assurance", ["Field monitoring"]),
+        ("Knowledge base", ["Field monitoring"]),
     ]
     html = _page(client, viewer, reverse("reports:library"))
     assert _labels(html) == FOCUSED_ROWS
-    assert groups(html) == [("prp", "Partner reporting (PRP)"), FUNDS]
+    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE]
 
 
-def test_field_monitoring_and_monitoring_insights_share_one_funds_and_assurance_title(
+def test_field_monitoring_and_monitoring_insights_share_one_knowledge_base_title(
     client, roles, ai_off, settings, menu_choice
 ):
     settings.FMM_ENABLED = True
@@ -171,22 +170,22 @@ def test_field_monitoring_and_monitoring_insights_share_one_funds_and_assurance_
     viewer = _person("one-title", VIEWER)
     html = _page(client, viewer, reverse("reports:library"))
     assert _labels(html) == [*WITHOUT_ASK, "Monitoring insights"]  # Field monitoring first, as in MENU
-    assert groups(html) == [("prp", "Partner reporting (PRP)"), FUNDS]
+    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE]
     side = sidebar(html)
-    assert side.count(">Funds and assurance<") == 1
+    assert side.count(">Knowledge base<") == 1
     # both rows are in that one group, after its title
-    funds = side[side.index('aria-labelledby="nav-title-funds"') :].split("</div>", 2)[1]
-    assert funds.index(">Field monitoring<") < funds.index(">Monitoring insights<")
+    group = side[side.index('aria-labelledby="nav-title-knowledge_base"') :].split("</div>", 2)[1]
+    assert group.index(">Field monitoring<") < group.index(">Monitoring insights<")
 
 
-def test_field_monitoring_unticked_leaves_no_funds_and_assurance_title(client, roles, settings, menu_choice):
+def test_field_monitoring_unticked_leaves_no_knowledge_base_title(client, roles, settings, menu_choice):
     settings.AI_ASSISTANT_ENABLED = True
     menu_choice(VIEWER, sorted(navigation.FOCUSED - {"reports:monitoring"}))
     viewer = _person("no-field-monitoring", VIEWER)
     html = _page(client, viewer, reverse("reports:library"))
     assert _labels(html) == ["Home", "Ask NeuroDB", "Progress reports", "Partner monitoring"]
     assert groups(html) == [("prp", "Partner reporting (PRP)")]
-    assert "Funds and assurance" not in sidebar(html)
+    assert "Knowledge base" not in sidebar(html)
 
 
 def test_a_choice_saved_in_the_old_order_draws_the_new_one(client, roles, settings, menu_choice):
@@ -205,7 +204,7 @@ def test_a_choice_saved_in_the_old_order_draws_the_new_one(client, roles, settin
         "Funds",
         "Field monitoring",
     ]
-    assert groups(html) == [("prp", "Partner reporting (PRP)"), FUNDS]
+    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE]
 
 
 def test_a_superuser_sees_ask_neurodb_right_under_home(client, roles, settings):
@@ -213,7 +212,7 @@ def test_a_superuser_sees_ask_neurodb_right_under_home(client, roles, settings):
     superuser = _person("ask-second", VIEWER, is_staff=True, is_superuser=True)
     labels = _labels(_page(client, superuser, reverse("reports:library")))
     assert labels[:5] == ["Home", "Ask NeuroDB", "For you", "Daily review", "What's new"]
-    assert labels.index("Field monitoring") == labels.index("Assurance") + 1  # under Funds and assurance
+    assert labels.index("Field monitoring") == labels.index("Assurance") + 1  # under Knowledge base
 
 
 # ------------------------------------------------------------------------------------------ a saved row
@@ -221,7 +220,7 @@ def test_a_saved_row_adds_its_entries_after_the_focused_part(client, roles, hier
     menu_choice(VIEWER, [*navigation.FOCUSED, "reports:funds", navigation.ARCHIVE_KEY, navigation.HELP_KEY])
     viewer = _person("customised", VIEWER)
     html = _page(client, viewer, reverse("reports:library"))
-    # Funds joins Field monitoring under the one Funds and assurance title, in the full menu's order
+    # Funds joins Field monitoring under the one Knowledge base title, in the full menu's order
     assert _labels(html) == [
         "Home",
         "Progress reports",
@@ -230,7 +229,7 @@ def test_a_saved_row_adds_its_entries_after_the_focused_part(client, roles, hier
         "Field monitoring",
         "Help",
     ]
-    assert groups(html) == [("prp", "Partner reporting (PRP)"), FUNDS]
+    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE]
     side = sidebar(html)
     assert side.index(">Funds<") < side.index('data-nav-key="archive"') < side.index(">Help<")
     # the other roles keep the focused menu
@@ -251,7 +250,50 @@ def test_a_row_without_home_draws_no_home(client, roles, ai_off, menu_choice):
     html = _page(client, viewer, reverse("reports:library"))
     assert _labels(html) == ["Progress reports", "Funds"]
     assert "nav-item-link--help" not in sidebar(html)
-    assert groups(html) == [("prp", "Partner reporting (PRP)"), ("funds", "Funds and assurance")]
+    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE]
+
+
+def test_a_choice_saved_before_the_merge_shows_the_same_rows_under_knowledge_base(
+    client, roles, ai_off, settings, menu_choice
+):
+    """The saved choices name the entries by their routes, not their groups: a role's choice saved while
+    Partners and Programme documents were under Partner progress (eTools) and Funds, Field monitoring and
+    Action points under Funds and assurance shows the same rows, in the full menu's order, under the one
+    Knowledge base title (Progress reports and Partner monitoring stay in Partner reporting)."""
+    settings.FMM_ENABLED = True
+    saved = [
+        "reports:overview",
+        "reports:partner_reporting",
+        "reports:pd_monitoring",
+        "reports:partners",
+        "reports:programmes",
+        "reports:action_points",
+        "reports:monitoring",
+        "reports:funds",
+        "fmm:dashboard",
+        "knowledge:index",
+    ]
+    menu_choice(VIEWER, saved)
+    assert menu_choices.for_role(VIEWER) == frozenset(saved)  # every saved name is still in the menu
+    viewer = _person("saved-before-merge", VIEWER)
+    html = _page(client, viewer, reverse("reports:library"))
+    assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE, ("resources", "Resources")]
+    drawn = {g["key"]: [str(i["label"]) for i in g["items"]] for g in navigation.sidebar(viewer)["groups"]}
+    assert drawn["prp"] == ["Progress reports", "Partner monitoring"]
+    assert drawn["knowledge_base"] == [
+        "Programme documents",
+        "Partners",
+        "Funds",
+        "Field monitoring",
+        "Monitoring insights",
+        "Action points",
+    ]
+    assert drawn["resources"] == ["Documents"]
+    side = sidebar(html)
+    assert "Partner progress (eTools)" not in side and "Funds and assurance" not in side
+    group = side[side.index('aria-labelledby="nav-title-knowledge_base"') :].split("</div>", 2)[1]
+    for label in drawn["knowledge_base"]:
+        assert f"<span>{label}</span>" in group, label
 
 
 def test_every_entry_ticked_keeps_the_focused_part_first(client, roles, ai_off, full_menu):

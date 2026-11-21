@@ -1,15 +1,15 @@
 """Sidebar and landing-page content, generated from the database (v2 hard-coded it).
 
 The full menu (:data:`MENU`) is one tree: the daily entries first, then the figures management reads, the
-eTools pages officers use weekly, money and assurance, Makani, Dirasa and youth while Compiler is live, the
-resources, and the ActivityInfo archive at the bottom (``base.html``). A few rows show only while their source
-has something to show (:func:`sources`); the people who can set such a source up
+Knowledge base (the eTools pages officers use weekly, then money and assurance), Makani, Dirasa and youth
+while Compiler is live, the resources, and the ActivityInfo archive at the bottom (``base.html``). A few rows
+show only while their source has something to show (:func:`sources`); the people who can set such a source up
 (:func:`neurodb.accounts.roles.can_set_up`) see a muted "Set up" row instead, which links to the row's own
 page (it says what is missing).
 
 Superusers see the full menu. Everyone else sees the focused menu (:data:`FOCUS`, :data:`FOCUSED`: Home and
 Ask NeuroDB, Partner reporting with Progress reports and Partner monitoring, then Field monitoring under
-Funds and assurance), or the entries a superuser ticked for their role in the administration's Menu page
+Knowledge base), or the entries a superuser ticked for their role in the administration's Menu page
 (:func:`shown`, :func:`sidebar`). Only the menu is shorter: a page left out of it still opens from links,
 bookmarks and the search, whose *Pages* group lists every page of the full menu under the same conditions
 (:func:`pages`).
@@ -237,8 +237,8 @@ class MenuGroup:
     when: str = ""  # the whole group's condition
 
 
-# The two entries of Partner reporting (PRP): under Partner progress (eTools) in the full menu, a group of
-# their own in the focused menu (FOCUS), the same rows in both.
+# The two entries of Partner reporting (PRP): under Knowledge base in the full menu, a group of their own in
+# the focused menu (FOCUS), the same rows in both.
 PARTNER_MONITORING = MenuItem(
     _("Partner monitoring"),
     "reports:pd_monitoring",
@@ -276,9 +276,11 @@ MENU: tuple[MenuGroup, ...] = (
             ),
         ),
     ),
+    # One group since the owner merged "Partner progress (eTools)" and "Funds and assurance", their rows in
+    # the same order. A role's saved choices name the rows by their routes, so they still apply.
     MenuGroup(
-        "etools",
-        _("Partner progress (eTools)"),
+        "knowledge_base",
+        _("Knowledge base"),
         (
             PARTNER_MONITORING,
             PROGRESS_REPORTS,
@@ -294,12 +296,6 @@ MENU: tuple[MenuGroup, ...] = (
                 "users",
                 ("reports:partner_profile", "reports:partner_activityinfo"),
             ),
-        ),
-    ),
-    MenuGroup(
-        "funds",
-        _("Funds and assurance"),
-        (
             MenuItem(_("Funds"), "reports:funds", "database"),
             MenuItem(_("Donors"), "reports:donors", "gift"),
             MenuItem(_("Assurance"), "reports:assurance", "shield", ("reports:engagement_detail",)),
@@ -347,7 +343,9 @@ MENU: tuple[MenuGroup, ...] = (
         "resources",
         _("Resources"),
         (
-            MenuItem(_("Knowledge base"), "knowledge:index", "layers", ("knowledge:detail", "knowledge:add")),
+            # the documents people add (reports, studies, evaluations; neurodb.knowledge): "Documents", so the
+            # Knowledge base group's name is not shown twice
+            MenuItem(_("Documents"), "knowledge:index", "layers", ("knowledge:detail", "knowledge:add")),
             MenuItem(_("Periodic reports"), "knowledge:series_index", "trend", ("knowledge:series",)),
             MenuItem(
                 _("Document review"),
@@ -391,8 +389,8 @@ HELP_KEY = HELP.route
 # The focused menu (SPEC_focus_menu §1.2): what every role sees until a superuser ticks otherwise in the
 # administration's Menu page. Superusers always see the full menu (MENU). FOCUS is the part drawn first, in
 # its order: Home and Ask NeuroDB at the top, then Partner reporting; every other entry shown follows in
-# MENU's order under its usual title, so Field monitoring (in FOCUSED, not in FOCUS) is under Funds and
-# assurance, with any other entry of that group ticked for the role. Help is not in it: the "?" panel links
+# MENU's order under its usual title, so Field monitoring (in FOCUSED, not in FOCUS) is under Knowledge base,
+# with any other entry of that group ticked for the role. Help is not in it: the "?" panel links
 # to the Help pages and the search finds them (a superuser can tick it for a role).
 PRP = MenuGroup("prp", _("Partner reporting (PRP)"), (PROGRESS_REPORTS, PARTNER_MONITORING))
 FOCUS: tuple[str | MenuGroup, ...] = ("reports:overview", "assistant:ask", PRP)
@@ -535,7 +533,7 @@ def sidebar(user, can_set_up: Callable[[], bool] | None = None) -> dict[str, Any
     A superuser gets the full menu. Anyone else gets the entries :func:`shown` names, laid out focus
     first: the rows of :data:`FOCUS` in its order (an untitled row each, Partner reporting a group of its
     own), then every other entry shown, in :data:`MENU`'s order under its usual title (Field monitoring
-    under Funds and assurance). The layout does not change with what is ticked: one more tick adds a row and
+    under Knowledge base). The layout does not change with what is ticked: one more tick adds a row and
     moves none."""
     full = menu(user, can_set_up)
     chosen = shown(user)

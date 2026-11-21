@@ -1,13 +1,14 @@
-# Knowledge base and documents
+# Documents
 
-## The knowledge base
+## The Documents page
 
-The [knowledge base](/knowledge/) (in the full menu: Resources › Knowledge base; the search finds it for
-everyone) holds documents and texts Ask NeuroDB answers from: reports, evaluations, meeting minutes,
-guidance and notes. Every signed-in person reads and searches them.
+The [Documents](/knowledge/) page (in the full menu: Resources › Documents; the search finds it for
+everyone) holds documents and texts Ask NeuroDB answers from: reports, studies, evaluations, meeting
+minutes, guidance and notes. Every signed-in person reads and searches them. (It is not the menu's
+*Knowledge base* section, which holds the eTools, funds and assurance pages.)
 
 - **Adding**: Administrators and Section editors use **Add a document or text** (on Ask NeuroDB or on
-  the knowledge base page): a file (PDF with a text layer, Word, PowerPoint, Excel, CSV, Markdown or
+  the Documents page): a file (PDF with a text layer, Word, PowerPoint, Excel, CSV, Markdown or
   text; 50 MB at most) or pasted text, with a title and optionally its source, section and year. Do not
   add personal data of children, beneficiaries or staff.
 - **Reading**: once added, the document is read in the background (seconds to a few minutes; the page
@@ -27,8 +28,8 @@ guidance and notes. Every signed-in person reads and searches them.
 - **Changing or removing**: the person who added a document, or an Administrator, reads it again or
   removes it.
 
-**Library publications and country programme documents** are read into the knowledge base too, so their
-text is searched and quoted like an added document; their source reads *Library publication* or the
+**Library publications and country programme documents** are read in too, so their text is searched
+and quoted like an added document; their source reads *Library publication* or the
 country programme's name, with *Open the original*. They are changed at their source (the library or
 the country programme page), and read again every morning at 07:00 when they changed.
 
@@ -61,15 +62,16 @@ with the one before.
 
 ## Document review
 
-The document review reads chosen knowledge base documents (annual reports, donor reports, evaluations,
-sector reviews) with the AI and keeps what they say as **findings**, **key statements** and **action
-points**, each pointing to the page it comes from. It is switched off until an administrator turns it on,
-and only documents put in a **review batch** (a folder for one kind of document) are read, so the cost
-stays with what was chosen. A document marked *reference only* stays in its batch and is never read.
+The document review reads chosen documents of the Documents page (annual reports, donor reports,
+evaluations, sector reviews) with the AI and keeps what they say as **findings**, **key statements** and
+**action points**, each pointing to the page it comes from. It is switched off until an administrator
+turns it on, and only documents put in a **review batch** (a folder for one kind of document) are read, so
+the cost stays with what was chosen. A document marked *reference only* stays in its batch and is never
+read.
 
 How a document is read, in five stages, each noted as done, partly done or failed:
 
-1. **Text**: the text the knowledge base already read (a document still being read waits).
+1. **Text**: the text NeuroDB already read (a document still being read waits).
 2. **Findings**: the text is read in parts of about 12,000 characters. Each finding is a challenge, a
    recommendation, an observation or an action point, in one to three sentences, with the words of the
    document that support it, the place and date it is about, and a topic from the list (programme →
@@ -89,10 +91,9 @@ words found in the text 45, reported by the document rather than interpreted 25,
 given a topic other than "Other" 10.
 
 Documents are read each night (04:40) when they are waiting, failed or partly analysed. A document read
-again by the knowledge base with a new text waits to be analysed again. A new analysis replaces what the
-AI wrote but keeps people's verdicts on findings whose words did not change, the findings people added
-and the status of each action point. [Ask NeuroDB](/help/ask-neurodb/) can search the findings and cite
-their pages.
+again with a new text waits to be analysed again. A new analysis replaces what the AI wrote but keeps
+people's verdicts on findings whose words did not change, the findings people added and the status of each
+action point. [Ask NeuroDB](/help/ask-neurodb/) can search the findings and cite their pages.
 
 ## The document review page
 
@@ -103,7 +104,8 @@ findings. The prompts and the switch are in the admin (administrators only).
 - **Documents**: the batches (create, rename, archive) and, for the chosen batch, its documents with five
   stage chips (Text, Findings, Locate, Summary, Action points: green done, amber partly, red failed, grey
   not reached; the reason on hover), their counts and "only n% read" when partly analysed. *Upload
-  documents into this batch* adds new files; *Or pick knowledge base documents* adds ones already there.
+  documents into this batch* adds new files; *Or pick documents from the Documents page* adds ones
+  already there.
   Per document: **Analyse / Re-analyse** (now, in the background), **Mark as reference** (kept, never
   analysed, out of every count) and **Remove from batch**.
 - **Findings**: *All findings* (one row per finding: batch, document and page — a PDF opens at the page —
