@@ -110,7 +110,7 @@ PRP's report ids, which PRP's own list does not carry.
   of its own until 21 Nov 2026 (your decision): an old link to it opens this tab.
 - **Program Performance**: one row per indicator (section, CP output, emergency, target, Reached, %
   Reached, partner, programme document), sorted by % Reached; the section tiles filter it. *Emergency*
-  (the column and the filter) means the programme document is an SPD, as Power BI's Emergency indicator
+  (the column) means the programme document is an SPD, as Power BI's Emergency indicator
   does (your decision of 26 Oct 2026). eTools' *high frequency* is another thing: an indicator reported
   monthly, in humanitarian reports. With a
   reporting year chosen, it shows Reached in that year and its % of the target first (sorted by it),
@@ -119,6 +119,10 @@ PRP's report ids, which PRP's own list does not carry.
 
 *Master indicators* is hidden (your decision of 21 Nov 2026): it is no longer a tab and no page links to
 it, but an old link or bookmark still opens it (see [Master indicators](#master-indicators) below).
+
+The filter has no CP output, partner type, office or emergency choice (your decision of 21 Nov 2026); the
+columns that show them stay. An old link or bookmark that still carries one is still applied, and a line
+above the results names it, with a link that removes it.
 
 **The lists to fix** on Data quality: missing targets, no or zero Reached, Reached differing from PRP, the
 same title twice in one programme document, and partial history. The partner reports carry no PD indicator
@@ -226,10 +230,11 @@ confirmed in the one kept.
 ## Progress reports
 
 [Progress reports](/partner-reporting/) has two tabs on one filter (search, report status, report
-type, reporting year, section, report number, partner, partner type, PD status, emergency indicator, and
-the period start and end; the section list offers each section once, and a section chosen also finds
-reports whose rows list several sections). The emergency indicator keeps the reports of SPDs, as Power BI's
-does. It opens on the active programme documents only (your decision of 21 Nov 2026; it opened on the
+type, reporting year, section, report number, partner, PD status, and the period start and end; the
+section list offers each section once, and a section chosen also finds reports whose rows list several
+sections). The partner type and emergency indicator filters were removed (your decision of 21 Nov 2026): an
+old link that still carries one is still applied, and a line above the results names it, with a link that
+removes it. It opens on the active programme documents only (your decision of 21 Nov 2026; it opened on the
 active, signed and suspended ones before, as Partner monitoring and Home still do): choose more PD statuses
 in the filter, or clear the choice to see every status. Home's links to Progress reports choose active,
 signed and suspended, so the page opens on the numbers Home shows. Draft and cancelled programme documents
@@ -278,7 +283,8 @@ documents* (the list), *Indicators*, *Funded programme summary info* and *Funded
   latest; *All reports* opens every one of them on Progress reports.
 - **Programme documents → Indicators** lists the indicators of every programme document in one table
   (PD number and status, partner, document type, dates, office, section, CP output, indicator,
-  baseline, target, emergency), with its own filters and an export of the whole filter. Like every page, it
+  baseline, target, emergency), with its own filters (no office or emergency filter: your decision of
+  21 Nov 2026) and an export of the whole filter. Like every page, it
   leaves out an indicator eTools marks inactive that no partner report names (see Partner monitoring above);
   one partners reported on reads *Inactive in eTools* under its title.
 - **Programme documents → Funded programme summary info** sums up the programme documents. Choose
@@ -305,7 +311,7 @@ documents* (the list), *Indicators*, *Funded programme summary info* and *Funded
 ## Funds
 
 The [Funds](/funds/) page has three tabs on one filter (search, donor, grant, FR number, FR start year,
-PD status, partner, partner type):
+PD status, partner):
 
 - **Funds reservations**: the funds reserved, disbursed and outstanding, by donor, grant and year.
 - **Partner contributions** (Power BI's Partner Fund Monitoring): one row per programme document with

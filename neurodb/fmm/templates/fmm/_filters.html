@@ -37,13 +37,6 @@
     </select>
   </div>
   <div class="filter-bar__field">
-    <label class="form-label" for="f-office">{% trans "Field office" %}</label>
-    <select class="form-select form-select-sm" id="f-office" name="office" multiple data-tom placeholder="{% trans 'All' %}">
-      {% for name in options.offices %}<option value="{{ name }}" {% if name in scope.offices %}selected{% endif %}>{{ name }}</option>{% endfor %}
-      <option value="none" {% if "none" in scope.offices %}selected{% endif %}>{% trans "Office not known" %}</option>
-    </select>
-  </div>
-  <div class="filter-bar__field">
     <label class="form-label" for="f-partner">{% trans "Partner" %}</label>
     <select class="form-select form-select-sm" id="f-partner" name="partner" multiple data-tom placeholder="{% trans 'All' %}">
       {% for pid, name in options.partners %}<option value="{{ pid }}" {% if pid in scope.partners %}selected{% endif %}>{{ name }}</option>{% endfor %}
@@ -95,6 +88,9 @@
     <label class="form-check mb-0 small"><input class="form-check-input" type="checkbox" name="programmatic" value="1" {% if scope.programmatic %}checked{% endif %}> {% trans "Programmatic visits only" %}</label>
   </div>
   {% if scope.pd is not None %}<input type="hidden" name="pd" value="{{ scope.pd }}">{% endif %}
+  {% comment %}The field office was removed from every page's filters: an old link's, applied and named by a removable
+  chip above the results, is kept by Apply.{% endcomment %}
+  {% for name in scope.offices %}<input type="hidden" name="office" value="{{ name }}">{% endfor %}
   <div class="filter-bar__actions">
     <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
     <a class="btn btn-link btn-sm" href="{% url 'fmm:dashboard' %}">{% trans "Reset" %}</a>

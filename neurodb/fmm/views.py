@@ -869,8 +869,10 @@ def _results_context(
 
 
 def _chips(scope: Scope) -> list[dict[str, str]]:
-    """The removable chips above the results: the default section, the programme document and each
-    drill-down, each with the address of the scope without it."""
+    """The removable chips above the results: the default section, the programme document, the field
+    offices of an old link (no longer in the filter bar: the owner removed the office from every page;
+    ``old``, the drill-down window names them among its own filters) and each drill-down, each with the
+    address of the scope without it."""
     from dataclasses import replace
 
     chips = []
@@ -892,6 +894,16 @@ def _chips(scope: Scope) -> list[dict[str, str]]:
                 "label": _("Programme document %(number)s") % {"number": number or scope.pd},
                 "remove": _page_query(replace(scope, pd=None)),
                 "remove_label": _("remove"),
+            }
+        )
+    if scope.offices:
+        names = [_("Office not known") if name == "none" else name for name in scope.offices]
+        chips.append(
+            {
+                "label": f"{_('Field office')}: {', '.join(names)}",
+                "remove": _page_query(replace(scope, offices=())),
+                "remove_label": _("remove"),
+                "old": True,
             }
         )
     for key, value in scope.drill:
@@ -952,11 +964,11 @@ def _tab(request: HttpRequest) -> str:
 
 # ------------------------------------------------------------------------------------------ drill-downs
 # Filters a drill-down may narrow (a block offers only values the filter already keeps, so replacing
-# the filter's values by one of them narrows the scope)
+# the filter's values by one of them narrows the scope). Never the field office: it is no longer a filter of
+# any page, and no page links to an office's records
 DRILL_FILTERS = {
     "rating": "ratings",
     "status": "statuses",
-    "office": "offices",
     "section": "sections",
     "entity_type": "entity_types",
     "modality": "modalities",
@@ -980,7 +992,7 @@ def _narrowed(scope: Scope, params: dict[str, str]) -> Scope:
 
 def drill_url(scope: Scope, **params: str) -> str:
     """The drill-down window of the visits of ``scope`` narrowed by ``params`` (drill codes, or one
-    value of a filter: rating, status, office, section, entity type)."""
+    value of a filter: rating, status, section, entity type)."""
     return f"{reverse('fmm:drill')}?{_narrowed(scope, params).query}"
 
 
@@ -1348,13 +1360,11 @@ def _analysis_tab(
             ],
         },
         "gaps": metrics.governorate_gaps(scope, when, limits),
-        "offices": {
-            **offices,
-            "rows": _with_urls(offices["rows"], scope, "office"),
-            "unknown": _with_urls([offices["unknown"]], scope, "office")[0] if offices["unknown"] else None,
-        },
+        # the field offices' rows link to no records: the office is no longer a filter of any page (the owner
+        # removed it on 21 Nov 2026), so no page builds a link with one
+        "offices": offices,
         **entities,
-        "office_badges": _with_urls(metrics.office_rule_badges(scope, rules, when, limits), scope, "office"),
+        "office_badges": metrics.office_rule_badges(scope, rules, when, limits),
         "section_rows": section_rows,
         "places": places,
         "rating_rows": _rating_rows(scope, when, limits),
@@ -1543,7 +1553,8 @@ def drill(request: HttpRequest) -> HttpResponse:
         "total": counted["n"],
         "visits": counted["visits"],
         "more": max(counted["n"] - len(rows), 0),
-        "chips": [c for c in _chips(scope) if not c.get("remove_in_words")] + _filter_chips(scope),
+        "chips": [c for c in _chips(scope) if not c.get("remove_in_words") and not c.get("old")]
+        + _filter_chips(scope),
         "records_url": records_url,
         "glossary": GLOSSARY,
         "limits": limits,

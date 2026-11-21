@@ -1610,10 +1610,6 @@ def filter_options(filters: Filters) -> dict[str, Any]:
         },
         reverse=True,
     )
-    offices: set[str] = set()
-    for row in pds.order_by().values_list("offices_set", flat=True):
-        offices.update(x for x in row or [] if x)
-    partner_rows = PartnerOrganization.objects.filter(interventions__in=pds).order_by()
     options = {
         "sections": sorted({(x or "").strip() for x in base.values_list("section_name", flat=True)} - {""}),
         "partners": [{"value": str(pk), "label": name} for pk, name in partners],
@@ -1627,10 +1623,6 @@ def filter_options(filters: Filters) -> dict[str, Any]:
             key=lambda x: (x not in ACTIVE_PD_STATUSES, x),
         ),
         "document_types": sorted({x for x in pds.order_by().values_list("document_type", flat=True) if x}),
-        "offices": sorted(offices),
-        "partner_types": sorted(
-            {x for pair in partner_rows.values_list("partner_type", "cso_type") for x in pair if x}
-        ),
     }
     for tag in TAG_FIELDS:
         options[tag] = sorted(x for x in base.order_by().values_list(f"tag_{tag}", flat=True).distinct() if x)

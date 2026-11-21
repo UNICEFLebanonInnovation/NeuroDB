@@ -308,10 +308,7 @@ def partners(params) -> QuerySet[PartnerOrganization]:
 
 def partner_filter_options() -> dict[str, list[str]]:
     base = PartnerOrganization.objects.filter(deleted_flag=False, hidden=False).order_by()
-    return {
-        "partner_types": sorted(x for x in base.values_list("partner_type", flat=True).distinct() if x),
-        "cso_types": sorted(x for x in base.values_list("cso_type", flat=True).distinct() if x),
-    }
+    return {"cso_types": sorted(x for x in base.values_list("cso_type", flat=True).distinct() if x)}
 
 
 def partner_profile(partner: PartnerOrganization) -> dict[str, Any]:

@@ -33,7 +33,6 @@
       {% for p in data.options.partners %}<option value="{{ p.value }}" {% if p.value in selected.partner %}selected{% endif %}>{{ p.label }}</option>{% endfor %}
     </select>
   </div>
-  {% trans "Partner type" as l %}{% include "reports/_multiselect.html" with name="partner_type" label=l options=data.options.partner_types values=selected.partner_type %}
   <div class="filter-bar__actions">
     <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
     <a class="btn btn-link btn-sm" href="{{ request.path }}{% if tab != 'reservations' %}?tab={{ tab }}{% endif %}">{% trans "Reset" %}</a>

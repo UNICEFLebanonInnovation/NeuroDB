@@ -99,13 +99,13 @@ same."** Below, **Where the indicators come from**:
    REST API's both do, and NeuroDB never removes one; a programme document's status decides whether it is
    running;
 3. the programme documents NeuroDB holds, then those each filter leaves out (draft or cancelled, the PD
-   status or running, the year, a partner, a programme document, a document type, an office, a partner
-   type), each with its PD indicator rows;
+   status or running, the year, a partner, a programme document, a document type, and an office or a
+   partner type an old link still carries), each with its PD indicator rows;
 4. the PD indicator rows of the programme documents kept, then those of the indicators eTools marks inactive
    that no partner report row names (never listed), then those each filter leaves out (a search, a tag,
-   emergency, humanitarian reports), with the indicators left out entirely or partly;
+   emergency from an old link, humanitarian reports), with the indicators left out entirely or partly;
 5. one per indicator ("4 PD indicator rows are 3 indicators"), then the indicators each filter leaves out
-   (CP output, location, section, tracking status);
+   (a CP output from an old link, location, section, tracking status);
 6. the indicators kept, and **Programme documents kept with no indicator of this filter**: they count in no
    figure of programme documents. It is the difference a Power BI count of running programme documents
    can show (see check 10).

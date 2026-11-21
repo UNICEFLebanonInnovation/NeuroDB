@@ -3,9 +3,10 @@ document: its budget, the partner's contribution and its share, and the financia
 partner reported in PRP) and **Funded Programs** (one row per programme document and grant).
 
 * **One filter for every tab** (:class:`FundFilters`): search, donor, grant, FR number, FR start year
-  (they choose funds reservation lines, and so the programme documents funded by them), PD status,
-  partner and partner type. With no PD status chosen, every programme document but drafts and
-  cancelled ones.
+  (they choose funds reservation lines, and so the programme documents funded by them), PD status and
+  partner. With no PD status chosen, every programme document but drafts and cancelled ones. The partner
+  type is no longer a filter of the page (the owner removed it on 21 Nov 2026, the page ignores it in an
+  address); :class:`FundFilters` still reads it, for other callers.
 * **Amounts.** The budget fields are the programme document's, in its budget currency (eTools'
   ``budget_currency``); funds reservation amounts are in US dollars. Amounts in different currencies
   are never added: totals are given per currency.
@@ -170,9 +171,6 @@ def filter_options() -> dict[str, Any]:
             {"value": str(pk), "label": name}
             for pk, name in partners.order_by("name", "id").values_list("id", "name")
         ],
-        "partner_types": sorted(
-            {x for pair in partners.order_by().values_list("partner_type", "cso_type") for x in pair if x}
-        ),
     }
 
 

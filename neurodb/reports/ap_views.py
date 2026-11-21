@@ -27,7 +27,7 @@ from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import services as datamart
 from neurodb.datamart.models import ActionPoint
 
-from . import exports
+from . import exports, old_filters
 
 PAGE_SIZE = 50
 EXPORT_KEYS = ("export", "all", "page")
@@ -51,9 +51,10 @@ def _need_fmm():
 
 def _params(request: HttpRequest) -> tuple[QueryDict, list[str]]:
     """The page's filter: the query, or on the first load (no query at all) the user's own section,
-    as the other pages choose it."""
+    as the other pages choose it. The office, which the owner removed from every page, is never read from the
+    query (:mod:`neurodb.reports.old_filters`): the page, its exports and its report ignore it."""
     if request.GET:
-        return request.GET, []
+        return old_filters.without(request.GET), []
     own = pd_monitoring_service.default_sections(request.user, datamart._distinct_ap("section"))
     params = QueryDict(mutable=True)
     if own:
@@ -122,7 +123,7 @@ def action_points(request: HttpRequest) -> HttpResponse:
     charts = datamart.action_point_charts(data["points"])
     query = _query(params)
     base = reverse("reports:action_points")
-    selected = {key: params.getlist(key) for key in ("status", "module", "office", "section", "partner")}
+    selected = {key: params.getlist(key) for key in ("status", "module", "section", "partner")}
     context = {
         "page_title": _("Action points"),
         "page_subtitle": _(
@@ -202,7 +203,8 @@ def _extras(request: HttpRequest, rows: list[ActionPoint], fmm_points) -> dict[s
 
 def _chart_hrefs(params: QueryDict) -> dict[str, str]:
     """What a click on each chart's bar opens: the filter with the bar's value in place of the chart's
-    own key ({drill}: the value the bar carries; {series_drill}: raised or completed)."""
+    own key ({drill}: the value the bar carries; {series_drill}: raised or completed). *Open, by office* opens
+    nothing: the office is no longer a filter of the page."""
     base = reverse("reports:action_points")
 
     def href(drop: tuple[str, ...], tail: str) -> str:
@@ -213,7 +215,6 @@ def _chart_hrefs(params: QueryDict) -> dict[str, str]:
         "status": href(("status",), "status={drill}"),
         "due": href(("due",), "due={drill}"),
         "timeliness": href(("timeliness",), "timeliness={drill}"),
-        "office": href(("office", "status"), "office={drill}&status=open"),
         "section": href(("section", "status"), "section={drill}&status=open"),
         "monthly": href(("raised", "completed"), "{series_drill}={drill}"),
     }
@@ -245,7 +246,6 @@ def _filters_words(params: QueryDict, f: dict[str, Any], visit: dict | None) -> 
     for key, label in (
         ("statuses", _("Status")),
         ("modules", _("Raised from")),
-        ("offices", _("Office")),
         ("sections", _("Section")),
     ):
         if f.get(key):

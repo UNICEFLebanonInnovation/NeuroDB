@@ -600,12 +600,12 @@ def test_programme_indicators_tab(client_viewer, more):
     assert [r["indicator"] for r in reporting.pd_indicators(pds, {"indicator": "syrian"})] == [more["boys"]]
     page = client_viewer.get(reverse("reports:programmes"), {"tab": "indicators"})
     assert page.status_code == 200 and page.context["tab"] == "indicators" and more["girls"] in page.text
+    # the page no longer has an Emergency filter (the owner removed it from every page on 21 Nov 2026): an old
+    # address that carries one is read without it (tests/reports/test_filters_removed.py)
     partial = client_viewer.get(
         reverse("reports:programmes"), {"tab": "indicators", "emergency": "no"}, headers=HX
     )
-    assert (
-        more["girls"] not in partial.text and "# of schools" in partial.text and "<html" not in partial.text
-    )
+    assert more["girls"] in partial.text and "# of schools" in partial.text and "<html" not in partial.text
     response = client_viewer.get(reverse("reports:programmes"), {"tab": "indicators", "export": "csv"})
     lines = list(csv.DictReader(io.StringIO(b"".join(response.streaming_content).decode("utf-8-sig"))))
     assert len(lines) == 4 and set(reporting.INDICATOR_COLUMNS) == set(lines[0])

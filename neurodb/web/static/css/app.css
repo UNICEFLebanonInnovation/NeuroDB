@@ -1324,6 +1324,7 @@ a.fmm-rating-pill:hover, a.fmm-rating-pill:focus-visible { color: #fff; filter: 
 .fmm-office-rows { display: flex; flex-direction: column; gap: 0.6rem; }
 .fmm-office-row { padding: 0.6rem 0.8rem; border: 1px solid var(--nd-border); border-radius: var(--nd-radius-sm); }
 .fmm-office-row__head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0.15rem 0.75rem; margin-bottom: 0.35rem; }
+.fmm-office-row__name { font-weight: 600; overflow-wrap: anywhere; }
 .fmm-office-chip { padding: 0.08rem 0.4rem; border-radius: 4px; font-family: var(--nd-font-mono); font-size: 0.75rem; }
 .fmm-office-chip--warning { background: var(--fmm-tint-yellow); color: var(--fmm-ink-amber); }
 .fmm-office-chip--danger { background: var(--fmm-tint-red); color: var(--nd-danger); }

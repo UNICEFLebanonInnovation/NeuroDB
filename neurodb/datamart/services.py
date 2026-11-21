@@ -921,7 +921,6 @@ def action_points(params) -> dict[str, Any]:
         "options": {
             "statuses": _distinct_ap("status"),
             "modules": _distinct_ap("related_module"),
-            "offices": _distinct_ap("office"),
             "sections": _distinct_ap("section"),
             "partners": list(
                 PartnerOrganization.objects.filter(
@@ -1239,9 +1238,9 @@ def funds(params) -> dict[str, Any]:
 
 
 def funds_options() -> dict[str, Any]:
-    """The Funds page's filter choices (donors, grants, FR start years, and the PD statuses, partners and
-    partner types of :func:`neurodb.datamart.funds.filter_options`), on their own: the Partner Fund Monitoring
-    and Funded Programs tabs read only these of :func:`funds` (6 queries instead of 13)."""
+    """The Funds page's filter choices (donors, grants, FR start years, and the PD statuses and partners
+    of :func:`neurodb.datamart.funds.filter_options`), on their own: the Partner Fund Monitoring and Funded
+    Programs tabs read only these of :func:`funds` (5 queries instead of 12)."""
     from . import funds as fund_views
 
     return {

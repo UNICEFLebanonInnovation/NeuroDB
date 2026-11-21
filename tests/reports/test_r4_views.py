@@ -487,7 +487,9 @@ def test_the_funds_tabs_render_and_export_the_whole_filter(client_viewer, funded
     # the FR tab keeps its filter and its figures, and takes the new ones
     assert "040001" in client_viewer.get(url, {"pd_status": "active"}).text
     assert "040001" not in client_viewer.get(url, {"pd_status": "ended"}).text
-    assert "040001" not in client_viewer.get(url, {"partner_type": "Government"}).text
+    # the partner type is no longer a filter (the owner removed it from every page on 21 Nov 2026): an old
+    # address that carries one is read without it (tests/reports/test_filters_removed.py)
+    assert "040001" in client_viewer.get(url, {"partner_type": "Government"}).text
     assert "040001" in client_viewer.get(url, {"fr": "0400"}).text
     assert "040001" not in client_viewer.get(url, {"fr": "040002"}).text
 

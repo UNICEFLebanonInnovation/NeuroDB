@@ -2,6 +2,7 @@
 {% load i18n ui %}
 {% block content %}
 <div class="filters-collapse" data-filters-collapse>{% include "reports/partials/_monitoring_filters.html" %}</div>
+{% include "reports/partials/_old_filters.html" %}
 <div class="kpi-grid" data-pdmap-kpis>
   {% comment %}static/js/pdmap.js writes the figures in these tiles, in this order; each carries its figure trail key (data-figure){% endcomment %}
   {% trans "Locations" as l1 %}{% include "components/kpi_tile.html" with label=l1 value="…" figure_key="map.locations" %}

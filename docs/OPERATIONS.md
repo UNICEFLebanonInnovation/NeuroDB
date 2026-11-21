@@ -4273,11 +4273,16 @@ figures as everywhere else (they read the rule above; nothing is added across in
   with its parts, its exports and its curation buttons, and the admin keeps its own actions on the master
   indicators. To show it again, add `"masters"` to `MONITORING_SHOWN_VIEWS` and its link back to the tab bar
   (`reports/partials/_monitoring_filters.html`).
-  Filters: PD status, Section, Partner, Partner type (eTools partner type or CSO type), Programme
-  document, Document type, Office, Emergency (the indicators of SPDs, as Power BI's Emergency indicator, by
-  the user's decision of 26 Oct 2026: `reached.is_spd`; eTools' high frequency is not it),
-  CP output (words in it), Indicator (title or output), locations, the title tags, report type,
-  Reporting year and status. Program Performance opens on *All years* (Reached to date), as Power BI
+  Filters: PD status, Section, Partner, Programme document, Document type, Indicator (title or output),
+  locations, the title tags, report type, Reporting year and status. The owner removed CP output, Partner
+  type, Office and Emergency from every page on 21 Nov 2026 (`reports/old_filters.py`): no filter bar
+  offers them and no page builds a link with them, but `monitoring.Filters` still reads them (Ask NeuroDB's
+  look-ups, the figure trail, the Power BI comparison sheet), so an old address that carries one is applied
+  (on the map and the hidden master indicators too, which apply the CP output alone) and the page names it
+  on a line with a link that removes it (`old_filters.note`, `_old_filters.html`); the filter bar keeps it
+  as a hidden field, so Apply never drops it silently. *Emergency* means the indicators of SPDs, as Power
+  BI's Emergency indicator, by the user's decision of 26 Oct 2026 (`reached.is_spd`; eTools' high frequency
+  is not it); the Emergency and CP output columns stay. Program Performance opens on *All years* (Reached to date), as Power BI
   does; Data quality opens on this year, one year for its lists and its grid, as the grid opened before the
   merge (the page's first view is unchanged). One rule, `monitoring.opens_on_this_year`, gives the default
   year to the page, its figure trail and the Power BI comparison sheet, and every comparison path writes the
@@ -4304,8 +4309,10 @@ figures as everywhere else (they read the rule above; nothing is added across in
   an output that matches none),
   partial history. Each list shows its first 500 rows; the counts are complete.
 * **Progress reports** has four tabs on one filter (search, report status, report type, reporting
-  year, section, report #, partner, partner type, PD status, emergency indicator (the reports of SPDs, as
-  Power BI's), period start and period end between); its tab bar shows two of them, *Reporting progress* and
+  year, section, report #, partner, PD status, period start and period end between; the partner type and
+  the emergency indicator, the reports of SPDs as Power BI's, were removed from every page on 21 Nov 2026,
+  and an old address that carries one is applied and named on a line that removes it, as on Partner
+  monitoring); its tab bar shows two of them, *Reporting progress* and
   *Partner view*, and the other two are hidden (below). The Section list offers each section name once: a report row whose section is a
   list ("Child Protection, Adolescent & Youth") gives each of its names, and a name chosen keeps the rows
   that list it (`reporting.section_names`, `section_q`); a section chosen in the address that the list does
@@ -4407,9 +4414,12 @@ figures as everywhere else (they read the rule above; nothing is added across in
 * **Programmes → Indicators** (PD/SPD Indicators): one row per indicator of the filtered programme
   documents (eTools lists an indicator once per location and disaggregation) with the PD's number,
   status, partner, document type, title, start, end and office, the indicator's own section, CP
-  output, PD output, baseline, target and emergency flag (the PD is an SPD); filters add PD reference,
-  indicator title and Emergency, and the Section list also offers the sections the indicators name (the tab filters
-  on each indicator's own section); exported whole.
+  output, PD output, baseline, target and emergency flag (the PD is an SPD); filters add PD reference and
+  indicator title, and the Section list also offers the sections the indicators name (the tab filters
+  on each indicator's own section); exported whole. The Emergency and Office filters were removed from every
+  page on 21 Nov 2026: *Programme documents* reads its address without them (`old_filters.without`), so an
+  old address that carries one opens the page unfiltered, and no link or download of it carries one.
+  `reporting.pd_indicators` still takes `emergency`, for other callers.
 * **Progress reports → By disaggregation** (PD/SPD Report/Disaggregation; hidden, see above): per indicator report and
   location, PRP's value for each disaggregation value (female, Male; Lebanese, Syrian…) with its label,
   a **subtotal per disaggregation** (and per cross-tab) and the **location total** `"()"`, never one sum
@@ -4440,8 +4450,10 @@ figures as everywhere else (they read the rule above; nothing is added across in
   `details.disaggregation_labels.error` and the run ends *Succeeded with errors*; the reports are kept.
 * **Funds → Partner contributions** (Partner Fund Monitoring) and **Funds → By PD and grant** (Funded
   Programs) share the Funds page's filter (search, donor, grant, FR number, FR start year, PD status,
-  partner, partner type; the FR filters choose the programme documents their lines fund; no PD status
-  chosen means every status but draft and cancelled; `neurodb/datamart/funds.py`). *Partner
+  partner; the FR filters choose the programme documents their lines fund; no PD status chosen means every
+  status but draft and cancelled; `neurodb/datamart/funds.py`). The partner type, removed from every page on
+  21 Nov 2026, is ignored in an address (`old_filters.without`, the header's year menu too through
+  `year_query`); the partner type column stays. *Partner
   contributions*: one row per programme document with partner and partner type, currency, planned UNICEF
   contribution (`total_unicef_budget`), total budget, partner contribution (`cso_contribution`), its share
   of the total budget, and the **financial contribution during reporting periods**: PRP's
@@ -5980,8 +5992,8 @@ Every signed-in user but a donor can read it; with `FMM_ENABLED` off it answers 
 is hidden.
 
 - **Filters.** Period (this year by default; last year, a calendar year, this or last quarter, the
-  last 30 or 90 days, two dates, or *All time*), section, governorate ("Not located" too), field
-  office, partner, entity type, rating, status, monitoring modality (UNICEF staff, a third-party
+  last 30 or 90 days, two dates, or *All time*), section, governorate ("Not located" too), partner,
+  entity type, rating, status, monitoring modality (UNICEF staff, a third-party
   monitor...; "Modality not known" too), quality band (High from 80, Medium from 50, Low, or *Pending
   (no score)*), urgency band (High: red, Medium: amber, Low: below amber; a visit without a score has
   no urgency and is in none), "Programmatic visits only" and a search on the visit, its references,
@@ -5997,6 +6009,11 @@ is hidden.
   visits with at least one of them, and the record figures then count the matching records only (a
   data note says so). Links from charts add drill-downs (month, status, visit rating, HACT Q1, score
   band, flag, flag count, urgency band, place, recurring issue, rule, review), shown as removable chips.
+  The field office was removed from every page on 21 Nov 2026: no filter bar control, and the Analysis
+  tab's *Quality by field office* and *Field offices* no longer open their records (`views.DRILL_FILTERS`
+  has no office), so no page writes `office=`. `Scope` still reads it (its own chat's look-ups keep their
+  office argument and link to the page with it, and the drill-down window names it): an old address with
+  one is applied, shown as a removable chip *Field office: …* (`views._chips`) and kept by Apply.
 - **Reference line**: the filter, when the field monitoring rows were synced, when the scores were
   computed and with which rules version ("recomputing with rules v8" while a rescore waits), a warning
   when the last refresh failed, the release banner of scores per record ("Scores are now per record, as
@@ -6821,9 +6838,11 @@ verification and the NeuroDB action points) shows while `FMM_ENABLED` is on; wit
 the eTools action points as before.
 
 - **Filters**: search (reference, description, action taken, partner, PD, status, a person's name, a
-  visit's reference or an eTools activity id), status, *Raised from* (module), office, section, partner,
+  visit's reference or an eTools activity id), status, *Raised from* (module), section, partner,
   *Assigned to* (part of a name), *Changed in eTools* from / to (the Datamart's last change), AI verdict,
-  PME verification, visit link, and *Show only* overdue, high priority or field monitoring. On the first
+  PME verification, visit link, and *Show only* overdue, high priority or field monitoring. The office was
+  removed from every page on 21 Nov 2026: the page, its files and its printable report read their address
+  without it (`old_filters.without`), so an old address with one is unfiltered. On the first
   visit a person with a section sees that section's action points (as the other pages); *Reset* comes
   back to it, and clearing the Section filter shows every one. The toolbar's **CSV** copies the rows on
   screen; **CSV of the filter** downloads every action point of the filter (all pages) and **CSV of every
@@ -6835,7 +6854,8 @@ the eTools action points as before.
   *Unmatched* when no visit matches; blank for the other modules. Then the **AI verdict** and the **PME
   verification**. The reference opens the action point's details: every field, the action taken, the
   AI's verdict and why, and the verifications (with the form, for who may verify).
-- **Charts** (over the filter; each has *Download PNG*, and a bar opens its action points): by status;
+- **Charts** (over the filter; each has *Download PNG*, and a bar opens its action points, but for the
+  offices, no longer a filter): by status;
   the due dates of the open ones (Overdue, due within 30 days, On track, No due date); raised and
   completed by month (the last 24 months; *raised* is the eTools record's creation date); whether the
   completed ones were completed on time (On time, Late 1-30 days, Late 31-90 days, Late > 90 days, No

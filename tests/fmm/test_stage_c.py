@@ -223,7 +223,9 @@ def _rows(client, **params) -> list[str]:
 
 
 def test_the_new_filters(client_viewer, points):
-    assert set(_rows(client_viewer, office="Tripoli")) == {"LEBA/2026/9005/AP"}
+    # the office is no longer a filter (the owner removed it from every page on 21 Nov 2026): an old address
+    # that carries one is read without it (tests/reports/test_filters_removed.py)
+    assert len(_rows(client_viewer, office="Tripoli")) == 5
     assert "LEBA/2026/9005/AP" not in _rows(client_viewer, section="Education")
     assert set(_rows(client_viewer, assignee="karim")) == {"LEBA/2026/9005/AP"}
     assert set(_rows(client_viewer, fm="1")) == {f"LEBA/2026/900{n}/AP" for n in (1, 2, 3, 4)}
@@ -238,8 +240,8 @@ def test_the_new_filters(client_viewer, points):
     assert _rows(client_viewer, q="stock cards") == ["LEBA/2026/9001/AP"]
     assert _rows(client_viewer, q="registers were reviewed") == ["LEBA/2026/9003/AP"]
     html = client_viewer.get(reverse(PAGE)).content.decode()
+    assert 'for="f-office"' not in html
     for label in (
-        "Office",
         "Section",
         "Partner",
         "Assigned to",
@@ -261,12 +263,12 @@ def test_a_section_user_lands_on_their_section(client, points, education):
 
 
 def test_csv_of_the_filter_and_of_everything(client_viewer, points):
-    filtered = client_viewer.get(reverse(PAGE), {"office": "Tripoli", "export": "csv"})
+    filtered = client_viewer.get(reverse(PAGE), {"q": "LEBA/2026/9005", "export": "csv"})
     assert filtered["Content-Type"].startswith("text/csv")
     lines = b"".join(filtered.streaming_content).decode().lstrip("﻿").splitlines()
     assert lines[0].startswith("reference,description,partner,pd,office,section,assigned_to_count,")
     assert len(lines) == 2 and "LEBA/2026/9005/AP" in lines[1]
-    everything = client_viewer.get(reverse(PAGE), {"office": "Tripoli", "export": "csv", "all": "1"})
+    everything = client_viewer.get(reverse(PAGE), {"q": "LEBA/2026/9005", "export": "csv", "all": "1"})
     assert len(b"".join(everything.streaming_content).decode().strip().splitlines()) == 6
     html = client_viewer.get(reverse(PAGE)).content.decode()
     assert "CSV of the filter" in html and "CSV of every action point" in html
@@ -357,7 +359,8 @@ def test_a_bar_opens_its_action_points(client_viewer, points):
     response = client_viewer.get(reverse(PAGE))
     hrefs = response.context["chart_hrefs"]
     assert hrefs["due"].endswith("due={drill}") and "{series_drill}={drill}" in hrefs["monthly"]
-    assert "status=open" in hrefs["office"]
+    # Open, by office opens nothing: the office is no longer a filter of the page
+    assert "office" not in hrefs and "status=open" in hrefs["section"]
     html = response.content.decode()
     for chart in ("ap-chart-status", "ap-chart-due", "ap-chart-time", "ap-chart-month", "ap-chart-office"):
         assert f'data-chart-png="#{chart}"' in html, chart

@@ -86,7 +86,7 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
     {% for o in office_badges %}
     <div class="fmm-office-row">
       <div class="fmm-office-row__head">
-        <a class="fmm-office-row__name" href="{{ o.url }}" hx-get="{{ o.url }}" hx-target="#modal-content">{% if o.name == "none" %}{% trans "Office not known" %}{% else %}<span data-synced>{{ o.name }}</span>{% endif %}</a>
+        <span class="fmm-office-row__name">{% if o.name == "none" %}{% trans "Office not known" %}{% else %}<span data-synced>{{ o.name }}</span>{% endif %}</span>
         <span class="small text-muted">{% blocktrans count n=o.scored %}{{ n }} record scored{% plural %}{{ n }} records scored{% endblocktrans %} · {% blocktrans count n=o.records %}{{ n }} record{% plural %}{{ n }} records{% endblocktrans %}</span>
       </div>
       {% if o.badges %}<div class="fmm-badges">{% for b in o.badges %}<span class="fmm-office-chip fmm-office-chip--{{ b.level }}" title="{{ b.label }}">{{ b.rule }}: {{ b.flagged }}/{{ b.total }}</span>{% endfor %}</div>
@@ -154,8 +154,8 @@ rows on a canvas (charts.js, data-rows-png).{% endcomment %}
   {% if offices.known %}
   <div class="table-wrap"><table class="table table-sm">
     <thead><tr><th scope="col">{% trans "Field office" %}</th><th scope="col">{% trans "Records" %}</th><th scope="col">{% trans "Visits" %}</th><th scope="col">{% trans "Average quality" %}</th></tr></thead>
-    <tbody>{% for o in offices.rows %}<tr><td data-synced>{{ o.name }}</td><td><a href="{{ o.url }}" hx-get="{{ o.url }}" hx-target="#modal-content">{{ o.records }}</a></td><td>{{ o.visits }}</td><td>{% if o.avg is not None %}{{ o.avg|percent }}{% else %}—{% endif %}</td></tr>{% endfor %}
-    {% if offices.unknown %}<tr><td class="text-muted">{% trans "Office not known" %}</td><td><a href="{{ offices.unknown.url }}" hx-get="{{ offices.unknown.url }}" hx-target="#modal-content">{{ offices.unknown.records }}</a></td><td>{{ offices.unknown.visits }}</td><td>{% if offices.unknown.avg is not None %}{{ offices.unknown.avg|percent }}{% else %}—{% endif %}</td></tr>{% endif %}</tbody>
+    <tbody>{% for o in offices.rows %}<tr><td data-synced>{{ o.name }}</td><td>{{ o.records }}</td><td>{{ o.visits }}</td><td>{% if o.avg is not None %}{{ o.avg|percent }}{% else %}—{% endif %}</td></tr>{% endfor %}
+    {% if offices.unknown %}<tr><td class="text-muted">{% trans "Office not known" %}</td><td>{{ offices.unknown.records }}</td><td>{{ offices.unknown.visits }}</td><td>{% if offices.unknown.avg is not None %}{{ offices.unknown.avg|percent }}{% else %}—{% endif %}</td></tr>{% endif %}</tbody>
   </table></div>
   <p class="small text-muted px-3 pb-3 mb-0">{% blocktrans with activity=offices.sources.activity pd=offices.sources.pd ap=offices.sources.action_point %}The records of a visit to a PD with two offices count in both · office from (visits): activity {{ activity }} · PD {{ pd }} · action points {{ ap }}{% endblocktrans %}</p>
   {% else %}

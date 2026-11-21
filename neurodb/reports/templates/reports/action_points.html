@@ -8,7 +8,6 @@
   </div>
   {% trans "Status" as l %}{% include "reports/_multiselect.html" with name="status" label=l options=data.options.statuses values=selected.status %}
   {% trans "Raised from" as l %}{% include "reports/_multiselect.html" with name="module" label=l options=data.options.modules values=selected.module %}
-  {% trans "Office" as l %}{% include "reports/_multiselect.html" with name="office" label=l options=data.options.offices values=selected.office %}
   {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=data.options.sections values=selected.section %}
   <div class="filter-bar__field">
     <label class="form-label" for="f-partner">{% trans "Partner" %}</label>

@@ -2,6 +2,7 @@
 {% load i18n ui %}
 {% block content %}
 <div class="filters-collapse" data-filters-collapse>{% include "reports/partials/_monitoring_filters.html" %}</div>
+{% include "reports/partials/_old_filters.html" %}
 {% comment %}The page loads in parts (neurodb.web.parts, reports.views.pd_monitoring): this frame comes at once, and each placeholder
 of #monitoring-grid is filled by a request of its own. A filter, sort or section change reloads #monitoring-grid with
 new placeholders; it is not aria-live (each arriving part would be read out): parts.js says the words of

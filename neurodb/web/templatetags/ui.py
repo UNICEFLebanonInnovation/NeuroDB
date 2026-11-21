@@ -386,6 +386,14 @@ def _shows_every_year(context, name: str) -> bool:
     return tab not in ONE_YEAR_TABS.get(name, ())
 
 
+def _year_params(context, request):
+    """The address the year menu keeps the filters of: the page's own ``year_query`` when it reads its address
+    without some of its keys (a page that ignores a filter the owner removed from every page), else the
+    request's. A copy."""
+    found = context.get("year_query")
+    return (found if found is not None else request.GET).copy()
+
+
 @register.simple_tag(takes_context=True)
 def year_url(context: dict[str, Any], year: Any) -> str:
     """Where the year menu goes for ``year``: the same page in that year (its other filters kept, back to the
@@ -394,7 +402,7 @@ def year_url(context: dict[str, Any], year: Any) -> str:
     name = _view_name(context)
     if name in YEAR_LIST_PAGES or request is None:
         return f"{reverse('reports:databases')}?{urlencode({'year': year})}"
-    params = request.GET.copy()
+    params = _year_params(context, request)
     params["year"] = str(year)
     params.pop("page", None)
     return f"{request.path}?{params.urlencode()}"
@@ -480,7 +488,7 @@ def year_menu(context: dict[str, Any]) -> dict[str, Any] | None:
     ]
     all_url = context.get("year_all_url")
     if not all_url and _shows_every_year(context, name):
-        params = request.GET.copy()
+        params = _year_params(context, request)
         params.pop("year", None)
         params.pop("page", None)
         all_url = f"{request.path}?{params.urlencode()}" if params else request.path

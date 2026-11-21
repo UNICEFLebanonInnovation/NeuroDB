@@ -53,7 +53,7 @@ urgency and the flags; never the people.
   else its end date when eTools has no start date (a data note counts those): a visit from 30 December
   to 3 January counts in the year it started, here, on the overview and on the field monitoring page. A
   visit with no date at all is left out of every period and counted in a data note.
-- **Section, governorate** ("Not located" too), **field office**, **partner**, **entity type**,
+- **Section, governorate** ("Not located" too), **partner**, **entity type**,
   **rating**, **status**, **monitoring modality** (UNICEF staff, a third-party monitor...),
   **quality band** (High, Medium, Low, or Pending: no score), **urgency band** (High: red, Medium:
   amber, Low: below amber), *Programmatic visits only*, and a search on the visit, its references,
@@ -65,6 +65,9 @@ urgency and the flags; never the people.
   record figures then count the matching records only (a data note says so).
 - Chart clicks add **drill-downs** (month, status, HACT Q1, score band, flag, flag count, urgency band,
   place, recurring issue, rule, review), shown as chips you can remove.
+- **Field office** is no longer a filter (your decision of 21 Nov 2026), and the field office tables no
+  longer open their records. An old link that still carries an office is still applied, shown as a chip
+  you can remove.
 
 Figures are kept 10 minutes; a refresh, a new rules version or midnight shows at once.
 

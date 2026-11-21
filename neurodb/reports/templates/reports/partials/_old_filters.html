@@ -1,0 +1,4 @@
+{% load i18n %}{% comment %}The filters the owner removed from every page (office, emergency, CP output, partner type) that the address
+still carries and the page applies (reports.old_filters.note): named, with a link to the same page without them.{% endcomment %}{% if old_filters.items %}
+<p class="small mb-2" id="old-filters-note">{% trans "This link also filters by" %} {% for f in old_filters.items %}{{ f.label }}: {{ f.values|join:", " }} · {% endfor %}<a href="{{ old_filters.url }}">{% blocktrans count counter=old_filters.items|length %}Remove this filter{% plural %}Remove these filters{% endblocktrans %}</a></p>
+{% endif %}

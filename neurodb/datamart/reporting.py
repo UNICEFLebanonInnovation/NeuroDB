@@ -1430,7 +1430,6 @@ def filter_options() -> dict[str, Any]:
     sections = set(found.values())
     reporting = PartnerOrganization.objects.filter(pk__in=rows.exclude(partner=None).values("partner_id"))
     partners = reporting.order_by("name", "id").values_list("id", "name")
-    partner_types = reporting.order_by()
     numbers = {x for x in rows.values_list("report_number", flat=True).distinct() if x}
     return {
         "statuses": [{"value": k, "label": v} for k, v in rc.STATUS_LABELS.items()],
@@ -1453,9 +1452,6 @@ def filter_options() -> dict[str, Any]:
             key=lambda x: (re.sub(r"[0-9]+", "", x), int(n) if (n := re.sub(r"[^0-9]", "", x)) else 0, x),
         ),
         "partners": [{"value": str(pk), "label": name} for pk, name in partners],
-        "partner_types": sorted(
-            {x for pair in partner_types.values_list("partner_type", "cso_type") for x in pair if x}
-        ),
         # the running statuses first (Active, the filter's default, among them); draft and cancelled PDs are
         # never read
         "pd_statuses": sorted(

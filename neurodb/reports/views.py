@@ -58,7 +58,7 @@ from neurodb.reports import home as home_service
 from neurodb.reports import overview as overview_service
 from neurodb.web.parts import EAGER_KEY, Part, first_load, render_page
 
-from . import check_views, exports, services
+from . import check_views, exports, old_filters, services
 from .forms import HPMCommentForm, SavedViewForm
 
 PAGE_SIZE = 50
@@ -1149,7 +1149,7 @@ def report_hpm(request: HttpRequest, pk: int) -> HttpResponse:
 # Programme documents' tabs: the list, its indicators, then the old NeuroDB's Summary Info and Funded Programs
 PROGRAMME_TABS = ("documents", "indicators", "summary", "overall")
 # the filters of the Funded programme overall tab: the old Funded Programs page's, without office and
-# partner type
+# partner type (removed from every page: reports.old_filters)
 OVERALL_PARAMS = (
     "pd_q",
     "donor",
@@ -1176,25 +1176,23 @@ def _query_only(params: QueryDict, keep: tuple[str, ...], **first: Any) -> str:
     return out.urlencode()
 
 
-def _programme_tab_urls(request: HttpRequest) -> dict[str, str]:
+def _programme_tab_urls(request: HttpRequest, params: QueryDict) -> dict[str, str]:
     """The tab bar's addresses: each tab keeps the filters it has (the summary only its scope)."""
-    params = request.GET.copy()
     path = request.path
     return {
-        "documents": _with_query(
-            path, _query_with(params, ("tab", "export", "emergency", "indicator", *START_YEARS))
-        ),
+        "documents": _with_query(path, _query_with(params, ("tab", "export", "indicator", *START_YEARS))),
         "indicators": _with_query(path, _query_with(params, ("export", *START_YEARS), tab="indicators")),
         "summary": _with_query(path, _query_only(params, ("scope",), tab="summary")),
         "overall": _with_query(path, _query_only(params, OVERALL_PARAMS, tab="overall")),
     }
 
 
-def _programme_page(request: HttpRequest, tab: str) -> dict[str, Any]:
-    """What every tab of Programme documents shows around its own content."""
+def _programme_page(request: HttpRequest, tab: str, params: QueryDict) -> dict[str, Any]:
+    """What every tab of Programme documents shows around its own content. ``params``: the page's address
+    without the filters the owner removed from every page (office, emergency: ignored, never in a link)."""
     return {
         "tab": tab,
-        "tab_urls": _programme_tab_urls(request),
+        "tab_urls": _programme_tab_urls(request, params),
         "page_title": _("Programme documents"),
         "page_subtitle": _("eTools partnerships with their donors, grants and ActivityInfo interventions"),
         "breadcrumbs": [_crumb(_("Programme documents"))],
@@ -1205,19 +1203,10 @@ def _programme_page(request: HttpRequest, tab: str) -> dict[str, Any]:
                 "icon": "download",
             },
         ],
-        "pd_q": request.GET.get("pd_q", ""),
+        "pd_q": params.get("pd_q", ""),
         "selected": {
-            key: request.GET.getlist(key)
-            for key in (
-                "partner",
-                "section",
-                "office",
-                "status",
-                "donor",
-                "grant",
-                "document_type",
-                "cso_type",
-            )
+            key: params.getlist(key)
+            for key in ("partner", "section", "status", "donor", "grant", "document_type", "cso_type")
         },
     }
 
@@ -1227,23 +1216,22 @@ def programmes(request: HttpRequest) -> HttpResponse:
     """Programme documents, and their indicators in one flat list (``tab=indicators``, Power BI's PD/SPD
     Indicators), with the same filter; the indicator list exports whole. ``tab=summary`` and
     ``tab=overall`` are the old NeuroDB's Summary Info and Funded Programs pages
-    (:func:`_programme_funded`)."""
-    tab = request.GET.get("tab") if request.GET.get("tab") in PROGRAMME_TABS else "documents"
+    (:func:`_programme_funded`). The page reads its address without the filters the owner removed from every
+    page (office, emergency: ignored, never in its links or downloads; :mod:`neurodb.reports.old_filters`)."""
+    params = old_filters.without(request.GET)
+    tab = params.get("tab") if params.get("tab") in PROGRAMME_TABS else "documents"
     if tab in ("summary", "overall"):
-        return _programme_funded(request, tab)
-    scope = request.GET.get("scope", "all")
+        return _programme_funded(request, tab, params)
+    scope = params.get("scope", "all")
     if scope not in services.PD_SCOPES:
         scope = "all"
     # the start years belong to the overall tab: never a hidden filter here
-    filters = dataclasses.replace(
-        partnerships.PDFilters.from_params(request.GET), year_from=None, year_to=None
-    )
-    params = request.GET.copy()
+    filters = dataclasses.replace(partnerships.PDFilters.from_params(params), year_from=None, year_to=None)
     if tab == "indicators":
         # the section of each indicator, not of its programme document
         pds = partnerships.programme_documents(dataclasses.replace(filters, sections=[]), scope=scope)
-        indicator_rows = reporting_service.pd_indicators(pds, request.GET)
-        export = request.GET.get("export")
+        indicator_rows = reporting_service.pd_indicators(pds, params)
+        export = params.get("export")
         if export in exports.FORMATS:
             columns = reporting_service.INDICATOR_COLUMNS
             if export == "xlsx":
@@ -1259,8 +1247,8 @@ def programmes(request: HttpRequest) -> HttpResponse:
         rows: list[dict[str, Any]] = []
     else:
         documents = partnerships.programme_documents(filters, scope=scope)
-        if (request.GET.get("pd_q") or "").strip():
-            documents = documents.filter(number__icontains=request.GET["pd_q"].strip())
+        if (params.get("pd_q") or "").strip():
+            documents = documents.filter(number__icontains=params["pd_q"].strip())
         page_obj = _paginate(request, documents)
         counts = partnerships.pd_intervention_counts([pd.number for pd in page_obj if pd.number])
         rows = [
@@ -1272,7 +1260,7 @@ def programmes(request: HttpRequest) -> HttpResponse:
             for pd in page_obj
         ]
     context = {
-        **_programme_page(request, tab),
+        **_programme_page(request, tab, params),
         # the indicator list exports whole; the PD list keeps its Copy and CSV of the page
         "downloads": [
             {
@@ -1286,8 +1274,7 @@ def programmes(request: HttpRequest) -> HttpResponse:
         ]
         if tab == "indicators"
         else [],
-        "emergency": request.GET.get("emergency", ""),
-        "indicator_q": request.GET.get("indicator", ""),
+        "indicator_q": params.get("indicator", ""),
         "scope": scope,
         "page_obj": page_obj,
         "rows": rows,
@@ -1297,18 +1284,17 @@ def programmes(request: HttpRequest) -> HttpResponse:
     return render(request, template, context)
 
 
-def _programme_funded(request: HttpRequest, tab: str) -> HttpResponse:
+def _programme_funded(request: HttpRequest, tab: str, params: QueryDict) -> HttpResponse:
     """*Funded programme summary info* (``tab=summary``: the old Summary Info (Active PDs) and (All PDs)
     pages, switched by ``scope``, Active first) and *Funded programme overall* (``tab=overall``: the old
     Funded Programs page, on its filters but office and partner type), with their downloads
-    (:mod:`neurodb.partnerships.funded`)."""
+    (:mod:`neurodb.partnerships.funded`). ``params``: the page's address without the removed filters."""
     today = timezone.localdate()
-    params = request.GET.copy()
-    context = _programme_page(request, tab)
+    context = _programme_page(request, tab, params)
     if tab == "summary":
-        scope = request.GET.get("scope") if request.GET.get("scope") in services.PD_SCOPES else "active"
+        scope = params.get("scope") if params.get("scope") in services.PD_SCOPES else "active"
         data = funded.summary(scope, today)
-        if request.GET.get("export") == "xlsx":
+        if params.get("export") == "xlsx":
             return exports.xlsx_response(
                 exports.export_filename(f"programme-summary-{scope}", "xlsx"),
                 funded.summary_sheets(data),
@@ -1328,15 +1314,15 @@ def _programme_funded(request: HttpRequest, tab: str) -> HttpResponse:
             }
         )
     else:
-        # the filters the owner removed from every page (office, partner type) are never read, nor the
-        # Programme documents tab's own (document type, PD numbers)
+        # the filters the owner removed from every page (office, partner type) are not in ``params``; the
+        # Programme documents tab's own (document type, PD numbers) are never read here
         filters = dataclasses.replace(
-            partnerships.PDFilters.from_params(request.GET), offices=[], document_types=[], numbers=[]
+            partnerships.PDFilters.from_params(params), document_types=[], numbers=[]
         )
         pds = partnerships.programme_documents(filters)
-        if pd_q := (request.GET.get("pd_q") or "").strip():
+        if pd_q := (params.get("pd_q") or "").strip():
             pds = pds.filter(number__icontains=pd_q)
-        export = request.GET.get("export")
+        export = params.get("export")
         if export in exports.FORMATS:
             rows = (funded.export_row(r) for r in funded.overall_rows(pds, today))
             if export == "csv":
@@ -1359,8 +1345,8 @@ def _programme_funded(request: HttpRequest, tab: str) -> HttpResponse:
                     "rows": funded.overall_page(page_obj, today),
                 },
                 "options": options,
-                "start_from": request.GET.get("start_from", ""),
-                "start_to": request.GET.get("start_to", ""),
+                "start_from": params.get("start_from", ""),
+                "start_to": params.get("start_to", ""),
                 "downloads": [
                     {
                         "label": _("Excel of the filter"),
@@ -1498,9 +1484,11 @@ DONOR_PAGE_PDS = 10  # the Donors page lists the largest ones and links to Progr
 
 @require_GET
 def donors(request: HttpRequest) -> HttpResponse:
-    filters = partnerships.PDFilters.from_params(request.GET)
+    # the office the owner removed from every page is never read from the address (reports.old_filters)
+    params = old_filters.without(request.GET)
+    filters = partnerships.PDFilters.from_params(params)
     data = partnerships.donor_mapping(filters)
-    selected = {key: request.GET.getlist(key) for key in ("donor", "grant", "partner", "section", "status")}
+    selected = {key: params.getlist(key) for key in ("donor", "grant", "partner", "section", "status")}
     # the full lists live on Programmes and Funds (each grant and what it reserves: Grants by donor is
     # hidden here): this page links there with the same filters
     programmes_query = urlencode([(k, v) for k, values in selected.items() for v in values])
@@ -1527,15 +1515,19 @@ def donors(request: HttpRequest) -> HttpResponse:
 
 @require_GET
 def partners(request: HttpRequest) -> HttpResponse:
-    page_obj = _paginate(request, partnerships.partners(request.GET))
+    """Partners, by name, vendor number and CSO type. The partner type is no longer a filter of the page (the
+    owner removed it from every page): an address that carries it is read without it
+    (:mod:`neurodb.reports.old_filters`); the Type column stays."""
+    params = old_filters.without(request.GET)
+    page_obj = _paginate(request, partnerships.partners(params))
     context = {
         "page_title": _("Partners"),
         "page_subtitle": _("Implementing partners from eTools"),
         "breadcrumbs": [_crumb(_("Partners"))],
         "page_obj": page_obj,
         "options": partnerships.partner_filter_options(),
-        "selected": {key: request.GET.getlist(key) for key in ("partner_type", "cso_type")},
-        "q": request.GET.get("q", ""),
+        "selected": {"cso_type": params.getlist("cso_type")},
+        "q": params.get("q", ""),
     }
     template = "reports/partials/partner_table.html" if request.htmx else "reports/partners.html"
     return render(request, template, context)
@@ -1687,7 +1679,7 @@ def engagement_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 FUNDS_TABS = ("reservations", "contributions", "programmes")
-FUNDS_LISTS = ("donor", "grant", "pd_status", "partner", "partner_type")
+FUNDS_LISTS = ("donor", "grant", "pd_status", "partner")
 CONTRIBUTION_COLUMNS = (
     "partner",
     "partner_type",
@@ -1775,16 +1767,19 @@ def funds(request: HttpRequest) -> HttpResponse:
     (``tab=contributions``) and Funded Programs (``tab=programmes``), on one filter, with exports of the
     whole filtered set of the two Power BI views. The reservations tab reads the whole of
     :func:`neurodb.datamart.services.funds` (its totals, charts and table); the other two read only its filter
-    choices (:func:`neurodb.datamart.services.funds_options`) and their own rows, and draw no chart."""
+    choices (:func:`neurodb.datamart.services.funds_options`) and their own rows, and draw no chart. The page
+    reads its address without the filters the owner removed from every page (partner type: ignored, never in
+    its links or downloads; :mod:`neurodb.reports.old_filters`)."""
     from neurodb.datamart import funds as fund_views
 
-    tab = request.GET.get("tab") if request.GET.get("tab") in FUNDS_TABS else "reservations"
+    params = old_filters.without(request.GET)
+    tab = params.get("tab") if params.get("tab") in FUNDS_TABS else "reservations"
     if tab == "reservations":
-        data = datamart.funds(request.GET)
+        data = datamart.funds(params)
     else:
         data = {
             "options": datamart.funds_options(),
-            "filters": fund_views.FundFilters.from_params(request.GET),
+            "filters": fund_views.FundFilters.from_params(params),
         }
     today = timezone.localdate()
     contributions = programmes = None
@@ -1792,7 +1787,7 @@ def funds(request: HttpRequest) -> HttpResponse:
         contributions = fund_views.partner_contributions(data["filters"], today)
     elif tab == "programmes":
         programmes = fund_views.funded_programmes(data["filters"], today)
-    export = request.GET.get("export")
+    export = params.get("export")
     if export in exports.FORMATS and tab in ("contributions", "programmes"):
         if tab == "contributions":
             label, title, columns = "partner-fund-monitoring", "Partner fund monitoring", CONTRIBUTION_COLUMNS
@@ -1811,7 +1806,6 @@ def funds(request: HttpRequest) -> HttpResponse:
         page_obj = _paginate(request, programmes["groups"])
     else:
         page_obj = _paginate(request, data["headers"])
-    params = request.GET.copy()
     context = {
         "page_title": _("Funds"),
         "page_subtitle": _("Funds reservations, disbursements and grants by donor, from the eTools Datamart"),
@@ -1822,9 +1816,10 @@ def funds(request: HttpRequest) -> HttpResponse:
         "contributions": contributions,
         "programmes": programmes,
         "page_obj": page_obj,
-        "selected": {key: request.GET.getlist(key) for key in FUNDS_LISTS},
-        "year": request.GET.get("year", ""),
-        "q": request.GET.get("q", ""),
+        "selected": {key: params.getlist(key) for key in FUNDS_LISTS},
+        "year": params.get("year", ""),
+        "year_query": params,  # the header's year menu keeps the filters the page reads (no partner type)
+        "q": params.get("q", ""),
         "tab_urls": {
             name: request.path + "?" + _query_with(params, ("tab", "export"), tab=name) for name in FUNDS_TABS
         },
@@ -1851,15 +1846,11 @@ REPORTING_SHOWN_TABS = ("reports", "partners")
 # page) but their addresses still open them (old bookmarks, the figure trail, the admin's Power BI comparison)
 REPORTING_TABS = (*REPORTING_SHOWN_TABS, "locations", "disaggregations")
 DISAGGREGATION_BLOCKS = 25  # locations (each with its disaggregation lines) per page
-REPORTING_LISTS = (
-    "status",
-    "report_type",
-    "section",
-    "report_number",
-    "partner",
-    "partner_type",
-    "pd_status",
-)
+REPORTING_LISTS = ("status", "report_type", "section", "report_number", "partner", "pd_status")
+# the filters of an old address the page still applies (the owner removed them from its filter bar): named on
+# a line with a link that removes them, as the figure trail and the Power BI comparison sheet read the same
+# address
+REPORTING_OLD_FILTERS = ("partner_type", "emergency")
 REPORT_COLUMNS = (
     "programme_document",
     "pd_status",
@@ -2090,6 +2081,7 @@ def _reporting_frame(request: HttpRequest, tab: str, filters) -> dict[str, Any]:
         "overdue": request.GET.get("overdue") == "1",
         # Home's rows open the page on one programme document (pd=): the same address without it
         "every_pd_url": request.path + "?" + _query_with(params, ("pd", "export")) if filters.pds else "",
+        "old_filters": old_filters.note(request.path, params, REPORTING_OLD_FILTERS),
         # the check line's Power BI comparison sheet and figure trail, for the filter drawn (validators only
         # see them)
         "check_compare": check_views.compare_link("progress-reports", params, datamart.reporting_today()),
@@ -2780,7 +2772,13 @@ MONITORING_VIEWS = (*MONITORING_SHOWN_VIEWS, "masters")
 MONITORING_DEFAULT_VIEW = "quality"
 MONITORING_RESULTS = "monitoring-grid"  # the area a filter, sort or section change of the page reloads
 MONITORING_KEYS = ("section", "partner", "pd", "location", *pd_monitoring_service.TAG_FIELDS)
-MONITORING_LISTS = (*MONITORING_KEYS, "pd_status", "document_type", "office", "partner_type")
+MONITORING_LISTS = (*MONITORING_KEYS, "pd_status", "document_type")
+# the filters of an old address the page still applies (the owner removed them from its filter bar): named on
+# a line with a link that removes them, as the figure trail and the Power BI comparison sheet read the same
+# address. The hidden Master indicators apply the CP output alone (the others are "not applied here",
+# masters_tab.not_applied)
+MONITORING_OLD_FILTERS = ("cp_output", "partner_type", "office", "emergency")
+MASTERS_OLD_FILTERS = ("cp_output",)
 # the columns sorted lowest first on the first click (the figures start with the highest)
 ASCENDING_FIRST = ("section", "cp_output", "indicator", "partner", "pd")
 
@@ -3106,6 +3104,9 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
             "own_section": own_section,
             "view": view,
             "as_of": as_of,
+            "old_filters": old_filters.note(
+                request.path, params, MASTERS_OLD_FILTERS if view == "masters" else MONITORING_OLD_FILTERS
+            ),
             # the check line's Power BI comparison sheet and figure trail, for the resolved filter (Power BI
             # has no masters, nor has the trail)
             "check_compare": check_views.compare_link("partner-monitoring", resolved, today)
@@ -3244,6 +3245,7 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
         | ({"section": own_section} if own_section else {}),
         "own_section": own_section,
         "view": "map",
+        "old_filters": old_filters.note(request.path, params, MONITORING_OLD_FILTERS),
         "check_compare": check_views.compare_link(
             "partner-monitoring",
             QueryDict(_query_with(params, ("view", "sort"), year=filters.year_param)),

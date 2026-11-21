@@ -563,13 +563,16 @@ def test_each_drill_type_lists_what_its_block_counts(built, client_viewer):
 
 
 def test_the_links_of_the_tabs_open_their_block_counts(built, client_viewer):
-    """The drill links the Quality and Analysis tabs draw carry the figure they show."""
+    """The drill links the Quality and Analysis tabs draw carry the figure they show. The Analysis tab's were
+    the field offices' records, which no longer open (the office is no longer a filter of any page, the owner's
+    decision of 21 Nov 2026): its other links carry a label with their figure (_chip_links, below)."""
     for tab in ("quality", "analysis"):
         html = client_viewer.get(reverse("fmm:dashboard"), {"tab": tab}).content.decode()
         links = re.findall(
             r'<a href="(/fmm/drill/\?[^"]+)" hx-get="[^"]+" hx-target="#modal-content">(\d+)</a>', html
         )
-        assert links, tab
+        assert links or tab == "analysis", tab
+        assert "office=" not in html, tab
         for url, shown in links:
             assert _drill_total(client_viewer, url.replace("&amp;", "&")) == int(shown), url
 
