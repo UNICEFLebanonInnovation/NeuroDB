@@ -1,7 +1,7 @@
 {% load i18n ui %}
 <div class="kpi-grid">
   {% trans "Programme documents" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=data.count|number %}
-  {% trans "Donor contributions (USD)" as l2 %}{% trans "As listed on the programme documents. The money actually set aside is the Reserved column of Grants by donor below, and a programme's budget is on Programmes." as h2 %}{% include "components/kpi_tile.html" with label=l2 value=data.donations_total|number:0 hint=h2 %}
+  {% trans "Donor contributions (USD)" as l2 %}{% trans "As listed on the programme documents. The money actually set aside is on Funds, and a programme's budget is on Programmes." as h2 %}{% trans "Funds reservations" as m2 %}{% include "components/kpi_tile.html" with label=l2 value=data.donations_total|number:0 hint=h2 more_href=funds_url more_label=m2 %}
   {% if data.has_records %}{% trans "ActivityInfo records" as l3 %}{% trans "reported against these programme documents" as h3 %}{% include "components/kpi_tile.html" with label=l3 value=data.interventions_total|number hint=h3 %}{% endif %}
   {% trans "Actual locations" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=data.unique_actual_locations|number %}
   {% blocktrans asvar hint with n=data.planned_locations_unique %}{{ n }} unique{% endblocktrans %}
@@ -13,29 +13,6 @@
   <section class="panel"><div class="panel__header"><h2 class="panel__title">{% trans "Contributions by start year (USD)" %}</h2><span class="panel__hint">{% trans "The year the programme document starts" %}</span></div>
     <div class="chart" data-module="charts" data-chart="bars" data-orientation="v" data-source="donor-chart-data" data-key="funds_by_year"></div></section>
 </div>
-<section class="panel p-0 mb-3">
-  <div class="table-toolbar">
-    <div class="table-toolbar__title"><h2 class="h6 mb-0">{% trans "Grants by donor" %}</h2>
-      <span class="text-muted small">{% trans "Reserved: the money set aside in funds reservations against each grant (USD)" %}</span></div>
-    <div class="table-toolbar__actions">
-      <a class="btn btn-outline-secondary btn-sm" href="{{ funds_url }}">{% trans "Funds reservations" %}</a>
-      <button type="button" class="btn btn-outline-secondary btn-sm" data-table-csv data-table-target="#donor-grants" data-filename="donor-grants">{% include "components/icon.html" with name="download" %}<span>{% trans "CSV" %}</span></button>
-    </div>
-  </div>
-  {% if donor_grants %}
-  <div class="table-wrap"><table class="table table-sm" id="donor-grants">
-    <thead><tr><th>{% trans "Donor / grant" %}</th><th>{% trans "Expiry" %}</th><th class="num">{% trans "Programme documents" %}</th><th class="num">{% trans "Reserved (USD)" %}</th></tr></thead>
-    {% for d in donor_grants %}<tbody>
-      <tr class="table-light"><th scope="rowgroup">{{ d.donor|default:_("Donor not given") }} <span class="text-muted fw-normal small">· {% blocktrans count counter=d.grants|length %}{{ counter }} grant{% plural %}{{ counter }} grants{% endblocktrans %}</span></th><td></td><th class="num">{{ d.pds }}</th><th class="num">{{ d.reserved|number:0 }}</th></tr>
-      {% for g in d.grants %}<tr><td class="ps-4"><span class="mono small">{{ g.grant.name }}</span>{% if g.grant.description %}<span class="cell-sub">{{ g.grant.description|truncatechars:80 }}</span>{% endif %}</td>
-        <td class="small text-nowrap">{{ g.grant.expiry|date:"j M Y"|default:"—" }}{% if g.expired %} {% status_pill "failed" _("Expired") "sm" %}{% elif g.expiring %} {% status_pill "stale" _("Expires within 6 months") "sm" %}{% endif %}</td>
-        <td class="num">{{ g.pds }}</td><td class="num">{{ g.reserved|number:0 }}</td></tr>{% endfor %}
-    </tbody>{% endfor %}
-  </table></div>
-  {% else %}
-  {% include "components/empty_state.html" with icon="gift" title=_("No grants to show") message=_("No funds reservation names a grant of these donors yet.") %}
-  {% endif %}
-</section>
 <section class="panel p-0">
   <div class="table-toolbar">
     <div class="table-toolbar__title"><h2 class="h6 mb-0">{% trans "Largest programme documents" %}</h2>

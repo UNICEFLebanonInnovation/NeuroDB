@@ -1377,16 +1377,16 @@ def donors(request: HttpRequest) -> HttpResponse:
     filters = partnerships.PDFilters.from_params(request.GET)
     data = partnerships.donor_mapping(filters)
     selected = {key: request.GET.getlist(key) for key in ("donor", "grant", "partner", "section", "status")}
-    # the full lists live on Programmes and Funds: this page links there with the same filters
+    # the full lists live on Programmes and Funds (each grant and what it reserves: Grants by donor is
+    # hidden here): this page links there with the same filters
     programmes_query = urlencode([(k, v) for k, values in selected.items() for v in values])
     funds_query = urlencode([(k, v) for k in ("donor", "grant") for v in selected[k]])
     context = {
         "page_title": _("Donors"),
-        "page_subtitle": _("What each donor funds, by grant, and the programme documents they fund"),
+        "page_subtitle": _("What each donor funds and the programme documents they fund"),
         "breadcrumbs": [_crumb(_("Donors"))],
         "data": data,
         "top_programmes": sorted(data["programmes"], key=lambda p: -p["donations"])[:DONOR_PAGE_PDS],
-        "donor_grants": datamart.grants_by_donor(filters.donors, filters.grants),
         "programmes_url": reverse("reports:programmes")
         + (f"?{programmes_query}" if programmes_query else ""),
         "funds_url": reverse("reports:funds") + (f"?{funds_query}" if funds_query else ""),

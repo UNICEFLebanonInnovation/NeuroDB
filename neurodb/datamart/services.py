@@ -483,8 +483,9 @@ def visits_chart(staff: list[tuple[int, int]], monitoring: dict[str, dict[int, i
 
 # ------------------------------------------------------------------------------------------ donors
 def grants_by_donor(donors: list[str], grants: list[str] | None = None) -> list[dict[str, Any]]:
-    """The Donors page's main table: each donor's grants (``grants_for_donors``) under a donor row with
-    the total reserved, largest donor first."""
+    """Each donor's grants (``grants_for_donors``) under a donor row with the total reserved, largest
+    donor first. It was the Donors page's Grants by donor table, now hidden there (each grant and what it
+    reserves is on Funds); kept so the table can come back."""
     rows = grants_for_donors(donors)
     if grants:
         rows = [r for r in rows if r["grant"].name in grants]

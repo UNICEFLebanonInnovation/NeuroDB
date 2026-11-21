@@ -2085,7 +2085,7 @@ Datamart host (a pagination link to any other host is refused). Every request is
 | `intervention_budgets` | `interventions-budget/` | the budget columns of the programme documents (`total_budget`, `unicef_cash`, `cso_contribution`, `budget_currency`, `total_unicef_budget` = UNICEF cash + supply), each written by the budget record that carries the PD's reference number (below, *Budgets link to the PD whose number they carry*); `details.budget_link` counts how, shown on Raw eTools data → Programme document budgets |
 | `agreements` | `partners/agreements/` | type and dates of the agreements |
 | `funds_reservations` | `funds-reservation/` | `datamart.FundsReservation`, linked to the PD; rebuilds each PD's donor amounts (donor page) |
-| `grants` | `funds/grants/` | `datamart.Grant` (expiry dates on the donor page) |
+| `grants` | `funds/grants/` | `datamart.Grant` (expiry dates on the Funds page's Grants table and on the donor page; the Donors page's Grants by donor table, `datamart.services.grants_by_donor`, is hidden: its code is kept, nothing calls it) |
 | `pd_indicators` | `pd-indicators/` | `datamart.PDIndicator` (programme page) |
 | `assessments`, `psea_assessments` | `partners/assessment/`, `psea/assessments/` | HACT and PSEA assessments (partner and assurance pages) |
 | `engagements` | `audit/engagements/` | audits, special audits, spot checks, micro-assessments (assurance, partner and programme pages) |

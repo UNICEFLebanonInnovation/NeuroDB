@@ -171,9 +171,12 @@ def test_partner_profile_shows_datamart_assurance(client_viewer, datamart):
         assert expected in text
 
 
-def test_donors_page_lists_grants_with_expiry(client_viewer, datamart):
-    text = client_viewer.get(reverse("reports:donors")).text
+def test_grants_with_expiry_are_on_funds_not_on_donors(client_viewer, datamart):
+    """Grants by donor is hidden on the Donors page: a grant's expiry is on Funds' Grants table."""
+    text = client_viewer.get(reverse("reports:funds")).text
     assert "SC001" in text and "Expires within 6 months" in text
+    text = client_viewer.get(reverse("reports:donors")).text
+    assert "Grants by donor" not in text and "Expires within 6 months" not in text
 
 
 def test_sidebar_links_the_new_pages(client_viewer, full_menu):

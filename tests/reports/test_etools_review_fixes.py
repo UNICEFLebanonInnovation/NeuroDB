@@ -132,9 +132,9 @@ def test_programme_detail_shows_one_donor_table_from_the_funds_lines(client_view
     assert "Donor contributions listed on the programme document" in text
 
 
-def test_donors_page_totals_grants_by_donor_and_links_to_the_lists(client_viewer, pd):
-    dm.Grant.objects.create(datamart_id=1, name="SC001", donor="Donor X")
-    dm.Grant.objects.create(datamart_id=2, name="SC002", donor="Donor X")
+def _donor_grants(pd):
+    dm.Grant.objects.create(datamart_id=1, name="SC001", donor="Donor X", description="Grant one")
+    dm.Grant.objects.create(datamart_id=2, name="SC002", donor="Donor X", description="Grant two")
     for n, (grant, amount) in enumerate((("SC001", 700), ("SC002", 300)), start=1):
         dm.FundsReservation.objects.create(
             datamart_id=n,
@@ -144,13 +144,56 @@ def test_donors_page_totals_grants_by_donor_and_links_to_the_lists(client_viewer
             grant_number=grant,
             overall_amount=Decimal(amount),
         )
+
+
+def test_grants_by_donor_still_totals_each_donor(pd):
+    """The Donors page no longer shows the table, but its data code stays (hidden, not removed)."""
+    _donor_grants(pd)
     rows = datamart.grants_by_donor([])
     assert [(r["donor"], r["reserved"], r["pds"], len(r["grants"])) for r in rows] == [
         ("Donor X", Decimal(1000), 1, 2)
     ]
+
+
+def test_donors_page_hides_grants_by_donor_and_links_to_funds(client_viewer, pd):
+    _donor_grants(pd)
     response = client_viewer.get(reverse("reports:donors"), {"donor": "Donor X"})
-    assert response.context["funds_url"] == reverse("reports:funds") + "?donor=Donor+X"
-    assert "Grants by donor" in response.text and "Records by governorate" not in response.text
+    text = response.text
+    funds_url = reverse("reports:funds") + "?donor=Donor+X"
+    assert response.context["funds_url"] == funds_url
+    # the table is gone, and nothing on the page computes or names it
+    assert "donor_grants" not in response.context
+    assert "Grants by donor" not in text and 'id="donor-grants"' not in text
+    assert "Grant one" not in text and "No grants to show" not in text
+    # the page still leads to Funds, with the same filter
+    assert f'href="{funds_url}">Funds reservations</a>' in text
+    # the rest of the page as before
+    for kept in (
+        "Donor contributions (USD)",
+        "Contributions by donor (USD)",
+        "Contributions by start year (USD)",
+        "Largest programme documents",
+        'id="donor-pds"',
+        'id="donor-chart-data"',
+    ):
+        assert kept in text, kept
+    assert response.context["programmes_url"] == reverse("reports:programmes") + "?donor=Donor+X"
+    assert "Records by governorate" not in text
+
+
+def test_donors_page_tile_hint_points_to_funds(client_viewer, pd):
+    text = client_viewer.get(reverse("reports:donors")).text
+    assert "Reserved column of Grants by donor" not in text
+    assert "The money actually set aside is on Funds" in text
+
+
+def test_donors_page_partial_hides_grants_by_donor(client_viewer, pd):
+    _donor_grants(pd)
+    response = client_viewer.get(reverse("reports:donors"), {"donor": "Donor X"}, HTTP_HX_REQUEST="true")
+    assert response.status_code == 200
+    funds_url = reverse("reports:funds") + "?donor=Donor+X"
+    assert "Grants by donor" not in response.text
+    assert f'href="{funds_url}">Funds reservations</a>' in response.text
 
 
 def test_empty_assurance_page_does_not_ask_viewers_to_run_the_sync(client_viewer, client, admin_user):
