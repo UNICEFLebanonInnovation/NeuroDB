@@ -16,8 +16,8 @@ would be.
 A validator sees one more line under the tabs of [Progress reports](/partner-reporting/),
 [Partner monitoring](/partner-monitoring/) (and its map) and [Field monitoring](/field-monitoring/), and on
 [Home](/home/) under *Partner reporting*: **Raw data behind this page**. It opens Raw eTools data on the
-sources that page reads. On Progress reports (every tab), Partner monitoring (the grid, Program Performance
-and Data quality) and its map, the line also offers **Check these figures** (the figure trail, below), and so
+sources that page reads. On Progress reports (every tab), Partner monitoring (Data quality, with its grid,
+and Program Performance) and its map, the line also offers **Check these figures** (the figure trail, below), and so
 does a line of its own under the title of each of Home's two blocks, Progress reports and Indicator progress.
 On Progress reports and Partner monitoring, the line offers the **Power BI comparison sheet (Excel)** (below).
 The master indicators have neither. The *eTools reporting checks* (*Data and sync*) open read-only for
@@ -141,8 +141,8 @@ indicators or the partner report rows it names, with `unit_key` and `counts_once
 than a download allows (100,000 PD indicator rows, 25,000 partner report rows) says so instead, with a link
 to Raw eTools data.
 
-**A worked example** (the numbers are an example). The tile *Off track* on Partner monitoring's grid, section
-Education, 2026:
+**A worked example** (the numbers are an example). The tile *Off track* of the grid on Partner monitoring's
+Data quality tab, section Education, 2026:
 
 > Off track: 12 indicators, the same as the page.
 >
@@ -369,7 +369,9 @@ NeuroDB never reads Power BI: you compare by hand, and the sheet does the rest. 
 (Excel)*, under the tabs of Progress reports and Partner monitoring, downloads the page's figures for the
 filter shown, in the order and with the names of the PRP Power BI dashboard. Home, the grid, the map and
 the master indicators have no Power BI page: check Home's blocks, the grid and the map with their figure
-trail, and the master indicators against Raw eTools data.
+trail, and the master indicators against Raw eTools data. Partner monitoring's Data quality tab opens on
+this year (the year of its grid), while Power BI's Data Quality page opens on every year: set Power BI's
+*Reporting year* as the sheet says, or choose *All years* on the page first.
 
 **Statuses read for.** Due, Overdue and Not yet due depend on the day a report's status is read for.
 The page reads today; Power BI reads the day of its last refresh. Beside the link, choose the day of

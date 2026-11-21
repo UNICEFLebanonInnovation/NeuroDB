@@ -63,8 +63,9 @@ SOURCE = "pd_indicators"  # the Datamart dataset the indicators are read from
 PDS = "interventions"  # and their programme documents (Raw eTools data's, for a download too large)
 REPORTS = "partner_reports"  # and what partners reached on them
 TOTALS = "prp_indicator_reports"  # PRP's own report totals
-# 2: the Reached fold is one chain, in report rows and indicator reports; 3: Chain.owed_overdue lists records
-CACHE_VERSION = 3
+# 2: the Reached fold is one chain, in report rows and indicator reports; 3: Chain.owed_overdue lists records;
+# 4: Data quality's blocks come first, the grid's are named as Data quality's (the Grid tab merged into it)
+CACHE_VERSION = 4
 # the folded parts of the page's trail, each its own computation: Program Performance reads the filter without
 # its sections, the map its places
 TABLES = ("performance", "map")
@@ -115,10 +116,12 @@ TEST_WORDS = {  # how each test counts, in one line
 
 
 def filters_of(params: Any) -> monitoring.Filters:
-    """The page's filter from its address, as the page reads it: the grid and the map open on this year,
-    Program Performance and Data quality on every year (the check line always carries the year shown)."""
-    view = params.get("view") or "grid"
-    return monitoring.Filters.from_params(params, default_year=view in ("grid", "map", "masters"))
+    """The page's filter from its address, as the page reads it: Data quality (with the grid) and the map
+    open on this year, Program Performance on every year (``monitoring.opens_on_this_year``; the check line
+    always carries the year shown)."""
+    return monitoring.Filters.from_params(
+        params, default_year=monitoring.opens_on_this_year(params.get("view"))
+    )
 
 
 # ------------------------------------------------------------------------------------------------- the values
@@ -1659,10 +1662,13 @@ def _monitoring_trail(
             )
             no_partner = sum(1 for pk in {i.pd for i in rows.kept_indicators} if not rows.pds[pk][2])
             quality_tiles, quality_lists = quality_figures(quality, rows)
+            # in the page's order: the Data quality tab draws its tiles and lists, then the grid below them
             blocks = [
+                Block("quality", "Data quality: tiles", "quality", tuple(quality_tiles)),
+                Block("quality_lists", "Data quality: the lists", "quality", tuple(quality_lists)),
                 Block(
                     "grid",
-                    "Grid: tiles",
+                    "Data quality: the grid's tiles",
                     "grid",
                     tuple(tiles),
                     notes=(
@@ -1673,9 +1679,7 @@ def _monitoring_trail(
                         ),
                     ),
                 ),
-                Block("list", "Grid: the list", "grid", (listed,)),
-                Block("quality", "Data quality: tiles", "quality", tuple(quality_tiles)),
-                Block("quality_lists", "Data quality: the lists", "quality", tuple(quality_lists)),
+                Block("list", "Data quality: the grid's list", "grid", (listed,)),
             ]
         as_of = moment()
     if not warm:

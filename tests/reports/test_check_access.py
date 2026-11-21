@@ -170,7 +170,8 @@ def test_the_trail_s_link_is_for_validators_only(client, roles, more, frozen, pa
     link = html.unescape(link)
     assert link.startswith(trail)
     if page.startswith("/partner-monitoring/"):
-        view = "map" if page.endswith("map/") else params.get("view", "grid")
+        # the bare address is Data quality (with the grid), the page's default view
+        view = "map" if page.endswith("map/") else params.get("view", "quality")
         assert f"view={view}" in link
         assert "year=" in link and "page=" not in link and "as_of=" not in link
         if "section" in params:

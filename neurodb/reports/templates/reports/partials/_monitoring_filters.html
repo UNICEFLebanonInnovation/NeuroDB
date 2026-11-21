@@ -1,18 +1,18 @@
 {% load i18n ui %}
-{# the view links follow the filter in the address bar (data-current-query): a filter changed through HTMX is kept #}
+{% comment %}The view links follow the filter in the address bar (data-current-query): a filter changed through HTMX is kept.
+Data quality is the first tab and the default (the bare address): the grid is below its lists. Master indicators
+(view=masters) is hidden: no tab, but its address still opens it, with this filter bar.{% endcomment %}
 <div class="toolbar">
   <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Partner monitoring views' %}">
-    <a href="{{ tab_urls.grid }}" data-current-query="view=grid" {% if view == "grid" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="table" %} {% trans "Grid" %}</a>
+    <a href="{{ tab_urls.quality }}" data-current-query="view=quality" {% if view == "quality" %}aria-current="page"{% endif %} title="{% trans 'Indicators with and without a target or Reached, the lists to fix, then every indicator by section, programme document and month' %}">{% include "components/icon.html" with name="check" %} {% trans "Data quality" %}</a>
     <a href="{{ tab_urls.table }}" data-current-query="view=table" {% if view == "table" %}aria-current="page"{% endif %} title="{% trans 'One row per indicator, sorted by % Reached (Program Performance)' %}">{% include "components/icon.html" with name="list" %} {% trans "Program Performance" %}</a>
-    <a href="{{ tab_urls.quality }}" data-current-query="view=quality" {% if view == "quality" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="check" %} {% trans "Data quality" %}</a>
-    <a href="{{ tab_urls.masters }}" data-current-query="view=masters" {% if view == "masters" %}aria-current="page"{% endif %} title="{% trans 'Each section’s master indicators: the partners’ PD indicators combined by each type’s rule, against the year’s target' %}">{% include "components/icon.html" with name="layers" %} {% trans "Master indicators" %}</a>
     <a href="{{ tab_urls.map }}" data-current-query="" {% if view == "map" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="map" %} {% trans "Map" %}</a>
   </div>
-  {% if own_section %}<span class="small text-muted">{% blocktrans with section=own_section|join:", " %}Your section, {{ section }}, by default{% endblocktrans %} · <a href="?section={% if view != 'grid' and view != 'map' %}&amp;view={{ view }}{% endif %}" data-current-query="section=">{% trans "every section" %}</a></span>{% endif %}
+  {% if own_section %}<span class="small text-muted">{% blocktrans with section=own_section|join:", " %}Your section, {{ section }}, by default{% endblocktrans %} · <a href="?section={% if view != 'quality' and view != 'map' %}&amp;view={{ view }}{% endif %}" data-current-query="section=">{% trans "every section" %}</a></span>{% endif %}
 </div>
 {% if view == "map" %}{% include "reports/partials/_check_link.html" with page="reports:pd_monitoring" compare=check_compare trail=check_trail %}{% endif %}{# the other views draw it with their results #}
 <form method="get" class="filter-bar" {% if view != "map" %}data-filter-bar data-hx-target="#monitoring-grid"{% endif %} role="search" aria-label="{% trans 'Partner monitoring filters' %}">
-  {% if view != "map" and view != "grid" %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
+  {% if view != "map" and view != "quality" %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
   {% if filters.scope == "year" %}<input type="hidden" name="scope" value="year">{% endif %}
   <div class="filter-bar__field">
     <label class="form-label" for="f-q">{% if view == "masters" %}{% trans "Master indicator" %}{% else %}{% trans "Indicator" %}{% endif %}</label>
@@ -82,6 +82,6 @@
   </div>
   <div class="filter-bar__actions">
     <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
-    <a class="btn btn-link btn-sm" href="{{ request.path }}{% if view != 'grid' and view != 'map' %}?view={{ view }}{% endif %}">{% trans "Reset" %}</a>
+    <a class="btn btn-link btn-sm" href="{{ request.path }}{% if view != 'quality' and view != 'map' %}?view={{ view }}{% endif %}">{% trans "Reset" %}</a>
   </div>
 </form>

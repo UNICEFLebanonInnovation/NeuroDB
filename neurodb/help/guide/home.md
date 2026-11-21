@@ -47,8 +47,9 @@ pages on the same sections:
   when there is no progress report).
 - **Indicator progress** this year: the tiles of Partner monitoring for every programme document running
   this year (indicators, on track, off track, not reported, programme documents, partners), exactly the
-  figures that page shows at the same link. *On track*, *Off track* and *Not reported* open the indicators
-  in that status; *Program Performance table* opens the table. Overdue reports are counted once on Home,
+  figures that page shows at the same link. *On track*, *Off track* and *Not reported* open Partner
+  monitoring's Data quality tab in that status, with the indicators in the grid under its lists;
+  *Program Performance table* opens the table. Overdue reports are counted once on Home,
   on the Progress reports tiles: Partner monitoring counts them its own way.
 
 **More on Home**, below, opens with one click. It is open from the start for superusers, and for

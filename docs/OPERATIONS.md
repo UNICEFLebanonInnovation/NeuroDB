@@ -1679,7 +1679,7 @@ button on Raw eTools data (and in Run a job); the fields count is written by the
 | Run a job → *eTools reporting checks* (also *Run the checks now* on the eTools reporting checks page) | `reporting_checks` | background |
 | Run a job → *Probe a Datamart dataset* (the dataset chosen in the dialog) | `probe_datamart --dataset <name>` | background (seconds); writes nothing but its run |
 | Run a job → *eTools master indicators* (also *Suggest now* on *Reporting setup* → *Master indicators (eTools)*) | `suggest_master_indicators` | background |
-| *Reporting setup* → *Master indicators (eTools)*: actions *Accept the proposed master indicators*, *Dismiss the proposed master indicators*, *Confirm all suggestions*, *Confirm suggestions scoring 0.9 or more*, *Merge the selected master indicators*, *Change section (after an eTools rename)*, and *Add PD indicators* on a master's page; *Master indicator links (eTools)*: *Confirm*, *Reject*, *Make "Shown only"*; the same decisions on Partner monitoring's *Master indicators* tab | (no command: they change the master indicators and their links) | in the request |
+| *Reporting setup* → *Master indicators (eTools)*: actions *Accept the proposed master indicators*, *Dismiss the proposed master indicators*, *Confirm all suggestions*, *Confirm suggestions scoring 0.9 or more*, *Merge the selected master indicators*, *Change section (after an eTools rename)*, and *Add PD indicators* on a master's page; *Master indicator links (eTools)*: *Confirm*, *Reject*, *Make "Shown only"*; the same decisions on Partner monitoring's *Master indicators* view (hidden: its address only) | (no command: they change the master indicators and their links) | in the request |
 | *Reporting setup* → *Master indicators* (ActivityInfo): action *Create eTools master indicators from these* | (no command: writes eTools master indicators only, never an ActivityInfo row) | in the request |
 | Admin → *KM Database* → *Versions* → **Upload a new version** (superusers and Administrators) | `load_km_database` (reads the uploaded workbook into the KM Database; writes only the KM tables) | background |
 | *Data and sync* → *Compare with Power BI* → **Upload and compare**, and an upload's **Compare again** (validators) | `compare_powerbi` (reads Power BI's exports and compares them with NeuroDB's pages, in read-only snapshots; writes the Compare with Power BI tables and nothing else; lock 7140443; not an import run; refused while a Datamart sync or a KM Database load runs) | background |
@@ -1739,8 +1739,8 @@ names*).
 
 A page that loads in parts answers its frame at once and fetches each of its data blocks in the
 background. These pages work this way: **Home**, the **country overview**, the **daily review**, the
-**management brief**, the **partner page**, **Data health**, **partner monitoring** (its Grid, Program Performance and Data
-quality views), **Progress reports** (its *By location* and *By disaggregation* tabs, hidden from the tab bar
+**management brief**, the **partner page**, **Data health**, **partner monitoring** (its Data quality tab, with the grid
+below its lists, and Program Performance), **Progress reports** (its *By location* and *By disaggregation* tabs, hidden from the tab bar
 but still opened from their address), the Map tab of
 **Monitoring insights**, the **country programme**, **youth programmes**, the **donor page** and three
 views of the **document review** (*By document*, *Themes* and *Repeated findings*). *The pages in
@@ -1892,7 +1892,7 @@ more.
 | Management brief, `/brief/` | Purpose line, filter bar with *Figures as of* and **Print**, the tab bar, the *Reference* block (lineage and data dictionary) | `brief` (at once; first of the group `brief`): the five tiles, *Things to decide* with the *Assign* links for staff, *Sections at a glance* and *Copy summary*. `sections` (when near the screen, once `brief` is in): ahead or behind, how sure, who and where, partners, money and action, with every chart of the page | The brief build, 2 minutes per year, sections, day and language (its labels are translated as it is computed), under the brief's own key: the section plans, the finding assignments and the ActivityInfo partner links (how many, and the last change), the latest daily review, the last finished sync run and the indicator flags, so an entry in the admin, a new review, a sync or a flag shows at once. It reads two overview builds, each stored as an overview build: the year's, the very one the overview stores for the same year and sections without a governorate, and the year before's, for the comparisons. The frame's lineage, 2 minutes, the same in every language, under the last finished sync run, the flags and the latest daily review; the filter bar's section names are the overview's. When the build is stored, the frame draws both parts itself: a brief opened again within two minutes is one request. See *Management brief* |
 | Partner page, `/partners/<id>/` | Header (name, type, breadcrumbs), the *deleted in eTools* notice, the knowledge base documents | `datamart` (at once): everything from the key figures to the last list (profile, visits chart and assurance chips, *Partner reporting* with the eTools and ActivityInfo panels and, for those allowed, *Edit the link*, the eight lists). Inside it, `fmm` (once `datamart` is in, after the visible ones): the Monitoring insights panel, only when Monitoring insights is on and a field monitoring visit ever monitored the partner | Nothing: the partner's figures hold database records, which the shared page figures never store, so they are computed at each visit and an edit or a sync shows at the next one. See *Partner reporting: ActivityInfo and eTools, side by side* |
 | Data health, `/data/health/` | Page heading, the *Sync jobs* heading with its *Stale after N hours* note, the heading and explanation of the eTools Datamart datasets panel | `jobs` (at once): one card per sync job. `databases` and `runs` (when near the screen): the ActivityInfo databases of the year the import serves and their last import (once ActivityInfo is an archive, those of its last year, state "Archive", with a note: "no longer imported" once the `activityinfo-data` job is switched off; while it is on, that the import still runs but NeuroDB no longer warns about it), the latest 50 runs. `datasets`, `power-bi` and `readiness` (after the visible ones): the eTools Datamart datasets table with its *Copy* and *CSV* buttons (they come with the table, so they are never offered before it is there), *Compared with Power BI* (its heading, explanation and, for administrators, the links to the admin are in the frame), the machine learning readiness check | Only the rows each eTools Datamart dataset holds (the *Rows held* column): an hour at most, the same in every language and for everyone, under a key made of the latest run of each job that writes those tables (eTools Datamart sync, eTools sync, Locations sync, eTools update clean-up), so a run of one of them that starts or ends has them counted again. The gazetteer (*locations*), which staff also edit in Admin → Locations, is counted at each visit, and so is everything else on the page. Inside a database transaction (NeuroDB Watch's AI look-ups read these figures in a read-only one) the stored counts are read too; when there are none the rows are counted there and nothing is stored. See *Data quality per dataset* |
-| Partner monitoring, `/partner-monitoring/` | View tabs (Grid, Program Performance, Data quality, Map), the filter bar with its choices, the "your section" note | Grid: `summary` (at once; first of the group `pm`): the seven tiles, the status donut and the indicators by section; `grid` (at once, once `summary` is in): the indicators by section, PD and output with their months or years, its pages, the note when the list is cut. Program Performance (`view=table`): `sections` (at once; first of the group `pm`): the section tiles; `table` (at once, once `sections` is in): the page of rows in its sort, its pages, *Excel of the filter* and *CSV of the filter*. Data quality (`view=quality`): `quality-tiles` (at once; first of the group `pm`) and `quality-lists` (when near the screen, once the tiles are in). A change of filter, sort or section tile reloads the area under the filter bar (`#monitoring-grid`) with new placeholders; a page of the grid or of the table reloads its own part. The exports are answered whole | The filter's indicators (every row the three views read), 2 minutes per filter and day, the same in every language and for everyone; Program Performance's section tiles and table read the same for the filter without its sections (the table keeps the chosen ones, as before), one computation for both. The filter bar's choices, 10 minutes. Each key holds the latest run of each eTools job (eTools sync, eTools Datamart sync, Datamart backfill, Locations sync) and the indicator flags, so a sync shows at once and an ActivityInfo import does not count. The parts carry `as_of`. When the indicators are kept, the frame draws the view's two parts itself: one request. The Map tab is not in parts; its points (`/api/internal/partner-monitoring/map/`) are kept 2 minutes under the same jobs, the flags and the gazetteer. See *Partner monitoring and Progress reports load in parts* |
+| Partner monitoring, `/partner-monitoring/` | Tabs (Data quality, Program Performance, Map; the hidden Master indicators has none), the filter bar with its choices, the "your section" note | Data quality (`view=quality`, the default: the bare address and the old Grid tab's `view=grid` open it): `quality-tiles` (at once; first of the group `pm`), then `quality-lists`, then, under the heading *Every indicator* (in the frame), the grid's `summary` (the seven tiles, the status donut and the indicators by section) and `grid` (the indicators by section, PD and output with their months or years, its pages, the note when the list is cut), these three when near the screen or once the page is idle, after the tiles; one filter and one year for the four. Program Performance (`view=table`): `sections` (at once; first of the group `pm`): the section tiles; `table` (at once, once `sections` is in): the page of rows in its sort, its pages, *Excel of the filter* and *CSV of the filter*. A change of filter, sort or section tile reloads the area under the filter bar (`#monitoring-grid`) with new placeholders; a page of the grid or of the table reloads its own part. The exports are answered whole | The filter's indicators (every row the two tabs read), 2 minutes per filter and day, the same in every language and for everyone; Program Performance's section tiles and table read the same for the filter without its sections (the table keeps the chosen ones, as before), one computation for both. The filter bar's choices, 10 minutes. Each key holds the latest run of each eTools job (eTools sync, eTools Datamart sync, Datamart backfill, Locations sync) and the indicator flags, so a sync shows at once and an ActivityInfo import does not count. The parts carry `as_of`. When the indicators are kept, the frame draws the view's parts itself: one request. The Map tab is not in parts; its points (`/api/internal/partner-monitoring/map/`) are kept 2 minutes under the same jobs, the flags and the gazetteer. See *Partner monitoring and Progress reports load in parts* |
 | Progress reports, `/partner-reporting/` (*By location* and *By disaggregation*) | Filter bar with its choices, the tab bar, the *By disaggregation* tab's own filters | `table` (at once): the tab's table, its pages, the note when the filter holds too many rows, the Excel and CSV links. A change of filter (HTMX) answers the table at once. *Reporting progress* and *Partner view* are drawn whole, as before. The two tabs are hidden: no tab bar or regular page links to them, their address still opens them | The tab's rows (on *By disaggregation*, with the lines of every location), 2 minutes per tab, filter, tab filters and day; the filter bar's choices, 10 minutes; the same in every language and for everyone, under the eTools jobs' latest runs and the indicator flags, as partner monitoring. When the rows are kept, the frame draws the table itself: one request. See *Partner monitoring and Progress reports load in parts* |
 | Monitoring insights, Map tab, `/fmm/?tab=map` | Header and Export menu, filter bar, reference line, chips, data notes, the key figure tiles, the tab bar; a filter without visits shows the tab's empty state and no part. The other tabs stay one request each | `map` (at once): the map, its legend, *Visits on the map*, *PD locations not yet visited* and *Visits without coordinates*, with the map's configuration. A swap of the results (tab bar, filter bar, the planned places switch) brings the map drawn in, in one request | The map (`geo.map_points`), 10 minutes, per filter, planned places shown and language (the popups' dates are translated), under the Monitoring insights stamp (last refresh and rules version, the day, the NeuroDB action points, the last eTools, Locations or clean-up run, the gazetteer's places), so a refresh, one of those runs or a place edited in admin → Locations shows at once. Also the one pass over the visits (under the *Score settings* thresholds too), the entity table and the rule counts that the other tabs read. Never drawn by the frame: the map takes about 90 ms to draw even when stored. See *Monitoring insights* |
 | Country programme, `/country-programme/` | Cycle selector, the cycle's panel (years, share of the cycle elapsed, summary, documents, *Edit in the admin* for staff), the note on AI-suggested indicators; without a cycle or without indicators, the empty state and no part | `summary` (at once; first of the group `cpd`): the six key figures, *Where the CPD indicators stand* and the outcomes at a glance. `outcomes` (when near the screen, once `summary` is in): each outcome with its outputs, indicators, programme documents and partner reporting; a link to `#outcome-<id>` asks for it first | The cycle's build, 10 minutes per cycle, day and language (the kinds of the linked sources are translated), under a key that holds the cycle and what staff enter by hand that its figures read (the cycle, its outcomes, outputs, indicators, milestones, typed values and linked sources, and how the linked ActivityInfo master indicators are set up, down to the indicators they add up and those indicators' ActivityInfo field and database: one digest of the rows themselves, so an edit in place shows at once), the Makani and Dirasa card versions chosen in Admin → *Power BI cards* (the children enrolled a Compiler source gives) and the last finished sync run and the indicator flags. When the build is stored, the frame draws both parts itself. See *Country programme* |
@@ -2777,8 +2777,8 @@ permission); the others read as plain text. Under the tabs of Progress reports,
 Partner monitoring (and its map), Field monitoring and under *Partner reporting* on Home, a validator sees
 **Raw data behind this page** (`reports/partials/_check_link.html`), which opens Raw eTools data on that page's
 sources (`?page=<navigation key>`, `datamart.raw.PAGE_SOURCES`); without staff status it says "Raw data: ask
-for staff status". On Progress reports (every tab) and Partner monitoring (the grid, Program Performance, Data
-quality and the map; not the master indicators) the line also offers the **Power BI comparison sheet (Excel)**
+for staff status". On Progress reports (every tab) and Partner monitoring (Data quality with its grid, Program
+Performance and the map; not the master indicators) the line also offers the **Power BI comparison sheet (Excel)**
 with a "statuses read for" day (below), and on both pages and the map **Check these figures**, the figure
 trail of the filter drawn (below; not on the master indicators); under the title of each of Home's two blocks
 (Progress reports, Indicator progress) a line of its own offers *Check these figures* alone (the raw data link
@@ -3112,7 +3112,7 @@ line): where its rows come from, step by step, and the figure rebuilt from them.
 
 | Page | Address | Name |
 |---|---|---|
-| The trail | `/check/progress-reports/?<the page's filter>&tab=<the tab>`; `/check/partner-monitoring/?<the resolved filter>&view=<grid, table, quality or map>`; `/check/home/?block=<reporting or indicators>&<Home's filter>` | `reports:check_figures` |
+| The trail | `/check/progress-reports/?<the page's filter>&tab=<the tab>`; `/check/partner-monitoring/?<the resolved filter>&view=<table or map; none for Data quality with its grid>`; `/check/home/?block=<reporting or indicators>&<Home's filter>` | `reports:check_figures` |
 | Its rows | `/check/<page>/rows.csv?<the filter>&what=<rows>` (`&of=performance` or `&of=map` for Partner monitoring's folded parts) | `reports:check_rows` |
 
 Validators only (`can_validate`, no staff status needed; a 404 for anyone else, for the master indicators, and for
@@ -3199,7 +3199,8 @@ section*; the table's count; each row's Reached), Data quality (its ten tiles, e
 note's two counts, each same-title row), the map (its seven tiles and its totals line) and Home's Indicator
 progress block (its nine figures: `/check/home/?block=indicators&<keep>`, `home.figure_queries`' `keep`). The
 check line carries the resolved filter (`views.monitoring_filters`, which the page reads too: the sections
-written out, the year always) and `view=`. Parts: `figures` (the grid, Data quality and the folds), then, folded,
+written out, the year always) and `view=` (none for Data quality with its grid, the default view: `view=quality`
+and `view=grid` open the same trail). Parts: `figures` (the grid, Data quality and the folds), then, folded,
 `performance` and `map` (open when the trail was opened from them: `check_views._monitoring_params` keeps the
 map's `view=map`, which the page's own views do not know, so its trail opens the Map part and *Open the page*
 goes back to the map).
@@ -4253,18 +4254,29 @@ figures as everywhere else (they read the rule above; nothing is added across in
   the *Active PDs* tile); *Running* is active, signed or suspended (the default of the PD status
   filter on Partner monitoring, and what the overview, the daily review and the watch read); *Ended*
   is ended, closed, terminated or expired. Clearing the PD status filter shows every status.
-* **Partner monitoring** has four views on one filter: *Grid* (by section, PD and output, with the
-  months), **Program Performance** (one row per indicator: Section, CP output, Emergency, Indicator,
-  Target, Reached, % Reached, Partner, PD; sorted by % Reached, highest first; click a heading to
-  sort; section tiles with their indicator counts filter the table, the tile "—" lists the indicators
-  that name no section), **Data quality** and *Map*.
+* **Partner monitoring** has three tabs on one filter: **Data quality**, the first and the default (its
+  tiles and lists, then the grid by section, PD and output with the months: the Grid tab was merged into
+  it by the owner's decision of 21 Nov 2026, so the bare address and `view=grid` open it as `view=quality`
+  does; its part names are unchanged), **Program Performance** (one row per indicator: Section, CP output,
+  Emergency, Indicator, Target, Reached, % Reached, Partner, PD; sorted by % Reached, highest first; click a
+  heading to sort; section tiles with their indicator counts filter the table, the tile "—" lists the
+  indicators that name no section) and *Map*. *Master indicators* (`view=masters`) is hidden: it is in no
+  tab bar and no regular page links to it (`views.MONITORING_SHOWN_VIEWS`), but its address still opens it
+  with its parts, its exports and its curation buttons, and the admin keeps its own actions on the master
+  indicators. To show it again, add `"masters"` to `MONITORING_SHOWN_VIEWS` and its link back to the tab bar
+  (`reports/partials/_monitoring_filters.html`).
   Filters: PD status, Section, Partner, Partner type (eTools partner type or CSO type), Programme
   document, Document type, Office, Emergency (the indicators of SPDs, as Power BI's Emergency indicator, by
   the user's decision of 26 Oct 2026: `reached.is_spd`; eTools' high frequency is not it),
   CP output (words in it), Indicator (title or output), locations, the title tags, report type,
-  Reporting year and status. Program Performance and Data quality open on *All years* (Reached to
-  date), the grid on this year; the view links and the map carry the year shown, so changing view
-  never changes the year, and the year menu offers *All years* on these pages. With a year chosen,
+  Reporting year and status. Program Performance opens on *All years* (Reached to date), as Power BI
+  does; Data quality opens on this year, one year for its lists and its grid, as the grid opened before the
+  merge (the page's first view is unchanged). One rule, `monitoring.opens_on_this_year`, gives the default
+  year to the page, its figure trail and the Power BI comparison sheet, and every comparison path writes the
+  year out (the check line, the sheet's *Trail* cells, Compare with Power BI's NeuroDB links), so the Data
+  quality figures compared are those of the year shown. Power BI's Data Quality page opens on every year:
+  the sheet's *Set these in Power BI* gives the year to set there. The tab links and the map carry the year
+  shown, so changing tab never changes the year, and the year menu offers *All years* on these pages. With a year chosen,
   Program Performance reads that year as Power BI does (*Reached in* the year, *% Reached in* the year,
   sorted by it), with Reached to date, its % and its status beside them; Data quality counts *with
   Reached in* the year. An indicator's CP output comes from its partner reports; one not reported yet
@@ -4436,11 +4448,12 @@ figures as everywhere else (they read the rule above; nothing is added across in
   on the report table.
 
 **Partner monitoring and Progress reports load in parts** (see *Pages that load in parts*). Partner
-monitoring answers its frame at once: the view tabs, the filter bar with its choices and the "your section"
-note. Each view then fetches its two blocks: the grid its key figures with their two charts (`summary`) and
-the list of indicators (`grid`); Program Performance its section tiles (`sections`) and its table
-(`table`, with its pages and the *Excel of the filter* / *CSV of the filter* links); Data quality its tiles
-(`quality-tiles`) and its lists (`quality-lists`). Every block reads one computation of the filter's
+monitoring answers its frame at once: the tabs, the filter bar with its choices and the "your section"
+note. Data quality then fetches its tiles (`quality-tiles`) and its lists (`quality-lists`), then the grid
+below them: its key figures with their two charts (`summary`) and the list of indicators (`grid`); Program
+Performance its section tiles (`sections`) and its table (`table`, with its pages and the *Excel of the
+filter* / *CSV of the filter* links); the hidden Master indicators view its `masters-summary` and
+`masters-table`. Every block reads one computation of the filter's
 indicators (with each one's Reached, % Reached and status), made once for every user and every web worker
 and kept two minutes; Program Performance's section tiles and table read the one of the filter without its
 sections (the table keeps the chosen ones, as it always did: `monitoring.program_performance_rows`, which the
@@ -4475,12 +4488,13 @@ view tabs and the map's filter bar load whole pages). **Funds**: the *Partner co
 whole reservations summary just to fill the filter bar (6 queries instead of 13); the page is otherwise
 drawn whole, as before.
 
-### eTools master indicators (Partner monitoring → *Master indicators*)
+### eTools master indicators (Partner monitoring → *Master indicators*, hidden)
 
 An **eTools master indicator** is a section's indicator over the partners' own PD indicators, as an
 ActivityInfo master indicator was over its partners' indicators: one figure a year, worked out from its
-**sub-indicators** (one PD indicator of one programme document each) by its method. It is read on the fifth
-tab of Partner monitoring, *Master indicators* (`/partner-monitoring/?view=masters`), and set up in the
+**sub-indicators** (one PD indicator of one programme document each) by its method. It is read on Partner
+monitoring's *Master indicators* view (`/partner-monitoring/?view=masters`), hidden since 21 Nov 2026 (in no
+tab bar, linked from no regular page; its address still opens it: see *Partner monitoring* above), and set up in the
 admin (*Reporting setup* → *Master indicators (eTools)* and *Master indicator links (eTools)*). No figure is
 stored: each page works it out from the partner monitoring rows (`neurodb/datamart/masters.py`). No AI is
 used anywhere in it: the proposals and suggestions come from structure keys and word scores.

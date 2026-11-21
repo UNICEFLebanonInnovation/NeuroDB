@@ -464,9 +464,11 @@ def read(page: str, params: Any, day: datetime.date) -> Read:
         return found
     if page != "partner-monitoring":
         raise ValueError(f"no comparison sheet for the page {page!r}")
-    # the grid opens on this year, Program Performance and Data quality on every year (the check line always
-    # carries the year the page shows)
-    filters = monitoring.Filters.from_params(params, default_year=(params.get("view") or "grid") == "grid")
+    # Data quality (with the grid) opens on this year, Program Performance on every year, as the page reads
+    # them (the check line always carries the year the page shows)
+    filters = monitoring.Filters.from_params(
+        params, default_year=monitoring.opens_on_this_year(params.get("view"))
+    )
     every = monitoring.stored_indicators(dataclasses.replace(filters, sections=[]), day)
     found = Read(page, params, day, filters)
     found.data = {

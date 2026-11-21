@@ -92,10 +92,15 @@ PRP's report ids, which PRP's own list does not carry.
 
 ## Partner monitoring
 
-[Partner monitoring](/partner-monitoring/) has five views on one filter:
+[Partner monitoring](/partner-monitoring/) has three tabs on one filter:
 
-- **Grid**: by section, programme document and output, each indicator with its target, Reached, %
-  Reached, Reached in the chosen year, awaiting acceptance, status and the months of the year.
+- **Data quality**, the first tab, opens when you open the page. At the top, the programme documents and
+  indicators with and without a target or Reached, and the lists to fix (see below). Under them, headed
+  *Every indicator*, the grid: by section, programme document and output, each indicator with its target,
+  Reached, % Reached, Reached in the chosen year, awaiting acceptance, status and the months of the year.
+  The lists and the grid use the same filter and the same year: this year when the tab opens, or the year
+  you choose (with *All years*, the grid has a column per year instead of the months). The grid was a tab
+  of its own until 21 Nov 2026 (your decision): an old link to it opens this tab.
 - **Program Performance**: one row per indicator (section, CP output, emergency, target, Reached, %
   Reached, partner, programme document), sorted by % Reached; the section tiles filter it. *Emergency*
   (the column and the filter) means the programme document is an SPD, as Power BI's Emergency indicator
@@ -103,19 +108,20 @@ PRP's report ids, which PRP's own list does not carry.
   monthly, in humanitarian reports. With a
   reporting year chosen, it shows Reached in that year and its % of the target first (sorted by it),
   as Power BI does, with Reached to date beside them.
-- **Data quality**: programme documents and indicators with and without a target or Reached, and the
-  lists to fix (missing targets, no or zero Reached, Reached differing from PRP, the same title twice in
-  one programme document, partial history). The partner reports carry no PD indicator id, so a report is
-  matched to its indicator by title; where two indicators of a programme document share a title, by
-  their PD output too; where two indicators of a programme document share a title and an output, NeuroDB
-  tells them apart by what the partner reports and eTools both say of them (high frequency, cluster,
-  target, type, disaggregations, planned places, active), once the data shows each of these agrees.
-  Indicators still alike stay without Reached until told apart in eTools, and so do those whose rows name
-  a PD output that matches none of theirs (correct the output name in PRP or eTools): the same-title list
-  counts them.
 - **Map**: the implementation locations, coloured by the worst status there.
-- **Master indicators**: each section's eTools master indicators, one figure a year combined from the
-  partners' PD indicators (see [Master indicators](#master-indicators) below).
+
+*Master indicators* is hidden (your decision of 21 Nov 2026): it is no longer a tab and no page links to
+it, but an old link or bookmark still opens it (see [Master indicators](#master-indicators) below).
+
+**The lists to fix** on Data quality: missing targets, no or zero Reached, Reached differing from PRP, the
+same title twice in one programme document, and partial history. The partner reports carry no PD indicator
+id, so a report is matched to its indicator by title; where two indicators of a programme document share a
+title, by their PD output too; where two indicators of a programme document share a title and an output,
+NeuroDB tells them apart by what the partner reports and eTools both say of them (high frequency, cluster,
+target, type, disaggregations, planned places, active), once the data shows each of these agrees.
+Indicators still alike stay without Reached until told apart in eTools, and so do those whose rows name a
+PD output that matches none of theirs (correct the output name in PRP or eTools): the same-title list
+counts them.
 
 **Indicators eTools marks inactive.** When a programme document is amended, eTools often keeps the older
 version of an indicator beside the new one and marks it inactive. In a programme document partners have
@@ -128,8 +134,7 @@ as their values sit on it: its pop-up says it is inactive in eTools. The eTools 
 indicators or the partner reports, so an indicator a new report names comes back after the next sync. Raw
 eTools data → PD indicators says how many are left out and lists their rows.
 
-Switching views keeps the year shown; the year menu at the top offers *All years* on these pages (not on
-*Master indicators*, which shows one year at a time). The
+Switching tabs keeps the year shown, and the year menu at the top offers *All years*. The
 **location** filter shows each indicator's Reached at the chosen place (a place is found by its name and
 by its P-code, so "Akkar Governorate" in a partner report is the planned "Akkar"); on the map, each row
 then gives the place's own Reached and, beside it, the indicator's Reached over every location.
@@ -139,9 +144,10 @@ Reached and whose columns end with each report's value, the reports that do not 
 **Reached by disaggregation** (female, male, Lebanese…) for each location, with a subtotal per
 disaggregation when the indicator adds up.
 
-The page opens at once: the view tabs and the filters come first, with a grey box where the figures and
-the list will go, and each box fills in as soon as its figures are ready (see [Pages that open at
-once](/help/overview/#pages-that-open-at-once)). Applying a filter, sorting a column or clicking a
+The page opens at once: the tabs and the filters come first, with a grey box where each block will go,
+and each box fills in as soon as its figures are ready (see [Pages that open at
+once](/help/overview/#pages-that-open-at-once)). On Data quality, its tiles come first, then its lists,
+then the grid's tiles and list as you scroll down to them. Applying a filter, sorting a column or clicking a
 section tile refills the boxes under the filters; the filters stay as they are. The figures are worked
 out once for everyone who asks for the same filter and kept for two minutes, so opening a view again, or
 another person opening the same filter, is quicker; a new eTools sync shows at once. The map fills in
@@ -152,9 +158,10 @@ the same way: the page first, then its locations.
 A **master indicator** brings together the partners' own PD indicators that measure the same thing, as an
 ActivityInfo master indicator did: for example "children enrolled in non-formal education" over every
 programme document of the section that counts them. Each one is in one eTools section and has, for every
-year, its AWP or RWP code and the **target staff type for that year**. Open the **Master indicators** view of
-[Partner monitoring](/partner-monitoring/): it shows one year (this year first) and opens on your own
-section.
+year, its AWP or RWP code and the **target staff type for that year**. The *Master indicators* view of
+Partner monitoring is hidden (your decision of 21 Nov 2026): it is no longer a tab and no page links to
+it, but an old link or bookmark still opens it, and everything below still works there. It shows one year
+(this year first) and opens on your own section.
 
 **Only what a section confirmed counts.** Every night NeuroDB proposes master indicators where two programme
 documents or more share a CP output, a type and a title, and suggests PD indicators for the master indicators
@@ -292,8 +299,8 @@ and where to see the records.
 
 Program Performance (the *Table* view of Partner monitoring), every tab of Progress reports and the two
 Power BI tabs of Funds have *Excel of the filter* and *CSV of the filter*: every row of the filter, not
-only the page shown. The grid and the Data quality tab have no file of their own: Program Performance's
-file holds the same indicators with their figures, and each Data quality list (at most 500 rows on the
+only the page shown. The Data quality tab (its lists and its grid) has no file of its own: Program
+Performance's file holds the same indicators with their figures, and the grid and each list (at most 500 rows on the
 page; its count is complete) can be copied or saved as CSV with the rows it shows. In the
 disaggregation export, values, subtotals and location totals are in columns of their own, and in the
 funds export the programme document's own amounts are on its first row only, so adding up a column

@@ -124,6 +124,19 @@ def year_param(raw: Any) -> int | None:
     return int(text)
 
 
+# Partner monitoring's views that open on every year when the address has no year: Program Performance
+# (``view=table``), as Power BI opens it. Every other one opens on this calendar year: Data quality, with the
+# grid below its lists (``view=quality``, the old ``view=grid`` and the bare address), the map and the master
+# indicators. The page, its figure trail and the Power BI comparison sheet read this one rule.
+EVERY_YEAR_VIEWS = ("table",)
+
+
+def opens_on_this_year(view: str | None) -> bool:
+    """Whether Partner monitoring's view (the ``view`` of its address, "" or None for none) opens on this
+    calendar year when the address has no year (``Filters.from_params``' ``default_year``)."""
+    return (view or "") not in EVERY_YEAR_VIEWS
+
+
 # ------------------------------------------------------------------------------------ filters
 @dataclass
 class Filters:
@@ -194,8 +207,9 @@ class Filters:
 
     @classmethod
     def from_params(cls, params, today: datetime.date | None = None, default_year: bool = True) -> Filters:
-        """The page's filter from its query. ``default_year``: without a year, this calendar year (the
-        grid); else every year (Program Performance and Data quality, as Power BI opens them)."""
+        """The page's filter from its query. ``default_year``: without a year, this calendar year (Data
+        quality with the grid, the map); else every year (Program Performance, as Power BI opens it). Each
+        view's choice is :func:`opens_on_this_year`."""
         today = today or datetime.date.today()
 
         def getlist(key: str) -> list[str]:

@@ -113,9 +113,10 @@ programmes, the donor page and three views of the document review (*By document*
   then takes you there.
 - On a partner's page, everything from the key figures to the last list fills in as one box; the
   Monitoring insights panel follows it, on partners a field monitoring visit has monitored.
-- On partner monitoring, the view tabs and the filters come at once; the key figures (or the section
-  tiles, or the data quality tiles) fill in first, then the list. Changing a filter, a sort or a
-  section tile refills the boxes under the filters. See [Partner progress](/help/partner-progress/).
+- On partner monitoring, the tabs and the filters come at once. On Data quality, its tiles fill in
+  first, then its lists, then the grid's key figures and list below them; on Program Performance, the
+  section tiles, then the table. Changing a filter, a sort or a section tile refills the boxes under the
+  filters. See [Partner progress](/help/partner-progress/).
 - On Monitoring insights, the Map tab opened from a link or a bookmark shows the filters, key figures
   and tabs first, then the map and its tables. See [Monitoring insights](/help/monitoring-insights/).
 - On the country programme page, the cycle, its documents and how much of it has gone come at once;

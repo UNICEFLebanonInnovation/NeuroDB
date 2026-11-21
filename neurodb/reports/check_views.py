@@ -5,7 +5,8 @@ needed). Anyone else gets a 404, and a donor never reaches them (``DonorScopeMid
 
 * ``check/<page>/?<the page's filter>``: the figure trail of Progress reports (``progress-reports``) or of
   Home's Progress reports block (``home``, ``block=reporting``), and of Partner monitoring
-  (``partner-monitoring``, ``view=`` the view it was opened from: grid, table, quality or map) or of Home's
+  (``partner-monitoring``, ``view=`` the view it was opened from: table or map, none for Data quality with the
+  grid, the default; ``view=quality`` and ``view=grid`` read as none) or of Home's
   Indicator progress block (``home``, ``block=indicators``; ``datamart.trail_monitoring``). The page loads in
   parts: the frame (the filter in words, the day, the moment of the eTools figures, the sync running note) at
   once, then ``figures`` (the page's tiles, the steps, every figure on the page and rebuilt from the rows)
@@ -197,17 +198,18 @@ def _monitoring_params(request: HttpRequest, page: str) -> tuple[QueryDict, str]
     """The filter of a Partner monitoring trail (the page's resolved filter, as ``views.monitoring_filters``
     reads it; Home's block: the filter of Home's links) and the view it was opened from; a 404 for the master
     indicators (they have no trail)."""
-    from neurodb.reports.views import monitoring_filters
+    from neurodb.reports.views import MONITORING_DEFAULT_VIEW, monitoring_filters
 
     if page == "home":
         return trail.filter_query(request.GET), ""
     found = monitoring_filters(request)
     if found.view == "masters":
         raise Http404
-    # the map is not one of the page's views: its filter is the grid's (its link always writes the year)
+    # the map is not one of the page's views: its filter is Data quality's (its link always writes the year)
     view = "map" if request.GET.get("view") == "map" else found.view
     params = trail.filter_query(found.resolved)
-    if view != "grid":
+    params.pop("view", None)  # Data quality with the grid, the default view (view=grid, its old address, too)
+    if view != MONITORING_DEFAULT_VIEW:
         params["view"] = view
     return params, view
 

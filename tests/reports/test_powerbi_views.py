@@ -199,7 +199,8 @@ def test_program_performance_export_holds_every_row_with_the_grid_figures(
 
 # ---------------------------------------------------------------------------------- Data quality
 def test_data_quality_tiles_and_lists(client_viewer, more, frozen):
-    page = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "quality"})
+    # every year (Data quality opens on this year since the grid was merged into it: the year is written out)
+    page = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "quality", "year": "all"})
     assert page.status_code == 200
     q = page.context["quality"]
     assert (q["programme_documents"], q["active_pds"], q["ended_pds"]) == (1, 1, 0)
@@ -211,7 +212,9 @@ def test_data_quality_tiles_and_lists(client_viewer, more, frozen):
     grid = client_viewer.get(reverse("reports:pd_monitoring"), {"year": "all"}).context["data"]
     assert (grid["indicators"], grid["with_reached"], grid["with_target"]) == (3, 2, 2)
     # every status: the closed PD is ended, its indicator without Reached
-    everything = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "quality", "pd_status": ""})
+    everything = client_viewer.get(
+        reverse("reports:pd_monitoring"), {"view": "quality", "pd_status": "", "year": "all"}
+    )
     assert (
         everything.context["quality"]["programme_documents"],
         everything.context["quality"]["ended_pds"],
@@ -792,8 +795,9 @@ def test_partner_monitoring_view_links_follow_the_filter_in_the_address_bar(clie
     links take the address bar's filter when clicked (data-current-query), so switching from Program
     Performance to Data quality keeps the filter just chosen."""
     page = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "table", "year": "2026"})
-    for view in ("grid", "table", "quality"):
+    for view in ("quality", "table"):  # Data quality holds the grid (view=grid opens it)
         assert f'data-current-query="view={view}"' in page.text
+    assert 'data-current-query="view=grid"' not in page.text
     assert page.context["tab_urls"]["quality"].endswith("?view=quality&year=2026")
 
 

@@ -160,14 +160,15 @@ def test_the_tab_is_a_view_of_partner_monitoring_with_its_two_parts_on_one_year(
         assert (
             query["view"] == ["masters"] and query["year"] == ["2026"] and query["section"] == [w.EDUCATION]
         )
-    assert 'data-current-query="view=masters"' in html and "Master indicators" in html
+    # hidden (the owner's decision of 21 Nov 2026): its address opens it, but no tab bar offers it
+    assert 'data-current-query="view=masters"' not in html
     # one year: no "All years" in its filter, and "All years" from another tab is this year
     assert '<option value="all"' not in html
     every = raw_get(client_viewer, PAGE, {"view": "masters", "year": "all", "section": w.EDUCATION})
     assert every.status_code == 302 and "year=2026" in every["Location"]
     table = raw_get(client_viewer, PAGE, {"view": "table", "year": "all"})
-    assert parse_qs(urlsplit(table.context["tab_urls"]["masters"]).query)["year"] == ["2026"]
-    assert table.context["tab_urls"]["grid"].endswith("year=all")  # the other tabs keep every year
+    assert "masters" not in table.context["tab_urls"]
+    assert table.context["tab_urls"]["quality"].endswith("year=all")  # the tabs keep every year
     # the filters the tab does not apply are not in its filter bar
     for field in ('id="f-pd-status"', 'name="partner_type"', 'name="gender"', 'id="f-emergency"'):
         assert field not in html, field

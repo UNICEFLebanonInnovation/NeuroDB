@@ -388,12 +388,13 @@ def test_program_performance_reads_the_reporting_year_chosen(pd, client_viewer):
 
 def test_the_views_keep_the_year_shown_and_the_menu_offers_every_year(pd, client_viewer, reporting_year):
     url = reverse("reports:pd_monitoring")
+    # Data quality (with the grid, the page's default view) opens on this year; Program Performance on every year
     grid_page = client_viewer.get(url, {"scope": "all"})
     year = grid_page.context["filters"].year
-    for name in ("table", "quality", "map"):
+    for name in ("quality", "table", "map"):
         assert f"year={year}" in grid_page.context["tab_urls"][name]
     table = client_viewer.get(url, {"view": "table", "scope": "all"})
-    assert "year=all" in table.context["tab_urls"]["grid"]
+    assert "year=all" in table.context["tab_urls"]["quality"]
     assert table.context["year_all_active"] and ">All years<" in table.text.replace("\n", "")
 
 

@@ -679,9 +679,11 @@ def test_the_map_s_trail_opens_on_the_map_and_goes_back_to_it(validator, world):
     assert page_url.startswith(reverse("reports:pd_monitoring_map")) and "view=" not in page_url
     assert re.search(r'<details class="panel mt-3" id="trail-map" open>', text(shell))
     assert not re.search(r'<details class="panel mt-3" id="trail-performance" open>', text(shell))
-    # the grid's own trail: the grid, the Map folded
+    # the trail of Data quality with the grid (the page's default view): Data quality and the grid, the Map
+    # folded
     shell = raw_get(validator, reverse("reports:check_figures", args=[PM]), {"year": "2026"})
-    assert shell.context["trail_view"] == "grid" and shell.context["page_url"].startswith(reverse(TRAIL_GRID))
+    assert shell.context["trail_view"] == "quality"
+    assert shell.context["page_url"].startswith(reverse(TRAIL_GRID))
     assert not re.search(r'id="trail-map" open', text(shell))
 
 

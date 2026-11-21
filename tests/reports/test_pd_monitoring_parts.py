@@ -1,9 +1,11 @@
 """Partner monitoring in parts (SPEC7 §3.3-3.4; STAGE3 group B).
 
 The page answers its frame at once (the view tabs, the filter bar with its options stored for every worker, the
-"your section" note) with, in ``#monitoring-grid``, a placeholder for each data block of the view: the grid's
-``summary`` (tiles and charts) and ``grid`` (the page of indicators), Program Performance's ``sections`` (the
-section tiles) and ``table``, Data quality's ``quality-tiles`` and ``quality-lists``. Every part reads the
+"your section" note) with, in ``#monitoring-grid``, a placeholder for each data block of the view: Data quality's
+``quality-tiles`` and ``quality-lists`` then the grid's ``summary`` (tiles and charts) and ``grid`` (the page of
+indicators), one tab since the Grid tab was merged into Data quality (the bare address, which these tests call
+"grid", and ``view=quality`` draw the four), and Program Performance's ``sections`` (the section tiles) and
+``table``. Every part reads the
 indicators of its filter computed once for every worker (``monitoring.stored_indicators``: plain rows, keyed on
 the filter, the day and the eTools jobs' latest runs); the map's API stores its places the same way. These tests
 check the frame without any figure work, each part, the part queries, the results shell of a filter change, that
@@ -57,11 +59,16 @@ from tests.web.parts import (
 pytestmark = pytest.mark.django_db
 
 PAGE = "/partner-monitoring/"  # reports:pd_monitoring
-VIEWS = {  # the placeholders of each view, in page order
-    "grid": ("summary", "grid"),
+# Data quality's parts, then the grid's: one tab, at the bare address ("grid" here) and at view=quality
+MERGED = ("quality-tiles", "quality-lists", "summary", "grid")
+VIEWS = {  # the placeholders of each view's address, in page order
+    "grid": MERGED,
     "table": ("sections", "table"),
-    "quality": ("quality-tiles", "quality-lists"),
+    "quality": MERGED,
 }
+# a part loads at once ("high") or when near the screen ("normal"): below Data quality's tiles, its lists and the
+# grid's two parts wait
+PRIORITY = {"quality-tiles": "high", "quality-lists": "normal", "summary": "normal", "grid": "normal"}
 GROUPS = {"summary": "pm", "grid": "pm", "sections": "pm", "table": "pm", "quality-tiles": "pm",
           "quality-lists": "pm"}  # fmt: skip
 SUMMARY_JSON = "pm-summary-data"  # the one chart JSON of the page, in the grid's summary part
@@ -212,9 +219,9 @@ def test_every_view_gives_the_words_said_after_a_swap_of_its_results(client_view
 def test_the_placeholders_carry_the_resolved_filter(admin_user, sectioned, world):
     viewer, admin = _signed_in(sectioned), _signed_in(admin_user)
     stamp = keys.fingerprint()
-    # a first load: the viewer's own section written out, the grid's year (this year) always
+    # a first load: the viewer's own section written out, Data quality's year (this year, the grid's) always
     found = placeholder_attributes(text(viewer.get(PAGE)))
-    assert list(found) == ["summary", "grid"]
+    assert list(found) == list(MERGED)
     for name, attrs in found.items():
         assert urlsplit(attrs["hx-get"]).path == PAGE
         assert _query(attrs["hx-get"]) == {
@@ -223,13 +230,13 @@ def test_the_placeholders_carry_the_resolved_filter(admin_user, sectioned, world
             "as_of": [stamp],
             "_part": [name],
         }
-        assert attrs["data-part-group"] == GROUPS[name] and attrs["data-part-priority"] == "high"
+        assert attrs["data-part-group"] == GROUPS[name] and attrs["data-part-priority"] == PRIORITY[name]
     assert found["summary"]["class"] == "part part--tiles" and found["grid"]["class"] == "part part--table"
     # every section for an administrator (no section of their own), written as "section="
     found = placeholders(text(admin.get(PAGE)))
     assert _query(found["grid"]) == {"section": [""], "year": ["2026"], "as_of": [stamp], "_part": ["grid"]}
-    # Program Performance and Data quality open on every year; a filter travels, a key the page reads not does not
-    # matter (it travels as typed)
+    # Program Performance opens on every year; a filter travels, a key the page reads not does not matter (it
+    # travels as typed)
     found = placeholders(text(viewer.get(_url("table", section="Education", sort="partner"))))
     assert _query(found["table"]) == {
         "view": ["table"],
@@ -426,7 +433,7 @@ def test_each_part_stays_within_its_query_ceiling(
     assert response.status_code == 200
 
 
-@pytest.mark.parametrize("name", [name for names in VIEWS.values() for name in names])
+@pytest.mark.parametrize("name", list(dict.fromkeys(name for names in VIEWS.values() for name in names)))
 def test_a_donor_is_refused_every_part(client, world, name):
     user = User.objects.create_user(username="eu-donor", password="donor-pass-123456")
     DonorAccount.objects.create(user=user, name="European Union", donors=["EU"], must_change_password=False)
@@ -493,7 +500,7 @@ def test_the_stored_rows_are_the_indicators_as_plain_values(world):
 def test_the_parts_of_a_view_read_one_build(client_viewer, world, monkeypatch):
     calls = _builds(monkeypatch)
     page = client_viewer.get(_url("grid", year="2026"))
-    assert set(page.parts) == {"summary", "grid"} and calls["rows"] == 1
+    assert set(page.parts) == set(MERGED) and calls["rows"] == 1  # Data quality and the grid: one build
     calls.clear()
     client_viewer.get(
         _url("quality", year="2026", section="")
@@ -901,15 +908,22 @@ def test_the_assembled_page_is_the_eager_page(admin_user, sectioned, world, role
 def test_without_javascript_the_page_drawn_at_once_is_complete(client_viewer, world):
     """*Show the figures* (no JavaScript) leads to the page drawn at once: every block, no grey shapes left and no
     link to the page already shown."""
+    merged = (
+        "Active PDs",
+        "What the counts mean",
+        "Tracking status",
+        'id="pd-indicators"',
+        f'id="{SUMMARY_JSON}"',
+    )
     for view, figures in (
-        ("grid", ("Tracking status", 'id="pd-indicators"', f'id="{SUMMARY_JSON}"')),
+        ("grid", merged),
         ("table", ("Every section", 'id="program-performance"')),
-        ("quality", ("Active PDs", "What the counts mean")),
+        ("quality", merged),
     ):
         caches["shared"].clear()  # the page drawn at once just stored its figures: they would be drawn inline
         frame = text(client_viewer.get(_url(view)))
         shown = re.findall(r'<noscript><a href="([^"]+)">Show the figures</a></noscript>', frame)
-        assert len(shown) == 2 and len(set(shown)) == 1
+        assert len(shown) == len(VIEWS[view]) and len(set(shown)) == 1
         address = PAGE + html_module.unescape(shown[0])
         assert "_eager=1" in address and "as_of" not in address
         page = text(client_viewer.get(address))
