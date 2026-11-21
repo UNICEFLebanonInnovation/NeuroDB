@@ -144,6 +144,8 @@ def navigation(request):
     an archive, its years: the archive's label, place and rows), each read only when a template uses it."""
     if not getattr(request, "user", None) or not request.user.is_authenticated:
         return {}
+    if getattr(request, "quick_view", False):  # a quick view (web.quick) draws no menu: nothing to read
+        return {}
     from neurodb.donors.middleware import donor_account
 
     account = donor_account(request)

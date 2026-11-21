@@ -545,6 +545,37 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 @keyframes nd-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .modal-content { background: var(--nd-surface); border-color: var(--nd-border); border-radius: var(--nd-radius); }
 
+/* ------------------------------------------------------------------ quick view (static/js/quickview.js, layouts/quick.html)
+   A page in the shared window: large, full screen on a phone (the script adds Bootstrap's modal-xl and
+   modal-fullscreen-md-down to the dialog, and qview-dialog); the window's header holds Back, the page's title, Open
+   full page and Close, and its body scrolls under it, on the page's own background so its panels read as on the page.
+   The page's breadcrumb and title are not drawn again under the window's title, and its print buttons are left out:
+   the window is not what prints (Open full page is). */
+.qview-dialog .modal-content { min-height: min(60vh, 560px); }
+.qview { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.qview__header { gap: 0.5rem; flex-wrap: nowrap; }
+.qview__title { flex: 1 1 auto; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.qview__title:focus { outline: none; }
+.qview__title:focus-visible { outline: 2px solid var(--nd-primary); outline-offset: 2px; border-radius: var(--nd-radius-sm); }
+.qview__back, .qview__full { flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+.qview__back-icon { transform: scaleX(-1); }
+.qview__header .btn-close { flex-shrink: 0; margin: 0 0 0 0.25rem; }
+.qview__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; background: var(--nd-bg); }
+.qview__body > .page-header { margin-bottom: 0.75rem; }
+.qview__body .page-header nav:has(> .breadcrumb), .qview__body .page-header .page-title { display: none; }
+.qview [data-autoprint], .qview [data-card-pdf] { display: none !important; }
+@media (max-width: 575.98px) {
+  /* on a phone (390 px) the header keeps one row: Open full page shows its icon, its name stays for screen readers */
+  .qview__header { padding: 0.5rem 0.75rem; gap: 0.35rem; }
+  .qview__title { font-size: 1rem; }
+  .qview__full-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  .qview__body { padding: 0.75rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal.fade .qview-dialog { transition: none; }
+  .qview__body { scroll-behavior: auto; }
+}
+
 /* ------------------------------------------------------------------ comments (HPM), library */
 .comment { padding: 0.6rem 0.75rem; border-left: 3px solid var(--nd-primary); background: var(--nd-surface-2); border-radius: 0 var(--nd-radius-sm) var(--nd-radius-sm) 0; font-size: 0.85rem; }
 .comment + .comment { margin-top: 0.5rem; }

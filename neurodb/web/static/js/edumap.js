@@ -299,7 +299,7 @@ function hoverPopup(map, layer, popup, html) {
 }
 
 export async function init(el) {
-  const config = readJSON(el.dataset.config || "map-config") || {};
+  const config = readJSON(el.dataset.config || "map-config", el) || {};
   const canvas = el.querySelector("[data-map-canvas]");
   const legend = el.querySelector("[data-map-legend]");
   const label = el.getAttribute("aria-label") || config.aria_label || "Map of Lebanon";

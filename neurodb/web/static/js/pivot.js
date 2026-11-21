@@ -60,14 +60,14 @@ const INDICATOR_FIELDS = ["master_indicator", "sub_indicator", "ai_indicator", "
 const AGGREGATORS = { Sum: "Integer Sum", Count: "Count", Average: "Average" };
 
 export async function init(root) {
-  const config = readJSON(root.dataset.config || "pivot-config");
+  const config = readJSON(root.dataset.config || "pivot-config", root);
   if (!config) throw new Error("Missing pivot configuration.");
   const out = root.querySelector("[data-pivot-output]");
   const count = root.querySelector("[data-pivot-count]");
   const select = root.querySelector("[data-saved-select]");
   const saveForm = root.querySelector("[data-saved-form]");
   const deleteBtn = root.querySelector("[data-saved-delete]");
-  let views = readJSON(root.dataset.views || "saved-views") || [];
+  let views = readJSON(root.dataset.views || "saved-views", root) || [];
   let current = {};
 
   loadStyle("pivotCss");

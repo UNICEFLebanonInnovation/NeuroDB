@@ -26,6 +26,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import services as datamart
 from neurodb.datamart.models import ActionPoint
+from neurodb.web.quick import not_quick
 
 from . import exports, old_filters
 
@@ -295,6 +296,8 @@ def _filters_words(params: QueryDict, f: dict[str, Any], visit: dict | None) -> 
     return out
 
 
+# never a quick view (web.quick): the printable report opens the print dialog once drawn
+@not_quick
 @require_GET
 def action_points_report(request: HttpRequest) -> HttpResponse:
     """The printable report of the action points of the filter: the key figures, the page's charts (drawn

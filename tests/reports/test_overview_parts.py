@@ -643,7 +643,7 @@ def test_the_assembled_page_is_the_eager_page(client_viewer, own_section, review
 
 # ------------------------------------------------------------------------------------- templates left to load
 LOAD_TRIGGERS_ALLOWED = {
-    "web/templates/base.html",  # the sidebar's For you count
+    "web/templates/layouts/page.html",  # the sidebar's For you count (the full page's layout)
     "fmm/templates/fmm/tabs/insights.html",  # the Monitoring insights AI card, which polls
 }
 

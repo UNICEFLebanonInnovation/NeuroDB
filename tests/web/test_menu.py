@@ -616,7 +616,7 @@ console.log(JSON.stringify(out));
 
 
 def _script() -> str:
-    base = (TEMPLATES / "base.html").read_text()
+    base = (TEMPLATES / "layouts" / "page.html").read_text()
     after_nav = base.split("</nav>", 1)[1]
     return after_nav[after_nav.index("<script nonce=") :].split(">", 1)[1].split("</script>", 1)[0]
 

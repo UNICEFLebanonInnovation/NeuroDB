@@ -1710,7 +1710,7 @@ def test_a_list_of_several_values_says_when_it_closes():
 
 
 def test_base_html_reloads_on_history_and_has_the_cap_and_the_live_region():
-    base = (TEMPLATES / "base.html").read_text()
+    base = (TEMPLATES / "layouts" / "page.html").read_text()
     raw = re.search(r"<meta name=\"htmx-config\" content='([^']*)'>", base).group(1)
     config = json.loads(raw.replace("{{ request.csp_nonce }}", "nonce"))
     assert config["historyCacheSize"] == 0
@@ -1815,7 +1815,10 @@ def test_a_page_loads_every_module_of_its_release_under_its_hashed_name(client_v
     # the pages that load a module without base.html (so without its map) load one that imports nothing by its name
     for template in Path(settings.BASE_DIR, "neurodb").glob("**/templates/**/*.html"):
         source = template.read_text()
-        if template == TEMPLATES / "base.html" or '{% extends "base.html" %}' in source:
+        if (
+            template in (TEMPLATES / "base.html", TEMPLATES / "layouts" / "page.html")
+            or '{% extends "base.html" %}' in source
+        ):
             continue
         for module in re.findall(r"""<script type="module" src="\{% static '([^']+)' %\}""", source):
             assert not RELATIVE_IMPORT.findall((STATIC / module).read_text()), (template.name, module)
@@ -2222,7 +2225,7 @@ def test_phone_filter_bars_are_folded_from_the_first_paint():
     partner monitoring, Progress reports and Monitoring insights): review R1-browser-3. The head's script, which runs
     before the page is drawn, marks that scripts run (html.js); app.css folds the bars from then on and keeps the
     room of the button app.js adds. Without JavaScript nothing is folded."""
-    base = (TEMPLATES / "base.html").read_text()
+    base = (TEMPLATES / "layouts" / "page.html").read_text()
     head = base.split("</head>", 1)[0]
     script = head[head.index("<script nonce=") :]
     assert 'document.documentElement.classList.add("js");' in script
@@ -2284,7 +2287,7 @@ def test_phone_filter_bars_stay_open_where_app_js_never_runs():
     failed to load or was blocked, or the browser runs no modules), every filter bar stayed hidden with no way to
     open it (review R2-critic-1). app.js marks the page html.app-ready once it has bound the bars; at the load event
     the head drops html.js from a page without that mark, and the bars stay open as they were before step 3."""
-    base = (TEMPLATES / "base.html").read_text()
+    base = (TEMPLATES / "layouts" / "page.html").read_text()
     head = base.split("</head>", 1)[0]
     script = head[head.index("<script nonce=") :].split(">", 1)[1].split("</script>", 1)[0]
 
@@ -2404,7 +2407,7 @@ def test_placeholders_offer_the_page_drawn_at_once_where_parts_js_never_runs():
     the head turns each placeholder of a page without that mark, and each one a swap brings later, into its error
     box with the link to the page drawn at once in place of Try again, no longer busy (app.css hides the grey
     shapes of a part in error). Where parts.js runs, the head leaves them to it."""
-    base = (TEMPLATES / "base.html").read_text()
+    base = (TEMPLATES / "layouts" / "page.html").read_text()
     head = base.split("</head>", 1)[0]
     head = head[head.index("<script nonce=") :].split(">", 1)[1].split("</script>", 1)[0]
     # only a page in parts (render_page gives parts_eager) carries it: no other page names the mechanism (the block's
@@ -2471,7 +2474,7 @@ def test_initparts_marks_the_page_and_without_htmx_offers_the_page_drawn_at_once
     through its own stand-in htmx (review R1-browser-2). Now parts.js leaves the page unmarked and asks for nothing,
     and at the load event base.html's fallback (its own script, run here) shows each placeholder's error box, not
     busy, without Try again (nothing could ask) but with the link to the page drawn at once."""
-    base = (TEMPLATES / "base.html").read_text()
+    base = (TEMPLATES / "layouts" / "page.html").read_text()
     block = base.split("{% if parts_eager is not None %}", 1)[1].split("{% endif %}", 1)[0]
     fallback = block[block.index("<script nonce=") :].split(">", 1)[1].split("</script>", 1)[0]
     data = run_dom(

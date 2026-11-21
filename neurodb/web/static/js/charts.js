@@ -1,7 +1,7 @@
 // Plotly charts declared in templates:
 //   <div data-module="charts" data-chart="status-donut" data-source="chart-data" data-key="status_counts"></div>
 // The JSON comes from {{ chart_data|json_script:"chart-data" }}. Charts follow the light/dark theme.
-import { cssVar, debounce, escapeHTML, isDark, loadScript, readJSON } from "./lib.js";
+import { byId, cssVar, debounce, escapeHTML, isDark, loadScript, readJSON } from "./lib.js";
 
 const STATUS_ORDER = ["on_track", "over_target", "off_track", "no_target", "not_reported"];
 const STATUS_VARS = { on_track: "--nd-success", over_target: "--nd-warning", off_track: "--nd-danger", no_target: "--nd-neutral", not_reported: "--nd-muted", constrained: "--nd-warning", not_monitored: "--nd-muted" };
@@ -281,7 +281,7 @@ export const BUILDERS = {
   trend(el, data) {
     // {series: [{id, label, unit, dates, values}], default}: one measure of a periodic report at a time
     // (picked in the <select> named by data-select), its values by date.
-    const select = el.dataset.select ? document.getElementById(el.dataset.select) : null;
+    const select = byId(el.dataset.select, el); // in the quick view the chart is in, first (lib.scopedQuery)
     const list = data?.series || [];
     const series = list.find((s) => String(s.id) === String(select?.value ?? data?.default)) || list[0];
     if (!series || !series.dates.length) {
@@ -316,7 +316,7 @@ export const BUILDERS = {
     // drill?: {labels, series}}: one indicator at a time
     // (the indicator picked in the <select> named by data-select), as adding indicators with
     // different units gave a meaningless total. The records line shares the months, on its own axis.
-    const select = el.dataset.select ? document.getElementById(el.dataset.select) : null;
+    const select = byId(el.dataset.select, el); // in the quick view the chart is in, first (lib.scopedQuery)
     const list = data?.indicators || [];
     const series = list.find((i) => String(i.id) === String(select?.value ?? data?.default)) || list[0];
     const months = data?.months || [];
@@ -1183,7 +1183,7 @@ function lookup(source, key) {
 }
 
 function render(el) {
-  const source = readJSON(el.dataset.source || "chart-data") || {};
+  const source = readJSON(el.dataset.source || "chart-data", el) || {};
   const data = lookup(source, el.dataset.key);
   const builder = BUILDERS[el.dataset.chart];
   if (!builder) throw new Error(`Unknown chart type ${el.dataset.chart}`);
@@ -1343,7 +1343,7 @@ export async function init(el) {
   };
   draw();
   let observer = null;
-  const select = el.dataset.select ? document.getElementById(el.dataset.select) : null;
+  const select = byId(el.dataset.select, el); // in the quick view the chart is in, first (lib.scopedQuery)
   const redrawTheme = () => (el.isConnected ? draw() : release());
   const redrawSelect = () => draw();
   // A chart swapped out by HTMX (a filter change) stops listening and frees its plot; one removed some

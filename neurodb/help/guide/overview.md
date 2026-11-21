@@ -90,6 +90,14 @@ A page that is not set up yet (the country programme, the Compiler pages, the do
 out of the sidebar; administrators who can open the administration see it greyed, marked *Set up*,
 and its page says how to set it up. A role whose menu has such a page added follows the same rule.
 
+## Links open in a quick view
+
+Links open in a quick view; use **Open full page**, or Ctrl/Cmd-click to open the page in a new tab. A figure or a
+name in a table opens its page in a window over the one you are on, with the same filter, so you see the rows behind a
+number without leaving. Links in the window open in it, **Back** goes to the one before, and Esc or the × closes it.
+The menu, tabs, filters, sorting and downloads work as before, and Ask NeuroDB and the printable reports always open
+as a page.
+
 ## Pages that open at once
 
 Home, the country overview, the daily review, the management brief, each partner's page, Data

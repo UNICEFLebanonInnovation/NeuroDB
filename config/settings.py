@@ -96,6 +96,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
     "neurodb.web.parts.PartsMiddleware",  # pages in parts: _part and _eager, Vary, HTMX sign-in, 202
+    "neurodb.web.quick.QuickViewMiddleware",  # quick view: a page as a pop-up fragment (X-NeuroDB-Quick)
     "neurodb.web.middleware.ContentSecurityPolicyMiddleware",
 ]
 
@@ -115,6 +116,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "neurodb.web.context_processors.site",
                 "neurodb.web.context_processors.navigation",
+                "neurodb.web.quick.layout",  # base.html: the full page or its quick view
             ],
         },
     }

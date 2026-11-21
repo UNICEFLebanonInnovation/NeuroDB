@@ -1,0 +1,322 @@
+{% load i18n static ui %}<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="htmx-config" content='{"inlineScriptNonce":"{{ request.csp_nonce }}","allowEval":false,"scrollBehavior":"instant","defaultSwapStyle":"innerHTML","historyCacheSize":0,"refreshOnHistoryMiss":true,"historyRestoreAsHxRequest":false}'>
+  <meta name="nd-parts-parallel" content="3">
+  {% if user.is_authenticated and not is_donor %}<meta name="nd-quick-skip" content="{% quick_skip %}">{% endif %}
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}{{ page_title|default:SITE_NAME }}{% endblock %} · {{ SITE_NAME }}</title>
+  {% include "components/favicons.html" %}
+  {% comment %}The project's modules import one another by their plain names: this sends each to this release's
+  hashed file, so a page never runs with a module of another release (ui.module_map; before any module).{% endcomment %}
+  {% module_map %}
+  <link rel="stylesheet" href="{% static 'vendor/bootstrap/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {% block head_extra %}{% endblock %}
+  <script nonce="{{ request.csp_nonce }}">
+    /* Apply the saved theme before first paint to avoid a flash. "js": scripts run, so app.css folds the phone
+       filter bars from the first paint (app.js then adds their button) instead of after it. app.js marks the page
+       "app-ready" once it has bound them; a page it never reached by the load event (app.js or one of its imports
+       failed to load, was blocked, or the browser runs no modules) drops "js", and its filter bars stay open. */
+    (function () {
+      document.documentElement.classList.add("js");
+      window.addEventListener("load", function () {
+        var root = document.documentElement;
+        if (!root.classList.contains("app-ready")) root.classList.remove("js");
+      });
+      try {
+        var t = localStorage.getItem("neurodb-theme");
+        if (!t) { t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; }
+        document.documentElement.setAttribute("data-bs-theme", t);
+      } catch (e) { /* storage unavailable */ }
+    })();
+  </script>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<a class="skip-link" href="#main">{% trans "Skip to main content" %}</a>
+{% include "components/icons.html" %}
+
+<header class="topbar" role="banner">
+  <button class="btn btn-icon d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-controls="sidebar" aria-label="{% trans 'Open navigation' %}">
+    {% include "components/icon.html" with name="menu" %}
+  </button>
+  <a class="brand" href="{% url 'reports:root' %}">
+    {% include "components/logo.html" with height=30 compact=True %}
+  </a>
+  {% if user.is_authenticated and not is_donor %}
+  {% if AI_ASSISTANT_ENABLED %}{% trans "Search or ask a question" as search_label %}{% else %}{% trans "Search partners, programme documents, indicators" as search_label %}{% endif %}
+  <button type="button" class="search-trigger" id="search-trigger" aria-haspopup="dialog" aria-controls="search-modal" aria-label="{{ search_label }}" title="{{ search_label }}">
+    {% include "components/icon.html" with name="search" %}
+    <span class="search-trigger__label">{{ search_label }}</span>
+    <kbd class="d-none d-md-inline">Ctrl K</kbd>
+  </button>
+  {% endif %}
+  <div class="topbar__spacer"></div>
+  {% comment %}The year menu, only on the pages that show one year (ui.year_menu): calendar years, or ActivityInfo years
+  on the ActivityInfo pages. The button keeps its name on a phone, where the label is visually hidden.{% endcomment %}
+  {% year_menu as ym %}{% if ym %}
+  <div class="dropdown">
+    <button class="btn btn-ghost dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="year-menu">
+      {% include "components/icon.html" with name="calendar" %}
+      <span class="year-menu__label"><span class="visually-hidden">{% trans "Year:" %} </span>{{ ym.label }}</span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="year-menu">
+      <li><h6 class="dropdown-header">{{ ym.header }}</h6></li>
+      {% if ym.all %}<li><a class="dropdown-item{% if ym.all.active %} active{% endif %}" href="{{ ym.all.url }}"{% if ym.all.active %} aria-current="true"{% endif %}>{% trans "All years" %}</a></li>{% endif %}
+      {% for item in ym.items %}
+      <li><a class="dropdown-item{% if item.active %} active{% endif %}" href="{{ item.url }}"{% if item.active %} aria-current="true"{% endif %}>{{ item.label }}{% if item.note %} <span class="year-menu__note small">({{ item.note }})</span>{% endif %}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% if user.is_authenticated and not is_donor %}
+  <button class="btn btn-icon help-trigger" type="button" id="help-trigger" aria-haspopup="dialog" aria-controls="help-panel" aria-expanded="false" aria-label="{% trans 'Help assistant (Ctrl+Shift+H)' %}" title="{% trans 'Help assistant (Ctrl+Shift+H)' %}"><span aria-hidden="true">?</span></button>
+  {% endif %}
+  <button class="btn btn-icon" type="button" id="theme-toggle" aria-pressed="false" aria-label="{% trans 'Toggle dark mode' %}" title="{% trans 'Toggle dark mode' %}">
+    <span class="theme-toggle__light">{% include "components/icon.html" with name="sun" %}</span>
+    <span class="theme-toggle__dark">{% include "components/icon.html" with name="moon" %}</span>
+  </button>
+  {% if not user.is_authenticated %}
+  <a class="btn btn-primary btn-sm" href="{% url 'account_login' %}?next={{ request.path|urlencode }}">{% trans "Sign in" %}</a>
+  {% else %}
+  <div class="dropdown">
+    <button class="btn btn-ghost dropdown-toggle user-menu" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="user-menu">
+      <span class="avatar" aria-hidden="true">{{ user.get_username|first|upper }}</span>
+      <span class="visually-hidden d-md-none">{% trans "Your account" %}</span>
+      <span class="d-none d-md-inline">{{ user.get_full_name|default:user.get_username }}</span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="user-menu">
+      <li><span class="dropdown-item-text small text-muted">{{ user.email }}</span></li>
+      {% if not is_donor %}<li><span class="dropdown-item-text"><span class="badge text-bg-secondary">{{ user_role }}</span>{% if user.section %} <span class="small text-muted">{{ user.section.name }}</span>{% endif %}</span></li>{% endif %}
+      <li><hr class="dropdown-divider"></li>
+      {% if is_donor %}<li><a class="dropdown-item" href="{% url 'donors:page' %}">{% trans "Your dashboard" %}</a></li>{% else %}
+      {% if user.is_staff %}<li><a class="dropdown-item" href="{% url 'admin:index' %}">{% trans "Administration" %}</a></li>{% endif %}
+      <li><a class="dropdown-item" href="{% url 'reports:data_health' %}">{% trans "Data health" %}</a></li>{% endif %}
+      <li><hr class="dropdown-divider"></li>
+      <li>
+        <form method="post" action="{% url 'account_logout' %}">{% csrf_token %}
+          <button type="submit" class="dropdown-item">{% trans "Sign out" %}</button>
+        </form>
+      </li>
+    </ul>
+  </div>
+  {% endif %}
+</header>
+
+<div class="app">
+  <nav id="sidebar" class="sidebar offcanvas-lg offcanvas-start" tabindex="-1" aria-label="{% trans 'Main navigation' %}">
+    <div class="offcanvas-header d-lg-none">
+      <span class="offcanvas-title fw-semibold">{% trans "Navigation" %}</span>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" aria-label="{% trans 'Close' %}"></button>
+    </div>
+    <div class="sidebar__body">
+      {% if not user.is_authenticated %}
+      <a class="nav-item-link" href="{% url 'landing' %}">{% include "components/icon.html" with name="home" %}<span>{% trans "About NeuroDB" %}</span></a>
+      {% if "reports:population" in PUBLIC_PAGES or "reports:library" in PUBLIC_PAGES or "reports:maps" in PUBLIC_PAGES %}
+      <div class="nav-group" role="group" aria-labelledby="nav-title-open">
+        <div class="sidebar__section-title" id="nav-title-open">{% trans "Open resources" %}</div>
+        {% if "reports:population" in PUBLIC_PAGES %}<a class="nav-item-link {% active_if 'reports:population' %}" href="{% url 'reports:population' %}" {% aria_current 'reports:population' %}>{% include "components/icon.html" with name="chart" %}<span>{% trans "Population" %}</span></a>{% endif %}
+        {% if "reports:library" in PUBLIC_PAGES %}<a class="nav-item-link {% active_if 'reports:library' 'reports:library_item' %}" href="{% url 'reports:library' %}" {% aria_current 'reports:library' 'reports:library_item' %}>{% include "components/icon.html" with name="book" %}<span>{% trans "Library" %}</span></a>{% endif %}
+        {% if "reports:maps" in PUBLIC_PAGES %}<a class="nav-item-link {% active_if 'reports:maps' 'reports:map_item' %}" href="{% url 'reports:maps' %}" {% aria_current 'reports:maps' 'reports:map_item' %}>{% include "components/icon.html" with name="map" %}<span>{% trans "Maps" %}</span></a>{% endif %}
+      </div>
+      {% endif %}
+      <div class="nav-group" role="group" aria-labelledby="nav-title-staff">
+        <div class="sidebar__section-title" id="nav-title-staff">{% trans "Staff" %}</div>
+        <a class="nav-item-link" href="{% url 'account_login' %}">{% include "components/icon.html" with name="lock" %}<span>{% trans "Sign in for dashboards" %}</span></a>
+      </div>
+      {% elif is_donor %}
+      <a class="nav-item-link" href="{% url 'donors:page' %}">{% include "components/icon.html" with name="home" %}<span>{% trans "Your dashboard" %}</span></a>
+      {% else %}
+      {% comment %}The menu (indicators.services.navigation.sidebar): the full tree for a superuser, the focused menu or the
+      entries a superuser ticked for the role (the administration's Menu page) for anyone else. Its rows, the conditions
+      of the few that show only while their source is live (a muted "Set up" row for the people who can set it up), the
+      current page (aria-current on the most specific link only), then the ActivityInfo archive and Help when the
+      person's menu has them.{% endcomment %}
+      {% for group in nav_menu.groups %}
+      {% if group.title %}<div class="nav-group" role="group" aria-labelledby="nav-title-{{ group.key }}">
+        <div class="sidebar__section-title" id="nav-title-{{ group.key }}">{{ group.title }}</div>{% endif %}
+        {% for item in group.items %}
+        <a class="nav-item-link{% if item.muted %} nav-item-link--muted{% endif %}{% if item.active %} active{% endif %}" href="{{ item.url }}"{% if item.current %} aria-current="page"{% endif %}>{% include "components/icon.html" with name=item.icon %}<span>{{ item.label }}</span>{% if item.muted %}<span class="nav-badge nav-badge--muted">{% trans "Set up" %}</span>{% elif item.badge %}<span class="nav-badge">{% trans "AI" %}</span>{% endif %}{% if item.count %}<span class="nav-count-slot" hx-get="{% url 'watch:badge' %}" hx-trigger="load" hx-swap="outerHTML"></span>{% endif %}</a>
+        {% endfor %}
+      {% if group.title %}</div>{% endif %}
+      {% endfor %}
+      {% if nav_menu.archive %}{% if ai.years or nav.years %}{% with archive=nav_menu.archive %}
+      {% comment %}ActivityInfo: "Monthly results" while in use, an archive otherwise, at the bottom either way. Open on an
+      ActivityInfo page; while in use it opens unless the reader closed it (data-nav-default, the script below);
+      else closed.{% endcomment %}
+      <details class="sidebar__archive" data-nav-key="archive"{% if nav_active.archive %} open data-nav-active{% elif ai.in_use %} data-nav-default="open"{% endif %}>
+        <summary class="sidebar__archive-title">{% include "components/icon.html" with name="clock" %}<span>{% if ai.in_use %}{% trans "Monthly results (ActivityInfo)" %}{% else %}{% trans "ActivityInfo archive" %}{% endif %}</span>{% if ai.span and not ai.in_use %}<span class="sidebar__archive-span">{{ ai.span }}</span>{% endif %}<svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
+        <div class="sidebar__archive-body">
+        <a class="nav-item-link nav-item-link--sub{% if archive.databases.active %} active{% endif %}" href="{{ archive.databases.url }}"{% if archive.databases.current %} aria-current="page"{% endif %}><span>{% trans "ActivityInfo databases" %}</span></a>
+        {% if archive.forecasts %}<a class="nav-item-link nav-item-link--sub{% if archive.forecasts.active %} active{% endif %}" href="{{ archive.forecasts.url }}"{% if archive.forecasts.active %} aria-current="page"{% endif %}><span>{% trans "Year-end forecasts" %}</span></a>{% endif %}
+        {% if archive.years %}
+        <div class="nav-group" role="group" aria-labelledby="nav-title-ai-years">
+          <div class="sidebar__subtitle" id="nav-title-ai-years">{% trans "Years" %}</div>
+          {% for row in archive.years %}<a class="nav-item-link nav-item-link--sub{% if row.current %} active{% endif %}" href="{{ row.url }}"{% if row.current %} aria-current="page"{% endif %}>{{ row.year }}</a>{% endfor %}
+        </div>
+        {% endif %}
+        {% if nav.sections %}
+        <details class="sidebar__block" data-nav-key="databases" {% if nav_active.block == "databases" %}open data-nav-active{% endif %}>
+          <summary class="sidebar__block-title">
+            <span>{% trans "Databases" %}{% if nav.databases_year %} {{ nav.databases_year.name }}{% endif %}</span>
+            <span class="count">{{ nav.database_count }}<span class="visually-hidden"> {% blocktrans count counter=nav.database_count %}database{% plural %}databases{% endblocktrans %}</span></span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg>
+          </summary>
+          {% for s in nav.sections %}
+          {% if s.databases|length == 1 %}
+          {% with db=s.databases.0 %}
+          <a class="nav-item-link {% active_if 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}" href="{% url 'reports:database_dashboard' db.id %}" title="{{ db.label|default:db.name }}" {% aria_current 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}>
+            <span class="section-dot" {% if s.section.color %}style="--section-color: {{ s.section.color }}"{% endif %} aria-hidden="true"></span>
+            <span>{% if s.section %}{{ s.section.name }}{% else %}{{ db.label|default:db.name }}{% endif %}</span>
+          </a>
+          {% endwith %}
+          {% else %}
+          <details class="sidebar__group" {% if s.databases|has_id:nav_active.db %}open{% endif %}>
+            <summary>
+              <span class="section-dot" {% if s.section.color %}style="--section-color: {{ s.section.color }}"{% endif %} aria-hidden="true"></span>
+              <span>{% if s.section %}{{ s.section.name }}{% else %}{% trans "Other" %}{% endif %}</span>
+              <span class="count">{{ s.databases|length }}<span class="visually-hidden"> {% blocktrans count counter=s.databases|length %}database{% plural %}databases{% endblocktrans %}</span></span>
+            </summary>
+            <ul class="list-unstyled">
+              {% for db in s.databases %}
+              <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}" href="{% url 'reports:database_dashboard' db.id %}" {% aria_current 'reports:database_dashboard' 'reports:database_analytical' 'reports:database_map' 'reports:database_snapshot' 'reports:indicator_detail' pk=db.id %}>{{ db.label|default:db.name }}</a></li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
+          {% endfor %}
+        </details>
+        {% endif %}
+        {% if nav.neuro_reports %}
+        <details class="sidebar__block" data-nav-key="reports" {% if nav_active.block == "reports" %}open data-nav-active{% endif %}>
+          <summary class="sidebar__block-title"><span>{% trans "Reports" %}{% if nav.neuro_year %} {{ nav.neuro_year.name }}{% endif %}</span><span class="count">{{ nav.neuro_reports|length }}<span class="visually-hidden"> {% blocktrans count counter=nav.neuro_reports|length %}report{% plural %}reports{% endblocktrans %}</span></span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
+          <ul class="list-unstyled">
+            {% for r in nav.neuro_reports %}
+            <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_dashboard' 'reports:report_analytical' pk=r.id %}" href="{% url 'reports:report_dashboard' r.id %}" {% aria_current 'reports:report_dashboard' 'reports:report_analytical' pk=r.id %}>{{ r.name }}</a></li>
+            {% endfor %}
+          </ul>
+        </details>
+        {% endif %}
+        {% if nav.hpm_reports %}
+        <details class="sidebar__block" data-nav-key="hpm" {% if nav_active.block == "hpm" %}open data-nav-active{% endif %}>
+          <summary class="sidebar__block-title"><span>{% trans "HPM reports" %}{% if nav.hpm_year %} {{ nav.hpm_year.name }}{% endif %}</span><span class="count">{{ nav.hpm_reports|length }}<span class="visually-hidden"> {% blocktrans count counter=nav.hpm_reports|length %}report{% plural %}reports{% endblocktrans %}</span></span><svg class="icon sidebar__chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"></use></svg></summary>
+          <ul class="list-unstyled">
+            {% for r in nav.hpm_reports %}
+            <li><a class="nav-item-link nav-item-link--sub {% active_if 'reports:report_hpm' pk=r.id %}" href="{% url 'reports:report_hpm' r.id %}" {% aria_current 'reports:report_hpm' pk=r.id %}>{{ r.name }}</a></li>
+            {% endfor %}
+          </ul>
+        </details>
+        {% endif %}
+        </div>
+      </details>
+      {% endwith %}{% endif %}{% endif %}
+      {% if nav_menu.help %}{% with item=nav_menu.help %}<a class="nav-item-link {{ item.css }}{% if item.active %} active{% endif %}" href="{{ item.url }}"{% if item.current %} aria-current="page"{% endif %}>{% include "components/icon.html" with name=item.icon %}<span>{{ item.label }}</span></a>{% endwith %}{% endif %}
+      {% endif %}
+    </div>
+  </nav>
+  <script nonce="{{ request.csp_nonce }}">
+    /* The sidebar's blocks remember whether the reader opened or closed them. A block of the current page
+       (data-nav-active) always opens; one marked data-nav-default="open" opens while the reader has chosen
+       nothing. Only the reader's own toggles are stored: one that follows a press on the block's summary
+       (or Enter or Space from the keyboard), or a click on it alone (a screen reader or voice control
+       activates it so). A block drawn open fires "toggle" once as the page loads, and the script's own
+       opening fires it too, with no click: neither is stored, so once a block is no longer marked to open
+       it stays closed for every reader who did not open it on purpose. */
+    (function () {
+      var blocks = document.querySelectorAll("#sidebar details[data-nav-key]");
+      blocks.forEach(function (el) {
+        var key = "neurodb-nav:" + el.getAttribute("data-nav-key");
+        var stored = null;
+        try { stored = localStorage.getItem(key); } catch (e) {}
+        if (!el.hasAttribute("data-nav-active")) {
+          if (stored === "open") el.open = true;
+          else if (stored === null && el.getAttribute("data-nav-default") === "open") el.open = true;
+        }
+        var byReader = false;
+        var summary = el.querySelector("summary");
+        if (summary) {
+          summary.addEventListener("pointerdown", function () { byReader = true; });
+          summary.addEventListener("click", function () { byReader = true; });
+          summary.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") byReader = true;
+          });
+        }
+        el.addEventListener("toggle", function () {
+          if (!byReader) return;
+          byReader = false;
+          try { localStorage.setItem(key, el.open ? "open" : "closed"); } catch (e) {}
+        });
+      });
+    })();
+  </script>
+
+  <main id="main" class="main" tabindex="-1">
+    {% if messages %}
+    <div class="messages" role="status">
+      {% for message in messages %}
+      <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} alert-dismissible" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans 'Close' %}"></button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% block page_header %}{% include "components/page_header.html" %}{% endblock %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+
+<div class="toast-region" id="toasts" aria-live="polite" aria-atomic="false"></div>
+{% comment %}Pages that load in parts (parts.js): one quiet summary for screen readers, never one message per
+part; the words parts.js shows in a part or on the Print button, translated.{% endcomment %}
+{% trans "Loading the figures…" as t_loading %}{% trans "All figures are shown." as t_done %}{% trans "1 part could not be loaded." as t_failed_one %}{% trans "{n} parts could not be loaded." as t_failed_many %}{% trans "You do not have access to this." as t_forbidden %}{% trans "This part is no longer on the page. Reload the page." as t_gone %}{% trans "This part took too long. Try again, or narrow the filter." as t_timeout %}{% trans "This part could not be loaded." as t_generic %}{% trans "Preparing the page…" as t_preparing %}
+<div id="parts-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"
+     data-text-loading="{{ t_loading }}" data-text-done="{{ t_done }}" data-text-failed-one="{{ t_failed_one }}" data-text-failed-many="{{ t_failed_many }}"
+     data-text-forbidden="{{ t_forbidden }}" data-text-gone="{{ t_gone }}" data-text-timeout="{{ t_timeout }}" data-text-generic="{{ t_generic }}" data-text-preparing="{{ t_preparing }}"></div>
+{% include "components/modal.html" %}
+{% if user.is_authenticated and not is_donor %}{% include "components/search_modal.html" %}{% endif %}
+{% if user.is_authenticated and not is_donor %}{% include "help/_panel.html" %}{% endif %}
+{% if parts_eager is not None %}{% comment %}A page in parts (web.parts.render_page sets parts_eager). Its placeholders
+(components/part.html) are filled by parts.js alone, which marks the page "parts-ready" once it has started (never
+without htmx, which asks for them: review R1-browser-2). Where it never did by the load event (app.js, one of its
+imports or htmx failed to load, was blocked, or the browser runs no modules),
+nothing will fill them: each placeholder, and each one a swap brings later, shows its error box with the link a browser
+without JavaScript gets (the page drawn at once) in place of Try again, and is no longer busy, instead of grey shapes
+for ever (review R3-critic-2). Only on such a page, so no other page carries the words of the mechanism.{% endcomment %}
+<script nonce="{{ request.csp_nonce }}">
+  (function () {
+    function stop(scope) {
+      var found = scope && scope.querySelectorAll ? [].slice.call(scope.querySelectorAll("[data-part]")) : [];
+      if (scope && scope.matches && scope.matches("[data-part]")) found.push(scope);
+      found.forEach(function (el) {
+        if (el.getAttribute("data-part-state")) return;
+        el.setAttribute("data-part-state", "error");
+        el.setAttribute("aria-busy", "false");
+        ["[data-part-error]", "[data-part-fallback]"].forEach(function (selector) {
+          var shown = el.querySelector(selector);
+          if (shown) shown.hidden = false;
+        });
+        var retry = el.querySelector("[data-part-retry]");
+        if (retry) retry.hidden = true;
+      });
+    }
+    window.addEventListener("load", function () {
+      if (document.documentElement.classList.contains("parts-ready")) return;
+      stop(document);
+      document.addEventListener("htmx:load", function (e) { stop(e.target); });
+    });
+  })();
+</script>{% endif %}
+
+{% asset_urls %}
+<script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}" nonce="{{ request.csp_nonce }}"></script>
+<script src="{% static 'vendor/htmx/htmx.min.js' %}" nonce="{{ request.csp_nonce }}"></script>
+<script type="module" src="{% static 'js/app.js' %}" nonce="{{ request.csp_nonce }}"></script>
+{% comment %}The quick view (static/js/quickview.js, web.quick): for staff only, as the search and the Help assistant; its
+meta above lists the addresses it never opens (the administration, the sign-in and donor pages).{% endcomment %}
+{% if user.is_authenticated and not is_donor %}<script type="module" src="{% static 'js/quickview.js' %}" nonce="{{ request.csp_nonce }}"></script>{% endif %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

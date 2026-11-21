@@ -47,6 +47,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from neurodb.core.models import SyncRun
 from neurodb.datamart import fm
 from neurodb.web.parts import Part, render_page
+from neurodb.web.quick import not_quick
 from neurodb.web.templatetags.ui import code_label
 
 from . import access, metrics, status
@@ -2776,6 +2777,8 @@ REPORT_FLAGS = 10
 REPORT_URGENT = 10
 
 
+# never a quick view (web.quick): the printable report opens the print dialog once drawn
+@not_quick
 @require_GET
 def report(request: HttpRequest) -> HttpResponse:
     """The printable report of the filter (A4, laid out like the "FMM Analysis" report): the browser's

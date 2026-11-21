@@ -76,8 +76,22 @@ export async function fetchJSON(url, { method = "GET", body, signal } = {}) {
   return data;
 }
 
-export function readJSON(id) {
-  const el = document.getElementById(id);
+/** The element `selector` names for `near`: the one in the quick view `near` is in, whose ids repeat the page's
+ * when it shows the same page (quickview.js), else the page's own. */
+export function scopedQuery(selector, near) {
+  if (!selector) return null;
+  const view = near?.closest?.("[data-quick-view]");
+  return (view && view.querySelector(selector)) || document.querySelector(selector);
+}
+
+/** The element with this id for `near` (scopedQuery). */
+export function byId(id, near) {
+  return id ? scopedQuery(`[id="${String(id).replace(/["\\]/g, "\\$&")}"]`, near) : null;
+}
+
+/** The JSON data block with this id, the one of the quick view `near` is in first (scopedQuery). */
+export function readJSON(id, near) {
+  const el = byId(id, near);
   if (!el) return null;
   try {
     return JSON.parse(el.textContent);
@@ -137,6 +151,22 @@ export function download(filename, text, type = "text/csv;charset=utf-8") {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** The query a filter form asks for: its fields (and the button that sent it), the empty ones left out, except that a
+ * field marked data-keep-empty keeps its key when nothing is chosen ("section=": every section, which is not the
+ * same as no section key at all, where a page applies the person's default). app.js and quickview.js send it. */
+export function filterParams(form, submitter) {
+  const params = new URLSearchParams(submitter ? new FormData(form, submitter) : new FormData(form));
+  const keep = new Set([...form.querySelectorAll("[data-keep-empty]")].map((el) => el.name));
+  for (const [key, value] of [...params.entries()]) if (!value && !keep.has(key)) params.delete(key);
+  for (const name of keep) {
+    const values = params.getAll(name).filter(Boolean);
+    params.delete(name);
+    if (values.length) values.forEach((v) => params.append(name, v));
+    else params.append(name, "");
+  }
+  return params;
 }
 
 export function debounce(fn, wait = 250) {

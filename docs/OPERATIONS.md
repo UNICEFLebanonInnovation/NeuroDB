@@ -1966,7 +1966,8 @@ downloads (attachments), streamed answers and what is compressed already (images
 the library covers, PDF, ZIP, fonts, audio and video), which gzip would only make the server work on for
 nothing; static files come from WhiteNoise, which serves its own compressed copies. The pages' own scripts
 load under the names collectstatic gives them (with the hash of their content, kept by browsers for good), the
-scripts they import from one another too, through an import map in `base.html` (`module_map` in
+scripts they import from one another too, through an import map in the full page's layout
+(`layouts/page.html`, `module_map` in
 `neurodb/web/templatetags/ui.py`): a page of a new release never runs with a script of the one before, which
 a browser could otherwise keep for a minute under its plain name. A worker of gunicorn
 (`config/gunicorn.conf.py`) restarts after `max_requests` = **8000** requests, with a random spread of
@@ -1992,6 +1993,50 @@ being computed in the same workers: that work is CPU and Python runs one thread 
 nothing emptied the 95th percentile is about 500 ms (370 ms for frames with no block drawn in): a frame
 that draws stored blocks itself is the whole page. More vCPU, with a worker per vCPU, is what brings it
 down.
+
+## Quick view: links open in a pop-up
+
+A plain click on a link to another page, in a page's content, opens that page in the shared window over the page
+(large; full screen on a phone) instead of leaving it, with the same filter: a figure of Home opens Progress reports on
+that status, a name in a table opens that partner or programme document. The window's header holds the page's title,
+**Back** (to the quick view before, once there is one), **Open full page** (the page's own address) and **Close**; Esc
+and Close give the focus back to the link that opened it. Links inside it open in the same window; its tabs, sorting,
+page numbers and filters change it in place. It never writes the browser's history. Ctrl-click, Cmd-click, Shift-click
+and the middle button work as in any browser (a new tab or window).
+
+**How it works.** Nothing per page:
+
+- `neurodb/web/templates/base.html` only extends the layout the context processor `neurodb.web.quick.layout` names:
+  the full page (`layouts/page.html`: the menu, the top bar, the scripts) or the quick view (`layouts/quick.html`:
+  the window's header, then the page's header line, its content and its parts). The page templates are unchanged.
+- The browser (`neurodb/web/static/js/quickview.js`, loaded by the full page for staff, not for donors or visitors)
+  asks for the page at its own address with the header `X-NeuroDB-Quick: 1`. `QuickViewMiddleware` (after
+  `PartsMiddleware`) lets the quick layout answer, and adds `X-NeuroDB-Quick-View: 1` only when it was drawn (a
+  download or a JSON answer never carries it). The menu is not built for it. Every answer varies on the header.
+- The parts of a page load inside the window as on the page (each at the page's address with `_part`); charts, maps,
+  tables and their Copy and CSV buttons work there too, reading the window's own data first when the same page is
+  under it. Home's stylesheet comes with it; nothing else of a page's head does (a document still being read
+  refreshes only as a full page). The page's `scripts` block is left out.
+- Anything but a quick view in answer (a page that is not quick-viewable, a sign-in after the session ended, an error,
+  no answer within 30 seconds) opens the address as a normal page.
+
+**Never a quick view:** the menu, the top bar and the search; breadcrumbs, tab bars, filter bars and their chips,
+sorting, page numbers, page actions (exports, print) and reset links, on the page itself (they work the page); the
+links htmx already opens in the shared window (a progress report, a field monitoring visit: those keep their pop-up);
+downloads (a `download` attribute, CSV, Excel, PDF and other files, `?export=`); links with a `target`; other sites;
+links to a part of the same page; the administration, the sign-in and password pages and the donor page (their
+addresses are listed for the browser in `<meta name="nd-quick-skip">`, from `neurodb.web.quick.skip_prefixes`, and the
+server refuses them too: 204 with `X-NeuroDB-Quick-View: refused`).
+
+**Keeping a link out of it:** add `data-no-quick` to the link, or to an element around a group of links, in the
+template. **Keeping a page out of it:** decorate its view with `neurodb.web.quick.not_quick`; links to it then open
+the page as usual. Pages marked so, and why: Ask NeuroDB (`assistant:ask`: it runs `ask.js` from its own scripts
+block), and the two printable reports, which open the print dialog once drawn (`fmm:report`,
+`reports:action_points_report`). Data health keeps its quick view: its own script only opens the Power BI details
+when the page is printed, and a quick view is not printed (Open full page is). A new page that needs a script of its
+own to work starts it from a `data-module` attribute (app.js, as the charts and maps do), or is marked `not_quick`.
+
+There is no setting and nothing to run: the quick view is on for every signed-in member of staff.
 
 ## eTools Datamart
 

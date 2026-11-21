@@ -1,0 +1,21 @@
+{% load i18n ui %}{% quick_view_drawn %}<div class="qview" data-quick-view data-quick-url="{{ request.get_full_path }}">
+{% comment %}The quick view of a page (web.quick, static/js/quickview.js): swapped into the shared window (components/modal.html,
+#modal-content), which is labelled by the title below (#modal-title). The header: Back to the quick view before
+(shown by the script once there is one), the page's title, Open full page (the page's own address) and Close. The
+body: the page's header line (app.css hides its breadcrumb and its title, which the window's header holds), its
+content and its parts, which load inside the window as on the page. Nothing of the page's head comes in but its
+stylesheets: the head_extra block is kept inert (a template), and the script adds its stylesheets to the page; a
+refresh it asks for (a document still being read) is not done in the window. The page's scripts block is left out:
+a page that needs its own script is not quick-viewable (web.quick.not_quick). No menu, top bar, messages or footer.{% endcomment %}
+  <div class="modal-header qview__header">
+    <button type="button" class="btn btn-ghost btn-sm qview__back" data-quick-back hidden>{% include "components/icon.html" with name="arrow" class="qview__back-icon" %}<span>{% trans "Back" %}</span></button>
+    <h2 class="modal-title h5 qview__title" id="modal-title" tabindex="-1">{% block title %}{{ page_title|default:SITE_NAME }}{% endblock %}</h2>
+    {% trans "Open full page" as full_label %}<a class="btn btn-outline-secondary btn-sm qview__full" href="{{ request.get_full_path }}" data-quick-full data-no-quick title="{{ full_label }}">{% include "components/icon.html" with name="external" %}<span class="qview__full-label">{{ full_label }}</span></a>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+  </div>
+  <div class="modal-body qview__body">
+    <template data-quick-head>{% block head_extra %}{% endblock %}</template>
+    {% block page_header %}{% include "components/page_header.html" %}{% endblock %}
+    {% block content %}{% endblock %}
+  </div>
+</div>

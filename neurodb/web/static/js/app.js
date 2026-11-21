@@ -1,5 +1,5 @@
 // NeuroDB application shell: theme, command palette, HTMX glue, tables, filters and page modules.
-import { asset, debounce, download, isHelpShortcut, loadScript, loadStyle, tableRows, toast, toCSV, trapFocus, csrfToken } from "./lib.js";
+import { asset, debounce, download, isHelpShortcut, loadScript, loadStyle, scopedQuery, tableRows, toast, toCSV, trapFocus, csrfToken } from "./lib.js";
 import { initParts, loadAll, offsetState, partText, pendingModules, pendingParts, trackModules } from "./parts.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -194,6 +194,9 @@ function revealAnchor(modal, anchor) {
 function initFilterBar(form) {
   if (form.dataset.ndBound) return;
   form.dataset.ndBound = "1";
+  // a filter bar inside a quick view is the quick view's (quickview.js): it never changes the page under it or the
+  // address bar
+  if (form.closest?.("[data-quick-view]")) return;
   const target = form.dataset.hxTarget;
   if (!target || !window.htmx) return;
   form.addEventListener("htmx:configRequest", (e) => {
@@ -221,7 +224,8 @@ function initFilterBar(form) {
   const submit = (asked) => {
     const params = new URLSearchParams(new FormData(form));
     // A field marked data-keep-empty keeps its key when nothing is chosen ("section=": every section,
-    // which is not the same as no section key at all, where a page applies the user's default)
+    // which is not the same as no section key at all, where a page applies the user's default); quickview.js
+    // builds the same query for a filter bar inside a quick view (lib.filterParams)
     const keep = new Set($$("[data-keep-empty]", form).map((el) => el.name));
     for (const [key, value] of [...params.entries()]) if (!value && !keep.has(key)) params.delete(key);
     for (const name of keep) {
@@ -296,7 +300,12 @@ function initFiltersCollapse(root) {
     const form = $("form.filter-bar", wrap);
     if (wrap.dataset.ndBound || !form) return;
     wrap.dataset.ndBound = "1";
-    form.id ||= `filter-bar-${index + 1}`;
+    if (!form.id) {
+      // an id no other bar has: a quick view (quickview.js) brings bars of its own onto the page
+      let n = index + 1;
+      while (document.getElementById(`filter-bar-${n}`)) n += 1;
+      form.id = `filter-bar-${n}`;
+    }
     const button = document.createElement("button");
     button.type = "button";
     button.className = "btn btn-outline-secondary btn-sm filters-toggle";
@@ -327,7 +336,7 @@ function initTables(root) {
     if (btn.dataset.ndBound) return;
     btn.dataset.ndBound = "1";
     btn.addEventListener("click", async () => {
-      const table = $(btn.dataset.tableTarget);
+      const table = scopedQuery(btn.dataset.tableTarget, btn); // the table of the quick view the button is in
       if (!table) return;
       const text = tableRows(table).map((r) => r.join("\t")).join("\n");
       try {
@@ -342,7 +351,7 @@ function initTables(root) {
     if (btn.dataset.ndBound) return;
     btn.dataset.ndBound = "1";
     btn.addEventListener("click", async () => {
-      const el = $(btn.dataset.copyTarget);
+      const el = scopedQuery(btn.dataset.copyTarget, btn);
       if (!el) return;
       try {
         await navigator.clipboard.writeText(el.textContent || "");
@@ -356,7 +365,7 @@ function initTables(root) {
     if (btn.dataset.ndBound) return;
     btn.dataset.ndBound = "1";
     btn.addEventListener("click", () => {
-      const table = $(btn.dataset.tableTarget);
+      const table = scopedQuery(btn.dataset.tableTarget, btn);
       if (table) download(`${btn.dataset.filename || "table"}.csv`, toCSV(tableRows(table)));
     });
   });
@@ -366,7 +375,9 @@ function initTables(root) {
     tr.classList.add("row-link");
     tr.addEventListener("click", (e) => {
       if (e.target.closest("a, button, input, select, label")) return;
-      window.location.assign(tr.dataset.href);
+      // the quick view (quickview.js) opens the row's page in the shared window when it can; else the page opens
+      const quick = new CustomEvent("nd:quick-open", { bubbles: true, cancelable: true, detail: { url: tr.dataset.href, event: e } });
+      if (tr.dispatchEvent(quick)) window.location.assign(tr.dataset.href);
     });
   });
   // Client-side sort on any table with data-sortable: click a header to toggle asc/desc.
@@ -478,7 +489,8 @@ async function startModule(el) {
 const PAGE_ONLY_KEYS = ["tab", "page", "sort", "places", "entity_kind", "entity_all", "rule_trends", "pd_scope", "visit", "_part", "_eager"];
 function followQuery(event) {
   const link = event.target.closest?.("a[data-current-query]");
-  if (!link) return;
+  // a link in a quick view (quickview.js) was drawn with the quick view's filter: the address bar is the page's
+  if (!link || link.closest?.("[data-quick-view]")) return;
   const params = new URLSearchParams(window.location.search);
   if (!params.size && !("followEmpty" in link.dataset)) return; // the first load (see above)
   PAGE_ONLY_KEYS.forEach((key) => params.delete(key));

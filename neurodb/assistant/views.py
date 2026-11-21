@@ -22,6 +22,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from neurodb.indicators.services import navigation
 from neurodb.knowledge.access import can_add as can_add_knowledge
+from neurodb.web.quick import not_quick
 
 from . import agent, figures, llm, usage
 from .llm import openai_backend
@@ -72,6 +73,8 @@ EXAMPLES = [
 RECENT = 6  # the person's recent questions the start page lists
 
 
+# never a quick view (web.quick): the page runs ask.js from its own scripts block
+@not_quick
 @require_GET
 def ask(request: HttpRequest) -> HttpResponse:
     """Ask NeuroDB: the page a person opens first while the AI is on (``reports.views.root``). Until the first

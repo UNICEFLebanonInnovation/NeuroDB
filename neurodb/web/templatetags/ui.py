@@ -304,6 +304,25 @@ def _own_modules() -> tuple[str, ...]:
 
 
 @register.simple_tag(takes_context=True)
+def quick_view_drawn(context) -> str:
+    """Drawn by layouts/quick.html only: the answer is the page's quick view, and web.quick's middleware
+    says so (``X-NeuroDB-Quick-View: 1``). A download or a page drawn some other way never carries it."""
+    request = context.get("request")
+    if request is not None:
+        request._quick_view_drawn = True
+    return ""
+
+
+@register.simple_tag
+def quick_skip() -> str:
+    """The beginnings of the addresses the quick view never opens (web.quick.skip_prefixes), for the
+    browser (layouts/page.html's ``nd-quick-skip``)."""
+    from neurodb.web.quick import skip_prefixes
+
+    return " ".join(skip_prefixes())
+
+
+@register.simple_tag(takes_context=True)
 def module_map(context) -> str:
     from django.conf import settings
     from django.templatetags.static import static

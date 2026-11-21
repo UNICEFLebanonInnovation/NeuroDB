@@ -185,7 +185,7 @@ function kpis(data) {
 }
 
 export async function init(el) {
-  const config = readJSON(el.dataset.config || "map-config");
+  const config = readJSON(el.dataset.config || "map-config", el);
   const canvas = el.querySelector("[data-map-canvas]");
   const tbody = document.querySelector("[data-pdmap-table]");
   const totals = document.querySelector("[data-map-totals]");
