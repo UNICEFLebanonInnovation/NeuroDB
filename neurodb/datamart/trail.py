@@ -987,7 +987,7 @@ def _followed_only(follow_up: list[dict[str, Any]], reports: list[dict[str, Any]
 
 
 def _partners(partners: dict[str, Any], *, every: bool = True, drawn: bool = True) -> list[Figure]:
-    """The Partners tab's figures, or Home's partners line (``every=False``; ``drawn``: Home draws it only
+    """The Partner view tab's figures, or Home's partners line (``every=False``; ``drawn``: Home draws it only
     when there is a progress report)."""
     base = (*CHOSEN, ("has_partner", True))
     note = "" if drawn else "not drawn: no progress report"
@@ -1599,7 +1599,7 @@ def _progress_trail(page: str, params: Any, day: datetime.date) -> Trail:
                 ),
                 Block(
                     "partners",
-                    "Partners",
+                    "Partner view",
                     "partners",
                     (
                         *_partners(data["partners"]),

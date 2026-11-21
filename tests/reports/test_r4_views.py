@@ -285,7 +285,8 @@ def test_the_disaggregation_tab_shows_a_subtotal_per_disaggregation_and_the_loca
     page = client_viewer.get(url, {"tab": "disaggregations"})
     assert page.status_code == 200
     html = page.text
-    assert "By disaggregation" in html and "female" in html and "Lebanese" in html
+    # the tab is hidden (in no tab bar): its address still opens its table
+    assert "Reports by disaggregation" in html and "female" in html and "Lebanese" in html
     assert "Sex:</span> subtotal" in html and "Nationality:</span> subtotal" in html
     assert "Location total" in html and "1 value without its label yet, not listed" in html
     data = page.context["disaggregations"]

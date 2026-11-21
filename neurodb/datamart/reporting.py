@@ -13,8 +13,8 @@ Report/Location and Report/Disaggregation, as the eTools Power BI report shows t
   the rule does not place, by its title), of active programme documents only
   (:attr:`ReportFilters.indicator_statuses`: the statuses chosen when Active is not among them). The tiles are
   counted apart, so these do not add up to the total; the progress report numbers keep the running PDs.
-* **To follow up.** The reports to follow up (the Partners tab, Home) are those Overdue, Sent back, Due and
-  Submitted, a report not yet due among the Due ones, as Power BI's follow-up list has them (the user's
+* **To follow up.** The reports to follow up (the Partner view tab, Home) are those Overdue, Sent back, Due
+  and Submitted, a report not yet due among the Due ones, as Power BI's follow-up list has them (the user's
   decision of 26 Oct 2026): :data:`FOLLOW_UP_STATUSES`, :func:`follow_up_status`. The Report status Due keeps
   them there too, as Power BI's slicer does (:func:`follow_up_kept`).
 * **Emergency indicator**: the programme document is an SPD (``reached.is_spd``), as Power BI's (the user's
@@ -900,8 +900,8 @@ def by_month(reports: list[dict[str, Any]]) -> dict[str, Any]:
 
 # ------------------------------------------------------------------------------ Partner Performance
 def partner_key(report: dict[str, Any]) -> Any:
-    """A progress report's partner, as the Partners tab counts them: its eTools partner, else its name (any
-    case); None when it names neither."""
+    """A progress report's partner, as the Partner view tab counts them: its eTools partner, else its name
+    (any case); None when it names neither."""
     return report["partner_id"] or (report["partner_name"] or "").strip().lower() or None
 
 
@@ -1008,7 +1008,7 @@ def pd_follow_up(reports: list[dict[str, Any]]) -> dict[str, Any]:
     past one as soon as one is Overdue) and ``key`` (:func:`pd_follow_up_key`).
     Only the programme documents with a report to follow up, the most pressing first: the most Overdue, then
     Sent back, Due and Submitted, then the oldest due date. Counts are progress reports, as the follow-up
-    table of the Partners tab lists them."""
+    table of the Partner view tab lists them."""
     found: dict[str, dict[str, Any]] = {}
     for r in reports:
         held = r["intervention_id"]

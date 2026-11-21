@@ -41,7 +41,7 @@ REVIEW_ROWS = 2  # rows of the daily review's digest
 CHANGED_SHOWN = 2  # of the review's "changed" sentences
 REVIEW_STALE_DAYS = 2  # an older review is introduced with its date
 # "Programme documents to follow up" (Home's Progress reports block): the rows of the first screen under the
-# seven tiles; the others are one link away, on Progress reports (its Partners tab lists every report to
+# seven tiles; the others are one link away, on Progress reports (its Partner view tab lists every report to
 # follow up)
 HOME_PDS = 10
 NAME_MATCH = 3  # letters a name needs before "contained either way" counts (monitoring.default_sections)

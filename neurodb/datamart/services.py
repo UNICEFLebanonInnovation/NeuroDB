@@ -1326,7 +1326,7 @@ def reporting_figures(params, day: datetime.date | None = None) -> dict[str, Any
     """Home's Progress reports block: the Progress reports page's own figures for ``params``
     (:func:`partner_reporting`, on the page's day, :func:`reporting_today`) as plain data: the tiles
     (``counts``), ``summary``, the partners line (``partners``: ``partners``, ``reported``, ``not_reported``
-    and ``by_status``, the Partners tab's tiles) and the programme documents to follow up (``pds``,
+    and ``by_status``, the Partner view tab's tiles) and the programme documents to follow up (``pds``,
     :func:`neurodb.datamart.reporting.pd_follow_up`). Computed at each call, as the page computes its main
     tab (0.05 s on the x20 parity world, about a tenth of a second on production's report rows, measured
     before the hints read Partner monitoring's rule: one more query, of the active programme documents'

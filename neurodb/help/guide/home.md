@@ -33,7 +33,7 @@ pages on the same sections:
 - **Programme documents to follow up**: one row per programme document with progress reports that are
   Overdue, Sent back, Due or Submitted (awaiting acceptance), the most overdue first: its partner, how
   many of its progress reports are in each of those statuses, and its oldest due date (of its Due or
-  Overdue reports, so a past date when one is overdue). Its reference opens the Partners tab of Progress
+  Overdue reports, so a past date when one is overdue). Its reference opens the Partner view tab of Progress
   reports on that programme document alone, whose reports to follow up are the row's (the tiles of the
   *Reporting progress* tab count a report not yet due as Not yet due); *Indicators* opens all its indicators on Program
   Performance, whatever their section. Home lists the first ten, and says so when there are more (*The
@@ -43,7 +43,7 @@ pages on the same sections:
   Power BI's follow-up list, and the reports still owed from PRP's own list are counted too once they are
   shown.
 - One line with the partners that have progress reports here, how many have reported (Submitted or
-  Accepted) and how many have not yet: the figures of the Partners tab of Progress reports (left out
+  Accepted) and how many have not yet: the figures of the Partner view tab of Progress reports (left out
   when there is no progress report).
 - **Indicator progress** this year: the tiles of Partner monitoring for every programme document running
   this year (indicators, on track, off track, not reported, programme documents, partners), exactly the

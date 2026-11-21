@@ -794,11 +794,11 @@ NOTE_DCT = "NeuroDB's page has no Outstanding DCT column: see the fit table."
 NOTE_CUT = "Power BI cuts titles at 255 characters: a cut title matches NeuroDB's title that starts with it."
 NEURODB_PAGES = {
     "program_performance": "Partner monitoring → Program Performance",
-    "partners_count": "Progress reports → Partners: partners",
-    "partners_reported": "Progress reports → Partners: with at least one report",
-    "partners_not_reported": "Progress reports → Partners: not reported",
-    "partner_cards": "Progress reports → Partners",
-    "follow_up": "Progress reports → Partners: reports to follow up",
+    "partners_count": "Progress reports → Partner view: partners",
+    "partners_reported": "Progress reports → Partner view: with at least one report",
+    "partners_not_reported": "Progress reports → Partner view: not reported",
+    "partner_cards": "Progress reports → Partner view",
+    "follow_up": "Progress reports → Partner view: reports to follow up",
     "accepted_report": "Progress reports: Accepted progress reports",
     "submitted_report": "Progress reports: Submitted progress reports",
     "due_report": "Progress reports: Due progress reports",

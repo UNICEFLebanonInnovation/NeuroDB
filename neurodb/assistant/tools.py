@@ -1007,8 +1007,8 @@ def partner_reporting(
         },
         # the first tile's hint: every indicator of these reports, each once, of active programme documents
         "indicators": data["counts"]["indicators"],
-        # the reports to follow up, as the Partners tab lists them: Overdue, Sent back, Due (a report not yet
-        # due is one of the Due ones, as in Power BI's follow-up list) and Submitted
+        # the reports to follow up, as the Partner view tab lists them: Overdue, Sent back, Due (a report not
+        # yet due is one of the Due ones, as in Power BI's follow-up list) and Submitted
         "to_follow_up": dict(Counter(r["status_label"] for r in data["partners"]["follow_up"])),
         # progress reports per status, by name: the same counts as ``reports`` and the status keys above
         "by_status": dict(data["by_status"]),

@@ -860,8 +860,9 @@ def report_missing(job: Job, p: dict[str, Any], held: pf.Reports) -> Reason:
 
 # ================================================================================== Partner Performance
 def follow_up(job: Job) -> None:
-    """Power BI's follow-up list against the Partners tab's (``reporting.FOLLOW_UP_STATUSES``: a report not
-    yet due is one of its Due ones, as in Power BI's, by the user's decision), by PD, status and due date."""
+    """Power BI's follow-up list against the Partner view tab's (``reporting.FOLLOW_UP_STATUSES``: a report
+    not yet due is one of its Due ones, as in Power BI's, by the user's decision), by PD, status and due
+    date."""
     from . import reporting
 
     context, parsed = job.context, job.parsed
@@ -1280,7 +1281,7 @@ def missing_targets(job: Job) -> None:
 
 
 # ======================================================================================== the cards
-# a card's NeuroDB figure: Partner Performance's (Progress reports → Partners), Reporting Progress's
+# a card's NeuroDB figure: Partner Performance's (Progress reports → Partner view), Reporting Progress's
 # (progress reports of the status), Data Quality's (``powerbi_page.quality``)
 PARTNER_COUNTS = {
     "partners_count": "partners",
@@ -1316,7 +1317,7 @@ def _card(job: Job, neurodb: Any, why: Callable[[Any], Reason], alternative: Any
 
 
 def partner_count(job: Job) -> None:
-    """Partner Performance's cards against Progress reports → Partners (the partners with a report)."""
+    """Partner Performance's cards against Progress reports → Partner view (the partners with a report)."""
     figures = page.partner_performance(job.parsed, job.context)
     _card(job, figures[PARTNER_COUNTS[job.kind.key]], lambda _a: fallback(job))
 

@@ -173,7 +173,7 @@ of each unit. Then the record as Raw eTools data writes it (people as counts).
 4. Put the sum of `counts_once_progress_report` in Values: the tiles, the section table and the month chart
    (they count progress reports, as Power BI's Reporting Progress does). The sum of
    `counts_once_indicator_report` gives the indicator reports in them (the report table's *Indicators*), and
-   the sum of `counts_once_partner` the Partners tab's *Partners*. A distinct count of `progress_report_unit`,
+   the sum of `counts_once_partner` the Partner view tab's *Partners*. A distinct count of `progress_report_unit`,
    `indicator_report_unit` or `partner_unit` gives the same.
 5. The indicators under the tiles: filter `indicator_counted` on *yes* too. The sum of
    `counts_once_indicator` gives the first tile's (each indicator once); a distinct count of `indicator_unit`
@@ -185,7 +185,7 @@ of each unit. Then the record as Raw eTools data writes it (people as counts).
    `indicator_counted` unfiltered: the reports to follow up are those of every PD status the filter keeps.
 
 While the page shows PRP's own reports still owed, the tiles, the section table, the month chart and the
-Partners tab also count them. *Kept rows (CSV)* then lists those the filter keeps after the rows, one line
+Partner view tab also count them. *Kept rows (CSV)* then lists those the filter keeps after the rows, one line
 each (`source` *PRP progress reports*, then their record's fields after the rows' columns), so the same pivot
 table counts them: they have no indicator report and no indicator (`counts_once_indicator_report` and
 `counts_once_indicator` 0). The step *PRP's own
@@ -519,7 +519,7 @@ programme documents, trips, engagements, action points and their details).
   days in a row with the same pair of keys before they can be shown (a day with no sync, or whose last read of
   PRP's progress reports failed or received nothing, starts the count again), and closes at once when a read
   fails it, or fails: a later sync of their programme documents does not open it again. Reports of draft or
-  cancelled programme documents are never counted, as the pages never show them. Check 11 gives the figures. Once shown, Home, Progress reports, its Partners tab, Partner
+  cancelled programme documents are never counted, as the pages never show them. Check 11 gives the figures. Once shown, Home, Progress reports, its Partner view tab, Partner
   monitoring's Overdue reports, the PD and partner pages, the daily review and Ask NeuroDB count them. The
   first page says the same
   beside the dataset, and the list gives each report's programme document and partner in NeuroDB ("not

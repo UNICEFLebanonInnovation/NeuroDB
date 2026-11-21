@@ -554,7 +554,7 @@ def _every_year(r: Read, note: str = "") -> str:
 
 def _partner_cards(r: Read) -> Iterator[Line]:
     """Partner Performance's cards and table, read for every year (its page has no year slicer)."""
-    p, figure = r.data["every_year"]["partners"], "Progress reports → Partners"
+    p, figure = r.data["every_year"]["partners"], "Progress reports → Partner view"
     note = _every_year(r, "The Partners sheet lists them, one row each.")
     yield ("pr.partners", card("pr.partners"), figure, p["partners"], "partners", note)
     note = _every_year(r, "Submitted or Accepted.")
@@ -579,7 +579,7 @@ def _follow_up(r: Read) -> Iterator[Line]:
     """The reports to follow up, read for every year (Partner Performance has no year slicer)."""
     n = len(r.data["every_year"]["partners"]["follow_up"])
     figure, note = (
-        "Progress reports → Partners: reports to follow up",
+        "Progress reports → Partner view: reports to follow up",
         _every_year(r, "Overdue, Sent back, Due (a report not yet due among them) or Submitted."),
     )
     yield ("pr.follow_up", POWERBI_ITEMS["reports"], figure, n, PR, note)
@@ -1148,8 +1148,8 @@ def _vendor_numbers(ids: set[Any]) -> dict[int, str]:
 
 
 def partner_rows(reports: list[dict[str, Any]], names: frozenset[str]) -> tuple[list[dict[str, Any]], int]:
-    """One row per partner of the reports, as the Partners tab counts them (``reporting.partner_key``): its
-    name (a person named as a partner withheld, as the trail's CSVs withhold it), vendor number, progress
+    """One row per partner of the reports, as the Partner view tab counts them (``reporting.partner_key``):
+    its name (a person named as a partner withheld, as the trail's CSVs withhold it), vendor number, progress
     reports per status, and the match key (the vendor number, else the name); and the number of reports naming
     no partner (in no Partners figure)."""
     found: dict[Any, dict[str, Any]] = {}

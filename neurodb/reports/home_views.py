@@ -72,7 +72,7 @@ def _url(name: str, query: QueryDict, **extra: str) -> str:
 
 
 def _pd_row(row: dict[str, Any], progress: QueryDict, every_section: QueryDict) -> dict[str, Any]:
-    """A row of "Programme documents to follow up" with its links: Progress reports' Partners tab on its
+    """A row of "Programme documents to follow up" with its links: Progress reports' Partner view tab on its
     reports (``tab=partners&pd=``: its number, or the reports' own reference; none for a row with neither),
     whose reports to follow up are the row's (a report not yet due is Due in both, while the tiles of the
     Reporting progress tab count it Not yet due), and Program Performance on its indicators (only for a

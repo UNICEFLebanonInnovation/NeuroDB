@@ -1721,7 +1721,11 @@ def funds(request: HttpRequest) -> HttpResponse:
     return render(request, template, context)
 
 
-REPORTING_TABS = ("reports", "partners", "locations", "disaggregations")
+# the Progress reports tabs the tab bar offers: Reporting progress and Partner view (tab=partners)
+REPORTING_SHOWN_TABS = ("reports", "partners")
+# every tab an address opens: By location and By disaggregation are hidden (in no tab bar, linked from no
+# page) but their addresses still open them (old bookmarks, the figure trail, the admin's Power BI comparison)
+REPORTING_TABS = (*REPORTING_SHOWN_TABS, "locations", "disaggregations")
 DISAGGREGATION_BLOCKS = 25  # locations (each with its disaggregation lines) per page
 REPORTING_LISTS = (
     "status",
@@ -1910,9 +1914,11 @@ def _reporting_locations(data: dict[str, Any]) -> dict[str, Any]:
 @require_GET
 def partner_reporting(request: HttpRequest) -> HttpResponse:
     """Progress reports: Reporting Progress (progress reports by status, with the indicators under each,
-    section and month of the reporting period's end, and the report table), Partner Performance
-    (``tab=partners``), Report/Location (``tab=locations``) and Report/Disaggregation
-    (``tab=disaggregations``), with one filter for all of them and exports of the whole filtered set.
+    section and month of the reporting period's end, and the report table), Partner view (Partner Performance,
+    ``tab=partners``), Report/Location (``tab=locations``) and Report/Disaggregation
+    (``tab=disaggregations``), with one filter for all of them and exports of the whole filtered set. The
+    tab bar offers the first two only (:data:`REPORTING_SHOWN_TABS`): the other two are hidden, and open from
+    their address only.
 
     Report/Location and Report/Disaggregation load in parts (:func:`_reporting_table_tab`); the other two tabs
     are one request, as before (they take about a tenth of a second on a large database)."""
@@ -1967,9 +1973,9 @@ def _reporting_frame(request: HttpRequest, tab: str, filters) -> dict[str, Any]:
         "check_compare": check_views.compare_link("progress-reports", params, datamart.reporting_today()),
         "check_trail": check_views.trail_url("progress-reports", params, tab=tab),
         "status_keys": reporting_service.STATUS_KEYS,  # the section table's columns, for their figure keys
-        "tab_urls": {
+        "tab_urls": {  # the tab bar's: never a hidden tab's address
             name: request.path + "?" + _query_with(params, ("tab", "export"), tab=name)
-            for name in REPORTING_TABS
+            for name in REPORTING_SHOWN_TABS
         },
         **_all_years(request, params, not filters.year, None),
     }

@@ -137,7 +137,7 @@ def reports(parsed: Filter, context: pf.Context, *, sections: bool = True) -> li
 
 
 def partner_performance(parsed: Filter, context: pf.Context) -> dict[str, Any]:
-    """Progress reports → Partners (``reporting.partner_performance`` on the page's reports, in Power BI's
+    """Progress reports → Partner view (``reporting.partner_performance`` on the page's reports, in Power BI's
     years and report statuses): its counts of partners, read once per filter in an export."""
     from . import reporting as rp
 

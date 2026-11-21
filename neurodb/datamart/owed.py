@@ -40,9 +40,9 @@ SOURCE = "prp_progress_reports"  # the Datamart dataset owed reports come from (
 SOURCE_WORDS = "PRP progress reports"  # and the exports' "source" column (the partner reports' rows: below)
 ROWS_WORDS = "Partner reports"
 
-# the line under the tiles, on the Partners tab, on the follow-up list and in Home's block while the gate is
-# closed, by why (``datamart_sync.recorded_pd_link``, as check 11 says it: ``datamart_sync.SHOWN_WHY``); the
-# first part is always said
+# the line under the tiles, on the Partner view tab, on the follow-up list and in Home's block while the gate
+# is closed, by why (``datamart_sync.recorded_pd_link``, as check 11 says it: ``datamart_sync.SHOWN_WHY``);
+# the first part is always said
 HIDDEN_START = (
     "Some reports still owed for a period that has ended may be missing: eTools stops sending a report once "
     "its period ends unsent. NeuroDB keeps those it received before"

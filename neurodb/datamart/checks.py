@@ -3408,16 +3408,16 @@ CHECKS: tuple[Check, ...] = (
         "reports, progress reports with progress reports. A report the partner reports feed does not carry "
         "is counted elsewhere only through that list of reports still owed, while it is shown: the number "
         "gaps (a QPR2 missing between QPR1 and QPR3) are estimated here only. While this check's figure "
-        "PRP's progress reports shown on the pages reads yes, Home, Progress reports and its Partners tab, "
-        "the PD and partner pages, Partner monitoring's Overdue reports, the daily review, Ask NeuroDB and "
-        "the exports also count PRP's own reports still owed: Due or Overdue with the period ended, returned "
-        "by a read within 7 days, of a programme document that is not a draft or cancelled, and not held by "
-        "any partner report row of the PD; never as indicator reports. Each sync of PRP's progress reports "
-        "or of their programme documents records whether the pages show them: only when the pair of keys is "
-        "proven, at least 10 of the reports the partner reports also have are compared, 9 in 10 of them end "
-        "on the same day, at least 10 were submitted on both sides and 9 in 10 of those on the same day, on "
-        "two days in a row with the same pair of keys; a read that fails one of these, or fails, closes it "
-        "at once. While it is closed, the pages count the partner reports alone.",
+        "PRP's progress reports shown on the pages reads yes, Home, Progress reports and its Partner view "
+        "tab, the PD and partner pages, Partner monitoring's Overdue reports, the daily review, Ask NeuroDB "
+        "and the exports also count PRP's own reports still owed: Due or Overdue with the period ended, "
+        "returned by a read within 7 days, of a programme document that is not a draft or cancelled, and not "
+        "held by any partner report row of the PD; never as indicator reports. Each sync of PRP's progress "
+        "reports or of their programme documents records whether the pages show them: only when the pair of "
+        "keys is proven, at least 10 of the reports the partner reports also have are compared, 9 in 10 of "
+        "them end on the same day, at least 10 were submitted on both sides and 9 in 10 of those on the same "
+        "day, on two days in a row with the same pair of keys; a read that fails one of these, or fails, "
+        "closes it at once. While it is closed, the pages count the partner reports alone.",
         _two_feeds,
     ),
     Check(

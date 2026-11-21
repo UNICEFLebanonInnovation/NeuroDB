@@ -93,10 +93,9 @@ and its page says how to set it up. A role whose menu has such a page added foll
 ## Pages that open at once
 
 Home, the country overview, the daily review, the management brief, each partner's page, Data
-health, partner monitoring, the *By location* and *By disaggregation* tabs of Progress reports, the
-Map tab of Monitoring insights, the country programme, youth programmes, the donor page and three
-views of the document review (*By document*, *Themes* and *Repeated findings*) open at once and fill
-in as their figures are ready (the other pages are quick enough to come whole, as before):
+health, partner monitoring, the Map tab of Monitoring insights, the country programme, youth
+programmes, the donor page and three views of the document review (*By document*, *Themes* and
+*Repeated findings*) open at once and fill in as their figures are ready (the other pages are quick enough to come whole, as before):
 
 - The frame comes first: the page's heading, filters and tabs, with a grey box where each block of
   figures will go, about the size of what will be there, so the page does not jump.
@@ -117,8 +116,6 @@ in as their figures are ready (the other pages are quick enough to come whole, a
 - On partner monitoring, the view tabs and the filters come at once; the key figures (or the section
   tiles, or the data quality tiles) fill in first, then the list. Changing a filter, a sort or a
   section tile refills the boxes under the filters. See [Partner progress](/help/partner-progress/).
-- On Progress reports, the *By location* and *By disaggregation* tables fill in once the filters are
-  there; the other two tabs come whole.
 - On Monitoring insights, the Map tab opened from a link or a bookmark shows the filters, key figures
   and tabs first, then the map and its tables. See [Monitoring insights](/help/monitoring-insights/).
 - On the country programme page, the cycle, its documents and how much of it has gone come at once;

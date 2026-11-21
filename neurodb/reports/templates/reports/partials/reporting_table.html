@@ -2,11 +2,12 @@
 <div class="toolbar">
   <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Progress report views' %}">
     <a href="{{ tab_urls.reports }}" {% if tab == "reports" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="chart" %} {% trans "Reporting progress" %}</a>
-    <a href="{{ tab_urls.partners }}" {% if tab == "partners" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="users" %} {% trans "Partners" %}</a>
-    <a href="{{ tab_urls.locations }}" {% if tab == "locations" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="pin" %} {% trans "By location" %}</a>
-    <a href="{{ tab_urls.disaggregations }}" {% if tab == "disaggregations" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="layers" %} {% trans "By disaggregation" %}</a>
+    <a href="{{ tab_urls.partners }}" {% if tab == "partners" %}aria-current="page"{% endif %}>{% include "components/icon.html" with name="users" %} {% trans "Partner view" %}</a>
   </div>
 </div>
+{% comment %}By location (tab=locations) and By disaggregation (tab=disaggregations) are hidden (the user's decision of 21 Nov
+2026): in no tab bar and linked from no page, their addresses still open them below (old bookmarks, the figure trail and
+the admin's Power BI comparison).{% endcomment %}
 {% include "reports/partials/_check_link.html" with page="reports:partner_reporting" compare=check_compare trail=check_trail %}
 {% if tab == "partners" %}{% include "reports/partials/_reporting_partners.html" %}
 {% elif tab == "locations" or tab == "disaggregations" %}{% comment %}Report/Location and Report/Disaggregation load their table as

@@ -1740,7 +1740,8 @@ names*).
 A page that loads in parts answers its frame at once and fetches each of its data blocks in the
 background. These pages work this way: **Home**, the **country overview**, the **daily review**, the
 **management brief**, the **partner page**, **Data health**, **partner monitoring** (its Grid, Program Performance and Data
-quality views), **Progress reports** (its *By location* and *By disaggregation* tabs), the Map tab of
+quality views), **Progress reports** (its *By location* and *By disaggregation* tabs, hidden from the tab bar
+but still opened from their address), the Map tab of
 **Monitoring insights**, the **country programme**, **youth programmes**, the **donor page** and three
 views of the **document review** (*By document*, *Themes* and *Repeated findings*). *The pages in
 parts*, below, lists their parts and what each stores; every other page, and the other tabs and views
@@ -1892,7 +1893,7 @@ more.
 | Partner page, `/partners/<id>/` | Header (name, type, breadcrumbs), the *deleted in eTools* notice, the knowledge base documents | `datamart` (at once): everything from the key figures to the last list (profile, visits chart and assurance chips, *Partner reporting* with the eTools and ActivityInfo panels and, for those allowed, *Edit the link*, the eight lists). Inside it, `fmm` (once `datamart` is in, after the visible ones): the Monitoring insights panel, only when Monitoring insights is on and a field monitoring visit ever monitored the partner | Nothing: the partner's figures hold database records, which the shared page figures never store, so they are computed at each visit and an edit or a sync shows at the next one. See *Partner reporting: ActivityInfo and eTools, side by side* |
 | Data health, `/data/health/` | Page heading, the *Sync jobs* heading with its *Stale after N hours* note, the heading and explanation of the eTools Datamart datasets panel | `jobs` (at once): one card per sync job. `databases` and `runs` (when near the screen): the ActivityInfo databases of the year the import serves and their last import (once ActivityInfo is an archive, those of its last year, state "Archive", with a note: "no longer imported" once the `activityinfo-data` job is switched off; while it is on, that the import still runs but NeuroDB no longer warns about it), the latest 50 runs. `datasets`, `power-bi` and `readiness` (after the visible ones): the eTools Datamart datasets table with its *Copy* and *CSV* buttons (they come with the table, so they are never offered before it is there), *Compared with Power BI* (its heading, explanation and, for administrators, the links to the admin are in the frame), the machine learning readiness check | Only the rows each eTools Datamart dataset holds (the *Rows held* column): an hour at most, the same in every language and for everyone, under a key made of the latest run of each job that writes those tables (eTools Datamart sync, eTools sync, Locations sync, eTools update clean-up), so a run of one of them that starts or ends has them counted again. The gazetteer (*locations*), which staff also edit in Admin → Locations, is counted at each visit, and so is everything else on the page. Inside a database transaction (NeuroDB Watch's AI look-ups read these figures in a read-only one) the stored counts are read too; when there are none the rows are counted there and nothing is stored. See *Data quality per dataset* |
 | Partner monitoring, `/partner-monitoring/` | View tabs (Grid, Program Performance, Data quality, Map), the filter bar with its choices, the "your section" note | Grid: `summary` (at once; first of the group `pm`): the seven tiles, the status donut and the indicators by section; `grid` (at once, once `summary` is in): the indicators by section, PD and output with their months or years, its pages, the note when the list is cut. Program Performance (`view=table`): `sections` (at once; first of the group `pm`): the section tiles; `table` (at once, once `sections` is in): the page of rows in its sort, its pages, *Excel of the filter* and *CSV of the filter*. Data quality (`view=quality`): `quality-tiles` (at once; first of the group `pm`) and `quality-lists` (when near the screen, once the tiles are in). A change of filter, sort or section tile reloads the area under the filter bar (`#monitoring-grid`) with new placeholders; a page of the grid or of the table reloads its own part. The exports are answered whole | The filter's indicators (every row the three views read), 2 minutes per filter and day, the same in every language and for everyone; Program Performance's section tiles and table read the same for the filter without its sections (the table keeps the chosen ones, as before), one computation for both. The filter bar's choices, 10 minutes. Each key holds the latest run of each eTools job (eTools sync, eTools Datamart sync, Datamart backfill, Locations sync) and the indicator flags, so a sync shows at once and an ActivityInfo import does not count. The parts carry `as_of`. When the indicators are kept, the frame draws the view's two parts itself: one request. The Map tab is not in parts; its points (`/api/internal/partner-monitoring/map/`) are kept 2 minutes under the same jobs, the flags and the gazetteer. See *Partner monitoring and Progress reports load in parts* |
-| Progress reports, `/partner-reporting/` (*By location* and *By disaggregation*) | Filter bar with its choices, the tab bar, the *By disaggregation* tab's own filters | `table` (at once): the tab's table, its pages, the note when the filter holds too many rows, the Excel and CSV links. A change of filter (HTMX) answers the table at once. *Reporting progress* and *Partners* are drawn whole, as before | The tab's rows (on *By disaggregation*, with the lines of every location), 2 minutes per tab, filter, tab filters and day; the filter bar's choices, 10 minutes; the same in every language and for everyone, under the eTools jobs' latest runs and the indicator flags, as partner monitoring. When the rows are kept, the frame draws the table itself: one request. See *Partner monitoring and Progress reports load in parts* |
+| Progress reports, `/partner-reporting/` (*By location* and *By disaggregation*) | Filter bar with its choices, the tab bar, the *By disaggregation* tab's own filters | `table` (at once): the tab's table, its pages, the note when the filter holds too many rows, the Excel and CSV links. A change of filter (HTMX) answers the table at once. *Reporting progress* and *Partner view* are drawn whole, as before. The two tabs are hidden: no tab bar or regular page links to them, their address still opens them | The tab's rows (on *By disaggregation*, with the lines of every location), 2 minutes per tab, filter, tab filters and day; the filter bar's choices, 10 minutes; the same in every language and for everyone, under the eTools jobs' latest runs and the indicator flags, as partner monitoring. When the rows are kept, the frame draws the table itself: one request. See *Partner monitoring and Progress reports load in parts* |
 | Monitoring insights, Map tab, `/fmm/?tab=map` | Header and Export menu, filter bar, reference line, chips, data notes, the key figure tiles, the tab bar; a filter without visits shows the tab's empty state and no part. The other tabs stay one request each | `map` (at once): the map, its legend, *Visits on the map*, *PD locations not yet visited* and *Visits without coordinates*, with the map's configuration. A swap of the results (tab bar, filter bar, the planned places switch) brings the map drawn in, in one request | The map (`geo.map_points`), 10 minutes, per filter, planned places shown and language (the popups' dates are translated), under the Monitoring insights stamp (last refresh and rules version, the day, the NeuroDB action points, the last eTools, Locations or clean-up run, the gazetteer's places), so a refresh, one of those runs or a place edited in admin → Locations shows at once. Also the one pass over the visits (under the *Score settings* thresholds too), the entity table and the rule counts that the other tabs read. Never drawn by the frame: the map takes about 90 ms to draw even when stored. See *Monitoring insights* |
 | Country programme, `/country-programme/` | Cycle selector, the cycle's panel (years, share of the cycle elapsed, summary, documents, *Edit in the admin* for staff), the note on AI-suggested indicators; without a cycle or without indicators, the empty state and no part | `summary` (at once; first of the group `cpd`): the six key figures, *Where the CPD indicators stand* and the outcomes at a glance. `outcomes` (when near the screen, once `summary` is in): each outcome with its outputs, indicators, programme documents and partner reporting; a link to `#outcome-<id>` asks for it first | The cycle's build, 10 minutes per cycle, day and language (the kinds of the linked sources are translated), under a key that holds the cycle and what staff enter by hand that its figures read (the cycle, its outcomes, outputs, indicators, milestones, typed values and linked sources, and how the linked ActivityInfo master indicators are set up, down to the indicators they add up and those indicators' ActivityInfo field and database: one digest of the rows themselves, so an edit in place shows at once), the Makani and Dirasa card versions chosen in Admin → *Power BI cards* (the children enrolled a Compiler source gives) and the last finished sync run and the indicator flags. When the build is stored, the frame draws both parts itself. See *Country programme* |
 | Youth programmes, `/youth/` | The filter bar whole (its choices are read in the database from a few lists of the year's figures, never by decoding them, and kept 10 minutes), the line saying when Compiler's figures were read; without figures, the empty state and no part | `summary` (at once; first of the group `youth`): the five key figures, the line saying whether Compiler counted the rows of Power BI's view, and the youth indicators with their eTools indicators. `details` (when near the screen, once `summary` is in): the breakdowns (the registered young people by home governorate among them, from payload format 2), *Compiler and eTools, side by side* and the programme documents in Compiler | The year's build, 10 minutes per year's figures (their row and when they were read), filters, day and language (the breakdowns' names are translated), under a key that holds the year's links to eTools (a digest of the rows: a link confirmed with the admin's action, edited or added shows at once), the card versions chosen in Admin → *Power BI cards*, the last finished sync run and the indicator flags; the filter bar's choices, 10 minutes per year's figures, the same in every language. When the build is stored, the frame draws both parts itself. See *Youth programmes* |
@@ -1909,7 +1910,7 @@ plan* tab, added later, was measured the same way and stays whole too: its figur
 (40 ms with what the tab adds) and the whole tab 0.2 seconds (median of 7 cold runs; the slowest 0.3
 seconds), most of it drawing the list (see *HACT visit plan*).
 So were, and stay whole for the same reason (medians, cold): the action points page (0.11-0.13
-seconds), the *Reporting progress* and *Partners* tabs of Progress reports (0.11-0.16), the three tabs
+seconds), the *Reporting progress* and *Partner view* tabs of Progress reports (0.11-0.16), the three tabs
 of Funds (0.06-0.11; the contributions and programmes tabs now read only the filter's choices, not every
 fund line), the *Map* view of partner monitoring (a frame already: 0.07 seconds, its points come from
 their own address, see the table), the *Insights*, *Quality*, *Analysis* and *Records* tabs of Monitoring
@@ -3028,7 +3029,7 @@ whole; its name is `powerbi-comparison-<page>_<YYYY-MM-DD>_<HHMM>.xlsx`, the end
   `reached.history_from`); *Set these in Power BI* (every slicer with its value, a yellow *Done?*, and a
   *Note* naming the sheet's Power BI pages that have no such slicer, `comparison.slicer_notes`) and *Clear
   these in NeuroDB before comparing* (the filters Power BI has no slicer for, those set). Partner Performance
-  has no year slicer: with a year chosen, its rows (the Partners tab's cards and table, the reports to follow
+  has no year slicer: with a year chosen, its rows (the Partner view tab's cards and table, the reports to follow
   up) and the *Partners* sheet are NeuroDB's of every year (`read`'s `every_year`), their notes and the year's
   row say so, and their *Trail* opens without the year. Then one row per
   figure, in Power BI's page and visual order: `#`, Power BI page, visual, name in Power BI, NeuroDB page and
@@ -3044,13 +3045,13 @@ whole; its name is `powerbi-comparison-<page>_<YYYY-MM-DD>_<HHMM>.xlsx`, the end
   the filter names a person or a contact" (open the trail from the page).
   Progress reports: the seven status cards (their progress reports only: the indicators under them, each once
   and of active programme documents, are no Power BI figure and are never compared), the section table (each
-  section by status, its total, the column totals), the month chart (each month by each status drawn), the progress reports listed, the Partners
+  section by status, its total, the column totals), the month chart (each month by each status drawn), the progress reports listed, the Partner view
   tab's cards, the reports to follow up, the lines of By location and the location blocks of By
   disaggregation. Partner monitoring: Program Performance's indicators (every one, not cut at 2,000) and its
   section tiles, then Data quality's ten tiles.
 - *Progress reports* (one row per progress report: the export's `_report_row` without its focal points, the
   partner's vendor number, a match key "PD reference + space + report #") and *Partners* (one row per partner
-  as the Partners tab counts them, `reporting.partner_key`, its progress reports per status, the match key
+  as the Partner view tab counts them, `reporting.partner_key`, its progress reports per status, the match key
   "vendor number, else name"); for Partner monitoring *Program Performance rows* (every indicator, as its export
   writes it, NeuroDB's Reached and % Reached, yellow cells for Power BI's, two difference formulas, the match
   key "PD number | indicator | PD output", ending in #1, #2... for indicators of one PD sharing their title and
@@ -3104,7 +3105,7 @@ field in neither stops the sheet, and a test fails.
 
 **The figure trail** (`datamart/trail.py`, `datamart/trail_rows.py`, `reports/check_views.py`). For every figure
 Progress reports draws (the tiles and their hints, the late sentence, the left-out note, the section table, the
-month chart, the report table's count and each row's *Indicators*, the Partners tab's tiles, table, partners not
+month chart, the report table's count and each row's *Indicators*, the Partner view tab's tiles, table, partners not
 reported and reports to follow up, By location's lines and By disaggregation's location blocks) and every figure
 of Home's Progress reports block (the tiles, the programme documents to follow up and the rows shown, the partners
 line): where its rows come from, step by step, and the figure rebuilt from them.
@@ -3491,7 +3492,7 @@ Quality's cards are explained from them), then Power BI's order.
   there fails the whole export. `owed_shown` is the gate (`owed.link_state().shown`): with it, the reports
   still owed from PRP's own list are held reports (`HeldReport.source` "prp", their moment `prp_synced_at`).
 - **The cards** (`powerbi_names.POWERBI_CARDS`, one export kind each, its one column the card's name):
-  Partner Performance's against Progress reports → Partners (`powerbi_page.partner_performance`: partners,
+  Partner Performance's against Progress reports → Partner view (`powerbi_page.partner_performance`: partners,
   with at least one report, not reported; a difference not explained yet), Reporting Progress's against the
   progress reports of that status (Power BI's unit; a difference explained from the report list as the table by
   sector is), Data Quality's against `powerbi_page.quality` (`monitoring.data_quality`'s rules for Power BI's
@@ -4284,7 +4285,8 @@ figures as everywhere else (they read the rule above; nothing is added across in
   partial history. Each list shows its first 500 rows; the counts are complete.
 * **Progress reports** has four tabs on one filter (search, report status, report type, reporting
   year, section, report #, partner, partner type, PD status, emergency indicator (the reports of SPDs, as
-  Power BI's), period start and period end between). The Section list offers each section name once: a report row whose section is a
+  Power BI's), period start and period end between); its tab bar shows two of them, *Reporting progress* and
+  *Partner view*, and the other two are hidden (below). The Section list offers each section name once: a report row whose section is a
   list ("Child Protection, Adolescent & Youth") gives each of its names, and a name chosen keeps the rows
   that list it (`reporting.section_names`, `section_q`); a section chosen in the address that the list does
   not hold (Home writes the eTools section names of the PD indicators) stays chosen. `pd=<number>` (Home's
@@ -4326,7 +4328,8 @@ figures as everywhere else (they read the rule above; nothing is added across in
     BI places it); and the report table (PD, PD status, partner, section, report, status, document type,
     due date, period start and end, submission, UNICEF focal points, indicators); its CSV and Excel files
     write the focal points as a count (`unicef_focal_points_count`), never a name.
-  * *Partners* (Partner Performance): partners with a progress report in the filter (whatever its
+  * *Partner view* (`tab=partners`, Power BI's Partner Performance; the tab read *Partners* until 21 Nov
+    2026): partners with a progress report in the filter (whatever its
     status), those with at least one Submitted or Accepted report, those without (listed), the
     partners with a report in each status, and the reports to follow up: Overdue, Sent back, Due and
     Submitted, in that order and by due date. A report not yet due is one of the Due ones there, listed as
@@ -4339,21 +4342,29 @@ figures as everywhere else (they read the rule above; nothing is added across in
     `follow_up_chosen`). With no report at all in the filter the list says "No progress report in the filter.";
     "Nothing to follow up" is for reports all Accepted. A partner whose PDs have no report in PRP at all is
     not counted.
-  * *By location* (Report/Location): one row per indicator, report and location with the value in
+  * *By location* (Report/Location, `tab=locations`, hidden): one row per indicator, report and location with the value in
     the period (the disaggregation total, read as Reached reads it: a value repeated on every
     location is the report total and is not shown as the location's; two rows of one location are
     never added, the row count is noted) and PRP's figure to date at the location. Reports that do
     not count are greyed. A row keeps its progress report's status (the one the tiles count), also
     under a status filter. It reads at most 20,000 report rows at once, only the "()" total of each (a web worker holds them all
     in memory); above that it asks for a narrower filter, and its export refuses.
-  * *By disaggregation* (Report/Disaggregation): see below. It reads at most 10,000 report rows at
+  * *By disaggregation* (Report/Disaggregation, `tab=disaggregations`, hidden): see below. It reads at most 10,000 report rows at
     once (each can give many lines), and makes the lines of the 25 locations a page shows only; the
     export writes them location by location.
+  * *By location* and *By disaggregation* are hidden (the user's decision of 21 Nov 2026): no tab bar shows
+    them (`views.REPORTING_SHOWN_TABS`: `tab_urls` holds the two tabs shown only) and no regular page links to
+    them (the management brief sends people to the indicator page's *Reached by disaggregation* instead), but
+    `?tab=locations` and `?tab=disaggregations` still open them, with their own filters, parts and exports
+    (old bookmarks). The figure trail keeps their folds and its *Open the page* link, and the admin's Power BI
+    comparison still compares the PD/SPD Report/Location and Report/Disaggregation exports with them and links
+    to them (`powerbi_results.NEURODB_PAGE`). Their code stays: to show them again, add them back to
+    `REPORTING_SHOWN_TABS` and to the tab bar (`reports/partials/reporting_table.html`).
   The exports hold every row of the tab's filter; the Excel file adds, per status, the progress reports,
   the indicators under each tile and the indicator reports in them (*By status*), then a *Total* row (the
   first tile: its progress reports, its indicators, each once across the statuses, and its indicator
   reports) whose `note` says the status rows' indicators do not add up to it (an indicator in reports of
-  several statuses is in each of their rows; the progress reports and indicator reports do), and the section table (and, on *Partners*, partners per status and
+  several statuses is in each of their rows; the progress reports and indicator reports do), and the section table (and, on *Partner view*, partners per status and
   those not reported). The status filter uses the six statuses (an old link with PRP's word, such as
   `status=Accepted`, still works). In every CSV file (these and the others NeuroDB writes), a text
   that a spreadsheet would run as a formula (one starting with `=`, `+`, `-` or `@`, such as a title
@@ -4367,7 +4378,7 @@ figures as everywhere else (they read the rule above; nothing is added across in
   output, PD output, baseline, target and emergency flag (the PD is an SPD); filters add PD reference,
   indicator title and Emergency, and the Section list also offers the sections the indicators name (the tab filters
   on each indicator's own section); exported whole.
-* **Progress reports → By disaggregation** (PD/SPD Report/Disaggregation): per indicator report and
+* **Progress reports → By disaggregation** (PD/SPD Report/Disaggregation; hidden, see above): per indicator report and
   location, PRP's value for each disaggregation value (female, Male; Lebanese, Syrian…) with its label,
   a **subtotal per disaggregation** (and per cross-tab) and the **location total** `"()"`, never one sum
   of every value: values add up only within one disaggregation (female 5 + Male 15 + Lebanese 20 is a
@@ -4438,7 +4449,7 @@ or a section tile reloads the results area under the filter bar with new grey bl
 (at once when the figures are kept already); a page of the grid or of the table reloads only its own block. On
 *Progress reports*, the *By location* and *By disaggregation* tabs fetch their table as one block
 (`table`), with its pages, its note when the filter holds too many rows and its download links; a change
-of filter there answers the table at once, as before. *Reporting progress* and *Partners* are drawn whole,
+of filter there answers the table at once, as before. *Reporting progress* and *Partner view* are drawn whole,
 as before.
 
 What is kept, and when it changes: each kept value's key holds the latest run of each job that writes the
@@ -4913,10 +4924,10 @@ and the partner's names and vendor number, the PD's sections any case, report # 
 partner, partner type, draft or cancelled PDs never, the Emergency indicator: the PD is an SPD, dates, overdue,
 PD status). They join at the hub, `services.partner_reporting`, before the status filter (`reporting.in_order`
 keeps the page's order), so the tiles (progress reports), the table by section, the chart by month, the
-Partners tab, the follow-up list and its export, Home's block (`reporting_figures`, `pd_follow_up`: the PD's
+Partner view tab, the follow-up list and its export, Home's block (`reporting_figures`, `pd_follow_up`: the PD's
 sections for a report with no indicator report) count them, and never in an indicator report count; the hub's
 `owed` says shown, `n`, `why` and the `line` (`owed.HIDDEN` by why while closed, `owed.SHOWN` with at least one
-in the filter), drawn by `reports/partials/_owed_line.html` under the tiles, on the Partners tab and in Home's
+in the filter), drawn by `reports/partials/_owed_line.html` under the tiles, on the Partner view tab and in Home's
 block (the check 11 link for Administrators, and validators with staff status, as on Data health: the checks
 open in the admin; the closed line for `not_read` says the last sync of either PRP dataset failed or received
 nothing, as check 11 does). Also: the PD and partner pages (`programme_datamart`, `partner_datamart`: each
@@ -5074,7 +5085,7 @@ year>&scope=year`).
 
 | Block | What it shows | Who |
 |---|---|---|
-| *Partner reporting: <who>* → *Progress reports* | Progress reports' seven tiles for Home's sections, exactly as on that page (`datamart.services.reporting_figures`, which is the page's own `partner_reporting`: the running programme documents and every reporting period, the page's default, so a January keeps last year's last reports, the overdue ones; on the page's day, `reporting_today`). Each tile counts progress reports (as Power BI's Reporting Progress) and opens the page on its status; under it, the indicators in those reports, each indicator once, of active programme documents only (`reporting.counts`, the page's own: Home reads no PD status, so the running ones, whose active ones count their indicators), and the note under the tiles says so, and that the indicator numbers do not add up to the total. Then **Programme documents to follow up** (`reporting.pd_follow_up`): the first ten (`home.HOME_PDS`; with more, the hint reads "The first 10 of <n> programme documents, the most overdue first"), one row per programme document with its partner, its progress reports Overdue, Sent back, Due (a report not yet due among them, as in Power BI's follow-up list) and Submitted (awaiting acceptance), the oldest due date of its Due or Overdue reports (a past date as soon as one is overdue) and a link to its indicators on Program Performance (every section, `section=`: Progress reports counts a programme document under every section its reports or the PD name, while Partner monitoring keeps the indicators of the sections chosen, and a PD of two sections may hold its indicators in one); the most overdue first. A row's reference opens Progress reports' Partners tab on that programme document (`?tab=partners&pd=<its number>`), whose reports to follow up are the row's, status by status (a report not yet due is Due in both; the Reporting progress tab's tiles count it Not yet due). "Every report to follow up, on Progress reports →" opens the Partners tab. Then the Partners tab's three figures in one line (partners with progress reports here, reported, not yet). Sections with no progress report at all read "No progress reports here." and no partners line; "Nothing to follow up" is for reports that are all Accepted (a report not yet due is one to follow up, listed as Due) | everyone |
+| *Partner reporting: <who>* → *Progress reports* | Progress reports' seven tiles for Home's sections, exactly as on that page (`datamart.services.reporting_figures`, which is the page's own `partner_reporting`: the running programme documents and every reporting period, the page's default, so a January keeps last year's last reports, the overdue ones; on the page's day, `reporting_today`). Each tile counts progress reports (as Power BI's Reporting Progress) and opens the page on its status; under it, the indicators in those reports, each indicator once, of active programme documents only (`reporting.counts`, the page's own: Home reads no PD status, so the running ones, whose active ones count their indicators), and the note under the tiles says so, and that the indicator numbers do not add up to the total. Then **Programme documents to follow up** (`reporting.pd_follow_up`): the first ten (`home.HOME_PDS`; with more, the hint reads "The first 10 of <n> programme documents, the most overdue first"), one row per programme document with its partner, its progress reports Overdue, Sent back, Due (a report not yet due among them, as in Power BI's follow-up list) and Submitted (awaiting acceptance), the oldest due date of its Due or Overdue reports (a past date as soon as one is overdue) and a link to its indicators on Program Performance (every section, `section=`: Progress reports counts a programme document under every section its reports or the PD name, while Partner monitoring keeps the indicators of the sections chosen, and a PD of two sections may hold its indicators in one); the most overdue first. A row's reference opens Progress reports' Partner view tab on that programme document (`?tab=partners&pd=<its number>`), whose reports to follow up are the row's, status by status (a report not yet due is Due in both; the Reporting progress tab's tiles count it Not yet due). "Every report to follow up, on Progress reports →" opens the Partner view tab. Then the Partner view tab's three figures in one line (partners with progress reports here, reported, not yet). Sections with no progress report at all read "No progress reports here." and no partners line; "Nothing to follow up" is for reports that are all Accepted (a report not yet due is one to follow up, listed as Due) | everyone |
 | *Partner reporting: <who>* → *Indicator progress in <year>* | Partner monitoring's tiles for Home's sections and this year (every programme document running in it): indicators, on track, off track, not reported, programme documents, partners. They are the grid's own `summary` at the same address (`/partner-monitoring/?section=…&year=…&scope=year`), from the same stored indicators (the `pm-rows` key), so the two never differ; the grid's *Overdue reports* tile is left out (Home's Overdue is Progress reports', which counts it another way). On track, Off track and Not reported open the grid on that status; "Program Performance table →" opens `view=table` with the same filter | everyone |
 | *More on Home* (folded) | Everything below, behind one click, with the old purpose line and its links to the Country overview and the management brief. Open for superusers and for a role whose menu shows *For you* or *Daily review* (Users and access → *Menu*); folded, its blocks are not loaded until it opens | everyone |
 | *Needs you today*: For you | The NeuroDB Watch card (not drawn while Watch is switched off: the block says "NeuroDB is not checking at the moment: an administrator switched these checks off."). An account without a role is told "For you is for people with a role…", one without a section that For you shows only whole-country points. When the morning check is late (26 hours), the card shows a warning box ("NeuroDB has not checked since Monday. Ask an administrator to look at Scheduled jobs."; before the first check, an administrator is told to open For you and press *Check now*, with a link) and its title is just "For you" | everyone |
@@ -5361,8 +5372,8 @@ one short = medium, two or more = low. A grant's unspent balance is each funds r
 outstanding amount in the grant's share of the reservation's lines (eTools carries the
 outstanding amount per reservation, not per grant). Sex, age, nationality and disability come from
 the indicators' titles: a title naming both girls and boys names neither, so most children fall
-under "not named" (the brief reads the titles, not PRP's disaggregations, which are on the Progress
-reports page's *By disaggregation* tab); they are read from each PD's main indicator, as the children
+under "not named" (the brief reads the titles, not PRP's disaggregations, which are on each indicator's
+page, under *Reached by disaggregation*); they are read from each PD's main indicator, as the children
 reached are.
 
 **Values that cannot be right are left out.** A children indicator whose reported value is above

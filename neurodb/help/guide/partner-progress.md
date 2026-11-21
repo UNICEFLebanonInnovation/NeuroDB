@@ -58,7 +58,7 @@ partner reports feed no longer sends them.
 
 The partner reports feed stops sending a report once its period ends unsent, so the reports partners still
 owe are missing from it. PRP's own list of progress reports has them, as Power BI counts them. Home, Progress
-reports, its Partners tab, the programme document and partner pages, Partner monitoring's *Overdue reports*,
+reports, its Partner view tab, the programme document and partner pages, Partner monitoring's *Overdue reports*,
 the daily review and Ask NeuroDB add them (your decision of 26 Oct 2026), but only while NeuroDB can prove
 that PRP's list is tied to the right programme documents:
 
@@ -211,7 +211,7 @@ confirmed in the one kept.
 
 ## Progress reports
 
-[Progress reports](/partner-reporting/) has four tabs on one filter (search, report status, report
+[Progress reports](/partner-reporting/) has two tabs on one filter (search, report status, report
 type, reporting year, section, report number, partner, partner type, PD status, emergency indicator, and
 the period start and end; the section list offers each section once, and a section chosen also finds
 reports whose rows list several sections). The emergency indicator keeps the reports of SPDs, as Power BI's
@@ -234,25 +234,20 @@ programme documents are never listed, nor reports that name no programme documen
   report table shows it) and by month of the end of the reporting period (the month a report is about, as
   Power BI shows it), and the report table with the PD status, document type and UNICEF focal points
   (names only).
-- **Partners**: partners with reports, with at least one submitted or accepted, and without; partners
+- **Partner view**: partners with reports, with at least one submitted or accepted, and without; partners
   per status; the reports to follow up (Overdue, Sent back, Due, Submitted). A report not yet due is one
   of the Due ones there, as in Power BI's follow-up list (your decision of 26 Oct 2026), and the Report
   status *Due* keeps it there, as Power BI's slicer does; Home's programme documents to follow up count it
   the same way. Everywhere else it is *Not yet due*. When the filter keeps no report at all, the list says
   *No progress report in the filter*; *Nothing to follow up* means every report in the filter is Accepted.
-- **By location**: one row per indicator, report and location, with the value in the period and PRP's
-  figure to date there.
-- **By disaggregation**: per indicator, report and location, the value of each disaggregation (female,
-  male; Lebanese, Syrian…), a **subtotal per disaggregation** and the **location total**. Values add up
-  only within one disaggregation, never across: female 5, male 15 and Lebanese 20 are a location total
-  of 20, not 40. A subtotal that differs from the location total is marked. The labels come from PRP;
-  a value whose label the nightly sync has not read yet is not listed (the location total is). Extra
-  filters: indicator, location, P-code and disaggregation.
 
-On **By location** and **By disaggregation**, the filters and the tabs come first and the table fills in
-as soon as it is ready, in a grey box of its size; a change of filter brings the new table at once, as
-before. The table is worked out once for everyone who asks for the same filter and kept for two minutes;
-a new eTools sync shows at once.
+**By location** and **By disaggregation** are hidden (your decision of 21 Nov 2026): they are no longer
+in the tab bar and no page links to them, but an old link or bookmark still opens them. By location lists
+each indicator, report and location with its value. By disaggregation gives each disaggregation's values
+(female, male; Lebanese, Syrian…), a subtotal per disaggregation and the location total: values add up
+only within one disaggregation (female 5, male 15 and Lebanese 20 are a location total of 20, not 40), and
+a subtotal that differs from the location total is marked. Each indicator's page also gives its
+**Reached by disaggregation**, location by location.
 
 ## Programme documents
 
