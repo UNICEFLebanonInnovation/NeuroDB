@@ -101,8 +101,8 @@ def test_the_grid_lists_the_entries_in_the_order_a_role_sees_them(client_super):
     values = re.findall(r'name="role-viewer" value="([^"]+)"', html)
     assert values == [entry["key"] for entry in navigation.entries()]
     assert values[:5] == [
-        "reports:overview",
         "assistant:ask",
+        "reports:overview",
         "reports:partner_reporting",
         "reports:pd_monitoring",
         "watch:for_you",
@@ -124,7 +124,7 @@ def test_the_grid_lists_the_entries_in_the_order_a_role_sees_them(client_super):
     ]
     assert "Partner progress (eTools)" not in titles and "Funds and assurance" not in titles
     listed = dict(sections)
-    assert listed["Top of the menu"] == ["reports:overview", "assistant:ask"]
+    assert listed["Top of the menu"] == ["assistant:ask", "reports:overview"]
     assert listed["Partner reporting (PRP)"] == ["reports:partner_reporting", "reports:pd_monitoring"]
     assert listed["Below Partner reporting"] == ["watch:for_you", "reports:daily_review", "graph:whats_new"]
     # the rows of Partner progress (eTools) and Funds and assurance, under the one Knowledge base heading

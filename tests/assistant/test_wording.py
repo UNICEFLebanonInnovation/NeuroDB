@@ -28,17 +28,13 @@ def test_the_pages_name_the_provider_in_use(client_viewer, admin_client):
         ask = client_viewer.get(reverse("assistant:ask")).content.decode()
         add = admin_client.get(reverse("knowledge:add")).content.decode()
     assert "answered from NeuroDB&#x27;s data by Claude (Anthropic)" in ask
-    assert (
-        "Answers are written by Claude (Anthropic&#x27;s model)" in ask and "sent to the Anthropic API" in ask
-    )
+    assert "Claude (Anthropic&#x27;s model) writes the answers" in ask and "go to the Anthropic API" in ask
     assert "ChatGPT" not in ask and "OpenAI API" not in ask
     assert "sent to the Anthropic API to be summarised" in add
     with override_settings(AI_ASSISTANT_ENABLED=True):  # OpenAI: the words it always had
         ask = client_viewer.get(reverse("assistant:ask")).content.decode()
     assert "answered from NeuroDB&#x27;s data by ChatGPT (OpenAI)" in ask
-    assert (
-        "Answers are written by ChatGPT (OpenAI&#x27;s GPT model)" in ask and "sent to the OpenAI API" in ask
-    )
+    assert "ChatGPT (OpenAI&#x27;s GPT model) writes the answers" in ask and "go to the OpenAI API" in ask
 
 
 def test_the_set_up_hint_names_both_keys_for_administrators_only(client_viewer, admin_user):
@@ -62,7 +58,7 @@ def test_ask_names_the_documents_page_as_the_menu_does(client_viewer, admin_clie
     settings.AI_ASSISTANT_ENABLED = True
     ask = client_viewer.get(reverse("assistant:ask")).content.decode()
     intro = " ".join(ask.split('id="main"', 1)[1].split("</main>", 1)[0].split())
-    assert "the library, the documents people added and data freshness" in intro
+    assert "the library or the documents people added" in intro
     assert "knowledge base" not in intro.lower()
     assert tools.label("search_knowledge") == "Searching the documents"
     add = admin_client.get(reverse("knowledge:add")).content.decode()

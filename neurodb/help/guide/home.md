@@ -1,7 +1,9 @@
 # Home
 
-[Home](/) is the first page after you sign in. It starts with how partners are reporting, in numbers
-and a table: the figures of [Progress reports](/partner-reporting/) and
+[Home](/home/) is one click away in the menu, right under Ask NeuroDB, which NeuroDB opens first while the AI
+is on (see [Ask NeuroDB](/help/ask-neurodb/#the-page-neurodb-opens-first)). When the AI is off, or your menu
+leaves Ask NeuroDB out, NeuroDB opens on Home after you sign in. Home starts with how partners are
+reporting, in numbers and a table: the figures of [Progress reports](/partner-reporting/) and
 [Partner monitoring](/partner-monitoring/), for your section (or the country). Below them, under *More on
 Home*, it answers three more questions: what needs you today, what changed since the previous working
 day, and where your section stands this year. Every figure of the year is on the

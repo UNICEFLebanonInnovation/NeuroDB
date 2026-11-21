@@ -551,7 +551,7 @@ def test_home_s_block_is_home_s_tiles_rows_and_partners_line(validator, world, m
     from neurodb.reports import home
 
     monkeypatch.setattr(home, "HOME_PDS", 1)
-    part = get_part(validator, "/?section=", "reporting")
+    part = get_part(validator, "/home/?section=", "reporting")
     shown = drawn(text(part))
     context = part.context
     found = trail.progress_trail("home", {"section": [""], "block": "reporting"}, TODAY)
@@ -579,7 +579,7 @@ def test_home_s_block_is_home_s_tiles_rows_and_partners_line(validator, world, m
 def test_home_s_block_with_no_progress_report_has_no_partners_line(validator, world):
     """A section with no progress report: Home draws its tiles (all 0) and no partners line, and the trail lists
     the partners line's figures as not drawn."""
-    part = get_part(validator, "/?section=Nutrition", "reporting")
+    part = get_part(validator, "/home/?section=Nutrition", "reporting")
     shown = drawn(text(part))
     found = trail.progress_trail("home", {"section": ["Nutrition"], "block": "reporting"}, TODAY)
     assert found.figure("pr.progress_reports").page == 0 and not found.differences
@@ -767,8 +767,8 @@ def test_the_page_never_passes_a_hook(validator, world, monkeypatch):
         assert validator.get(url, {"tab": tab}).status_code == 200
     for tab in ("locations", "disaggregations"):
         get_part(validator, f"{url}?tab={tab}", "table")
-    assert validator.get("/?section=").status_code == 200
-    get_part(validator, "/?section=", "reporting")
+    assert validator.get("/home/?section=").status_code == 200
+    get_part(validator, "/home/?section=", "reporting")
     assert {name for name, _ in seen} == {"queryset", *hooked}
     assert all(hook is None for _, hook in seen)
 

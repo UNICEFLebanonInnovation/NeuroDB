@@ -1,4 +1,4 @@
-"""Home: the site root once signed in (``reports.views.home`` dispatches to :func:`home_page`).
+"""Home, at ``/home/`` (``reports.views.home`` calls :func:`home_page`; the site root leads here or to Ask).
 
 How partners are reporting first, in numbers and tables (SPEC_focus_menu §2): management asked for a Home
 that is straightforward, with the figures PD managers read on Progress reports and Partner monitoring. Then,

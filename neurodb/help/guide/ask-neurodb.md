@@ -1,12 +1,38 @@
 # Ask NeuroDB
 
-[Ask NeuroDB](/ask/) (sidebar, right under Home, marked AI) answers questions about the **programme data**
+[Ask NeuroDB](/ask/) (the first row of the sidebar, marked AI) answers questions about the **programme data**
 in plain language: indicator results, activity reports, Neuro and HPM reports, programme documents,
 donors, partners, funds, assurance, field monitoring visits, population, the library, the documents
 people add (the [Documents](/knowledge/) page) and the country programme.
 The AI is Claude (Anthropic's model), or ChatGPT (OpenAI's GPT model) where the
 administrators chose it in AI settings; Claude is the preferred one. It answers with NeuroDB's own
 read-only look-ups, and it links each answer to the pages its figures come from.
+
+## The page NeuroDB opens first
+
+While the AI is on, NeuroDB opens on Ask NeuroDB: after you sign in, at the site's address and when you
+click the NeuroDB logo. Home is one click away: it is right under Ask NeuroDB in the menu, and the Ask page
+links to it.
+
+NeuroDB opens on [Home](/help/home/) instead when:
+
+- the AI is off: Ask NeuroDB says it is not set up (staff still see it in the menu), and the search and the
+  [Management brief](/brief/) answer the common questions;
+- your menu leaves Ask NeuroDB out (a superuser chose so for your role).
+
+A link from an e-mail or a bookmark still opens its own page, and so does signing in from a page.
+
+Until you ask your first question, the page has:
+
+- a welcome, with your first name when your account has one (only you see it; it is never sent to the AI);
+- the question box, with what goes to the AI and the hourly limit under it;
+- links to the pages people open most (Progress reports, Partner monitoring and the others in your menu);
+- example questions, as cards by topic: partner reporting, funds and donors, field monitoring, and documents
+  and data. Click a card to ask its question;
+- your recent questions: click one to ask it again.
+
+Once you ask, the conversation takes the page and the box moves to the bottom. *New conversation* brings the
+start back.
 
 ## Asking
 

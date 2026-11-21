@@ -59,7 +59,7 @@ and re-running the deployment.
 
 Management found the full sidebar too long for most people, PD managers above all, who want partner reporting
 in numbers and tables in as few taps as possible. So every role sees a **focused menu** by default:
-*Home* and *Ask NeuroDB* at the top, *Partner reporting (PRP)* (*Progress reports* and *Partner monitoring*),
+*Ask NeuroDB* and *Home* at the top, *Partner reporting (PRP)* (*Progress reports* and *Partner monitoring*),
 then *Field monitoring* under *Knowledge base* (`navigation.FOCUS`, `navigation.FOCUSED`). That is
 Administrators, Section editors and Viewers, with or without staff status, and the members of the Management
 group (a group, not a role).
@@ -68,7 +68,7 @@ own page only. Visitors are unchanged.
 
 **Choosing what a role sees: Users and access → *Menu*** (`/manage/web/menuchoice/`, also a Quick action on
 the dashboard: *Choose what each role sees in the menu*). One tick per entry and role, the entries in the
-order a role's sidebar draws them: the focused part first (*Home* and *Ask NeuroDB* under *Top of the
+order a role's sidebar draws them: the focused part first (*Ask NeuroDB* and *Home* under *Top of the
 menu*, then *Partner reporting (PRP)*), then the rest of the full menu under its usual group titles (*Field
 monitoring* under *Knowledge base*), then *ActivityInfo* (the monthly results or the archive) and
 *Help*. **Save** stores the ticks; **Reset every role to the focused menu** removes every saved choice. Each
@@ -110,12 +110,44 @@ superuser's password and sign in as them, or deactivate every superuser and leav
   Resources row that opens `/knowledge/` (the documents people add: reports, studies, evaluations) is called
   **Documents**, so the name is not shown twice; its page, crumbs, the search and the Help guide say
   *Documents* too. The code, the URLs and the admin keep their names (`neurodb.knowledge`, `knowledge:index`).
-- **Home follows the menu.** Home leads with partner reporting for everyone (see *Home (`/`)*); the rest of
+- **Home follows the menu.** Home leads with partner reporting for everyone (see *Home (`/home/`)*); the rest of
   Home (the Watch card, *Needs a decision*, the daily review, *Since*, the key figures, the sources) is under
   *More on Home*, folded for a role whose menu shows neither *For you* nor *Daily review* (every role by
   default: Administrators and Management members, too, open it for *Needs a decision* and the Watch card)
   and open for superusers. Ticking *For you* or *Daily review* for a role opens it for that role.
 - Quick migration `web 0001_menu_choice` (a new, empty table of at most three rows).
+
+### Ask NeuroDB opens first
+
+*Ask NeuroDB* is the first row of the full and the focused menu, and the page NeuroDB opens first. Signing in
+(`LOGIN_REDIRECT_URL` is `reports:root`), the site address `/` and the logo all go to `reports.views.root`,
+which sends a signed-in person on (`navigation.start_route`):
+
+- to **Ask NeuroDB** (`/ask/`) while the AI is on (`llm.enabled()`: the hosting team's switch and a key, see
+  *AI settings*) and the person's menu shows it (every role's focused menu does; a superuser's always does);
+- to **Home** (`/home/`) otherwise: the AI is off (staff still see Ask NeuroDB in the menu, saying it is not
+  set up), or a superuser unticked *Ask NeuroDB* for the person's role on the Menu page.
+
+Home is one click away: its row is right under Ask NeuroDB, and the Ask page links to it. Nothing else
+changes: visitors still get the public landing page at `/`; a donor account still signs in to its own page
+and every other address, `/` and `/home/` included, still leads there; the administration's sign-in still
+comes back to the administration (`?next=`); a sign-in from a page (`?next=`) still goes back to that page.
+Old links to `/` keep their page: with the country overview's filters (`year`, `governorate`) or a daily
+review tab they go to that page as before, with any other query (Home's `section`, `_eager=1`) to Home with
+it, and a part asked by a tab still open on the old Home at `/` is answered by Home. Neither page sends anyone
+back to `/`, so there is no loop. The 404 and 403 pages say *Back to Home* to signed-in staff and *Back to
+NeuroDB* (the root) to anyone else; the server error page links the root.
+
+**The Ask page's start** (`assistant/ask.html`, until the first question): a welcome with the person's first
+name when the account has one (drawn on the page for that person only: it is in no title, attribute or
+request the AI gets), one sentence on what Ask NeuroDB answers, the question box under it (the
+conversation's own form: `ask.js` takes the class `is-empty` off the page at the first question, and the box
+goes back to the bottom; *New conversation* puts it back), the privacy and accuracy note, a row of links to
+the pages people open most (Home, Progress reports, Partner monitoring, Programme documents; only those the
+person's menu shows, `navigation.quick_links`), the example questions as cards by topic
+(`assistant.views.EXAMPLES`: Partner reporting, Funds and donors, Field monitoring, Documents and data; a card
+asks its question), and the person's last six questions. While the AI is off the page is unchanged: it says
+the AI is not set up.
 
 ## Secrets rotation
 Key Vault secrets: `django-secret-key`, `database-url`, `activityinfo-username` and
@@ -1853,7 +1885,7 @@ more.
 
 | Page | The frame (at once) | Its parts | What it stores in the shared page figures, and when that changes |
 |---|---|---|---|
-| Home, `/` (signed in) | Title, date and scope line, purpose line, the partner reporting heading and its links, freshness strip; no figure work and no Watch table | `reporting` (at once): Progress reports' tiles, the programme documents to follow up and the partners line. `indicators` (at once): Partner monitoring's tiles for this year. In *More on Home* (when it opens; open for superusers): `for-you` (at once, from Watch's own address; not drawn while Watch is off): the NeuroDB Watch card. `tasks` (at once): *Needs a decision* (Administrators and Management) and the daily review's digest. `since` (when near the screen): *Since <weekday>* and *Your tasks*. `standing` (at once): the Country overview's five key figures for this year and Home's sections, and the *Also* line. `programmes` (after the visible ones): *Programmes and sources* | Nothing of its own: `reporting` is computed at each request, as Progress reports computes it; `indicators` reads Partner monitoring's stored indicators (same key), drawn by the frame when stored; `standing` is the Country overview's build (same key), drawn by the frame when stored; *Programmes and sources* reads the country programme's build (10 minutes) and Compiler's summary. *Needs a decision*, the digest, *Since* and *Your tasks* are computed at each request. See *Home and the country overview* |
+| Home, `/home/` | Title, date and scope line, purpose line, the partner reporting heading and its links, freshness strip; no figure work and no Watch table | `reporting` (at once): Progress reports' tiles, the programme documents to follow up and the partners line. `indicators` (at once): Partner monitoring's tiles for this year. In *More on Home* (when it opens; open for superusers): `for-you` (at once, from Watch's own address; not drawn while Watch is off): the NeuroDB Watch card. `tasks` (at once): *Needs a decision* (Administrators and Management) and the daily review's digest. `since` (when near the screen): *Since <weekday>* and *Your tasks*. `standing` (at once): the Country overview's five key figures for this year and Home's sections, and the *Also* line. `programmes` (after the visible ones): *Programmes and sources* | Nothing of its own: `reporting` is computed at each request, as Progress reports computes it; `indicators` reads Partner monitoring's stored indicators (same key), drawn by the frame when stored; `standing` is the Country overview's build (same key), drawn by the frame when stored; *Programmes and sources* reads the country programme's build (10 minutes) and Compiler's summary. *Needs a decision*, the digest, *Since* and *Your tasks* are computed at each request. See *Home and the country overview* |
 | Country overview, `/country-overview/` | Purpose line, filter bar, subtitle, freshness strip, in an ActivityInfo year the link to its databases | `kpis` (at once; first of the group `overview`): the key figure tiles. `figures` (when near the screen, once `kpis` is in): impact, value for money, delivery and assurance and the two progress blocks. `news` (after the visible ones): What's new and the forecast risk card | The overview build, 2 minutes per year, its ActivityInfo reporting year, sections, governorate and day, the same in every language; the filter bar's section names, 10 minutes; the freshness strip, 2 minutes. Each key holds the last finished sync run and the indicator flags, so a sync or a flag changes it at once. When the build is stored, the frame draws `kpis` and `figures` itself. See *Home and the country overview* |
 | Daily review, `/daily-review/` | Title, scope line, purpose line with the review's time (from its schedule), section chips | `review` (at once, only when a daily review ever succeeded): the *Daily review* card. `review-more` (only when *Show N more findings* is opened): its folded findings, always those of the card above them | Nothing: the review's findings are read at each request. See *Daily review page* |
 | Management brief, `/brief/` | Purpose line, filter bar with *Figures as of* and **Print**, the tab bar, the *Reference* block (lineage and data dictionary) | `brief` (at once; first of the group `brief`): the five tiles, *Things to decide* with the *Assign* links for staff, *Sections at a glance* and *Copy summary*. `sections` (when near the screen, once `brief` is in): ahead or behind, how sure, who and where, partners, money and action, with every chart of the page | The brief build, 2 minutes per year, sections, day and language (its labels are translated as it is computed), under the brief's own key: the section plans, the finding assignments and the ActivityInfo partner links (how many, and the last change), the latest daily review, the last finished sync run and the indicator flags, so an entry in the admin, a new review, a sync or a flag shows at once. It reads two overview builds, each stored as an overview build: the year's, the very one the overview stores for the same year and sections without a governorate, and the year before's, for the comparisons. The frame's lineage, 2 minutes, the same in every language, under the last finished sync run, the flags and the latest daily review; the filter bar's section names are the overview's. When the build is stored, the frame draws both parts itself: a brief opened again within two minutes is one request. See *Management brief* |
@@ -5016,7 +5048,8 @@ Datamart sync (one entry per donor and grant), so running it does not blank the 
 
 ## Home and the country overview
 
-`/` for a signed-in user is **Home** (`reports/home_views.py`): how partners are reporting first, in numbers
+`/home/` is **Home** (`reports/home_views.py`; *Ask NeuroDB* opens first while the AI is on, see *Ask NeuroDB
+opens first*): how partners are reporting first, in numbers
 and tables (Progress reports' and Partner monitoring's own figures: management asked for a Home that PD
 managers read at a glance), then, under *More on Home*, what needs the person today, what changed since the
 previous working day, and where their section (or the country) stands this year. Every figure
@@ -5024,8 +5057,9 @@ of the year is on the **Country overview** (`/country-overview/`), the findings 
 the **Daily review** page (`/daily-review/`). Visitors get the landing page at `/`; donor accounts never
 reach these pages. Old links keep working: `/?year=…` and `/?governorate=…` are sent on to
 `/country-overview/` with the same query, `/?review=…` (and `review_latest`, `review_id`) to
-`/daily-review/`, and a part request of the old overview at `/` (`_part=kpis`, `figures`, `news`, `review`,
-`review-more`) is still answered, so an open tab keeps loading.
+`/daily-review/`, any other query (`/?section=…`) to `/home/` with it, and a part request at `/` (the old
+overview's `_part=kpis`, `figures`, `news`, `review`, `review-more`, or one of Home's from a tab opened when
+Home was at `/`) is still answered, so an open tab keeps loading.
 
 **First load, one rule for the three pages** (`reports/home.default_sections`): members of the Management
 group and people without a section see every section; everyone else sees their own section (the user's
@@ -5036,7 +5070,7 @@ load default of its own and shows the same figures. So does every link to Progre
 none for every section, the page's own default) and to Partner monitoring (`?section=…&year=<this
 year>&scope=year`).
 
-### Home (`/`)
+### Home (`/home/`)
 
 | Block | What it shows | Who |
 |---|---|---|
@@ -5450,7 +5484,7 @@ you** page. The AI only writes a short morning note and looks into a few critica
 never decides what is followed, how serious it is, when it is due or who is told. The code is in
 `neurodb/watch` (one module per step, each with notes at its top).
 
-**What staff see.** *For you* (third in the full menu, under Ask NeuroDB; in a role's menu once a
+**What staff see.** *For you* (third in the full menu, under Home; in a role's menu once a
 superuser ticks it in *Menu*), with the number of "Needs you"
 points told today and not yet seen, and a *For you* card on Home (not drawn while Watch is switched off;
 an account without a role is told "For you is for people with a role. Your account has none yet, so it

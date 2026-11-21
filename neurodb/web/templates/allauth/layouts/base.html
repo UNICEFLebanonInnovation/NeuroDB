@@ -23,7 +23,7 @@
   <main class="panel auth-card">
     {% comment %}A donor still on the temporary password is led back to the password page from every address: the logo leads
     there straight away (the password page itself shows it as no link: account/password_change.html).{% endcomment %}
-    {% block brand %}<a class="brand" href="{% if must_change_password %}{% url 'account_change_password' %}{% else %}/{% endif %}">{% include "components/logo.html" with height=44 %}</a>{% endblock brand %}
+    {% block brand %}<a class="brand" href="{% if must_change_password %}{% url 'account_change_password' %}{% else %}{% url 'reports:root' %}{% endif %}">{% include "components/logo.html" with height=44 %}</a>{% endblock brand %}
     {% if messages %}
     <div role="status">{% for message in messages %}<div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} py-2 small">{{ message }}</div>{% endfor %}</div>
     {% endif %}

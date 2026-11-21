@@ -8,7 +8,9 @@
 // (data-history-key: sessionStorage, so it follows the person from page to page; the server keeps the
 // conversation itself and sends at most 6 earlier turns to the model). An example button may ask a question of
 // its own (data-ask-example="…"), and a done event's meta replaces the line under the answer (the KM Database's
-// "Answered from N of about M matching findings").
+// "Answered from N of about M matching findings"). While the conversation is empty the root has the class
+// "is-empty": the Ask page draws its start page then (app.css .ask--home: the welcome, the box under it, the
+// example cards); a chat of another page has no style for it.
 import { init as drawChart } from "./charts.js";
 import { csrfToken, toast } from "./lib.js";
 
@@ -61,6 +63,13 @@ export function init(root) {
   let conversation = kept.conversation;
   let controller = null;
 
+  // The intro (the examples) shows, and the root is "is-empty", until the first question and again for a new
+  // conversation
+  const showStart = (shown) => {
+    intro.hidden = !shown;
+    root.classList.toggle("is-empty", shown);
+  };
+
   const autosize = () => {
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
@@ -86,7 +95,7 @@ export function init(root) {
     kept.turns = [];
     writeKept(keptKey, null);
     thread.querySelectorAll(".ask-turn").forEach((el) => el.remove());
-    intro.hidden = false;
+    showStart(true);
     reset.hidden = true;
     input.focus();
   });
@@ -99,7 +108,7 @@ export function init(root) {
     thread.append(el);
   }
   if (kept.turns.length) {
-    intro.hidden = true;
+    showStart(false);
     reset.hidden = false;
   }
 
@@ -109,7 +118,7 @@ export function init(root) {
     if (!question || controller) return;
     input.value = "";
     autosize();
-    intro.hidden = true;
+    showStart(false);
     await ask(question);
   });
 

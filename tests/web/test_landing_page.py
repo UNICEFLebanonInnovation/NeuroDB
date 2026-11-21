@@ -80,13 +80,16 @@ def test_every_way_in_is_neurodbs_own_sign_in(client, db):
 
 
 def test_a_signed_in_visitor_is_offered_neurodb_itself(client_viewer, db):
+    """The "Open NeuroDB" buttons open the site root (the page the person opens first: Ask NeuroDB or Home),
+    "Open Home" opens Home."""
     _, html = _landing(client_viewer)
-    home = reverse("reports:overview")
+    root, home = reverse("reports:root"), reverse("reports:overview")
     assert reverse("account_login") not in html
     assert html.count("Open NeuroDB") == 4  # nav, staff role (drawn and its state), closing band
     assert "Open Home" in html
-    opened = [a for a in tags(html, "a") if a.get("href") == home]
-    assert {a.get("class", "") for a in opened} >= {"navcta", "btn btn-ghost", "btn btn-blue", "endingbtn"}
+    opened = [a for a in tags(html, "a") if a.get("href") == root]
+    assert {a.get("class", "") for a in opened} >= {"navcta", "btn btn-blue", "endingbtn"}
+    assert [a.get("class", "") for a in tags(html, "a") if a.get("href") == home] == ["btn btn-ghost"]
 
 
 # ------------------------------------------------------------------------------------------ what runs

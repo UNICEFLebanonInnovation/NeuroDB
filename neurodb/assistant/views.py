@@ -17,8 +17,10 @@ from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpRe
 from django.shortcuts import render
 from django.utils import timezone
 from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _lazy
 from django.views.decorators.http import require_GET, require_POST
 
+from neurodb.indicators.services import navigation
 from neurodb.knowledge.access import can_add as can_add_knowledge
 
 from . import agent, figures, llm, usage
@@ -30,17 +32,53 @@ logger = logging.getLogger(__name__)
 MAX_QUESTION_CHARS = 1000
 MAX_RUNNING = 2  # questions one user may have being answered at the same time
 IN_PROGRESS = "in progress"  # the error of a question's row until its answer is finished
+# The example questions of the start page, by topic: each a card with its topic's icon, asked as it is when
+# clicked. Each asks about data Ask NeuroDB looks up.
 EXAMPLES = [
-    "Which Child Protection programme documents are off track this year?",
-    "Which partners have progress reports overdue?",
-    "What is the total budget of active programme documents funded by the European Union?",
-    "How many Syrian children live in Akkar?",
-    "Is the eTools data up to date?",
+    {
+        "title": _lazy("Partner reporting"),
+        "icon": "file",
+        "questions": [
+            "Which partners have progress reports overdue?",
+            "Which Child Protection programme documents are off track this year?",
+        ],
+    },
+    {
+        "title": _lazy("Funds and donors"),
+        "icon": "gift",
+        "questions": [
+            "What is the total budget of active programme documents funded by the European Union?",
+            "Which grants expire in the next three months?",
+        ],
+    },
+    {
+        "title": _lazy("Field monitoring"),
+        "icon": "eye",
+        "questions": [
+            "How many HACT programmatic visits are still needed this year?",
+            "How many action points are overdue, and how many of them are high priority?",
+        ],
+    },
+    {
+        "title": _lazy("Documents and data"),
+        "icon": "layers",
+        "questions": [
+            "What do the documents people added say about school dropout?",
+            "How many Syrian children live in Akkar?",
+            "Is the eTools data up to date?",
+        ],
+    },
 ]
+RECENT = 6  # the person's recent questions the start page lists
 
 
 @require_GET
 def ask(request: HttpRequest) -> HttpResponse:
+    """Ask NeuroDB: the page a person opens first while the AI is on (``reports.views.root``). Until the first
+    question it is a start page: a welcome (the person's first name, drawn for them only and never sent to the
+    AI), the question box under it, the example questions by topic, the person's recent questions and links
+    to the pages people open most that their menu shows (:func:`navigation.quick_links`); then the
+    conversation."""
     recent = (
         AssistantQuestion.objects.filter(user=request.user, status=AssistantQuestion.Status.ANSWERED)
         .order_by("-created_at")
@@ -67,8 +105,10 @@ def ask(request: HttpRequest) -> HttpResponse:
         if request.user.is_staff and not enabled
         else "",
         "initial_question": request.GET.get("q", "")[:MAX_QUESTION_CHARS],
+        "first_name": (request.user.first_name or "").strip() if enabled else "",
         "examples": EXAMPLES,
-        "recent": recent_unique[:6],
+        "recent": recent_unique[:RECENT],
+        "quick_links": navigation.quick_links(request.user) if enabled else [],
         "hourly_limit": settings.AI_ASSISTANT_HOURLY_LIMIT,
         "can_add_knowledge": can_add_knowledge(request.user),
     }

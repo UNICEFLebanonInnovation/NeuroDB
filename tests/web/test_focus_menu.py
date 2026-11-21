@@ -25,7 +25,7 @@ from tests.web.parts import raw_get
 pytestmark = pytest.mark.django_db
 
 HX = {"HTTP_HX_REQUEST": "true"}
-FOCUSED_ROWS = ["Home", "Ask NeuroDB", "Progress reports", "Partner monitoring", "Field monitoring"]
+FOCUSED_ROWS = ["Ask NeuroDB", "Home", "Progress reports", "Partner monitoring", "Field monitoring"]
 WITHOUT_ASK = [label for label in FOCUSED_ROWS if label != "Ask NeuroDB"]
 KNOWLEDGE_BASE = ("knowledge_base", "Knowledge base")
 
@@ -145,15 +145,15 @@ def test_a_donor_and_a_visitor_are_unchanged(client, db, settings):
 
 
 # ------------------------------------------------------------------------------------- the focused order
-def test_home_then_ask_then_partner_reporting_then_knowledge_base(client, roles, settings):
-    """A role with no saved choice: Home and Ask NeuroDB at the top with no title, then Partner reporting, then
+def test_ask_then_home_then_partner_reporting_then_knowledge_base(client, roles, settings):
+    """A role with no saved choice: Ask NeuroDB and Home at the top with no title, then Partner reporting, then
     Field monitoring under Knowledge base, right after it."""
     settings.AI_ASSISTANT_ENABLED = True
     viewer = _person("new-order", VIEWER)
     drawn = navigation.sidebar(viewer)["groups"]
     assert [(g["title"] and str(g["title"]), [str(i["label"]) for i in g["items"]]) for g in drawn] == [
-        (None, ["Home"]),
         (None, ["Ask NeuroDB"]),
+        (None, ["Home"]),
         ("Partner reporting (PRP)", ["Progress reports", "Partner monitoring"]),
         ("Knowledge base", ["Field monitoring"]),
     ]
@@ -183,7 +183,7 @@ def test_field_monitoring_unticked_leaves_no_knowledge_base_title(client, roles,
     menu_choice(VIEWER, sorted(navigation.FOCUSED - {"reports:monitoring"}))
     viewer = _person("no-field-monitoring", VIEWER)
     html = _page(client, viewer, reverse("reports:library"))
-    assert _labels(html) == ["Home", "Ask NeuroDB", "Progress reports", "Partner monitoring"]
+    assert _labels(html) == ["Ask NeuroDB", "Home", "Progress reports", "Partner monitoring"]
     assert groups(html) == [("prp", "Partner reporting (PRP)")]
     assert "Knowledge base" not in sidebar(html)
 
@@ -197,8 +197,8 @@ def test_a_choice_saved_in_the_old_order_draws_the_new_one(client, roles, settin
     viewer = _person("old-row", VIEWER)
     html = _page(client, viewer, reverse("reports:library"))
     assert _labels(html) == [
-        "Home",
         "Ask NeuroDB",
+        "Home",
         "Progress reports",
         "Partner monitoring",
         "Funds",
@@ -207,11 +207,11 @@ def test_a_choice_saved_in_the_old_order_draws_the_new_one(client, roles, settin
     assert groups(html) == [("prp", "Partner reporting (PRP)"), KNOWLEDGE_BASE]
 
 
-def test_a_superuser_sees_ask_neurodb_right_under_home(client, roles, settings):
+def test_a_superuser_sees_ask_neurodb_first_then_home(client, roles, settings):
     settings.AI_ASSISTANT_ENABLED = True
-    superuser = _person("ask-second", VIEWER, is_staff=True, is_superuser=True)
+    superuser = _person("ask-first", VIEWER, is_staff=True, is_superuser=True)
     labels = _labels(_page(client, superuser, reverse("reports:library")))
-    assert labels[:5] == ["Home", "Ask NeuroDB", "For you", "Daily review", "What's new"]
+    assert labels[:5] == ["Ask NeuroDB", "Home", "For you", "Daily review", "What's new"]
     assert labels.index("Field monitoring") == labels.index("Assurance") + 1  # under Knowledge base
 
 

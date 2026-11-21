@@ -687,7 +687,7 @@ def test_the_map_s_trail_opens_on_the_map_and_goes_back_to_it(validator, world):
 
 # ------------------------------------------------------------------------------------------------ Home's block
 def test_home_s_indicator_progress_is_home_s_tiles(validator, world):
-    part = get_part(validator, "/?section=", "indicators")
+    part = get_part(validator, "/home/?section=", "indicators")
     shown = drawn(text(part))
     link = re.search(r'<a href="([^"]+)" data-check-trail>Check these figures</a>', text(part))
     assert link and "block=indicators" in link.group(1)
@@ -769,7 +769,7 @@ def test_the_page_never_passes_a_hook(validator, world, monkeypatch):
         for name in PARTS[view]:
             get_part(validator, f"/partner-monitoring/?view={view}&year=2026", name)
     assert validator.get(reverse("api:pd_map"), {"year": "2026"}).status_code == 200
-    get_part(validator, "/?section=", "indicators")
+    get_part(validator, "/home/?section=", "indicators")
     assert {"indicators", "_pd_queryset", "overdue_rows", "compute", "progress_values"} <= {
         n for n, _ in seen
     }

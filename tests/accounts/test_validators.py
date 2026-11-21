@@ -52,7 +52,13 @@ def test_the_role_and_the_group_are_one_query_per_request(roles):
 @pytest.mark.shell
 @pytest.mark.parametrize(
     "page",
-    ["/partner-reporting/", "/partner-monitoring/", "/partner-monitoring/map/", "/field-monitoring/", "/"],
+    [
+        "/partner-reporting/",
+        "/partner-monitoring/",
+        "/partner-monitoring/map/",
+        "/field-monitoring/",
+        "/home/",
+    ],
 )
 def test_a_validator_s_page_makes_no_query_more_than_a_viewer_s(client, roles, page):
     """The line under the tabs reads the group in the role's own query: a viewer's frames keep their ceilings
@@ -79,7 +85,7 @@ def test_a_validator_s_page_makes_no_query_more_than_a_viewer_s(client, roles, p
         ("/partner-monitoring/map/", "reports:pd_monitoring"),
         ("/field-monitoring/", "reports:monitoring"),
         ("/field-monitoring/?tab=plan", "reports:monitoring"),
-        ("/", "reports:overview"),
+        ("/home/", "reports:overview"),
     ],
 )
 def test_the_line_opens_the_raw_data_behind_the_page(client, roles, page, key):

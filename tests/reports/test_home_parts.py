@@ -53,7 +53,8 @@ from tests.web.parts import (
 
 pytestmark = pytest.mark.django_db
 
-PAGE = "/"  # reports:overview: Home once signed in
+PAGE = "/home/"  # reports:overview: Home
+ROOT = "/"  # reports:root: the landing page for visitors, else the page the person opens first
 # the frame's placeholders, in page order: partner reporting first, then "More on Home"
 PARTS = ("reporting", "indicators", "for-you", "tasks", "since", "standing", "programmes")
 OWN_PARTS = (
@@ -287,10 +288,15 @@ def test_a_donor_is_refused_every_part(client, world, name):
 
 
 def test_a_visitor_gets_the_landing_page_and_is_sent_to_sign_in_for_a_part(client, world):
-    landing = client.get(PAGE)
+    landing = client.get(ROOT)
     assert landing.status_code == 200 and 'class="page-purpose"' not in text(landing)
-    response = client.get(f"{PAGE}?section=&_part=tasks", **HX)
+    response = client.get(f"{ROOT}?section=&_part=tasks", **HX)
     assert response["HX-Redirect"] == reverse("account_login") + "?next=/"
+    home = client.get(PAGE)  # Home itself is behind sign-in
+    assert home.status_code == 302 and home["Location"] == reverse("account_login") + "?next=/home/"
+    shown = {**HX, "HTTP_HX_CURRENT_URL": "http://testserver/home/"}  # the page the browser shows
+    response = client.get(f"{PAGE}?section=&_part=tasks", **shown)
+    assert response["HX-Redirect"] == reverse("account_login") + "?next=/home/"
 
 
 def test_a_warm_home_draws_the_key_figures_in_the_frame(client_viewer, reviewed, monkeypatch):
@@ -347,7 +353,7 @@ def test_home_and_the_country_overview_read_one_build(client_viewer, reviewed, m
     ],
 )
 def test_old_links_of_the_site_root_go_to_their_page_with_their_query(client_viewer, world, query, target):
-    response = client_viewer.get(PAGE + query)
+    response = client_viewer.get(ROOT + query)
     assert response.status_code == 302
     assert response["Location"] == reverse(target) + query
 
@@ -356,19 +362,20 @@ def test_old_links_of_the_site_root_go_to_their_page_with_their_query(client_vie
 def test_an_open_tab_asking_the_site_root_for_an_overview_part_gets_it(client_viewer, world, name, page):
     """A tab opened on the site root when it was the country overview asks for its parts there: they still come,
     from the Country overview's view."""
-    response = client_viewer.get(f"{PAGE}?section=&year=2026&_part={name}", **HX)
+    response = client_viewer.get(f"{ROOT}?section=&year=2026&_part={name}", **HX)
     assert response.status_code == 200 and response["X-NeuroDB-Part"] == name
     assert f'id="part-{name}"' in text(response)
 
 
 @pytest.mark.parametrize("name", ["review", "review-more"])
 def test_an_open_tab_asking_the_site_root_for_a_review_part_gets_it(client_viewer, reviewed, name):
-    response = client_viewer.get(f"{PAGE}?section=&_part={name}", **HX)
+    response = client_viewer.get(f"{ROOT}?section=&_part={name}", **HX)
     assert response.status_code == 200 and response["X-NeuroDB-Part"] == name
 
 
 def test_the_addresses():
-    assert reverse("reports:overview") == "/"
+    assert reverse("reports:overview") == "/home/"
+    assert reverse("reports:root") == "/"
     assert reverse("reports:country_overview") == "/country-overview/"
     assert reverse("reports:daily_review") == "/daily-review/"
     assert views.overview is views.country_overview  # the old name still answers

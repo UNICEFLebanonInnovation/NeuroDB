@@ -54,7 +54,7 @@ def _form(page: str) -> tuple[str, list[tuple[str, str]]] | None:
         ("/partner-monitoring/map/", {}, "partner-monitoring"),
         ("/partner-monitoring/", {"view": "masters"}, None),  # no master indicators in Power BI
         ("/field-monitoring/", {}, None),
-        ("/", {}, None),  # Home: no Power BI page
+        ("/home/", {}, None),  # Home: no Power BI page
     ],
 )
 def test_the_sheet_s_link_is_for_validators_only(client, roles, more, frozen, page, params, sheet):
@@ -134,7 +134,11 @@ TRAIL_LINK = re.compile(r'<a href="([^"]+)" data-check-trail>Check these figures
         ("/partner-reporting/", {"tab": "partners", "section": "Education"}, "/check/progress-reports/"),
         ("/partner-reporting/", {"tab": "locations"}, "/check/progress-reports/"),
         ("/partner-reporting/", {"tab": "disaggregations"}, "/check/progress-reports/"),
-        ("/", {"section": ""}, "/check/home/"),  # under Home's Progress reports and Indicator progress blocks
+        (
+            "/home/",
+            {"section": ""},
+            "/check/home/",
+        ),  # under Home's Progress reports and Indicator progress blocks
         ("/partner-monitoring/", {}, "/check/partner-monitoring/"),
         ("/partner-monitoring/", {"view": "table", "section": "Education"}, "/check/partner-monitoring/"),
         ("/partner-monitoring/", {"view": "quality"}, "/check/partner-monitoring/"),
@@ -152,7 +156,7 @@ def test_the_trail_s_link_is_for_validators_only(client, roles, more, frozen, pa
     if trail is None:
         assert not found
         return
-    if page == "/":
+    if page == "/home/":
         assert sorted(re.search(r"block=([a-z]+)", link).group(1) for link in found) == [
             "indicators",
             "reporting",

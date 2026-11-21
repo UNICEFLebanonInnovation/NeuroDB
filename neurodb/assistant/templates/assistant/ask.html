@@ -15,23 +15,17 @@
   </div>
 </div>
 {% else %}
-<div class="ask" data-ask data-stream-url="{% url 'assistant:stream' %}">
-  <div class="ask__thread" id="ask-thread" aria-live="polite">
-    <div class="ask__intro" id="ask-intro">
-      <div class="ask__intro-icon" aria-hidden="true">{% include "components/icon.html" with name="sparkle" %}</div>
-      <h2 class="h5 mb-1">{% trans "Ask anything about NeuroDB's data" %}</h2>
-      <p class="text-muted mb-3">{% trans "Indicators and targets, partners and programme documents, donors, population figures, the library, the documents people added and data freshness. The assistant looks the figures up and links to the pages they come from." %}</p>
-      <div class="ask__examples" role="list" aria-label="{% trans 'Example questions' %}">
-        {% for e in examples %}<button type="button" class="chip chip--action" role="listitem" data-ask-example>{{ e }}</button>{% endfor %}
-      </div>
-      {% if recent %}
-      <div class="ask__recent">
-        <div class="small text-muted mb-1">{% trans "Your recent questions" %}</div>
-        {% for q in recent %}<button type="button" class="ask__recent-item" data-ask-example>{% include "components/icon.html" with name="clock" %}<span>{{ q }}</span></button>{% endfor %}
-      </div>
-      {% endif %}
-    </div>
-  </div>
+{% comment %}The start page until the first question (ask.js takes "is-empty" off, and puts it back for a new
+conversation): the welcome, the box under it (the conversation's own form, which then goes back to the bottom), the
+note, then the links, the example cards and the recent questions (#ask-intro). The first name is drawn here only:
+it is in no title or attribute a script sends.{% endcomment %}
+<div class="ask ask--home is-empty" data-ask data-stream-url="{% url 'assistant:stream' %}">
+  <header class="ask-home__welcome">
+    <div class="ask__intro-icon" aria-hidden="true">{% include "components/icon.html" with name="sparkle" %}</div>
+    <h2 class="ask-home__title">{% if first_name %}{% blocktrans with name=first_name %}Welcome, {{ name }}{% endblocktrans %}{% else %}{% trans "Welcome to Ask NeuroDB" %}{% endif %}</h2>
+    <p class="ask-home__lead">{% trans "Ask in plain words about partners, programme documents, funds, field visits, population, the library or the documents people added, and NeuroDB looks the figures up and links each answer to the pages they come from." %}</p>
+  </header>
+  <div class="ask__thread" id="ask-thread" aria-live="polite"></div>
 
   <form class="ask__form panel" id="ask-form" autocomplete="off">
     <label class="visually-hidden" for="ask-input">{% trans "Your question" %}</label>
@@ -44,8 +38,40 @@
     </div>
   </form>
   <p class="ask__note small text-muted">
-    {% blocktrans with limit=hourly_limit writer=AI_PROVIDER.writer api=AI_PROVIDER.api %}Answers are written by {{ writer }} from NeuroDB's data and can contain mistakes — check important figures on the linked pages. Your questions in this conversation, the earlier answers and the data looked up are sent to the {{ api }}, so do not enter personal data. Up to {{ limit }} questions per hour.{% endblocktrans %}
+    {% blocktrans with limit=hourly_limit writer=AI_PROVIDER.writer api=AI_PROVIDER.api %}{{ writer }} writes the answers from NeuroDB's data and can make mistakes: check important figures on the linked pages. This conversation and the data looked up go to the {{ api }}, so do not enter personal data. Up to {{ limit }} questions an hour.{% endblocktrans %}
   </p>
+
+  <div class="ask-home" id="ask-intro">
+    {% if quick_links %}
+    <nav class="ask-home__links" aria-label="{% trans 'Pages people open most' %}">
+      <span class="ask-home__links-title">{% trans "Or open a page:" %}</span>
+      {% for link in quick_links %}<a class="ask-home__link" href="{{ link.url }}">{% include "components/icon.html" with name=link.icon %}<span>{{ link.label }}</span></a>{% endfor %}
+    </nav>
+    {% endif %}
+    <div class="ask-home__body{% if recent %} ask-home__body--aside{% endif %}">
+      <section class="ask-home__examples" aria-labelledby="ask-examples-title">
+        <h2 class="ask-home__heading" id="ask-examples-title">{% trans "Try a question" %}</h2>
+        <div class="ask-home__topics">
+          {% for topic in examples %}
+          <div class="ask-home__topic" role="group" aria-labelledby="ask-topic-{{ forloop.counter }}">
+            <h3 class="ask-home__topic-title" id="ask-topic-{{ forloop.counter }}">{{ topic.title }}</h3>
+            <ul class="ask-home__cards">
+              {% for question in topic.questions %}<li><button type="button" class="ask-card" data-ask-example="{{ question }}">{% include "components/icon.html" with name=topic.icon class="ask-card__icon" %}<span>{{ question }}</span></button></li>{% endfor %}
+            </ul>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% if recent %}
+      <section class="ask-home__recent" aria-labelledby="ask-recent-title">
+        <h2 class="ask-home__heading" id="ask-recent-title">{% trans "Your recent questions" %}</h2>
+        <ul class="ask-home__recent-list">
+          {% for q in recent %}<li><button type="button" class="ask__recent-item" data-ask-example="{{ q }}">{% include "components/icon.html" with name="clock" %}<span>{{ q }}</span></button></li>{% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+    </div>
+  </div>
 </div>
 
 <template id="ask-turn-template">

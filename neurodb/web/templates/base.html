@@ -42,7 +42,7 @@
   <button class="btn btn-icon d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-controls="sidebar" aria-label="{% trans 'Open navigation' %}">
     {% include "components/icon.html" with name="menu" %}
   </button>
-  <a class="brand" href="{% url 'reports:overview' %}">
+  <a class="brand" href="{% url 'reports:root' %}">
     {% include "components/logo.html" with height=30 compact=True %}
   </a>
   {% if user.is_authenticated and not is_donor %}

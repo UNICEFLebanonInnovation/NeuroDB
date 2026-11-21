@@ -213,10 +213,14 @@ def test_the_start_and_year_rules_point_to_etools_for_this_year():
 
 # ------------------------------------------------------------------------------------------ examples
 def test_the_examples_ask_about_etools(client_viewer, settings):
-    assert assistant_views.EXAMPLES == [
-        "Which Child Protection programme documents are off track this year?",
+    assert [q for topic in assistant_views.EXAMPLES for q in topic["questions"]] == [
         "Which partners have progress reports overdue?",
+        "Which Child Protection programme documents are off track this year?",
         "What is the total budget of active programme documents funded by the European Union?",
+        "Which grants expire in the next three months?",
+        "How many HACT programmatic visits are still needed this year?",
+        "How many action points are overdue, and how many of them are high priority?",
+        "What do the documents people added say about school dropout?",
         "How many Syrian children live in Akkar?",
         "Is the eTools data up to date?",
     ]

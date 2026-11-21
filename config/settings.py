@@ -165,7 +165,7 @@ AUTHENTICATION_BACKENDS = [
     "allauth.account.auth_backends.AuthenticationBackend",
 ]
 LOGIN_URL = "account_login"
-LOGIN_REDIRECT_URL = "reports:overview"
+LOGIN_REDIRECT_URL = "reports:root"  # the page the person opens first (reports.views.root)
 LOGOUT_REDIRECT_URL = "account_login"
 ACCOUNT_LOGIN_METHODS = {"username", "email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]

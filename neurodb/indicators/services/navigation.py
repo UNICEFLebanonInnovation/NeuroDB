@@ -7,12 +7,15 @@ show only while their source has something to show (:func:`sources`); the people
 (:func:`neurodb.accounts.roles.can_set_up`) see a muted "Set up" row instead, which links to the row's own
 page (it says what is missing).
 
-Superusers see the full menu. Everyone else sees the focused menu (:data:`FOCUS`, :data:`FOCUSED`: Home and
-Ask NeuroDB, Partner reporting with Progress reports and Partner monitoring, then Field monitoring under
+Superusers see the full menu. Everyone else sees the focused menu (:data:`FOCUS`, :data:`FOCUSED`: Ask
+NeuroDB and Home, Partner reporting with Progress reports and Partner monitoring, then Field monitoring under
 Knowledge base), or the entries a superuser ticked for their role in the administration's Menu page
 (:func:`shown`, :func:`sidebar`). Only the menu is shorter: a page left out of it still opens from links,
 bookmarks and the search, whose *Pages* group lists every page of the full menu under the same conditions
 (:func:`pages`).
+
+Ask NeuroDB is the first row of both menus, and the page a person opens first (:func:`start_route`: signing
+in, the site address and the logo) while the AI is on and their menu shows it; Home otherwise.
 """
 
 from __future__ import annotations
@@ -254,8 +257,9 @@ MENU: tuple[MenuGroup, ...] = (
         "today",
         None,
         (
-            MenuItem(_("Home"), "reports:overview", "home"),
+            # Ask NeuroDB first: the page a person opens first while the AI is on (start_route)
             MenuItem(_("Ask NeuroDB"), "assistant:ask", "sparkle", when="ask", badge="ai"),
+            MenuItem(_("Home"), "reports:overview", "home"),
             MenuItem(_("For you"), "watch:for_you", "bell", count=True),
             MenuItem(_("Daily review"), "reports:daily_review", "list"),
             MenuItem(_("What's new"), "graph:whats_new", "inbox"),
@@ -388,15 +392,17 @@ HELP_KEY = HELP.route
 
 # The focused menu (SPEC_focus_menu §1.2): what every role sees until a superuser ticks otherwise in the
 # administration's Menu page. Superusers always see the full menu (MENU). FOCUS is the part drawn first, in
-# its order: Home and Ask NeuroDB at the top, then Partner reporting; every other entry shown follows in
+# its order: Ask NeuroDB and Home at the top, then Partner reporting; every other entry shown follows in
 # MENU's order under its usual title, so Field monitoring (in FOCUSED, not in FOCUS) is under Knowledge base,
 # with any other entry of that group ticked for the role. Help is not in it: the "?" panel links
 # to the Help pages and the search finds them (a superuser can tick it for a role).
 PRP = MenuGroup("prp", _("Partner reporting (PRP)"), (PROGRESS_REPORTS, PARTNER_MONITORING))
-FOCUS: tuple[str | MenuGroup, ...] = ("reports:overview", "assistant:ask", PRP)
+FOCUS: tuple[str | MenuGroup, ...] = ("assistant:ask", "reports:overview", PRP)
 FOCUSED = frozenset(
-    {"reports:overview", PROGRESS_REPORTS.key, PARTNER_MONITORING.key, "reports:monitoring", "assistant:ask"}
+    {"assistant:ask", "reports:overview", PROGRESS_REPORTS.key, PARTNER_MONITORING.key, "reports:monitoring"}
 )
+# The pages Ask NeuroDB's start page links to, in this order: the ones people open most (quick_links)
+QUICK_LINKS = ("reports:overview", PROGRESS_REPORTS.key, PARTNER_MONITORING.key, "reports:programmes")
 # What the Menu page says of an entry that shows only under a condition (MenuItem.when, MenuGroup.when)
 NOTES = {
     "ask": _("Shown while the AI is on (to staff always)."),
@@ -561,6 +567,31 @@ def sidebar(user, can_set_up: Callable[[], bool] | None = None) -> dict[str, Any
         "archive": ARCHIVE_KEY in chosen,
         "help": help_entry() if HELP_KEY in chosen else None,
     }
+
+
+def shows(user, key: str) -> bool:
+    """The person's menu has the entry ``key`` (:func:`shown`; a superuser's has every entry). Its condition
+    is the caller's."""
+    chosen = shown(user)
+    return chosen is None or key in chosen
+
+
+def start_route(user) -> str:
+    """The page a signed-in person opens first (the site address, the logo, signing in): Ask NeuroDB while the
+    AI is on and their menu shows it, else Home. A donor account never asks (it has its own page)."""
+    return "assistant:ask" if llm.enabled() and shows(user, "assistant:ask") else "reports:overview"
+
+
+def quick_links(user) -> list[dict[str, Any]]:
+    """The pages of :data:`QUICK_LINKS` the person's menu draws (:func:`sidebar`, a "Set up" row left out), in
+    that order: each ``{"key", "label", "url", "icon", ...}`` as the menu draws it (:func:`_entry`)."""
+    drawn = {
+        item["key"]: item
+        for group in sidebar(user, can_set_up=lambda: False)["groups"]
+        for item in group["items"]
+        if not item["muted"]
+    }
+    return [drawn[key] for key in QUICK_LINKS if key in drawn]
 
 
 def _entry(item: MenuItem, muted: bool) -> dict[str, Any]:

@@ -10,7 +10,8 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 
 ## What v3 offers
 
-- **Home** (`/`, the signed-in home page): what needs you today (For you, the decisions for management,
+- **Home** (`/home/`, one click away in the menu; NeuroDB opens on Ask NeuroDB while the AI is on): what
+  needs you today (For you, the decisions for management,
   the daily review's digest), what changed since the previous working day, where your section or the
   country stands this year (the Country overview's own key figures) and the state of each source.
 - **Country overview** (`/country-overview/`): the whole intervention live by calendar year: children
@@ -40,7 +41,9 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 - **Ask NeuroDB (AI assistant)**: questions in plain language ("which Child Protection programme
   documents are off track this year?", "total budget of EU-funded PDs?") answered by the AI, Claude
   (preferred) or ChatGPT, chosen in the admin's AI settings, from NeuroDB's own data through read-only
-  lookups, streamed live with links to the source pages; also from the search box. Needs an Anthropic
+  lookups, streamed live with links to the source pages; also from the search box. It is the page NeuroDB
+  opens first after sign-in while the AI is on (Home otherwise), and starts with example questions by topic
+  and links to the pages people open most. Needs an Anthropic
   or OpenAI API key, entered in AI settings or set as `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`; see
   `docs/OPERATIONS.md`.
 - **Everywhere**: search (Ctrl K or /) across pages, partners, programme documents, country programme

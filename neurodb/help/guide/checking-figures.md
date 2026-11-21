@@ -15,7 +15,7 @@ would be.
 
 A validator sees one more line under the tabs of [Progress reports](/partner-reporting/),
 [Partner monitoring](/partner-monitoring/) (and its map) and [Field monitoring](/field-monitoring/), and on
-[Home](/) under *Partner reporting*: **Raw data behind this page**. It opens Raw eTools data on the
+[Home](/home/) under *Partner reporting*: **Raw data behind this page**. It opens Raw eTools data on the
 sources that page reads. On Progress reports (every tab), Partner monitoring (the grid, Program Performance
 and Data quality) and its map, the line also offers **Check these figures** (the figure trail, below), and so
 does a line of its own under the title of each of Home's two blocks, Progress reports and Indicator progress.

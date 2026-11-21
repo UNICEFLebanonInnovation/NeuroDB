@@ -210,7 +210,7 @@ def test_home_has_its_page_after_the_overview_and_the_pages_map_to_their_guide()
     ]
     assert guide.page("briefs-and-overview").title == "Country overview, management brief and daily review"
     for path, key in (
-        ("/", "home"),
+        ("/home/", "home"),
         ("/country-overview/", "briefs-and-overview"),
         ("/daily-review/", "briefs-and-overview"),
         ("/brief/", "briefs-and-overview"),
@@ -261,8 +261,8 @@ def test_the_guide_lists_the_focused_menu_as_it_is_drawn():
 
     sidebar = " ".join(guide.section("overview", "the-sidebar").text.split())
     order = [
-        "**Home**",
         "**Ask NeuroDB**",
+        "**Home**",
         "**Partner reporting (PRP)**",
         "**Progress reports**",
         "**Partner monitoring**",
@@ -274,7 +274,7 @@ def test_the_guide_lists_the_focused_menu_as_it_is_drawn():
     assert "Funds and assurance" not in sidebar and "Partner progress (eTools)" not in sidebar
     assert str(navigation.PRP.title) == "Partner reporting (PRP)"
     assert (
-        navigation.FOCUS[:2] == ("reports:overview", "assistant:ask")
+        navigation.FOCUS[:2] == ("assistant:ask", "reports:overview")
         and navigation.FOCUS[2] is navigation.PRP
     )
     assert "Superusers see the full menu" in sidebar and "administration's *Menu* page" in sidebar
@@ -287,8 +287,8 @@ def test_the_guide_lists_the_full_menu_as_it_is_drawn():
     its order."""
     sidebar = guide.section("overview", "the-full-menu").text
     order = [
-        "**Home**",
         "**Ask NeuroDB**",
+        "**Home**",
         "**For you**",
         "**Daily review**",
         "**What's new**",
@@ -595,7 +595,7 @@ def test_operations_and_the_guide_give_the_first_rows_of_the_full_menu_their_pla
     from neurodb.indicators.services import navigation
 
     first = [str(item.label) for item in navigation.MENU[0].items]
-    assert first == ["Home", "Ask NeuroDB", "For you", "Daily review", "What's new"]
+    assert first == ["Ask NeuroDB", "Home", "For you", "Daily review", "What's new"]
     places = ("first", "second", "third", "fourth", "fifth")
     said = re.compile(
         r"\*{1,2}([^*]+)\*{1,2} \([^;)]*?\b(" + "|".join(places) + r") in the full menu(?:, under ([^;)]+))?"

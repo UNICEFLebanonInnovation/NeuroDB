@@ -5,7 +5,9 @@ from . import ap_views, check_views, master_views, views
 app_name = "reports"
 
 urlpatterns = [
-    path("", views.home, name="overview"),
+    # the site root: the public landing page for visitors, else the page the person opens first (views.root)
+    path("", views.root, name="root"),
+    path("home/", views.home, name="overview"),
     path("country-overview/", views.overview, name="country_overview"),
     path("daily-review/", views.daily_review, name="daily_review"),
     path("brief/", views.brief, name="brief"),

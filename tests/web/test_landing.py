@@ -1,5 +1,7 @@
 """Public landing page and the PUBLIC_PAGES allowlist."""
 
+import re
+
 import pytest
 from django.core.cache import cache
 from django.urls import reverse
@@ -84,12 +86,18 @@ def test_etools_counts_show_without_activityinfo(client, db):
 
 
 def test_root_shows_a_staff_page_once_signed_in(client_viewer, hierarchy):
-    """Signed in, the root is the staff Home (its own tests are tests/reports/test_home_page.py), never the
-    landing page; the landing's button to it says "Open Home"."""
-    html = client_viewer.get("/").content.decode()
+    """Signed in, the root leads to the page the person opens first (Home here, with the AI off; see
+    tests/web/test_ask_landing.py), never the landing page; the landing's button to Home says "Open Home", and
+    its "Open NeuroDB" buttons lead to the root."""
+    response = client_viewer.get("/", follow=True)
+    html = response.content.decode()
+    assert response.redirect_chain == [(reverse("reports:overview"), 302)]
     assert LANDING_MARK not in html and 'id="help-panel"' in html  # the staff shell, not the landing
     landing = client_viewer.get(reverse("landing")).content.decode()
     assert "Open Home" in landing and "Open your overview" not in landing
+    assert f'href="{reverse("reports:overview")}"><span>Open Home' in landing
+    # the top bar's, the role panel's, its template's and the ending's
+    assert len(re.findall(r'href="/"[^>]*>(?:<span>)?Open NeuroDB', landing)) == 4
 
 
 def test_welcome_is_always_the_landing_page(client_viewer, hierarchy):

@@ -19,7 +19,7 @@ from neurodb.partnerships.models import PCA, PartnerOrganization
 pytestmark = pytest.mark.django_db
 
 ADDRESSES = {
-    "reports:overview": ["/"],
+    "reports:overview": ["/home/"],
     "reports:partner_reporting": [
         "/partner-reporting/",
         "/partner-reporting/?tab=partners",

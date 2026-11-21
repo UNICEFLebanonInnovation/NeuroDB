@@ -83,10 +83,11 @@ def test_sign_out_from_the_password_page_then_another_user_signs_in(forced, view
     assert "_auth_user_id" not in forced.session
     assert forced.get(reverse("account_login")).status_code == 200
     response = forced.post(reverse("account_login"), {"login": "viewer", "password": "viewer-pass-123456"})
-    assert response.status_code == 302 and response["Location"] == reverse("reports:overview")
+    # the page the person opens first (Home here, with the AI off), not the password page or the donor page
+    assert response.status_code == 302 and response["Location"] == reverse("reports:root")
     assert forced.session["_auth_user_id"] == str(viewer.pk)
-    home = forced.get(response["Location"])
-    assert home.status_code == 200  # Home itself, not the password page or the donor page
+    home = forced.get(response["Location"], follow=True)
+    assert home.status_code == 200 and home.redirect_chain == [(reverse("reports:overview"), 302)]
 
 
 def test_sign_out_after_the_session_ended_then_staff_sign_in_lands_on_home(db, viewer):
@@ -107,8 +108,8 @@ def test_sign_out_after_the_session_ended_then_staff_sign_in_lands_on_home(db, v
         reverse("account_login"),
         {"login": "viewer", "password": "viewer-pass-123456", "csrfmiddlewaretoken": csrf_token(page.text)},
     )
-    assert response.status_code == 302 and response["Location"] == reverse("reports:overview")
-    assert browser.get(response["Location"]).status_code == 200
+    assert response.status_code == 302 and response["Location"] == reverse("reports:root")
+    assert browser.get(response["Location"], follow=True).status_code == 200
 
 
 def test_the_sign_out_confirmation_opens_for_a_forced_donor(forced):

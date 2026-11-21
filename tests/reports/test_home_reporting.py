@@ -37,7 +37,7 @@ from tests.web.parts import HX, get_part, placeholder_attributes, raw_get, text
 
 pytestmark = pytest.mark.django_db
 
-PAGE = "/"
+PAGE = "/home/"
 CP, EDU = "Child Protection", "Education"
 TILE = re.compile(
     r'<div class="kpi__label">([^<]+)</div>\s*<div class="kpi__value"[^>]*>(?:<a href="[^"]*">)?([^<]+)<'
@@ -589,7 +589,7 @@ def test_the_focused_menu_on_home_marks_home_and_groups_partner_reporting(client
     html = text(_home(client_viewer))
     assert '<div class="nav-group" role="group" aria-labelledby="nav-title-prp">' in html
     current = re.findall(r'<a class="nav-item-link[^"]*" href="([^"]+)" aria-current="page">', html)
-    assert current == ["/"]
+    assert current == ["/home/"]
 
 
 def test_a_staff_administrator_has_the_same_home_order(client, world, roles):

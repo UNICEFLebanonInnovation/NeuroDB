@@ -36,7 +36,7 @@ from tests.web.parts import get_part, text
 
 pytestmark = pytest.mark.django_db
 
-HOME = "/"
+HOME = "/home/"
 BEIRUT = zoneinfo.ZoneInfo("Asia/Beirut")
 OWNER = "Owner Placeholder"  # an assignment's owner: never on Home
 WHO = "Who Placeholder"  # who the AI said should decide: never on Home

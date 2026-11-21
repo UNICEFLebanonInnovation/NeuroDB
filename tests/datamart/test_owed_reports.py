@@ -321,7 +321,7 @@ def test_only_administrators_and_staff_validators_get_the_check_11_link_and_it_o
             page = text(client.get(address))
             assert owed.HIDDEN_START in page, address
             assert (checks in page) is linked, address
-        home = text(get_part(client, "/?section=", "reporting"))
+        home = text(get_part(client, "/home/?section=", "reporting"))
         assert owed.HIDDEN_START in home
         assert (checks in home) is linked
     assert staff_client.get(checks).status_code == 200
@@ -352,7 +352,7 @@ def test_gate_open_counts_overdue_and_due_reports_from_prp(client_viewer, world)
     assert rows["LEB/PD1"]["counts"][rc.OVERDUE] == 1 and rows["LEB/PD1"]["oldest_due"] == D(2026, 10, 10)
     assert rows["LEB/SPD2"]["sections"] == "Health"
     assert data["owed"] == {"shown": True, "n": 2, "held": True, "why": "", "line": owed.SHOWN.format(n=2)}
-    home = text(get_part(client_viewer, "/?section=", "reporting"))
+    home = text(get_part(client_viewer, "/home/?section=", "reporting"))
     assert escape(owed.SHOWN.format(n=2)) in home
     assert "LEB/SPD2" in home
     tab = text(client_viewer.get("/partner-reporting/?tab=partners"))

@@ -326,7 +326,7 @@ def test_pd_statuses_chosen_count_the_active_among_them_else_those_chosen(
 def test_home_and_progress_reports_show_the_same_indicators_and_say_how_they_are_counted(
     client_viewer, world
 ):
-    home = client_viewer.get("/?section=")
+    home = client_viewer.get("/home/?section=")
     assert home.status_code == 200
     figures = home.context["reporting"]["counts"]
     page = client_viewer.get(home.context["tile_urls"]["total"])
@@ -435,7 +435,7 @@ def test_the_figure_trail_explains_and_lists_each_indicator_once(validator, worl
 
 
 def test_home_s_trail_has_the_same_indicators(validator, world):
-    part = get_part(validator, "/?section=", "reporting")
+    part = get_part(validator, "/home/?section=", "reporting")
     found = trail.progress_trail("home", {"section": [""], "block": "reporting"}, TODAY)
     counts = part.context["reporting"]["counts"]
     assert found.figure("pr.indicators").page == counts["indicators"] == 5

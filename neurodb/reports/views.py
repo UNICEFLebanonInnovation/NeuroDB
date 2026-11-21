@@ -45,6 +45,7 @@ from neurodb.datamart.models import AuditEngagement, AuditFinding, EtoolsMasterL
 from neurodb.facts.services import dashboard as facts
 from neurodb.facts.services import partners as partner_facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport
+from neurodb.indicators.services import navigation
 from neurodb.indicators.services.tracking import LABELS
 from neurodb.knowledge.search import linked as linked_documents
 from neurodb.library.models import Resource
@@ -148,15 +149,18 @@ def _with_query(url: str, query: str) -> str:
 
 @login_not_required
 @require_GET
-def home(request: HttpRequest) -> HttpResponse:
-    """Site root: the public landing page for visitors, Home once signed in (``reports/home_views.py``).
+def root(request: HttpRequest) -> HttpResponse:
+    """The site root: the public landing page for visitors; signed in, the page the person opens first
+    (:func:`neurodb.indicators.services.navigation.start_route`: Ask NeuroDB while the AI is on and their menu
+    shows it, else Home). Signing in (``LOGIN_REDIRECT_URL``) and the logo lead here.
 
-    The site root was the country overview and its daily review card: what was asked of it then still answers.
-    A part of the country overview (``kpis``, ``figures``, ``news``) or of the review (``review``,
-    ``review-more``) is answered by that page; a page asked with the overview's filters (``year``,
-    ``governorate``) or a review tab (``review``, ``review_latest``, ``review_id``) is sent there with the
-    same query (``_eager=1`` included: an old print or no-JavaScript link lands on the page drawn at once).
-    Donors never get here (``DonorScopeMiddleware``)."""
+    The site root was Home, and before it the country overview and its daily review card: what was asked of it
+    then still answers. A part of the country overview (``kpis``, ``figures``, ``news``) or of the review
+    (``review``, ``review-more``) is answered by that page, any other part by Home (a tab opened when Home was
+    here); a page asked with the overview's filters (``year``, ``governorate``) or a review tab (``review``,
+    ``review_latest``, ``review_id``) is sent there with the same query, and any other query (Home's
+    ``section``) to Home with it (``_eager=1`` included: an old print or no-JavaScript link lands on the page
+    drawn at once). Neither page sends anyone back here. Donors never get here (``DonorScopeMiddleware``)."""
     if not request.user.is_authenticated:
         from neurodb.web.views import landing
 
@@ -166,14 +170,24 @@ def home(request: HttpRequest) -> HttpResponse:
         return country_overview(request)
     if part in REVIEW_PARTS:
         return daily_review(request)
-    if part is None:
-        query = request.GET.urlencode()
-        if getattr(request, "parts_eager", False):  # web.parts took it out of GET: the page asked keeps it
-            query = f"{query}&{EAGER_KEY}=1" if query else f"{EAGER_KEY}=1"
-        if "year" in request.GET or "governorate" in request.GET:
-            return redirect(_with_query(reverse("reports:country_overview"), query))
-        if any(key in request.GET for key in REVIEW_KEYS):
-            return redirect(_with_query(reverse("reports:daily_review"), query))
+    if part is not None:
+        return home(request)
+    query = request.GET.urlencode()
+    if getattr(request, "parts_eager", False):  # web.parts took it out of GET: the page asked keeps it
+        query = f"{query}&{EAGER_KEY}=1" if query else f"{EAGER_KEY}=1"
+    if "year" in request.GET or "governorate" in request.GET:
+        return redirect(_with_query(reverse("reports:country_overview"), query))
+    if any(key in request.GET for key in REVIEW_KEYS):
+        return redirect(_with_query(reverse("reports:daily_review"), query))
+    if query:
+        return redirect(_with_query(reverse("reports:overview"), query))
+    return redirect(navigation.start_route(request.user))
+
+
+@require_GET
+def home(request: HttpRequest) -> HttpResponse:
+    """Home (``reports/home_views.py``), at its own address since Ask NeuroDB opens first (:func:`root`); its
+    menu row opens it. Donors never get here (``DonorScopeMiddleware``)."""
     from .home_views import home_page
 
     return home_page(request)

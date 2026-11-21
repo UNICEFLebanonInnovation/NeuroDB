@@ -21,6 +21,7 @@ are answered by [Ask NeuroDB](/ask/) and, for the visits of a filter, by Chat wi
   to ask your words as a question; nothing is sent until you press Ask.
 - **Year menu**: the calendar year the page shows, on pages that show one year; ActivityInfo pages list
   ActivityInfo years; pages with a period of their own keep their own choice.
+- The **NeuroDB logo** opens the page NeuroDB starts on: Ask NeuroDB while the AI is on, else Home.
 - **Dark mode** switch, and your **user menu** (your role and section, Data health, sign out;
   Administration for administrators).
 - **?**: opens the **Help assistant** (also Ctrl+Shift+H, or Cmd+Shift+H on a Mac). It answers how a
@@ -29,12 +30,13 @@ are answered by [Ask NeuroDB](/ask/) and, for the visits of a filter, by Chat wi
 
 ## The sidebar
 
-Most people see a short menu: Home and Ask NeuroDB at the top, then the pages of partner reporting and
+Most people see a short menu: Ask NeuroDB and Home at the top, then the pages of partner reporting and
 field monitoring:
 
-- **Home**, the first page after you sign in ([Home](/help/home/)).
-- **Ask NeuroDB** (marked AI), right under Home: questions in plain language answered from the data
-  ([Ask NeuroDB](/help/ask-neurodb/)).
+- **Ask NeuroDB** (marked AI): questions in plain language answered from the data, and the page NeuroDB
+  opens first while the AI is on ([Ask NeuroDB](/help/ask-neurodb/)).
+- **Home**, right under it: partner reporting in numbers and tables, and the page NeuroDB opens first when
+  the AI is off ([Home](/help/home/)).
 - **Partner reporting (PRP)**: **Progress reports**, how partners report on their programme documents
   (due, submitted, accepted, sent back and overdue reports), and **Partner monitoring**, what each
   programme document indicator reached, with Program Performance one tab away
@@ -53,9 +55,9 @@ its name in the search, and the Help pages from the **?** button (*Help pages*).
 The full menu puts the pages of every day first and the ActivityInfo history last. It is the same for
 every section:
 
-- At the top, without a title: **Home**, the first page after you sign in ([Home](/help/home/));
-  **Ask NeuroDB** (marked AI), right under it, questions in plain language answered from the data
-  ([Ask NeuroDB](/help/ask-neurodb/)); **For you**, NeuroDB Watch, with the number of points that need
+- At the top, without a title: **Ask NeuroDB** (marked AI), questions in plain language answered from the
+  data and the page NeuroDB opens first while the AI is on ([Ask NeuroDB](/help/ask-neurodb/)); **Home**,
+  right under it ([Home](/help/home/)); **For you**, NeuroDB Watch, with the number of points that need
   you ([For you](/help/watch/)); **Daily review**, the morning check's findings
   ([Daily review](/help/briefs-and-overview/#the-daily-review)); and **What's new**, the changes NeuroDB
   noticed in any source ([What's new](/help/watch/#whats-new)).

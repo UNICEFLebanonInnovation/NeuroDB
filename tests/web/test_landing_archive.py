@@ -113,15 +113,15 @@ def test_rows_marked_always_change_in_both_states(client, client_viewer, history
 
 
 def test_the_closing_band_opens_sign_in_or_neurodb(client_viewer, history):
-    """Visitors enter through NeuroDB's own sign-in; signed in, the closing band opens NeuroDB (Home), in
-    both states."""
+    """Visitors enter through NeuroDB's own sign-in; signed in, the closing band opens NeuroDB (the site root:
+    the page the person opens first), in both states."""
     visitor = Client()  # ``client_viewer`` signs ``client`` in
     for mode in (ActivityInfoSetting.Mode.ARCHIVED, ActivityInfoSetting.Mode.IN_USE):
         _mode(mode)
         band = _landing(visitor).split('<section class="ending">', 1)[1].split("</section>", 1)[0]
         assert f'<a class="endingbtn" href="{reverse("account_login")}"><span>Enter NeuroDB' in band
         signed_in = _landing(client_viewer).split('<section class="ending">', 1)[1].split("</section>", 1)[0]
-        assert f'<a class="endingbtn" href="{reverse("reports:overview")}"><span>Open NeuroDB' in signed_in
+        assert f'<a class="endingbtn" href="{reverse("reports:root")}"><span>Open NeuroDB' in signed_in
 
 
 def test_no_activityinfo_tiles_when_archived_even_with_records_this_year(client, history, etools):
