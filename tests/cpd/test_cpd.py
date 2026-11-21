@@ -316,14 +316,17 @@ def test_source_choices_list_the_pd_indicators_of_the_output(framework, interven
     assert options and options[0][0].startswith(f"etools:{intervention.pk}:")
 
 
-def test_an_activityinfo_link_reads_the_master_indicator(framework, hierarchy):
+def test_an_activityinfo_link_is_kept_but_never_counted(framework, hierarchy):
+    """ActivityInfo is an archive of past monthly results (the owner's rule, November 2026): the administration
+    still offers and keeps a link to a master indicator, labelled as not counted, and the link reads nothing."""
     master = hierarchy["master"]
     value = f"ai:{master.pk}"
     assert sources.default_year(value) == 2026
     link = sources.apply(Link(indicator=framework.reached, year=2026), value)
     link.save()
-    assert services.link_values([link])[link.pk] == 500.0
-    assert value in {v for _g, opts in sources.choices(framework.reached) for v, _l in opts}
+    assert services.link_values([link])[link.pk] is None and not services.counted(link)
+    groups = dict(sources.choices(framework.reached))
+    assert value in {v for v, _l in groups["ActivityInfo archive master indicators (not counted)"]}
 
 
 def test_an_unknown_source_is_refused(framework):

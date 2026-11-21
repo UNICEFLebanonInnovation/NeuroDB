@@ -1,22 +1,21 @@
 {% load i18n ui humanize %}
 {% with c=data.confidence %}
 <div class="overview-row brief-section" id="brief-confidence">
-<h2 class="section-heading">{% trans "How sure are we?" %} <span class="small text-muted fw-normal">{% trans "How complete, verified and consistent the figures above are" %}</span></h2>
+<h2 class="section-heading">{% trans "How sure are we?" %} <span class="small text-muted fw-normal">{% trans "How complete, verified and timely the figures above are" %}</span></h2>
 <section class="panel" aria-labelledby="conf-title">
   <div class="panel__header">
     <h3 class="panel__title" id="conf-title">{% trans "Confidence in the figures" %}</h3>
-    <span class="panel__hint">{% if c.linked_used %}{% blocktrans with r=c.thresholds.reported v=c.thresholds.verified l=c.thresholds.linked d=c.thresholds.sync_days %}High when reported ≥ {{ r }}%, verified ≥ {{ v }}%, linked ≥ {{ l }}% and the sync is at most {{ d }} days old{% endblocktrans %}{% else %}{% blocktrans with r=c.thresholds.reported v=c.thresholds.verified d=c.thresholds.sync_days %}High when reported ≥ {{ r }}%, verified ≥ {{ v }}% and the sync is at most {{ d }} days old{% endblocktrans %}{% endif %}</span>
+    <span class="panel__hint">{% blocktrans with r=c.thresholds.reported v=c.thresholds.verified d=c.thresholds.sync_days %}High when reported ≥ {{ r }}%, verified ≥ {{ v }}% and the sync is at most {{ d }} days old{% endblocktrans %}</span>
   </div>
   {% if c.rows %}
   <div class="table-wrap"><table class="table table-sm" id="brief-confidence-table">
-    <thead><tr><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Indicators reported" %}</th><th scope="col">{% trans "Verified by a visit" %}</th>{% if c.linked_used %}<th scope="col">{% trans "Partners linked" %}</th>{% endif %}<th scope="col" class="num">{% trans "Days since sync" %}</th><th scope="col">{% trans "Confidence" %}</th></tr></thead>
+    <thead><tr><th scope="col">{% trans "Section" %}</th><th scope="col">{% trans "Indicators reported" %}</th><th scope="col">{% trans "Verified by a visit" %}</th><th scope="col" class="num">{% trans "Days since sync" %}</th><th scope="col">{% trans "Confidence" %}</th></tr></thead>
     <tbody>
     {% for r in c.rows %}
     <tr>
       <td>{{ r.section }} <span class="text-muted small">{{ r.indicators }}</span></td>
       <td>{% include "reports/partials/_brief_bar.html" with value=r.reported_percent threshold=c.thresholds.reported %}</td>
       <td>{% include "reports/partials/_brief_bar.html" with value=r.verified_percent threshold=c.thresholds.verified %}</td>
-      {% if c.linked_used %}<td>{% include "reports/partials/_brief_bar.html" with value=r.linked_percent threshold=c.thresholds.linked %}</td>{% endif %}
       <td class="num">{{ r.sync_days|number:0 }}</td>
       <td><span class="pill pill--sm {% if r.level == 'high' %}pill--success{% elif r.level == 'medium' %}pill--warning{% else %}pill--danger{% endif %}">{% if r.level == 'high' %}{% trans "High" %}{% elif r.level == 'medium' %}{% trans "Medium" %}{% else %}{% trans "Low" %}{% endif %}</span>{% if r.reasons %}<span class="brief-because">{% trans "because" %} {{ r.reasons|join:"; " }}</span>{% endif %}</td>
     </tr>
@@ -39,30 +38,6 @@
   {% endif %}
   <p class="source-line">{{ c.source }}</p>
 </section>
-<div class="grid grid--2">
-  {% if c.reconcile %}{% comment %}Only where partners report in both sources: an eTools-only year has nothing to set side by side.{% endcomment %}
-  <section class="panel" aria-labelledby="recon-title">
-    <div class="panel__header">
-      <h3 class="panel__title" id="recon-title">{% trans "Where the two sources disagree" %}</h3>
-      <span class="panel__hint">{% trans "Children reached this year per partner, ActivityInfo against eTools, sorted by the gap" %}</span>
-    </div>
-    <div class="table-wrap"><table class="table table-sm table-hover" id="brief-reconcile">
-      <thead><tr><th scope="col">{% trans "Partner" %}</th><th scope="col" class="num">ActivityInfo</th><th scope="col" class="num">eTools</th><th scope="col" class="num">{% trans "Gap" %}</th><th scope="col">{% trans "Read" %}</th></tr></thead>
-      <tbody>
-      {% for r in c.reconcile %}
-      <tr>
-        <td><a href="{{ r.url }}">{{ r.partner }}</a></td>
-        <td class="num">{{ r.activityinfo|intcomma }}</td>
-        <td class="num">{{ r.etools|intcomma }}</td>
-        <td class="num"><span class="pill pill--sm {% if r.consistent %}pill--success{% else %}pill--danger{% endif %}">{% if r.gap_percent > 0 %}+{% endif %}{{ r.gap_percent|floatformat:"0" }}%</span></td>
-        <td class="small">{% if r.consistent %}{% trans "Consistent" %}{% elif not r.activityinfo or not r.etools %}{% trans "Reported in one source only" %}{% else %}{% trans "Ask the partner which one is right" %}{% endif %}</td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table></div>
-    <p class="source-line">{% trans "ActivityInfo HPM children indicators by partner label, joined to the eTools partner through the ActivityInfo partner links; eTools: the main indicator of each of the partner's programme documents, summed" %}</p>
-  </section>
-  {% endif %}
   <section class="panel" aria-labelledby="time-title">
     <div class="panel__header">
       <h3 class="panel__title" id="time-title">{% trans "Reporting timeliness" %}</h3>
@@ -84,6 +59,5 @@
     {% endif %}
     <p class="source-line">{% trans "PRP quarterly report due and submission dates per partner; a quarter shows its worst report" %}</p>
   </section>
-</div>
 </div>
 {% endwith %}

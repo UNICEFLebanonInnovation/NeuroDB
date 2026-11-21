@@ -267,7 +267,9 @@ def recent_changes(refs: set[Ref], today: datetime.date) -> dict[Ref, list[Chang
     if not refs:
         return {}
     found = (
-        Change.objects.filter(notable=True, detected_at__gte=_start_of(today - _days(CHANGE_DAYS)))
+        news.without_archive(
+            Change.objects.filter(notable=True, detected_at__gte=_start_of(today - _days(CHANGE_DAYS)))
+        )
         .exclude(kind=K.FINDING)
         .filter(_about(refs))
         .order_by("-detected_at", "-id")

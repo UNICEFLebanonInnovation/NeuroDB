@@ -176,8 +176,8 @@ the same way: the page first, then its locations.
 
 ## Master indicators
 
-A **master indicator** brings together the partners' own PD indicators that measure the same thing, as an
-ActivityInfo master indicator did: for example "children enrolled in non-formal education" over every
+A **master indicator** brings together the partners' own PD indicators that measure the same thing: for
+example "children enrolled in non-formal education" over every
 programme document of the section that counts them. Each one is in one eTools section and has, for every
 year, its AWP or RWP code and the **target staff type for that year**. The *Master indicators* view of
 Partner monitoring is hidden (your decision of 21 Nov 2026): it is no longer a tab and no page links to
@@ -233,7 +233,7 @@ night. One whose type changed in eTools stops counting until someone clicks **Co
 high-frequency nor a cluster indicator, or one not planned at the place) is simply not listed: it is still in
 eTools. *Excel of the filter* and *CSV of the filter* give one row per master indicator and
 one per PD indicator. In the administration, under Reporting setup, master indicators can also be made by
-hand (with *Add PD indicators*), from an ActivityInfo master indicator, merged, or moved after eTools renames
+hand (with *Add PD indicators*), merged, or moved after eTools renames
 a section. Merging a proposed master indicator into an active one accepts it there: its PD indicators are
 confirmed in the one kept.
 

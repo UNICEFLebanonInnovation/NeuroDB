@@ -103,10 +103,10 @@ def search(
 ) -> list[dict[str, Any]]:
     """What ``q`` names, by group: the pages of the menu ``user`` sees (*Pages*, the menu's own conditions),
     partners (name or short name), programme documents (number or title), country programme indicators (code
-    or title), knowledge base documents (title), then the ActivityInfo databases, reports and indicators of
-    every year, each with its year in the hint (``year``: of that reporting year alone). While ActivityInfo
-    is an archive its groups say so ("ActivityInfo archive: Databases"). Partner staff are never searched, nor
-    who added a document.
+    or title), knowledge base documents (title), then the ActivityInfo archive's databases, reports and
+    indicators of every year, each with its year in the hint (``year``: of that reporting year alone), its
+    groups saying they are the archive ("ActivityInfo archive: Databases"). Partner staff are never searched,
+    nor who added a document.
 
     Each group lists up to ``limit`` items with its ``total``; ``group`` lists that group alone, up to
     ``SEARCH_GROUP_LIMIT`` items (the "See all" link of a capped group). One query per group: its first
@@ -132,8 +132,8 @@ def search(
         reports = reports.filter(ryear=year)
 
     def ai(label):
-        """An ActivityInfo group's title: "ActivityInfo archive: …" while ActivityInfo is no longer in use."""
-        return label if state.in_use else _("ActivityInfo archive: %(group)s") % {"group": label}
+        """An ActivityInfo group's title, always the archive's: "ActivityInfo archive: …"."""
+        return _("ActivityInfo archive: %(group)s") % {"group": label}
 
     def year_of(reporting_year) -> str:
         return reporting_year.name if every_year and reporting_year is not None else ""
@@ -259,7 +259,7 @@ def search(
         ),
         (
             "indicators",
-            _("ActivityInfo indicators"),
+            ai(_("Indicators")),
             IndicatorNew.objects.filter(database__in=dbs)
             .filter(name_or_code)
             .select_related("database", "database__reporting_year")
@@ -331,6 +331,13 @@ def data_health() -> dict[str, Any]:
     }
 
 
+# The ActivityInfo archive's jobs (its imports and the partner links made from them): kept for the archive and
+# listed by the administration (Scheduled jobs, runs), never on a regular page nor in the daily review.
+ARCHIVE_JOBS = (
+    SyncRun.Job.ACTIVITYINFO_STRUCTURE,
+    SyncRun.Job.ACTIVITYINFO_DATA,
+    SyncRun.Job.PARTNER_LINKS,
+)
 # Jobs worked out from the synced data, not syncs that go stale: weekly analyses, NeuroDB Watch and
 # Monitoring insights, shown on their own pages, and the clean-up run once after a deployment.
 HEALTH_SKIPPED_JOBS = (
@@ -350,13 +357,16 @@ HEALTH_SKIPPED_JOBS = (
 )
 
 
-def health_jobs(now: datetime.datetime | None = None, archived: bool | None = None) -> list[dict[str, Any]]:
+def health_jobs(
+    now: datetime.datetime | None = None, archived: bool | None = None, *, with_archive: bool = True
+) -> list[dict[str, Any]]:
     """Per sync job: its last success, its latest run, and whether it is fresh, stale or never
     succeeded (stale after ``SYNC_STALENESS_HOURS``). While ActivityInfo's import is not followed
     (``archived``, default: :func:`neurodb.indicators.services.activityinfo.watched` is false), its jobs are
-    "Not in use (archive)", never stale nor failing: nobody runs them for a year partners report in. The
-    eTools Datamart sync also has ``datasets`` (:func:`datamart_sync_state`): it writes one run per dataset,
-    so its latest run is only the last dataset of the order."""
+    "Not in use (archive)", never stale nor failing: nobody runs them for a year partners report in.
+    ``with_archive=False`` (the Data health page) leaves the ActivityInfo archive's jobs out
+    (:data:`ARCHIVE_JOBS`). The eTools Datamart sync also has ``datasets`` (:func:`datamart_sync_state`): it
+    writes one run per dataset, so its latest run is only the last dataset of the order."""
     from neurodb.indicators.services import activityinfo
 
     now = now or timezone.now()
@@ -365,7 +375,7 @@ def health_jobs(now: datetime.datetime | None = None, archived: bool | None = No
     staleness = datetime.timedelta(hours=settings.SYNC_STALENESS_HOURS)
     jobs = []
     for job, label in SyncRun.Job.choices:
-        if job in HEALTH_SKIPPED_JOBS:
+        if job in HEALTH_SKIPPED_JOBS or (not with_archive and job in ARCHIVE_JOBS):
             continue
         last_ok = SyncRun.last_success(job)
         last_run = SyncRun.objects.filter(job=job).order_by("-started_at").first()
@@ -438,9 +448,14 @@ def health_databases(
     return databases
 
 
-def recent_runs(limit: int = 50) -> list[SyncRun]:
-    """The latest runs of every job, newest first."""
-    return list(SyncRun.objects.order_by("-started_at")[:limit])
+def recent_runs(limit: int = 50, *, with_archive: bool = True) -> list[SyncRun]:
+    """The latest runs of every job, newest first; ``with_archive=False`` (the Data health page) leaves out
+    the ActivityInfo archive's jobs and the year-end forecasts made from it (:data:`ARCHIVE_JOBS`,
+    ``FORECAST``): the administration's runs list them."""
+    runs = SyncRun.objects.order_by("-started_at")
+    if not with_archive:
+        runs = runs.exclude(job__in=[*ARCHIVE_JOBS, SyncRun.Job.FORECAST])
+    return list(runs[:limit])
 
 
 LEGACY_TABLES = {

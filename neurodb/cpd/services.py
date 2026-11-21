@@ -1,15 +1,15 @@
 """Where the Country Programme stands: each indicator's value, its status, and the interventions and
 partner reporting behind each output.
 
-An indicator's value for a year is the value typed in the admin for that year, else the sum of its
-confirmed linked sources for that year (eTools PD indicators: what the partner reached, from
-``neurodb.datamart.reached``; ActivityInfo: the master indicator's result; Compiler: young people
-reached, children enrolled). Linked sources of one year are different partners' figures added up:
-they may reach the same people. The cycle's value is the latest year's value (a level) or the sum over
-the cycle's years (people reached), as the indicator says; so an eTools PD indicator counts, for a
-year, its Reached in that year when the CP indicator sums over the cycle (a PD running over several
-years is never counted twice), and its Reached to the end of that year when it takes the latest year's
-value.
+An indicator's value for a year is the value typed in the admin for that year, else the sum of its confirmed
+linked sources for that year (eTools PD indicators: what the partner reached, from
+``neurodb.datamart.reached``; Compiler: young people reached, children enrolled). A link to an ActivityInfo
+master indicator never counts: ActivityInfo is an archive (:data:`ARCHIVE_KINDS`). Linked sources of one year
+are different partners' figures added up: they may reach the same people. The cycle's value is the latest
+year's value (a level) or the sum over the cycle's years (people reached), as the indicator says; so an eTools
+PD indicator counts, for a year, its Reached in that year when the CP indicator sums over the cycle (a PD
+running over several years is never counted twice), and its Reached to the end of that year when it takes the
+latest year's value.
 
 Status: the share of the way from baseline to target that the value has covered, compared with the
 share of the cycle elapsed (or with 100 % of the year's milestone when one is set): within 10 points
@@ -60,7 +60,7 @@ LABELS = {
 STATUS_ORDER = (OFF_TRACK, ON_TRACK, AHEAD, NO_DATA, NO_TARGET)
 CLOSED_PD_STATUSES = ("draft", "cancelled")
 CACHE_SECONDS = 600  # a build in the shared cache; its key moves with every edit and every finished sync
-CACHE_VERSION = 1
+CACHE_VERSION = 2  # 2: a link to an ActivityInfo master indicator no longer counts (an archive)
 EDUCATION_TOTAL_SECONDS = 600  # children enrolled in a stored payload, per worker (keyed on its fetch)
 
 
@@ -106,29 +106,6 @@ def _etools_values(links: list[Link]) -> dict[int, float | None]:
                 out[link.pk] = row.reached_in_year
             else:
                 out[link.pk] = row.result.through(year) if row.result is not None else row.reached
-    return out
-
-
-def _activityinfo_values(links: list[Link]) -> dict[int, float | None]:
-    from neurodb.facts import queries
-    from neurodb.facts.services.dashboard import fact_filter
-    from neurodb.indicators.models import MasterIndicator
-
-    out: dict[int, float | None] = {}
-    masters = {m.pk: m for m in MasterIndicator.objects.filter(pk__in=[lk.master_id for lk in links])}
-    by_database: dict[int, list[Link]] = defaultdict(list)
-    for link in links:
-        master = masters.get(link.master_id)
-        if master is None:
-            out[link.pk] = None
-            continue
-        by_database[master.database_id].append(link)
-    for db_links in by_database.values():
-        database = masters[db_links[0].master_id].database
-        values = {row["id"]: row["value"] for row in queries.master_indicator_values(fact_filter(database))}
-        for link in db_links:
-            value = values.get(link.master_id)
-            out[link.pk] = float(value) if value is not None else None
     return out
 
 
@@ -205,17 +182,27 @@ def education_total(payload: dict[str, Any], programme: str | None = None) -> in
 
 READERS = {
     Link.Kind.ETOOLS: _etools_values,
-    Link.Kind.ACTIVITYINFO: _activityinfo_values,
     Link.Kind.YOUTH: _youth_values,
     Link.Kind.EDUCATION: _education_values,
 }
+# A link to an ActivityInfo master indicator never counts: ActivityInfo is an archive of past monthly results,
+# and no page shows its figures (the admin keeps the link and its kind, :mod:`neurodb.cpd.sources`)
+ARCHIVE_KINDS = frozenset({Link.Kind.ACTIVITYINFO})
+
+
+def counted(link: Link) -> bool:
+    """Whether ``link``'s figure counts toward its indicator: a confirmed link of a source NeuroDB uses."""
+    return link.confirmed and link.kind not in ARCHIVE_KINDS
 
 
 def link_values(links: list[Link]) -> dict[int, float | None]:
-    """The figure of each link, read in one batch per kind."""
+    """The figure of each link, read in one batch per kind (the ActivityInfo archive's: none, never read)."""
     out: dict[int, float | None] = {}
     by_kind: dict[str, list[Link]] = defaultdict(list)
     for link in links:
+        if link.kind in ARCHIVE_KINDS:
+            out[link.pk] = None
+            continue
         by_kind[link.kind].append(link)
     for kind, kind_links in by_kind.items():
         out.update(READERS[kind](kind_links))
@@ -310,7 +297,7 @@ def progress(
     manual = {v.year: v for v in indicator.values.all()}
     by_year: dict[int, list[tuple[Link, float | None]]] = defaultdict(list)
     for link in indicator.links.all():
-        if link.confirmed:
+        if counted(link):
             by_year[link.year].append((link, values.get(link.pk)))
     for year in indicator.programme.years:
         if year in manual:

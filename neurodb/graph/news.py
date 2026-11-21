@@ -1,5 +1,7 @@
 """Reading what changed: for the assistant (``whats_new``), the What's new page, the overview card and
-the daily note. Every change is told the same way everywhere."""
+the daily note. Every change is told the same way everywhere. The changes of the ActivityInfo archive (its
+databases, master indicators and Neuro and HPM reports, and the links to them: :data:`ARCHIVE_KINDS`) are kept
+for the assistant, which tells them when asked; no page lists them (:func:`recent`, ``archive``)."""
 
 from __future__ import annotations
 
@@ -10,6 +12,10 @@ from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from .models import Change, Edge, Entity
+
+# The knowledge hub's kinds of the ActivityInfo archive: NeuroDB no longer uses ActivityInfo, and its changes
+# are never news on a page (What's new, Home, the Country overview, the daily note, For you's stories)
+ARCHIVE_KINDS = (Entity.Kind.DATABASE, Entity.Kind.MASTER_INDICATOR, Entity.Kind.REPORT)
 
 FIELD_LABELS = {
     "status": "status",
@@ -70,8 +76,13 @@ def recent(
     kinds: list[str] | None = None,
     notable_only: bool = True,
     entity_ids: list[int] | None = None,
+    archive: bool = False,
 ) -> QuerySet[Change]:
+    """The changes since ``since``; ``archive=True`` (the assistant's lookup) keeps those of the ActivityInfo
+    archive, which every page leaves out (:func:`without_archive`)."""
     qs = Change.objects.filter(detected_at__gte=since)
+    if not archive:
+        qs = without_archive(qs)
     if notable_only:
         qs = qs.filter(notable=True)
     if sections:
@@ -81,6 +92,15 @@ def recent(
     if entity_ids is not None:
         qs = qs.filter(entity_id__in=entity_ids)
     return qs
+
+
+def without_archive(qs: QuerySet[Change]) -> QuerySet[Change]:
+    """``qs`` without the changes of the ActivityInfo archive: a thing of its kinds, or a link to one. A
+    change without a link (``{}``) has no ``kind`` key, whose comparison is NULL: it must stay, hence the key
+    test."""
+    return qs.exclude(kind__in=ARCHIVE_KINDS).exclude(
+        Q(link__has_key="kind") & Q(link__kind__in=ARCHIVE_KINDS)
+    )
 
 
 def around(entity_ids: list[int], limit: int = 500) -> list[int]:

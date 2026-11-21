@@ -118,9 +118,9 @@ def test_a_programme_past_its_end_is_closed_not_behind(data, reporting_year, don
     assert page["statuses"]["closed"]["label"] == "Closed"
 
 
-def test_data_date_is_the_datamart_sync_else_the_latest_source(hierarchy):
-    """In a year with ActivityInfo records (``hierarchy``: 2026), the ActivityInfo import is one of the
-    page's sources."""
+def test_data_date_is_the_datamart_sync_else_the_etools_sync(hierarchy):
+    """Even in a year with ActivityInfo records (``hierarchy``: 2026), its import never dates the page:
+    ActivityInfo is an archive of past monthly results (the owner's rule, November 2026)."""
     from django.utils import timezone
 
     from neurodb.core.models import SyncRun
@@ -128,28 +128,18 @@ def test_data_date_is_the_datamart_sync_else_the_latest_source(hierarchy):
     assert services.data_as_of() is None
     now = timezone.now()
     ok, failed = SyncRun.Status.SUCCEEDED, SyncRun.Status.FAILED
-    SyncRun.objects.create(job=SyncRun.Job.ACTIVITYINFO_DATA, status=ok, finished_at=now)
+    SyncRun.objects.create(
+        job=SyncRun.Job.ACTIVITYINFO_DATA, status=ok, finished_at=now + datetime.timedelta(2)
+    )
     SyncRun.objects.create(job=SyncRun.Job.POPULATION, status=ok, finished_at=now + datetime.timedelta(1))
-    assert services.data_as_of() == now  # no Datamart sync yet: the latest source that feeds the page
+    assert services.data_as_of() is None and services.data_as_of(2026) is None
+    SyncRun.objects.create(job=SyncRun.Job.ETOOLS, status=ok, finished_at=now)
+    assert services.data_as_of() == now  # no Datamart sync yet: the eTools sync
     earlier = now - datetime.timedelta(days=1)
     SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, status=ok, finished_at=earlier)
     SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, status=failed, finished_at=now)
     assert services.data_as_of() == earlier  # the funds and indicators come from the Datamart
-
-
-def test_the_activityinfo_import_dates_the_page_only_in_a_year_with_its_records(hierarchy):
-    from django.utils import timezone
-
-    from neurodb.core.models import SyncRun
-
-    now = timezone.now()
-    SyncRun.objects.create(
-        job=SyncRun.Job.ACTIVITYINFO_DATA, status=SyncRun.Status.SUCCEEDED, finished_at=now
-    )
-    assert services.data_as_of() == now == services.data_as_of(2026)
-    assert services.data_as_of(2025) is None  # 2025 has no ActivityInfo records: eTools alone
-    assert services.reporting_year(2026) == hierarchy["database"].reporting_year
-    assert services.reporting_year(2025) is None
+    assert not hasattr(services, "reporting_year")  # no ActivityInfo reporting year is read
 
 
 def test_grant_restriction_and_other_donor(data, reporting_year):
@@ -167,9 +157,7 @@ def test_partner_names_can_be_hidden(data, reporting_year):
 
 
 def test_country_block_names_no_programme_partner_or_donor(data, reporting_year):
-    everything = overview.build(
-        overview.Scope(year=2026, reporting_year=reporting_year, today=TODAY), cache=False
-    )
+    everything = overview.build(overview.Scope(year=2026, today=TODAY), cache=False)
     country = services.country(everything)
     text = json.dumps(country)
     for secret in ("Amel", "LEB/PD1", "Child protection services", "EU", "Japan"):

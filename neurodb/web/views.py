@@ -12,7 +12,6 @@ from django.utils.translation import gettext_lazy as _lazy
 
 from neurodb.core.models import SyncRun
 from neurodb.fmm.models import RuleSetting
-from neurodb.indicators.services import activityinfo
 from neurodb.review import checks
 from neurodb.watch.detectors import deadlines, money
 from neurodb.watch.models import DetectorSetting
@@ -47,19 +46,14 @@ def healthz(request):
     return JsonResponse(status)
 
 
-# Public figures, in order of preference; the first six that are not zero are shown. The eTools
-# ones are counted as the country overview counts them (programme documents running in the year); the
-# ActivityInfo ones exist only while ActivityInfo is in use (services.public_highlights).
+# Public figures, in order of preference; the first six that are not zero are shown. They are eTools',
+# counted as the country overview counts them (programme documents running in the year): NeuroDB no longer
+# uses ActivityInfo (services.public_highlights).
 LANDING_STATS = [
     ("running_programmes", _lazy("programme documents running this year")),
     ("etools_partners", _lazy("partners with a programme document this year")),
     ("pd_indicators", _lazy("programme document indicators this year")),
     ("progress_reports", _lazy("partner progress reports this year")),
-    ("indicators", _lazy("ActivityInfo results tracked against targets")),
-    ("governorates", _lazy("governorates in ActivityInfo reports this year")),
-    ("records", _lazy("activity records this year")),
-    ("partners", _lazy("partners reporting in ActivityInfo this year")),
-    ("sections", _lazy("programme sections in ActivityInfo")),
 ]
 
 
@@ -120,11 +114,9 @@ def platform_figures() -> dict:
 def landing(request):
     """Public landing page: why NeuroDB exists, the data and the rules behind it, a story to follow and the
     way in. Its live figures are aggregate counts only (``PUBLIC_LANDING_STATS``)."""
-    ai = activityinfo.state()  # in use: a current source; an archive: "ActivityInfo archive {span}"
     stats = public_highlights() if settings.PUBLIC_LANDING_STATS else None
     last_sync = SyncRun.last_success(SyncRun.Job.ETOOLS_DATAMART)
     context = {
-        "ai": ai,
         "stats": stats,
         "stat_items": _stat_items(stats),
         "public_pages": [p.split(":", 1)[1] for p in settings.PUBLIC_PAGES],

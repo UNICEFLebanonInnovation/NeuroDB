@@ -47,10 +47,8 @@ def data(hierarchy, settings):
     return made
 
 
-def build(reporting_year, **scope):
-    return brief.build(
-        brief.Scope(year=2026, reporting_year=reporting_year, today=TODAY, **scope), cache=False
-    )
+def build(reporting_year, **scope):  # noqa: ARG001 - the year's ActivityInfo records count for nothing
+    return brief.build(brief.Scope(year=2026, today=TODAY, **scope), cache=False)
 
 
 def test_headline_tiles_are_the_overview_figures_with_their_comparisons(data, reporting_year):
@@ -78,16 +76,12 @@ def test_pace_bullets_carry_the_cp_target_and_the_projection_extends_the_pace(da
     assert projection["target"] == 1000
     # R2 fixes-1 / brief-2 (changed): on 1 July the last eTools report is June's, so the solid line ends in June
     # (July was drawn as reported, flat) and the pace is April to June's (200 / 3 a month), never July's empty
-    # month in it. ActivityInfo (records of January and February) is archived on the suite's day: not projected.
-    # R3 code-2 / browser-1 (changed): its line ends at February (no value after it), never held flat at its total
-    # (drawn as reported, then "projected"); ``actual_months`` is the months every source has reported (February),
-    # the chart's fallback only: each line is drawn to its own ``actual`` month
-    assert projection["actual_months"] == 2 and projection["actual"] == {"eTools": 6, "ActivityInfo": 2}
-    assert projection["projected"] == ["eTools"]
+    # month in it. ActivityInfo (records of January and February) is no line at all: an archive (Nov 2026)
+    assert projection["actual_months"] == 6 and projection["actual"] == {"eTools": 6}
+    assert projection["projected"] == ["eTools"] and list(projection["series"]) == ["eTools"]
     etools = projection["series"]["eTools"]
     assert etools[:6] == [0, 0, 300, 300, 300, 500]  # cumulative to June
     assert etools[6] == 567 and etools[11] == 900  # + 67 a month from June
-    assert projection["series"]["ActivityInfo"] == [150, 500] + [None] * 10
 
 
 def test_confidence_per_section(data, reporting_year):
@@ -96,7 +90,7 @@ def test_confidence_per_section(data, reporting_year):
     assert row["section"] == "Child Protection" and row["indicators"] == 2
     assert row["reported_percent"] == 50.0  # the teachers indicator never reported
     assert row["verified_percent"] == 100.0  # TPM/1 was approved on the PD
-    assert row["linked_percent"] == 100.0  # Partner A → Amel
+    assert "linked_percent" not in row  # ActivityInfo partner links count for nothing (Nov 2026)
     assert row["sync_days"] is None and row["level"] == "low"  # reported and sync short
     SyncRun.objects.create(
         job=SyncRun.Job.ETOOLS_DATAMART,
@@ -107,10 +101,12 @@ def test_confidence_per_section(data, reporting_year):
     assert row["sync_days"] == 0 and row["level"] == "medium"
 
 
-def test_the_two_sources_side_by_side_per_partner(data, reporting_year):
-    (row,) = build(reporting_year)["confidence"]["reconcile"]
-    assert (row["partner"], row["activityinfo"], row["etools"]) == ("Amel Association", 150, 500)
-    assert row["gap_percent"] == 70.0 and not row["consistent"]
+def test_no_activityinfo_figure_stands_beside_etools_per_partner(data, reporting_year):
+    """Partner A's ActivityInfo records and link are there: the brief sets nothing of them beside eTools (Nov
+    2026: ActivityInfo is an archive)."""
+    confidence = build(reporting_year)["confidence"]
+    assert "reconcile" not in confidence and "linked_used" not in confidence
+    assert "ActivityInfo" not in json.dumps(confidence, default=str)
 
 
 def test_timeliness_marks_each_quarter(data, reporting_year):
@@ -249,7 +245,7 @@ def test_a_finding_the_review_sees_resolved_counts_as_closed(data, reporting_yea
     later = TODAY + datetime.timedelta(days=1)
     second = review_services.run(date=later, today=later)
     assert second.findings.filter(state=ReviewFinding.State.RESOLVED).exists()
-    result = brief.build(brief.Scope(year=2026, reporting_year=reporting_year, today=later), cache=False)
+    result = brief.build(brief.Scope(year=2026, today=later), cache=False)
     assert result["action"]["lifecycle"]["closed"] >= 1
 
 
@@ -291,7 +287,7 @@ def test_result_is_cached_and_a_new_plan_shows_at_once(
     data, reporting_year, settings, django_assert_max_num_queries
 ):
     settings.DEBUG = False
-    scope = brief.Scope(year=2026, reporting_year=reporting_year, today=TODAY)
+    scope = brief.Scope(year=2026, today=TODAY)
     assert brief.build(scope)["pace"]["bullets"][0]["cp_target"] == 2000
     with django_assert_max_num_queries(7):  # the fingerprints only
         brief.build(scope)
@@ -318,7 +314,6 @@ def test_page_renders_every_block(client_viewer, data, reporting_year):
         "Copy summary",
         "Are we ahead or behind?",
         "Confidence in the figures",
-        "Where the two sources disagree",
         "Reporting timeliness",
         "Districts with high need and low coverage",
         "Partner scorecard",
@@ -442,7 +437,7 @@ def test_a_finished_sync_run_changes_the_cache_key(data, reporting_year, setting
     from django.utils import timezone
 
     settings.DEBUG = False
-    scope = brief.Scope(year=2026, reporting_year=reporting_year, today=TODAY)
+    scope = brief.Scope(year=2026, today=TODAY)
     assert brief.build(scope)["money"]["reserved"] == 10000
     dm.FundsReservationHeader.objects.update(total_amt=12000)
     assert brief.build(scope)["money"]["reserved"] == 10000  # cached
@@ -639,7 +634,7 @@ def test_the_digest_counts_what_is_new_after_the_first_review(data, reporting_ye
     review_services.run(date=TODAY, today=TODAY)
     later = TODAY + datetime.timedelta(days=1)
     review_services.run(date=later, today=later)
-    result = brief.build(brief.Scope(year=2026, reporting_year=reporting_year, today=later), cache=False)
+    result = brief.build(brief.Scope(year=2026, today=later), cache=False)
     digest = result["action"]["digest"]
     assert digest["reviews"] == 2 and digest["since"] == TODAY.isoformat()
     assert digest["new_critical"] == 0  # the first review is the baseline, not "new"

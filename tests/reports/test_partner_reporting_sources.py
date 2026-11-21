@@ -1,4 +1,6 @@
-"""The partner page brings the eTools and ActivityInfo reporting of one partner together."""
+"""A partner's reporting: eTools on the partner page and the partners list; ActivityInfo, an archive of past
+monthly results (the owner's rule, November 2026), on the partner's ActivityInfo page alone, opened by its
+address, and in the archive's own pages."""
 
 import datetime
 
@@ -53,20 +55,18 @@ def test_partner_filter_in_the_fact_queries(linked):
     assert queries.partner_activity([]) == []
 
 
-def test_partner_page_shows_both_sources(client_viewer, linked):
+def test_partner_page_shows_etools_alone(client_viewer, linked):
+    """Partner A has ActivityInfo records linked: its page shows eTools only, no panel, tile, chart or link of
+    ActivityInfo; the partner's ActivityInfo page still opens by its address."""
     a = linked["a"]
     response = client_viewer.get(reverse("reports:partner_profile", args=[a.id]))
     text = response.text
-    assert "eTools · implementation monitoring" in text and "ActivityInfo · reporting history" in text
-    assert "Child Protection 2026" in text or "Child Protection" in text
-    assert reverse("reports:partner_activityinfo", args=[a.id, linked["database"].id]) in text
-    assert response.context["activityinfo"]["labels"] == ["Partner A"]
-    assert response.context["activityinfo"]["databases"][0]["records"] == 2
-    assert response.context["activityinfo"]["databases"][0]["map_url"].endswith(
-        "?level=site&partner=Partner+A"
-    )
-    assert response.context["chart_data"]["activityinfo_by_year"] == [("2026", 2)]
+    page = text.split('<details class="sidebar__archive"')[0]
+    assert "eTools · implementation monitoring" in text and "ActivityInfo" not in page
+    activityinfo_page = reverse("reports:partner_activityinfo", args=[a.id, linked["database"].id])
+    assert activityinfo_page not in text and "activityinfo_by_year" not in text
     assert 'href="' + reverse("reports:pd_monitoring") + "?partner=" in text
+    assert client_viewer.get(activityinfo_page).status_code == 200
 
 
 def test_partner_activityinfo_modal_and_page(client_viewer, linked):
@@ -89,8 +89,8 @@ def test_partner_activityinfo_modal_and_page(client_viewer, linked):
 def test_unlinked_partner_page_and_snapshot_links(client_viewer, linked):
     PartnerLink.objects.filter(label="Partner B").update(partner=None, method="")
     text = client_viewer.get(reverse("reports:partner_profile", args=[linked["b"].id])).text
-    assert "No ActivityInfo record is linked to this partner" in text and "names matched" in text
-    assert "Edit the link" not in text  # viewers cannot change the links
+    assert "No ActivityInfo record is linked to this partner" not in text and "Edit the link" not in text
+    # the archive's own snapshot still links the partners its records are linked to
     snapshot = client_viewer.get(reverse("reports:database_snapshot", args=[linked["database"].id])).text
     assert reverse("reports:partner_profile", args=[linked["a"].id]) in snapshot  # Partner A is linked
     assert reverse("reports:partner_profile", args=[linked["b"].id]) not in snapshot
@@ -100,7 +100,10 @@ def test_partner_list_shows_the_reporting_sources(client_viewer, linked):
     from neurodb.datamart.models import ReportedIndicator
 
     text = client_viewer.get(reverse("reports:partners")).text
-    assert "ActivityInfo · 2" in text and "Reporting" in text and ">eTools<" not in text
+    assert "Reporting" in text and ">eTools<" not in text
+    assert (
+        "ActivityInfo" not in text.split('<details class="sidebar__archive"')[0]
+    )  # its records never counted
     ReportedIndicator.objects.create(
         datamart_id=1, partner=linked["a"], progress_report="PR-1", indicator="x"
     )

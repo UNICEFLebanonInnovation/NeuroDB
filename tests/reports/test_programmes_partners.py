@@ -63,7 +63,7 @@ def test_partner_without_pds_counts_zero(partner):
     assert partnerships.partners({}).get(pk=other.pk).pd_count == 0
 
 
-def test_activityinfo_tile_is_the_linked_records_total(client_viewer, partner, monkeypatch):
+def test_activityinfo_records_are_no_tile_but_ask_counts_them(client_viewer, partner, monkeypatch):
     fake = {
         "labels": ["Himaya AI"],
         "databases": [],
@@ -74,8 +74,8 @@ def test_activityinfo_tile_is_the_linked_records_total(client_viewer, partner, m
     }
     monkeypatch.setattr(partner_facts, "partner_activityinfo", lambda p: fake)
     text = client_viewer.get(reverse("reports:partner_profile", args=[partner.pk])).text
-    assert '<div class="kpi__label">ActivityInfo records</div>\n  <div class="kpi__value">126</div>' in text
-    assert "126 records" in text
+    # an archive: no tile on the partner page (the owner's rule, November 2026); Ask's lookup still counts them
+    assert "ActivityInfo records" not in text and "126 records" not in text
     assert tools.run("partner_details", {"partner_id": partner.pk})["activity_reports"] == 126
 
 

@@ -1523,6 +1523,13 @@ stopped run.
 
 ## ActivityInfo: in use or archive
 
+**Out of every page but its archive (November 2026).** NeuroDB no longer uses ActivityInfo: no regular page,
+help page or the public landing page names it or shows a figure taken from it (children reached is eTools
+alone everywhere; where this section says otherwise, it now holds for the archive and Ask NeuroDB only). The
+archive stays as it was: the menu's archive block and the pages it opens, the search's entries (labelled
+*ActivityInfo archive*), the administration (this setting, reporting years, the import and its scheduled
+jobs) and Ask NeuroDB's lookups, used only when someone asks about the archive.
+
 Partners reported their monthly results in ActivityInfo in past years and now report progress in
 eTools/PRP; the full menu lists the years the archive holds. NeuroDB keeps every ActivityInfo year
 (databases, dashboards, analytical views, maps, Neuro and HPM reports, the import runs): nothing is

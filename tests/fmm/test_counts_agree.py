@@ -26,7 +26,7 @@ def _fmm(year: int = 2026) -> dict:
 
 
 def _overview_visits(reporting_year, year: int = 2026) -> int:
-    data = overview.build(overview.Scope(year=year, reporting_year=reporting_year, today=TODAY), cache=False)
+    data = overview.build(overview.Scope(year=year, today=TODAY), cache=False)
     return data["delivery"]["assurance"]["field_monitoring_visits"]
 
 

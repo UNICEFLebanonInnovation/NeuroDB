@@ -2,12 +2,15 @@
 
 The page answers its frame at once (the page heading, the *Sync jobs* heading with its staleness note, the heading
 and explanation of the datasets panel) with a placeholder per block, each its own computation: ``jobs`` (high),
-``databases`` and ``runs`` (normal), ``datasets``, ``power-bi`` and ``readiness`` (low). These tests check the frame without any figure work, each part, who may open the page and
+``runs`` (normal), ``datasets``, ``power-bi`` and ``readiness`` (low); the ActivityInfo archive's jobs, databases and
+runs are not on the page (tests/reports/test_health_archive.py). These tests check the frame without any figure
+work, each part, who may open the page and
 its parts, that the page put together from its parts is the page drawn at once (``_eager=1``), the two quick wins
 of ``datamart_quality`` (the latest run of each dataset in one query; the row counts stored for every worker,
 keyed on the jobs that write those tables) with the same figures as before, and that an edit shows at once.
 
-On ``world``: one displayed ActivityInfo database of the current year, a failed eTools sync, an ActivityInfo import,
+On ``world``: one displayed ActivityInfo database of the current year, a failed eTools sync, an ActivityInfo import
+(neither on the page),
 eTools Datamart runs of three datasets (one dataset run twice, its newer run started first, so the latest is told
 by its start and not by its id), three grants and two places held, and a machine learning readiness check.
 """
@@ -56,7 +59,6 @@ pytestmark = pytest.mark.django_db
 PAGE = "/data/health/"  # reports:data_health
 PARTS = (
     "jobs",
-    "databases",
     "runs",
     "datasets",
     "power-bi",
@@ -71,13 +73,13 @@ LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
 # jobs; datasets the latest run of every dataset (one query), the key of the stored row counts, the counts of the
 # datasets that have a table, and the gazetteer's; power-bi the comparisons with Power BI's views, the views they
 # name and the card versions (three queries, whatever the number of periods; two in this world, which has none).
-# The focused menu has no ActivityInfo block, so its frame does not read the ActivityInfo state: jobs and
-# databases then read it themselves (3: the setting, the scheduled jobs, the reporting years), counted here.
+# The focused menu has no ActivityInfo block, so its frame does not read the ActivityInfo state: jobs then reads
+# it itself (3: the setting, the scheduled jobs, the reporting years), counted here.
 SHELL_QUERIES_COLD = (
     16  # 14 measured: a menu with the ActivityInfo block reads its state (3) and the sources (2)
 )
 SHELL_QUERIES_WARM = 7
-PART_QUERIES = {"jobs": 34, "databases": 10, "runs": 6, "datasets": 60, "power-bi": 7, "readiness": 6}
+PART_QUERIES = {"jobs": 34, "runs": 6, "datasets": 60, "power-bi": 7, "readiness": 6}
 
 
 def _place(pk: int, name: str, kind: LocationType) -> Location:
@@ -209,7 +211,6 @@ def test_the_placeholders_carry_the_resolved_query(client_viewer, world):
             assert attrs["hx-get"] == f"{PAGE}?_part={name}", attrs["hx-get"]
     assert {name: attrs["data-part-priority"] for name, attrs in found.items()} == {
         "jobs": "high",
-        "databases": "normal",
         "runs": "normal",
         "datasets": "low",
         "power-bi": "low",
@@ -220,12 +221,18 @@ def test_the_placeholders_carry_the_resolved_query(client_viewer, world):
     # per job card to come, in the cards' own grid (app.css), and keeps no height of its own
     jobs = found["jobs"]
     assert jobs["aria-labelledby"] == "jobs-title" and jobs["class"] == "part part--tiles"
-    count = sum(1 for job in SyncRun.Job if job not in services.HEALTH_SKIPPED_JOBS)
-    assert jobs["style"] == f"--part-rows: {count}" and count == len(services.health_jobs()) == 13
+    count = sum(
+        1
+        for job in SyncRun.Job
+        if job not in services.HEALTH_SKIPPED_JOBS and job not in services.ARCHIVE_JOBS
+    )
+    assert (
+        jobs["style"] == f"--part-rows: {count}"
+        and count == len(services.health_jobs(with_archive=False)) == 10
+    )
     html = text(client_viewer.get(PAGE))
     start = html.index('id="part-jobs"')
-    assert html[start : html.index('id="part-databases"')].count("skeleton__block--tile") == count
-    assert found["databases"]["style"] == "--part-h: 326.6px; --part-h-sm: 451.2px"
+    assert html[start : html.index('id="part-runs"')].count("skeleton__block--tile") == count
     assert found["runs"]["style"] == "--part-h: 618px"
     # the datasets table, which scrolls inside 560 px at every width, under its Copy and CSV buttons (39 px; its
     # panel's text is the frame's)
@@ -295,7 +302,6 @@ def test_the_frame_stays_within_its_query_ceiling(client_viewer, world, django_a
 # ------------------------------------------------------------------------------------------------- the parts
 EXPECTED = {
     "jobs": ("eTools Datamart sync", "Never succeeded", "Latest run"),
-    "databases": ('id="db-health"', "Child Protection", "AI 202618"),
     "runs": ('id="runs"', "pd_indicators", "1,200 / 1,180", "20 failed", "timeout"),
     "datasets": (
         'id="datasets"',
@@ -303,7 +309,7 @@ EXPECTED = {
         "4 removed",
         "check the country name",
     ),
-    "readiness": ('id="ml-readiness"', "Ready for machine learning?", "Which indicators or activities"),
+    "readiness": ('id="ml-readiness"', "Ready for machine learning?", "Where might teams want to review"),
     # no comparison stored in this world: each programme says it is not compared yet (tests/education/
     # test_power_bi_pages.py draws one)
     "power-bi": ('id="power-bi-mscc"', 'id="power-bi-youth"', "Not yet compared"),
@@ -324,15 +330,12 @@ def test_each_part_answers_its_wrapper(client_viewer, world, name):
 
 def test_the_tables_draw_their_figures(client_viewer, world):
     """The assembled page and the eager page draw the same part templates, so their equivalence cannot catch a
-    wrong figure in one: the datasets' failed rows and the databases' last import are checked here."""
+    wrong figure in one: the datasets' failed rows are checked here."""
     datasets = text(get_part(client_viewer, PAGE, "datasets"))
     row = _dataset(datasets, "pd_indicators")
     assert "1,200 / 1,180" in row and "4 removed" in row  # read / written
     assert '<td class="num small text-danger">20</td>' in row  # failed
     assert '<td class="num small">0</td>' in _dataset(datasets, "grants")  # none failed
-    databases = text(get_part(client_viewer, PAGE, "databases"))
-    row = re.search(r"<tr data-href=.*?AI 202618.*?</tr>", databases, re.S).group(0)
-    assert re.search(r'<td class="small" data-value="[^"]+">3(?:\s|&nbsp;|\xa0)days ago</td>', row), row
 
 
 def test_a_prp_dataset_names_its_business_area_and_an_empty_read_points_to_the_code(client_viewer, world):
@@ -781,7 +784,6 @@ def test_without_javascript_the_page_drawn_at_once_is_complete(client_viewer, wo
         assert f'<div id="part-{name}" class="part is-loaded" data-part-loaded="{name}"' in page
     for expected in (
         "Never succeeded",
-        'id="db-health"',
         "1,200 / 1,180",
         "4 removed",
         "Ready for machine learning?",

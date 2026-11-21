@@ -81,10 +81,8 @@ def _second(data, value: float = 700):
     _indicator(data, 300, ENROLLED, [(datetime.date(2026, 6, 30), "Achrafieh", value)])
 
 
-def build(reporting_year=None, **scope):
-    return overview.build(
-        overview.Scope(year=2026, reporting_year=reporting_year, today=TODAY, **scope), cache=False
-    )
+def build(**scope):
+    return overview.build(overview.Scope(year=2026, today=TODAY, **scope), cache=False)
 
 
 def _rows(pd_id: int):
@@ -211,7 +209,7 @@ def test_partner_section_and_country_totals_agree(data, reporting_year):
     )  # fmt: skip
     _indicator(data, 500, "# of girls reached with learning support", [(datetime.date(2026, 3, 31), "Halba", 250)],
                pd=other)  # fmt: skip
-    result = build(reporting_year)
+    result = build()
     impact, delivery = result["impact"], result["delivery"]
     assert impact["children_etools"] == 700 + 250
     assert sum(p["children"] for p in delivery["by_partner"]) == impact["children_etools"]
@@ -237,9 +235,7 @@ def test_achievement_by_section_is_a_median_of_indicators(data):
 # ---------------------------------------------------------------------------- the other pages
 def test_the_brief_says_which_rule_its_children_follow(data, reporting_year):
     _second(data)
-    result = brief.build(
-        brief.Scope(year=2026, reporting_year=reporting_year, sections=[], today=TODAY), cache=False
-    )
+    result = brief.build(brief.Scope(year=2026, sections=[], today=TODAY), cache=False)
     tiles = {t["key"]: t for t in result["headline"]["tiles"]}
     assert tiles["children"]["label"] == "Children reached"
     assert "sum of each PD's main indicator" in tiles["children"]["hint"]
@@ -337,7 +333,7 @@ def test_a_percentage_or_another_pds_indicator_is_refused(client, data, admin_us
 def test_a_new_choice_shows_at_once_despite_the_caches(client, data, admin_user, settings):
     settings.DEBUG = False
     _second(data)
-    scope = overview.Scope(year=2026, reporting_year=None, today=TODAY)
+    scope = overview.Scope(year=2026, today=TODAY)
     assert overview.build(scope)["impact"]["children_etools"] == 700
     client.force_login(admin_user)
     client.post(reverse("reports:pd_main_indicator", args=[data["pd"].pk]), {"key": "100"})
@@ -392,11 +388,9 @@ def test_the_main_indicator_of_a_year_is_the_same_on_every_page(data, reporting_
     _over_two_years(data)
     pd = data["pd"]
     # the overview of each year counts the PD's largest children indicator of that year
-    assert build(reporting_year)["impact"]["children_etools"] == 500
+    assert build()["impact"]["children_etools"] == 500
     assert (
-        overview.build(overview.Scope(year=2025, reporting_year=None, today=TODAY), cache=False)["impact"][
-            "children_etools"
-        ]
+        overview.build(overview.Scope(year=2025, today=TODAY), cache=False)["impact"]["children_etools"]
         == 900
     )
     # the PD page and the daily review rank by the current year too: the same indicator as the overview
@@ -446,7 +440,7 @@ def test_the_donor_page_puts_a_pd_in_the_section_of_its_main_indicator(data, rep
     from neurodb.donors.models import DonorAccount
 
     _indicator(data, 300, ENROLLED, [(datetime.date(2026, 6, 30), "Achrafieh", 700)], section="Education")
-    sections = {s["section"]: s for s in build(reporting_year)["money"]["by_section"]}
+    sections = {s["section"]: s for s in build()["money"]["by_section"]}
     assert sections["Education"]["children"] == 700 and "Child Protection" not in sections
     user = User.objects.create_user(username="eu-donor", password="donor-pass-123456")
     account = DonorAccount.objects.create(user=user, name="EU", donors=["EU"], must_change_password=False)
@@ -488,9 +482,7 @@ def test_the_headline_says_how_much_awaits_acceptance(data, reporting_year):
     impact = build()["impact"]
     assert (impact["children_etools"], impact["children_awaiting"]) == (700, 400)
     assert build(governorate="Beirut")["impact"]["children_awaiting"] is None  # not split by place
-    result = brief.build(
-        brief.Scope(year=2026, reporting_year=reporting_year, sections=[], today=TODAY), cache=False
-    )
+    result = brief.build(brief.Scope(year=2026, sections=[], today=TODAY), cache=False)
     tiles = {t["key"]: t for t in result["headline"]["tiles"]}
     assert "400 from reports awaiting acceptance" in tiles["children"]["hint"]
     # a "latest" indicator: the year's figure is the latest report (400); without it, 300: 100 awaits
@@ -557,7 +549,7 @@ def test_a_pd_without_children_this_year_keeps_the_section_most_of_its_indicator
 
     _indicator(data, 300, ENROLLED, [], section="Education", target=5000)
     dm.ReportedIndicator.objects.filter(etools_indicator_id="100").update(report_status="Sent back")
-    result = build(reporting_year)
+    result = build()
     assert result["impact"]["children_etools"] == 0
     reserved = {s["section"]: s["reserved"] for s in result["money"]["by_section"]}
     assert reserved["Child Protection"] > reserved["Education"]

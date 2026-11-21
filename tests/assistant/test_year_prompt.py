@@ -1,8 +1,8 @@
-"""Ask NeuroDB and ActivityInfo as an archive (SPEC_HOME §7): the line after the date says this year and
-whether ActivityInfo is in use or an archive, in four sentences; whether this year has ActivityInfo figures
-follows its records (as the Home and Country overview tiles do), the mode only the tense. The instructions
-start from eTools, the examples ask about eTools, and the hub tools read the calendar year and link the
-daily review's own page."""
+"""Ask NeuroDB and ActivityInfo as an archive of past monthly results (SPEC_HOME §7; the owner's rule of November
+2026): the line after the date says this year, that NeuroDB's figures come from eTools, and the years the archive
+holds, whatever the mode or its records; the instructions add one archive line. The instructions start from
+eTools, the examples ask about eTools, and the hub tools read the calendar year and link the daily review's own
+page."""
 
 import datetime
 import itertools
@@ -82,87 +82,47 @@ def _children_master(year: ReportingYear, database: Database, ai_indicator: str)
     return master
 
 
-ARCHIVED_WITH_RECORDS = (
-    "This year is 2026. ActivityInfo is no longer updated: its 2026 records stop at {month}, and NeuroDB's "
-    "children reached for 2026 still counts them (the larger of the two sources). For progress since then "
-    "use the eTools tools; the ActivityInfo tools cover {span}."
-)
+def _line(span: str, stop: str = "", year: int = 2026) -> str:
+    return (
+        f"This year is {year}. NeuroDB's figures, children reached included, come from eTools. ActivityInfo is an "
+        f"archive of {span}{stop}: use the ActivityInfo tools only when the person asks about it."
+    )
 
 
-# ------------------------------------------------------------------------------- the four sentences
+# ----------------------------------------------------------------------------------------- the year line
 def test_in_use(db):
-    _ai_year(2026, 8, current=True)  # records up to August: in use on 15 October (Automatic)
+    """In use (records up to August, Automatic on 15 October): still an archive to Ask."""
+    _ai_year(2026, 8, current=True)
     assert activityinfo.state().reason == "auto_in_use"
-    assert agent.year_line() == "This year is 2026. ActivityInfo is in use (reporting year 2026)."
+    assert agent.year_line() == _line("2026", " (its 2026 records stop at Aug 2026)")
 
 
-def test_in_use_in_january_names_the_year_the_import_serves(db, site_today):
+def test_in_use_in_january_names_the_years_the_archive_holds(db, site_today):
     _ai_year(2026, 12, current=True)
     site_today.set(datetime.date(2027, 1, 5))  # January still brings in the December results
     assert activityinfo.state().reason == "auto_january"
-    assert agent.year_line() == "This year is 2027. ActivityInfo is in use (reporting year 2026)."
+    assert agent.year_line() == _line("2026", year=2027)
 
 
-def test_archived_with_records_this_year(db):
-    """The import left on over a year whose records stop in April: an archive, but 2026 still has
-    ActivityInfo figures, so Ask says they stop and still count, as the Home tile does."""
+@pytest.mark.parametrize("mode", [None, ActivityInfoSetting.Mode.ARCHIVED, ActivityInfoSetting.Mode.IN_USE])
+@pytest.mark.parametrize("children", [True, False])
+def test_records_this_year_never_count_whatever_the_mode_or_the_children_indicators(db, mode, children):
+    """Records of 2026 (up to April), with or without an HPM children master behind them, Automatic, set
+    Archived or set In use: never "still counts them" (R1 time_roles-F2 no longer applies: nothing counts)."""
     _ai_year(2019, 12)
-    _ai_year(2026, 4, current=True, children=True)
-    assert activityinfo.state().reason == "auto_not_recent" and activityinfo.is_year(2026)
-    assert agent.year_line() == ARCHIVED_WITH_RECORDS.format(month="Apr 2026", span="2019–2026")
-
-
-def test_set_archived_with_recent_records_still_counts_them(db):
-    _ai_year(2026, 8, current=True, children=True)
-    _mode(ActivityInfoSetting.Mode.ARCHIVED)
-    assert agent.year_line() == ARCHIVED_WITH_RECORDS.format(month="Aug 2026", span="2026")
-
-
-ARCHIVED_WITHOUT_CHILDREN = (
-    "This year is 2026. ActivityInfo is no longer updated: its 2026 records stop at Aug 2026, and they add "
-    "no children to NeuroDB's children reached for 2026, which comes from eTools alone. For progress since "
-    "then use the eTools tools; the ActivityInfo tools cover 2026."
-)
-
-
-def test_archived_with_records_but_no_children_indicator_never_says_they_count(db):
-    """Records, but no additive HPM master that counts children: the Country overview's ActivityInfo
-    children figure is 0 and Home shows none, so Ask must not say the records still count (R1 time_roles-F2)."""
-    _ai_year(2026, 8, current=True)
-    _mode(ActivityInfoSetting.Mode.ARCHIVED)
-    assert activityinfo.is_year(2026)
+    _ai_year(2026, 4, current=True, children=children)
+    if mode:
+        _mode(mode)
     line = agent.year_line()
-    assert "still counts them" not in line
-    assert line == ARCHIVED_WITHOUT_CHILDREN
-
-
-def test_archived_with_a_children_indicator_but_no_record_behind_it_never_says_they_count(db):
-    """The HPM children master is set up, but the year's records are on other indicators: nothing adds up
-    to the ActivityInfo children figure."""
-    year = _ai_year(2026, 8, current=True)
-    _children_master(year, Database.objects.get(reporting_year=year), ai_indicator="not-reported")
-    _mode(ActivityInfoSetting.Mode.ARCHIVED)
-    assert agent.year_line() == ARCHIVED_WITHOUT_CHILDREN
-
-
-def test_archived_with_children_records_the_funded_by_rule_leaves_out_never_says_they_count(db):
-    """A database counted for UNICEF-funded records only (as the Country overview reads it), whose records
-    are all funded by another donor: no ActivityInfo children, until they are UNICEF's."""
-    year = _ai_year(2026, 8, current=True, children=True, funded_by="Another donor")
-    _mode(ActivityInfoSetting.Mode.ARCHIVED)
-    assert agent.year_line() == ARCHIVED_WITHOUT_CHILDREN
-    ActivityReportNew.objects.filter(dbase__reporting_year=year).update(funded_by="UNICEF")
-    assert agent.year_line() == ARCHIVED_WITH_RECORDS.format(month="Aug 2026", span="2026")
+    assert line == _line("2019–2026", " (its 2026 records stop at Apr 2026)")
+    assert "still counts" not in line and "larger of the two" not in line
 
 
 def test_archived_without_records_this_year(db):
     _ai_year(2019, 12)
     _ai_year(2025, 12, current=True)
     assert not activityinfo.is_year(2026) and not activityinfo.in_use()
-    assert agent.year_line() == (
-        "This year is 2026. ActivityInfo is an archive of 2019–2025: partners no longer report there. For "
-        "this year use the eTools tools; use the ActivityInfo tools only for 2019–2025."
-    )
+    assert agent.year_line() == _line("2019–2025")
 
 
 def test_no_activityinfo_years(db):
@@ -201,9 +161,10 @@ def test_the_start_and_year_rules_point_to_etools_for_this_year():
         "need another lookup's result; wait for a result only when the next lookup needs it."
     ) in agent.SYSTEM_PROMPT
     assert (
-        "When no ActivityInfo year is given, use this year if ActivityInfo is in use (see the line after "
-        "these instructions), else say which year you used."
+        "ActivityInfo is an archive of past monthly results: do not bring it up or use its data unless the person "
+        "asks about the archive or those past results."
     ) in agent.SYSTEM_PROMPT
+    assert "use this year if ActivityInfo is in use" not in agent.SYSTEM_PROMPT
     assert "The current reporting year is used when none is given." not in agent.SYSTEM_PROMPT
     assert "Start from list_databases or find_indicators" not in agent.SYSTEM_PROMPT
     for name in ("programme_details", "partner_details", "pd_indicator_progress", "list_databases"):
@@ -272,19 +233,19 @@ def test_the_management_brief_reads_the_calendar_year(db, scopes):
     result = hub_tools.management_brief()
     assert "note" not in result and result["year"] == 2026
     assert result["url"] == f"{reverse('reports:brief')}?year=2026"
-    assert scopes[-1].year == 2026 and scopes[-1].reporting_year is None
+    assert scopes[-1].year == 2026 and not hasattr(scopes[-1], "reporting_year")
     assert scopes[-1].today == datetime.date(2026, 10, 15)
     assert hub_tools.management_brief(year=1990)["year"] == 2026  # not a year NeuroDB can show: this year
 
 
-def test_the_management_brief_counts_activityinfo_only_in_its_years(db, scopes):
-    """The 2025 reporting year is ticked current (the import's year): this year's brief has no ActivityInfo
-    reporting year, last year's has it."""
-    last_year = _ai_year(2025, 12, current=True)
+def test_the_management_brief_never_reads_activityinfo(db, scopes):
+    """The 2025 reporting year is ticked current: neither this year's brief nor last year's reads it (the brief
+    is eTools alone, the owner's rule of November 2026)."""
+    _ai_year(2025, 12, current=True)
     hub_tools.management_brief()
-    assert scopes[-1].year == 2026 and scopes[-1].reporting_year is None
+    assert scopes[-1].year == 2026 and not hasattr(scopes[-1], "reporting_year")
     result = hub_tools.management_brief(year=2025, section="Education")
-    assert result["year"] == 2025 and scopes[-1].reporting_year == last_year
+    assert result["year"] == 2025 and not hasattr(scopes[-1], "reporting_year")
     assert scopes[-1].sections == ["Education"]
     assert tools.run("management_brief", {"year": 2025})["year"] == 2025  # through the registry
 

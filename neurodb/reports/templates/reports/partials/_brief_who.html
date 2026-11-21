@@ -44,7 +44,7 @@
     {% if w.governorates %}
     <div class="gov-grid">
       {% for g in w.governorates %}
-      <a class="gov-tile gov-tile--l{{ g.level|default:1 }}" href="{% url 'reports:country_overview' %}?{% if base_query %}{{ base_query }}&amp;{% endif %}governorate={{ g.name|urlencode }}"{% if data.scope.activityinfo_used %} title="{% blocktrans with e=g.etools|intcomma a=g.activityinfo|intcomma %}eTools {{ e }}, ActivityInfo {{ a }}{% endblocktrans %}"{% endif %}>
+      <a class="gov-tile gov-tile--l{{ g.level|default:1 }}" href="{% url 'reports:country_overview' %}?{% if base_query %}{{ base_query }}&amp;{% endif %}governorate={{ g.name|urlencode }}">
         <span class="gov-tile__name">{{ g.name }}</span>
         <span class="gov-tile__value">{% if g.coverage is not None %}{{ g.coverage|percent:0 }}{% else %}{{ g.reached|intcomma }}{% endif %}</span>
         <span class="gov-tile__sub">{% if g.coverage is not None %}{% blocktrans with n=g.reached|intcomma %}{{ n }} of the children{% endblocktrans %}{% else %}{% trans "children reached" %}{% endif %}</span>
@@ -54,7 +54,7 @@
     {% else %}
     {% include "components/empty_state.html" with icon="map" title=_("No children reached by governorate yet") message=_("Partner reports with a location appear here once the imports have run for this scope.") %}
     {% endif %}
-    <p class="source-line">{% if data.scope.activityinfo_used %}{% trans "The larger of the two sources per governorate, against the estimated children there (population figures)" %}{% else %}{% trans "Children reached per governorate (eTools), against the estimated children there (population figures)" %}{% endif %}</p>
+    <p class="source-line">{% trans "Children reached per governorate (eTools), against the estimated children there (population figures)" %}</p>
   </section>
   <section class="panel" aria-labelledby="gap-title">
     <div class="panel__header">

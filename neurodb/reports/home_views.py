@@ -22,7 +22,7 @@ freshness strip; no figure work and no ``watch_`` table) with a placeholder for 
   - ``standing``: the Country overview's own five key figures for this year (the same build, key and
     template, :func:`neurodb.reports.overview.build`), drawn inline when that build is already stored, and the
     "Also" line;
-  - ``programmes``: the country programme, the Compiler figures and ActivityInfo, one line each.
+  - ``programmes``: the country programme and the Compiler figures, one line each.
 
 The first load shows the person's own section by the rule the Country overview and the daily review share
 (:func:`neurodb.reports.home.default_sections`); every link Home draws to those pages, to the two eTools pages
@@ -45,7 +45,7 @@ from neurodb.accounts.roles import ADMIN, SECTION_EDITOR, in_management, role_of
 from neurodb.core import years
 from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import services as datamart
-from neurodb.indicators.services import activityinfo, navigation
+from neurodb.indicators.services import navigation
 from neurodb.reports import check_views, home
 from neurodb.reports import overview as overview_service
 from neurodb.web.parts import Part, first_load, render_page
@@ -181,16 +181,10 @@ def home_page(request: HttpRequest) -> HttpResponse:
     resolved.setlist("section", sections or [""])
     if as_of:
         resolved["as_of"] = as_of
-    # the Country overview's own scope for this year (its key holds the reporting year of this year's
-    # ActivityInfo records): read only by the frame's look at the stored build and by ``standing``
+    # the Country overview's own scope for this year: read only by the frame's look at the stored build and
+    # by ``standing``
     build_scope = functools.cache(
-        lambda: overview_service.Scope(
-            year=year,
-            reporting_year=activityinfo.reporting_year_for(year),
-            sections=sections,
-            governorate="",
-            today=today,
-        )
+        lambda: overview_service.Scope(year=year, sections=sections, governorate="", today=today)
     )
     data = functools.cache(lambda: overview_service.build(build_scope(), as_of=as_of))
     stored = functools.cache(lambda: overview_service.stored(build_scope()))

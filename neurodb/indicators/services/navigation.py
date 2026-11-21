@@ -634,7 +634,8 @@ def archive(state) -> dict[str, Any]:
 def pages(user, state=None, can_set_up: Callable[[], bool] | None = None) -> list[dict[str, Any]]:
     """Every page of the full menu under its conditions for ``user`` (:func:`menu`; a muted row counts as
     shown), the ActivityInfo archive's own pages and Help, as the search's *Pages* group lists them:
-    ``{"label", "url", "hint"}``, the hint being the full menu's group the page sits in. It does not follow
+    ``{"label", "url", "hint"}``, the hint being the full menu's group the page sits in ("ActivityInfo
+    archive" for the archive's). It does not follow
     the person's own menu (:func:`sidebar`): a page left out of it is still found here."""
     from neurodb.indicators.services import activityinfo
 
@@ -644,7 +645,7 @@ def pages(user, state=None, can_set_up: Callable[[], bool] | None = None) -> lis
             found.append({"label": item["label"], "url": item["url"], "hint": group["title"] or ""})
     state = state or activityinfo.state()
     if state.years or state.current_name:  # the archive is drawn (it has years, or reporting years exist)
-        hint = _("Monthly results (ActivityInfo)") if state.in_use else _("ActivityInfo archive")
+        hint = _("ActivityInfo archive")  # what they open is the archive, whatever the menu block reads
         found.append({"label": ARCHIVE_DATABASES, "url": archive(state)["databases_url"], "hint": hint})
         if sources()["forecasts"]:
             found.append({"label": ARCHIVE_FORECASTS, "url": reverse("insights:forecasts"), "hint": hint})

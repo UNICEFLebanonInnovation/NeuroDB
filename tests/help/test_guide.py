@@ -206,8 +206,7 @@ def test_home_has_its_page_after_the_overview_and_the_pages_map_to_their_guide()
     assert [s.heading for s in home.sections if s.level == 2] == [
         "What Home shows",
         "Your section or every section",
-        "ActivityInfo: in use or archive",
-    ]
+    ]  # no ActivityInfo section: it is an archive, described in "Getting around NeuroDB" alone
     assert guide.page("briefs-and-overview").title == "Country overview, management brief and daily review"
     for path, key in (
         ("/home/", "home"),
@@ -231,7 +230,7 @@ def test_the_help_assistant_knows_activityinfo_is_an_archive_of_past_years():
 @pytest.mark.parametrize(
     ("question", "expected"),
     [
-        ("Why is ActivityInfo an archive?", ("home", "activityinfo-in-use-or-archive")),
+        ("Why is ActivityInfo an archive?", ("overview", "past-monthly-results")),
         ("What does Home show?", ("home", "what-home-shows")),
         ("Where is the daily review?", ("briefs-and-overview", "the-daily-review")),
     ],
@@ -242,16 +241,21 @@ def test_the_search_finds_home_and_the_archive(question, expected):
 
 
 def test_the_guide_states_the_archive_rules_and_who_sets_them():
-    text = " ".join(GUIDE_TEXT["home"].split())
+    """The archive's own section says what it holds, that no other page shows it, and who sets its label; Home's
+    page no longer speaks of ActivityInfo (the owner's rule, November 2026)."""
+    text = " ".join(guide.section("overview", "past-monthly-results").text.split())
     for words in (
-        "switched on in Scheduled jobs and this year has ActivityInfo records from the last three months",
-        "In January, last year counts instead",
+        "NeuroDB no longer uses ActivityInfo",
+        "No other page shows ActivityInfo or its figures",
+        "count eTools partner reports alone",
+        "Ask NeuroDB answers from the archive only when you ask about it",
         "**ActivityInfo: in use or archive** (under Reporting setup)",
-        "A change shows on every page within a minute. Nothing is deleted either way.",
-        "a year with ActivityInfo records keeps its ActivityInfo figures",
+        "switched on in Scheduled jobs and this year has records from the last three months",
+        "nothing is deleted",
     ):
         assert words in text, words
     assert "Show on dashboard" not in text  # never offered as a way to drop a year's figures
+    assert "ActivityInfo" not in GUIDE_TEXT["home"]
 
 
 def test_the_guide_lists_the_focused_menu_as_it_is_drawn():
@@ -321,8 +325,7 @@ def test_the_guide_lists_the_full_menu_as_it_is_drawn():
         "**Maps**",
         "**Population**",
         "**Data health**",
-        "**Monthly results (ActivityInfo)**",
-        "**ActivityInfo archive**",
+        "the archive of past monthly results",  # named only in its own section (Past monthly results)
         "**Help**",
     ]
     places = [sidebar.index(label) for label in order]
@@ -362,20 +365,18 @@ def test_the_guide_names_the_merged_section_and_the_documents_page():
     assert "Partner progress (eTools)" in GUIDE_TEXT["partner-progress"]  # the eTools data, not a menu place
 
 
-def test_the_refresh_table_says_the_activityinfo_import_follows_its_scheduled_job():
-    """The import runs whenever its scheduled job is switched on, whatever the state (archived because its
-    records stopped, or set Archived with the job left on); the forecasts job skips by itself (R1
-    spec_shell-3). The Help assistant answers "when is X refreshed" from this table."""
+def test_the_refresh_table_and_the_sources_leave_the_archive_out():
+    """ActivityInfo is an archive of past monthly results, no longer a source (the owner's rule, November 2026):
+    neither the sources nor the refresh table (from which the Help assistant answers "when is X refreshed") lists
+    it or its year-end forecasts."""
     rows = {
         line.split("|")[1].strip(): line.split("|")[2].strip()
         for line in GUIDE_TEXT["overview"].splitlines()
         if line.startswith("| ") and line.count("|") == 3
     }
-    assert rows["ActivityInfo data"] == (
-        "18:00 on days 1 to 22 of each month, while its import is switched on in Scheduled jobs (see "
-        "[ActivityInfo: in use or archive](/help/home/#activityinfo-in-use-or-archive))"
-    )
-    assert rows["Year-end forecasts"] == "Mondays at 07:15, while ActivityInfo is in use"
+    assert "eTools Datamart" in " ".join(rows)  # the table is still read
+    for label in ("ActivityInfo", "ActivityInfo data", "ActivityInfo structure", "Year-end forecasts"):
+        assert label not in rows, label
 
 
 def test_the_guide_says_who_sees_the_set_up_rows():
@@ -387,14 +388,14 @@ def test_the_guide_says_who_sees_the_set_up_rows():
     assert "out of the sidebar; administrators see it greyed" not in text
 
 
-def test_home_never_dates_the_end_of_activityinfo():
-    """ActivityInfo may come back (the same section says how), and 2026 shows both sources: the guide names
-    no year it stopped (R1 a11y_words-N-2)."""
-    text = " ".join(GUIDE_TEXT["home"].split())
+def test_the_guide_never_dates_the_end_of_activityinfo():
+    """The guide names no year ActivityInfo stopped (R1 a11y_words-N-2): its archive's section says partners
+    reported there in past years."""
+    text = " ".join(guide.section("overview", "past-monthly-results").text.split())
     assert "until 2026" not in text
     assert (
-        "Partners reported their monthly results in ActivityInfo in past years and now report progress in "
-        "eTools; the full menu lists the years the archive holds."
+        "Partners reported their monthly results in ActivityInfo in past years; they now report progress in "
+        "eTools, and NeuroDB no longer uses ActivityInfo."
     ) in text
 
 
@@ -614,7 +615,7 @@ def test_the_guide_and_operations_say_what_only_the_full_menu_holds():
     being on, not the menu."""
     home = " ".join(GUIDE_TEXT["home"].split())
     assert "the sidebar lists the years the archive holds" not in home
-    assert "| Sidebar (full menu, or a menu with ActivityInfo ticked) | *Monthly results" in home
+    assert "ActivityInfo" not in home  # the archive is described under Getting around NeuroDB alone
     assert "where Monitoring insights is not in the sidebar" not in home
     assert "(or to Field monitoring while Monitoring insights is off)" in home
     overview = " ".join(GUIDE_TEXT["overview"].split())

@@ -10,16 +10,10 @@
   days before). Administrators only. It closes once the account is extended, switched off or expired.
 - ``reporting_year_rollover``: from 15 December to 15 January (to note in December, warning from 1
   January), administrators only. NeuroDB's pages move to the new year by themselves; what may need a
-  person is one of two items:
-
-  - **ActivityInfo** (``rollover:<year>``): while ActivityInfo is not set to Archived, and it is set in
-    use or its import is switched on over last year's records, and no reporting year of the new year has
-    a displayed database: set it up for the new year, or let it become an archive. It closes once the
-    new year's databases are added, ActivityInfo is set to Archived or its import is switched off, and on
-    16 January as missed;
-  - **population figures** (``rollover:<year>:population``): otherwise, while no population figures of
-    the new year (or a later one) are loaded. It closes once they are, and on 16 January as missed. So
-    archiving ActivityInfo never removes the yearly population reminder.
+  person is the **population figures** (``rollover:<year>:population``), while no population figures of
+  the new year (or a later one) are loaded. It closes once they are, and on 16 January as missed. An item
+  ``rollover:<year>`` raised before (the yearly set-up of a source NeuroDB no longer uses) closes as no
+  longer followed.
 
 They read NeuroDB's own tables, which are always up to date, so they have no source job to wait for.
 Titles carry dates, never day counts. Every check starts in trial: only the whole-country view (for
@@ -31,17 +25,13 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Iterator
-from dataclasses import dataclass
 from typing import Any
 
-from django.db.models import BooleanField, Case, Exists, OuterRef, Value, When
+from django.db.models import BooleanField, Case, Value, When
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
-from neurodb.core import years
-from neurodb.core.models import ActivityInfoSetting
 from neurodb.donors.models import DonorAccount
-from neurodb.indicators.models import Database, ReportingYear
 from neurodb.review.checks import link
 from neurodb.review.models import FindingAssignment, ReviewFinding
 
@@ -77,15 +67,13 @@ ROLLOVER_MILESTONES = (14, 1)
 
 ASSIGNMENT_SOURCE = "Agreed dates on daily review findings"
 DONOR_SOURCE = "NeuroDB donor accounts"
-ROLLOVER_SOURCE = "NeuroDB's ActivityInfo setting and reporting years"
 POPULATION_SOURCE = "NeuroDB population figures"
 
 ASSIGNMENT_PREFIX = "assignment:"
 DONOR_ACCOUNT_PREFIX = "donor_account:"
 ROLLOVER_PREFIX = "rollover:"
 POPULATION_SUFFIX = ":population"
-ARCHIVED, IN_USE = ActivityInfoSetting.Mode.ARCHIVED, ActivityInfoSetting.Mode.IN_USE
-MODE_WORDS = {"auto": "Automatic", "in_use": "In use", "archived": "Archived"}  # kept as evidence: plain
+NO_LONGER_FOLLOWED = "no longer followed: the yearly rollover only asks for the population figures"
 CLOSED = FindingAssignment.Status.CLOSED
 
 
@@ -306,41 +294,6 @@ def population_key(year: int) -> str:
     return f"{rollover_key(year)}{POPULATION_SUFFIX}"
 
 
-@dataclass(frozen=True)
-class _Rollover:
-    """What the two rollover items read, once per pass."""
-
-    mode: str  # the administrator's ActivityInfo mode (Automatic, In use, Archived)
-    schedule_on: bool  # a switched-on scheduled job runs the ActivityInfo data import
-    ai_years: tuple[int, ...]  # the years with ActivityInfo records
-    with_databases: frozenset[int]  # calendar years whose reporting year has a displayed database
-
-    def activityinfo_due(self, new: int) -> bool:
-        """The ActivityInfo item: ActivityInfo is not archived by an administrator, it is set in use or its
-        import is on over last year's records, and no reporting year of ``new`` has a displayed database."""
-        if self.mode == ARCHIVED or new in self.with_databases:
-            return False
-        return self.mode == IN_USE or (self.schedule_on and new - 1 in self.ai_years)
-
-
-def _rollover(ctx: Context) -> _Rollover:
-    def read() -> _Rollover:
-        from neurodb.indicators.services import activityinfo
-
-        st = activityinfo.state()
-        shown = Database.objects.filter(reporting_year=OuterRef("pk"), display=True)
-        rows = ReportingYear.objects.filter(Exists(shown)).only("name", "year")
-        numbers = {years.number_of(row) for row in rows}
-        return _Rollover(
-            mode=st.mode,
-            schedule_on=st.schedule_on,
-            ai_years=tuple(st.years),
-            with_databases=frozenset(n for n in numbers if n is not None),
-        )
-
-    return ctx.memo("calendar:rollover", read)
-
-
 def _population_years(ctx: Context) -> list[int]:
     from neurodb.core.services import population
 
@@ -348,48 +301,13 @@ def _population_years(ctx: Context) -> list[int]:
 
 
 def rollovers(ctx: Context) -> Iterator[Candidate]:
-    """From 15 December to 15 January: ActivityInfo to set up for the new year or to archive (while it is in
-    use or its import runs over last year's records); otherwise the new year's population figures."""
+    """From 15 December to 15 January: the new year's population figures, while none are loaded."""
     new = rollover_year(ctx.today)
     if new is None:
         return
-    found = _rollover(ctx)
     starts = datetime.date(new, 1, 1)
     severity = WARNING if ctx.today >= starts else INFO
     timing = _timing(starts, ctx.today)
-    if found.activityinfo_due(new):
-        url = _admin("core_activityinfosetting_changelist")
-        records = [
-            record("ActivityInfo setting", None, MODE_WORDS.get(found.mode, found.mode), url),
-            record(
-                "ActivityInfo import",
-                None,
-                "switched on" if found.schedule_on else "switched off",
-                _admin("core_scheduledjob_changelist"),
-            ),
-            record(f"Databases for {new}", None, "none yet", _admin("pivoting_database_changelist")),
-        ]
-        yield Candidate(
-            key=rollover_key(new),
-            kind=DEADLINE,
-            severity=severity,
-            title=f"ActivityInfo in {new}: set it up, or set it to Archived",
-            detail=(
-                f"NeuroDB's pages move to {new} by themselves on 1 January. The ActivityInfo import brings "
-                f"in the December {new - 1} results until 22 January, so keep the {new - 1} reporting year "
-                f"ticked current until then. If partners still report in ActivityInfo in {new}, then "
-                f"create the {new} reporting year, tick it current and add its databases (yearly rollover "
-                "steps in the operations guide). If not, switch off its import in Scheduled jobs after 22 "
-                "January; ActivityInfo then becomes an archive by itself (or set it to Archived in the "
-                "admin: ActivityInfo: in use or archive)."
-            ),
-            due_date=starts,
-            scope=ADMINS,
-            url=url,
-            milestones=ROLLOVER_MILESTONES,
-            evidence=evidence(ctx, ROLLOVER_SOURCE, "", records, **timing),
-        )
-        return
     if any(year >= new for year in _population_years(ctx)):
         return
     url = link("reports:population")
@@ -416,9 +334,8 @@ def rollovers(ctx: Context) -> Iterator[Candidate]:
 
 
 def rollovers_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]:
-    """ActivityInfo: its databases for the new year were added, it was set to Archived, or its import was
-    switched off; after 15 January, the period ended (missed). Population: figures for the new year (or a
-    later one) were added; after 15 January, the period ended (missed)."""
+    """Population: figures for the new year (or a later one) were added; after 15 January, the period ended
+    (missed). An item of the yearly set-up NeuroDB no longer follows (``rollover:<year>``): closed at once."""
     closes: dict[str, Close] = {}
     for item in items:
         rest = item.key.removeprefix(ROLLOVER_PREFIX)
@@ -437,19 +354,7 @@ def rollovers_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]
                     kind=MISSED,
                 )
             continue
-        found = _rollover(ctx)
-        if year in found.with_databases:
-            closes[item.key] = Close(f"ActivityInfo databases for {year} were added")
-        elif found.mode == ARCHIVED:
-            closes[item.key] = Close("ActivityInfo was set to Archived")
-        elif found.mode != IN_USE and not found.schedule_on:
-            closes[item.key] = Close("the ActivityInfo import was switched off")
-        elif ctx.today > until:
-            closes[item.key] = Close(
-                f"the rollover period ended; ActivityInfo stays archived for {year} until its databases "
-                "have records",
-                kind=MISSED,
-            )
+        closes[item.key] = Close(NO_LONGER_FOLLOWED, kind=CHANGED)
     return closes
 
 

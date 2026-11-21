@@ -65,7 +65,8 @@ def choices(indicator: Indicator) -> list[tuple[str, list[tuple[str, str]]]]:
         for m in masters
     ]
     if options:
-        groups.append(("ActivityInfo master indicators", options))
+        # an archive: a link to one is kept but never counted (services.counted)
+        groups.append(("ActivityInfo archive master indicators (not counted)", options))
 
     options = []
     for record in YouthFigures.objects.yearly().order_by("-year"):

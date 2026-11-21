@@ -169,7 +169,7 @@ def test_search_humanises_names_counts_and_lists_a_group_in_full(client_viewer, 
     for n in range(10):
         IndicatorNew.objects.create(database=db, ai_indicator=f"x{n}", name=f"Children reached_Extra_{n}")
     html = client_viewer.get(reverse("reports:search") + "?q=reached").text
-    group = html.split("ActivityInfo indicators", 1)[1]
+    group = html.split("ActivityInfo archive: Indicators", 1)[1]  # labelled as the archive, in use or not
     assert "<mark>reached</mark> · Male" in group and "_Male" not in group
     assert "8 of 12" in group and "group=indicators" in group
     full = client_viewer.get(reverse("reports:search") + "?q=reached&group=indicators").text

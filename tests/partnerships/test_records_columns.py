@@ -1,5 +1,6 @@
-"""The "Records" columns and figures (ActivityInfo records reported against a programme document) are left
-out when every count is 0, so programme documents after ActivityInfo show no column of zeros."""
+"""The "Records" columns and figures (ActivityInfo records reported against a programme document) are never shown
+on the programmes, programme and donors pages, whatever the counts: ActivityInfo is an archive of past monthly
+results (the owner's rule, November 2026). ``has_records`` still reads the counts for those who ask (Ask)."""
 
 import pytest
 from django.urls import reverse
@@ -48,27 +49,19 @@ def test_has_records_reads_counts_rows_or_one_count():
     assert not services.has_records(0) and not services.has_records(None) and services.has_records(1)
 
 
-def test_the_programmes_table_shows_records_only_when_a_row_has_some(client_viewer, pd, recorded):
-    url = reverse("reports:programmes")
-    page = client_viewer.get(url).content.decode()
-    assert pd.number in page and RECORDS_TIP not in page
+def test_the_programmes_table_never_shows_records(client_viewer, pd, recorded):
     recorded(pd)
-    page = client_viewer.get(url).content.decode()
-    assert RECORDS_TIP in page and '<td class="num">3</td>' in page
+    page = client_viewer.get(reverse("reports:programmes")).content.decode()
+    assert pd.number in page and RECORDS_TIP not in page and '<td class="num">3</td>' not in page
 
 
-def test_the_programme_page_shows_activityinfo_records_only_when_there_are_some(client_viewer, pd, recorded):
-    url = reverse("reports:programme_detail", args=[pd.pk])
-    assert "ActivityInfo records" not in client_viewer.get(url).content.decode()
-    assert services.pd_detail(pd)["has_records"] is False
+def test_the_programme_page_never_shows_activityinfo_records(client_viewer, pd, recorded):
     recorded(pd, 2)
-    page = client_viewer.get(url).content.decode()
-    assert "ActivityInfo records" in page and services.pd_detail(pd)["has_records"] is True
+    page = client_viewer.get(reverse("reports:programme_detail", args=[pd.pk])).content.decode()
+    assert "ActivityInfo records" not in page
 
 
-def test_the_donors_page_shows_the_records_tile_only_when_there_are_some(client_viewer, pd, recorded):
-    url = reverse("reports:donors")
-    assert "reported against these programme documents" not in client_viewer.get(url).content.decode()
+def test_the_donors_page_never_shows_the_records_tile(client_viewer, pd, recorded):
     recorded(pd)
-    page = client_viewer.get(url).content.decode()
-    assert "ActivityInfo records" in page and "reported against these programme documents" in page
+    page = client_viewer.get(reverse("reports:donors")).content.decode()
+    assert "ActivityInfo records" not in page and "reported against these programme documents" not in page

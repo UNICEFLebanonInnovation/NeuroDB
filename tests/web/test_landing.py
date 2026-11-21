@@ -36,17 +36,15 @@ def _fresh_cache():
 
 
 def test_root_shows_landing_to_visitors(client, hierarchy, activityinfo_in_use):
-    """While ActivityInfo is in use its counts are public figures too (hierarchy's records stop in February:
-    on the suite's day, Automatic makes it an archive, without them; see test_landing_archive.py)."""
+    """Even while ActivityInfo is in use, its counts are never public figures: an archive of past monthly
+    results (the owner's rule, November 2026; see test_landing_archive.py)."""
     response = client.get("/")
     assert response.status_code == 200
     html = response.content.decode()
     assert LANDING_MARK in html
     for section in SECTIONS:
         assert f'id="{section}"' in html, section
-    # Aggregate counts only: 2 master indicators, 4 records, 2 partners, 2 governorates.
-    assert 'data-count="4"' in html and 'data-count="2"' in html
-    assert "partners reporting in ActivityInfo this year" in html
+    assert "ActivityInfo" not in html and 'data-count="4"' not in html  # its 4 records are not counted
     assert "Partner A" not in html  # no partner names leak to the public page
 
 

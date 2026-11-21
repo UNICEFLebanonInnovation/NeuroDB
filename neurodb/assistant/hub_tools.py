@@ -458,22 +458,12 @@ def daily_review() -> dict[str, Any]:
 
 def management_brief(year: int | None = None, section: str | None = None) -> dict[str, Any]:
     """The brief of a calendar year (this year when none is given, or when the year is not one NeuroDB
-    can show), as the page builds it: its ActivityInfo figures only when that year has ActivityInfo
-    records (the reporting year counting for it), eTools alone otherwise."""
+    can show), as the page builds it: eTools figures."""
     from neurodb.core import years
-    from neurodb.indicators.services import activityinfo
     from neurodb.reports import brief
 
     number = years.resolve(year)
-    # the year before's reporting year is looked up by the build, when it is computed
-    data = brief.build(
-        brief.Scope(
-            year=number,
-            reporting_year=activityinfo.reporting_year_for(number),
-            sections=[section] if section else [],
-            today=years.today(),
-        )
-    )
+    data = brief.build(brief.Scope(year=number, sections=[section] if section else [], today=years.today()))
     return _clean(
         _trim(
             {
@@ -534,6 +524,7 @@ def whats_new(
         kinds=[kind] if kind else None,
         notable_only=not include_minor,
         entity_ids=entity_ids,
+        archive=True,  # the archive's changes too: the prompt says to tell them only when asked
     )
     rows = list(qs.select_related("entity")[: MAX_LIST + 20])
     last = news.last_build()

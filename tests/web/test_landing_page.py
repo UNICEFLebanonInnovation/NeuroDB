@@ -148,8 +148,17 @@ def test_the_photos_are_web_sized_progressive_jpegs_whose_size_the_page_states(c
 
 # ------------------------------------------------------------------------------------------ live figures
 def test_the_live_highlights_show_only_when_switched_on(client, hierarchy, activityinfo_in_use, settings):
+    """eTools counts only: ActivityInfo's records (hierarchy's 4, in use) are an archive, never counted."""
+    from neurodb.datamart import models as dm
+    from neurodb.partnerships.models import PCA, PartnerOrganization
+
+    partner = PartnerOrganization.objects.create(etl_id="1", name="Partner A", vendor_number="V1")
+    pd = PCA.objects.create(etl_id="11", partner=partner, number="LEB/PD1", title="PSS", status="active")
+    for n in (1, 2, 3):
+        dm.PDIndicator.objects.create(datamart_id=n, source_id=100 + n, intervention=pd, title=f"# {n}")
     _, html = _landing(client)
-    assert "LIVE PUBLIC HIGHLIGHTS" in html and 'data-count="4"' in html
+    assert "LIVE PUBLIC HIGHLIGHTS" in html and 'data-count="3"' in html and 'data-count="4"' not in html
+    assert "ActivityInfo" not in html
     assert "aggregate counts only" in html and "About data volume:" not in html  # in place of the note
     assert "Partner A" not in html  # counts, never names
     settings.PUBLIC_LANDING_STATS = False

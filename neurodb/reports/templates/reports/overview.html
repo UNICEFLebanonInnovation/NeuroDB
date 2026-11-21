@@ -18,6 +18,4 @@ its four section headings; the placeholder keeps the room of the four blocks, an
 {% part "figures" kind="charts" group="overview" height="4650px" height_md="6200px" height_sm="8100px" anchors="gov-title target-title monthly-title coverage-title overview-coverage cost-title overview-money-sections scatter-title donor-title decisions-title status-title assurance-title attention-title tpm-title ap-title overview-action-point-age" %}
 {% part "news" kind="list" priority="low" height="16rem" height_md="23rem" height_sm="32rem" %}
 {% include "reports/partials/_overview_freshness.html" %}
-
-{% if activityinfo_year_name %}<p class="small text-muted mt-3 mb-0"><a href="{% url 'reports:databases' %}?year={{ activityinfo_year_name|urlencode }}">{% trans "ActivityInfo databases of the year" %} →</a></p>{% endif %}
 {% endblock %}

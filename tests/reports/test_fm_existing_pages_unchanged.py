@@ -134,7 +134,7 @@ def test_field_monitoring_page_and_partner_series_do_not_move(field_monitoring):
     assert figures(partners) == PINNED
 
 
-def _overview_figures(reporting_year) -> dict:
+def _overview_figures() -> dict:
     out = {}
     for name, scope in {
         "all": {},
@@ -143,9 +143,7 @@ def _overview_figures(reporting_year) -> dict:
         "akkar": {"governorate": "Akkar"},
         "beirut": {"governorate": "Beirut"},
     }.items():
-        data = overview.build(
-            overview.Scope(year=2026, reporting_year=reporting_year, today=TODAY, **scope), cache=False
-        )
+        data = overview.build(overview.Scope(year=2026, today=TODAY, **scope), cache=False)
         delivery = data["delivery"]
         out[name] = (delivery["assurance"]["field_monitoring_visits"], delivery["findings_by_rating"])
     return out
@@ -160,19 +158,19 @@ def test_overview_field_monitoring_figures_do_not_move(hierarchy, reporting_year
         "akkar": (1, [["Off Track", 1]]),
         "beirut": (0, []),
     }
-    assert _overview_figures(reporting_year) == pinned
+    assert _overview_figures() == pinned
     page = page_figures("year=2026")
     series = services.partner_datamart(data["partner"])["monitoring_visits_by_year"]
     assert (page["findings"], page["activities"], series) == (1, 1, {"field": {2026: 1}, "tpm": {2026: 2}})
     assert fm.relink_findings()["exact"] == 1  # "LEB/PD1" is the programme document's number
     assert dm.MonitoringFinding.objects.get().intervention == data["pd"]
-    assert _overview_figures(reporting_year) == pinned
+    assert _overview_figures() == pinned
     assert page_figures("year=2026") == page
     assert services.partner_datamart(data["partner"])["monitoring_visits_by_year"] == series
     findings = _findings()
     _refresh()
     assert Visit.objects.count() == 1 and _findings() == findings
-    assert _overview_figures(reporting_year) == pinned
+    assert _overview_figures() == pinned
     assert page_figures("year=2026") == page
     assert services.partner_datamart(data["partner"])["monitoring_visits_by_year"] == series
 

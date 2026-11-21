@@ -79,9 +79,8 @@ holds:
   country under your section's name.
 - **Your tasks**, under it (Section editors and Administrators; counts only, and left out when there is
   nothing to do): document review findings not reviewed yet (while the document review is on; your
-  section's, the whole country's for Administrators), Makani wellbeing flags to follow up
-  (Administrators and Education editors), and, while ActivityInfo is in use, the HPM reports of the
-  year to comment on (Section editors).
+  section's, the whole country's for Administrators) and Makani wellbeing flags to follow up
+  (Administrators and Education editors).
 - **Where your section stands** (or the country): the country overview's own five key figures for this
   year (children reached, programme documents, funds disbursed, cost per child, delivery status),
   exactly the figures the overview shows for the same sections, then a line *Also in* the year: field
@@ -96,10 +95,8 @@ holds:
   April), until the first partner reports of the year come in, the children reached tile says *Not yet*
   and links to last year.
 - **Programmes and sources**, for the whole country: the country programme cycle (which year of it, and
-  how many of its indicators are on track), the Makani, Dirasa and youth figures from Compiler, and
-  ActivityInfo (while it is in use, its year and last import; once it is an archive, a link to the
-  archive of its years). A source that is not set up is left out; administrators read a short line
-  saying where it is set up.
+  how many of its indicators are on track) and the Makani, Dirasa and youth figures from Compiler. A
+  source that is not set up is left out; administrators read a short line saying where it is set up.
 
 **Data freshness**, at the bottom of Home (outside *More on Home*): when each source last changed, with a
 link to Data health.
@@ -117,33 +114,3 @@ Home, the country overview and the daily review open the same way:
   menu's own *Progress reports* and *Partner monitoring* open those pages as they always open; a
   programme document's *Indicators* shows all its indicators, whatever their section.)
 - *Programmes and sources* is always for the whole country, and says so when a section is chosen.
-
-## ActivityInfo: in use or archive
-
-Partners reported their monthly results in ActivityInfo in past years and now report progress in eTools;
-the full menu lists the years the archive holds. NeuroDB keeps every ActivityInfo year: its databases,
-dashboards, maps, Neuro and HPM reports stay open, year by year. What changes is how prominent
-ActivityInfo is:
-
-| | In use | Archive |
-|---|---|---|
-| Sidebar (full menu, or a menu with ActivityInfo ticked) | *Monthly results (ActivityInfo)*, at the bottom, open by default | *ActivityInfo archive* with its years, at the bottom, closed (it stays open if you open it) |
-| Home | ActivityInfo's year, its results and its last import | a link to the archive of its years |
-| Year-end forecasts | made every week | no longer made: the last ones stay, marked as no longer updated |
-| The ActivityInfo import | a failed or late import is reported to administrators | nobody is told about it; Data health still lists its runs |
-| Search | ActivityInfo results of every year | the same, marked *ActivityInfo archive* |
-
-Either way, a year with ActivityInfo records keeps its ActivityInfo figures: in that year, children
-reached is the larger of eTools and ActivityInfo (never their sum), with the months each source covers.
-A year without ActivityInfo records shows eTools alone, never an ActivityInfo zero.
-
-**Who decides.** By default it is automatic: ActivityInfo is in use while its import is switched on in
-Scheduled jobs and this year has ActivityInfo records from the last three months. In January, last
-year counts instead, since the import still brings in the December results until the 22nd. Otherwise
-ActivityInfo is an archive, by itself. An administrator can set it to *In use* or *Archived* on the
-administration page **ActivityInfo: in use or archive** (under Reporting setup), which also says why it
-is what it is now. A change shows on every page within a minute. Nothing is deleted either way.
-
-**When ActivityInfo comes back.** If partners report in ActivityInfo again, an administrator creates
-the year's reporting year, ticks it current and adds its databases: from then on a failed import is
-reported at once, and ActivityInfo is in use again as soon as the first recent records are imported.

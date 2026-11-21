@@ -73,8 +73,8 @@ def dashboard(request: HttpRequest) -> HttpResponse:
             "page_title": _("Country programme"),
             "page_subtitle": _(
                 "Whether the country programme is on track with its outcomes and outputs: each CPD indicator "
-                "against its target, from partner reporting in eTools, ActivityInfo, Compiler and the values "
-                "entered by the programme team"
+                "against its target, from partner reporting in eTools, Compiler and the values entered by "
+                "the programme team"
             ),
             "breadcrumbs": [{"label": _("Country programme"), "url": None}],
             "programmes": programmes,

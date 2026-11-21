@@ -96,8 +96,9 @@ another lookup's result; wait for a result only when the next lookup needs it. E
 earlier results again.
 - Indicator progress and achievement come from database_results (the official aggregation). \
 activity_breakdown counts raw activity reports; its summed_value is only a total for one indicator.
-- Reporting years are named like "2026". When no ActivityInfo year is given, use this year if \
-ActivityInfo is in use (see the line after these instructions), else say which year you used.
+- ActivityInfo is an archive of past monthly results: do not bring it up or use its data unless the person \
+asks about the archive or those past results. Its reporting years are named like "2025"; when the person \
+asks about it without a year, say which year you used.
 - Partner implementation monitoring (is a partner or PD on track, what was reported per month and \
 location on a PD indicator) comes from pd_indicator_progress. Partners reported in ActivityInfo \
 before eTools; that history is linked to the same partner: partner_details lists it per year and \
@@ -161,7 +162,7 @@ separators and give percentages to one decimal place.
 - Long lists in lookups are cut. total_rows (or <list>_total, or count in connected) is the real \
 number of rows; when truncated (or <list>_truncated) is true, give that number and say the list is partial.
 - Link to the NeuroDB page the figures come from, using the url values returned by the tools as \
-Markdown links, e.g. [Child Protection dashboard](/databases/3/). Never invent URLs.
+Markdown links, e.g. [Programme documents](/programmes/). Never invent URLs.
 - Mention the data's date or freshness when it matters (e.g. "as of the last import on 13 Sep").
 - End when the question is answered: no offers of further analysis and no follow-up questions.
 """
@@ -299,79 +300,21 @@ def _month(latest_month: str) -> str:
         return ""
 
 
-def _activityinfo_counts_children(year: int) -> bool:
-    """Whether NeuroDB's children reached for ``year`` counts ActivityInfo records: the year's reporting
-    year (Rule 1) has an additive HPM master indicator that counts children in a database shown on the
-    dashboard (the masters the Country overview adds up, :func:`neurodb.reports.overview.children_masters`),
-    with at least one positive record behind its TOTAL sub-indicators, read as the overview reads them
-    (UNICEF-funded records only where the database says so). Otherwise the overview's ActivityInfo children
-    figure is 0 and no page shows it (Rule 1: never "ActivityInfo 0")."""
-    from django.db.models import Exists, OuterRef, Q
-
-    from neurodb.datamart.children import overrides
-    from neurodb.facts.models import ActivityReportNew
-    from neurodb.indicators.models import IndicatorNew
-    from neurodb.indicators.services import activityinfo
-    from neurodb.reports.overview import children_masters
-
-    reporting_year = activityinfo.reporting_year_for(year)
-    if reporting_year is None:
-        return False
-    master_ids = [m for _, ids in children_masters(reporting_year, [], overrides()).values() for m in ids]
-    if not master_ids:
-        return False
-    records = ActivityReportNew.objects.filter(
-        Q(dbase__is_funded_by_unicef=False) | Q(funded_by="UNICEF"),
-        dbase_id=OuterRef("database_id"),
-        indicator_id=OuterRef("ai_indicator"),
-        indicator_value__gt=0,
-        month_name__regex=r"^.{7}",
-    )
-    return (
-        IndicatorNew.objects.filter(
-            subindicator__mastersubindicator__master_id__in=master_ids,
-            subindicator__mastersubindicator__effect="TOTAL",
-        )
-        .filter(Exists(records))
-        .exists()
-    )
-
-
 def year_line() -> str:
-    """The sentence after the date: this year, and whether ActivityInfo is in use or an archive (Rule 2 of
-    ``neurodb.indicators.services.activityinfo`` sets the tense). Whether this year has ActivityInfo
-    figures follows its records (Rule 1), as the Home and Country overview tiles do, so Ask and the
-    pages agree: an archive whose year has records still counts them in this year's children reached when
-    they hold children (:func:`_activityinfo_counts_children`), and says they add none otherwise."""
+    """The sentence after the date: this year, and the years the ActivityInfo archive holds (its records,
+    Rule 1 of ``neurodb.indicators.services.activityinfo``), as the pages say it: NeuroDB's figures, children
+    reached included, come from eTools; ActivityInfo is an archive, whatever its import does."""
     from neurodb.indicators.services import activityinfo
 
     ai = activityinfo.state()
     year = ai.this_year
-    if ai.in_use:
-        name = ai.names.get(ai.serving) if ai.serving else ai.current_name
-        return f"This year is {year}. ActivityInfo is in use" + (
-            f" (reporting year {name})." if name else "."
-        )
-    if year in ai.years:
-        month = _month(ai.latest_month)
-        stop = f"its {year} records stop at {month}" if month else f"it holds {year} records"
-        if _activityinfo_counts_children(year):
-            counted = (
-                f"NeuroDB's children reached for {year} still counts them (the larger of the two sources)"
-            )
-        else:
-            counted = (
-                f"they add no children to NeuroDB's children reached for {year}, which comes from eTools "
-                "alone"
-            )
-        return (
-            f"This year is {year}. ActivityInfo is no longer updated: {stop}, and {counted}. For progress "
-            f"since then use the eTools tools; the ActivityInfo tools cover {ai.span}."
-        )
     if ai.span:
+        month = _month(ai.latest_month) if year in ai.years else ""
+        stop = f" (its {year} records stop at {month})" if month else ""
         return (
-            f"This year is {year}. ActivityInfo is an archive of {ai.span}: partners no longer report there. "
-            f"For this year use the eTools tools; use the ActivityInfo tools only for {ai.span}."
+            f"This year is {year}. NeuroDB's figures, children reached included, come from eTools. "
+            f"ActivityInfo is an archive of {ai.span}{stop}: use the ActivityInfo tools only when the person "
+            "asks about it."
         )
     return f"This year is {year}. NeuroDB holds no ActivityInfo data."
 

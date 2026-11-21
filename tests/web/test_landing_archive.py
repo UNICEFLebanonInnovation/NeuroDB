@@ -1,15 +1,13 @@
-"""The public landing page once ActivityInfo is an archive (SPEC_HOME §7): the archived copy names the years
-partners reported there ("ActivityInfo archive 2019–2026"), while it is in use it is a current source and the
-word "archive" is not used, the rows marked "always" change in both states, no "…in ActivityInfo this year"
-figure stands next to archive copy (even when this year has records), nothing about ActivityInfo is said
-when no year has its records, and the figures' key holds this year, its ActivityInfo reporting year and
-whether ActivityInfo is in use, so a change of state shows at once."""
+"""The public landing page never names ActivityInfo nor shows a figure taken from it (the owner's rule,
+November 2026: NeuroDB no longer uses ActivityInfo, an archive kept in the staff pages' own archive): in use or
+archived, with records this year or none, its sources, coverage cards, live note and sources belt say nothing of
+it and its figures are eTools' alone; the rows marked "always" change in both states, and the figures' key
+holds this year alone."""
 
 import datetime
 import itertools
 
 import pytest
-from django.core.cache import cache
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -79,25 +77,34 @@ def _landing(client) -> str:
     return client.get(reverse("landing")).content.decode()
 
 
-# ------------------------------------------------------------------------------------------ the archive
-def test_archived_copy_names_the_years_of_the_archive(client, history):
-    assert not activityinfo.in_use() and activityinfo.state().span == "2019–2026"
-    html = _landing(client)
-    # the three places the design names ActivityInfo: the sources of the data scene, the coverage card and
-    # the sources belt
-    assert (
-        "<b>Historical results — ActivityInfo</b><span>Past-year evidence for comparison, 2019–2026</span>"
-        in html
+# ------------------------------------------------------------------------------------------ no ActivityInfo
+@pytest.mark.parametrize("mode", [ActivityInfoSetting.Mode.ARCHIVED, ActivityInfoSetting.Mode.IN_USE])
+def test_the_landing_page_names_no_activityinfo_in_either_state(client, history, etools, mode):
+    Database.objects.filter(pk=history["database"].pk).update(
+        last_monthly_update_date=timezone.now() - datetime.timedelta(days=2)
     )
-    assert "<b>Historical results</b><span>ActivityInfo archive 2019–2026 and year comparisons</span>" in html
-    assert "<span>ActivityInfo archive 2019–2026</span>" in html
-    assert "Monthly results — ActivityInfo" not in html and "ActivityInfo results of the year" not in html
+    _mode(mode)
+    html = _landing(client)
+    assert "ActivityInfo" not in html and "activityinfo" not in html
+    for words in ("Monthly results", "Historical results", "activity records this year", "2019–2026"):
+        assert words not in html, words
+    assert "programme documents running this year" in html  # the eTools figures stay
+    assert "<span>Knowledge & evidence</span></div>" in html  # the sources belt ends with the other three
     # the meta description is the design's, the same in every state
     assert (
         '<meta name="description" content="See how UNICEF Lebanon’s NeuroDB connects programme evidence, flags '
         'what needs attention and supports decisions for children.">' in html
     )
-    assert "ActivityInfo imported" not in html  # no ActivityInfo figure
+    assert "Placeholder Partner" not in html and "LEB/PD1" not in html  # counts only
+
+
+def test_the_figures_are_etools_alone(client, history, etools):
+    """2026 has ActivityInfo records and ActivityInfo is set in use: the figures still count eTools alone."""
+    _mode(ActivityInfoSetting.Mode.IN_USE)
+    data = services.public_highlights()
+    assert data["year"] == data["calendar_year"] == 2026 and data["running_programmes"] == 1
+    assert not {"records", "partners", "governorates", "indicators", "sections", "databases"} & set(data)
+    assert "last_update" not in data and "years" not in data
 
 
 def test_rows_marked_always_change_in_both_states(client, client_viewer, history, etools, settings):
@@ -124,96 +131,19 @@ def test_the_closing_band_opens_sign_in_or_neurodb(client_viewer, history):
         assert f'<a class="endingbtn" href="{reverse("reports:root")}"><span>Open NeuroDB' in signed_in
 
 
-def test_no_activityinfo_tiles_when_archived_even_with_records_this_year(client, history, etools):
-    """2026 has ActivityInfo records (its figures stay on the Country overview), but an archive shows no
-    "…reporting in ActivityInfo this year" tile next to copy saying it is no longer updated."""
-    assert activityinfo.is_year(2026)
-    _mode(ActivityInfoSetting.Mode.ARCHIVED)
-    html = _landing(client)
-    for label in (
-        "ActivityInfo results tracked against targets",
-        "governorates in ActivityInfo reports this year",
-        "activity records this year",
-        "partners reporting in ActivityInfo this year",
-        "programme sections in ActivityInfo",
-        "ActivityInfo imported",
-    ):
-        assert label not in html, label
-    assert "programme documents running this year" in html  # the eTools figures stay
-    assert "Placeholder Partner" not in html and "LEB/PD1" not in html
-    data = services.public_highlights()
-    assert data["records"] == data["partners"] == data["governorates"] == data["indicators"] == 0
-    assert data["last_update"] is None and data["year"] == 2026
-
-
-def test_in_use_keeps_todays_copy_and_its_figures(client, history):
-    Database.objects.filter(pk=history["database"].pk).update(
-        last_monthly_update_date=timezone.now() - datetime.timedelta(days=2)
-    )
+def test_the_key_holds_this_year_alone(hierarchy, site_today):
     _mode(ActivityInfoSetting.Mode.IN_USE)
-    html = _landing(client)
-    # a current source, in the same three places, and never called an archive
-    assert "<b>Monthly results — ActivityInfo</b>" in html
-    assert "<b>Monthly results</b><span>ActivityInfo results of the year and year comparisons</span>" in html
-    assert "<span>ActivityInfo</span>" in html
-    assert "ActivityInfo archive" not in html and "Historical results" not in html and "2019–2026" not in html
-    # this year's ActivityInfo figures (hierarchy: 4 records, 2 partners, 2 governorates, 2 masters)
-    assert "partners reporting in ActivityInfo this year" in html
-    assert "governorates in ActivityInfo reports this year" in html
-    assert 'data-count="4"' in html and "ActivityInfo imported 2\xa0days ago" in html
-    assert "Partner A" not in html and "Partner B" not in html  # counts only
+    assert services.cache_key() == "landing:highlights:v5:2026"
+    _mode(ActivityInfoSetting.Mode.ARCHIVED)  # the ActivityInfo state changes nothing
+    assert services.cache_key() == "landing:highlights:v5:2026"
+    site_today.set(datetime.date(2027, 1, 5))  # 1 January starts new figures
+    assert services.cache_key() == "landing:highlights:v5:2027"
 
 
-def test_nothing_about_an_archive_without_activityinfo_years(client, db):
-    """No year has ActivityInfo records: every sentence naming the archive is left out, and so is the link
-    to ActivityInfo."""
-    assert activityinfo.state().span == "" and not activityinfo.in_use()
-    html = _landing(client)
-    assert "ActivityInfo" not in html and "Historical results" not in html and "Monthly results" not in html
-    assert "activityinfo.org" not in html
-    assert "<span>Knowledge & evidence</span></div>" in html  # the sources belt ends with the other three
-
-
-def test_the_figures_are_this_years_and_the_ai_counts_come_from_its_reporting_year(client, etools):
-    """The reporting year ticked current is 2025 (records to December): on 15 October 2026 the eTools
-    figures are 2026's and no 2025 ActivityInfo count is shown as "this year"."""
-    _ai_year(2025, 12, current=True)
-    _mode(ActivityInfoSetting.Mode.IN_USE)  # in use, but 2026 has no ActivityInfo records
-    data = services.public_highlights()
-    assert data["year"] == 2026 and data["calendar_year"] == 2026
-    assert data["records"] == 0 and data["partners"] == 0
-    html = _landing(client)
-    assert "Figures for 2026" in html and "partners reporting in ActivityInfo this year" not in html
-
-
-def test_the_key_holds_the_year_its_reporting_year_and_the_state(hierarchy, site_today):
-    ry = hierarchy["database"].reporting_year
-    _mode(ActivityInfoSetting.Mode.IN_USE)
-    assert services.cache_key() == f"landing:highlights:v4:2026:{ry.pk}:1"
-    _mode(ActivityInfoSetting.Mode.ARCHIVED)
-    assert services.cache_key() == f"landing:highlights:v4:2026:{ry.pk}:0"
-    site_today.set(datetime.date(2027, 1, 5))  # 1 January starts a year without ActivityInfo records
-    assert services.cache_key() == "landing:highlights:v4:2027::0"
-
-
-def test_a_change_of_state_shows_at_once_without_clearing_the_cache(client, hierarchy):
-    _mode(ActivityInfoSetting.Mode.IN_USE)
-    assert "partners reporting in ActivityInfo this year" in _landing(client)
-    _mode(ActivityInfoSetting.Mode.ARCHIVED)  # the admin page's save: the state is dropped, the figures kept
-    assert cache.get(services.cache_key()) is None  # a key of its own
-    html = _landing(client)
-    assert "partners reporting in ActivityInfo this year" not in html
-    assert "<span>ActivityInfo archive 2026</span>" in html  # hierarchy's records: 2026 only
-
-
-def test_a_year_getting_its_first_records_starts_new_figures(client, db):
-    """A 2026 reporting year whose databases wait for records, then the import brings the first ones: the
-    figures' key moves to that reporting year (no figures of the empty year are served for an hour)."""
+def test_a_year_getting_its_first_activityinfo_records_changes_nothing(client, db):
     _mode(ActivityInfoSetting.Mode.IN_USE)
     year = ReportingYear.objects.create(name="2026", year="2026", current=True)
-    before = services.cache_key()
-    assert before == "landing:highlights:v4:2026::1"
-    services.public_highlights()
+    before = services.public_highlights()
     n = next(_ids)
     database = Database.objects.create(
         ai_id=n, db_id=f"db{n}", name="Health 2026", label="Health", username="", password="",
@@ -224,6 +154,5 @@ def test_a_year_getting_its_first_records_starts_new_figures(client, db):
         partner_label="Partner Y",
     )  # fmt: skip
     activityinfo.invalidate()  # the end of the import
-    assert services.cache_key() == f"landing:highlights:v4:2026:{year.pk}:1" != before
-    assert services.public_highlights()["partners"] == 1
-    assert "partners reporting in ActivityInfo this year" in _landing(client)
+    assert services.public_highlights() == before
+    assert "ActivityInfo" not in _landing(client)

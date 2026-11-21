@@ -1,5 +1,5 @@
-"""NeuroDB Watch's concern imports: the daily review's open findings and the year-end forecasts likely to
-fall short, brought into the same memory under their existing keys."""
+"""NeuroDB Watch's concern imports: the daily review's open findings, brought into the same memory under
+their existing keys; the year-end forecasts, the ActivityInfo archive's, are no longer followed."""
 
 import datetime
 import itertools
@@ -460,110 +460,39 @@ def test_without_shown_forecasts_there_is_no_forecast_item(masters, section):
     assert keys("forecast_short") == set()
 
 
-def test_a_forecast_likely_to_fall_short_is_followed_as_an_estimate_with_its_range(masters, section):
+@pytest.mark.parametrize("shown", [True, False])
+def test_a_forecast_likely_to_fall_short_is_no_longer_followed(masters, section, shown):
+    """The year-end forecasts are made from ActivityInfo, an archive of past monthly results whose own pages
+    keep them (the owner's rule, November 2026): even in use, with shown forecasts, nothing is raised, and a
+    missing forecast run is no stale-source alarm."""
     forecast_week(
         0,
-        rows=[
-            (masters[0], SHORT, 760, 900, section.pk),
-            (masters[1], ON_COURSE, 950, 1100, section.pk),
-        ],
+        shown=shown,
+        rows=[(masters[0], SHORT, 760, 900, section.pk), (masters[1], SHORT, 10, 20, None)],
     )
-    run(checks=(FORECASTS,))
-    run(day=0.1, checks=(FORECASTS,))
-    assert keys("forecast_short") == {forecast_key(masters[0])}
-    found = item(forecast_key(masters[0]))
-    assert found.kind == WatchItem.Kind.CONCERN
-    assert found.severity == WatchItem.Severity.INFO
-    assert found.confidence == WatchItem.Confidence.LIKELY
-    assert found.title == (
-        "Likely to fall short of its 2026 target (estimate): Children reached 1 (Child Protection)"
-    )
-    assert "Estimate" in found.detail and "likely between 760 and 900" in found.detail
-    assert "(76–90% of target)" in found.detail and "months up to August" in found.detail
-    assert found.section_ids == [section.pk]
-    assert found.etools_sections == []
-    assert found.scope == WatchItem.Scope.SECTION
-    assert (found.entity_kind, found.entity_key) == ("master_indicator", str(masters[0].pk))
-    assert found.url == f"/insights/forecasts/?section={section.pk}&status=likely_short"
-    assert found.evidence["source"] == "the year-end forecasts"
-    assert found.evidence["records"][0]["value"] == "likely 760 to 900 of 1,000"
-    numbers = found.evidence["numbers"]
-    assert (numbers["low"], numbers["high"], numbers["target"], numbers["forecast"]) == (760, 900, 1000, 830)
-    assert (numbers["low_pct"], numbers["high_pct"]) == (76.0, 90.0)
-    assert stories(found.key) == ["First noticed"]
-    assert DetectorSetting.objects.get(detector="forecast_short").mode == DetectorSetting.Mode.TRIAL
-
-
-def test_a_forecast_back_on_course_closes_as_recovered_and_its_story_keeps_the_history(masters, section):
-    key = forecast_key(masters[0])
-    forecast_week(0, rows=[(masters[0], SHORT, 760, 900, section.pk)])
-    run(checks=(FORECASTS,))
-    forecast_week(1, rows=[(masters[0], ON_COURSE, 960, 1100, section.pk)])
-    outcome = run(day=7, checks=(FORECASTS,))
-    found = item(key)
-    assert outcome.closed == [key]
-    assert found.state == WatchItem.State.CLOSED
-    assert found.close_reason.startswith("recovered")
-    forecast_week(2, rows=[(masters[0], SHORT, 700, 880, section.pk)])
-    outcome = run(day=14, checks=(FORECASTS,))
-    found = item(key)
-    assert outcome.reopened == [key] and outcome.new == []
-    assert found.first_seen_on == TODAY
-    assert stories(key) == [
-        "First noticed",
-        "Closed: recovered: the year-end forecast is on course again",
-        "Back again (it closed on 12 Oct 2026)",
-    ]
-
-
-def test_a_forecast_no_longer_short_closes_naming_its_status_and_a_vanished_one_is_missed(masters, section):
-    forecast_week(
-        0, rows=[(masters[0], SHORT, 760, 900, section.pk), (masters[1], SHORT, 500, 700, section.pk)]
-    )
-    run(checks=(FORECASTS,))
-    forecast_week(1, rows=[(masters[0], IndicatorForecast.Status.UNCERTAIN, 800, 1100, section.pk)])
-    run(day=7, checks=(FORECASTS,))
-    uncertain, vanished = item(forecast_key(masters[0])), item(forecast_key(masters[1]))
-    assert uncertain.close_reason == "no longer likely to fall short (forecast now: Uncertain)"
-    assert (vanished.state, vanished.missed_runs) == (WatchItem.State.OPEN, 1)
-    run(day=8, checks=(FORECASTS,))  # the same forecast again: not a second miss
-    assert item(forecast_key(masters[1])).missed_runs == 1
-
-
-def test_forecasts_no_longer_shown_close_their_items(masters, section):
-    forecast_week(0, rows=[(masters[0], SHORT, 760, 900, section.pk)])
-    run(checks=(FORECASTS,))
-    forecast_week(1, shown=False, rows=[(masters[0], SHORT, 760, 900, section.pk)])
-    run(day=7, checks=(FORECASTS,))
-    found = item(forecast_key(masters[0]))
-    assert (found.state, found.close_reason) == (WatchItem.State.CLOSED, concerns.NOT_SHOWN)
-
-
-def test_a_forecast_is_fresh_for_8_days(masters, section):
-    forecast_week(0, rows=[(masters[0], SHORT, 760, 900, section.pk)], day=-7)
-    run(checks=(FORECASTS,))
-    assert keys("forecast_short") == {forecast_key(masters[0])}
-    WatchItem.objects.all().delete()
-    SyncRun.objects.filter(job=SyncRun.Job.FORECAST).update(finished_at=NOW - datetime.timedelta(days=9))
     outcome = run(checks=(FORECASTS,))
-    assert keys("forecast_short") == set()
-    assert outcome.detectors["forecast_short"]["skipped"] == f"stale: {SyncRun.Job.FORECAST}"
+    assert keys("forecast_short") == set() and not outcome.stale_sources
+    assert not run(day=30, checks=(FORECASTS,)).stale_sources  # no forecast for 30 days
 
 
-def test_a_forecast_without_a_section_goes_to_the_whole_country(masters):
-    forecast_week(0, rows=[(masters[0], SHORT, 760, 900, None)])
-    run(checks=(FORECASTS,))
-    found = item(forecast_key(masters[0]))
-    assert (found.scope, found.section_ids) == (WatchItem.Scope.COUNTRY, [])
-    assert found.url == "/insights/forecasts/?section=&status=likely_short"
-
-
-def test_a_forecast_of_last_year_closes_when_the_forecasts_move_to_the_new_year(masters, section):
+def test_a_forecast_item_still_open_closes_as_no_longer_followed(masters, section):
+    """An item opened before the forecasts were left to the archive closes at the next pass, as changed (not
+    as resolved), and its story keeps its history."""
     forecast_week(0, rows=[(masters[0], SHORT, 760, 900, section.pk)])
+    key = forecast_key(masters[0])
+    WatchItem.objects.create(
+        key=key,
+        detector=concerns.FORECAST_ID,
+        kind=WatchItem.Kind.CONCERN,
+        severity=WatchItem.Severity.INFO,
+        title="Likely to fall short of its 2026 target (estimate): Children reached 1",
+        section_ids=[section.pk],
+        first_seen_on=days(-7),
+        last_seen_on=days(-7),
+        changed_on=days(-7),
+    )
     run(checks=(FORECASTS,))
-    new_year = (datetime.date(2027, 1, 4) - TODAY).days  # only this year's forecasts are followed
-    forecast_week(0, rows=[(masters[0], SHORT, 100, 200, section.pk)], day=new_year)
-    IndicatorForecast.objects.update(year=2027)
-    run(day=new_year, checks=(FORECASTS,))
-    assert item(forecast_key(masters[0])).close_reason == "the forecasts are now for 2027"
-    assert item(f"forecast:2027:{masters[0].pk}").state == WatchItem.State.OPEN
+    closed = item(key)
+    assert closed.state != WatchItem.State.OPEN
+    assert (closed.close_reason, closed.close_kind) == (concerns.ARCHIVED, WatchItem.CloseKind.CHANGED)
+    assert concerns.ARCHIVED == "the year-end forecasts are no longer followed here"

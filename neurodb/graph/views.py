@@ -30,8 +30,9 @@ def whats_new(request: HttpRequest) -> HttpResponse:
         section_id = int(raw) if raw.isdigit() else None
     else:  # first visit: the user's own section
         section_id = getattr(request.user, "section_id", None)
+    kinds = [(value, label) for value, label in Entity.Kind.choices if value not in news.ARCHIVE_KINDS]
     kind = request.GET.get("kind", "")
-    kind = kind if kind in dict(Entity.Kind.choices) else ""
+    kind = kind if kind in dict(kinds) else ""  # an archive kind is not offered: the page lists none
     minor = request.GET.get("all") == "1"
     since = timezone.now() - datetime.timedelta(days=days)
     qs = news.recent(
@@ -65,7 +66,7 @@ def whats_new(request: HttpRequest) -> HttpResponse:
         "section_name": section_name,
         "sections": sections,
         "kind": kind,
-        "kinds": Entity.Kind.choices,
+        "kinds": kinds,
         "minor": minor,
         "days_list": days_list,
         "total": total,

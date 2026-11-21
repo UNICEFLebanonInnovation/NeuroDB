@@ -265,7 +265,7 @@ def test_the_overview_links_with_its_year_sections_and_governorate(built, client
     html = client_viewer.get(reverse("reports:country_overview"), {"year": "2026"}).content.decode()
     assert _hrefs(html, "/fmm/") == ["/fmm/?year=2026&section="]
     # the overview's own figures do not move (its link to the field monitoring page included)
-    data = overview.build(overview.Scope(year=2026, reporting_year=reporting_year, today=TODAY), cache=False)
+    data = overview.build(overview.Scope(year=2026, today=TODAY), cache=False)
     assert data["delivery"]["assurance"]["field_monitoring_visits"] == 8
     assert 'href="/field-monitoring/?year=2026"' in html
 

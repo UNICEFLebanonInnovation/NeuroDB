@@ -54,7 +54,7 @@ compare before and after and draw charts.
 ## The knowledge hub
 
 NeuroDB keeps one index of everything it holds, linked: partners, programme documents, donors and
-grants, sections and places, ActivityInfo databases and indicators (the archive of past years), the country programme, Compiler
+grants, sections and places, the country programme, Compiler
 figures, documents, open daily review findings and field monitoring visits (those that started, or
 ended when eTools has no start date, in the last 24 months). It holds **names and links**; every figure Ask NeuroDB gives is read live. It is rebuilt
 after every sync and every morning at 07:00. [What's new](/help/watch/#whats-new) compares each build

@@ -10,7 +10,7 @@
       <td>{% if p.rating %}<span class="chip">{{ p.rating }}</span>{% else %}—{% endif %}</td>
       <td class="num">{{ p.active_pd_count }}</td>
       <td class="num">{{ p.pd_count }}</td>
-      <td data-value="{{ p.activityinfo_records|default:0 }}"><div class="chips">{% if p.etools_reporting %}<span class="chip" title="{% trans 'Progress reports in eTools' %}">{% trans "eTools" %}</span>{% endif %}{% if p.activityinfo_records %}<span class="chip" title="{% trans 'Activity records in ActivityInfo' %}">{% trans "ActivityInfo" %} · {{ p.activityinfo_records|number:0 }}</span>{% endif %}{% if not p.etools_reporting and not p.activityinfo_records %}<span class="text-muted small">—</span>{% endif %}</div></td>
+      <td data-value="{% if p.etools_reporting %}1{% else %}0{% endif %}"><div class="chips">{% if p.etools_reporting %}<span class="chip" title="{% trans 'Progress reports in eTools' %}">{% trans "eTools" %}</span>{% else %}<span class="text-muted small">—</span>{% endif %}</div></td>
       <td class="num" data-value="{{ p.total_ct_cy|default:0 }}">{{ p.total_ct_cy|number:0 }}</td>
     </tr>
   {% endfor %}</tbody>

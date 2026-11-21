@@ -23,7 +23,6 @@ from neurodb.accounts.roles import MANAGEMENT, SECTION_EDITOR
 from neurodb.core.models import ScheduledJob
 from neurodb.cpd.models import CountryProgramme
 from neurodb.graph.models import Change
-from neurodb.indicators.models import NeuroReport
 from neurodb.knowledge.models import Document, DocumentFinding, DocumentReviewSettings, ReviewBatch, Topic
 from neurodb.reports import home as home_service
 from neurodb.reports import overview as overview_service
@@ -326,15 +325,13 @@ def test_a_country_programme_cycle_out_of_today(client, admin_user, world, start
     assert "uploads" not in words
 
 
-def test_activityinfo_in_use_and_archived_lines(client, admin_user, world, activityinfo_in_use):
-    words = _words(text(_home(client, admin_user).parts["programmes"]))
-    assert "ActivityInfo 2026: 2 results tracked against targets" in words
-    assert f"{reverse('reports:databases')}?year=2026" in text(_home(client, admin_user).parts["programmes"])
-
-
-def test_activityinfo_archived_line(client, admin_user, world, activityinfo_archived):
-    words = _words(text(_home(client, admin_user).parts["programmes"]))
-    assert "ActivityInfo archive 2026: every database and report, kept as it was" in words
+@pytest.mark.parametrize("state", ["activityinfo_in_use", "activityinfo_archived"])
+def test_programmes_and_sources_has_no_activityinfo_line(client, admin_user, world, state, request):
+    """In use or archived, ActivityInfo is an archive of past monthly results that no regular page shows (the
+    owner's rule, November 2026): no line, no link to its databases."""
+    request.getfixturevalue(state)
+    programmes = text(_home(client, admin_user).parts["programmes"])
+    assert "ActivityInfo" not in programmes and reverse("reports:databases") not in programmes
 
 
 # ----------------------------------------------------------------------------------------- the scope of links
@@ -359,9 +356,9 @@ def test_a_management_member_sees_the_same_figures_on_home_and_the_overview(clie
     overview = client.get(reverse("reports:country_overview") + "?year=2026")
     assert overview.context["data"]["impact"]["children_reached"] == home_children
     assert overview.context["selected"]["section"] == []
-    # the build's key is the same: one stored build serves both pages (v16: R3 code-1 bumped the overview's version)
-    scope = overview_service.Scope(year=2026, reporting_year=None, sections=[], governorate="")
-    assert overview_service._cache_key(scope, "stamp").startswith("overview:v16:2026:")
+    # the build's key is the same: one stored build serves both pages (v17: eTools alone, ActivityInfo an archive)
+    scope = overview_service.Scope(year=2026, sections=[], governorate="")
+    assert overview_service._cache_key(scope, "stamp").startswith("overview:v17:2026:")
 
 
 # ------------------------------------------------------------------------------------- ActivityInfo where it counts
@@ -380,29 +377,25 @@ def test_no_activityinfo_on_home_or_the_overview_without_records_and_not_in_use(
     assert set(payload["impact"]["monthly"]["series"]) == {"eTools"}
 
 
-def test_no_activityinfo_zero_in_a_year_without_hpm_children_masters(client, admin_user, world):
-    """2026 has ActivityInfo records, but no HPM report counts children: no "ActivityInfo 0" anywhere."""
-    NeuroReport.objects.all().delete()
-    for page in (_home(client, admin_user), client.get(reverse("reports:country_overview"))):
-        main = _words(_main(page))
-        assert "ActivityInfo 0" not in main and "ActivityInfo (" not in main
-    data = client.get(reverse("reports:country_overview")).context["data"]
-    assert data["impact"]["activityinfo_used"] is False and data["impact"]["children_activityinfo"] == 0
-
-
-def test_the_activityinfo_series_ends_at_its_last_month(client, admin_user, world):
+def test_no_activityinfo_in_a_year_with_its_records(client, admin_user, world):
+    """2026 has ActivityInfo records (January and February) and HPM reports counting children: still none of it
+    on Home or the overview, whose figures are eTools' alone (the owner's rule, November 2026)."""
     client.force_login(admin_user)
+    for page in (_home(client, admin_user), client.get(reverse("reports:country_overview"))):
+        assert "ActivityInfo" not in _main(page)
+    data = client.get(reverse("reports:country_overview")).context["data"]
+    assert data["impact"]["children_reached"] == data["impact"]["children_etools"]
+    assert "children_activityinfo" not in data["impact"]
     figures = get_part(client, reverse("reports:country_overview"), "figures")
     payload = json.loads(
         re.search(r'id="overview-figures-data"[^>]*>(.*?)</script>', text(figures), re.S).group(1)
     )
     monthly = payload["impact"]["monthly"]
     assert monthly["labels"][-1] == "Oct"  # this year: the months to come are left off
-    ai = monthly["series"]["ActivityInfo"]
-    assert ai[:2] == [150.0, 350.0] and ai[2:] == [None] * 8  # records of January and February, then nothing
+    assert set(monthly["series"]) == {"eTools"}
     assert any(v is not None for v in monthly["series"]["eTools"][2:])
     kpis = _words(text(get_part(client, reverse("reports:country_overview"), "kpis")))
-    assert "ActivityInfo 500 (Jan–Feb): the larger of the two" in kpis
+    assert "ActivityInfo" not in kpis and "the larger of the two" not in kpis
 
 
 # --------------------------------------------------------------------------------------------------- privacy
@@ -480,11 +473,13 @@ def test_document_review_counts_only_the_editors_section(client, roles, world, s
     assert "document review findings" not in _words(_main(_home(client, viewer)))
 
 
-def test_hpm_reports_to_comment_on_only_while_activityinfo_is_in_use(client, roles, world, section, request):
+def test_hpm_reports_to_comment_on_are_never_a_task(client, roles, world, section, request):
+    """HPM reports are the ActivityInfo archive's: a section editor comments on them from the archive's own
+    report pages, never from a task on Home, in use or archived (the owner's rule, November 2026)."""
     editor = _user("h-editor", role=SECTION_EDITOR, section=section)
     assert "HPM report" not in _words(_main(_home(client, editor)))  # archived: no line
     request.getfixturevalue("activityinfo_in_use")
-    assert "1 HPM report of 2026 to comment on" in _words(_main(_home(client, editor)))
+    assert "HPM report" not in _words(_main(_home(client, editor)))
 
 
 # ------------------------------------------------------------------------------------- round 1 review (R1)
@@ -610,24 +605,21 @@ def activityinfo_waiting(reporting_year, database, settings, activityinfo_in_use
     return make_overview_data()
 
 
-def test_activityinfo_in_use_without_this_years_records_is_never_called_an_archive(
+def test_activityinfo_in_use_without_this_years_records_draws_no_line(
     client, admin_user, activityinfo_waiting
 ):
-    """R1 spec_state-2: set "In use", 2026 has databases but no record yet: Home draws an in-use line (the menu
-    says "Monthly results (ActivityInfo)" too), never "ActivityInfo archive"."""
+    """Set "In use", 2026 has databases but no record yet: still no ActivityInfo line on Home (R1 spec_state-2
+    asked for an in-use line; ActivityInfo is now an archive whatever its state, the owner's rule of November
+    2026)."""
     programmes = text(_home(client, admin_user).parts["programmes"])
-    words = _words(programmes)
-    assert "ActivityInfo archive" not in words
-    assert "ActivityInfo 2026: in use, waiting for its first records" in words
-    assert f'href="{reverse("reports:databases")}?year=2026"' in programmes
+    assert "ActivityInfo" not in programmes and reverse("reports:databases") not in programmes
 
 
-def test_activityinfo_in_use_with_last_years_records_ticked_current_names_that_year(
+def test_activityinfo_in_use_with_last_years_records_ticked_current_draws_no_line(
     client, admin_user, settings, activityinfo_in_use
 ):
-    """R2 fixes-2: set "In use" while the reporting year ticked current is 2025, with a year of records, on 15
-    October 2026 (the import serves no year: 2026 has none). Home names 2025 as any ActivityInfo year, never "in
-    use, waiting for its first records" (the menu lists 2025 and its database)."""
+    """Set "In use" while the reporting year ticked current is 2025, with a year of records, on 15 October 2026:
+    no line naming 2025 either (R2 fixes-2 named it)."""
     from neurodb.facts.models import ActivityReportNew
     from neurodb.indicators.models import Database, MasterIndicator, ReportingYear
     from neurodb.indicators.services import activityinfo
@@ -649,31 +641,7 @@ def test_activityinfo_in_use_with_last_years_records_ticked_current_names_that_y
     state = activityinfo.state()
     assert state.in_use and state.serving is None and state.current_name == "2025" and 2025 in state.years
     programmes = text(_home(client, admin_user).parts["programmes"])
-    words = _words(programmes)
-    assert "waiting for its first records" not in words and "ActivityInfo archive" not in words
-    assert "ActivityInfo 2025: 1 result tracked against targets" in words
-    assert f'href="{reverse("reports:databases")}?year=2025"' in programmes
-
-
-def test_activityinfo_in_use_with_records_and_no_result_has_no_zero(
-    client, admin_user, world, activityinfo_in_use
-):
-    """R1 time_roles-F5: no "0 results tracked against targets"."""
-    from neurodb.indicators.models import MasterIndicator
-
-    MasterIndicator.objects.update(is_active=False)
-    words = _words(text(_home(client, admin_user).parts["programmes"]))
-    assert "0 results" not in words
-    assert "ActivityInfo 2026: records imported" in words
-
-
-def test_one_result_tracked_is_singular(client, admin_user, world, activityinfo_in_use):
-    """R1 time_roles-F7."""
-    from neurodb.indicators.models import MasterIndicator
-
-    MasterIndicator.objects.filter(name="Share of girls").update(is_active=False)
-    words = _words(text(_home(client, admin_user).parts["programmes"]))
-    assert "ActivityInfo 2026: 1 result tracked against targets" in words
+    assert "ActivityInfo" not in programmes and reverse("reports:databases") not in programmes
 
 
 def test_a_server_without_etools_data_says_so_instead_of_zero_tiles(client, admin_user, db):
@@ -776,11 +744,10 @@ def test_counts_on_home_have_thousands_separators():
             {"since_label": "Since yesterday", "since_yesterday": True, "changes": [], "matched": True,
              "selected": {"section": []},
              "your_tasks": [{"kind": "documents", "count": 1234, "url": "/"}, {"kind": "wellbeing", "count": 2500,
-                            "url": "/"}, {"kind": "hpm", "count": 1001, "year": 2026, "url": "/"}]},
+                            "url": "/"}]},
         )
     )  # fmt: skip
     assert "1,234 document review findings" in since and "2,500 Makani wellbeing flags" in since
-    assert "1,001 HPM reports of 2026" in since
 
 
 def test_long_decision_titles_take_two_lines_rather_than_end_alike(client, admin_user, reviewed):

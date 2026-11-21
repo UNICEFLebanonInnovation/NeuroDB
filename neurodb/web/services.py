@@ -5,73 +5,37 @@ from __future__ import annotations
 from typing import Any
 
 from django.core.cache import cache
-from django.db.models import Max
 
 from neurodb.core import years
 from neurodb.core.models import SyncRun
 from neurodb.datamart import monitoring, reporting
 from neurodb.datamart.models import ReportedIndicator
-from neurodb.facts.models import ActivityReportNew
-from neurodb.indicators.models import Database, MasterIndicator, ReportingYear
-from neurodb.indicators.services import activityinfo
 from neurodb.library.models import Map, Resource
 
-# + this year, the pk of its ActivityInfo reporting year (or "") and whether ActivityInfo is in use (1/0):
-# 1 January, a reporting year getting its first records and a change of the ActivityInfo mode each start
-# new figures.
-CACHE_KEY = "landing:highlights:v4:{year}:{reporting_year}:{in_use}"
+# + this year: 1 January starts new figures. v5: eTools alone (no ActivityInfo counts: an archive)
+CACHE_KEY = "landing:highlights:v5:{year}"
 CACHE_SECONDS = 3600
 
 
-def cache_key(st: activityinfo.State | None = None) -> str:
-    """The key of the figures for the ActivityInfo state ``st`` (now when None)."""
-    st = st or activityinfo.state()
-    return CACHE_KEY.format(
-        year=st.this_year, reporting_year=st.pks.get(st.this_year, ""), in_use=int(st.in_use)
-    )
+def cache_key(year: int | None = None) -> str:
+    """The key of the figures of ``year`` (this year when None)."""
+    return CACHE_KEY.format(year=year or years.this_year())
 
 
 def public_highlights() -> dict[str, Any]:
-    """Counts for this calendar year. The eTools counts always; the ActivityInfo counts only while
-    ActivityInfo is in use, from this year's ActivityInfo reporting year (a year with records), so an
-    archive never shows a "…reporting in ActivityInfo this year" figure next to copy saying it is no
-    longer updated. No names, locations or values leave this function."""
-    st = activityinfo.state()
-    key = cache_key(st)
+    """Counts for this calendar year, from eTools (NeuroDB no longer uses ActivityInfo, an archive whose
+    figures no page shows), and the published resources. No names, locations or values leave this
+    function."""
+    this_year = years.this_year()
+    key = cache_key(this_year)
     data = cache.get(key)
     if data is not None:
         return data
-    reporting_year = activityinfo.reporting_year_for(st.this_year) if st.in_use else None
-    databases = (
-        Database.objects.filter(reporting_year=reporting_year, display=True)
-        if reporting_year
-        else Database.objects.none()
-    )
-    facts = ActivityReportNew.objects.filter(dbase__in=databases)
     data = {
-        "year": st.this_year,
-        "sections": databases.exclude(section=None).values("section").distinct().count(),
-        "databases": databases.count(),
-        "indicators": MasterIndicator.objects.filter(database__in=databases, is_active=True).count(),
-        "records": facts.count(),
-        "partners": facts.exclude(partner_label__isnull=True)
-        .exclude(partner_label="")
-        .values("partner_label")
-        .distinct()
-        .count(),
-        "governorates": facts.exclude(location_adminlevel_governorate_code__isnull=True)
-        .exclude(location_adminlevel_governorate_code="")
-        .values("location_adminlevel_governorate_code")
-        .distinct()
-        .count(),
-        **_etools_counts(st.this_year),
+        "year": this_year,
+        **_etools_counts(this_year),
         "resources": Resource.objects.filter(published=True).count()
         + Map.objects.filter(status="Completed").count(),
-        "years": ReportingYear.objects.count(),
-        # the last ActivityInfo import, said only while ActivityInfo is in use
-        "last_update": (
-            databases.aggregate(last=Max("last_monthly_update_date"))["last"] if reporting_year else None
-        ),
     }
     cache.set(key, data, CACHE_SECONDS)
     return data

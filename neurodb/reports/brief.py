@@ -2,20 +2,19 @@
 
 One call to :func:`build` reads the overview of the year and of the year before (same service, same
 programme documents, same rules), and adds what senior management asked for on top: comparisons,
-the year-end at the current pace, how sure the figures are (reporting, verification, partner
-links, the two sources side by side, timeliness), who and where the children are, a scorecard per
-partner, the money from donor to section to child, the grants about to expire, funded against
-required, and whether the daily review's findings are being acted on.
+the year-end at the current pace, how sure the figures are (reporting, verification, timeliness),
+who and where the children are, a scorecard per partner, the money from donor to section to child,
+the grants about to expire, funded against required, and whether the daily review's findings are
+being acted on.
 
 Three figures are entered by hand in the admin because eTools does not hold them: the Country
 Programme target and the funds required per section (``reports.SectionPlan``) and who owns a
-finding (``review.FindingAssignment``). Everything else is read from the synced tables. The two
-reporting sources stay apart, as on the overview: a total is the larger of the two, never the sum.
+finding (``review.FindingAssignment``). Everything else is read from the synced tables: children
+reached comes from eTools partner reporting alone, as on the overview.
 
 The page loads in parts (``reports.views.brief``): both of its parts read one build, kept two minutes in the
 cache every worker shares (:func:`neurodb.core.compute.once`) under the brief's own key (:func:`_cache_key`:
-the hand-entered tables, the ActivityInfo partner links staff correct in the admin, the latest review, the
-indicator flags and the last finished sync). Nothing in a
+the hand-entered tables, the latest review, the indicator flags and the last finished sync). Nothing in a
 build depends on who asks (the staff-only Assign links are the page's, from the person asking); its labels
 are translated as it is computed, so a build is kept per language. The page's frame draws the "Figures as
 of" line and the Reference block from :func:`lineage`, kept the same way, never from a build.
@@ -28,7 +27,7 @@ import json
 import logging
 import statistics
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlencode
 
@@ -44,9 +43,7 @@ from neurodb.datamart import models as dm
 from neurodb.datamart import reporting
 from neurodb.datamart.children import overrides as children_overrides
 from neurodb.datamart.monitoring import is_submitted
-from neurodb.facts import queries as fact_queries
-from neurodb.facts.services.dashboard import fact_filter
-from neurodb.partnerships.models import PCA, PartnerLink
+from neurodb.partnerships.models import PCA
 from neurodb.reports import overview
 from neurodb.reports.models import SectionPlan
 from neurodb.review.models import DailyReview, FindingAssignment, ReviewFinding
@@ -56,12 +53,12 @@ from neurodb.web.templatetags.ui import money as money_text
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120
-CACHE_VERSION = 11  # 7: the sections written as JSON in the key (6: in the shared cache, compute.once); 8:
+CACHE_VERSION = 12  # 7: the sections written as JSON in the key (6: in the shared cache, compute.once); 8:
 # the calendar year, its ActivityInfo reporting year (or none), like with like, the lineage's jobs; 9: last
 # year's reporting year in the key, the children tile's "Not yet" and same ActivityInfo months; 10: the same
 # eTools months and coverage on both sides, each source projected from its own last month, "(not started)";
 # 11: eTools compared to the last month whose partner reports are all in, a source not projected ends at its
-# last month (no value after it), the sources projected
+# last month (no value after it), the sources projected; 12: eTools alone (nothing of ActivityInfo)
 RULES_VERSION = "v2"
 MONTH_LABELS = overview.MONTH_LABELS
 PROJECTION_MONTHS = 3  # the pace is the average of the last three reported months
@@ -70,11 +67,9 @@ PROJECTION_MONTHS = 3  # the pace is the average of the last three reported mont
 # programme document whose reports stopped is no longer waited for two months after the quarter's end
 REPORTS_IN_SHARE = 90
 REPORTS_WAIT_MONTHS = 2
-CONFIDENCE = {"reported": 80, "verified": 30, "linked": 90, "sync_days": 2}
-GAP_TOLERANCE = 10  # percent: the two sources agree within this
+CONFIDENCE = {"reported": 80, "verified": 30, "sync_days": 2}
 GRANT_HORIZON_DAYS = 90
 MAX_DECISIONS = 5
-MAX_RECONCILE = 15
 MAX_TIMELINESS = 25
 MAX_DISTRICTS = 12
 MAX_GRANTS = 12
@@ -96,10 +91,6 @@ NATIONALITY_OF_TAG = {"Lebanese": "Lebanese", "Syrian": "Syrian", "Palestinian":
 @dataclass
 class Scope:
     year: int  # the calendar year
-    # the reporting year whose ActivityInfo records count for the year (activityinfo.reporting_year_for), None
-    # when the year has none
-    reporting_year: Any = None
-    previous_reporting_year: Any = None  # None: looked up when a build is computed (_build)
     sections: list[str] = field(default_factory=list)
     today: datetime.date = field(default_factory=lambda: years.today())
 
@@ -206,27 +197,19 @@ def grant_balances(lines: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 
 # --------------------------------------------------------------------------------- build
-def previous_reporting_year(year: int) -> Any:
-    """The reporting year whose ActivityInfo records count for the year before ``year``, None when that year
-    has none (:func:`neurodb.indicators.services.activityinfo.reporting_year_for`)."""
-    from neurodb.indicators.services import activityinfo
-
-    return activityinfo.reporting_year_for(year - 1)
-
-
 def _latest_review() -> int | None:
     """The id of the latest daily review, in the build's key and the lineage's: read once per request."""
     return compute.per_request("brief:review", lambda: DailyReview.objects.aggregate(last=Max("id"))["last"])
 
 
-# what staff fill in by hand that the build reads (section plans, finding assignments, and the ActivityInfo
-# partner links of the confidence and partners blocks), in the order of the key's text
-HAND_ENTERED = {"plans": SectionPlan, "owners": FindingAssignment, "links": PartnerLink}
+# what staff fill in by hand that the build reads (section plans and finding assignments), in the order of the
+# key's text
+HAND_ENTERED = {"plans": SectionPlan, "owners": FindingAssignment}
 
 
 def _hand_entered() -> str:
-    """The tables staff fill in by hand (:data:`HAND_ENTERED`: section plans, finding assignments,
-    ActivityInfo partner links) as a short text that changes with every edit: how many rows and the last
+    """The tables staff fill in by hand (:data:`HAND_ENTERED`: section plans and finding assignments) as a
+    short text that changes with every edit: how many rows and the last
     change of each, in one query. Read once per request, so the frame's look at the stored build and the
     build it then draws share one reading."""
 
@@ -247,8 +230,8 @@ def _hand_entered() -> str:
 
 def fingerprint() -> str:
     """What a build depends on besides its scope as 16 hex digits (no spaces: memcached-safe): the
-    hand-entered tables (section plans, finding assignments, ActivityInfo partner links), the latest review
-    and :func:`neurodb.core.compute.data_stamp` (the indicator flags and the last finished sync). In the
+    hand-entered tables (section plans and finding assignments), the latest review and
+    :func:`neurodb.core.compute.data_stamp` (the indicator flags and the last finished sync). In the
     build's key, and in the address of each part of the page (``as_of``, see :func:`build`). Read once per
     request."""
     return compute.fingerprint(f"{_hand_entered()}:{_latest_review()}:{compute.data_stamp()}")
@@ -256,26 +239,13 @@ def fingerprint() -> str:
 
 def _cache_key(scope: Scope, stamp: str = "") -> str:
     """Everything the result depends on: the overview's inputs plus the hand-entered tables (section plans,
-    finding assignments, ActivityInfo partner links), the latest review, and
-    :func:`neurodb.core.compute.data_stamp` (the indicator flags and the last finished sync), so a new
-    assignment, plan, partner link, flag or sync shows at once (``stamp``,
-    their :func:`fingerprint`, is read now unless given). Nothing about the person asking: a build depends
-    on its scope only. The previous year's reporting year (the one whose ActivityInfo records count for
-    it) is in the key by its pk, read from the ActivityInfo state without a query: hiding last year's only
-    database ("Show on dashboard") changes it, and the build compared with its figures is not served again.
-    So is whether ActivityInfo is in use (Rule 2: its children are projected to December only then). The
-    sections come from the address as typed: written as JSON, two spellings never share a key (as the
-    overview's)."""
-    from neurodb.indicators.services import activityinfo
-
+    finding assignments), the latest review, and :func:`neurodb.core.compute.data_stamp` (the indicator flags
+    and the last finished sync), so a new assignment, plan, flag or sync shows at once (``stamp``, their
+    :func:`fingerprint`, is read now unless given). Nothing about the person asking: a build depends on its
+    scope only. The sections come from the address as typed: written as JSON, two spellings never share a key
+    (as the overview's)."""
     sections = json.dumps(sorted(scope.sections))
-    ryear = getattr(scope.reporting_year, "pk", "")
-    state = activityinfo.state()
-    before = state.pks.get(scope.year - 1, "")
-    return (
-        f"brief:v{CACHE_VERSION}:{scope.year}:{ryear}:{before}:{int(state.in_use)}:{sections}:{scope.today}:"
-        f"{stamp or fingerprint()}"
-    )
+    return f"brief:v{CACHE_VERSION}:{scope.year}:{sections}:{scope.today}:{stamp or fingerprint()}"
 
 
 def build(scope: Scope, *, cache: bool = True, as_of: str = "") -> dict[str, Any]:
@@ -300,38 +270,23 @@ def stored(scope: Scope) -> bool:
 
 
 def _build(scope: Scope, *, cache: bool = True) -> dict[str, Any]:
-    if scope.previous_reporting_year is None:  # only a build computed needs it, never a stored one
-        scope = replace(scope, previous_reporting_year=previous_reporting_year(scope.year))
     now = overview.build(
-        overview.Scope(
-            year=scope.year, reporting_year=scope.reporting_year, sections=scope.sections, today=scope.today
-        ),
-        cache=cache,
+        overview.Scope(year=scope.year, sections=scope.sections, today=scope.today), cache=cache
     )
     previous = overview.build(
-        overview.Scope(
-            year=scope.year - 1,
-            reporting_year=scope.previous_reporting_year,
-            sections=scope.sections,
-            today=_same_day_last_year(scope.today),
-        ),
+        overview.Scope(year=scope.year - 1, sections=scope.sections, today=_same_day_last_year(scope.today)),
         cache=cache,
     )
     return _Builder(scope, now, previous).build()
 
 
 # --------------------------------------------------------------------------------- lineage
-LINEAGE_JOBS = (SyncRun.Job.ETOOLS_DATAMART, SyncRun.Job.ACTIVITYINFO_DATA, SyncRun.Job.POPULATION)
+LINEAGE_JOBS = (SyncRun.Job.ETOOLS_DATAMART, SyncRun.Job.POPULATION)
 
 
-def lineage_jobs(year: int) -> tuple[str, ...]:
-    """The sources the brief of ``year`` comes from: :data:`LINEAGE_JOBS`, the ActivityInfo data import only
-    in a year with ActivityInfo records (:func:`neurodb.indicators.services.activityinfo.is_year`)."""
-    from neurodb.indicators.services import activityinfo
-
-    if activityinfo.is_year(year):
-        return tuple(LINEAGE_JOBS)
-    return tuple(job for job in LINEAGE_JOBS if job != SyncRun.Job.ACTIVITYINFO_DATA)
+def lineage_jobs(year: int) -> tuple[str, ...]:  # noqa: ARG001 - the same sources every year
+    """The sources the brief of ``year`` comes from: :data:`LINEAGE_JOBS`."""
+    return tuple(LINEAGE_JOBS)
 
 
 def lineage(year: int) -> dict[str, Any]:
@@ -383,9 +338,8 @@ def lineage_of(
             "children rule (title tag plus flags), one main indicator per programme document (its "
             "unique beneficiaries indicator, else its largest children indicator), Reached from "
             "Accepted and Submitted reports, tracking rule ±10 points against the elapsed PD "
-            "period, two sources never added, cost per child on the same PDs, confidence thresholds "
-            f"{CONFIDENCE['reported']}/{CONFIDENCE['verified']}/{CONFIDENCE['linked']} % and "
-            f"{CONFIDENCE['sync_days']} days"
+            "period, cost per child on the same PDs, confidence thresholds "
+            f"{CONFIDENCE['reported']}/{CONFIDENCE['verified']} % and {CONFIDENCE['sync_days']} days"
         ),
         "review": {
             "date": review.date.isoformat(),
@@ -575,28 +529,17 @@ class _Builder:
                 "today": self.today.isoformat(),
                 "months_shown": self.months_shown,
                 "all_sections": self.sections,
-                # ActivityInfo counts this year (Rule 1, and children of this scope): its words show only then
-                "activityinfo_used": bool(self.now["impact"].get("activityinfo_used")),
             },
         }
         data["text"] = brief_text(data)
         return data
 
     # ------------------------------------------------------------------ 1 headline
-    def _month_to_date(
-        self,
-        block: dict[str, Any],
-        *,
-        with_ai: bool = True,
-        ai_months: int = 0,
-        etools_months: int | None = None,
-    ) -> int:
-        """Children reached from January to the current month: the larger of the two sources, or eTools alone
-        (``with_ai=False``). eTools: each programme document's main indicator from January to that month (its
-        months combined by its method: a sum adds them, a max or the latest does not), summed over the PDs;
-        to ``etools_months`` when given (the same months of both years when this year's partner reports are
-        not all in for the later ones; 0: none). ActivityInfo: its months to the current month, or to
-        ``ai_months`` when given (the same months of both years when its records end earlier)."""
+    def _month_to_date(self, block: dict[str, Any], *, etools_months: int | None = None) -> int:
+        """Children reached from January to the current month, from eTools: each programme document's main
+        indicator from January to that month (its months combined by its method: a sum adds them, a max or the
+        latest does not), summed over the PDs; to ``etools_months`` when given (the same months of both years
+        when this year's partner reports are not all in for the later ones; 0: none)."""
         monthly = block.get("monthly") or {}
         months = self.months_shown if etools_months is None else etools_months
         to_date = monthly.get("etools_to_date") or []
@@ -606,8 +549,7 @@ class _Builder:
             etools = to_date[months - 1]
         else:  # an overview cached before the to-date series existed
             etools = sum((monthly.get("etools") or [])[:months])
-        ai = sum((monthly.get("activityinfo") or [])[: ai_months or self.months_shown]) if with_ai else 0
-        return half_up(max(etools, ai))
+        return half_up(etools)
 
     def _etools_cut(self) -> dict[str, int]:
         """The eTools months compared on the children tile, the same on both sides, and the months its
@@ -677,19 +619,9 @@ class _Builder:
         counts = (block.get("monthly") or {}).get("etools_pds_to_date") or []
         return int(counts[months - 1] or 0) if len(counts) >= months else None
 
-    def _not_used(self, year: int, reporting_year: Any) -> str:
-        """Why ActivityInfo does not count in ``year`` for this scope: a year with ActivityInfo records
-        (Rule 1, its reporting year) whose records count no children here, or a year without them."""
-        if reporting_year is not None:
-            return f"ActivityInfo's {year} records count no children for this scope."
-        return f"ActivityInfo was not used in {year}."
-
     def _children_tile(self) -> dict[str, Any]:
-        """Children reached to date against the same months of last year, like with like: the larger of the
-        two sources only when ActivityInfo counted in both years over the same months (from the same first
-        month: ActivityInfo resumed in July is not compared with a full ActivityInfo year; to this year's last
-        ActivityInfo month on both sides, since its records arrive about two months late), else eTools against
-        eTools. eTools is compared on both sides from January to the last month whose partner reports are all
+        """Children reached to date against the same months of last year, like with like, from eTools on both
+        sides: from January to the last month whose partner reports are all
         in (:meth:`_etools_cut`: its reports come about two weeks after each quarter, over several weeks, so a
         quarter with one report of ten in is never compared with last year's whole quarter). No comparison
         before any partner report of the year ("Not yet", the overview's January rule), for a year that has
@@ -706,7 +638,7 @@ class _Builder:
                 else f"{self.year} has not started: no partner report yet."
             )
             # last year's same months, for the brief's source line (never compared on this tile)
-            before_to_date = self._month_to_date(before, with_ai=False) if self.year <= self.today.year else 0
+            before_to_date = self._month_to_date(before) if self.year <= self.today.year else 0
             return {
                 "value": None,
                 "not_yet": True,
@@ -714,21 +646,8 @@ class _Builder:
                 "hint": hint,
                 "compared_before": before_to_date,
             }
-        ai_now = bool(impact.get("activityinfo_used"))
-        ai_before = bool(before.get("activityinfo_used"))
         last_year = self.year - 1
         running = self.year == self.today.year
-        both = (
-            ai_now
-            and ai_before
-            and impact.get("activityinfo_first_month") == before.get("activityinfo_first_month")
-        )
-        # ActivityInfo's months compared: from January to this year's last ActivityInfo month (when before the
-        # current month), the same on both sides; last year's records must reach it
-        ai_last = int(impact.get("activityinfo_last_month") or 0)
-        ai_months = ai_last if both and 0 < ai_last < self.months_shown else 0
-        if both and int(before.get("activityinfo_last_month") or 0) < (ai_months or self.months_shown):
-            both = False
         # eTools' months compared: to the last month whose partner reports are all in, the same on both sides
         cut = self._etools_cut()
         reported, complete = cut["reported"], cut["complete"]
@@ -736,29 +655,20 @@ class _Builder:
         # even January's reports are all in
         etools_months = complete or reported
         period = _months_text(1, etools_months)
-        value = self._month_to_date(impact, with_ai=ai_now)
-        compared_now = self._month_to_date(impact, with_ai=both, ai_months=ai_months, etools_months=complete)
-        compared_before = self._month_to_date(
-            before, with_ai=both, ai_months=ai_months, etools_months=complete
-        )
-        etools_now = self._month_to_date(impact, with_ai=False, etools_months=etools_months)
-        etools_before = self._month_to_date(before, with_ai=False, etools_months=etools_months)
-        etools = (
+        value = self._month_to_date(impact)
+        compared_now = self._month_to_date(impact, etools_months=complete)
+        compared_before = self._month_to_date(before, etools_months=complete)
+        etools_now = self._month_to_date(impact, etools_months=etools_months)
+        etools_before = self._month_to_date(before, etools_months=etools_months)
+        hint = (
             f"eTools {impact['children_etools']:,} ({main_indicators.TOTAL_RULE}"
             + (
                 f"; {impact['children_awaiting']:,} from reports awaiting acceptance"
                 if impact.get("children_awaiting")
                 else ""
             )
-            + ")"
+            + ")."
         )
-        if ai_now:
-            hint = (
-                f"{etools} · ActivityInfo {impact['children_activityinfo']:,} in the year; "
-                "the larger of the two, never added."
-            )
-        else:
-            hint = f"{etools} · {self._not_used(self.year, self.scope.reporting_year)}"
         counted = impact.get("main_indicators") or {}
         counted_before = before.get("main_indicators") or {}
         pds = (counted.get("flagged") or 0) + (counted.get("largest") or 0)
@@ -776,15 +686,6 @@ class _Builder:
         delta = None
         if self.year > self.today.year:
             hint += f" Not compared: {self.year} has not started."
-        elif both:
-            delta = _delta(compared_now, compared_before, "vs same period last year")
-            if ai_months:
-                first = int(impact.get("activityinfo_first_month") or 1)
-                hint += (
-                    " ActivityInfo compared over the same months of both years "
-                    f"({MONTH_LABELS[first - 1]}–{MONTH_LABELS[ai_months - 1]}): its {self.year} records end "
-                    f"in {MONTH_LABELS[ai_months - 1]}."
-                )
         elif not covered or not etools_now:
             # "yet" only while the year runs: a year that is over simply has none
             ending = " yet." if running else "."
@@ -815,18 +716,8 @@ class _Builder:
                 f"against {covered_before} in {last_year}."
             )
         else:
-            delta = _delta(compared_now, compared_before, "vs same period last year, eTools only")
-            if ai_now:
-                hint += " Compared on eTools only: " + (
-                    f"ActivityInfo did not cover the same months in {last_year}."
-                    if ai_before
-                    else self._not_used(last_year, self.scope.previous_reporting_year)
-                )
-        if delta is not None and not complete:  # ActivityInfo compared, eTools' first quarter not all in
-            hint += f" eTools is not compared: {self.year}'s partner reports for {period} are not all in" + (
-                " yet." if running else "."
-            )
-        elif delta is not None and complete < reported:  # a quarter's reports in part: compared before it
+            delta = _delta(compared_now, compared_before, "vs same period last year")
+        if delta is not None and complete < reported:  # a quarter's reports in part: compared before it
             later = MONTH_LABELS[complete]
             hint += f" eTools compared over {period} of both years: " + (
                 f"the partner reports from {later} are not all in yet."
@@ -1061,8 +952,6 @@ class _Builder:
         """Per section, the programme documents' main indicators (one per PD, the headline rule):
         Reached to date against their targets and what was expected by now, with the Country Programme
         target; and the children reached this year, projected to December."""
-        from neurodb.indicators.services import activityinfo
-
         plans = self._plans()
         medians = {s["section"]: s for s in self.now["impact"]["by_section"]}
         bullets = []
@@ -1084,12 +973,9 @@ class _Builder:
         impact = self.now["impact"]
         monthly = impact["monthly"]
         target = sum(s["target"] for s in mains)
-        # Each source is reported to its own last month (eTools to the last month whose partner reports are
-        # all in, _etools_cut: they come about two weeks after each quarter, over several weeks;
-        # ActivityInfo's records about two months late) and projected from it, at the pace of its own reported
-        # months. Only the year in progress is projected, and ActivityInfo only while it is in use (Rule 2, as
-        # its forecasts): an archive's records will not come; a source not projected ends at its last month
-        # (in the key: _cache_key)
+        # eTools is reported to the last month whose partner reports are all in (_etools_cut: they come about
+        # two weeks after each quarter, over several weeks) and projected from it, at the pace of its reported
+        # months. Only the year in progress is projected; otherwise the line ends at its last month
         running = self.year == self.today.year
         etools_last = int(impact.get("etools_last_month") or 0)
         lasts = {"eTools": self._etools_cut()["complete"] if running else etools_last}
@@ -1104,17 +990,6 @@ class _Builder:
             )
         }
         colors = {"eTools": "--nd-primary"}
-        if impact.get("activityinfo_used"):  # ActivityInfo counts this year: reported to its last month
-            lasts["ActivityInfo"] = int(impact.get("activityinfo_last_month") or 0)
-            projected["ActivityInfo"] = running and activityinfo.in_use()
-            series["ActivityInfo"] = _project(
-                monthly["activityinfo"],
-                self.months_shown,
-                lasts["ActivityInfo"] or None,
-                first=int(impact.get("activityinfo_first_month") or 1),
-                running=projected["ActivityInfo"],
-            )
-            colors["ActivityInfo"] = "--nd-series-2"
         # ``actual``: each source's own last month. The chart (charts.js ``projection``) draws each series as
         # reported (solid) to its own month, then dotted to December where it is projected; a series not
         # projected has no value after its month and its line ends there, so no month a source has not
@@ -1146,10 +1021,9 @@ class _Builder:
                 "largest children indicator), summed over the section's PDs: Reached to date against the "
                 "sum of those indicators' targets; expected = target × share of the PD period elapsed; "
                 "Country Programme targets from the section plans entered in the admin; projection "
-                f"(dotted) = the last {PROJECTION_MONTHS} reported months' average of each source, from its "
-                "last reported month to December (eTools: the last month whose partner reports are all in); "
-                "only the year in progress is projected, and ActivityInfo only while it is in use: otherwise "
-                "a line ends at its last reported month. Partners may reach the same children"
+                f"(dotted) = the last {PROJECTION_MONTHS} reported months' average, from the last month "
+                "whose partner reports are all in to December; only the year in progress is projected: "
+                "otherwise the line ends at its last reported month. Partners may reach the same children"
             ),
         }
 
@@ -1169,27 +1043,19 @@ class _Builder:
                 partner_id__in=self._partner_ids(), end_date__gte=first
             ).values_list("partner_id", flat=True)
         )
-        linked = set(
-            PartnerLink.objects.filter(partner_id__in=self._partner_ids()).values_list(
-                "partner_id", flat=True
-            )
-        )
         sync_days = self._sync_age_days()
-        linked_used = self.scope.reporting_year is not None
         implausible = self.now["impact"].get("implausible") or []
         set_aside = Counter(x["section"] for x in implausible)
         by_section = {r["section"]: r for r in self.now["delivery"]["by_section"]}
         rows = []
         for section in self.sections:
             section_pds = [p for p in pds.values() if p["section"] == section]
-            partners = {p["partner_id"] for p in section_pds if p["partner_id"]}
             verified = [
                 p for p in section_pds if p["id"] in verified_pds or p["partner_id"] in verified_partners
             ]
             delivery = by_section.get(section) or {}
             reported = _pct(delivery.get("reported"), delivery.get("total"))
             verified_pct = _pct(len(verified), len(section_pds))
-            linked_pct = _pct(len(partners & linked), len(partners))
             # What keeps the section from high confidence, in the reader's words (shown by the badge)
             reasons = [
                 reason
@@ -1201,11 +1067,6 @@ class _Builder:
                     (
                         verified_pct is None or verified_pct < CONFIDENCE["verified"],
                         "few programme documents were verified by a visit",
-                    ),
-                    (
-                        # only in a year with ActivityInfo records: an eTools-only year has nothing to link to
-                        linked_used and (linked_pct is None or linked_pct < CONFIDENCE["linked"]),
-                        "partners are not linked to ActivityInfo",
                     ),
                     (sync_days is None, "eTools is not yet synced on this server"),
                     (
@@ -1224,7 +1085,6 @@ class _Builder:
                     "indicators": delivery.get("total", 0),
                     "reported_percent": reported,
                     "verified_percent": verified_pct,
-                    "linked_percent": linked_pct,
                     "sync_days": sync_days,
                     "set_aside": set_aside.get(section, 0),
                     "reasons": reasons,
@@ -1237,67 +1097,13 @@ class _Builder:
         return {
             "rows": rows,
             "implausible": implausible,
-            "linked_used": linked_used,
             "thresholds": CONFIDENCE,
-            "reconcile": self._reconcile(),
             "timeliness": self._timeliness(),
-            # the partner-link criterion counts only in a year with ActivityInfo records (linked_used)
             "source": (
                 "Indicators with a progress report this year; PDs with a completed TPM activity or a field "
-                "monitoring finding on their partner this year; "
-                + ("partners with an ActivityInfo partner link; " if linked_used else "")
-                + "days since the last eTools Datamart sync"
+                "monitoring finding on their partner this year; days since the last eTools Datamart sync"
             ),
         }
-
-    def _reconcile(self) -> list[dict[str, Any]]:
-        """Children reached this year per partner, ActivityInfo against eTools, for partners linked
-        across the two sources; sorted by the gap."""
-        ryear = self.scope.reporting_year
-        etools = {
-            r["partner_id"]: r["children"]
-            for r in self.now["delivery"]["by_partner"]
-            if r["partner_id"] and r["children"]
-        }
-        names = {r["partner_id"]: r["partner"] for r in self.now["delivery"]["by_partner"] if r["partner_id"]}
-        if ryear is None:
-            return []
-        links = defaultdict(list)
-        for label, partner_id in PartnerLink.objects.exclude(partner=None).values_list("label", "partner_id"):
-            links[label].append(partner_id)
-        ai: dict[int, float] = defaultdict(float)
-        for database, master_ids in overview.children_masters(
-            ryear, self.scope.sections, self.flags
-        ).values():
-            try:
-                rows = fact_queries.master_values_by_partner(fact_filter(database), sorted(master_ids))
-            except Exception:  # one database's facts must not break the page
-                logger.exception("brief: ActivityInfo values by partner of database %s failed", database.pk)
-                continue
-            for r in rows:
-                for partner_id in links.get(r["partner"] or "", []):
-                    ai[partner_id] += float(r["value"] or 0)
-        out = []
-        for partner_id in set(etools) | set(ai):
-            if partner_id not in names:
-                continue  # an ActivityInfo partner without a PD running this year
-            e, a = half_up(etools.get(partner_id, 0)), half_up(ai.get(partner_id, 0))
-            if not e and not a:
-                continue
-            gap = _pct(e - a, max(e, a))
-            out.append(
-                {
-                    "partner_id": partner_id,
-                    "partner": names[partner_id],
-                    "activityinfo": a,
-                    "etools": e,
-                    "gap_percent": gap,
-                    "consistent": gap is not None and abs(gap) <= GAP_TOLERANCE,
-                    "url": reverse("reports:partner_profile", args=[partner_id]),
-                }
-            )
-        out.sort(key=lambda r: (-abs(r["gap_percent"] or 0), r["partner"]))
-        return out[:MAX_RECONCILE]
 
     def _timeliness(self) -> dict[str, Any]:
         """Quarterly progress reports per partner: on time, late, missing or not yet due."""
@@ -1399,7 +1205,7 @@ class _Builder:
             "source": (
                 "The children indicators' titles (girls or boys, age band, nationality, disability), PRP "
                 "reports of the year; population shares from the population figures; districts from the "
-                "locations reported in eTools (ActivityInfo records are kept at governorate level)"
+                "locations reported in eTools"
             ),
         }
 
@@ -1806,13 +1612,12 @@ def _project(
 ) -> list[float | None]:
     """Cumulative reach by month for "Where the year ends at this pace": the reported months, then the
     projection to December. ``last``: the source's last reported month (``shown`` when not given; eTools'
-    partner reports come quarterly, ActivityInfo's records about two months late); ``first``: its first
-    (ActivityInfo resumed in July). The pace is the average of its last :data:`PROJECTION_MONTHS` reported
-    months from ``first`` to ``last``, never of a month it did not report, and each month after ``last`` is
-    the total to ``last`` plus that pace for each month since: a month not reported yet is projected, never
-    held at the total to date (a flat line says no child was reached) and never left out of the pace (the
-    year-end would come too low). A source not projected (``running`` false: a year that is over, or
-    ActivityInfo while it is an archive) has no value after ``last``: its line ends there, never held flat at
+    partner reports come quarterly); ``first``: its first. The pace is the average of its last
+    :data:`PROJECTION_MONTHS` reported months from ``first`` to ``last``, never of a month it did not report,
+    and each month after ``last`` is the total to ``last`` plus that pace for each month since: a month not
+    reported yet is projected, never held at the total to date (a flat line says no child was reached) and
+    never left out of the pace (the year-end would come too low). A source not projected (``running`` false: a
+    year that is over) has no value after ``last``: its line ends there, never held flat at
     its total as if it had reported nothing in those months."""
     values = [float(v or 0) for v in (monthly or [])[:12]] + [0.0] * (12 - len(monthly or []))
     reported = shown if last is None else max(min(last, shown), 0)
@@ -1874,10 +1679,9 @@ def _assign_url(finding: ReviewFinding, owner: FindingAssignment | None) -> str:
 DICTIONARY = [
     (
         "Children reached",
-        "The larger of the eTools PRP and ActivityInfo figures. The two are never added because the same "
-        "children are often reported in both. eTools: each programme document counts once, with its main "
-        "indicator (its unique beneficiaries indicator, else its largest children indicator), summed over "
-        "the programme documents; partners may reach the same children.",
+        "From eTools PRP partner reports: each programme document counts once, with its main indicator (its "
+        "unique beneficiaries indicator, else its largest children indicator), summed over the programme "
+        "documents; partners may reach the same children.",
     ),
     (
         "Achievement of PD targets (median)",
@@ -1901,14 +1705,9 @@ DICTIONARY = [
     ),
     (
         "Confidence",
-        f"High when reported ≥ {CONFIDENCE['reported']} %, verified ≥ {CONFIDENCE['verified']} %, linked ≥ "
-        f"{CONFIDENCE['linked']} % and the sync is at most {CONFIDENCE['sync_days']} days old; medium when "
-        "one falls short; low when two or more do.",
-    ),
-    (
-        "Gap",
-        "eTools children minus ActivityInfo children for the same partner this year, as a share of the "
-        f"larger; consistent within {GAP_TOLERANCE} %.",
+        f"High when reported ≥ {CONFIDENCE['reported']} %, verified ≥ {CONFIDENCE['verified']} % and the "
+        f"sync is at most {CONFIDENCE['sync_days']} days old; medium when one falls short; low when two or "
+        "more do.",
     ),
     (
         "Unspent balance of a grant",

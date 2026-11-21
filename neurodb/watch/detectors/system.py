@@ -3,12 +3,13 @@
 Each line of :func:`neurodb.web.health.warnings` (the same list the admin home shows) becomes the item
 ``system:<its key>``: told to the administrators only, on from the start (no trial). The scheduler not
 checking in and a missing daily review are critical; the other lines are warnings. When a line is no
-longer listed the problem was fixed, and its item closes at once: resolved. The exception is a line
-about the ActivityInfo import (its set-up lines, its failed or partial runs:
-:func:`neurodb.web.health.about_activityinfo`) gone because the import is no longer followed (ActivityInfo
-is an archive): its item closes as changed, "no longer followed", never as fixed, since the problem may
-well still be there. Likewise an eTools Datamart item opened for a diagnostic dataset
-(``catalogue.DIAGNOSTIC``, shown on Data health, never an alarm), which only the job-level line NeuroDB
+longer listed the problem was fixed, and its item closes at once: resolved. The lines about the ActivityInfo
+archive (its import's set-up lines, the failed or partial runs of its imports, of the partner links made
+from them and of the year-end forecasts: :func:`archive_line`) stay on the admin home but never become an
+item: NeuroDB no longer uses ActivityInfo. An item opened for one before closes as changed, "no longer
+followed", never as fixed, since the problem may well still be there. Likewise an eTools Datamart item
+opened for a diagnostic dataset (``catalogue.DIAGNOSTIC``, shown on Data health, never an alarm), which
+only the job-level line NeuroDB
 had before could do (it read the job's latest run: the last dataset of the order, the Datamart's
 table-refresh log), while that dataset still fails: it closes as changed, not fixed. An item opened for
 the datasets the line names closes as fixed once they succeed, whatever a diagnostic dataset does.
@@ -53,12 +54,22 @@ DETAIL = (
     "line is gone."
 )
 FIXED = "fixed: no longer listed under Needs attention"
-NOT_FOLLOWED = "ActivityInfo is an archive: its import is no longer followed"
+NOT_FOLLOWED = "no longer followed: the source is an archive"
+# the jobs of the ActivityInfo archive besides its imports (health.about_activityinfo covers those): the
+# partner links made from its records and the year-end forecasts of its indicators
+ARCHIVE_JOBS = ("partner_links", "forecast")
 ONLY_DIAGNOSTIC = (
     "only a diagnostic eTools Datamart dataset still fails: shown on Data health, no longer an alarm"
 )
 DATAMART_LINE = "job_failed:etools_datamart"
 FIXED_BY_THE_MORNING_PASS = frozenset({"watch_not_run"})
+
+
+def archive_line(key: str) -> bool:
+    """The admin home's line ``key`` is about the ActivityInfo archive: its import's set-up, or a failed or
+    partial run of its imports, of its partner links or of the year-end forecasts."""
+    kind, _sep, job = key.partition(":")
+    return health.about_activityinfo(key) or (kind in ("job_failed", "job_partial") and job in ARCHIVE_JOBS)
 
 
 def key_of(line: health.Warning) -> str:
@@ -70,7 +81,7 @@ def lines(ctx: Context) -> dict[str, health.Warning]:
     """The lines of this pass by item key, read once (``run`` and ``resolved`` share them)."""
 
     def read() -> dict[str, health.Warning]:
-        found = health.warnings(ctx.now)
+        found = [line for line in health.warnings(ctx.now) if not archive_line(line.key)]
         if ctx.daily:
             # not raised by the pass it asks for; an item already open for it stays as it is
             waiting = [key_of(line) for line in found if line.key in FIXED_BY_THE_MORNING_PASS]
@@ -130,19 +141,17 @@ def _diagnostic_still_failing(ctx: Context, item) -> bool:
 
 
 def resolved(ctx: Context, open_items) -> dict[str, Close]:
-    """The items whose line is gone, closed at once: fixed; or, for a line about the ActivityInfo import
-    while it is no longer followed, no longer followed (it may still fail: nobody is told any more); or, for
-    an eTools Datamart item opened for a diagnostic dataset that still fails, changed (it is no longer an
-    alarm, but it was not fixed)."""
-    from neurodb.indicators.services import activityinfo
-
+    """The items whose line is gone, closed at once: fixed; or, for a line about the ActivityInfo archive
+    (:func:`archive_line`), no longer followed (it may still fail: nobody is told any more); or, for an eTools
+    Datamart item opened for a diagnostic dataset that still fails, changed (it is no longer an alarm, but it
+    was not fixed)."""
     current = lines(ctx)
     closes: dict[str, Close] = {}
     for item in open_items:
         if item.key in current:
             continue
         line_key = item.key.removeprefix(PREFIX)
-        if health.about_activityinfo(line_key) and not ctx.memo("activityinfo_watched", activityinfo.watched):
+        if archive_line(line_key):
             closes[item.key] = Close(NOT_FOLLOWED, kind=CHANGED)
         elif line_key == DATAMART_LINE and _diagnostic_still_failing(ctx, item):
             closes[item.key] = Close(ONLY_DIAGNOSTIC, kind=CHANGED)

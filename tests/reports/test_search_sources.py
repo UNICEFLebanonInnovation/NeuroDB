@@ -201,15 +201,20 @@ def test_the_activityinfo_archive_of_every_year_with_its_year(client_viewer, hie
         ("HPM 2025", "HPM report · 2025"),
     ]
     indicators = _groups(client_viewer, "reached")
-    assert "ActivityInfo indicators" in indicators  # never prefixed
+    assert "ActivityInfo indicators" not in indicators  # labelled as the archive like the others
+    assert "ActivityInfo archive: Indicators" in indicators
     assert "ActivityInfo archive: Sub-indicators" in indicators
     assert "ActivityInfo archive: Master indicators" in indicators
-    assert all(hint.endswith("· 2026") for _l, hint, _u in indicators["ActivityInfo indicators"])
+    assert all(hint.endswith("· 2026") for _l, hint, _u in indicators["ActivityInfo archive: Indicators"])
 
 
-def test_while_in_use_the_groups_keep_their_names(client_viewer, hierarchy, two_years, activityinfo_in_use):
+def test_in_use_the_groups_are_still_labelled_as_the_archive(
+    client_viewer, hierarchy, two_years, activityinfo_in_use
+):
+    """ActivityInfo is an archive of past monthly results whatever its state (the owner's rule, November
+    2026): the search labels its entries so, in use or not."""
     groups = _groups(client_viewer, "Child Protection")
-    assert "Databases" in groups and "ActivityInfo archive: Databases" not in groups
+    assert "Databases" not in groups and "ActivityInfo archive: Databases" in groups
 
 
 def test_a_year_narrows_the_archive_and_drops_the_year_from_the_hints(client_viewer, hierarchy, two_years):
@@ -217,7 +222,7 @@ def test_a_year_narrows_the_archive_and_drops_the_year_from_the_hints(client_vie
     assert rows == [("HPM 2025", "HPM report", reverse("reports:report_hpm", args=[two_years["report"].id]))]
     page = client_viewer.get(reverse("reports:search"), {"q": "HPM", "year": "2025"}).content.decode()
     assert '<input type="hidden" name="year" value="2025">' in page
-    assert "Partners, programme documents, indicators, pages and the ActivityInfo archive" in page
+    assert "Partners, programme documents, indicators and pages" in page
     page = client_viewer.get(reverse("reports:search"), {"q": "HPM"}).content.decode()
     assert 'name="year"' not in page.split('role="search"', 1)[1].split("</form>", 1)[0]
 

@@ -95,21 +95,23 @@ def test_raw_etools_data_prints_every_column_wrapping_on_a_landscape_page_of_its
 def test_data_health_prints_each_table_whole():
     css = (STATIC / "app.css").read_text()
     block = _print_block(css, "Data health printed: each table whole")
-    for part in ("databases", "runs", "datasets", "power-bi"):
+    for part in ("runs", "datasets", "power-bi"):  # no databases block: the ActivityInfo archive's
         assert f"#part-{part} .table-wrap" in block and f"#part-{part} .table :is(th, td)" in block
+    assert "#part-databases" not in css
     assert "overflow: visible !important; max-height: none !important; background: none;" in block
     assert "white-space: normal !important; overflow-wrap: break-word; position: static;" in block
     assert "anywhere" not in block  # a figure of Recent runs never splits ("781,0" over "14")
-    assert ".health-tables { grid-template-columns: 1fr; }" in block  # the imports, then the runs, each whole
+    assert ".health-tables { grid-template-columns: 1fr; }" in block  # the runs, whole
     # Compared with Power BI: each period's details print open (the page opens them before printing)
     assert (
         "#part-power-bi details.power-bi-details::details-content { content-visibility: visible; }" in block
     )
     # the parts the selectors name, and the inline heights they lift
     page = (TEMPLATES / "data_health.html").read_text()
-    for part in ("databases", "runs", "datasets", "power-bi"):
+    for part in ("runs", "datasets", "power-bi"):
         assert f'{{% part "{part}"' in page, part
-    for name in ("databases", "runs", "datasets"):
+    assert '{% part "databases"' not in page
+    for name in ("runs", "datasets"):
         assert (
             'class="table-wrap" style="max-height: 560px"'
             in (TEMPLATES / "parts" / f"health_{name}.html").read_text()

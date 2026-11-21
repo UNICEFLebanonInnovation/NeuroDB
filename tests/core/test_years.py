@@ -72,12 +72,21 @@ def test_available_goes_back_to_the_oldest_programme_document_newest_first():
 
 
 @pytest.mark.django_db
-def test_available_goes_back_to_the_first_activityinfo_year_at_most_ten_years():
-    ry = ReportingYear.objects.create(name="2012", year="2012")
-    db = Database.objects.create(ai_id=1, name="Old", username="", password="", reporting_year=ry)
-    ActivityReportNew.objects.create(dbase=db, month_name="2012-05-01", indicator_value=1)
+def test_available_goes_back_ten_years_at_most():
+    PCA.objects.create(etl_id="1", title="Old", start=datetime.date(2012, 3, 1))
     found = years.available()
     assert found == list(range(2026, 2016, -1)) and len(found) == years.YEARS_SHOWN
+
+
+@pytest.mark.django_db
+def test_available_never_reads_activityinfo_an_archive():
+    """An ActivityInfo year older than every programme document widens no year menu: ActivityInfo is an archive,
+    its own pages list its years."""
+    ry = ReportingYear.objects.create(name="2019", year="2019")
+    db = Database.objects.create(ai_id=1, name="Old", username="", password="", reporting_year=ry)
+    ActivityReportNew.objects.create(dbase=db, month_name="2019-05-01", indicator_value=1)
+    PCA.objects.create(etl_id="1", title="Old", start=datetime.date(2024, 3, 1))
+    assert years.available() == [2026, 2025, 2024]
 
 
 @pytest.mark.django_db

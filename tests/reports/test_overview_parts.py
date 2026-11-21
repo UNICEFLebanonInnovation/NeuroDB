@@ -1,8 +1,8 @@
 """The Country overview in parts (SPEC7 §3.3-3.4 for the overview; STAGE0 D1, D2, D9; SPEC_HOME §3.2).
 
 The Country overview (``/country-overview/``) answers its frame at once (purpose, filter bar, subtitle, freshness
-strip) with a placeholder per data block: ``kpis`` and ``figures`` (one overview build) and ``news`` (What's new and
-the forecast risk card). For you and the daily review card moved to Home and to the daily review's own page
+strip) with a placeholder per data block: ``kpis`` and ``figures`` (one overview build) and ``news`` (What's new; the
+forecast risk card left with the ActivityInfo archive). For you and the daily review card moved to Home and to the daily review's own page
 (``test_home_parts.py``, ``test_daily_review_page.py``). These tests check the frame without any figure work, each
 part, the part queries, and that the page put together from its parts is the page drawn at once (``_eager=1``).
 
@@ -111,7 +111,6 @@ def _heavy_services_refuse(monkeypatch):
     monkeypatch.setattr(overview_service._Builder, "build", refuse)
     monkeypatch.setattr(views, "_overview_chart_data", refuse)
     monkeypatch.setattr(views, "_whats_new", refuse)
-    monkeypatch.setattr(views, "_forecast_risk", refuse)
     monkeypatch.setattr(review_services, "for_page", refuse)
     monkeypatch.setattr(news, "recent", refuse)
     monkeypatch.setattr(insight_services, "at_risk", refuse)
@@ -139,7 +138,8 @@ def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, rev
     assert 'aria-label="Overview filters"' in html and 'name="governorate"' in html  # the filter bar
     assert "2026 · every section · all governorates" in html  # the subtitle: the calendar year
     assert "Data freshness" in html and "Daily AI review" in html  # the freshness strip
-    assert "ActivityInfo databases of the year" in html  # 2026 has ActivityInfo records (hierarchy)
+    # 2026 has ActivityInfo records (hierarchy): an archive, reached from the menu alone
+    assert "ActivityInfo" not in html.split('<details class="sidebar__archive"')[0]
     assert f'href="{reverse("reports:daily_review")}?' in html  # today's findings are on their own page
     assert 'id="daily-review"' not in html and 'id="part-for-you"' not in html  # both moved off the page
     assert list(placeholders(html)) == list(PARTS)
@@ -225,7 +225,7 @@ def test_without_any_reporting_year_every_part_is_there(client_viewer, world, re
     assert _query(placeholders(html)["kpis"])["year"] == ["2026"]
     kpis = get_part(client_viewer, PAGE, "kpis")
     assert kpis.context["data"]["impact"]["children_reached"] == 500  # eTools: the PD's 500 children
-    assert kpis.context["data"]["impact"]["activityinfo_used"] is False
+    assert "activityinfo_used" not in kpis.context["data"]["impact"]
     assert "ActivityInfo" not in text(kpis)
 
 
@@ -565,7 +565,7 @@ class _EveryStringTranslated(gettext.NullTranslations):
 def test_the_overview_build_reads_the_same_in_every_language(world, reporting_year):
     """One stored build serves every language (``lang_neutral``): nothing in it may be translated, the
     freshness strip neither. Labels are translated by the templates."""
-    scope = overview_service.Scope(year=2026, reporting_year=reporting_year, today=TODAY)
+    scope = overview_service.Scope(year=2026, today=TODAY)
     with translation.override("en"):
         english = (overview_service._Builder(scope).build(), overview_service._freshness())
     translation.trans_real._active.value = _EveryStringTranslated()
@@ -594,7 +594,7 @@ def test_a_visit_in_another_language_reads_the_stored_build(client_viewer, world
 
     monkeypatch.setattr(overview_service._Builder, "build", counted)
     english = drawn("en")
-    assert english.count("(months)") == 2  # eTools' months and ActivityInfo's
+    assert english.count("(months)") == 1  # eTools' months (ActivityInfo's, an archive, never)
     compute.reset_memo()
     for language in ("ar", "fr"):
         assert drawn(language) == english

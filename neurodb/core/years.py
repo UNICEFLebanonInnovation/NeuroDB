@@ -19,7 +19,7 @@ from django.utils import timezone
 
 FIRST_YEAR = 2000  # a year before this one is not a year NeuroDB has data for
 YEARS_SHOWN = 10  # years a year menu lists at most
-YEARS_KEY = "years:v1:{}"  # + this year: the list follows the calendar (per worker, locmem)
+YEARS_KEY = "years:v2:{}"  # + this year: the list follows the calendar (per worker, locmem); v2: eTools alone
 YEARS_SECONDS = 600
 
 
@@ -61,9 +61,9 @@ def number_of(reporting_year: Any) -> int | None:
 
 
 def available() -> list[int]:
-    """The years a year menu offers, newest first: this year down to the first year NeuroDB has data for
-    (the first ActivityInfo year with records, or the year the oldest programme document started), at
-    most ten. Kept 10 minutes per worker; the key holds this year, so 1 January starts a new list."""
+    """The years a year menu offers, newest first: this year down to the year the oldest programme document
+    started, at most ten (never ActivityInfo's years: an archive, whose own pages list them). Kept 10 minutes
+    per worker; the key holds this year, so 1 January starts a new list."""
     year = this_year()
     key = YEARS_KEY.format(year)
     cached = cache.get(key)
@@ -71,12 +71,10 @@ def available() -> list[int]:
         return list(cached)
     from django.db.models import Min
 
-    from neurodb.indicators.services import activityinfo
     from neurodb.partnerships.models import PCA
 
-    starts = [activityinfo.state().first, PCA.objects.aggregate(first=Min("start"))["first"]]
-    known = [s if isinstance(s, int) else s.year for s in starts if s is not None]
-    first = max(min([*known, year]), year - YEARS_SHOWN + 1)
+    start = PCA.objects.aggregate(first=Min("start"))["first"]
+    first = max(min(start.year if start else year, year), year - YEARS_SHOWN + 1)
     years = list(range(year, first - 1, -1))
     cache.set(key, years, YEARS_SECONDS)
     return years

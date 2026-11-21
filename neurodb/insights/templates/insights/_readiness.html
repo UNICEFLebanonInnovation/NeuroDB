@@ -1,5 +1,6 @@
 {% load i18n ui humanize %}
-{# Data health: is the data ready for machine learning? Context: readiness = the last ml_readiness SyncRun. #}
+{% comment %}Data health: is the data ready for machine learning? Context: readiness = the last ml_readiness SyncRun,
+result = its check as shown (insights.readiness.shown: without the ActivityInfo archive).{% endcomment %}
 <section class="panel mt-3" id="ml-readiness" aria-labelledby="ml-readiness-title">
   <div class="panel__header">
     <div>
@@ -8,7 +9,6 @@
     </div>
   </div>
   {% if readiness %}
-  {% with result=readiness.details.readiness %}
   <div class="grid grid--2">
     {% for v in result.verdicts %}
     <div class="panel">
@@ -34,7 +34,6 @@
       </tr>{% empty %}<tr><td class="small">{{ s.label }}</td><td colspan="2" class="small {% if s.error %}text-danger{% else %}text-muted{% endif %}">{% if s.error %}{% trans "Could not be measured" %}: {{ s.error }}{% else %}{% trans "No data" %}{% endif %}</td></tr>{% endfor %}{% endfor %}</tbody>
     </table></div>
   </details>
-  {% endwith %}
   {% else %}
   <p class="small text-muted mb-0">{% trans "An administrator can run it now: Administration → Run a job → Machine learning readiness, or the Scheduled jobs page." %}</p>
   {% endif %}

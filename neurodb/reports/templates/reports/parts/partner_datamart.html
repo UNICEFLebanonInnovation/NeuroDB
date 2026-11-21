@@ -1,15 +1,13 @@
 {% load i18n ui parts %}{% comment %}The partner page's figures (part "datamart", reports.views.partner_profile): the key figures, the
 profile beside the visits and assurance, the Monitoring insights panel (part "fmm", loaded after this one, when a
-visit ever monitored the partner), its eTools and ActivityInfo reporting side by side under their section heading,
-and its lists, with the JSON its charts read. These blocks stand between one another on the page and read one
-computation: the eTools Datamart figures (datamart), the programme documents and engagements (profile) and the
-ActivityInfo records (activityinfo, which the key figures count too). Context: partner, labels, action_points_url
-(the page's), profile, datamart, activityinfo, fmm_seen, chart_data. The Monitoring insights placeholder keeps the room
-of its panel as measured on the x20 parity world.{% endcomment %}
+visit ever monitored the partner), its eTools reporting under its section heading, and its lists, with the JSON its
+charts read. These blocks stand between one another on the page and read one computation: the eTools Datamart
+figures (datamart) and the programme documents and engagements (profile). Context: partner, labels,
+action_points_url (the page's), profile, datamart, fmm_seen, chart_data. The Monitoring insights placeholder keeps the
+room of its panel as measured on the x20 parity world.{% endcomment %}
 <div class="kpi-grid">
   {% trans "Active documents" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=profile.active_count %}
   {% trans "All documents" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=profile.programme_documents|length %}
-  {% trans "ActivityInfo records" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=activityinfo.records|number %}
   {% trans "Risk rating" as l4 %}{% include "components/kpi_tile.html" with label=l4 value=profile.risk_rating|default:"—" %}
   {% trans "Cash transfers this year (USD)" as l5 %}{% if partner.total_ct_cp %}{% blocktrans asvar h5 with cp=partner.total_ct_cp|number:0 %}This calendar year. Since the country programme (CP) started: {{ cp }}{% endblocktrans %}{% else %}{% trans "This calendar year" as h5 %}{% endif %}{% include "components/kpi_tile.html" with label=l5 value=partner.total_ct_cy|number:0 hint=h5 %}
   {% if datamart.open_action_points %}{% trans "Open action points" as l6 %}{% if datamart.overdue_action_points %}{% blocktrans asvar h6 count counter=datamart.overdue_action_points %}{{ counter }} overdue{% plural %}{{ counter }} overdue{% endblocktrans %}{% else %}{% trans "none overdue" as h6 %}{% endif %}{% include "components/kpi_tile.html" with label=l6 value=datamart.open_action_points|number status="off_track" href=action_points_url hint=h6 %}{% endif %}
@@ -34,8 +32,8 @@ of its panel as measured on the x20 parity world.{% endcomment %}
   </section>
 </div>
 {% if fmm_seen %}{% part "fmm" kind="card" priority="low" height="150px" height_md="165px" height_sm="300px" anchors="fmm-partner" %}{% endif %}
-<h2 class="section-heading">{% trans "Partner reporting" %} <span class="small text-muted fw-normal">{% trans "eTools (current) and ActivityInfo (historical), brought together for this partner" %}</span></h2>
-<div class="grid grid--2 mb-3">
+<h2 class="section-heading">{% trans "Partner reporting" %} <span class="small text-muted fw-normal">{% trans "From eTools, for this partner" %}</span></h2>
+<div class="mb-3">
   <section class="panel" aria-labelledby="etools-reporting-title" id="etools-reporting">
     <div class="panel__header"><h3 class="panel__title" id="etools-reporting-title">{% trans "eTools · implementation monitoring" %}</h3><span class="panel__hint"><a href="{% url 'reports:pd_monitoring' %}?partner={{ partner.id }}">{% trans "By month and location" %}</a> · <a href="{% url 'reports:pd_monitoring_map' %}?partner={{ partner.id }}">{% trans "Map" %}</a></span></div>
     {% if datamart.monitoring.indicators %}
@@ -48,18 +46,6 @@ of its panel as measured on the x20 parity world.{% endcomment %}
     {% endif %}
     <h4 class="small text-muted mb-1">{% trans "Progress reports per year" %}</h4>
     <div class="chart" data-module="charts" data-source="partner-datamart-data" data-chart="bars" data-orientation="v" data-key="etools_reports_by_year" data-height="150" data-empty-title="{% trans 'No progress reports' %}"></div>
-  </section>
-  <section class="panel" aria-labelledby="ai-reporting-title" id="activityinfo-reporting">
-    <div class="panel__header"><h3 class="panel__title" id="ai-reporting-title">{% trans "ActivityInfo · reporting history" %}</h3><span class="panel__hint">{% blocktrans count counter=activityinfo.records %}{{ counter }} record{% plural %}{{ counter }} records{% endblocktrans %}</span></div>
-    {% if activityinfo.databases %}
-    <div class="table-wrap"><table class="table table-sm mb-2" id="partner-activityinfo"><thead><tr><th>{% trans "Year" %}</th><th>{% trans "Database" %}</th><th class="num">{% trans "Records" %}</th><th class="num">{% trans "Indicators" %}</th><th class="num">{% trans "Sites" %}</th><th>{% trans "Months" %}</th><th></th></tr></thead>
-    <tbody>{% for d in activityinfo.databases %}<tr><td class="mono small">{{ d.year }}</td><td><a class="cell-title" href="{{ d.url }}" hx-get="{{ d.url }}" hx-target="#modal-content" hx-push-url="false">{{ d.database.label|default:d.database.name }}</a>{% if d.section %}<span class="cell-sub">{{ d.section }}</span>{% endif %}</td><td class="num">{{ d.records|number:0 }}</td><td class="num">{{ d.indicators }}</td><td class="num">{{ d.sites }}</td><td class="small">{{ d.months }}{% if d.first_month %}<span class="cell-sub text-nowrap">{{ d.first_month }} – {{ d.last_month }}</span>{% endif %}</td><td class="small"><a href="{{ d.map_url }}" title="{% trans 'Sites on the map' %}">{% trans "Map" %}</a></td></tr>{% endfor %}</tbody></table></div>
-    {% else %}
-    <p class="small text-muted">{% trans "No ActivityInfo record is linked to this partner." %}{% if not activityinfo.labels %} {% trans "Its ActivityInfo name may differ from the eTools name: an administrator can set the link." %}{% endif %}</p>
-    {% endif %}
-    <p class="small mb-2">{% trans "Reported in ActivityInfo as" %}: {% for l in activityinfo.labels %}<span class="chip">{{ l }}</span> {% empty %}<span class="text-muted">—</span>{% endfor %}{% if perms.etools.change_partnerlink %} <a href="{% url 'admin:etools_partnerlink_changelist' %}?partner__id__exact={{ partner.id }}">{% trans "Edit the link" %}</a>{% endif %}<span class="text-muted"> · {% if activityinfo.link_run %}{% blocktrans with when=activityinfo.link_run.finished_at|date:"j M Y H:i" %}names matched {{ when }}{% endblocktrans %}{% else %}{% trans "names not matched yet" %}{% endif %}</span></p>
-    <h4 class="small text-muted mb-1">{% trans "Activity records per year" %}</h4>
-    <div class="chart" data-module="charts" data-source="partner-datamart-data" data-chart="bars" data-orientation="v" data-key="activityinfo_by_year" data-height="150" data-empty-title="{% trans 'No ActivityInfo records' %}"></div>
   </section>
 </div>
 <section class="panel p-0 mb-3">

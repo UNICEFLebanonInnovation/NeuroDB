@@ -191,8 +191,12 @@ def test_forecasts_show_only_once_the_back_test_passed(client_viewer, years_of_d
     assert "not shown yet" in answer["note"]
 
 
-def test_shown_forecasts_reach_the_pages_and_the_assistant(client_viewer, years_of_data, activityinfo_in_use):
-    """The Country overview's card shows this year's forecasts while ActivityInfo is in use (SPEC_HOME §3.2)."""
+def test_shown_forecasts_reach_the_archive_and_the_assistant(
+    client_viewer, years_of_data, activityinfo_in_use
+):
+    """The forecasts are made from ActivityInfo, an archive of past monthly results: the database dashboard
+    (the archive's) and Ask NeuroDB's lookup show them; the Country overview no longer has their card, even in
+    use (the owner's rule, November 2026)."""
     run("test", today=datetime.date(2026, 10, 2))
     latest = services.latest_run()
     latest.details["backtest"]["shown"] = True
@@ -200,8 +204,8 @@ def test_shown_forecasts_reach_the_pages_and_the_assistant(client_viewer, years_
     IndicatorForecast.objects.update(status="likely_short", low=500, high=700)
     page = client_viewer.get(reverse("reports:database_dashboard", args=[years_of_data.pk])).content.decode()
     assert "Likely to fall short by December" in page and "likely 50–70% of target" in page
-    overview = client_viewer.get(reverse("reports:country_overview")).content.decode()  # the card's page now
-    assert "Likely to fall short by December" in overview
+    overview = client_viewer.get(reverse("reports:country_overview")).content.decode()
+    assert "Likely to fall short by December" not in overview and "forecast" not in overview.lower()
     answer = tools.run(
         "indicator_forecasts", tools.validate("indicator_forecasts", {"status": "likely_short"})
     )
@@ -209,24 +213,16 @@ def test_shown_forecasts_reach_the_pages_and_the_assistant(client_viewer, years_
     assert answer["forecasts"][0]["status"] == "Likely to fall short"
 
 
-def test_the_overview_card_reads_this_years_forecasts_only_while_in_use(years_of_data, activityinfo_in_use):
-    """``views._forecast_risk`` asks ``at_risk`` for this year's forecasts (SPEC_HOME §3.2): none for another
-    year, none for a forecast left from another year, none once ActivityInfo is archived."""
-    from neurodb.core.models import ActivityInfoSetting
-    from neurodb.indicators.services import activityinfo
-    from neurodb.reports import views
-
+def test_at_risk_reads_the_forecasts_of_the_year_asked(years_of_data, activityinfo_in_use):
+    """``at_risk`` (the database dashboard's card) asks for one year's forecasts: none for another year, none
+    for a forecast left from another year."""
     run("test", today=datetime.date(2026, 10, 2))
     latest = services.latest_run()
     latest.details["backtest"]["shown"] = True
     latest.save()
     IndicatorForecast.objects.update(status="likely_short", low=500, high=700)
     forecast = IndicatorForecast.objects.get()
-    assert forecast.year == 2026 and views._forecast_risk([], 2026) == [forecast]
-    assert views._forecast_risk([], 2025) == []  # the card of another year
+    assert forecast.year == 2026 and services.at_risk(year=2026) == [forecast]
+    assert services.at_risk(year=2025) == []  # the card of another year
     IndicatorForecast.objects.update(year=2025)  # a forecast left from last year
-    assert views._forecast_risk([], 2026) == []
-    IndicatorForecast.objects.update(year=2026)
-    ActivityInfoSetting.objects.filter(pk=1).update(mode=ActivityInfoSetting.Mode.ARCHIVED)
-    activityinfo.invalidate()
-    assert views._forecast_risk([], 2026) == []
+    assert services.at_risk(year=2026) == []

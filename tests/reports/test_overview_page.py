@@ -49,7 +49,7 @@ def _get(client, url):
 
 
 def test_renders_every_block_with_data(client_viewer, reporting_year, hierarchy, fake_service):
-    """In a year with ActivityInfo records (``hierarchy``: 2026) the page links that year's databases."""
+    """In a year with ActivityInfo records (``hierarchy``: 2026) the page still shows eTools figures alone."""
     response = _get(client_viewer, str(PAGE))
     html = response.text
     assert "Country overview" in html
@@ -68,20 +68,20 @@ def test_renders_every_block_with_data(client_viewer, reporting_year, hierarchy,
     assert "$7.2M" in html and "$12.4M" in html  # disbursed of reserved
     assert 'id="overview-figures-data"' in html  # the figures part's chart JSON
     assert "Data freshness" in html and "Daily AI review" in html
-    assert "ActivityInfo databases of the year" in html  # the cards moved to their own page (an AI year)
-    # the year's own databases, never the bare page
-    assert f'{reverse("reports:databases")}?year=2026"' in html
+    # an ActivityInfo year, yet no link to its databases: the archive is reached from the menu alone
+    assert "ActivityInfo" not in html.split('<details class="sidebar__archive"')[0]
+    assert reverse("reports:databases") not in html.split('<details class="sidebar__archive"')[0]
     assert "LEB/PD2026001" in html and "Himaya" in html  # decisions and attention lists
     assert "19 <span" in html and "28 planned" in html  # completed of planned, as the TPM block counts them
     assert ">+3 more items</a>" in html  # what the attention list left out
     assert "reports/partials/_daily_review.html" not in html
     scope = fake_service[0]
-    assert scope.year == 2026 and scope.reporting_year == reporting_year
+    assert scope.year == 2026 and not hasattr(scope, "reporting_year")
     assert scope.sections == [] and scope.governorate == ""
 
 
 def test_chart_data_has_the_shapes_the_builders_read(client_viewer, reporting_year, fake_service):
-    """The fake build is of an ActivityInfo year (``activityinfo_used``): both series."""
+    """The fake build is of an ActivityInfo year (``activityinfo_used``), yet only eTools is drawn."""
     html = get_part(client_viewer, str(PAGE), "figures").text  # every chart is in it
     start = html.index('id="overview-figures-data"')
     payload = html[html.index(">", start) + 1 : html.index("</script>", start)]
@@ -89,7 +89,7 @@ def test_chart_data_has_the_shapes_the_builders_read(client_viewer, reporting_ye
     assert {"impact", "money", "delivery", "progress", "status_counts", "labels"} <= set(charts)
     assert charts["impact"]["by_section"][0]["section"] == "Child Protection"
     assert charts["impact"]["monthly"]["labels"][0] == "Jan"
-    assert set(charts["impact"]["monthly"]["series"]) == {"eTools", "ActivityInfo"}
+    assert set(charts["impact"]["monthly"]["series"]) == {"eTools"}
     assert charts["money"]["by_section"] == [
         ["Child Protection", 185.7],
         ["Education", 327.4],
@@ -191,24 +191,22 @@ def test_without_any_reporting_year_the_figures_are_shown(client_viewer, fake_se
     assert "No reporting year is configured" not in html
     assert "Children reached" in html and 'id="overview-figures-data"' in html
     scope = fake_service[-1]
-    assert scope.year == 2026 and scope.reporting_year is None
+    assert scope.year == 2026
     assert page.context["page_subtitle"].startswith("2026 · ")
-    assert "ActivityInfo databases of the year" not in html  # not an ActivityInfo year
 
 
 def test_year_parameter_is_a_calendar_year(client_viewer, reporting_year, hierarchy, fake_service):
-    """``?year=`` is four digits: the calendar year shown, and the reporting year whose ActivityInfo records
-    count for it (none for 2025 here: it has no records), the year's own choice in the filter bar."""
+    """``?year=`` is four digits: the calendar year shown, the year's own choice in the filter bar (no
+    ActivityInfo reporting year is read: an archive)."""
     from neurodb.indicators.models import ReportingYear
 
     ReportingYear.objects.create(name="2025", year="2025", current=False)  # a row without records
     page = _get(client_viewer, str(PAGE) + "?year=2025")
-    assert fake_service[-1].year == 2025 and fake_service[-1].reporting_year is None
+    assert fake_service[-1].year == 2025
     assert page.context["selected"]["year"] == "2025"
     assert 'value="2025" selected' in page.text and "(this year)" in page.text
-    assert "ActivityInfo databases of the year" not in page.text
     this_year = _get(client_viewer, str(PAGE) + "?year=2026")
-    assert fake_service[-1].year == 2026 and fake_service[-1].reporting_year == reporting_year
+    assert fake_service[-1].year == 2026
     assert 'value="2026" selected' in this_year.text
     # a year out of range or not a year: this year
     for raw in ("1999", "all", "26"):

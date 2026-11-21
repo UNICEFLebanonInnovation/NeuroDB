@@ -309,8 +309,8 @@ def test_each_part_answers_its_wrapper(client_viewer, world, name):
 def test_the_parts_draw_the_figures_of_the_cycle(client_viewer, world):
     """Both drawings of the page share the part templates, so their equivalence cannot catch a wrong figure: the
     figures are checked here. The children enrolled in 2027 add the PD's 6,000 and Makani's 30 and Dirasa's 12
-    (each payload linked twice, read once); 2026 adds ActivityInfo's 500, Makani, Dirasa and youth's 3; the
-    suggested link of 2028 counts nothing."""
+    (each payload linked twice, read once); 2026 adds Makani, Dirasa and youth's 3 (ActivityInfo's 500, an
+    archive, never counts); the suggested link of 2028 counts nothing."""
     summary = get_part(client_viewer, PAGE, "summary")
     data = summary.context["data"]
     assert data["indicator_total"] == 3 and data["pd_total"] == 1 and data["unreviewed"] == 1
@@ -321,14 +321,14 @@ def test_the_parts_draw_the_figures_of_the_cycle(client_viewer, world):
         for p in r["indicators"]
         if p.indicator.code == "1.1.1"
     )
-    assert reached.years[2026]["value"] == 500 + 30 + 12 + 3
+    assert reached.years[2026]["value"] == 30 + 12 + 3
     assert reached.years[2027]["value"] == 6000 + 30 + 12
-    assert 2028 not in reached.years and reached.value == 545 + 6042
+    assert 2028 not in reached.years and reached.value == 45 + 6042
     chart = _json_blocks(text(summary))[SUMMARY_JSON]
     assert sum(chart["status_counts"].values()) == 3 and chart["labels"]["off_track"] == "Off track"
     outcomes = text(get_part(client_viewer, PAGE, "outcomes"))
     assert (
-        "6,587" in outcomes and "MEHE" not in outcomes
+        "6,087" in outcomes and "MEHE" not in outcomes
     )  # the value, and the source only on the indicator page
 
 

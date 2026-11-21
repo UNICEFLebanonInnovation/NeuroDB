@@ -14,8 +14,7 @@ Copy and CSV buttons (39 px): they come with the table they copy, so none is off
 failed.{% endcomment %}
 <h2 class="section-heading mt-0" id="jobs-title">{% trans "Sync jobs" %} <span class="small text-muted fw-normal">{% blocktrans with h=staleness_hours %}Stale after {{ h }} hours{% endblocktrans %}</span></h2>
 <div class="mb-3">{% part "jobs" kind="tiles" priority="high" labelledby="jobs-title" rows=job_count tiles=1 %}</div>
-<div class="grid grid--2 health-tables">
-  {% part "databases" kind="table" height="326.6px" height_sm="451.2px" %}
+<div class="health-tables">
   {% part "runs" kind="table" height="618px" %}
 </div>
 <div class="mt-3"><section class="panel p-0">

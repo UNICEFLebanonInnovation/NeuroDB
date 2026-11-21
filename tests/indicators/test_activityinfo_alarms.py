@@ -1,7 +1,8 @@
-"""The ActivityInfo import's alarms follow whether it is followed (``activityinfo.watched``, Rule 3), and the
-alarms about presenting ActivityInfo follow whether it is in use (``activityinfo.in_use``, Rule 2): the hourly
-freshness check, the daily review's checks, the administrators' "Needs attention" lines and their Watch
-items, the forecast items, and the yearly rollover with its population item (SPEC_HOME §6, §6.1).
+"""The ActivityInfo import's alarms for administrators follow whether it is followed (``activityinfo.watched``,
+Rule 3): the hourly freshness check and the "Needs attention" lines of the admin home (SPEC_HOME §6). The pages
+never raise anything about it, followed or not, since ActivityInfo is an archive of past monthly results (the
+owner's rule, November 2026): no daily review finding, no For you item about its import, its year-end forecasts
+or its yearly rollover (whose population item stays, §6.1).
 
 Scenarios of the survey: S4a (the last ActivityInfo import 45 days ago, the import switched on, records that
 stopped in February: archived), S4b (the same with the import switched off), V4 (last year's forecasts in a
@@ -28,7 +29,7 @@ from neurodb.insights.models import IndicatorForecast
 from neurodb.integrations.management.commands.check_sync_freshness import SCHEDULED_JOBS, scheduled_jobs
 from neurodb.partnerships.models import PartnerLink
 from neurodb.review import checks
-from neurodb.watch import memory, redact
+from neurodb.watch import memory
 from neurodb.watch.detectors import DAILY, QUICK, Context, calendar, concerns, system
 from neurodb.watch.models import WatchItem
 from neurodb.web import health
@@ -189,23 +190,15 @@ def _review_inputs() -> None:
     PartnerLink.objects.create(label="A partner named in ActivityInfo", records=12)
 
 
-@pytest.mark.parametrize("scenario", ["S4a", "S4b", "archived"])
-def test_not_followed_the_daily_review_finds_no_stale_import_failed_run_or_partner_name(scenario):
+@pytest.mark.parametrize("scenario", ["in_use", "S4a", "S4b", "archived"])
+def test_the_daily_review_never_finds_a_stale_import_failed_run_or_partner_name(scenario):
+    """In use too (15 October: the import runs on days 1 to 22): the archive is nobody's finding."""
     world(scenario)
     _review_inputs()
     ctx = checks.Context(today=years.today())
     assert keys(checks.check_stale_sources(ctx)) == set()
     assert keys(checks.check_sync_failures(ctx)) == set()
     assert "data_quality:partner_links" not in keys(checks.check_data_quality(ctx))
-
-
-def test_in_use_the_daily_review_finds_all_three():
-    world("in_use")
-    _review_inputs()
-    ctx = checks.Context(today=years.today())  # 15 October: the import runs on days 1 to 22
-    assert keys(checks.check_stale_sources(ctx)) == {"stale_sources:ai_data"}
-    assert keys(checks.check_sync_failures(ctx)) == {"sync_failures:ai_data", "sync_failures:ai_structure"}
-    assert "data_quality:partner_links" in keys(checks.check_data_quality(ctx))
 
 
 # ---------------------------------------------------------------------------- "Needs attention" and Watch
@@ -229,50 +222,41 @@ def test_no_reporting_year_at_all_is_a_line_only_while_activityinfo_is_followed(
     assert ("no_current_year" in lines()) is followed
 
 
-def test_the_watch_items_of_the_import_close_once_it_is_no_longer_followed():
+def test_the_import_lines_never_become_watch_items():
+    """In use, a failed import is a "Needs attention" line on the admin home, never a For you item."""
     world("in_use")
     ran(AI_DATA, FAILED, timezone.now() - HOUR)
+    assert {"job_failed:ai_data", "databases_stale", "masters_without_target"} <= lines()
     watch(system.SYSTEM_HEALTH)
-    opened = {"system:job_failed:ai_data", "system:databases_stale", "system:masters_without_target"}
-    assert {key for key, state in state_of(system.ID).items() if state == "open"} >= opened
-    job = ScheduledJob.objects.get(command="ai_data")
-    job.enabled = False
-    job.save()  # switched off in Scheduled jobs: the state follows at once
-    outcome = watch(system.SYSTEM_HEALTH)
-    assert set(outcome.closed) >= opened
-    # no longer followed, not fixed (spec_state-4): the last import still failed, the database is still stale
-    assert {(item(key).close_reason, item(key).close_kind) for key in opened} == {
-        (system.NOT_FOLLOWED, WatchItem.CloseKind.CHANGED)
-    }
+    assert {
+        "system:job_failed:ai_data",
+        "system:databases_stale",
+        "system:masters_without_target",
+    }.isdisjoint(state_of(system.ID))
 
 
-def test_set_to_archived_a_failing_import_is_not_said_fixed():
-    """spec_state-4: the import's item opened while in use; an administrator sets Archived while its last run
-    still failed. The item closes as changed ("ActivityInfo is an archive: its import is no longer
-    followed"), as the forecast items do, never as resolved ("fixed")."""
+def test_an_import_item_opened_before_closes_as_no_longer_followed_never_fixed():
+    """spec_state-4: an item opened while the import was followed closes as changed, never as resolved
+    ("fixed"), its last run still failing."""
     world("in_use")
     ran(AI_DATA, FAILED, timezone.now() - HOUR, error="credentials")
-    watch(system.SYSTEM_HEALTH)
-    assert state_of(system.ID)["system:job_failed:ai_data"] == "open"
-    _mode(ActivityInfoSetting.Mode.ARCHIVED)
+    today = years.today()
+    WatchItem.objects.create(
+        key="system:job_failed:ai_data", detector=system.ID, kind=WatchItem.Kind.SYSTEM,
+        severity=WatchItem.Severity.WARNING, title="ActivityInfo data import failed",
+        scope=WatchItem.Scope.ADMINS, first_seen_on=today, last_seen_on=today, changed_on=today,
+    )  # fmt: skip
     watch(system.SYSTEM_HEALTH)
     found = item("system:job_failed:ai_data")
     assert SyncRun.objects.filter(job=AI_DATA).latest("finished_at").status == FAILED  # still failing
     assert (found.state, found.close_kind) == (WatchItem.State.CLOSED, WatchItem.CloseKind.CHANGED)
-    assert found.close_reason == "ActivityInfo is an archive: its import is no longer followed"
+    assert found.close_reason == system.NOT_FOLLOWED == "no longer followed: the source is an archive"
 
 
-def test_while_followed_a_line_that_goes_is_still_fixed():
-    """The other side of spec_state-4: while the import is followed, a line that goes was fixed (a new
-    import succeeded), and a line not about ActivityInfo is fixed whatever ActivityInfo is."""
+def test_a_line_not_about_activityinfo_that_goes_is_fixed():
     world("in_use")
-    ran(AI_DATA, FAILED, timezone.now() - 2 * HOUR)
     ran(SyncRun.Job.ETOOLS_DATAMART, FAILED, timezone.now() - 2 * HOUR, target="partners")
     watch(system.SYSTEM_HEALTH)
-    ran(AI_DATA, SUCCEEDED, timezone.now() - HOUR)
-    watch(system.SYSTEM_HEALTH)
-    fixed = item("system:job_failed:ai_data")
-    assert (fixed.close_reason, fixed.close_kind) == (system.FIXED, WatchItem.CloseKind.RESOLVED)
     _mode(ActivityInfoSetting.Mode.ARCHIVED)
     ran(SyncRun.Job.ETOOLS_DATAMART, SUCCEEDED, timezone.now() - HOUR, target="partners")
     watch(system.SYSTEM_HEALTH)
@@ -308,12 +292,15 @@ def test_a_returning_year_waiting_for_its_first_records_is_followed_while_archiv
     assert (st.in_use, st.watched, st.setup_pending, st.reason) == (False, True, True, "auto_no_records")
     assert scheduled_jobs() == SCHEDULED_JOBS
     found = lines()
-    assert {"databases_never_imported", "job_failed:ai_data"} <= found  # a failing comeback is reported
+    assert {
+        "databases_never_imported",
+        "job_failed:ai_data",
+    } <= found  # a failing comeback: on the admin home
     ctx = checks.Context(today=years.today())
-    assert "sync_failures:ai_data" in keys(checks.check_sync_failures(ctx))
-    assert "data_quality:partner_links" not in keys(checks.check_data_quality(ctx))  # follows "in use"
+    assert "sync_failures:ai_data" not in keys(checks.check_sync_failures(ctx))  # never a review finding
+    assert "data_quality:partner_links" not in keys(checks.check_data_quality(ctx))
     watch(system.SYSTEM_HEALTH)
-    assert state_of(system.ID)["system:databases_never_imported"] == "open"
+    assert "system:databases_never_imported" not in state_of(system.ID)  # nor a For you item
 
 
 # ---------------------------------------------------------------------------- forecast items
@@ -348,37 +335,21 @@ def _forecasts(database: Database, year: int = 2026, at: datetime.datetime | Non
     return master
 
 
-def test_in_use_a_forecast_likely_short_is_followed_and_archived_closes_it():
-    master = _forecasts(world("in_use"))
-    key = concerns.forecast_item_key(2026, master.pk)
-    watch(concerns.FORECAST_SHORT)
-    assert state_of(concerns.FORECAST_ID) == {key: "open"}
-    _mode(ActivityInfoSetting.Mode.ARCHIVED)
-    outcome = watch(concerns.FORECAST_SHORT)
-    found = item(key)
-    assert outcome.closed == [key]
-    assert found.close_reason == "ActivityInfo is archived: its forecasts are no longer followed"
-    assert found.close_kind == WatchItem.CloseKind.CHANGED
-    outcome = watch(concerns.FORECAST_SHORT)
-    assert outcome.new == [] and outcome.reopened == []  # silent from then on
-
-
-@pytest.mark.parametrize("scenario", ["S4a", "S4b", "archived"])
-def test_not_in_use_the_forecast_check_is_silent(scenario):
+@pytest.mark.parametrize("scenario", ["in_use", "S4a", "S4b", "archived"])
+def test_the_forecast_check_is_silent_in_use_or_not(scenario):
+    """The year-end forecasts are the ActivityInfo archive's (its database dashboards and forecasts page keep
+    them): no For you item, even in use with a shown forecast likely to fall short."""
     _forecasts(world(scenario))
-    watch(concerns.FORECAST_SHORT)
-    assert state_of(concerns.FORECAST_ID) == {}
+    outcome = watch(concerns.FORECAST_SHORT)
+    assert state_of(concerns.FORECAST_ID) == {} and outcome.new == []
 
 
 @pytest.mark.parametrize("day", [datetime.date(2027, 1, 5), datetime.date(2027, 2, 1)])
 def test_v4_in_2027_last_years_forecasts_are_no_longer_followed(day, site_today):
     """2026 records up to August and a shown 2026 forecast: in 2027 (January included: August is five months
     before it) ActivityInfo is archived, the job skips, the 2026 table stays, nothing about 2027 is at risk
-    and the Watch items close."""
-    master = _forecasts(world("in_use"))
-    key = concerns.forecast_item_key(2026, master.pk)
-    watch(concerns.FORECAST_SHORT)
-    assert state_of(concerns.FORECAST_ID) == {key: "open"}
+    and no Watch item opens."""
+    _forecasts(world("in_use"))
     site_today.set(day)
     activityinfo.invalidate()
     assert not activityinfo.in_use()
@@ -386,72 +357,35 @@ def test_v4_in_2027_last_years_forecasts_are_no_longer_followed(day, site_today)
     assert skipped.details["skipped"] == "ActivityInfo is not in use in 2027"
     assert IndicatorForecast.objects.filter(year=2026).count() == 1  # the table is kept
     assert forecasts.at_risk(year=2027) == []
-    outcome = watch(concerns.FORECAST_SHORT, day=day)
-    assert outcome.closed == [key]
-    assert item(key).close_reason == concerns.ARCHIVED
-
-
-def test_in_use_only_this_years_forecasts_open_items():
-    master = _forecasts(world("in_use"), year=2025)  # a table left from last year
-    watch(concerns.FORECAST_SHORT)
+    watch(concerns.FORECAST_SHORT, day=day)
     assert state_of(concerns.FORECAST_ID) == {}
-    IndicatorForecast.objects.update(year=2026)
-    watch(concerns.FORECAST_SHORT)
-    assert state_of(concerns.FORECAST_ID) == {concerns.forecast_item_key(2026, master.pk): "open"}
 
 
 STALE_FORECAST = "system:stale:forecast"
 
 
-def test_archived_with_the_forecast_job_switched_off_no_stale_forecast_alarm():
-    """spec_state-5: Archived, then the (now pointless) forecast job switched off; the last forecast ran 9 days
-    ago. The forecast check has nothing to follow, so no "Year-end indicator forecast: no successful run
-    since ..." item goes to the administrators, and its own items close as "no longer followed"."""
-    master = _forecasts(world("in_use"), at=timezone.now() - 7 * DAY)  # fresh: the forecast is weekly
-    key = concerns.forecast_item_key(2026, master.pk)
-    watch(concerns.FORECAST_SHORT)
-    assert state_of(concerns.FORECAST_ID) == {key: "open"}
-    _mode(ActivityInfoSetting.Mode.ARCHIVED)
-    ScheduledJob.objects.filter(command="forecast").update(enabled=False)
-    outcome = watch(concerns.FORECAST_SHORT, day=years.today() + 2 * DAY)  # the last forecast: 9 days old
-    assert outcome.stale_sources == []
-    assert not WatchItem.objects.filter(key=STALE_FORECAST).exists()
-    assert (item(key).close_reason, item(key).close_kind) == (concerns.ARCHIVED, WatchItem.CloseKind.CHANGED)
-
-
-def test_a_stale_forecast_alarm_raised_while_in_use_closes_once_activityinfo_is_archived():
-    """spec_state-5: the stale-source item raised while the forecasts were followed closes as changed, with
-    the check's reason, once nothing reads the forecasts; while in use it is raised as before."""
+@pytest.mark.parametrize("archived", [False, True])
+def test_no_stale_forecast_alarm_in_use_or_archived(archived):
+    """spec_state-5, now in use too: the forecast check has nothing to follow, so a forecast 9 days old (the job
+    switched off once archived) raises no "Year-end indicator forecast: no successful run since ..." item."""
     _forecasts(world("in_use"), at=timezone.now() - 9 * DAY)
+    if archived:
+        _mode(ActivityInfoSetting.Mode.ARCHIVED)
+        ScheduledJob.objects.filter(command="forecast").update(enabled=False)
     outcome = watch(concerns.FORECAST_SHORT)
-    assert outcome.stale_sources == ["forecast"] and item(STALE_FORECAST).state == "open"  # in use: an alarm
-    _mode(ActivityInfoSetting.Mode.ARCHIVED)
-    outcome = watch(concerns.FORECAST_SHORT)
-    stale = item(STALE_FORECAST)
-    assert outcome.stale_sources == [] and stale.state == WatchItem.State.CLOSED
-    assert (stale.close_reason, stale.close_kind) == (concerns.ARCHIVED, WatchItem.CloseKind.CHANGED)
+    assert outcome.stale_sources == [] and not WatchItem.objects.filter(key=STALE_FORECAST).exists()
 
 
-def test_in_january_while_in_use_last_years_forecast_items_close_as_the_year_ended(site_today):
+def test_in_january_the_forecast_job_skips_and_no_item_opens(site_today):
     """spec_state-6: 2026 records up to December keep ActivityInfo in use in January (the December import);
-    the weekly job skips (no 2027 ActivityInfo year), the table still holds 2026. Last year's item closes at
-    once as changed, "2026 has ended", instead of lingering until it is counted gone."""
-    database = _database(_year("2026", current=True), ("2026-11", "2026-12"))
-    master = _forecasts(database)
-    key = concerns.forecast_item_key(2026, master.pk)
-    watch(concerns.FORECAST_SHORT)
-    assert state_of(concerns.FORECAST_ID) == {key: "open"}
+    the weekly job skips (no 2027 ActivityInfo year), the table still holds 2026, and nothing is followed."""
+    _forecasts(_database(_year("2026", current=True), ("2026-11", "2026-12")))
     site_today.set(datetime.date(2027, 1, 5))
     activityinfo.invalidate()
     assert activityinfo.state().reason == "auto_january"
     assert forecast_run("test").details["skipped"] == "ActivityInfo is not in use in 2027"
     outcome = watch(concerns.FORECAST_SHORT, day=datetime.date(2027, 1, 5))
-    assert outcome.closed == [key] and outcome.new == []
-    found = item(key)
-    assert (found.close_reason, found.close_kind) == (
-        "2026 has ended: its forecasts are no longer followed",
-        WatchItem.CloseKind.CHANGED,
-    )
+    assert outcome.new == [] and state_of(concerns.FORECAST_ID) == {}
 
 
 # ---------------------------------------------------------------------------- the yearly rollover (§6.1)
@@ -461,14 +395,6 @@ DEC_15, JAN_2, JAN_15, JAN_16 = (
     datetime.date(2027, 1, 2),
     datetime.date(2027, 1, 15),
     datetime.date(2027, 1, 16),
-)
-ROLLOVER_DETAIL = (
-    "NeuroDB's pages move to 2027 by themselves on 1 January. The ActivityInfo import brings in the December "
-    "2026 results until 22 January, so keep the 2026 reporting year ticked current until then. If partners "
-    "still report in ActivityInfo in 2027, then create the 2027 reporting year, tick it current and add its "
-    "databases (yearly rollover steps in the operations guide). If not, switch off its import in Scheduled "
-    "jobs after 22 January; ActivityInfo then becomes an archive by itself (or set it to Archived in the "
-    "admin: ActivityInfo: in use or archive)."
 )
 # Administrators have no shell and cannot add a year's population file in the app, so the text says who
 # takes that step (R2 sweep-4: text changed on purpose).
@@ -489,38 +415,16 @@ def population(year: int) -> PopulationFigure:
     )
 
 
-def test_the_activityinfo_rollover_item_says_what_to_do_and_where():
-    world("in_use")
-    watch(ROLLOVER, DEC_15)
-    assert rollover_keys() == {"rollover:2027"}
-    found = item("rollover:2027")
-    assert found.title == "ActivityInfo in 2027: set it up, or set it to Archived"
-    assert found.detail == ROLLOVER_DETAIL
-    assert found.url == reverse("admin:core_activityinfosetting_changelist")  # the setting's page
-    assert (found.scope, found.severity) == ("admins", "info") and redact.refused(found) == redact.ADMINS_ONLY
-    assert [r["label"] for r in found.evidence["records"]] == [
-        "ActivityInfo setting",
-        "ActivityInfo import",
-        "Databases for 2027",
-    ]
-    assert "Reporting years" not in found.detail
-
-
-def test_set_in_use_the_rollover_item_is_raised_whatever_the_import_and_the_records():
-    _mode(ActivityInfoSetting.Mode.IN_USE)
-    _schedule(False)
-    watch(ROLLOVER, DEC_15)
-    assert rollover_keys() == {"rollover:2027"}
-    assert [r["value"] for r in item("rollover:2027").evidence["records"]] == [
-        "In use",
-        "switched off",
-        "none yet",
-    ]
-
-
-@pytest.mark.parametrize("scenario", ["archived", "S4b", "no_2026_records", "2027_databases"])
-def test_no_activityinfo_rollover_item_then_the_population_item_instead(scenario):
-    if scenario == "no_2026_records":
+@pytest.mark.parametrize(
+    "scenario", ["in_use", "set_in_use", "archived", "S4b", "no_2026_records", "2027_databases"]
+)
+def test_never_an_activityinfo_rollover_item_the_population_item_instead(scenario):
+    """In use, set In use with its import switched off, archived, or set up ahead: the rollover asks for the
+    population figures alone (ActivityInfo, an archive, is no longer set up from For you)."""
+    if scenario == "set_in_use":
+        _mode(ActivityInfoSetting.Mode.IN_USE)
+        _schedule(False)
+    elif scenario == "no_2026_records":
         _database(_year("2025", current=True), ("2025-11",))  # the import is on over 2025 only
     elif scenario == "2027_databases":
         world("in_use")
@@ -562,25 +466,3 @@ def test_the_population_item_ends_missed_on_16_january():
         found.close_reason == "the rollover period ended on 15 Jan 2027 without population figures for 2027"
     )
     assert found.close_kind == WatchItem.CloseKind.MISSED
-
-
-def test_the_rollover_closes_when_activityinfo_is_set_to_archived_and_the_population_item_follows():
-    world("in_use")
-    watch(ROLLOVER, DEC_15)
-    _mode(ActivityInfoSetting.Mode.ARCHIVED)
-    watch(ROLLOVER, DEC_15 + DAY)
-    assert (item("rollover:2027").state, item("rollover:2027").close_reason) == (
-        "closed",
-        "ActivityInfo was set to Archived",
-    )
-    assert item("rollover:2027:population").state == "open"  # archiving never drops the population reminder
-
-
-def test_the_rollover_closes_when_the_import_is_switched_off():
-    world("in_use")
-    watch(ROLLOVER, JAN_2)
-    job = ScheduledJob.objects.get(command="ai_data")
-    job.enabled = False
-    job.save()
-    watch(ROLLOVER, JAN_2 + DAY, mode=QUICK)
-    assert item("rollover:2027").close_reason == "the ActivityInfo import was switched off"

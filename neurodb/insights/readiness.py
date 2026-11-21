@@ -4,7 +4,9 @@ people recorded) and says, for each programme decision a model could support, wh
 ready, partly ready or not yet, and why.
 
 Everything here is counted in the database; nothing leaves NeuroDB and nothing is predicted. The
-thresholds are written below so the verdicts can be discussed and changed.
+thresholds are written below so the verdicts can be discussed and changed. ActivityInfo is not measured:
+it is an archive of past monthly results, no longer a source. A check stored before (with its ActivityInfo
+sources and the verdicts that rested on them) is shown without them (:func:`shown`).
 """
 
 from __future__ import annotations
@@ -12,28 +14,16 @@ from __future__ import annotations
 import datetime
 import logging
 import re
-import statistics
-from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from django.db.models import Count, Max, Min, Q
-from django.db.models.functions import Substr
+from django.db.models import Count, Max, Min
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------------------- thresholds
-YEARS_FOR_FORECAST = 2  # complete years of monthly reports to learn each indicator's pattern
-MONTHS_FOR_PATTERNS = 18
-CONTINUITY = 0.60  # share of a year's master indicators found again the year before
-TARGETS = 0.70  # share of master indicators with a target
-COMPLETENESS = 0.70  # share of the months a partner reported in, between its first and last month
-GOVERNORATE_CODED = 0.90
-DISTRICT_CODED = 0.70
-PLACES_MATCHED = 0.90  # governorates written as NeuroDB knows them
-PARTNER_LINKED = 0.70  # ActivityInfo records whose partner is linked to an eTools partner
 PD_LOCATIONS = 0.50
 POPULATION_AGE_YEARS = 3
 REPORTS_WITH_DATES = 30  # eTools progress reports with a due and a submission date
@@ -75,179 +65,14 @@ def _share(part: int, whole: int) -> float | None:
     return round(part / whole, 3) if whole else None
 
 
-def _months_between(first: str, last: str) -> int | None:
-    try:
-        a, b = (datetime.date.fromisoformat(f"{m[:7]}-01") for m in (first, last))
-    except (TypeError, ValueError):
-        return None
-    return (b.year - a.year) * 12 + b.month - a.month + 1
-
-
 def _norm(text: str | None) -> str:
     return " ".join(re.sub(r"[^\w]+", " ", (text or "").lower()).split())
 
 
 # ---------------------------------------------------------------------------------- sources
-def activityinfo(s: Section, today: datetime.date) -> None:
-    from neurodb.facts.models import ActivityReportNew as A
-    from neurodb.geo.models import GovernorateLocation
-
-    total = A.objects.count()
-    s.add("reports", "Activity reports", total)
-    if not total:
-        return
-    # the month of a report is in month_name ("2025-03-01"), as everywhere else in NeuroDB
-    dated = A.objects.filter(month_name__regex=r"^[0-9]{4}-[0-9]{2}").annotate(ym=Substr("month_name", 1, 7))
-    s.add("dated", "Reports with a month", _share(dated.count(), total))
-    by_year = list(
-        dated.annotate(y=Substr("month_name", 1, 4))
-        .values("y")
-        .annotate(n=Count("id"), months=Count("ym", distinct=True))
-        .order_by("y")
-    )
-    full_years = [r for r in by_year if r["months"] >= 10]
-    s.add(
-        "years",
-        "Years with reports",
-        len(by_year),
-        note=", ".join(f"{r['y']}: {r['months']} months" for r in by_year),
-    )
-    s.add("full_years", "Years with at least 10 months reported", len(full_years))
-    s.add("months", "Months with reports, all years", dated.values("ym").distinct().count())
-
-    pairs = list(
-        dated.values("dbase_id", "partner_label").annotate(
-            months=Count("ym", distinct=True), first=Min("ym"), last=Max("ym")
-        )
-    )
-    reported = sum(p["months"] for p in pairs)
-    expected = sum(_months_between(p["first"], p["last"]) or p["months"] for p in pairs)
-    s.add(
-        "completeness",
-        "Months reported, between a partner's first and last month",
-        _share(reported, expected),
-        note="per partner and database; a missing month is not a zero",
-    )
-    s.add("zeros", "Values that are 0", _share(A.objects.filter(indicator_value=0).count(), total))
-    s.add("blank", "Values that are empty", _share(A.objects.filter(indicator_value=None).count(), total))
-
-    gov = A.objects.exclude(
-        Q(location_adminlevel_governorate=None) | Q(location_adminlevel_governorate="")
-    ).count()
-    dist = A.objects.exclude(
-        Q(location_adminlevel_caza_code=None) | Q(location_adminlevel_caza_code="")
-    ).count()
-    cad = A.objects.exclude(
-        Q(location_adminlevel_cadastral_area_code=None) | Q(location_adminlevel_cadastral_area_code="")
-    ).count()
-    s.add("governorate_coded", "Reports with a governorate", _share(gov, total))
-    s.add("district_coded", "Reports with a district (caza) code", _share(dist, total))
-    s.add("cadastral_coded", "Reports with a cadastral area code", _share(cad, total))
-    from neurodb.reports.overview import governorate_key  # the matching every page uses
-
-    known = set()
-    for name, code in GovernorateLocation.objects.values_list("name", "code"):
-        known |= {governorate_key(name), _norm(code)}
-    matched, unmatched = 0, []
-    rows = (
-        A.objects.exclude(location_adminlevel_governorate=None)
-        .exclude(location_adminlevel_governorate="")
-        .values("location_adminlevel_governorate", "location_adminlevel_governorate_code")
-        .annotate(n=Count("id"))
-    )
-    for row in rows:
-        name, code = row["location_adminlevel_governorate"], row["location_adminlevel_governorate_code"]
-        if {governorate_key(name), _norm(code)} & known:
-            matched += row["n"]
-        else:
-            unmatched.append((row["n"], name, code))
-    unmatched.sort(reverse=True)
-    s.add(
-        "governorate_matched",
-        "Governorates matching NeuroDB's (any spelling, English or French, or code)",
-        _share(matched, gov),
-        note="not matched: " + "; ".join(f"{n} ({c or 'no code'}): {k:,}" for k, n, c in unmatched[:6])
-        if unmatched
-        else "",
-    )
-
-    # how long after the month a report was last edited in ActivityInfo (late reports and corrections)
-    start = f"{today.year - 1}-01"
-    delays = []
-    for row in (
-        dated.filter(month_name__gte=start)
-        .exclude(last_edited_time=None)
-        .values("report_id")
-        .annotate(month=Max("ym"), edited=Max("last_edited_time"))[:200_000]
-    ):
-        try:
-            first_day = datetime.date.fromisoformat(f"{(row['month'] or '')[:7]}-01")
-        except ValueError:
-            continue
-        month_end = (first_day + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
-        delays.append((row["edited"].date() - month_end).days)
-    if delays:
-        s.add(
-            "edit_delay",
-            "Median days from the end of the month to the last edit",
-            int(statistics.median(delays)),
-            note="since last year; includes later corrections",
-        )
-        s.add(
-            "edited_within_30",
-            "Reports last edited within 30 days of the month",
-            _share(sum(d <= 30 for d in delays), len(delays)),
-        )
-
-
-def indicators(s: Section, today: datetime.date) -> None:
-    from neurodb.indicators.models import MasterIndicator
-
-    masters = list(
-        MasterIndicator.objects.filter(is_active=True)
-        .exclude(database__reporting_year__year=None)
-        .values(
-            "pk", "name", "awp_code", "awp_target", "database__reporting_year__year", "database__section_id"
-        )
-    )
-    s.add("masters", "Active master indicators, all years", len(masters))
-    if not masters:
-        return
-    years = sorted({str(m["database__reporting_year__year"]) for m in masters})
-    by_year: dict[str, list[dict]] = defaultdict(list)
-    for m in masters:
-        by_year[str(m["database__reporting_year__year"])].append(m)
-    latest = years[-1]
-    with_target = sum(1 for m in by_year[latest] if (m["awp_target"] or 0) > 0)
-    s.add(
-        "targets", f"Master indicators of {latest} with a target", _share(with_target, len(by_year[latest]))
-    )
-
-    def keys(m: dict) -> set[tuple]:
-        out = {("name", m["database__section_id"], _norm(m["name"]))}
-        if (m["awp_code"] or "").strip():
-            out.add(("code", m["database__section_id"], _norm(m["awp_code"])))
-        return out
-
-    continuity = []
-    for previous, year in zip(years, years[1:], strict=False):
-        known = set().union(*(keys(m) for m in by_year[previous]))
-        found = sum(1 for m in by_year[year] if keys(m) & known)
-        continuity.append((year, _share(found, len(by_year[year]))))
-    if continuity:
-        year, share = continuity[-1]
-        s.add(
-            "continuity",
-            f"Master indicators of {year} found again the year before",
-            share,
-            note="same section and the same AWP code or name; "
-            + ", ".join(f"{y}: {_show(v)}" for y, v in continuity),
-        )
-
-
 def etools(s: Section, today: datetime.date) -> None:
     from neurodb.datamart.models import PDIndicator, ReportedIndicator
-    from neurodb.partnerships.models import PCA, PartnerLink
+    from neurodb.partnerships.models import PCA
 
     running = PCA.objects.filter(status__in=("active", "signed", "ended", "closed", "suspended"))
     n = running.count()
@@ -307,22 +132,6 @@ def etools(s: Section, today: datetime.date) -> None:
             future,
             note="eTools creates the reporting periods of a PD in advance",
         )
-    links = PartnerLink.objects.aggregate(
-        all=Count("id"), linked=Count("id", filter=Q(partner__isnull=False))
-    )
-    records = PartnerLink.objects.values_list("records", "partner_id")
-    total_records = sum(r or 0 for r, _ in records)
-    linked_records = sum(r or 0 for r, p in records if p)
-    s.add(
-        "partner_labels_linked",
-        "ActivityInfo partner names linked to an eTools partner",
-        _share(links["linked"], links["all"]),
-    )
-    s.add(
-        "partner_records_linked",
-        "ActivityInfo records whose partner is linked",
-        _share(linked_records, total_records),
-    )
 
 
 def assurance(s: Section, today: datetime.date) -> None:
@@ -405,8 +214,6 @@ def context(s: Section, today: datetime.date) -> None:
 
 
 SOURCES: list[tuple[str, str, Callable[[Section, datetime.date], None]]] = [
-    ("activityinfo", "ActivityInfo monthly reports", activityinfo),
-    ("indicators", "Master indicators across years", indicators),
     ("etools", "eTools programme documents and partner reporting", etools),
     ("assurance", "Assurance and field monitoring", assurance),
     ("review", "Daily review and what people did with it", review),
@@ -460,26 +267,7 @@ def verdicts(m: dict[str, Any]) -> list[Verdict]:
     except ValueError:
         population_age = None
 
-    falling = [
-        _check(get("activityinfo.full_years"), YEARS_FOR_FORECAST, "Years with monthly reports"),
-        _check(get("indicators.continuity"), CONTINUITY, "Indicators found again the year before"),
-        _check(get("indicators.targets"), TARGETS, "Indicators with a target"),
-        _check(get("activityinfo.completeness"), COMPLETENESS, "Months reported by partners"),
-    ]
-    patterns = [
-        _check(get("activityinfo.months"), MONTHS_FOR_PATTERNS, "Months of reports"),
-        _check(get("activityinfo.governorate_coded"), GOVERNORATE_CODED, "Reports with a governorate"),
-        _check(get("activityinfo.district_coded"), DISTRICT_CODED, "Reports with a district"),
-        _check(get("activityinfo.completeness"), COMPLETENESS, "Months reported by partners"),
-    ]
     coverage = [
-        _check(get("activityinfo.governorate_matched"), PLACES_MATCHED, "Governorates matching NeuroDB's"),
-        _check(get("activityinfo.district_coded"), DISTRICT_CODED, "Reports with a district"),
-        _check(
-            get("etools.partner_records_linked"),
-            PARTNER_LINKED,
-            "ActivityInfo records linked to eTools partners",
-        ),
         _check(get("etools.pd_locations"), PD_LOCATIONS, "PDs with locations"),
         Check(
             None if population_age is None else population_age <= POPULATION_AGE_YEARS,
@@ -499,20 +287,6 @@ def verdicts(m: dict[str, Any]) -> list[Verdict]:
         _check(outcomes, OUTCOMES, "Findings people resolved or took on (examples to learn from)"),
     ]
     return [
-        Verdict(
-            "falling_behind",
-            "Which indicators or activities may be falling behind their targets?",
-            "Year-end forecast per indicator from its own monthly pattern",
-            _status(falling, must=1),
-            falling,
-        ),
-        Verdict(
-            "patterns",
-            "What patterns appear across locations, partners and reporting periods?",
-            "Unusual reports and similar profiles, explained",
-            _status(patterns, must=1),
-            patterns,
-        ),
         Verdict(
             "coverage",
             "Where do several partners work on related activities, and where are the gaps?",
@@ -546,5 +320,33 @@ def measure(today: datetime.date | None = None) -> dict[str, Any]:
     return {
         "measured_at": timezone.now().isoformat(),
         "sections": [asdict(s) for s in sections],
+        "verdicts": [asdict(v) | {"status_label": STATUS_LABELS[v.status]} for v in found],
+    }
+
+
+# What a check stored before ActivityInfo became an archive held of it: its sources, and the measures of the
+# partner links made from its records. Left out when the check is shown (:func:`shown`).
+ARCHIVE_SECTIONS = frozenset({"activityinfo", "indicators"})
+ARCHIVE_METRICS = frozenset({"etools.partner_labels_linked", "etools.partner_records_linked"})
+
+
+def shown(result: dict[str, Any] | None) -> dict[str, Any] | None:
+    """A stored check (``SyncRun.details["readiness"]``) as Data health shows it: without the ActivityInfo
+    archive's sources and measures, its verdicts worked out again from the measures left (so none rests on
+    them)."""
+    if not result:
+        return result
+    sections, flat = [], {}
+    for section in result.get("sections") or []:
+        key = section.get("key")
+        if key in ARCHIVE_SECTIONS:
+            continue
+        metrics = [m for m in section.get("metrics") or [] if f"{key}.{m.get('key')}" not in ARCHIVE_METRICS]
+        sections.append({**section, "metrics": metrics})
+        flat.update({f"{key}.{m.get('key')}": m.get("value") for m in metrics})
+    found = verdicts(flat)
+    return {
+        **result,
+        "sections": sections,
         "verdicts": [asdict(v) | {"status_label": STATUS_LABELS[v.status]} for v in found],
     }

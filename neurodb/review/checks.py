@@ -32,7 +32,7 @@ from neurodb.datamart import reached as rc
 from neurodb.datamart.catalogue import DIAGNOSTIC
 from neurodb.datamart.monitoring import ACTIVE_PD_STATUSES, NOT_REPORTED, Filters, Indicator
 from neurodb.indicators.services.tracking import OFF_TRACK, ON_TRACK, OVER_TARGET, percentage_elapsed
-from neurodb.partnerships.models import PCA, PartnerLink
+from neurodb.partnerships.models import PCA
 
 from .models import DailyReview, ReviewFinding
 
@@ -54,7 +54,14 @@ UNDER_DISBURSED_ELAPSED = 60
 UNDER_DISBURSED_PERCENT = 40
 FINDINGS_WINDOW_DAYS = 30
 SYNC_WINDOW_HOURS = 24
-AI_DATA_LAST_DAY = 22  # the ai-data job's schedule: days 1-22 of the month (infra/main.bicep)
+# The ActivityInfo archive's jobs (its imports, the partner links made from them) and the year-end forecasts
+# made from it: the administration lists their runs; the review raises nothing about them
+ARCHIVE_JOBS = (
+    SyncRun.Job.ACTIVITYINFO_STRUCTURE,
+    SyncRun.Job.ACTIVITYINFO_DATA,
+    SyncRun.Job.PARTNER_LINKS,
+    SyncRun.Job.FORECAST,
+)
 MAX_PER_CHECK = 200  # a bound, not a display limit: a finding past it would read as resolved the next day
 TPM_OPEN_STATUSES = ("assigned", "tpm_accepted")
 TPM_STATUS_WORDS = {"assigned": "assigned to the TPM partner", "tpm_accepted": "accepted by the TPM partner"}
@@ -686,20 +693,19 @@ def check_findings_off_track(ctx: Context) -> list[Draft]:
 
 
 def check_sync_failures(ctx: Context) -> list[Draft]:
-    """Sync runs that failed or wrote with errors in the last 24 hours, per job. The ActivityInfo imports
-    count only while their import is followed (:func:`neurodb.indicators.services.activityinfo.watched`):
-    an archive's import is nobody's alarm; a run of the eTools reporting checks only when it failed (a
+    """Sync runs that failed or wrote with errors in the last 24 hours, per job. Never the ActivityInfo
+    archive's jobs (:data:`ARCHIVE_JOBS`: its imports, partner links and year-end forecasts are nobody's
+    alarm, the administration lists their runs); a run of the eTools reporting checks only when it failed (a
     check that could not finish is said on their page); never a probe of the eTools Datamart. The diagnostic
     eTools Datamart datasets (``catalogue.DIAGNOSTIC``, used by no page, figure or check) are left out: Data
     health shows them."""
-    from neurodb.indicators.services import activityinfo
-
     since = timezone.now() - datetime.timedelta(hours=SYNC_WINDOW_HOURS)
     runs = (
         SyncRun.objects.filter(
             status__in=(SyncRun.Status.FAILED, SyncRun.Status.PARTIAL), started_at__gte=since
         )
         .exclude(job=SyncRun.Job.DAILY_REVIEW)
+        .exclude(job__in=ARCHIVE_JOBS)
         # a reporting check that could not finish is said on its page; the run's own failure still counts
         .exclude(job__in=PARTIAL_IS_NOT_AN_ALARM, status=SyncRun.Status.PARTIAL)
         # a probe of the eTools Datamart started by hand: its run says what it found, never an alarm
@@ -708,8 +714,6 @@ def check_sync_failures(ctx: Context) -> list[Draft]:
         .exclude(job=SyncRun.Job.ETOOLS_DATAMART, target__in=DIAGNOSTIC)
         .order_by("-started_at")
     )
-    if not activityinfo.watched():
-        runs = runs.exclude(job__in=activityinfo.AI_JOBS)
     groups: dict[str, list[SyncRun]] = defaultdict(list)
     for run in runs:
         groups[run.job].append(run)
@@ -745,10 +749,7 @@ def check_sync_failures(ctx: Context) -> list[Draft]:
 
 
 def check_data_quality(ctx: Context) -> list[Draft]:
-    """Datasets whose last sync failed to write rows, and ActivityInfo partner names still unlinked (only
-    while ActivityInfo is in use: the names of an archive are history, not a task)."""
-    from neurodb.indicators.services import activityinfo
-
+    """Datasets whose last sync failed to write rows."""
     drafts = []
     failing = [
         row
@@ -775,30 +776,6 @@ def check_data_quality(ctx: Context) -> list[Draft]:
                     rows_failed=sum(row["run"].rows_failed for row in failing),
                 ),
                 url=link("reports:data_health"),
-            )
-        )
-    unlinked = PartnerLink.objects.filter(partner=None, records__gt=0).count() if activityinfo.in_use() else 0
-    if unlinked:
-        drafts.append(
-            Draft(
-                key="data_quality:partner_links",
-                check="data_quality",
-                severity=INFO,
-                section="",
-                title=(
-                    f"{unlinked} ActivityInfo partner {plural(unlinked, 'name')} "
-                    "not linked to an eTools partner"
-                ),
-                detail=(
-                    "Their activity records cannot be shown next to the partner's eTools data until the "
-                    "name is linked in the admin."
-                ),
-                evidence=_evidence(
-                    "Admin, Partnerships, ActivityInfo partner links: pick the eTools partner for each name.",
-                    [],
-                    unlinked=unlinked,
-                ),
-                url=link("admin:etools_partnerlink_changelist"),
             )
         )
     return drafts
@@ -840,16 +817,14 @@ def check_locations_unplaced(ctx: Context) -> list[Draft]:
 
 def check_stale_sources(ctx: Context) -> list[Draft]:
     """Scheduled jobs whose last success is older than SYNC_STALENESS_HOURS: the hourly freshness check's
-    jobs (the ActivityInfo data import only while its import is followed)."""
+    jobs, never the ActivityInfo archive's (:data:`ARCHIVE_JOBS`)."""
     from neurodb.integrations.management.commands.check_sync_freshness import scheduled_jobs
 
     jobs = scheduled_jobs()
     drafts = []
     for job in ctx.health.get("jobs", []):
-        if job["job"] not in jobs or job["state"] != "stale":
+        if job["job"] not in jobs or job["state"] != "stale" or job["job"] in ARCHIVE_JOBS:
             continue
-        if job["job"] == SyncRun.Job.ACTIVITYINFO_DATA and ctx.today.day > AI_DATA_LAST_DAY:
-            continue  # the ActivityInfo import only runs on days 1 to 22: expected, not stale
         age = job.get("age_hours")
         drafts.append(
             Draft(

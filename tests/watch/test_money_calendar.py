@@ -1,7 +1,7 @@
 """NeuroDB Watch's money, assurance and calendar checks: grants and funds reservations ending with money
 left, HACT assurance still to do in the last quarter, agreed dates on daily review findings, donor
-accounts ending and the yearly rollover (ActivityInfo to set up or archive, or the new year's population
-figures: tests/indicators/test_activityinfo_alarms.py has the rest)."""
+accounts ending and the yearly rollover (the new year's population figures; ActivityInfo, an archive, is no
+longer set up from it: tests/indicators/test_activityinfo_alarms.py has the rest)."""
 
 import datetime
 import itertools
@@ -717,40 +717,27 @@ def activityinfo_year(name: str, months=("2026-11",), current: bool = True) -> R
     return year
 
 
-def test_the_rollover_is_raised_from_15_december_to_15_january_for_administrators(db):
-    activityinfo_year("2026")  # ActivityInfo used in 2026, its import switched on (as seeded)
+def test_the_rollover_asks_for_the_population_figures_whatever_activityinfo(db):
+    """ActivityInfo used in 2026, its import switched on (as seeded): from 15 December the rollover asks for the
+    new year's population figures alone. ActivityInfo, an archive of past monthly results, is no longer set up
+    from For you (the owner's rule, November 2026)."""
+    activityinfo_year("2026")
     run(datetime.date(2026, 12, 14), CALENDAR)
     assert keys("reporting_year_rollover") == set()
     run(datetime.date(2026, 12, 15), CALENDAR)
-    assert keys("reporting_year_rollover") == {"rollover:2027"}  # the population item gives way to it
-    found = item("rollover:2027")
-    assert found.title == "ActivityInfo in 2027: set it up, or set it to Archived"
-    assert (found.severity, found.scope, found.due_date) == ("info", "admins", datetime.date(2027, 1, 1))
-    assert [r["value"] for r in found.evidence["records"]] == ["Automatic", "switched on", "none yet"]
-    assert redact.refused(found) == redact.ADMINS_ONLY
-    run(datetime.date(2027, 1, 2), CALENDAR)
-    assert item("rollover:2027").severity == WatchItem.Severity.WARNING
-    ReportingYear.objects.update(current=False)
-    activityinfo_year("2027", months=())  # its databases, waiting for their first records
-    run(datetime.date(2027, 1, 3), CALENDAR, mode=QUICK)
-    found = item("rollover:2027")
-    assert (found.state, found.close_reason) == ("closed", "ActivityInfo databases for 2027 were added")
-
-
-def test_the_rollover_closes_after_15_january_saying_activityinfo_stays_archived(db):
-    activityinfo_year("2026")
-    ReportingYear.objects.create(name="2027", year="2027", current=False)  # created, with no database
-    run(datetime.date(2027, 1, 15), CALENDAR)
-    assert item("rollover:2027").evidence["records"][2] == {
-        "label": "Databases for 2027",
-        "date": "",
-        "value": "none yet",
-        "url": reverse("admin:pivoting_database_changelist"),
-    }
-    run(datetime.date(2027, 1, 16), CALENDAR)
-    found = item("rollover:2027")
-    assert found.close_reason == (
-        "the rollover period ended; ActivityInfo stays archived for 2027 until its databases have records"
-    )
-    assert found.close_kind == WatchItem.CloseKind.MISSED
+    assert keys("reporting_year_rollover") == {"rollover:2027:population"}
+    assert "ActivityInfo" not in item("rollover:2027:population").title
     assert calendar.rollover_year(datetime.date(2026, 6, 1)) is None
+
+
+def test_an_activityinfo_rollover_item_raised_before_closes_as_no_longer_followed(db):
+    activityinfo_year("2026")
+    on = datetime.date(2026, 12, 15)
+    WatchItem.objects.create(
+        key="rollover:2027", detector="reporting_year_rollover", kind=WatchItem.Kind.DEADLINE,
+        severity=WatchItem.Severity.INFO, title="ActivityInfo in 2027: set it up, or set it to Archived",
+        scope=WatchItem.Scope.ADMINS, first_seen_on=on, last_seen_on=on, changed_on=on,
+    )  # fmt: skip
+    run(datetime.date(2026, 12, 16), CALENDAR)
+    found = item("rollover:2027")
+    assert found.state == WatchItem.State.CLOSED and found.close_reason == calendar.NO_LONGER_FOLLOWED

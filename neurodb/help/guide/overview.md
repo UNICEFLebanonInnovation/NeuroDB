@@ -3,9 +3,8 @@
 NeuroDB brings together the programme monitoring data of the UNICEF Lebanon country office: eTools
 (partners, programme documents, funds, assurance, field monitoring and action points), the country
 programme, the Compiler figures of Makani, Dirasa and the youth programmes, population figures, a
-library of studies and maps, the documents people add, and the ActivityInfo archive: the monthly
-results partners reported there in past years. Every page reads NeuroDB's own copy of these sources, refreshed on a
-schedule (see [When the data is refreshed](/help/overview/#when-the-data-is-refreshed)).
+library of studies and maps, and the documents people add. Every page reads NeuroDB's own copy of these
+sources, refreshed on a schedule (see [When the data is refreshed](/help/overview/#when-the-data-is-refreshed)).
 
 This guide explains how NeuroDB works: what a page shows, where a number comes from, what a rule
 checks. Questions about the programme data themselves ("how many visits were off track in Akkar?")
@@ -15,12 +14,13 @@ are answered by [Ask NeuroDB](/ask/) and, for the visits of a filter, by Chat wi
 ## The top bar
 
 - **Search** (Ctrl K, or the slash key): finds pages, partners, programme documents, country programme
-  indicators, the documents of the Documents page and the ActivityInfo archive of every year (its
-  databases, Neuro and HPM reports and indicators, each with its year). It does not look into the KM Database, which is
-  kept apart (its page is found under Pages). When Ask NeuroDB is switched on, the search box also offers
+  indicators, the documents of the Documents page and the archive of past monthly results (its
+  databases, reports and indicators of every year, each with its year, marked as the archive: see [Past
+  monthly results](/help/overview/#past-monthly-results)). It does not look
+  into the KM Database, which is kept apart (its page is found under Pages). When Ask NeuroDB is switched on, the search box also offers
   to ask your words as a question; nothing is sent until you press Ask.
-- **Year menu**: the calendar year the page shows, on pages that show one year; ActivityInfo pages list
-  ActivityInfo years; pages with a period of their own keep their own choice.
+- **Year menu**: the calendar year the page shows, on pages that show one year; the archive's pages list
+  its years; pages with a period of their own keep their own choice.
 - The **NeuroDB logo** opens the page NeuroDB starts on: Ask NeuroDB while the AI is on, else Home.
 - **Dark mode** switch, and your **user menu** (your role and section, Data health, sign out;
   Administration for administrators).
@@ -47,12 +47,12 @@ field monitoring:
 
 Superusers see the full menu below, and choose in the administration's *Menu* page what each role sees:
 any page of the full menu can be added to a role's sidebar there. A page left out of your menu still opens
-from the search, from links and from bookmarks: only the menu is shorter. Find a Neuro or HPM report by
-its name in the search, and the Help pages from the **?** button (*Help pages*).
+from the search, from links and from bookmarks: only the menu is shorter. Find a page by its name in the
+search, and the Help pages from the **?** button (*Help pages*).
 
 ### The full menu
 
-The full menu puts the pages of every day first and the ActivityInfo history last. It is the same for
+The full menu puts the pages of every day first and the archive last. It is the same for
 every section:
 
 - At the top, without a title: **Ask NeuroDB** (marked AI), questions in plain language answered from the
@@ -78,17 +78,39 @@ every section:
   **Document review** (marked AI, once it is on), **Library**, **KM Database** ([KM
   Database](/help/km-database/)), **Maps**, **Population** and **Data health**
   ([Documents](/help/knowledge-and-documents/)).
-- At the bottom, ActivityInfo: **Monthly results (ActivityInfo)** while ActivityInfo is in use, open by
-  default; **ActivityInfo archive**, with the years it holds, once it is no longer used, closed until you
-  open it ([ActivityInfo: in use or archive](/help/home/#activityinfo-in-use-or-archive)). Inside:
-  *ActivityInfo databases*, *Year-end forecasts* (once some were made), one row per ActivityInfo year,
-  and the year's databases, Neuro reports and HPM reports. NeuroDB remembers whether you left it open or
-  closed.
+- At the bottom, the archive of past monthly results, closed until you open it ([Past monthly
+  results](/help/overview/#past-monthly-results)). NeuroDB remembers whether you left it open or closed.
 - **Help**: this guide.
 
 A page that is not set up yet (the country programme, the Compiler pages, the document review) is left
 out of the sidebar; administrators who can open the administration see it greyed, marked *Set up*,
 and its page says how to set it up. A role whose menu has such a page added follows the same rule.
+
+## Past monthly results
+
+Partners reported their monthly results in ActivityInfo in past years; they now report progress in eTools,
+and NeuroDB no longer uses ActivityInfo. Its records are kept as they were, in an archive at the bottom of
+the full menu: **ActivityInfo archive**, with the years it holds (*Monthly results (ActivityInfo)*, open by
+default, while an administrator keeps it in use). Inside:
+
+- *ActivityInfo databases*: the databases of a year, each with its dashboard, analytical view, snapshot
+  and map, its master indicators and their targets;
+- one row per year, and that year's databases, Neuro reports and HPM reports (where section editors
+  wrote their comments);
+- *Year-end forecasts* (once some were made): where each master indicator was likely to stand in
+  December, made every week while ActivityInfo was in use; the last ones stay, marked as no longer
+  updated.
+
+A partner's ActivityInfo records still open from their own address (a bookmark or an Ask NeuroDB answer),
+and the search finds the archive's databases, reports and indicators, marked *ActivityInfo archive*. No
+other page shows ActivityInfo or its figures: children reached, the management brief, Home, the donor
+pages and the country programme count eTools partner reports alone. Ask NeuroDB answers from the archive
+only when you ask about it.
+
+**Who decides.** An administrator sets it on the administration page **ActivityInfo: in use or archive**
+(under Reporting setup): *Archived*, *In use*, or *Automatic* (in use while its import is switched on in
+Scheduled jobs and this year has records from the last three months). It changes only the archive's label
+and whether its import's failures are listed for administrators; nothing is deleted.
 
 ## Links open in a quick view
 
@@ -171,7 +193,6 @@ pages in this guide, and not the Help assistant.
 
 | Source | What NeuroDB reads |
 |---|---|
-| ActivityInfo | The databases of each reporting year: forms, master indicators, targets and the partners' monthly activity reports; an archive once no longer used: every page of past years stays open ([ActivityInfo: in use or archive](/help/home/#activityinfo-in-use-or-archive)). |
 | eTools Datamart | Partners, programme documents, funds reservations and grants, PD indicators and the partners' progress reports, HACT assurance (assessments, audits, spot checks), TPM visits, field monitoring (the findings of each visit, the checklist answers, the programme activities) and action points. |
 | eTools locations | The gazetteer: governorates, districts and cadasters with their P-codes. |
 | Compiler | Makani and Dirasa figures, youth programme figures and the Makani wellbeing flags (counts only, never a child). |
@@ -258,14 +279,11 @@ schedules as they are now.
 | Knowledge hub (and new library and country programme documents) | Every day at 07:00, and after every sync |
 | What's new note | Every day at 07:30 |
 | NeuroDB Watch (For you) | Every day at 07:45, and shortly after new data arrives |
-| ActivityInfo data | 18:00 on days 1 to 22 of each month, while its import is switched on in Scheduled jobs (see [ActivityInfo: in use or archive](/help/home/#activityinfo-in-use-or-archive)) |
-| Year-end forecasts | Mondays at 07:15, while ActivityInfo is in use |
 | Compiler figures (youth, education, Makani wellbeing) | Every night, once Compiler is set up |
 
 The **Data health** page (user menu, or *Resources* in the full menu) shows when each source last synced and which
 runs failed. It opens at once (see [Pages that open at once](/help/overview/#pages-that-open-at-once)):
-the sync jobs fill in first, then the ActivityInfo databases (the archive's, once ActivityInfo is
-no longer in use) and the latest runs, then the eTools
+the sync jobs fill in first, then the latest runs, then the eTools
 datasets, each saying when the Datamart's answer was limited and how NeuroDB read it whole (or removed
 nothing), *Compared with Power BI* and the machine learning readiness check. Pages show the date of their data next to every status ("On track · reported for Jun
 2026", "status as of 3 Oct 2026").

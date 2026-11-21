@@ -7,13 +7,13 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from django.db.models import Count, Exists, IntegerField, OuterRef, Q, QuerySet, Subquery, Sum
+from django.db.models import Count, Exists, OuterRef, Q, QuerySet
 
 from neurodb.datamart.models import ReportedIndicator
 from neurodb.facts.models import ActivityReportNew
 
 from . import statuses
-from .models import PCA, Engagement, PartnerLink, PartnerOrganization, TravelActivity
+from .models import PCA, Engagement, PartnerOrganization, TravelActivity
 
 ACTIVE_STATUSES = statuses.ACTIVE  # the eTools status "active" (neurodb.partnerships.statuses)
 EXCLUDED_STATUSES = ("draft",)
@@ -210,8 +210,10 @@ def pd_detail(pd: PCA) -> dict[str, Any]:
     }
 
 
-def donor_mapping(filters: PDFilters) -> dict[str, Any]:
-    """Donor page: programmes, funds per donor, interventions, planned vs actual locations."""
+def donor_mapping(filters: PDFilters, *, activity_records: bool = True) -> dict[str, Any]:
+    """Donor page: programmes, funds per donor and planned locations; with ``activity_records`` (Ask
+    NeuroDB's donor lookup and the internal API, never the page: ActivityInfo is an archive) also the
+    ActivityInfo records reported against the programme documents and their places."""
     qs = filters.apply(PCA.objects.exclude(status__in=EXCLUDED_STATUSES))
     pds = list(
         qs.only(
@@ -245,6 +247,17 @@ def donor_mapping(filters: PDFilters) -> dict[str, Any]:
         for code in pd.location_p_codes or []:
             planned_codes[code] += 1
         programmes.append({"pd": pd, "donations": donations})
+    out = {
+        "programmes": programmes,
+        "count": len(pds),
+        "donations_total": sum(p["donations"] for p in programmes),
+        "funds_by_donor": funds_by_donor.most_common(25),
+        "funds_by_year": sorted(funds_by_year.items()),
+        "planned_locations": sum(planned_codes.values()),
+        "planned_locations_unique": len(planned_codes),
+    }
+    if not activity_records:
+        return out
     numbers = [pd.number for pd in pds if pd.number]
     prefixes = list({n.split("-")[0] for n in numbers})
     interventions = ActivityReportNew.objects.filter(project_label__in=prefixes)
@@ -256,20 +269,14 @@ def donor_mapping(filters: PDFilters) -> dict[str, Any]:
     )
     interventions_total = interventions.count()
     return {
-        "programmes": programmes,
-        "count": len(pds),
-        "donations_total": sum(p["donations"] for p in programmes),
-        "funds_by_donor": funds_by_donor.most_common(25),
-        "funds_by_year": sorted(funds_by_year.items()),
+        **out,
         "interventions_total": interventions_total,
-        "has_records": has_records(interventions_total),  # no "ActivityInfo records 0" tile
+        "has_records": has_records(interventions_total),
         "interventions_by_governorate": interventions_by_gov,
         "unique_actual_locations": interventions.exclude(location_name__isnull=True)
         .values("location_name")
         .distinct()
         .count(),
-        "planned_locations": sum(planned_codes.values()),
-        "planned_locations_unique": len(planned_codes),
     }
 
 
@@ -287,12 +294,6 @@ def partners(params) -> QuerySet[PartnerOrganization]:
         qs = qs.filter(cso_type__in=csos)
     if q:
         qs = qs.filter(Q(name__icontains=q) | Q(short_name__icontains=q) | Q(vendor_number__icontains=q))
-    activityinfo = (
-        PartnerLink.objects.filter(partner=OuterRef("pk"))
-        .values("partner")
-        .annotate(total=Sum("records"))
-        .values("total")
-    )
     return qs.annotate(
         # every non-draft PD, the same set as the partner profile's 'All documents'
         pd_count=Count(
@@ -301,7 +302,6 @@ def partners(params) -> QuerySet[PartnerOrganization]:
         active_pd_count=Count(
             "interventions", distinct=True, filter=Q(interventions__status__in=ACTIVE_STATUSES)
         ),
-        activityinfo_records=Subquery(activityinfo, output_field=IntegerField()),
         etools_reporting=Exists(ReportedIndicator.objects.filter(partner=OuterRef("pk"))),
     ).order_by("name", "id")
 

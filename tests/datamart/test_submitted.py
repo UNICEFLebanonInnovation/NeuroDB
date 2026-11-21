@@ -90,7 +90,7 @@ def overdue_everywhere(reporting_year) -> dict[str, int]:
     filters = monitoring.Filters(year=2026)
     summary = monitoring.summary(monitoring.indicators(filters, today=TODAY), filters, today=TODAY)
     only_overdue = services.partner_reporting({"overdue": "1"})
-    built = brief.build(brief.Scope(year=2026, reporting_year=reporting_year, today=TODAY), cache=False)
+    built = brief.build(brief.Scope(year=2026, today=TODAY), cache=False)
     return {
         "review": sum(d.evidence["numbers"]["reports"] for d in review),
         "monitoring summary": summary["overdue_reports"],
@@ -101,7 +101,7 @@ def overdue_everywhere(reporting_year) -> dict[str, int]:
 
 
 def _scorecard(reporting_year) -> dict:
-    built = brief.build(brief.Scope(year=2026, reporting_year=reporting_year, today=TODAY), cache=False)
+    built = brief.build(brief.Scope(year=2026, today=TODAY), cache=False)
     (row,) = built["partners"]["scorecard"]
     return row
 

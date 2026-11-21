@@ -2,11 +2,10 @@
 assurance progress, and the freshness of every source.
 
 One call to :func:`build` reads the programme document indicators once (through the partner
-monitoring service, which applies the tracking rule and attaches what partners reported), the
-ActivityInfo HPM masters that count children, the funds reservations, the TPM visits, the action
-points and the monitoring findings of the year, and shapes them for the overview page. The two
-reporting sources are kept apart: an eTools figure and an ActivityInfo figure are only added into
-one number where the page says so.
+monitoring service, which applies the tracking rule and attaches what partners reported), the funds
+reservations, the TPM visits, the action points and the monitoring findings of the year, and shapes them
+for the overview page. Children reached comes from eTools partner reporting alone: NeuroDB no longer uses
+ActivityInfo, whose figures stay in its archive (the menu's archive block and its own pages).
 
 Filters: the year, eTools section names (empty = every section) and one governorate (a gazetteer
 governorate name; empty = the country). The result is kept for two minutes per filter in the cache that
@@ -46,10 +45,7 @@ from neurodb.datamart import reached as rc
 from neurodb.datamart.children import counts_children
 from neurodb.datamart.children import overrides as children_overrides
 from neurodb.datamart.monitoring import ACTIVE_PD_STATUSES, NOT_REPORTED, Filters, Indicator
-from neurodb.facts import queries as fact_queries
-from neurodb.facts.services.dashboard import fact_filter
 from neurodb.geo.models import Location
-from neurodb.indicators.models import Database, NeuroReportMasterIndicator
 from neurodb.indicators.services.tracking import OFF_TRACK, percentage_elapsed
 from neurodb.web.templatetags.ui import half_up
 
@@ -57,13 +53,14 @@ logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 120  # a build, and the freshness strip
 OPTIONS_SECONDS = 600  # the filter bar's choices (they only change with a sync)
-CACHE_VERSION = 16  # 12: the sections and the governorate written as JSON in the build's key; 13: the data
+CACHE_VERSION = 17  # 12: the sections and the governorate written as JSON in the build's key; 13: the data
 # stamp as its fingerprint, which the parts' addresses carry (as_of); 14: the calendar year (the reporting
 # year of its ActivityInfo records, or none), the sources' months, January's "not yet", the freshness jobs in
 # its key; 15: the programme documents adding a value from January to each month (the brief's coverage guard),
 # "not yet" and "not started" for a year that has not started; 16: each programme document's reported months
-# (the brief's last month with its partner reports all in)
-FRESHNESS_JOBS = ("ai_data", "etools_datamart", "locations", "daily_review")
+# (the brief's last month with its partner reports all in); 17: eTools alone (no ActivityInfo children, no
+# reporting year in the key), the freshness strip without the ActivityInfo import
+FRESHNESS_JOBS = ("etools_datamart", "locations", "daily_review")
 NOT_YET_MONTHS = 4  # up to the end of April, a year with no eTools children yet says "Not yet", never 0
 MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 STATUSES = ("on_track", "off_track", "over_target", "no_target", NOT_REPORTED)
@@ -96,9 +93,6 @@ COST_CAVEAT = (
 @dataclass
 class Scope:
     year: int  # the calendar year
-    # the reporting year whose ActivityInfo records count for the year (activityinfo.reporting_year_for), None
-    # when the year has none
-    reporting_year: Any = None
     sections: list[str] = field(default_factory=list)
     governorate: str = ""
     today: datetime.date = field(default_factory=lambda: years.today())
@@ -139,19 +133,6 @@ def governorate_key(name: str | None) -> str:
     text = re.sub(r"\b(el|al)\b", " ", text)
     text = re.sub(r"[^a-z]", "", text)
     return _GOVERNORATE_ALIASES.get(text, text)
-
-
-def section_matches(name: str | None, code: str | None, sections: list[str]) -> bool:
-    """Whether a NeuroDB section (ActivityInfo) is one of the eTools section names selected, with the
-    matching of the partner monitoring page's default section (whole, or contained either way)."""
-    if not sections:
-        return True
-    wanted = {monitoring.norm(name or ""), monitoring.norm(code or "")} - {""}
-    for option in sections:
-        opt = monitoring.norm(option)
-        if opt in wanted or any(len(w) >= 3 and (w in opt or opt in w) for w in wanted):
-            return True
-    return False
 
 
 def _link(name: str, *args: Any, **params: Any) -> str:
@@ -232,34 +213,6 @@ def _governorates() -> list[str]:
     )
 
 
-# --------------------------------------------------------------------------------- ActivityInfo
-def children_masters(reporting_year: Any, sections: list[str], flags: Any) -> dict[int, tuple[Any, set[int]]]:
-    """``{database id: (database, master ids)}``: the additive (SUM) HPM master indicators of the
-    reporting year that count children (title rule or flag), in the databases shown on the dashboard
-    and in the selected sections. Shared by the overview and the management brief."""
-    links = (
-        NeuroReportMasterIndicator.objects.filter(report__is_hpm=True, report__ryear=reporting_year)
-        .select_related("master", "master__database", "master__database__section")
-        .exclude(master=None)
-    )
-    by_database: dict[int, tuple[Database, set[int]]] = {}
-    for link in links:
-        master = link.master
-        database = master.database
-        if database is None or not database.display:
-            continue
-        if (master.aggregation_method or "SUM").upper() != "SUM":
-            continue
-        section = database.section
-        if not section_matches(section.name if section else "", section.code if section else "", sections):
-            continue
-        label = link.label or master.name
-        if not counts_children("activityinfo", str(master.id), label, None, flags, unit=""):
-            continue
-        by_database.setdefault(database.id, (database, set()))[1].add(master.id)
-    return by_database
-
-
 # --------------------------------------------------------------------------------- build
 def latest_sync_run() -> int | None:
     """The id of the sync run that finished last (any job, any outcome). In the cache keys of the
@@ -299,9 +252,8 @@ def _cache_key(scope: Scope, stamp: str = "") -> str:
     underscore, a bar or a colon inside a name), or a crafted one would answer the real one for every user
     (compute keeps a key with spaces under its hash)."""
     sections = json.dumps(sorted(scope.sections))
-    ryear = getattr(scope.reporting_year, "pk", "")
     return (
-        f"overview:v{CACHE_VERSION}:{scope.year}:{ryear}:{sections}:{json.dumps(scope.governorate)}:"
+        f"overview:v{CACHE_VERSION}:{scope.year}:{sections}:{json.dumps(scope.governorate)}:"
         f"{scope.today}:{stamp or fingerprint()}"
     )
 
@@ -513,8 +465,7 @@ class _Builder:
         self._choose_mains()
         self.pds = {r.pd.id: r.pd for r in rows}
         self.section_of_pd = self._pd_sections()
-        activityinfo = self._activityinfo_children()
-        impact = self._impact(activityinfo)
+        impact = self._impact()
         money = self._money(impact)
         delivery = self._delivery()
         progress = self._progress()
@@ -541,47 +492,10 @@ class _Builder:
             counts[row.pd.id][row.section or "Other"] += 1
         return {pd_id: c.most_common(1)[0][0] for pd_id, c in counts.items()}
 
-    # ------------------------------------------------------------------ ActivityInfo
-    def _activityinfo_children(self) -> dict[str, Any]:
-        """ActivityInfo children reached: the additive (SUM) HPM masters of the year whose label names
-        children (or that a flag adds), by month and by governorate."""
-        out: dict[str, Any] = {
-            "total": 0.0,
-            "months": [0.0] * 12,
-            "by_governorate": defaultdict(float),
-            "names": {},
-        }
-        ryear = self.scope.reporting_year
-        if ryear is None:
-            return out
-        by_database = children_masters(ryear, self.scope.sections, self.flags)
-        for database, master_ids in by_database.values():
-            try:
-                rows = fact_queries.master_values_by_area(fact_filter(database), sorted(master_ids))
-            except Exception:  # one database's facts must not break the page
-                logger.exception("overview: ActivityInfo values of database %s failed", database.pk)
-                continue
-            for r in rows:
-                value = float(r["value"] or 0)
-                gov = r["governorate"] or ""
-                key = governorate_key(gov)
-                if self.gov_key and key != self.gov_key:
-                    continue
-                out["total"] += value
-                month = r["month_num"] or ""
-                if month.isdigit() and 1 <= int(month) <= 12:
-                    out["months"][int(month) - 1] += value
-                if key:
-                    out["by_governorate"][key] += value
-                    out["names"].setdefault(key, gov)
-        return out
-
     # ------------------------------------------------------------------ impact
-    def _impact(self, activityinfo: dict[str, Any]) -> dict[str, Any]:
-        """Children reached: per source, by month, governorate and district. The eTools figure is the
-        sum over the programme documents of each one's main indicator (never several indicators of one
-        PD); ActivityInfo's is its additive children indicators. The two are shown apart and the
-        headline is the larger, never their sum."""
+    def _impact(self) -> dict[str, Any]:
+        """Children reached, by month, governorate and district, from eTools partner reporting: the sum
+        over the programme documents of each one's main indicator (never several indicators of one PD)."""
         etools_months = [0.0] * 12
         etools_to_date = [0.0] * 12
         pds_to_date = [0] * 12  # the PDs whose main indicator has a value from January to each month
@@ -626,19 +540,13 @@ class _Builder:
                     if district:
                         by_district[(district, gov)] += place["achieved"]
         population, population_year = self._children_population()
-        keys = (
-            set(by_gov)
-            | set(activityinfo["by_governorate"])
-            | (set(population) if not self.gov_key else set())
-        )
+        keys = set(by_gov) | (set(population) if not self.gov_key else set())
         if self.gov_key:
             keys = {k for k in keys | set(population) if k == self.gov_key}
         gazetteer_names = governorate_names()
         governorates = []
         for key in keys:
-            etools = half_up(by_gov.get(key, 0))
-            ai = half_up(activityinfo["by_governorate"].get(key, 0))
-            reached = max(etools, ai)
+            reached = half_up(by_gov.get(key, 0))
             pop = population.get(key, (None, None))[1]
             if not reached and not pop:
                 continue
@@ -648,10 +556,8 @@ class _Builder:
                     "name": gazetteer_names.get(key)
                     or gov_names.get(key)
                     or population.get(key, (None, None))[0]
-                    or activityinfo["names"].get(key)
                     or key,
-                    "etools": etools,
-                    "activityinfo": ai,
+                    "etools": reached,
                     "reached": reached,
                     "population": pop,
                     "coverage": _pct(reached, pop) if pop else None,
@@ -661,23 +567,13 @@ class _Builder:
         for g, level in zip(governorates, _levels([g["reached"] for g in governorates]), strict=True):
             g["level"] = level
         etools_value = half_up(etools_total)
-        ai_value = half_up(activityinfo["total"])
-        children = max(etools_value, ai_value)
-        # Rule 1 (indicators.services.activityinfo): ActivityInfo counts only in a year with its records, and
-        # is shown only where the scope's ActivityInfo children are above zero (never "ActivityInfo 0")
-        ai_used = self.scope.reporting_year is not None and ai_value > 0
-        ai_months = [m for m, v in enumerate(activityinfo["months"], start=1) if half_up(v)]
+        children = etools_value
         etools_months_reported = [m for m, v in enumerate(etools_months, start=1) if half_up(v)]
         return {
-            # The same children are often reported in both sources: the headline is the larger one.
             "children_reached": children,
             "children_etools": etools_value,
-            "children_activityinfo": ai_value,
-            "activityinfo_used": ai_used,
-            # the months each source covers (1-12; 0: none): "eTools (Jan–Sep) · ActivityInfo (Jan–Aug)"
+            # the last month eTools covers (1-12; 0: none): "From eTools partner progress reports (Jan–Sep)"
             "etools_last_month": max(etools_months_reported, default=0),
-            "activityinfo_first_month": min(ai_months, default=0) if ai_used else 0,
-            "activityinfo_last_month": max(ai_months, default=0) if ai_used else 0,
             # January to April of this year with no children yet: "Not yet", never a 0 (the first partner
             # reports come after the first quarter); the key holds today, so it ends by itself. A year that
             # has not started (a typed ``?year=`` of next year) is "Not yet" too, as on the brief
@@ -719,7 +615,6 @@ class _Builder:
                 # how many programme documents add a value from January to each month: the brief compares
                 # last year's coverage with this year's over the same months (its guard against a pilot year)
                 "etools_pds_to_date": pds_to_date,
-                "activityinfo": [half_up(v) for v in activityinfo["months"]],
             },
             # {PD id: the months (1-12) with a counted report of its main indicator}, for every PD of the
             # scope with a main indicator (an empty list when none is reported yet)
@@ -728,13 +623,7 @@ class _Builder:
             "implausible": self.implausible,
             # plain English, never translated: the build is the same in every language (lang_neutral)
             "source": (
-                f"eTools PRP progress reports, {self.year}: each programme document's main indicator (its "
-                "unique beneficiaries indicator, else its largest children indicator), summed over the "
-                "programme documents, as partners may reach the same children; and the additive "
-                f"ActivityInfo HPM indicators that count children, {self.year}. The two sources are shown "
-                "apart, and a total is the larger of the two"
-                if ai_used
-                else f"eTools PRP progress reports, {self.year}: each programme document's main indicator "
+                f"eTools PRP progress reports, {self.year}: each programme document's main indicator "
                 "(its unique beneficiaries indicator, else its largest children indicator), summed over the "
                 "programme documents, as partners may reach the same children"
             ),
@@ -944,8 +833,8 @@ class _Builder:
             if totals["children"]
             else None,
             "cost_per_child_previous": None,
-            # The children the cost divides by: eTools partner reports only (the money is eTools'),
-            # so not the headline, which may take ActivityInfo's larger figure.
+            # The children the cost divides by: eTools partner reports (the money is eTools'), the same
+            # programme documents on both sides.
             "cost_children": round(totals["children"]),
             "cost_disbursed": half_up(totals["for_children"], 2),
             "cost_caveat": COST_CAVEAT,
@@ -1456,13 +1345,9 @@ class _Builder:
 
 # --------------------------------------------------------------------------------- freshness
 def freshness_jobs() -> tuple[str, ...]:
-    """The sources the freshness strip follows: :data:`FRESHNESS_JOBS`, the ActivityInfo data import only
-    while its alarms are on (``activityinfo.watched()``): an archive is not "out of date"."""
-    from neurodb.indicators.services import activityinfo
-
-    if activityinfo.watched():
-        return FRESHNESS_JOBS
-    return tuple(job for job in FRESHNESS_JOBS if job != "ai_data")
+    """The sources the freshness strip follows: :data:`FRESHNESS_JOBS` (never the ActivityInfo import: its
+    data is an archive)."""
+    return FRESHNESS_JOBS
 
 
 def freshness(jobs: tuple[str, ...] | list[str] | None = None) -> list[dict[str, Any]]:
@@ -1548,11 +1433,9 @@ __all__ = [
     "freshness",
     "freshness_jobs",
     "children_by_pd",
-    "children_masters",
     "children_population",
     "governorate_key",
     "options",
-    "section_matches",
 ]
 
 

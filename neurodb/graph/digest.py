@@ -23,7 +23,7 @@ from django.utils import timezone
 from neurodb.assistant import llm
 
 from .models import Change, Digest, DigestSubscription
-from .news import sentence
+from .news import sentence, without_archive
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +76,9 @@ def write(now: datetime.datetime | None = None) -> list[Digest]:
 
     now = now or timezone.now()
     changes = list(
-        Change.objects.filter(detected_at__gt=now - datetime.timedelta(hours=24), notable=True).order_by(
-            "detected_at", "id"
-        )
+        without_archive(
+            Change.objects.filter(detected_at__gt=now - datetime.timedelta(hours=24), notable=True)
+        ).order_by("detected_at", "id")
     )
     if not changes:
         return []

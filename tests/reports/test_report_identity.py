@@ -196,7 +196,7 @@ def test_reports_without_prp_ids_are_counted_one_by_one_everywhere(reporting_yea
         == 2
     )
     assert web_services._etools_counts(2026)["progress_reports"] == 2
-    built = brief.build(brief.Scope(year=2026, reporting_year=reporting_year, today=TODAY), cache=False)
+    built = brief.build(brief.Scope(year=2026, today=TODAY), cache=False)
     assert built["confidence"]["timeliness"]["counts"]["missing"] == 2  # QPR1 and QPR2, each its quarter
     (finding,) = review.check_reports_overdue(review.Context(today=TODAY))
     assert finding.evidence["numbers"]["reports"] == 2

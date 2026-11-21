@@ -31,6 +31,9 @@ def test_empty_year_and_no_year(client_viewer, reporting_year):
     assert page.status_code == 200 and "No reporting year is configured" in page.text
 
 
-def test_the_overview_links_to_the_page_instead_of_showing_the_cards(client_viewer, hierarchy, database):
+def test_the_overview_neither_links_to_the_page_nor_shows_the_cards(client_viewer, hierarchy, database):
+    """The databases are the ActivityInfo archive's: the menu's archive block leads to them, the overview
+    does not (the owner's rule, November 2026)."""
     html = client_viewer.get(reverse("reports:overview")).text
-    assert reverse("reports:databases") in html and "db-card" not in html
+    page = html.split('<details class="sidebar__archive"')[0]
+    assert reverse("reports:databases") not in page and "db-card" not in html

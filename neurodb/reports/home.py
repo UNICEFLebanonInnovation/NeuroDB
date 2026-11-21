@@ -19,9 +19,7 @@ from __future__ import annotations
 import datetime
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlencode
 
-from django.db.models import Max
 from django.http import QueryDict
 from django.urls import reverse
 from django.utils import timezone
@@ -204,8 +202,7 @@ def _date(value: Any) -> datetime.date | None:
 
 def your_tasks(user, year: int) -> list[dict[str, Any]]:
     """ "Your tasks" (Section editors and Administrators; counts only, each with its page): document review
-    findings not reviewed yet, Makani wellbeing flags to follow up, and, while ActivityInfo is in use, the HPM
-    reports of ``year`` to comment on. A line whose count is 0 is left out."""
+    findings not reviewed yet and Makani wellbeing flags to follow up. A line whose count is 0 is left out."""
     role = role_of(user)
     admin = role == ADMIN
     editor = role == SECTION_EDITOR
@@ -239,40 +236,13 @@ def your_tasks(user, year: int) -> list[dict[str, Any]]:
         n = Flag.objects.filter(status=Flag.OPEN).count()
         if n:
             lines.append({"count": n, "kind": "wellbeing", "url": reverse("wellbeing:flags")})
-    # 3. while ActivityInfo is in use: the HPM reports of this year whose masters sit in the editor's section
-    if editor and section_id is not None:
-        from neurodb.indicators.models import NeuroReport
-        from neurodb.indicators.services import activityinfo
-
-        state = activityinfo.state()
-        ryear = activityinfo.reporting_year_for(year) if state.in_use else None
-        if ryear is not None:
-            n = (
-                NeuroReport.objects.filter(
-                    is_active=True,
-                    is_hpm=True,
-                    ryear=ryear,
-                    neuroreportmasterindicator__master__database__section_id=section_id,
-                )
-                .distinct()
-                .count()
-            )
-            if n:
-                lines.append(
-                    {
-                        "count": n,
-                        "kind": "hpm",
-                        "year": year,
-                        "url": _databases_url(state.names[year]),
-                    }
-                )
     return lines
 
 
 # ------------------------------------------------------------------------------------------- programmes
 def programmes(user, today: datetime.date) -> dict[str, Any]:
-    """ "Programmes and sources": the country programme cycle, the Compiler figures and ActivityInfo, each one
-    line with its page, for the whole country. A source that is not live says nothing to a viewer; a person
+    """ "Programmes and sources": the country programme cycle and the Compiler figures, each one line with its
+    page, for the whole country. A source that is not live says nothing to a viewer; a person
     who can set it up (:func:`neurodb.accounts.roles.can_set_up`) reads a muted line that says what is
     missing."""
     from neurodb.indicators.services import navigation
@@ -282,7 +252,6 @@ def programmes(user, today: datetime.date) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     rows.extend(_cpd_rows(today, setup) if sources.get("cpd_cycle") or setup else [])
     rows.extend(_compiler_rows(sources, setup))
-    rows.extend(_activityinfo_rows())
     return {"rows": rows}
 
 
@@ -334,67 +303,6 @@ def _compiler_rows(sources: dict[str, Any], setup: bool) -> list[dict[str, Any]]
             }
         )
     return rows
-
-
-def _activityinfo_rows() -> list[dict[str, Any]]:
-    from neurodb.indicators.services import activityinfo, navigation
-
-    state = activityinfo.state()
-    # the menu's own link to the archive's databases page: the year the import serves, else the last
-    # ActivityInfo year (never the bare address, which opens the reporting year ticked current)
-    databases_url = navigation.archive(state)["databases_url"]
-    if state.in_use and state.serving is not None:
-        return [_activityinfo_row(state.serving, state.pks[state.serving], databases_url)]
-    if state.in_use:
-        # set "In use" while the import serves no year of records (this year has none; last year only during
-        # January): in use, as the menu says, never "archive". The reporting year ticked current (what the
-        # import reads) is named: with its records, as any ActivityInfo year; without them, waiting for its
-        # first ones. Nothing to link to without a reporting year ticked current
-        if not state.current_name:
-            return []
-        current = next((year for year, name in state.names.items() if name == state.current_name), None)
-        if current is not None:  # the year ticked current has records (Rule 1)
-            return [_activityinfo_row(current, state.pks[current], _databases_url(state.current_name))]
-        return [
-            {
-                "kind": "activityinfo_waiting",
-                "year": state.current_name,
-                "url": _databases_url(state.current_name),
-            }
-        ]
-    if state.last is not None:
-        return [
-            {
-                "kind": "activityinfo_archive",
-                "span": state.span,
-                "url": databases_url,
-            }
-        ]
-    return []
-
-
-def _activityinfo_row(year: int, reporting_year_pk: int, url: str) -> dict[str, Any]:
-    """The in-use line of one ActivityInfo year (one with records): its results tracked against targets (the
-    active master indicators of its displayed databases) and its last import; no result tracked yet (no
-    master indicator): the line says the records came in, never "0"."""
-    from neurodb.indicators.models import Database, MasterIndicator
-
-    shown = Database.objects.filter(reporting_year_id=reporting_year_pk, display=True)
-    last = shown.aggregate(last=Max("last_monthly_update_date"))["last"]
-    masters = MasterIndicator.objects.filter(database__in=shown, is_active=True).count()
-    return {
-        "kind": "activityinfo",
-        "year": year,
-        "masters": masters,
-        "last": timezone.localtime(last).date() if last else None,
-        "url": url,
-    }
-
-
-def _databases_url(name: str) -> str:
-    """The ActivityInfo databases of one reporting year: never the bare address, which opens the reporting
-    year ticked current (maybe a new, empty one)."""
-    return f"{reverse('reports:databases')}?{urlencode({'year': name})}"
 
 
 __all__ = [

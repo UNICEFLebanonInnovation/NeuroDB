@@ -13,16 +13,10 @@ existing keys, so people hear of a concern once, with its history, next to what 
   mark is the review's date: a finding the review no longer lists counts as missed only at a newer
   review, so re-running a day's review closes nothing, and the item is gone after two newer reviews
   without it. A finding the review now lists as "to note" only closes at once. On from the start.
-- ``forecast_short``: the ActivityInfo master indicators the year-end forecast says are likely to fall
-  short of their target this year, each as ``forecast:<year>:<master id>``, only while ActivityInfo is in
-  use (:func:`neurodb.indicators.services.activityinfo.in_use`) and the forecasts are shown
-  (:func:`neurodb.insights.services.shown`: their test on past years passed). Always worded as an
-  estimate with its range; told to the forecast's section. A forecast back on course closes the item
-  at once as "recovered", and any other status closes it too, naming the status, so its story keeps
-  the forecast's history (likely short, recovered, back again). Once ActivityInfo is archived every item
-  closes, saying its forecasts are no longer followed, and the check needs no fresh forecast (the job may
-  be switched off: no stale-source alarm); once a year has ended its items close the same way. The
-  forecast runs weekly, so its source is fresh for 8 days. Starts in trial, like every new check.
+- ``forecast_short``: no longer raises anything. It followed the master indicators the year-end forecast
+  said were likely to fall short; those forecasts are made from ActivityInfo, now an archive whose pages
+  keep them (the menu's archive block). Each item still open closes, saying the forecasts are no longer
+  followed here, and the check needs no fresh forecast (no stale-source alarm).
 
 Looking ahead belongs to the watch and looking back to the review, and one thing is never two items.
 A ``pd_ending_soon`` finding is the PD ending that the ``pd_ending`` check follows
@@ -42,14 +36,9 @@ import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlencode
-
-from django.urls import NoReverseMatch, reverse
 
 from neurodb.core.models import SyncRun
 from neurodb.graph.models import Entity
-from neurodb.insights import services as forecasts
-from neurodb.insights.models import IndicatorForecast
 from neurodb.review.models import DailyReview, FindingAssignment, ReviewFinding
 from neurodb.review.services import SYSTEM_CHECKS
 
@@ -59,8 +48,6 @@ from . import (
     CHANGED,
     CONCERN,
     COUNTRY,
-    INFO,
-    LIKELY,
     ON,
     SECTION,
     Attach,
@@ -69,7 +56,6 @@ from . import (
     Context,
     Detector,
     deadlines,
-    evidence,
     record,
     register,
 )
@@ -92,33 +78,8 @@ LOWERED = "the daily review now lists it as to note only"
 # ---------------------------------------------------------------------------- year-end forecasts
 FORECAST_ID = "forecast_short"
 FORECAST_PREFIX = "forecast:"  # forecast:<year>:<master id>
-FORECAST_SOURCE = "the year-end forecasts"
-FORECAST_FRESH_HOURS = 8 * 24  # the forecast runs on Mondays: stale the day after one missed run
-MASTER = Entity.Kind.MASTER_INDICATOR
-SHORT, ON_COURSE = IndicatorForecast.Status.SHORT, IndicatorForecast.Status.ON_COURSE
-RECOVERED = "recovered: the year-end forecast is on course again"
-NOT_SHOWN = "forecasts are no longer shown: the latest test on past years did not find them reliable enough"
-ARCHIVED = "ActivityInfo is archived: its forecasts are no longer followed"
-YEAR_ENDED = "{year} has ended: its forecasts are no longer followed"
-NAME_CHARS = 150  # an indicator's name in a title
-# The only columns read (never the database's sign-in fields)
-FORECAST_FIELDS = (
-    "master",
-    "database",
-    "section_id",
-    "year",
-    "as_of_month",
-    "value_to_date",
-    "target",
-    "forecast",
-    "low",
-    "high",
-    "status",
-    "master__name",
-    "master__awp_code",
-    "database__name",
-    "database__label",
-)
+FORECAST_FRESH_HOURS = 8 * 24  # the forecast ran on Mondays: stale the day after one missed run
+ARCHIVED = "the year-end forecasts are no longer followed here"
 
 
 # ---------------------------------------------------------------------------- keys
@@ -134,14 +95,9 @@ def finding_key_of(item_key: str) -> str:
 
 
 def forecast_item_key(year: int, master_id: int) -> str:
-    """The watch item of a master indicator likely to fall short: ``forecast:<year>:<master id>``."""
+    """The watch item of a master indicator likely to fall short: ``forecast:<year>:<master id>`` (items
+    opened before the forecasts were left to the archive)."""
     return fit_key(f"{FORECAST_PREFIX}{year}:{master_id}")
-
-
-def _forecast_ids(item_key: str) -> tuple[int, int] | None:
-    """(year, master id) of a ``forecast:`` item key, or None."""
-    _, year, master = (str(item_key or "").split(":") + ["", "", ""])[:3]
-    return (int(year), int(master)) if year.isdigit() and master.isdigit() else None
 
 
 # ---------------------------------------------------------------------------- dates, not day counts
@@ -332,131 +288,20 @@ def review_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]:
 
 
 # ---------------------------------------------------------------------------- year-end forecasts
-def _shown(ctx: Context) -> bool:
-    """The latest forecast (a run that skipped because ActivityInfo is not in use is not one) passed its
-    test on past years."""
-    return ctx.memo("concerns:forecasts_shown", lambda: forecasts.shown(forecasts.latest_run()))
+def _forecasts_followed(ctx: Context) -> bool:  # noqa: ARG001 - the same answer every pass
+    """Whether For you follows the year-end forecasts: no longer. They are made from ActivityInfo, an archive
+    of past monthly results whose own pages keep them (the owner's rule: no regular page shows its data)."""
+    return False
 
 
-def _in_use(ctx: Context) -> bool:
-    from neurodb.indicators.services import activityinfo
-
-    return ctx.memo("concerns:activityinfo_in_use", activityinfo.in_use)
-
-
-def _whole(value: float | None) -> int | None:
-    return round(value) if value is not None else None
+def forecasts_short(ctx: Context) -> Iterator[Candidate]:  # noqa: ARG001 - never run (:func:`_forecasts_followed`)
+    """Nothing: the year-end forecasts are the ActivityInfo archive's."""
+    yield from ()
 
 
-def _url(name: str, *args: Any, **params: Any) -> str:
-    """A page URL with these query parameters (empty ones kept: "section=" means every section)."""
-    try:
-        url = reverse(name, args=args)
-    except NoReverseMatch:
-        return ""
-    return f"{url}?{urlencode(params)}" if params else url
-
-
-def forecasts_short(ctx: Context) -> Iterator[Candidate]:
-    """The master indicators likely to fall short by December of this year, while ActivityInfo is in use
-    and the forecasts are shown."""
-    if not _in_use(ctx) or not _shown(ctx):
-        return
-    rows = (
-        IndicatorForecast.objects.filter(status=SHORT, year=ctx.today.year)
-        .select_related("master", "database")
-        .only(*FORECAST_FIELDS)
-        .order_by("database_id", "master_id")
-    )
-    for forecast in rows:
-        yield forecast_candidate(ctx, forecast)
-
-
-def forecast_candidate(ctx: Context, f: IndicatorForecast) -> Candidate:
-    """One indicator likely to fall short, worded as an estimate with its range."""
-    name = " ".join(str(f.master.name or f.master.awp_code or f"Indicator {f.master_id}").split())
-    if len(name) > NAME_CHARS:
-        name = name[: NAME_CHARS - 1].rstrip() + "…"
-    database = (f.database.label or f.database.name or "").strip()
-    low, high, target = _whole(f.low), _whole(f.high), _whole(f.target)
-    likely, to_date = _whole(f.forecast), _whole(f.value_to_date)
-    month = forecasts.MONTHS[f.as_of_month] if 1 <= (f.as_of_month or 0) <= 12 else ""
-    ranged = low is not None and high is not None
-    span = f"{low:,} to {high:,}" if ranged else ""
-    detail = "Estimate from the indicator's monthly pattern in past years: "
-    detail += f"about {likely:,} by December" if likely is not None else "below its target by December"
-    if ranged:
-        detail += f", likely between {low:,} and {high:,}"
-    if target:
-        detail += f", against a target of {target:,}"
-        if f.low_pct is not None and f.high_pct is not None:
-            detail += f" ({f.low_pct:.0f}–{f.high_pct:.0f}% of target)"
-    detail += f". {to_date:,} reported so far" + (f", with the months up to {month}" if month else "") + "."
-    detail += " Check it against what you know: new activities, funding or late reports can move it."
-    dashboard = _url("reports:database_dashboard", f.database_id)
-    value = (f"likely {span}" + (f" of {target:,}" if target else "")) if ranged else "likely to fall short"
-    numbers = {
-        "forecast": likely,
-        "low": low,
-        "high": high,
-        "target": target,
-        "to_date": to_date,
-        "low_pct": f.low_pct,
-        "high_pct": f.high_pct,
-        "as_of_month": f.as_of_month,
-        "year": f.year,
-    }
-    return Candidate(
-        key=forecast_item_key(f.year, f.master_id),
-        kind=CONCERN,
-        severity=INFO,
-        confidence=LIKELY,
-        title=f"Likely to fall short of its {f.year} target (estimate): {name}"
-        + (f" ({database})" if database else ""),
-        detail=detail,
-        section_ids=[f.section_id] if f.section_id else [],
-        scope=SECTION if f.section_id else COUNTRY,  # no section: the whole-country view
-        entity_kind=MASTER,
-        entity_key=str(f.master_id),
-        url=_url("insights:forecasts", section=f.section_id or "", status=SHORT),
-        evidence=evidence(
-            ctx,
-            FORECAST_SOURCE,
-            FORECAST,
-            [record(name + (f" · {database}" if database else ""), None, value, dashboard)],
-            **{k: v for k, v in numbers.items() if v is not None},
-        ),
-    )
-
-
-def forecasts_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]:
-    """Forecasts no longer likely to fall short: back on course ("recovered") or another status, both
-    closed at once; all of them once ActivityInfo is archived, or when the forecasts are no longer shown;
-    and a past year's, once that year has ended (in January the table still holds last year's forecasts,
-    which nobody follows any more: only this year's are, :func:`forecasts_short`). An indicator gone from
-    the forecasts gets no reason: missed at each newer forecast, then gone."""
-    if not _in_use(ctx):
-        return {item.key: Close(ARCHIVED, kind=CHANGED) for item in items}
-    if not _shown(ctx):
-        return {item.key: Close(NOT_SHOWN, kind=CHANGED) for item in items}
-    wanted = {item.key: ids for item in items if (ids := _forecast_ids(item.key))}
-    rows = IndicatorForecast.objects.filter(master_id__in={master for _, master in wanted.values()})
-    now = {master: (year, status) for master, year, status in rows.values_list("master_id", "year", "status")}
-    closes: dict[str, Close] = {}
-    for key, (year, master) in wanted.items():
-        current_year, status = now.get(master, (None, None))
-        if current_year is not None and current_year != year:
-            closes[key] = Close(f"the forecasts are now for {current_year}", kind=CHANGED)
-        elif year < ctx.today.year:
-            closes[key] = Close(YEAR_ENDED.format(year=year), kind=CHANGED)
-        elif current_year is None:
-            continue
-        elif status == ON_COURSE:
-            closes[key] = Close(RECOVERED)
-        elif status != SHORT:
-            label = dict(IndicatorForecast.Status.choices).get(status, status)
-            closes[key] = Close(f"no longer likely to fall short (forecast now: {label})")
-    return closes
+def forecasts_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]:  # noqa: ARG001
+    """Every item still open closes, saying the forecasts are no longer followed here."""
+    return {item.key: Close(ARCHIVED, kind=CHANGED) for item in items}
 
 
 # ---------------------------------------------------------------------------- the registry
@@ -479,9 +324,9 @@ FORECAST_SHORT = register(
         resolved=forecasts_resolved,
         source_jobs=(FORECAST,),
         max_age_hours=FORECAST_FRESH_HOURS,
-        # once ActivityInfo is an archive there is nothing to follow, and the weekly forecast job (which then
-        # skips) may be switched off: no alarm about its freshness
-        active=_in_use,
+        # the forecasts are the ActivityInfo archive's: nothing to follow, and no alarm about the weekly
+        # forecast job's freshness (it may be switched off)
+        active=_forecasts_followed,
         inactive_reason=ARCHIVED,
     )
 )

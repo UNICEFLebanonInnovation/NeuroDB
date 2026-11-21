@@ -230,9 +230,7 @@ def test_without_any_reporting_year_both_parts_are_there(client_viewer, world, r
     assert "Figures as of" in html
     brief = get_part(client_viewer, PAGE, "brief")
     tiles = {t["key"]: t for t in brief.context["data"]["headline"]["tiles"]}
-    assert (
-        tiles["children"]["value"] == 500 and "ActivityInfo was not used in 2026" in tiles["children"]["hint"]
-    )
+    assert tiles["children"]["value"] == 500 and "ActivityInfo" not in tiles["children"]["hint"]
 
 
 @pytest.mark.shell
@@ -485,17 +483,13 @@ def test_two_filters_never_share_a_key(world, reporting_year):
         ["Child Protection|Education"],
     ]
     keys = {
-        brief_service._cache_key(
-            brief_service.Scope(year=2026, reporting_year=reporting_year, sections=sections, today=TODAY)
-        )
+        brief_service._cache_key(brief_service.Scope(year=2026, sections=sections, today=TODAY))
         for sections in filters
     }
     assert len(keys) == len(filters)
     # nor two days: a build stored just before midnight never answers the next day
-    tomorrow = brief_service.Scope(
-        year=2026, reporting_year=reporting_year, today=TODAY + datetime.timedelta(days=1)
-    )
-    today = brief_service.Scope(year=2026, reporting_year=reporting_year, today=TODAY)
+    tomorrow = brief_service.Scope(year=2026, today=TODAY + datetime.timedelta(days=1))
+    today = brief_service.Scope(year=2026, today=TODAY)
     assert brief_service._cache_key(tomorrow) != brief_service._cache_key(today)
 
 
@@ -747,34 +741,17 @@ def test_both_parts_read_one_build_though_the_figures_moved_before_the_first_and
     assert target(get_part(client, PAGE, "sections")) == 4000 and builds["brief"] == 2  # the next page
 
 
-def test_a_partner_link_changed_in_the_admin_shows_at_once(client, admin_user, reviewed):
-    """Staff correct an ActivityInfo partner link in the admin (the partner page's *Edit the link* leads there),
-    an edit that starts no sync run. The brief reads the links (*How sure*: partners linked across sources; the
-    two sources per partner), so they are in its key: the edit shows at once, though the build was stored a
-    moment before (up to round 3 it showed only when the stored build expired, for every user)."""
-    admin_user.is_superuser = True
-    admin_user.save()
+def test_an_activityinfo_partner_link_is_not_read_by_the_brief(client, admin_user, reviewed):
+    """Staff may still correct an ActivityInfo partner link in the admin; the brief reads none (Nov 2026:
+    ActivityInfo is an archive), so the links are not in its key and no figure of *How sure* rests on them."""
+    assert PartnerLink not in brief_service.HAND_ENTERED.values()
     client.force_login(admin_user)
-
-    def linked() -> float:
-        (row,) = get_part(client, PAGE, "sections").context["data"]["confidence"]["rows"]
-        return row["linked_percent"]
-
-    def link_to(partner) -> None:
-        response = client.post(
-            reverse("admin:etools_partnerlink_change", args=[link.pk]), {"partner": partner, "_save": "Save"}
-        )
-        assert response.status_code == 302, text(response)[:2000]
-
-    assert linked() == 100.0  # stored now
-    link = PartnerLink.objects.get(label="Partner A")
-    partner = link.partner_id
-    link_to("")  # not linked
-    link.refresh_from_db()
-    assert link.partner_id is None and link.method == PartnerLink.Method.MANUAL
-    assert linked() == 0.0
-    link_to(partner)  # linked again: as many links as before, a later change
-    assert linked() == 100.0
+    (row,) = get_part(client, PAGE, "sections").context["data"]["confidence"]["rows"]
+    assert "linked_percent" not in row
+    before = brief_service.fingerprint()
+    PartnerLink.objects.filter(label="Partner A").update(partner=None)
+    compute.reset_memo()  # another request
+    assert brief_service.fingerprint() == before
 
 
 # --------------------------------------------------------------------------------------- one page, two drawings

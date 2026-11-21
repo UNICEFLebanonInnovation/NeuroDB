@@ -42,7 +42,7 @@ from neurodb.knowledge.models import Document, Link
 from neurodb.partnerships import linking
 from neurodb.partnerships import services as partnerships
 from neurodb.partnerships import statuses as pd_statuses
-from neurodb.partnerships.models import PCA, PartnerLink, PartnerOrganization
+from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports import views
 from tests.reports.test_cross_page_fixes import AK, D, indicator, report
 from tests.web.parts import (
@@ -202,9 +202,11 @@ def test_the_placeholder_carries_the_page_address_and_keeps_its_room(client_view
     assert attrs["hx-get"] == f"{_url(amel)}?_part=datamart"  # no filter on this page: nothing else to carry
     assert (attrs["data-part-priority"], attrs["class"]) == ("high", "part part--tiles")
     assert "data-part-group" not in attrs and "data-part-lazy" not in attrs
-    # the panels' ids stay anchors (Ask NeuroDB links to #activityinfo-reporting)
+    # the panels' ids stay anchors; the ActivityInfo panel is gone (its records open from the partner's
+    # ActivityInfo page, the archive's)
     anchors = attrs["data-part-anchors"].split()
-    assert {"activityinfo-reporting", "etools-reporting", "partner-", "fmm-partner"} <= set(anchors)
+    assert {"etools-reporting", "partner-", "fmm-partner"} <= set(anchors)
+    assert "activityinfo-reporting" not in anchors
     # the room of the blocks, on a desktop, a tablet or narrow window and a phone, as measured on the x20 world
     assert attrs["style"] == "--part-h: 7500px; --part-h-sm: 12400px; --part-h-md: 7500px"
     # a stray query string changes nothing: the part's address is the page's own
@@ -236,7 +238,7 @@ def test_each_part_answers_its_wrapper(client_viewer, world, name):
     html = text(response)
     assert response["Cache-Control"] == "no-store" and response["X-NeuroDB-Part"] == name
     assert "<html" not in html and 'id="sidebar"' not in html
-    expected = {"datamart": ("Active documents", "LEB/PCA-AMEL", "ActivityInfo · reporting history"),
+    expected = {"datamart": ("Active documents", "LEB/PCA-AMEL", "eTools · implementation monitoring"),
                 "fmm": ('id="fmm-partner"', "FM visits in")}[name]  # fmt: skip
     assert all(item in html for item in expected), expected
     assert (f'id="{DATAMART_JSON}"' in html) == (name == "datamart")  # the one chart JSON, in its own part
@@ -262,7 +264,7 @@ def test_the_key_figures_are_the_partner_s(client_viewer, world):
     amel = world["amel"]
     tiles = _key_figures(client_viewer, amel)
     assert tiles["Active documents"] == "1" and tiles["All documents"] == "1"
-    assert tiles["ActivityInfo records"] == "2" and tiles["Open action points"] == "2"
+    assert "ActivityInfo records" not in tiles and tiles["Open action points"] == "2"
     for n, status in ((1, "ended"), (2, "closed"), (3, "draft")):
         PCA.objects.create(
             etl_id=f"41{n}", partner=amel, partner_name=amel.name, number=f"LEB/PCA-AMEL-{n}", title="Education",
@@ -275,7 +277,7 @@ def test_the_key_figures_are_the_partner_s(client_viewer, world):
         )  # fmt: skip
     tiles = _key_figures(client_viewer, amel)
     assert (tiles["Active documents"], tiles["All documents"]) == ("1", "3")
-    assert (tiles["ActivityInfo records"], tiles["Open action points"]) == ("2", "4")
+    assert tiles["Open action points"] == "4"
 
 
 def test_the_monitoring_insights_panel_is_a_part_inside_the_figures(client_viewer, world, settings):
@@ -317,14 +319,14 @@ def test_a_visitor_asking_for_a_part_is_sent_to_sign_in(client, world):
     assert response["HX-Redirect"] == reverse("account_login") + f"?next={url}"
 
 
-def test_the_admin_link_is_drawn_for_whoever_asks(client, admin_user, viewer, world):
-    """The part is drawn for the person asking (nothing on this page is stored for anyone else): the
-    ActivityInfo link editor is offered to an administrator, never to a viewer."""
+def test_no_activityinfo_link_editor_for_anyone(client, admin_user, viewer, world):
+    """The part is drawn for the person asking (nothing on this page is stored for anyone else); the ActivityInfo
+    link editor left with its panel: ActivityInfo partner links are edited in the administration."""
     url = _url(world["amel"])
-    client.force_login(admin_user)
-    assert "Edit the link" in text(get_part(client, url, "datamart"))
-    client.force_login(viewer)
-    assert "Edit the link" not in text(get_part(client, url, "datamart"))
+    for user in (admin_user, viewer):
+        client.force_login(user)
+        part = text(get_part(client, url, "datamart"))
+        assert "Edit the link" not in part and "ActivityInfo" not in part
 
 
 def test_nothing_is_stored_and_the_frame_never_draws_figures(client_viewer, world):
@@ -340,23 +342,18 @@ def test_nothing_is_stored_and_the_frame_never_draws_figures(client_viewer, worl
 
 
 def test_an_edit_in_the_admin_shows_at_once(client, admin_user, world):
-    """Fresh after edit: an administrator links another ActivityInfo name to the partner (Admin → ActivityInfo
-    partner links); the key figures and the ActivityInfo panel count its records at the next request."""
+    """Fresh after edit: an administrator adds an open action point to the partner in the administration's
+    data; the key figures count it at the next request."""
     admin_user.is_superuser = True
     admin_user.save()
     client.force_login(admin_user)
-    url = _url(world["amel"])
-    before = get_part(client, url, "datamart")
-    assert before.context["activityinfo"]["records"] == 2 and "2 records" in text(before)
-    link = PartnerLink.objects.get(label="Partner B")
-    assert link.partner_id is None
-    response = client.post(
-        reverse("admin:etools_partnerlink_change", args=[link.pk]), {"partner": world["amel"].pk}
-    )
-    assert response.status_code == 302, text(response)[:2000]
-    after = get_part(client, url, "datamart")
-    assert after.context["activityinfo"]["records"] == 4 and "4 records" in text(after)
-    assert after.context["activityinfo"]["labels"] == ["Partner A", "Partner B"]
+    amel = world["amel"]
+    assert _key_figures(client, amel)["Open action points"] == "2"
+    dm.ActionPoint.objects.create(
+        datamart_id=4200, partner=amel, reference_number="LEB/2026/9/APD", status="open",
+        description="Follow up 9", due_date=TODAY + datetime.timedelta(days=20), related_module="fm",
+    )  # fmt: skip
+    assert _key_figures(client, amel)["Open action points"] == "3"
 
 
 # --------------------------------------------------------------------------------------- one page, two drawings
@@ -403,7 +400,6 @@ def test_the_chart_json_is_the_page_s_chart_data(client_viewer, world):
     html = text(response)
     sent = _json_blocks(html)[DATAMART_JSON]
     profile, extra = partnerships.partner_profile(amel), datamart.partner_datamart(amel)
-    activityinfo = partner_facts.partner_activityinfo(amel)
     assert sent == json.loads(
         json.dumps(
             {
@@ -412,15 +408,14 @@ def test_the_chart_json_is_the_page_s_chart_data(client_viewer, world):
                     extra["monitoring_visits_by_year"],
                 ),
                 "engagement_counts": profile["engagement_counts"],
-                "activityinfo_by_year": activityinfo["by_year"],
                 "etools_reports_by_year": extra["reports_by_year"],
             }
         )
     )
     assert sent["visits_by_year"]["series"]["UNICEF staff trips"] == [1]
-    assert sent["etools_reports_by_year"] == [["2026", 2]] and sent["activityinfo_by_year"] == [["2026", 2]]
+    assert sent["etools_reports_by_year"] == [["2026", 2]] and "activityinfo_by_year" not in sent
     charts = re.findall(r'<div class="chart[^"]*" data-module="charts"[^>]*>', html)
-    assert len(charts) == 3 and all(f'data-source="{DATAMART_JSON}"' in chart for chart in charts)
+    assert len(charts) == 2 and all(f'data-source="{DATAMART_JSON}"' in chart for chart in charts)
 
 
 @pytest.mark.shell

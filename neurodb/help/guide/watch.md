@@ -29,8 +29,6 @@ says why it is shown ("New", "Due in 3 days", "Got worse"...), how sure NeuroDB 
 - Agreed dates on daily review findings.
 - **Field monitoring follow-up**: reported visits rated off track or constrained, ended 14 to 120 days
   ago, with no action point following them up (critical when off track and ended over 30 days ago).
-- Indicators the year-end forecast says are likely to fall short (while ActivityInfo is in use and the
-  forecasts are shown).
 - The critical and warning findings of the latest daily review.
 
 New checks start in **trial**: their points go to the whole-country view only until an administrator

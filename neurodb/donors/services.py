@@ -43,8 +43,8 @@ from neurodb.partnerships.models.legacy import PCA
 from neurodb.reports import overview
 
 CACHE_SECONDS = 300
-CACHE_VERSION = 6  # 5: in the shared cache (compute.once), keyed on compute.data_stamp(); 6: the ActivityInfo
-# reporting year of the year (activityinfo.reporting_year_for) in the key
+CACHE_VERSION = 7  # 5: in the shared cache (compute.once), keyed on compute.data_stamp(); 6: the ActivityInfo
+# reporting year of the year in the key; 7: eTools alone (no reporting year in the key)
 SECTION_SLOTS = 5  # the categorical colours of the page (--s1 .. --s5), then "other"
 GOVERNORATES = {  # overview.governorate_key -> the name and place on the page's schematic map
     "akkar": ("Akkar", 1, 0),
@@ -63,7 +63,7 @@ ENDED_STATUSES = {"ended", "closed", "terminated", "implemented"}
 # means the title names no age range, so it is not a group apart from "Under 5".
 AGE_LABELS = {"Children": "Age not specified", "Not named": "Age not specified"}
 # The syncs that feed the page: the eTools Datamart first (funds and indicators), then the others.
-SOURCE_JOBS = ("etools_datamart", "etools", "ai_data")
+SOURCE_JOBS = ("etools_datamart", "etools")
 STATUS = {  # the partner monitoring rule, as the donor reads it (icon + label, never colour alone)
     "on_track": ("good", "On track", "check"),
     "over_target": ("good", "Ahead of schedule", "up"),
@@ -79,14 +79,6 @@ def _money(value: Any) -> float:
 
 def _norm(text: str | None) -> str:
     return " ".join((text or "").split()).casefold()
-
-
-def reporting_year(year: int):
-    """The reporting year whose ActivityInfo children count for ``year`` (a year with ActivityInfo records),
-    else None: the page then counts eTools alone."""
-    from neurodb.indicators.services import activityinfo
-
-    return activityinfo.reporting_year_for(year)
 
 
 def donor_names() -> list[str]:
@@ -173,8 +165,7 @@ def contribution(account, year: int, today: datetime.date) -> dict[str, Any]:
         entry["grants"][grant] += amount
         entry["paid"][grant] += paid
 
-    ryear = reporting_year(year)
-    children = overview.children_by_pd(overview.Scope(year=year, reporting_year=ryear, today=today))
+    children = overview.children_by_pd(overview.Scope(year=year, today=today))
     pds = {pd.id: pd for pd in PCA.objects.select_related("partner").filter(id__in=per_pd)}
     partner_alias: dict[str, str] = {}
     out_pds: list[dict[str, Any]] = []
@@ -254,18 +245,13 @@ def contribution(account, year: int, today: datetime.date) -> dict[str, Any]:
     return {"pds": out_pds, "grants": grants}
 
 
-def data_as_of(year: int | None = None) -> datetime.datetime | None:
+def data_as_of(year: int | None = None) -> datetime.datetime | None:  # noqa: ARG001 - every year alike
     """When the page's data last came in: the last successful eTools Datamart sync (the funds and the
-    indicators); without one, the latest successful sync of the other sources (eTools, and ActivityInfo
-    only when ``year``, by default this year, is an ActivityInfo year)."""
+    indicators); without one, the latest successful eTools sync."""
     from neurodb.core.models import SyncRun
-    from neurodb.indicators.services import activityinfo
 
-    jobs = SOURCE_JOBS
-    if not activityinfo.is_year(site_years.this_year() if year is None else year):
-        jobs = tuple(job for job in SOURCE_JOBS if job != SyncRun.Job.ACTIVITYINFO_DATA)
     runs = SyncRun.objects.filter(
-        job__in=jobs, status__in=[SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL]
+        job__in=SOURCE_JOBS, status__in=[SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL]
     ).exclude(finished_at=None)
     datamart = runs.filter(job=SyncRun.Job.ETOOLS_DATAMART).order_by("-finished_at").first()
     last = datamart or runs.order_by("-finished_at").first()
@@ -315,11 +301,7 @@ def country(data: dict[str, Any]) -> dict[str, Any]:
     counts = delivery.get("status_counts") or {}
     measured = sum(counts.get(k, 0) for k in ("on_track", "over_target", "off_track"))
     on_track = counts.get("on_track", 0) + counts.get("over_target", 0)
-    monthly = impact.get("monthly") or {}
-    uses_activityinfo = impact.get("children_reached") == impact.get("children_activityinfo") and any(
-        monthly.get("activityinfo") or []
-    )
-    months = monthly.get("activityinfo" if uses_activityinfo else "etools") or []
+    months = (impact.get("monthly") or {}).get("etools") or []
     governorates = []
     for g in impact.get("by_governorate") or []:
         key = overview.governorate_key(g.get("name"))
@@ -376,15 +358,11 @@ def country(data: dict[str, Any]) -> dict[str, Any]:
 # ------------------------------------------------------------------------------ page
 def _cache_key(account, year: int, today: datetime.date) -> str:
     """The account (its id, and what changes its figures: whether partners are named, its donors and grants),
-    the year, the reporting year whose ActivityInfo children count for it (none: eTools alone), the day and
-    :func:`neurodb.core.compute.data_stamp` (the last finished sync, and the indicator flags: a PD's main
-    indicator changes its children at once). Nothing about the person asking."""
+    the year, the day and :func:`neurodb.core.compute.data_stamp` (the last finished sync, and the indicator
+    flags: a PD's main indicator changes its children at once). Nothing about the person asking."""
     settings_seen = f"{account.show_partner_names}:{sorted(account.donors)}:{sorted(account.grants)}"
     digest = hashlib.sha256(settings_seen.encode()).hexdigest()[:16]  # memcached-safe
-    from neurodb.indicators.services import activityinfo
-
-    ryear = activityinfo.state().pks.get(year, "")  # the pk of reporting_year(year), without reading it
-    return f"donor:v{CACHE_VERSION}:{account.pk}:{year}:{ryear}:{today}:{compute.data_stamp()}:{digest}"
+    return f"donor:v{CACHE_VERSION}:{account.pk}:{year}:{today}:{compute.data_stamp()}:{digest}"
 
 
 def build(account, year: int, today: datetime.date | None = None, *, cache: bool = True) -> dict[str, Any]:
@@ -411,7 +389,7 @@ def stored(account, year: int, today: datetime.date) -> bool:
 
 def _build(account, year: int, today: datetime.date) -> dict[str, Any]:
     mine = contribution(account, year, today)
-    everything = overview.build(overview.Scope(year=year, reporting_year=reporting_year(year), today=today))
+    everything = overview.build(overview.Scope(year=year, today=today))
     whole = country(everything)
     average = {s["section"]: s.get("cost_per_child") for s in everything["money"].get("by_section") or []}
     funded = Counter()

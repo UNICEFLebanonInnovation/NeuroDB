@@ -1,8 +1,7 @@
 # Ask NeuroDB
 
 [Ask NeuroDB](/ask/) (the first row of the sidebar, marked AI) answers questions about the **programme data**
-in plain language: indicator results, activity reports, Neuro and HPM reports, programme documents,
-donors, partners, funds, assurance, field monitoring visits, population, the library, the documents
+in plain language: indicator results, programme documents, donors, partners, funds, assurance, field monitoring visits, population, the library, the documents
 people add (the [Documents](/knowledge/) page) and the country programme.
 The AI is Claude (Anthropic's model), or ChatGPT (OpenAI's GPT model) where the
 administrators chose it in AI settings; Claude is the preferred one. It answers with NeuroDB's own

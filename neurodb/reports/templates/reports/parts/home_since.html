@@ -22,7 +22,7 @@ since_weekday, changes, matched, your_tasks, selected.{% endcomment %}
   <h3 class="home-block__title home-block__title--split">{% trans "Your tasks" %}</h3>
   <ul class="home-list">
     {% for t in your_tasks %}
-    <li><a href="{{ t.url }}">{% if t.kind == "documents" %}{% blocktrans count counter=t.count with n=t.count|intcomma %}{{ n }} document review finding not reviewed yet{% plural %}{{ n }} document review findings not reviewed yet{% endblocktrans %}{% elif t.kind == "wellbeing" %}{% blocktrans count counter=t.count with n=t.count|intcomma %}{{ n }} Makani wellbeing flag to follow up{% plural %}{{ n }} Makani wellbeing flags to follow up{% endblocktrans %}{% else %}{% blocktrans count counter=t.count with n=t.count|intcomma y=t.year %}{{ n }} HPM report of {{ y }} to comment on{% plural %}{{ n }} HPM reports of {{ y }} to comment on{% endblocktrans %}{% endif %} →</a></li>
+    <li><a href="{{ t.url }}">{% if t.kind == "documents" %}{% blocktrans count counter=t.count with n=t.count|intcomma %}{{ n }} document review finding not reviewed yet{% plural %}{{ n }} document review findings not reviewed yet{% endblocktrans %}{% elif t.kind == "wellbeing" %}{% blocktrans count counter=t.count with n=t.count|intcomma %}{{ n }} Makani wellbeing flag to follow up{% plural %}{{ n }} Makani wellbeing flags to follow up{% endblocktrans %}{% endif %} →</a></li>
     {% endfor %}
   </ul>
   {% endif %}

@@ -217,9 +217,7 @@ def _overview_chart_data(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
     Twelve-month blocks become ``{labels, series: {name: [...]}, colors}`` for the "lines" and
     "grouped" builders, and an empty dict when every value is zero so the chart shows its empty state.
-    Children reached by month has an ActivityInfo series only where ActivityInfo counts
-    (``activityinfo_used``), and it stops at the last month ActivityInfo reported: the months after it are
-    left empty, as the months to come, never drawn as zeros.
+    Children reached by month has one series, eTools.
     """
     impact, money, delivery, progress = (
         data.get(key) or {} for key in ("impact", "money", "delivery", "progress")
@@ -256,15 +254,7 @@ def _overview_chart_data(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
         return {"labels": list(block.get("labels") or []), "series": values, "colors": colors}
 
     by_section_money = money.get("by_section") or []
-    if impact.get("activityinfo_used"):
-        monthly = series(
-            impact.get("monthly") or {},
-            {"etools": "eTools", "activityinfo": "ActivityInfo"},
-            {"eTools": "--nd-primary", "ActivityInfo": "--nd-series-2"},
-            last={"activityinfo": int(impact.get("activityinfo_last_month") or 0)},
-        )
-    else:  # no ActivityInfo children for this scope and year: no "ActivityInfo" series at all
-        monthly = series(impact.get("monthly") or {}, {"etools": "eTools"}, {"eTools": "--nd-primary"})
+    monthly = series(impact.get("monthly") or {}, {"etools": "eTools"}, {"eTools": "--nd-primary"})
     figures = {
         "impact": {
             "by_section": [r for r in impact.get("by_section") or [] if r.get("target") or r.get("achieved")],
@@ -310,25 +300,6 @@ def _overview_chart_data(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "labels": pd_monitoring_service.LABELS,
     }
     return {"figures": figures}
-
-
-def _forecast_risk(sections: list[str], year: int) -> list[Any]:
-    """The indicators of the chosen sections likely to fall short of their target (the Country overview's
-    card, in the ``news`` part only): only while ActivityInfo is in use and for this year (the forecasts are
-    ActivityInfo's), sections matched to NeuroDB's as Home matches them (names that match no NeuroDB section:
-    nothing, never the whole country's under their label)."""
-    from neurodb.indicators.services import activityinfo
-    from neurodb.insights.services import at_risk
-
-    if not activityinfo.in_use() or year != years.this_year():
-        return []
-    ids, matched = home_service.section_ids(sections)
-    if not matched:
-        return []
-    return at_risk(section_ids=ids, limit=FORECASTS_SHOWN, year=year)
-
-
-FORECASTS_SHOWN = 6
 
 
 def _whats_new(sections: list[str]) -> list[tuple[Any, str]]:
@@ -398,9 +369,7 @@ def country_overview(request: HttpRequest) -> HttpResponse:
     Filters: ``year`` (a calendar year, :func:`neurodb.core.years.resolve`: this year by default), ``section``
     (repeated) and ``governorate``. A first load with no query string at all shows the user's own section, as
     Home does (:func:`neurodb.reports.home.default_sections`: every section for Management and for people
-    without a section). ActivityInfo counts only in a year with its records
-    (:func:`neurodb.indicators.services.activityinfo.reporting_year_for`); every other year shows eTools
-    alone.
+    without a section). Its figures are eTools'.
 
     The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (purpose, filter
     bar, subtitle, freshness strip) with a placeholder per data block, and each block is asked for at this
@@ -412,16 +381,13 @@ def country_overview(request: HttpRequest) -> HttpResponse:
       is already stored, the frame draws both inline, so a warm overview asks only for ``news``, which is
       never stored; otherwise ``figures`` reads the build ``kpis`` read for ``as_of``, even when a sync
       finished before or between them;
-    - ``news`` (What's new and the forecast risk card).
+    - ``news`` (What's new).
 
     Home shows the key figures of this year (the same ``kpis`` build), and today's findings are on the daily
     review's page (:func:`daily_review`).
     """
-    from neurodb.indicators.services import activityinfo
-
     year = years.resolve(request.GET.get("year"))
     today = years.today()
-    reporting_year = activityinfo.reporting_year_for(year)
     options = functools.cache(lambda: overview_service.options(year))  # the frame's filter bar only
     sections = [s for s in request.GET.getlist("section") if s]
     governorate = request.GET.get("governorate", "").strip()
@@ -458,7 +424,6 @@ def country_overview(request: HttpRequest) -> HttpResponse:
 
     def shell() -> dict[str, Any]:
         jobs = overview_service.freshness(overview_service.freshness_jobs())
-        state = activityinfo.state()
         return {
             "page_title": _("Country overview"),
             "page_subtitle": " · ".join(
@@ -477,8 +442,6 @@ def country_overview(request: HttpRequest) -> HttpResponse:
             "freshness": jobs,
             "freshness_note": overview_service.freshness_note(jobs),
             "review_query": _scope_query(sections, year),
-            # the ActivityInfo databases of the year: only in a year with ActivityInfo records
-            "activityinfo_year_name": state.names.get(year, "") if year in state.years else "",
         }
 
     # The figures the frame is drawn with (their fingerprint: overview_service.fingerprint): a part request
@@ -495,9 +458,7 @@ def country_overview(request: HttpRequest) -> HttpResponse:
         resolved["governorate"] = governorate
     if as_of:
         resolved["as_of"] = as_of
-    build_scope = overview_service.Scope(
-        year=year, reporting_year=reporting_year, sections=sections, governorate=governorate, today=today
-    )
+    build_scope = overview_service.Scope(year=year, sections=sections, governorate=governorate, today=today)
     data = functools.cache(lambda: overview_service.build(build_scope, as_of=as_of))
     stored = functools.cache(lambda: overview_service.stored(build_scope))
     parts = {
@@ -509,7 +470,7 @@ def country_overview(request: HttpRequest) -> HttpResponse:
         ),
         "news": Part(
             "reports/parts/overview_news.html",
-            lambda: {"whats_new": _whats_new(sections), "forecast_risk": _forecast_risk(sections, year)},
+            lambda: {"whats_new": _whats_new(sections)},
         ),
     }
     return render_page(
@@ -650,8 +611,8 @@ def _brief_chart_data(data: dict[str, Any]) -> dict[str, Any]:
 def brief(request: HttpRequest) -> HttpResponse:
     """The management brief: the overview read for decisions (comparisons, confidence, equity,
     partners, money, action). Filters: ``year`` (a calendar year, this year by default) and ``section``
-    (repeated); every section by default, as senior management reads the whole country. ActivityInfo counts
-    only in a year with its records (:func:`neurodb.indicators.services.activityinfo.reporting_year_for`).
+    (repeated); every section by default, as senior management reads the whole country. Its figures are
+    eTools'.
 
     The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (purpose,
     filter bar with the "Figures as of" line, the tab bar, the Reference block, from
@@ -667,11 +628,8 @@ def brief(request: HttpRequest) -> HttpResponse:
     already stored, the frame draws both inline, so a warm brief is one request; otherwise ``sections``
     reads the build ``brief`` read for ``as_of``, even when a sync finished before or between them.
     """
-    from neurodb.indicators.services import activityinfo
-
     year = years.resolve(request.GET.get("year"))
     today = years.today()
-    reporting_year = activityinfo.reporting_year_for(year)
     sections = [s for s in request.GET.getlist("section") if s]
     keep = QueryDict(mutable=True)
     keep.setlist("section", sections)
@@ -726,12 +684,9 @@ def brief(request: HttpRequest) -> HttpResponse:
     resolved["year"] = str(year)
     if as_of:
         resolved["as_of"] = as_of
-    # the previous year's reporting year is looked up only when the build is computed (its key never reads
-    # it), and the key's own reads (the hand-entered tables, the latest review) are made once, for the frame's
-    # look and for the build it then draws
-    build_scope = brief_service.Scope(
-        year=year, reporting_year=reporting_year, sections=sections, today=today
-    )
+    # the key's own reads (the hand-entered tables, the latest review) are made once, for the frame's look and
+    # for the build it then draws
+    build_scope = brief_service.Scope(year=year, sections=sections, today=today)
     data = functools.cache(lambda: brief_service.build(build_scope, as_of=as_of))
     stored = functools.cache(lambda: brief_service.stored(build_scope))
     parts = {
@@ -827,10 +782,9 @@ def database_dashboard(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 def _database_forecast_risk(database: Database) -> list[Any]:
-    """The database's indicators likely to fall short by December (its dashboard's card), as the Country
-    overview's card (:func:`_forecast_risk`): only while ActivityInfo is in use and for a database of this
-    year, with this year's forecasts. An archive's forecasts are no longer made (SPEC_HOME §8), and a past
-    year's December has passed: no card."""
+    """The database's indicators likely to fall short by December (its dashboard's card, in the archive):
+    only while ActivityInfo is in use and for a database of this year, with this year's forecasts. An
+    archive's forecasts are no longer made (SPEC_HOME §8), and a past year's December has passed: no card."""
     from neurodb.indicators.services import activityinfo
     from neurodb.insights.services import at_risk
 
@@ -1194,7 +1148,7 @@ def _programme_page(request: HttpRequest, tab: str, params: QueryDict) -> dict[s
         "tab": tab,
         "tab_urls": _programme_tab_urls(request, params),
         "page_title": _("Programme documents"),
-        "page_subtitle": _("eTools partnerships with their donors, grants and ActivityInfo interventions"),
+        "page_subtitle": _("eTools partnerships with their donors and grants"),
         "breadcrumbs": [_crumb(_("Programme documents"))],
         "actions": [
             {
@@ -1250,10 +1204,9 @@ def programmes(request: HttpRequest) -> HttpResponse:
         if (params.get("pd_q") or "").strip():
             documents = documents.filter(number__icontains=params["pd_q"].strip())
         page_obj = _paginate(request, documents)
-        counts = partnerships.pd_intervention_counts([pd.number for pd in page_obj if pd.number])
         rows = [
             {
-                **services.pd_as_dict(pd, counts),
+                **services.pd_as_dict(pd),
                 "budget_currency": pd.budget_currency or "",
                 "past_end": partnerships.past_end_date(pd.status, pd.end),
             }
@@ -1487,7 +1440,7 @@ def donors(request: HttpRequest) -> HttpResponse:
     # the office the owner removed from every page is never read from the address (reports.old_filters)
     params = old_filters.without(request.GET)
     filters = partnerships.PDFilters.from_params(params)
-    data = partnerships.donor_mapping(filters)
+    data = partnerships.donor_mapping(filters, activity_records=False)  # ActivityInfo's: the archive's only
     selected = {key: params.getlist(key) for key in ("donor", "grant", "partner", "section", "status")}
     # the full lists live on Programmes and Funds (each grant and what it reserves: Grants by donor is
     # hidden here): this page links there with the same filters
@@ -1535,16 +1488,17 @@ def partners(request: HttpRequest) -> HttpResponse:
 
 @require_GET
 def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
-    """A partner's page: key figures, profile, visits and assurance, Monitoring insights, its eTools and
-    ActivityInfo reporting side by side, and its lists (programme documents, engagements, HACT, progress
-    reports, financial findings, assessments, action points, monitoring visits).
+    """A partner's page: key figures, profile, visits and assurance, Monitoring insights, its eTools
+    reporting, and its lists (programme documents, engagements, HACT, progress reports, financial findings,
+    assessments, action points, monitoring visits). Its ActivityInfo records stay in the archive, on the
+    partner's ActivityInfo page (:func:`partner_activityinfo`, opened by its address).
 
     The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (the header,
     the deleted notice, the knowledge base documents) with one placeholder, ``datamart``: everything from
     the key figures to the last list. Those blocks are interleaved on the page and read one computation,
     the partner's eTools Datamart figures (:func:`neurodb.datamart.services.partner_datamart`, model
-    instances, never stored for other workers), with its programme documents and its ActivityInfo records
-    (the key figures count those, the ActivityInfo panel lists them), so they come in one request. Inside
+    instances, never stored for other workers), with its programme documents, so they come in one request.
+    Inside
     it, ``fmm``, the Monitoring insights panel (its own computation, loaded last), when Monitoring
     insights is on and a visit ever monitored the partner. The page has no filter: the parts' query is
     empty. Nothing is stored, so an edit shows at the next visit.
@@ -1574,11 +1528,9 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
     def figures() -> dict[str, Any]:
         profile = partnerships.partner_profile(partner)
         extra = datamart.partner_datamart(partner)
-        activityinfo = partner_facts.partner_activityinfo(partner)
         return {
             "profile": profile,
             "datamart": extra,
-            "activityinfo": activityinfo,
             "fmm_seen": _fmm_partner_seen(partner.pk),
             "chart_data": {
                 # staff trips from eTools Trips in the Datamart when synced, else the v2 travel tables,
@@ -1588,7 +1540,6 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
                     extra["monitoring_visits_by_year"],
                 ),
                 "engagement_counts": profile["engagement_counts"],
-                "activityinfo_by_year": activityinfo["by_year"],
                 "etools_reports_by_year": extra["reports_by_year"],
             },
         }
@@ -3512,10 +3463,10 @@ def data_health(request: HttpRequest) -> HttpResponse:
     heading, the *Sync jobs* heading with its staleness note, the datasets panel's heading and explanation)
     with a placeholder per block, each asked for at this address plus ``_part``, each its own computation:
 
-    - ``jobs``: one card per sync job, fresh, stale or never succeeded (:func:`services.health_jobs`);
-    - ``databases``: the displayed ActivityInfo databases of the year the import serves (the archive's last
-      year once ActivityInfo is no longer followed, each "Archive") and their last import;
-    - ``runs``: the latest 50 runs of every job;
+    - ``jobs``: one card per sync job, fresh, stale or never succeeded (:func:`services.health_jobs`), the
+      ActivityInfo archive's jobs left out (:data:`services.ARCHIVE_JOBS`: the administration's Scheduled jobs
+      and runs list them);
+    - ``runs``: the latest 50 runs of every job but those;
     - ``datasets``: the table of the eTools Datamart datasets (:func:`services.datamart_quality`), whose row
       counts are stored for every worker (an hour at most, keyed on the jobs that write those tables); its
       panel's heading and explanation are the frame's;
@@ -3537,41 +3488,42 @@ def data_health(request: HttpRequest) -> HttpResponse:
             "breadcrumbs": [_crumb(_("Data health"))],
             "staleness_hours": settings.SYNC_STALENESS_HOURS,
             # the jobs' placeholder draws one grey card per job card to come (no query)
-            "job_count": sum(1 for job in SyncRun.Job if job not in services.HEALTH_SKIPPED_JOBS),
+            "job_count": sum(
+                1
+                for job in SyncRun.Job
+                if job not in services.HEALTH_SKIPPED_JOBS and job not in services.ARCHIVE_JOBS
+            ),
             # the datasets panel's heading counts the datasets its table lists, one per Datamart dataset
             "dataset_count": len(ENTITY_SYNCS),
         }
 
-    def databases() -> dict[str, Any]:
-        """The ActivityInfo databases of the year the import serves, or, once ActivityInfo is an archive, of
-        its last year, each "Archive" (no longer followed, never stale), with the note that says so: no
-        longer imported once its scheduled job is off, still imported (but not followed) while it is on."""
-        from neurodb.indicators.services import activityinfo
-
-        state = activityinfo.state()
-        archived = not state.watched
-        year = services.health_year()
-        return {
-            "databases": services.health_databases(year, archived=archived),
-            "year": year,
-            "archived": archived,
-            "import_on": state.schedule_on,
-        }
-
     parts = {
-        "jobs": Part("reports/parts/health_jobs.html", lambda: {"jobs": services.health_jobs()}),
-        "databases": Part("reports/parts/health_databases.html", databases),
-        "runs": Part("reports/parts/health_runs.html", lambda: {"runs": services.recent_runs()}),
+        "jobs": Part(
+            "reports/parts/health_jobs.html", lambda: {"jobs": services.health_jobs(with_archive=False)}
+        ),
+        "runs": Part(
+            "reports/parts/health_runs.html", lambda: {"runs": services.recent_runs(with_archive=False)}
+        ),
         "datasets": Part(
             "reports/parts/health_datasets.html", lambda: {"datasets": services.datamart_quality()}
         ),
         "readiness": Part(
             "reports/parts/health_readiness.html",
-            lambda: {"readiness": SyncRun.last_success(SyncRun.Job.ML_READINESS)},
+            _readiness,
         ),
         "power-bi": Part("reports/parts/health_power_bi.html", lambda: {"programmes": _power_bi_health()}),
     }
     return render_page(request, "reports/data_health.html", scope={}, shell=shell, parts=parts, query="")
+
+
+def _readiness() -> dict[str, Any]:
+    """The last machine learning readiness check, as Data health shows it (without the ActivityInfo archive:
+    :func:`neurodb.insights.readiness.shown`)."""
+    from neurodb.insights import readiness
+
+    run = SyncRun.last_success(SyncRun.Job.ML_READINESS)
+    result = readiness.shown((run.details or {}).get("readiness")) if run else None
+    return {"readiness": run, "result": result}
 
 
 def _power_bi_health() -> list[dict[str, Any]]:
@@ -3595,8 +3547,8 @@ def _looks_like_question(q: str) -> bool:
 @require_GET
 def search(request: HttpRequest) -> HttpResponse:
     """Pages, partners, programme documents, country programme indicators, knowledge base documents and the
-    ActivityInfo archive of every year (:func:`services.search`); ``?year=`` (a reporting year's name) narrows
-    the ActivityInfo groups to that year."""
+    archive of every year (:func:`services.search`, its groups labelled as the archive); ``?year=`` (a
+    reporting year's name) narrows the archive's groups to that year."""
     from neurodb.indicators.models import ReportingYear
 
     q = request.GET.get("q", "").strip()
@@ -3607,7 +3559,7 @@ def search(request: HttpRequest) -> HttpResponse:
     groups = services.search(q, year, group=group, user=request.user) if q else []
     context = {
         "page_title": _("Search"),
-        "page_subtitle": _("Partners, programme documents, indicators, pages and the ActivityInfo archive"),
+        "page_subtitle": _("Partners, programme documents, indicators and pages"),
         "breadcrumbs": [_crumb(_("Search"))],
         "q": q,
         "group": group,

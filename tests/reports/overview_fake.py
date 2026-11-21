@@ -25,21 +25,15 @@ def fake_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
     """Every block filled with plausible numbers."""
     return {
         "impact": {
-            "children_reached": 48_250,
-            "children_etools": 31_400,
-            "children_activityinfo": 16_850,
-            # an ActivityInfo year: the two sources apart, each with its months
-            "activityinfo_used": True,
+            "children_reached": 31_400,
+            "children_etools": 31_400,  # eTools alone: ActivityInfo is an archive, never counted
             "etools_last_month": 6,
-            "activityinfo_first_month": 1,
-            "activityinfo_last_month": 6,
             "not_yet": False,
             "delta_previous_year": 12.4,
             "by_governorate": [
                 {
                     "name": "Akkar",
                     "etools": 9_800,
-                    "activityinfo": 6_200,
                     "reached": 9_800,
                     "population": 120_000,
                     "coverage": 8.2,
@@ -48,16 +42,14 @@ def fake_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
                 {
                     "name": "Bekaa",
                     "etools": 7_100,
-                    "activityinfo": 8_400,
-                    "reached": 8_400,
+                    "reached": 7_100,
                     "population": 140_000,
-                    "coverage": 6.0,
+                    "coverage": 5.1,
                     "level": 5,
                 },
                 {
                     "name": "North",
                     "etools": 6_000,
-                    "activityinfo": 1_200,
                     "reached": 6_000,
                     "population": 210_000,
                     "coverage": 2.9,
@@ -66,7 +58,6 @@ def fake_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
                 {
                     "name": "Mount Lebanon",
                     "etools": 4_500,
-                    "activityinfo": 500,
                     "reached": 4_500,
                     "population": 390_000,
                     "coverage": 1.2,
@@ -75,7 +66,6 @@ def fake_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
                 {
                     "name": "Beirut",
                     "etools": 2_400,
-                    "activityinfo": 300,
                     "reached": 2_400,
                     "population": 90_000,
                     "coverage": 2.7,
@@ -84,7 +74,6 @@ def fake_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
                 {
                     "name": "South",
                     "etools": 1_600,
-                    "activityinfo": 250,
                     "reached": 1_600,
                     "population": None,
                     "coverage": None,
@@ -120,10 +109,9 @@ def fake_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
             "monthly": {
                 "labels": list(MONTHS),
                 "etools": [0, 4_000, 6_500, 5_200, 7_100, 8_600, 0, 0, 0, 0, 0, 0],
-                "activityinfo": [1_200, 2_300, 2_900, 3_100, 3_600, 3_750, 0, 0, 0, 0, 0, 0],
             },
             "population_year": 2025,
-            "source": "eTools PRP progress reports and ActivityInfo HPM master indicators, 2026",
+            "source": "eTools PRP progress reports, 2026",
         },
         "money": {
             "reserved": 12_400_000.0,
@@ -328,16 +316,12 @@ def empty_data(today: datetime.date = FAKE_TODAY) -> dict[str, Any]:
         "impact": {
             "children_reached": 0,
             "children_etools": 0,
-            "children_activityinfo": 0,
-            "activityinfo_used": False,
             "etools_last_month": 0,
-            "activityinfo_first_month": 0,
-            "activityinfo_last_month": 0,
             "not_yet": False,
             "delta_previous_year": None,
             "by_governorate": [],
             "by_section": [],
-            "monthly": {"labels": list(MONTHS), "etools": list(zeros), "activityinfo": list(zeros)},
+            "monthly": {"labels": list(MONTHS), "etools": list(zeros)},
             "population_year": None,
             "source": "eTools PRP progress reports",
         },
@@ -409,13 +393,6 @@ def fake_freshness(jobs: Any = None) -> list[dict[str, Any]]:
     """What ``overview.freshness(jobs)`` returns: the freshness strip of the page's frame (no longer part of a
     build)."""
     return [
-        {
-            "job": "ai_data",
-            "label": "ActivityInfo data import",
-            "finished_at": None,
-            "state": "unknown",
-            "state_label": "Never succeeded",
-        },
         {
             "job": "etools_datamart",
             "label": "eTools Datamart sync",

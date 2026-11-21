@@ -1078,7 +1078,7 @@ def partner_activityinfo(
         "activityinfo_names": overview["labels"],
         "years": overview["years"],
         "databases": databases,
-        "url": reverse("reports:partner_profile", args=[org.id]) + "#activityinfo-reporting",
+        "url": reverse("reports:partner_profile", args=[org.id]),
     }
 
 

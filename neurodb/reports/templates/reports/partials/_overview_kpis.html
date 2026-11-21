@@ -2,23 +2,22 @@
 {% comment %}The five key figures of the year, on the Country overview (part "kpis") and on Home (part "standing"): one
 template, one build (overview.build), so "Children reached" reads the same everywhere. Context: data, keep_query,
 programmes_query, previous_query, labels, month_names. Each tile has a one-line hint; how a figure is counted opens
-under "How it is counted" (.kpi__how, app.css). ActivityInfo is named only where it counts (impact.activityinfo_used:
-a year with its records and ActivityInfo children in this scope); January to April of this year with no children yet
-reads "Not yet", never 0 (impact.not_yet), and so does a year that has not started (impact.not_started), which says
-so.{% endcomment %}
+under "How it is counted" (.kpi__how, app.css). Children reached comes from eTools partner reports; January to April
+of this year with no children yet reads "Not yet", never 0 (impact.not_yet), and so does a year that has not started
+(impact.not_started), which says so.{% endcomment %}
 {% with impact=data.impact money=data.money delivery=data.delivery year=data.scope.year %}
 <div class="kpi-grid" aria-label="{% trans 'Key figures' %}">
   <div class="kpi kpi--split">
-    <div class="kpi__label"{% if impact.activityinfo_used %} title="{% trans 'The same children are often reported in both sources: the figure is the larger of the two, never their sum' %}"{% endif %}>{% trans "Children reached" %}</div>
+    <div class="kpi__label">{% trans "Children reached" %}</div>
     {% if impact.not_yet %}
     <div class="kpi__value">{% trans "Not yet" %}</div>
     <div class="kpi__meta"><span class="kpi__hint">{% if impact.not_started %}{% blocktrans with y=year %}{{ y }} has not started.{% endblocktrans %}{% else %}{% blocktrans with y=year %}No partner report for {{ y }} yet: the first ones come after the first quarter.{% endblocktrans %}{% endif %} <a href="{% url 'reports:country_overview' %}?{{ previous_query }}">{% blocktrans with y=year|add:"-1" %}See {{ y }}{% endblocktrans %} →</a></span></div>
     {% else %}
     <div class="kpi__value"><a href="{% url 'reports:pd_monitoring' %}?{{ keep_query }}">{{ impact.children_reached|intcomma }}</a></div>
     <div class="kpi__meta">
-      {% if impact.delta_previous_year is not None %}<span class="pill pill--sm {% if impact.delta_previous_year >= 0 %}pill--success{% else %}pill--danger{% endif %}" title="{% trans 'Against the same months of the previous year, both sources' %}">{% if impact.delta_previous_year > 0 %}+{% endif %}{{ impact.delta_previous_year|floatformat:"0" }}% {% trans "vs last year" %}</span>{% endif %}
-      {% with e_last=month_names|get_item:impact.etools_last_month a_first=month_names|get_item:impact.activityinfo_first_month a_last=month_names|get_item:impact.activityinfo_last_month jan=month_names|get_item:1 %}
-      <span class="kpi__hint">{% if impact.activityinfo_used %}{% blocktrans with e=impact.children_etools|intcomma %}eTools {{ e }}{% endblocktrans %}{% if e_last %} ({{ jan }}–{{ e_last }}){% endif %} · {% blocktrans with a=impact.children_activityinfo|intcomma %}ActivityInfo {{ a }}{% endblocktrans %}{% if a_last %} ({{ a_first }}–{{ a_last }}){% endif %}{% trans ": the larger of the two" %}{% else %}{% trans "From eTools partner progress reports" %}{% if e_last %} ({{ jan }}–{{ e_last }}){% endif %}{% endif %}</span>
+      {% if impact.delta_previous_year is not None %}<span class="pill pill--sm {% if impact.delta_previous_year >= 0 %}pill--success{% else %}pill--danger{% endif %}" title="{% trans 'Against the same months of the previous year' %}">{% if impact.delta_previous_year > 0 %}+{% endif %}{{ impact.delta_previous_year|floatformat:"0" }}% {% trans "vs last year" %}</span>{% endif %}
+      {% with e_last=month_names|get_item:impact.etools_last_month jan=month_names|get_item:1 %}
+      <span class="kpi__hint">{% trans "From eTools partner progress reports" %}{% if e_last %} ({{ jan }}–{{ e_last }}){% endif %}</span>
       {% endwith %}
     </div>
     {% endif %}
