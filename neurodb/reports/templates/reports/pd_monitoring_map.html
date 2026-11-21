@@ -18,14 +18,18 @@
     <div class="map" data-map-canvas></div>
     <div class="map-legend" data-map-legend>
       <strong>{% trans "Implementation locations" %}</strong>
+      <div class="small mt-1">{% trans "Fill: the worst status there" %}</div>
       <div class="legend mt-1">{% for key, label in labels.items %}<span class="legend__item">{% status_pill key label "sm" %}</span>{% endfor %}</div>
-      <div class="small text-muted mt-1">{% trans "Circle size: indicators at the location. Hollow: placed at the nearest parent area with coordinates." %}</div>
+      {% comment %}static/js/pdmap.js rings and sizes each point by its level (the API's "level"), in the --nd-level-* tokens; it shows the whole country only when a place on the map is at that level{% endcomment %}
+      <div class="small mt-2">{% trans "Ring and size: the kind of place" %}</div>
+      <div class="legend mt-1" data-pdmap-levels>{% for key, label in levels.items %}<span class="legend__item" data-pdmap-level="{{ key }}"{% if key == "country" %} hidden{% endif %}><span class="pdmap-ring pdmap-ring--{{ key }}" aria-hidden="true"></span>{{ label }}{% if key == "place" %} {% trans "(cadastre, village, site)" %}{% endif %}</span>{% endfor %}</div>
+      <div class="small text-muted mt-1">{% trans "Of one kind, a bigger circle has more indicators. Pale: placed at the nearest larger area that has coordinates." %}</div>
     </div>
   </section>
   <section class="panel p-0 pdmap-side">
     <div class="table-toolbar"><div class="table-toolbar__title"><h2 class="h6 mb-0">{% trans "Locations" %}</h2><span class="text-muted small" data-map-totals aria-live="polite"></span></div>
       <div class="table-toolbar__actions"><input class="form-control form-control-sm" type="search" placeholder="{% trans 'Find a location' %}" data-pdmap-search aria-label="{% trans 'Find a location' %}"></div></div>
-    <div class="table-wrap pdmap-list" style="max-height: min(70vh, 640px)">
+    <div class="table-wrap pdmap-list">
       <table class="table table-hover table-sm" id="pdmap-table">
         <thead><tr><th>{% trans "Location" %}</th><th class="num">{% trans "Partners" %}</th><th class="num">{% trans "PDs" %}</th><th class="num">{% trans "Indicators" %}</th><th>{% trans "Status" %}</th></tr></thead>
         <tbody data-pdmap-table><tr><td colspan="5">{% include "components/skeleton.html" %}</td></tr></tbody>

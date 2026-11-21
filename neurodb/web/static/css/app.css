@@ -29,6 +29,12 @@
   --nd-danger-text: #b3302f;
   --nd-warning-text: #9a5b00;
   --nd-info-text: #2a63c0;
+  /* The ring of a place on the partner monitoring map, by its level (static/js/pdmap.js): hues apart from the status
+     fills inside the ring, at 4.5:1 or more on the light map */
+  --nd-level-country: #111827;
+  --nd-level-governorate: #7b3fe4;
+  --nd-level-district: #0b7285;
+  --nd-level-place: #475569;
   --nd-radius: 12px;
   --nd-radius-sm: 8px;
   --nd-shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 1px 3px rgb(16 24 40 / 8%);
@@ -67,6 +73,11 @@
   --nd-danger-text: #ef6b6b;
   --nd-warning-text: #f0b04a;
   --nd-info-text: #6b9ef0;
+  /* light rings: the map is dimmed in the dark theme */
+  --nd-level-country: #ffffff;
+  --nd-level-governorate: #cdb8fa;
+  --nd-level-district: #7fdcea;
+  --nd-level-place: #dfe5ee;
   --nd-shadow: 0 1px 2px rgb(0 0 0 / 40%);
   --nd-shadow-lg: 0 12px 32px rgb(0 0 0 / 50%);
   --bs-body-bg: var(--nd-bg);
@@ -620,7 +631,15 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 /* eTools Reached: reports that do not count (Sent back, Due, Overdue) are greyed and outside every total */
 .reached-uncounted, tr.reached-uncounted td { color: var(--nd-muted); background: var(--nd-surface-2); font-style: italic; }
 .pdmap-side .table-toolbar__actions { flex: 1 1 200px; justify-content: flex-end; }
+.pdmap-list { max-height: min(70vh, 640px); }
 .pdmap-list tr[data-pdmap-row] { cursor: pointer; }
+/* a place's level: the ring of its point on the map, smaller for a smaller place (legend, side list, details) */
+.pdmap-ring { display: inline-block; flex: none; border-radius: 50%; border-style: solid; background: var(--nd-surface-2); vertical-align: middle; }
+.pdmap-ring--country { width: 18px; height: 18px; border-width: 4px; border-color: var(--nd-level-country); }
+.pdmap-ring--governorate { width: 16px; height: 16px; border-width: 3px; border-color: var(--nd-level-governorate); }
+.pdmap-ring--district { width: 12px; height: 12px; border-width: 2.5px; border-color: var(--nd-level-district); }
+.pdmap-ring--place { width: 8px; height: 8px; border-width: 1.5px; border-color: var(--nd-level-place); }
+.pdmap-level { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; color: var(--nd-muted); }
 .map-legend .legend { margin-top: 0.25rem; }
 
 /* ------------------------------------------------------------------ Overview dashboard */

@@ -115,7 +115,17 @@ PRP's report ids, which PRP's own list does not carry.
   monthly, in humanitarian reports. With a
   reporting year chosen, it shows Reached in that year and its % of the target first (sorted by it),
   as Power BI does, with Reached to date beside them.
-- **Map**: the implementation locations, coloured by the worst status there.
+- **Map**: the implementation locations. Each circle is filled with the colour of the worst status there.
+  Since 21 Nov 2026 (your decision) its ring and its size show the kind of place, so you can tell a
+  governorate from a district at a glance: a governorate has the largest circle and a purple ring, a
+  district a middle-sized circle and a blue-green ring, and a smaller place (a cadastre, village or site)
+  the smallest circle and a grey ring. Among places of one kind, a bigger circle has more indicators. The
+  legend under the map says the same in words, and the list beside the map and a place's details name the
+  kind of place. A pale circle is placed at the nearest larger area that has coordinates.
+  Click a place to list its partners, programme documents and indicators. Since 21 Nov 2026 (your
+  decision) this list no longer shows a programme document's total budget, UNICEF cash, partner
+  contribution, donors or agreement, also when you filter by location: a programme document's budget is
+  for the whole programme document, not for one place. Its own page still shows them.
 
 *Master indicators* is hidden (your decision of 21 Nov 2026): it is no longer a tab and no page links to
 it, but an old link or bookmark still opens it (see [Master indicators](#master-indicators) below).

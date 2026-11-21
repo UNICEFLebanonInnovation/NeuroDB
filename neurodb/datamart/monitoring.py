@@ -1027,6 +1027,24 @@ def indicators_stored(filters: Filters, day: datetime.date | None = None) -> boo
 
 # ------------------------------------------------------------------------------------------ map
 LEVEL_GOVERNORATE, LEVEL_DISTRICT = 1, 2  # eTools admin levels in Lebanon (0 = country)
+# a place's level on the partner monitoring map (each place's ``level``), by the admin level of its eTools
+# location type: pdmap.js rings and sizes each level apart, and the map's legend names them in these words. A
+# cadastre, village or site, and a location whose type gives no admin level, is a smaller place
+LEVEL_LABELS = {
+    "country": "Whole country",
+    "governorate": "Governorate",
+    "district": "District",
+    "place": "Smaller place",
+}
+_LEVEL_OF_ADMIN = {0: "country", LEVEL_GOVERNORATE: "governorate", LEVEL_DISTRICT: "district"}
+# the shape of the map's stored places, in their key: 2, each place gives its level and its programme
+# documents no budget, so places stored before are never read
+MAP_VERSION = 2
+
+
+def map_level(admin_level: int | None) -> str:
+    """The map level (a key of :data:`LEVEL_LABELS`) of a location type's admin level."""
+    return _LEVEL_OF_ADMIN.get(admin_level, "place")
 
 
 def _gazetteer(ids: set[int]) -> dict[int, dict[str, Any]]:
@@ -1048,10 +1066,13 @@ def _gazetteer(ids: set[int]) -> dict[int, dict[str, Any]]:
 def _place(location_id: int | None, gazetteer: dict[int, dict[str, Any]]) -> dict[str, Any]:
     """Coordinates and hierarchy of a location: its own point, else the nearest ancestor's. The
     governorate and district are given by name and by gazetteer id (``governorate_id``,
-    ``district_id``; None when the location is not under one)."""
+    ``district_id``; None when the location is not under one); its own level as eTools gives it
+    (``admin_level``, ``level_name``: its location type) and as the map draws it (``level``:
+    :func:`map_level`)."""
     out: dict[str, Any] = {
         "admin_level": None,
         "level_name": "",
+        "level": map_level(None),
         "governorate": "",
         "district": "",
         "governorate_id": None,
@@ -1066,6 +1087,7 @@ def _place(location_id: int | None, gazetteer: dict[int, dict[str, Any]]) -> dic
         return out
     out["name"] = row["name"]  # the gazetteer's spelling, not the indicator's
     out["admin_level"], out["level_name"] = row["type__admin_level"], row["type__name"] or ""
+    out["level"] = map_level(row["type__admin_level"])
     node, hops = row, 0
     while node is not None and hops < 8:
         if node["type__admin_level"] == LEVEL_GOVERNORATE:
@@ -1079,7 +1101,9 @@ def _place(location_id: int | None, gazetteer: dict[int, dict[str, Any]]) -> dic
     return out
 
 
-def _funding(pd: PCA) -> dict[str, Any]:
+def _programme(pd: PCA) -> dict[str, Any]:
+    """A programme document as the map's places name it. No budget, cash, contribution, donor or agreement: a
+    programme document's budget is not a figure of one of its places."""
     return {
         "id": pd.id,
         "number": pd.number,
@@ -1090,12 +1114,6 @@ def _funding(pd: PCA) -> dict[str, Any]:
         "partner": pd.partner.name if pd.partner else pd.partner_name,
         "partner_id": pd.partner_id,
         "url": reverse("reports:programme_detail", args=[pd.id]),
-        "total_budget": number(pd.total_budget),
-        "unicef_cash": number(pd.unicef_cash),
-        "partner_contribution": number(pd.cso_contribution),
-        "currency": pd.budget_currency or "",
-        "donors": list(pd.donors or [])[:8],
-        "agreement": pd.agreement.agreement_number if pd.agreement_id and pd.agreement else "",
     }
 
 
@@ -1130,10 +1148,11 @@ def _monitoring_at(pd_ids: set[int], location_ids: set[int]) -> dict[int, dict[s
 
 def map_points(filters: Filters, today: datetime.date | None = None) -> dict[str, Any]:
     """Every implementation location of the filtered indicators, with what is planned and reported
-    there: partner, PD (and its funding), indicator, target, the location's own Reached (to date and
+    there: partner, PD, indicator, target, the location's own Reached (to date and
     in the year), the indicator's Reached, status, period, and the monitoring done at the place. A
     location is placed by its own eTools coordinates, else by the nearest ancestor with coordinates
-    (flagged approximate); names alone never place anything."""
+    (flagged approximate); names alone never place anything. Each place gives its level (``level``: a
+    governorate, a district or a smaller place, :func:`map_level`)."""
     rows = indicators(filters, today)
     only = location_filter(filters)
     whole: dict[tuple[int, str], Indicator] = {}
@@ -1145,7 +1164,7 @@ def map_points(filters: Filters, today: datetime.date | None = None) -> dict[str
     places: dict[str, dict[str, Any]] = {}
     pds: dict[int, dict[str, Any]] = {}
     for ind in rows:
-        pds.setdefault(ind.pd.id, _funding(ind.pd))
+        pds.setdefault(ind.pd.id, _programme(ind.pd))
         full = whole.get(ind.ident, ind)
         planned_here = {
             k for k, p in ind.planned.items() if only is None or k in only or norm(p.get("name")) in only
@@ -1260,7 +1279,7 @@ def stored_map_points(filters: Filters, day: datetime.date | None = None) -> dic
     if settings.DEBUG:
         return map_points(filters, day)
     key = (
-        f"pm-map:v{CACHE_VERSION}:{filters.cache_key()}:{day}:{keys.fingerprint()}:"
+        f"pm-map:v{CACHE_VERSION}.{MAP_VERSION}:{filters.cache_key()}:{day}:{keys.fingerprint()}:"
         f"{compute.fingerprint(keys.gazetteer())}"
     )
     return compute.once(key, lambda: map_points(filters, day), STORED_SECONDS, lang_neutral=True)

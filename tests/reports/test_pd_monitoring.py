@@ -511,6 +511,115 @@ def test_map_page_api_and_links(client_viewer, data, places, frozen_today):
     assert reverse("reports:pd_monitoring_map") + "?partner=" in partner
 
 
+def test_map_levels_of_admin_levels():
+    """A place's level on the map: the whole country, a governorate, a district, or a smaller place (a
+    cadastre, village or site, and a place whose location type gives no admin level)."""
+    assert [monitoring.map_level(n) for n in (0, 1, 2, 3, 4, None)] == [
+        "country",
+        "governorate",
+        "district",
+        "place",
+        "place",
+        "place",
+    ]
+    assert list(monitoring.LEVEL_LABELS) == ["country", "governorate", "district", "place"]
+
+
+def _on_three_levels(places):
+    """The girls' indicator at Halba (a cadastre placed at Akkar) and at Bekaa (a governorate), the boys' at
+    the Akkar district (placed at Akkar too)."""
+    girls = dm.PDIndicator.objects.get(datamart_id=1).title
+    boys = dm.PDIndicator.objects.get(datamart_id=3).title
+    dm.PDIndicator.objects.filter(datamart_id=1).update(location_pcode="LB1101", location=places["halba"])
+    dm.PDIndicator.objects.filter(datamart_id=2).update(location_pcode="LB5", location=places["bekaa"])
+    dm.PDIndicator.objects.filter(datamart_id=3).update(location_pcode="LB11", location=places["district"])
+    dm.ReportedIndicator.objects.filter(location="Akkar", indicator=girls).update(
+        p_code="LB1101", location_ref=places["halba"]
+    )
+    dm.ReportedIndicator.objects.filter(location="Akkar", indicator=boys).update(
+        p_code="LB11", location_ref=places["district"]
+    )
+    dm.ReportedIndicator.objects.filter(location="Bekaa").update(p_code="LB5", location_ref=places["bekaa"])
+
+
+def test_map_points_give_each_place_its_level(data, places, frozen_today):
+    _on_three_levels(places)
+    out = monitoring.map_points(monitoring.Filters(year=2026), today=TODAY)
+    by_key = {p["key"]: p for p in out["points"]}
+    assert {k: by_key[k]["level"] for k in ("LB1101", "LB11", "LB5")} == {
+        "LB1101": "place",
+        "LB11": "district",
+        "LB5": "governorate",
+    }
+    assert (by_key["LB1101"]["admin_level"], by_key["LB1101"]["level_name"]) == (3, "Cadastral")
+    assert (by_key["LB11"]["admin_level"], by_key["LB11"]["level_name"]) == (2, "District")
+    # the cadastre and the district are both drawn at Akkar's point: their level still tells them apart
+    assert by_key["LB1101"]["approximate"] and by_key["LB11"]["approximate"]
+    # each place keeps its worst status, the fill of its circle
+    assert by_key["LB1101"]["worst"] in monitoring.LABELS and by_key["LB11"]["worst"] in monitoring.LABELS
+
+
+def test_map_api_gives_levels_and_no_programme_budget(client_viewer, data, places, frozen_today):
+    """A programme document's budget is not a figure of one place: the map's places carry no budget, UNICEF
+    cash, partner contribution, donors or agreement (the page drew them under each programme document of a
+    place, also under a location filter)."""
+    from neurodb.partnerships.models import Agreement
+
+    agreement = Agreement.objects.create(etl_id="91", agreement_type="PCA", agreement_number="LEB/PCA2026901")
+    PCA.objects.filter(pk=data["pd"].pk).update(
+        total_budget="987654.00",
+        unicef_cash="876543.00",
+        cso_contribution="765432.00",
+        budget_currency="USD",
+        donors=["Example Donor Fund"],
+        agreement=agreement,
+    )
+    _on_three_levels(places)
+    for params in ({"year": "2026"}, {"year": "2026", "location": "Akkar"}):
+        api = client_viewer.get(reverse("api:pd_map"), params)
+        assert api.status_code == 200
+        payload = api.json()
+        assert payload["points"], params
+        assert all(p["level"] in monitoring.LEVEL_LABELS for p in payload["points"] + payload["unlocated"])
+        funding = {"total_budget", "unicef_cash", "partner_contribution", "currency", "donors", "agreement"}
+        for pd in payload["pds"].values():
+            assert {"number", "title", "url"} <= set(pd) and not funding & set(pd), params
+        for word in ("987654", "876543", "765432", "Example Donor Fund", "LEB/PCA2026901"):
+            assert word not in api.content.decode(), (word, params)
+
+
+def test_map_places_stored_before_the_levels_are_never_read(data, frozen_today, monkeypatch, settings):
+    """The map's stored places changed shape (each gives its level, its programme documents no budget): their
+    key carries the map's version, so places a previous release stored are computed again, never read."""
+    from neurodb.core import compute
+
+    settings.DEBUG = False
+    filters = monitoring.Filters(year=2026)
+    with monkeypatch.context() as patch:
+        patch.setattr(monitoring, "MAP_VERSION", 1)
+        patch.setattr(monitoring, "map_points", lambda *args, **kwargs: {"points": [], "stored": "before"})
+        assert monitoring.stored_map_points(filters, TODAY)["stored"] == "before"
+    compute.reset_memo()
+    assert "stored" not in monitoring.stored_map_points(filters, TODAY)
+
+
+def test_map_page_legend_names_the_levels(client_viewer, data, frozen_today):
+    import re
+
+    page = client_viewer.get(reverse("reports:pd_monitoring_map"), {"year": "2026"})
+    legend = page.text.split("data-map-legend", 1)[1].split("</section>", 1)[0]
+    for key, label in monitoring.LEVEL_LABELS.items():
+        assert f'data-pdmap-level="{key}"' in legend and label in legend, key
+    assert "cadastre, village, site" in legend
+    # the status colours stay in the legend, each with its words
+    for label in monitoring.LABELS.values():
+        assert label in legend
+    # the whole country shows in the legend only when a place on the map is at that level (pdmap.js)
+    assert re.search(r'data-pdmap-level="country"[^>]*\bhidden\b', legend)
+    # the script names the levels as the legend does
+    assert page.context["map_config"]["levels"] == monitoring.LEVEL_LABELS
+
+
 # ------------------------------------------------------------------ regressions: page integrity
 
 

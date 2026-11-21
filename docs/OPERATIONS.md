@@ -4740,14 +4740,28 @@ The run's `details.not_linked` counts, per kind (`partner`, `programme_document`
 `locations` dataset runs first and `link_partners`-style re-runs resolve the rest the next night.
 
 **Partner monitoring map** (*Knowledge base → Partner monitoring → Map*): every implementation
-location of the filtered indicators, coloured by the worst tracking status there. A location is
-placed by its own eTools coordinates; when it has none, by the nearest parent area that has some
-(drawn hollow, "approximate"); a name alone never places anything, and locations with no
+location of the filtered indicators, filled with the colour of the worst tracking status there. Since
+21 Nov 2026 each point also shows its level by its ring colour and its size: the API gives each place
+its `level` (`country`, `governorate`, `district`, or `place` for a cadastre, village, site or a
+location type with no admin level), worked out from the admin level of its eTools location type
+(`monitoring.map_level`; 0 country, 1 governorate, 2 district), beside eTools' own `admin_level` and
+`level_name`. `pdmap.js` draws each level in its own size band (governorate largest; within a level,
+larger for more indicators), ring width and ring colour (the `--nd-level-*` tokens of `app.css`, light
+and dark: the map is dimmed in the dark theme, as the other maps are), smaller places drawn over larger
+ones; the legend names the levels in words (*Whole country* only when a place on the map is at that
+level), and the side list, the pop-up and the place's details name the level of each place. A location
+is placed by its own eTools coordinates; when it has none, by the nearest parent area that has some
+(drawn pale, "approximate", its ring kept); a name alone never places anything, and locations with no
 coordinates anywhere in their hierarchy are listed under the map. Clicking a location lists, per
-partner and programme document (with its funding and agreement), the indicators reported there:
+partner and programme document, the indicators reported there:
 target, the location's own Reached (to date, with PRP's running total there, and in the chosen
 year), the indicator's Reached over all its locations, status and latest counted period, plus the
-TPM activities, field-monitoring findings and open action points recorded at the place. The indicator, programme and partner pages link back to the map for their locations.
+TPM activities, field-monitoring findings and open action points recorded at the place. Since 21 Nov
+2026 the map shows no programme document budget, UNICEF cash, partner contribution, donors or agreement
+(a programme document's budget is not a figure of one place, also under a location filter), and the
+map's API no longer sends them: each programme document in its `pds` gives its id, number, title,
+status, dates, partner and page address only. The stored places' key carries `MAP_VERSION` (2), so
+places stored by an older release are computed again, never read. The indicator, programme and partner pages link back to the map for their locations.
 
 ### Partner reporting: ActivityInfo and eTools, side by side
 

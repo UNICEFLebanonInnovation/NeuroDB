@@ -3240,6 +3240,7 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
         ],
         "filters": filters,
         "labels": pd_monitoring_service.LABELS,
+        "levels": pd_monitoring_service.LEVEL_LABELS,
         "options": options,
         "selected": {key: request.GET.getlist(key) for key in MONITORING_LISTS}
         | ({"section": own_section} if own_section else {}),
@@ -3267,6 +3268,7 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
         "map_config": {
             "api": reverse("api:pd_map") + ("?" + params.urlencode() if params else ""),
             "labels": pd_monitoring_service.LABELS,
+            "levels": pd_monitoring_service.LEVEL_LABELS,
             "partnerUrl": reverse("reports:partner_profile", args=[0]),
             "gridUrl": reverse("reports:pd_monitoring"),
         },
