@@ -333,6 +333,42 @@ def test_the_help_guide_markdown_names_activityinfo_only_in_the_archive_section(
     assert not outside, "\n".join(outside)
 
 
+# the archive's pages by their own names: its Neuro and HPM reports, its year-end forecasts
+ARCHIVE_PAGES = re.compile(r"\bHPM\b|\bNeuro\b|year-end forecasts?", re.I)
+
+
+def test_the_help_guide_names_the_archives_pages_only_in_the_archive_section():
+    """Outside the archive's own section, a help page says "the archive" rather than naming its pages
+    (Ask NeuroDB's privacy line among them)."""
+    from neurodb.help import guide
+
+    outside = []
+    for page in guide.pages().values():
+        for section in page.sections:
+            if (section.page, section.slug) == HELP_ARCHIVE:
+                continue
+            text = section.heading + "\n" + section.text
+            outside += [
+                f"{section.page}#{section.slug}: …{text[max(0, m.start() - 60) : m.end() + 30]}…"
+                for m in ARCHIVE_PAGES.finditer(text)
+            ]
+    assert not outside, "\n".join(outside)
+
+
+def test_the_whats_new_help_lists_no_kind_of_the_archive():
+    """What's new lists no change of the archive (graph.news.ARCHIVE_KINDS: its databases, master indicators
+    and Neuro and HPM reports): its help section names none of them among the things it lists."""
+    from neurodb.graph import news
+    from neurodb.help import guide
+
+    section = guide.section("watch", "whats-new")
+    assert section is not None
+    words = {"database", "master indicator", "Neuro", "HPM"}
+    assert len(news.ARCHIVE_KINDS) == 3  # the words above name every one of them
+    named = sorted(w for w in words if re.search(rf"\b{w}s?\b", section.text, re.I))
+    assert not named, named
+
+
 # ------------------------------------------------------------------------------------------ Ask NeuroDB
 def test_ask_neurodb_is_told_activityinfo_is_an_archive_not_to_bring_up(ai_world):
     from neurodb.assistant import agent

@@ -91,8 +91,9 @@ takes out the people it can find:
   records name) and any name written after a title such as Mr, Mrs, Dr or Sheikh.
 
 Each one becomes a note such as *[name withheld]* or *[email withheld]*. This covers what people wrote
-too: document passages, titles, sources and summaries, document review quotes, staff comments on Neuro
-and HPM reports and the daily review's details. A long text is cleaned whole before it is cut short.
+too: document passages, titles, sources and summaries, document review quotes, staff comments in the
+archive of past monthly results and the daily review's details. A long text is cleaned whole before it is
+cut short.
 
 Dates, references and the names of partners, sections, places and documents stay. Figures stay too, but
 a number written like a phone number (8 digits, or "71 123 456") is taken out, unless a currency or a

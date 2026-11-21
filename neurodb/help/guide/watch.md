@@ -56,7 +56,7 @@ decides what is followed, how serious it is, when it is due or who is told.
 ## What's new
 
 [What's new](/whats-new/) (in the full menu) lists what changed in any source: new things (a partner, programme
-document, donor, grant, database, document...), changes (a status, end date, budget, risk rating, an
+document, donor, grant, document...), changes (a status, end date, budget, risk rating, an
 indicator's value), new or ended links (a programme document newly funded by a donor), and things gone.
 
 - A change is **notable** when it is a new or gone thing of the main kinds, a status or date that
