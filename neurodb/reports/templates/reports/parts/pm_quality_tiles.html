@@ -1,10 +1,9 @@
-{% load i18n ui humanize %}{% comment %}Data quality's counts (part "quality-tiles", reports.views.pd_monitoring): programme
-documents, indicators with and without Reached and a target. Context: quality = monitoring.data_quality of the
-filter's indicators (stored for every worker), and filters (the page's scope).{% endcomment %}
+{% load i18n ui humanize %}{% comment %}Data quality's counts (part "quality-tiles", reports.views.pd_monitoring): active and
+ended programme documents, indicators with and without Reached and a target; no Programme documents tile
+(the figure trail keeps dq.pds and dq.running, marked not drawn, for the Power BI comparison). Context:
+quality = monitoring.data_quality of the filter's indicators (stored for every worker), and filters (the page's scope).{% endcomment %}
 {% with q=quality %}
 <div class="kpi-grid">
-  {% blocktrans asvar h0 with n=q.running_pds %}{{ n }} running (active, signed or suspended){% endblocktrans %}
-  {% trans "Programme documents" as l0 %}{% include "components/kpi_tile.html" with label=l0 value=q.programme_documents|intcomma hint=h0 figure_key="dq.pds" hint_figure_key="dq.running" %}
   {% trans "Active PDs" as l1 %}{% include "components/kpi_tile.html" with label=l1 value=q.active_pds|intcomma hint=_("eTools status active") figure_key="dq.active" %}
   {% trans "Ended PDs" as l2 %}{% include "components/kpi_tile.html" with label=l2 value=q.ended_pds|intcomma hint=_("ended, closed, terminated or expired") figure_key="dq.ended" %}
   {% trans "Indicators" as l3 %}{% include "components/kpi_tile.html" with label=l3 value=q.indicators|intcomma figure_key="dq.indicators" %}

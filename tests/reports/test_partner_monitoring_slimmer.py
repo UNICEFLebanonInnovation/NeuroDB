@@ -82,9 +82,14 @@ def test_partner_monitoring_has_no_programme_documents_tile(client_viewer, world
     assert "Programme documents" not in labels
     assert "indicators with Reached" not in summary
     assert labels == ["Indicators", "On track", "Off track", "Not reported", "Partners", "Overdue reports"]
-    # Data quality's own tiles are not the grid's: their Programme documents count stays
+    # nor do Data quality's own tiles, which open the page: Active PDs comes first
     quality = text(get_part(client_viewer, PAGE, "quality-tiles"))
-    assert "Programme documents" in _labels(quality)
+    assert (
+        "Programme documents" not in _labels(quality)
+        and "running (active, signed or suspended)" not in quality
+    )
+    assert _labels(quality)[0] == "Active PDs"
+    assert 'data-figure="dq.pds"' not in quality and 'data-figure="dq.running"' not in quality
 
 
 def test_home_and_the_figure_trail_keep_the_programme_documents_tile(roles, client_viewer, world):
@@ -97,7 +102,7 @@ def test_home_and_the_figure_trail_keep_the_programme_documents_tile(roles, clie
 
 def test_the_figure_trail_says_the_page_no_longer_draws_the_tile(world):
     found = tm.monitoring_trail({}, tm.monitoring.today())
-    for key in ("pm.pds", "pm.with_reached"):
+    for key in ("pm.pds", "pm.with_reached", "dq.pds", "dq.running"):
         figure = found.figure(key)
         assert not figure.drawn and figure.note, key
     # Home's block draws them

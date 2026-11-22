@@ -20,7 +20,7 @@ the screen or the page is idle (priority normal), as Data quality's lists do, un
 {% part "masters-table" kind="table" priority="high" group="pm" url=table_url rows=20 height="876px" height_md="896px" height_sm="1153px" %}
 {% else %}
 {% part_url "quality-tiles" as_of=as_of as tiles_url %}{% part_url "quality-lists" as_of=as_of as lists_url %}
-{% part "quality-tiles" kind="tiles" tiles=8 priority="high" group="pm" url=tiles_url height="292px" height_sm="517px" %}
+{% part "quality-tiles" kind="tiles" tiles=7 priority="high" group="pm" url=tiles_url height="292px" height_sm="517px" %}
 {% part "quality-lists" kind="table" group="pm" url=lists_url rows=20 height="1286px" height_md="1506px" height_sm="2058px" %}
 <h2 class="section-heading" id="pm-grid-heading">{% trans "Every indicator" %} <span class="small text-muted fw-normal">{% trans "By section, programme document and output" %}</span></h2>
 {% part_url "summary" as_of=as_of as summary_url %}{% part_url "grid" as_of=as_of as grid_url %}

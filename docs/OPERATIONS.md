@@ -4375,7 +4375,8 @@ figures as everywhere else (they read the rule above; nothing is added across in
   Performance the first 2,000 in its sort, with a note); every count (the tiles, the section tiles,
   Data quality, Ask NeuroDB) and the exports read every indicator of the filter, so they agree. The
   view links keep the filter last applied, also when it was changed without reloading the page.
-* **Data quality** tiles: programme documents (running, active, ended), indicators, with and without
+* **Data quality** tiles: active and ended programme documents (no Programme documents tile: the figure
+  trail keeps `dq.pds` and `dq.running` marked not drawn, for the Power BI comparison's PD Count), indicators, with and without
   Reached ("with Reached": a counted report carries a value; with a year chosen, Reached in that
   year), with and without a target (a target of zero is missing). Lists: indicators without a
   target; without Reached or with zero Reached; and NeuroDB's own checks: Reached differs from PRP's

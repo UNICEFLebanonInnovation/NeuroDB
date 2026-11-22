@@ -268,7 +268,7 @@ ROOM = {
         "row",
         20,
     ),
-    "quality-tiles": ({"--part-h": "292px", "--part-h-sm": "517px"}, "tile", 8),
+    "quality-tiles": ({"--part-h": "292px", "--part-h-sm": "517px"}, "tile", 7),
     "quality-lists": (
         {"--part-h": "1286px", "--part-h-md": "1506px", "--part-h-sm": "2058px", "--part-rows": "20"},
         "row",

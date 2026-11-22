@@ -1223,6 +1223,8 @@ def _pds_with(rows: Chain, test: str = "") -> int:
 REACHED = " (see Where Reached comes from)"
 # the page's tiles have no Programme documents tile (the owner's decision of 21 Nov 2026): Home's keeps it
 NO_PDS_TILE = "not drawn: the page has no Programme documents tile (Home has)"
+# nor have Data quality's tiles: dq.pds and dq.running stay in the trail for the Power BI comparison
+NO_DQ_PDS_TILE = "not drawn: Data quality has no Programme documents tile (kept for the Power BI comparison)"
 
 
 def tile_figures(summary: dict[str, Any], rows: Chain, *, home: bool = False) -> list[Figure]:
@@ -1345,6 +1347,8 @@ def quality_figures(quality: dict[str, Any], rows: Chain) -> tuple[list[Figure],
             _pds_with(rows),
             how="Programme documents of these indicators",
             select=(("set", "pds"),),
+            drawn=False,
+            note=NO_DQ_PDS_TILE,
         ),
         Figure(
             "dq.running",
@@ -1354,6 +1358,8 @@ def quality_figures(quality: dict[str, Any], rows: Chain) -> tuple[list[Figure],
             _pds_with(rows, "running"),
             how=TEST_WORDS["running"],
             select=(("pd_test", "running"),),
+            drawn=False,
+            note=NO_DQ_PDS_TILE,
         ),
         Figure(
             "dq.active",

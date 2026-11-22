@@ -96,13 +96,13 @@ PRP's report ids, which PRP's own list does not carry.
 
 [Partner monitoring](/partner-monitoring/) has three tabs on one filter:
 
-- **Data quality**, the first tab, opens when you open the page. At the top, the programme documents and
-  indicators with and without a target or Reached, and the lists to fix (see below). Under them, headed
-  *Every indicator*, the grid's tiles (indicators, on track, off track, not reported, partners, overdue
-  reports) and the grid: by section, programme document and output, each indicator with its target,
-  Reached, status and the months of the year. Since 21 Nov 2026 the grid's tiles have no
-  *Programme documents* tile (Home keeps it, and Data quality still counts the programme documents at the
-  top), and the grid no longer shows % Reached, Reached in the chosen year, awaiting acceptance or the
+- **Data quality**, the first tab, opens when you open the page. At the top, the active and ended
+  programme documents and the indicators with and without a target or Reached, and the lists to fix (see
+  below). Under them, headed *Every indicator*, the grid's tiles (indicators, on track, off track, not
+  reported, partners, overdue reports) and the grid: by section, programme document and output, each
+  indicator with its target, Reached, status and the months of the year. Since 21 Nov 2026 Partner
+  monitoring has no *Programme documents* tile, neither at the top nor over the grid (Home keeps it, and
+  *Check these figures* still gives the count), and the grid no longer shows % Reached, Reached in the chosen year, awaiting acceptance or the
   partner's view: its *Copy* and *CSV* buttons still give those four columns, and Program Performance and
   each programme document's page still show % Reached.
   The lists and the grid use the same filter and the same year: this year when the tab opens, or the year
