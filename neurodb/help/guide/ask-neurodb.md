@@ -42,7 +42,8 @@ start back.
   again: the AI looks them up afresh. *New conversation* starts afresh.
 - The steps above an answer show the look-ups it made. Answers can draw a chart (pie, bar, column or
   line) from figures they looked up; a chart cannot show a figure that was not looked up.
-- Answers can contain mistakes: check figures that matter on the page the answer links to.
+- Answers can contain mistakes: check figures that matter on the page the answer links to. A link in an answer
+  opens its page in a window over the conversation (a quick view); Ctrl-click opens it in a new tab.
 
 ## How NeuroDB checks an answer
 

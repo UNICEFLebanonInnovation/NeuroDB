@@ -11,8 +11,8 @@
 //
 // Never a quick view (quickTarget()): a click with Ctrl, Cmd, Shift, Alt or another button (the browser's own); a link
 // outside the content (the menu, the top bar, the search); downloads (the download attribute, CSV, Excel, PDF and other
-// files, ?export=); links with a target or data-no-quick (on the link or around it), the window's own header, Bootstrap
-// toggles; other sites, mailto and hash links; the administration, sign-in and donor addresses (<meta name=
+// files, ?export=); links with a target (but an Ask NeuroDB answer's: below) or data-no-quick (on the link or around it),
+// the window's own header, Bootstrap toggles; other sites, mailto and hash links; the administration, sign-in and donor addresses (<meta name=
 // "nd-quick-skip">, layouts/page.html). On a page, also the links that work the page itself: breadcrumbs, tab bars,
 // filter bars and their chips, sort, pagination, page actions, empty states' reset links, links to the page itself,
 // and links htmx handles (an existing pop-up, a filter). Inside a quick view those open in the same quick view, in its
@@ -29,13 +29,17 @@
 // window (ownIds), so a label names its own field and an htmx answer lands in the window.
 //
 // Everything is delegated from the document, so it covers what comes later: parts, Ask NeuroDB's answers, partials.
+// An answer of Ask NeuroDB or of a chat in a page (.ask-turn__body) has its links open in a new tab (target="_blank",
+// assistant.agent.render), so a link never leaves the conversation: in the content the quick view keeps the
+// conversation too, so a plain click on one opens it there, like any other link of the content.
 import { filterParams } from "./lib.js";
 
 export const ASK_HEADER = "X-NeuroDB-Quick";
 export const ANSWER_HEADER = "X-NeuroDB-Quick-View";
 const ROOT = "[data-quick-view]";
 const AREAS = "#main, #modal-content";
-const NEVER = "[data-no-quick], [download], [target], [data-bs-toggle], [data-bs-dismiss], [data-page-link], .modal-header, .skip-link";
+const NEVER = "[data-no-quick], [download], [data-bs-toggle], [data-bs-dismiss], [data-page-link], .modal-header, .skip-link";
+const ANSWER = ".ask-turn__body"; // an Ask NeuroDB answer, whose links the server opens in a new tab
 const PAGE_CONTROLS = [
   "nav",
   ".breadcrumb",
@@ -146,6 +150,29 @@ function pushesUrl(link) {
   return Boolean(push && push !== "false");
 }
 
+/** Whether `el` is in a link (or form) with a target of its own: the browser's way, but a new tab an answer's link
+ * opens (the quick view keeps the conversation as well). */
+function ownTarget(el) {
+  const named = el.closest("[target]");
+  return Boolean(named) && !fromAnswer(named);
+}
+
+/** Whether `link` is a link of an Ask NeuroDB answer, which the server opens in a new tab. */
+const fromAnswer = (link) =>
+  Boolean(link?.matches?.("a[href]") && link.getAttribute("target") === "_blank" && link.closest(ANSWER));
+
+/** Opens `url` in a new tab, with no way back to this page (as rel="noopener"); false when the browser blocked it. */
+function newTab(url) {
+  const tab = window.open(url, "_blank");
+  if (!tab) return false;
+  try {
+    tab.opener = null;
+  } catch {
+    /* nothing to cut */
+  }
+  return true;
+}
+
 /**
  * Where a click on `el` (a link, or a row with data-href) going to `raw` opens: { url, replace } for a quick view
  * (`replace`: in place of the quick view it is in, with no Back), { anchor } for an anchor of the quick view it is in
@@ -153,7 +180,7 @@ function pushesUrl(link) {
  * a quick view is read against the quick view's own (data-quick-url).
  */
 export function targetOf(el, raw, { page = window.location.href, skip = skipList() } = {}) {
-  if (!el?.closest || !el.closest(AREAS) || el.closest(NEVER)) return null;
+  if (!el?.closest || !el.closest(AREAS) || el.closest(NEVER) || ownTarget(el)) return null;
   const address = String(raw ?? "").trim();
   if (!address) return null;
   const view = el.closest(ROOT);
@@ -257,7 +284,16 @@ export function initQuickView() {
     content.removeAttribute("aria-busy");
   }
 
+  // A quick view opened from an Ask NeuroDB answer: a page it cannot show opens in a new tab, as the answer's link did
+  // before, and the window closes over the conversation; in place only when the browser blocks the tab.
   function leave(url) {
+    if (fromAnswer(state.opener) && newTab(url)) {
+      state.loading += 1; // an answer still on its way is dropped
+      state.controller?.abort();
+      if (shown()) modal().hide();
+      else whenShown().then(() => shown() && modal().hide());
+      return;
+    }
     reset();
     window.location.assign(url);
   }

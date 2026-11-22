@@ -112,7 +112,8 @@ name in a table opens its page in a window over the one you are on, with the sam
 number without leaving. Links in the window open in it, **Back** goes to the one before, and Esc or the × closes it.
 A filter you change in the window keeps your place: you stay in the same field, what you type while it loads is kept,
 and the filters you opened on a phone stay open. The menu, tabs, filters, sorting and downloads work as before, and
-Ask NeuroDB and the printable reports always open as a page.
+Ask NeuroDB and the printable reports always open as a page. A link in an Ask NeuroDB answer opens in the window too,
+over your conversation; a page that cannot open there opens in a new tab, so the conversation stays.
 
 ## Pages that open at once
 

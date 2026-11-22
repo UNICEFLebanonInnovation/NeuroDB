@@ -127,6 +127,97 @@ for (const [name, el] of Object.entries(cases)) out[name] = target(el);
 
 
 @needs_node
+def test_a_link_in_an_ask_neurodb_answer_opens_in_the_quick_view():
+    """An answer of Ask NeuroDB (or of a chat in a page) opens its links in a new tab (assistant.agent.render: so a
+    link never leaves the conversation). On a page the quick view keeps the conversation as well, so a plain click on
+    a figure, a table link or a detail link of an answer opens it there, like any link of the content (the browser
+    check of 22 Nov 2026 found them opening a new tab). Any other link with a target is still the browser's."""
+    data = run(
+        """
+const answer = (attrs, ...inner) => link(
+  { rel: "noopener noreferrer", target: "_blank", ...attrs },
+  ...inner,
+  h("div", { class: "ask-turn__body" }),
+  h("div", { class: "ask-turn__answer panel" }),
+  h("article", { class: "ask-turn" }),
+  h("div", { class: "ask__thread", id: "ask-thread" }),
+  h("div", { class: "ask ask--home", "data-ask": "" }),
+);
+out.detail = target(answer({ href: "/programmes/12/detail/" }, h("p")));
+out.figure = target(answer({ href: "/partner-reporting/?status=overdue&pd_status=active" }, h("strong"), h("p")));
+out.cell = target(answer({ href: "/partners/3/" }, h("td"), h("tr"), h("tbody"), h("table")));
+// never: a download, another site (the server drops its address anyway), a link that is not the answer's
+out.download = target(answer({ href: "/funds/?export=csv" }, h("p")));
+out.external = target(answer({ href: "https://example.org/report" }, h("p")));
+out.otherNewTab = target(link({ href: "/partners/3/", target: "_blank" }, h("div", { class: "ask__note" })));
+out.otherTarget = target(answer({ href: "/partners/3/", target: "report" }, h("p")));
+// a plain click asks for the quick view (the conversation stays); Ctrl-click is the browser's (a new tab)
+win.bootstrap = { Modal: { getOrCreateInstance: () => ({ show() {}, hide() {} }) } };
+const asked = [];
+globalThis.fetch = async (url) => {
+  asked.push(url);
+  return { type: "basic", status: 500, headers: { get: () => null }, text: async () => "" };
+};
+win.location.assign = () => {};
+win.open = () => ({});
+quick.initQuickView();
+const click = (el, props = {}) => el.dispatchEvent(Object.assign(new dom.Event("click"), { button: 0 }, props));
+out.plainWent = click(answer({ href: "/partners/4/" }, h("p")));
+out.ctrlWent = click(answer({ href: "/partners/5/" }, h("p")), { ctrlKey: true });
+await clock.tick(0);
+out.asked = asked;
+"""
+    )
+    assert data["detail"] == {"url": "/programmes/12/detail/", "replace": False}
+    assert data["figure"] == {"url": "/partner-reporting/?status=overdue&pd_status=active", "replace": False}
+    assert data["cell"] == {"url": "/partners/3/", "replace": False}
+    for name in ("download", "external", "otherNewTab", "otherTarget"):
+        assert data[name] is None, name
+    assert data["plainWent"] is False and data["ctrlWent"] is True
+    assert data["asked"] == ["/partners/4/"]
+
+
+@needs_node
+def test_an_answer_link_the_quick_view_cannot_show_opens_in_a_new_tab_and_keeps_the_conversation():
+    """When the answer is not a quick view (a page that is never one, a sign-in after the session ended, an error), a
+    link of an Ask NeuroDB answer opens its page in a new tab, as it did before the quick view, so the conversation is
+    not left; only when the browser blocks the tab does the page open in place. Any other link opens in place."""
+    data = run(
+        """
+const shown = [];
+win.bootstrap = { Modal: { getOrCreateInstance: () => ({
+  show: () => { shown.push("show"); modal.classList.add("show"); },
+  hide: () => { shown.push("hide"); modal.classList.remove("show"); },
+}) } };
+const assigned = [];
+const opened = [];
+win.location.assign = (url) => assigned.push(url);
+let blocked = false;
+win.open = (url, name) => { opened.push([url, name]); return blocked ? null : { opener: "page" }; };
+globalThis.fetch = async () => ({ type: "basic", status: 500, headers: { get: () => null }, text: async () => "" });
+quick.initQuickView();
+const click = (el) => el.dispatchEvent(Object.assign(new dom.Event("click"), { button: 0 }));
+const answer = (href) => link({ href, target: "_blank", rel: "noopener noreferrer" }, h("p"), h("div", { class: "ask-turn__body" }));
+click(answer("/fmm/report/"));
+await clock.tick(0);
+out.first = { opened: opened.slice(), assigned: assigned.slice(), shown: shown.slice() };
+blocked = true;
+click(answer("/fmm/report/?again=1"));
+await clock.tick(0);
+out.blocked = { opened: opened.slice(), assigned: assigned.slice() };
+click(link({ href: "/partners/9/" }));
+await clock.tick(0);
+out.plain = { opened: opened.length, assigned: assigned.slice() };
+"""
+    )
+    assert data["first"]["opened"] == [["/fmm/report/", "_blank"]]
+    assert data["first"]["assigned"] == []
+    assert data["first"]["shown"][-1] == "hide"  # the window closes over the conversation
+    assert data["blocked"]["assigned"] == ["/fmm/report/?again=1"]
+    assert data["plain"] == {"opened": 2, "assigned": ["/fmm/report/?again=1", "/partners/9/"]}
+
+
+@needs_node
 def test_inside_a_quick_view_links_open_in_it_and_the_page_controls_replace_it():
     data = run(
         """

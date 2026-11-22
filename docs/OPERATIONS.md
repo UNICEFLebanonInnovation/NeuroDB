@@ -2045,11 +2045,18 @@ one of its links is open leaves the focus where it is.
   refreshes only as a full page). The page's `scripts` block is left out.
 - Anything but a quick view in answer (a page that is not quick-viewable, a sign-in after the session ended, an error,
   no answer within 30 seconds) opens the address as a normal page.
+- The links of an answer of Ask NeuroDB or of a chat in a page (`.ask-turn__body`) carry `target="_blank"`
+  (`assistant.agent.render`: a link never leaves the conversation). In the content the quick view keeps the
+  conversation as well, so a plain click on one opens the quick view like any other link (the browser check of
+  22 Nov 2026 found them opening a new tab); when the answer is not a quick view, that page opens in a new tab and
+  the window closes over the conversation (in place only if the browser blocks the tab). The Help assistant's panel
+  is not in the content: its answers' links still open a new tab.
 
 **Never a quick view:** the menu, the top bar and the search; breadcrumbs, tab bars, filter bars and their chips,
 sorting, page numbers, page actions (exports, print) and reset links, on the page itself (they work the page); the
 links htmx already opens in the shared window (a progress report, a field monitoring visit: those keep their pop-up);
-downloads (a `download` attribute, CSV, Excel, PDF and other files, `?export=`); links with a `target`; other sites;
+downloads (a `download` attribute, CSV, Excel, PDF and other files, `?export=`); links with a `target` (but the links
+of an Ask NeuroDB answer, below); other sites;
 links to a part of the same page; the administration, the sign-in and password pages and the donor page (their
 addresses are listed for the browser in `<meta name="nd-quick-skip">`, from `neurodb.web.quick.skip_prefixes`, and the
 server refuses them too: 204 with `X-NeuroDB-Quick-View: refused`).
