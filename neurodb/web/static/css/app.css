@@ -939,6 +939,20 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 /* Segmented controls of the database pages scroll sideways on a phone instead of widening the page. */
 .segmented--scroll { position: relative; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .segmented--scroll::-webkit-scrollbar { display: none; }
+/* Its scroll bar is hidden: an edge fades while more tabs are hidden on that side (app.js initScrollBars), and the
+   current tab is scrolled into sight. The mask's colours only set how opaque each point is. */
+.segmented--scroll.is-more-end {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 2.5rem), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 2.5rem), transparent);
+}
+.segmented--scroll.is-more-start {
+  -webkit-mask-image: linear-gradient(to left, black calc(100% - 2.5rem), transparent);
+  mask-image: linear-gradient(to left, black calc(100% - 2.5rem), transparent);
+}
+.segmented--scroll.is-more-start.is-more-end {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 2.5rem, black calc(100% - 2.5rem), transparent);
+  mask-image: linear-gradient(to right, transparent, black 2.5rem, black calc(100% - 2.5rem), transparent);
+}
 /* The header buttons (Dashboard, Analytical view, Map, Snapshot) form one scrollable bar on a phone:
    the phone rule above lost to the later ".page-actions" rule. */
 @media (max-width: 575.98px) {

@@ -19,7 +19,7 @@
     {% include "reports/partials/_status_legend.html" with counts=data.status_counts %}
   </section>
   <section class="panel" aria-labelledby="ai-runs-title">
-    <div class="panel__header"><h2 class="panel__title" id="ai-runs-title">{% trans "ActivityInfo imports" %}</h2><a class="panel__hint" href="{% url 'reports:data_health' %}">{% trans "Data health" %} →</a></div>
+    <div class="panel__header"><h2 class="panel__title" id="ai-runs-title">{% trans "ActivityInfo imports" %}</h2>{% if user.is_staff and perms.core.view_syncrun %}<a class="panel__hint" href="{% url 'admin:core_syncrun_changelist' %}?job__in=ai_structure,ai_data">{% trans "Import runs" %} →</a>{% endif %}</div>
     <dl class="lineage">
       {% for r in data.last_runs %}{% if r.job == "ai_structure" or r.job == "ai_data" %}
       <dt>{{ r.label }}</dt>

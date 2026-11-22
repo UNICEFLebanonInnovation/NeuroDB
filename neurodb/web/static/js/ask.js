@@ -12,7 +12,7 @@
 // "is-empty": the Ask page draws its start page then (app.css .ask--home: the welcome, the box under it, the
 // example cards); a chat of another page has no style for it.
 import { init as drawChart } from "./charts.js";
-import { csrfToken, toast } from "./lib.js";
+import { csrfToken, mayTakeFocus, toast } from "./lib.js";
 
 let chartCount = 0;
 
@@ -182,7 +182,9 @@ export function init(root) {
       controller = null;
       setBusy(false);
       reset.hidden = false;
-      input.focus();
+      // back to the question box only while the person is still in the conversation (or nowhere), never out of a
+      // window opened meanwhile (a link of an answer opens a quick view) or away from what they moved on to
+      if (mayTakeFocus(root)) input.focus();
     }
   }
 

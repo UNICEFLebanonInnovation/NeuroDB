@@ -15,8 +15,8 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
   the daily review's digest), what changed since the previous working day, where your section or the
   country stands this year (the Country overview's own key figures) and the state of each source.
 - **Country overview** (`/country-overview/`): the whole intervention live by calendar year: children
-  reached by governorate and against targets (eTools, and ActivityInfo in the years it has records,
-  shown apart), funds disbursed and cost per child by section, delivery status, TPM visit and action
+  reached by governorate and against targets (from eTools partner reporting), funds disbursed and cost
+  per child by section, delivery status, TPM visit and action
   point progress, filtered by year, section and governorate.
 - **Daily review** (`/daily-review/`): the morning check's findings on a page of their own.
 - **ActivityInfo, in use or as an archive**: one admin setting (Automatic by default: in use while its
@@ -53,7 +53,7 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
   indicators, overdue reports and action points, late TPM reports, spending ahead of delivery,
   failed syncs) and store dated findings, marked new, still open or resolved, with a short summary.
 - **Management brief**: the overview read for decisions, at `/brief/`: comparisons with last year
-  and the plan, a confidence signal per section, the two sources per partner, equity of reach,
+  and the plan, a confidence signal per section, reporting timeliness per partner, equity of reach,
   district gaps, a partner scorecard, donor-to-child money flows, grants at risk, and whether the
   daily review's findings are owned and closed; the brief as text for the minutes.
 - **Monitoring insights**: eTools field monitoring as visits, at `/fmm/`: report quality rules
@@ -79,14 +79,13 @@ the way in through NeuroDB's own sign-in ("Open NeuroDB" once signed in). The fi
 platform (the morning checks, the field visit quality rules switched on, the Watch lead times, the unspent
 amount of a grant alert and the start of the HACT season) are read from the code and settings that apply
 them. Its examples are labelled simulated or illustrative, and its photos come from UNICEF Lebanon stories
-on unicef.org, each card linking to a related story. Its footer holds the logo and the public pages. Its copy
-follows ActivityInfo's state: while ActivityInfo is in use it is presented as a current source; once it is an
-archive the page names the years it holds ("ActivityInfo archive 2019–2026") and shows no ActivityInfo
-figure; with no year of ActivityInfo records it does not mention ActivityInfo. Signed-in users land on Home.
+on unicef.org, each card linking to a related story. Its footer holds the logo and the public pages. It
+never mentions ActivityInfo. Signed-in users open on Ask NeuroDB while the AI is on and their menu shows it,
+and on Home otherwise.
 
 | Setting | Default | Effect |
 |---|---|---|
-| `PUBLIC_LANDING_STATS` | `on` | Shows aggregate counts for this calendar year, in place of the page's "About data volume" note: eTools programme documents, partners, indicators and progress reports, and, only while ActivityInfo is in use, its results, governorates, records, partners and sections. No names or values. |
+| `PUBLIC_LANDING_STATS` | `on` | Shows aggregate counts for this calendar year, in place of the page's "About data volume" note: eTools programme documents, partners, indicators and progress reports, and the resources. No names or values. |
 | `PUBLIC_PAGES` | empty | Comma-separated pages opened without sign-in, read-only. Allowed: `library`, `maps`, `population`. Any other value stops the app at startup. Each one listed gets a footer link on the landing page. |
 | `SUPPORT_EMAIL` | empty | The contact the admin's scheduler notice names for a restart. Never on the landing page. |
 | `USER_GUIDE_URL` | empty | Adds a "User guide" footer link. |

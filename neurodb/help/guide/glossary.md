@@ -36,7 +36,7 @@ up only within one disaggregation, never across: each has its own subtotal next 
 
 ## Emergency indicator
 The programme document is an SPD (a simplified programme document), as Power BI's Emergency indicator is
-(your decision of 26 Oct 2026): Partner monitoring, Progress reports, the programme documents' indicators
+(since 26 Oct 2026): Partner monitoring, Progress reports, the programme documents' indicators
 and Ask NeuroDB filter and show it so. eTools' *high frequency* is another thing: an indicator reported
 monthly, in humanitarian reports.
 

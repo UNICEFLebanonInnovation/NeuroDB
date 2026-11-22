@@ -152,14 +152,16 @@ def _balanced_end(html: str, start: int, tag: str) -> int:
         at = next_close
 
 
-def without_archive(html: str) -> str:
+def without_archive(html: str, help_section: bool = True) -> str:
     """The page without what the archive keeps: the menu's archive block, the search's archive entries and
-    the help section that describes the archive (on the help pages that show it)."""
+    (``help_section``) the help section that describes the archive (on the help pages that show it)."""
     start = html.find('<details class="sidebar__archive"')
     if start >= 0:
         html = html[:start] + html[_balanced_end(html, start, "details") :]
     html = SEARCH_ARCHIVE_GROUP.sub("", html)
     html = SEARCH_ARCHIVE_PAGE.sub("", html)
+    if not help_section:
+        return html
     anchor = html.find(f'id="{HELP_ARCHIVE[1]}"')
     if anchor >= 0:
         start = html.rfind("<h2", 0, anchor)
@@ -168,9 +170,9 @@ def without_archive(html: str) -> str:
     return html
 
 
-def problems(html: str, where: str) -> list[str]:
+def problems(html: str, where: str, help_section: bool = True) -> list[str]:
     """Where the page names ActivityInfo or links into its archive, with the words around it."""
-    kept = without_archive(html)
+    kept = without_archive(html, help_section)
     found = []
     for match in NAMED.finditer(kept):
         around = " ".join(kept[max(0, match.start() - 120) : match.end() + 80].split())
@@ -306,7 +308,10 @@ def test_the_archive_is_kept_as_it_is(client, ai_world):
 
 
 # ------------------------------------------------------------------------------------------ the help guide
-def test_the_help_guide_names_activityinfo_only_where_it_describes_the_archive(client, ai_world):
+def test_the_help_guide_never_names_activityinfo(client, ai_world):
+    """No help page names ActivityInfo, its archive's own section included: it describes the archive as the
+    archive of past monthly results (the owner's rule: "I don't want ActivityInfo mentioned in any of the
+    pages"). Only the menu's archive block, kept as it is, carries the name."""
     from neurodb.help import guide
 
     client.force_login(ai_world.boss)
@@ -315,22 +320,21 @@ def test_the_help_guide_names_activityinfo_only_where_it_describes_the_archive(c
         html = client.get(reverse("help:page", args=[page])).content.decode()
         if page == HELP_ARCHIVE[0]:
             assert f'id="{HELP_ARCHIVE[1]}"' in html, "the archive's own help section is gone"
-            assert "ActivityInfo archive" in html  # it describes the archive by its menu name
-        found += problems(html, f"help/{page}")  # the archive's section left out (without_archive)
+            assert "the archive of past monthly results" in html  # it describes the archive without the name
+        found += problems(html, f"help/{page}", help_section=False)
     assert not found, "\n".join(found)
 
 
-def test_the_help_guide_markdown_names_activityinfo_only_in_the_archive_section():
+def test_the_help_guide_markdown_never_names_activityinfo():
     from neurodb.help import guide
 
-    outside = [
+    named = [
         f"{section.page}#{section.slug}: {section.heading}"
         for page in guide.pages().values()
         for section in page.sections
-        if (section.page, section.slug) != HELP_ARCHIVE
-        and NAMED.search(section.heading + "\n" + section.text)
+        if NAMED.search(section.heading + "\n" + section.text)
     ]
-    assert not outside, "\n".join(outside)
+    assert not named, "\n".join(named)
 
 
 # the archive's pages by their own names: its Neuro and HPM reports, its year-end forecasts

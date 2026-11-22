@@ -8,13 +8,20 @@
   the sum of its funds reservations' ``actual_amt`` (US dollars), as on the Funds page. Budgets are in the
   programme document's currency, and amounts in different currencies are never added: the sums are given
   per budget currency.
+* **Which programme documents** (:func:`programme_documents`): every one but drafts and cancelled ones
+  (``statuses.NOT_A_PARTNERSHIP``: not, or no longer, a partnership), as Funds > Funded Programs reads them,
+  so that the two pages' figures for the same programme documents agree.
 * **Summary info** (:func:`summary`): the programme documents of the scope (Active: the eTools status
-  active; All: every one but drafts, as the Programme documents tab) summed by partner and by section, each
-  in its budget currency, in the database. A programme document counts once for its partner and once under
-  each of its sections (so the section rows add up to more than the total); the active ones ending within
-  :data:`ENDING_DAYS` days; totals per currency.
+  active; All: every one of :func:`programme_documents`) summed by partner and by section, each in its budget
+  currency, in the database. A programme document counts once for its partner and once under each of its
+  sections (so the section rows add up to more than the total); the active ones ending within
+  :data:`ENDING_DAYS` days; totals per currency. A partner is one partner however its programme documents
+  spell its name, and also when one of them has no partner link but its name (:func:`_by_partner`).
 * **Overall** (:func:`overall_rows`, :func:`overall_totals`): one row per programme document of the
   filter, with its budgets, UNICEF cash, funds reserved and disbursed.
+* **Speed.** The sums are read with PostgreSQL's just-in-time compiler off (:func:`_grouped`): its row
+  guesses for these queries are far too high, and once there are a few thousand programme documents it
+  spends half a second compiling a query that runs in a few hundredths.
 
 No person is ever read here: neither the UNICEF focal points nor the partner's (the rows name their
 columns).
@@ -28,7 +35,7 @@ from collections.abc import Iterator
 from decimal import Decimal
 from typing import Any
 
-from django.db import connection
+from django.db import connection, transaction
 from django.db.models import (
     Case,
     CharField,
@@ -49,7 +56,7 @@ from neurodb.datamart import models as dm
 from neurodb.datamart.funds import STATUS_TONES
 
 from . import statuses
-from .models import PCA
+from .models import PCA, PartnerOrganization
 
 ENDING_DAYS = 90  # the summary's list of active programme documents ending soon
 ENDING_SOON_DAYS = 30  # the old page's window ("PDs ending within 1 month"), counted in the tile's hint
@@ -57,6 +64,24 @@ MONEY = DecimalField(max_digits=30, decimal_places=2)
 # an amount as eTools writes it: digits with thousands commas and decimals; at most 27 characters before the
 # point, so that it always fits MONEY
 NUMBER = r"^\s*-?[0-9][0-9,]{0,26}(\.[0-9]*)?\s*$"
+
+
+def programme_documents(filters: Any = None, *, scope: str = "all") -> QuerySet[PCA]:
+    """The programme documents of the two tabs: those of the Programme documents tab
+    (:func:`neurodb.partnerships.services.programme_documents`) without the cancelled ones, as Funds leaves
+    out ``statuses.NOT_A_PARTNERSHIP``."""
+    from .services import programme_documents as listed
+
+    return listed(filters, scope=scope).exclude(status__in=statuses.NOT_A_PARTNERSHIP)
+
+
+def filter_options() -> dict[str, Any]:
+    """The overall tab's filter lists: the Programme documents tab's, without the statuses it never lists."""
+    from .services import pd_filter_options
+
+    options = pd_filter_options()
+    options["statuses"] = [s for s in options["statuses"] if s not in statuses.NOT_A_PARTNERSHIP]
+    return options
 
 
 def amount(field: str) -> Case:
@@ -134,7 +159,11 @@ def _grouped(qs: QuerySet[PCA], select: str) -> list[dict[str, Any]]:
         "amounts AS (SELECT pd.*, fr.reserved, hd.disbursed FROM pd LEFT JOIN fr ON fr.id = pd.id "
         "LEFT JOIN hd ON hd.id = pd.id) " + select
     )
-    with connection.cursor() as cursor:
+    # the just-in-time compiler off for this query alone (SET LOCAL ends with the transaction): the planner's
+    # guesses over the CTEs are millions of rows, so with a few thousand programme documents it compiles for
+    # half a second a query that runs in a few hundredths
+    with transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute("SET LOCAL jit = off")
         cursor.execute(query, params)
         names = [c[0] for c in cursor.description]
         return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
@@ -145,6 +174,7 @@ SUMS = (
     "COUNT(*) AS pds, SUM(a.f_unicef) AS unicef_planned, SUM(a.f_total) AS total, "
     "SUM(a.reserved) AS reserved, SUM(a.disbursed) AS disbursed"
 )
+# by partner link and name as written, put together by :func:`_by_partner`
 BY_PARTNER = (
     "SELECT a.partner_id, COALESCE(NULLIF(btrim(a.partner_name), ''), '') AS partner, "  # noqa: S608
     f"a.f_currency AS currency, {SUMS} FROM amounts a GROUP BY 1, 2, 3"
@@ -156,6 +186,49 @@ BY_SECTION = (
     "WHERE btrim(x) <> '') s ON true GROUP BY 1, 2"
 )
 BY_CURRENCY = f"SELECT a.f_currency AS currency, {SUMS} FROM amounts a GROUP BY 1"  # noqa: S608
+
+
+def _by_partner(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The :data:`BY_PARTNER` rows, one per partner and currency. A partner is its eTools partner link, shown
+    under the partner's current name, whatever each programme document's spelling of it; a programme document
+    without a link joins the partner whose name it bears (case and spaces aside), else counts under its
+    name; one with neither (``partner_id`` None, ``partner`` "") stays apart, as "Unknown partner"."""
+    ids = sorted({r["partner_id"] for r in rows if r["partner_id"] is not None})
+    names = dict(PartnerOrganization.objects.filter(pk__in=ids).values_list("id", "name")) if ids else {}
+    by_name: dict[str, set[int]] = {}
+    for row in rows:
+        if row["partner_id"] is not None:
+            for name in (row["partner"], names.get(row["partner_id"]) or ""):
+                if name.strip():
+                    by_name.setdefault(" ".join(name.split()).casefold(), set()).add(row["partner_id"])
+    merged: dict[tuple, dict[str, Any]] = {}
+    for row in rows:
+        folded = " ".join(row["partner"].split()).casefold()
+        partner_id = row["partner_id"]
+        if partner_id is None and len(by_name.get(folded, ())) == 1:
+            partner_id = next(iter(by_name[folded]))
+        key = (partner_id if partner_id is not None else ("name", folded), row["currency"])
+        entry = merged.get(key)
+        if entry is None:
+            name = (names.get(partner_id) or "").strip() if partner_id is not None else ""
+            merged[key] = {**row, "partner_id": partner_id, "partner": name or row["partner"]}
+            continue
+        entry["pds"] += row["pds"]
+        for field in ("unicef_planned", "total", "reserved", "disbursed"):
+            if row[field] is not None:
+                entry[field] = (entry[field] or Decimal(0)) + row[field]
+    return list(merged.values())
+
+
+def _partner_count(rows: list[dict[str, Any]]) -> int:
+    """The partners of :func:`_by_partner`'s rows: each once whatever its currencies, the blank one not."""
+    return len(
+        {
+            r["partner_id"] if r["partner_id"] is not None else " ".join(r["partner"].split()).casefold()
+            for r in rows
+            if r["partner_id"] is not None or r["partner"].strip()
+        }
+    )
 
 
 def _order(rows: list[dict[str, Any]], name: str) -> list[dict[str, Any]]:
@@ -192,10 +265,8 @@ def summary(scope: str, today: datetime.date) -> dict[str, Any]:
     """*Funded programme summary info*: the programme documents of ``scope`` (``active`` or ``all``) by
     partner and by section with their totals, and the active ones ending within :data:`ENDING_DAYS`
     days."""
-    from .services import programme_documents
-
     base = programme_documents(scope=scope)
-    by_partner = _order(_grouped(base, BY_PARTNER), "partner")
+    by_partner = _order(_by_partner(_grouped(base, BY_PARTNER)), "partner")
     by_section = _order(_grouped(base, BY_SECTION), "section")
     totals = _totals_of(by_partner)
     reserved, disbursed = _funds(totals)
@@ -236,7 +307,7 @@ def summary(scope: str, today: datetime.date) -> dict[str, Any]:
     return {
         "scope": scope,
         "count": sum(t["pds"] for t in totals),
-        "partners": len({(r["partner_id"], r["partner"]) for r in by_partner}),
+        "partners": _partner_count(by_partner),
         "by_partner": by_partner,
         "by_section": by_section,
         "totals": totals,

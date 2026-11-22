@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from django.db.models import Count, Exists, OuterRef, Q, QuerySet
@@ -62,12 +62,10 @@ class PDFilters:
 
     @classmethod
     def from_params(cls, params) -> PDFilters:
-        """The filter of a page's parameters. The start years come as ``years=2019,2026`` (the API) or as
-        ``start_from`` and ``start_to`` (the *Funded programme overall* tab's two lists), either may be left
-        out."""
+        """The filter of a page's parameters. The start years come as ``years=2019,2026`` (the API's); the
+        *Funded programme overall* tab reads its two lists instead (:meth:`with_start_years`), and a page
+        that shows no start year drops them."""
         years = (params.get("years") or "").split(",") if params.get("years") else []
-        if not years and (params.get("start_from") or params.get("start_to")):
-            years = [str(params.get("start_from") or "").strip(), str(params.get("start_to") or "").strip()]
         return cls(
             partners=_getlist(params, "partner"),
             cso_types=_getlist(params, "cso_type"),
@@ -80,6 +78,13 @@ class PDFilters:
             document_types=_getlist(params, "document_type"),
             year_from=_year(years[0]) if years else None,
             year_to=_year(years[1]) if len(years) > 1 else None,
+        )
+
+    def with_start_years(self, params) -> PDFilters:
+        """This filter on the start years of the *Funded programme overall* tab's two lists (``start_from``,
+        ``start_to``) alone: the years it shows, never the API's ``years=``."""
+        return replace(
+            self, year_from=_year(params.get("start_from") or ""), year_to=_year(params.get("start_to") or "")
         )
 
     def apply(self, qs: QuerySet) -> QuerySet:

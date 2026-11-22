@@ -1,4 +1,4 @@
-"""The focused menu (SPEC_focus_menu §1, §4.1): every role sees Home and Ask NeuroDB, Partner reporting (Results) with
+"""The focused menu (SPEC_focus_menu §1, §4.1): every role sees Ask NeuroDB and Home, Partner reporting (Results) with
 Progress reports and Partner monitoring, then Field monitoring under Knowledge base until a superuser ticks
 otherwise in the Menu page; superusers see the full menu; donors and visitors are unchanged. Only the menu is
 shorter: every page still opens from links and bookmarks, and the search still lists them. The choices are kept
@@ -69,7 +69,7 @@ def test_every_role_sees_the_focused_menu_by_default(client, roles, hierarchy, a
     assert _labels(html) == expected
     assert groups(html) == [("prp", "Partner reporting (Results)"), KNOWLEDGE_BASE]
     side = sidebar(html)
-    # Home and Ask NeuroDB come first, with no title; each group holds its rows, labelled by its title
+    # Ask NeuroDB and Home come first, with no title; each group holds its rows, labelled by its title
     top = side[: side.index('aria-labelledby="nav-title-prp"')]
     assert ">Home<" in top and (">Ask NeuroDB<" in top) == is_staff and "sidebar__section-title" not in top
     start = side.index('aria-labelledby="nav-title-prp"')

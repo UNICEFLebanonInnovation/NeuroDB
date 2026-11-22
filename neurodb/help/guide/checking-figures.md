@@ -277,7 +277,7 @@ order: needs a look, check the PD in eTools, wait for the next sync, NeuroDB can
   says so, with NeuroDB's figure counted Power BI's way. A copy of an indicator is said to be one Power BI
   lists once only when Power BI lists another copy, or another copy has a value in the year. *NeuroDB lists an
   indicator eTools marks inactive*: Power BI lists only the current version of an indicator, while NeuroDB
-  keeps an inactive one as long as partner reports name it (partners' values sit on it; your decision of 28 Oct
+  keeps an inactive one as long as partner reports name it (partners' values sit on it; since 28 Oct
   2026), and every indicator of a programme document no partner report names yet. An inactive indicator no partner report names is left out of NeuroDB's pages: a Power BI row of one
   says *NeuroDB's page leaves it out*.
 - **NeuroDB cannot show this yet.** A report still owed for a period that has ended (Due or Overdue): the
@@ -308,7 +308,7 @@ order: needs a look, check the PD in eTools, wait for the next sync, NeuroDB can
   funds on another PD, or on none* (the funds reservation lines name this programme document, and NeuroDB
   links them elsewhere: Raw eTools data → Funds reservation lines). An upload compared before 28 Oct 2026 may
   also list here *NeuroDB lists an indicator eTools marks inactive* with no partner report naming it: check in
-  eTools whether it is an older version of the programme document's indicator. Since your decision of that
+  eTools whether it is an older version of the programme document's indicator. Since that
   day NeuroDB leaves such indicators out: press *Compare again* to see the differences as they are now. A line
   whose programme document's
   budget differs says the budget NeuroDB has for it. A gap of a counted visual takes the reason that most
@@ -533,7 +533,7 @@ programme documents, trips, engagements, action points and their details).
   eTools marks inactive in every row, of how many programme documents partners have reported on, and how many
   of them have no partner report row: mostly an older wording of a PD's indicator. Those are left out of
   Programmes → Indicators,
-  Partner monitoring (Data quality too) and the programme document pages (your decision of 28 Oct 2026); the
+  Partner monitoring (Data quality too) and the programme document pages (since 28 Oct 2026); the
   others stay listed, as partners' values sit on them. The PD indicators and partner reports syncs mark them
   each time, so the pages follow the next sync. The filter's *Active* choice "no" lists the rows of every
   inactive indicator, and "no, and left out of the pages" only those the pages leave out.

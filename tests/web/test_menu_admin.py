@@ -81,6 +81,10 @@ def test_a_superuser_gets_the_grid_every_tick_labelled(client_super):
     # the page's note names the focused menu's groups as the sidebar draws them
     note = " ".join(html.split('class="nd-list-note"', 1)[1].split("</p>", 1)[0].split())
     assert "then Field monitoring under Knowledge base." in note and "Funds and assurance" not in note
+    # in the order the ticks below and the sidebar give them (navigation.FOCUS), and what leaving one out does
+    assert "every role sees the focused menu: Ask NeuroDB and Home, Partner reporting (Results)" in note
+    assert "Home and Ask NeuroDB" not in note
+    assert "A role whose menu leaves out Ask NeuroDB opens on Home." in note
     # no row saved: every role's ticks are the focused menu
     for _name, value, _id, ticked in inputs:
         assert bool(ticked) == (value in navigation.FOCUSED), value

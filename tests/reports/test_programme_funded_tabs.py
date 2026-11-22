@@ -519,3 +519,127 @@ def test_the_help_guide_and_operations_describe_the_two_tabs():
     for text in (guide, operations):
         assert "Funded programme summary info" in text
         assert "Funded programme overall" in text
+
+
+# ------------------------------------------------------------------------------- review fixes (21 Nov 2026)
+def _checked_scope(html: str) -> str:
+    found = re.findall(r'name="scope" value="(active|all)" checked', html)
+    assert len(found) == 1, found
+    return found[0]
+
+
+@pytest.mark.parametrize(
+    ("start", "target"),
+    [
+        ({"tab": "summary"}, "Programme documents"),
+        ({"tab": "summary"}, "Indicators"),
+        ({"tab": "summary", "scope": "all"}, "Programme documents"),
+        ({}, "Funded programme summary info"),
+        ({"tab": "indicators"}, "Funded programme summary info"),
+        ({"scope": "active"}, "Funded programme summary info"),
+        ({"tab": "indicators", "scope": "active"}, "Programme documents"),
+    ],
+)
+def test_the_active_or_all_choice_stays_the_same_across_the_tabs(client_viewer, world, start, target):
+    """Programme documents and Indicators open on All, the summary on Active: a tab link carries the choice the
+    page shows, so it never flips on a tab change."""
+    response = client_viewer.get(PAGE, start)
+    shown = _checked_scope(response.text)
+    href = dict((label, href) for label, href, _ in _tabs(response.text))[target]
+    after = client_viewer.get(href)
+    assert _checked_scope(after.text) == shown, href
+    assert after.context["scope"] == shown
+
+
+def test_the_overall_tab_reads_only_the_start_years_it_shows(client_viewer, world):
+    """``years=`` (the API's) is never a hidden filter of the overall tab: the two lists are its only start
+    years, and the page and its download count the same rows."""
+    for params, expected in (
+        ({"years": "2024,2025"}, [1, 2, 3, 4, 6]),
+        ({"years": "2019,2020", "start_from": "2022"}, [1, 2, 3]),
+        ({"start_from": "2024"}, [1, 2]),
+    ):
+        response, overall = _overall(client_viewer, **params)
+        assert _numbers(overall) == expected, params
+        csv_href = html_module.unescape(re.search(r'href="(\?[^"]*export=csv[^"]*)"', response.text).group(1))
+        download = client_viewer.get(PAGE + csv_href)
+        rows = list(csv.DictReader(io.StringIO(b"".join(download.streaming_content).decode("utf-8-sig"))))
+        assert len(rows) == overall["count"], params
+
+
+def test_the_donors_page_reads_no_start_year_it_does_not_show(client_viewer, world):
+    """The Donors filter has no start year: neither ``start_from`` nor ``years=`` narrows its figures."""
+    whole = client_viewer.get("/donors/").context["data"]
+    for params in ({"start_from": "2025"}, {"start_to": "2021"}, {"years": "2025,2025"}):
+        assert client_viewer.get("/donors/", params).context["data"] == whole, params
+
+
+def test_the_partners_tile_counts_each_partner_once(client_viewer, world):
+    """A partner whose programme documents spell its name differently, or one of which has no partner link,
+    is one partner, under its current name; a programme document with no partner at all is not a partner."""
+    p2 = world["pds"][2]
+    PCA.objects.filter(pk=p2.pk).update(partner_name="  ALPHA AID ")
+    _response, summary = _summary(client_viewer)
+    assert summary["partners"] == 2
+    assert [(r["partner"], r["pds"]) for r in summary["by_partner"] if r["currency"] == "USD"] == [
+        ("Alpha Aid", 2)
+    ]
+
+    PCA.objects.filter(pk=p2.pk).update(partner=None, partner_name="Alpha Aid")
+    _response, summary = _summary(client_viewer)
+    assert summary["partners"] == 2
+    alpha = [r for r in summary["by_partner"] if r["partner"] == "Alpha Aid"]
+    assert [(r["partner_id"], r["pds"], r["total"]) for r in alpha] == [(world["alpha"].pk, 2, 4000)]
+
+    PCA.objects.filter(pk=p2.pk).update(partner=None, partner_name=" ")
+    response, summary = _summary(client_viewer)
+    assert summary["partners"] == 2  # P1's Alpha Aid and P4's Beta Relief; the blank one is no partner
+    assert [r["pds"] for r in summary["by_partner"] if r["partner"] == ""] == [1]
+    assert summary["count"] == 3
+
+
+def test_the_funded_tabs_leave_out_cancelled_programme_documents_as_funds_does(client_viewer, world):
+    cancelled = PCA.objects.create(
+        etl_id="957", partner=world["alpha"], partner_name="Alpha Aid", number="LEB/PCA2026007",
+        title="Programme 7", status="cancelled", document_type="PD", budget_currency="USD",
+        total_unicef_budget="700", total_budget="777", start=datetime.date(2025, 2, 1),
+    )  # fmt: skip
+    dm.FundsReservation.objects.create(
+        datamart_id=99, intervention=cancelled, fr_number="04099", line_item=9, donor="Donor North",
+        grant_number="SC100", overall_amount=Decimal("900"),
+    )  # fmt: skip
+    _response, overall = _overall(client_viewer)
+    assert (overall["count"], overall["reserved"]) == (5, 4700)
+    assert 7 not in _numbers(overall)
+    _response, summary = _summary(client_viewer, scope="all")
+    assert summary["count"] == 5 and summary["reserved"] == 4700
+    assert {t["currency"]: t["total"] for t in summary["totals"]}["USD"] == 7800
+    form = FILTER_FORM.search(_overall(client_viewer)[0].text).group(0)
+    assert 'value="cancelled"' not in form
+    funds = client_viewer.get("/funds/", {"tab": "programmes"})
+    assert "4,700" in funds.text
+
+
+def test_the_summary_sums_run_without_the_database_s_just_in_time_compiler(world):
+    """The sums by partner, section and currency are read with jit off: PostgreSQL's compiler costs half a
+    second on them once there are a few thousand programme documents, and saves nothing."""
+    from neurodb.partnerships import funded
+
+    with CaptureQueriesContext(connection) as queries:
+        funded.summary("all", timezone.localdate())
+    sqls = [q["sql"] for q in queries.captured_queries]
+    grouped = [n for n, sql in enumerate(sqls) if sql.startswith("WITH pd AS")]
+    assert len(grouped) == 2
+    for n in grouped:
+        assert any(s.upper().startswith("SET LOCAL JIT = OFF") for s in sqls[max(0, n - 3) : n]), sqls[
+            n - 3 : n
+        ]
+
+
+def test_the_donors_page_names_the_programme_documents_page_by_its_name(client_viewer, world):
+    """No page is called "Programmes": the menu, the title and the crumbs say Programme documents."""
+    html = client_viewer.get("/donors/").text
+    words = " ".join(TAGS.sub(" ", html).split())
+    assert "on Programmes" not in words
+    assert "a programme document's budget is on Programme documents" in words
+    assert "All 5 on Programme documents" in words

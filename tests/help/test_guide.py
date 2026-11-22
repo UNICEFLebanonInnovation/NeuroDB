@@ -230,7 +230,7 @@ def test_the_help_assistant_knows_activityinfo_is_an_archive_of_past_years():
 @pytest.mark.parametrize(
     ("question", "expected"),
     [
-        ("Why is ActivityInfo an archive?", ("overview", "past-monthly-results")),
+        ("Where are the past monthly results kept?", ("overview", "past-monthly-results")),
         ("What does Home show?", ("home", "what-home-shows")),
         ("Where is the daily review?", ("briefs-and-overview", "the-daily-review")),
     ],
@@ -241,21 +241,34 @@ def test_the_search_finds_home_and_the_archive(question, expected):
 
 
 def test_the_guide_states_the_archive_rules_and_who_sets_them():
-    """The archive's own section says what it holds, that no other page shows it, and who sets its label; Home's
-    page no longer speaks of ActivityInfo (the owner's rule, November 2026)."""
+    """The archive's own section says what it holds, that no other page shows it, and who sets its label, without
+    naming the old system: no help page names it (the owner's rule, November 2026: "I don't want ActivityInfo
+    mentioned in any of the pages"). It names no administration page, and says the label may follow the import on
+    its own (Automatic), not only an administrator's choice."""
     text = " ".join(guide.section("overview", "past-monthly-results").text.split())
     for words in (
-        "NeuroDB no longer uses ActivityInfo",
-        "No other page shows ActivityInfo or its figures",
+        "the archive of past monthly results at the bottom of the full menu, closed until you open it",
+        "No other page shows the archive or its figures",
         "count eTools partner reports alone",
         "Ask NeuroDB answers from the archive only when you ask about it",
-        "**ActivityInfo: in use or archive** (under Reporting setup)",
-        "switched on in Scheduled jobs and this year has records from the last three months",
+        "An administrator sets in the administration (under Reporting setup)",
+        "or follows its import on its own",
         "nothing is deleted",
     ):
         assert words in text, words
     assert "Show on dashboard" not in text  # never offered as a way to drop a year's figures
-    assert "ActivityInfo" not in GUIDE_TEXT["home"]
+    for detail in ("Neuro report", "HPM", "forecast", "in use or archive**"):
+        assert detail not in text, detail
+
+
+def test_no_help_page_names_activityinfo():
+    """Not one section of any guide page, for any reader, names ActivityInfo: the archive is described as the
+    archive of past monthly results."""
+    for key, text in GUIDE_TEXT.items():
+        assert "ActivityInfo" not in text, key
+    for p in guide.pages().values():
+        for s in p.sections:
+            assert "activityinfo" not in s.text.lower(), (p.key, s.slug)
 
 
 def test_the_guide_lists_the_focused_menu_as_it_is_drawn():
@@ -388,14 +401,14 @@ def test_the_guide_says_who_sees_the_set_up_rows():
     assert "out of the sidebar; administrators see it greyed" not in text
 
 
-def test_the_guide_never_dates_the_end_of_activityinfo():
-    """The guide names no year ActivityInfo stopped (R1 a11y_words-N-2): its archive's section says partners
-    reported there in past years."""
+def test_the_guide_never_dates_the_end_of_the_past_monthly_results():
+    """The guide names no year the old monthly reporting stopped (R1 a11y_words-N-2): its archive's section says
+    partners reported there in past years."""
     text = " ".join(guide.section("overview", "past-monthly-results").text.split())
     assert "until 2026" not in text
     assert (
-        "Partners reported their monthly results in ActivityInfo in past years; they now report progress in "
-        "eTools, and NeuroDB no longer uses ActivityInfo."
+        "In past years partners reported their monthly results in another system; they now report progress in "
+        "eTools."
     ) in text
 
 
@@ -451,17 +464,15 @@ def test_operations_pages_in_parts_names_home_and_the_daily_review():
     assert "without a reporting year" not in brief and "the empty state" not in brief.split("|")[2]
 
 
-def test_operations_says_the_database_forecast_card_follows_the_overviews():
-    """The database dashboard's forecast card shows only on this year's databases while ActivityInfo is in
-    use, as the overview's (R2 sweep-1)."""
+def test_operations_says_the_forecast_card_is_the_archive_s_alone():
+    """The forecast card shows only on this year's database dashboards of the archive while ActivityInfo is in
+    use (R2 sweep-1); the Country overview no longer draws one (the owner's rule, November 2026)."""
     assert "and on each database dashboard" not in OPERATIONS_WORDS
     assert (
-        "card on the Country overview and on this year's database dashboards (this year only, while "
-        "ActivityInfo is in use; the overview's for the chosen sections)"
+        "card on this year's database dashboards of the archive (this year only, while ActivityInfo is in use; "
+        "never on the Country overview or any other regular page)"
     ) in OPERATIONS_WORDS
-    assert "the Country overview's and this year's database dashboards' forecast card (this year only)" in (
-        OPERATIONS_WORDS
-    )
+    assert "a *Likely to fall short by December* card on the Country overview" not in OPERATIONS_WORDS
 
 
 def test_operations_md_never_names_a_design_note_stage():
@@ -727,7 +738,7 @@ def test_partner_progress_says_what_the_tiles_show_of_reports_still_owed_and_lef
     assert "how many more indicator reports" not in progress
     # the page shows no note on what the PD status filter leaves out since 21 Nov 2026: the guide says none
     assert "the PD status filter leaves out" not in progress
-    assert "It opens on the active programme documents only (your decision of 21 Nov 2026" in progress
+    assert "It opens on the active programme documents only (since 21 Nov 2026" in progress
     # an indicator is the PD indicator Partner monitoring's rule places a row on, never the row's own id alone
     assert "by its eTools indicator id in its programme document (else its title)" not in progress
     assert (
@@ -765,3 +776,11 @@ def test_operations_and_the_guide_say_which_funds_lines_with_no_number_are_left_
         "(a line without a number, to the one its eTools id names unless its vendor number is another partner's)"
         in progress
     )
+
+
+def test_the_guide_never_tells_its_reader_a_change_was_their_decision():
+    """The guide is read by all staff: it says what changed and when ("since 21 Nov 2026"), never "your
+    decision", which is untrue for everyone but the owner."""
+    for key, text in GUIDE_TEXT.items():
+        flat = " ".join(text.split()).lower()
+        assert "your decision" not in flat, key

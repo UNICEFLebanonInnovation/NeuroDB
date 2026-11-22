@@ -60,7 +60,7 @@ partner reports feed no longer sends them.
 The partner reports feed stops sending a report once its period ends unsent, so the reports partners still
 owe are missing from it. PRP's own list of progress reports has them, as Power BI counts them. Home, Progress
 reports, its Partner view tab, the programme document and partner pages, Partner monitoring's *Overdue reports*,
-the daily review and Ask NeuroDB add them (your decision of 26 Oct 2026), but only while NeuroDB can prove
+the daily review and Ask NeuroDB add them (since 26 Oct 2026), but only while NeuroDB can prove
 that PRP's list is tied to the right programme documents:
 
 - the pair of keys that ties them is proven, and the reports both feeds have end on the same day (9 in 10, at
@@ -76,8 +76,8 @@ leave them out. In the tables they read "from PRP's own list" and do not open (t
 show); the exports say their source.
 
 While they are shown and the filter keeps some, a line under Home's tiles says how many Overdue and Due
-include. While they are hidden, a line under the tiles of Home and of Progress reports says why reports still
-owed may be missing:
+include. While they are hidden, Progress reports and its Partner view tab show one short warning, *Some reports
+still owed may be missing.*, and a line under Home's tiles says why:
 
 - NeuroDB cannot tie PRP's own list to its programme documents yet (the pair of keys is not proven, or the
   reports both feeds have do not agree often enough);
@@ -100,37 +100,39 @@ PRP's report ids, which PRP's own list does not carry.
   indicators with and without a target or Reached, and the lists to fix (see below). Under them, headed
   *Every indicator*, the grid's tiles (indicators, on track, off track, not reported, partners, overdue
   reports) and the grid: by section, programme document and output, each indicator with its target,
-  Reached, status and the months of the year. Since 21 Nov 2026 (your decision) the grid's tiles have no
+  Reached, status and the months of the year. Since 21 Nov 2026 the grid's tiles have no
   *Programme documents* tile (Home keeps it, and Data quality still counts the programme documents at the
   top), and the grid no longer shows % Reached, Reached in the chosen year, awaiting acceptance or the
   partner's view: its *Copy* and *CSV* buttons still give those four columns, and Program Performance and
   each programme document's page still show % Reached.
   The lists and the grid use the same filter and the same year: this year when the tab opens, or the year
   you choose (with *All years*, the grid has a column per year instead of the months). The grid was a tab
-  of its own until 21 Nov 2026 (your decision): an old link to it opens this tab.
+  of its own until 21 Nov 2026: an old link to it opens this tab.
 - **Program Performance**: one row per indicator (section, CP output, emergency, target, Reached, %
   Reached, partner, programme document), sorted by % Reached; the section tiles filter it. *Emergency*
   (the column) means the programme document is an SPD, as Power BI's Emergency indicator
-  does (your decision of 26 Oct 2026). eTools' *high frequency* is another thing: an indicator reported
+  does (since 26 Oct 2026). eTools' *high frequency* is another thing: an indicator reported
   monthly, in humanitarian reports. With a
   reporting year chosen, it shows Reached in that year and its % of the target first (sorted by it),
   as Power BI does, with Reached to date beside them.
 - **Map**: the implementation locations. Each circle is filled with the colour of the worst status there.
-  Since 21 Nov 2026 (your decision) its ring and its size show the kind of place, so you can tell a
-  governorate from a district at a glance: a governorate has the largest circle and a purple ring, a
-  district a middle-sized circle and a blue-green ring, and a smaller place (a cadastre, village or site)
-  the smallest circle and a grey ring. Among places of one kind, a bigger circle has more indicators. The
-  legend under the map says the same in words, and the list beside the map and a place's details name the
-  kind of place. A pale circle is placed at the nearest larger area that has coordinates.
-  Click a place to list its partners, programme documents and indicators. Since 21 Nov 2026 (your
-  decision) this list no longer shows a programme document's total budget, UNICEF cash, partner
+  Since 21 Nov 2026 its ring and its size show the kind of place, so you can tell a
+  governorate from a district at a glance. The whole country, when an indicator is planned for it, has the
+  largest circle and a dark ring; a governorate the next largest circle and a purple ring; a district a
+  middle-sized circle and a blue-green ring; and a smaller place (a cadastre, village or site) the smallest
+  circle and a grey ring. In dark mode the rings are lighter, and the whole country's is white. Among places
+  of one kind, a bigger circle has more indicators. The legend under the map says the same in words (it
+  lists the whole country only when such a place is on the map), and the list beside the map and a place's
+  details name the kind of place. A pale circle is placed at the nearest larger area that has coordinates.
+  Click a place to list its partners, programme documents and indicators. Since 21 Nov 2026 this list no
+  longer shows a programme document's total budget, UNICEF cash, partner
   contribution, donors or agreement, also when you filter by location: a programme document's budget is
   for the whole programme document, not for one place. Its own page still shows them.
 
-*Master indicators* is hidden (your decision of 21 Nov 2026): it is no longer a tab and no page links to
+*Master indicators* is hidden (since 21 Nov 2026): it is no longer a tab and no page links to
 it, but an old link or bookmark still opens it (see [Master indicators](#master-indicators) below).
 
-The filter has no CP output, partner type, office or emergency choice (your decision of 21 Nov 2026); the
+The filter has no CP output, partner type, office or emergency choice (since 21 Nov 2026); the
 columns that show them stay. An old link or bookmark that still carries one is still applied, and a line
 above the results names it, with a link that removes it.
 
@@ -147,7 +149,7 @@ counts them.
 **Indicators eTools marks inactive.** When a programme document is amended, eTools often keeps the older
 version of an indicator beside the new one and marks it inactive. In a programme document partners have
 reported on, NeuroDB leaves out an indicator eTools marks inactive in every row that no partner report names
-(your decision of 28 Oct 2026; a programme document no partner report names yet keeps all its indicators):
+(since 28 Oct 2026; a programme document no partner report names yet keeps all its indicators):
 Partner monitoring and its Data quality, Programme documents → Indicators, the programme document pages,
 their exports and Ask NeuroDB's indicator progress do not list or count it (Raw eTools data and Ask NeuroDB's
 eTools records still show every record eTools sent). An inactive indicator partners reported on stays listed,
@@ -180,7 +182,7 @@ A **master indicator** brings together the partners' own PD indicators that meas
 example "children enrolled in non-formal education" over every
 programme document of the section that counts them. Each one is in one eTools section and has, for every
 year, its AWP or RWP code and the **target staff type for that year**. The *Master indicators* view of
-Partner monitoring is hidden (your decision of 21 Nov 2026): it is no longer a tab and no page links to
+Partner monitoring is hidden (since 21 Nov 2026): it is no longer a tab and no page links to
 it, but an old link or bookmark still opens it, and everything below still works there. It shows one year
 (this year first) and opens on your own section.
 
@@ -242,16 +244,16 @@ confirmed in the one kept.
 [Progress reports](/partner-reporting/) has two tabs on one filter (search, report status, report
 type, reporting year, section, report number, partner, PD status, and the period start and end; the
 section list offers each section once, and a section chosen also finds reports whose rows list several
-sections). The partner type and emergency indicator filters were removed (your decision of 21 Nov 2026): an
+sections). The partner type and emergency indicator filters were removed (since 21 Nov 2026): an
 old link that still carries one is still applied, and a line above the results names it, with a link that
-removes it. It opens on the active programme documents only (your decision of 21 Nov 2026; it opened on the
+removes it. It opens on the active programme documents only (since 21 Nov 2026; it opened on the
 active, signed and suspended ones before, as Partner monitoring and Home still do): choose more PD statuses
 in the filter, or clear the choice to see every status. Home's links to Progress reports choose active,
 signed and suspended, so the page opens on the numbers Home shows. Draft and cancelled programme documents
 are never listed, nor reports that name no programme document.
 
 - **Reporting progress**: the tiles count *progress reports* per status, as Power BI's Reporting Progress
-  does (your decision of 26 Oct 2026). Under each tile, the indicators in those reports (your decision of
+  does (since 26 Oct 2026). Under each tile, the indicators in those reports (since
   19 Nov 2026): each indicator once, as Partner monitoring places a report row on the indicators of its
   programme document (by its eTools indicator id, else its title, else its PD output and title; a row it
   cannot place counts by its title), however many reports carry it (QPR1 to QPR4, monthly reports, every
@@ -266,12 +268,12 @@ are never listed, nor reports that name no programme document.
   (names only).
 - **Partner view**: partners with reports, with at least one submitted or accepted, and without; partners
   per status; the reports to follow up (Overdue, Sent back, Due, Submitted). A report not yet due is one
-  of the Due ones there, as in Power BI's follow-up list (your decision of 26 Oct 2026), and the Report
+  of the Due ones there, as in Power BI's follow-up list (since 26 Oct 2026), and the Report
   status *Due* keeps it there, as Power BI's slicer does; Home's programme documents to follow up count it
   the same way. Everywhere else it is *Not yet due*. When the filter keeps no report at all, the list says
   *No progress report in the filter*; *Nothing to follow up* means every report in the filter is Accepted.
 
-**By location** and **By disaggregation** are hidden (your decision of 21 Nov 2026): they are no longer
+**By location** and **By disaggregation** are hidden (since 21 Nov 2026): they are no longer
 in the tab bar and no page links to them, but an old link or bookmark still opens them. By location lists
 each indicator, report and location with its value. By disaggregation gives each disaggregation's values
 (female, male; Lebanese, Syrian…), a subtotal per disaggregation and the location total: values add up
@@ -293,13 +295,16 @@ documents* (the list), *Indicators*, *Funded programme summary info* and *Funded
   latest; *All reports* opens every one of them on Progress reports.
 - **Programme documents → Indicators** lists the indicators of every programme document in one table
   (PD number and status, partner, document type, dates, office, section, CP output, indicator,
-  baseline, target, emergency), with its own filters (no office or emergency filter: your decision of
+  baseline, target, emergency), with its own filters (no office or emergency filter since
   21 Nov 2026) and an export of the whole filter. Like every page, it
   leaves out an indicator eTools marks inactive that no partner report names (see Partner monitoring above);
   one partners reported on reads *Inactive in eTools* under its title.
 - **Programme documents → Funded programme summary info** sums up the programme documents. Choose
-  *Active* (the default: those eTools shows as active) or *All* (every one but drafts). The tiles give the
-  number of programme documents and partners, the total budget, the funds reserved and disbursed, and how
+  *Active* (the default: those eTools shows as active) or *All* (every one but drafts and cancelled ones, as
+  *Funds → Funded Programs* counts them). The choice stays when you move between this tab and the *Programme
+  documents* and *Indicators* tabs, which open on *All*. The tiles give the number of programme documents and
+  partners (a partner counts once, whatever way its programme documents write its name; a programme document
+  with no partner is not counted as one), the total budget, the funds reserved and disbursed, and how
   many active ones end within 90 days. Two charts count them by section and by type. Then come four
   tables: the active programme documents ending within 90 days (with the days left), the summary by
   section, the summary by partner and the totals by currency. Each summary row gives the number of
@@ -307,9 +312,10 @@ documents* (the list), *Indicators*, *Funded programme summary info* and *Funded
   disbursed. A programme document counts once for its partner but under each of its sections, so the
   section rows add up to more than the total. *Excel of the summary* downloads the three tables; each
   table also has *Copy* and *CSV*. The old address of the summary page opens this tab.
-- **Programme documents → Funded programme overall** lists every programme document but drafts, 50 to a
-  page. Filter by PD reference, donor, grant, partner, CSO type, section, status and start year (from,
-  to). Each row gives the partner, type, status, sections, start and end dates, the days to the end (green
+- **Programme documents → Funded programme overall** lists every programme document but drafts and
+  cancelled ones (as *Funds → Funded Programs*), 50 to a page. Filter by PD reference, donor, grant,
+  partner, CSO type, section, status and start year (from, to). Only the start years you pick in its two
+  lists filter it, and its downloads hold the same rows as the page. Each row gives the partner, type, status, sections, start and end dates, the days to the end (green
   over 120, amber over 60, red below; *Ended* once it has ended), donors and grants, currency, UNICEF
   planned budget, total budget, UNICEF cash, funds reserved and disbursed. The tiles add up the filter.
   *Excel of the filter* and *CSV of the filter* download every row.

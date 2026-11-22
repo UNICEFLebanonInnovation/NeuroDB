@@ -1,7 +1,7 @@
 // Plotly charts declared in templates:
 //   <div data-module="charts" data-chart="status-donut" data-source="chart-data" data-key="status_counts"></div>
 // The JSON comes from {{ chart_data|json_script:"chart-data" }}. Charts follow the light/dark theme.
-import { byId, cssVar, debounce, escapeHTML, isDark, loadScript, readJSON } from "./lib.js";
+import { byId, cssVar, debounce, escapeHTML, isDark, loadScript, readJSON, scopedQuery } from "./lib.js";
 
 const STATUS_ORDER = ["on_track", "over_target", "off_track", "no_target", "not_reported"];
 const STATUS_VARS = { on_track: "--nd-success", over_target: "--nd-warning", off_track: "--nd-danger", no_target: "--nd-neutral", not_reported: "--nd-muted", constrained: "--nd-warning", not_monitored: "--nd-muted" };
@@ -1205,7 +1205,7 @@ let hints = 0;
 function savePng(event) {
   const button = event.target.closest?.("[data-chart-png]");
   if (!button) return;
-  const el = document.querySelector(button.dataset.chartPng);
+  const el = scopedQuery(button.dataset.chartPng, button); // the chart of the quick view the button is in, first
   if (!el || !window.Plotly || !el.data) return;
   const width = Math.max(el.clientWidth || 0, 640);
   const height = Math.max(el.clientHeight || 0, 360);
@@ -1242,7 +1242,7 @@ export function barRows(list) {
 function saveRowsPng(event) {
   const button = event.target.closest?.("[data-rows-png]");
   if (!button) return;
-  const list = document.querySelector(button.dataset.rowsPng);
+  const list = scopedQuery(button.dataset.rowsPng, button); // the list of the quick view the button is in, first
   if (!list) return;
   const rows = barRows(list);
   if (!rows.length) return;

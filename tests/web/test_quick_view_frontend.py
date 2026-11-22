@@ -159,7 +159,9 @@ out.samePlace = target(inView({ href: "?tab=summary&section=CP" }));
     assert data["partModal"] == {"url": "/partner-reporting/report/?report=9", "replace": False}
     assert data["pushes"] == {"url": "/fmm/?tab=visits", "replace": True}
     assert data["inPlace"] is None  # htmx updates it in place, inside the quick view
-    assert data["fullPage"] is None and data["download"] is None and data["samePlace"] is None
+    assert data["fullPage"] is None and data["download"] is None
+    # the window's own address reloads it in place (never left to the browser, which would leave the page)
+    assert data["samePlace"] == {"url": "/programmes/?tab=summary&section=CP", "replace": True}
 
 
 @needs_node
@@ -307,3 +309,297 @@ def test_the_quick_view_keeps_dark_mode_phones_and_reduced_motion():
     assert 'id="modal-title"' in layout and 'tabindex="-1"' in layout
     assert "data-quick-back" in layout and "data-quick-full" in layout and "data-no-quick" in layout
     assert "<script" not in layout and "{% block scripts" not in layout
+
+
+# ------------------------------------------------------------------------------------- the answer drawn
+# The stand-in parses no markup: an answer's body names a view built here (`answers`), a <template> holds it, and
+# htmx.swap puts the very element in the window (its outerHTML is a key to it).
+DRAW = """
+globalThis.Event = dom.Event;
+const lib = await import(new URL("./lib.js", process.argv[1]).href);
+const answers = {};
+const made = new Map();
+let seq = 0;
+Object.defineProperty(dom.Element.prototype, "outerHTML", { get() { const key = `@el${(this._key ??= ++seq)}`; made.set(key, this); return key; } });
+const realCreate = doc.createElement.bind(doc);
+doc.createElement = (tag) => {
+  if (String(tag).toLowerCase() !== "template") return realCreate(tag);
+  const box = realCreate("div");
+  return { content: box, set innerHTML(html) { const make = answers[html]; if (make) box.append(make(html)); } };
+};
+win.htmx.swap = (target, html) => {
+  for (const child of [...target.children]) child.remove();
+  const el = made.get(html);
+  if (el) target.append(el);
+};
+globalThis.FormData = class {
+  constructor(form) { this.pairs = form.querySelectorAll("[name]").filter((el) => !el.disabled).map((el) => [el.name, el.value]); }
+  [Symbol.iterator]() { return this.pairs[Symbol.iterator](); }
+};
+let showOnShow = true;
+win.bootstrap = { Modal: { getOrCreateInstance: () => ({ show() { if (showOnShow) modal.classList.add("show"); }, hide() {} }) } };
+const asked = [];
+const waiting = [];
+let hold = false;
+globalThis.fetch = (url) => {
+  asked.push(url);
+  const reply = { type: "basic", status: 200, headers: { get: (n) => (n === quick.ANSWER_HEADER ? "1" : null) }, text: async () => url };
+  if (!hold) return Promise.resolve(reply);
+  return new Promise((resolve) => waiting.push(() => resolve(reply)));
+};
+const view = (url, ...children) => h("div", { class: "qview", "data-quick-view": "", "data-quick-url": url },
+  h("div", { class: "modal-header qview__header" },
+    h("button", { type: "button", "data-quick-back": "", hidden: true }, "Back"),
+    h("h2", { class: "modal-title", id: "modal-title", tabindex: "-1" }, "A page")),
+  h("div", { class: "modal-body qview__body" }, ...children));
+const click = (el, props = {}) => el.dispatchEvent(Object.assign(new dom.Event("click"), { button: 0 }, props));
+const inContent = (selector) => content.querySelector(selector);
+quick.initQuickView();
+"""
+
+
+@needs_node
+def test_the_answer_is_drawn_once_the_window_is_shown():
+    """Bootstrap shows the window after its fade: an answer that comes sooner waits for it, so a chart is never
+    drawn in a hidden box (Plotly would draw it 700 px wide)."""
+    data = run(
+        DRAW
+        + """
+showOnShow = false;
+answers["/funds/"] = (url) => view(url, h("div", { class: "chart", "data-module": "charts" }));
+click(link({ href: "/funds/" }));
+await clock.tick(0);
+out.before = Boolean(inContent("[data-quick-view]"));
+modal.classList.add("show");
+modal.dispatchEvent(new dom.Event("shown.bs.modal", { bubbles: false }));
+await clock.tick(0);
+out.after = Boolean(inContent("[data-quick-view] .chart"));
+out.focus = doc.activeElement.id;
+"""
+    )
+    assert data == {"before": False, "after": True, "focus": "modal-title"}
+
+
+@needs_node
+def test_a_filter_change_keeps_the_field_its_letters_and_the_open_filters():
+    """A filter applied inside the window keeps the person's place, as the page does: the view stays while the
+    answer comes, the focus goes back to the same field (not the title), letters typed meanwhile are kept and
+    applied, and the filters opened on a phone stay open."""
+    data = run(
+        DRAW
+        + """
+const bar = (url) => {
+  const q = new URL(url, "http://localhost").searchParams.get("q") || "";
+  const year = new URL(url, "http://localhost").searchParams.get("year") || "";
+  return view(url, h("div", { class: "filters-collapse", "data-filters-collapse": "" },
+    h("form", { method: "get", class: "filter-bar", "data-filter-bar": "" },
+      h("label", { for: "f-q" }, "Search"), h("input", { type: "search", id: "f-q", name: "q", value: q }),
+      h("select", { id: "f-year", name: "year", value: year }))));
+};
+for (const url of ["/partner-reporting/", "/partner-reporting/?q=Hima", "/partner-reporting/?q=Himaya", "/partner-reporting/?q=Himaya&year=2026"]) answers[url] = bar;
+click(link({ href: "/partner-reporting/" }));
+await clock.tick(0);
+inContent("[data-filters-collapse]").classList.add("is-open");  // opened on a phone
+const first = inContent('[name="q"]');
+first.focus();
+first.value = "Hima";
+first.dispatchEvent(new dom.Event("input"));
+hold = true;
+await clock.tick(500);
+out.asked = asked.slice(1);
+out.kept = inContent('[name="q"]') === first;  // the view stays while its answer comes
+first.value = "Himaya";
+first.setSelectionRange(6, 6);
+first.dispatchEvent(new dom.Event("input"));
+waiting.shift()();
+await clock.tick(0);
+const field = inContent('[name="q"]');
+out.fresh = field !== first;
+out.focus = doc.activeElement === field;
+out.value = field.value;
+out.caret = [field.selectionStart, field.selectionEnd];
+out.open = inContent("[data-filters-collapse]").classList.contains("is-open");
+hold = false;
+await clock.tick(500);
+out.again = asked.slice(2);
+const year = inContent('[name="year"]');
+year.focus();
+year.value = "2026";
+year.dispatchEvent(new dom.Event("change"));
+await clock.tick(400);
+out.yearFocus = doc.activeElement === inContent('[name="year"]') && doc.activeElement !== year;
+out.title = doc.activeElement.id === "modal-title";
+"""
+    )
+    assert data["asked"] == ["/partner-reporting/?q=Hima"]
+    assert data["kept"] and data["fresh"] and data["focus"]
+    assert data["value"] == "Himaya" and data["caret"] == [6, 6]
+    assert data["open"] is True
+    assert data["again"] == ["/partner-reporting/?q=Himaya"]  # the letters typed meanwhile are applied
+    assert data["yearFocus"] is True and data["title"] is False
+
+
+@needs_node
+def test_ids_the_page_already_has_are_the_quick_view_s_own():
+    """A quick view of the same kind of page brings the page's ids: those are renamed in the window, with every
+    label, aria reference and htmx target inside it, so a label names its own field and an answer lands in the
+    window; an id only the window has, and the window's title, keep theirs."""
+    data = run(
+        DRAW
+        + """
+main.append(h("label", { for: "f-q" }, "Search"), h("input", { id: "f-q", name: "q" }), h("div", { id: "fmm-review" }),
+  h("script", { id: "map-config" }, "{}"));
+answers["/partner-reporting/?partner=4"] = (url) => view(url,
+  h("label", { for: "f-q" }, "Search"), h("input", { type: "search", id: "f-q", name: "q" }),
+  h("button", { "hx-post": "/fmm/review/", "hx-target": "#fmm-review", "aria-controls": "fmm-review only-here" }, "Save"),
+  h("div", { id: "fmm-review" }), h("a", { href: "#fmm-review" }, "Jump"),
+  h("h3", { id: "only-here" }, "Only here"), h("div", { "aria-labelledby": "only-here modal-title" }),
+  h("section", { "data-module": "pdmap", "data-config": "map-config" }), h("script", { id: "map-config" }, "{}"));
+click(link({ href: "/partner-reporting/?partner=4" }));
+await clock.tick(0);
+const v = inContent("[data-quick-view]");
+const input = v.querySelector("input");
+out.input = [input.id, input.getAttribute("data-quick-id")];
+out.label = v.querySelector("label").getAttribute("for");
+const button = v.querySelector("button[hx-post]");
+out.target = button.getAttribute("hx-target");
+out.controls = button.getAttribute("aria-controls");
+out.anchor = v.querySelector("a[href]").getAttribute("href");
+out.onlyHere = v.querySelector("h3").id;
+out.labelledby = v.querySelector("[aria-labelledby]").getAttribute("aria-labelledby");
+out.config = v.querySelector("section").getAttribute("data-config");
+out.title = v.querySelector("h2").id;
+out.pageIds = main.querySelectorAll("[id]").map((el) => el.id);
+out.byId = lib.byId("f-q", button) === input;
+out.byConfig = lib.byId("map-config", button) === v.querySelector("script");
+"""
+    )
+    assert data["input"] == ["qv-f-q", "f-q"]
+    assert data["label"] == "qv-f-q"
+    assert data["target"] == "#qv-fmm-review"
+    assert data["controls"] == "qv-fmm-review only-here"
+    assert data["anchor"] == "#qv-fmm-review"
+    assert data["onlyHere"] == "only-here" and data["labelledby"] == "only-here modal-title"
+    assert data["config"] == "qv-map-config" and data["title"] == "modal-title"
+    assert data["pageIds"] == ["f-q", "fmm-review", "map-config"]
+    assert data["byId"] is True and data["byConfig"] is True
+
+
+@needs_node
+def test_in_a_quick_view_its_own_address_reloads_it_and_an_anchor_scrolls_it():
+    """Inside the window, a link to the window's own address (its current tab, a Reset with nothing set) reloads
+    it in place, and an anchor of it scrolls the window: neither leaves the page or writes its address."""
+    data = run(
+        DRAW
+        + """
+answers["/partner-monitoring/?pd=8&view=quality"] = (url) => view(url,
+  h("div", { class: "segmented" }, h("a", { href: "/partner-monitoring/?pd=8&view=quality", "aria-current": "page" }, "Data quality")),
+  h("nav", { class: "brief-tabs" }, h("a", { href: "#brief-partners" }, "Partners")),
+  h("a", { href: "?pd=8&view=quality#brief-partners", class: "same" }, "Same"),
+  h("section", { id: "brief-partners" }, "Partners"));
+const assigned = [];
+win.location.assign = (url) => assigned.push(url);
+click(link({ href: "/partner-monitoring/?pd=8&view=quality" }));
+await clock.tick(0);
+const v = inContent("[data-quick-view]");
+out.self = quick.quickTarget(v.querySelector(".segmented a"));
+out.anchor = quick.quickTarget(v.querySelector(".brief-tabs a"));
+out.sameAnchor = quick.quickTarget(v.querySelector("a.same"));
+out.went = click(inContent(".segmented a"));
+await clock.tick(0);
+out.asked = asked.slice();
+out.stillOpen = Boolean(inContent("[data-quick-view]"));
+out.anchorWent = click(inContent(".brief-tabs a"));
+await clock.tick(0);
+out.hash = win.location.hash;
+out.scrolled = doc.scrolls.map((s) => s.id);
+out.marked = inContent("section").classList.contains("is-target");
+out.assigned = assigned;
+// on the page itself the browser keeps its own way
+out.pageHash = quick.quickTarget(link({ href: "#figures" }));
+out.pageSelf = quick.quickTarget(link({ href: "/home/?section=CP" }));
+"""
+    )
+    assert data["self"] == {"url": "/partner-monitoring/?pd=8&view=quality", "replace": True}
+    assert data["anchor"] == {"anchor": "brief-partners"}
+    assert data["sameAnchor"] == {"anchor": "brief-partners"}
+    assert data["went"] is False and data["stillOpen"] is True
+    assert data["asked"] == [
+        "/partner-monitoring/?pd=8&view=quality",
+        "/partner-monitoring/?pd=8&view=quality",
+    ]
+    assert data["anchorWent"] is False and data["hash"] == ""
+    assert data["scrolled"] == ["brief-partners"] and data["marked"] is True
+    assert data["assigned"] == []
+    assert data["pageHash"] is None and data["pageSelf"] is None
+
+
+@needs_node
+def test_the_help_shortcut_and_an_answer_ending_never_fight_an_open_window():
+    """The Help panel cannot take the focus from an open window (Bootstrap keeps it there): the shortcut closes the
+    window first, then opens the panel. An Ask answer ending moves the focus to the question box only when the
+    focus is still in the conversation or nowhere, and no window is open."""
+    data = run(
+        """
+const lib = await import(new URL("./lib.js", process.argv[1]).href);
+const hidden = [];
+win.bootstrap = { Modal: { getOrCreateInstance: (el) => ({ hide() {
+  hidden.push(el.id); el.classList.remove("show"); el.dispatchEvent(new dom.Event("hidden.bs.modal", { bubbles: false }));
+} }) } };
+let opened = 0;
+lib.afterDialogs(() => { opened += 1; });
+out.direct = [opened, hidden.slice()];
+modal.classList.add("show");
+lib.afterDialogs(() => { opened += 1; });
+out.afterClose = [opened, hidden.slice()];
+const root = h("div", {}, h("textarea", { name: "question" }), h("button", { type: "submit" }));
+const other = h("a", { href: "/partners/" });
+main.append(root, other);
+doc.activeElement = doc.body;
+out.nowhere = lib.mayTakeFocus(root);
+root.querySelector("button").focus();
+out.inside = lib.mayTakeFocus(root);
+other.focus();
+out.elsewhere = lib.mayTakeFocus(root);
+doc.activeElement = doc.body;
+modal.classList.add("show");
+out.window = lib.mayTakeFocus(root);
+"""
+    )
+    assert data["direct"] == [1, []]
+    assert data["afterClose"] == [2, ["modal"]]
+    assert data == {**data, "nowhere": True, "inside": True, "elsewhere": False, "window": False}
+    app = _code((STATIC / "js" / "app.js").read_text())
+    help_block = app.split("function initHelp()", 1)[1].split("\n}\n", 1)[0]
+    assert "afterDialogs(open)" in help_block
+    ask = _code((STATIC / "js" / "ask.js").read_text())
+    finally_block = ask.split("} finally {", 1)[1].split("}", 1)[0]
+    assert "if (mayTakeFocus(root)) input.focus();" in finally_block
+
+
+@needs_node
+def test_a_scrolling_tab_bar_shows_its_current_tab():
+    """On a phone a long tab bar scrolls sideways with its scroll bar hidden: the current tab is scrolled into
+    sight, and an edge fades while more tabs are hidden on that side."""
+    data = run(
+        """
+const lib = await import(new URL("./lib.js", process.argv[1]).href);
+const bar = { left: 33, right: 357, width: 324 };
+out.offRight = lib.revealInBar(bar, 0, { left: 599, right: 812, width: 213 });
+out.partly = lib.revealInBar(bar, 0, { left: 339, right: 597, width: 258 });
+out.inSight = lib.revealInBar(bar, 0, { left: 37, right: 228, width: 191 });
+out.offLeft = lib.revealInBar(bar, 300, { left: 10, right: 100, width: 90 });
+out.none = lib.revealInBar(bar, 0, null);
+"""
+    )
+    assert data["offRight"] == 0 + (812 - 357) + 8
+    assert data["partly"] == 0 + (597 - 357) + 8
+    assert data["inSight"] is None and data["none"] is None
+    assert data["offLeft"] == 300 - (33 - 10) - 8
+    app = _code((STATIC / "js" / "app.js").read_text())
+    enhance = app.split("function enhance(root = document) {", 1)[1].split("\n}", 1)[0]
+    assert "initScrollBars(root);" in enhance
+    assert "revealInBar(" in app
+    css = (STATIC / "css" / "app.css").read_text()
+    assert ".segmented--scroll.is-more-end" in css and ".segmented--scroll.is-more-start" in css
+    assert "mask-image" in css.split(".segmented--scroll.is-more-end", 1)[1].split("}", 1)[0]

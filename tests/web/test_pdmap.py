@@ -160,3 +160,118 @@ def test_the_script_has_no_budget_words_and_reads_the_level_tokens():
     # the theme switch repaints the points and dims the map in the dark theme, as the other maps do
     assert 'document.addEventListener("nd:themechange", recolour)' in script
     assert "raster-brightness-max" in script
+
+
+# Two maps on one page, as a quick view of the map opened over the map page puts them (quickview.js): one in the
+# page's content, one in the window. Each fills its own tiles, list, totals and unlocated block, never the other's.
+TWO_MAPS_SCRIPT = r"""
+const dom = await import(process.argv[2]);
+const env = dom.installPage({ href: "http://localhost/partner-monitoring/map/" });
+const { doc, main, clock } = env;
+const h = doc.h.bind(doc);
+doc.body.append(h("script", { id: "asset-urls", type: "application/json" },
+  JSON.stringify({ maplibreCss: "/static/m.css", maplibre: "/static/m.js", maplibreWorker: "/static/w.js" })));
+const shell = (api) => {
+  const map = h("section", { "data-module": "pdmap", "data-config": "map-config" }, h("div", { "data-map-canvas": "" }));
+  const box = h("div", {},
+    h("div", { class: "kpi-grid", "data-pdmap-kpis": "" }, ...Array.from({ length: 7 }, () => h("div", { class: "kpi__value" }, "…"))),
+    map,
+    h("span", { "data-map-totals": "" }),
+    h("input", { type: "search", "data-pdmap-search": "" }),
+    h("table", {}, h("tbody", { "data-pdmap-table": "" }, h("tr", {}, h("td", {}, "loading")))),
+    h("section", { "data-pdmap-detail": "", hidden: true }, h("h2", { "data-pdmap-detail-title": "" }), h("span", { "data-pdmap-detail-sub": "" }), h("div", { "data-pdmap-detail-body": "" })),
+    h("section", { "data-pdmap-unlocated": "", hidden: true }, h("div", { "data-pdmap-unlocated-list": "" })),
+    h("script", { id: "map-config", type: "application/json" }, JSON.stringify({ api: api, levels: {} })),
+  );
+  return { box, map };
+};
+const page = shell("/api/page");
+main.append(page.box);
+const view = h("div", { class: "qview", "data-quick-view": "", "data-quick-url": "/partner-monitoring/map/?pd=8" });
+const quick = shell("/api/quick");
+view.append(quick.box);
+doc.body.append(h("div", { id: "modal" }, h("div", { id: "modal-content" }, view)));
+const point = (key) => ({ key, name: key, p_code: key, level: "district", indicators: 2, partners: 1, pds: 1, worst: "on_track",
+  latitude: 34, longitude: 36, governorate: "", district: "", rows: [] });
+const data = {
+  "/api/page": { points: [point("A"), point("B")], unlocated: [],
+    totals: { locations: 21, indicators: 33, programme_documents: 11, partners: 5, located: 21, approximate: 0,
+      status_counts: { on_track: 4, off_track: 18, not_reported: 6 } } },
+  "/api/quick": { points: [point("C")], unlocated: [{ name: "Nowhere", p_code: "X1", indicators: 1 }],
+    totals: { locations: 4, indicators: 3, programme_documents: 1, partners: 1, located: 4, approximate: 0,
+      status_counts: { on_track: 0, off_track: 3, not_reported: 0 } } },
+};
+globalThis.fetch = async (url) => ({ ok: true, status: 200, json: async () => data[url] });
+const pdmap = await import(process.argv[1]);
+const state = (s) => ({
+  tiles: s.box.querySelectorAll(".kpi__value").map((el) => el.textContent),
+  table: s.box.querySelector("[data-pdmap-table]").innerHTML,
+  totals: s.box.querySelector("[data-map-totals]").innerHTML,
+  unlocated: !s.box.querySelector("[data-pdmap-unlocated]").hidden,
+});
+pdmap.init(page.map).catch(() => {});
+await clock.tick(0);
+const afterPage = { page: state(page), quick: state(quick) };
+pdmap.init(quick.map).catch(() => {});
+await clock.tick(0);
+console.log(JSON.stringify({ afterPage, afterQuick: { page: state(page), quick: state(quick) } }));
+"""
+
+
+def test_two_maps_on_one_page_each_fill_only_their_own_tiles_and_list():
+    if NODE is None:
+        pytest.skip("node is not installed")
+    out = subprocess.run(
+        [
+            NODE,
+            "--input-type=module",
+            "-e",
+            TWO_MAPS_SCRIPT,
+            (STATIC / "js" / "pdmap.js").as_uri(),
+            (Path(__file__).parent / "parts_dom.mjs").as_uri(),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert out.returncode == 0, out.stderr
+    drawn = json.loads(out.stdout)
+    page, quick = drawn["afterPage"]["page"], drawn["afterPage"]["quick"]
+    assert page["tiles"] == ["21", "33", "11", "5", "4", "18", "6"]
+    assert 'data-pdmap-row="A"' in page["table"] and "21" in page["totals"]
+    assert quick["tiles"] == ["…"] * 7 and quick["table"] == ""
+    page, quick = drawn["afterQuick"]["page"], drawn["afterQuick"]["quick"]
+    # the window's map fills the window's tiles, list, totals and unlocated block; the page keeps its own
+    assert quick["tiles"] == ["4", "3", "1", "1", "0", "3", "0"]
+    assert 'data-pdmap-row="C"' in quick["table"] and 'data-pdmap-row="A"' not in quick["table"]
+    assert "without coordinates" in quick["totals"] and quick["unlocated"]
+    assert page["tiles"] == ["21", "33", "11", "5", "4", "18", "6"]
+    assert 'data-pdmap-row="A"' in page["table"] and "without coordinates" not in page["totals"]
+    assert not page["unlocated"]
+
+
+def test_the_map_and_the_chart_downloads_read_their_own_quick_view():
+    """Every element the map fills, and the chart a Download PNG button saves, is looked up from the map's or
+    the button's own place (the quick view it is in), never across the whole page."""
+    pdmap = (STATIC / "js" / "pdmap.js").read_text()
+    assert "document.querySelector(" not in pdmap
+    charts = (STATIC / "js" / "charts.js").read_text()
+    assert "document.querySelector(button.dataset" not in charts
+    assert "scopedQuery(button.dataset.chartPng, button)" in charts
+    assert "scopedQuery(button.dataset.rowsPng, button)" in charts
+
+
+def test_the_help_names_the_whole_country_level_and_the_dark_mode_rings():
+    """The map draws a place at the whole-country level larger than a governorate, with a near-black ring
+    (white in dark mode), and the other rings lighter in dark mode: the help says so, and never that a
+    governorate has the largest circle."""
+    guide = (Path(settings.BASE_DIR) / "neurodb" / "help" / "guide" / "partner-progress.md").read_text()
+    flat = " ".join(guide.split())
+    assert "a governorate has the largest circle" not in flat
+    assert (
+        "The whole country, when an indicator is planned for it, has the largest circle and a dark ring"
+        in flat
+    )
+    assert "In dark mode the rings are lighter, and the whole country's is white." in flat
+    script = (STATIC / "js" / "pdmap.js").read_text()
+    assert 'country: { token: "--nd-level-country"' in script and "radius: [20, 26]" in script

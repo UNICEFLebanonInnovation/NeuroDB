@@ -552,7 +552,8 @@ def changes_since(
     """Add to the stories of the open items (default: every one) the notable What's new changes read
     after ``watermark`` (a ``graph.Change`` id) about them or what they connect to, matched by (kind,
     key), each once, as What's new tells it. A daily review finding's changes are left out (the review
-    tells its own), and so are changes older than 7 days. Returns the highest change id read: the next
+    tells its own), and so are changes older than 7 days and those of the ActivityInfo archive (as What's new
+    leaves them out: :func:`neurodb.graph.news.without_archive`). Returns the highest change id read: the next
     watermark. ``stats`` (when given) gets ``read``, ``added`` and ``items``."""
     today = today or timezone.localdate()
     watermark = int(watermark or 0)
@@ -576,12 +577,15 @@ def changes_since(
 def _tell(
     watermark: int, top: int, today: datetime.date, concerned: dict[Ref, list[WatchItem]], counts: dict
 ) -> None:
+    # the changes of the ActivityInfo archive are never news on a page, For you's stories included
     found = (
-        Change.objects.filter(
-            pk__gt=watermark,
-            pk__lte=top,
-            notable=True,
-            detected_at__gte=_start_of(today - _days(CHANGE_DAYS)),
+        news.without_archive(
+            Change.objects.filter(
+                pk__gt=watermark,
+                pk__lte=top,
+                notable=True,
+                detected_at__gte=_start_of(today - _days(CHANGE_DAYS)),
+            )
         )
         .exclude(kind=K.FINDING)
         .filter(_about(set(concerned)))

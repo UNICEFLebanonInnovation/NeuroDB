@@ -777,7 +777,11 @@ def search_library(
 
 
 def data_freshness() -> dict[str, Any]:
-    health = report_services.data_health()
+    """The sync jobs as the Data health page lists them: never the ActivityInfo archive's imports, partner
+    links or databases (``health_jobs(with_archive=False)``), which the AI gets only when someone asks about
+    the archive (its own lookups)."""
+    from neurodb.education import power_bi
+
     return {
         "jobs": [
             {
@@ -786,20 +790,12 @@ def data_freshness() -> dict[str, Any]:
                 "last_success": _num(j["last_success"].finished_at) if j["last_success"] else None,
                 "age_hours": _num(j["age_hours"]),
             }
-            for j in health["jobs"]
-        ],
-        "databases": [
-            {
-                "database": _db_name(d["database"]),
-                "last_import": _num(d["last_import"]),
-                "state": d["state_label"],
-            }
-            for d in health["databases"]
+            for j in report_services.health_jobs(with_archive=False)
         ],
         # Makani, Dirasa and youth: whether Compiler counted the rows of Power BI's views (counts only)
         "compared_with_power_bi": [
             {k: _num(v) for k, v in row.items() if k not in ("programme",)}
-            for row in health.get("power_bi", [])
+            for row in power_bi.summary(with_no_year=True)
         ],
         "url": reverse("reports:data_health"),
     }
@@ -1815,8 +1811,9 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     ),
     "data_freshness": (
         data_freshness,
-        "When each data source (ActivityInfo, eTools, locations, population) last synced and how fresh "
-        "each database's import is; per Compiler programme, whether its figures were counted from Power "
+        "When each data source (eTools, the eTools Datamart, locations, population, the Compiler "
+        "programmes) last synced and how fresh it is; per Compiler programme, whether its figures were "
+        "counted from Power "
         "BI's view and, for Makani and Dirasa, the registrations in rounds that belong to no year (no_year: "
         "counted in no year, a reason a figure may differ from Power BI's). Use when asked how up to date "
         "the data is.",

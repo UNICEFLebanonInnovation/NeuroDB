@@ -98,8 +98,12 @@ export function detailHTML(place, data, config) {
   return { title: placeName(place), meta: meta.join(" · "), body };
 }
 
-function detail(place, data, config) {
-  const box = document.querySelector("[data-pdmap-detail]");
+// The map's own place: the quick view it is in (quickview.js), else the page. A map in a quick view opened over the
+// map page fills its own tiles, list and details, never those of the page under it.
+const scopeOf = (el) => el.closest?.("[data-quick-view]") || document;
+
+function detail(place, data, config, scope = document) {
+  const box = scope.querySelector("[data-pdmap-detail]");
   if (!box) return;
   const html = detailHTML(place, data, config);
   box.hidden = false;
@@ -172,8 +176,8 @@ export function paint() {
 /** Smaller places are drawn over the larger ones, so a governorate's circle never hides a village. */
 export const layout = () => ({ "circle-sort-key": ["get", "order"] });
 
-function kpis(data) {
-  const box = document.querySelector("[data-pdmap-kpis]");
+function kpis(data, scope = document) {
+  const box = scope.querySelector("[data-pdmap-kpis]");
   if (!box) return;
   if (!data) {
     box.querySelectorAll(".kpi__value").forEach((el) => { el.textContent = "—"; });
@@ -187,9 +191,10 @@ function kpis(data) {
 export async function init(el) {
   const config = readJSON(el.dataset.config || "map-config", el);
   const canvas = el.querySelector("[data-map-canvas]");
-  const tbody = document.querySelector("[data-pdmap-table]");
-  const totals = document.querySelector("[data-map-totals]");
-  const search = document.querySelector("[data-pdmap-search]");
+  const scope = scopeOf(el);
+  const tbody = scope.querySelector("[data-pdmap-table]");
+  const totals = scope.querySelector("[data-map-totals]");
+  const search = scope.querySelector("[data-pdmap-search]");
   loadStyle("maplibreCss");
   const library = loadScript("maplibre");
   library.catch(() => {}); // awaited below, once the figures are shown
@@ -200,17 +205,17 @@ export async function init(el) {
     data = await fetchJSON(config.api);
   } catch (err) {
     if (!el.isConnected) return; // the page moved on while the figures loaded
-    kpis(null);
+    kpis(null, scope);
     if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">—</td></tr>`;
     throw err;
   }
   if (!el.isConnected) return; // swapped out while the figures loaded: nothing to fill
   const byKey = new Map(data.points.map((p) => [p.key, p]));
-  kpis(data);
+  kpis(data, scope);
   // each number carries its figure trail key (data-figure), as the server's pages draw them; numbers only
   const figure = (key, n) => `<span data-figure="${key}">${fmt(n)}</span>`;
   if (totals) totals.innerHTML = `${figure("map.located", data.totals.located)} on the map${data.totals.approximate ? ` (${figure("map.approximate", data.totals.approximate)} approximate)` : ""}${data.unlocated.length ? ` · ${figure("map.unlocated", data.unlocated.length)} without coordinates` : ""}`;
-  const unl = document.querySelector("[data-pdmap-unlocated]");
+  const unl = scope.querySelector("[data-pdmap-unlocated]");
   if (unl && data.unlocated.length) {
     unl.hidden = false;
     unl.querySelector("[data-pdmap-unlocated-list]").innerHTML = data.unlocated
@@ -224,7 +229,7 @@ export async function init(el) {
   const pick = (key, fly = true) => {
     const p = byKey.get(key);
     if (!p) return;
-    detail(p, data, config);
+    detail(p, data, config, scope);
     if (fly && map) map.flyTo({ center: [p.longitude, p.latitude], zoom: Math.max(map.getZoom(), 10) });
   };
   fillTable(tbody, data.points, pick, "", config);

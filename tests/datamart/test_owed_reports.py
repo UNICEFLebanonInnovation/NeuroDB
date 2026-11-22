@@ -307,7 +307,8 @@ def test_a_failed_read_of_prp_s_progress_reports_closes_the_gate_and_says_so(wor
 
 def test_only_administrators_and_staff_validators_get_the_check_11_link_and_it_opens(viewer, checker, world):
     """The link opens the eTools reporting checks, which need staff status: a validator without it reads the
-    line only, as on Data health."""
+    line only, as on Data health. Progress reports draws no explanation note: its warning is one short sentence
+    (the closed line is Home's)."""
     _verdict(shown=False, why="periods")
     checks = reverse("admin:datamart_reporting_checks")
     plain = Client()
@@ -319,7 +320,9 @@ def test_only_administrators_and_staff_validators_get_the_check_11_link_and_it_o
     for client, linked in ((plain, False), (checker, False), (staff_client, True)):
         for address in ("/partner-reporting/", "/partner-reporting/?tab=partners"):
             page = text(client.get(address))
-            assert owed.HIDDEN_START in page, address
+            assert "Some reports still owed may be missing." in page and owed.HIDDEN_START not in page, (
+                address
+            )
             assert (checks in page) is linked, address
         home = text(get_part(client, "/home/?section=", "reporting"))
         assert owed.HIDDEN_START in home

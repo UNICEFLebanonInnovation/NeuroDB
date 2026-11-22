@@ -76,12 +76,22 @@ export async function fetchJSON(url, { method = "GET", body, signal } = {}) {
   return data;
 }
 
-/** The element `selector` names for `near`: the one in the quick view `near` is in, whose ids repeat the page's
- * when it shows the same page (quickview.js), else the page's own. */
+// "#id" or [id="id"]: a selector of one id, which a quick view may have renamed (quickview.js ownIds)
+const ONE_ID = /^(?:#([\w-]+)|\[id="([^"\\]+)"\])$/;
+
+/** The element `selector` names for `near`: the one in the quick view `near` is in first (an id the page also has
+ * is renamed there and keeps its own as data-quick-id: quickview.js), else the page's own. */
 export function scopedQuery(selector, near) {
   if (!selector) return null;
   const view = near?.closest?.("[data-quick-view]");
-  return (view && view.querySelector(selector)) || document.querySelector(selector);
+  if (view) {
+    const own = view.querySelector(selector);
+    if (own) return own;
+    const id = ONE_ID.exec(String(selector).trim());
+    const renamed = id && view.querySelector(`[data-quick-id="${id[1] || id[2]}"]`);
+    if (renamed) return renamed;
+  }
+  return document.querySelector(selector);
 }
 
 /** The element with this id for `near` (scopedQuery). */
@@ -204,4 +214,41 @@ export function trapFocus(container, e) {
   if (e.shiftKey && (active === first || !inside)) return last;
   if (!e.shiftKey && (active === last || !inside)) return first;
   return null;
+}
+
+// ------------------------------------------------------------------ windows (Bootstrap modals)
+/** The window open over the page (the quick view or a pop-up), or null. */
+export function openDialog() {
+  return globalThis.document?.querySelector?.(".modal.show") || null;
+}
+
+/** Runs `fn` once no window is open over the page: at once, or after closing the one that is (its focus trap would
+ * keep the focus from a panel opened beside it, the Help assistant's). */
+export function afterDialogs(fn) {
+  const dialog = openDialog();
+  const Modal = globalThis.window?.bootstrap?.Modal;
+  if (!dialog || !Modal) {
+    fn();
+    return;
+  }
+  dialog.addEventListener("hidden.bs.modal", () => fn(), { once: true });
+  Modal.getOrCreateInstance(dialog).hide();
+}
+
+/** Whether a chat may move the focus back to its question box (an answer ended): only while no window is open and
+ * the focus is still in the conversation `root` or nowhere, never away from what the person moved on to. */
+export function mayTakeFocus(root) {
+  if (openDialog()) return false;
+  const active = globalThis.document?.activeElement;
+  return !active || active === globalThis.document.body || !active.isConnected || Boolean(root?.contains?.(active));
+}
+
+// ------------------------------------------------------------------ tab bars that scroll sideways
+/** The scroll offset that brings an item of a sideways-scrolling bar into sight (8 px from the edge it was past), or
+ * null when it is in sight already. The rectangles are the bar's and the item's on screen. */
+export function revealInBar(bar, scrollLeft, item, margin = 8) {
+  if (!bar || !item) return null;
+  if (item.left >= bar.left && item.right <= bar.right) return null;
+  if (item.left < bar.left || item.width > bar.width - 2 * margin) return Math.max(0, scrollLeft - (bar.left - item.left) - margin);
+  return scrollLeft + (item.right - bar.right) + margin;
 }

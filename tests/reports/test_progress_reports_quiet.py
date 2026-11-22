@@ -157,3 +157,28 @@ def test_home_keeps_its_notes(client_viewer, world):
     assert "Counts are progress reports. Overdue first" in html
     pm = text(client_viewer.get(reverse("reports:pd_monitoring")))
     assert "never adding a value the reports repeat" in pm  # Partner monitoring keeps its notes
+
+
+@pytest.mark.parametrize("tab", ["", "partners"])
+def test_reports_still_owed_that_may_be_missing_are_a_short_warning(roles, world, tab):
+    """NeuroDB holds PRP's own list of progress reports but has not proven it is tied to their programme
+    documents (the gate closed): each visible tab says so in one short warning, never in the grey explanation
+    (Home keeps that). Administrators also get the link to check 11."""
+    from neurodb.datamart import models as dm
+
+    dm.DatamartDocument.objects.create(
+        dataset="prp_progress_reports", record_key="held-1", data={"status": "Due"}, date=DAY
+    )
+    viewer, admin = _client(VIEWER), _client(ADMIN, staff=True)
+    html = text(viewer.get(PAGE, {"tab": tab} if tab else {}))
+    _assert_quiet(html, tab)
+    line = re.search(r'<p\b[^>]*data-owed-line="closed"[^>]*>(.*?)</p>', _results(html), re.S)
+    assert line is not None
+    assert "text-warning" in line.group(0) and "text-muted" not in line.group(0)
+    words = " ".join(TAGS.sub("", line.group(1)).split())
+    assert words == "Some reports still owed may be missing."
+    assert "eTools stops sending a report" not in html
+    admin_html = text(admin.get(PAGE, {"tab": tab} if tab else {}))
+    assert "eTools reporting checks, check 11" in admin_html
+    home = text(viewer.get("/home/?section="))
+    assert "eTools stops sending a report" in home  # Home keeps its explanation

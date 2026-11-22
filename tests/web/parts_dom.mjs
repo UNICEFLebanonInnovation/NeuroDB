@@ -11,25 +11,42 @@ const CONTAINED_BY = 16;
 
 const kebab = (prop) => prop.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
-// "tag#id.class[attr][attr=v][attr^=v]", in a comma list; no combinators (parts.js uses none)
+// One compound selector: "tag#id.class[attr][attr=v][attr^=v]" (or "*").
+function compound(text) {
+  const bare = text.replace(/\[[^\]]*\]/g, "");
+  const tag = /^[a-zA-Z][\w-]*/.exec(bare)?.[0]?.toUpperCase() || null;
+  const id = /#([\w-]+)/.exec(bare)?.[1] || null;
+  const classes = [...bare.matchAll(/\.([\w-]+)/g)].map((m) => m[1]);
+  const attrs = [...text.matchAll(/\[([\w-]+)(?:(\^?=)["']?([^"'\]]*)["']?)?\]/g)].map((m) => ({ name: m[1], op: m[2], value: m[3] }));
+  return (el) =>
+    (!tag || el.tagName === tag) &&
+    (!id || el.id === id) &&
+    classes.every((c) => el.classList.contains(c)) &&
+    attrs.every(({ name, op, value }) => {
+      const v = el.getAttribute(name);
+      if (v === null) return false;
+      if (op === "=") return v === value;
+      if (op === "^=") return v.startsWith(value);
+      return true;
+    });
+}
+
+// Compound selectors in a comma list, each optionally after others (the descendant combinator, a space); no other
+// combinator or pseudo-class.
 function matcher(selector) {
   const alternatives = selector.split(",").map((part) => {
-    const text = part.trim();
-    const tag = /^[a-zA-Z][\w-]*/.exec(text)?.[0]?.toUpperCase() || null;
-    const id = /#([\w-]+)/.exec(text)?.[1] || null;
-    const classes = [...text.matchAll(/\.([\w-]+)/g)].map((m) => m[1]);
-    const attrs = [...text.matchAll(/\[([\w-]+)(?:(\^?=)["']?([^"'\]]*)["']?)?\]/g)].map((m) => ({ name: m[1], op: m[2], value: m[3] }));
-    return (el) =>
-      (!tag || el.tagName === tag) &&
-      (!id || el.id === id) &&
-      classes.every((c) => el.classList.contains(c)) &&
-      attrs.every(({ name, op, value }) => {
-        const v = el.getAttribute(name);
-        if (v === null) return false;
-        if (op === "=") return v === value;
-        if (op === "^=") return v.startsWith(value);
-        return true;
-      });
+    const steps = (part.trim().match(/(?:\[[^\]]*\]|[^\s[])+/g) || []).map(compound);
+    const last = steps.pop() || (() => false);
+    return (el) => {
+      if (!last(el)) return false;
+      let node = el.parentNode;
+      for (let i = steps.length - 1; i >= 0; i--) {
+        while (node && !node.isDocument && !steps[i](node)) node = node.parentNode;
+        if (!node || node.isDocument) return false;
+        node = node.parentNode;
+      }
+      return true;
+    };
   });
   return (el) => alternatives.some((test) => test(el));
 }
@@ -156,6 +173,41 @@ export class Element {
   }
   removeAttribute(name) {
     this.attrs.delete(name);
+  }
+  get innerHTML() {
+    return this.html ?? "";
+  }
+  /** Markup is not parsed: the children go and the text is kept as it is (a module filling a box with HTML). */
+  set innerHTML(value) {
+    for (const child of this.children) child.parentNode = null;
+    this.children = [];
+    this.html = String(value);
+  }
+  get value() {
+    return this._value ?? this.getAttribute("value") ?? "";
+  }
+  set value(v) {
+    this._value = String(v);
+  }
+  get type() {
+    return this.getAttribute("type") ?? (this.tagName === "SELECT" ? "select-one" : "");
+  }
+  set type(value) {
+    this.setAttribute("type", value);
+  }
+  get name() {
+    return this.getAttribute("name") ?? "";
+  }
+  set name(value) {
+    this.setAttribute("name", value);
+  }
+  setSelectionRange(start, end) {
+    this.selectionStart = start;
+    this.selectionEnd = end;
+  }
+  appendChild(node) {
+    this.append(node);
+    return node;
   }
   get textContent() {
     return this.text + this.children.map((c) => c.textContent).join("");

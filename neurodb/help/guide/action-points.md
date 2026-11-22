@@ -34,7 +34,7 @@ and NeuroDB Watch). The *Open* status filter keeps the action points in progress
 ## Charts
 
 Over the filter; each has *Download PNG*, and a bar opens its action points (but for the offices: the
-office is no longer a filter, your decision of 21 Nov 2026):
+office is no longer a filter, since 21 Nov 2026):
 
 - by status;
 - the due dates of the open ones (Overdue, due within 30 days, On track, No due date);

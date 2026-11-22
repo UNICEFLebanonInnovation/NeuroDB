@@ -4,6 +4,9 @@ programme documents proven (the gate open) and at least one in the filter, how m
 is closed, why the reports still owed may be missing, and, for Administrators and validators with staff status only
 (who can open it, as on Data health), a link to check 11 of the eTools reporting checks. Nothing while NeuroDB holds none of PRP's progress reports.
 Context: owed; css (the paragraph's classes); warning_only (Progress reports, which shows no explanation note since
-21 Nov 2026: the closed line only, a warning that reports may be missing).{% endcomment %}{% if owed.line and not owed.shown or owed.line and not warning_only %}
+21 Nov 2026: while the gate is closed, one short warning that reports may be missing, never the explanation, which
+Home keeps).{% endcomment %}{% if warning_only %}{% if owed.line and not owed.shown %}
+<p class="small text-warning mb-3" data-owed-line="closed">{% trans "Some reports still owed may be missing." %}{% if user_role == "Administrator" or can_validate and user.is_staff %} ({% url 'admin:datamart_reporting_checks' as checks_url %}<a href="{{ checks_url }}">{% trans "eTools reporting checks, check 11" %}</a>){% endif %}</p>
+{% endif %}{% elif owed.line %}
 <p class="{{ css|default:'small text-muted mb-3' }}" data-owed-line="{% if owed.shown %}shown{% else %}closed{% endif %}">{{ owed.line }}{% if not owed.shown %}{% if user_role == "Administrator" or can_validate and user.is_staff %} ({% url 'admin:datamart_reporting_checks' as checks_url %}<a href="{{ checks_url }}">{% trans "eTools reporting checks, check 11" %}</a>){% endif %}{% endif %}</p>
 {% endif %}

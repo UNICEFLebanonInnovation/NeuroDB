@@ -65,7 +65,7 @@ urgency and the flags; never the people.
   record figures then count the matching records only (a data note says so).
 - Chart clicks add **drill-downs** (month, status, HACT Q1, score band, flag, flag count, urgency band,
   place, recurring issue, rule, review), shown as chips you can remove.
-- **Field office** is no longer a filter (your decision of 21 Nov 2026), and the field office tables no
+- **Field office** is no longer a filter (since 21 Nov 2026), and the field office tables no
   longer open their records. An old link that still carries an office is still applied, shown as a chip
   you can remove.
 

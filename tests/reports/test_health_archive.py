@@ -1,8 +1,9 @@
 """Data health and ActivityInfo, an archive of past monthly results (the owner's rule, November 2026): the page
 lists no ActivityInfo job card, database import or run, whatever its state; the administration's Scheduled jobs and
-runs still list them. The service the internal API, Ask NeuroDB's data freshness lookup and the daily review read
-(``data_health``) still holds the archive's jobs and databases, each "Archive" while the import is not followed, as
-before (SPEC_HOME §6)."""
+runs still list them. The service the internal API and the daily review read (``data_health``) still holds the
+archive's jobs and databases, each "Archive" while the import is not followed, as before (SPEC_HOME §6). Ask
+NeuroDB's data freshness lookup reads the jobs as the page does: asked how up to date the data is, it never hands
+the archive to the AI."""
 
 from __future__ import annotations
 
@@ -127,3 +128,40 @@ def test_new_databases_waiting_for_records_are_followed(section, reporting_year)
 
 def test_no_reporting_year_at_all(db):
     assert services.health_year() is None and services.health_databases(None) == []
+
+
+def test_the_databases_page_sends_its_imports_to_the_runs_list_not_to_data_health(
+    client, admin_user, viewer, hierarchy, ai_runs
+):
+    """The archive's databases page keeps its imports panel; Data health no longer lists them, so the
+    panel's link opens the administration's runs of the two imports, for those who can open it."""
+    from django.urls import reverse
+
+    runs = reverse("admin:core_syncrun_changelist") + "?job__in=ai_structure,ai_data"
+    client.force_login(admin_user)
+    html = client.get("/databases/?year=2026").content.decode()
+    panel = html.split('id="ai-runs-title"')[1].split("</section>")[0]
+    assert runs.replace("&", "&amp;") in panel or runs in panel
+    assert reverse("reports:data_health") not in panel
+    listed = client.get(runs)
+    assert listed.status_code == 200
+    assert {r.job for r in listed.context["cl"].result_list} == {"ai_structure", "ai_data"}
+
+    client.force_login(viewer)
+    html = client.get("/databases/?year=2026").content.decode()
+    panel = html.split('id="ai-runs-title"')[1].split("</section>")[0]
+    assert "/manage/" not in panel and reverse("reports:data_health") not in panel
+
+
+def test_ask_s_data_freshness_lookup_leaves_the_archive_out(hierarchy, ai_runs):
+    """The start page's "Is the eTools data up to date?" reaches this lookup: no ActivityInfo job, database or
+    word in what it hands the AI, and its description names the sources in use only."""
+    import json
+
+    from neurodb.assistant import tools
+
+    found = tools.data_freshness()
+    assert "databases" not in found
+    assert found["jobs"] and not {j["job"] for j in found["jobs"]} & set(AI_LABELS)
+    assert "ActivityInfo" not in json.dumps(found, default=str)
+    assert "ActivityInfo" not in tools.TOOLS["data_freshness"][1]

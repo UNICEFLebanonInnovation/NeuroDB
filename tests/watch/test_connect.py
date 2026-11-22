@@ -399,6 +399,37 @@ def test_a_daily_review_finding_change_is_left_to_the_review(hub):
     assert what_is_new(finding) == []
 
 
+def test_a_link_to_the_archive_is_never_told_in_a_story_and_a_partner_change_still_is(hub):
+    """A partner's new link to a database of the archive is left out of For you's story, as What's new
+    leaves it out; a change of the partner itself is still told."""
+    watch_item(REPORT, PD, hub.pd.pk)
+    connect.link()
+    now = timezone.now()
+    archived = Change.objects.create(
+        detected_at=now,
+        kind=PARTNER,
+        key=str(hub.amel.pk),
+        name="Amel Association International",
+        op=Change.Op.LINKED,
+        notable=True,
+        link={"kind": "database", "key": "9", "name": "Example archive database", "relation": "reports in"},
+    )
+    told = Change.objects.create(
+        detected_at=now,
+        kind=PARTNER,
+        key=str(hub.amel.pk),
+        name="Amel Association International",
+        op=Change.Op.CHANGED,
+        notable=True,
+        fields={"risk_rating": ["Low", "High"]},
+    )
+
+    assert connect.changes_since(0) == told.pk
+    assert [line["changes"] for line in what_is_new(REPORT)] == [[told.pk]]
+    assert archived.pk not in connect.told_changes(fresh(REPORT))
+    assert not any("archive database" in line["text"] for line in fresh(REPORT).story)
+
+
 def test_only_notable_recent_changes_around_open_items_are_told(hub):
     watch_item(REPORT, PD, hub.pd.pk)
     watch_item("closed:item", PD, hub.pd.pk, state=WatchItem.State.CLOSED)

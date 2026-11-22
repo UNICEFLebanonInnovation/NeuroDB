@@ -1,5 +1,5 @@
 // NeuroDB application shell: theme, command palette, HTMX glue, tables, filters and page modules.
-import { asset, debounce, download, isHelpShortcut, loadScript, loadStyle, scopedQuery, tableRows, toast, toCSV, trapFocus, csrfToken } from "./lib.js";
+import { afterDialogs, asset, debounce, download, isHelpShortcut, loadScript, loadStyle, revealInBar, scopedQuery, tableRows, toast, toCSV, trapFocus, csrfToken } from "./lib.js";
 import { initParts, loadAll, offsetState, partText, pendingModules, pendingParts, trackModules } from "./parts.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -81,7 +81,8 @@ function initSearch() {
 // ------------------------------------------------------------------ Help assistant (Ctrl/Cmd + Shift + H)
 // The panel's frame is on every page (help/_panel.html); its body is loaded the first time it opens, then
 // started by initModules like any other chat (data-module="ask"). While it is open the focus stays inside
-// it; Esc, the × or the shortcut again closes it and gives the focus back to where it was.
+// it; Esc, the × or the shortcut again closes it and gives the focus back to where it was. The shortcut pressed while
+// a window is open (a quick view, a pop-up) closes the window first: its focus trap would keep the panel out of reach.
 function initHelp() {
   const panel = $("#help-panel");
   if (!panel) return;
@@ -125,7 +126,7 @@ function initHelp() {
     if (isHelpShortcut(e)) {
       e.preventDefault();
       if (isOpen()) close();
-      else open();
+      else afterDialogs(open);
     } else if (e.key === "Escape" && isOpen()) {
       e.preventDefault();
       close();
@@ -329,6 +330,28 @@ function keepFiltersOpen(e) {
   if (!fragment || !(target?.matches?.(open) || target?.querySelector?.(open))) return;
   fragment.querySelectorAll("[data-filters-collapse]").forEach((wrap) => wrap.classList.add("is-open"));
 }
+
+// ------------------------------------------------------------------ tab bars that scroll sideways
+// On a phone a long tab bar (.segmented--scroll) scrolls sideways with its scroll bar hidden: its current tab is
+// scrolled into sight, and an edge fades (is-more-start, is-more-end) while more tabs are hidden on that side.
+function scrollEdges(bar) {
+  bar.classList.toggle("is-more-start", bar.scrollLeft > 1);
+  bar.classList.toggle("is-more-end", bar.scrollLeft + bar.clientWidth < bar.scrollWidth - 1);
+}
+
+function initScrollBars(root) {
+  const bars = [...(root.matches?.(".segmented--scroll") ? [root] : []), ...$$(".segmented--scroll", root)];
+  bars.forEach((bar) => {
+    const current = bar.querySelector('[aria-current="page"], [aria-current="true"], .active, :checked + span');
+    const left = revealInBar(bar.getBoundingClientRect(), bar.scrollLeft, current?.getBoundingClientRect());
+    if (left !== null) bar.scrollLeft = left;
+    scrollEdges(bar);
+    if (bar.dataset.ndScroll) return;
+    bar.dataset.ndScroll = "1";
+    bar.addEventListener("scroll", () => scrollEdges(bar), { passive: true });
+  });
+}
+window.addEventListener("resize", debounce(() => $$(".segmented--scroll").forEach(scrollEdges), 150));
 
 // ------------------------------------------------------------------ tables
 function initTables(root) {
@@ -593,6 +616,7 @@ function confirmSubmit(event) {
 function enhance(root = document) {
   $$("form[data-filter-bar]", root).forEach(initFilterBar);
   initFiltersCollapse(root);
+  initScrollBars(root);
   initTables(root);
   initSelects(root);
   const modules = initModules(root);

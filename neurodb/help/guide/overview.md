@@ -26,7 +26,7 @@ are answered by [Ask NeuroDB](/ask/) and, for the visits of a filter, by Chat wi
   Administration for administrators).
 - **?**: opens the **Help assistant** (also Ctrl+Shift+H, or Cmd+Shift+H on a Mac). It answers how a
   page, rule, chart or number works, from this guide and from the live settings. Esc, the ×, or the
-  shortcut again closes it.
+  shortcut again closes it. The shortcut also closes a quick view that is open, then opens the assistant.
 
 ## The sidebar
 
@@ -88,37 +88,31 @@ and its page says how to set it up. A role whose menu has such a page added foll
 
 ## Past monthly results
 
-Partners reported their monthly results in ActivityInfo in past years; they now report progress in eTools,
-and NeuroDB no longer uses ActivityInfo. Its records are kept as they were, in an archive at the bottom of
-the full menu: **ActivityInfo archive**, with the years it holds (*Monthly results (ActivityInfo)*, open by
-default, while an administrator keeps it in use). Inside:
+In past years partners reported their monthly results in another system; they now report progress in
+eTools. Those past results are kept as they were, in the archive of past monthly results at the bottom of
+the full menu, closed until you open it, with the years it holds. Inside are the databases of each year,
+each with its dashboard, analytical view, snapshot and map, its indicators and their targets, and that
+year's reports.
 
-- *ActivityInfo databases*: the databases of a year, each with its dashboard, analytical view, snapshot
-  and map, its master indicators and their targets;
-- one row per year, and that year's databases, Neuro reports and HPM reports (where section editors
-  wrote their comments);
-- *Year-end forecasts* (once some were made): where each master indicator was likely to stand in
-  December, made every week while ActivityInfo was in use; the last ones stay, marked as no longer
-  updated.
+A partner's past records still open from their own address (a bookmark or an Ask NeuroDB answer), and the
+search finds the archive's databases, reports and indicators, each marked as the archive. No other page
+shows the archive or its figures: children reached, the management brief, Home, the donor pages and the
+country programme count eTools partner reports alone. Ask NeuroDB answers from the archive only when you
+ask about it.
 
-A partner's ActivityInfo records still open from their own address (a bookmark or an Ask NeuroDB answer),
-and the search finds the archive's databases, reports and indicators, marked *ActivityInfo archive*. No
-other page shows ActivityInfo or its figures: children reached, the management brief, Home, the donor
-pages and the country programme count eTools partner reports alone. Ask NeuroDB answers from the archive
-only when you ask about it.
-
-**Who decides.** An administrator sets it on the administration page **ActivityInfo: in use or archive**
-(under Reporting setup): *Archived*, *In use*, or *Automatic* (in use while its import is switched on in
-Scheduled jobs and this year has records from the last three months). It changes only the archive's label
-and whether its import's failures are listed for administrators; nothing is deleted.
+**Who decides.** An administrator sets in the administration (under Reporting setup) whether the archive
+counts as in use, as archived, or follows its import on its own (in use while the import runs and the year
+has recent records). This changes only the archive's label and whether failures of its import are listed
+for administrators; nothing is deleted.
 
 ## Links open in a quick view
 
 Links open in a quick view; use **Open full page**, or Ctrl/Cmd-click to open the page in a new tab. A figure or a
 name in a table opens its page in a window over the one you are on, with the same filter, so you see the rows behind a
 number without leaving. Links in the window open in it, **Back** goes to the one before, and Esc or the × closes it.
-The menu, tabs, filters, sorting and downloads work as before, and Ask NeuroDB and the printable reports always open
-as a page.
+A filter you change in the window keeps your place: you stay in the same field, what you type while it loads is kept,
+and the filters you opened on a phone stay open. The menu, tabs, filters, sorting and downloads work as before, and
+Ask NeuroDB and the printable reports always open as a page.
 
 ## Pages that open at once
 

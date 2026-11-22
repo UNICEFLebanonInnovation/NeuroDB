@@ -708,9 +708,10 @@ def brief(request: HttpRequest) -> HttpResponse:
 @require_GET
 def databases(request: HttpRequest) -> HttpResponse:
     """The ActivityInfo databases of a reporting year: one card each (indicators, status, records,
-    partners, last import), the year's totals and the import runs. Was the bottom of the overview.
-    ``activityinfo_archived``: the import is no longer followed (``activityinfo.watched()`` false, as Data
-    health's "Archive"): the page then says so rather than call a database stale, and, as Data health's note,
+    partners, last import), the year's totals and the import runs. Was the bottom of the overview. Data
+    health no longer lists the archive's imports: the imports panel links to the administration's runs of the
+    two imports instead, for those who can open them. ``activityinfo_archived``: the import is no longer
+    followed (``activityinfo.watched()`` false): the page then says so rather than call a database stale, and
     whether its scheduled job still runs (``activityinfo_import_on``)."""
     from neurodb.indicators.services import activityinfo
 
@@ -1130,23 +1131,47 @@ def _query_only(params: QueryDict, keep: tuple[str, ...], **first: Any) -> str:
     return out.urlencode()
 
 
-def _programme_tab_urls(request: HttpRequest, params: QueryDict) -> dict[str, str]:
-    """The tab bar's addresses: each tab keeps the filters it has (the summary only its scope)."""
+# the Active / All choice each tab opens on when its address names none
+SCOPE_DEFAULTS = {"documents": "all", "indicators": "all", "summary": "active"}
+
+
+def _programme_tab_urls(request: HttpRequest, params: QueryDict, scope: str | None = None) -> dict[str, str]:
+    """The tab bar's addresses: each tab keeps the filters it has (the summary only its scope). ``scope``: the
+    Active / All choice the page shows (None on the overall tab, which has none). The tabs open on different
+    choices (:data:`SCOPE_DEFAULTS`), so each link names the choice shown when it is not that tab's own
+    default: the choice never flips on a tab change."""
     path = request.path
+    if scope in services.PD_SCOPES:
+        params = params.copy()
+        params.setlist("scope", [scope])
+
+    def scoped(tab: str) -> dict[str, str | None]:
+        """The scope the link to ``tab`` names: none when the page shows that tab's own default."""
+        return {"scope": None} if scope == SCOPE_DEFAULTS[tab] else {}
+
     return {
-        "documents": _with_query(path, _query_with(params, ("tab", "export", "indicator", *START_YEARS))),
-        "indicators": _with_query(path, _query_with(params, ("export", *START_YEARS), tab="indicators")),
-        "summary": _with_query(path, _query_only(params, ("scope",), tab="summary")),
+        "documents": _with_query(
+            path, _query_with(params, ("tab", "export", "indicator", *START_YEARS), **scoped("documents"))
+        ),
+        "indicators": _with_query(
+            path, _query_with(params, ("export", *START_YEARS), tab="indicators", **scoped("indicators"))
+        ),
+        "summary": _with_query(
+            path, _query_only(params, () if scoped("summary") else ("scope",), tab="summary")
+        ),
         "overall": _with_query(path, _query_only(params, OVERALL_PARAMS, tab="overall")),
     }
 
 
-def _programme_page(request: HttpRequest, tab: str, params: QueryDict) -> dict[str, Any]:
+def _programme_page(
+    request: HttpRequest, tab: str, params: QueryDict, scope: str | None = None
+) -> dict[str, Any]:
     """What every tab of Programme documents shows around its own content. ``params``: the page's address
-    without the filters the owner removed from every page (office, emergency: ignored, never in a link)."""
+    without the filters the owner removed from every page (office, emergency: ignored, never in a link).
+    ``scope``: the Active / All choice the tab shows (None on the overall tab)."""
     return {
         "tab": tab,
-        "tab_urls": _programme_tab_urls(request, params),
+        "tab_urls": _programme_tab_urls(request, params, scope),
         "page_title": _("Programme documents"),
         "page_subtitle": _("eTools partnerships with their donors and grants"),
         "breadcrumbs": [_crumb(_("Programme documents"))],
@@ -1176,9 +1201,7 @@ def programmes(request: HttpRequest) -> HttpResponse:
     tab = params.get("tab") if params.get("tab") in PROGRAMME_TABS else "documents"
     if tab in ("summary", "overall"):
         return _programme_funded(request, tab, params)
-    scope = params.get("scope", "all")
-    if scope not in services.PD_SCOPES:
-        scope = "all"
+    scope = params.get("scope") if params.get("scope") in services.PD_SCOPES else SCOPE_DEFAULTS[tab]
     # the start years belong to the overall tab: never a hidden filter here
     filters = dataclasses.replace(partnerships.PDFilters.from_params(params), year_from=None, year_to=None)
     if tab == "indicators":
@@ -1213,7 +1236,7 @@ def programmes(request: HttpRequest) -> HttpResponse:
             for pd in page_obj
         ]
     context = {
-        **_programme_page(request, tab, params),
+        **_programme_page(request, tab, params, scope),
         # the indicator list exports whole; the PD list keeps its Copy and CSV of the page
         "downloads": [
             {
@@ -1243,9 +1266,11 @@ def _programme_funded(request: HttpRequest, tab: str, params: QueryDict) -> Http
     Funded Programs page, on its filters but office and partner type), with their downloads
     (:mod:`neurodb.partnerships.funded`). ``params``: the page's address without the removed filters."""
     today = timezone.localdate()
-    context = _programme_page(request, tab, params)
+    scope = None
     if tab == "summary":
-        scope = params.get("scope") if params.get("scope") in services.PD_SCOPES else "active"
+        scope = params.get("scope") if params.get("scope") in services.PD_SCOPES else SCOPE_DEFAULTS[tab]
+    context = _programme_page(request, tab, params, scope)
+    if tab == "summary":
         data = funded.summary(scope, today)
         if params.get("export") == "xlsx":
             return exports.xlsx_response(
@@ -1268,11 +1293,12 @@ def _programme_funded(request: HttpRequest, tab: str, params: QueryDict) -> Http
         )
     else:
         # the filters the owner removed from every page (office, partner type) are not in ``params``; the
-        # Programme documents tab's own (document type, PD numbers) are never read here
+        # Programme documents tab's own (document type, PD numbers) are never read here, and the start years
+        # are its two lists alone (never the API's ``years=``, which the page would not show)
         filters = dataclasses.replace(
             partnerships.PDFilters.from_params(params), document_types=[], numbers=[]
-        )
-        pds = partnerships.programme_documents(filters)
+        ).with_start_years(params)
+        pds = funded.programme_documents(filters)
         if pd_q := (params.get("pd_q") or "").strip():
             pds = pds.filter(number__icontains=pd_q)
         export = params.get("export")
@@ -1289,7 +1315,7 @@ def _programme_funded(request: HttpRequest, tab: str, params: QueryDict) -> Http
             )
         # the pages count the programme documents alone; the amounts are read for the page's rows only
         page_obj = _paginate(request, pds.select_related(None).only("id"))
-        options = partnerships.pd_filter_options()
+        options = funded.filter_options()
         context.update(
             {
                 "page_obj": page_obj,
@@ -1439,7 +1465,8 @@ DONOR_PAGE_PDS = 10  # the Donors page lists the largest ones and links to Progr
 def donors(request: HttpRequest) -> HttpResponse:
     # the office the owner removed from every page is never read from the address (reports.old_filters)
     params = old_filters.without(request.GET)
-    filters = partnerships.PDFilters.from_params(params)
+    # the page has no start year: never a hidden filter (the Programme documents tab drops them too)
+    filters = dataclasses.replace(partnerships.PDFilters.from_params(params), year_from=None, year_to=None)
     data = partnerships.donor_mapping(filters, activity_records=False)  # ActivityInfo's: the archive's only
     selected = {key: params.getlist(key) for key in ("donor", "grant", "partner", "section", "status")}
     # the full lists live on Programmes and Funds (each grant and what it reserves: Grants by donor is
