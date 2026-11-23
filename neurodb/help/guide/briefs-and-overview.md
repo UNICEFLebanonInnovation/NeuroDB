@@ -119,11 +119,11 @@ its own, [Daily review](/daily-review/), which says the time it runs; Home shows
   needed.
 - **HACT assurance still to do this year.** All year round, a partner whose programmatic visits, spot
   checks or audits done this year are below what HACT requires, with the months left. It reads the
-  same figures as NeuroDB Watch, which follows it too from 1 October, so the daily review keeps it to
-  note. It opens the partner's page and links to the HACT visit plan. What to do: plan the visits,
+  same figures as NeuroDB Watch, which has its own HACT check from 1 October, so the daily review keeps
+  it to note. It opens the partner's page and links to the HACT visit plan. What to do: plan the visits,
   spot checks or audits still needed.
 
-A new check starts in **trial**. Its findings show on the Daily review page with a *Trial* mark, and
-they are not sent to NeuroDB Watch. An administrator looks at them, then switches the check on in the
+A new check starts in **trial**. Its findings show on the Daily review page and on Home with a *Trial*
+mark, and they are not sent to NeuroDB Watch. An administrator looks at them, then switches the check on in the
 administration (Data and sync, Daily review checks). From the next morning's review, its warnings
 and critical findings also go to NeuroDB Watch. The older checks are on.

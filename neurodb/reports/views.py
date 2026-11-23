@@ -3599,6 +3599,41 @@ def _readiness() -> dict[str, Any]:
         "decisions": [v for v in found if v.get("group", "decision") == "decision"],
         "later": [v for v in found if v.get("group") == "later"],
         "since": readiness.since(checks[1], result) if len(checks) > 1 else None,
+        "schedule": _readiness_schedule(),
+    }
+
+
+READINESS_MONTHLY = "45 6 1 * *"  # core 0034's schedule
+
+
+def _readiness_schedule() -> dict[str, Any]:
+    """When the readiness check runs again, from its switched-on scheduled jobs (as Home reads the daily
+    review's): ``on`` (none switched on: False), ``monthly`` (one runs on core 0034's monthly schedule), the
+    first one's schedule in words (``described``) and its next run's day (``next``, in Beirut; None when the
+    schedule cannot be read)."""
+    from neurodb.core.cron import describe, next_after
+    from neurodb.core.models import ScheduledJob
+
+    jobs = list(
+        ScheduledJob.objects.filter(command="ml_readiness", enabled=True)
+        .order_by("next_run_at", "key")
+        .only("schedule", "next_run_at")
+    )
+    if not jobs:
+        return {"on": False, "monthly": False, "described": "", "next": None}
+    job = next((j for j in jobs if j.schedule.strip() == READINESS_MONTHLY), jobs[0])
+    when = job.next_run_at
+    if when is None:
+        try:
+            when = next_after(job.schedule, timezone.now())
+        except (ValueError, TypeError):
+            when = None
+    described = describe(job.schedule)
+    return {
+        "on": True,
+        "monthly": job.schedule.strip() == READINESS_MONTHLY,
+        "described": _("on its own schedule") if described == job.schedule else described,
+        "next": timezone.localtime(when).date() if when else None,
     }
 
 

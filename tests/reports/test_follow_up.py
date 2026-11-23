@@ -373,7 +373,7 @@ def test_the_partner_timeline_covers_its_pds_and_names_the_pd_on_each_pd_event(c
     assert "Micro Assessment" in by_day[("2025-11-30", "assessment")]
     assert "PSEA" in by_day[("2026-03-03", "assessment")]
     hact = by_day[("2025-12-31", "hact")]
-    assert "HACT year 2025" in hact and "1 of 2 programmatic visits" in hact
+    assert "HACT year 2025" in hact and "1 programmatic visit done of 2 required" in hact
     assert not any(e["kind"] == "hact" and e["day"].startswith("2026") for e in entries)  # not over yet
     assert "TPM/2026/0007" in by_day[("2026-05-18", "tpm")]
     assert "Constrained" in by_day[("2026-02-01", "fm")]
@@ -455,8 +455,12 @@ def test_the_window_and_the_cap_are_stated(client_viewer, world, monkeypatch):
     capped = text(_part(client_viewer, url))
     assert len(_entries(capped)) == 3
     total = len(days)
-    assert f"The 3 latest of the {total} events of the last 24 months are listed" in _words(capped)
-    assert f"{total - 3} more are not listed" in _words(capped)
+    past = total - 1  # the PD's end is still to come: listed first, counted apart
+    words = _words(capped)
+    assert f"The 2 latest of the {past} events of the last 24 months are listed" in words
+    assert "1 planned date is listed first." in words
+    assert f"{total - 3} more are not listed. Show every event" in words
+    assert capped.count(f'href="{show_older}"') == 2  # Show every event, and Show older for the older ones
 
 
 def test_the_history_says_from_when_it_runs(client_viewer, world):
@@ -554,3 +558,120 @@ def test_more_events_never_mean_more_queries(client_viewer, world, page):
         _history(9120 + n, D(2026, 8, 1), pd, partner, "open")
         _history(9120 + n, D(2026, 9, 1), pd, partner, "completed")
     assert queries() == before
+
+
+# ------------------------------------------------------------------------------------------- review fixes
+def test_a_pd_s_third_party_monitoring_entries_are_its_activities(client_viewer, world):
+    """A programme document lists its TPM activities, as its page's own list does: two tasks of one visit are two
+    activities, never two visits."""
+    pd = world["pd"]
+    visit = dm.TPMVisit.objects.get(reference_number="TPM/2026/0007")
+    dm.TPMActivity.objects.create(
+        datamart_id=next(_ids), partner=pd.partner, intervention=pd, visit=visit, task_reference_number="TPM/2026/0007-2",
+        visit_reference_number="TPM/2026/0007", status="completed", date=D(2026, 5, 20), tpm_name=TPM_FIRM,
+        pd_reference_number=pd.number,
+    )  # fmt: skip
+    entries = [e for e in _entries(text(_part(client_viewer, _pd_url(world)))) if e["kind"] == "tpm"]
+    assert len(entries) == 2
+    assert all("Activity" in e["words"] and "Visit" not in e["words"] for e in entries)
+    # the partner's list keeps its visits
+    partner = [e for e in _entries(text(_part(client_viewer, _partner_url(world)))) if e["kind"] == "tpm"]
+    assert partner and all("Visit" in e["words"] for e in partner)
+
+
+def test_a_list_whose_events_are_all_older_says_so_without_contradiction(client_viewer, world):
+    old = world["old"]
+    url = reverse("reports:programme_detail", args=[old.pk])
+    words = _words(text(_part(client_viewer, url)))
+    assert "Nothing dated" not in words and "0 events" not in words
+    assert "No event since 15 Oct 2024." in words
+    assert "older events are not listed" in words and "Show older" in words
+    # a programme document with no dated event at all
+    empty = PCA.objects.create(
+        etl_id="90019", partner=world["partner"], partner_name=world["partner"].name, number="LEB/PCA2026909/PD2026909",
+        title="Sample undated", status="draft", document_type="PD",
+    )  # fmt: skip
+    words = _words(text(_part(client_viewer, reverse("reports:programme_detail", args=[empty.pk]))))
+    assert "Nothing dated to list yet." in words and "No event since" not in words
+
+
+@pytest.mark.parametrize("kind", ["tpm", "fm"])
+def test_a_visit_still_to_come_is_marked_planned_and_not_counted_as_past(client_viewer, world, kind):
+    partner, pd = world["partner"], world["pd"]
+    if kind == "tpm":
+        dm.TPMVisit.objects.create(
+            datamart_id=next(_ids), partner=partner, reference_number="TPM/2026/0901", status="assigned",
+            start_date=D(2026, 12, 20),
+        )  # fmt: skip
+    else:
+        dm.MonitoringFinding.objects.create(
+            datamart_id=next(_ids), partner=partner, intervention=pd, monitoring_activity="FM/2026/0901",
+            monitoring_activity_id=4901, start_date=D(2026, 12, 20), end_date=D(2026, 12, 21),
+        )  # fmt: skip
+    html = text(_part(client_viewer, _partner_url(world)))
+    entries = _entries(html)
+    future = next(e for e in entries if e["day"] == "2026-12-20")
+    assert future["kind"] == kind and "Planned" in future["words"]
+    assert all("Planned" not in e["words"] for e in entries if e["day"] <= TODAY.isoformat())
+    assert "planned" in next(e for e in entries if e["day"] == "2027-02-28")["words"]  # the PD's end
+    past = sum(1 for e in entries if e["day"] <= TODAY.isoformat())
+    words = _words(html)
+    assert f"{past} events since 15 Oct 2024, newest first." in words
+    assert "2 planned dates are listed first." in words
+
+
+def test_entries_cut_past_the_limit_are_one_link_away(client_viewer, world, monkeypatch):
+    url = _pd_url(world)
+    monkeypatch.setattr(timeline, "LIMIT", 3)
+    html = text(_part(client_viewer, url))
+    words = _words(html)
+    assert "older event" not in words  # nothing older: only the limit cuts
+    assert "open the lists below" not in words
+    assert re.search(r"\d+ more are not listed\. Show every event", words)
+    assert f'href="{url}?timeline=all#follow-up"' in html
+    monkeypatch.setattr(timeline, "ALL_LIMIT", 3)
+    words = _words(text(_part(client_viewer, f"{url}?timeline=all")))
+    assert "The list stops at 3 entries." in words
+    assert "The progress reports and the action points below list every record of their kind." in words
+
+
+def test_a_status_beside_an_entry_is_said_to_be_today_s(client_viewer, world):
+    html = text(_part(client_viewer, _pd_url(world)))
+    assert "A status beside an entry is its status in eTools now, not on that date." in _words(html)
+    raised = {
+        e["day"]: e
+        for e in ENTRY.finditer(html)
+        if e["kind"] == "action_point" and "Raised" in _words(e["body"])
+    }
+    assert "pill" not in raised["2026-07-01"]["body"]  # completed: its Completed entry says so
+    assert "pill" in raised["2026-06-16"]["body"]  # open: its status now
+
+
+def test_a_finished_hact_year_reads_plainly(client_viewer, world):
+    dm.PartnerHACTYear.objects.filter(year=2025).update(pv_completed=3, sc_completed=1)
+    hact = next(e for e in _entries(text(_part(client_viewer, _partner_url(world)))) if e["kind"] == "hact")
+    assert "3 programmatic visits done of 2 required" in hact["words"]
+    assert (
+        "1 spot check done of 1 required" in hact["words"] and "0 audits done of 1 required" in hact["words"]
+    )
+
+
+def test_the_guides_say_what_the_timeline_lists():
+    from pathlib import Path
+
+    from neurodb.help import guide
+
+    help_text = " ".join((guide.GUIDE_DIR / "partner-progress.md").read_text().split())
+    assert "lists them all" not in help_text
+    assert (
+        "*Show older* lists up to 500 of them, newest first; past that it says how many are left out."
+        in help_text
+    )
+    assert "micro-assessments with their risk rating" in help_text
+    assert "third-party monitoring activities" in help_text
+    overview = " ".join((guide.GUIDE_DIR / "overview.md").read_text().split())
+    assert "each programme document's page (its open action points and timeline only)" in overview
+    operations = " ".join(
+        (Path(__file__).resolve().parents[2] / "docs" / "OPERATIONS.md").read_text().split()
+    )
+    assert "links to the full lists" not in operations and "lists every event, at most 500" not in operations

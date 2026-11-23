@@ -263,10 +263,11 @@ BACKGROUND_JOBS = [
         _("Record action point status"),
         _("Record action point status"),
         _(
-            "Records today's status of each eTools action point, in the background. It writes a row only for "
-            "a point seen for the first time, one whose status, priority, due date or completion date "
-            "changed, and one that left the eTools Datamart or came back. No text and no names. It also runs "
-            "by itself after every eTools Datamart sync. Running it again the same day writes nothing new."
+            "Records the status of each eTools action point, in the background, under the day the "
+            "eTools Datamart sync last read them. It writes a row only for a point seen for the first time, "
+            "one whose status, priority, due date or completion date changed, and one that left the eTools "
+            "Datamart or came back. No text and no names. It also runs by itself after every eTools "
+            "Datamart sync. Running it again the same day writes nothing new."
         ),
         "history",
     ),

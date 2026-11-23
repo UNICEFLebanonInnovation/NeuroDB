@@ -316,11 +316,13 @@ class ActionPointStatus(models.Model):
     """The action point history, kept by NeuroDB from the day it started (``datamart.ap_history``): one row
     for an eTools action point on each day its recorded state changed. The first row is the day NeuroDB first
     saw the point; then a row only on a day its status, priority, due date or completion date changed, or it
-    left the Datamart (``in_datamart`` false, with its last known values), or came back. A second change the
-    same day updates that day's row. Counts, dates, references and statuses only: no text and no names (no
-    description, assignee, partner name or place name), so that later analyses can see how long points take
-    to close and how often they reopen. Written after every Datamart sync that refreshed the action points,
-    and by the job ``ap_history``; never deleted."""
+    left the Datamart (``in_datamart`` false, with its last known values), or came back; each under the day
+    the Datamart was read (``ap_history.read_day``). A second change the same day updates that day's row.
+    Counts, dates, references and statuses only: no text and no names (no description, assignee, partner name
+    or place name), so that later analyses could see how long points take to close and how often they
+    reopen. Written after every Datamart sync that refreshed the action points, and by the job
+    ``ap_history``; a row of an earlier day is never deleted (a change undone the same day removes that
+    day's row)."""
 
     source_id = models.BigIntegerField(help_text="the action point's id in eTools, which lasts")
     day = models.DateField(db_index=True, help_text="the day this state was recorded")

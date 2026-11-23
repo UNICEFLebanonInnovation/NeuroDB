@@ -400,6 +400,95 @@ def test_a_failed_record_never_fails_the_sync(datamart_sync, site_today, monkeyp
     assert "Action point status record [] failed" in out
 
 
+def _night(site_today, monkeypatch, night: datetime.date, ends: datetime.datetime) -> None:
+    """The nightly sync of ``night``: it starts at 20:30 that evening, refreshes the action points and ends at
+    ``ends`` (after midnight, the next day), when the status is recorded."""
+    from neurodb.integrations.management.commands import sync_etools_datamart as sync_command
+
+    started = timezone.make_aware(datetime.datetime.combine(night, datetime.time(20, 30)))
+
+    def fake_sync_all(only=None, triggered_by="command"):
+        runs = []
+        for target in ("partners", "action_points"):
+            run = SyncRun.objects.create(
+                job=SyncRun.Job.ETOOLS_DATAMART, target=target, triggered_by=triggered_by, started_at=started
+            )
+            run.finish(SUCCEEDED)
+            runs.append(run)
+        return runs
+
+    monkeypatch.setattr(sync_command, "sync_all", fake_sync_all)
+    site_today.set(ends)
+    call_command("sync_etools_datamart", stdout=StringIO())
+
+
+def test_a_sync_that_ends_after_midnight_records_under_the_night_it_read(site_today, monkeypatch, settings):
+    """Each night's read is filed under the day its sync started: two nightly reads never share a day, so a point
+    completed one night and reopened the next keeps both changes, even when a sync ends after midnight."""
+    settings.FMM_REFRESH_AFTER_SYNC = "off"
+    point(501)
+    _night(site_today, monkeypatch, day(2026, 10, 14), datetime.datetime(2026, 10, 14, 23, 0))
+    change(501, status="completed")
+    _night(
+        site_today, monkeypatch, day(2026, 10, 15), datetime.datetime(2026, 10, 16, 0, 20)
+    )  # after midnight
+    change(501, status="open")
+    _night(site_today, monkeypatch, day(2026, 10, 16), datetime.datetime(2026, 10, 16, 23, 0))
+    assert rows(501) == [
+        (501, day(2026, 10, 14), True, "open"),
+        (501, day(2026, 10, 15), True, "completed"),
+        (501, day(2026, 10, 16), True, "open"),
+    ]
+    assert [r.details["day"] for r in history_runs().order_by("pk")] == [
+        "2026-10-14",
+        "2026-10-15",
+        "2026-10-16",
+    ]
+
+
+def test_the_button_files_the_record_under_the_day_the_action_points_were_read(site_today):
+    """Run a job → Record action point status, pressed the morning after a sync that read the action points late
+    the night before, files them under that night; with no read on record, under today."""
+    point(501)
+    call_command("record_action_point_status", stdout=StringIO())
+    assert rows(501) == [(501, DAY1, True, "open")]  # no read on record: today
+    night = timezone.make_aware(datetime.datetime(2026, 10, 16, 23, 50))
+    read = SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="action_points", started_at=night)
+    read.finish(SUCCEEDED)
+    failed = SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART,
+        target="action_points",
+        started_at=night + datetime.timedelta(hours=8),
+    )
+    failed.finish(FAILED)  # a read that failed wrote nothing: not the day of the data
+    change(501, status="completed")
+    site_today.set(datetime.datetime(2026, 10, 17, 8, 0))
+    call_command("record_action_point_status", stdout=StringIO())
+    assert rows(501) == [(501, DAY1, True, "open"), (501, DAY2, True, "completed")]
+    assert history_runs().order_by("-pk").first().details["day"] == "2026-10-16"
+
+
+def test_the_guides_say_what_the_history_keeps_and_removes():
+    """Only the same day's row is ever removed, and nothing measures closing times yet: the guides say so."""
+    from pathlib import Path
+
+    from neurodb.help import guide
+
+    root = Path(__file__).resolve().parents[2]
+    help_text = " ".join((guide.GUIDE_DIR / "action-points.md").read_text().split())
+    assert "it will show" not in help_text
+    assert (
+        "It is kept so that, later, NeuroDB could measure how long action points take to close" in help_text
+    )
+    operations = " ".join((root / "docs" / "OPERATIONS.md").read_text().split())
+    assert "Rows are never deleted." not in operations
+    assert (
+        "Rows of earlier days are never deleted: only the same day's row goes, when its change is undone that day."
+        in operations
+    )
+    assert "never deleted" not in (dm.ActionPointStatus.__doc__ or "").replace("is never deleted", "")
+
+
 # ------------------------------------------------------------------------------------- its job and its button
 def test_the_job_command_records_its_run_with_counts_only(site_today):
     point(501)

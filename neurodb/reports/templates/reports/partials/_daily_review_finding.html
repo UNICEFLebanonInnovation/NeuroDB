@@ -6,7 +6,7 @@
       {% if f.url %}<a href="{{ f.url }}">{{ f.title }}</a>{% else %}{{ f.title }}{% endif %}
       <span class="review-tag review-tag--{{ f.state }}">{{ f.get_state_display }}</span>
       {% if f.section %}<span class="review-tag">{{ f.section }}</span>{% endif %}
-      {% if f.trial %}<span class="review-tag review-tag--trial" title="{% trans 'A new check in trial: its findings show here only and are not sent to NeuroDB Watch until an administrator switches it on.' %}">{% trans "Trial" %}</span>{% endif %}
+      {% if f.trial %}<span class="review-tag review-tag--trial" title="{% trans 'A new check in trial: its findings are not sent to NeuroDB Watch until an administrator switches it on.' %}">{% trans "Trial" %}</span>{% endif %}
     </div>
     {% if f.detail %}<div class="review-finding__detail">{{ f.detail }}</div>{% endif %}
     {% if f.evidence.read %}<div class="review-finding__evidence">{% trans "Where to look" %}: {{ f.evidence.read }}</div>{% endif %}

@@ -228,7 +228,7 @@ def review_for_look_up() -> dict[str, Any]:
     """The daily review as a look-up reads it (in place of the ``daily_review`` tool's result): the
     latest review's open findings of the programme, with their title, severity, section and state.
     Never the review's own data checks (sync failures and the like carry error text), the findings of a
-    review check in trial (the Daily review page only, as the import), a finding's detail or link, nor the
+    review check in trial (never sent to Watch, as the import), a finding's detail or link, nor the
     review's summary."""
     from neurodb.review.models import DailyReview
     from neurodb.review.services import SYSTEM_CHECKS

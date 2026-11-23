@@ -97,9 +97,10 @@ follow-up read it at once.
 NeuroDB keeps a small record of each eTools action point's status, day by day. It writes a row the first
 time it sees an action point. After that, it writes one only on a day the status, the priority, the due
 date or the completion date changes, or the action point leaves eTools or comes back. It does this after
-each nightly eTools sync. The record starts on the first night after the update that added it: earlier
+each nightly eTools sync, under the day that sync started, even when it ends after midnight. The record starts on the first night after the update that added it: earlier
 days cannot be filled in. It holds no text and no names: no description, no assignee, no partner name and
-no place. Later, it will show how long action points take to close and how often they open again.
+no place. It is kept so that, later, NeuroDB could measure how long action points take to close and how
+often they open again.
 Administrators can see it in the administration, under Data and sync, *Action point history*.
 
 ## Exports

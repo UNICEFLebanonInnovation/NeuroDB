@@ -327,6 +327,27 @@ def _running_pd_ids() -> list[int]:
     return list(PCA.objects.filter(status__in=statuses.RUNNING).values_list("pk", flat=True))
 
 
+def _engagement_link() -> Q:
+    """An action point linked to an engagement as that engagement's page finds its action points
+    (``datamart.services.engagement_action_points``, which the daily review's audit check reads too):
+    linked by the sync, listed in an engagement's record (each engagement's list read once) or raised in
+    the audit module under an engagement's reference number."""
+    from django.db.models import Exists, OuterRef
+
+    from neurodb.datamart import services
+    from neurodb.datamart.models import AuditEngagement
+
+    listed = {
+        point_id
+        for found in AuditEngagement.objects.order_by().values_list("data__action_points", flat=True)
+        for point_id in services._action_point_ids(AuditEngagement(data={"action_points": found}))
+    }
+    by_reference = AuditEngagement.objects.filter(
+        reference_number=OuterRef("module_reference_number")
+    ).exclude(reference_number="")
+    return Q(engagement__isnull=False) | Q(source_id__in=sorted(listed)) | Q(Exists(by_reference))
+
+
 def links(s: Section, today: datetime.date) -> None:
     """How well the sources the later analyses would join link up: for each, the share of its rows that carry
     the link, and how a field monitoring finding's programme document was found."""
@@ -386,7 +407,9 @@ def links(s: Section, today: datetime.date) -> None:
         "ap_engagement",
         "Action points raised from an audit or spot check, linked to it",
         points.filter(Q(engagement_source_id__isnull=False) | Q(related_module__iexact="audit")),
-        Q(engagement__isnull=False),
+        _engagement_link(),
+        note="as the engagement's page finds them: linked by the sync, listed in its record or raised under "
+        "its reference",
     )
     _linked(
         s,
@@ -599,12 +622,14 @@ def arrivals(s: Section, today: datetime.date) -> None:
         found = _years(rows, today)
         s.add(key, label, found, _years_shown(found, today), note=note)
 
-    # partner progress reports sent (submitted or accepted: monitoring.pending_q), each once by the code's own
-    # report key (reporting.REPORT_KEY), by the year their period ended, per report type
+    # partner progress reports sent (submitted or accepted: monitoring.pending_q), each once by the code's
+    # own report key (reporting.REPORT_KEY), by the year their period ended, per report type: the rows the
+    # Progress reports page reads with every PD status chosen (never a draft or cancelled PD's report, nor
+    # one that names no PD), by its own query
+    sent = reporting.ReportFilters(pd_statuses=[]).queryset(today).exclude(pending_q())
     by_type: dict[str, list] = defaultdict(list)
     for kind, year, n in (
-        ReportedIndicator.objects.exclude(pending_q())
-        .exclude(period_end=None)
+        sent.exclude(period_end=None)
         .order_by()
         .annotate(kind=Upper(Trim("report_type")), year=ExtractYear("period_end"))
         .values_list("kind", "year")
@@ -619,7 +644,8 @@ def arrivals(s: Section, today: datetime.date) -> None:
             f"reports_{slug}",
             f"Partner reports sent: {what}",
             by_type[kind],
-            "by the year their period ended; each report once, whatever its indicators and places",
+            "by the year their period ended; each report once, whatever its indicators and places; as the "
+            "Progress reports page counts them with every programme document status chosen",
         )
     first = ReportedIndicator.objects.aggregate(first=Min(Coalesce("period_start", "period_end")))["first"]
     s.add(
@@ -659,14 +685,16 @@ def arrivals(s: Section, today: datetime.date) -> None:
         "financial findings of audits and spot checks, by the date they were made",
     )
 
-    # field monitoring: visits (datamart.fm.visits_by_year, as every page counts them by year) and findings
-    # (the field monitoring page's year: the start date, else the end date); TPM visits done (reported or
-    # approved)
+    # field monitoring: visits as the programme document page and Monitoring insights count them
+    # (datamart.fm.visits_by_year: one per visit, by its earliest start date, else its latest end date; the
+    # Field monitoring page's "Monitoring activities" tile is another measure) and findings (the field
+    # monitoring page's year: the start date, else the end date); TPM visits done (reported or approved)
     years(
         "fm_visits",
         "Field monitoring visits",
         fm.visits_by_year(MonitoringFinding.objects.all()).items(),
-        "by their date: the start date, else the end date",
+        "one per visit, by its earliest start date, else its latest end date: as the programme document page "
+        "and Monitoring insights count them",
     )
     years(
         "fm_findings",
@@ -714,8 +742,12 @@ def arrivals(s: Section, today: datetime.date) -> None:
         "completed, closed or resolved, by their completion date",
     )
 
-    # PME's verifications of action points (Monitoring insights), every decision kept
+    # PME's verifications of action points (Monitoring insights), every decision kept; the points decided by
+    # their latest decision, as the Action points page's PME filter reads it (fmm.action_points)
     if apps.is_installed("neurodb.fmm"):
+        from django.db.models import OuterRef, Subquery
+
+        from neurodb.fmm import action_points as fmm_points
         from neurodb.fmm.models import ActionPointVerification
 
         decisions = ActionPointVerification.objects.order_by()
@@ -733,18 +765,27 @@ def arrivals(s: Section, today: datetime.date) -> None:
             first_day.isoformat() if first_day else None,
             _day(first_day) if first_day else "None yet",
         )
-        decided = decisions.filter(state__in=("verified", "rejected"))
+        latest_on = (
+            ActionPointVerification.objects.filter(datamart_id=OuterRef("datamart_id"))
+            .order_by("-created_at", "-pk")
+            .values("created_at")[:1]
+        )
+        decided = (
+            fmm_points.with_verification(ActionPoint.objects.order_by())
+            .filter(pme_state__in=("verified", "rejected"))
+            .annotate(decided_on=Subquery(latest_on))
+        )
+        found = decided.aggregate(
+            n=Count("pk"),
+            recent=Count("pk", filter=Q(decided_on__gte=timezone.now() - datetime.timedelta(days=365))),
+        )
         s.add(
             "pme_decided",
             "Action points PME verified or rejected",
-            decided.values("datamart_id").distinct().count(),
+            found["n"],
+            note="by their latest decision, as the Action points page's PME filter reads it",
         )
-        recent = decided.filter(created_at__gte=timezone.now() - datetime.timedelta(days=365))
-        s.add(
-            "pme_recent",
-            "Of them, decided in the last 12 months",
-            recent.values("datamart_id").distinct().count(),
-        )
+        s.add("pme_recent", "Of them, decided in the last 12 months", found["recent"])
 
     # the action point history, once NeuroDB keeps it: a row only on a day a status changed, so it is kept
     # every day from its first day to today, whether or not that day has a row
@@ -793,9 +834,9 @@ class Verdict:
     method: str
     status: str
     checks: list[Check]
-    group: str = (
-        "decision"  # "decision": a decision a model could support now; "later": an analysis for later
-    )
+    # "decision": a decision a model could support, ready or not as its status says; "later": an analysis
+    # for later
+    group: str = "decision"
     reason: str = ""  # why it is not ready, in plain words
     when: str = ""  # about when it could be ready ("about July 2027"), only where the data's pace tells
 
@@ -1193,11 +1234,25 @@ HEADLINE = (
 )
 
 
+def _unmeasured(result: dict[str, Any]) -> list[str]:
+    """The sources a check could not measure (a section with an error), by their labels."""
+    return [s.get("label") or s.get("key") for s in result.get("sections") or [] if s.get("error")]
+
+
+def _rests_on_nothing(result: dict[str, Any], verdict: dict[str, Any]) -> bool:
+    """A verdict of a check that could not measure a source, with a check it could not measure: its status
+    says nothing of the data, so it is not compared. A check not measured in a check whose every source was
+    measured (no population figures yet) is a real state of the data and is compared."""
+    return bool(_unmeasured(result)) and any(c.get("ok") is None for c in verdict.get("checks") or [])
+
+
 def since(previous: dict[str, Any] | None, latest: dict[str, Any] | None) -> dict[str, Any] | None:
     """What changed from the ``previous`` check to the ``latest`` (both as :func:`shown` gives them): the
     headline measures whose value changed (``label``, ``before``, ``after`` as shown) and the verdicts whose
-    status changed (``question``, ``before``, ``after``), with the ``day`` of the previous check. None without
-    a previous check. A measure or verdict only one of them holds is not compared."""
+    status changed (``question``, ``before``, ``after``), with the ``day`` of the previous check and the
+    sources either check could not measure (``unmeasured``). None without a previous check. A measure or
+    verdict only one of them holds is not compared, nor a verdict that rests on a source either check could
+    not measure (:func:`_rests_on_nothing`)."""
     if not previous or not latest:
         return None
 
@@ -1222,6 +1277,15 @@ def since(previous: dict[str, Any] | None, latest: dict[str, Any] | None) -> dic
             "after": STATUS_LABELS.get(v.get("status"), ""),
         }
         for v in latest.get("verdicts") or []
-        if v.get("key") in old and old[v.get("key")].get("status") != v.get("status")
+        if v.get("key") in old
+        and old[v.get("key")].get("status") != v.get("status")
+        and not _rests_on_nothing(previous, old[v.get("key")])
+        and not _rests_on_nothing(latest, v)
     ]
-    return {"day": _local_day(previous.get("measured_at")), "metrics": changed, "verdicts": statuses}
+    unmeasured = list(dict.fromkeys(_unmeasured(previous) + _unmeasured(latest)))
+    return {
+        "day": _local_day(previous.get("measured_at")),
+        "metrics": changed,
+        "verdicts": statuses,
+        "unmeasured": unmeasured,
+    }

@@ -53,8 +53,8 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
   indicators, overdue reports and action points, late TPM reports, spending ahead of delivery, field
   monitoring that disagrees with reported progress, audit findings with no action point, HACT assurance
   still to do, failed syncs) and store dated findings, marked new, still open or resolved, with a short
-  summary. A new check starts in trial: its findings stay on the Daily review page until an
-  administrator switches it on for NeuroDB Watch.
+  summary. A new check starts in trial: its findings are not sent to NeuroDB Watch until an
+  administrator switches it on.
 - **Management brief**: the overview read for decisions, at `/brief/`: comparisons with last year
   and the plan, a confidence signal per section, reporting timeliness per partner, equity of reach,
   district gaps, a partner scorecard, donor-to-child money flows, grants at risk, and whether the

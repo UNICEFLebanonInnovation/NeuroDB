@@ -302,7 +302,7 @@ def test_a_finding_listed_to_note_only_closes_at_once():
 
 
 def test_a_finding_of_a_review_check_in_trial_never_reaches_watch(education):
-    """A daily review check in trial (``ReviewFinding.trial``) shows its findings on the Daily review page only:
+    """A daily review check in trial (``ReviewFinding.trial``) sends none of its findings to NeuroDB Watch:
     Watch imports none of them, its look-ups never read them, and a lowered one closes nothing. From the next
     review after an administrator switched the check on, they are imported as any other."""
     from neurodb.watch import investigate

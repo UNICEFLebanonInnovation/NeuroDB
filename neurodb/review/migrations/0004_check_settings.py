@@ -33,7 +33,7 @@ class Migration(migrations.Migration):
                     "mode",
                     models.CharField(
                         choices=[
-                            ("trial", "Trial: Daily review page only"),
+                            ("trial", "Trial: not sent to NeuroDB Watch"),
                             ("on", "On: also sent to NeuroDB Watch"),
                         ],
                         default="trial",
@@ -66,7 +66,7 @@ class Migration(migrations.Migration):
             name="trial",
             field=models.BooleanField(
                 default=False,
-                help_text="found by a check in trial: on the Daily review page only, never sent to NeuroDB Watch",
+                help_text="found by a check in trial: never sent to NeuroDB Watch",
             ),
         ),
     ]

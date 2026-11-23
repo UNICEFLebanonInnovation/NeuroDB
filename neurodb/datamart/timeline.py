@@ -10,14 +10,15 @@ trail.
 
 **The timeline** (:func:`follow_up`): one dated list, newest first, of
 
-* the programme document's signatures, start and end (a date still to come is marked planned); its status in
-  eTools now heads a programme document's list. Amendments are not listed: NeuroDB holds no dated amendment;
+* the programme document's signatures, start and end; its status in eTools now heads a programme document's
+  list. Amendments are not listed: NeuroDB holds no dated amendment;
 * its progress reports, read as its page reads them (``services.pd_progress_reports`` and
   ``partner_progress_reports``): submitted (and sent back), accepted, or not submitted by their due date;
 * field monitoring visits (one per visit, however many entities it rated: ``fm.visit_key``) on the date
   Monitoring insights gives a visit (its start, else its end), with their worst rating;
-* third-party monitoring: a programme document's activities, a partner's visits (drafts and cancelled ones are
-  not planned visits, as the partner page counts them);
+* third-party monitoring: a programme document's activities (each task, as its page's own list of TPM
+  activities), a partner's visits (drafts and cancelled ones are not planned visits, as the partner page
+  counts them);
 * audits, special audits, spot checks and micro-assessments on their final report (else their field visit),
   with their financial findings counted as the engagement's page counts them
   (``services.financial_findings_count``);
@@ -26,15 +27,19 @@ trail.
 * action points raised (their eTools creation date) and completed, and the changes of status, priority and due
   date the action point history (``ActionPointStatus``) recorded since it started.
 
+Any event dated after today is marked planned (a programme document's start or end, a visit still to come) and
+is not counted among the events of the window. A status beside an entry is its status in eTools now, which the
+block says; a completed action point's *Raised* entry carries none, as its *Completed* entry says it.
+
 A partner's list covers its programme documents (every one but drafts, as its page lists them) and names the
 programme document of each event that has one by its reference. Counts, dates, references, statuses and
 ratings only: never a person (assignee, author, auditor, visit lead, focal point), never a firm or a partner's
 name, never a text a partner or a monitor wrote (description, narrative, comment). Each entry links to the
 page where its detail lives, which opens in the quick view as every link of a page does.
 
-The list shows the last :data:`MONTHS` months, at most :data:`LIMIT` entries; *Show older* opens every event,
-at most :data:`ALL_LIMIT`. What is left out is always said: the older events, the entries past the limit, and
-the records without a date.
+The list shows the last :data:`MONTHS` months, at most :data:`LIMIT` entries; *Show older* (and *Show every
+event*, when the limit cuts) opens every event, at most :data:`ALL_LIMIT`. What is left out is always said:
+the older events, the entries past the limit, and the records without a date.
 """
 
 from __future__ import annotations
@@ -106,7 +111,7 @@ class Event:
     pd: str = ""  # the programme document's reference, on a partner's list
     status: str = ""  # a status pill's key
     status_label: str = ""
-    planned: bool = False  # a date still to come
+    planned: bool = False  # a date still to come (after today)
 
     @property
     def kind_label(self) -> str:
@@ -114,10 +119,12 @@ class Event:
 
 
 class _Events:
-    """The events read so far, and the records that would give one but carry no date."""
+    """The events read so far, and the records that would give one but carry no date. An event after
+    ``today`` is planned."""
 
-    def __init__(self, *, named: bool):
+    def __init__(self, *, named: bool, today: datetime.date):
         self.named = named  # a partner's list: each event names its programme document
+        self.today = today
         self.events: list[Event] = []
         self.undated = 0
 
@@ -125,7 +132,8 @@ class _Events:
         if day is None:
             self.undated += 1
             return
-        self.events.append(Event(day, kind, label, pd=(pd or "") if self.named else "", **fields))
+        pd = (pd or "") if self.named else ""
+        self.events.append(Event(day, kind, label, pd=pd, planned=day > self.today, **fields))
 
 
 def _day(value: datetime.date | datetime.datetime | None) -> datetime.date | None:
@@ -190,8 +198,7 @@ def _pd_events(found: _Events, pd: PCA, today: datetime.date) -> None:
     for day, done, planned in ((pd.start, "Started", "Starts"), (pd.end, "Ended", "Ends")):
         if day:
             found_any = True
-            ahead = day > today
-            found.add(day, "pd", f"{planned} (planned)" if ahead else done, planned=ahead, **common)
+            found.add(day, "pd", f"{planned} (planned)" if day > today else done, **common)
     if not found_any:
         found.undated += 1  # a programme document with neither start nor end date
 
@@ -289,8 +296,9 @@ def _fmm_visits(keys: set[str]) -> set[str]:
 
 
 def _tpm_activity_events(found: _Events, pd: PCA) -> None:
-    """A programme document's third-party monitoring activities; the Field monitoring page lists them by its
-    reference."""
+    """A programme document's third-party monitoring activities, each task once as its page's list of TPM
+    activities shows them (its visits table counts one TPM visit per visit reference and day); the Field
+    monitoring page lists them by its reference."""
     url = _link("reports:monitoring", q=pd.number) if pd.number else reverse("reports:monitoring")
     for day, task, visit, status in pd.tpm_activities.order_by("pk").values_list(
         "date", "task_reference_number", "visit_reference_number", "status"
@@ -298,7 +306,7 @@ def _tpm_activity_events(found: _Events, pd: PCA) -> None:
         found.add(
             day,
             "tpm",
-            "Visit",
+            "Activity",
             reference=task or visit or "",
             url=url,
             status=(status or "").lower(),
@@ -382,11 +390,15 @@ def _hact_events(found: _Events, partner: PartnerOrganization, today: datetime.d
     """Each HACT year once it is over (on 31 December): the assurance done against what was required, as the
     partner page's HACT by year shows it."""
     for h in partner.hact_years.filter(year__lt=today.year).exclude(year=None).order_by("year"):
-        label = (
-            f"{h.year} ended: {h.pv_completed or 0} of {h.pv_required or 0} programmatic visits, "
-            f"{h.sc_completed or 0} of {h.sc_required or 0} spot checks, "
-            f"{h.audits_completed or 0} of {h.audits_required or 0} audits done"
-        )
+        done = [
+            f"{_plural(completed or 0, one, many)} done of {required or 0} required"
+            for completed, required, one, many in (
+                (h.pv_completed, h.pv_required, "programmatic visit", "programmatic visits"),
+                (h.sc_completed, h.sc_required, "spot check", "spot checks"),
+                (h.audits_completed, h.audits_required, "audit", "audits"),
+            )
+        ]
+        label = f"{h.year} ended: " + ", ".join(done)
         found.add(datetime.date(h.year, 12, 31), "hact", label, reference=str(h.year), url="#partner-hact")
 
 
@@ -405,7 +417,8 @@ def _iso_day(text: str | None) -> datetime.date | None:
 
 
 def _action_point_events(found: _Events, points: QuerySet[dm.ActionPoint]) -> None:
-    """Each action point raised (its status now on it) and, once completed, the day it was."""
+    """Each action point raised (its status now on it) and, once completed, the day it was: then its *Raised*
+    entry carries no status, as its *Completed* entry says it."""
     rows = (
         points.annotate(created_day=_created_day())
         .order_by("pk")
@@ -427,15 +440,15 @@ def _action_point_events(found: _Events, points: QuerySet[dm.ActionPoint]) -> No
             "url": reverse("reports:action_point", args=[pk]),
             "pd": pd_number or pd_text or "",
         }
+        is_completed = bool(done) and (status or "").strip().lower() in completed
         found.add(
             _iso_day(created),
             "action_point",
             "Raised, high priority" if high else "Raised",
-            status=(status or "").lower(),
-            status_label=_label(status),
+            **({} if is_completed else {"status": (status or "").lower(), "status_label": _label(status)}),
             **common,
         )
-        if (status or "").strip().lower() in completed and done:
+        if is_completed:
             found.add(_day(done), "action_point", "Completed", **common)
 
 
@@ -516,7 +529,7 @@ def history_since() -> datetime.date | None:
 
 def pd_events(pd: PCA, today: datetime.date) -> tuple[list[Event], int]:
     """A programme document's events and the records without a date (not listed)."""
-    found = _Events(named=False)
+    found = _Events(named=False, today=today)
     _pd_events(found, pd, today)
     _report_events(found, services.pd_progress_reports(pd))
     _fm_events(found, dm.MonitoringFinding.objects.filter(intervention=pd))
@@ -531,7 +544,7 @@ def partner_events(partner: PartnerOrganization, today: datetime.date) -> tuple[
     """A partner's events (its programme documents' and its own) and the records without a date."""
     from neurodb.partnerships.services import EXCLUDED_STATUSES  # the partner page's list of its PDs
 
-    found = _Events(named=True)
+    found = _Events(named=True, today=today)
     for pd in PCA.objects.filter(partner=partner).exclude(status__in=EXCLUDED_STATUSES).order_by("pk"):
         _pd_events(found, pd, today)
     _report_events(found, services.partner_progress_reports(partner))
@@ -565,12 +578,16 @@ def window(
     events: list[Event], undated: int, today: datetime.date, *, show_all: bool, page: str
 ) -> dict[str, Any]:
     """What the list shows: the last :data:`MONTHS` months (or every event), newest first, at most
-    :data:`LIMIT` (or :data:`ALL_LIMIT`) entries, grouped by year, with what it leaves out."""
+    :data:`LIMIT` (or :data:`ALL_LIMIT`) entries, grouped by year, with what it leaves out. The planned events
+    (after today) come first and are counted apart: ``past`` and ``shown_past`` are the events up to today
+    chosen and shown, ``planned`` the planned ones chosen."""
     ordered = newest_first(events)
     since = months_before(today, MONTHS)
     recent = [e for e in ordered if e.day >= since]
     chosen = ordered if show_all else recent
-    shown = chosen[: ALL_LIMIT if show_all else LIMIT]
+    limit = ALL_LIMIT if show_all else LIMIT
+    shown = chosen[:limit]
+    planned = sum(1 for e in chosen if e.day > today)
     groups: list[dict[str, Any]] = []
     for event in shown:
         if not groups or groups[-1]["year"] != event.day.year:
@@ -584,6 +601,10 @@ def window(
         "total": len(ordered),
         "chosen": len(chosen),
         "shown": len(shown),
+        "planned": planned,
+        "past": len(chosen) - planned,
+        "shown_past": len(shown) - sum(1 for e in shown if e.day > today),
+        "limit": limit,
         "cut": len(chosen) - len(shown),
         "older": 0 if show_all else len(ordered) - len(recent),
         "undated": undated,

@@ -2,9 +2,10 @@
 action point history kept), a verdict for each analysis the programme may want later, what changed since the
 last check, and the check's monthly schedule. Counts, dates and statuses only: no person and no free text.
 
-The yearly counts are made by the same rules as the pages that count them (Assurance's year, the field
-monitoring page's visits, findings and TPM visits, the action points page's raised and completed months, the
-progress reports' own report key); each test here proves the two agree.
+The yearly counts are made by the same rules as the pages that count them (Assurance's year; field monitoring
+visits as the programme document page and Monitoring insights count them, one per visit by its earliest start
+date; the field monitoring page's findings and TPM visits; the action points page's raised and completed months;
+the Progress reports page's reports); each test here proves the two agree.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 from django.apps import apps as django_apps
+from django.db.models import Q
 from django.http import QueryDict
 from django.urls import reverse
 from django.utils import timezone
@@ -212,8 +214,9 @@ def test_what_arrives_each_year_agrees_with_the_pages_that_count_it(linked):
     assert shown["arrivals.spot_checks"] == "2025: 1 · 2026 so far: 1"
     assert shown["arrivals.pme_first"] == "15 Oct 2026"
 
-    # the same rules as the pages: Assurance (its year and type filters), field monitoring (its visits per year,
-    # its findings and completed TPM visits for a year), the action points page (raised and completed months)
+    # the same rules as the pages: Assurance (its year and type filters), the visits per year of the programme
+    # document page and Monitoring insights (fm.visits_by_year), the field monitoring page (its findings and
+    # completed TPM visits for a year), the action points page (raised and completed months)
     for key, kind in (
         ("audits", "audit"),
         ("special_audits", "sa"),
@@ -403,7 +406,12 @@ def test_since_the_last_check_lists_what_changed():
     assert found["verdicts"] == [
         {"question": "Which follow-ups work?", "before": "Not yet", "after": "Partly ready"}
     ]
-    assert readiness.since(after, after) == {"day": day(2026, 10, 1), "metrics": [], "verdicts": []}
+    assert readiness.since(after, after) == {
+        "day": day(2026, 10, 1),
+        "metrics": [],
+        "verdicts": [],
+        "unmeasured": [],
+    }
     assert readiness.since(None, after) is None
 
 
@@ -468,3 +476,225 @@ def test_the_job_records_reasons_and_no_person(linked):
     assert {v["key"] for v in stored["verdicts"]} == {"coverage", "review_list", *LATER}
     assert all("reason" in v and "when" in v and "group" in v for v in stored["verdicts"])
     assert PLANTED not in json.dumps(stored) and "ActivityInfo" not in json.dumps(stored)
+
+
+# -------------------------------------------------------------------- each count is the page's own query
+def test_reports_sent_per_year_are_the_progress_reports_page_s(linked):
+    """A report of a draft or cancelled programme document, or one that names no programme document, is on no
+    page: Progress reports never counts it, whatever PD statuses are chosen. A report of a programme document
+    NeuroDB does not hold is counted, as that page counts it with every status chosen."""
+    cancelled = PCA.objects.create(
+        etl_id="9103", number="EX/PCA2025003/PD2025003", title="Example programme three", status="cancelled",
+        partner=linked.partner,
+    )  # fmt: skip
+    rows = iter(range(71, 100))
+
+    def report(pd, reference, number, kind, end):
+        dm.ReportedIndicator.objects.create(
+            datamart_id=next(rows), intervention=pd, pd_reference_number=reference, report_number=number,
+            report_type=kind, period_start=end - datetime.timedelta(days=89), period_end=end,
+            report_status="Accepted",
+        )  # fmt: skip
+
+    running = linked.running
+    report(running, running.number, "QPR1", "QPR", day(2025, 3, 31))
+    report(cancelled, cancelled.number, "QPR1", "QPR", day(2025, 3, 31))  # a cancelled PD's
+    report(None, "", "QPR1", "QPR", day(2025, 3, 31))  # names no PD
+    report(running, running.number, "HR1", "HR", day(2026, 1, 31))
+    report(None, "EX/PCA2025009/PD2025009", "HR1", "HR", day(2026, 2, 28))  # a PD NeuroDB does not hold
+    m = _metrics(readiness.measure(TODAY))
+    assert m["arrivals.reports_qpr"] == {"2025": 1, "2026": 0}
+    assert m["arrivals.reports_hr"] == {"2026": 2}
+    for kind, key in (("QPR", "reports_qpr"), ("HR", "reports_hr")):
+        for year, n in m[f"arrivals.{key}"].items():
+            page = reporting.ReportFilters(year=int(year), report_types=[kind], pd_statuses=[])
+            assert reporting.report_count(page.queryset(TODAY).exclude(pending_q())) == n, (kind, year)
+
+
+def test_pme_decisions_are_each_point_s_latest_as_the_action_points_page_filters_them(linked, settings):
+    """A decision set back to pending no longer counts; only a point's latest decision does, as the Action
+    points page's PME filter reads it. Of them, those decided in the last 12 months by that latest decision."""
+    settings.FMM_ENABLED = True
+    for n in (701, 702, 703, 704):
+        dm.ActionPoint.objects.create(datamart_id=n, status="open")
+    decide = ActionPointVerification.objects.create
+    decide(datamart_id=701, state="verified", verified_by_name=PLANTED)
+    decide(datamart_id=701, state="pending")  # set back
+    decide(datamart_id=702, state="rejected")
+    long_ago = decide(datamart_id=703, state="verified")
+    ActionPointVerification.objects.filter(pk=long_ago.pk).update(
+        created_at=timezone.now() - datetime.timedelta(days=400)
+    )
+    recent_again = decide(datamart_id=704, state="verified")  # verified long ago, then again this year
+    ActionPointVerification.objects.filter(pk=recent_again.pk).update(
+        created_at=timezone.now() - datetime.timedelta(days=500)
+    )
+    decide(datamart_id=704, state="rejected")
+    m = _metrics(readiness.measure(TODAY))
+    page = sum(
+        dms.filtered_action_points(QueryDict(f"pme={state}"))[0].count() for state in ("verified", "rejected")
+    )
+    assert m["arrivals.pme_decided"] == page == 3
+    assert m["arrivals.pme_recent"] == 2  # 702 and 704: 703's latest decision is older than a year
+
+
+def test_action_points_linked_to_their_engagement_as_its_page_finds_them(linked):
+    """Linked: by the sync, listed in the engagement's record, or raised under its reference, as the engagement's
+    page lists its action points (and the daily review's audit check reads them)."""
+    spot = dm.AuditEngagement.objects.create(
+        datamart_id=81, engagement_type="sc", reference_number="EX/2026/SC/081",
+        data={"action_points": [{"id": 4101}, {"id": "not a number"}]},
+    )  # fmt: skip
+    dm.AuditEngagement.objects.create(datamart_id=82, engagement_type="audit", reference_number="")
+    point = dm.ActionPoint.objects.create
+    point(datamart_id=91, source_id=4101, related_module="audit")  # listed in the spot check's record
+    point(datamart_id=92, source_id=4102, related_module="audit", module_reference_number="EX/2026/SC/081")
+    point(datamart_id=93, source_id=4103, engagement_source_id=81, engagement=spot)  # by the sync
+    point(datamart_id=94, source_id=4104, related_module="audit")  # its audit not found
+    point(datamart_id=95, source_id=4105, related_module="audit", module_reference_number="EX/2099/AUD/9")
+    point(datamart_id=96, source_id=4106, related_module="fm", module_reference_number="EX/2026/SC/081")
+    m = _metrics(readiness.measure(TODAY))
+    assert m["links.ap_engagement"] == 0.6  # 3 of the 5 raised from an audit or spot check
+    on_their_page = set()
+    for engagement in dm.AuditEngagement.objects.all():
+        on_their_page |= set(dms.engagement_action_points(engagement).values_list("pk", flat=True))
+    raised = dm.ActionPoint.objects.filter(
+        Q(engagement_source_id__isnull=False) | Q(related_module__iexact="audit")
+    ).values_list("pk", flat=True)
+    assert m["links.ap_engagement"] == round(len(on_their_page & set(raised)) / len(raised), 3)
+
+
+def test_a_visit_across_the_new_year_counts_once_in_the_year_it_started(linked):
+    """Visits are counted as the programme document page and Monitoring insights count them: one per visit, by
+    its earliest start date (the Field monitoring page's tile is another measure: activities per year)."""
+    pd = linked.running
+    for n, start in enumerate((day(2025, 12, 30), day(2026, 1, 2)), start=1):
+        dm.MonitoringFinding.objects.create(
+            datamart_id=600 + n, intervention=pd, monitoring_activity_id=601, monitoring_activity="MA-601",
+            start_date=start, end_date=start + datetime.timedelta(days=1),
+        )  # fmt: skip
+    result = readiness.measure(TODAY)
+    m = _metrics(result)
+    assert m["arrivals.fm_visits"] == {"2025": 1, "2026": 0}
+    page = {str(r["year"]): r["fm"] for r in dms.visits_by_year(pd) if r["fm"]}
+    assert {y: n for y, n in m["arrivals.fm_visits"].items() if n} == page
+    note = _note(result, "arrivals.fm_visits")
+    assert "as the programme document page and Monitoring insights count them" in note
+    assert "earliest start date" in note
+
+
+# ------------------------------------------------------------------------ a check that could not measure
+def _two_checks(monkeypatch, *, broken: str):
+    """Two checks of the same data, the ``broken`` one (``"previous"`` or ``"latest"``) unable to measure how the
+    sources link up, as Data health shows them."""
+
+    def cannot(section, today):
+        raise RuntimeError("canceling statement due to statement timeout")
+
+    whole = list(readiness.SOURCES)
+    partial = [(k, label, cannot if k == "links" else fn) for k, label, fn in whole]
+    checks = []
+    for which in ("previous", "latest"):
+        monkeypatch.setattr(readiness, "SOURCES", partial if which == broken else whole)
+        checks.append(readiness.shown(readiness.measure(TODAY)))
+    monkeypatch.setattr(readiness, "SOURCES", whole)
+    return checks
+
+
+@pytest.mark.parametrize("broken", ["previous", "latest"])
+def test_a_source_that_could_not_be_measured_is_no_verdict_change(linked, monkeypatch, broken):
+    dm.PDIndicator.objects.create(datamart_id=1, intervention=linked.running, source_id=101, title="Enrolled")
+    monkeypatch.setattr(readiness, "COMPARABLE_GROUPS", 0)
+    monkeypatch.setattr(readiness, "MASTER_LINKED", 0.0)
+    monkeypatch.setattr(readiness, "VALUES_PER_INDICATOR", 0)
+    previous, latest = _two_checks(monkeypatch, broken=broken)
+    whole = latest if broken == "previous" else previous
+    assert next(v for v in whole["verdicts"] if v["key"] == "unusual")["status"] == "ready"
+    found = readiness.since(previous, latest)
+    assert found["verdicts"] == [] and found["metrics"] == []
+    assert found["unmeasured"] == ["How the sources link up"]
+
+
+def test_a_real_change_is_still_listed_beside_a_source_that_could_not_be_measured():
+    def check(when, status, *, error="", ok=True):
+        return {
+            "measured_at": when,
+            "sections": [{"key": "links", "label": "How the sources link up", "error": error, "metrics": []}],
+            "verdicts": [
+                {"key": "unusual", "question": "Unusual?", "status": "not_yet" if error else status,
+                 "checks": [{"ok": None if error else ok, "text": ""}]},
+                {"key": "themes", "question": "Themes?", "status": status, "checks": [{"ok": ok, "text": ""}]},
+                {"key": "coverage", "question": "Gaps?", "status": status,
+                 "checks": [{"ok": None, "text": "no population figures"}]},
+            ],
+        }  # fmt: skip
+
+    before = check("2026-09-01T03:45:00+00:00", "not_yet", error="RuntimeError: timeout", ok=False)
+    after = check("2026-10-01T03:45:00+00:00", "ready")
+    found = readiness.since(before, after)
+    # themes rests on sources measured both times; coverage has a check never measured, with no source failing
+    # in the latest and only an unmeasured check in the previous one: not compared either
+    assert [v["question"] for v in found["verdicts"]] == ["Themes?"]
+    # with no source failing, a check never measured (no population figures) does not hide a real change
+    found = readiness.since(check("2026-09-01T03:45:00+00:00", "not_yet"), after)
+    assert [v["question"] for v in found["verdicts"]] == ["Unusual?", "Themes?", "Gaps?"]
+    assert found["unmeasured"] == []
+
+
+def test_data_health_says_when_a_check_could_not_measure_a_source(client_viewer, linked, monkeypatch):
+    run("test")
+    monkeypatch.setattr(
+        readiness,
+        "SOURCES",
+        [(k, label, (lambda s, t: 1 / 0) if k == "links" else fn) for k, label, fn in readiness.SOURCES],
+    )
+    assert run("test").status == SyncRun.Status.PARTIAL
+    words = re.sub(
+        r"<[^>]+>", "", _readiness_part(client_viewer.get(reverse("reports:data_health")).content.decode())
+    )
+    assert "Since the last check" in words
+    assert "could not measure every source" in words and "How the sources link up" in words
+
+
+# ------------------------------------------------------------------------------ what the page says of its schedule
+def _hint(client):
+    part = _readiness_part(client.get(reverse("reports:data_health")).content.decode())
+    hint = re.search(r'<div class="panel__hint">(.*?)</div>', part, re.S).group(1)
+    return " ".join(re.sub(r"<[^>]+>", "", hint).split())
+
+
+def test_data_health_says_when_the_check_runs_again(client_viewer, linked):
+    run("test")
+    ScheduledJob.objects.exclude(command="ml_readiness").update(enabled=False)
+    assert "Checked again every month, next on 1 Nov 2026" in _hint(client_viewer)
+    ScheduledJob.objects.filter(command="ml_readiness").update(schedule="45 6 * * 1", next_run_at=None)
+    hint = _hint(client_viewer)
+    assert "every month" not in hint and "Checked again Mondays at 06:45, next on 19 Oct 2026" in hint
+    ScheduledJob.objects.filter(command="ml_readiness").update(enabled=False)
+    hint = _hint(client_viewer)
+    assert "Checked again" not in hint
+    assert "Not checked again by itself: its schedule is switched off in Scheduled jobs." in hint
+
+
+def test_the_readiness_template_names_no_archive():
+    from pathlib import Path
+
+    from django.conf import settings
+
+    template = Path(settings.BASE_DIR) / "neurodb" / "insights" / "templates" / "insights" / "_readiness.html"
+    text = template.read_text().lower()
+    archive = readiness.ARCHIVE_SECTIONS - {"indicators"}  # the archive's own source, by its key
+    assert archive and not any(key in text for key in archive)
+    assert "without the archive's sections" in text
+
+
+def test_the_help_says_a_decision_card_may_not_be_ready_yet():
+    from neurodb.help import guide
+
+    text = " ".join((guide.GUIDE_DIR / "overview.md").read_text().split())
+    assert "decisions a model could support now" not in text
+    assert (
+        "The two cards are decisions a model could support; each says whether the data is ready for it now."
+        in text
+    )
+    assert "By default the check runs by itself on the 1st of each month." in text

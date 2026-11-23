@@ -1,5 +1,5 @@
 {% comment %}Data health's machine learning readiness (part "readiness", reports.views.data_health): the verdicts of the last
 check, insights/_readiness.html. Context (reports.views._readiness): readiness = the last successful ml_readiness
 SyncRun, or None; result = its check as shown (insights.readiness.shown); decisions and later = its verdicts by group;
-since = what changed since the check before it, or None.{% endcomment %}
+since = what changed since the check before it, or None; schedule = when it runs again.{% endcomment %}
 {% include "insights/_readiness.html" %}

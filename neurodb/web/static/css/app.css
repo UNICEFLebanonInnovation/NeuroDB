@@ -1799,6 +1799,7 @@ th[data-km-sorted="year"][aria-sort="ascending"] .km-sort-year::after { content:
 .timeline__body { min-width: 0; overflow-wrap: anywhere; }
 .timeline__kind { font-weight: 600; color: var(--nd-text); margin-right: 0.2rem; }
 .timeline__refs { font-size: 0.78rem; color: var(--nd-muted); }
+.timeline__planned { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; border: 1px dashed var(--nd-muted); background: var(--nd-surface-2); font-size: 0.7rem; font-weight: 600; white-space: nowrap; color: var(--nd-text); }
 @media (max-width: 575.98px) { .timeline__item { grid-template-columns: 1fr; } }
 /* Partner profile (reports/partner_profile.html). The figures' placeholder (#part-datamart) keeps the room of a
    partner of middle size, 7,500 px (12,400 px on a phone); when its request fails, the error box goes without it

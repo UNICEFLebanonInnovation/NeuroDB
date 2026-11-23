@@ -90,7 +90,8 @@ class Command(BaseCommand):
 
         if not ap_history.wanted_after(runs):
             return None
-        result = ap_history.run_safely(triggered_by=triggered_by)
+        # under the day this sync started: a nightly sync that ends after midnight is still its night's read
+        result = ap_history.run_safely(triggered_by=triggered_by, today=ap_history.read_day(runs))
         if isinstance(result, str):  # another record is going
             self.stdout.write(result)
             return None

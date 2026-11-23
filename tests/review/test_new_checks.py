@@ -1,7 +1,7 @@
 """The daily review's three newer checks and their trial: field monitoring rated off track while the partner
 reports the programme document on track, audit findings with no follow-up, the HACT assurance all year; and
-how a check in trial shows its findings on the Daily review page only, marked Trial, until an administrator
-switches it on (NeuroDB Watch then imports them, tests/watch/test_concerns.py).
+how a check in trial marks its findings Trial (on the Daily review page and on Home) and sends none to NeuroDB
+Watch until an administrator switches it on (Watch then imports them, tests/watch/test_concerns.py).
 
 Every name here is made up: partners "Example Partner <n>", references and visits numbered for the test."""
 
@@ -13,6 +13,7 @@ import json
 from decimal import Decimal
 
 import pytest
+from django.db import models
 from django.urls import reverse
 from django.utils import timezone
 
@@ -392,7 +393,7 @@ def test_hact_assurance_still_to_do_is_noted_before_october(hact_world):
     assert (draft.check, draft.severity, draft.section) == ("hact_assurance", "info", "")
     assert draft.title == "HACT assurance for Example Partner 3: 2 programmatic visits still to do this year"
     assert draft.detail == (
-        "eTools shows 1 of 3 programmatic visits and 1 of 1 spot check completed in 2026. "
+        "eTools shows 1 programmatic visit done of 3 required and 1 spot check done of 1 required in 2026. "
         "Still to do: 2 programmatic visits, with 6 months of the year left (July to December)."
     )
     assert draft.url == reverse("reports:partner_profile", args=[behind.pk])
@@ -418,10 +419,9 @@ def test_hact_assurance_stays_to_note_from_october_as_watch_follows_it(hact_worl
     for day in (datetime.date(2026, 10, 1), datetime.date(2026, 11, 20), datetime.date(2026, 12, 20)):
         draft = drafts_of(checks.check_hact_assurance, day)[f"hact_assurance:2026:{behind.pk}"]
         assert draft.severity == "info", day
-        assert draft.detail.endswith(
-            " From 1 October NeuroDB Watch follows it too, so the review keeps it to note."
-        )
-    assert "with 1 month of the year left (December). From 1 October" in draft.detail
+        assert draft.detail.endswith(" NeuroDB Watch has its own HACT check from 1 October.")
+        assert "follows it too" not in draft.detail
+    assert "with 1 month of the year left (December). NeuroDB Watch" in draft.detail
 
 
 def test_hact_assurance_reads_watchs_rows_and_rule(hact_world):
@@ -492,7 +492,8 @@ def test_findings_of_a_check_in_trial_are_marked_and_an_administrator_switches_i
     changelist = reverse("admin:review_checksetting_changelist")
     html = client.get(changelist).content.decode()
     assert CheckSetting.objects.count() == len(checks.CHECKS)  # every check listed, in its default mode
-    assert "Trial: Daily review page only" in html and "On: also sent to NeuroDB Watch" in html
+    assert "Trial: not sent to NeuroDB Watch" in html and "On: also sent to NeuroDB Watch" in html
+    assert "page only" not in html
     assert "Audit findings with no action point" in html
     open_audits = review.findings.filter(check_id="audit_no_follow_up").exclude(
         state=ReviewFinding.State.RESOLVED
@@ -530,7 +531,100 @@ def test_the_daily_review_page_marks_the_findings_of_a_check_in_trial(world, rep
         == ReviewFinding.objects.filter(trial=True).exclude(state=ReviewFinding.State.RESOLVED).count()
     )
     assert ">Trial</span>" in both
-    assert "A new check in trial: its findings show here only and are not sent to NeuroDB Watch" in both
+    assert (
+        "A new check in trial: its findings are not sent to NeuroDB Watch until an administrator switches it on."
+        in both
+    )
+    assert "here only" not in both
     assert 'class="review-finding__links"' in both and ">HACT visit plan" in both
     assert "seventeen fixed checks read the programme data" in html
     assert "A new check starts in trial" in html
+
+
+# ---------------------------------------------------------------- review fixes
+def test_hact_assurance_done_beyond_what_is_required_reads_plainly(db):
+    hact(partner(5), pv_required=1, pv_completed=2, sc_required=1, sc_completed=0)
+    (draft,) = drafts_of(checks.check_hact_assurance).values()
+    assert (
+        "2 programmatic visits done of 1 required and 0 spot checks done of 1 required in 2026"
+        in draft.detail
+    )
+    assert "2 of 1" not in draft.detail
+
+
+def test_a_new_check_s_trial_since_is_the_day_a_review_first_ran_it(world, client, admin_user):
+    assert not CheckSetting.objects.exists()
+    services.run(date=TODAY, today=TODAY)
+    settings = {c.check_id: c for c in CheckSetting.objects.all()}
+    assert set(settings) == set(checks.CHECK_IDS)
+    for check_id in NEW_CHECKS:
+        assert (settings[check_id].mode, settings[check_id].trial_since) == ("trial", timezone.localdate())
+        assert settings[check_id].on_since is None
+    established = settings["reports_overdue"]
+    assert (established.mode, established.on_since, established.trial_since) == ("on", None, None)
+    # the administration's list stamps a row it makes too
+    CheckSetting.objects.filter(check_id="hact_assurance").delete()
+    client.force_login(admin_user)
+    client.get(reverse("admin:review_checksetting_changelist"))
+    assert CheckSetting.objects.get(check_id="hact_assurance").trial_since == timezone.localdate()
+
+
+def test_the_check_s_page_in_the_administration_names_it_once_in_words(db, client, admin_user):
+    checks.ensure_settings()
+    setting = CheckSetting.objects.get(check_id="hact_assurance")
+    assert str(setting) == "HACT assurance still to do this year"
+    client.force_login(admin_user)
+    html = client.get(reverse("admin:review_checksetting_change", args=[setting.pk])).content.decode()
+    title = html[html.index("<title>") : html.index("</title>")]
+    assert "HACT assurance still to do this year" in title and "hact_assurance" not in title
+    main = html[html.index("<form") :]
+    assert main.count("hact_assurance") == 1  # the id once, under its name
+    from neurodb.review.admin import CheckSettingAdmin
+
+    assert "check_id" not in CheckSettingAdmin.fields
+
+
+def test_the_check_ids_in_the_list_are_readable_in_dark_mode(db, client, admin_user):
+    client.force_login(admin_user)
+    html = client.get(reverse("admin:review_checksetting_changelist")).content.decode()
+    assert '<small class="text-font-subtle-light dark:text-font-subtle-dark">hact_assurance</small>' in html
+
+
+def test_home_marks_a_trial_finding_as_on_the_daily_review_page(world, reporting_year, client_viewer):
+    review = services.run(date=TODAY, today=TODAY)
+    review.findings.filter(trial=False).update(rank=models.F("rank") + 1000)  # the trial findings first
+    found = services.digest([], limit=50)
+    assert {r["check"] for r in found["rows"] if r["trial"]} == NEW_CHECKS
+    assert all(r["trial"] == (r["check"] in NEW_CHECKS) for r in found["rows"])
+    # Home's counts are the Daily review page's: the trial findings stay counted
+    shown = review.findings.exclude(state=ReviewFinding.State.RESOLVED).exclude(severity="good")
+    assert found["open"] == shown.count()
+    html = client_viewer.get("/home/?_part=tasks", **HX).content.decode()
+    from neurodb.reports import home
+
+    assert html.count('<span class="review-tag review-tag--trial"') == home.REVIEW_ROWS  # each row Home lists
+    assert "not sent to NeuroDB Watch" in html
+
+
+def test_the_trial_is_described_as_it_works():
+    """A finding of a check in trial reaches Home and the summaries too: only NeuroDB Watch leaves it out."""
+    from pathlib import Path
+
+    from neurodb.review import admin as review_admin
+
+    assert str(CheckSetting.Mode.TRIAL.label) == "Trial: not sent to NeuroDB Watch"
+    assert ReviewFinding._meta.get_field("trial").help_text == (
+        "found by a check in trial: never sent to NeuroDB Watch"
+    )
+    assert str(review_admin.CheckSettingAdmin.back_to_trial.short_description) == (
+        "Put back in trial: not sent to NeuroDB Watch"
+    )
+    root = Path(__file__).resolve().parents[2]
+    readme = " ".join((root / "README.md").read_text().split())
+    assert "its findings are not sent to NeuroDB Watch until an administrator switches it on" in readme
+    for path in ("README.md", "neurodb/review/models.py", "neurodb/review/admin.py",
+                 "neurodb/watch/detectors/concerns.py", "neurodb/watch/investigate.py",
+                 "neurodb/review/migrations/0004_check_settings.py",
+                 "neurodb/reports/templates/reports/partials/_daily_review_finding.html"):  # fmt: skip
+        text = " ".join((root / path).read_text().split())
+        assert "page only" not in text and "here only" not in text and "on its page only" not in text, path

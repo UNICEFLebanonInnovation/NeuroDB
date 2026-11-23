@@ -1046,6 +1046,9 @@ changes the `ml-readiness` row only while it still reads as core 0014 wrote it (
 switched on, makes one when no schedule runs `ml_readiness`, and never adds a second one. A schedule an
 administrator changed or switched off is kept. The scheduler plans the next run on its next pass (the 1st of
 the next month); nothing starts at deployment. To change the day or the time: *Scheduled jobs → ml-readiness*.
+Data health reads the switched-on schedule (`reports.views._readiness_schedule`): "Checked again every month,
+next on <day>" on the monthly schedule, "Checked again <the schedule in words>, next on <day>" on another, and
+"Not checked again by itself: its schedule is switched off in Scheduled jobs." when none is on.
 
 | Source | What is measured |
 |---|---|
@@ -1053,8 +1056,8 @@ the next month); nothing starts at deployment. To change the day or the time: *S
 | Assurance and monitoring | partners with a HACT rating; assessments, audits and spot checks; action points no longer open, by status; programmatic visits |
 | Daily review | days run; findings resolved; findings people took on |
 | Context | latest population figures by level; Compiler years and periods; days of the change log |
-| How the sources link up | the share of each source's rows that carry a link, "x of y": field monitoring findings linked to a programme document (with how it was found, `MonitoringFinding.pd_match`: the same reference, the same PCA and PD numbers, the same number without its amendment, the same title among the partner's PDs; not linked) and to a partner; Monitoring insights records about a PD linked to it (`VisitEntity.pd_match`, likewise) and visits with a PD; action points linked to a PD, to a partner, and, of those raised from an audit or spot check (an engagement id or the module "audit"), to their engagement; audits, special audits and spot checks linked to a PD (eTools' list of the PDs; micro-assessments left out); funds reservation lines linked to a PD; running PD indicators in a master indicator (`masters.homes`: a confirmed link to an active master not switched off this year); master indicators bringing together 10 or more running PDs |
-| What arrives each year | per calendar year, from the first year present to this one ("so far" for this year), each by the rule of its page: partner reports sent (submitted or accepted, `monitoring.pending_q`), each once by `reporting.REPORT_KEY`, by the year their period ended, per report type; audits, special audits, spot checks and micro-assessments (Assurance's year: the year audited, else the start date's); audit findings (their date); field monitoring visits (`fm.visits_by_year`) and findings (start date, else end date); TPM visits done (reported or approved, by start date); action points raised (eTools' created date, as the action points page) and completed (completed, closed or resolved, by completion date); PME verifications (every decision), the first one's date, the action points PME verified or rejected and how many in the last 12 months. Also: the first reporting period held; the accepted values a typical running PD indicator has (the median over the running PD indicators, those with none included; a value is one report UNICEF accepted, found by the indicator's eTools id, else its title in its PD) and the quarters they cover; the days of action point history kept (the datamart model `ActionPointStatus`, a row for an action point on each day its status changed, so the days are counted from its first row to today: *Not kept yet* while that model is missing or empty); last year's visits and audits on a PD (field monitoring, TPM activities, audits and spot checks; one per PD and day) with an accepted value of that PD in the 180 days before and in the 180 days after |
+| How the sources link up | the share of each source's rows that carry a link, "x of y": field monitoring findings linked to a programme document (with how it was found, `MonitoringFinding.pd_match`: the same reference, the same PCA and PD numbers, the same number without its amendment, the same title among the partner's PDs; not linked) and to a partner; Monitoring insights records about a PD linked to it (`VisitEntity.pd_match`, likewise) and visits with a PD; action points linked to a PD, to a partner, and, of those raised from an audit or spot check (an engagement id or the module "audit"), to their engagement as the engagement's page finds them (`services.engagement_action_points`, which the daily review's audit check reads too: linked by the sync, listed in an engagement's record, or raised under an engagement's reference number); audits, special audits and spot checks linked to a PD (eTools' list of the PDs; micro-assessments left out); funds reservation lines linked to a PD; running PD indicators in a master indicator (`masters.homes`: a confirmed link to an active master not switched off this year); master indicators bringing together 10 or more running PDs |
+| What arrives each year | per calendar year, from the first year present to this one ("so far" for this year), each by the rule of its page: partner reports sent (submitted or accepted, `monitoring.pending_q`), each once by `reporting.REPORT_KEY`, by the year their period ended, per report type, over the rows the Progress reports page reads with every PD status chosen (`reporting.ReportFilters(pd_statuses=[]).queryset`: never a draft or cancelled PD's report, nor one that names no PD; a test compares each year and type with that page's count); audits, special audits, spot checks and micro-assessments (Assurance's year: the year audited, else the start date's); audit findings (their date); field monitoring visits as the programme document page and Monitoring insights count them (`fm.visits_by_year`: one per visit, by its earliest start date, else its latest end date; the Field monitoring page's *Monitoring activities* tile is another measure, and a visit across the new year counts there in both years) and findings (start date, else end date); TPM visits done (reported or approved, by start date); action points raised (eTools' created date, as the action points page) and completed (completed, closed or resolved, by completion date); PME verifications (every decision), the first one's date, the action points PME verified or rejected by their latest decision (`fmm.action_points.with_verification`, as the Action points page's *PME verification* filter reads it: a decision set back to pending no longer counts) and how many of them had that latest decision in the last 12 months. Also: the first reporting period held; the accepted values a typical running PD indicator has (the median over the running PD indicators, those with none included; a value is one report UNICEF accepted, found by the indicator's eTools id, else its title in its PD) and the quarters they cover; the days of action point history kept (the datamart model `ActionPointStatus`, a row for an action point on each day its status changed, so the days are counted from its first row to today: *Not kept yet* while that model is missing or empty); last year's visits and audits on a PD (field monitoring, TPM activities, audits and spot checks; one per PD and day) with an accepted value of that PD in the 180 days before and in the 180 days after |
 
 The ActivityInfo archive is not measured: it is no longer a source. A check stored before, with its ActivityInfo
 sources and the decisions that rested on them, is shown without them.
@@ -1091,7 +1094,10 @@ from measures it does not have.
 **Since the last check.** Under the verdicts, Data health compares the latest check with the one before it (the
 two latest succeeded or partial runs, read in one query): the headline measures whose value changed
 (`readiness.HEADLINE`) and the verdicts whose status changed, with the earlier check's date. A measure or verdict
-only one of the two holds is not compared. With one check only, nothing is shown. *Every measure, per source*
+only one of the two holds is not compared. When either check could not measure a source (a section with an
+error: the run is *partial*), a verdict with a check that was not measured in that check is not compared (its
+status says nothing of the data), and the block names the sources that could not be measured; a check not
+measured in a check whose every source was measured (no population figures yet) is compared as any other. With one check only, nothing is shown. *Every measure, per source*
 lists all of them; a yearly measure reads "2025: 41 · 2026 so far: 9" and wraps on a phone.
 
 ### Year-end forecasts (`/insights/forecasts/`, the first model)
@@ -1513,7 +1519,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `etools-masters` | `suggest_master_indicators` | `40 2 * * *`, daily 02:40, after the 20:30 eTools Datamart sync and the 02:15 reporting checks, and due at once after the deployment that adds it: suggests the partners' PD indicators for the eTools master indicators and proposes new ones (see *eTools master indicators*); nothing counts until someone confirms it; also *Suggest now* on the masters' admin list and *Run a job → eTools master indicators* |
 | `etools-update-cleanup` | `datamart_backfill` | `*/15 * * * *`, every 15 minutes, due at once after the deployment that adds it (the scheduler starts it usually within a minute of the site starting, at most 15 minutes when the previous container's scheduler sees it first) and until one run has gone through everything; the job then switches it off ("finished: nothing left to do"). A run that finds the eTools Datamart sync going switches it back on to try again ("waiting: the eTools Datamart sync is running"). It fills the new columns of the partner reports already synced and removes the contact details older syncs stored (see eTools Datamart, *Finish the eTools update*) |
 | (inside `activityinfo-data` and `etools-datamart`) | `link_partners` | at the end of both jobs |
-| (inside `etools-datamart`) | `record_action_point_status` | at the end of the sync, once its lock is released, when the action points dataset did not fail: records each action point's status (see *Action points*, *Status history*); its failure never fails the sync; no schedule of its own (*Add scheduled job* can give it one) |
+| (inside `etools-datamart`) | `record_action_point_status` | at the end of the sync, once its lock is released, when the action points dataset did not fail: records each action point's status under the day the sync started (see *Action points*, *Status history*); its failure never fails the sync; no schedule of its own (*Add scheduled job* can give it one) |
 | (inside `etools-datamart`) | `fmm_refresh` | at the end of the sync, when it synced a dataset Monitoring insights reads (`FMM_REFRESH_AFTER_SYNC`); its failure never fails the sync |
 
 On the page: switch a job on or off (the toggle saves at once), open it to change its schedule (five
@@ -1727,7 +1733,7 @@ button on Raw eTools data (and in Run a job); the fields count is written by the
 | Run a job → *eTools reporting checks* (also *Run the checks now* on the eTools reporting checks page) | `reporting_checks` | background |
 | Run a job → *Probe a Datamart dataset* (the dataset chosen in the dialog) | `probe_datamart --dataset <name>` | background (seconds); writes nothing but its run |
 | Run a job → *eTools master indicators* (also *Suggest now* on *Reporting setup* → *Master indicators (eTools)*) | `suggest_master_indicators` | background |
-| Run a job → *Record action point status* (it also runs after every eTools Datamart sync) | `record_action_point_status` (writes only the action point history; a second run the same day writes nothing new) | background (seconds) |
+| Run a job → *Record action point status* (it also runs after every eTools Datamart sync) | `record_action_point_status` (writes only the action point history, under the day of the latest Datamart read of the action points; a second run the same day writes nothing new) | background (seconds) |
 | *Reporting setup* → *Master indicators (eTools)*: actions *Accept the proposed master indicators*, *Dismiss the proposed master indicators*, *Confirm all suggestions*, *Confirm suggestions scoring 0.9 or more*, *Merge the selected master indicators*, *Change section (after an eTools rename)*, and *Add PD indicators* on a master's page; *Master indicator links (eTools)*: *Confirm*, *Reject*, *Make "Shown only"*; the same decisions on Partner monitoring's *Master indicators* view (hidden: its address only) | (no command: they change the master indicators and their links) | in the request |
 | *Reporting setup* → *Master indicators* (ActivityInfo): action *Create eTools master indicators from these* | (no command: writes eTools master indicators only, never an ActivityInfo row) | in the request |
 | Admin → *KM Database* → *Versions* → **Upload a new version** (superusers and Administrators) | `load_km_database` (reads the uploaded workbook into the KM Database; writes only the KM tables) | background |
@@ -4904,21 +4910,32 @@ loads after the page (part `follow-up`; also inside the programme document's pop
   Neither page has a figure trail or a Power BI comparison: the Action points page is where these counts
   are checked. The new `pd=` filter of the Action points page shows as a removable chip.
 - **Timeline**: one dated list, newest first, grouped by year, from tables NeuroDB already holds
-  (`datamart.timeline`): the programme document's signatures, start and end (an end still to come is marked
-  planned) and its status now; progress reports (submitted, sent back, accepted, not submitted by their due
-  date), read as the page's reporting list reads them; field monitoring visits with their worst rating (one
-  entry per visit); third-party monitoring; audits, special audits, spot checks and micro-assessments with
-  their finding counts; action points raised and completed; and the changes the action point history recorded
+  (`datamart.timeline`): the programme document's signatures, start and end and its status now; progress
+  reports (submitted, sent back, accepted, not submitted by their due date), read as the page's reporting
+  list reads them; field monitoring visits with their worst rating (one entry per visit); third-party
+  monitoring activities for a programme document (one entry per task, as its page's *TPM activities* list:
+  its visits table counts one TPM visit per visit reference and day) and third-party monitoring visits for a
+  partner; audits, special audits and spot checks with their financial finding counts, micro-assessments with
+  their risk rating; action points raised and completed; and the changes the action point history recorded
   (status, priority, due date) since it started (the block says from which day; before its first record it
   says the history starts then). A partner's list adds its HACT and PSEA assessments and each finished HACT
-  year (on 31 December), covers all its programme documents but drafts, and names the programme document of
-  each event. Amendments are not listed: NeuroDB holds no dated amendment.
+  year (on 31 December: "1 programmatic visit done of 2 required, ..."), covers all its programme documents
+  but drafts, and names the programme document of each event. Amendments are not listed: NeuroDB holds no
+  dated amendment.
+- **Planned dates and today's statuses**: any event dated after today (a programme document's start or end, a
+  visit not made yet) is planned: marked *Planned* (a programme document's own dates say "(planned)"),
+  listed first and counted apart ("2 planned dates are listed first"), never among the events of the window.
+  A status pill beside an entry is the record's status in eTools now, and the block says so; a completed
+  action point's *Raised* entry has no pill, as its *Completed* entry says it.
 - **What it never shows**: names (assignees, authors, auditors, visit leads, focal points, firms), e-mails, or
   text written by partners or monitors (descriptions, narratives, comments). Each entry has a date, its kind,
   a short label, a reference and a link to the page where its detail lives.
 - **What it leaves out is said**: the last 24 months are listed, at most 100 entries; *Show older*
-  (`?timeline=all`) lists every event, at most 500. The block says how many older events, how many entries
-  past the limit and how many records without a date are not listed, and links to the full lists.
+  (`?timeline=all`) lists up to 500 events, newest first. The block says how many older events (with *Show
+  older*), how many entries past the limit (with *Show every event*, the same address) and how many records
+  without a date are not listed. Past 500 it says the list stops there and points to the progress reports and
+  action points lists below. A list whose events are all older than 24 months says "No event since <date>"
+  with its older events; "Nothing dated to list yet" only when it has no dated event at all.
 - Nothing is stored and nothing is scheduled: it is read at each visit, so a sync shows at the next one.
 
 ### Partner reporting on the partner page
@@ -5701,9 +5718,11 @@ Data health page.
 - `hact_assurance` reads the same rows and the same rule as Watch's `hact_assurance_gap`
   (`watch.detectors.money.hact_rows` and `gaps`: the latest synced row of a partner's year, and what it
   still requires), so the two never differ; a test compares them on the same day. Before 1 October it says
-  what is done, what is still required and the months left (this one included); from 1 October Watch
-  follows it too, so the review keeps it at *info* (Watch imports only warnings and critical findings),
-  and it says so. When the partner's PDs are short of their planned visits it adds the HACT
+  what is done against what is required, kind by kind ("1 programmatic visit done of 3 required", so a
+  partner ahead of what is required reads plainly), what is still required and the months left (this one
+  included); from 1 October Watch has its own HACT check, so the review keeps it at *info* (Watch imports
+  only warnings and critical findings), and the finding adds "NeuroDB Watch has its own HACT check from 1
+  October." When the partner's PDs are short of their planned visits it adds the HACT
   visit plan's own count (`hact_plan.partner_counts`). It opens the partner page (the Assurance page's HACT
   table for a row with no partner) and links to the HACT visit plan
   (`/field-monitoring/?tab=plan&partner=<id>&year=<year>`), shown under the finding on the Daily review
@@ -5711,16 +5730,20 @@ Data health page.
 
 **Checks in trial.** A new check starts in trial; the fourteen checks that ran before trials existed
 (`review.checks.ESTABLISHED`) are on. Admin → Data and sync → *Daily review checks*
-(`review.CheckSetting`, one row per check, added the first time the list opens; a check with no row
-takes its default) lists each check with its mode (*Trial: Daily review page only* or *On: also sent to
-NeuroDB Watch*), the day it went on or into trial, and its open findings in the latest review (a link to
-them). Look at those findings, then select the check and choose *Switch on: also send its findings to
-NeuroDB Watch* (or *Put back in trial*); the mode can also be changed on the check's own page. Each run
+(`review.CheckSetting`, one row per check, added by the first daily review that runs the check, or the first
+time the list opens; a check with no row takes its default) lists each check by its name, with its id under
+it, its mode (*Trial: not sent to NeuroDB Watch* or *On: also sent to NeuroDB Watch*), the day it went on or
+into trial (*Trial since* is stamped when the row is made, so it is the day of the first review that ran
+the check; *On since* stays empty for the fourteen established checks, on before trials existed, until an
+administrator switches one), and its open findings in the latest review (a link to them). A check's own page
+is titled with its name. Look at those findings, then select the check and choose *Switch on: also send its findings to
+NeuroDB Watch* (or *Put back in trial: not sent to NeuroDB Watch*); the mode can also be changed on the check's own page. Each run
 stores on every finding whether its check was in trial that day (`ReviewFinding.trial`), so a change
 takes effect from the next review (the next morning, or *Run the daily review now*). While in trial, the
-findings show on the Daily review page with a dashed *Trial* mark (its tooltip says why) and are not
-imported into NeuroDB Watch, nor read by Watch's look-ups. Home's digest, the narration and the management
-brief read the review as before. The table and the column come from `review/0004_check_settings`: a new,
+findings show on the Daily review page and in Home's digest with a dashed *Trial* mark (its tooltip says
+they are not sent to NeuroDB Watch) and are not imported into NeuroDB Watch, nor read by Watch's look-ups.
+Home's counts, the narration, Ask NeuroDB's look-up of the daily review and the management brief read the
+review as before (trial findings included, so Home's figures stay the Daily review page's). The table and the column come from `review/0004_check_settings`: a new,
 empty table and a column with a constant default, quick at start-up and listed in `QUICK_MIGRATIONS`.
 
 **New, still open, resolved.** Each finding has a stable key (for example the PD and the check);
@@ -7123,19 +7146,26 @@ the eTools action points as before.
   When the AI provider says the credit ran out, the AI of Monitoring insights pauses for 6 hours.
 - **Status history** (`datamart.ActionPointStatus`, kept by `datamart/ap_history.py`; admin → *Data and
   sync* → *Action point history*, read-only): NeuroDB keeps a small record of each eTools action point's
-  status, so that later we can see how long action points take to close and how often they reopen. It
+  status, so that later NeuroDB could measure how long action points take to close and how often they
+  reopen (nothing measures it yet). It
   starts with the first eTools Datamart sync after the release that adds it (datamart migration 0022);
   earlier days cannot be rebuilt. One row per action point (by its eTools id) and day: the first time it is
   seen, then only on a day its status, priority, due date or completion date changed, the day it left the
-  Datamart (*in Datamart* no, with its last known values) and the day it came back. A second change the
-  same day updates that day's row, a change undone the same day removes it, a second run the same day writes
+  Datamart (*in Datamart* no, with its last known values) and the day it came back. Each read is filed
+  under the day the action points were read (`ap_history.read_day`): after a sync, the day that sync
+  started, so the nightly sync (20:30) that ends after midnight still files its read under its night, and
+  two nightly reads never share a day; from *Run a job*, the day of the latest Datamart read of the action
+  points that did not fail (else today), so a press the morning after a late sync files it under that
+  night. A second change the same day (a daytime *Sync eTools (Datamart)* and that evening's sync) updates
+  that day's row, a change undone the same day removes that day's row, a second run the same day writes
   nothing new, and an empty action point table marks nothing gone. A row keeps the status, priority, due
   date, completion date, module, section, the audit's and TPM activity's eTools ids, and the PD and partner
   as links: no text and no names (no description, assignee, partner or place name). It is recorded right
   after every Datamart sync whose action points did not fail (a failure of the record never fails the
   sync), and by *Run a job → Record action point status* (`record_action_point_status`, job `ap_history`,
   lock 7140445). Each run is an *Action point status record* in *Import and sync runs*, with counts only;
-  it is not a Data health card. Rows are never deleted.
+  it is not a Data health card. Rows of earlier days are never deleted: only the same day's row goes, when
+  its change is undone that day.
 
 ### Exports (FMS §13): Excel, PDF report, Power BI
 

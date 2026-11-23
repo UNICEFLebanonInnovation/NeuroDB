@@ -224,16 +224,18 @@ MODE_TONES = {CheckSetting.Mode.ON: "ok", CheckSetting.Mode.TRIAL: "info"}
 
 @admin.register(CheckSetting)
 class CheckSettingAdmin(ModelAdmin):
-    """Each new check of the daily review starts in trial: its findings show on the Daily review page, marked
-    Trial, and are not sent to NeuroDB Watch. Look at its findings, then switch it on: from the next review,
-    its critical findings and warnings also go to NeuroDB Watch. The checks that ran before trials existed
-    are on."""
+    """Each new check of the daily review starts in trial: its findings are marked Trial (on the Daily review
+    page and on Home) and are not sent to NeuroDB Watch. Look at its findings, then switch it on: from the
+    next review, its critical findings and warnings also go to NeuroDB Watch. The checks that ran before
+    trials existed are on."""
 
     list_display = ("check_name", "mode_badge", "latest_findings", "on_since", "trial_since", "updated_at")
     list_filter = ("mode",)
     search_fields = ("check_id",)
-    fields = ("check_id", "check_name", "mode", "on_since", "trial_since", "updated_by", "updated_at")
-    readonly_fields = ("check_id", "check_name", "on_since", "trial_since", "updated_by", "updated_at")
+    # the check once, in words with its id under them (check_name); the page's title is the check in words
+    # (CheckSetting.__str__)
+    fields = ("check_name", "mode", "on_since", "trial_since", "updated_by", "updated_at")
+    readonly_fields = ("check_name", "on_since", "trial_since", "updated_by", "updated_at")
     actions = ("switch_on", "back_to_trial")
 
     def has_add_permission(self, request):
@@ -250,7 +252,7 @@ class CheckSettingAdmin(ModelAdmin):
     @admin.display(description=_("Check"), ordering="check_id")
     def check_name(self, obj):
         return format_html(
-            '{}<br><small class="text-font-subtle-light">{}</small>',
+            '{}<br><small class="text-font-subtle-light dark:text-font-subtle-dark">{}</small>',
             checks.LABELS.get(obj.check_id, obj.check_id),
             obj.check_id,
         )
@@ -316,14 +318,14 @@ class CheckSettingAdmin(ModelAdmin):
             messages.SUCCESS,
         )
 
-    @admin.action(description=_("Put back in trial: the Daily review page only"), permissions=("change",))
+    @admin.action(description=_("Put back in trial: not sent to NeuroDB Watch"), permissions=("change",))
     def back_to_trial(self, request, queryset):
         done = self._set(request, queryset, CheckSetting.Mode.TRIAL)
         self.message_user(
             request,
             _(
-                "%(n)s check(s) put back in trial. From the next daily review, their findings stay on its "
-                "page only."
+                "%(n)s check(s) put back in trial. From the next daily review, their findings are no longer "
+                "sent to NeuroDB Watch."
             )
             % {"n": done},
             messages.SUCCESS,

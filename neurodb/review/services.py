@@ -2,8 +2,8 @@
 
 ``run`` is the job: it runs the checks, diffs their findings against the previous review (new,
 still open, resolved), ranks them, writes the narrative and records a ``SyncRun``. Each finding keeps
-whether its check was in trial that day (``ReviewFinding.trial``: the Daily review page marks it, NeuroDB
-Watch leaves it out). ``for_page`` shapes one review (today, yesterday, a date or the week) for the
+whether its check was in trial that day (``ReviewFinding.trial``: the Daily review page and Home mark it,
+NeuroDB Watch leaves it out). ``for_page`` shapes one review (today, yesterday, a date or the week) for the
 overview card.
 """
 
@@ -170,7 +170,8 @@ def _run(date, triggered_by, narrate, today) -> DailyReview:
     try:
         ctx = checks.Context(today=today, previous=previous)
         drafts, errors = checks.run_all(ctx)
-        trial = checks.in_trial()  # the checks in trial today: their findings stay on the review's page
+        checks.ensure_settings()  # a new check's row, and its Trial since, from the first review that runs it
+        trial = checks.in_trial()  # the checks in trial today: their findings are not sent to NeuroDB Watch
         ranked = rank(diff(_unique(drafts), previous, failed_checks=set(errors)))
         stats = checks.snapshot(ctx)
         stats.update(
@@ -834,7 +835,9 @@ def digest(sections: list[str], limit: int = 3, exclude_keys: Any = ()) -> dict[
     - ``rows``: at most ``limit`` lines, one per check: open findings grouped by ``check_id``, the groups in
     the
       order of their best (lowest) ``rank``, each its best finding's title and link with how many more like
-      it. Findings already shown on Home under "Needs a decision" (``exclude_keys``) are left out;
+      it, and whether its check was in trial (``trial``: marked Trial, as on the Daily review page; its
+      findings stay counted, so Home's figures are the review's). Findings already shown on Home under "Needs
+      a decision" (``exclude_keys``) are left out;
     - ``changed``: what changed since the review before, as one sentence without the parts that are 0
       (:func:`_changed_sentence`; the daily review's own page keeps :func:`_changed`'s labels);
     - ``review``: the review (its date and when it finished)."""
@@ -863,6 +866,7 @@ def digest(sections: list[str], limit: int = 3, exclude_keys: Any = ()) -> dict[
             "severity": group[0].severity,
             "severity_label": group[0].get_severity_display(),
             "more": len(group) - 1,
+            "trial": group[0].trial,  # a check in trial: marked as on the Daily review page
         }
         for check_id, group in list(groups.items())[:limit]
     ]

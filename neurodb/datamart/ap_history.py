@@ -9,9 +9,13 @@ change), on each day its recorded state changed:
 * a row on the day it is no longer in the Datamart (``in_datamart`` false, with its last known values; the
   sync removes a point only once a whole read no longer returns it), and one on the day it comes back.
 
-A second change the same day updates that day's row, and a change undone the same day removes it (the day then
-holds no change), so running it twice on one day writes nothing new. An empty action point table never marks
-every point gone: an empty answer of the Datamart never empties the table, so that is not a real day.
+Each read is filed under the day the action points were read (:func:`read_day`): after a sync, the day that
+sync started (the nightly sync starts at 20:30 and can end after midnight, so two nightly reads never share a
+day); from the job, the day of the latest Datamart read of the action points that did not fail, else today. A
+second change the same day (a daytime sync and that evening's) updates that day's row, and a change undone the
+same day removes that day's row (the day then holds no change), so running it twice on one day writes nothing
+new; a row of an earlier day is never deleted. An empty action point table never marks every point gone: an
+empty answer of the Datamart never empties the table, so that is not a real day.
 
 It reads the action points and the latest row of each point as two streams in eTools id order and walks them
 together (``values_list`` and ``iterator``), and writes in batches (``bulk_create``): neither the number of
@@ -19,8 +23,8 @@ queries nor the memory grows with the points. It reads no text and no name: no d
 name or place name.
 
 It runs right after each eTools Datamart sync that refreshed the action points (``sync_etools_datamart``),
-and as the job ``ap_history`` (*Run a job → Record action point status*). Each run is a ``SyncRun`` with
-counts only.
+and as the job ``ap_history`` (*Run a job → Record action point status*), each filed under its read's day.
+Each run is a ``SyncRun`` with counts only.
 """
 
 from __future__ import annotations
@@ -256,12 +260,33 @@ def run(triggered_by: str = "schedule", today: datetime.date | None = None) -> S
         _unlock()
 
 
-def run_safely(triggered_by: str = "schedule") -> SyncRun | str:
+def run_safely(triggered_by: str = "schedule", today: datetime.date | None = None) -> SyncRun | str:
     """:func:`run` that never raises: an error is recorded as a failed run instead."""
     try:
-        return run(triggered_by)
+        return run(triggered_by, today)
     except Exception as exc:
         return fail(new_run(SyncRun.Job.AP_HISTORY, "", triggered_by), exc)
+
+
+def read_day(runs: Iterable[SyncRun] | None = None) -> datetime.date:
+    """The day the action points were read, which the record files them under (in Beirut): with the ``runs``
+    of a sync, the day that sync started (its earliest run), so that a nightly sync ending after midnight
+    files its read under its night; without, the day the latest Datamart read of the action points that did
+    not fail started; else today."""
+    if runs is not None:
+        start = min((r.started_at for r in runs if r.started_at), default=None)
+    else:
+        start = (
+            SyncRun.objects.filter(
+                job=SyncRun.Job.ETOOLS_DATAMART,
+                target=DATASET,
+                status__in=(SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL),
+            )
+            .order_by("-started_at", "-pk")
+            .values_list("started_at", flat=True)
+            .first()
+        )
+    return timezone.localdate(start) if start else timezone.localdate()
 
 
 def wanted_after(runs: Iterable[SyncRun]) -> bool:

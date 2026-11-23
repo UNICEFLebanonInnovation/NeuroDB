@@ -1,6 +1,6 @@
 """What one day's review found: the review itself (summary, counts, a snapshot of the indicator
 statuses to diff the next day against) and its findings, one row each, ranked; and which checks are in
-trial (their findings on the Daily review page only, never sent to NeuroDB Watch)."""
+trial (their findings marked Trial, never sent to NeuroDB Watch)."""
 
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -88,7 +88,7 @@ class ReviewFinding(models.Model):
     rank = models.PositiveIntegerField(default=0)
     trial = models.BooleanField(
         default=False,
-        help_text="found by a check in trial: on the Daily review page only, never sent to NeuroDB Watch",
+        help_text="found by a check in trial: never sent to NeuroDB Watch",
     )
 
     class Meta:
@@ -104,15 +104,16 @@ class ReviewFinding(models.Model):
 
 
 class CheckSetting(models.Model):
-    """Whether one check of the daily review is in trial or on. A check in trial shows its findings on the
-    Daily review page only, marked Trial: NeuroDB Watch imports none of them. A check that is on also sends
+    """Whether one check of the daily review is in trial or on. A check in trial marks its findings Trial
+    (on the Daily review page and on Home; the summaries read them as any other): NeuroDB Watch imports none
+    of them. A check that is on also sends
     its open critical findings and warnings to NeuroDB Watch. A new check starts in trial until an
     administrator has looked at its findings and switched it on (``review.checks.default_mode``); the checks
     that ran before trials existed are on. A change takes effect from the next review: each finding keeps
     whether its check was in trial on its day (``ReviewFinding.trial``)."""
 
     class Mode(models.TextChoices):
-        TRIAL = "trial", _("Trial: Daily review page only")
+        TRIAL = "trial", _("Trial: not sent to NeuroDB Watch")
         ON = "on", _("On: also sent to NeuroDB Watch")
 
     check_id = models.CharField("check", max_length=40, unique=True)
@@ -128,7 +129,10 @@ class CheckSetting(models.Model):
         verbose_name_plural = _("daily review checks")
 
     def __str__(self):
-        return f"{self.check_id} ({self.mode})"
+        """The check in words, as the administration names it (its page's title and breadcrumb)."""
+        from neurodb.review.checks import LABELS  # lazy: the checks import this module
+
+        return LABELS.get(self.check_id, self.check_id)
 
     def save(self, *args, **kwargs):
         """Stamp the day it went on or into trial, once (an administrator's change stamps it again)."""

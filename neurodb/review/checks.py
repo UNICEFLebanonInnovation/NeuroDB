@@ -7,8 +7,8 @@ and lends the checks the helpers they share: the active programme documents, the
 children rule, the previous review's snapshot. A check that raises is logged and skipped by
 :func:`run_all`; the others still run.
 
-A new check starts in trial (:func:`default_mode`, ``CheckSetting``): its findings show on the Daily
-review page marked Trial, and NeuroDB Watch imports none of them until an administrator has looked at
+A new check starts in trial (:func:`default_mode`, ``CheckSetting``): its findings are marked Trial (on the
+Daily review page and on Home), and NeuroDB Watch imports none of them until an administrator has looked at
 them and switched the check on. The fourteen checks that ran before trials existed (:data:`ESTABLISHED`)
 are on.
 """
@@ -94,7 +94,7 @@ HACT_READ = (
     "Plan the programmatic visits, spot checks or audits still required with the programme sections; the "
     "HACT visit plan shows which programme documents still need visits."
 )
-HACT_WATCH_NOTE = " From 1 October NeuroDB Watch follows it too, so the review keeps it to note."
+HACT_WATCH_NOTE = " NeuroDB Watch has its own HACT check from 1 October."
 
 
 @dataclass
@@ -910,8 +910,9 @@ def check_hact_assurance(ctx: Context) -> list[Draft]:
     """Partners whose programmatic visits, spot checks or audits completed this year are below what HACT
     requires, all year round: the rows and the rule of NeuroDB Watch's HACT check
     (:func:`neurodb.watch.detectors.money.hact_rows` and :func:`~neurodb.watch.detectors.money.gaps`), so
-    the two never differ. Always to note: from 1 October Watch follows it too (``hact_assurance_gap``), and
-    Watch never imports a finding to note, so it is never told twice. One
+    the two never differ. Always to note: from 1 October Watch has its own HACT check
+    (``hact_assurance_gap``), which the finding says, and Watch never imports a finding to note, so it is
+    never told twice. One
     finding per partner, with the months of the year left, linked to the partner's page and to the HACT
     visit plan."""
     from neurodb.datamart import hact_plan
@@ -934,7 +935,8 @@ def check_hact_assurance(ctx: Context) -> list[Draft]:
             required, completed = getattr(row, required_field), getattr(row, completed_field)
             numbers.update({required_field: required, completed_field: completed})
             if required:
-                done.append(f"{completed or 0} of {required} {plural(required, single, many)}")
+                n = completed or 0
+                done.append(f"{n} {plural(n, single, many)} done of {required} required")
                 records.append(f"{many.capitalize()} in {year}: {completed or 0} of {required} completed")
         if row.partner_id:
             if plan is None:
@@ -947,7 +949,7 @@ def check_hact_assurance(ctx: Context) -> list[Draft]:
                     f"{gap['visits']} {plural(gap['visits'], 'visit')}"
                 )
         detail = (
-            f"eTools shows {_and(done)} completed in {year}. Still to do: {todo}, with {months} "
+            f"eTools shows {_and(done)} in {year}. Still to do: {todo}, with {months} "
             f"{plural(months, 'month')} of the year left ({span})." + (HACT_WATCH_NOTE if in_season else "")
         )
         plan_url = link("reports:monitoring", tab="plan", partner=row.partner_id, year=year)
@@ -1247,12 +1249,20 @@ def in_trial() -> set[str]:
 
 
 def ensure_settings() -> None:
-    """A row for every check, in its default mode, so the administration lists them all from the start."""
+    """A row for every check, in its default mode, so the administration lists them all: made by the first
+    daily review that runs the check (or the first look at the list). A check in trial gets its *Trial since*
+    from that day; an established check, on before trials existed, no *On since* (``bulk_create`` skips
+    ``CheckSetting.save``, so the day is set here)."""
     known = set(CheckSetting.objects.values_list("check_id", flat=True))
-    CheckSetting.objects.bulk_create(
-        [CheckSetting(check_id=c, mode=default_mode(c)) for c in CHECK_IDS if c not in known],
-        ignore_conflicts=True,
-    )
+    today = timezone.localdate()
+    rows = []
+    for check_id in CHECK_IDS:
+        if check_id in known:
+            continue
+        mode = default_mode(check_id)
+        stamp = {"trial_since": today} if mode == CheckSetting.Mode.TRIAL else {}
+        rows.append(CheckSetting(check_id=check_id, mode=mode, **stamp))
+    CheckSetting.objects.bulk_create(rows, ignore_conflicts=True)
 
 
 def run_all(ctx: Context) -> tuple[list[Draft], dict[str, str]]:

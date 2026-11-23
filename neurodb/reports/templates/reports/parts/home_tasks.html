@@ -1,6 +1,7 @@
 {% load i18n ui humanize %}{% comment %}Home's "tasks" part (reports.home_views.home_page): "Needs a decision" for Administrators and
 Management members (the brief's decisions, at most home.DECISIONS_SHOWN, never who owns them), then the daily review's digest for
-everyone (review.services.digest). A row's severity is a worded pill (never a dot told apart by colour). Context: deciding, decisions, digest, stale, schedule, staff, brief_query,
+everyone (review.services.digest). A row's severity is a worded pill (never a dot told apart by colour); a row of a
+check in trial carries the Trial tag, as on the Daily review page. Context: deciding, decisions, digest, stale, schedule, staff, brief_query,
 review_query.{% endcomment %}
 <div class="panel home-tasks">
   {% if deciding %}
@@ -27,7 +28,7 @@ review_query.{% endcomment %}
     {% if digest.rows %}
     <ul class="home-list home-list--rows">
       {% for r in digest.rows %}
-      <li><span class="pill pill--sm pill--{% if r.severity == 'critical' %}danger{% elif r.severity == 'warning' %}warning{% else %}info{% endif %}">{{ r.severity_label }}</span> {% if r.url %}<a class="home-list__title" href="{{ r.url }}" title="{{ r.title }}">{{ r.title }}</a>{% else %}<span class="home-list__title" title="{{ r.title }}">{{ r.title }}</span>{% endif %}{% if r.more %} <span class="home-list__meta">{% blocktrans count counter=r.more %}(and {{ counter }} more like it){% plural %}(and {{ counter }} more like it){% endblocktrans %}</span>{% endif %}</li>
+      <li><span class="pill pill--sm pill--{% if r.severity == 'critical' %}danger{% elif r.severity == 'warning' %}warning{% else %}info{% endif %}">{{ r.severity_label }}</span> {% if r.trial %}<span class="review-tag review-tag--trial" title="{% trans 'A new check in trial: its findings are not sent to NeuroDB Watch until an administrator switches it on.' %}">{% trans "Trial" %}</span> {% endif %}{% if r.url %}<a class="home-list__title" href="{{ r.url }}" title="{{ r.title }}">{{ r.title }}</a>{% else %}<span class="home-list__title" title="{{ r.title }}">{{ r.title }}</span>{% endif %}{% if r.more %} <span class="home-list__meta">{% blocktrans count counter=r.more %}(and {{ counter }} more like it){% plural %}(and {{ counter }} more like it){% endblocktrans %}</span>{% endif %}</li>
       {% endfor %}
     </ul>
     {% elif not digest.counts %}

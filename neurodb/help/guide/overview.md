@@ -117,8 +117,8 @@ over your conversation; a page that cannot open there opens in a new tab, so the
 
 ## Pages that open at once
 
-Home, the country overview, the daily review, the management brief, each partner's page, Data
-health, partner monitoring, the Map tab of Monitoring insights, the country programme, youth
+Home, the country overview, the daily review, the management brief, each partner's page, each programme
+document's page (its open action points and timeline only), Data health, partner monitoring, the Map tab of Monitoring insights, the country programme, youth
 programmes, the donor page and three views of the document review (*By document*, *Themes* and
 *Repeated findings*) open at once and fill in as their figures are ready (the other pages are quick enough to come whole, as before):
 
@@ -288,8 +288,9 @@ nothing), *Compared with Power BI* and the machine learning readiness check. Pag
 
 At the bottom of **Data health**, NeuroDB checks whether its data could support machine learning. It only
 counts. Nothing is predicted, and nothing leaves NeuroDB. No names and no written text are used: counts, dates
-and statuses only. The check runs by itself on the 1st of each month. An administrator can also run it at any
-time: *Run a job → Machine learning readiness*.
+and statuses only. By default the check runs by itself on the 1st of each month. The page says when it runs
+next, or that its schedule is switched off. An administrator can also run it at any time: *Run a job → Machine
+learning readiness*.
 
 It measures:
 
@@ -313,7 +314,7 @@ Each question gets a verdict:
 - **Partly ready**: the main checks pass, but not all of them.
 - **Not yet**: a main check fails, or most checks do.
 
-The two cards are decisions a model could support now. **Analyses for later** lists six analyses the programme
+The two cards are decisions a model could support; each says whether the data is ready for it now. **Analyses for later** lists six analyses the programme
 may want one day: unusual results compared with similar programme documents; problems that keep coming back in
 field monitoring and audits; how results change over time; which follow-ups get done and stay done; whether
 results change after a visit or an audit; and what a result costs. Open one to see its checks and why it is not
@@ -324,4 +325,5 @@ What a result costs always reads *Not yet*: NeuroDB holds no spending per progra
 and disbursed are not spending. They show money set aside and paid to the partner, not what it was spent on.
 
 **Since the last check** lists what changed since the check before: the main counts, and any verdict that
-moved. Read it after each monthly check to see progress.
+moved. Read it after each monthly check to see progress. When one of the two checks could not measure a
+source, it says so, and a verdict that rests on that source is not compared.
