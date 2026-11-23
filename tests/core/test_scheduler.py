@@ -51,6 +51,22 @@ def test_cron_descriptions():
     assert cron.describe("*/5 1 * * *") == "*/5 1 * * *"
 
 
+def test_a_monthly_schedule_on_one_day_reads_plainly():
+    """Found in the browser: the readiness check's monthly schedule (45 6 1 * *) read "at 06:45 on days 1 of the
+    month" in Scheduled jobs. One day of the month reads as that day."""
+    assert cron.describe("45 6 1 * *") == "on the 1st of each month at 06:45"
+    assert cron.describe("0 5 2 * *") == "on the 2nd of each month at 05:00"
+    assert cron.describe("0 5 3 * *") == "on the 3rd of each month at 05:00"
+    assert cron.describe("0 5 11 * *") == "on the 11th of each month at 05:00"
+    assert cron.describe("0 5 12 * *") == "on the 12th of each month at 05:00"
+    assert cron.describe("0 5 13 * *") == "on the 13th of each month at 05:00"
+    assert cron.describe("0 5 21 * *") == "on the 21st of each month at 05:00"
+    assert cron.describe("0 5 22 * *") == "on the 22nd of each month at 05:00"
+    assert cron.describe("0 5 23 * *") == "on the 23rd of each month at 05:00"
+    assert cron.describe("0 5 31 * *") == "on the 31st of each month at 05:00"
+    assert cron.describe("0 18 1-22 * *") == "at 18:00 on days 1-22 of the month"  # several days: as before
+
+
 @pytest.fixture
 def started(monkeypatch):
     calls = []

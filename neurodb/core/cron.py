@@ -127,6 +127,14 @@ def describe(expression: str) -> str:
         return f"daily at {at}"
     if dom == "*" and cron.any_day and len(cron.weekdays) == 1:
         return f"{DAY_NAMES[next(iter(cron.weekdays))]}s at {at}"
+    if dow == "*" and dom.isdigit():  # one day of each month: "on the 1st of each month at 06:45"
+        return f"on the {_ordinal(int(dom))} of each month at {at}"
     if dow == "*":
         return f"at {at} on days {dom} of the month"
     return expression
+
+
+def _ordinal(n: int) -> str:
+    """1st, 2nd, 3rd, 4th ... 11th, 12th, 13th ... 21st, 22nd, 23rd ... 31st."""
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"

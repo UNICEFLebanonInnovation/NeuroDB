@@ -698,3 +698,18 @@ def test_the_help_says_a_decision_card_may_not_be_ready_yet():
         in text
     )
     assert "By default the check runs by itself on the 1st of each month." in text
+
+
+def test_the_run_a_job_button_says_what_the_check_now_measures():
+    """Found in the browser: the confirmation of Run a job → Machine learning readiness described only the
+    check as it was (history, completeness, places, indicators, outcomes and the two decisions), not how the
+    sources link up, what arrives each year or the analyses for later."""
+    from neurodb.core.admin_jobs import BACKGROUND_JOBS
+
+    job = next(j for j in BACKGROUND_JOBS if j.command == ("ml_readiness",))
+    words = " ".join(str(job.description).split())
+    assert "how well the sources link up" in words
+    assert "how many reports, audits and visits arrive each year" in words
+    assert "each analysis the programme may want later" in words
+    assert "Counts only; nothing is predicted." in words
+    assert "activityinfo" not in words.lower()

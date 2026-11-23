@@ -635,6 +635,33 @@ def test_entries_cut_past_the_limit_are_one_link_away(client_viewer, world, monk
     assert "The progress reports and the action points below list every record of their kind." in words
 
 
+def _summary(html: str) -> str:
+    """The sentence under the Timeline heading (what the list shows and leaves out), in words."""
+    found = re.search(r'<p class="small text-muted mb-1">(.*?)</p>', html, re.S)
+    assert found, "no summary under the Timeline heading"
+    return _words(found[1])
+
+
+def test_every_event_says_its_way_back_last_never_inside_a_sentence(client_viewer, world, monkeypatch):
+    """Found in the browser: with every event listed, "Show the last 24 months only" came before the planned
+    dates' sentence ("... Show the last 24 months only 1 planned date is listed first."), as if one phrase. The
+    link comes last, after every sentence, as Show every event does in the shorter list."""
+    url = _partner_url(world)
+    html = text(_part(client_viewer, f"{url}?timeline=all"))
+    assert _summary(html).endswith(
+        "Every event, newest first. 1 planned date is listed first. Show the last 24 months only"
+    )
+    assert f'href="{url}#follow-up">Show the last 24 months only</a></p>' in html
+    monkeypatch.setattr(timeline, "ALL_LIMIT", 3)
+    summary = _summary(text(_part(client_viewer, f"{url}?timeline=all")))
+    assert re.search(
+        r"The 2 latest of all \d+ events are listed, newest first\. 1 planned date is listed first\. \d+ more are "
+        r"not listed\. The list stops at 3 entries\. The progress reports and the action points below list every "
+        r"record of their kind\. Show the last 24 months only$",
+        summary,
+    ), summary
+
+
 def test_a_status_beside_an_entry_is_said_to_be_today_s(client_viewer, world):
     html = text(_part(client_viewer, _pd_url(world)))
     assert "A status beside an entry is its status in eTools now, not on that date." in _words(html)

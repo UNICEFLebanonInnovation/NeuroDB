@@ -349,7 +349,8 @@ The last block of a programme document's page and of a partner's page.
 - **Nothing is cut without saying so.** The timeline shows the last 24 months, 100 entries at most. It
   says how many older entries there are and how many more it leaves out. *Show older* lists up to 500 of
   them, newest first; past that it says how many are left out. *Show every event*, shown when the 100 are
-  not enough, does the same. It also says how many records have no date. Amendments are not listed: NeuroDB does not hold their dates.
+  not enough, does the same. *Show the last 24 months only*, at the end of that list's summary, goes back. It
+  also says how many records have no date. Amendments are not listed: NeuroDB does not hold their dates.
 
 ## Funds
 

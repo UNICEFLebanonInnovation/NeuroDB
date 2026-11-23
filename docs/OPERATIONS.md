@@ -1034,7 +1034,9 @@ Changes are kept (admin → *Knowledge hub changes*); a year of them is a few te
 ### Ready for machine learning? (Data health)
 
 Before any model is built, the job `ml-readiness` (`ml_readiness`, on the 1st of each month at 06:45; *Run
-a job → Machine learning readiness* at any time) measures what each source really holds and shows it at the
+a job → Machine learning readiness* at any time, whose confirmation says what it measures: each source's
+history and completeness, how well the sources link up, what arrives each year, and a verdict for each
+decision and each analysis for later) measures what each source really holds and shows it at the
 bottom of the Data health page (its last block, the part `readiness`, loaded after the others: see *Data
 health loads in parts*). Counts, dates and statuses only: nothing is predicted, nothing leaves NeuroDB, and no
 person (no focal point, assignee, author, auditor, traveller or verifier) nor any free text (narratives,
@@ -1529,7 +1531,10 @@ schedule (for example the eTools REST sync weekly). Only the commands in that li
 scheduled. Each row shows its next run (marked *Overdue* in red when its time passed more than five
 minutes ago without a start) and the last run of its command (a link to the run, or *Never run*),
 with the scheduler's note under it when it could not start the job ("skipped: the previous run is
-still going"). Every change records who made it (*Updated by*, and the History button).
+still going"). Every change records who made it (*Updated by*, and the History button). The *When* column
+reads the schedule in words above its five fields (`core.cron.describe`): "daily at 20:30", "Mondays at 07:15",
+"on the 1st of each month at 06:45" for one day of the month, "at 18:00 on days 1-22 of the month" for several;
+any other schedule shows its five fields only.
 
 **How it runs.** The scheduler runs inside the website: each gunicorn worker starts it in a thread
 and a database lock lets exactly one of them act, so a job starts once however many workers or
@@ -4934,8 +4939,10 @@ loads after the page (part `follow-up`; also inside the programme document's pop
   (`?timeline=all`) lists up to 500 events, newest first. The block says how many older events (with *Show
   older*), how many entries past the limit (with *Show every event*, the same address) and how many records
   without a date are not listed. Past 500 it says the list stops there and points to the progress reports and
-  action points lists below. A list whose events are all older than 24 months says "No event since <date>"
-  with its older events; "Nothing dated to list yet" only when it has no dated event at all.
+  action points lists below. The link that changes the list comes last, after every sentence: *Show every
+  event* in the 24 months' list, *Show the last 24 months only* in the list of every event. A list whose
+  events are all older than 24 months says "No event since <date>" with its older events; "Nothing dated to
+  list yet" only when it has no dated event at all.
 - Nothing is stored and nothing is scheduled: it is read at each visit, so a sync shows at the next one.
 
 ### Partner reporting on the partner page

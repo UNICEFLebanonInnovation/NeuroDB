@@ -219,8 +219,12 @@ BACKGROUND_JOBS = [
         _("Check the data's readiness for machine learning"),
         _(
             "Measures, for each source, how much history there is, how complete it is and how places, "
-            "indicators and outcomes are recorded, and says for each programme decision whether a model "
-            "could support it yet. Shown on the Data health page. Counts only; nothing is predicted."
+            "indicators and outcomes are recorded. It also measures how well the sources link up and how "
+            "many reports, audits and visits arrive each year. It says for each programme decision whether a "
+            "model could support it yet, and the same for each analysis the programme may want later. Shown "
+            "on the Data health page, with what changed since the last check. A schedule also runs it on the "
+            "1st of each month while it is switched on (Scheduled jobs, ml-readiness). Counts only; nothing "
+            "is predicted."
         ),
         "query_stats",
     ),
