@@ -5477,7 +5477,7 @@ review: `overview.FRESHNESS_JOBS`; never the ActivityInfo import).
 
 The daily review's own page: the review card that was on the overview, with its tabs (the day before,
 the last seven days), its *Show N more findings* line and its *Data problems* line. Purpose line:
-"Fourteen checks run every morning at <time> on the night's data. Findings are prompts to look, never
+"Seventeen checks run every morning at <time> on the night's data. Findings are prompts to look, never
 verdicts on partners or staff." (the time is read from the *daily-review* schedule; switched off, it says
 so). It opens on the first-load rule above, with Home's scope line (its sections, *every section* one click
 away). Parts: `review` (the card,
@@ -5612,7 +5612,7 @@ is in.
 
 ## Daily AI review
 
-Every morning the `daily-review` job (`manage daily_review`) runs fourteen fixed checks over the
+Every morning the `daily-review` job (`manage daily_review`) runs seventeen fixed checks over the
 synced data and stores the result as a dated review with its findings (admin → Daily review). Its own
 page, **Daily review** (`/daily-review/`, fourth in the full menu; see *Daily review page*), shows the latest
 one in its card, with tabs for the day before and the last seven days; the card follows the page's section
@@ -5634,11 +5634,62 @@ Data health page.
 | `tpm_reports_late` | TPM visits ended more than 14 days ago whose report has not come in | warning |
 | `action_points_overdue` | Open high-priority action points past their due date, per partner and section | critical |
 | `findings_off_track` | Field monitoring findings rated off track in the last 30 days, per partner | warning |
+| `monitoring_disagrees` | Active PDs that field monitoring rated off track in the last 90 days while the partner's reports put every indicator with a target and a report on track or ahead of schedule (the review's own monitoring rows and tracking words); one per PD, linked to the PD page | warning (in trial at first) |
+| `audit_no_follow_up` | Audits, special audits and spot checks whose final report came out more than 60 days ago (and in the last two years), with high-priority findings, key control weaknesses or financial findings, and no action point following them up; one per engagement, linked to its page under Assurance | warning with high-priority findings, else info (in trial at first) |
+| `hact_assurance` | All year: partners whose programmatic visits, spot checks or audits done this year are below what HACT requires, with the months left; one per partner, linked to the partner page and the HACT visit plan | info, always (in trial at first) |
 | `sync_failures` | Failed or partial sync runs in the last 24 hours (never the ActivityInfo archive's imports, partner links or year-end forecasts: `review.checks.ARCHIVE_JOBS`, whose runs the administration lists; the eTools reporting checks only a run that failed, not one where a check could not finish; the diagnostic eTools Datamart datasets (`datamart_etl_status`, `etools_usage`) never, see *One failed dataset is not the whole sync*) | warning |
 | `data_quality` | eTools Datamart datasets whose last run failed rows | info |
 | `locations_unplaced` | PD indicators whose location is not in the gazetteer | info |
 | `stale_sources` | Sources older than `SYNC_STALENESS_HOURS` (the hourly freshness check's jobs, never the archive's: `ARCHIVE_JOBS`) | info |
 | `improvements` | Indicators back on track since the previous review | good |
+
+**The three newer checks, and why their figures agree with the pages.**
+
+- `monitoring_disagrees` reads the field monitoring finding rows rated off track (the same words as
+  `findings_off_track`) that ended in the last 90 days and are linked to the PD. A row counts only when its
+  link is sure: its reference is read again as the eTools Datamart sync reads it
+  (`datamart.fm.PDResolver.unambiguous`), and it must name that PD and no other, or, among several (an
+  amendment and its copy), the only one whose dates cover the visit. A row whose reference could mean two
+  PDs, or whose stored link no longer matches its reference, is left out. Visits are counted as the PD
+  page counts them (`fm.visit_key`). The indicators are the review's own monitoring rows (the Partner
+  monitoring rows of the PD page): a PD counts when it has at least one indicator with a target and a
+  report and all of them are on track or ahead of schedule. The evidence lists the visits (reference,
+  date, rating, and how the PD was found: *the same reference*, *the same PCA and PD numbers*, *the same
+  number without its amendment* or *the same title, among the partner's PDs*) and the indicators with their
+  Reached and target. Never a narrative, the visit lead or any other text of the visit.
+  `tests/review/test_new_checks.py` checks its counts against the PD page.
+- `audit_no_follow_up` reads the engagements of type audit, special audit or spot check (never a
+  micro-assessment), not cancelled, whose `date_of_final_report` is between 60 days and two years old. Its
+  action points and financial findings are the engagement page's own functions
+  (`datamart.services.engagement_action_points`: linked by the sync, listed in the engagement's data or
+  raised under its reference number; `financial_findings_count`: the Datamart's count when synced, else the
+  findings listed), so it never says "no action point" where that page lists one; a test proves it.
+  The evidence: reference, type, final report date, the three finding counts and the partner. Never the
+  auditor or an assignee.
+- `hact_assurance` reads the same rows and the same rule as Watch's `hact_assurance_gap`
+  (`watch.detectors.money.hact_rows` and `gaps`: the latest synced row of a partner's year, and what it
+  still requires), so the two never differ; a test compares them on the same day. Before 1 October it says
+  what is done, what is still required and the months left (this one included); from 1 October Watch
+  follows it too, so the review keeps it at *info* (Watch imports only warnings and critical findings),
+  and it says so. When the partner's PDs are short of their planned visits it adds the HACT
+  visit plan's own count (`hact_plan.partner_counts`). It opens the partner page (the Assurance page's HACT
+  table for a row with no partner) and links to the HACT visit plan
+  (`/field-monitoring/?tab=plan&partner=<id>&year=<year>`), shown under the finding on the Daily review
+  page.
+
+**Checks in trial.** A new check starts in trial; the fourteen checks that ran before trials existed
+(`review.checks.ESTABLISHED`) are on. Admin → Data and sync → *Daily review checks*
+(`review.CheckSetting`, one row per check, added the first time the list opens; a check with no row
+takes its default) lists each check with its mode (*Trial: Daily review page only* or *On: also sent to
+NeuroDB Watch*), the day it went on or into trial, and its open findings in the latest review (a link to
+them). Look at those findings, then select the check and choose *Switch on: also send its findings to
+NeuroDB Watch* (or *Put back in trial*); the mode can also be changed on the check's own page. Each run
+stores on every finding whether its check was in trial that day (`ReviewFinding.trial`), so a change
+takes effect from the next review (the next morning, or *Run the daily review now*). While in trial, the
+findings show on the Daily review page with a dashed *Trial* mark (its tooltip says why) and are not
+imported into NeuroDB Watch, nor read by Watch's look-ups. Home's digest, the narration and the management
+brief read the review as before. The table and the column come from `review/0004_check_settings`: a new,
+empty table and a column with a constant default, quick at start-up and listed in `QUICK_MIGRATIONS`.
 
 **New, still open, resolved.** Each finding has a stable key (for example the PD and the check);
 the next review marks it *still open* when it appears again, and adds a *resolved* entry for every
@@ -5725,7 +5776,7 @@ readers. Donor accounts never see the page, the count or the card.
 | `forecast_short` | Raises nothing any more: the year-end forecasts it followed are made from the ActivityInfo archive, whose pages keep them. Each point still open closes, saying the forecasts are no longer followed here | the forecast's section | trial |
 | `donor_account_expiring` | Donor sign-ins that stop working within 14 days | Administrators | trial |
 | `reporting_year_rollover` | 15 December to 15 January, while no population figures of the new year (or a later one) are loaded: "Population figures for <year>" (links the Population page; closes when they are loaded; missed after 15 January). NeuroDB's pages move to the new year by themselves. A point about setting up a source NeuroDB no longer uses (`rollover:<year>`, raised by an earlier release) closes as no longer followed | Administrators | trial |
-| `daily_review` | The critical and warning findings still open in the latest daily review, under their own keys | the finding's section | on |
+| `daily_review` | The critical and warning findings still open in the latest daily review, under their own keys; never those of a review check in trial (*Checks in trial* under *Daily AI review*) | the finding's section | on |
 | `system` | The admin home's *Needs attention* lines (failed jobs, a silent scheduler, a missing daily review, the watch's own lines below) | Administrators | on |
 | `stale_source` | A data source a check needs that has not synced within `SYNC_STALENESS_HOURS` | Administrators | on |
 | `openai_quota` | The AI service's credit ran out, Anthropic's or OpenAI's (see the circuit breaker below; the id is the one it always had) | Administrators | on |
@@ -5881,7 +5932,8 @@ today first. It runs Ask NeuroDB's own loop with these limits:
   text (such as a finding's detail) or a link, never anything about a Makani centre or a daily review
   finding of the knowledge hub, and never a known person's name or email. The `daily_review` result is
   replaced by the watch's own: the review's open programme findings with their title, severity,
-  section and state, never its data checks (they carry sync error text);
+  section and state, never its data checks (they carry sync error text) nor the findings of a review
+  check in trial;
 - the tools run inside a read-only database transaction, so a write fails;
 - at most 4 rounds and 150 seconds per look-up, low effort, its own prompt cache key;
 - the answer is strict JSON. It is kept only when every number, date and eTools reference in it is in

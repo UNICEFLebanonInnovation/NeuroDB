@@ -113,9 +113,10 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     (
         DATA_AND_SYNC := _("Data and sync"),
         _(
-            "Import history, scheduled jobs, the eTools Datamart's PRP business area code, the action point "
-            "history, the AI settings (provider, keys, models), the daily review, NeuroDB Watch (For you), "
-            "population figures, saved views, AI questions, help questions and AI use, audit trail."
+            "Import history, scheduled jobs, the eTools Datamart's PRP business area code, the action "
+            "point history, the AI settings (provider, keys, models), the daily review and which of its "
+            "checks are in trial, NeuroDB Watch (For you), population figures, saved views, AI questions, "
+            "help questions and AI use, audit trail."
         ),
         [
             "core.SyncRun",
@@ -126,6 +127,7 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "review.DailyReview",
             "review.ReviewFinding",
             "review.FindingAssignment",
+            "review.CheckSetting",
             "watch.WatchItem",
             "watch.WatchReceipt",
             "watch.WatchNote",
@@ -327,6 +329,7 @@ ICONS = {
     "review.DailyReview": "fact_check",
     "review.ReviewFinding": "checklist",
     "review.FindingAssignment": "assignment_ind",
+    "review.CheckSetting": "tune",
     "watch.WatchItem": "notifications",
     "watch.WatchReceipt": "mark_chat_read",
     "watch.WatchNote": "sticky_note_2",

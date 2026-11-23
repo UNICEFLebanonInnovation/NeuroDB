@@ -458,8 +458,9 @@ def gaps(row: dm.PartnerHACTYear) -> list[tuple[str, int, int]]:
     return found
 
 
-def _hact_rows(year: int) -> dict[str, dm.PartnerHACTYear]:
-    """The partners' HACT rows of ``year`` by key (the latest synced row when eTools sends two)."""
+def hact_rows(year: int) -> dict[str, dm.PartnerHACTYear]:
+    """The partners' HACT rows of ``year`` by key (the latest synced row when eTools sends two). The daily
+    review's HACT check reads the same rows, with :func:`gaps`, so the two never differ."""
     rows = dm.PartnerHACTYear.objects.filter(year=year).select_related("partner")
     found: dict[str, dm.PartnerHACTYear] = {}
     for row in rows.order_by("-last_modify_date", "-datamart_id"):
@@ -490,7 +491,7 @@ def hact_assurance_gaps(ctx: Context) -> Iterator[Candidate]:
         return
     year = ctx.today.year
     sections = _partner_sections(ctx)
-    for key, row in _hact_rows(year).items():
+    for key, row in hact_rows(year).items():
         missing = gaps(row)
         if missing:
             yield _hact(ctx, key, row, missing, sections.get(row.partner_id, []) if row.partner_id else [])
@@ -575,7 +576,7 @@ def hact_resolved(ctx: Context, items: list[WatchItem]) -> dict[str, Close]:
             years[int(year)].append(item.key)
     closes: dict[str, Close] = {}
     for year, keys in years.items():
-        rows = _hact_rows(year)
+        rows = hact_rows(year)
         for key in keys:
             row = rows.get(key)
             if row is None:

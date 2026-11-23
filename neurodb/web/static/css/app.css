@@ -785,6 +785,8 @@ kbd { background: var(--nd-surface); color: var(--nd-muted); border: 1px solid v
 .review-tag--new { background: var(--nd-info-soft); color: var(--nd-info-text); border-color: transparent; }
 .review-tag--still_open { background: var(--nd-warning-soft); color: var(--nd-warning-text); border-color: transparent; }
 .review-tag--resolved { background: var(--nd-success-soft); color: var(--nd-success-text); border-color: transparent; }
+.review-tag--trial { background: var(--nd-neutral-soft); color: var(--nd-text); border-style: dashed; border-color: var(--nd-muted); }
+.review-finding__links { display: flex; flex-wrap: wrap; gap: 0.2rem 0.8rem; font-size: 0.74rem; margin-top: 0.15rem; }
 .review-history { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
 .review-history a { font-size: 0.74rem; padding: 0.1rem 0.5rem; border-radius: 999px; background: var(--nd-surface-2); color: var(--nd-muted); text-decoration: none; }
 .review-history a:hover { color: var(--nd-text); }

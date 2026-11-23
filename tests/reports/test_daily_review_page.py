@@ -69,7 +69,7 @@ def test_the_frame_says_when_the_review_runs(client_viewer, reviewed):
     job.save()
     html = text(client_viewer.get(PAGE))
     assert "<title>Daily review" in html and '<h1 class="page-title">Daily review</h1>' in html
-    assert "Fourteen checks run every morning at 05:40 on the night's data." in html
+    assert "Seventeen checks run every morning at 05:40 on the night's data." in html
     assert "Findings are prompts to look, never verdicts on partners or staff." in html
     assert 'id="daily-review"' in html and list(placeholders(html)) == ["review"]
     assert 'href="/home/">Home</a>' in html  # Home › Daily review

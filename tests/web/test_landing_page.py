@@ -177,17 +177,17 @@ def test_the_fixed_figures_never_use_the_live_figures_attribute(client, db):
 
 # ------------------------------------------------------------------------------------------ rule figures
 def test_the_rule_figures_are_neurodbs_own(client, db):
-    """The figures the design quoted, checked against the code: 14 morning checks (review.checks), AI in 13
+    """The figures the design quoted, checked against the code: 17 morning checks (review.checks), AI in 13
     of the concept note's 14 areas, the field visit rules switched on (six of them AI checks), 90 days of
     grant warning with USD 10,000 unspent, PDs ending in 60 days, reports due in 14, HACT gaps from
     1 October. The page reads them from the code, so these pins say what it shows today."""
-    assert len(checks.CHECKS) == 14
+    assert len(checks.CHECKS) == 17
     assert (money.GRANT_DAYS, deadlines.PD_ENDING_DAYS, deadlines.REPORT_DAYS) == (90, 60, 14)
     assert money.HACT_FROM == (10, 1) and settings.WATCH_GRANT_MIN_UNSPENT == 10_000
     assert (views.AI_AREAS, views.ANALYSIS_AREAS) == (13, 14)
     _seed_rules()
     _, html = _landing(client)
-    assert '<strong data-tally="14">14</strong><span>morning checks</span>' in html
+    assert '<strong data-tally="17">17</strong><span>morning checks</span>' in html
     assert '<strong data-tally="13">13</strong><span>of 14 analysis areas where AI can help</span>' in html
     assert "<small>Runs only where AI is switched on</small>" in html
     assert '<strong data-tally="12">12</strong><span>field-visit quality checks</span>' in html
@@ -206,7 +206,7 @@ def test_the_rule_figures_are_neurodbs_own(client, db):
 def test_the_design_copy_that_was_not_true_is_corrected(client, db):
     _, html = _landing(client)
     for wrong in (
-        "morning programme checks",  # four of the fourteen check the data pipeline
+        "morning programme checks",  # four of the seventeen check the data pipeline
         "analysis areas with potential AI support",
         "Activated only after required clearance",
         "never child-level registration records",  # NeuroDB keeps Makani wellbeing flags per child

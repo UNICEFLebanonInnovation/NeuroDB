@@ -85,18 +85,45 @@ the selected year (calendar years) with the year before, in eight tabs:
 
 ## The daily review
 
-Every morning (at 06:00 unless an administrator changed its time) the daily review runs fourteen fixed
+Every morning (at 06:00 unless an administrator changed its time) the daily review runs seventeen fixed
 checks over the synced data and keeps the result as a dated review with its findings. It has a page of
 its own, [Daily review](/daily-review/), which says the time it runs; Home shows its summary.
 
 - Checks include indicators newly off track, indicators not reported, progress reports overdue,
   spending ahead of achievement, under-disbursed programme documents, programme documents ending soon
   below target, late TPM reports, overdue high-priority action points, field monitoring findings off
-  track, and the data problems (failed syncs, data quality, stale sources), summed up in one line that
-  links to Data health.
+  track, the three newer checks below, and the data problems (failed syncs, data quality, stale
+  sources), summed up in one line that links to Data health.
 - Each finding is *new*, *still open* or *resolved* compared with the day before.
 - With the AI set up, the AI writes four to six plain sentences from the day's findings only, and
   chooses up to five decisions for the management brief; a decision is kept only when every finding it
   cites exists and every number it writes is in those findings. Without the AI, a template writes the
   summary.
 - Findings are prompts to look, never verdicts on partners or staff.
+
+### The three newer checks
+
+- **Field monitoring off track while the reports are on track.** A field monitoring visit in the last
+  90 days rated a programme document off track, but the partner's reports put every one of its
+  indicators with a target and a report on track or ahead of schedule. The finding lists the visits
+  (reference, date, rating, and how the visit was matched to the programme document) and the
+  indicators with their Reached and target. A visit is counted only when it names one programme
+  document for sure; when its reference could mean two, it is left out. What to do: read the visit's
+  findings in eTools next to the latest progress report, and ask the programme section which one is
+  right.
+- **Audit findings with no action point.** An audit, special audit or spot check whose final report
+  came out more than 60 days ago (and in the last two years) lists findings, and no action point
+  follows it up. It is a warning when there are high-priority findings, to note otherwise. It counts
+  the action points and findings as the audit's own page does, and opens that page. What to do: agree
+  the follow-up with the partner and raise the action points in eTools, or note there why none is
+  needed.
+- **HACT assurance still to do this year.** All year round, a partner whose programmatic visits, spot
+  checks or audits done this year are below what HACT requires, with the months left. It reads the
+  same figures as NeuroDB Watch, which follows it too from 1 October, so the daily review keeps it to
+  note. It opens the partner's page and links to the HACT visit plan. What to do: plan the visits,
+  spot checks or audits still needed.
+
+A new check starts in **trial**. Its findings show on the Daily review page with a *Trial* mark, and
+they are not sent to NeuroDB Watch. An administrator looks at them, then switches the check on in the
+administration (Data and sync, Daily review checks). From the next morning's review, its warnings
+and critical findings also go to NeuroDB Watch. The older checks are on.

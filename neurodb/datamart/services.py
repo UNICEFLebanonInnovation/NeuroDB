@@ -1100,24 +1100,32 @@ def _fm_visit(params) -> dict[str, Any] | None:
     }
 
 
-def engagement_detail(engagement: dm.AuditEngagement) -> dict[str, Any]:
-    engagement.type_label = engagement_type_label(engagement.engagement_type)
-    # linked by the sync (engagement FK), listed in the engagement's data, or raised in the audit module
-    # under the engagement's reference number
+def engagement_action_points(engagement: dm.AuditEngagement) -> QuerySet[dm.ActionPoint]:
+    """The action points of an engagement, as its page lists them: linked by the sync (engagement FK), listed
+    in the engagement's data, or raised in the audit module under the engagement's reference number. The
+    daily review's "audit findings with no follow-up" reads the same."""
     match = Q(engagement=engagement) | Q(source_id__in=_action_point_ids(engagement))
     if engagement.reference_number:
         match |= Q(module_reference_number=engagement.reference_number)
-    points = dm.ActionPoint.objects.filter(match)
+    return dm.ActionPoint.objects.filter(match)
+
+
+def financial_findings_count(engagement: dm.AuditEngagement, listed: int | None = None) -> int:
+    """An engagement's financial findings, as its page counts them: the Datamart count when synced (0
+    included), else the findings listed (``listed`` when already counted)."""
+    if engagement.financial_findings_count is not None:
+        return engagement.financial_findings_count
+    return listed if listed is not None else engagement.findings.count()
+
+
+def engagement_detail(engagement: dm.AuditEngagement) -> dict[str, Any]:
+    engagement.type_label = engagement_type_label(engagement.engagement_type)
+    points = engagement_action_points(engagement)
     findings = list(engagement.findings.order_by("finding_number"))
     return {
         "engagement": engagement,
         "findings": findings,
-        # the Datamart count when synced (0 included), else the findings listed
-        "findings_count": (
-            engagement.financial_findings_count
-            if engagement.financial_findings_count is not None
-            else len(findings)
-        ),
+        "findings_count": financial_findings_count(engagement, len(findings)),
         "action_points": list(points.order_by("status", "due_date")),
         "interventions": list(engagement.interventions.all()),
         "details": engagement.details or {},

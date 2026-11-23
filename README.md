@@ -49,9 +49,12 @@ New v3 tables (sync runs, saved views, population figures) live alongside them.
 - **Everywhere**: search (Ctrl K or /) across pages, partners, programme documents, country programme
   indicators, knowledge base documents and the ActivityInfo archive of every year; dark mode;
   copy or CSV on every table; keyboard-sortable tables; mobile layout; strict Content Security Policy.
-- **Daily AI review**: every morning fourteen checks read the synced data (off-track and unreported
-  indicators, overdue reports and action points, late TPM reports, spending ahead of delivery,
-  failed syncs) and store dated findings, marked new, still open or resolved, with a short summary.
+- **Daily AI review**: every morning seventeen checks read the synced data (off-track and unreported
+  indicators, overdue reports and action points, late TPM reports, spending ahead of delivery, field
+  monitoring that disagrees with reported progress, audit findings with no action point, HACT assurance
+  still to do, failed syncs) and store dated findings, marked new, still open or resolved, with a short
+  summary. A new check starts in trial: its findings stay on the Daily review page until an
+  administrator switches it on for NeuroDB Watch.
 - **Management brief**: the overview read for decisions, at `/brief/`: comparisons with last year
   and the plan, a confidence signal per section, reporting timeliness per partner, equity of reach,
   district gaps, a partner scorecard, donor-to-child money flows, grants at risk, and whether the

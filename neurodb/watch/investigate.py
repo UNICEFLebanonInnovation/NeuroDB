@@ -227,15 +227,21 @@ def candidates(today: datetime.date | None = None) -> list[WatchItem]:
 def review_for_look_up() -> dict[str, Any]:
     """The daily review as a look-up reads it (in place of the ``daily_review`` tool's result): the
     latest review's open findings of the programme, with their title, severity, section and state.
-    Never the review's own data checks (sync failures and the like carry error text), a finding's
-    detail or link, nor the review's summary."""
+    Never the review's own data checks (sync failures and the like carry error text), the findings of a
+    review check in trial (the Daily review page only, as the import), a finding's detail or link, nor the
+    review's summary."""
     from neurodb.review.models import DailyReview
     from neurodb.review.services import SYSTEM_CHECKS
 
     review = DailyReview.objects.filter(status="succeeded").order_by("-date").first()
     if review is None:
         return {"note": "No daily review has run yet."}
-    findings = review.findings.exclude(state="resolved").exclude(check_id__in=SYSTEM_CHECKS).order_by("rank")
+    findings = (
+        review.findings.exclude(state="resolved")
+        .exclude(check_id__in=SYSTEM_CHECKS)
+        .exclude(trial=True)
+        .order_by("rank")
+    )
     return {
         "date": review.date.isoformat(),
         "findings": [

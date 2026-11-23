@@ -289,7 +289,7 @@ BACKGROUND_JOBS = [
         _("Daily review"),
         _("Run the daily review"),
         _(
-            "Runs the fourteen checks in the background and replaces today's review when it succeeds. "
+            "Runs the seventeen checks in the background and replaces today's review when it succeeds. "
             "It takes about a minute."
         ),
         "fact_check",

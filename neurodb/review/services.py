@@ -1,8 +1,10 @@
 """Running, storing, narrating and serving the daily review.
 
 ``run`` is the job: it runs the checks, diffs their findings against the previous review (new,
-still open, resolved), ranks them, writes the narrative and records a ``SyncRun``. ``for_page``
-shapes one review (today, yesterday, a date or the week) for the overview card.
+still open, resolved), ranks them, writes the narrative and records a ``SyncRun``. Each finding keeps
+whether its check was in trial that day (``ReviewFinding.trial``: the Daily review page marks it, NeuroDB
+Watch leaves it out). ``for_page`` shapes one review (today, yesterday, a date or the week) for the
+overview card.
 """
 
 from __future__ import annotations
@@ -168,6 +170,7 @@ def _run(date, triggered_by, narrate, today) -> DailyReview:
     try:
         ctx = checks.Context(today=today, previous=previous)
         drafts, errors = checks.run_all(ctx)
+        trial = checks.in_trial()  # the checks in trial today: their findings stay on the review's page
         ranked = rank(diff(_unique(drafts), previous, failed_checks=set(errors)))
         stats = checks.snapshot(ctx)
         stats.update(
@@ -180,7 +183,9 @@ def _run(date, triggered_by, narrate, today) -> DailyReview:
         review.stats = stats
         review.checks_run = len(checks.CHECKS)
         findings = [
-            ReviewFinding(review=review, rank=position, state=state, **_fields(draft))
+            ReviewFinding(
+                review=review, rank=position, state=state, trial=draft.check in trial, **_fields(draft)
+            )
             for position, (draft, state) in enumerate(ranked)
         ]
         if narrate:

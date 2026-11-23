@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Run the daily review: fourteen checks over the programme data, diffed against the day before"
+    help = "Run the daily review: seventeen checks over the programme data, diffed against the day before"
 
     def add_arguments(self, parser):
         parser.add_argument("--date", help="the review date, YYYY-MM-DD (default: today)")

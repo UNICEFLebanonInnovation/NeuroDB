@@ -308,18 +308,36 @@ class PDResolver:
             if partner_id and norm_reference(title):
                 self._title[(partner_id, norm_reference(title))].append(pk)
 
+    def _covers(self, pk: int, visit_date: datetime.date | None) -> bool:
+        start, end = self._end[pk]
+        return bool(visit_date and start and end and start <= visit_date <= end)
+
     def pick(self, candidates: list[int], visit_date: datetime.date | None) -> int:
         """Of several programme documents (amendments, mostly): the one whose dates cover the visit (or the
         day of a funds reservation line), else the one that ends last, else the highest pk."""
         if len(candidates) == 1:
             return candidates[0]
-
-        def covers(pk: int) -> bool:
-            start, end = self._end[pk]
-            return bool(visit_date and start and end and start <= visit_date <= end)
-
-        pool = [pk for pk in candidates if covers(pk)] or candidates
+        pool = [pk for pk in candidates if self._covers(pk, visit_date)] or candidates
         return max(pool, key=lambda pk: (self._end[pk][1] or datetime.date.min, pk))
+
+    def named(self, entity: str, kind: str, partner_id: int | None) -> tuple[list[int], str]:
+        """The programme documents ``entity`` names at the first step of :meth:`resolve` that finds any, and
+        that step; ([], '') when none."""
+        folded = norm_reference(entity)
+        if not folded:
+            return [], ""
+        if found := self._exact.get(folded):
+            return found, "exact"
+        token = pd_token(folded)
+        if token and (found := self._token.get(token)):
+            return found, "token"
+        if kind != "pd":
+            return [], ""
+        if found := self._base.get(_base(folded)):
+            return found, "base"
+        if partner_id and (found := self._title.get((partner_id, folded))):
+            return found, "title"
+        return [], ""
 
     def resolve(
         self, entity: str, kind: str, partner_id: int | None, visit_date: datetime.date | None
@@ -333,21 +351,20 @@ class PDResolver:
         several candidates at one step -> the PCA whose start..end covers visit_date, else the latest
         end, else the highest pk. kind != 'pd' resolves only by 'exact' or 'token'. Never 'the
         partner's only PD'. (None, '') otherwise."""
-        folded = norm_reference(entity)
-        if not folded:
-            return None, ""
-        if found := self._exact.get(folded):
-            return self.pick(found, visit_date), "exact"
-        token = pd_token(folded)
-        if token and (found := self._token.get(token)):
-            return self.pick(found, visit_date), "token"
-        if kind != "pd":
-            return None, ""
-        if found := self._base.get(_base(folded)):
-            return self.pick(found, visit_date), "base"
-        if partner_id and (found := self._title.get((partner_id, folded))):
-            return self.pick(found, visit_date), "title"
-        return None, ""
+        found, how = self.named(entity, kind, partner_id)
+        return (self.pick(found, visit_date), how) if found else (None, "")
+
+    def unambiguous(
+        self, entity: str, kind: str, partner_id: int | None, visit_date: datetime.date | None
+    ) -> tuple[int | None, str]:
+        """:meth:`resolve` when it had nothing to guess: the one programme document ``entity`` names at its
+        step, or the only one of several whose dates cover the visit. (None, '') when it names none, or
+        several the visit's date does not tell apart (an ambiguous link: :meth:`pick` takes the latest)."""
+        found, how = self.named(entity, kind, partner_id)
+        if len(found) == 1:
+            return found[0], how
+        covering = [pk for pk in found if self._covers(pk, visit_date)]
+        return (covering[0], how) if len(covering) == 1 else (None, "")
 
     def resolve_reference(self, reference: str, visit_date: datetime.date | None) -> tuple[int | None, str]:
         """A programme document *reference* written in a record (not an entity): by the PCA/PD pair first

@@ -1,4 +1,4 @@
-"""The deterministic checks of the daily review: fourteen questions asked of the programme data
+"""The deterministic checks of the daily review: seventeen questions asked of the programme data
 every morning, each answered with findings that say where to look, never with a verdict.
 
 Every check is ``check_<id>(ctx) -> list[Draft]``. The context loads the monitoring rows once
@@ -6,6 +6,11 @@ Every check is ``check_<id>(ctx) -> list[Draft]``. The context loads the monitor
 and lends the checks the helpers they share: the active programme documents, their funds, the
 children rule, the previous review's snapshot. A check that raises is logged and skipped by
 :func:`run_all`; the others still run.
+
+A new check starts in trial (:func:`default_mode`, ``CheckSetting``): its findings show on the Daily
+review page marked Trial, and NeuroDB Watch imports none of them until an administrator has looked at
+them and switched the check on. The fourteen checks that ran before trials existed (:data:`ESTABLISHED`)
+are on.
 """
 
 from __future__ import annotations
@@ -20,13 +25,13 @@ from typing import Any
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.db.models import Sum
+from django.db.models import Exists, OuterRef, Q, Sum
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from neurodb.core.jobs import NEVER_AN_ALARM, PARTIAL_IS_NOT_AN_ALARM
 from neurodb.core.models import SyncRun
-from neurodb.datamart import children, headline, identity, monitoring, owed, reporting
+from neurodb.datamart import children, fm, headline, identity, monitoring, owed, reporting
 from neurodb.datamart import models as dm
 from neurodb.datamart import reached as rc
 from neurodb.datamart.catalogue import DIAGNOSTIC
@@ -34,7 +39,7 @@ from neurodb.datamart.monitoring import ACTIVE_PD_STATUSES, NOT_REPORTED, Filter
 from neurodb.indicators.services.tracking import OFF_TRACK, ON_TRACK, OVER_TARGET, percentage_elapsed
 from neurodb.partnerships.models import PCA
 
-from .models import DailyReview, ReviewFinding
+from .models import CheckSetting, DailyReview, ReviewFinding
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +73,28 @@ TPM_STATUS_WORDS = {"assigned": "assigned to the TPM partner", "tpm_accepted": "
 TPM_NOT_PLANNED = ("draft", "cancelled")
 TPM_COMPLETED = ("tpm_reported", "unicef_approved")
 OFF_TRACK_RATING = "off"  # matched inside MonitoringFinding.overall_finding_rating, case-insensitive
+MONITORING_WINDOW_DAYS = 90  # field monitoring visits read against the partner's reported progress
+REPORTED_FINE = (ON_TRACK, OVER_TARGET)  # on track or ahead of schedule, in the pages' tracking words
+REPORTED_TRACKED = (ON_TRACK, OVER_TARGET, OFF_TRACK)  # indicators with a target and a report
+LINE_LIMIT = 5  # the visits and the indicators an evidence lists, each (the numbers count them all)
+# audits, special audits and spot checks (a micro-assessment rates a partner, it is not followed up here)
+AUDIT_TYPES = ("audit", "sa", "sc")
+FOLLOW_UP_DAYS = 60  # a final report older than this with findings and no action point
+FOLLOW_UP_LOOKBACK_DAYS = 730  # final reports of the last two years: older audits are not followed up here
+# What each of the newer checks says to look at, and the note the HACT check adds from 1 October
+MONITORING_READ = (
+    "Read the visits' findings in eTools field monitoring next to the partner's latest progress report, and "
+    "ask the programme section which of the two reflects the situation."
+)
+FOLLOW_UP_READ = (
+    "Open the engagement: agree the follow-up of its findings with the partner and raise the action points "
+    "in eTools, or note there why none is needed."
+)
+HACT_READ = (
+    "Plan the programmatic visits, spot checks or audits still required with the programme sections; the "
+    "HACT visit plan shows which programme documents still need visits."
+)
+HACT_WATCH_NOTE = " From 1 October NeuroDB Watch follows it too, so the review keeps it to note."
 
 
 @dataclass
@@ -136,6 +163,18 @@ def _sync_detail(first_error: str, rows: list[SyncRun]) -> str:
 
 def _evidence(read: str, records: list[str], **numbers: Any) -> dict[str, Any]:
     return {"read": read, "records": records[:10], "numbers": numbers}
+
+
+def _amount(value: float | None) -> str:
+    """A Reached or a target as the pages write it: whole numbers with thousands separators."""
+    if value is None:
+        return "—"
+    number = float(value)
+    return f"{number:,.0f}" if number.is_integer() else f"{number:,.2f}".rstrip("0").rstrip(".")
+
+
+def _and(parts: list[str]) -> str:
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
 
 
 class Context:
@@ -692,6 +731,254 @@ def check_findings_off_track(ctx: Context) -> list[Draft]:
     return drafts[:MAX_PER_CHECK]
 
 
+def _visit_ref(row: dict[str, Any]) -> str:
+    return row["monitoring_activity"] or row["reference_number"] or f"visit {row['monitoring_activity_id']}"
+
+
+def check_monitoring_disagrees(ctx: Context) -> list[Draft]:
+    """Programme documents rated off track by field monitoring in the last 90 days while their partner's
+    reports put every indicator with a target and a report on track or ahead of schedule (the context's
+    monitoring rows and the pages' tracking words; progress is never computed another way here).
+
+    A finding row counts when the programme document it is linked to is the one its reference names without a
+    guess: the reference read again as the sync reads it (:meth:`neurodb.datamart.fm.PDResolver.unambiguous`).
+    A row whose reference names several programme documents that the visit's date does not tell apart, or
+    whose stored link is no longer what its reference names, is left out. Visits are counted as the PD page
+    counts them (:func:`neurodb.datamart.fm.visit_key`). The evidence gives the visits' references, dates and
+    ratings and how the PD was found, and the indicators with their Reached and target: never a narrative, the
+    visit lead or any other text of the visit."""
+    fine: dict[int, list[Indicator]] = {}
+    for pd_id, inds in ctx.by_pd.items():
+        tracked = [i for i in inds if i.tracking in REPORTED_TRACKED]
+        if tracked and all(i.tracking in REPORTED_FINE for i in tracked):
+            fine[pd_id] = tracked
+    if not fine:
+        return []
+    since = ctx.today - datetime.timedelta(days=MONITORING_WINDOW_DAYS)
+    rows = list(
+        dm.MonitoringFinding.objects.filter(
+            overall_finding_rating__icontains=OFF_TRACK_RATING,
+            end_date__gte=since,
+            end_date__lte=ctx.today,
+            intervention_id__in=list(fine),
+        )
+        .order_by("-end_date", "pk")
+        .values(
+            "pk",
+            "intervention_id",
+            "entity",
+            "entity_type",
+            "partner_id",
+            "end_date",
+            "monitoring_activity_id",
+            "monitoring_activity",
+            "reference_number",
+            "overall_finding_rating",
+        )
+    )
+    if not rows:
+        return []
+    from neurodb.insights.readiness import LINK_METHODS
+
+    resolver = fm.PDResolver()
+    visits: dict[int, dict[str, dict[str, Any]]] = defaultdict(dict)
+    for row in rows:
+        kind = fm.entity_kind(row["entity_type"], row["entity"])
+        found, how = resolver.unambiguous(str(row["entity"] or ""), kind, row["partner_id"], row["end_date"])
+        if found is None or found != row["intervention_id"]:
+            continue  # ambiguous, or no longer the PD its reference names
+        key = fm.visit_key(row["monitoring_activity_id"], row["monitoring_activity"], row["pk"])
+        visits[found].setdefault(key, {**row, "how": how})  # the latest row of each visit (by its end date)
+    drafts = []
+    for pd_id, found_visits in visits.items():
+        indicators = fine[pd_id]
+        pd = indicators[0].pd
+        ordered = sorted(found_visits.values(), key=lambda v: (v["end_date"], _visit_ref(v)), reverse=True)
+        n, k, latest = len(ordered), len(indicators), ordered[0]["end_date"]
+        detail = (
+            f"{n} field monitoring {plural(n, 'visit')} in the last {MONITORING_WINDOW_DAYS} days rated it "
+            f"off track, the latest on {latest:%d %b %Y}. The partner's reports put every indicator with a "
+            f"target and a report on track or ahead of schedule ({k} {plural(k, 'indicator')})."
+        )
+        records = [
+            f"{_visit_ref(v)}, {_day(v['end_date'])}: {v['overall_finding_rating']} "
+            f"(programme document found by {LINK_METHODS.get(v['how'], v['how'])})"
+            for v in ordered[:LINE_LIMIT]
+        ] + [
+            f"{i.title}: Reached {_amount(i.reached)} of target {_amount(i.target)} ({i.tracking_label})"
+            for i in indicators[:LINE_LIMIT]
+        ]
+        drafts.append(
+            Draft(
+                key=f"monitoring_disagrees:{pd_number(pd)}",
+                check="monitoring_disagrees",
+                severity=WARNING,
+                section=ctx.pd_section(pd),
+                title=f"Field monitoring rated {pd_label(pd)} off track while its reports are on track",
+                detail=detail,
+                evidence=_evidence(
+                    MONITORING_READ,
+                    records,
+                    visits_off_track=n,
+                    last_visit=_day(latest),
+                    indicators_on_track=k,
+                ),
+                url=link("reports:programme_detail", pd.id),
+            )
+        )
+    drafts.sort(key=lambda d: (-d.evidence["numbers"]["visits_off_track"], d.title))
+    return drafts[:MAX_PER_CHECK]
+
+
+def _findings_headline(high: int, weak: int, financial: int) -> str:
+    if high:
+        return f"{high} high-priority {plural(high, 'finding')}"
+    if weak:
+        return f"{weak} key control {plural(weak, 'weakness', 'weaknesses')}"
+    return f"{financial} financial {plural(financial, 'finding')}"
+
+
+def check_audit_no_follow_up(ctx: Context) -> list[Draft]:
+    """Audits, special audits and spot checks whose final report was issued more than 60 days ago (and in the
+    last two years), with findings (high-priority findings, key control weaknesses or financial findings),
+    and no action point following them up. The action points and the financial findings are the engagement
+    page's own (:func:`neurodb.datamart.services.engagement_action_points` and
+    :func:`~neurodb.datamart.services.financial_findings_count`), so the review never says "no action point"
+    where that page lists one. A warning with high-priority findings, to note otherwise. Never the auditor."""
+    from neurodb.datamart import services as assurance
+
+    listed = dm.AuditFinding.objects.filter(engagement=OuterRef("pk"))
+    engagements = (
+        dm.AuditEngagement.objects.filter(
+            engagement_type__in=AUDIT_TYPES,
+            date_of_final_report__lte=ctx.today - datetime.timedelta(days=FOLLOW_UP_DAYS),
+            date_of_final_report__gte=ctx.today - datetime.timedelta(days=FOLLOW_UP_LOOKBACK_DAYS),
+        )
+        .exclude(status__iexact="cancelled")
+        .filter(
+            Q(high_priority_findings__gt=0)
+            | Q(key_control_weaknesses__gt=0)
+            | Q(financial_findings_count__gt=0)
+            | Q(Exists(listed), financial_findings_count=None)
+        )
+        .select_related("partner")
+        .order_by("date_of_final_report", "datamart_id")
+    )
+    drafts = []
+    for e in engagements:
+        high, weak = e.high_priority_findings or 0, e.key_control_weaknesses or 0
+        financial = assurance.financial_findings_count(e)
+        if not (high or weak or financial) or assurance.engagement_action_points(e).exists():
+            continue
+        kind = assurance.engagement_type_label(e.engagement_type)
+        reference = e.reference_number or f"engagement {e.datamart_id}"
+        partner = (e.partner.name if e.partner_id and e.partner else e.partner_name) or "unknown partner"
+        report = e.date_of_final_report
+        days = (ctx.today - report).days
+        detail = (
+            f"The final report was issued on {report:%d %b %Y}, {days} days ago, and no action point follows "
+            f"it up in eTools. It lists {high} high-priority {plural(high, 'finding')}, {weak} key control "
+            f"{plural(weak, 'weakness', 'weaknesses')} and {financial} financial "
+            f"{plural(financial, 'finding')}."
+        )
+        drafts.append(
+            Draft(
+                key=f"audit_no_follow_up:{e.reference_number or e.datamart_id}",
+                check="audit_no_follow_up",
+                severity=WARNING if high else INFO,
+                section="",
+                title=f"{kind} {reference} ({partner}): {_findings_headline(high, weak, financial)}, "
+                "no action point",
+                detail=detail,
+                evidence=_evidence(
+                    FOLLOW_UP_READ,
+                    [f"{reference}: {kind} of {partner}, final report {_day(report)}"],
+                    high_priority_findings=high,
+                    key_control_weaknesses=weak,
+                    financial_findings=financial,
+                    report_date=_day(report),
+                    days_since_report=days,
+                ),
+                url=link("reports:engagement_detail", e.pk),
+            )
+        )
+    drafts.sort(key=lambda d: (-d.evidence["numbers"]["days_since_report"], d.title))
+    return drafts[:MAX_PER_CHECK]
+
+
+def check_hact_assurance(ctx: Context) -> list[Draft]:
+    """Partners whose programmatic visits, spot checks or audits completed this year are below what HACT
+    requires, all year round: the rows and the rule of NeuroDB Watch's HACT check
+    (:func:`neurodb.watch.detectors.money.hact_rows` and :func:`~neurodb.watch.detectors.money.gaps`), so
+    the two never differ. Always to note: from 1 October Watch follows it too (``hact_assurance_gap``), and
+    Watch never imports a finding to note, so it is never told twice. One
+    finding per partner, with the months of the year left, linked to the partner's page and to the HACT
+    visit plan."""
+    from neurodb.datamart import hact_plan
+    from neurodb.watch.detectors import money
+
+    year = ctx.year
+    months = 13 - ctx.today.month  # this month included
+    span = "December" if months == 1 else f"{ctx.today:%B} to December"
+    in_season = money.hact_season(ctx.today)
+    plan: dict[int, dict[str, int]] | None = None
+    drafts = []
+    for hact_key, row in money.hact_rows(year).items():
+        missing = money.gaps(row)
+        if not missing:
+            continue
+        partner = (row.partner.name if row.partner_id and row.partner else row.partner_name) or "a partner"
+        todo = ", ".join(what for what, _required, _completed in missing)
+        done, records, numbers = [], [], {}
+        for single, many, required_field, completed_field in money.ASSURANCE:
+            required, completed = getattr(row, required_field), getattr(row, completed_field)
+            numbers.update({required_field: required, completed_field: completed})
+            if required:
+                done.append(f"{completed or 0} of {required} {plural(required, single, many)}")
+                records.append(f"{many.capitalize()} in {year}: {completed or 0} of {required} completed")
+        if row.partner_id:
+            if plan is None:
+                plan = hact_plan.partner_counts(year, ctx.today)  # the HACT visit plan's own counts
+            gap = plan.get(row.partner_id)
+            if gap:
+                records.append(
+                    f"Programme documents still needing visits: {gap['pds']} "
+                    f"{plural(gap['pds'], 'programme document')} {'needs' if gap['pds'] == 1 else 'need'} "
+                    f"{gap['visits']} {plural(gap['visits'], 'visit')}"
+                )
+        detail = (
+            f"eTools shows {_and(done)} completed in {year}. Still to do: {todo}, with {months} "
+            f"{plural(months, 'month')} of the year left ({span})." + (HACT_WATCH_NOTE if in_season else "")
+        )
+        plan_url = link("reports:monitoring", tab="plan", partner=row.partner_id, year=year)
+        drafts.append(
+            Draft(
+                key=f"hact_assurance:{hact_key.removeprefix('hact:')}",
+                check="hact_assurance",
+                severity=INFO,
+                section="",
+                title=f"HACT assurance for {partner}: {todo} still to do this year",
+                detail=detail,
+                evidence={
+                    **_evidence(
+                        HACT_READ,
+                        records,
+                        **{name: value for name, value in numbers.items() if value is not None},
+                        months_left=months,
+                    ),
+                    "links": [{"label": "HACT visit plan", "url": plan_url}],
+                },
+                url=(
+                    link("reports:partner_profile", row.partner_id)
+                    if row.partner_id
+                    else link("reports:assurance", hact_year=year)
+                ),
+            )
+        )
+    drafts.sort(key=lambda d: d.title)
+    return drafts[:MAX_PER_CHECK]
+
+
 def check_sync_failures(ctx: Context) -> list[Draft]:
     """Sync runs that failed or wrote with errors in the last 24 hours, per job. Never the ActivityInfo
     archive's jobs (:data:`ARCHIVE_JOBS`: its imports, partner links and year-end forecasts are nobody's
@@ -893,6 +1180,9 @@ CHECKS: list[tuple[str, Callable[[Context], list[Draft]]]] = [
     ("tpm_reports_late", check_tpm_reports_late),
     ("action_points_overdue", check_action_points_overdue),
     ("findings_off_track", check_findings_off_track),
+    ("monitoring_disagrees", check_monitoring_disagrees),
+    ("audit_no_follow_up", check_audit_no_follow_up),
+    ("hact_assurance", check_hact_assurance),
     ("sync_failures", check_sync_failures),
     ("data_quality", check_data_quality),
     ("locations_unplaced", check_locations_unplaced),
@@ -900,6 +1190,69 @@ CHECKS: list[tuple[str, Callable[[Context], list[Draft]]]] = [
     ("improvements", check_improvements),
 ]
 CHECK_IDS = [check_id for check_id, _ in CHECKS]
+# Each check in plain words, as the administration lists them
+LABELS = {
+    "new_off_track": "Indicators newly off track",
+    "not_reported": "Indicators never reported",
+    "reports_overdue": "Progress reports overdue",
+    "spending_ahead": "Spending ahead of delivery",
+    "under_disbursed": "Under-disbursed programme documents",
+    "pd_ending_soon": "Programme documents ending soon below target",
+    "tpm_reports_late": "Late TPM reports",
+    "action_points_overdue": "Overdue high-priority action points",
+    "findings_off_track": "Field monitoring findings off track",
+    "monitoring_disagrees": "Field monitoring off track while the reports are on track",
+    "audit_no_follow_up": "Audit findings with no action point",
+    "hact_assurance": "HACT assurance still to do this year",
+    "sync_failures": "Failed syncs",
+    "data_quality": "Rows that failed to write at a sync",
+    "locations_unplaced": "Locations not placed on the map",
+    "stale_sources": "Stale sources",
+    "improvements": "Indicators back on track",
+}
+# The checks that ran before checks started in trial: on from the start. Any other check starts in trial.
+ESTABLISHED = frozenset(
+    {
+        "new_off_track",
+        "not_reported",
+        "reports_overdue",
+        "spending_ahead",
+        "under_disbursed",
+        "pd_ending_soon",
+        "tpm_reports_late",
+        "action_points_overdue",
+        "findings_off_track",
+        "sync_failures",
+        "data_quality",
+        "locations_unplaced",
+        "stale_sources",
+        "improvements",
+    }
+)
+
+
+def default_mode(check_id: str) -> str:
+    """A check's mode before an administrator sets it: on for the established checks, trial for a new one."""
+    return CheckSetting.Mode.ON if check_id in ESTABLISHED else CheckSetting.Mode.TRIAL
+
+
+def in_trial() -> set[str]:
+    """The checks in trial now: those set to trial, and those never set whose default is trial (one query)."""
+    modes = dict(CheckSetting.objects.values_list("check_id", "mode"))
+    return {
+        check_id
+        for check_id, _check in CHECKS
+        if modes.get(check_id, default_mode(check_id)) == CheckSetting.Mode.TRIAL
+    }
+
+
+def ensure_settings() -> None:
+    """A row for every check, in its default mode, so the administration lists them all from the start."""
+    known = set(CheckSetting.objects.values_list("check_id", flat=True))
+    CheckSetting.objects.bulk_create(
+        [CheckSetting(check_id=c, mode=default_mode(c)) for c in CHECK_IDS if c not in known],
+        ignore_conflicts=True,
+    )
 
 
 def run_all(ctx: Context) -> tuple[list[Draft], dict[str, str]]:

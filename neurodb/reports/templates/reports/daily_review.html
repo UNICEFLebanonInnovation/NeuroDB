@@ -5,7 +5,7 @@
 {% comment %}The daily review's page (reports.views.daily_review): its frame comes at once (scope line, purpose), then the
 card ("review", the templates the overview used) and, when its "Show more" opens, its folded findings ("review-more").
 Home shows its summary (review.services.digest).{% endcomment %}
-<p class="page-purpose">{% if schedule.on %}{% blocktrans with t=schedule.time %}Fourteen checks run every morning at {{ t }} on the night's data. Findings are prompts to look, never verdicts on partners or staff.{% endblocktrans %}{% else %}{% trans "Fourteen checks run on the night's data when the daily review job runs; it is switched off in Scheduled jobs." %} {% trans "Findings are prompts to look, never verdicts on partners or staff." %}{% endif %}</p>
+<p class="page-purpose">{% if schedule.on %}{% blocktrans with t=schedule.time %}Seventeen checks run every morning at {{ t }} on the night's data. Findings are prompts to look, never verdicts on partners or staff.{% endblocktrans %}{% else %}{% trans "Seventeen checks run on the night's data when the daily review job runs; it is switched off in Scheduled jobs." %} {% trans "Findings are prompts to look, never verdicts on partners or staff." %}{% endif %}</p>
 {% if has_review %}
 {% comment %}Room kept for the card as measured on the x20 parity world (its height when the overview held it).{% endcomment %}
 <div class="overview-row" id="daily-review">{% part "review" kind="card" height="1850px" height_md="2500px" height_sm="4900px" %}</div>

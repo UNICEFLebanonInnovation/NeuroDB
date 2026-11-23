@@ -6,7 +6,9 @@ existing keys, so people hear of a concern once, with its history, next to what 
 
 - ``daily_review``: the critical and warning findings still open in the latest succeeded daily review
   (up to the day of the pass), each as ``review:<finding key>``. Left out: the review's own data checks
-  (``SYSTEM_CHECKS``; the system items cover them) and its good news (``improvements``). The title,
+  (``SYSTEM_CHECKS``; the system items cover them), its good news (``improvements``) and the findings of
+  a review check in trial (``ReviewFinding.trial``: shown on the Daily review page only, until an
+  administrator has looked at them and switched the check on; then from the next review). The title,
   detail and evidence are the review's, written by code, with the day counts that age by themselves
   ("ends in 30 days", "22 days ago") written as dates. From ``FindingAssignment`` it takes only whether
   someone owns the finding now and the assignment's status, never the owner or the note. Its source
@@ -153,6 +155,7 @@ def read_review(ctx: Context) -> ReviewRead:
         still_open = list(
             review.findings.exclude(state=ReviewFinding.State.RESOLVED)
             .exclude(check_id__in=LEFT_OUT)
+            .exclude(trial=True)  # a review check in trial: the Daily review page only
             .order_by("rank", "id")
         )
         findings = [f for f in still_open if f.severity in IMPORTED]

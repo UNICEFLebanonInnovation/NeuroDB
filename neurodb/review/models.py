@@ -1,5 +1,6 @@
 """What one day's review found: the review itself (summary, counts, a snapshot of the indicator
-statuses to diff the next day against) and its findings, one row each, ranked."""
+statuses to diff the next day against) and its findings, one row each, ranked; and which checks are in
+trial (their findings on the Daily review page only, never sent to NeuroDB Watch)."""
 
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -85,6 +86,10 @@ class ReviewFinding(models.Model):
     url = models.CharField(max_length=500, blank=True)
     state = models.CharField(max_length=16, choices=State.choices, default=State.NEW)
     rank = models.PositiveIntegerField(default=0)
+    trial = models.BooleanField(
+        default=False,
+        help_text="found by a check in trial: on the Daily review page only, never sent to NeuroDB Watch",
+    )
 
     class Meta:
         ordering = ("rank", "id")
@@ -96,6 +101,45 @@ class ReviewFinding(models.Model):
 
     def __str__(self):
         return f"[{self.severity}] {self.title}"
+
+
+class CheckSetting(models.Model):
+    """Whether one check of the daily review is in trial or on. A check in trial shows its findings on the
+    Daily review page only, marked Trial: NeuroDB Watch imports none of them. A check that is on also sends
+    its open critical findings and warnings to NeuroDB Watch. A new check starts in trial until an
+    administrator has looked at its findings and switched it on (``review.checks.default_mode``); the checks
+    that ran before trials existed are on. A change takes effect from the next review: each finding keeps
+    whether its check was in trial on its day (``ReviewFinding.trial``)."""
+
+    class Mode(models.TextChoices):
+        TRIAL = "trial", _("Trial: Daily review page only")
+        ON = "on", _("On: also sent to NeuroDB Watch")
+
+    check_id = models.CharField("check", max_length=40, unique=True)
+    mode = models.CharField(max_length=8, choices=Mode.choices, default=Mode.TRIAL)
+    on_since = models.DateField(null=True, blank=True, help_text="the day it was switched on")
+    trial_since = models.DateField(null=True, blank=True, help_text="the day it went into trial")
+    updated_by = models.CharField(max_length=150, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("check_id",)
+        verbose_name = _("daily review check")
+        verbose_name_plural = _("daily review checks")
+
+    def __str__(self):
+        return f"{self.check_id} ({self.mode})"
+
+    def save(self, *args, **kwargs):
+        """Stamp the day it went on or into trial, once (an administrator's change stamps it again)."""
+        from django.utils import timezone
+
+        stamp = "on_since" if self.mode == self.Mode.ON else "trial_since"
+        if getattr(self, stamp) is None:
+            setattr(self, stamp, timezone.localdate())
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = {*kwargs["update_fields"], stamp}
+        super().save(*args, **kwargs)
 
 
 class FindingAssignment(models.Model):

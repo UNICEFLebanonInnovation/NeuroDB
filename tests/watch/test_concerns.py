@@ -301,6 +301,28 @@ def test_a_finding_listed_to_note_only_closes_at_once():
     assert (found.state, found.close_reason) == (WatchItem.State.CLOSED, concerns.LOWERED)
 
 
+def test_a_finding_of_a_review_check_in_trial_never_reaches_watch(education):
+    """A daily review check in trial (``ReviewFinding.trial``) shows its findings on the Daily review page only:
+    Watch imports none of them, its look-ups never read them, and a lowered one closes nothing. From the next
+    review after an administrator switched the check on, they are imported as any other."""
+    from neurodb.watch import investigate
+
+    audit = "audit_no_follow_up:EXA/AUD/2026/001"
+    reviewed(0, finding(OVERDUE), finding(audit, title="Audit in trial", trial=True))
+    run()
+    assert keys("daily_review") == {f"review:{OVERDUE}"}
+    assert [f["title"] for f in investigate.review_for_look_up()["findings"]] == [f"Finding {OVERDUE}"]
+    reviewed(1, finding(OVERDUE, state="still_open"), finding(audit, "info", state="still_open", trial=True))
+    run(day=1)
+    assert keys("daily_review") == {f"review:{OVERDUE}"}
+    reviewed(
+        2, finding(OVERDUE, state="still_open"), finding(audit, title="Audit switched on", state="still_open")
+    )
+    run(day=2)
+    assert keys("daily_review") == {f"review:{OVERDUE}", f"review:{audit}"}
+    assert item(f"review:{audit}").title == "Audit switched on"
+
+
 def test_a_finding_marked_wrong_stays_hidden_while_only_its_day_counts_move():
     def late(days_since_end: int, elapsed: int, visits: int = 1) -> dict:
         numbers = {"days_since_end": days_since_end, "elapsed_percent": elapsed, "visits_late": visits}

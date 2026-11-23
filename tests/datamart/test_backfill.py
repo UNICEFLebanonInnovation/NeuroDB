@@ -362,6 +362,11 @@ QUICK_MIGRATIONS = {
     # the choice of the job that records the action point status (AlterField of the job's choices only, no code
     # runs and nothing in the database changes; listed so that the migration is accounted for here)
     ("core", "0035_ap_history_job", "AlterField"),
+    # which daily review checks are in trial (CheckSetting: a new, empty table of one row per check) and whether a
+    # finding was found by a check in trial (ReviewFinding.trial: a column with a constant default, the table's
+    # description only on PostgreSQL); CreateModel and AddField only, no code runs; listed so the migration is
+    # accounted for here
+    ("review", "0004_check_settings", "CreateModel"),
 }
 
 
