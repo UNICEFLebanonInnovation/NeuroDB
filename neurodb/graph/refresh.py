@@ -115,6 +115,7 @@ def on_run_finished(sender, instance, update_fields=None, **kwargs) -> None:
         SyncRun.Job.DATAMART_PROBE,  # a probe of the eTools Datamart: it writes nothing but its run
         SyncRun.Job.ETOOLS_MASTERS,  # the master indicators' suggestions: nothing the hub reads
         SyncRun.Job.ETOOLS_REST_RAW,  # the raw copy of the eTools REST records: nothing the hub reads
+        SyncRun.Job.AP_HISTORY,  # the action point history: nothing the hub reads
     ):
         return  # they bring no new data
     if instance.job == SyncRun.Job.DATAMART_BACKFILL and not instance.rows_written:

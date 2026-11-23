@@ -303,8 +303,9 @@ It measures:
   and PME verifications. Each is counted the way its own page counts it. The current year reads "so far".
 - **Accepted values**: how many values a typical running PD indicator has in reports UNICEF accepted, and how
   many quarters they cover.
-- **The action point history**: how many days of each action point's status NeuroDB has kept. It reads *Not
-  kept yet* until NeuroDB keeps it.
+- **The action point history**: how many days of each action point's status NeuroDB has kept, counted from
+  its first day (see [Status history](/help/action-points/#status-history)). It reads *Not kept yet* until
+  NeuroDB keeps it.
 
 Each question gets a verdict:
 

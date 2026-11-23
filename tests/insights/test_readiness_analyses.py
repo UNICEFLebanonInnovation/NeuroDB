@@ -298,8 +298,9 @@ def test_the_action_point_history_reads_not_kept_yet_until_it_is_kept(db, monkey
         DayRuleTally.objects.create(day=dd, rule="R1", status="pass", records=1, points_n=1)
     result = readiness.measure(TODAY)
     m = _metrics(result)
-    assert m["arrivals.ap_history_days"] == 3 and m["arrivals.ap_history_first"] == "2026-10-01"
-    assert _shown(result)["arrivals.ap_history_days"] == "3 days, since 1 Oct 2026"
+    # the history holds a row only on a day a status changed: it is kept every day from its first day to today
+    assert m["arrivals.ap_history_days"] == 15 and m["arrivals.ap_history_first"] == "2026-10-01"
+    assert _shown(result)["arrivals.ap_history_days"] == "15 days, since 1 Oct 2026"
 
 
 def test_the_history_model_is_looked_up_by_name():

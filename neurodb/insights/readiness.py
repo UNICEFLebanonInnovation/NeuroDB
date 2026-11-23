@@ -443,8 +443,8 @@ def links(s: Section, today: datetime.date) -> None:
 
 
 def history_model() -> Any:
-    """The action point history (one status per action point and day: ``datamart.ActionPointStatus``), or None
-    while NeuroDB does not keep it."""
+    """The action point history (``datamart.ActionPointStatus``: a row for an action point on each day its
+    status changed, from the first day NeuroDB kept it), or None while NeuroDB does not keep it."""
     from django.apps import apps
 
     try:
@@ -746,16 +746,17 @@ def arrivals(s: Section, today: datetime.date) -> None:
             recent.values("datamart_id").distinct().count(),
         )
 
-    # the action point history (one status per action point and day), once NeuroDB keeps it
+    # the action point history, once NeuroDB keeps it: a row only on a day a status changed, so it is kept
+    # every day from its first day to today, whether or not that day has a row
     model = history_model()
-    kept = model.objects.aggregate(first=Min("day"), days=Count("day", distinct=True)) if model else {}
-    days, since_day = kept.get("days") or 0, kept.get("first")
+    since_day = model.objects.aggregate(first=Min("day"))["first"] if model else None
+    days = max((today - since_day).days + 1, 0) if since_day else 0
     s.add(
         "ap_history_days",
         "Action point history kept",
         days,
         f"{days:,} {'day' if days == 1 else 'days'}, since {_day(since_day)}" if days else "Not kept yet",
-        note="each action point's status, once a day: no text, no names",
+        note="each action point's status, recorded on each day it changes: no text, no names",
     )
     s.add(
         "ap_history_first",

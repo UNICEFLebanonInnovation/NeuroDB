@@ -129,6 +129,32 @@ class ActionPointAdmin(DatamartAdmin):
     raw_id_fields = ("partner", "intervention")
 
 
+@admin.register(dm.ActionPointStatus)
+class ActionPointStatusAdmin(ReadOnlyModelAdmin):
+    """The action point history (``datamart.ap_history``), read-only: a row for an action point on each day
+    its status, priority, due date or completion date changed, or it left the Datamart or came back. No text,
+    no names: the action point by its eTools id."""
+
+    list_display = (
+        "source_id",
+        "day",
+        "in_datamart",
+        "status",
+        "high_priority",
+        "due_date",
+        "date_of_completion",
+        "related_module",
+        "section",
+    )
+    list_filter = ("day", "status", "related_module", "in_datamart", "high_priority")
+    date_hierarchy = "day"
+    search_fields = ("=source_id",)
+    search_help_text = _("The action point's eTools id")
+    raw_id_fields = ("intervention", "partner")
+    list_per_page = 50
+    show_full_result_count = False  # a table that grows every day: no second count
+
+
 @admin.register(dm.TPMVisit)
 class TPMVisitAdmin(DatamartAdmin):
     list_display = ("reference_number", "partner_name", "tpm_name", "status", "start_date", "end_date")

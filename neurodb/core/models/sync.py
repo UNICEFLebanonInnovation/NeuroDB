@@ -38,6 +38,7 @@ class SyncRun(models.Model):
         DATAMART_PROBE = "datamart_probe", "eTools Datamart probe"
         ETOOLS_MASTERS = "etools_masters", "eTools master indicators"
         ETOOLS_REST_RAW = "etools_rest_raw", "eTools REST API into Raw eTools data"
+        AP_HISTORY = "ap_history", "Action point status record"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"

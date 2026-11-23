@@ -257,6 +257,20 @@ BACKGROUND_JOBS = [
         "category",
     ),
     BackgroundJob(
+        "run_record_action_point_status",
+        ("record_action_point_status",),
+        SyncRun.Job.AP_HISTORY,
+        _("Record action point status"),
+        _("Record action point status"),
+        _(
+            "Records today's status of each eTools action point, in the background. It writes a row only for "
+            "a point seen for the first time, one whose status, priority, due date or completion date "
+            "changed, and one that left the eTools Datamart or came back. No text and no names. It also runs "
+            "by itself after every eTools Datamart sync. Running it again the same day writes nothing new."
+        ),
+        "history",
+    ),
+    BackgroundJob(
         "run_whats_new_digest",
         ("whats_new_digest",),
         SyncRun.Job.WHATS_NEW,

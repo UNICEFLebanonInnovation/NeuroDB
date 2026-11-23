@@ -51,6 +51,8 @@ POWERBI_COMPARE_LOCK_ID = 7140443
 # neurodb.datamart.powerbi_compare.QUEUE_LOCK_ID: an upload queued (or queued again) one request at a time,
 # held for that request's transaction only (the comparison holds POWERBI_COMPARE_LOCK_ID for its whole run)
 POWERBI_QUEUE_LOCK_ID = 7140444
+# neurodb.datamart.ap_history.LOCK_ID: one record of the action point status at a time
+AP_HISTORY_LOCK_ID = 7140445
 LOCK_IDS = {
     SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID,
     SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID,
@@ -64,6 +66,7 @@ LOCK_IDS = {
     SyncRun.Job.REPORTING_CHECKS: REPORTING_CHECKS_LOCK_ID,
     SyncRun.Job.DATAMART_PROBE: DATAMART_PROBE_LOCK_ID,
     SyncRun.Job.ETOOLS_MASTERS: ETOOLS_MASTERS_LOCK_ID,
+    SyncRun.Job.AP_HISTORY: AP_HISTORY_LOCK_ID,
     SyncRun.Job.ETOOLS_REST_RAW: ETOOLS_REST_RAW_LOCK_ID,
 }
 

@@ -5,6 +5,9 @@ rebuilds its visits when a dataset it reads was synced (``FMM_REFRESH_AFTER_SYNC
 its own run: its failure never fails this command, and neither does a failed diagnostic dataset
 (``catalogue.DIAGNOSTIC``, used by no page, figure or check: its run says it failed).
 
+Once the lock is released, each action point's status is also recorded when the action points were refreshed
+(``datamart.ap_history``): a run of its own, whose failure never fails this command either.
+
 One sync runs at a time (the Datamart lock): a second one does nothing. The eTools update clean-up
 (``datamart_backfill``, after a deployment) holds the same lock; a sync started meanwhile waits for it
 to finish, so the nightly sync is not lost to it."""
@@ -72,10 +75,26 @@ class Command(BaseCommand):
             self._unlock()
         if any(run.target in ("partners", "interventions") and run.status != FAILED for run in runs):
             runs.append(link_activityinfo_partners(triggered_by=options["triggered_by"]))
+        history_run = self._action_point_history(runs, options["triggered_by"])
         fmm_run = self._monitoring_insights(runs, options["triggered_by"])
-        write_summary(self, runs + ([fmm_run] if fmm_run else []))
-        # not the Monitoring insights run (its failure never fails the sync), nor a diagnostic dataset's
+        write_summary(self, runs + [run for run in (history_run, fmm_run) if run])
+        # not the action point status record or the Monitoring insights run (their failure never fails the
+        # sync), nor a diagnostic dataset's
         exit_on_failure([run for run in runs if run.target not in DIAGNOSTIC])
+
+    def _action_point_history(self, runs, triggered_by: str):
+        """Record each action point's status when this sync refreshed the action points (the Datamart lock is
+        released by now), so that the history is kept every day without anyone doing anything. Never raises:
+        a failure is its own failed run."""
+        from neurodb.datamart import ap_history  # lazy: it reads what this sync writes
+
+        if not ap_history.wanted_after(runs):
+            return None
+        result = ap_history.run_safely(triggered_by=triggered_by)
+        if isinstance(result, str):  # another record is going
+            self.stdout.write(result)
+            return None
+        return result
 
     def _monitoring_insights(self, runs, triggered_by: str):
         """Rebuild the Monitoring insights visits when a dataset they read was synced (the Datamart lock

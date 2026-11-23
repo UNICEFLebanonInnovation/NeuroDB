@@ -355,6 +355,13 @@ QUICK_MIGRATIONS = {
     # of one row (catalogue only on PostgreSQL), a longer test result (a varchar made longer: catalogue only)
     # and a help text (AddField and AlterField only, no code runs; listed so the migration is accounted for)
     ("assistant", "0005_ask_model", "AddField"),
+    # the action point history (ActionPointStatus): a new, empty table with its day index and one row per action
+    # point and day (CreateModel only, no code runs; the first record after a Datamart sync fills it); listed so
+    # that the migration is accounted for here
+    ("datamart", "0022_action_point_status", "CreateModel"),
+    # the choice of the job that records the action point status (AlterField of the job's choices only, no code
+    # runs and nothing in the database changes; listed so that the migration is accounted for here)
+    ("core", "0035_ap_history_job", "AlterField"),
 }
 
 

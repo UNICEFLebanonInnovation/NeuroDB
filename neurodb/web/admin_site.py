@@ -113,14 +113,15 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
     (
         DATA_AND_SYNC := _("Data and sync"),
         _(
-            "Import history, scheduled jobs, the eTools Datamart's PRP business area code, the AI settings "
-            "(provider, keys, models), the daily review, NeuroDB Watch (For you), population figures, saved "
-            "views, AI questions, help questions and AI use, audit trail."
+            "Import history, scheduled jobs, the eTools Datamart's PRP business area code, the action point "
+            "history, the AI settings (provider, keys, models), the daily review, NeuroDB Watch (For you), "
+            "population figures, saved views, AI questions, help questions and AI use, audit trail."
         ),
         [
             "core.SyncRun",
             "core.ScheduledJob",
             "core.DatamartSetting",
+            "datamart.ActionPointStatus",
             "assistant.AISettings",
             "review.DailyReview",
             "review.ReviewFinding",
@@ -270,8 +271,10 @@ DEVELOPER_ONLY = {
 }
 DEVELOPER_ONLY_APPS = {"datamart"}
 # edited by administrators (Reporting setup: the indicator flags, the eTools master indicators with their
-# years and PD indicators) and by sections (the HACT visit plan's comments)
+# years and PD indicators) and by sections (the HACT visit plan's comments); and NeuroDB's own record of the
+# action points' status (Data and sync: read-only, but kept by NeuroDB, not replicated)
 DEVELOPER_ONLY_KEEP = {
+    "datamart.ActionPointStatus",
     "datamart.IndicatorFlag",
     "datamart.VisitPlanComment",
     "datamart.EtoolsMaster",
@@ -354,6 +357,7 @@ ICONS = {
     "datamart.PartnerAssessment": "rule",
     "datamart.PSEAAssessment": "shield",
     "datamart.ActionPoint": "task_alt",
+    "datamart.ActionPointStatus": "history",
     "datamart.TPMVisit": "travel_explore",
     "datamart.MonitoringFinding": "visibility",
     "datamart.HACTAggregate": "insights",

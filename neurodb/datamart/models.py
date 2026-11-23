@@ -312,6 +312,47 @@ class ActionPoint(DatamartRecord):
         return (self.status or "").strip().lower() in self.OPEN_STATUSES
 
 
+class ActionPointStatus(models.Model):
+    """The action point history, kept by NeuroDB from the day it started (``datamart.ap_history``): one row
+    for an eTools action point on each day its recorded state changed. The first row is the day NeuroDB first
+    saw the point; then a row only on a day its status, priority, due date or completion date changed, or it
+    left the Datamart (``in_datamart`` false, with its last known values), or came back. A second change the
+    same day updates that day's row. Counts, dates, references and statuses only: no text and no names (no
+    description, assignee, partner name or place name), so that later analyses can see how long points take
+    to close and how often they reopen. Written after every Datamart sync that refreshed the action points,
+    and by the job ``ap_history``; never deleted."""
+
+    source_id = models.BigIntegerField(help_text="the action point's id in eTools, which lasts")
+    day = models.DateField(db_index=True, help_text="the day this state was recorded")
+    in_datamart = models.BooleanField(
+        default=True, help_text="no on the day the Datamart stopped returning the action point"
+    )
+    status = models.CharField(max_length=30, blank=True)
+    high_priority = models.BooleanField(default=False)
+    due_date = models.DateField(null=True, blank=True)
+    date_of_completion = models.DateTimeField(null=True, blank=True)
+    related_module = models.CharField(max_length=64, blank=True, help_text="audit, tpm, fm, t2f, ...")
+    section = models.CharField(max_length=64, blank=True)
+    engagement_source_id = models.BigIntegerField(null=True, blank=True, help_text="the audit's eTools id")
+    tpm_activity_source_id = models.BigIntegerField(
+        null=True, blank=True, help_text="the TPM activity's eTools id"
+    )
+    intervention = _intervention("+")
+    partner = _partner("+")
+
+    class Meta:
+        ordering = ("-day", "source_id")
+        constraints = [
+            models.UniqueConstraint(fields=["source_id", "day"], name="datamart_apstatus_point_day")
+        ]
+        verbose_name = "action point status"
+        verbose_name_plural = "action point history"
+
+    def __str__(self):
+        state = self.status if self.in_datamart else "no longer in the Datamart"
+        return f"{self.source_id} {self.day:%Y-%m-%d} {state}"
+
+
 class TPMVisit(DatamartRecord):
     """A third-party monitoring (TPM) visit."""
 
