@@ -31,7 +31,10 @@ def test_activityinfo_is_not_measured(hierarchy):
     result = readiness.measure(datetime.date(2026, 10, 1))
     assert {s["key"] for s in result["sections"]}.isdisjoint(readiness.ARCHIVE_SECTIONS)
     assert set(_metrics(result)).isdisjoint(readiness.ARCHIVE_METRICS)
-    assert {v["key"] for v in result["verdicts"]} == {"coverage", "review_list"}
+    assert {v["key"] for v in result["verdicts"]} == {
+        "coverage", "review_list",  # the decisions a model could support
+        "unusual", "themes", "change", "follow_up", "before_after", "value_for_money",  # analyses for later
+    }  # fmt: skip
 
 
 def test_checks_and_statuses():
@@ -46,7 +49,7 @@ def test_checks_and_statuses():
 
 def test_the_job_records_the_result_and_a_failing_source_marks_it_partial(db, monkeypatch):
     result = run("test")
-    assert result.status == SyncRun.Status.SUCCEEDED and len(result.details["readiness"]["verdicts"]) == 2
+    assert result.status == SyncRun.Status.SUCCEEDED and len(result.details["readiness"]["verdicts"]) == 8
 
     def broken(section, today):
         raise RuntimeError("table missing")

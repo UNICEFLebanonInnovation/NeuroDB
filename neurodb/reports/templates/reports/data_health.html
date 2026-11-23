@@ -6,7 +6,9 @@ placeholder below is filled by a request of its own, each block its own computat
 is kept here, around the placeholders, so it is the same before and after a part arrives.
 Each placeholder keeps the room of what it will hold, as measured on the x20 parity world (scripts/parity): height
 where the page is wide, height_md on a tablet or a narrow window (app.css says at which widths) where the readiness
-verdicts stack, height_sm on a phone; the readiness check as it reads once it has run (every Monday). The jobs' placeholder draws one grey card per job in the cards' own grid
+verdicts stack, height_sm on a phone; the readiness check as it reads once it has run (every month), with its
+analyses for later closed and no earlier check to compare with (their list added 296.4, 316.1 and 470.8 px at those
+widths, measured in Chrome on the same check drawn before and after; light and dark alike). The jobs' placeholder draws one grey card per job in the cards' own grid
 (app.css, stage A), so its rows wrap as the cards will at any width. The datasets panel's heading and explanation
 (longer for an administrator, whose copy links to the reporting checks) are drawn here: their text wraps at its own
 widths, which no placeholder height could follow. The part holds the table, which scrolls inside 560 px, under its
@@ -29,7 +31,7 @@ failed.{% endcomment %}
   <p class="small text-muted px-3 mb-2">{% trans "Power BI's Makani, Dirasa and Youth dashboards read three views of Compiler's database (vw_mscc_data, vw_bridging_data, vw_youth_data_all). Compiler counts the rows of these views when it can, else its own rule; per programme and period: how it counted, the view's registrations, what NeuroDB counted, the difference and why, and what NeuroDB counted before this change. Counts only." %}{% if user_role == "Administrator" %} <a href="{% url 'admin:education_powerbicard_changelist' %}">{% trans "Choose card definitions" %}</a> · <a href="{% url 'admin:education_powerbiview_changelist' %}">{% trans "View definitions" %}</a>: {% trans "type the numbers Power BI shows, pick the version that gives them, and read the views' masked definitions." %}{% endif %}</p>
   <div class="px-3 pb-1">{% part "power-bi" kind="table" priority="low" height="420px" %}</div>
 </section></div>
-<div class="mt-3">{% part "readiness" kind="card" priority="low" height="546.5px" height_md="859.4px" height_sm="1431.6px" %}</div>
+<div class="mt-3">{% part "readiness" kind="card" priority="low" height="842.9px" height_md="1175.5px" height_sm="1902.4px" %}</div>
 {% endblock %}
 {% block scripts %}<script nonce="{{ request.csp_nonce }}">
   // Printed or saved as PDF: each period's details of Compared with Power BI print open (looked up when printing

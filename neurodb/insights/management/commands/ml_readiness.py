@@ -38,4 +38,8 @@ class Command(BaseCommand):
             for c in v["checks"]:
                 mark = "ok " if c["ok"] else ("?  " if c["ok"] is None else "no ")
                 self.stdout.write(f"{'':>15}{mark}{c['text']}")
+            if v.get("reason"):
+                self.stdout.write(f"{'':>15}{v['reason']}")
+            if v.get("when"):
+                self.stdout.write(f"{'':>15}Could be ready {v['when']}.")
         exit_on_failure(write_summary(self, [result]))

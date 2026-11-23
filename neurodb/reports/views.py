@@ -3545,12 +3545,27 @@ def data_health(request: HttpRequest) -> HttpResponse:
 
 def _readiness() -> dict[str, Any]:
     """The last machine learning readiness check, as Data health shows it (without the ActivityInfo archive:
-    :func:`neurodb.insights.readiness.shown`)."""
+    :func:`neurodb.insights.readiness.shown`), its verdicts split into the decisions a model could support and
+    the analyses for later, and what changed since the check before it (``since``:
+    :func:`neurodb.insights.readiness.since`). The two latest checks come in one query, as
+    ``SyncRun.last_success`` reads the latest."""
     from neurodb.insights import readiness
 
-    run = SyncRun.last_success(SyncRun.Job.ML_READINESS)
-    result = readiness.shown((run.details or {}).get("readiness")) if run else None
-    return {"readiness": run, "result": result}
+    runs = list(
+        SyncRun.objects.filter(
+            job=SyncRun.Job.ML_READINESS, status__in=[SyncRun.Status.SUCCEEDED, SyncRun.Status.PARTIAL]
+        ).order_by("-finished_at")[:2]
+    )
+    checks = [readiness.shown((run.details or {}).get("readiness")) for run in runs]
+    result = checks[0] if checks else None
+    found = (result or {}).get("verdicts") or []
+    return {
+        "readiness": runs[0] if runs else None,
+        "result": result,
+        "decisions": [v for v in found if v.get("group", "decision") == "decision"],
+        "later": [v for v in found if v.get("group") == "later"],
+        "since": readiness.since(checks[1], result) if len(checks) > 1 else None,
+    }
 
 
 def _power_bi_health() -> list[dict[str, Any]]:

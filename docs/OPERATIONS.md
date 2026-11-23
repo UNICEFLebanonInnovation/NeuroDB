@@ -1033,10 +1033,19 @@ Changes are kept (admin → *Knowledge hub changes*); a year of them is a few te
 
 ### Ready for machine learning? (Data health)
 
-Before any model is built, the job `ml-readiness` (`ml_readiness`, every Monday 06:45; *Run a job →
-Machine learning readiness* for now) measures what each source really holds and shows it at the bottom
-of the Data health page (its last block, the part `readiness`, loaded after the others: see *Data
-health loads in parts*). Counts only: nothing is predicted and nothing leaves NeuroDB.
+Before any model is built, the job `ml-readiness` (`ml_readiness`, on the 1st of each month at 06:45; *Run
+a job → Machine learning readiness* at any time) measures what each source really holds and shows it at the
+bottom of the Data health page (its last block, the part `readiness`, loaded after the others: see *Data
+health loads in parts*). Counts, dates and statuses only: nothing is predicted, nothing leaves NeuroDB, and no
+person (no focal point, assignee, author, auditor, traveller or verifier) nor any free text (narratives,
+descriptions, comments, notes) is read into the check. Each run is recorded as a sync run (`SyncRun`, job
+`ml_readiness`) holding the whole check (`details["readiness"]`).
+
+**The schedule.** Core migration `0034_ml_readiness_monthly` made the schedule monthly (`45 6 1 * *`): it
+changes the `ml-readiness` row only while it still reads as core 0014 wrote it (`45 6 * * 1`, Mondays) and is
+switched on, makes one when no schedule runs `ml_readiness`, and never adds a second one. A schedule an
+administrator changed or switched off is kept. The scheduler plans the next run on its next pass (the 1st of
+the next month); nothing starts at deployment. To change the day or the time: *Scheduled jobs → ml-readiness*.
 
 | Source | What is measured |
 |---|---|
@@ -1044,6 +1053,8 @@ health loads in parts*). Counts only: nothing is predicted and nothing leaves Ne
 | Assurance and monitoring | partners with a HACT rating; assessments, audits and spot checks; action points no longer open, by status; programmatic visits |
 | Daily review | days run; findings resolved; findings people took on |
 | Context | latest population figures by level; Compiler years and periods; days of the change log |
+| How the sources link up | the share of each source's rows that carry a link, "x of y": field monitoring findings linked to a programme document (with how it was found, `MonitoringFinding.pd_match`: the same reference, the same PCA and PD numbers, the same number without its amendment, the same title among the partner's PDs; not linked) and to a partner; Monitoring insights records about a PD linked to it (`VisitEntity.pd_match`, likewise) and visits with a PD; action points linked to a PD, to a partner, and, of those raised from an audit or spot check (an engagement id or the module "audit"), to their engagement; audits, special audits and spot checks linked to a PD (eTools' list of the PDs; micro-assessments left out); funds reservation lines linked to a PD; running PD indicators in a master indicator (`masters.homes`: a confirmed link to an active master not switched off this year); master indicators bringing together 10 or more running PDs |
+| What arrives each year | per calendar year, from the first year present to this one ("so far" for this year), each by the rule of its page: partner reports sent (submitted or accepted, `monitoring.pending_q`), each once by `reporting.REPORT_KEY`, by the year their period ended, per report type; audits, special audits, spot checks and micro-assessments (Assurance's year: the year audited, else the start date's); audit findings (their date); field monitoring visits (`fm.visits_by_year`) and findings (start date, else end date); TPM visits done (reported or approved, by start date); action points raised (eTools' created date, as the action points page) and completed (completed, closed or resolved, by completion date); PME verifications (every decision), the first one's date, the action points PME verified or rejected and how many in the last 12 months. Also: the first reporting period held; the accepted values a typical running PD indicator has (the median over the running PD indicators, those with none included; a value is one report UNICEF accepted, found by the indicator's eTools id, else its title in its PD) and the quarters they cover; the days of action point history kept (the datamart model `ActionPointStatus`, a status per action point and day: *Not kept yet* while that model is missing or empty); last year's visits and audits on a PD (field monitoring, TPM activities, audits and spot checks; one per PD and day) with an accepted value of that PD in the 180 days before and in the 180 days after |
 
 The ActivityInfo archive is not measured: it is no longer a source. A check stored before, with its ActivityInfo
 sources and the decisions that rested on them, is shown without them.
@@ -1058,6 +1069,30 @@ checks pass:
 
 The first model is chosen from these results with the programme teams; a check that fails says what
 to improve first (for example, PD locations in eTools).
+
+**Analyses for later.** Below the two decisions, *Analyses for later* gives a verdict for each analysis the
+programme may want one day: one row each, which opens to its checks, a plain reason when it is not ready (the
+first failing check's) and, when every failing check can be dated from the data's pace, about when it could be
+ready. A year below is the last full calendar year. Thresholds (in `neurodb/insights/readiness.py`, at the top,
+to be discussed and changed there):
+
+| Analysis | Needs | About when |
+|---|---|---|
+| Unusual results across comparable PDs | 5 master indicators bringing together 10 or more running PDs (`COMPARABLE_GROUPS`, `PDS_PER_GROUP`); 50% of running PD indicators in a master indicator (`MASTER_LINKED`); a typical running PD indicator with 4 accepted values (`VALUES_PER_INDICATOR`) | never for the links: they wait on people confirming them |
+| Recurring findings grouped into themes (partly ready with either source) | 100 field monitoring findings a year (`THEME_FM_FINDINGS`); 30 audit findings a year (`THEME_AUDIT_FINDINGS`) | next January, when this year's count so far, at its pace, reaches the threshold (said only after a quarter of the year, `PACE_YEAR_SHARE`) |
+| Change over time | 6 accepted values (`CHANGE_VALUES`) over 6 quarters (`CHANGE_QUARTERS`) for a typical running PD indicator | from the values' pace (values per quarter) and one more quarter each quarter |
+| Which follow-ups work | 100 action points PME verified or rejected (`FOLLOW_UP_VERIFIED`); 365 days of action point history (`FOLLOW_UP_HISTORY_DAYS`); 100 action points completed a year (`FOLLOW_UP_COMPLETED`) | from the last 12 months' verifications; the history from the days it still lacks (none while it is not kept) |
+| Before and after a visit or an audit | 20 visits and audits a year with accepted values before and after (`BEFORE_AFTER_EVENTS`, within `BEFORE_AFTER_DAYS` = 180 days each side); a typical running PD indicator with 5 accepted values (`BEFORE_AFTER_VALUES`) | from the values' pace only |
+| Value for money | spending per programme document, which NeuroDB does not hold: funds reserved and disbursed are not spending | never: always *Not yet* |
+
+A check stored before these analyses were measured shows without them (`readiness.shown`): no verdict is made
+from measures it does not have.
+
+**Since the last check.** Under the verdicts, Data health compares the latest check with the one before it (the
+two latest succeeded or partial runs, read in one query): the headline measures whose value changed
+(`readiness.HEADLINE`) and the verdicts whose status changed, with the earlier check's date. A measure or verdict
+only one of the two holds is not compared. With one check only, nothing is shown. *Every measure, per source*
+lists all of them; a yearly measure reads "2025: 41 · 2026 so far: 9" and wraps on a phone.
 
 ### Year-end forecasts (`/insights/forecasts/`, the first model)
 
@@ -1472,7 +1507,7 @@ command on one schedule, in **Beirut time** (summer time is followed automatical
 | `knowledge-hub` | `build_knowledge_hub` | `0 7 * * *`, daily 07:00: reads new library and CPD documents, then rebuilds the knowledge hub (it is also rebuilt after every sync) |
 | `whats-new` | `whats_new_digest` | `30 7 * * *`, daily 07:30: the what's new notes, emailed to who asked |
 | `watch` | `run_watch --daily` | `45 7 * * *`, daily 07:45: NeuroDB Watch's morning pass, the *For you* pages (see NeuroDB Watch); a quick pass also follows new data |
-| `ml-readiness` | `ml_readiness` | `45 6 * * 1`, Mondays 06:45: is the data ready for machine learning (Data health) |
+| `ml-readiness` | `ml_readiness` | `45 6 1 * *`, the 1st of each month at 06:45 (weekly on Mondays until core 0034): is the data ready for machine learning, and for the analyses for later (Data health) |
 | `forecast` | `forecast_indicators` | `15 7 * * 1`, Mondays 07:15: year-end forecasts of the indicators, back-tested |
 | `reporting-checks` | `reporting_checks` | `15 2 * * *`, daily 02:15, after the eTools Datamart sync, and due at once after the deployment that adds it (when the previous container's scheduler, which does not know the command, sees it first, the new release's scheduler starts it as soon as it takes over): the eTools reporting checks, stored for their page (see eTools reporting checks); the release that adds check 12 makes it due a quarter of an hour after its migration, so its checks replace the previous release's result soon; also *Run the checks now* on the page and *Run a job → eTools reporting checks* |
 | `etools-masters` | `suggest_master_indicators` | `40 2 * * *`, daily 02:40, after the 20:30 eTools Datamart sync and the 02:15 reporting checks, and due at once after the deployment that adds it: suggests the partners' PD indicators for the eTools master indicators and proposes new ones (see *eTools master indicators*); nothing counts until someone confirms it; also *Suggest now* on the masters' admin list and *Run a job → eTools master indicators* |
@@ -2809,7 +2844,7 @@ with its *Stale after N hours* note. Each block is its own computation and comes
 | `runs` | The latest 50 runs of every job but the archive's (the administration's *Import and sync runs* lists those) | When near the screen |
 | `datasets` | This table, the eTools Datamart datasets, under its *Copy* and *CSV* buttons, which come with it (never offered before the table is there, nor beside an error); its heading and explanation (with the link to the reporting checks for administrators) are in the frame, so the placeholder keeps the room of the table and its buttons at any width | After the visible ones |
 | `power-bi` | *Compared with Power BI*: per Compiler programme (Makani, Dirasa, youth) its latest periods compared with the view Power BI reads, counts only (see *Education programmes*, *Compared with Power BI*); its heading and explanation, with the links to the card versions and the view definitions for administrators, are in the frame | After the visible ones |
-| `readiness` | *Ready for machine learning?*, the last readiness check | After the visible ones |
+| `readiness` | *Ready for machine learning?*, the last readiness check: its two decisions, its *Analyses for later* (one row each, closed) and *Since the last check* (from the second check on); the two latest checks are read in one query. Its placeholder keeps 842.9 px, 1,175.5 px where its cards stack and 1,902.4 px on a phone (the room measured before, plus what the analyses for later added: 296.4, 316.1 and 470.8 px) | After the visible ones |
 
 Print Data health or save it as PDF from the browser: every table (runs, datasets, *Compared with Power BI*)
 prints whole, wrapping between words (a figure or a word breaks only when it cannot fit at all, so

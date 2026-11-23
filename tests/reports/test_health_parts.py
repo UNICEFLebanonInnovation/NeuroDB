@@ -237,7 +237,8 @@ def test_the_placeholders_carry_the_resolved_query(client_viewer, world):
     # the datasets table, which scrolls inside 560 px at every width, under its Copy and CSV buttons (39 px; its
     # panel's text is the frame's)
     assert found["datasets"]["style"] == "--part-h: 599px"
-    assert found["readiness"]["style"] == "--part-h: 546.5px; --part-h-sm: 1431.6px; --part-h-md: 859.4px"
+    # the readiness check with its analyses for later (closed): 296.4, 316.1 and 470.8 px more than before
+    assert found["readiness"]["style"] == "--part-h: 842.9px; --part-h-sm: 1902.4px; --part-h-md: 1175.5px"
 
 
 @pytest.mark.shell

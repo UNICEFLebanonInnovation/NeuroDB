@@ -275,6 +275,7 @@ schedules as they are now.
 | What's new note | Every day at 07:30 |
 | NeuroDB Watch (For you) | Every day at 07:45, and shortly after new data arrives |
 | Compiler figures (youth, education, Makani wellbeing) | Every night, once Compiler is set up |
+| Machine learning readiness check (Data health) | The 1st of each month at 06:45 |
 
 The **Data health** page (user menu, or *Resources* in the full menu) shows when each source last synced and which
 runs failed. It opens at once (see [Pages that open at once](/help/overview/#pages-that-open-at-once)):
@@ -282,3 +283,44 @@ the sync jobs fill in first, then the latest runs, then the eTools
 datasets, each saying when the Datamart's answer was limited and how NeuroDB read it whole (or removed
 nothing), *Compared with Power BI* and the machine learning readiness check. Pages show the date of their data next to every status ("On track · reported for Jun
 2026", "status as of 3 Oct 2026").
+
+## Ready for machine learning?
+
+At the bottom of **Data health**, NeuroDB checks whether its data could support machine learning. It only
+counts. Nothing is predicted, and nothing leaves NeuroDB. No names and no written text are used: counts, dates
+and statuses only. The check runs by itself on the 1st of each month. An administrator can also run it at any
+time: *Run a job → Machine learning readiness*.
+
+It measures:
+
+- **What each source holds**: programme documents and their indicators, partner reports, assurance, the daily
+  review, and population and Compiler figures.
+- **How the sources link up**: for each source, the share of its rows linked to a programme document, a partner
+  or an audit. For field monitoring it also says how the programme document was found (the same reference, the
+  same PCA and PD numbers, the same number without its amendment, or the same title among the partner's PDs).
+- **What arrives each year**: partner reports sent, by type; audits, special audits, spot checks and
+  micro-assessments; field monitoring visits and findings; TPM visits; action points raised and completed;
+  and PME verifications. Each is counted the way its own page counts it. The current year reads "so far".
+- **Accepted values**: how many values a typical running PD indicator has in reports UNICEF accepted, and how
+  many quarters they cover.
+- **The action point history**: how many days of each action point's status NeuroDB has kept. It reads *Not
+  kept yet* until NeuroDB keeps it.
+
+Each question gets a verdict:
+
+- **Ready**: every check passes.
+- **Partly ready**: the main checks pass, but not all of them.
+- **Not yet**: a main check fails, or most checks do.
+
+The two cards are decisions a model could support now. **Analyses for later** lists six analyses the programme
+may want one day: unusual results compared with similar programme documents; problems that keep coming back in
+field monitoring and audits; how results change over time; which follow-ups get done and stay done; whether
+results change after a visit or an audit; and what a result costs. Open one to see its checks and why it is not
+ready yet. When the data's pace allows it, it also says about when it could be ready. Nothing is built yet: a
+verdict only says whether the data would be enough.
+
+What a result costs always reads *Not yet*: NeuroDB holds no spending per programme document. Funds reserved
+and disbursed are not spending. They show money set aside and paid to the partner, not what it was spent on.
+
+**Since the last check** lists what changed since the check before: the main counts, and any verdict that
+moved. Read it after each monthly check to see progress.
