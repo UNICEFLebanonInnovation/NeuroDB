@@ -1,6 +1,8 @@
 {% load i18n ui %}
-{% if data.visit or drills %}
+{% if data.visit or drills or pd_filter %}
 <div class="chips mb-2" aria-label="{% trans 'More filters' %}">
+  {% if pd_filter %}<span class="chip chip--removable">{% blocktrans with numbers=pd_filter|join:", " %}Programme document {{ numbers }}{% endblocktrans %}
+    <a href="?{% qs_replace pd=None page=None %}" class="chip__remove" aria-label="{% trans 'Show the action points of every programme document' %}">&times;</a></span>{% endif %}
   {% if data.visit %}<span class="chip chip--removable">{% blocktrans with label=data.visit.label %}From {{ label }}{% endblocktrans %}
     <a href="?{% qs_replace visit=None page=None %}" class="chip__remove" aria-label="{% trans 'Show the action points of every visit' %}">&times;</a></span>{% endif %}
   {% for d in drills %}<span class="chip chip--removable">{{ d.label }}

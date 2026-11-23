@@ -1,0 +1,38 @@
+{% load i18n ui %}{% comment %}Open action points and the timeline (part "follow-up", reports.views.programme_detail and partner_profile;
+figures from neurodb.datamart.timeline.follow_up). The three counts link to the Action points page filtered to
+exactly those points, and are that page's own count of them. The timeline lists dates, kinds, short labels,
+references and statuses only: no person, no firm, no partner's or monitor's text. Each reference is a plain link to
+the page where the detail lives (the quick view opens it). What the list leaves out is always said. Context:
+follow_up (subject, pd, partner, heading, points, timeline, history_since).{% endcomment %}
+{% with f=follow_up t=follow_up.timeline %}
+<section class="follow-up{% if f.subject == 'partner' %} panel mb-3{% else %} mt-3{% endif %}" id="follow-up" aria-labelledby="follow-up-title">
+  {% if f.subject == "partner" %}<div class="panel__header"><h2 class="panel__title" id="follow-up-title">{% trans "Open action points and timeline" %}</h2></div>
+  {% else %}<h3 class="h6" id="follow-up-title">{% trans "Open action points and timeline" %}</h3>{% endif %}
+  <div class="kpi-grid mb-2">
+    {% for p in f.points %}{% if p.key == "overdue" and p.count %}{% include "components/kpi_tile.html" with label=p.label value=p.count|number href=p.url status="off_track" %}{% else %}{% include "components/kpi_tile.html" with label=p.label value=p.count|number href=p.url %}{% endif %}{% endfor %}
+  </div>
+  <p class="small text-muted">{% if f.subject == "pd" %}{% trans "The action points of this programme document in eTools." %}{% else %}{% trans "The action points of this partner in eTools." %}{% endif %} {% trans "Each number opens the Action points page with exactly these points." %}</p>
+  <h{{ f.heading|add:1 }} class="follow-up__title">{% trans "Timeline" %}</h{{ f.heading|add:1 }}>
+  <p class="small text-muted mb-1">{% if f.subject == "pd" and f.pd %}{% trans "Status in eTools now:" %} {% status_pill f.pd.status|default:"unknown" f.pd.status|default:_("Unknown")|capfirst "sm" %} · {% endif %}{% if t.show_all %}{% if t.cut %}{% blocktrans with shown=t.shown chosen=t.chosen %}The {{ shown }} latest of all {{ chosen }} events are listed, newest first.{% endblocktrans %}{% else %}{% trans "Every event, newest first." %}{% endif %} <a href="{{ t.recent_url }}">{% blocktrans with n=t.months %}Show the last {{ n }} months only{% endblocktrans %}</a>{% elif t.cut %}{% blocktrans with shown=t.shown chosen=t.chosen n=t.months %}The {{ shown }} latest of the {{ chosen }} events of the last {{ n }} months are listed, newest first.{% endblocktrans %}{% else %}{% blocktrans with since=t.since|date:"j M Y" count counter=t.chosen %}{{ counter }} event since {{ since }}, newest first.{% plural %}{{ counter }} events since {{ since }}, newest first.{% endblocktrans %}{% endif %}{% if t.cut %} {% blocktrans count counter=t.cut %}{{ counter }} more is not listed: open the lists below for every record.{% plural %}{{ counter }} more are not listed: open the lists below for every record.{% endblocktrans %}{% endif %}</p>
+  {% if t.older %}<p class="small mb-1">{% blocktrans count counter=t.older %}{{ counter }} older event is not listed.{% plural %}{{ counter }} older events are not listed.{% endblocktrans %} <a href="{{ t.all_url }}">{% trans "Show older" %}</a></p>{% endif %}
+  {% for g in t.groups %}
+  <h{{ f.heading|add:2 }} class="timeline__year">{{ g.year }}</h{{ f.heading|add:2 }}>
+  <ol class="timeline">
+    {% for e in g.entries %}<li class="timeline__item" data-kind="{{ e.kind }}">
+      <time class="timeline__date" datetime="{{ e.day|date:'Y-m-d' }}">{{ e.day|date:"j M Y" }}</time>
+      <div class="timeline__body"><span class="timeline__kind">{{ e.kind_label }}</span> <span class="timeline__label">{{ e.label }}</span>{% if e.status_label %} {% status_pill e.status|status_key e.status_label "sm" %}{% endif %}
+        <div class="timeline__refs">{% if e.url %}<a class="mono" href="{{ e.url }}">{{ e.reference|default:_("Details") }}</a>{% else %}<span class="mono">{{ e.reference|default:"—" }}</span>{% endif %}{% if e.pd and e.pd != e.reference %} · <span class="mono">{{ e.pd }}</span>{% endif %}</div>
+      </div>
+    </li>{% endfor %}
+  </ol>
+  {% empty %}
+  <p class="small text-muted">{% trans "Nothing dated to list yet." %}</p>
+  {% endfor %}
+  <ul class="small text-muted follow-up__notes">
+    {% if t.undated %}<li>{% blocktrans count counter=t.undated %}{{ counter }} record has no date in eTools and is not listed.{% plural %}{{ counter }} records have no date in eTools and are not listed.{% endblocktrans %}</li>{% endif %}
+    <li>{% if f.history_since %}{% blocktrans with since=f.history_since|date:"j M Y" %}Changes to action points (status, priority, due date) are listed from {{ since }}, when NeuroDB started recording them.{% endblocktrans %}{% else %}{% trans "The action point history starts from the day NeuroDB first records it: no change is listed yet." %}{% endif %}</li>
+    <li>{% trans "Amendments are not listed: NeuroDB does not hold their dates." %}</li>
+    <li>{% trans "Dates, references and statuses only. Open a reference for its details." %} {% if f.subject == "pd" and f.pd.number %}{% trans "Every record:" %} <a href="{% url 'reports:partner_reporting' %}?pd={{ f.pd.number|urlencode }}&amp;pd_status=">{% trans "progress reports" %}</a>, <a href="{% url 'reports:action_points' %}?pd={{ f.pd.id }}">{% trans "action points" %}</a>.{% elif f.subject == "partner" %}{% trans "Every record:" %} <a href="{% url 'reports:partner_reporting' %}?partner={{ f.partner.id }}&amp;pd_status=">{% trans "progress reports" %}</a>, <a href="{% url 'reports:action_points' %}?partner={{ f.partner.id }}">{% trans "action points" %}</a>.{% endif %}</li>
+  </ul>
+</section>
+{% endwith %}

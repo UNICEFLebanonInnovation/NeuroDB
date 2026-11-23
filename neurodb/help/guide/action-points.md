@@ -14,6 +14,9 @@ visit's reference or an eTools activity id), status, *Raised from* (module), sec
 and *Show only* overdue, high priority or field monitoring. On your first visit you see your section's
 action points; *Reset* comes back to it, and clearing the Section filter shows every one.
 
+A programme document's page links here with its own action points only. That filter shows as a chip at the
+top of the list (*Programme document* and its reference); its × removes it.
+
 ## Columns
 
 Reference and description, partner and programme document, office and section, who it is assigned to

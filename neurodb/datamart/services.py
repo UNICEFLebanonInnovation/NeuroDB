@@ -269,11 +269,7 @@ def programme_datamart(pd: PCA, today: datetime.date | None = None) -> dict[str,
     # its progress reports, with PRP's reports still owed once their link is proven: the 12 latest listed, all
     # of them counted by status (the latest are often not yet due: the overdue ones are older), as the
     # partner page counts its own
-    reports = _with_owed(
-        progress_reports(pd.reported_indicators.all()),
-        reporting.ReportFilters(pds=[pd.number], pd_statuses=[]),
-        today,
-    )
+    reports = pd_progress_reports(pd, today)
     return {
         "fr_lines": lines,
         **_fr_totals(pd, lines),
@@ -289,6 +285,29 @@ def programme_datamart(pd: PCA, today: datetime.date | None = None) -> dict[str,
         "latest_progress": latest_progress(pd, rows=monitoring["rows"]),
         "monitoring": monitoring,
     }
+
+
+def pd_progress_reports(pd: PCA, today: datetime.date | None = None) -> list[dict[str, Any]]:
+    """A programme document's progress reports as its page lists them (``progress_reports``), with PRP's
+    reports still owed once their link is proven: the page's reporting list and its timeline read this."""
+    return _with_owed(
+        progress_reports(pd.reported_indicators.all()),
+        reporting.ReportFilters(pds=[pd.number], pd_statuses=[]),
+        today,
+    )
+
+
+def partner_progress_reports(partner: PartnerOrganization) -> list[dict[str, Any]]:
+    """A partner's progress reports as the Progress reports page reads them for the partner (its "All
+    reports" link: ``?partner=<id>&pd_status=``): by the partner link, every PD status but draft and
+    cancelled, never a report that names no PD, with PRP's reports still owed of the partner's programme
+    documents once their link is proven. The partner page's reporting figures and its timeline read this."""
+    reported = partner.reported_indicators.exclude(
+        intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP
+    ).exclude(reporting.NO_PD)
+    return _with_owed(
+        progress_reports(reported), reporting.ReportFilters(partners=[str(partner.pk)], pd_statuses=[])
+    )
 
 
 def _with_owed(
@@ -370,17 +389,9 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
     visits: dict[int, int] = defaultdict(int)
     for day in staff_visits.filter(travel_type__icontains="programmatic").values_list("date", flat=True):
         visits[day.year] += 1
-    # the partner's progress reports as the Progress reports page reads them for the partner (its
-    # "All reports" link: ``?partner=<id>&pd_status=``): by the partner link, every PD status but
-    # draft and cancelled, never a report that names no PD; read once for the summary, the list and
-    # the chart
-    reported = partner.reported_indicators.exclude(
-        intervention__status__in=pd_statuses.NOT_A_PARTNERSHIP
-    ).exclude(reporting.NO_PD)
-    # with PRP's reports still owed of the partner's programme documents, once their link is proven
-    reports = _with_owed(
-        progress_reports(reported), reporting.ReportFilters(partners=[str(partner.pk)], pd_statuses=[])
-    )
+    # the partner's progress reports as the Progress reports page reads them for the partner, with PRP's
+    # reports still owed (partner_progress_reports): read once for the summary, the list and the chart
+    reports = partner_progress_reports(partner)
     return {
         "assessments": list(
             dm.PartnerAssessment.objects.filter(partner=partner).order_by("-completed_date")[:20]
@@ -785,6 +796,8 @@ def action_point_filters(params) -> dict[str, Any]:
         "offices": _getlist(params, "office"),
         "sections": _getlist(params, "section"),
         "partners": [int(p) for p in _getlist(params, "partner") if p.isdigit() and len(p) <= 18],
+        # a programme document's own action points, by the PD link (its page's open points link here)
+        "pds": [int(p) for p in _getlist(params, "pd") if p.isdigit() and len(p) <= 18],
         "q": (params.get("q") or "").strip()[:200],
         "assignee": (params.get("assignee") or "").strip()[:100],
         "changed_from": _date_param(params.get("changed_from")),
@@ -830,6 +843,8 @@ def filtered_action_points(params, today: datetime.date | None = None) -> tuple[
         points = points.filter(section__in=f["sections"])
     if f["partners"]:
         points = points.filter(partner_id__in=f["partners"])
+    if f["pds"]:
+        points = points.filter(intervention_id__in=f["pds"])
     if f["assignee"]:
         points = points.filter(assigned_to_name__icontains=f["assignee"])
     if f["changed_from"]:

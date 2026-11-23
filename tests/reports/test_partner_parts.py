@@ -185,7 +185,8 @@ def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, wor
     assert f"<title>{world[who].name}" in html and ">Partners</a>" in html  # the header and its crumbs
     assert ("marked as deleted in eTools" in html) == (who == "deleted")
     assert ("In Documents" in html and "Amel field report" in html) == (who == "amel")
-    assert list(placeholders(html)) == ["datamart"]
+    # the figures, then open action points and the timeline
+    assert list(placeholders(html)) == ["datamart", "follow-up"]
     assert f'id="{DATAMART_JSON}"' not in html and 'id="chart-data"' not in html
     before, after = html.split('id="sidebar"', 1)
     page = before + after.split("</nav>", 1)[1]  # the menu's own "Partner reporting (Results)" left out
@@ -197,7 +198,7 @@ def test_the_frame_answers_with_every_figure_service_refusing(client_viewer, wor
 def test_the_placeholder_carries_the_page_address_and_keeps_its_room(client_viewer, world):
     amel = world["amel"]
     found = placeholder_attributes(text(client_viewer.get(_url(amel))))
-    assert list(found) == ["datamart"]
+    assert list(found) == ["datamart", "follow-up"]
     attrs = found["datamart"]
     assert attrs["hx-get"] == f"{_url(amel)}?_part=datamart"  # no filter on this page: nothing else to carry
     assert (attrs["data-part-priority"], attrs["class"]) == ("high", "part part--tiles")
@@ -337,8 +338,9 @@ def test_nothing_is_stored_and_the_frame_never_draws_figures(client_viewer, worl
     url = _url(world["amel"])
     get_part(client_viewer, url, "datamart")
     get_part(client_viewer, url, "fmm")
+    get_part(client_viewer, url, "follow-up")
     assert not caches["shared"]._cache  # LocMem in the tests: nothing went in
-    assert list(placeholders(text(raw_get(client_viewer, url)))) == ["datamart"]
+    assert list(placeholders(text(raw_get(client_viewer, url)))) == ["datamart", "follow-up"]
 
 
 def test_an_edit_in_the_admin_shows_at_once(client, admin_user, world):
@@ -372,7 +374,7 @@ def test_the_assembled_page_is_the_eager_page(client, admin_user, viewer, world,
     client.force_login(admin_user if user == "admin" else viewer)
     url = _url(world[who])
     assembled = assemble(client, url)
-    expected = ["datamart", "fmm"] if who == "amel" and fmm_on else ["datamart"]
+    expected = ["datamart", "fmm", "follow-up"] if who == "amel" and fmm_on else ["datamart", "follow-up"]
     assert list(assembled.parts) == expected
     assert all(response.status_code == 200 for response in assembled.parts.values())
     drawn = eager(client, url)

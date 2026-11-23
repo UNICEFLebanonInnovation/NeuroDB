@@ -1,4 +1,4 @@
-{% load i18n ui %}
+{% load i18n ui parts %}
 <dl class="row small mb-3">
   <dt class="col-sm-4 text-muted">{% trans "Partner" %}</dt><dd class="col-sm-8">{% if pd.partner %}<a href="{% url 'reports:partner_profile' pd.partner.id %}">{{ pd.partner_name|default:pd.partner.name }}</a>{% else %}{{ pd.partner_name|default:"—" }}{% endif %}</dd>
   <dt class="col-sm-4 text-muted">{% trans "Type" %}</dt><dd class="col-sm-8">{{ pd.document_type|default:"—" }}</dd>
@@ -81,3 +81,6 @@
   {% for a in datamart.action_points %}<li class="mb-1">{% status_pill a.status|status_key a.status|code_label "sm" %}{% if a.overdue %} {% trans "Overdue" as overdue_label %}{% status_pill "off_track" overdue_label "sm" %}{% endif %} <span class="mono">{{ a.reference_number }}</span> {{ a.description|truncatechars:110 }}{% if a.due_date %} · {% trans "due" %} {{ a.due_date|date:"j M Y" }}{% endif %}</li>{% endfor %}
 </ul>
 {% endif %}
+{% comment %}Open action points and the timeline: a part of its own, loaded after the page (part "follow-up",
+reports.views.programme_detail), in the page and in its pop-up alike.{% endcomment %}
+{% part "follow-up" kind="list" priority="low" anchors="follow-up" %}

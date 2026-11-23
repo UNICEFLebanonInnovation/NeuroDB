@@ -293,6 +293,8 @@ documents* (the list), *Indicators*, *Funded programme summary info* and *Funded
   the funds reserved and disbursed. Under *Partner reporting* it counts every progress report of the
   programme document by status (with PRP's reports still owed while they are shown) and lists the 12
   latest; *All reports* opens every one of them on Progress reports.
+- **Open action points and timeline**, at the end of a programme document's page and of a partner's page,
+  comes a moment after the rest of the page (see the next section).
 - **Programme documents → Indicators** lists the indicators of every programme document in one table
   (PD number and status, partner, document type, dates, office, section, CP output, indicator,
   baseline, target, emergency), with its own filters (no office or emergency filter since
@@ -323,6 +325,27 @@ documents* (the list), *Indicators*, *Funded programme summary info* and *Funded
   amounts in different currencies are never added. Funds reserved and disbursed are in US dollars, from
   the eTools funds reservations as on the Funds page, for the whole programme document whatever donor or
   grant you choose. Neither tab, nor its downloads, names a person: no focal point, e-mail or phone.
+
+## Open action points and timeline
+
+The last block of a programme document's page and of a partner's page.
+
+- **Open action points**: three numbers, *Open*, *Overdue* and *Open, high priority*. Each one opens the
+  [Action points](/action-points/) page with exactly those action points, and the number is the one that
+  page counts. Check them there.
+- **Timeline**: what happened, newest first, by year. For a programme document: when it was signed,
+  started and ends (a date still to come says *planned*), and its status in eTools now; its progress
+  reports (submitted, sent back, accepted, or not submitted by the due date); field monitoring visits and
+  their rating; third-party monitoring visits; audits, spot checks and micro-assessments with how many
+  financial findings they had; action points raised and completed; and changes to action points (status,
+  priority, due date) from the day NeuroDB started recording them. A partner's timeline has the same for
+  all its programme documents, names the programme document of each entry, and adds its assessments and
+  each finished HACT year.
+- **Only dates, references and statuses.** No names, and nothing partners or monitors wrote. Click a
+  reference to open its details.
+- **Nothing is cut without saying so.** The timeline shows the last 24 months, 100 entries at most. It
+  says how many older entries there are; *Show older* lists them all. It also says how many records have
+  no date. Amendments are not listed: NeuroDB does not hold their dates.
 
 ## Funds
 

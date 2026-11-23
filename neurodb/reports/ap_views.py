@@ -143,6 +143,7 @@ def action_points(request: HttpRequest) -> HttpResponse:
         "priority": data["filters"]["priority"],
         "chart_data": charts,
         "drills": _drills(params, data["filters"]),
+        "pd_filter": _pd_numbers(data["filters"]),
         "query": query,
         "chart_hrefs": _chart_hrefs(params),
         "downloads": [
@@ -221,6 +222,17 @@ def _chart_hrefs(params: QueryDict) -> dict[str, str]:
     }
 
 
+def _pd_numbers(f: dict[str, Any]) -> list[str]:
+    """The reference numbers of the programme documents the page is filtered on (``?pd=<id>``, the link of a
+    programme document page's open points): a removable chip, as the filter bar has no field for it."""
+    if not f.get("pds"):
+        return []
+    from neurodb.partnerships.models import PCA
+
+    found = dict(PCA.objects.filter(pk__in=f["pds"]).values_list("pk", "number"))
+    return [found.get(pk) or str(pk) for pk in f["pds"]]
+
+
 def _drills(params: QueryDict, f: dict[str, Any]) -> list[dict[str, str]]:
     """The filters a chart click or a link set that the filter bar does not show, as removable chips."""
     base = reverse("reports:action_points")
@@ -251,6 +263,8 @@ def _filters_words(params: QueryDict, f: dict[str, Any], visit: dict | None) -> 
     ):
         if f.get(key):
             out.append(f"{label}: {', '.join(f[key])}")
+    if f.get("pds"):
+        out.append(f"{_('Programme document')}: {', '.join(_pd_numbers(f))}")
     if f.get("partners"):
         names = (
             PartnerOrganization.objects.filter(pk__in=f["partners"])

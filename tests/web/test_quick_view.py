@@ -127,7 +127,8 @@ def test_the_menu_is_not_built_for_a_quick_view(client_viewer, world, monkeypatc
     assert "nav_menu" in full.context and "nav" in full.context
     monkeypatch.setattr(navigation, "sidebar", refuse)
     monkeypatch.setattr(navigation, "build_navigation", refuse)
-    quick = client_viewer.get(url, **QUICK)
+    # the quick view's own answer (its parts, asked for later, are not quick views)
+    quick = raw_get(client_viewer, url, **QUICK)
     assert quick.status_code == 200 and quick["X-NeuroDB-Quick-View"] == "1"
     assert "nav_menu" not in quick.context and "nav" not in quick.context
 

@@ -59,6 +59,7 @@
     </div>
   </div>
   {% if request.GET.visit %}<input type="hidden" name="visit" value="{{ request.GET.visit }}">{% endif %}
+  {% for pk in f.pds %}<input type="hidden" name="pd" value="{{ pk }}">{% endfor %}
   <div class="filter-bar__actions">
     <button type="submit" class="btn btn-primary btn-sm">{% trans "Apply" %}</button>
     <a class="btn btn-link btn-sm" href="{{ request.path }}">{% trans "Reset" %}</a>

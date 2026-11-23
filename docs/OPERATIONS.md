@@ -1788,7 +1788,8 @@ names*).
 
 A page that loads in parts answers its frame at once and fetches each of its data blocks in the
 background. These pages work this way: **Home**, the **country overview**, the **daily review**, the
-**management brief**, the **partner page**, **Data health**, **partner monitoring** (its Data quality tab, with the grid
+**management brief**, the **partner page**, the **programme document page** (its open action points and timeline
+only), **Data health**, **partner monitoring** (its Data quality tab, with the grid
 below its lists, and Program Performance), **Progress reports** (its *By location* and *By disaggregation* tabs, hidden from the tab bar
 but still opened from their address), the Map tab of
 **Monitoring insights**, the **country programme**, **youth programmes**, the **donor page** and three
@@ -1941,7 +1942,8 @@ more.
 | Country overview, `/country-overview/` | Purpose line, filter bar, subtitle, freshness strip | `kpis` (at once; first of the group `overview`): the key figure tiles. `figures` (when near the screen, once `kpis` is in): impact, value for money, delivery and assurance and the two progress blocks. `news` (after the visible ones): What's new | The overview build, 2 minutes per year, sections, governorate and day, the same in every language; the filter bar's section names, 10 minutes; the freshness strip, 2 minutes. Each key holds the last finished sync run and the indicator flags, so a sync or a flag changes it at once. When the build is stored, the frame draws `kpis` and `figures` itself. See *Home and the country overview* |
 | Daily review, `/daily-review/` | Title, scope line, purpose line with the review's time (from its schedule), section chips | `review` (at once, only when a daily review ever succeeded): the *Daily review* card. `review-more` (only when *Show N more findings* is opened): its folded findings, always those of the card above them | Nothing: the review's findings are read at each request. See *Daily review page* |
 | Management brief, `/brief/` | Purpose line, filter bar with *Figures as of* and **Print**, the tab bar, the *Reference* block (lineage and data dictionary) | `brief` (at once; first of the group `brief`): the five tiles, *Things to decide* with the *Assign* links for staff, *Sections at a glance* and *Copy summary*. `sections` (when near the screen, once `brief` is in): ahead or behind, how sure, who and where, partners, money and action, with every chart of the page | The brief build, 2 minutes per year, sections, day and language (its labels are translated as it is computed), under the brief's own key: the section plans and the finding assignments (how many, and the last change of each), the latest daily review, the last finished sync run and the indicator flags, so an entry in the admin, a new review, a sync or a flag shows at once. It reads two overview builds, each stored as an overview build: the year's, the very one the overview stores for the same year and sections without a governorate, and the year before's, for the comparisons. The frame's lineage, 2 minutes, the same in every language, under the last finished sync run, the flags and the latest daily review; the filter bar's section names are the overview's. When the build is stored, the frame draws both parts itself: a brief opened again within two minutes is one request. See *Management brief* |
-| Partner page, `/partners/<id>/` | Header (name, type, breadcrumbs), the *deleted in eTools* notice, the knowledge base documents | `datamart` (at once): everything from the key figures to the last list (profile, visits chart and assurance chips, *Partner reporting* with its eTools panel, the eight lists). Inside it, `fmm` (once `datamart` is in, after the visible ones): the Monitoring insights panel, only when Monitoring insights is on and a field monitoring visit ever monitored the partner | Nothing: the partner's figures hold database records, which the shared page figures never store, so they are computed at each visit and an edit or a sync shows at the next one. See *Partner reporting on the partner page* |
+| Partner page, `/partners/<id>/` | Header (name, type, breadcrumbs), the *deleted in eTools* notice, the knowledge base documents | `datamart` (at once): everything from the key figures to the last list (profile, visits chart and assurance chips, *Partner reporting* with its eTools panel, the eight lists). Inside it, `fmm` (once `datamart` is in, after the visible ones): the Monitoring insights panel, only when Monitoring insights is on and a field monitoring visit ever monitored the partner. `follow-up` (after the visible ones): open action points and the timeline (see *Open action points and the timeline*) | Nothing: the partner's figures hold database records, which the shared page figures never store, so they are computed at each visit and an edit or a sync shows at the next one. See *Partner reporting on the partner page* |
+| Programme document page, `/programmes/<id>/detail/` (and its pop-up) | Everything it showed before: the details, money, indicators, reporting, visits, assurance and follow-up | `follow-up` (after the visible ones): open action points and the timeline (see *Open action points and the timeline*); `?timeline=all` is carried in its address | Nothing: computed at each visit |
 | Data health, `/data/health/` | Page heading, the *Sync jobs* heading with its *Stale after N hours* note, the heading and explanation of the eTools Datamart datasets panel | `jobs` (at once): one card per sync job (none of the archive's: its imports and partner links are listed in the administration's *Import and sync runs* and *Scheduled jobs* only). `runs` (when near the screen): the latest 50 runs, the archive's left out. `datasets`, `power-bi` and `readiness` (after the visible ones): the eTools Datamart datasets table with its *Copy* and *CSV* buttons (they come with the table, so they are never offered before it is there), *Compared with Power BI* (its heading, explanation and, for administrators, the links to the admin are in the frame), the machine learning readiness check | Only the rows each eTools Datamart dataset holds (the *Rows held* column): an hour at most, the same in every language and for everyone, under a key made of the latest run of each job that writes those tables (eTools Datamart sync, eTools sync, Locations sync, eTools update clean-up), so a run of one of them that starts or ends has them counted again. The gazetteer (*locations*), which staff also edit in Admin → Locations, is counted at each visit, and so is everything else on the page. Inside a database transaction (NeuroDB Watch's AI look-ups read these figures in a read-only one) the stored counts are read too; when there are none the rows are counted there and nothing is stored. See *Data quality per dataset* |
 | Partner monitoring, `/partner-monitoring/` | Tabs (Data quality, Program Performance, Map; the hidden Master indicators has none), the filter bar with its choices, the "your section" note | Data quality (`view=quality`, the default: the bare address and the old Grid tab's `view=grid` open it): `quality-tiles` (at once; first of the group `pm`), then `quality-lists`, then, under the heading *Every indicator* (in the frame), the grid's `summary` (the seven tiles, the status donut and the indicators by section) and `grid` (the indicators by section, PD and output with their months or years, its pages, the note when the list is cut), these three when near the screen or once the page is idle, after the tiles; one filter and one year for the four. Program Performance (`view=table`): `sections` (at once; first of the group `pm`): the section tiles; `table` (at once, once `sections` is in): the page of rows in its sort, its pages, *Excel of the filter* and *CSV of the filter*. A change of filter, sort or section tile reloads the area under the filter bar (`#monitoring-grid`) with new placeholders; a page of the grid or of the table reloads its own part. The exports are answered whole | The filter's indicators (every row the two tabs read), 2 minutes per filter and day, the same in every language and for everyone; Program Performance's section tiles and table read the same for the filter without its sections (the table keeps the chosen ones, as before), one computation for both. The filter bar's choices, 10 minutes. Each key holds the latest run of each eTools job (eTools sync, eTools Datamart sync, Datamart backfill, Locations sync) and the indicator flags, so a sync shows at once and an ActivityInfo import does not count. The parts carry `as_of`. When the indicators are kept, the frame draws the view's parts itself: one request. The Map tab is not in parts; its points (`/api/internal/partner-monitoring/map/`) are kept 2 minutes under the same jobs, the flags and the gazetteer. See *Partner monitoring and Progress reports load in parts* |
 | Progress reports, `/partner-reporting/` (*By location* and *By disaggregation*) | Filter bar with its choices, the tab bar, the *By disaggregation* tab's own filters | `table` (at once): the tab's table, its pages, the note when the filter holds too many rows, the Excel and CSV links. A change of filter (HTMX) answers the table at once. *Reporting progress* and *Partner view* are drawn whole, as before. The two tabs are hidden: no tab bar or regular page links to them, their address still opens them | The tab's rows (on *By disaggregation*, with the lines of every location), 2 minutes per tab, filter, tab filters and day; the filter bar's choices, 10 minutes; the same in every language and for everyone, under the eTools jobs' latest runs and the indicator flags, as partner monitoring. When the rows are kept, the frame draws the table itself: one request. See *Partner monitoring and Progress reports load in parts* |
@@ -4890,6 +4892,35 @@ map's API no longer sends them: each programme document in its `pds` gives its i
 status, dates, partner and page address only. The stored places' key carries `MAP_VERSION` (2), so
 places stored by an older release are computed again, never read. The indicator, programme and partner pages link back to the map for their locations.
 
+### Open action points and the timeline (programme document and partner pages)
+
+At the end of each programme document page and partner page, one block, *Open action points and timeline*,
+loads after the page (part `follow-up`; also inside the programme document's pop-up and the quick view).
+
+- **Open action points**: three numbers, *Open*, *Overdue* and *Open, high priority*. Each opens the Action
+  points page filtered to exactly those points (`?pd=<id>` or `?partner=<id>`, with `status=open`,
+  `overdue=1` or `status=open&priority=1`), and each number is that page's own count for that filter
+  (`datamart.timeline.open_points` calls `services.filtered_action_points`), so the two always agree.
+  Neither page has a figure trail or a Power BI comparison: the Action points page is where these counts
+  are checked. The new `pd=` filter of the Action points page shows as a removable chip.
+- **Timeline**: one dated list, newest first, grouped by year, from tables NeuroDB already holds
+  (`datamart.timeline`): the programme document's signatures, start and end (an end still to come is marked
+  planned) and its status now; progress reports (submitted, sent back, accepted, not submitted by their due
+  date), read as the page's reporting list reads them; field monitoring visits with their worst rating (one
+  entry per visit); third-party monitoring; audits, special audits, spot checks and micro-assessments with
+  their finding counts; action points raised and completed; and the changes the action point history recorded
+  (status, priority, due date) since it started (the block says from which day; before its first record it
+  says the history starts then). A partner's list adds its HACT and PSEA assessments and each finished HACT
+  year (on 31 December), covers all its programme documents but drafts, and names the programme document of
+  each event. Amendments are not listed: NeuroDB holds no dated amendment.
+- **What it never shows**: names (assignees, authors, auditors, visit leads, focal points, firms), e-mails, or
+  text written by partners or monitors (descriptions, narratives, comments). Each entry has a date, its kind,
+  a short label, a reference and a link to the page where its detail lives.
+- **What it leaves out is said**: the last 24 months are listed, at most 100 entries; *Show older*
+  (`?timeline=all`) lists every event, at most 500. The block says how many older events, how many entries
+  past the limit and how many records without a date are not listed, and links to the full lists.
+- Nothing is stored and nothing is scheduled: it is read at each visit, so a sync shows at the next one.
+
 ### Partner reporting on the partner page
 
 Partners reported in ActivityInfo in past years and now report progress in eTools/PRP. The eTools
@@ -4911,8 +4942,9 @@ the page and read the same figures (the partner's eTools Datamart records and it
 they come together. Inside it, the Monitoring insights panel is a part of its
 own, `fmm`, asked for once `datamart` is in: only when Monitoring insights is on and a field monitoring
 visit ever monitored the partner, so a partner without one never shows a grey box that then
-disappears. Nothing of this page is stored in the shared page figures: it is computed at each visit,
-so a sync or an edit shows at the next one. Links to its panels (the lists' `#partner-…` ids) wait for
+disappears. After `datamart`, a part `follow-up` brings the partner's open action points and its timeline
+(see *Open action points and the timeline*). Nothing of this page is stored in the shared page figures: it is
+computed at each visit, so a sync or an edit shows at the next one. Links to its panels (the lists' `#partner-…` ids) wait for
 the part and then scroll to the panel.
 
 The ActivityInfo group's *Databases*, *Neuro reports* and *HPM* blocks list the year the page shows:
@@ -7006,7 +7038,8 @@ verification and the NeuroDB action points) shows while `FMM_ENABLED` is on; wit
 the eTools action points as before.
 
 - **Filters**: search (reference, description, action taken, partner, PD, status, a person's name, a
-  visit's reference or an eTools activity id), status, *Raised from* (module), section, partner,
+  visit's reference or an eTools activity id), status, *Raised from* (module), section, partner, programme
+  document (`?pd=<id>`, set by the open action points of a programme document page; a removable chip),
   *Assigned to* (part of a name), *Changed in eTools* from / to (the Datamart's last change), AI verdict,
   PME verification, visit link, and *Show only* overdue, high priority or field monitoring. The office was
   removed from every page on 21 Nov 2026: the page, its files and its printable report read their address

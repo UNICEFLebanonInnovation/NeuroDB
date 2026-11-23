@@ -11,8 +11,11 @@ hold, as measured on the x20 parity world (scripts/parity) for a partner of midd
 same for an administrator and a viewer): height where the page's panels stand side by side, height_md on a tablet or
 a narrow window where they have stacked (app.css says at which widths: it depends on the sidebar) and height_sm on a
 phone. A partner's page grows with its programme documents (from about 1,300 px on a desktop for a partner with
-nothing to 13,000 px for the busiest); only the knowledge base panel stands below it. Links to the panels' ids
+nothing to 13,000 px for the busiest); only the open action points and timeline (part "follow-up") and the knowledge
+base panel stand below it. Links to the panels' ids
 (#etools-reporting, #partner-pds ...) wait for it.{% endcomment %}
 {% part "datamart" kind="tiles" tiles=5 priority="high" height="7500px" height_md="7500px" height_sm="12400px" anchors="etools-reporting partner- fmm-partner" %}
+{% comment %}Open action points and the timeline (part "follow-up"): its own request, after the figures.{% endcomment %}
+{% part "follow-up" kind="list" priority="low" anchors="follow-up" %}
 {% include "knowledge/_linked.html" %}
 {% endblock %}

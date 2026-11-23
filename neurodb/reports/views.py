@@ -36,7 +36,7 @@ from neurodb.assistant import llm
 from neurodb.core import years
 from neurodb.core.models import PopulationFigure, SavedView, SyncRun
 from neurodb.core.services import population as population_service
-from neurodb.datamart import hact_plan, headline, identity, masters_tab, owed
+from neurodb.datamart import hact_plan, headline, identity, masters_tab, owed, timeline
 from neurodb.datamart import keys as etools_keys
 from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import reporting as reporting_service
@@ -1367,25 +1367,50 @@ def programme_summary(request: HttpRequest) -> HttpResponse:
 
 @require_GET
 def programme_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    """A programme document's page (and its pop-up, an HTMX request: the HACT visit plan opens it). The page
+    answers as before, with one part loaded after it (:mod:`neurodb.web.parts`): ``follow-up``, its open
+    action points and its timeline (:func:`neurodb.datamart.timeline.follow_up`), at the end of the page.
+    ``?timeline=all`` (its *Show older* link) lists every event: the part's address carries it."""
     pd = get_object_or_404(PCA.objects.select_related("partner"), pk=pk)
-    detail = partnerships.pd_detail(pd)
-    context = {
-        "page_title": pd.number or pd.title,
-        "page_subtitle": pd.title,
-        "breadcrumbs": [
-            _crumb(_("Programme documents"), reverse("reports:programmes")),
-            _crumb(pd.number or pd.title),
-        ],
-        "detail": detail,
-        "pd": pd,
-        "past_end": partnerships.past_end_date(pd.status, pd.end),
-        "datamart": datamart.programme_datamart(pd),
-        "knowledge_documents": linked_documents("programme_document", pd.pk),
-        "fmm_pd": _fmm_panel("pd_summary", pd.pk),
-        "can_set_main": headline.can_set(request.user, pd),
-    }
+    show_all = _timeline_all(request)
+
+    def shell() -> dict[str, Any]:
+        return {
+            "page_title": pd.number or pd.title,
+            "page_subtitle": pd.title,
+            "breadcrumbs": [
+                _crumb(_("Programme documents"), reverse("reports:programmes")),
+                _crumb(pd.number or pd.title),
+            ],
+            "detail": partnerships.pd_detail(pd),
+            "past_end": partnerships.past_end_date(pd.status, pd.end),
+            "datamart": datamart.programme_datamart(pd),
+            "knowledge_documents": linked_documents("programme_document", pd.pk),
+            "fmm_pd": _fmm_panel("pd_summary", pd.pk),
+            "can_set_main": headline.can_set(request.user, pd),
+        }
+
+    parts = {"follow-up": _follow_up_part(pd=pd, show_all=show_all)}
     template = "reports/partials/programme_detail.html" if request.htmx else "reports/programme_detail.html"
-    return render(request, template, context)
+    return render_page(
+        request, template, scope={"pd": pd}, shell=shell, parts=parts, query=_timeline_query(show_all)
+    )
+
+
+def _timeline_all(request: HttpRequest) -> bool:
+    """``?timeline=all``: the timeline lists every event, not only the last 24 months."""
+    return request.GET.get(timeline.PARAM) == timeline.ALL
+
+
+def _timeline_query(show_all: bool) -> str:
+    """The resolved query of the programme document and partner pages: the timeline's choice alone."""
+    return urlencode({timeline.PARAM: timeline.ALL}) if show_all else ""
+
+
+def _follow_up_part(**subject: Any) -> Part:
+    """The part ``follow-up`` of the programme document and partner pages: open action points and the
+    timeline (reports/parts/follow_up.html). Nothing is stored: it is read at each visit."""
+    return Part("reports/parts/follow_up.html", lambda: {"follow_up": timeline.follow_up(**subject)})
 
 
 @require_POST
@@ -1527,8 +1552,10 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
     instances, never stored for other workers), with its programme documents, so they come in one request.
     Inside
     it, ``fmm``, the Monitoring insights panel (its own computation, loaded last), when Monitoring
-    insights is on and a visit ever monitored the partner. The page has no filter: the parts' query is
-    empty. Nothing is stored, so an edit shows at the next visit.
+    insights is on and a visit ever monitored the partner. After it, ``follow-up``: the partner's open action
+    points and its timeline (:func:`neurodb.datamart.timeline.follow_up`). The page has no filter: the parts'
+    query is empty, or ``timeline=all`` when the timeline lists every event (its *Show older* link). Nothing
+    is stored, so an edit shows at the next visit.
     """
     # a partner deleted in eTools still opens (PDs and Datamart rows link to it), with a notice
     partner = get_object_or_404(PartnerOrganization, pk=pk)
@@ -1571,14 +1598,21 @@ def partner_profile(request: HttpRequest, pk: int) -> HttpResponse:
             },
         }
 
+    show_all = _timeline_all(request)
     parts = {"datamart": Part("reports/parts/partner_datamart.html", figures)}
     if _fmm_on():
         parts["fmm"] = Part(
             "reports/parts/partner_fmm.html",
             lambda: {"fmm_partner": _fmm_panel("partner_summary", partner.pk)},
         )
+    parts["follow-up"] = _follow_up_part(partner=partner, show_all=show_all)
     return render_page(
-        request, "reports/partner_profile.html", scope=scope, shell=shell, parts=parts, query=""
+        request,
+        "reports/partner_profile.html",
+        scope=scope,
+        shell=shell,
+        parts=parts,
+        query=_timeline_query(show_all),
     )
 
 
