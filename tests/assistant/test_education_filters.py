@@ -1,7 +1,8 @@
 """Ask NeuroDB's education_figures takes the Makani and Dirasa pages' filters: a filter by its query name or its
-label, a choice by its label or its value (case ignored; an exact name first, then a unique part of a name). The
-figures are the page's own under the same query, with the registrations and the unique children said apart, the
-filters applied echoed, and every list cut at 40 rows giving its real length (every row is stored: a filter
+label, a choice by its label, its value or a partner's full name (case ignored; an exact name first, then a unique
+part of a name; "All" leaves the filter out). The figures are the page's own under the same query, with the
+registrations and the unique children said apart (what each page's card counts), the filters applied echoed, and
+every list cut at 40 rows giving its real length (every row is stored: a filter of the tab, or of the overview,
 reaches it). A choice that does not match, or matches several, an unknown filter, a filter of another tab and a
 round the round argument contradicts are refused with the choices. Counts only: nothing about a child. The
 payloads are built as Compiler builds them (tests/education/payloads.py); the partners and centres are
@@ -13,7 +14,7 @@ import pytest
 from django.core.cache import cache
 from django.urls import reverse
 
-from neurodb.assistant import agent, tools
+from neurodb.assistant import agent, hub_tools, privacy, tools
 from neurodb.assistant.hub_tools import HUB_TOOLS, education_figures
 from neurodb.assistant.tools import ToolInputError
 from tests.education.payloads import CENTERS, dirasa_year_payload, makani_payload
@@ -34,6 +35,19 @@ def _fresh_cache():
 @pytest.fixture
 def makani(db):
     return store(makani_payload(MAKANI, lists={"partners": PARTNERS}))
+
+
+# a partner and a centre whose names hold "all"
+ALLIANCE = {"id": 8, "name": "Example Alliance Four", "short_name": ""}
+HALL = dict(CENTERS[1], id=103, name="Example Hall Centre", partner=8)
+
+
+@pytest.fixture
+def makani_short_names(db):
+    partners = [dict(PARTNERS[0]), dict(PARTNERS[1], short_name="EP2"), dict(PARTNERS[2], short_name="EP3")]
+    third = [{"child": 8, "center": 104, "sex": "Female"}]
+    centre = dict(CENTERS[1], id=104, name="Example Third Centre", partner=7)
+    return store(makani_payload([*MAKANI, *third], centers=[*CENTERS, centre], lists={"partners": partners}))
 
 
 @pytest.fixture
@@ -91,11 +105,75 @@ def test_names_and_ids_resolve_whatever_their_case(makani):
     asked = {"programme": "makani", "filters": {"cwd type": "difficulty hearing"}}
     hearing = tools.run("education_figures", asked)
     assert hearing["filters_applied"] == {"CWD type": "Difficulty hearing"}
-    # "Not specified" where the page offers it, by its label or its value
-    for blank in ("not specified", "none"):
-        answer = education_figures("makani", filters={"disability": blank})
-        assert answer["filters_applied"] == {"CWD type": "Not specified"}
-        assert answer["children"] == {"registrations": 1, "unique_children": None}
+    # "Not specified" where the page offers it, by its label
+    answer = education_figures("makani", filters={"disability": "not specified"})
+    assert answer["filters_applied"] == {"CWD type": "Not specified"}
+    assert answer["children"] == {"registrations": 1, "unique_children": None}
+    # "none" is no choice's name ("Not specified" holds it inside the page only): "No" or "Not specified"?
+    with pytest.raises(ToolInputError, match="No CWD type choice matches 'none'") as none:
+        education_figures("makani", filters={"disability": "none"})
+    assert str(none.value).endswith("Its choices: Difficulty hearing, Difficulty seeing, No, Not specified.")
+
+
+def test_all_leaves_a_filter_out_even_when_one_name_holds_all():
+    """The page's "All" (an empty value) is no filter, never the one partner or centre whose name holds "all"."""
+    store(
+        makani_payload(
+            [*MAKANI, {"child": 7, "center": 103, "sex": "Male", "nationality": 1, "disability": 1}],
+            centers=[*CENTERS, HALL],
+            lists={"partners": [*PARTNERS, ALLIANCE]},
+        )
+    )
+    boys = education_figures("makani", filters={"gender": "Male"})
+    assert boys["children"] == {"registrations": 5, "unique_children": 4}
+    for everyone in ("All", "all", "", "Any"):
+        answer = tools.run(
+            "education_figures",
+            {"programme": "makani", "filters": {"partner": everyone, "Center": everyone, "gender": "Male"}},
+        )
+        assert answer["figures"] == boys["figures"]
+        assert answer["filters_applied"] == {"Child gender": "Male"}
+    # still a filter of the tab, and a part of the name still finds the one partner
+    with pytest.raises(ToolInputError, match="Unknown filter 'colour'"):
+        education_figures("makani", filters={"colour": "All"})
+    alliance = education_figures("makani", filters={"partner": "alliance"})
+    assert alliance["filters_applied"] == {"Partner": "Example Alliance Four"}
+    assert alliance["children"]["registrations"] == 1
+
+
+def test_a_partners_full_name_finds_its_short_name(makani_short_names):
+    for asked in ("Example Partner Two", "partner two", "EP2"):
+        answer = education_figures("makani", filters={"partner": asked})
+        assert answer["filters_applied"] == {"Partner": "EP2"}
+    with pytest.raises(ToolInputError, match="2 Partner choices match 'example partner t'") as several:
+        education_figures("makani", filters={"partner": "example partner t"})
+    assert "EP2 (Example Partner Two), EP3 (Example Partner Three)" in str(several.value)
+    with pytest.raises(ToolInputError, match="No Partner choice matches") as none:
+        education_figures("makani", filters={"partner": "Nowhere"})
+    assert str(none.value).endswith(
+        "Its choices: EP2 (Example Partner Two), EP3 (Example Partner Three), Example Partner One."
+    )
+
+
+def test_common_words_for_a_filter_and_a_gender(makani):
+    centre = education_figures("makani", filters={"centre": "halba", "sex": "boys"})
+    assert centre["filters_applied"] == {"Center": "Halba center", "Child gender": "Male"}
+    girls = education_figures("makani", filters={"Centres": "halba", "gender": "Girls"})
+    assert girls["filters_applied"] == {"Center": "Halba center", "Child gender": "Female"}
+
+
+def test_the_year_is_the_period_argument_not_a_filter(makani, dirasa):
+    for programme, asked in (
+        ("makani", "year"),
+        ("makani", "round"),
+        ("dirasa", "Year"),
+        ("dirasa", "period"),
+    ):
+        with pytest.raises(ToolInputError, match="period argument"):
+            education_figures(programme, filters={asked: "2026"})
+    # Outreach's own Year filter stays one; "all" keeps its "All years"
+    outreach = education_figures("dirasa", tab="outreach", filters={"year": "all"})
+    assert outreach["filters_applied"] == {"Year": "All years"}
 
 
 # ------------------------------------------------------------------------------------------- refused, with choices
@@ -112,11 +190,17 @@ def test_a_choice_that_does_not_match_or_matches_several_lists_the_choices(makan
 
 
 def test_a_filter_of_another_tab_names_the_tabs_that_show_it(dirasa):
-    with pytest.raises(ToolInputError, match="Gender is not a filter of the map tab") as other:
+    with pytest.raises(ToolInputError, match=r"gender \(Gender\) is not a filter of the map tab") as other:
         education_figures("dirasa", tab="map", filters={"gender": "male"})
-    assert "overview, barriers" in str(other.value)
-    with pytest.raises(ToolInputError, match="School is not a filter of the outreach tab"):
+    assert "the overview and barriers tabs show it" in str(other.value)
+    with pytest.raises(ToolInputError, match=r"school \(School\) is not a filter of the outreach tab"):
         education_figures("dirasa", tab="outreach", filters={"school": "akkar"})
+    # Outreach's own Partner, by its query name, on the overview (which has a Partner of its own)
+    with pytest.raises(
+        ToolInputError, match=r"outreach_partner \(Partner\) is not a filter of the overview"
+    ) as own:
+        education_figures("dirasa", filters={"outreach_partner": "dirasa partner"})
+    assert "only the outreach tab shows it" in str(own.value)
     # on Outreach, "partner" is the outreach's own Partner filter
     outreach = education_figures("dirasa", tab="outreach", filters={"partner": "dirasa partner"})
     assert outreach["filters_applied"] == {"Year": "2025", "Partner": "Dirasa Partner"}
@@ -169,10 +253,9 @@ def test_a_list_over_40_rows_gives_its_length_and_a_filter_reaches_every_row():
     figures = answer["figures"]
     assert len(figures["center_rows"]) == 40 and figures["center_rows"][-1]["name"] == "Example Centre 40"
     assert (figures["center_rows_total"], figures["center_rows_truncated"]) == (45, True)
-    assert len(figures["points"]["points"]) == 40
-    assert (figures["points"]["points_total"], figures["points"]["points_truncated"]) == (45, True)
+    assert "points" not in figures  # the map's points: drawing data, their figures are the rows'
     assert "more" not in json.dumps(figures["center_rows"])  # no "… 5 more" row
-    assert "every row is stored" in answer["lists_note"] and "one centre" in answer["lists_note"]
+    assert "every row is stored" in answer["lists_note"] and 'filter "center"' in answer["lists_note"]
     assert figures["kpis"]["children"] == 45  # every centre counted
     # the 41st row's figures, with a filter
     one = education_figures("makani", tab="maps", filters={"center": "example centre 41"})
@@ -189,7 +272,43 @@ def test_a_list_over_40_rows_gives_its_length_and_a_filter_reaches_every_row():
     assert "45 choices" in str(none.value) and "longer part of the name" in str(none.value)
 
 
+def test_the_lists_note_names_a_filter_of_the_tab(monkeypatch, dirasa):
+    monkeypatch.setattr(hub_tools, "MAX_LIST", 2)  # Dirasa's three schools: a list cut
+    on_map = education_figures("dirasa", tab="map")
+    assert (on_map["figures"]["school_rows_total"], on_map["figures"]["school_rows_truncated"]) == (3, True)
+    note = on_map["lists_note"]
+    assert "the overview tab" in note and 'filter "school"' in note
+    # following it gives one school's figures
+    one = education_figures("dirasa", tab="overview", filters={"school": "akkar private"})
+    assert one["filters_applied"] == {"School": "Akkar private school"}
+    overview = education_figures("dirasa", tab="overview")["lists_note"]
+    assert 'filter "school"' in overview and "overview tab" not in overview
+    assert "a list of schools" in overview  # never one school as one row of a chart
+
+
 # ------------------------------------------------------------------------------------- the tool and the prompt
+def test_the_children_note_says_what_each_pages_card_counts(makani, dirasa):
+    makani_note = education_figures("makani")["children_note"]
+    assert "registrations" in makani_note and "Power BI's 'Children enrolled' card" in makani_note
+    assert makani_note.index("registrations") < makani_note.index("Power BI")
+    dirasa_note = education_figures("dirasa")["children_note"]
+    # Dirasa's card, on the page and in Power BI, counts each child once; the registrations are its second line
+    card = "unique_children: each child once, as the page's 'Children enrolled in Dirasa' card and Power BI's"
+    assert card in dirasa_note
+    assert "second line" in dirasa_note and "registrations, as Power BI" not in dirasa_note
+    for note in (makani_note, dirasa_note):
+        assert "Registrations are counted under any combination of the page's filters" in note
+        assert "unique children only where Compiler groups by them" in note
+
+
+def test_a_centre_or_school_name_is_kept_after_a_title():
+    kept = privacy.cleaned(
+        {"filters_applied": {"Center": "Sheikh Example Centre", "School": "Sheikh Example School"}},
+        names=frozenset(),
+    )
+    assert kept["filters_applied"] == {"Center": "Sheikh Example Centre", "School": "Sheikh Example School"}
+
+
 def test_the_tool_and_the_prompt_say_the_filters_and_what_each_count_is():
     _function, description, schema, _label = HUB_TOOLS["education_figures"]
     assert schema["properties"]["filters"]["type"] == "object"

@@ -160,8 +160,9 @@ CARDS = {  # the key figures counted with the version chosen (power_bi.VARIANTS[
 def unique_count(figures: Figures, filters: dict[str, Any]) -> int | None:
     """Unique children from the registrations block; None when Compiler sends no grouping of exactly the
     filters' dimensions (a filter without one, such as the service, or a combination it does not group by,
-    such as partner, nationality and sex) or a filter is "Not specified". A child is never added up across
-    rows."""
+    such as partner, nationality and sex) or an id filter is "Not specified" (None: never answered). The
+    gender's "Not specified" is the text Compiler writes in the block and the cube alike: it is answered. A
+    child is never added up across rows."""
     if set(filters) - set(BLOCK) or any(v is None for v in filters.values()):
         return None
     table = figures.block("registrations").table({BLOCK[name]: value for name, value in filters.items()})

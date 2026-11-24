@@ -56,9 +56,19 @@ SITE_PATH = re.compile(r"/(?![/\\])[^\x00-\x20\x7f\\]*")
 CLEANED_BY_LOOKUP = frozenset({"etools_datasets", "etools_query", "etools_search", "etools_record"})
 # Keys of Ask's lookups that hold the name of a place or an organisation (where a name after Sheikh or Dr
 # is kept), besides the Datamart's (``datamart.query._keeps_titles``: "partner", "partner_name",
-# "governorate", "donors", "location"...)
+# "governorate", "donors", "location"...), case left aside (a filter's label: "Center", "School")
 PLACE_OR_ORG_KEYS = frozenset(
-    {"centre", "center", "centres", "centers", "activityinfo_names", "partner_label", "municipality"}
+    {
+        "centre",
+        "center",
+        "centres",
+        "centers",
+        "school",
+        "schools",
+        "activityinfo_names",
+        "partner_label",
+        "municipality",
+    }
 )
 # The keys that name the thing their object is ("name", "short_name"...): a partner's or a place's name
 # when the object is one (:func:`_names_a_place_or_org`)
@@ -125,7 +135,7 @@ def _url_key(key: str) -> bool:
 def _place_or_org(key: str) -> bool:
     """A key that holds the name of a place or an organisation: one the Datamart reads so ("partner",
     "partner_name", "governorate", "donors", "location") or one of Ask's (:data:`PLACE_OR_ORG_KEYS`)."""
-    return key in PLACE_OR_ORG_KEYS or dmq._keeps_titles(key)
+    return key.casefold() in PLACE_OR_ORG_KEYS or dmq._keeps_titles(key)
 
 
 def _names_a_place_or_org(value: Mapping, key: str) -> bool:

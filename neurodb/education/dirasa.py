@@ -272,8 +272,9 @@ BLOCK_FILTERS = {
 def unique_children(figures: Figures, filters: dict[str, Any]) -> int | None:
     """Unique children from the registrations block; None when Compiler sends no grouping of exactly the
     filters' dimensions (e.g. the partner with the school, or the round with the gender, have one; the
-    partner, the nationality and the gender together have none) or a filter is "Not specified". Without the
-    round, a child registered in two rounds of the year counts once."""
+    partner, the nationality and the gender together have none) or an id filter is "Not specified" (None:
+    never answered; the gender's "Not specified" is the text Compiler writes in the block and the cube alike:
+    it is answered). Without the round, a child registered in two rounds of the year counts once."""
     if set(filters) - set(BLOCK_FILTERS) or any(v is None for v in filters.values()):
         return None
     block = figures.block("registrations")

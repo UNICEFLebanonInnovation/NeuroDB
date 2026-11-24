@@ -279,19 +279,42 @@ def youth_figures(
     )
 
 
+# what each count is: Makani's Power BI card counts registrations, Dirasa's each child once (SPEC_PBI §5)
+COUNTS = {
+    "mscc": (
+        "registrations: what the page's and Power BI's 'Children enrolled' card counts: a child registered "
+        "twice (e.g. at two centres) counts twice. unique_children: each child once (the page's 'Children "
+        "enrolled (unique count)')."
+    ),
+    "bridging": (
+        "unique_children: each child once, as the page's 'Children enrolled in Dirasa' card and Power BI's "
+        "children card count them. registrations: a child registered twice (e.g. at two schools, or in two "
+        "rounds) counts twice: the card's second line and the total of Power BI's nationality chart."
+    ),
+}
 CHILDREN_NOTE = (
-    "registrations: registrations, as Power BI's 'Children enrolled' counts them: a child registered "
-    "twice (e.g. at two centres, or in two rounds) counts twice. unique_children: each child once; null "
-    "when Compiler sends no unique count for this combination of filters: then give the registrations and "
-    "say they are registrations. Both are counted under any combination of the page's filters (filters, "
-    "e.g. a partner and a gender). figures.kpis.children is the page's children card: "
-    "figures.cards.children.name says what it counts."
+    "{counts} unique_children is null when Compiler sends no unique count for this combination of filters: "
+    "then give the registrations and say they are registrations. Registrations are counted under any "
+    "combination of the page's filters; unique children only where Compiler groups by them. "
+    "figures.cards.children.name says what the page's children card shows."
 )
 LISTS_NOTE = (
     "Lists longer than 40 rows are cut here only: <list>_total is the real number of rows and "
-    "<list>_truncated is true. Not missing data: every row is stored and counted in the figures, and a "
-    "filter (e.g. one {one}) gives one row's figures."
+    "<list>_truncated is true. Not missing data: every row is stored and counted in the figures. In a list "
+    'of {many}, the filter "{one}" gives one row\'s figures{where}.'
 )
+EVERY = frozenset({"", "all", "any"})  # the page's "All" (its empty value): no filter
+# other words for a filter (the help and the prompt write "centre"; Compiler's block says "sex") and a gender
+FILTER_WORDS = {"centre": "center", "centres": "center", "centers": "center", "sex": "gender"}
+GENDER_WORDS = {
+    "boy": "male",
+    "boys": "male",
+    "males": "male",
+    "girl": "female",
+    "girls": "female",
+    "females": "female",
+}
+PERIOD_WORDS = frozenset({"year", "years", "period"})  # the period argument, not a filter
 
 
 def _name_key(text: Any) -> str:
@@ -299,26 +322,47 @@ def _name_key(text: Any) -> str:
     return " ".join(str(text).replace("_", " ").casefold().split())
 
 
-def _listed(choices: list[tuple[str, str]]) -> str:
-    """The choices' labels; a label two choices share is followed by each one's value (Compiler's id)."""
+def _listed(choices: list[tuple[str, str]], names: dict[str, str] | None = None) -> str:
+    """The choices' labels, a partner's full name beside its short one (``names``: value -> full name); a
+    label two choices share is followed by each one's value (Compiler's id)."""
+    names = names or {}
     labels = [label for _value, label in choices]
     shared = {label for label in labels if labels.count(label) > 1}
-    return ", ".join(f"{label} ({value})" if label in shared else str(label) for value, label in choices)
+
+    def one(value: str, label: str) -> str:
+        if value in names:
+            return f"{label} ({names[value]})"
+        return f"{label} ({value})" if label in shared else str(label)
+
+    return ", ".join(one(value, label) for value, label in choices)
+
+
+def _shown_on(tabs: list[str]) -> str:
+    if len(tabs) == 1:
+        return f"only the {tabs[0]} tab shows it"
+    return f"the {', '.join(tabs[:-1])} and {tabs[-1]} tabs show it"
 
 
 def _slicer(page: Any, tab: str, offered: list[Any], asked: str, figures_of: str) -> Any:
     """The slicer a filter names, by its query name or its label, the tab's own first: Dirasa's Outreach has a
     Partner and a Governorate of its own."""
     key = _name_key(asked)
+    key = FILTER_WORDS.get(key, key)
     named = [s for s in page.slicers if key in (_name_key(s.name), _name_key(s.label))]
     here = [s for s in named if s in offered and (not s.tabs or tab in s.tabs)]
     if here:
         return here[0]
+    if key in PERIOD_WORDS or (key == "round" and not named):  # Outreach's own Year is found above
+        also = " and a round as the round argument" if page.programme == "bridging" else ""
+        raise ToolInputError(
+            f"'{asked}' is not a filter of {figures_of}: give the year as the period argument{also}."
+        )
     elsewhere = [s for s in named if s in offered]
     if elsewhere:
-        tabs = ", ".join(name for name, _label in page.tabs if name in elsewhere[0].tabs)
+        shown = [name for name, _label in page.tabs if name in elsewhere[0].tabs]
         raise ToolInputError(
-            f"{elsewhere[0].label} is not a filter of the {tab} tab: the tabs {tabs} show it (tab argument)."
+            f"{elsewhere[0].name} ({elsewhere[0].label}) is not a filter of the {tab} tab: "
+            f"{_shown_on(shown)} (tab argument)."
         )
     if named:  # Dirasa's round in figures of one round (before Compiler's payload format 4)
         raise ToolInputError(
@@ -328,16 +372,29 @@ def _slicer(page: Any, tab: str, offered: list[Any], asked: str, figures_of: str
     raise ToolInputError(f"Unknown filter '{asked}'. The filters of the {tab} tab: {listed}.")
 
 
-def _choice(slicer: Any, choices: list[tuple[str, str]], asked: Any) -> str:
-    """The option value a filter's choice names: its value (Compiler's id, or the text of a text slicer)
-    or its label, case left aside; an exact one first, then a unique part of a label. Otherwise the choices
-    are listed: all of them up to MAX_LIST, else the closest ones."""
+def _choice(
+    slicer: Any, choices: list[tuple[str, str]], asked: Any, names: dict[str, str] | None = None
+) -> str:
+    """The option value a filter's choice names: its value (Compiler's id, or the text of a text slicer),
+    its label or a partner's full name (``names``: value -> full name, when the label is its short name),
+    case left aside; an exact one first, then a unique part of a name. "none", the page's own value of "Not
+    specified", is no name ("no disability" or "Not specified"?). Otherwise the choices are listed: all of
+    them up to MAX_LIST, else the closest ones."""
+    from neurodb.education.services import NONE
+
+    names = names or {}
     if isinstance(asked, float) and asked.is_integer():
         asked = int(asked)
     text = _name_key(asked)
-    hits = [value for value, label in choices if text in (_name_key(value), _name_key(label))]
+    if slicer.name == "gender":
+        text = GENDER_WORDS.get(text, text)
+
+    def called(value: str, label: str) -> list[str]:
+        return [_name_key(label)] + ([_name_key(names[value])] if value in names else [])
+
+    hits = [v for v, label in choices if text in called(v, label) or (v != NONE and text == _name_key(v))]
     if not hits and text:
-        hits = [value for value, label in choices if text in _name_key(label)]
+        hits = [v for v, label in choices if any(text in name for name in called(v, label))]
     if len(hits) == 1:
         return hits[0]
     if hits:
@@ -345,29 +402,51 @@ def _choice(slicer: Any, choices: list[tuple[str, str]], asked: Any) -> str:
     else:
         found = f"No {slicer.label} choice matches '{asked}'"
     if len(choices) <= MAX_LIST:
-        raise ToolInputError(f"{found}. Its choices: {_listed(choices)}.")
+        raise ToolInputError(f"{found}. Its choices: {_listed(choices, names)}.")
     near = [c for c in choices if c[0] in hits] or sorted(
-        choices, key=lambda c: -difflib.SequenceMatcher(None, text, _name_key(c[1])).ratio()
+        choices,
+        key=lambda c: -max(difflib.SequenceMatcher(None, text, name).ratio() for name in called(*c)),
     )
     raise ToolInputError(
-        f"{found}. It has {len(choices)} choices; the closest: {_listed(near[:15])}. Give a longer part of "
-        "the name."
+        f"{found}. It has {len(choices)} choices; the closest: {_listed(near[:15], names)}. Give a longer "
+        "part of the name."
     )
 
 
 def _page_query(
-    page: Any, tab: str, options: dict[str, list[tuple[str, str]]], asked: dict[str, Any], figures_of: str
+    page: Any,
+    tab: str,
+    options: dict[str, list[tuple[str, str]]],
+    asked: dict[str, Any],
+    figures_of: str,
+    names: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, str]:
     """The page's query (slicer -> option value) of the filters asked, as the page's own links send it: the
-    figures are then the page's own, counted by its code."""
+    figures are then the page's own, counted by its code. "All" leaves a filter out, as the page's "All"
+    does (Outreach's Year has an "All years" of its own); ``names``: slicer -> value -> a partner's full
+    name."""
+    from neurodb.education.services import ALL
+
     offered = page.offered(options)
     query: dict[str, str] = {}
     for name, value in asked.items():
         slicer = _slicer(page, tab, offered, name, figures_of)
-        chosen = _choice(slicer, options.get(slicer.name, []), value)
+        choices = options.get(slicer.name, [])
+        if _name_key(value) in EVERY and all(v != ALL for v, _label in choices):
+            continue
+        chosen = _choice(slicer, choices, value, (names or {}).get(slicer.name))
         if query.setdefault(slicer.name, chosen) != chosen:
             raise ToolInputError(f"Two choices of {slicer.label} were given: give one.")
     return query
+
+
+def _lists_note(page: Any, tab: str) -> str:
+    """LISTS_NOTE for the tab: the filter that gives one centre's or school's row, or the tab that has it
+    (Dirasa's map has no School filter)."""
+    one, many = ("center", "centres") if page.programme == "mscc" else ("school", "schools")
+    tabs = [key for key, _label in page.tabs if any(s.name == one for s in page.slicers_for(key))]
+    where = "" if tab in tabs else f" on the {tabs[0]} tab (this tab has no {one} filter)"
+    return LISTS_NOTE.format(many=many, one=one, where=where)
 
 
 def _applied(result: dict[str, Any]) -> dict[str, str]:
@@ -477,7 +556,20 @@ def education_figures(
         if options is None:
             raise ToolInputError(f"{page.name} {stored.year} came from an older Compiler: it has no filters.")
         names = {str(r["id"]): str(r.get("name")) for r in rounds}
-        for name, value in _page_query(page, tab, options, filters, f"{page.name} {stored.year}").items():
+        # a partner is shown by its short name when it has one: its full name finds it too
+        listed = (
+            EducationFigures.objects.filter(pk=stored.pk).values_list("payload__partners", flat=True).first()
+        )
+        partners = {
+            str(p["id"]): str(p["name"])
+            for p in listed or []
+            if isinstance(p, dict)
+            and "id" in p
+            and p.get("short_name")
+            and p.get("name") not in (None, "", p["short_name"])
+        }
+        query = _page_query(page, tab, options, filters, f"{page.name} {stored.year}", {"partner": partners})
+        for name, value in query.items():
             if name == "round" and params.get("round") not in (None, value):  # the round argument (or period)
                 asked = names.get(params["round"], params["round"])
                 raise ToolInputError(
@@ -501,6 +593,8 @@ def education_figures(
             "(leave the round out for the whole year)."
         )
     data = result.get("data", {})
+    # the map's points are drawing data: their figures are those of center_rows / school_rows
+    figures = {key: value for key, value in data.items() if key != "points"}
     # the children card holds both counts (registrations, and unique children when Compiler groups by the
     # filters): said apart, so that registrations are never given as children counted once
     card = (data.get("cards") or {}).get("children")
@@ -525,15 +619,13 @@ def education_figures(
             # a filter kept from another tab (the round on Outreach): the page's own words
             "filters_not_applied": [str(label) for label in result.get("not_applied") or []] or None,
             "children": children,
-            "children_note": CHILDREN_NOTE if children else None,
-            "figures": data,
+            "children_note": CHILDREN_NOTE.format(counts=COUNTS[page.programme]) if children else None,
+            "figures": figures,
             "compared_with_power_bi": _power_bi(result.get("power_bi")),
             "url": reverse(page.url_name),
         }
     )
-    answer["lists_note"] = (
-        LISTS_NOTE.format(one="centre" if page.programme == "mscc" else "school") if cut else None
-    )
+    answer["lists_note"] = _lists_note(page, tab) if cut else None
     return _clean(_trim(answer))
 
 
@@ -873,7 +965,8 @@ HUB_TOOLS: dict[str, tuple] = {
                     '{"partner": "<partner name>", "gender": "Male"}. Makani: partner, governorate, center, '
                     "gender, nationality, disability, service, caregiver, working, emergency. Dirasa: round, "
                     "partner, governorate (the school's), school, gender, nationality, disability, type, "
-                    "emergency; Outreach tab: outreach_year, outreach_partner, outreach_governorate.",
+                    "emergency; Outreach tab: outreach_year, outreach_partner, outreach_governorate. Leave "
+                    "a filter out for all its choices; the year is the period argument.",
                 },
             },
             ["programme"],
