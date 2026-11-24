@@ -989,11 +989,15 @@ def stored_indicators(filters: Filters, day: datetime.date | None = None, *, as_
     who asks (the user's own section reaches it only as the filter's sections). Nothing in it is translated,
     so one value serves every language. ``as_of``, in a part request, is the fingerprint the page's frame
     read: the parts of one page read one computation even when a sync finishes before or between them
-    (:func:`neurodb.core.compute.once_as_of`). In DEBUG it is computed at each call."""
+    (:func:`neurodb.core.compute.once_as_of`). Each partner report row is read as its total alone
+    (``totals=True``): no field of a :class:`Row` reads the cross-tab of every disaggregation value or the
+    narrative, and where a row goes reads the value ids it names alone (``identity``). In DEBUG it is computed
+    at each call."""
     day = day or today()
 
     def compute_rows() -> list[Row]:
-        return as_rows(indicators(filters, day))
+        # each report row's total alone, never its cross-tab or narrative: no field of a Row reads them
+        return as_rows(indicators(filters, day, totals=True))
 
     if settings.DEBUG:
         return compute_rows()

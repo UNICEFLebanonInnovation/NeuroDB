@@ -1230,3 +1230,37 @@ def test_the_removal_of_unsent_partner_report_rows_stores_the_choices_at_its_end
     run = backfill.remove_unsent(rows, len(pks), raw.rows_key(pks), "2019", "demo-admin")
     assert run.status == SyncRun.Status.SUCCEEDED and run.details["partner_monitoring_choices"] == "stored"
     assert 2019 not in _stored_choices(monkeypatch)["years"]
+
+
+# ---------------------------------------------------------------------------------------- the report rows read
+def test_the_page_reads_partner_report_rows_without_cross_tabs_or_narratives(
+    client_viewer, world, monkeypatch
+):
+    """The parts compute the filter's indicators from each partner report row's total alone: never the cross-tab
+    of every disaggregation value PRP sends (kilobytes a row once read) nor the partner's narrative, which no
+    figure of the page reads (the indicator detail, the map and the figure trail still read them whole). Where a
+    row goes needs only the value ids its cross-tab names, read as such."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from neurodb.datamart import reached
+
+    given: list[dict] = []
+    real = reached.compute
+
+    def recorded(rows, **kwargs):
+        rows = list(rows)
+        given.extend(rows)
+        return real(rows, **kwargs)
+
+    monkeypatch.setattr(reached, "compute", recorded)
+    caches["shared"].clear()
+    with CaptureQueriesContext(connection) as queries:
+        response = get_part(client_viewer, _url("quality", year="2026", section=""), "quality-tiles")
+    assert response.status_code == 200
+    read = [q["sql"] for q in queries.captured_queries if "datamart_reportedindicator" in q["sql"]]
+    assert any('"indicator"' in sql for sql in read)  # the report rows were read
+    for sql in read:
+        assert '."disaggregation" AS "disaggregation"' not in sql and '."disaggregation",' not in sql, sql
+        assert "narrative_assessment" not in sql, sql
+    assert given and all(set(row["disaggregation"]) <= {"()"} for row in given)

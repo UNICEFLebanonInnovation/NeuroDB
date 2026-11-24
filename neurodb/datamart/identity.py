@@ -44,7 +44,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-from django.db.models import Q, QuerySet
+from django.contrib.postgres.fields import ArrayField
+from django.db.models import Func, Q, QuerySet, TextField
 from django.db.models.fields.json import KT, KeyTransform
 from django.utils import timezone
 
@@ -566,18 +567,46 @@ def indicators_read_whole() -> bool:
     return compute.per_request("datamart_indicators_read_whole", read)
 
 
+class _ValueKeys(Func):
+    """The keys of a row's disaggregation (``()`` and the value ids PRP writes, ``(2264,)``...), as text, and
+    NULL when it is no JSON object: all :func:`_value_ids` reads of it, without the values (a row of PRP's
+    cross-tabs holds kilobytes once read)."""
+
+    arity = 1
+    output_field = ArrayField(TextField())
+
+    def as_sql(self, compiler, connection, **extra):
+        sql, params = compiler.compile(self.source_expressions[0])
+        found = f"CASE WHEN jsonb_typeof({sql}) = 'object' THEN ARRAY(SELECT jsonb_object_keys({sql})) END"
+        return found, (*params, *params)
+
+
+def _keys_and_total(keys: list[str] | None, total: Any) -> dict[str, Any]:
+    """A row's disaggregation as a placement group reads it (:meth:`Group.add`: the value ids it names, and
+    its location's total "()" for the value): every key it has, the total the only value kept. The same value
+    ids and the same location value as the whole cross-tab; {} for one that is no object, as
+    :func:`_value_ids` and ``reached`` read one."""
+    found: dict[str, Any] = dict.fromkeys(keys or ())
+    if "()" in found:
+        found["()"] = total
+    return found
+
+
 def _signatures(rows: list[dict[str, Any]]) -> dict[int, tuple[Any, Any, Any]]:
-    """The signature keys and the whole disaggregation of these rows, by Datamart id: read only for the rows
-    under a shared title and output (``KT`` over ``data`` reads each row's whole record)."""
+    """The signature keys and the disaggregation of these rows (its keys and total alone,
+    :func:`_keys_and_total`), by Datamart id: read only for the rows under a shared title and output (``KT``
+    over ``data`` reads each row's whole record in the database)."""
     ids = sorted({row["datamart_id"] for row in rows})
     out: dict[int, tuple[Any, Any, Any]] = {}
     for start in range(0, len(ids), SIGNATURE_CHUNK):
         chunk = dm.ReportedIndicator.objects.filter(datamart_id__in=ids[start : start + SIGNATURE_CHUNK])
-        found = with_signature(chunk.order_by()).values_list(
-            "datamart_id", "_cluster", "_type", "disaggregation"
+        found = (
+            with_signature(chunk.order_by())
+            .annotate(_total=KeyTransform("()", "disaggregation"), _keys=_ValueKeys("disaggregation"))
+            .values_list("datamart_id", "_cluster", "_type", "_total", "_keys")
         )
-        for pk, cluster, kind, values in found:
-            out[pk] = (cluster, kind, values)
+        for pk, cluster, kind, total, keys in found:
+            out[pk] = (cluster, kind, _keys_and_total(keys, total))
     return out
 
 

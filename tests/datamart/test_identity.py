@@ -720,3 +720,53 @@ def _validator():
     user = User.objects.create_user(username="validator", password="pass-123456-x", is_staff=True)
     user.groups.set(Group.objects.filter(name__in=(VIEWER, VALIDATORS)))
     return user
+
+
+# ------------------------------------------------------------------------------------------- the lean read
+@pytest.mark.parametrize("name", ["disaggregations", "target", "high_frequency"])
+def test_the_lean_read_places_rows_as_the_whole_read(name):
+    """The pages read each partner report row's disaggregation as its total alone, never the cross-tab of every
+    value or the narrative (``indicators(totals=True)``): where each row goes is the same as with the whole rows,
+    the tie-breaker that tells two indicators of one title and output apart by the disaggregations they name
+    included, and so is every field of every stored row."""
+    pd = world(name)
+    winner = SETUPS[name][-1]
+    stored = proof()
+    assert name in stored["enabled"]
+    filters = monitoring.Filters(pd_ids=[pd.id], scope="all", year=None)
+    whole_rows = monitoring.indicators(filters, TODAY)
+    lean_rows = monitoring.indicators(filters, TODAY, totals=True)
+    assert monitoring.as_rows(lean_rows) == monitoring.as_rows(whole_rows)
+    found = {r.source_id: r for r in lean_rows}
+    assert found[winner].reached == 40.0 and name in found[winner].placed_by.split(", ")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {
+            "()": {"v": 40, "d": 1, "c": 40},
+            f"({MALE},)": {"v": 10, "d": 1, "c": 10},
+            f"({MALE},{LEBANESE})": 4,
+        },
+        {"()": {"v": 5, "d": 1, "c": 5}},
+        {f"({MALE},)": {"v": 3, "d": 1, "c": 3}},  # no location total
+        {"()": None, "(Male,)": 1},  # a value named in words
+        {},
+        [1, 2],
+        "40",
+    ],
+    ids=["cross-tab", "total", "no-total", "words", "empty", "list", "text"],
+)
+def test_the_rows_of_a_shared_title_read_their_value_ids_without_the_values(value):
+    """The rows under a title and output two indicators share are grouped by what their cross-tab names (the
+    tie-breakers): read as its keys and its location total alone, never every value, they give the same value
+    ids and the same location value as the whole cross-tab, whatever it holds."""
+    pd = make_pd("S")
+    made = row(pd, 40)
+    dm.ReportedIndicator.objects.filter(pk=made.pk).update(disaggregation=value)
+    (whole,) = list(reached.report_rows([pd.id], ["QPR"]))
+    assert whole["disaggregation"] == value
+    _cluster, _kind, lean = identity._signatures([whole])[made.datamart_id]
+    assert identity._value_ids(lean) == identity._value_ids(value)
+    assert reached.location_value({**whole, "disaggregation": lean}) == reached.location_value(whole)

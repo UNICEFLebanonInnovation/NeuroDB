@@ -1040,6 +1040,10 @@ def test_reading_each_rows_total_alone_gives_the_pages_figures(world, year):
     )  # fmt: skip
     for ident, entry in page.items():
         assert [getattr(light[ident], n) for n in names] == [getattr(entry, n) for n in names], ident
+    # every field of every row Partner monitoring's parts store (they read the rows this way), the notes, the rows
+    # placed and those of a shared title left out or matching no output included
+    whole_rows, light_rows = monitoring.as_rows(list(page.values())), monitoring.as_rows(list(light.values()))
+    assert len(whole_rows) == len(page) and light_rows == whole_rows
     keys = [{k for found in e.result.disaggregation.values() for k in found} for e in page.values()]
     assert {"()", "(1,)", "(2,)"} in keys  # Akkar's 10 by sex, on the page alone
     assert all(set(found) <= {"()"} for e in light.values() for found in e.result.disaggregation.values())

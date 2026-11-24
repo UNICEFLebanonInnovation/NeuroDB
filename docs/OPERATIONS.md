@@ -4709,6 +4709,20 @@ itself 38 s and 0.7 s; the first frame before any job stored them 39 s on the sl
 now reads its filter's PD indicator rows cold itself (the frame no longer did it for it): 28 s on the slow disk
 (6.8 s before, after the frame's 141 s), 6.4 s on the local one, within the part's 60 seconds.
 
+The parts compute the filter's indicators from each partner report row's total alone
+(`monitoring.stored_indicators` reads `indicators(totals=True)`, as the Power BI comparison does): never the
+cross-tab of every disaggregation value PRP sends nor the partner's narrative, which no figure of the parts
+reads (the indicator detail, the map and the figure trail still read them whole). The rows of a title two
+indicators of a PD share are grouped by the value ids their cross-tab names, read as its keys and its total
+(`identity._signatures`), never its values: the same rows go to the same indicators. At production size a cold
+computation now peaks at about 290 MB in a web worker instead of 580 MB (350 MB instead of 1.1 GB with partner
+reports held since 2024, 90,000 rows), and the first part takes 3.8 s instead of 6.4 s on a local disk (24 s
+instead of 28 s on the slow one). Three people opening three different filters at
+once, cold, on a web container of 0.5 CPU and 1 GiB (gunicorn's 3 workers of 4 threads) and the slow database:
+every frame came in about a second and every part answered, the last at 40 to 44 s, no worker killed. Before
+this, the three frames took 131 to 132 s each, then workers were killed for lack of memory five times and 9 of
+the 10 parts failed.
+
 The **Map** tab is not split in parts: its page already draws at once and asks for its points in the
 background (`/api/internal/partner-monitoring/map/`). Those points are now computed once for every user and
 worker and kept two minutes, under the eTools jobs' runs, the flags and the gazetteer (how many locations
