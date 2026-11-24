@@ -56,7 +56,11 @@ SITE_PATH = re.compile(r"/(?![/\\])[^\x00-\x20\x7f\\]*")
 CLEANED_BY_LOOKUP = frozenset({"etools_datasets", "etools_query", "etools_search", "etools_record"})
 # Keys of Ask's lookups that hold the name of a place or an organisation (where a name after Sheikh or Dr
 # is kept), besides the Datamart's (``datamart.query._keeps_titles``: "partner", "partner_name",
-# "governorate", "donors", "location"...), case left aside (a filter's label: "Center", "School")
+# "governorate", "donors", "location"...), case left aside (a filter's label: "Center", "School"). The
+# suffix rule of :func:`_keyed_by_place_or_org` reads them at a key's end too ("by_school"), and so also
+# cleans as names the fixed keys of an object such as "in_school" (value, name, hint): harmless, each value
+# is still cleaned by its own key. A key naming a person beside one ("school_principal", "centre_manager") is
+# no place key
 PLACE_OR_ORG_KEYS = frozenset(
     {
         "centre",
@@ -65,6 +69,8 @@ PLACE_OR_ORG_KEYS = frozenset(
         "centers",
         "school",
         "schools",
+        "center_rows",  # the rows of Makani's map: one centre each
+        "school_rows",  # the rows of Dirasa's map: one school each
         "activityinfo_names",
         "partner_label",
         "municipality",
@@ -75,7 +81,18 @@ PLACE_OR_ORG_KEYS = frozenset(
 NAME_KEYS = frozenset({"name", "names", "short_name", "aliases", "label"})
 # The kinds of a knowledge link or a knowledge hub thing ("kind": "partner") that are partners or places
 PLACE_OR_ORG_KINDS = frozenset(
-    {"partner", "donor", "governorate", "district", "place", "location", "site", "centre", "organisation"}
+    {
+        "partner",
+        "donor",
+        "governorate",
+        "district",
+        "place",
+        "location",
+        "site",
+        "centre",
+        "makani_centre",  # the knowledge hub's Makani centre
+        "organisation",
+    }
 )
 # The lookups whose result is itself one partner: its name and short name are a partner's
 PARTNER_RESULTS = frozenset({"partner_details"})

@@ -68,7 +68,7 @@ CHILD = (  # slicer -> enrolment dimension
     ("caregiver", "caregiver"),
     ("working", "working"),
 )
-PLACE = ("partner", "governorate", "center")
+PLACE = ("partner", "governorate", "center")  # the place filters: with the emergency, program staff's
 # slicer -> the registrations block's dimension (Compiler's Makani groupings: partner and governorate, alone
 # or together, each alone or with one other split such as the center or the sex, and the pairs nationality
 # and sex, disability and sex). Service, caregiver, working and emergency are no dimension of the block:

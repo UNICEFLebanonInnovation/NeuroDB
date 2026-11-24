@@ -134,6 +134,8 @@ questions keeps each question as you typed it.
   partner's boys, or one centre). The answer says whether a number is registrations (a child registered
   twice counts twice) or children counted once, which Compiler counts for some filters only. A long list,
   such as the centres, is cut in what the AI reads but never in the counts: ask for one centre for its row.
+  When a name you give is only a part of a centre's, school's or partner's name, the answer names the one
+  it used; a name that matches none, or several, is not guessed.
 - It does not read the [KM Database](/help/km-database/), which has its own assistant on its page.
 - Nothing is written back; it reads only what any signed-in person can already see.
 

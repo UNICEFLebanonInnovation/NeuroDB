@@ -64,7 +64,13 @@ MAX_MATCHES = 20  # partners or programme documents a text may match in pd_indic
 
 
 class ToolInputError(ValueError):
-    """The model sent arguments that do not match the tool's schema."""
+    """The model sent arguments that do not match the tool's schema. ``choices``: what it can choose from
+    instead, under a key that says what they are ("centres": [...]), sent beside the error
+    (``agent._run_calls``), where Ask NeuroDB keeps a place's or a partner's name after Sheikh or Dr."""
+
+    def __init__(self, message: str = "", choices: dict[str, list[str]] | None = None) -> None:
+        super().__init__(message)
+        self.choices = choices or {}
 
 
 # Ask NeuroDB's lookups (``agent._lookup`` without options) run inside ``for_ask()``: a long text is cleaned

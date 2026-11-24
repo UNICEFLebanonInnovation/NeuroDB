@@ -998,12 +998,16 @@ kind up to two links away, with what connects them), then the lookups, combined 
 each figure's source. Other tools added with it: `country_programme`, `cpd_indicator`,
 `youth_figures`, `education_figures`, `makani_wellbeing`, `daily_review` and `management_brief`.
 `education_figures` takes the Makani or Dirasa page's filters (`filters`: a filter by its query name or
-label, a choice by its label, its Compiler id or a partner's full name, case ignored; "All" leaves the
-filter out; a choice that does not match is refused with the choices) and builds the page's own query, so
-its figures are the page's. It gives the registrations and the unique children apart (unique children null
-where Compiler has no grouping for the filters), the filters applied, and each list longer than 40 rows
-cut with `<list>_total` and `<list>_truncated` (the map's points are left out: the rows hold their
-figures).
+label, a choice by its label, its Compiler id, a partner's full name or a governorate's other spelling, case
+ignored, else by the whole words of a unique part of a name, never inside a word or a number and never for a
+category such as the gender; a number is an id; "All" leaves the filter out; a choice that does not match is
+refused with the choices, those of a centre, school or partner also under `choices`, where a name after
+Sheikh or Dr is kept) and builds the page's own query, so its figures are the page's. It gives the
+registrations and the unique children apart (unique children null where Compiler has no grouping for the
+filters), the filters applied (a partner with its full name, a name two choices share with its id), the
+filters whose choice a part of its name found (`filters_matched_by_part`, for the AI to name the choice or
+ask), and each list longer than 40 rows cut with `<list>_total` and `<list>_truncated` (the map's points are
+left out: the rows hold their figures).
 
 **Child data is not reachable.** For Makani wellbeing the assistant sees centre and partner totals
 (`CenterSummary`); flags of individual children (registration numbers) are neither in the hub nor in

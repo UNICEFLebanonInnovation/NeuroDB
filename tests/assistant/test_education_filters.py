@@ -1,14 +1,17 @@
 """Ask NeuroDB's education_figures takes the Makani and Dirasa pages' filters: a filter by its query name or its
-label, a choice by its label, its value or a partner's full name (case ignored; an exact name first, then a unique
-part of a name; "All" leaves the filter out). The figures are the page's own under the same query, with the
-registrations and the unique children said apart (what each page's card counts), the filters applied echoed, and
-every list cut at 40 rows giving its real length (every row is stored: a filter of the tab, or of the overview,
-reaches it). A choice that does not match, or matches several, an unknown filter, a filter of another tab and a
-round the round argument contradicts are refused with the choices. Counts only: nothing about a child. The
-payloads are built as Compiler builds them (tests/education/payloads.py); the partners and centres are
-invented."""
+label, a choice by its label, its value or a partner's full name (case ignored; an exact name first, then the whole
+words of a unique part of a name, never inside a word or a number, and never for a category such as the gender; a
+number is an id; "All" leaves the filter out). The figures are the page's own under the same query, with the
+registrations and the unique children said apart (what each page's card counts), the filters applied echoed (a
+partner with its full name, a choice found by a part of its name said so), and every list cut at 40 rows giving its
+real length (every row is stored: a filter of the tab, or of the overview, reaches it). A choice that does not
+match, or matches several, an unknown filter, a filter of another tab and a round the round argument contradicts
+are refused, the choices listed (a centre's, a school's or a partner's under a key where Ask keeps its name after a
+title). Counts only: nothing about a child. The payloads are built as Compiler builds them
+(tests/education/payloads.py); the partners and centres are invented."""
 
 import json
+from types import SimpleNamespace
 
 import pytest
 from django.core.cache import cache
@@ -17,7 +20,8 @@ from django.urls import reverse
 from neurodb.assistant import agent, hub_tools, privacy, tools
 from neurodb.assistant.hub_tools import HUB_TOOLS, education_figures
 from neurodb.assistant.tools import ToolInputError
-from tests.education.payloads import CENTERS, dirasa_year_payload, makani_payload
+from neurodb.education.models import PowerBiCard
+from tests.education.payloads import CENTERS, SCHOOLS, dirasa_year_payload, format_three, makani_payload
 from tests.education.test_dashboards import OUTREACH, store
 from tests.education.test_dirasa_year import R2, YEAR_REGISTRATIONS, YEAR_TEACHERS
 from tests.education.test_unique_children import MAKANI, PARTNERS
@@ -144,9 +148,9 @@ def test_all_leaves_a_filter_out_even_when_one_name_holds_all():
 def test_a_partners_full_name_finds_its_short_name(makani_short_names):
     for asked in ("Example Partner Two", "partner two", "EP2"):
         answer = education_figures("makani", filters={"partner": asked})
-        assert answer["filters_applied"] == {"Partner": "EP2"}
-    with pytest.raises(ToolInputError, match="2 Partner choices match 'example partner t'") as several:
-        education_figures("makani", filters={"partner": "example partner t"})
+        assert answer["filters_applied"] == {"Partner": "EP2 (Example Partner Two)"}
+    with pytest.raises(ToolInputError, match="3 Partner choices match 'example partner'") as several:
+        education_figures("makani", filters={"partner": "example partner"})
     assert "EP2 (Example Partner Two), EP3 (Example Partner Three)" in str(several.value)
     with pytest.raises(ToolInputError, match="No Partner choice matches") as none:
         education_figures("makani", filters={"partner": "Nowhere"})
@@ -174,6 +178,153 @@ def test_the_year_is_the_period_argument_not_a_filter(makani, dirasa):
     # Outreach's own Year filter stays one; "all" keeps its "All years"
     outreach = education_figures("dirasa", tab="outreach", filters={"year": "all"})
     assert outreach["filters_applied"] == {"Year": "All years"}
+
+
+C = {c["id"]: c for c in CENTERS}
+
+
+def test_a_part_of_a_name_is_whole_words_and_a_number_only_an_id():
+    """Never a choice that only holds the same letters or digits: "Example Centre 1", which registered nobody this
+    year, is not "Example Centre 12"."""
+    centres = [
+        dict(C[100], id=512, name="Example Centre 12", partner=5),
+        dict(C[101], id=530, name="Example Centre 30", partner=6),
+    ]
+    regs = [{"child": 1, "center": 512, "sex": "Male"}, {"child": 2, "center": 530, "sex": "Female"}]
+    store(makani_payload(regs, centers=centres, lists={"partners": PARTNERS}))
+    for asked in ("Example Centre 1", "Centre 1", "centre 1", "Centre 3", 1, 2, 2.0, "2", "12"):
+        with pytest.raises(ToolInputError, match="No Center choice matches"):
+            education_figures("makani", filters={"center": asked})
+    by_id = education_figures("makani", filters={"center": 512.0})
+    assert by_id["filters_applied"] == {"Center": "Example Centre 12"}
+    assert by_id["filters_matched_by_part"] is None and by_id["filters_note"] is None
+    part = education_figures("makani", filters={"center": "centre 12"})
+    assert part["filters_applied"] == {"Center": "Example Centre 12"}
+    assert part["filters_matched_by_part"] == {"Center": "centre 12"}
+
+
+def test_a_word_of_a_governorate_in_arabic_or_english(makani):
+    for asked in ("بعلبك", "Baalbek", "baalbek hermel"):
+        answer = education_figures("makani", filters={"governorate": asked})
+        assert answer["filters_applied"] == {"Governorate": "بعلبك-الهرمل"}
+        assert answer["filters_matched_by_part"] == {"Governorate": asked}
+    exact = education_figures("makani", filters={"governorate": "Baalbek-Hermel"})  # one of its spellings
+    assert (
+        exact["filters_applied"] == {"Governorate": "بعلبك-الهرمل"}
+        and exact["filters_matched_by_part"] is None
+    )
+
+
+def test_a_short_word_never_falls_into_another_choice():
+    """Early in a year, no boy registered yet, no child without a disability, none working "No", no centre "No"
+    in an emergency: "boys" is not "Female", "no" is not "Not specified"."""
+    regs = [
+        {"child": 1, "center": 100, "sex": "Female", "disability": 3, "working": "Yes"},
+        {"child": 2, "center": 102, "sex": "Female", "working": "Yes"},
+        {"child": 3, "center": 102, "sex": "Not specified", "disability": 6},
+    ]
+    store(makani_payload(regs, centers=[CENTERS[0], CENTERS[2]], lists={"partners": PARTNERS}))
+    for name, asked in (
+        ("gender", "male"),
+        ("gender", "Male"),
+        ("gender", "boys"),
+        ("gender", "males"),
+        ("disability", "no"),
+        ("working", "No"),
+        ("emergency", "no"),
+        ("working", False),
+    ):
+        with pytest.raises(ToolInputError, match="choice matches"):
+            education_figures("makani", filters={name: asked})
+    girls = education_figures("makani", filters={"gender": "girls", "working": True, "emergency": "yes"})
+    assert girls["filters_applied"] == {
+        "Child gender": "Female",
+        "Working children": "Yes",
+        "Center active during emergency": "Yes",
+    }
+
+
+def test_a_partner_found_by_a_part_of_its_name_is_said_with_its_full_name():
+    """Example Aid registered nobody this year, Example Aid International (shown as EAI) did: the answer says
+    which partner it is and that it was found by a part of its name."""
+    partners = [
+        {"id": 5, "name": "Example Partner One", "short_name": ""},
+        {"id": 6, "name": "Example Aid International", "short_name": "EAI"},
+    ]
+    regs = [
+        {"child": 1, "center": 100, "sex": "Male", "nationality": 1},
+        {"child": 2, "center": 101, "sex": "Male", "nationality": 5},
+        {"child": 3, "center": 101, "sex": "Female", "nationality": 4},
+    ]
+    centres = [dict(C[100], partner=5), dict(C[101], partner=6)]
+    store(makani_payload(regs, centers=centres, lists={"partners": partners}))
+    answer = education_figures("makani", filters={"partner": "Example Aid", "gender": "boys"})
+    assert answer["filters_applied"] == {"Child gender": "Male", "Partner": "EAI (Example Aid International)"}
+    assert answer["filters_matched_by_part"] == {"Partner": "Example Aid"}
+    assert "may not be the one meant" in answer["filters_note"]
+    exact = education_figures("makani", filters={"partner": "eai"})
+    assert exact["filters_applied"] == {"Partner": "EAI (Example Aid International)"}
+    assert exact["filters_matched_by_part"] is None and exact["filters_note"] is None
+    lebanon = education_figures("makani", filters={"nationality": "Lebanon"})
+    assert lebanon["filters_applied"] == {"Child nationality": "Palestinian from Lebanon"}
+    assert lebanon["filters_matched_by_part"] == {"Child nationality": "Lebanon"}
+    _function, description, _schema, _label = HUB_TOOLS["education_figures"]
+    assert "filters_matched_by_part" in description
+
+
+def test_two_choices_of_one_name_are_told_apart_by_their_ids():
+    twins = [{"id": 5, "name": "Example Twin Partner", "short_name": "ETP"}] * 2
+    twins = [twins[0], dict(twins[1], id=6)]
+    centres = [dict(C[100], id=103, name="Example Centre"), dict(C[101], id=104, name="Example Centre")]
+    regs = [{"child": 1, "center": 103, "sex": "Male"}, {"child": 2, "center": 104, "sex": "Female"}]
+    store(makani_payload(regs, centers=centres, lists={"partners": twins}))
+    with pytest.raises(ToolInputError, match="2 Center choices match 'example centre'") as both:
+        education_figures("makani", filters={"center": "example centre"})
+    assert "Example Centre (103)" in str(both.value) and "Example Centre (104)" in str(both.value)
+    for asked, shown in ((103, "Example Centre (103)"), ("104", "Example Centre (104)")):
+        assert education_figures("makani", filters={"center": asked})["filters_applied"] == {"Center": shown}
+    with pytest.raises(ToolInputError, match="2 Partner choices match 'etp'") as partners:
+        education_figures("makani", filters={"partner": "etp"})
+    assert "ETP (Example Twin Partner) (5)" in str(partners.value)
+    assert "ETP (Example Twin Partner) (6)" in str(partners.value)
+    one = education_figures("makani", filters={"partner": 6})
+    assert one["filters_applied"] == {"Partner": "ETP (Example Twin Partner) (6)"}
+
+
+def test_other_words_for_a_filter_and_all(dirasa):
+    plural = education_figures(
+        "dirasa", filters={"partners": "three", "genders": "female", "schools": "akkar"}
+    )
+    assert plural["filters_applied"] == {
+        "Gender": "Female",
+        "School": "Akkar private school",
+        "Partner": "Example Partner Three",
+    }
+    # Outreach's own Year: "years" and "period" name it there; every word for "All" gives its "All years"
+    for word in ("years", "period", "Year"):
+        outreach = education_figures("dirasa", tab="outreach", filters={word: "2024"})
+        assert outreach["filters_applied"] == {"Year": "2024"}
+    for everyone in ("All", "any", "", "all years"):
+        outreach = education_figures("dirasa", tab="outreach", filters={"year": everyone})
+        assert outreach["filters_applied"] == {"Year": "All years"}
+    # "All" of a filter another tab shows is no filter: left out, not refused
+    on_map = education_figures("dirasa", tab="map", filters={"gender": "All"})
+    assert not on_map["filters_applied"]
+    # the round argument, like the Round filter, whatever its case
+    same = education_figures("dirasa", round="bridging round 2 2026")
+    assert same["round"] == "Bridging Round 2 2026"
+
+
+def test_a_filter_with_no_choices_and_a_round_compiler_could_not_count():
+    store(dirasa_year_payload(YEAR_REGISTRATIONS, YEAR_TEACHERS, [], lists={"partners": PARTNERS}))
+    with pytest.raises(ToolInputError, match=r"Partner\) has no choices in Dirasa"):
+        education_figures("dirasa", tab="outreach", filters={"partner": "x"})
+    payload = dirasa_year_payload(YEAR_REGISTRATIONS, YEAR_TEACHERS, OUTREACH, lists={"partners": PARTNERS})
+    payload["year"], payload["cubes"]["enrolment"] = "2027", {"error": "QueryCanceled"}
+    store(payload)
+    with pytest.raises(ToolInputError, match="Compiler could not count") as refused:
+        education_figures("dirasa", period="2027", filters={"round": "Round 2"})
+    assert "of one round" not in str(refused.value)
 
 
 # ------------------------------------------------------------------------------------------- refused, with choices
@@ -262,11 +413,14 @@ def test_a_list_over_40_rows_gives_its_length_and_a_filter_reaches_every_row():
     assert [(r["name"], r["children"]) for r in one["figures"]["center_rows"]] == [("Example Centre 41", 1)]
     assert "center_rows_total" not in one["figures"] and one["lists_note"] is None
     # 45 choices: the closest, how many, and to give a longer part of the name
-    with pytest.raises(ToolInputError, match="6 Center choices match 'Example Centre 4'") as several:
+    with pytest.raises(ToolInputError, match="No Center choice matches 'Example Centre 4'") as closest:
         education_figures("makani", filters={"center": "Example Centre 4"})
-    message = str(several.value)
-    assert "45 choices" in message and "Example Centre 45" in message and "longer part of the name" in message
-    assert "Example Centre 01" not in message
+    message = str(closest.value)
+    assert "45 choices" in message and "Example Centre 04" in message and "Example Centre 45" in message
+    assert message.split("the closest: ")[1].startswith("Example Centre 04, Example Centre 14")
+    with pytest.raises(ToolInputError, match="45 Center choices match 'Example Centre'") as several:
+        education_figures("makani", filters={"center": "Example Centre"})
+    assert "longer part of the name" in str(several.value)
     with pytest.raises(ToolInputError, match="No Center choice matches 'Centre 99'") as none:
         education_figures("makani", filters={"center": "Centre 99"})
     assert "45 choices" in str(none.value) and "longer part of the name" in str(none.value)
@@ -282,8 +436,8 @@ def test_the_lists_note_names_a_filter_of_the_tab(monkeypatch, dirasa):
     one = education_figures("dirasa", tab="overview", filters={"school": "akkar private"})
     assert one["filters_applied"] == {"School": "Akkar private school"}
     overview = education_figures("dirasa", tab="overview")["lists_note"]
-    assert 'filter "school"' in overview and "overview tab" not in overview
-    assert "a list of schools" in overview  # never one school as one row of a chart
+    assert "every row is stored" in overview  # its charts were cut, not a list of schools
+    assert "school" not in overview and "overview tab" not in overview
 
 
 # ------------------------------------------------------------------------------------- the tool and the prompt
@@ -303,10 +457,96 @@ def test_the_children_note_says_what_each_pages_card_counts(makani, dirasa):
 
 def test_a_centre_or_school_name_is_kept_after_a_title():
     kept = privacy.cleaned(
-        {"filters_applied": {"Center": "Sheikh Example Centre", "School": "Sheikh Example School"}},
+        {
+            "filters_applied": {"Center": "Sheikh Example Centre", "School": "Sheikh Example School"},
+            "figures": {
+                "center_rows": [
+                    {"name": "Sheikh Example Centre", "partner": "Dr. Example Social Foundation"}
+                ],
+                "school_rows": [{"name": "Sheikh Example School", "children": 3}],
+            },
+            "items": [{"kind": "makani_centre", "name": "Sheikh Example Centre"}],  # a knowledge hub card
+        },
         names=frozenset(),
     )
     assert kept["filters_applied"] == {"Center": "Sheikh Example Centre", "School": "Sheikh Example School"}
+    assert kept["figures"]["center_rows"][0]["name"] == "Sheikh Example Centre"
+    assert kept["figures"]["school_rows"][0]["name"] == "Sheikh Example School"
+    assert kept["items"][0]["name"] == "Sheikh Example Centre"
+    # a person named beside a school or a centre is still withheld
+    people = privacy.cleaned(
+        {
+            "school_principal": "Dr. Example Person",
+            "centre_manager": "Sheikh Example Person",
+            "Center manager": "Dr. Example Person",
+            "School focal point": "Dr. Example Person",
+            "focal_point": {
+                "school": "Example School",
+                "name": "Dr. Example Person",
+                "director": "Dr. Example Person",
+            },
+            "center_rows": [{"name": "Example Centre", "manager": "Dr. Example Person"}],
+        },
+        names=frozenset(),
+    )
+    assert "Example Person" not in json.dumps(people) and people["focal_point"]["school"] == "Example School"
+
+
+TITLED = {"id": 9, "name": "Dr. Example Social Foundation", "short_name": ""}
+SHEIKH_CENTRE = dict(CENTERS[1], id=110, name="Sheikh Example Centre", partner=9)
+SHEIKH_SCHOOL = dict(SCHOOLS[0], id=310, name="Sheikh Example Public School", listed=[7])
+
+
+def sent(args):
+    """What the AI reads of a call to education_figures: its result, or its refusal as Ask sends it, cleaned
+    (agent._run_calls)."""
+    call = SimpleNamespace(name="education_figures", arguments=json.dumps(args), call_id="c1")
+    ((_call_id, output, ok),) = agent._run_calls([call], agent.Outcome())
+    return json.loads(output), ok
+
+
+def test_a_refusal_names_a_centre_school_or_partner_after_a_title_so_it_can_be_chosen():
+    """The refusal's words are cleaned as any text; the choices it lists also come under a key that names
+    centres, schools or partners, where Ask keeps a name after Sheikh or Dr, as in filters_applied."""
+    regs = [*MAKANI, {"child": 9, "center": 110, "sex": "Male"}]
+    store(makani_payload(regs, centers=[*CENTERS, SHEIKH_CENTRE], lists={"partners": [*PARTNERS, TITLED]}))
+    refused, ok = sent({"programme": "makani", "filters": {"center": "Example centre Akkar"}})
+    assert not ok and refused["error"].startswith("No Center choice matches 'Example centre Akkar'")
+    centres = ["Beirut center", "Halba center", "Hermel center", "Sheikh Example Centre"]
+    assert refused["choices"] == {"centres": centres}
+    assert "Sheikh Example Centre" not in refused["error"]  # the refusal's own words: cleaned as any text
+    chosen, ok = sent({"programme": "makani", "filters": {"center": refused["choices"]["centres"][-1]}})
+    assert ok and chosen["filters_applied"] == {"Center": "Sheikh Example Centre"}
+    assert chosen["children"] == {"registrations": 1, "unique_children": 1}
+    partner, ok = sent({"programme": "makani", "filters": {"partner": "x9"}})
+    assert not ok and "Dr. Example Social Foundation" in partner["choices"]["partners"]
+    gender, ok = sent({"programme": "makani", "filters": {"gender": "x9"}})
+    assert not ok and "choices" not in gender  # no name of a place or a partner: the words say them
+    regs = [*YEAR_REGISTRATIONS, dict(YEAR_REGISTRATIONS[0], child=99, school=310)]
+    schools = [*SCHOOLS, SHEIKH_SCHOOL]
+    store(dirasa_year_payload(regs, YEAR_TEACHERS, OUTREACH, schools=schools, lists={"partners": PARTNERS}))
+    school, ok = sent({"programme": "dirasa", "filters": {"school": "Nowhere"}})
+    assert not ok and "Sheikh Example Public School" in school["choices"]["schools"]
+
+
+def test_the_children_note_follows_the_version_of_the_card_shown():
+    store(format_three(makani_payload(MAKANI, lists={"partners": PARTNERS})))
+    PowerBiCard.objects.create(programme="mscc", card="children", variant="view_rows")
+    answer = education_figures("makani")
+    assert answer["figures"]["cards"]["children"]["variant"] == "view_rows"
+    note = answer["children_note"]
+    assert "registrations: what the page's" not in note and "another version" in note
+    assert "figures.cards.children.name" in note and "counts twice" in note
+
+
+def test_the_lists_note_speaks_of_centres_only_when_their_list_is_cut(monkeypatch, makani):
+    monkeypatch.setattr(hub_tools, "MAX_LIST", 1)
+    overview = education_figures("makani")
+    assert overview["figures"]["charts"]["gender_truncated"] is True
+    note = overview["lists_note"]
+    assert "longer than 1 rows" in note and "centre" not in note and "center" not in note
+    maps = education_figures("makani", tab="maps")["lists_note"]
+    assert 'filter "center"' in maps and "centres" in maps
 
 
 def test_the_tool_and_the_prompt_say_the_filters_and_what_each_count_is():
@@ -315,3 +555,6 @@ def test_the_tool_and_the_prompt_say_the_filters_and_what_each_count_is():
     assert "filters" in description and "registrations" in description and "unique children" in description
     line = next(line for line in agent.SYSTEM_PROMPT.splitlines() if "education_figures" in line)
     assert "filters" in line
+    # only education_figures's cut lists are whole: another lookup's cut list is partial
+    assert "A list cut in education_figures is not missing data" in agent.SYSTEM_PROMPT
+    assert "A list cut in a lookup is not missing data" not in agent.SYSTEM_PROMPT

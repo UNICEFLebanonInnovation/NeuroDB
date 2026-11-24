@@ -156,7 +156,7 @@ findings; management_brief the brief's comparisons. Makani wellbeing is availabl
 only: never ask for or give anything about an individual child.
 - Education counts are registrations (a child registered twice counts twice) or unique children \
 (each child once): say which. When unique_children is null, give the registrations as registrations. \
-A list cut in a lookup is not missing data: its rows are all counted.
+A list cut in education_figures is not missing data: its rows are all counted.
 - Before a lookup you may say one short sentence about what you are checking.
 
 How to answer:
@@ -712,8 +712,13 @@ def _run_calls(
             output, ok = json.dumps(result, **COMPACT), True
         except tools.ToolInputError as exc:
             # Unknown tool, unreadable JSON or arguments outside the schema: the model can correct it.
-            # The filter reads the error too (it may name what the data holds, and echoes the input).
-            error: Any = {"error": str(exc), "received": args}
+            # The filter reads the error too (it may name what the data holds, and echoes the input). The
+            # choices a refusal lists come apart too, by what they are ("centres"): privacy keeps their names.
+            error: Any = {
+                "error": str(exc),
+                **({"choices": exc.choices} if exc.choices else {}),
+                "received": args,
+            }
             if options is None:
                 error = privacy.cleaned(error)
             elif options.tool_filter:
