@@ -338,7 +338,7 @@ def datamart_sync(monkeypatch, settings):
     settings.FMM_REFRESH_AFTER_SYNC = "off"
     outcome: dict[str, str] = {}
 
-    def fake_sync_all(only=None, triggered_by="command"):
+    def fake_sync_all(only=None, triggered_by="command", after_run=None):
         runs = []
         for target, status in outcome.items():
             run = SyncRun.objects.create(
@@ -407,7 +407,7 @@ def _night(site_today, monkeypatch, night: datetime.date, ends: datetime.datetim
 
     started = timezone.make_aware(datetime.datetime.combine(night, datetime.time(20, 30)))
 
-    def fake_sync_all(only=None, triggered_by="command"):
+    def fake_sync_all(only=None, triggered_by="command", after_run=None):
         runs = []
         for target in ("partners", "action_points"):
             run = SyncRun.objects.create(

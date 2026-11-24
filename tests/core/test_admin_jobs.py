@@ -290,12 +290,117 @@ def test_run_a_job_offers_storing_the_partner_monitoring_choices(superadmin, adm
     command = COMMANDS["pm_choices"]
     assert command.args == ("store_monitoring_choices",) and command.sync_job is None
     assert str(command.label) == "Store the partner monitoring filter choices"
-    (button,) = [spec for spec in BACKGROUND_JOBS if spec.command == command.args]
+    (button,) = [spec for spec in BACKGROUND_JOBS if spec.command[0] == "store_monitoring_choices"]
     assert str(button.menu) in superadmin.get(reverse("admin:core_syncrun_changelist")).content.decode()
     assert superadmin.post(_url(button.name), {"_form_submitted": "on"}).status_code == 302
-    assert started == [("store_monitoring_choices", "--triggered-by", admin_user.username)]
+    assert started == [("store_monitoring_choices", "--wait", "--triggered-by", admin_user.username)]
 
     call_command("store_monitoring_choices", "--triggered-by", admin_user.username)
     stored = dm.PageChoices.objects.get(name=monitoring.OPTIONS_NAME)
     assert stored.version == monitoring.OPTIONS_VERSION
     assert json.loads(stored.value) == monitoring.filter_options(monitoring.Filters(year=None))
+
+
+@pytest.fixture
+def choices_held_elsewhere(db):
+    """Another process is storing Partner monitoring's filter choices: it holds their lock (closing it ends
+    that run)."""
+    from django.db import connections
+
+    other = connections.create_connection("default")
+    with other.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_lock(%s)", [background.PAGE_CHOICES_LOCK_ID])
+    yield other
+    other.close()  # ends its session: the lock goes with it
+
+
+def _store(*args) -> str:
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    out = StringIO()
+    call_command("store_monitoring_choices", *args, stdout=out)
+    return out.getvalue().strip()
+
+
+def test_the_partner_monitoring_choices_are_stored_one_run_at_a_time(
+    superadmin, admin_user, started, choices_held_elsewhere, monkeypatch
+):
+    """While one run stores the filter's choices, its button and *Empty the stored page figures* start a run
+    that waits for it (``--wait``: that one may have read before the change wanted), and a run started without
+    waiting (a schedule) does nothing: two of these runs never read the PD indicator rows side by side."""
+    from neurodb.datamart import monitoring
+    from neurodb.integrations.management.commands import store_monitoring_choices
+
+    (button,) = [spec for spec in BACKGROUND_JOBS if spec.command[0] == "store_monitoring_choices"]
+    superadmin.post(_url(button.name), {"_form_submitted": "on"})
+    superadmin.post(_url("run_empty_page_figures"), {"_form_submitted": "on"})
+    waiting = ("store_monitoring_choices", "--wait", "--triggered-by", admin_user.username)
+    assert started == [waiting, waiting]
+
+    def refuse():
+        raise AssertionError("a second run read the choices")
+
+    monkeypatch.setattr(monitoring, "store_options", refuse)
+    assert _store() == store_monitoring_choices.ALREADY_RUNNING
+
+
+def test_a_waiting_run_reads_the_choices_after_the_running_one(choices_held_elsewhere, monkeypatch):
+    """``--wait`` (the buttons) waits for the run storing the choices, which may have read them before the
+    change wanted, then reads them again: always, even when a sync stored them meanwhile (that read may have
+    begun before a press this run stands for)."""
+    from neurodb.datamart import models as dm
+    from neurodb.datamart import monitoring
+    from neurodb.integrations.management.commands import store_monitoring_choices
+
+    reads: list[str] = []
+    real = monitoring.store_options
+
+    def counted():
+        reads.append("read")
+        return real()
+
+    def a_sync_stores_them_then_the_running_one_ends():
+        real()
+        choices_held_elsewhere.close()
+
+    monkeypatch.setattr(monitoring, "store_options", counted)
+    monkeypatch.setattr(store_monitoring_choices, "_pause", a_sync_stores_them_then_the_running_one_ends)
+    assert _store("--wait").startswith("Partner monitoring filter choices stored:")
+    assert reads == ["read"] and dm.PageChoices.objects.filter(name=monitoring.OPTIONS_NAME).exists()
+
+
+def test_a_waiting_run_gives_up_after_its_wait(choices_held_elsewhere, monkeypatch):
+    from neurodb.integrations.management.commands import store_monitoring_choices
+
+    monkeypatch.setattr(store_monitoring_choices, "WAIT_SECONDS", 0)
+    assert _store("--wait") == store_monitoring_choices.WAITED_TOO_LONG
+
+
+def test_one_run_waits_for_the_running_one_at_a_time(superadmin, started, choices_held_elsewhere):
+    """While a run waits for the one storing the choices, the buttons start no second waiting run (the job's
+    says it is already running) and one started anyway does nothing: the waiting one's read begins after every
+    press made meanwhile."""
+    from django.db import connections
+
+    from neurodb.integrations.management.commands import store_monitoring_choices
+
+    waiting = connections.create_connection("default")  # a run waiting for the one storing them
+    with waiting.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_lock(%s)", [background.PAGE_CHOICES_WAIT_LOCK_ID])
+    try:
+        (button,) = [spec for spec in BACKGROUND_JOBS if spec.command[0] == "store_monitoring_choices"]
+        response = superadmin.post(_url(button.name), {"_form_submitted": "on"}, follow=True)
+        assert f"{button.title} is already running." in unescape(response.content.decode())
+        superadmin.post(_url("run_empty_page_figures"), {"_form_submitted": "on"})
+        assert started == []
+        assert _store("--wait") == store_monitoring_choices.ALREADY_WAITING
+    finally:
+        waiting.close()
+
+
+def test_the_write_lock_ids_are_one(db):
+    from neurodb.datamart import monitoring
+
+    assert monitoring.CHOICES_WRITE_LOCK_ID == background.PAGE_CHOICES_WRITE_LOCK_ID

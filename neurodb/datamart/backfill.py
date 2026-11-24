@@ -255,7 +255,7 @@ def run(triggered_by: str = "schedule") -> SyncRun | str:
     """Do every step. When it cannot run now it returns why, a sentence for the log, instead of a run: another
     clean-up is running, or the eTools Datamart sync is (the schedule then tries again). Once both locks are
     released, Partner monitoring's filter choices are stored again (said in the run's details; a failure there
-    never fails the run): the clean-up runs after each deployment, so they are stored soon after one."""
+    never fails the run)."""
     from . import monitoring
 
     if not _take(background.DATAMART_BACKFILL_LOCK_ID):

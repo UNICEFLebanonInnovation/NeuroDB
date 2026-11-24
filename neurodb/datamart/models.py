@@ -175,9 +175,9 @@ class PageChoices(models.Model):
     """The choices a page's filter bar offers, stored by the jobs that write the tables they are read from, so
     that the page's frame reads one row instead of those tables (``name``: whose choices). Partner
     monitoring's (``monitoring.store_options``) are read from the PD indicator rows, the widest table the
-    pages read: the eTools jobs store them at the end of each run, and *Run a job → Store the partner
-    monitoring filter choices* at any time. A row of another ``version`` than its reader's is never read (its
-    shape has changed)."""
+    pages read: the eTools jobs store them as they go, and *Run a job → Store the partner monitoring filter
+    choices* at any time; the read begun last is kept (``computed_at``). A row of another ``version`` than its
+    reader's is never read (its shape has changed)."""
 
     name = models.CharField(max_length=64, primary_key=True)
     # JSON as text, never jsonb: jsonb sorts an object's keys, and the order of some choices is their order on

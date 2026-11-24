@@ -717,7 +717,7 @@ def datamart_sync(monkeypatch):
 
     targets = []
 
-    def fake_sync_all(only=None, triggered_by="command"):
+    def fake_sync_all(only=None, triggered_by="command", after_run=None):
         return [
             SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target=t, status=SyncRun.Status.SUCCEEDED)
             for t in targets

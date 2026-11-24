@@ -53,6 +53,15 @@ POWERBI_COMPARE_LOCK_ID = 7140443
 POWERBI_QUEUE_LOCK_ID = 7140444
 # neurodb.datamart.ap_history.LOCK_ID: one record of the action point status at a time
 AP_HISTORY_LOCK_ID = 7140445
+# store_monitoring_choices: one storing of Partner monitoring's filter choices by that job at a time (it
+# records no run: not in LOCK_IDS); the eTools jobs, which store them as they go, do not take it
+PAGE_CHOICES_LOCK_ID = 7140446
+# store_monitoring_choices --wait (its Run a job button, Empty the stored page figures): one run waiting for
+# the one storing them
+PAGE_CHOICES_WAIT_LOCK_ID = 7140447
+# neurodb.datamart.monitoring.CHOICES_WRITE_LOCK_ID: one write of the stored choices at a time, held for that
+# write's transaction only (every writer: the jobs, the button, a frame)
+PAGE_CHOICES_WRITE_LOCK_ID = 7140448
 LOCK_IDS = {
     SyncRun.Job.ETOOLS_DATAMART: DATAMART_LOCK_ID,
     SyncRun.Job.DAILY_REVIEW: DAILY_REVIEW_LOCK_ID,
@@ -115,11 +124,16 @@ def is_running(job: str) -> bool:
     container was restarted mid-run, typically by a deployment) is closed as failed so that the next
     sync can start instead of waiting hours for the row to age out: every such row of the job, whatever
     its age (a row older than ``RUNNING_FOR_AT_MOST`` was never closed before, and stayed "running" on
-    the pages that list runs). Otherwise a row younger than that counts as running."""
+    the pages that list runs). Otherwise a row younger than that counts as running. A Datamart sync whose
+    process holds its lock between two datasets (no run open) is running too."""
     now = timezone.now()
     running = SyncRun.objects.filter(job=job, status=SyncRun.Status.RUNNING)
     if not running.exists():
-        return False
+        # between two of its datasets (Partner monitoring's filter choices are stored after some) a Datamart
+        # sync holds its lock with no run open: it is still running, and a second one would do nothing
+        return job == SyncRun.Job.ETOOLS_DATAMART and bool(
+            datamart_lock_is_held() and not datamart_cleanup_is_running()
+        )
     if job == SyncRun.Job.ETOOLS_DATAMART:
         # the eTools update clean-up holds the same lock: then no sync is running
         held = datamart_lock_is_held() and not datamart_cleanup_is_running()

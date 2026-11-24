@@ -7,8 +7,11 @@ its own run: its failure never fails this command, and neither does a failed dia
 
 Once the lock is released, each action point's status is also recorded when the action points were refreshed
 (``datamart.ap_history``): a run of its own, whose failure never fails this command either. Partner
-monitoring's filter choices are stored again when a dataset they read was synced
-(``monitoring.store_options_after``, said in that dataset's run details; a failure never fails this command).
+monitoring's filter choices are stored again as soon as the datasets they read have been synced, before the
+next dataset starts: once after partners and interventions (one after the other), once after PD indicators,
+once after partner reports (``monitoring.store_options_after``, said in the last of those runs' details; a
+failure never fails this command; nothing when each of them failed without writing a row). The page follows
+the sync, and a sync stopped part-way leaves them as current as the last of those points it passed.
 
 One sync runs at a time (the Datamart lock): a second one does nothing. The eTools update clean-up
 (``datamart_backfill``, after a deployment) holds the same lock; a sync started meanwhile waits for it
@@ -28,6 +31,7 @@ from neurodb.core.models import SyncRun
 from neurodb.datamart.catalogue import DIAGNOSTIC
 from neurodb.integrations import background
 from neurodb.integrations.background import DATAMART_LOCK_ID as LOCK_ID
+from neurodb.integrations.etools import datamart_sync
 from neurodb.integrations.etools.datamart import DatamartNotConfigured
 from neurodb.integrations.etools.datamart_sync import ENTITY_SYNCS, sync_all
 from neurodb.integrations.management.commands._base import add_triggered_by, exit_on_failure, write_summary
@@ -53,6 +57,18 @@ FMM_NOT_STARTED = (
 )
 
 
+def choices_points(only: list[str] | None) -> frozenset[str]:
+    """The datasets after which Partner monitoring's filter choices are stored, of those ``only`` selects
+    (all: None): the last of each series of :data:`CHOICES_DATASETS` that run one after the other (partners
+    then interventions: once, after interventions), so a full sync reads them three times, not four."""
+    order = [name for name in datamart_sync.ENTITY_SYNCS if not only or name in only]  # as sync_all selects
+    return frozenset(
+        name
+        for at, name in enumerate(order)
+        if name in CHOICES_DATASETS and (at + 1 == len(order) or order[at + 1] not in CHOICES_DATASETS)
+    )
+
+
 class Command(BaseCommand):
     help = (
         "Synchronise partners, programme documents, budgets, funds reservations, grants, PD indicators, "
@@ -72,8 +88,12 @@ class Command(BaseCommand):
         )
         if not self._lock() and not self._after_the_cleanup():
             return
+        self._choices_read: list[SyncRun] = []  # the runs of datasets the choices read, since last stored
         try:
-            runs = sync_all(only=only, triggered_by=options["triggered_by"])
+            self._choices_after = choices_points(only)
+            runs = sync_all(
+                only=only, triggered_by=options["triggered_by"], after_run=self._partner_monitoring_choices
+            )
         except (ValueError, DatamartNotConfigured) as exc:
             raise CommandError(str(exc)) from exc
         finally:
@@ -81,7 +101,6 @@ class Command(BaseCommand):
         if any(run.target in ("partners", "interventions") and run.status != FAILED for run in runs):
             runs.append(link_activityinfo_partners(triggered_by=options["triggered_by"]))
         history_run = self._action_point_history(runs, options["triggered_by"])
-        self._partner_monitoring_choices(runs)
         fmm_run = self._monitoring_insights(runs, options["triggered_by"])
         write_summary(self, runs + [run for run in (history_run, fmm_run) if run])
         # not the action point status record or the Monitoring insights run (their failure never fails the
@@ -103,18 +122,24 @@ class Command(BaseCommand):
             return None
         return result
 
-    def _partner_monitoring_choices(self, runs) -> None:
-        """Store Partner monitoring's filter choices again when this sync ran a dataset they read
-        (:data:`CHOICES_DATASETS`, the Datamart lock released by now), so its frames show what the sync
-        brought without reading the PD indicator rows. Never raises: the outcome is in that dataset's run
-        details."""
+    def _partner_monitoring_choices(self, run) -> None:
+        """Store Partner monitoring's filter choices again as soon as the datasets they read
+        (:data:`CHOICES_DATASETS`) have been synced, before the next dataset starts (:func:`choices_points`):
+        the frames follow the sync without reading the PD indicator rows, and a sync stopped part-way (the
+        container restarted) leaves them as current as the last of those points it passed. Not when each of
+        those runs failed without writing a row (the Datamart unreachable): the choices stored still hold.
+        Never raises: the outcome is in the last of those runs' details."""
         from neurodb.datamart import monitoring  # lazy: it reads what this sync writes
 
-        read = [
-            run for run in runs if run.job == SyncRun.Job.ETOOLS_DATAMART and run.target in CHOICES_DATASETS
-        ]
-        if read:
-            monitoring.store_options_after(read[-1])
+        if run.job != SyncRun.Job.ETOOLS_DATAMART or run.target not in CHOICES_DATASETS:
+            return
+        self._choices_read.append(run)
+        if run.target not in self._choices_after:
+            return
+        read, self._choices_read = self._choices_read, []
+        if all(done.status == FAILED and not done.rows_written for done in read):
+            return
+        monitoring.store_options_after(run)
 
     def _monitoring_insights(self, runs, triggered_by: str):
         """Rebuild the Monitoring insights visits when a dataset they read was synced (the Datamart lock

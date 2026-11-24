@@ -391,7 +391,7 @@ def test_a_diagnostic_dataset_alone_does_not_fail_the_sync_command(monkeypatch, 
     settings.FMM_REFRESH_AFTER_SYNC = "off"
     outcome = {"grants": SUCCEEDED, "datamart_etl_status": FAILED}
 
-    def fake_sync_all(*, only, triggered_by):
+    def fake_sync_all(*, only, triggered_by, after_run=None):
         runs = []
         for name in only:
             run = SyncRun.objects.create(job=DATAMART, target=name, triggered_by=triggered_by)

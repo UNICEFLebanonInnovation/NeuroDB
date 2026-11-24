@@ -65,6 +65,9 @@ class BackgroundJob:
     title: str
     description: str
     icon: str
+    # a job that records no run: the name of the advisory lock in neurodb.integrations.background whose holder
+    # makes a press start nothing ("already running"; "": none)
+    lock: str = ""
 
 
 BACKGROUND_JOBS = [
@@ -422,20 +425,23 @@ BACKGROUND_JOBS = [
     ),
     BackgroundJob(
         "run_store_monitoring_choices",
-        ("store_monitoring_choices",),
+        ("store_monitoring_choices", "--wait"),
         None,
         _("Partner monitoring filter choices"),
         _("Store the partner monitoring filter choices"),
         _(
             "Reads the choices of Partner monitoring's filter bar (sections, partners, programme documents, "
             "places, years, statuses and tags) from the eTools tables and stores them, in the background, "
-            "for the page and its map, which then open without reading those tables. Every eTools sync and "
-            "the eTools update clean-up store them again when they end; use this right after a deployment, "
-            "or if a choice looks out of date. It records no run here; it takes from a second to a few "
-            "minutes on a slow database, and until it ends the page shows the choices stored before (the "
+            "for the page and its map, which then open without reading those tables. The eTools Datamart "
+            "sync stores them again as soon as the datasets they come from have been synced, the eTools REST "
+            "sync and the eTools update clean-up when they end; use this right after a deployment, or if a "
+            "choice looks out of date. It records no run here and runs one at a time: started while another "
+            "stores them, it waits for that one and reads them again after it. It takes from a second to a "
+            "few minutes on a slow database, and until it ends the page shows the choices stored before (the "
             "first visit computes them when none are stored yet)."
         ),
         "filter_list",
+        lock="PAGE_CHOICES_WAIT_LOCK_ID",  # one already waits: its read begins after this press
     ),
 ]
 
@@ -465,7 +471,9 @@ def _background_action(spec: BackgroundJob):
     def run(self, request, form):
         from neurodb.integrations import background
 
-        if spec.job and background.is_running(spec.job):
+        if (spec.job and background.is_running(spec.job)) or (
+            spec.lock and background.lock_is_held(getattr(background, spec.lock))
+        ):
             messages.warning(request, _("%(job)s is already running.") % {"job": spec.title})
         else:
             background.start_command(*spec.command, "--triggered-by", request.user.get_username())
@@ -638,7 +646,12 @@ def run_empty_page_figures(self, request, form):
         message = _("The stored page figures were emptied (%(n)s entries).") % {"n": removed}
     # Partner monitoring's filter choices are not among them (a row the eTools jobs store): read again, in the
     # background, as after a sync, so a change no job made shows there too
-    background.start_command("store_monitoring_choices", "--triggered-by", request.user.get_username())
+    # with --wait: when a run is storing them (it may have read before the change wanted here), after it ends;
+    # not when one already waits for it (its read begins after this press)
+    if not background.lock_is_held(background.PAGE_CHOICES_WAIT_LOCK_ID):
+        background.start_command(
+            "store_monitoring_choices", "--wait", "--triggered-by", request.user.get_username()
+        )
     again = _("Partner monitoring's filter choices are being stored again.")
     messages.success(request, f"{message} {again}")
     return _done(request)

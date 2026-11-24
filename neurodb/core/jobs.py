@@ -102,8 +102,8 @@ COMMANDS: dict[str, JobCommand] = {
         _("Record action point status"), ("record_action_point_status",), SyncRun.Job.AP_HISTORY
     ),
     "freshness": JobCommand(_("Check data freshness"), ("check_sync_freshness",), None, triggered_by=False),
-    # no run of its own: the eTools jobs store the choices at the end of theirs
-    # (monitoring.store_options_after)
+    # no run of its own: the eTools jobs store the choices as they go (the Datamart sync after the datasets
+    # they read, the REST sync and the clean-up at their end: monitoring.store_options_after)
     "pm_choices": JobCommand(
         _("Store the partner monitoring filter choices"), ("store_monitoring_choices",), None
     ),

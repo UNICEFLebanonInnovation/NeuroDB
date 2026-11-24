@@ -1785,9 +1785,9 @@ def sync_running() -> datetime.datetime | None:
 
     for job in keys.ETOOLS_JOBS:
         if background.is_running(job):
-            run = (
-                SyncRun.objects.filter(job=job, status=SyncRun.Status.RUNNING).order_by("-started_at").first()
-            )
+            runs = SyncRun.objects.filter(job=job).order_by("-started_at")
+            # between two of its datasets a Datamart sync has no run open: the start of its latest one
+            run = runs.filter(status=SyncRun.Status.RUNNING).first() or runs.first()
             return run.started_at if run is not None else timezone.now()
     return None
 

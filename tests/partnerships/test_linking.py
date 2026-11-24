@@ -258,7 +258,7 @@ def test_the_imports_end_with_a_link_run(database, partners, monkeypatch):
     assert PartnerLink.objects.get(label="Amel_Association").partner == partners["amel"]
     assert [r.job for r in SyncRun.objects.order_by("started_at")] == ["ai_data", "partner_links"]
 
-    def fake_sync(only=None, triggered_by=""):
+    def fake_sync(only=None, triggered_by="", after_run=None):
         return [
             SyncRun.objects.create(
                 job="etools_datamart", target=name, status="succeeded", triggered_by=triggered_by

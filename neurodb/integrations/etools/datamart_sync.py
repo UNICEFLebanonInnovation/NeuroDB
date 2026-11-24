@@ -4457,9 +4457,11 @@ def sync_all(
     only: Iterable[str] | None = None,
     triggered_by: str = "schedule",
     client: DatamartClient | None = None,
+    after_run: Callable[[SyncRun], None] | None = None,
 ) -> list[SyncRun]:
     """Run the dataset syncs in dependency order, each with its own ``SyncRun``; a failed dataset
-    is recorded FAILED and the next one still runs."""
+    is recorded FAILED and the next one still runs. ``after_run`` is called with each dataset's run as soon
+    as it ends, before the next dataset starts (what it does never stops the sync: an error is logged)."""
     selected = set(only) if only else set(ENTITY_SYNCS)
     unknown = selected - set(ENTITY_SYNCS)
     if unknown:
@@ -4476,6 +4478,11 @@ def sync_all(
         except Exception:
             logger.error("etools datamart %s aborted; continuing with the next dataset", name)
         runs.append(run)
+        if after_run is not None:
+            try:
+                after_run(run)
+            except Exception:
+                logger.exception("etools datamart: the step after the %s run failed", name)
     from neurodb.datamart import query  # lazy: query reads the datamart this sync writes
     from neurodb.watch import people
 

@@ -18,7 +18,7 @@ The partner monitoring page loads in parts (``reports.views.pd_monitoring``): it
 indicators of the filter stored once for every worker (:func:`stored_indicators`, plain copies of
 :class:`Indicator`: :class:`Row`); the map's API stores its places (:func:`stored_map_points`). Their keys
 are the filter, the day and the moment of the eTools figures (:mod:`neurodb.datamart.keys`). The frames of
-the page and of its map read the filter options the eTools jobs store at the end of each run
+the page and of its map read the filter options the eTools jobs store as they go
 (:func:`stored_options`, :func:`store_options`), never the PD indicator rows. Every other reader (the
 overview, the brief, Ask NeuroDB, the checks) calls :func:`indicators` itself, as before.
 """
@@ -36,7 +36,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from django.conf import settings
-from django.db import DatabaseError, connection
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import Q, QuerySet
 from django.urls import reverse
 from django.utils import timezone
@@ -88,6 +88,12 @@ OPTIONS_VERSION = 1
 OPTIONS_WAIT = 120
 CHOICES_DETAIL = "partner_monitoring_choices"
 NOTHING_STORED = "none stored yet"  # store_options_after's years alone, when no choices are stored to update
+# store_options_after, when a read of the choices begun after this one stored them first (never older names)
+LATER_READ = "not stored: a read begun after this one stored them first"
+# one write of the stored choices at a time, the first one too (no row to lock yet), held for that write's
+# transaction; neurodb.integrations.background.PAGE_CHOICES_WRITE_LOCK_ID
+CHOICES_WRITE_LOCK_ID = 7140448
+WRITE_WAIT = 60  # seconds a write of the stored choices waits for another one at most (lock_timeout)
 # 2 (two lines of work): a stored row carries the rows placed under it and its title's rows left out; or
 # Reached in the year with its parts, the quarters and the target's parts. 3 (two lines of work): a Row
 # carries both, so a row stored by either version 2 is never read; or a stored row carries the tie-breaker
@@ -1613,15 +1619,16 @@ def grouped(rows: list[Indicator]) -> list[dict[str, Any]]:
 
 def stored_options(filters: Filters) -> dict[str, Any]:
     """:func:`filter_options` for the frames of the partner monitoring page and its map: the choices the
-    eTools jobs stored at the end of their latest run (:func:`store_options`), one row read by its key, once
-    per request, the same for every user and language. A frame never reads the PD indicator rows: on a
+    eTools jobs stored last (:func:`store_options`), one row read by its key, once per request, the same for
+    every user and language. A frame never reads the PD indicator rows: on a
     database whose disk is slow, the first read of that table (the widest the pages read) took minutes.
 
     With no choices stored yet (right after the deployment that brought them, before any job ran) or stored in
     another shape (:data:`OPTIONS_VERSION`), the first frame computes and stores them, one request at a time
     for every worker (:func:`neurodb.core.compute.once`): a frame asked for meanwhile waits up to
-    :data:`OPTIONS_WAIT` seconds and reads them. During an eTools run the frames show the choices of the run
-    before it (it stores them again at its end). The reporting years fall back on the filter's year only when
+    :data:`OPTIONS_WAIT` seconds and reads them. The eTools Datamart sync stores them again as soon as the
+    datasets they read have been synced, the REST sync and the clean-up at their end; until then the frames
+    show the choices stored before. The reporting years fall back on the filter's year only when
     no partner report has a period end. In DEBUG they are computed at each call."""
     if settings.DEBUG:
         return filter_options(filters)
@@ -1652,49 +1659,88 @@ def _read_options() -> dict[str, Any] | None:
 def _compute_options() -> dict[str, Any]:
     """The choices for a frame that found none stored: computed, then stored for every frame after it (a write
     that fails is logged: the frame still shows them)."""
+    read_at = timezone.now()
     stamp = keys.fingerprint()
     found = filter_options(Filters(year=None))
     try:
-        _save_options(found, stamp)
+        _save_options(found, stamp, read_at)
     except DatabaseError:
         logger.exception("partner monitoring: the filter choices could not be stored")
     return found
 
 
-def _save_options(found: dict[str, Any], stamp: str) -> None:
-    dm.PageChoices.objects.update_or_create(
-        name=OPTIONS_NAME,
-        defaults={
-            "value": json.dumps(found),
-            "version": OPTIONS_VERSION,
-            "fingerprint": stamp,
-            "computed_at": timezone.now(),
-        },
-    )
+def _save_options(found: dict[str, Any], stamp: str, read_at: datetime.datetime) -> bool:
+    """Store the choices read from ``read_at`` on, unless a read begun later has stored them already: a slow
+    read (the button's, on a cold database) never puts back the names a later one (a sync's, right after it
+    wrote a section's new name) replaced. ``computed_at`` is when the stored read began. Writes follow one
+    another (:func:`_write_lock`), the first one too; the reporting years are read again as the row is
+    written, so a removal of partner report rows stored meanwhile (:func:`store_option_years`) is never
+    undone. True when stored (``found``'s years then those stored)."""
+    for attempt in (1, 2):
+        try:
+            with transaction.atomic():
+                _write_lock()
+                stored = dm.PageChoices.objects.select_for_update().filter(name=OPTIONS_NAME).first()
+                if stored is not None and stored.version == OPTIONS_VERSION and stored.computed_at > read_at:
+                    return False
+                found["years"] = _report_years()
+                values = {
+                    "value": json.dumps(found),
+                    "version": OPTIONS_VERSION,
+                    "fingerprint": stamp,
+                    "computed_at": read_at,
+                }
+                if stored is None:
+                    dm.PageChoices.objects.create(name=OPTIONS_NAME, **values)
+                else:
+                    dm.PageChoices.objects.filter(pk=stored.pk).update(**values)
+            return True
+        except IntegrityError:
+            # a writer without the write lock stored the first row meanwhile: compare with it, locked now
+            if attempt == 2:
+                raise
+    return False
 
 
-def store_options() -> dict[str, Any]:
+def _write_lock() -> None:
+    """Wait for any other write of the stored choices to end (:data:`CHOICES_WRITE_LOCK_ID`, released with
+    this transaction): writes follow one another even when there is no row yet to lock. At most
+    :data:`WRITE_WAIT` (a write takes a second): a writer left hanging never holds up the sync that waits
+    here; the store then fails (said in the run's details, never failing the job)."""
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute(f"SET LOCAL lock_timeout = '{WRITE_WAIT}s'")
+            cursor.execute("SELECT pg_advisory_xact_lock(%s)", [CHOICES_WRITE_LOCK_ID])
+
+
+def store_options() -> dict[str, Any] | None:
     """Compute the filter's choices (:func:`filter_options`, every year) and store them for the frames
-    (:func:`stored_options`), with the moment of the eTools figures they were read at. The eTools jobs that
-    write what they read call it at the end of each run (:func:`store_options_after`), and so does the job
+    (:func:`stored_options`), with the moment of the eTools figures they were read at; None when a read begun
+    after this one stored them first (:func:`_save_options`: never older names over newer ones). The eTools
+    jobs that write what they read call it as they go (:func:`store_options_after`), and so does the job
     ``store_monitoring_choices`` (*Run a job → Store the partner monitoring filter choices*)."""
+    read_at = timezone.now()
     stamp = keys.fingerprint()
     found = filter_options(Filters(year=None))
-    _save_options(found, stamp)
-    return found
+    return found if _save_options(found, stamp, read_at) else None
 
 
 def store_option_years() -> bool:
     """Store the reporting years of the choices again, the rest as stored: after a removal of partner report
-    rows (``backfill.remove_unsent``), which writes nothing else the choices read. False when no choices are
-    stored (the next job or frame computes them whole)."""
-    stored = dm.PageChoices.objects.filter(name=OPTIONS_NAME, version=OPTIONS_VERSION).first()
-    if stored is None:
-        return False
-    stored.value = json.dumps({**json.loads(stored.value), "years": _report_years()})
-    stored.fingerprint = keys.fingerprint()
-    stored.computed_at = timezone.now()
-    stored.save(update_fields=["value", "fingerprint", "computed_at"])
+    rows (``backfill.remove_unsent``), which writes nothing else the choices read. Their ``computed_at`` and
+    fingerprint stay those of the read of the rest (it is not a new read of every choice). False when no
+    choices are stored (the next job or frame computes them whole)."""
+    with transaction.atomic():
+        _write_lock()  # a first store under way (no row yet) is waited for, then its years replaced
+        stored = (
+            dm.PageChoices.objects.select_for_update()
+            .filter(name=OPTIONS_NAME, version=OPTIONS_VERSION)
+            .first()
+        )
+        if stored is None:
+            return False
+        stored.value = json.dumps({**json.loads(stored.value), "years": _report_years()})
+        stored.save(update_fields=["value"])
     return True
 
 
@@ -1706,9 +1752,7 @@ def store_options_after(run: Any, *, years_only: bool = False) -> str:
     try:
         if years_only and not store_option_years():
             return NOTHING_STORED
-        if not years_only:
-            store_options()
-        outcome = "stored"
+        outcome = "stored" if years_only or store_options() is not None else LATER_READ
     except Exception as exc:  # never fails the job: the frames keep the choices stored before
         logger.exception("partner monitoring: the filter choices could not be stored after a run")
         outcome = f"not stored: {type(exc).__name__}: {exc}"[:500]

@@ -326,7 +326,7 @@ def test_the_frame_stays_within_its_query_ceiling(
 ):
     from django.core.management import call_command
 
-    call_command("store_monitoring_choices")  # as every eTools job does at its end
+    call_command("store_monitoring_choices")  # as every eTools job does as it goes
     with django_assert_max_num_queries(FRAME_QUERIES_COLD):
         response = client_viewer.get(PAGE)
     assert response.status_code == 200 and list(placeholders(text(response))) == list(VIEWS["grid"])
@@ -346,9 +346,9 @@ def test_the_frame_stays_within_its_query_ceiling(
 
 @pytest.mark.shell
 def test_the_frame_reads_its_filter_options_stored(client_viewer, world, monkeypatch):
-    """The filter options are stored for every worker by the eTools jobs that write what they read (at the end of
-    each run) or, before any did, by the first frame: every other frame reads them, an eTools run that starts or
-    ends included (it stores them again at its end); the frame never computes them again meanwhile."""
+    """The filter options are stored for every worker by the eTools jobs that write what they read (as they go)
+    or, before any did, by the first frame: every other frame reads them, an eTools run that starts or ends
+    included (the jobs store them again); the frame never computes them again meanwhile."""
     calls: Counter = Counter()
     real = monitoring.filter_options
 
@@ -1086,7 +1086,7 @@ def _refuse_options(monkeypatch) -> None:
 @pytest.mark.shell
 def test_the_frame_never_reads_the_pd_indicator_rows_once_a_job_stored_the_choices(client_viewer, world):
     """Once a job stored the filter's choices (*Run a job → Store the partner monitoring filter choices*, or an eTools
-    job at its end), the frames of Data quality, Program Performance and the map read them and never the PD
+    job as it goes), the frames of Data quality, Program Performance and the map read them and never the PD
     indicator rows (the widest table the pages read: on a slow database disk, reading it took minutes), also once
     the shared page figures are emptied and an eTools run starts and ends."""
     from django.core.management import call_command
@@ -1169,12 +1169,12 @@ JOBS = [
 
 
 @pytest.mark.parametrize(("command", "target", "kind"), JOBS, ids=lambda v: str(v))
-def test_each_etools_job_that_writes_the_choices_stores_them_at_its_end(
+def test_each_etools_job_that_writes_the_choices_stores_them_again(
     world, monkeypatch, settings, command, target, kind
 ):
-    """Each eTools job that writes what the filter's choices read stores them again when it ends, so the frames
-    show what it brought without computing them (the run's details say so); during the run they show the choices
-    stored before it."""
+    """Each eTools job that writes what the filter's choices read stores them again (the REST sync and the
+    clean-up when they end, the Datamart sync after the datasets they read), so the frames show what it brought
+    without computing them (the run's details say so); until then they show the choices stored before."""
     from io import StringIO
 
     from django.core.management import call_command
@@ -1187,11 +1187,13 @@ def test_each_etools_job_that_writes_the_choices_stores_them_at_its_end(
     call_command("store_monitoring_choices")
     brought: list = []
 
-    def fake_sync(only=None, triggered_by="command"):
+    def fake_sync(only=None, triggered_by="command", after_run=None):
         brought.append(_bring(kind))
         job = SyncRun.Job.ETOOLS if command == "sync_etools" else SyncRun.Job.ETOOLS_DATAMART
         run = SyncRun.objects.create(job=job, target=target, triggered_by=triggered_by)
         run.finish(SyncRun.Status.SUCCEEDED)
+        if after_run is not None:  # the Datamart sync's step after each dataset
+            after_run(run)
         return [run]
 
     def fake_fill():
@@ -1202,11 +1204,340 @@ def test_each_etools_job_that_writes_the_choices_stores_them_at_its_end(
     monkeypatch.setattr(datamart_command, "sync_all", fake_sync)
     monkeypatch.setattr(datamart_command, "link_activityinfo_partners", lambda triggered_by: _done_run())
     monkeypatch.setattr(backfill, "STEPS", (("fill", fake_fill),))
-    call_command(command, stdout=StringIO())
+    call_command(
+        command, *(["--only", target] if command == "sync_etools_datamart" else []), stdout=StringIO()
+    )
     (value,) = brought
     run = SyncRun.objects.filter(target=target, job__in=keys.ETOOLS_JOBS).latest("pk")
     assert run.details["partner_monitoring_choices"] == "stored"
     assert _chosen(_stored_choices(monkeypatch), value)
+
+
+def test_a_datamart_sync_stopped_part_way_leaves_the_choices_of_what_it_wrote(world, monkeypatch, settings):
+    """The Datamart sync stores the filter's choices right after each dataset they read, before the next one
+    starts: a sync stopped part-way (the container restarted during a later dataset) still leaves them current
+    for what it wrote, such as a section its PD indicators brought (a Section editor's own-section default is
+    matched against them), not the choices of the sync before."""
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    from neurodb.integrations.etools import datamart_sync
+
+    class Stopped(BaseException):
+        """The container restarted: nothing after this runs, not even the command's end."""
+
+    settings.FMM_REFRESH_AFTER_SYNC = "off"
+    call_command("store_monitoring_choices")
+    assert "Youth" not in monitoring.stored_options(monitoring.Filters(year=None))["sections"]
+
+    def pd_indicators(run, client, links):
+        _bring("section")
+        run.finish(SyncRun.Status.SUCCEEDED)
+        return run
+
+    def stopped(run, client, links):
+        raise Stopped
+
+    monkeypatch.setattr(datamart_sync, "ENTITY_SYNCS", {"pd_indicators": pd_indicators, "documents": stopped})
+    monkeypatch.setattr(datamart_sync, "DatamartClient", lambda: object())
+    with pytest.raises(Stopped):
+        call_command("sync_etools_datamart", stdout=StringIO())
+    run = SyncRun.objects.get(job=SyncRun.Job.ETOOLS_DATAMART, target="pd_indicators")
+    assert run.details["partner_monitoring_choices"] == "stored"
+    assert "Youth" in _stored_choices(monkeypatch)["sections"]
+
+
+def test_a_failed_step_after_a_dataset_never_stops_the_datamart_sync(monkeypatch, db):
+    """What runs after each dataset (storing the filter's choices) never stops the sync: an error there is
+    logged and the next dataset still runs."""
+    from neurodb.integrations.etools import datamart_sync
+
+    ran: list[str] = []
+
+    def dataset(name):
+        def sync(run, client, links):
+            ran.append(name)
+            run.finish(SyncRun.Status.SUCCEEDED)
+            return run
+
+        return sync
+
+    def broken(run):
+        raise RuntimeError("the database went away")
+
+    monkeypatch.setattr(
+        datamart_sync, "ENTITY_SYNCS", {"partners": dataset("partners"), "grants": dataset("grants")}
+    )
+    runs = datamart_sync.sync_all(client=object(), after_run=broken)
+    assert ran == ["partners", "grants"] and [run.status for run in runs] == [SyncRun.Status.SUCCEEDED] * 2
+
+
+def _datasets(**outcomes):
+    """Fake Datamart datasets, in this order: each finishes with its outcome (``(status, rows written)``)."""
+
+    def dataset(name, status, written):
+        def sync(run, client, links):
+            run.rows_written = written
+            run.finish(status)
+            return run
+
+        return sync
+
+    return {name: dataset(name, *outcome) for name, outcome in outcomes.items()}
+
+
+def test_the_datamart_sync_reads_the_choices_once_per_series_of_datasets_they_read(
+    world, monkeypatch, settings
+):
+    """A full sync reads the choices three times, not four: after interventions (partners runs just before it,
+    so not after partners), after PD indicators and after partner reports; never after datasets that all failed
+    without writing a row (the Datamart unreachable: the choices stored still hold)."""
+    from io import StringIO
+
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+
+    from neurodb.integrations.etools import datamart_sync
+    from neurodb.integrations.management.commands import sync_etools_datamart as datamart_command
+
+    settings.FMM_REFRESH_AFTER_SYNC = "off"
+    assert datamart_command.choices_points(None) == {"interventions", "pd_indicators", "partner_reports"}
+    assert datamart_command.choices_points(["partners", "grants"]) == {"partners"}
+    stored: list[str] = []
+    monkeypatch.setattr(monitoring, "store_options_after", lambda run, **kw: stored.append(run.target))
+    monkeypatch.setattr(datamart_command, "link_activityinfo_partners", lambda triggered_by: _done_run())
+    monkeypatch.setattr(datamart_sync, "DatamartClient", lambda: object())
+    done, failed = SyncRun.Status.SUCCEEDED, SyncRun.Status.FAILED
+    monkeypatch.setattr(
+        datamart_sync,
+        "ENTITY_SYNCS",
+        _datasets(
+            partners=(done, 3),
+            interventions=(failed, 0),  # partners wrote: read after interventions all the same
+            grants=(done, 5),
+            pd_indicators=(failed, 0),  # nothing written: not read
+            assessments=(done, 4),
+            partner_reports=(failed, 2),  # failed part-way, after writing rows: read
+        ),
+    )
+    with pytest.raises(CommandError):  # datasets failed (exit_on_failure)
+        call_command("sync_etools_datamart", stdout=StringIO())
+    assert stored == ["interventions", "partner_reports"]
+
+
+def test_the_datamart_sync_still_counts_as_running_while_it_stores_the_choices(world, monkeypatch, settings):
+    """Between two datasets, while it stores the choices, the sync has no run open but holds its lock: it is
+    still running (*Sync eTools Datamart now* says so instead of starting one that would do nothing)."""
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    from neurodb.integrations import background
+    from neurodb.integrations.etools import datamart_sync
+    from neurodb.integrations.management.commands import sync_etools_datamart as datamart_command
+
+    settings.FMM_REFRESH_AFTER_SYNC = "off"
+    running: list[bool] = []
+    monkeypatch.setattr(
+        monitoring,
+        "store_options_after",
+        lambda run, **kw: running.append(background.is_running(SyncRun.Job.ETOOLS_DATAMART)),
+    )
+    monkeypatch.setattr(datamart_command, "link_activityinfo_partners", lambda triggered_by: _done_run())
+    monkeypatch.setattr(datamart_sync, "DatamartClient", lambda: object())
+    monkeypatch.setattr(datamart_sync, "ENTITY_SYNCS", _datasets(pd_indicators=(SyncRun.Status.SUCCEEDED, 1)))
+    call_command("sync_etools_datamart", stdout=StringIO())
+    assert running == [True]
+    assert not SyncRun.objects.filter(status=SyncRun.Status.RUNNING).exists()
+    assert background.is_running(SyncRun.Job.ETOOLS_DATAMART) is False  # its lock released at its end
+
+
+def test_a_slow_read_never_stores_older_choices_over_newer_ones(world, monkeypatch):
+    """The read begun last is kept: a slow read (the button's, on a cold database) that ends after a later one
+    (a sync's, right after it wrote a section's new name) does not put the old names back; the run's details
+    say so."""
+    from neurodb.datamart import models as dm
+
+    store = monitoring.store_options
+    late = monitoring.filter_options
+
+    def slow(filters):  # while this read goes on, a sync writes a new section and stores the choices
+        found = late(filters)
+        monkeypatch.setattr(monitoring, "filter_options", late)
+        _bring("section")
+        assert store() is not None
+        return found
+
+    monkeypatch.setattr(monitoring, "filter_options", slow)
+    run = SyncRun.objects.create(job=SyncRun.Job.ETOOLS, target="interventions")
+    assert monitoring.store_options_after(run) == monitoring.LATER_READ
+    run.refresh_from_db()
+    assert run.details["partner_monitoring_choices"] == monitoring.LATER_READ
+    assert "Youth" in json.loads(dm.PageChoices.objects.get(name=monitoring.OPTIONS_NAME).value)["sections"]
+
+
+def test_a_removal_of_report_rows_during_a_slow_read_neither_refuses_it_nor_is_undone(world, monkeypatch):
+    """A removal of partner report rows (their years alone stored again) is not a read of every choice: a full
+    read begun before it is still stored when it ends, and the years it stores are read as it writes, so the
+    year the removal took away stays away."""
+    from neurodb.datamart import backfill, raw
+
+    _bring("year")
+    monitoring.store_options()
+    real = monitoring.filter_options
+
+    def slow(filters):  # while this read goes on, a superuser removes the 2019 rows
+        found = real(filters)
+        assert 2019 in found["years"]
+        rows = dm.ReportedIndicator.objects.filter(period_end__year=2019)
+        pks = list(rows.values_list("pk", flat=True))
+        removal = backfill.remove_unsent(rows, len(pks), raw.rows_key(pks), "2019", "demo-admin")
+        assert removal.details["partner_monitoring_choices"] == "stored"
+        return found
+
+    monkeypatch.setattr(monitoring, "filter_options", slow)
+    run = SyncRun.objects.create(job=SyncRun.Job.ETOOLS, target="interventions")
+    assert monitoring.store_options_after(run) == "stored"
+    assert 2019 not in json.loads(dm.PageChoices.objects.get(name=monitoring.OPTIONS_NAME).value)["years"]
+
+
+def test_a_writer_left_hanging_never_holds_up_a_store_for_long(world, monkeypatch):
+    """A write of the stored choices waits for another one at most ``WRITE_WAIT`` seconds (a writer left in an
+    open transaction, a shell): the store then fails, said in the run's details, and the job goes on."""
+    from django.db import connections
+
+    monkeypatch.setattr(monitoring, "WRITE_WAIT", 1)
+    other = connections.create_connection("default")
+    with other.cursor() as cursor:
+        cursor.execute("BEGIN")
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [monitoring.CHOICES_WRITE_LOCK_ID])
+    try:
+        run = SyncRun.objects.create(job=SyncRun.Job.ETOOLS, target="interventions")
+        outcome = monitoring.store_options_after(run)
+    finally:
+        other.close()
+    assert outcome.startswith("not stored:") and "lock" in outcome.lower()
+    assert not dm.PageChoices.objects.exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_removal_during_the_first_store_waits_for_it_then_replaces_its_years(monkeypatch):
+    """With no choices stored yet, a removal of partner report rows that ends while the first store writes
+    (its years read before the removal) waits for that write, then stores the years without the removed one:
+    writes follow one another even with no row to lock."""
+    import threading
+
+    from django.db import connection
+    from django.utils import timezone
+
+    from neurodb.datamart import models as dm
+
+    years = {"now": [2026, 2019]}
+    removal_done = threading.Event()
+
+    def removal():  # another process: the 2019 rows are gone, their years stored again
+        try:
+            years["now"] = [2026]
+            assert monitoring.store_option_years() is True
+        finally:
+            connection.close()
+            removal_done.set()
+
+    def read_years():
+        found = years["now"]
+        if threading.current_thread() is threading.main_thread() and found == [2026, 2019]:
+            threading.Thread(target=removal).start()  # starts while this store writes, before it commits
+            assert not removal_done.wait(1), "the removal did not wait for the first store's write"
+        return found
+
+    monkeypatch.setattr(monitoring, "_report_years", read_years)
+    assert monitoring._save_options({"sections": [], "years": []}, "", timezone.now()) is True
+    assert removal_done.wait(10)
+    assert json.loads(dm.PageChoices.objects.get(name=monitoring.OPTIONS_NAME).value)["years"] == [2026]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_two_first_stores_at_once_keep_the_read_begun_last(monkeypatch):
+    """With no choices stored yet, two reads can both find no row: the one whose insert loses compares with the
+    winner's row (locked this time) and keeps it when it was read later."""
+    from django.db import connections
+    from django.utils import timezone
+
+    read_at = timezone.now()
+    later = read_at + datetime.timedelta(seconds=30)
+    real_years = monitoring._report_years
+
+    def other_store_first():  # inside this store's transaction, after it found no row: another one inserts
+        monkeypatch.setattr(monitoring, "_report_years", real_years)
+        other = connections.create_connection("default")
+        with other.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO datamart_pagechoices (name, value, version, fingerprint, computed_at) "
+                "VALUES (%s, %s, %s, '', %s)",
+                [
+                    monitoring.OPTIONS_NAME,
+                    json.dumps({"sections": ["Newer"]}),
+                    monitoring.OPTIONS_VERSION,
+                    later,
+                ],
+            )
+        other.close()
+        return []
+
+    monkeypatch.setattr(monitoring, "_report_years", other_store_first)
+    assert monitoring._save_options({"sections": ["Older"], "years": []}, "", read_at) is False
+    assert json.loads(dm.PageChoices.objects.get(name=monitoring.OPTIONS_NAME).value)["sections"] == ["Newer"]
+
+
+def test_the_checks_say_since_when_the_sync_runs_between_two_of_its_datasets(db):
+    """Between two datasets (the choices being stored) the sync has no run open: the pages that say an eTools
+    sync is running give the start of its latest run, not the current time."""
+    from django.db import connections
+
+    from neurodb.datamart import trail
+    from neurodb.integrations import background
+
+    run = SyncRun.objects.create(job=SyncRun.Job.ETOOLS_DATAMART, target="interventions")
+    run.finish(SyncRun.Status.SUCCEEDED)
+    other = connections.create_connection("default")  # the sync's process, between two datasets
+    with other.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_lock(%s)", [background.DATAMART_LOCK_ID])
+    try:
+        assert trail.sync_running() == run.started_at
+    finally:
+        other.close()
+    assert trail.sync_running() is None
+
+
+@pytest.mark.parametrize("only", [",", "pd_indicator"])
+def test_a_datamart_sync_of_no_known_dataset_fails_plainly_and_frees_its_lock(
+    db, monkeypatch, settings, only
+):
+    """``--only`` with no name (every dataset, as before) or with an unknown name (its usual error) never breaks
+    on where the choices are stored, and the sync's lock is free afterwards."""
+    from io import StringIO
+
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+
+    from neurodb.integrations import background
+    from neurodb.integrations.etools import datamart_sync
+    from neurodb.integrations.management.commands import sync_etools_datamart as datamart_command
+
+    settings.FMM_REFRESH_AFTER_SYNC = "off"
+    assert datamart_command.choices_points([]) == datamart_command.choices_points(None)
+    assert datamart_command.choices_points(["pd_indicator"]) == frozenset()
+    monkeypatch.setattr(datamart_command, "link_activityinfo_partners", lambda triggered_by: _done_run())
+    monkeypatch.setattr(datamart_sync, "DatamartClient", lambda: object())
+    monkeypatch.setattr(datamart_sync, "ENTITY_SYNCS", _datasets(grants=(SyncRun.Status.SUCCEEDED, 1)))
+    if only == ",":
+        call_command("sync_etools_datamart", "--only", only, stdout=StringIO())
+        assert SyncRun.objects.filter(target="grants").exists()
+    else:
+        with pytest.raises(CommandError, match="unknown eTools Datamart datasets: pd_indicator"):
+            call_command("sync_etools_datamart", "--only", only, stdout=StringIO())
+    assert not background.datamart_lock_is_held()
 
 
 def _done_run() -> SyncRun:

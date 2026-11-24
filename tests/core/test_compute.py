@@ -744,7 +744,8 @@ def started(monkeypatch):
 
 def test_the_button_empties_the_table(database_cache, client, admin_user, started):
     """It empties the table, then stores Partner monitoring's filter choices again in the background (a row the
-    eTools jobs store, not one of these figures), so a change no job made shows there too."""
+    eTools jobs store, not one of these figures), so a change no job made shows there too: after a run storing
+    them now, if any (``--wait``)."""
     database_cache.set("overview:a", 1, 60)
     database_cache.set("overview:b", 2, 60)
     assert _rows() == 2
@@ -757,7 +758,7 @@ def test_the_button_empties_the_table(database_cache, client, admin_user, starte
     assert "The stored page figures were emptied (2 entries)." in page
     assert "Partner monitoring's filter choices are being stored again." in page
     assert _rows() == 0
-    assert started == [("store_monitoring_choices", "--triggered-by", admin_user.username)]
+    assert started == [("store_monitoring_choices", "--wait", "--triggered-by", admin_user.username)]
 
 
 @pytest.mark.django_db

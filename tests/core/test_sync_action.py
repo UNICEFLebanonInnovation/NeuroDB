@@ -185,7 +185,7 @@ def test_a_sync_started_during_the_etools_update_clean_up_waits_for_it(monkeypat
 
     monkeypatch.setattr(sync_etools_datamart.time, "sleep", the_cleanup_finishes)
     monkeypatch.setattr(
-        sync_etools_datamart, "sync_all", lambda only, triggered_by: synced.append(only) or []
+        sync_etools_datamart, "sync_all", lambda only, triggered_by, after_run=None: synced.append(only) or []
     )
     try:
         call_command("sync_etools_datamart", "--only", "grants")
@@ -203,7 +203,7 @@ def test_a_sync_started_during_another_sync_does_not_wait(monkeypatch, capsys):
         raise AssertionError("a sync does not wait for another sync")
 
     monkeypatch.setattr(sync_etools_datamart.time, "sleep", never)
-    monkeypatch.setattr(sync_etools_datamart, "sync_all", lambda only, triggered_by: [][0])
+    monkeypatch.setattr(sync_etools_datamart, "sync_all", lambda only, triggered_by, after_run=None: [][0])
     try:
         call_command("sync_etools_datamart", "--only", "grants")
     finally:
