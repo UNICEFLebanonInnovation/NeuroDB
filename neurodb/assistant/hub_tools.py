@@ -326,6 +326,15 @@ PART_NOTE = (
     "given). The choice applied (filters_applied) may not be the one meant: name it in the answer, and ask "
     "when it is not the name given (e.g. another partner whose name holds those words)."
 )
+# Outreach's Year when it is not the period's: Compiler sends the Kobo outreach of every year in each payload
+OUTREACH_NOTE = (
+    "Outreach counts the Kobo form's interviews by their own year: none of {period} are stored, so these "
+    "figures are of {year} (filters_applied's Year). Say so; the Year filter chooses another year."
+)
+OUTREACH_ROUND_NOTE = (
+    "Outreach counts the Kobo form's interviews by their own year, not by round: these figures are of {year} "
+    "(filters_applied's Year), not of {period}. Say so; the Year filter chooses another year."
+)
 EVERY = frozenset({"", "all", "any"})  # the page's "All" (its empty value): no filter
 # other words for a filter (the help and the prompt write "centre"; Compiler's block says "sex") and a gender
 FILTER_WORDS = {"centre": "center", "centres": "center", "centers": "center", "sex": "gender"}
@@ -344,10 +353,10 @@ PERIOD_WORDS = frozenset({"year", "years", "period"})
 CATEGORIES = frozenset({"gender", "caregiver", "working", "emergency", "type", "outreach_year"})
 # the slicers whose choices are places or partners: a refusal also sends them under this key, where Ask
 # NeuroDB keeps a name after Sheikh or Dr (privacy.PLACE_OR_ORG_KEYS and the Datamart's), as in
-# filters_applied
+# filters_applied. Not Outreach's Partner: the Kobo form's own text, no list of partners, is in the
+# refusal's words only, cleaned as any text
 CHOICE_KEYS = {
     "partner": "partners",
-    "outreach_partner": "partners",
     "center": "centres",
     "school": "schools",
     "governorate": "governorates",
@@ -368,14 +377,34 @@ def _words(text: Any) -> str:
 
 def _listed(choices: list[tuple[str, str]], names: dict[str, str] | None = None) -> list[str]:
     """The choices as they are shown: each label, a partner's full name beside its short one (``names``: value
-    -> full name), and each one's value (Compiler's id) when two choices read the same."""
+    -> full name), and each one's value (Compiler's id) when two choices read the same, case and spaces left
+    aside ("Halba center", "HALBA CENTER"). A text slicer's value is its text: the Kobo form's "Akkar" and
+    "akkar" are told apart by their case (:func:`_choice` takes the exact text first)."""
     names = names or {}
     shown = [f"{label} ({names[value]})" if value in names else str(label) for value, label in choices]
-    same = Counter(shown)
+    same = Counter(map(_name_key, shown))
     return [
-        f"{text} ({value})" if same[text] > 1 else text
-        for (value, _label), text in zip(choices, shown, strict=True)
+        f"{text} ({value})" if same[_name_key(text)] > 1 and value != label else text
+        for (value, label), text in zip(choices, shown, strict=True)
     ]
+
+
+def _round_named(programme: str, periods: list[str], asked: str) -> str:
+    """The name the stored payloads give a round named ``asked``, case and spaces left aside; ``asked`` when
+    none does, or several do."""
+    from neurodb.education.models import EducationFigures
+
+    stored = EducationFigures.objects.filter(programme=programme, year__in=list(periods)).values_list(
+        "payload__rounds", flat=True
+    )
+    names = {
+        str(r.get("name"))
+        for rounds in stored
+        if isinstance(rounds, list)
+        for r in rounds
+        if isinstance(r, dict) and _name_key(r.get("name")) == _name_key(asked)
+    }
+    return names.pop() if len(names) == 1 else asked
 
 
 def _shown_on(tabs: list[str]) -> str:
@@ -440,15 +469,18 @@ def _slicer(
 def _choice(
     slicer: Any, choices: list[tuple[str, str]], asked: Any, names: dict[str, str] | None = None
 ) -> tuple[str, bool]:
-    """The option value a filter's choice names, and whether a part of its name found it. An exact one
-    first: its value (Compiler's id, or the text of a text slicer), its label, a partner's full name
-    (``names``: value -> full name, when the label is its short name) or a governorate's other spelling, case
-    left aside; then the whole words of a unique part of a name ("partner two", "بعلبك"), never inside a word
-    or a number ("Example Centre 1" is not "Example Centre 12"), and never for a category
-    (:data:`CATEGORIES`) or a number (an id). "none", the page's own value of "Not specified", is no name
-    ("no disability" or "Not specified"?); true and false are Yes and No. Otherwise the choices are listed:
-    all of them up to MAX_LIST, else the closest ones; those of a place or a partner also by what they are
-    (:data:`CHOICE_KEYS`)."""
+    """The option value a filter's choice names, and whether a part of its name found it. The choice as the
+    tool shows it first (:func:`_listed`: a refusal's list, filters_applied), or its value (Compiler's id, or
+    the text of a text slicer), as given; then as shown, case and spaces left aside; then its label, a
+    partner's full name (``names``: value -> full name, when the label is its short name) or a governorate's
+    other spelling, each also with the value beside it, case left aside: a choice reading like another one
+    ("Halba center" and "HALBA CENTER", the Kobo form's "Akkar" and "akkar", a partner shown by a name that is
+    another's full name) can each be chosen. Then the whole words of a unique part of a name ("partner two",
+    "بعلبك"), never inside a word or a number ("Example Centre 1" is not "Example Centre 12"), and never for a
+    category (:data:`CATEGORIES`) or a number (an id). "none", the page's own value of "Not specified", is no
+    name ("no disability" or "Not specified"?); true and false are Yes and No. Otherwise the choices are
+    listed: all of them up to MAX_LIST, else the closest ones; those of a place or a partner also by what they
+    are (:data:`CHOICE_KEYS`)."""
     from neurodb.education.services import GOVERNORATE_ALIASES, NONE, governorate_key
 
     names = names or {}
@@ -466,11 +498,25 @@ def _choice(
             out += GOVERNORATE_ALIASES.get(governorate_key(label), ())
         return out
 
-    hits = [
-        v
-        for v, label in choices
-        if text in map(_name_key, called(v, label)) or (v != NONE and text == _name_key(v))
-    ]
+    listed = _listed(choices, names)
+    shown = dict(zip((v for v, _label in choices), listed, strict=True))
+
+    def other_forms(value: str, label: str) -> list[str]:  # its value, and its names with the value beside
+        full = [f"{label} ({names[value]})"] if value in names else []
+        return [*called(value, label), *full, *(f"{n} ({value})" for n in (label, *full))] + (
+            [value] if value != NONE else []
+        )
+
+    raw = str(asked)
+    hits: list[str] = []
+    for named in (
+        lambda v, _label: raw == shown[v] or (v != NONE and raw == v),
+        lambda v, _label: text == _name_key(shown[v]),
+        lambda v, label: text in map(_name_key, other_forms(v, label)),
+    ):
+        hits = [v for v, label in choices if named(v, label)]
+        if hits:
+            break
     part = _words(text)
     number = isinstance(asked, int | float) or text.isdigit()
     by_part = not hits and bool(part) and not number and slicer.name not in CATEGORIES
@@ -484,13 +530,12 @@ def _choice(
         found = f"No {slicer.label} choice matches '{asked}'"
     key = CHOICE_KEYS.get(slicer.name)
     if len(choices) <= MAX_LIST:
-        listed = _listed(choices, names)
         raise ToolInputError(f"{found}. Its choices: {', '.join(listed)}.", {key: listed} if key else None)
     near = [c for c in choices if c[0] in hits] or sorted(
         choices,
         key=lambda c: -max(difflib.SequenceMatcher(None, text, _name_key(n)).ratio() for n in called(*c)),
     )
-    listed = _listed(near[:15], names)
+    listed = [shown[v] for v, _label in near[:15]]
     raise ToolInputError(
         f"{found}. It has {len(choices)} choices; the closest: {', '.join(listed)}. Give a longer part of "
         "the name.",
@@ -625,11 +670,21 @@ def education_figures(
         if wanted_round and not period:
             period = wanted_round  # Dirasa shown by round (older counts): the round is the period
         wanted_round = ""
-    chosen = period if period in periods else None
-    if by_year and period and chosen is None:  # a round's name: the year holding it, that round chosen
-        found = services.year_of_round(page.programme, periods, period)
+    # a stored period by its name, case and spaces left aside (the exact one first); never another one
+    asked = str(period).strip() if period is not None else ""
+    same = [p for p in periods if p == asked] or [p for p in periods if _name_key(p) == _name_key(asked)]
+    chosen = same[0] if asked and same else None
+    if by_year and asked and chosen is None:  # a round's name: the year holding it, that round chosen
+        found = services.year_of_round(page.programme, periods, asked) or services.year_of_round(
+            page.programme, periods, _round_named(page.programme, periods, asked)
+        )
         if found is not None:
             chosen, wanted_round = found[0], wanted_round or str(found[1])
+    if asked and chosen is None:
+        also = ", or a round's name" if by_year else ""
+        raise ToolInputError(
+            f"No period '{asked}' in {page.name}: its periods are {', '.join(periods)}{also}."
+        )
     stored = services.record(page.programme, chosen or periods[0])
     rounds = []
     if by_year:
@@ -664,7 +719,7 @@ def education_figures(
                 f"No round '{wanted_round}' in Dirasa {stored.year}: its rounds are {names}."
             )
         params["round"] = str(match[0]["id"])
-    tab = page.tab(tab)
+    tab = page.tab(next((key for key, _label in page.tabs if _name_key(key) == _name_key(tab)), tab))
 
     @functools.cache
     def full_names(slicer: str) -> dict[str, str]:
@@ -700,6 +755,15 @@ def education_figures(
                     "disagree: give the round once."
                 )
             params[name] = value
+    # Outreach counts the Kobo form's interviews of every year, its Year on the latest by default: the
+    # period's, when no Year is given and the period is one of its years
+    outreach_year = any(s.name == "outreach_year" for s in page.slicers_for(tab)) and not params.get(
+        "outreach_year"
+    )
+    if outreach_year:
+        years = (services.page_options(stored, page) or {}).get("outreach_year") or []
+        if any(value == stored.year for value, _label in years):
+            params["outreach_year"] = stored.year
     result = services.page_data(stored, page, tab, params)
     applied = (result.get("filters") or {}).get("round")
     if params.get("round") and applied is None and any(s.name == "round" for s in page.slicers_for(tab)):
@@ -714,6 +778,14 @@ def education_figures(
         raise ToolInputError(
             f"{name} has no registrations or teachers in Dirasa {stored.year}: there are no figures for it "
             "(leave the round out for the whole year)."
+        )
+    shown_year = next(
+        (e["selected"] for e in result.get("slicers") or [] if e["slicer"].name == "outreach_year"), None
+    )
+    outreach_note = None
+    if outreach_year and shown_year not in (None, "", services.ALL, stored.year):
+        outreach_note = (OUTREACH_NOTE if by_year else OUTREACH_ROUND_NOTE).format(
+            period=stored.year, year=shown_year
         )
     data = result.get("data", {})
     # the map's points are drawing data: their figures are those of center_rows / school_rows
@@ -746,6 +818,7 @@ def education_figures(
             "filters_note": PART_NOTE if by_part else None,
             # a filter kept from another tab (the round on Outreach): the page's own words
             "filters_not_applied": [str(label) for label in result.get("not_applied") or []] or None,
+            "outreach_note": outreach_note,
             "children": children,
             "children_note": CHILDREN_NOTE.format(counts=counts) if children else None,
             "figures": figures,

@@ -21,8 +21,15 @@ from neurodb.assistant import agent, hub_tools, privacy, tools
 from neurodb.assistant.hub_tools import HUB_TOOLS, education_figures
 from neurodb.assistant.tools import ToolInputError
 from neurodb.education.models import PowerBiCard
-from tests.education.payloads import CENTERS, SCHOOLS, dirasa_year_payload, format_three, makani_payload
-from tests.education.test_dashboards import OUTREACH, store
+from tests.education.payloads import (
+    CENTERS,
+    SCHOOLS,
+    dirasa_payload,
+    dirasa_year_payload,
+    format_three,
+    makani_payload,
+)
+from tests.education.test_dashboards import BRIDGING, OUTREACH, TEACHERS, store
 from tests.education.test_dirasa_year import R2, YEAR_REGISTRATIONS, YEAR_TEACHERS
 from tests.education.test_unique_children import MAKANI, PARTNERS
 
@@ -527,6 +534,9 @@ def test_a_refusal_names_a_centre_school_or_partner_after_a_title_so_it_can_be_c
     store(dirasa_year_payload(regs, YEAR_TEACHERS, OUTREACH, schools=schools, lists={"partners": PARTNERS}))
     school, ok = sent({"programme": "dirasa", "filters": {"school": "Nowhere"}})
     assert not ok and "Sheikh Example Public School" in school["choices"]["schools"]
+    # Outreach's Partner is the Kobo form's own text, not a list of partners: in the refusal's words only
+    kobo, ok = sent({"programme": "dirasa", "tab": "outreach", "filters": {"partner": "Nowhere"}})
+    assert not ok and "choices" not in kobo and "Dirasa Partner" in kobo["error"]
 
 
 def test_the_children_note_follows_the_version_of_the_card_shown():
@@ -558,3 +568,165 @@ def test_the_tool_and_the_prompt_say_the_filters_and_what_each_count_is():
     # only education_figures's cut lists are whole: another lookup's cut list is partial
     assert "A list cut in education_figures is not missing data" in agent.SYSTEM_PROMPT
     assert "A list cut in a lookup is not missing data" not in agent.SYSTEM_PROMPT
+
+
+# ------------------------------------------------------------------------- a choice as the tool shows it, a period
+def test_a_choice_sent_back_as_the_tool_shows_it_is_taken(client_viewer):
+    """The AI picks a choice as a refusal lists it, or sends filters_applied again: a partner with its full name
+    beside its short one, a name two choices share with the id."""
+    partners = [dict(PARTNERS[0]), dict(PARTNERS[1], short_name="EP2"), dict(PARTNERS[2], short_name="EP3")]
+    centres = [*CENTERS, dict(C[101], id=104, name="Halba center", partner=7)]
+    regs = [*MAKANI, {"child": 8, "center": 104, "sex": "Female"}]
+    store(makani_payload(regs, centers=centres, lists={"partners": partners}))
+    refused, ok = sent({"programme": "makani", "filters": {"partner": "Example Partner"}})
+    assert not ok and refused["choices"]["partners"][0] == "EP2 (Example Partner Two)"
+    chosen, ok = sent({"programme": "makani", "filters": {"partner": "EP2 (Example Partner Two)"}})
+    assert ok and chosen["filters_applied"] == {"Partner": "EP2 (Example Partner Two)"}
+    assert chosen["filters_matched_by_part"] is None
+    assert chosen["figures"] == shown(client_viewer, "makani", partner="6")
+    # what one answer applied, asked again on another tab
+    again, ok = sent({"programme": "makani", "tab": "health", "filters": chosen["filters_applied"]})
+    assert ok and again["filters_applied"] == chosen["filters_applied"]
+    twins, ok = sent({"programme": "makani", "filters": {"center": "Halba center"}})
+    assert not ok and {"Halba center (100)", "Halba center (104)"} <= set(twins["choices"]["centres"])
+    for listed, value in (("Halba center (104)", "104"), ("halba center (100)", "100")):
+        one, ok = sent({"programme": "makani", "filters": {"center": listed}})
+        assert ok and one["filters_applied"] == {"Center": f"Halba center ({value})"}
+        assert one["figures"] == shown(client_viewer, "makani", center=value)
+    # a name with its id, though no other choice reads the same
+    beirut = education_figures("makani", filters={"center": "Beirut center (101)"})
+    assert beirut["filters_applied"] == {"Center": "Beirut center"}
+
+
+def test_choices_alike_but_for_case_spaces_or_a_full_name_can_each_be_chosen(client_viewer):
+    """Compiler's names, and the Kobo form's own text on Outreach, may differ only in case or spaces, or a label
+    be another partner's full name: each choice the page offers can be chosen, by its text as shown or its id."""
+    centres = [
+        *CENTERS,
+        dict(C[101], id=104, name="Halba center ", partner=7),
+        dict(C[101], id=105, name="HALBA CENTER", partner=7),
+    ]
+    partners = [
+        dict(PARTNERS[0]),
+        dict(PARTNERS[1], short_name="EP2"),
+        dict(PARTNERS[2]),
+        {"id": 9, "name": "Example Partner Two", "short_name": ""},
+    ]
+    regs = [
+        *MAKANI,
+        {"child": 8, "center": 104, "sex": "Female"},
+        {"child": 9, "center": 105, "sex": "Male"},
+        {"child": 10, "center": 101, "sex": "Male", "partner": 9},
+    ]
+    store(makani_payload(regs, centers=centres, lists={"partners": partners}))
+    refused, ok = sent({"programme": "makani", "filters": {"center": "halba center"}})
+    listed = {"Halba center (100)", "Halba center  (104)", "HALBA CENTER (105)"}
+    assert not ok and listed <= set(refused["choices"]["centres"])
+    for asked, value in (
+        ("Halba center (100)", "100"),
+        ("Halba center (104)", "104"),
+        ("HALBA CENTER (105)", "105"),
+    ):
+        answer = education_figures("makani", filters={"center": asked})
+        assert answer["figures"] == shown(client_viewer, "makani", center=value)
+    for asked, value in (("Example Partner Two", "9"), ("EP2", "6"), ("EP2 (Example Partner Two)", "6")):
+        answer = education_figures("makani", filters={"partner": asked})
+        assert answer["figures"] == shown(client_viewer, "makani", partner=value)
+        assert answer["filters_matched_by_part"] is None
+    outreach = [
+        *OUTREACH,
+        {"year": "2025", "partner": "DIRASA PARTNER", "governorate": "akkar", "education_status": "x"},
+        {"year": "2025", "partner": "Other", "governorate": "الشمال", "education_status": "x"},
+        {"year": "2025", "partner": "Other", "governorate": "North Lebanon", "education_status": "x"},
+    ]
+    store(dirasa_year_payload(YEAR_REGISTRATIONS, YEAR_TEACHERS, outreach, lists={"partners": PARTNERS}))
+    for name, asked in (
+        ("governorate", "akkar"),
+        ("governorate", "Akkar"),
+        ("governorate", "الشمال"),
+        ("governorate", "North Lebanon"),
+        ("partner", "Dirasa Partner"),
+        ("partner", "DIRASA PARTNER"),
+    ):
+        answer = education_figures("dirasa", tab="outreach", filters={name: asked})
+        assert answer["filters_applied"] == {"Year": "2025", name.capitalize(): asked}
+        page = shown(client_viewer, "dirasa", tab="outreach", **{f"outreach_{name}": asked})
+        assert answer["figures"] == page
+    for name, asked in (("governorate", "AKKAR"), ("governorate", "North"), ("partner", "dirasa partner")):
+        with pytest.raises(ToolInputError, match=f"2 {name.capitalize()} choices match"):
+            education_figures("dirasa", tab="outreach", filters={name: asked})
+
+
+def test_an_older_dirasa_round_is_found_whatever_its_case_and_one_not_stored_is_refused():
+    store(dirasa_payload(BRIDGING, TEACHERS, OUTREACH, lists={"partners": PARTNERS}))
+    later = {"round_name": "Bridging 2026-2027", "start_date": "2026-10-01", "lists": {"partners": PARTNERS}}
+    store(dirasa_payload(BRIDGING[:2], TEACHERS, OUTREACH, **later))
+    exact = education_figures("dirasa", round="Bridging 2025-2026")
+    assert exact["children"]["registrations"] == len(BRIDGING)
+    for asked in ({"round": "bridging 2025-2026"}, {"period": "BRIDGING  2025-2026"}):
+        answer = education_figures("dirasa", **asked)
+        assert (answer["period"], answer["children"]) == ("Bridging 2025-2026", exact["children"])
+    for asked in ({"period": "2025"}, {"round": "Bridging 2023-2024"}):
+        with pytest.raises(ToolInputError, match="its periods are Bridging 2026-2027, Bridging 2025-2026"):
+            education_figures("dirasa", **asked)
+
+
+def test_a_round_named_as_the_period_is_found_whatever_its_case(dirasa):
+    as_round = education_figures("dirasa", round="Bridging Round 2 2026")
+    as_period = education_figures("dirasa", period="bridging round 2 2026")
+    assert (as_period["period"], as_period["round"]) == ("2026", "Bridging Round 2 2026")
+    assert as_period["children"] == as_round["children"] == {"registrations": 2, "unique_children": 2}
+    with pytest.raises(ToolInputError, match="No period 'Bridging Round 7 2026' in Dirasa"):
+        education_figures("dirasa", period="Bridging Round 7 2026")
+
+
+def test_a_year_not_stored_is_refused_not_answered_with_another(makani):
+    with pytest.raises(ToolInputError, match=r"No period '2025' in Makani \(MSCC\): its periods are 2026"):
+        education_figures("makani", period="2025", filters={"gender": "boys"})
+    assert education_figures("makani", period=" 2026")["period"] == "2026"
+
+
+def test_outreach_counts_the_periods_year_unless_a_year_is_given(client_viewer):
+    """Every payload holds the Kobo outreach of every year, its Year filter on the latest by default: the period
+    asked for chooses it."""
+    outreach = [
+        *OUTREACH,
+        {"year": "2026", "partner": "Dirasa Partner", "governorate": "Akkar", "education_status": "x"},
+    ]
+    for year in ("2025", "2026"):
+        store(
+            dirasa_year_payload(
+                YEAR_REGISTRATIONS, YEAR_TEACHERS, outreach, year=year, lists={"partners": PARTNERS}
+            )
+        )
+    answer = education_figures("dirasa", period="2025", tab="outreach")
+    assert (answer["period"], answer["filters_applied"]) == ("2025", {"Year": "2025"})
+    assert answer["figures"] == shown(
+        client_viewer, "dirasa", year="2025", tab="outreach", outreach_year="2025"
+    )
+    assert answer["figures"]["kpis"] == {"outreached": 2, "year": "2025"} and answer["outreach_note"] is None
+    latest = education_figures("dirasa", tab="outreach", filters={"partner": "dirasa partner"})
+    assert latest["filters_applied"] == {"Year": "2026", "Partner": "Dirasa Partner"}
+    # a Year given is the one counted
+    given = education_figures("dirasa", period="2025", tab="outreach", filters={"year": "2024"})
+    assert given["filters_applied"] == {"Year": "2024"} and given["outreach_note"] is None
+    every = education_figures("dirasa", period="2025", tab="outreach", filters={"year": "all"})
+    assert every["filters_applied"] == {"Year": "All years"}
+    assert education_figures("dirasa", period="2025")["outreach_note"] is None  # not on Outreach
+    # the tab whatever its case
+    assert education_figures("dirasa", period="2025", tab="Outreach")["filters_applied"] == {"Year": "2025"}
+
+
+def test_outreach_says_when_its_year_is_not_the_period(dirasa):
+    answer = education_figures("dirasa", tab="outreach")  # 2026: no outreach of 2026 stored
+    assert (answer["period"], answer["filters_applied"]) == ("2026", {"Year": "2025"})
+    assert "none of 2026" in answer["outreach_note"] and "of 2025" in answer["outreach_note"]
+    given = education_figures("dirasa", tab="outreach", filters={"year": "2024"})
+    assert given["outreach_note"] is None
+
+
+def test_outreach_of_an_older_dirasa_round_says_its_year():
+    store(dirasa_payload(BRIDGING, TEACHERS, OUTREACH, lists={"partners": PARTNERS}))
+    answer = education_figures("dirasa", tab="outreach")
+    assert (answer["period"], answer["filters_applied"]) == ("Bridging 2025-2026", {"Year": "2025"})
+    assert "not by round" in answer["outreach_note"] and "of 2025" in answer["outreach_note"]
