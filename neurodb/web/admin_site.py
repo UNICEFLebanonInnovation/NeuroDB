@@ -32,7 +32,7 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
         _("Reporting setup"),
         _(
             "Whether ActivityInfo is in use or an archive, reporting years, ActivityInfo databases and the "
-            "indicator hierarchy, and the eTools master indicators with their partners' PD indicators."
+            "indicator hierarchy."
         ),
         [
             "core.ActivityInfoSetting",
@@ -45,8 +45,6 @@ GROUPS: list[tuple[Any, Any, list[str]]] = [
             "pivoting.MasterIndicatorTag",
             "reports.SectionPlan",
             "datamart.IndicatorFlag",
-            "datamart.EtoolsMaster",
-            "datamart.EtoolsMasterLink",
         ],
     ),
     (
@@ -272,16 +270,13 @@ DEVELOPER_ONLY = {
     "sites.Site",
 }
 DEVELOPER_ONLY_APPS = {"datamart"}
-# edited by administrators (Reporting setup: the indicator flags, the eTools master indicators with their
-# years and PD indicators) and by sections (the HACT visit plan's comments); and NeuroDB's own record of the
-# action points' status (Data and sync: read-only, but kept by NeuroDB, not replicated)
+# edited by administrators (Reporting setup: the indicator flags) and by sections (the HACT visit plan's
+# comments); and NeuroDB's own record of the action points' status (Data and sync: read-only, but kept by
+# NeuroDB, not replicated)
 DEVELOPER_ONLY_KEEP = {
     "datamart.ActionPointStatus",
     "datamart.IndicatorFlag",
     "datamart.VisitPlanComment",
-    "datamart.EtoolsMaster",
-    "datamart.EtoolsMasterYear",
-    "datamart.EtoolsMasterLink",
 }
 # Clearer menu names for models whose verbose name is technical.
 RENAMES = {"admin.LogEntry": _("Audit trail"), "core.SyncRun": _("Import and sync runs")}
@@ -337,8 +332,6 @@ ICONS = {
     "watch.SectionMatch": "join_inner",
     "reports.SectionPlan": "target",
     "datamart.IndicatorFlag": "child_care",
-    "datamart.EtoolsMaster": "outlined_flag",
-    "datamart.EtoolsMasterLink": "add_link",
     "datamart.VisitPlanComment": "comment",
     "assistant.AssistantQuestion": "smart_toy",
     "assistant.AISettings": "psychology",

@@ -196,15 +196,13 @@ def check_figures(request: HttpRequest, page: str) -> HttpResponse:
 
 def _monitoring_params(request: HttpRequest, page: str) -> tuple[QueryDict, str]:
     """The filter of a Partner monitoring trail (the page's resolved filter, as ``views.monitoring_filters``
-    reads it; Home's block: the filter of Home's links) and the view it was opened from; a 404 for the master
-    indicators (they have no trail)."""
+    reads it; Home's block: the filter of Home's links) and the view it was opened from. The address of a
+    removed view opens Data quality's trail, as the page itself opens Data quality."""
     from neurodb.reports.views import MONITORING_DEFAULT_VIEW, monitoring_filters
 
     if page == "home":
         return trail.filter_query(request.GET), ""
     found = monitoring_filters(request)
-    if found.view == "masters":
-        raise Http404
     # the map is not one of the page's views: its filter is Data quality's (its link always writes the year)
     view = "map" if request.GET.get("view") == "map" else found.view
     params = trail.filter_query(found.resolved)

@@ -66,8 +66,8 @@ def test_the_job_runs_every_check_and_stores_the_result(db):
     run = checks.run_job("test")
     assert run.status == SyncRun.Status.SUCCEEDED and run.triggered_by == "test" and run.finished_at
     stored = run.details["checks"]
-    assert [c["key"] for c in stored] == [str(n) for n in range(1, 13)]
-    assert run.rows_written == 12 and run.rows_failed == 0 and run.details["unfinished"] == []
+    assert [c["key"] for c in stored] == [str(n) for n in range(1, 12)]  # check 12 was removed
+    assert run.rows_written == 11 and run.rows_failed == 0 and run.details["unfinished"] == []
     assert all(c["verdict"] and c["question"] and c["neurodb"] for c in stored)
     assert checks.latest_run() == run
     assert background.lock_is_held(checks.LOCK_ID) is False  # released
@@ -180,8 +180,11 @@ def test_the_command_prints_each_check_and_the_run(db):
     out = StringIO()
     call_command("reporting_checks", "--triggered-by", "test", stdout=out)
     text = out.getvalue()
-    assert "eTools reporting checks [] succeeded: in=0 written=12 failed=0" in text
-    assert " 12 " in text and SyncRun.objects.get(job=JOB).triggered_by == "test"
+    assert "eTools reporting checks [] succeeded: in=0 written=11 failed=0" in text
+    assert " 11 " in text and SyncRun.objects.get(job=JOB).triggered_by == "test"
+    assert [line[:3] for line in text.splitlines() if line[:3].strip().isdigit()] == [
+        f"{n:>3}" for n in range(1, 12)
+    ]
 
 
 def test_the_page_shows_the_stored_result_without_running_the_checks(client, admin_user, monkeypatch):
@@ -228,7 +231,8 @@ def test_check_10_lists_each_reason_s_pds_folded_under_its_summary(client, admin
 
 
 def _earlier_result() -> SyncRun:
-    """A result the release before check 12 stored: checks 1 to 11, check 11 worded as it was then."""
+    """A result an earlier release stored: checks 1 to 10 (check 11 not yet added), check 10 worded as it was
+    then, and the card of check 12 ("Indicator grouping"), a check this release no longer runs."""
     cards = [
         {
             **_card(c.key),
@@ -238,9 +242,10 @@ def _earlier_result() -> SyncRun:
             "verdict": f"Then {c.key}.",
         }
         for c in checks.CHECKS
-        if c.key != "12"
+        if c.key != "11"
     ]
     cards[-1]["neurodb"] = "What NeuroDB did then."
+    cards.append({**_card("12"), "title": "Indicator grouping", "verdict": "Then 12."})
     return SyncRun.objects.create(
         job=JOB, status=SyncRun.Status.SUCCEEDED, finished_at=timezone.now(), details={"checks": cards}
     )
@@ -254,19 +259,22 @@ def test_a_result_an_earlier_release_stored_is_never_shown_as_the_current_checks
     client.force_login(admin_user)
     page = client.get(reverse(URL)).text
     assert "This result was stored by an earlier release of NeuroDB" in page
-    assert "Check 12 has not run yet." in page and "Check 11 changed since" in page
+    assert "Check 11 has not run yet." in page and "Check 10 changed since" in page
     assert (
-        "Check 12 · Indicator grouping" in page
+        "Check 11 · Reports owed, in PRP" in page
         and "Not run yet: the stored result is from before this check" in page
     )
-    assert page.index("Check 11 ·") < page.index("Check 12 ·")
-    assert "Then 1." in page and "Then 11." in page  # the stored cards, said to be the earlier ones
+    assert page.index("Check 10 ·") < page.index("Check 11 ·")
+    assert "Then 1." in page and "Then 10." in page  # the stored cards, said to be the earlier ones
+    # the stored card of the removed check 12 is left out
+    assert "Check 12" not in page and "Then 12." not in page and "Indicator grouping" not in page
     assert "Run the checks now" in page and 'name="csrfmiddlewaretoken"' in page
     # the current checks' result replaces it, and the page then has nothing more to say
     monkeypatch.undo()
     checks.run_job("test")
     page = client.get(reverse(URL)).text
-    assert "earlier release" not in page and "Not run yet" not in page and "Check 12 ·" in page
+    assert "earlier release" not in page and "Not run yet" not in page and "Check 11 ·" in page
+    assert "Check 12" not in page
 
 
 def test_while_a_run_goes_an_earlier_result_says_the_run_replaces_it(client, admin_user, monkeypatch):
@@ -277,7 +285,7 @@ def test_while_a_run_goes_an_earlier_result_says_the_run_replaces_it(client, adm
     client.force_login(admin_user)
     page = client.get(reverse(URL)).text
     assert "earlier release" in page and "The run under way replaces it." in page
-    assert "Run the checks now" not in page and "Check 12 ·" in page
+    assert "Run the checks now" not in page and "Check 11 ·" in page and "Check 12" not in page
 
 
 def test_a_stored_result_is_read_against_this_releases_checks(db):
@@ -285,9 +293,10 @@ def test_a_stored_result_is_read_against_this_releases_checks(db):
     assert not current.outdated and [c["key"] for c in current.cards] == [c.key for c in checks.CHECKS]
     stored = [*_earlier_result().details["checks"], {**_card("99"), "title": "A check no longer run"}]
     read = checks.read_stored(stored)
-    assert read.outdated and (read.missing, read.changed, read.dropped) == (["12"], ["11"], ["99"])
+    assert read.outdated and (read.missing, read.changed, read.dropped) == (["11"], ["10"], ["12", "99"])
     assert [c["key"] for c in read.cards] == [c.key for c in checks.CHECKS]
-    assert read.cards[-1]["tone"] == checks.INFO and read.cards[-1]["title"] == "Indicator grouping"
+    assert read.cards[-1]["tone"] == checks.INFO and read.cards[-1]["title"] == "Reports owed, in PRP's feeds"
+    assert read.cards[-1]["verdict"] == checks.NOT_RUN_YET
 
 
 def test_with_nothing_stored_the_page_runs_the_checks_itself_and_says_so(client, admin_user):

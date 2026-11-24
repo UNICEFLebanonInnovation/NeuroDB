@@ -8,12 +8,12 @@ the watch follows it as the item ``system:<key>`` and closes it once the line go
 
 - **set-up**: no reporting year marked as current; displayed ActivityInfo databases never imported or
   not imported for more than 40 days; active master indicators without a target (these four only while
-  the ActivityInfo import is followed: once ActivityInfo is an archive they are nobody's task); eTools
-  master indicators listed this year without a target for it; active users without a role; the AI
-  settings: the provider chosen there or by the hosting team without its API key (``ai_no_key``), a key
-  entered there that the site's secret key no longer opens (``ai_key_unreadable:<vendor>``), a key the
-  hosting team set as a Key Vault reference that did not resolve (``ai_key_vault:<vendor>``), and the
-  Anthropic account refusing the refusal fallbacks (``ai_fallbacks_refused``);
+  the ActivityInfo import is followed: once ActivityInfo is an archive they are nobody's task); active
+  users without a role; the AI settings: the provider chosen there or by the hosting team without its API
+  key (``ai_no_key``), a key entered there that the site's secret key no longer opens
+  (``ai_key_unreadable:<vendor>``), a key the hosting team set as a Key Vault reference that did not
+  resolve (``ai_key_vault:<vendor>``), and the Anthropic account refusing the refusal fallbacks
+  (``ai_fallbacks_refused``);
 - **jobs**: the last run of a job failed or lost rows. A Compiler job counts only while a switched-on
   schedule runs it: the Compiler reads are off by default, and a trial run that failed should not
   stay listed. The ActivityInfo imports count only while their import is followed. The eTools Datamart
@@ -100,41 +100,11 @@ def warnings(now: datetime.datetime | None = None) -> list[Warning]:
 # ---------------------------------------------------------------------------- set-up
 def _setup(now: datetime.datetime) -> list[Warning]:
     """The reporting year, the ActivityInfo imports and master indicator targets (while the ActivityInfo
-    import is followed), the eTools master indicators' targets, users' roles, and the AI settings."""
+    import is followed), users' roles, and the AI settings."""
     return [
         *_activityinfo_setup(now),
-        *_etools_masters_without_target(),
         *_users_without_role(),
         *_ai_setup(now),
-    ]
-
-
-def _etools_masters_without_target() -> list[Warning]:
-    """The eTools master indicators listed this year (active, the year not switched off, with its settings
-    or a confirmed PD indicator of a programme document running in it) whose target for the year is not
-    typed: their status reads "No target" until it is (the admin's year rows, or the Master indicators tab
-    of Partner monitoring). Followed whatever the ActivityInfo import does."""
-    from neurodb.core import years
-    from neurodb.datamart import masters
-
-    year = years.this_year()
-    found = len(masters.without_target(year))
-    if not found:
-        return []
-    return [
-        Warning(
-            key="etools_masters_without_target",
-            text=ngettext(
-                "%(n)s eTools master indicator has no target for %(year)s.",
-                "%(n)s eTools master indicators have no target for %(year)s.",
-                found,
-            )
-            % {"n": found, "year": year},
-            # the list of exactly these masters (the filter reads masters.without_target as this count does)
-            url=_admin_url("datamart_etoolsmaster") + "?target=listed",
-            read=_("eTools master indicators without a target for %(year)s") % {"year": year},
-            value=found,
-        )
     ]
 
 

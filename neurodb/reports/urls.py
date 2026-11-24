@@ -1,6 +1,7 @@
-from django.urls import path
+from django.urls import path, re_path
+from django.views.generic import RedirectView
 
-from . import ap_views, check_views, master_views, views
+from . import ap_views, check_views, views
 
 app_name = "reports"
 
@@ -35,20 +36,9 @@ urlpatterns = [
     ),
     path("partner-monitoring/", views.pd_monitoring, name="pd_monitoring"),
     path("partner-monitoring/map/", views.pd_monitoring_map, name="pd_monitoring_map"),
-    path("partner-monitoring/masters/<int:pk>/", master_views.etools_master, name="etools_master"),
-    path(
-        "partner-monitoring/masters/<int:pk>/edit/",
-        master_views.etools_master_edit,
-        name="etools_master_edit",
-    ),
-    path(
-        "partner-monitoring/masters/attach/", master_views.etools_master_attach, name="etools_master_attach"
-    ),
-    path(
-        "partner-monitoring/masters/confirm/",
-        master_views.etools_masters_confirm,
-        name="etools_masters_confirm",
-    ),
+    # the old addresses of a removed view's pages and actions (NeuroDB's own grouping of PD indicators, which
+    # eTools does not have): Partner monitoring's default view, for a GET and a POST alike, the query dropped
+    re_path(r"^partner-monitoring/masters/", RedirectView.as_view(pattern_name="reports:pd_monitoring")),
     path("partner-monitoring/<int:pk>/<str:key>/", views.pd_indicator, name="pd_indicator"),
     path("assurance/", views.assurance, name="assurance"),
     path("assurance/<int:pk>/", views.engagement_detail, name="engagement_detail"),

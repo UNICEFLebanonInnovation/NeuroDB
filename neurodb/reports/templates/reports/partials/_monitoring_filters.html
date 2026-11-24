@@ -1,8 +1,7 @@
 {% load i18n ui %}
 {% comment %}The view links follow the filter in the address bar (data-current-query): a filter changed through HTMX is kept.
-Data quality is the first tab and the default (the bare address): the grid is below its lists. Master indicators
-(view=masters) is hidden: no tab, but its address still opens it, with this filter bar. The CP output, partner type,
-office and emergency filters were removed from every page: an old address that carries them keeps them as hidden
+Data quality is the first tab and the default (the bare address): the grid is below its lists. The CP output, partner
+type, office and emergency filters were removed from every page: an old address that carries them keeps them as hidden
 fields (old_filters.hidden), and the page names them on a line that removes them (_old_filters.html).{% endcomment %}
 <div class="toolbar">
   <div class="segmented segmented--scroll" role="group" aria-label="{% trans 'Partner monitoring views' %}">
@@ -18,11 +17,10 @@ fields (old_filters.hidden), and the page names them on a line that removes them
   {% if filters.scope == "year" %}<input type="hidden" name="scope" value="year">{% endif %}
   {% for key, value in old_filters.hidden %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
   <div class="filter-bar__field">
-    <label class="form-label" for="f-q">{% if view == "masters" %}{% trans "Master indicator" %}{% else %}{% trans "Indicator" %}{% endif %}</label>
-    <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ filters.q }}" placeholder="{% if view == "masters" %}{% trans 'Name or code' %}{% else %}{% trans 'Indicator or output' %}{% endif %}">
+    <label class="form-label" for="f-q">{% trans "Indicator" %}</label>
+    <input class="form-control form-control-sm" type="search" id="f-q" name="q" value="{{ filters.q }}" placeholder="{% trans 'Indicator or output' %}">
   </div>
   {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=options.sections values=selected.section %}
-  {% if view != "masters" %}{# the master indicators count every PD running in the year: these filters do not apply there #}
   <div class="filter-bar__field">
     <label class="form-label" for="f-pd-status"><span class="has-tip" title="{% trans 'The programme document status in eTools. By default the running ones: active, signed or suspended. Clear the choice for every status.' %}">{% trans "PD status" %}</span></label>
     <input type="hidden" name="pd_status" value="" data-keep-empty>
@@ -30,24 +28,19 @@ fields (old_filters.hidden), and the page names them on a line that removes them
       {% for s in options.pd_statuses %}<option value="{{ s }}" {% if s in filters.status_choice %}selected{% endif %}>{{ s|code_label }}</option>{% endfor %}
     </select>
   </div>
-  {% endif %}
   <div class="filter-bar__field">
     <label class="form-label" for="f-partner">{% trans "Partner" %}</label>
     <select class="form-select form-select-sm" id="f-partner" name="partner" multiple data-tom placeholder="{% trans 'All' %}">
       {% for p in options.partners %}<option value="{{ p.value }}" {% if p.value in selected.partner %}selected{% endif %}>{{ p.label }}</option>{% endfor %}
     </select>
   </div>
-  {% if view != "masters" %}
   {% trans "Programme document" as l %}{% include "reports/_multiselect.html" with name="pd" label=l options=options.pds values=selected.pd %}
   {% trans "Document type" as l %}{% include "reports/_multiselect.html" with name="document_type" label=l options=options.document_types values=selected.document_type %}
-  {% endif %}
   {% trans "Location" as l %}{% include "reports/_multiselect.html" with name="location" label=l options=options.locations values=selected.location %}
-  {% if view != "masters" %}
   {% trans "Gender" as l %}{% include "reports/_multiselect.html" with name="gender" label=l options=options.gender values=selected.gender %}
   {% trans "Age group" as l %}{% include "reports/_multiselect.html" with name="age_group" label=l options=options.age_group values=selected.age_group %}
   {% trans "Nationality" as l %}{% include "reports/_multiselect.html" with name="nationality" label=l options=options.nationality values=selected.nationality %}
   {% trans "Disability" as l %}{% include "reports/_multiselect.html" with name="disability" label=l options=options.disability values=selected.disability %}
-  {% endif %}
   <div class="filter-bar__field">
     <label class="form-label" for="f-report-type">{% trans "Reports" %}</label>
     <select class="form-select form-select-sm" id="f-report-type" name="report_type">
@@ -57,7 +50,7 @@ fields (old_filters.hidden), and the page names them on a line that removes them
   <div class="filter-bar__field">
     <label class="form-label" for="f-year">{% trans "Reporting year" %}</label>
     <select class="form-select form-select-sm" id="f-year" name="year">
-      {% if view != "masters" %}<option value="all" {% if filters.all_years %}selected{% endif %}>{% trans "All years" %}</option>{% endif %}
+      <option value="all" {% if filters.all_years %}selected{% endif %}>{% trans "All years" %}</option>
       {% for y in options.years %}<option value="{{ y }}" {% if y == filters.year %}selected{% endif %}>{{ y }}</option>{% endfor %}
       {% if filters.year and filters.year not in options.years %}<option value="{{ filters.year }}" selected>{{ filters.year }}</option>{% endif %}
     </select>

@@ -2,7 +2,7 @@
 what :func:`indicators` gives, and each indicator (and its stored :class:`Row`) carries Reached in the year with
 the numerator and denominator it was combined from, Reached from 1 January to the end of each quarter, whether it
 is a percentage or a ratio, and its target's numerator and denominator, without any figure the pages already show
-moving. The master indicators (``neurodb.datamart.masters``) read these fields from the stored rows."""
+moving."""
 
 from __future__ import annotations
 

@@ -315,11 +315,11 @@ Each question gets a verdict:
 - **Not yet**: a main check fails, or most checks do.
 
 The two cards are decisions a model could support; each says whether the data is ready for it now. **Analyses for later** lists six analyses the programme
-may want one day: unusual results compared with similar programme documents; problems that keep coming back in
-field monitoring and audits; how results change over time; which follow-ups get done and stay done; whether
-results change after a visit or an audit; and what a result costs. Open one to see its checks and why it is not
-ready yet. When the data's pace allows it, it also says about when it could be ready. Nothing is built yet: a
-verdict only says whether the data would be enough.
+may want one day: unusual results compared with similar programme documents (those that serve the same country
+programme output); problems that keep coming back in field monitoring and audits; how results change over time;
+which follow-ups get done and stay done; whether results change after a visit or an audit; and what a result
+costs. Open one to see its checks and why it is not ready yet. When the data's pace allows it, it also says
+about when it could be ready. Nothing is built yet: a verdict only says whether the data would be enough.
 
 What a result costs always reads *Not yet*: NeuroDB holds no spending per programme document. Funds reserved
 and disbursed are not spending. They show money set aside and paid to the partner, not what it was spent on.

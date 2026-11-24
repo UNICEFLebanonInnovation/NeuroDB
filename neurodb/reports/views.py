@@ -31,17 +31,17 @@ from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from neurodb.accounts.roles import SECTION_EDITOR, can_edit_section, can_set_up, role_of
+from neurodb.accounts.roles import SECTION_EDITOR, can_edit_section, role_of
 from neurodb.assistant import llm
 from neurodb.core import years
 from neurodb.core.models import PopulationFigure, SavedView, SyncRun
 from neurodb.core.services import population as population_service
-from neurodb.datamart import hact_plan, headline, identity, masters_tab, owed, timeline
+from neurodb.datamart import hact_plan, headline, identity, owed, timeline
 from neurodb.datamart import keys as etools_keys
 from neurodb.datamart import monitoring as pd_monitoring_service
 from neurodb.datamart import reporting as reporting_service
 from neurodb.datamart import services as datamart
-from neurodb.datamart.models import AuditEngagement, AuditFinding, EtoolsMasterLink, PDIndicator
+from neurodb.datamart.models import AuditEngagement, AuditFinding, PDIndicator
 from neurodb.facts.services import dashboard as facts
 from neurodb.facts.services import partners as partner_facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport
@@ -2777,20 +2777,19 @@ def visit_plan_comment(request: HttpRequest, pk: int) -> HttpResponse:
 # Data quality, the first and the default, which holds the grid below its own lists (the Grid tab merged into
 # it, by the owner's decision of 21 Nov 2026), and Program Performance
 MONITORING_SHOWN_VIEWS = ("quality", "table")
-# every view an address opens: Master indicators is hidden (in no tab bar, linked from no regular page) but
-# its address still opens it (old bookmarks, the administration's links), with its own code; ``view=grid``,
-# the bare address and any other word open Data quality (:func:`_monitoring_view`)
-MONITORING_VIEWS = (*MONITORING_SHOWN_VIEWS, "masters")
 MONITORING_DEFAULT_VIEW = "quality"
+# views since removed: an old address (a bookmark, a download link) opens the bare page, the default view on
+# the user's own section. The view of NeuroDB's own grouping of PD indicators was removed, by the owner's
+# decision: eTools has no such grouping. ``view=grid``, the bare address and any other word open Data quality
+# (:func:`_monitoring_view`)
+REMOVED_VIEWS = ("masters",)
 MONITORING_RESULTS = "monitoring-grid"  # the area a filter, sort or section change of the page reloads
 MONITORING_KEYS = ("section", "partner", "pd", "location", *pd_monitoring_service.TAG_FIELDS)
 MONITORING_LISTS = (*MONITORING_KEYS, "pd_status", "document_type")
 # the filters of an old address the page still applies (the owner removed them from its filter bar): named on
 # a line with a link that removes them, as the figure trail and the Power BI comparison sheet read the same
-# address. The hidden Master indicators apply the CP output alone (the others are "not applied here",
-# masters_tab.not_applied)
+# address
 MONITORING_OLD_FILTERS = ("cp_output", "partner_type", "office", "emergency")
-MASTERS_OLD_FILTERS = ("cp_output",)
 # the columns sorted lowest first on the first click (the figures start with the highest)
 ASCENDING_FIRST = ("section", "cp_output", "indicator", "partner", "pd")
 
@@ -2820,10 +2819,10 @@ def _query_with(params: QueryDict, drop: tuple[str, ...] = (), **changes: Any) -
 
 
 def _monitoring_view(request: HttpRequest) -> str:
-    """The view an address opens: one of :data:`MONITORING_VIEWS`, else Data quality (the bare address, and
-    ``view=grid`` of the old Grid tab, merged into it)."""
+    """The view an address opens: one of :data:`MONITORING_SHOWN_VIEWS`, else Data quality (the bare address,
+    and ``view=grid`` of the old Grid tab, merged into it)."""
     view = request.GET.get("view")
-    return view if view in MONITORING_VIEWS else MONITORING_DEFAULT_VIEW
+    return view if view in MONITORING_SHOWN_VIEWS else MONITORING_DEFAULT_VIEW
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2843,27 +2842,18 @@ def monitoring_filters(request: HttpRequest) -> MonitoringFilter:
     """Partner monitoring's view and filter from a request, as the page and its figure trail read them: Data
     quality opens on this year, one year for its lists and the grid below them (the grid's months), as the
     page's first view opened before the Grid tab was merged into it; Program Performance on every year, as
-    Power BI opens it (``monitoring.opens_on_this_year``); the master indicators on one year, this one for
-    "All years". A first load (no choice made yet) opens on the user's own section. The resolved filter is the
-    one of every part request: the page's own query, every section written as ``section=`` and the year
-    always (this year by default, or every year); ``as_of`` is added to the placeholders' addresses only
-    (_monitoring_results.html), so no link of a part carries it."""
+    Power BI opens it (``monitoring.opens_on_this_year``). A first load (no choice made yet) opens on the
+    user's own section. The resolved filter is the one of every part request: the page's own query, every
+    section written as ``section=`` and the year always (this year by default, or every year); ``as_of`` is
+    added to the placeholders' addresses only (_monitoring_results.html), so no link of a part carries it."""
     view = _monitoring_view(request)
     filters = pd_monitoring_service.Filters.from_params(
         request.GET, default_year=pd_monitoring_service.opens_on_this_year(view)
     )
-    if view == "masters" and filters.year is None:
-        filters = dataclasses.replace(filters, year=pd_monitoring_service.today().year)
     own_section: list[str] = []
     params = request.GET.copy()
     params.pop("as_of", None)  # the moment a part reads, never a filter of the links
-    # the master indicators also open on the user's own section from their bare address (?view=masters)
-    opening = first_load(request) or (
-        view == "masters" and set(request.GET) == {"view"} and getattr(request, "part", None) is None
-    )
-    if view == "masters":
-        params["year"] = str(filters.year)
-    if opening:  # first load, no choice made yet: the user's own section
+    if first_load(request):  # first load, no choice made yet: the user's own section
         options = pd_monitoring_service.stored_options(filters)
         own_section = pd_monitoring_service.default_sections(request.user, options["sections"])
         if own_section:
@@ -2883,8 +2873,8 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
     """Partner monitoring: Data quality (``view=quality``, the default: its counts and lists, then the grid
     below them, the indicators by section, PD and output with their months: the Grid tab merged into it, so
     ``view=grid`` and the bare address open it) and Program Performance (``view=table``: one sortable row per
-    indicator, exported whole). One filter for both, so the same filter gives the same figures. The hidden
-    Master indicators (``view=masters``) still opens from its address.
+    indicator, exported whole). One filter for both, so the same filter gives the same figures. The address of
+    a removed view (:data:`REMOVED_VIEWS`) opens the bare page.
 
     The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (the view tabs,
     the filter bar with its options, which the eTools jobs store: ``monitoring.stored_options``, never the PD
@@ -2898,11 +2888,7 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
       indicators, its pages, the note when the list is cut): one filter and one year, one computation;
     - Program Performance: ``sections`` (the section tiles: every section the other filters keep, read from
       the filter without its sections) and ``table`` (the page of rows in its sort, with its pages and
-      downloads: the same computation, the chosen sections kept, as before the page loaded in parts);
-    - Master indicators (``view=masters``, one year, this year by default; :mod:`neurodb.datamart.masters_tab`
-      and its own filter): ``masters-summary`` (the tiles and the status donut) and ``masters-table`` (the
-      masters by section and CP output with their sub rows, the proposed masters, the PD indicators in no
-      master, and the curation buttons for those who may use them).
+      downloads: the same computation, the chosen sections kept, as before the page loaded in parts).
 
     Every part reads the indicators of its filter computed once for every worker
     (:func:`neurodb.datamart.monitoring.stored_indicators`); the parts of a view read the computation of the
@@ -2913,18 +2899,15 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
     address answers the area with its figures, as before the page loaded in parts. The exports are answered
     first, whole.
     """
+    if request.GET.get("view") in REMOVED_VIEWS:
+        return redirect("reports:pd_monitoring")
     view = _monitoring_view(request)
-    this_year = pd_monitoring_service.today().year
-    if view == "masters" and not getattr(request, "htmx", None):
-        # a master's target and status are a year's: "All years" (from another tab) is this year
-        if pd_monitoring_service.Filters.from_params(request.GET).year is None:
-            return redirect(request.path + "?" + _query_with(request.GET, ("as_of",), year=str(this_year)))
     found = monitoring_filters(request)
     filters, params, resolved, own_section = found.filters, found.params, found.resolved, found.own_section
     options = functools.cache(lambda: pd_monitoring_service.stored_options(filters))  # the frame's
     export = request.GET.get("export")
     if export in exports.FORMATS:
-        return _monitoring_export(request, filters, export, view)
+        return _monitoring_export(request, filters, export)
     today = pd_monitoring_service.today()
     is_part = getattr(request, "part", None) is not None
     # The eTools figures the frame is drawn with (their fingerprint: etools_keys.fingerprint): a part request
@@ -3038,54 +3021,7 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
         # Data quality lists every indicator of the filter: never cut (the other views say when they are)
         return {"quality": pd_monitoring_service.data_quality(rows(), filters, today), "truncated": False}
 
-    @functools.cache
-    def master_tab() -> masters_tab.Tab:
-        # the tab's own filter (its PD indicators stored for every worker), read once for its two parts
-        return masters_tab.read(filters, today, as_of=as_of, curate=masters_tab.curator(request.user))
-
-    def masters_summary() -> dict[str, Any]:
-        found = master_tab()
-        return {
-            "tab": found,
-            "chart_data": {"status_counts": found.status_counts, "labels": pd_monitoring_service.LABELS},
-        }
-
-    def masters_table() -> dict[str, Any]:
-        return {
-            "tab": master_tab(),
-            "roles": EtoolsMasterLink.Role.choices,
-            "not_applied": masters_tab.not_applied(params),
-            "can_set_up": can_set_up(request.user),  # the administration (Reporting setup) opens for them
-            # the detail (modal) reads the tab's year, report type and places
-            "detail_query": _query_with(
-                QueryDict(mutable=True),
-                year=str(filters.year),
-                report_type=filters.report_type,
-                location=list(filters.locations),
-            ),
-            "downloads": [
-                {
-                    "label": _("Excel of the filter"),
-                    "url": "?" + _query_with(resolved, ("page",), view="masters", export="xlsx"),
-                },
-                {
-                    "label": _("CSV of the filter"),
-                    "url": "?" + _query_with(resolved, ("page",), view="masters", export="csv"),
-                },
-            ],
-        }
-
-    if view == "masters":
-        tab_rows = masters_tab.rows_filter(filters)
-        parts = {
-            "masters-summary": Part(
-                "reports/parts/pm_masters_summary.html", masters_summary, ready=stored(tab_rows)
-            ),
-            "masters-table": Part(
-                "reports/parts/pm_masters_table.html", masters_table, ready=stored(tab_rows)
-            ),
-        }
-    elif view == "table":
+    if view == "table":
         parts = {
             "sections": Part("reports/parts/pm_sections.html", sections, ready=stored(every_section)),
             "table": Part("reports/parts/pm_table.html", table, ready=stored(every_section)),
@@ -3117,23 +3053,16 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
             "own_section": own_section,
             "view": view,
             "as_of": as_of,
-            "old_filters": old_filters.note(
-                request.path, params, MASTERS_OLD_FILTERS if view == "masters" else MONITORING_OLD_FILTERS
-            ),
-            # the check line's Power BI comparison sheet and figure trail, for the resolved filter (Power BI
-            # has no masters, nor has the trail)
-            "check_compare": check_views.compare_link("partner-monitoring", resolved, today)
-            if view != "masters"
-            else None,
-            "check_trail": check_views.trail_url("partner-monitoring", resolved, view=view)
-            if view != "masters"
-            else None,
-            # the tab bar's (never the hidden master indicators'): the tabs keep the year shown (Data quality
-            # opens on this year, Program Performance on every year: a tab never changes the year silently)
+            "old_filters": old_filters.note(request.path, params, MONITORING_OLD_FILTERS),
+            # the check line's Power BI comparison sheet and figure trail, for the resolved filter
+            "check_compare": check_views.compare_link("partner-monitoring", resolved, today),
+            "check_trail": check_views.trail_url("partner-monitoring", resolved, view=view),
+            # the tab bar's: the tabs keep the year shown (Data quality opens on this year, Program
+            # Performance on every year: a tab never changes the year silently)
             "tab_urls": {
                 name: request.path
                 + "?"
-                + _query_with(params, ("view", "sort", "export"), view=name, year=_tab_year(name, filters))
+                + _query_with(params, ("view", "sort", "export"), view=name, year=filters.year_param)
                 for name in MONITORING_SHOWN_VIEWS
             }
             | {
@@ -3141,12 +3070,7 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
                 + "?"
                 + _query_with(params, ("view", "sort", "export"), year=filters.year_param)
             },
-            # the master indicators show one year: their year menu has no "All years"
-            **(
-                {"year_all_url": "", "year_all_active": False}
-                if view == "masters"
-                else _all_years(request, params, filters.year is None, pd_monitoring_service.ALL_YEARS)
-            ),
+            **_all_years(request, params, filters.year is None, pd_monitoring_service.ALL_YEARS),
         }
 
     template = "reports/pd_monitoring.html"
@@ -3166,14 +3090,6 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
         results_template="reports/partials/_monitoring_results.html",
         results_target=MONITORING_RESULTS,
     )
-
-
-def _tab_year(view: str, filters) -> str:
-    """The year a view's tab link carries: the year shown, but this year for the master indicators when every
-    year is shown (they show one year; hidden, they have no tab link until shown again)."""
-    if view == "masters" and filters.year is None:
-        return str(pd_monitoring_service.today().year)
-    return filters.year_param
 
 
 def _table_headings(filters) -> list[tuple[str, str, bool]]:
@@ -3199,19 +3115,9 @@ def _table_headings(filters) -> list[tuple[str, str, bool]]:
     ]
 
 
-def _monitoring_export(request: HttpRequest, filters, fmt: str, view: str = "table") -> HttpResponse:
+def _monitoring_export(request: HttpRequest, filters, fmt: str) -> HttpResponse:
     """Program Performance, every indicator of the filter (not only the page shown, and not cut at the
-    page's 2,000 rows), in its sort. From the Master indicators tab: its masters, one row each and one per sub
-    (a ``level`` column), with the tab's own filter (:func:`neurodb.datamart.masters_tab.export_rows`)."""
-    if view == "masters":
-        tab = masters_tab.read(filters, pd_monitoring_service.today())
-        columns, out = masters_tab.export_columns(tab), masters_tab.export_rows(tab)
-        label = f"master-indicators-{tab.year}"
-        if fmt == "xlsx":
-            return exports.xlsx_response(
-                exports.export_filename(label, "xlsx"), [("Master indicators", columns, out)], typed=True
-            )
-        return exports.stream_csv(exports.export_filename(label, "csv"), columns, out)
+    page's 2,000 rows), in its sort."""
     rows = pd_monitoring_service.indicators(filters)
     rows, _sort = pd_monitoring_service.sorted_rows(rows, request.GET.get("sort", ""), filters.year)
     columns = pd_monitoring_service.TABLE_COLUMNS
@@ -3273,7 +3179,7 @@ def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
         "tab_urls": {
             name: reverse("reports:pd_monitoring")
             + "?"
-            + _query_with(params, ("view", "sort"), view=name, year=_tab_year(name, filters))
+            + _query_with(params, ("view", "sort"), view=name, year=filters.year_param)
             for name in MONITORING_SHOWN_VIEWS
         }
         | {"map": request.path + "?" + _query_with(params, ("view", "sort"), year=filters.year_param)},

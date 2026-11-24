@@ -93,11 +93,6 @@ COMMANDS: dict[str, JobCommand] = {
     "reporting_checks": JobCommand(
         _("Run the eTools reporting checks"), ("reporting_checks",), SyncRun.Job.REPORTING_CHECKS
     ),
-    "etools_masters": JobCommand(
-        _("Suggest PD indicators for the eTools master indicators"),
-        ("suggest_master_indicators",),
-        SyncRun.Job.ETOOLS_MASTERS,
-    ),
     "ap_history": JobCommand(
         _("Record action point status"), ("record_action_point_status",), SyncRun.Job.AP_HISTORY
     ),

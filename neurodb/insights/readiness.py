@@ -44,9 +44,8 @@ OUTCOMES = 50  # findings people resolved or took on: the examples a review mode
 
 # The analyses the programme may want later (the verdicts of group "later"). Each threshold is a floor to
 # start the discussion from, not a proof that a method would work; a year is the last full calendar year.
-PDS_PER_GROUP = 10  # running PDs a comparable group needs (the PDs one master indicator brings together)
+PDS_PER_GROUP = 10  # running PDs a comparable group needs (the running PDs that serve one CP output)
 COMPARABLE_GROUPS = 5  # comparable groups of that size
-MASTER_LINKED = 0.50  # running PD indicators in a master indicator (a confirmed link)
 VALUES_PER_INDICATOR = 4  # accepted values a typical running PD indicator has, to compare it with others
 THEME_FM_FINDINGS = 100  # field monitoring findings a year, to group into themes
 THEME_AUDIT_FINDINGS = 30  # audit findings a year, likewise
@@ -350,19 +349,13 @@ def _engagement_link() -> Q:
 
 def links(s: Section, today: datetime.date) -> None:
     """How well the sources the later analyses would join link up: for each, the share of its rows that carry
-    the link, and how a field monitoring finding's programme document was found."""
+    the link, and how a field monitoring finding's programme document was found; and the comparable groups of
+    running programme documents (the country programme outputs enough of them serve)."""
     from django.apps import apps
 
-    from neurodb.datamart import identity, masters
-    from neurodb.datamart.models import (
-        ActionPoint,
-        AuditEngagement,
-        EtoolsMaster,
-        EtoolsMasterLink,
-        FundsReservation,
-        MonitoringFinding,
-        PDIndicator,
-    )
+    from neurodb.cpd.services import _norm as output_norm
+    from neurodb.datamart.models import ActionPoint, AuditEngagement, FundsReservation, MonitoringFinding
+    from neurodb.partnerships.models import PCA
 
     findings = MonitoringFinding.objects.all()
     has_pd = Q(intervention__isnull=False)
@@ -426,42 +419,18 @@ def links(s: Section, today: datetime.date) -> None:
         FundsReservation.objects.all(),
         has_pd,
     )
-    # the running PD indicators (each once, whatever its places) in a master indicator this year: the master
-    # indicators' own rule (masters.homes: a confirmed link to an active master not switched off this year)
-    running = _running_pd_ids()
-    indicators = {
-        (pd_id, masters.ident_code(identity.ident_of(pd_id, source_id, title)))
-        for pd_id, source_id, title in PDIndicator.objects.filter(intervention_id__in=running, listed=True)
-        .order_by()
-        .values_list("intervention_id", "source_id", "title")
-        .distinct()
-    }
-    if indicators:
-        linked = len(indicators & masters.homes(today.year, running))
-        s.add(
-            "indicators_master",
-            "Running PD indicators in a master indicator (a confirmed link)",
-            _share(linked, len(indicators)),
-            note=f"{linked:,} of {len(indicators):,}",
-        )
-    groups = (
-        EtoolsMasterLink.objects.filter(
-            status=EtoolsMasterLink.Status.CONFIRMED,
-            master__status=EtoolsMaster.Status.ACTIVE,
-            pd_id__in=running,
-        )
-        .exclude(master_id__in=masters.switched_off(today.year))
-        .order_by()
-        .values("master_id")
-        .annotate(n=Count("pd_id", distinct=True))
-        .filter(n__gte=PDS_PER_GROUP)
-        .count()
-    )
+    # the comparable groups of the later analysis "unusual": the running PDs that serve one country programme
+    # output (eTools' PD record, PCA.cp_outputs, read as the CPD links read one), each PD once per output
+    pds_of: dict[str, set[int]] = defaultdict(set)
+    for pd_id, outputs in PCA.objects.filter(pk__in=_running_pd_ids()).values_list("pk", "cp_outputs"):
+        for output in outputs or ():
+            if key := output_norm(output):
+                pds_of[key].add(pd_id)
     s.add(
-        "master_groups",
-        f"Master indicators bringing together {PDS_PER_GROUP} or more running PDs",
-        groups,
-        note="each a group of comparable programme documents",
+        "output_groups",
+        f"Country programme outputs that {PDS_PER_GROUP} or more running PDs serve",
+        sum(len(pds) >= PDS_PER_GROUP for pds in pds_of.values()),
+        note="each a group of comparable programme documents; a PD with several outputs counts in each",
     )
 
 
@@ -989,22 +958,13 @@ def later(m: dict[str, Any], today: datetime.date) -> list[Verdict]:
     unusual = [
         (
             _check(
-                m.get("links.master_groups"),
+                m.get("links.output_groups"),
                 COMPARABLE_GROUPS,
-                f"Master indicators with {PDS_PER_GROUP} or more running PDs",
+                f"Country programme outputs that {PDS_PER_GROUP} or more running PDs serve",
             ),
             None,
-            f"Few master indicators bring together {PDS_PER_GROUP} or more running PDs, so there are few "
-            "groups of similar PDs to compare. Confirming more PD indicators in master indicators would "
-            "help.",
-        ),
-        (
-            _check(
-                m.get("links.indicators_master"), MASTER_LINKED, "Running PD indicators in a master indicator"
-            ),
-            None,
-            "Most running PD indicators are in no master indicator, so they cannot be compared with similar "
-            "ones.",
+            f"Few country programme outputs are served by {PDS_PER_GROUP} or more running PDs, so there are "
+            "few groups of similar PDs to compare.",
         ),
         values_check(
             VALUES_PER_INDICATOR,
@@ -1093,8 +1053,8 @@ def later(m: dict[str, Any], today: datetime.date) -> list[Verdict]:
         _later(
             "unusual",
             "Which programme documents show unusual results compared with similar ones?",
-            "Comparing PDs whose indicators share a master indicator: an unusual result is something to look "
-            "at, not a judgement",
+            "Comparing PDs that serve the same country programme output, each indicator against its own "
+            "target: an unusual result is something to look at, not a judgement",
             unusual,
             must=1,
         ),
@@ -1167,6 +1127,9 @@ def measure(today: datetime.date | None = None) -> dict[str, Any]:
 # partner links made from its records. Left out when the check is shown (:func:`shown`).
 ARCHIVE_SECTIONS = frozenset({"activityinfo", "indicators"})
 ARCHIVE_METRICS = frozenset({"etools.partner_labels_linked", "etools.partner_records_linked"})
+# Measures a stored check may hold that this release no longer makes (NeuroDB's own grouping of PD indicators,
+# removed: eTools has no such grouping). Left out when the check is shown, like the archive's.
+RETIRED_METRICS = frozenset({"links.indicators_master", "links.master_groups"})
 
 
 def _local_day(stamp: Any) -> datetime.date | None:
@@ -1194,7 +1157,7 @@ def shown(result: dict[str, Any] | None) -> dict[str, Any] | None:
         metrics = [
             {**m, "yearly": isinstance(m.get("value"), dict)}  # a value per year: its cell wraps
             for m in section.get("metrics") or []
-            if f"{key}.{m.get('key')}" not in ARCHIVE_METRICS
+            if f"{key}.{m.get('key')}" not in ARCHIVE_METRICS | RETIRED_METRICS
         ]
         sections.append({**section, "metrics": metrics})
         flat.update({f"{key}.{m.get('key')}": m.get("value") for m in metrics})
@@ -1224,8 +1187,7 @@ HEADLINE = (
     "links.ap_engagement",
     "links.audits_pd",
     "links.funds_pd",
-    "links.indicators_master",
-    "links.master_groups",
+    "links.output_groups",
     "arrivals.settled_values",
     "arrivals.settled_quarters",
     "arrivals.pme_decided",

@@ -832,9 +832,14 @@ def test_the_trail_says_when_an_etools_sync_is_running(validator, world, monkeyp
         assert 'id="trail-sync-running"' in text(validator.get(url, {"year": "2026"})), job
 
 
-def test_the_master_indicators_have_no_trail(validator, world):
+def test_unknown_rows_have_no_trail(validator, world):
     url = reverse("reports:check_figures", args=[PM])
-    assert validator.get(url, {"view": "masters", "year": "2026"}).status_code == 404
+    # the address of the removed Master indicators view opens Data quality, and so does its trail
+    old = validator.get(url, {"view": "masters", "year": "2026"})
+    assert (
+        old.status_code == 200
+        and old.context["trail_view"] == validator.get(url, {"year": "2026"}).context["trail_view"]
+    )
     rows = reverse("reports:check_rows", args=[PM])
     assert validator.get(rows, {"year": "2026", "what": "nothing"}).status_code == 404
     assert validator.get(rows, {"year": "2026", "what": "kept", "of": "elsewhere"}).status_code == 404

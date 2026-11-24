@@ -5,8 +5,8 @@
   on one filter and one year. Its address is ``view=quality``; the bare address and the old ``view=grid`` open it
   too. It opens on this calendar year, as the grid did (the page's first view is unchanged); *All years* is in its
   year menu, and the figure trail and the Power BI comparison read the year it shows.
-* *Master indicators* (``view=masters``) is hidden: in no tab bar and linked from no regular page, but its address
-  still opens it (old bookmarks, the administration), with its parts and its exports.
+* The old address of the removed *Master indicators* view (``view=masters``: NeuroDB's own grouping of PD
+  indicators, removed because the eTools Datamart has none) opens the bare page, and no regular page links to it.
 * Program Performance (``view=table``) and the Map are unchanged.
 
 On the world of tests/reports/test_pd_monitoring.py (``data``, with ``more`` of test_powerbi_views.py: an
@@ -94,7 +94,6 @@ def _validator() -> Client:
         ({"view": "grid"}, "Data quality"),
         ({"view": "quality"}, "Data quality"),
         ({"view": "table"}, "Program Performance"),
-        ({"view": "masters"}, None),  # hidden: no tab of its own
     ],
 )
 def test_the_tab_bar_shows_data_quality_program_performance_and_map(client_viewer, world, params, current):
@@ -266,15 +265,21 @@ def test_the_downloads_of_the_merged_tab_still_work(client_viewer, world):
         assert "program-performance-2026" in response["Content-Disposition"], params
 
 
-# ----------------------------------------------------------------------------------- Master indicators
-def test_master_indicators_still_open_from_their_address(client_viewer, world):
-    response = raw_get(client_viewer, PAGE, {"view": "masters"})
-    assert response.status_code == 200 and response.context["view"] == "masters"
-    assert list(placeholders(text(response))) == ["masters-summary", "masters-table"]
-    for name in ("masters-summary", "masters-table"):
-        assert get_part(client_viewer, PAGE + "?view=masters&year=2026", name).status_code == 200
-    export = client_viewer.get(PAGE, {"view": "masters", "year": "2026", "export": "csv"})
-    assert export.status_code == 200 and "master-indicators-2026" in export["Content-Disposition"]
+# ------------------------------------------------------------------------- the removed Master indicators
+def test_the_old_master_indicators_address_opens_the_merged_tab(client_viewer, world):
+    """The view was removed (eTools has no master indicators): its address, a part of it and its export open the
+    bare page, which is the merged tab with its bar (tests/reports/test_masters_removed.py has the details)."""
+    for params in (
+        {"view": "masters"},
+        {"view": "masters", "year": "2026", "_part": "masters-table"},
+        {"view": "masters", "year": "2026", "export": "csv"},
+    ):
+        response = raw_get(client_viewer, PAGE, params)
+        assert response.status_code == 302 and response["Location"] == PAGE, params
+        assert not response.has_header("Content-Disposition"), params
+    landed = raw_get(client_viewer, PAGE)
+    assert landed.context["view"] == "quality" and list(placeholders(text(landed))) == MERGED
+    assert [label for label, _, on in _tabs(text(landed)) if on] == ["Data quality"]
 
 
 def _indicator_url(world) -> str:
@@ -322,7 +327,7 @@ def test_no_regular_page_links_to_the_master_indicators(client_viewer, world):
 
 
 # ------------------------------------------------------------------------------------------- the guide
-def test_the_help_guide_describes_the_three_tabs_and_says_master_indicators_is_hidden():
+def test_the_help_guide_describes_the_three_tabs_and_no_master_indicators():
     from neurodb.help import guide
 
     folder = Path(guide.__file__).parent / "guide"
@@ -337,5 +342,5 @@ def test_the_help_guide_describes_the_three_tabs_and_says_master_indicators_is_h
     data_quality = section.split("- **Data quality**", 1)[1].split("\n- **", 1)[0]
     assert "the grid" in data_quality and "same year" in data_quality  # the grid is below its lists
     assert "**Grid**" not in section and "**Master indicators**" not in section
-    masters = page.split("## Master indicators", 1)[1].split("\n## ", 1)[0]
-    assert "hidden" in masters and "Open the **Master indicators** view" not in masters
+    # NeuroDB's own grouping of PD indicators was removed (eTools has none): the guide no longer describes it
+    assert "## Master indicators" not in page and "#master-indicators" not in "".join(every.values())

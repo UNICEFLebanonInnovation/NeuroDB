@@ -148,8 +148,8 @@ def year_param(raw: Any) -> int | None:
 
 # Partner monitoring's views that open on every year when the address has no year: Program Performance
 # (``view=table``), as Power BI opens it. Every other one opens on this calendar year: Data quality, with the
-# grid below its lists (``view=quality``, the old ``view=grid`` and the bare address), the map and the master
-# indicators. The page, its figure trail and the Power BI comparison sheet read this one rule.
+# grid below its lists (``view=quality``, the old ``view=grid`` and the bare address), and the map. The page,
+# its figure trail and the Power BI comparison sheet read this one rule.
 EVERY_YEAR_VIEWS = ("table",)
 
 

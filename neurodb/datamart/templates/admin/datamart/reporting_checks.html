@@ -8,8 +8,8 @@
   run of the job stored (stored: every night, or "Run the checks now", which posts here); with none
   stored and none running, the page ran them itself (stored is None, checked_at now). A result an earlier
   release stored (outdated: checks.read_stored) says so, and a check added since reads "Not run yet". A
-  card shows its figures, its table and its further tables (check 11's business area codes and progress reports, check 12's
-  record keys), each the same way (_check_table.html: with its title as its caption, when it has one), then its groups
+  card shows its figures, its table and its further tables (check 11's business area codes and progress reports), each
+  the same way (_check_table.html: with its title as its caption, when it has one), then its groups
   (check 10's running PDs with no partner report row, one per reason), each a table folded under its summary. Printed
   or saved as PDF (admin.css, nd-checks), every table prints whole, wrapping, and the script below opens the groups
   for the print and closes again those it opened.
@@ -20,9 +20,9 @@
   <p class="nd-list-note">
     <span class="material-symbols-outlined" aria-hidden="true">info</span>
     <span>{% if rows_url %}{% blocktrans trimmed with rows_url=rows_url health_url=health_url %}
-      Partner monitoring's "Reached" adds up the Accepted and Submitted reports of each indicator without ever adding a value the reports repeat. These checks show how the eTools partner reports NeuroDB holds look, so the rule can be confirmed on real data, and why Power BI's Reporting Progress may differ. Check 12 counts what the eTools master indicators can group. They only read counts. Checks 10 and 11 run first; the cards are listed in their order. Back to <a class="nd-link" href="{{ health_url }}">Data health</a> · <a class="nd-link" href="{{ rows_url }}">Reported indicators</a>.
+      Partner monitoring's "Reached" adds up the Accepted and Submitted reports of each indicator without ever adding a value the reports repeat. These checks show how the eTools partner reports NeuroDB holds look, so the rule can be confirmed on real data, and why Power BI's Reporting Progress may differ. They only read counts. Checks 10 and 11 run first; the cards are listed in their order. Back to <a class="nd-link" href="{{ health_url }}">Data health</a> · <a class="nd-link" href="{{ rows_url }}">Reported indicators</a>.
     {% endblocktrans %}{% else %}{% blocktrans trimmed with health_url=health_url %}
-      Partner monitoring's "Reached" adds up the Accepted and Submitted reports of each indicator without ever adding a value the reports repeat. These checks show how the eTools partner reports NeuroDB holds look, so the rule can be confirmed on real data, and why Power BI's Reporting Progress may differ. Check 12 counts what the eTools master indicators can group. They only read counts. Checks 10 and 11 run first; the cards are listed in their order. Back to <a class="nd-link" href="{{ health_url }}">Data health</a>.
+      Partner monitoring's "Reached" adds up the Accepted and Submitted reports of each indicator without ever adding a value the reports repeat. These checks show how the eTools partner reports NeuroDB holds look, so the rule can be confirmed on real data, and why Power BI's Reporting Progress may differ. They only read counts. Checks 10 and 11 run first; the cards are listed in their order. Back to <a class="nd-link" href="{{ health_url }}">Data health</a>.
     {% endblocktrans %}{% endif %}</span>
   </p>
 

@@ -20,8 +20,8 @@ sources that page reads. On Progress reports (every tab), Partner monitoring (Da
 and Program Performance) and its map, the line also offers **Check these figures** (the figure trail, below), and so
 does a line of its own under the title of each of Home's two blocks, Progress reports and Indicator progress.
 On Progress reports and Partner monitoring, the line offers the **Power BI comparison sheet (Excel)** (below).
-The master indicators have neither. The *eTools reporting checks* (*Data and sync*) open read-only for
-validators with Staff status: only an Administrator runs them.
+The *eTools reporting checks* (*Data and sync*) open read-only for validators with Staff status: only an
+Administrator runs them.
 
 ## The figure trail
 
@@ -369,11 +369,11 @@ lines and no Excel file: upload the files again to see them).
 
 NeuroDB never reads Power BI: you compare by hand, and the sheet does the rest. *Power BI comparison sheet
 (Excel)*, under the tabs of Progress reports and Partner monitoring, downloads the page's figures for the
-filter shown, in the order and with the names of the PRP Power BI dashboard. Home, the grid, the map and
-the master indicators have no Power BI page: check Home's blocks, the grid and the map with their figure
-trail, and the master indicators against Raw eTools data. Partner monitoring's Data quality tab opens on
-this year (the year of its grid), while Power BI's Data Quality page opens on every year: set Power BI's
-*Reporting year* as the sheet says, or choose *All years* on the page first.
+filter shown, in the order and with the names of the PRP Power BI dashboard. Home, the grid and the map
+have no Power BI page: check Home's blocks, the grid and the map with their figure trail. Partner
+monitoring's Data quality tab opens on this year (the year of its grid), while Power BI's Data Quality page
+opens on every year: set Power BI's *Reporting year* as the sheet says, or choose *All years* on the page
+first.
 
 **Statuses read for.** Due, Overdue and Not yet due depend on the day a report's status is read for.
 The page reads today; Power BI reads the day of its last refresh. Beside the link, choose the day of

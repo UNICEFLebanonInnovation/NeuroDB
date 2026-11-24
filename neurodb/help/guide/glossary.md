@@ -59,12 +59,6 @@ One indicator in one progress report: the report table's *Indicators* column cou
 reports tiles count progress reports, as Power BI's Reporting Progress does, and give under each figure the
 indicators in them, each indicator once, of active programme documents only.
 
-## Master indicator (eTools)
-A section's indicator over the partners' own PD indicators, one figure a year: numbers added up (*up to*,
-*at least*), percentages as numerators over denominators. Only the PD indicators the section confirmed count,
-and its status compares it with the year's target staff typed. See
-[Master indicators](/help/partner-progress/#master-indicators).
-
 ## Not monitored
 eTools' rating for a visit that was planned but not conducted. A count apart, never part of a share of
 ratings.

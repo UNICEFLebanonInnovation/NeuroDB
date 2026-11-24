@@ -549,9 +549,9 @@ def test_the_quarters_of_a_sum_add_up_to_its_months(seed):
 
 def test_the_year_and_quarters_keep_only_the_indicators_own_output_of_two_indicator_reports():
     """Two PRP indicators of one title under two PD outputs in QPR1 (March) and QPR2 (June): the year's
-    parts and the quarters, which the master indicators combine, are those of the rows under the indicator's
-    own output (what Reached keeps, reached.one_indicator); an output that tells neither apart leaves both
-    reports out of the year and every quarter, never the largest nor the sum."""
+    parts and the quarters are those of the rows under the indicator's own output (what Reached keeps,
+    reached.one_indicator); an output that tells neither apart leaves both reports out of the year and every
+    quarter, never the largest nor the sum."""
     rows = []
     for number, end, a, b in (
         ("QPR1", datetime.date(2026, 3, 31), 40, 7),

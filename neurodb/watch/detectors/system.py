@@ -12,7 +12,9 @@ opened for a diagnostic dataset (``catalogue.DIAGNOSTIC``, shown on Data health,
 only the job-level line NeuroDB
 had before could do (it read the job's latest run: the last dataset of the order, the Datamart's
 table-refresh log), while that dataset still fails: it closes as changed, not fixed. An item opened for
-the datasets the line names closes as fixed once they succeed, whatever a diagnostic dataset does.
+the datasets the line names closes as fixed once they succeed, whatever a diagnostic dataset does. An item
+opened for a line of a check NeuroDB no longer makes (:data:`REMOVED_LINES`) closes as changed too, "no longer
+followed": the check was removed, nothing was fixed.
 
 "NeuroDB Watch has not run for 26 hours" is not raised by the morning pass: that pass is the run it
 asks for (a quick pass still raises it, as the morning run is still missing). Nor does the morning pass
@@ -63,6 +65,19 @@ ONLY_DIAGNOSTIC = (
 )
 DATAMART_LINE = "job_failed:etools_datamart"
 FIXED_BY_THE_MORNING_PASS = frozenset({"watch_not_run"})
+# the lines of a check NeuroDB no longer makes: NeuroDB's own grouping of the PD indicators (its targets, its
+# nightly job and that job's schedule), removed by the owner's decision since eTools has no such grouping. An
+# item still open for one closes as changed, never as fixed: nobody fixed anything, the check is gone
+REMOVED = "no longer followed: this check was removed from NeuroDB"
+REMOVED_LINES = frozenset(
+    {
+        "etools_masters_without_target",
+        "job_failed:etools_masters",
+        "job_partial:etools_masters",
+        "job_overdue:etools-masters",
+        "job_never_run:etools-masters",
+    }
+)
 
 
 def archive_line(key: str) -> bool:
@@ -141,17 +156,20 @@ def _diagnostic_still_failing(ctx: Context, item) -> bool:
 
 
 def resolved(ctx: Context, open_items) -> dict[str, Close]:
-    """The items whose line is gone, closed at once: fixed; or, for a line about the ActivityInfo archive
-    (:func:`archive_line`), no longer followed (it may still fail: nobody is told any more); or, for an eTools
-    Datamart item opened for a diagnostic dataset that still fails, changed (it is no longer an alarm, but it
-    was not fixed)."""
+    """The items whose line is gone, closed at once: fixed; or, for a line of a check NeuroDB no longer makes
+    (:data:`REMOVED_LINES`), no longer followed (the check was removed); or, for a line about the
+    ActivityInfo archive (:func:`archive_line`), no longer followed (it may still fail: nobody is told any
+    more); or, for an eTools Datamart item opened for a diagnostic dataset that still fails, changed (it is
+    no longer an alarm, but it was not fixed)."""
     current = lines(ctx)
     closes: dict[str, Close] = {}
     for item in open_items:
         if item.key in current:
             continue
         line_key = item.key.removeprefix(PREFIX)
-        if archive_line(line_key):
+        if line_key in REMOVED_LINES:
+            closes[item.key] = Close(REMOVED, kind=CHANGED)
+        elif archive_line(line_key):
             closes[item.key] = Close(NOT_FOLLOWED, kind=CHANGED)
         elif line_key == DATAMART_LINE and _diagnostic_still_failing(ctx, item):
             closes[item.key] = Close(ONLY_DIAGNOSTIC, kind=CHANGED)

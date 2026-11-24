@@ -40,8 +40,8 @@ DOC_REVIEW_LOCK_ID = 7140436  # the document review of the knowledge base
 DATAMART_BACKFILL_LOCK_ID = 7140437
 REPORTING_CHECKS_LOCK_ID = 7140438  # neurodb.datamart.checks.LOCK_ID: one run of the checks at a time
 DATAMART_PROBE_LOCK_ID = 7140439  # neurodb.integrations.etools.probe.LOCK_ID: one probe at a time
-# neurodb.datamart.master_links.LOCK_ID: one run of the master indicators' suggestions at a time
-ETOOLS_MASTERS_LOCK_ID = 7140440
+# 7140440: reserved (a removed job's lock); never reuse it: a previous release's container can still hold it
+# during a deployment
 # neurodb.integrations.etools.rest_raw.LOCK_ID: one read of the eTools REST API into Raw eTools data at a time
 ETOOLS_REST_RAW_LOCK_ID = 7140441
 # neurodb.km.loading.LOCK_ID: one load of the KM Database at a time (not a SyncRun job: not in LOCK_IDS)
@@ -74,7 +74,6 @@ LOCK_IDS = {
     SyncRun.Job.DATAMART_BACKFILL: DATAMART_BACKFILL_LOCK_ID,
     SyncRun.Job.REPORTING_CHECKS: REPORTING_CHECKS_LOCK_ID,
     SyncRun.Job.DATAMART_PROBE: DATAMART_PROBE_LOCK_ID,
-    SyncRun.Job.ETOOLS_MASTERS: ETOOLS_MASTERS_LOCK_ID,
     SyncRun.Job.AP_HISTORY: AP_HISTORY_LOCK_ID,
     SyncRun.Job.ETOOLS_REST_RAW: ETOOLS_REST_RAW_LOCK_ID,
 }

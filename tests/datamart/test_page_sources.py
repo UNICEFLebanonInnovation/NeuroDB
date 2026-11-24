@@ -48,9 +48,7 @@ LINKED = {
 }
 # NeuroDB's own tables in the datamart app: settings people edit, and the filter choices the eTools jobs store
 # from the sources the page lists (pagechoices), never a source
-OWN = re.compile(
-    r"datamart_(indicatorflag|recordpeople|visitplancomment|etoolsmaster\w*|rawfieldreview|pagechoices)$"
-)
+OWN = re.compile(r"datamart_(indicatorflag|recordpeople|visitplancomment|rawfieldreview|pagechoices)$")
 TABLE = re.compile(r'(?:FROM|JOIN)\s+"((?:datamart|etools|locations)_[a-z0-9_]+)"')
 DATASET = re.compile(r'"datamart_datamartdocument"\."dataset"\s*(?:=|IN)\s*\(?([^)]*?)\)?(?:\s|$)')
 

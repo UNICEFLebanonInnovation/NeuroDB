@@ -517,20 +517,6 @@ def test_operations_states_the_briefs_rules_as_they_now_are():
     assert "its line ends at its last reported month" in guide_text
 
 
-def test_operations_names_the_filter_the_masters_without_a_target_line_opens():
-    """Needs attention's line on the eTools master indicators without a target opens their list on
-    ``?target=listed``, *Listed this year, no target*: exactly the masters it counts. *No target* is another
-    filter, over every master whatever its status or year (second review, admin)."""
-    from neurodb.datamart.admin import YearTargetFilter
-
-    labels = {key: str(label) for key, label in YearTargetFilter.lookups(None, None, None)}
-    health = (guide.GUIDE_DIR.parents[1] / "web" / "health.py").read_text(encoding="utf-8")
-    assert '_admin_url("datamart_etoolsmaster") + "?target=listed"' in health
-    for start in ("(`etools_masters_without_target`", "*Needs attention* lists it"):
-        said = OPERATIONS_WORDS[OPERATIONS_WORDS.index(start) :][:220]
-        assert f"*{labels['listed']}*" in said and f"*{labels['no']}*" not in said, start
-
-
 def test_operations_says_what_ask_neurodb_and_check_11_make_of_prp_progress_reports():
     """OPERATIONS.md said Ask NeuroDB's look-ups by PD find each PRP progress report once: it has none for them
     (their catalogue entry names no PD or partner key) and lists every version held until a whole read removes

@@ -129,8 +129,10 @@ PRP's report ids, which PRP's own list does not carry.
   contribution, donors or agreement, also when you filter by location: a programme document's budget is
   for the whole programme document, not for one place. Its own page still shows them.
 
-*Master indicators* is hidden (since 21 Nov 2026): it is no longer a tab and no page links to
-it, but an old link or bookmark still opens it (see [Master indicators](#master-indicators) below).
+Since 24 Nov 2026 NeuroDB no longer groups the partners' PD indicators under indicators of its own: eTools
+has no such grouping, so Partner monitoring lists each PD indicator under its own programme document, as
+eTools does. An old link or bookmark to the view that showed those groups opens Data quality, on this year
+and your own section.
 
 The filter has no CP output, partner type, office or emergency choice (since 21 Nov 2026); the
 columns that show them stay. An old link or bookmark that still carries one is still applied, and a line
@@ -178,69 +180,6 @@ filters (sections, partners, programme documents, places, years) are stored by t
 or programme document the nightly sync brings appears in them as soon as that sync has read the records it
 comes from. The map fills in
 the same way: the page first, then its locations.
-
-## Master indicators
-
-A **master indicator** brings together the partners' own PD indicators that measure the same thing: for
-example "children enrolled in non-formal education" over every
-programme document of the section that counts them. Each one is in one eTools section and has, for every
-year, its AWP or RWP code and the **target staff type for that year**. The *Master indicators* view of
-Partner monitoring is hidden (since 21 Nov 2026): it is no longer a tab and no page links to
-it, but an old link or bookmark still opens it, and everything below still works there. It shows one year
-(this year first) and opens on your own section.
-
-**Only what a section confirmed counts.** Every night NeuroDB proposes master indicators where two programme
-documents or more share a CP output, a type and a title, and suggests PD indicators for the master indicators
-there are. A suggestion is listed under its master indicator and never added until someone confirms it.
-Administrators, and Section editors of the master indicator's section, decide on the page:
-
-- **Accept** a proposed master indicator to make it active with the PD indicators its row lists confirmed
-  (one NeuroDB added after you opened the page stays a suggestion, and the page says so); **Dismiss** it and
-  it is never proposed again. A proposal with the name of a master indicator the section has already is not
-  accepted: rename it first, or have an administrator merge it into that one (an archived one is made active
-  again first).
-- **Confirm all N suggestions** of one master indicator, or **Confirm all N strong matches (0.9 or more)** of
-  a section, in one click: they confirm exactly the suggestions the page shows, as their count says.
-  **Reject** a suggestion that is wrong, and it is not suggested for that master indicator again (attach it
-  to that master indicator later if you change your mind). A role you give a suggestion, *Shown only* say,
-  stays until you confirm it.
-- In **Not in a master**, tick PD indicators and **Attach to…** a master indicator, as its total, a numerator,
-  a denominator or *shown only*. Each one says what NeuroDB thinks of it: its suggestion, the proposal it is
-  in, *Ambiguous* when two master indicators fit it as well, or why it counts nowhere (it is in a master
-  indicator not shown this year, for example).
-- Open a master indicator to change its name, its code and its **target** for the year, or what a PD indicator
-  counts as.
-
-**How the figure is worked out.** Each PD indicator brings its own Reached in the year, read exactly as
-Program Performance reads it, so no report is ever added twice.
-
-- **Numbers are added up.** Partners may reach the same people, so the figure reads *up to* the sum, with *at
-  least* the largest programme document's figure. Two PD indicators of one programme document are added only
-  when they cannot count the same people (one counts girls and the other boys, for example); otherwise only
-  the larger one counts. "Girls and boys" next to "boys", or "Lebanese and non-Lebanese" next to "Syrian",
-  may count the same children, so only the larger one counts there.
-- **Percentages and ratios are the numerators added up over the denominators added up**, never an average of
-  the percentages, each programme document counted once (its numerator and denominator, or its largest
-  total). A partner who reported the percentage alone, without its numerator and denominator, is
-  left out of the figure: its row says *Reported without numerator and denominator*, and the master
-  indicator says how many programme documents it counted ("counted 4 of 6 PDs"). A programme document that
-  averages its reporting periods or its locations (or takes the largest) has no numerator and denominator
-  for the year however the partner reported: it is left out too, and its row says so (*not combined*).
-- *Shown only* PD indicators are listed and never counted. Master indicators are never added together.
-- **Q1, to Q2, to Q3 and Year** are Reached from 1 January to the end of each quarter.
-- **Status** compares the figure with the year's target staff typed, as of the latest counted report. Until a
-  target is typed it reads **No target**; the programme documents' own targets are shown in the details for
-  reference only.
-
-A PD indicator that is no longer in eTools stops counting and says so; its replacement is suggested the next
-night. One whose type changed in eTools stops counting until someone clicks **Confirm again**. With
-*Humanitarian reports (monthly)* or a location chosen, a PD indicator the filter does not read (one neither
-high-frequency nor a cluster indicator, or one not planned at the place) is simply not listed: it is still in
-eTools. *Excel of the filter* and *CSV of the filter* give one row per master indicator and
-one per PD indicator. In the administration, under Reporting setup, master indicators can also be made by
-hand (with *Add PD indicators*), merged, or moved after eTools renames
-a section. Merging a proposed master indicator into an active one accepts it there: its PD indicators are
-confirmed in the one kept.
 
 ## Progress reports
 
@@ -402,14 +341,14 @@ withholds any e-mail address written in a text.
 ## Checking the data
 
 Administrators find **eTools reporting checks** in the administration, under Data and sync (also linked
-from Data health and Progress reports): twelve read-only checks of what the partner report data looks
+from Data health and Progress reports): eleven read-only checks of what the partner report data looks
 like (rows per location, repeated values, disaggregation keys, what reports that do not count carry,
 PRP's cumulative, the calculation methods, which PD indicator each report row belongs to, PRP's report
 totals, the financial contribution, the country and programme document of the rows and how much of the
-running programme documents' reporting is held, the reports still owed in PRP's feeds: the partner
-reports, PRP's indicator reports and PRP's own progress reports, and how the PD indicators can be grouped
-into master indicators), each with a verdict and what NeuroDB does whatever the answer; they show counts
-only. When PRP's indicator reports hold nothing, checks 8, 9 and 11 say what their last sync did and what
+running programme documents' reporting is held, and the reports still owed in PRP's feeds: the partner
+reports, PRP's indicator reports and PRP's own progress reports), each with a verdict and what NeuroDB does
+whatever the answer; they show counts only. When PRP's indicator reports hold nothing, checks 8, 9 and 11
+say what their last sync did and what
 to do in the administration. When the business area code the hosting team set is not a code (a country
 name), NeuroDB sets it aside, uses the code it finds, and the checks and Data health say so; an
 administrator can enter the code in the administration, where it comes first. Check 10 says how the
@@ -428,9 +367,8 @@ at least 10 of them) and were submitted on the same day (9 in 10 of at least 10 
 two days in a row; a read that fails one of these closes it at once. They also count those reports still
 owed, the partner report rows whose eTools id and reference number name different programme documents, and
 the reports kept although eTools no longer sends them. *PRP's progress reports shown on the pages* says
-whether Home and Progress reports show them now (see Reports still owed, from PRP's own list). Check 12 counts, per section, the PD indicators with and
-without an eTools id and a CP output, the percentages reported with their numerator and denominator, and
-how many master indicators the next night would propose; it changes nothing. Checks 10 and 11 run first. The checks run every night as a job and the page shows their latest
+whether Home and Progress reports show them now (see Reports still owed, from PRP's own list). Checks 10
+and 11 run first. The checks run every night as a job and the page shows their latest
 result at once, with when they were checked; **Run the checks now** runs them again in the background
 (they can take several minutes on the full data), and the page shows the new result once you reload it.
 Print the page or save it as PDF from the browser to share it: every table prints whole, across the

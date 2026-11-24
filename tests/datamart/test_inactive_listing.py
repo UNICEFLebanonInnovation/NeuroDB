@@ -282,21 +282,19 @@ def test_the_daily_review_counts_no_row_of_them():
 
 def test_the_diagnostics_still_read_every_row_and_operations_names_them():
     """Only the pages that list or count PD indicators leave them out: the diagnostics of what eTools sent still
-    read every row (the masters admin's section list, the CPD label lookup, an old link's pop-up), and
-    docs/OPERATIONS.md names them so no one adds the rule to them."""
+    read every row (the CPD label lookup, an old link's pop-up), and docs/OPERATIONS.md names them so no one
+    adds the rule to them."""
     from pathlib import Path
 
     from neurodb.cpd import sources
-    from neurodb.datamart import curation
 
     b, _c, d = _world()
     _marked()
-    assert "Spare Section" in curation.sections()
     assert sources._etools_title(d.id, "701") == SPARE
     assert monitoring.indicator_detail(b, str(Y), "QPR", None, TODAY) is not None
     text = " ".join((Path(__file__).resolve().parents[2] / "docs" / "OPERATIONS.md").read_text().split())
     assert "Every reader of PD indicators goes through" not in text
-    for named in ("Raw eTools data (its *Active* filter included)", "check 10", "(`curation`)", "(`cpd.sources`)",
+    for named in ("Raw eTools data (its *Active* filter included)", "check 10", "(`cpd.sources`)",
                   "(`monitoring.indicator_detail`)", "Do not add `identity.listed` to them."):  # fmt: skip
         assert named in text, named
 

@@ -371,6 +371,14 @@ QUICK_MIGRATIONS = {
     # a row per page (CreateModel only, no code runs; the next eTools job or Run a job fills it); listed so that the
     # migration is accounted for here
     ("datamart", "0023_page_choices", "CreateModel"),
+    # NeuroDB's own grouping of PD indicators, removed (eTools has no such grouping): its job's choice (AlterField,
+    # nothing in the database changes) and its rows: the schedule rows of its command (a few dozen rows read),
+    # its runs (about one a night, through the runs' job index), and the reporting checks' schedule made due
+    ("core", "0036_drop_etools_masters_job", "AlterField"),
+    ("core", "0036_drop_etools_masters_job", "drop_rows"),
+    # its three models, from the state only: no SQL runs (SeparateDatabaseAndState with no database operation;
+    # the tables stay one release); listed so that the migration is accounted for here
+    ("datamart", "0024_drop_etools_masters", "SeparateDatabaseAndState"),
 }
 
 

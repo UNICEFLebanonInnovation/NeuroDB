@@ -25,7 +25,7 @@ from django.utils import timezone
 
 from neurodb.core import scheduler
 from neurodb.core.models import ScheduledJob, SyncRun
-from neurodb.datamart import fm, identity, masters, reporting
+from neurodb.datamart import fm, reporting
 from neurodb.datamart import models as dm
 from neurodb.datamart import services as dms
 from neurodb.datamart.monitoring import pending_q
@@ -105,21 +105,12 @@ def test_how_the_sources_link_up(linked, monkeypatch):
     dm.ActionPoint.objects.create(datamart_id=3, related_module="fm")  # not raised from an audit
     dm.FundsReservation.objects.create(datamart_id=1, intervention=pd)
     dm.FundsReservation.objects.create(datamart_id=2)
-    # the running PD's indicators (one repeated per location, one without an eTools id) and the ended PD's one
-    rows = [
-        (101, "Children enrolled"),
-        (101, "Children enrolled"),
-        (102, "Teachers trained"),
-        (None, "Schools  run"),
-    ]
-    for n, (source_id, title) in enumerate(rows, start=1):
-        dm.PDIndicator.objects.create(datamart_id=n, intervention=pd, source_id=source_id, title=title)
-    dm.PDIndicator.objects.create(datamart_id=9, intervention=linked.ended, source_id=104, title="Earlier")
-    master = dm.EtoolsMaster.objects.create(section="Education", name="Children in learning")
-    untitled = masters.ident_code(identity.ident_of(pd.pk, None, "Schools  run")[1])
-    for ident, status in (("s101", "confirmed"), (untitled, "confirmed"), ("s102", "suggested")):
-        dm.EtoolsMasterLink.objects.create(master=master, pd=pd, ident=ident, status=status)
-    dm.EtoolsMasterLink.objects.create(master=master, pd=linked.ended, ident="s104", status="confirmed")
+    # the country programme outputs the PDs serve: the running PD's one (written twice, two ways), the ended
+    # PD's two (an ended PD is in no comparable group)
+    pd.cp_outputs = ["Output 1.1: Education", "output 1.1 education"]
+    pd.save(update_fields=["cp_outputs"])
+    linked.ended.cp_outputs = ["Output 1.1: Education", "Output 2.1: Protection"]
+    linked.ended.save(update_fields=["cp_outputs"])
 
     result = readiness.measure(TODAY)
     assert not any(s["error"] for s in result["sections"])
@@ -134,10 +125,9 @@ def test_how_the_sources_link_up(linked, monkeypatch):
     assert m["links.ap_engagement"] == 0.5  # of the two raised from an audit or spot check
     assert m["links.audits_pd"] == 0.5  # micro-assessments left out
     assert m["links.funds_pd"] == 0.5
-    assert m["links.indicators_master"] == 0.667  # 2 of the running PD's 3 indicators; the suggestion is not
-    assert m["links.master_groups"] == 0  # one running PD under the master: not a group to compare in
+    assert m["links.output_groups"] == 0  # one running PD serves the output: not a group to compare in
     monkeypatch.setattr(readiness, "PDS_PER_GROUP", 1)
-    assert _metrics(readiness.measure(TODAY))["links.master_groups"] == 1
+    assert _metrics(readiness.measure(TODAY))["links.output_groups"] == 1  # the ended PD's outputs: none
     assert PLANTED not in json.dumps(result)
 
 
@@ -317,8 +307,7 @@ def test_the_history_model_is_looked_up_by_name():
 # -------------------------------------------------------------------------------------- verdicts for later
 def _ready_measures():
     return {
-        "links.master_groups": readiness.COMPARABLE_GROUPS,
-        "links.indicators_master": readiness.MASTER_LINKED,
+        "links.output_groups": readiness.COMPARABLE_GROUPS,
         "arrivals.settled_values": max(
             readiness.VALUES_PER_INDICATOR, readiness.CHANGE_VALUES, readiness.BEFORE_AFTER_VALUES
         ),
@@ -347,7 +336,7 @@ def test_every_later_analysis_is_ready_once_its_thresholds_are_met_but_value_for
 
 def test_a_later_analysis_not_ready_says_why_and_about_when_only_when_the_pace_tells():
     m = _ready_measures() | {
-        "links.master_groups": 0,  # waits on people confirming links: no date
+        "links.output_groups": 0,  # no pace to read: no date
         "arrivals.settled_values": 3,  # three values over three quarters: one a quarter
         "arrivals.settled_quarters": 3,
         "arrivals.fm_findings": {"2025": 10, "2026": readiness.THEME_FM_FINDINGS - 1},  # this year on course
@@ -358,7 +347,7 @@ def test_a_later_analysis_not_ready_says_why_and_about_when_only_when_the_pace_t
     }
     found = {v.key: v for v in readiness.verdicts(m, TODAY)}
     unusual = found["unusual"]
-    assert unusual.status == "not_yet" and "master indicator" in unusual.reason and unusual.when == ""
+    assert unusual.status == "not_yet" and "country programme output" in unusual.reason and unusual.when == ""
     change = found["change"]
     assert change.status == "not_yet" and change.reason and change.when == "about July 2027"
     themes = found["themes"]  # audits alone have enough findings: partly
@@ -605,7 +594,6 @@ def _two_checks(monkeypatch, *, broken: str):
 def test_a_source_that_could_not_be_measured_is_no_verdict_change(linked, monkeypatch, broken):
     dm.PDIndicator.objects.create(datamart_id=1, intervention=linked.running, source_id=101, title="Enrolled")
     monkeypatch.setattr(readiness, "COMPARABLE_GROUPS", 0)
-    monkeypatch.setattr(readiness, "MASTER_LINKED", 0.0)
     monkeypatch.setattr(readiness, "VALUES_PER_INDICATOR", 0)
     previous, latest = _two_checks(monkeypatch, broken=broken)
     whole = latest if broken == "previous" else previous

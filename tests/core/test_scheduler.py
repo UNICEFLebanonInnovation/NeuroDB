@@ -83,6 +83,7 @@ def test_default_schedules_exist():
     assert jobs["fmm-refresh"] == "25 5 * * *"  # after the 05:00 locations sync
     assert jobs["fmm-insights"] == "40 5 * * *"  # the AI briefs, after the morning refresh
     assert not ScheduledJob.objects.get(key="activityinfo-structure").enabled
+    assert "etools-masters" not in jobs  # removed with NeuroDB's own grouping of PD indicators (core 0036)
 
 
 @pytest.mark.django_db

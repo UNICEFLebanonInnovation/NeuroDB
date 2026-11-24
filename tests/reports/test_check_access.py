@@ -1,6 +1,6 @@
 """Who reaches the Power BI comparison sheet and the figure trail, and where their links are (SPEC_validation §3.2,
 §5.1): the check line offers the sheet under Progress reports and Partner monitoring (and its map), and the trail
-under Progress reports (every tab), Partner monitoring (every view but the master indicators, and its map) and
+under Progress reports (every tab), Partner monitoring (every view, and its map) and
 Home's two partner reporting blocks, to validators only, for the filter drawn; the addresses answer validators
 (staff status or not) and a 404 to anyone else; a donor never reaches them."""
 
@@ -52,7 +52,6 @@ def _form(page: str) -> tuple[str, list[tuple[str, str]]] | None:
         ("/partner-monitoring/", {"view": "table"}, "partner-monitoring"),
         ("/partner-monitoring/", {"view": "quality"}, "partner-monitoring"),
         ("/partner-monitoring/map/", {}, "partner-monitoring"),
-        ("/partner-monitoring/", {"view": "masters"}, None),  # no master indicators in Power BI
         ("/field-monitoring/", {}, None),
         ("/home/", {}, None),  # Home: no Power BI page
     ],
@@ -143,7 +142,6 @@ TRAIL_LINK = re.compile(r'<a href="([^"]+)" data-check-trail>Check these figures
         ("/partner-monitoring/", {"view": "table", "section": "Education"}, "/check/partner-monitoring/"),
         ("/partner-monitoring/", {"view": "quality"}, "/check/partner-monitoring/"),
         ("/partner-monitoring/map/", {}, "/check/partner-monitoring/"),
-        ("/partner-monitoring/", {"view": "masters"}, None),  # the master indicators have no trail
         ("/field-monitoring/", {}, None),
     ],
 )

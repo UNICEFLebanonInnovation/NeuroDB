@@ -130,7 +130,6 @@ REGULAR_PAGES = [
     PR + "?tab=disaggregations",
     PM,
     PM + "?view=table",
-    PM + "?view=masters",
     PM + "map/",
     "/programmes/",
     "/programmes/?tab=indicators",
@@ -271,15 +270,6 @@ def test_partner_monitoring_check_line_follows_the_old_filter_the_page_applies(r
     html = text(_validator().get(PM, {"view": "table", "year": "all", "office": "Zahle"}))
     trail = re.search(r'<a href="([^"]+)" data-check-trail>', html)
     assert trail and "office=Zahle" in unescape(trail.group(1))
-
-
-def test_the_master_indicators_name_only_the_old_cp_output_they_apply(client_viewer, old_world):
-    """The hidden Master indicators tab chooses masters by their CP output; office, partner type and emergency
-    are not applied there, and its own line says so."""
-    html = text(client_viewer.get(PM, {"view": "masters", "cp_output": "Learning", "office": "Zahle"}))
-    note = _note(html)
-    assert "CP output: Learning" in note and "Office" not in note
-    assert "Not applied here: office." in html
 
 
 # -------------------------------------------------------------------------------- an old address: ignored
