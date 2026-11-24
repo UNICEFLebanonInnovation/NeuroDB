@@ -5,8 +5,8 @@ The rows counted are those of Power BI's view ``vw_mscc_data`` for the year (fro
 Compiler could use the view; otherwise Compiler's own rule, without TLS and without registrations that have
 no round yet): the line under the key figures says which (:func:`neurodb.education.power_bi.note`). The
 enrolment cube counts registrations, as the Power BI does ("Children enrolled"): a child registered at two
-centers counts twice there. The unique count of children comes from the registrations block, which only
-answers filters on partner, governorate and center. The education programme and status, and the health and
+centers counts twice there. The unique count of children comes from the registrations block, which answers the
+filters it has a grouping for (:func:`unique_count`). The education programme and status, and the health and
 nutrition answers, are those of each registration's latest record. Program staff is today's list (the record
 has no year), filtered by place only.
 
@@ -68,7 +68,19 @@ CHILD = (  # slicer -> enrolment dimension
     ("caregiver", "caregiver"),
     ("working", "working"),
 )
-PLACE = ("partner", "governorate", "center")  # the unique count's grouping holds these filters
+PLACE = ("partner", "governorate", "center")
+# slicer -> the registrations block's dimension (Compiler's Makani groupings: partner and governorate, alone
+# or together, each alone or with one other split such as the center or the sex, and the pairs nationality
+# and sex, disability and sex). Service, caregiver, working and emergency are no dimension of the block:
+# never answered.
+BLOCK = {
+    "partner": "partner",
+    "governorate": "governorate",
+    "center": "center",
+    "gender": "sex",
+    "nationality": "nationality",
+    "disability": "disability",
+}
 
 
 def category(value: str) -> str:
@@ -146,11 +158,13 @@ CARDS = {  # the key figures counted with the version chosen (power_bi.VARIANTS[
 
 
 def unique_count(figures: Figures, filters: dict[str, Any]) -> int | None:
-    """Unique children from the registrations block; None when the filters are not only partner,
-    governorate or center (the block has no grouping for them)."""
-    if set(filters) - set(PLACE) or any(v is None for v in filters.values()):
+    """Unique children from the registrations block; None when Compiler sends no grouping of exactly the
+    filters' dimensions (a filter without one, such as the service, or a combination it does not group by,
+    such as partner, nationality and sex) or a filter is "Not specified". A child is never added up across
+    rows."""
+    if set(filters) - set(BLOCK) or any(v is None for v in filters.values()):
         return None
-    table = figures.block("registrations").table(filters)
+    table = figures.block("registrations").table({BLOCK[name]: value for name, value in filters.items()})
     return None if table is None else (table.get(()) or {}).get("people", 0)
 
 
@@ -177,6 +191,13 @@ def build(figures: Figures, tab: str, filters: dict[str, Any]) -> dict[str, Any]
         name: power_bi.card_value("mscc", name, figures, filters)
         for name in ("children", "cwd", *CARDS.get(tab, ()))
     }
+    # both counts on every tab, as Dirasa's card holds them: Ask NeuroDB gives them apart, whatever the
+    # version of the card an administrator chose
+    cards["children"] = {
+        **cards["children"],
+        "registrations": chosen.sum("registrations"),
+        "unique": unique_count(figures, filters),
+    }
     kpis: dict[str, Any] = {
         "centers": len(chosen.distinct("center", "registrations")),
         "children": cards["children"]["value"],
@@ -195,7 +216,7 @@ def build(figures: Figures, tab: str, filters: dict[str, Any]) -> dict[str, Any]
     }
     if tab == "overview":
         kpis.update(
-            unique=unique_count(figures, filters),
+            unique=cards["children"]["unique"],
             working=cards["working"]["value"],
             married=chosen.sum("married"),
             counselling=chosen.sum("counselling"),

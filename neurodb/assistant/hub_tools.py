@@ -10,6 +10,7 @@ here: the assistant sees centre and partner totals.
 from __future__ import annotations
 
 import datetime
+import difflib
 from typing import Any
 
 from django.db.models import Q
@@ -21,6 +22,7 @@ from .tools import ToolInputError, _clean, _cut_named, _schema, _short
 MAX_LIST = 40
 MAX_TEXT = 1500
 MAX_PER_OUTPUT = 30  # programme documents and partners listed under each country programme output
+LEFT_OUT = ("geojson", "choropleth", "chart_data")  # drawing data, no figure the model needs
 
 
 def _trim(obj: Any, depth: int = 0) -> Any:
@@ -29,9 +31,7 @@ def _trim(obj: Any, depth: int = 0) -> Any:
     if depth > 6:
         return "…"
     if isinstance(obj, dict):
-        return {
-            k: _trim(v, depth + 1) for k, v in obj.items() if k not in ("geojson", "choropleth", "chart_data")
-        }
+        return {k: _trim(v, depth + 1) for k, v in obj.items() if k not in LEFT_OUT}
     if isinstance(obj, list | tuple):
         items = [_trim(v, depth + 1) for v in list(obj)[:MAX_LIST]]
         return items + [f"… {len(obj) - MAX_LIST} more"] if len(obj) > MAX_LIST else items
@@ -279,13 +279,147 @@ def youth_figures(
     )
 
 
+CHILDREN_NOTE = (
+    "registrations: registrations, as Power BI's 'Children enrolled' counts them: a child registered "
+    "twice (e.g. at two centres, or in two rounds) counts twice. unique_children: each child once; null "
+    "when Compiler sends no unique count for this combination of filters: then give the registrations and "
+    "say they are registrations. Both are counted under any combination of the page's filters (filters, "
+    "e.g. a partner and a gender). figures.kpis.children is the page's children card: "
+    "figures.cards.children.name says what it counts."
+)
+LISTS_NOTE = (
+    "Lists longer than 40 rows are cut here only: <list>_total is the real number of rows and "
+    "<list>_truncated is true. Not missing data: every row is stored and counted in the figures, and a "
+    "filter (e.g. one {one}) gives one row's figures."
+)
+
+
+def _name_key(text: Any) -> str:
+    """A filter's or a choice's name as compared: case, "_" and runs of spaces left aside."""
+    return " ".join(str(text).replace("_", " ").casefold().split())
+
+
+def _listed(choices: list[tuple[str, str]]) -> str:
+    """The choices' labels; a label two choices share is followed by each one's value (Compiler's id)."""
+    labels = [label for _value, label in choices]
+    shared = {label for label in labels if labels.count(label) > 1}
+    return ", ".join(f"{label} ({value})" if label in shared else str(label) for value, label in choices)
+
+
+def _slicer(page: Any, tab: str, offered: list[Any], asked: str, figures_of: str) -> Any:
+    """The slicer a filter names, by its query name or its label, the tab's own first: Dirasa's Outreach has a
+    Partner and a Governorate of its own."""
+    key = _name_key(asked)
+    named = [s for s in page.slicers if key in (_name_key(s.name), _name_key(s.label))]
+    here = [s for s in named if s in offered and (not s.tabs or tab in s.tabs)]
+    if here:
+        return here[0]
+    elsewhere = [s for s in named if s in offered]
+    if elsewhere:
+        tabs = ", ".join(name for name, _label in page.tabs if name in elsewhere[0].tabs)
+        raise ToolInputError(
+            f"{elsewhere[0].label} is not a filter of the {tab} tab: the tabs {tabs} show it (tab argument)."
+        )
+    if named:  # Dirasa's round in figures of one round (before Compiler's payload format 4)
+        raise ToolInputError(
+            f"{named[0].label} is not a filter of {figures_of}: its figures are of one round, the period."
+        )
+    listed = ", ".join(f"{s.name} ({s.label})" for s in offered if not s.tabs or tab in s.tabs)
+    raise ToolInputError(f"Unknown filter '{asked}'. The filters of the {tab} tab: {listed}.")
+
+
+def _choice(slicer: Any, choices: list[tuple[str, str]], asked: Any) -> str:
+    """The option value a filter's choice names: its value (Compiler's id, or the text of a text slicer)
+    or its label, case left aside; an exact one first, then a unique part of a label. Otherwise the choices
+    are listed: all of them up to MAX_LIST, else the closest ones."""
+    if isinstance(asked, float) and asked.is_integer():
+        asked = int(asked)
+    text = _name_key(asked)
+    hits = [value for value, label in choices if text in (_name_key(value), _name_key(label))]
+    if not hits and text:
+        hits = [value for value, label in choices if text in _name_key(label)]
+    if len(hits) == 1:
+        return hits[0]
+    if hits:
+        found = f"{len(hits)} {slicer.label} choices match '{asked}'"
+    else:
+        found = f"No {slicer.label} choice matches '{asked}'"
+    if len(choices) <= MAX_LIST:
+        raise ToolInputError(f"{found}. Its choices: {_listed(choices)}.")
+    near = [c for c in choices if c[0] in hits] or sorted(
+        choices, key=lambda c: -difflib.SequenceMatcher(None, text, _name_key(c[1])).ratio()
+    )
+    raise ToolInputError(
+        f"{found}. It has {len(choices)} choices; the closest: {_listed(near[:15])}. Give a longer part of "
+        "the name."
+    )
+
+
+def _page_query(
+    page: Any, tab: str, options: dict[str, list[tuple[str, str]]], asked: dict[str, Any], figures_of: str
+) -> dict[str, str]:
+    """The page's query (slicer -> option value) of the filters asked, as the page's own links send it: the
+    figures are then the page's own, counted by its code."""
+    offered = page.offered(options)
+    query: dict[str, str] = {}
+    for name, value in asked.items():
+        slicer = _slicer(page, tab, offered, name, figures_of)
+        chosen = _choice(slicer, options.get(slicer.name, []), value)
+        if query.setdefault(slicer.name, chosen) != chosen:
+            raise ToolInputError(f"Two choices of {slicer.label} were given: give one.")
+    return query
+
+
+def _applied(result: dict[str, Any]) -> dict[str, str]:
+    """The filters the page applied (slicer label -> choice label), as its slicers show them: an Outreach
+    year chosen by default too."""
+    return {
+        str(entry["slicer"].label): str(dict(entry["options"]).get(entry["selected"], entry["selected"]))
+        for entry in result.get("slicers") or []
+        if entry["selected"]
+    }
+
+
+def _cut_lists(obj: Any) -> tuple[Any, bool]:
+    """``obj`` with each list of a dict longer than MAX_LIST cut to it, its real length and a flag beside it
+    (``<list>_total``, ``<list>_truncated``, as the prompt reads them) rather than _trim's "… N more" row, and
+    whether any list was cut: a map's 169 centres are not 40 that came through."""
+    cut = False
+
+    def walk(value: Any) -> Any:
+        nonlocal cut
+        if isinstance(value, list | tuple):
+            return [walk(v) for v in value]
+        if not isinstance(value, dict):
+            return value
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in LEFT_OUT:
+                continue
+            if isinstance(item, list | tuple) and len(item) > MAX_LIST:
+                cut = True
+                out[key] = [walk(v) for v in list(item)[:MAX_LIST]]
+                out[f"{key}_total"], out[f"{key}_truncated"] = len(item), True
+            else:
+                out[key] = walk(item)
+        return out
+
+    return walk(obj), cut
+
+
 def education_figures(
-    programme: str, period: str | None = None, tab: str | None = None, round: str | None = None
+    programme: str,
+    period: str | None = None,
+    tab: str | None = None,
+    round: str | None = None,
+    filters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The page's figures for a period: a year (Makani; Dirasa from Compiler's payload format 4) or a Dirasa
     round (older counts). With Dirasa shown by year, a ``period`` naming a round opens the year holding it
     with that round chosen, and ``round`` (a round's name or id) chooses one round of the year; with Dirasa
-    shown by round, ``round`` is the period when ``period`` is not given."""
+    shown by round, ``round`` is the period when ``period`` is not given. ``filters`` are the page's
+    (slicer -> choice, by name or label): they go through the page's own query, so the figures are the
+    page's."""
     from neurodb.education import dirasa, makani, power_bi, services
     from neurodb.education.models import EducationFigures
 
@@ -338,6 +472,19 @@ def education_figures(
             )
         params["round"] = str(match[0]["id"])
     tab = page.tab(tab)
+    if filters:
+        options = services.page_options(stored, page)
+        if options is None:
+            raise ToolInputError(f"{page.name} {stored.year} came from an older Compiler: it has no filters.")
+        names = {str(r["id"]): str(r.get("name")) for r in rounds}
+        for name, value in _page_query(page, tab, options, filters, f"{page.name} {stored.year}").items():
+            if name == "round" and params.get("round") not in (None, value):  # the round argument (or period)
+                asked = names.get(params["round"], params["round"])
+                raise ToolInputError(
+                    f"The round asked for ({asked}) and the Round filter ({names.get(value, value)}) "
+                    "disagree: give the round once."
+                )
+            params[name] = value
     result = services.page_data(stored, page, tab, params)
     applied = (result.get("filters") or {}).get("round")
     if params.get("round") and applied is None and any(s.name == "round" for s in page.slicers_for(tab)):
@@ -353,25 +500,41 @@ def education_figures(
             f"{name} has no registrations or teachers in Dirasa {stored.year}: there are no figures for it "
             "(leave the round out for the whole year)."
         )
-    return _clean(
-        _trim(
-            {
-                "programme": str(page.name),
-                "period": stored.year,
-                "periods": periods,
-                "rounds": own if by_year else None,
-                # counted in this year by Power BI's view although of another year (year None: of no year)
-                "rounds_of_other_years": list(others.values()) if by_year else None,
-                "round": next((str(r.get("name")) for r in rounds if r["id"] == applied), None),
-                "round_note": _other_year_round(others.get(applied), stored.year),
-                "tab": tab,
-                "tabs": [key for key, _label in page.tabs],
-                "figures": result.get("data", {}),
-                "compared_with_power_bi": _power_bi(result.get("power_bi")),
-                "url": reverse(page.url_name),
-            }
-        )
+    data = result.get("data", {})
+    # the children card holds both counts (registrations, and unique children when Compiler groups by the
+    # filters): said apart, so that registrations are never given as children counted once
+    card = (data.get("cards") or {}).get("children")
+    children = (
+        {"registrations": card.get("registrations"), "unique_children": card.get("unique")}
+        if isinstance(card, dict) and "registrations" in card
+        else None
     )
+    answer, cut = _cut_lists(
+        {
+            "programme": str(page.name),
+            "period": stored.year,
+            "periods": periods,
+            "rounds": own if by_year else None,
+            # counted in this year by Power BI's view although of another year (year None: of no year)
+            "rounds_of_other_years": list(others.values()) if by_year else None,
+            "round": next((str(r.get("name")) for r in rounds if r["id"] == applied), None),
+            "round_note": _other_year_round(others.get(applied), stored.year),
+            "tab": tab,
+            "tabs": [key for key, _label in page.tabs],
+            "filters_applied": _applied(result),
+            # a filter kept from another tab (the round on Outreach): the page's own words
+            "filters_not_applied": [str(label) for label in result.get("not_applied") or []] or None,
+            "children": children,
+            "children_note": CHILDREN_NOTE if children else None,
+            "figures": data,
+            "compared_with_power_bi": _power_bi(result.get("power_bi")),
+            "url": reverse(page.url_name),
+        }
+    )
+    answer["lists_note"] = (
+        LISTS_NOTE.format(one="centre" if page.programme == "mscc" else "school") if cut else None
+    )
+    return _clean(_trim(answer))
 
 
 def _other_year_round(entry: dict[str, Any] | None, year: str) -> str | None:
@@ -684,9 +847,12 @@ HUB_TOOLS: dict[str, tuple] = {
     ),
     "education_figures": (
         education_figures,
-        "Makani (MSCC) or Dirasa (Bridging) figures counted in Compiler: children, centres or schools, "
-        "breakdowns by partner, place, sex, age, nationality, disability, services and attendance. Tabs: "
-        "Makani overview/education/health/maps, Dirasa overview/outreach/barriers/map. Says whether Compiler "
+        "Makani (MSCC) or Dirasa (Bridging) figures counted in Compiler, the page's own under its "
+        "filters: children (registrations, a child registered twice counting twice, and unique children, "
+        "each child once, where Compiler counts them), centres or schools, breakdowns by partner, place, "
+        "sex, age, nationality, disability, services and attendance. filters combines any of the page's "
+        "filters, e.g. one partner's boys; an unknown choice is refused with the choices. Tabs: Makani "
+        "overview/education/health/maps, Dirasa overview/outreach/barriers/map. Says whether Compiler "
         "counted the rows of Power BI's view (compared_with_power_bi).",
         _schema(
             {
@@ -700,6 +866,14 @@ HUB_TOOLS: dict[str, tuple] = {
                 "round": {
                     "type": "string",
                     "description": "Dirasa only: one round of the year, by its name.",
+                },
+                "filters": {
+                    "type": "object",
+                    "description": "The page's filters, filter -> choice, each by its name or label, e.g. "
+                    '{"partner": "<partner name>", "gender": "Male"}. Makani: partner, governorate, center, '
+                    "gender, nationality, disability, service, caregiver, working, emergency. Dirasa: round, "
+                    "partner, governorate (the school's), school, gender, nationality, disability, type, "
+                    "emergency; Outreach tab: outreach_year, outreach_partner, outreach_governorate.",
                 },
             },
             ["programme"],

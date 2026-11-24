@@ -81,6 +81,11 @@ class Page:
     def slicers_for(self, tab: str) -> list[Slicer]:
         return [s for s in self.slicers if not s.tabs or tab in s.tabs]
 
+    def offered(self, options: dict[str, list[tuple[str, str]]]) -> list[Slicer]:
+        """The slicers the payload can answer: one only some payloads can (Dirasa's round before format 4) is
+        not on the page at all when it has no option."""
+        return [s for s in self.slicers if not (s.only_with_options and not options.get(s.name))]
+
 
 def periods(programme: str) -> list[str]:
     """The stored years (Makani; Bridging from payload format 4) or rounds (Bridging of older payloads) of a
@@ -158,6 +163,19 @@ def cached(stored: EducationFigures, part: str, filters: dict[str, Any], build: 
     return data
 
 
+def page_options(
+    stored: EducationFigures, page: Page, load: Callable[[], Figures] | None = None
+) -> dict[str, list[tuple[str, str]]] | None:
+    """Every slicer's options (value, label) in the stored figures, kept in the cache; None for a payload of
+    format 1 (no cubes). Ask NeuroDB reads them to turn the filters it is given into the page's query."""
+
+    def build() -> dict[str, list[tuple[str, str]]] | None:
+        figures = load() if load else Figures(stored.payload)
+        return page.options(figures) if figures.has_cubes else None
+
+    return cached(stored, "options", {}, build)
+
+
 def page_data(stored: EducationFigures, page: Page, tab: str, params: QueryDict) -> dict[str, Any]:
     """The slicers of the tab (with their options and choices), the other slicers' values to keep
     in the links (and the names of those chosen, which do not apply here), the tab's figures
@@ -170,12 +188,12 @@ def page_data(stored: EducationFigures, page: Page, tab: str, params: QueryDict)
             figures = Figures(stored.payload)
         return figures
 
-    options = cached(stored, "options", {}, lambda: page.options(load()) if load().has_cubes else None)
+    options = page_options(stored, page, load)
     if options is None:
         return {"old_format": True}
     # a slicer the payload cannot answer (Dirasa's round before format 4) is not on the page at all: neither
     # shown nor kept from another tab (its name may be the period's own parameter)
-    slicers = [s for s in page.slicers if not (s.only_with_options and not options.get(s.name))]
+    slicers = page.offered(options)
     shown = [s for s in slicers if not s.tabs or tab in s.tabs]
     filters, selected = parse_filters(params, shown, options)
     names = {s.name for s in shown}

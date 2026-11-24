@@ -223,8 +223,12 @@ it was the current year. Even on the same registrations, a card can still differ
   still count those registrations.
 
 Dirasa's *Children enrolled* card counts each child once, which is what Power BI's card appears to count,
-with the number of registrations under it. The youth page has **All years**, which also counts the
-registrations saved before September 2025 without a year.
+with the number of registrations under it. A child is counted once only under the filters Compiler groups
+the children by: partner and governorate (Dirasa: the partner only, as its page's governorate is the
+school's), alone or together, each alone or with one more filter (centre or school, gender, nationality, CWD
+type, Dirasa's round), and gender with nationality, CWD type or the round. Under other filters Dirasa's card
+shows the registrations and says so, and Makani's *Children enrolled (unique count)* shows "—". The youth
+page has **All years**, which also counts the registrations saved before September 2025 without a year.
 
 **Dirasa by year.** Like Power BI's page "Dirasa Programme Dashboard 2026", the Dirasa page shows a year:
 the Compiler rounds whose Bridging start date is in that year (a round without one counts in the year

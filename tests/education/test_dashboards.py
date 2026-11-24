@@ -278,7 +278,8 @@ def test_makani_slicers_offer_the_values_counted(client_viewer, makani):
         ({"center": "101"}, 2, 2, 1),
         ({"partner": "5", "governorate": "20"}, 2, 2, 2),
         ({"emergency": "Yes"}, 2, None, 2),  # the block has no emergency grouping
-        ({"gender": "Female"}, 3, None, 4),  # staff: place filters only
+        # Compiler's (sex) grouping: child 1, registered at two centers, once; staff: place filters only
+        ({"gender": "Female"}, 3, 2, 4),
         ({"service": "BLN"}, 2, None, 4),
         ({"disability": "none"}, 1, None, 4),  # "Not specified": unknown disability
         ({"partner": "999"}, 5, 4, 4),  # not an option: ignored
@@ -289,7 +290,7 @@ def test_makani_kpis_under_filters(client_viewer, makani, params, children, uniq
     kpis = response.context["data"]["kpis"]
     assert (kpis["children"], kpis["unique"], kpis["staff"]) == (children, unique, staff)
     if unique is None:
-        assert "Shown with partner, governorate or center filters only" in response.content.decode()
+        assert "Not counted by Compiler for these filters" in response.content.decode()
 
 
 def test_makani_education_and_health(client_viewer, makani):

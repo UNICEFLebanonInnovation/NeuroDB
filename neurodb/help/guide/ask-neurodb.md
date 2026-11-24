@@ -130,6 +130,10 @@ questions keeps each question as you typed it.
   [document review](/help/knowledge-and-documents/#document-review), it also reads their findings with
   the document, page and quote; findings people rejected are left out.
 - Makani wellbeing is available as centre totals only: never anything about an individual child.
+- Makani and Dirasa figures are those of their pages, under any of the pages' filters (for example one
+  partner's boys, or one centre). The answer says whether a number is registrations (a child registered
+  twice counts twice) or children counted once, which Compiler counts for some filters only. A long list,
+  such as the centres, is cut in what the AI reads but never in the counts: ask for one centre for its row.
 - It does not read the [KM Database](/help/km-database/), which has its own assistant on its page.
 - Nothing is written back; it reads only what any signed-in person can already see.
 

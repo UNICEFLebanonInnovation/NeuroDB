@@ -997,6 +997,11 @@ the assistant tool and arguments that give its current figures (e.g. `partner_de
 kind up to two links away, with what connects them), then the lookups, combined in one answer with
 each figure's source. Other tools added with it: `country_programme`, `cpd_indicator`,
 `youth_figures`, `education_figures`, `makani_wellbeing`, `daily_review` and `management_brief`.
+`education_figures` takes the Makani or Dirasa page's filters (`filters`: a filter by its query name or
+label, a choice by its label or value, case ignored; a choice that does not match is refused with the
+choices) and builds the page's own query, so its figures are the page's. It gives the registrations and
+the unique children apart (unique children null where Compiler has no grouping for the filters), the
+filters applied, and each list longer than 40 rows cut with `<list>_total` and `<list>_truncated`.
 
 **Child data is not reachable.** For Makani wellbeing the assistant sees centre and partner totals
 (`CenterSummary`); flags of individual children (registration numbers) are neither in the hub nor in
@@ -7889,10 +7894,11 @@ in-school children, teachers).
   children, partner, governorate, center, center active during emergency.
   - *Overview*: Makani centers (with children under the filters), children enrolled (registrations:
     a child registered twice counts twice, as in the Power BI), children enrolled – unique count
-    (from the unique-children counts, shown only when the filters are partner, governorate or center,
-    else "—"), children with disabilities (a CWD type other than "No"), working, married, caregiver
-    counselling, IDP children, program staff (today's list, place filters only); charts by
-    governorate, nationality, gender, package and education programme.
+    (from the unique-children counts, shown when Compiler sends a grouping of exactly the filters: partner
+    and governorate, alone or together, each alone or with one of center, gender, nationality or CWD type,
+    and gender with nationality or CWD type; else "—"), children with disabilities (a CWD type other than
+    "No"), working, married, caregiver counselling, IDP children, program staff (today's list, place
+    filters only); charts by governorate, nationality, gender, package and education programme.
   - *Education*: enrolment per programme and level, child identification ID, education status upon
     enrolment (latest education service; registrations without one left out of those charts).
   - *Health and nutrition*: centers, children, CWD, immunized, screened for malnutrition (a result
@@ -7913,10 +7919,13 @@ in-school children, teachers).
   are that round's; the unique children answer the round alone, with the partner or with the gender (the
   card shows the registrations with the school).
   - *Overview*: Dirasa schools (with children under the filters), children enrolled in Dirasa (unique
-    children, with the registrations as a second line; the unique count answers the partner, school and
-    gender filters, the card shows registrations under the others), in-school children and in-school
-    CWD (the numbers reported by the schools that have registrations under the filters, as "Dirasa
-    schools" counts them: a school listed only for its teachers is left out), CWD in Dirasa, Dirasa
+    children, with the registrations as a second line; the unique count answers the filters Compiler
+    groups it by: partner, school, gender, nationality, CWD type and round, alone or the partner with one
+    of the others, and gender with nationality, CWD type or round; never the school's governorate, type or
+    emergency (the block's governorate is the child's); the card shows registrations under the others),
+    in-school children and in-school CWD (the numbers reported by the schools that have registrations
+    under the filters, as "Dirasa schools" counts them: a school listed only for its teachers is left
+    out), CWD in Dirasa, Dirasa
     teachers (of the chosen schools); charts: nationality (Syrian, Lebanese, Non-Lebanese), gender, type
     of schools (the schools with registrations; schools without a type left out), in-school Lebanese /
     non-Lebanese, governorate (the child's), teacher trainings by topic (the schools with registrations).

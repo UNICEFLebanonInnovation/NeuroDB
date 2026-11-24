@@ -400,6 +400,11 @@ def add_compiler(c: Collector, names: Names) -> None:
             key,
             name,
             aliases=["Makani" if key == "mscc" else "Dirasa", key],
+            # the lookup gives the whole programme; its filters give any group the page can show
+            description=f"{name} figures counted in Compiler, as its page shows them. The lookup takes "
+            "the page's filters too (e.g. a partner and a gender, or one "
+            f"{'centre' if key == 'mscc' else 'school'}): registrations and, where Compiler counts them, "
+            "unique children.",
             url=_url(url),
             lookup={
                 "tool": "education_figures",

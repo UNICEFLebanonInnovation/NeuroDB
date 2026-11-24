@@ -50,6 +50,13 @@ DIRASA_DIMS = (
 )
 DIRASA_MEASURES = ("registrations", "pre_tested", "post_tested")
 OUTREACH_DIMS = ("year", "partner", "governorate", "value")
+# the registrations block's groupings, as Compiler's Makani and Bridging classes give them (their MAIN partner and
+# governorate, DETAILS and EXTRA), kept to the dimensions the pages' filters use: Makani's centre, Dirasa's school,
+# sex, nationality and disability (Dirasa's round from format 4, with the extra round and sex)
+MAKANI_BLOCK_DETAILS = ("center", "sex", "nationality", "disability")
+MAKANI_BLOCK_EXTRA = (("nationality", "sex"), ("disability", "sex"))
+DIRASA_BLOCK_DETAILS = ("school", "sex", "nationality", "disability")
+DIRASA_BLOCK_EXTRA = (("disability", "sex"), ("nationality", "sex"))
 OUTREACH_QUESTIONS = ("education_status", "referral", "dropout_reason", "id_type")
 TEXT_DEFAULTS = {
     "sex": "Not specified",
@@ -244,10 +251,7 @@ def makani_payload(
         "id_types": _named(named["id_types"], _ids(records, "id_type")),
         "blocks": {
             "registrations": people_block(
-                records,
-                ("partner", "governorate"),
-                ("center", "sex", "nationality", "disability"),
-                (("sex", "nationality"),),
+                records, ("partner", "governorate"), MAKANI_BLOCK_DETAILS, MAKANI_BLOCK_EXTRA
             ),
             "staff": people_block(
                 [dict(s, child=i) for i, s in enumerate(staff_records)], ("partner", "governorate"), ("sex",)
@@ -323,7 +327,11 @@ def dirasa_payload(
         "trainings": named["trainings"],
         "blocks": {
             "registrations": people_block(
-                records, ("partner", "governorate"), ("school", "sex"), flags=("pre_tested", "post_tested")
+                records,
+                ("partner", "governorate"),
+                DIRASA_BLOCK_DETAILS,
+                DIRASA_BLOCK_EXTRA,
+                flags=("pre_tested", "post_tested"),
             ),
         },
         "cubes": cubes,
@@ -622,8 +630,8 @@ def dirasa_year_payload(
     payload["blocks"]["registrations"] = people_block(
         records,
         ("partner", "governorate"),
-        ("school", "sex", "round"),
-        (("round", "sex"),),
+        (*DIRASA_BLOCK_DETAILS, "round"),
+        (*DIRASA_BLOCK_EXTRA, ("round", "sex")),
         flags=("pre_tested", "post_tested"),
     )
     payload["rounds"] = [dict(r) for r in rounds]

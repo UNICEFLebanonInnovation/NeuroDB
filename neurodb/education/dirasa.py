@@ -21,8 +21,8 @@ the form), not from the view.
 
 The children card counts unique children by default (Power BI's card is below its nationality donut's total,
 which counts registrations: SPEC_PBI E19) and shows the registrations as a second line; the unique count
-answers the partner, school and gender filters, and the card shows registrations under the others. The cards
-whose Power BI measure is unknown are counted with the version an administrator chose
+answers the filters Compiler groups it by (:func:`unique_children`), and the card shows registrations under
+the others. The cards whose Power BI measure is unknown are counted with the version an administrator chose
 (:data:`neurodb.education.power_bi.VARIANTS`). The charts leave "Not specified" out, as Power BI's do.
 """
 
@@ -254,15 +254,26 @@ def selection(figures: Figures, filters: dict[str, Any]) -> Selection:
     return power_bi.memo(figures, "dirasa:selection", filters, choose)
 
 
-# slicer -> the block's grouping
-BLOCK_FILTERS = {"partner": "partner", "school": "school", "gender": "sex", "round": "round"}
+# slicer -> the registrations block's dimension (Compiler's Bridging groupings: partner and governorate,
+# alone or together, each alone or with one other split such as the school or the sex, and the pairs
+# nationality and sex, disability and sex; from payload format 4 the round too, as a split and with the sex).
+# The page's governorate is the school's, the block's the child's: not the same children, never answered; nor
+# the school type or emergency.
+BLOCK_FILTERS = {
+    "partner": "partner",
+    "school": "school",
+    "gender": "sex",
+    "nationality": "nationality",
+    "disability": "disability",
+    "round": "round",
+}
 
 
 def unique_children(figures: Figures, filters: dict[str, Any]) -> int | None:
-    """Unique children from the registrations block; None when it has no grouping for the filters (it answers
-    the partner, the school and the gender, alone or the partner with one of the two; from payload format 4
-    the round alone, with the partner or with the gender) or a filter is "Not specified". Without the round, a
-    child registered in two rounds of the year counts once."""
+    """Unique children from the registrations block; None when Compiler sends no grouping of exactly the
+    filters' dimensions (e.g. the partner with the school, or the round with the gender, have one; the
+    partner, the nationality and the gender together have none) or a filter is "Not specified". Without the
+    round, a child registered in two rounds of the year counts once."""
     if set(filters) - set(BLOCK_FILTERS) or any(v is None for v in filters.values()):
         return None
     block = figures.block("registrations")
