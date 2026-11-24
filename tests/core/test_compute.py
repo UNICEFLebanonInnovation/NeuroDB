@@ -732,26 +732,42 @@ def _button():
     return reverse("admin:core_syncrun_run_empty_page_figures")
 
 
-def test_the_button_empties_the_table(database_cache, client, admin_user):
+@pytest.fixture
+def started(monkeypatch):
+    """The background commands the button starts (none is started for real)."""
+    from neurodb.integrations import background
+
+    calls = []
+    monkeypatch.setattr(background, "start_command", lambda *args: calls.append(args) or 1)
+    return calls
+
+
+def test_the_button_empties_the_table(database_cache, client, admin_user, started):
+    """It empties the table, then stores Partner monitoring's filter choices again in the background (a row the
+    eTools jobs store, not one of these figures), so a change no job made shows there too."""
     database_cache.set("overview:a", 1, 60)
     database_cache.set("overview:b", 2, 60)
     assert _rows() == 2
     client.force_login(admin_user)
 
     assert client.get(_button()).status_code == 200 and _rows() == 2  # a GET only confirms
+    assert started == []
     response = client.post(_button(), {"_form_submitted": "on"}, follow=True)
-    assert "The stored page figures were emptied (2 entries)." in response.content.decode()
+    page = response.content.decode().replace("&#x27;", "'")
+    assert "The stored page figures were emptied (2 entries)." in page
+    assert "Partner monitoring's filter choices are being stored again." in page
     assert _rows() == 0
+    assert started == [("store_monitoring_choices", "--triggered-by", admin_user.username)]
 
 
 @pytest.mark.django_db
-def test_the_button_is_in_the_job_menu_for_administrators_only(client, admin_user, viewer):
+def test_the_button_is_in_the_job_menu_for_administrators_only(client, admin_user, viewer, started):
     compute.once("overview:a", lambda: 1, 60)
     viewer.is_staff = True
     viewer.save()
     client.force_login(viewer)
     client.post(_button(), {"_form_submitted": "on"})
-    assert compute.peek("overview:a") == (True, 1)
+    assert compute.peek("overview:a") == (True, 1) and started == []
 
     client.force_login(admin_user)
     assert (

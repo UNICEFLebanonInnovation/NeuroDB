@@ -60,7 +60,7 @@ class ProbeDatamartForm(BaseDialogForm):
 class BackgroundJob:
     name: str  # the admin action's name
     command: tuple[str, ...]  # manage.py arguments
-    job: str  # the SyncRun job it records, to refuse a second start
+    job: str | None  # the SyncRun job it records, to refuse a second start (None: it records no run)
     menu: str  # the menu entry (the menu is narrow)
     title: str
     description: str
@@ -420,6 +420,23 @@ BACKGROUND_JOBS = [
         ),
         "cleaning_services",
     ),
+    BackgroundJob(
+        "run_store_monitoring_choices",
+        ("store_monitoring_choices",),
+        None,
+        _("Partner monitoring filter choices"),
+        _("Store the partner monitoring filter choices"),
+        _(
+            "Reads the choices of Partner monitoring's filter bar (sections, partners, programme documents, "
+            "places, years, statuses and tags) from the eTools tables and stores them, in the background, "
+            "for the page and its map, which then open without reading those tables. Every eTools sync and "
+            "the eTools update clean-up store them again when they end; use this right after a deployment, "
+            "or if a choice looks out of date. It records no run here; it takes from a second to a few "
+            "minutes on a slow database, and until it ends the page shows the choices stored before (the "
+            "first visit computes them when none are stored yet)."
+        ),
+        "filter_list",
+    ),
 ]
 
 
@@ -448,13 +465,15 @@ def _background_action(spec: BackgroundJob):
     def run(self, request, form):
         from neurodb.integrations import background
 
-        if background.is_running(spec.job):
+        if spec.job and background.is_running(spec.job):
             messages.warning(request, _("%(job)s is already running.") % {"job": spec.title})
         else:
             background.start_command(*spec.command, "--triggered-by", request.user.get_username())
-            messages.success(
-                request, _("%(job)s started. Refresh this page to follow it.") % {"job": spec.title}
-            )
+            if spec.job:
+                message = _("%(job)s started. Refresh this page to follow it.") % {"job": spec.title}
+            else:  # it records no run in this list
+                message = _("%(job)s started in the background.") % {"job": spec.title}
+            messages.success(request, message)
         return _done(request)
 
     run.__name__ = spec.name
@@ -602,7 +621,8 @@ def run_bootstrap_roles(self, request, form):
             "(the overview's tiles and charts, for example): each page computes them again at its next "
             "visit, which makes that visit slower. Never needed in normal use, since a finished sync or a "
             "changed indicator flag already makes every page compute them again; use it if a page keeps "
-            "showing figures that look out of date. It changes no data and takes a second."
+            "showing figures that look out of date. It changes no data and takes a second; Partner "
+            "monitoring's filter choices are then stored again in the background."
         ),
         "form_class": ConfirmJobForm,
         "form_submit_text": _("Empty"),
@@ -610,12 +630,17 @@ def run_bootstrap_roles(self, request, form):
 )
 def run_empty_page_figures(self, request, form):
     from neurodb.core import compute
+    from neurodb.integrations import background
 
     removed = compute.clear()  # None: kept in memory (tests), so the number is unknown
     message = _("The stored page figures were emptied.")
     if removed is not None:
         message = _("The stored page figures were emptied (%(n)s entries).") % {"n": removed}
-    messages.success(request, message)
+    # Partner monitoring's filter choices are not among them (a row the eTools jobs store): read again, in the
+    # background, as after a sync, so a change no job made shows there too
+    background.start_command("store_monitoring_choices", "--triggered-by", request.user.get_username())
+    again = _("Partner monitoring's filter choices are being stored again.")
+    messages.success(request, f"{message} {again}")
     return _done(request)
 
 

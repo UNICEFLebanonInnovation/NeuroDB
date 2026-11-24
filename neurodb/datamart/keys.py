@@ -1,7 +1,7 @@
 """The moment of the eTools figures: what the keys of the eTools pages' stored figures are made of.
 
-Partner monitoring (its indicators and filter options, its map) and partner reporting (its Report/Location
-and Report/Disaggregation tables, its filter options) keep what they compute in the cache every worker
+Partner monitoring (its indicators, its map) and partner reporting (its Report/Location and
+Report/Disaggregation tables, its filter options) keep what they compute in the cache every worker
 shares (:func:`neurodb.core.compute.once`), so the parts of one page, asked for separately and answered by
 different workers, read one computation. Those figures come from tables that only the eTools jobs write, so
 their keys hold the latest run of each of those jobs (:func:`jobs`), and not the last run of any job: a

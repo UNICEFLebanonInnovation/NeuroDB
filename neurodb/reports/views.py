@@ -2887,7 +2887,8 @@ def pd_monitoring(request: HttpRequest) -> HttpResponse:
     Master indicators (``view=masters``) still opens from its address.
 
     The page loads in parts (:mod:`neurodb.web.parts`): this view answers the frame at once (the view tabs,
-    the filter bar with its options, stored for every worker, the "your section" note) with a placeholder
+    the filter bar with its options, which the eTools jobs store: ``monitoring.stored_options``, never the PD
+    indicator rows; the "your section" note) with a placeholder
     for each data block of the view, in ``#monitoring-grid``, each asked for at this address plus ``_part``,
     with the resolved filter (the sections written out, ``section=`` for every section, and the year always)
     and ``as_of``, the moment of the eTools figures the frame was drawn with:
@@ -3229,7 +3230,7 @@ def _monitoring_export(request: HttpRequest, filters, fmt: str, view: str = "tab
 def pd_monitoring_map(request: HttpRequest) -> HttpResponse:
     """The partner monitoring map: where the filtered PD indicators are implemented and reported. A frame
     already: its figures come from the map's API (:class:`neurodb.reports.api.PDMapAPI`), which the page asks
-    for once drawn (static/js/pdmap.js); its filter options are stored for every worker."""
+    for once drawn (static/js/pdmap.js); its filter options are the page's, which the eTools jobs store."""
     filters = pd_monitoring_service.Filters.from_params(request.GET)
     options = pd_monitoring_service.stored_options(filters)
     own_section: list[str] = []

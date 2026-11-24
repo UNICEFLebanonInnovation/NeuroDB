@@ -46,8 +46,11 @@ LINKED = {
     "datamart_auditengagement_interventions": "engagements",
     "datamart_tpmactivity_location_links": "tpm_activities",
 }
-# NeuroDB's own tables in the datamart app: settings people edit, never a source
-OWN = re.compile(r"datamart_(indicatorflag|recordpeople|visitplancomment|etoolsmaster\w*|rawfieldreview)$")
+# NeuroDB's own tables in the datamart app: settings people edit, and the filter choices the eTools jobs store
+# from the sources the page lists (pagechoices), never a source
+OWN = re.compile(
+    r"datamart_(indicatorflag|recordpeople|visitplancomment|etoolsmaster\w*|rawfieldreview|pagechoices)$"
+)
 TABLE = re.compile(r'(?:FROM|JOIN)\s+"((?:datamart|etools|locations)_[a-z0-9_]+)"')
 DATASET = re.compile(r'"datamart_datamartdocument"\."dataset"\s*(?:=|IN)\s*\(?([^)]*?)\)?(?:\s|$)')
 

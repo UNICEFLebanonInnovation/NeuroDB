@@ -252,8 +252,12 @@ def _try_after_the_sync() -> None:
 
 
 def run(triggered_by: str = "schedule") -> SyncRun | str:
-    """Do every step. When it cannot run now it returns why, a sentence for the log, instead of a run:
-    another clean-up is running, or the eTools Datamart sync is (the schedule then tries again)."""
+    """Do every step. When it cannot run now it returns why, a sentence for the log, instead of a run: another
+    clean-up is running, or the eTools Datamart sync is (the schedule then tries again). Once both locks are
+    released, Partner monitoring's filter choices are stored again (said in the run's details; a failure there
+    never fails the run): the clean-up runs after each deployment, so they are stored soon after one."""
+    from . import monitoring
+
     if not _take(background.DATAMART_BACKFILL_LOCK_ID):
         return ALREADY_RUNNING
     try:
@@ -261,11 +265,13 @@ def run(triggered_by: str = "schedule") -> SyncRun | str:
             _try_after_the_sync()
             return SYNC_RUNNING
         try:
-            return _run_steps(triggered_by)
+            done = _run_steps(triggered_by)
         finally:
             _release(background.DATAMART_LOCK_ID)
     finally:
         _release(background.DATAMART_BACKFILL_LOCK_ID)
+    monitoring.store_options_after(done)
+    return done
 
 
 def _run_steps(triggered_by: str) -> SyncRun:
@@ -315,8 +321,13 @@ def remove_unsent(rows: QuerySet, shown: int, seen: str, words: str, triggered_b
             removed = deleted.get(dm.ReportedIndicator._meta.label, 0)
             sync_run.rows_written = removed
             sync_run.finish(SyncRun.Status.SUCCEEDED, removed=removed, reports=reports, filter=words)
-            return sync_run
         finally:
             _release(background.DATAMART_LOCK_ID)
     finally:
         _release(background.DATAMART_BACKFILL_LOCK_ID)
+    # the reporting years Partner monitoring's filter offers (the only choices partner report rows give): a
+    # year whose every report was removed is no longer offered; said in the run's details, never a failure
+    from . import monitoring
+
+    monitoring.store_options_after(sync_run, years_only=True)
+    return sync_run

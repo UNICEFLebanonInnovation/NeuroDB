@@ -173,7 +173,9 @@ once](/help/overview/#pages-that-open-at-once)). On Data quality, its tiles come
 then the grid's tiles and list as you scroll down to them. Applying a filter, sorting a column or clicking a
 section tile refills the boxes under the filters; the filters stay as they are. The figures are worked
 out once for everyone who asks for the same filter and kept for two minutes, so opening a view again, or
-another person opening the same filter, is quicker; a new eTools sync shows at once. The map fills in
+another person opening the same filter, is quicker; a new eTools sync shows at once. The choices in the
+filters (sections, partners, programme documents, places, years) are those of the last eTools sync that
+finished: a section or programme document a sync brings appears in them when that sync ends. The map fills in
 the same way: the page first, then its locations.
 
 ## Master indicators

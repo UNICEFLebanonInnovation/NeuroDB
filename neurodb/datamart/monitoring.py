@@ -16,10 +16,11 @@ and arranges the figures for the grid, the map, the indicator detail and their s
 
 The partner monitoring page loads in parts (``reports.views.pd_monitoring``): its parts read the
 indicators of the filter stored once for every worker (:func:`stored_indicators`, plain copies of
-:class:`Indicator`: :class:`Row`), and its frame the filter options stored the same way
-(:func:`stored_options`); the map's API stores its places (:func:`stored_map_points`). Their keys are
-the filter, the day and the moment of the eTools figures (:mod:`neurodb.datamart.keys`). Every other
-reader (the overview, the brief, Ask NeuroDB, the checks) calls :func:`indicators` itself, as before.
+:class:`Indicator`: :class:`Row`); the map's API stores its places (:func:`stored_map_points`). Their keys
+are the filter, the day and the moment of the eTools figures (:mod:`neurodb.datamart.keys`). The frames of
+the page and of its map read the filter options the eTools jobs store at the end of each run
+(:func:`stored_options`, :func:`store_options`), never the PD indicator rows. Every other reader (the
+overview, the brief, Ask NeuroDB, the checks) calls :func:`indicators` itself, as before.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import json
+import logging
 import re
 from collections import Counter, defaultdict
 from collections.abc import Callable
@@ -34,8 +36,10 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from django.conf import settings
+from django.db import DatabaseError, connection
 from django.db.models import Q, QuerySet
 from django.urls import reverse
+from django.utils import timezone
 
 from neurodb.core import compute
 from neurodb.geo.models import Location
@@ -49,6 +53,8 @@ from . import models as dm
 from . import reached as rc
 from .reached import location_key, norm, number  # noqa: F401 (the names other modules import from here)
 from .tags import TAG_FIELDS
+
+logger = logging.getLogger(__name__)
 
 REPORT_TYPES = {"QPR": "Quarterly progress reports", "HR": "Humanitarian reports (monthly)"}
 DEFAULT_REPORT_TYPE = "QPR"
@@ -69,9 +75,19 @@ PAGE_SIZE = 100
 ROWS_CHUNK = 2000  # PD indicator rows read at a time
 NO_SECTION = "—"  # the section of an indicator that names none (a section tile and filter value)
 # what the partner monitoring page and its map keep in the shared cache (compute.once): the indicators of a
-# filter and the map's places two minutes, the filter options ten (they only change with a sync)
+# filter and the map's places two minutes; the filter options computed by a frame that found none stored, ten
+# minutes, for the frames that waited for it (stored_options)
 STORED_SECONDS = 120
 OPTIONS_SECONDS = 600
+# the filter options the eTools jobs store (datamart.PageChoices, store_options): their row, the shape of
+# their value (another version is never read, and the next frame or job stores them again), how long a frame
+# waits for another one computing them when none are stored, and the key of a run's details that says they
+# were stored
+OPTIONS_NAME = "partner-monitoring"
+OPTIONS_VERSION = 1
+OPTIONS_WAIT = 120
+CHOICES_DETAIL = "partner_monitoring_choices"
+NOTHING_STORED = "none stored yet"  # store_options_after's years alone, when no choices are stored to update
 # 2 (two lines of work): a stored row carries the rows placed under it and its title's rows left out; or
 # Reached in the year with its parts, the quarters and the target's parts. 3 (two lines of work): a Row
 # carries both, so a row stored by either version 2 is never read; or a stored row carries the tie-breaker
@@ -1592,59 +1608,174 @@ def grouped(rows: list[Indicator]) -> list[dict[str, Any]]:
 
 
 def stored_options(filters: Filters) -> dict[str, Any]:
-    """:func:`filter_options` for the frames of the partner monitoring page and its map: stored ten minutes
-    for every worker under a key the eTools jobs' runs change (:func:`neurodb.datamart.keys.fingerprint`),
-    the same for every user and language. A frame that finds another request computing them computes them
-    itself rather than wait for it (35 ms on a large database): the frame comes at once. The reporting years
-    fall back on the filter's year only when no partner report has a period end, after the stored value is
-    read. In DEBUG they are read at each call."""
+    """:func:`filter_options` for the frames of the partner monitoring page and its map: the choices the
+    eTools jobs stored at the end of their latest run (:func:`store_options`), one row read by its key, once
+    per request, the same for every user and language. A frame never reads the PD indicator rows: on a
+    database whose disk is slow, the first read of that table (the widest the pages read) took minutes.
+
+    With no choices stored yet (right after the deployment that brought them, before any job ran) or stored in
+    another shape (:data:`OPTIONS_VERSION`), the first frame computes and stores them, one request at a time
+    for every worker (:func:`neurodb.core.compute.once`): a frame asked for meanwhile waits up to
+    :data:`OPTIONS_WAIT` seconds and reads them. During an eTools run the frames show the choices of the run
+    before it (it stores them again at its end). The reporting years fall back on the filter's year only when
+    no partner report has a period end. In DEBUG they are computed at each call."""
     if settings.DEBUG:
         return filter_options(filters)
-    key = f"pm-options:v{CACHE_VERSION}:{keys.fingerprint()}"
-    found = compute.once(
-        key, lambda: filter_options(Filters(year=None)), OPTIONS_SECONDS, wait=0, lang_neutral=True
-    )
+    found = compute.per_request("pm-options", _read_options)
+    if found is None:
+        found = compute.once(
+            f"pm-options:v{OPTIONS_VERSION}",
+            _compute_options,
+            OPTIONS_SECONDS,
+            wait=OPTIONS_WAIT,
+            lang_neutral=True,
+        )
     if found["years"] or not filters.year:
         return found
     return {**found, "years": [filters.year]}
 
 
+def _read_options() -> dict[str, Any] | None:
+    """The choices stored in the shape :func:`filter_options` gives now, or None."""
+    text = (
+        dm.PageChoices.objects.filter(name=OPTIONS_NAME, version=OPTIONS_VERSION)
+        .values_list("value", flat=True)
+        .first()
+    )
+    return None if text is None else json.loads(text)
+
+
+def _compute_options() -> dict[str, Any]:
+    """The choices for a frame that found none stored: computed, then stored for every frame after it (a write
+    that fails is logged: the frame still shows them)."""
+    stamp = keys.fingerprint()
+    found = filter_options(Filters(year=None))
+    try:
+        _save_options(found, stamp)
+    except DatabaseError:
+        logger.exception("partner monitoring: the filter choices could not be stored")
+    return found
+
+
+def _save_options(found: dict[str, Any], stamp: str) -> None:
+    dm.PageChoices.objects.update_or_create(
+        name=OPTIONS_NAME,
+        defaults={
+            "value": json.dumps(found),
+            "version": OPTIONS_VERSION,
+            "fingerprint": stamp,
+            "computed_at": timezone.now(),
+        },
+    )
+
+
+def store_options() -> dict[str, Any]:
+    """Compute the filter's choices (:func:`filter_options`, every year) and store them for the frames
+    (:func:`stored_options`), with the moment of the eTools figures they were read at. The eTools jobs that
+    write what they read call it at the end of each run (:func:`store_options_after`), and so does the job
+    ``store_monitoring_choices`` (*Run a job → Store the partner monitoring filter choices*)."""
+    stamp = keys.fingerprint()
+    found = filter_options(Filters(year=None))
+    _save_options(found, stamp)
+    return found
+
+
+def store_option_years() -> bool:
+    """Store the reporting years of the choices again, the rest as stored: after a removal of partner report
+    rows (``backfill.remove_unsent``), which writes nothing else the choices read. False when no choices are
+    stored (the next job or frame computes them whole)."""
+    stored = dm.PageChoices.objects.filter(name=OPTIONS_NAME, version=OPTIONS_VERSION).first()
+    if stored is None:
+        return False
+    stored.value = json.dumps({**json.loads(stored.value), "years": _report_years()})
+    stored.fingerprint = keys.fingerprint()
+    stored.computed_at = timezone.now()
+    stored.save(update_fields=["value", "fingerprint", "computed_at"])
+    return True
+
+
+def store_options_after(run: Any, *, years_only: bool = False) -> str:
+    """Store the filter's choices at the end of an eTools job's ``run`` (a ``SyncRun``, or None): every choice
+    (:func:`store_options`), or the reporting years alone (:func:`store_option_years`, nothing when no choices
+    are stored yet). It never raises: what happened is written in the run's details (:data:`CHOICES_DETAIL`:
+    "stored", or why not; nothing when there was nothing to store) and returned."""
+    try:
+        if years_only and not store_option_years():
+            return NOTHING_STORED
+        if not years_only:
+            store_options()
+        outcome = "stored"
+    except Exception as exc:  # never fails the job: the frames keep the choices stored before
+        logger.exception("partner monitoring: the filter choices could not be stored after a run")
+        outcome = f"not stored: {type(exc).__name__}: {exc}"[:500]
+    if run is not None and getattr(run, "pk", None):
+        try:
+            run.details = {**(run.details or {}), CHOICES_DETAIL: outcome}
+            run.save(update_fields=["details"])
+        except DatabaseError:
+            logger.exception("partner monitoring: could not record the filter choices on run %s", run.pk)
+    return outcome
+
+
+def _report_years() -> list[int]:
+    """Every year a partner report row ends in, the latest first (its distinct period ends, not every row)."""
+    ends = (
+        dm.ReportedIndicator.objects.exclude(period_end=None).order_by().values_list("period_end", flat=True)
+    )
+    return sorted({d.year for d in ends.distinct()}, reverse=True)
+
+
 def filter_options(filters: Filters) -> dict[str, Any]:
     """The filter's choices, from the indicators the pages list (``identity.listed``) and their programme
-    documents."""
-    base = identity.listed(dm.PDIndicator.objects.exclude(intervention=None))
-    pds = PCA.objects.exclude(status__in=("draft", "cancelled")).filter(pd_indicators__listed=True).distinct()
+    documents (neither draft nor cancelled), and the years of the partner reports.
+
+    The PD indicator rows are read in one pass, unsorted: one grouping set per column read (the programme
+    document, the section, the place and each tag), hashed by the database, never the model's ordering. The
+    programme documents and partners are then read by their ids."""
+    columns = ("intervention_id", "section_name", "location_name", *(f"tag_{tag}" for tag in TAG_FIELDS))
+    rows = identity.listed(dm.PDIndicator.objects.exclude(intervention=None)).order_by().values_list(*columns)
+    inner, params = rows.query.sql_with_params()
+    names = [f"c{n}" for n in range(len(columns))]
+    query = (
+        f"SELECT GROUPING({', '.join(names)}), {', '.join(names)} "  # noqa: S608 - the ORM's own query
+        f"FROM ({inner}) AS listed({', '.join(names)}) "
+        f"GROUP BY GROUPING SETS ({', '.join(f'({name})' for name in names)})"
+    )
+    found: list[set] = [set() for _ in columns]
+    with connection.cursor() as cursor:
+        cursor.execute(query, params)
+        for grouping, *values in cursor.fetchall():
+            # GROUPING(...) has a bit set for each column not grouped, the first column the highest bit
+            at = next(n for n in range(len(columns)) if not (grouping >> (len(columns) - 1 - n)) & 1)
+            found[at].add(values[at])
+    pd_ids, sections, locations, *tags = found
+    pds = list(
+        PCA.objects.filter(pk__in=pd_ids)
+        .exclude(status__in=("draft", "cancelled"))
+        .values_list("number", "status", "document_type", "partner_id")
+    )
     partners = (
-        PartnerOrganization.objects.filter(interventions__in=pds)
-        .distinct()
-        .order_by("name")
+        PartnerOrganization.objects.filter(pk__in={p[3] for p in pds if p[3] is not None})
+        .order_by("name", "pk")
         .values_list("id", "name")
     )
-    years = sorted(
-        {
-            d.year
-            for d in dm.ReportedIndicator.objects.exclude(period_end=None).values_list(
-                "period_end", flat=True
-            )
-        },
-        reverse=True,
-    )
+    years = _report_years()
     options = {
-        "sections": sorted({(x or "").strip() for x in base.values_list("section_name", flat=True)} - {""}),
+        "sections": sorted({(x or "").strip() for x in sections} - {""}),
         "partners": [{"value": str(pk), "label": name} for pk, name in partners],
-        "pds": sorted({x for x in pds.values_list("number", flat=True) if x}),
-        "locations": sorted({x for x in base.values_list("location_name", flat=True) if x}),
+        "pds": sorted({number for number, *_ in pds if number}),
+        "locations": sorted(x for x in locations if x),
         "years": years or ([filters.year] if filters.year else []),
         "report_types": REPORT_TYPES,
         # eTools PD statuses, the running ones first (the filter's default)
         "pd_statuses": sorted(
-            {x for x in pds.order_by().values_list("status", flat=True) if x} | set(ACTIVE_PD_STATUSES),
+            {status for _, status, *_ in pds if status} | set(ACTIVE_PD_STATUSES),
             key=lambda x: (x not in ACTIVE_PD_STATUSES, x),
         ),
-        "document_types": sorted({x for x in pds.order_by().values_list("document_type", flat=True) if x}),
+        "document_types": sorted({kind for _, _, kind, _ in pds if kind}),
     }
-    for tag in TAG_FIELDS:
-        options[tag] = sorted(x for x in base.order_by().values_list(f"tag_{tag}", flat=True).distinct() if x)
+    for tag, values in zip(TAG_FIELDS, tags, strict=True):
+        options[tag] = sorted(x for x in values if x)
     return options
 
 

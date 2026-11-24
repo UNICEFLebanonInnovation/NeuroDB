@@ -6,7 +6,9 @@ its own run: its failure never fails this command, and neither does a failed dia
 (``catalogue.DIAGNOSTIC``, used by no page, figure or check: its run says it failed).
 
 Once the lock is released, each action point's status is also recorded when the action points were refreshed
-(``datamart.ap_history``): a run of its own, whose failure never fails this command either.
+(``datamart.ap_history``): a run of its own, whose failure never fails this command either. Partner
+monitoring's filter choices are stored again when a dataset they read was synced
+(``monitoring.store_options_after``, said in that dataset's run details; a failure never fails this command).
 
 One sync runs at a time (the Datamart lock): a second one does nothing. The eTools update clean-up
 (``datamart_backfill``, after a deployment) holds the same lock; a sync started meanwhile waits for it
@@ -22,6 +24,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
+from neurodb.core.models import SyncRun
 from neurodb.datamart.catalogue import DIAGNOSTIC
 from neurodb.integrations import background
 from neurodb.integrations.background import DATAMART_LOCK_ID as LOCK_ID
@@ -34,6 +37,8 @@ logger = logging.getLogger(__name__)
 
 FAILED = "failed"
 CORE = ("locations", "partners", "interventions", "intervention_budgets", "agreements")
+# the datasets Partner monitoring's filter choices are read from (monitoring.filter_options)
+CHOICES_DATASETS = ("partners", "interventions", "pd_indicators", "partner_reports")
 ANOTHER_SYNC = "Another eTools Datamart sync is running; nothing to do."
 CLEANUP_RUNNING = "The eTools update clean-up is running; the sync starts as soon as it has finished."
 CLEANUP_TOO_LONG = (
@@ -76,6 +81,7 @@ class Command(BaseCommand):
         if any(run.target in ("partners", "interventions") and run.status != FAILED for run in runs):
             runs.append(link_activityinfo_partners(triggered_by=options["triggered_by"]))
         history_run = self._action_point_history(runs, options["triggered_by"])
+        self._partner_monitoring_choices(runs)
         fmm_run = self._monitoring_insights(runs, options["triggered_by"])
         write_summary(self, runs + [run for run in (history_run, fmm_run) if run])
         # not the action point status record or the Monitoring insights run (their failure never fails the
@@ -96,6 +102,19 @@ class Command(BaseCommand):
             self.stdout.write(result)
             return None
         return result
+
+    def _partner_monitoring_choices(self, runs) -> None:
+        """Store Partner monitoring's filter choices again when this sync ran a dataset they read
+        (:data:`CHOICES_DATASETS`, the Datamart lock released by now), so its frames show what the sync
+        brought without reading the PD indicator rows. Never raises: the outcome is in that dataset's run
+        details."""
+        from neurodb.datamart import monitoring  # lazy: it reads what this sync writes
+
+        read = [
+            run for run in runs if run.job == SyncRun.Job.ETOOLS_DATAMART and run.target in CHOICES_DATASETS
+        ]
+        if read:
+            monitoring.store_options_after(read[-1])
 
     def _monitoring_insights(self, runs, triggered_by: str):
         """Rebuild the Monitoring insights visits when a dataset they read was synced (the Datamart lock

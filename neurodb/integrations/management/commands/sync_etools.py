@@ -1,4 +1,6 @@
-"""``sync_etools [--only partners,agreements,...]`` (v2 ``sync_etools_data``)."""
+"""``sync_etools [--only partners,agreements,...]`` (v2 ``sync_etools_data``). At its end it stores Partner
+monitoring's filter choices again (``monitoring.store_options_after``, recorded in the last run's details): a
+failure there never fails the sync."""
 
 from __future__ import annotations
 
@@ -28,4 +30,10 @@ class Command(BaseCommand):
             runs = sync_all(only=only, triggered_by=options["triggered_by"])
         except ValueError as exc:
             raise CommandError(str(exc)) from exc
+        if (
+            runs
+        ):  # the programme documents and partners Partner monitoring's filter offers; never fails the sync
+            from neurodb.datamart import monitoring  # lazy: it reads what this sync writes
+
+            monitoring.store_options_after(runs[-1])
         exit_on_failure(write_summary(self, runs))

@@ -367,6 +367,10 @@ QUICK_MIGRATIONS = {
     # description only on PostgreSQL); CreateModel and AddField only, no code runs; listed so the migration is
     # accounted for here
     ("review", "0004_check_settings", "CreateModel"),
+    # the filter choices the eTools jobs store for Partner monitoring's frames (PageChoices): a new, empty table of
+    # a row per page (CreateModel only, no code runs; the next eTools job or Run a job fills it); listed so that the
+    # migration is accounted for here
+    ("datamart", "0023_page_choices", "CreateModel"),
 }
 
 

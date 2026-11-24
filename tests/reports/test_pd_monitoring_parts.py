@@ -19,6 +19,7 @@ Education indicator beside the two Child Protection ones), today frozen at 1 Jul
 # ruff: noqa: F401, F811 (the fixtures "data" and "more" come from the modules that define them)
 from __future__ import annotations
 
+import datetime
 import gettext
 import html as html_module
 import json
@@ -40,6 +41,7 @@ from neurodb.datamart import keys, monitoring
 from neurodb.datamart import models as dm
 from neurodb.donors.models import DonorAccount
 from neurodb.geo.models import Location, LocationType
+from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports import views
 from tests.reports.test_pd_monitoring import TODAY, data, datamart_synced
 from tests.reports.test_powerbi_views import CLASSROOMS, frozen, more
@@ -75,18 +77,22 @@ SUMMARY_JSON = "pm-summary-data"  # the one chart JSON of the page, in the grid'
 RESULTS = "monitoring-grid"  # the results area a filter, sort or section change reloads
 JSON_SCRIPT = re.compile(r'<script id="([^"]+)" type="application/json">(.*?)</script>', re.S)
 LINK = re.compile(r'\s(?:href|action|hx-push-url)="([^"]*)"')
-# Query ceilings: measured on this world, plus 2 (SPEC7 §3.3 6, §3.4). The frame warm (its filter options and
-# navigation stored, as after the first visit of a page) is 9: the request's floor (session, user, donor check, user
-# role, the sidebar's sections and years) and the moment of the eTools figures (the latest run of each eTools job,
-# the indicator flags); cold it also computes the filter options (13 queries) and the navigation: 23. The results
+# Query ceilings: measured on this world, plus 2 (SPEC7 §3.3 6, §3.4). The frame warm (its navigation stored, as
+# after the first visit of a page) is 8: the request's floor (session, user, donor check, the sidebar's sections
+# and years), the moment of the eTools figures (the latest run of each eTools job, the indicator flags) and the
+# filter options an eTools job stored (one row, never the PD indicator rows); cold it also reads the navigation:
+# 11. Before any job stored the filter options, the first frame computes them (4 queries) and stores them (6,
+# with their savepoints): 21. The results
 # shell of a filter change is 5 (no page around it). Drawn inline (the indicators stored), the grid's frame adds the
 # summary's overdue reports: 10. Each part with nothing stored computes the indicators of its filter (the PDs, the
 # indicator rows, their identities, the report rows, PRP's totals, the first period held): 11, the summary 13 with
 # its overdue reports and whether PRP's own reports still owed are shown (owed.link_state: one query while NeuroDB
 # holds none of them), the section tiles 12 (the filter without its sections); a part of the group reading what the
 # first one stored: 5, the summary 7.
-# Cold the menu also reads the ActivityInfo state and its sources, kept per worker (SPEC_HOME §4): 29.
-FRAME_QUERIES_COLD = 31
+# Cold the menu also reads the ActivityInfo state and its sources, kept per worker (SPEC_HOME §4): up to 6 more,
+# 17 (27 for the first frame).
+FRAME_QUERIES_COLD = 19
+FRAME_QUERIES_FIRST = 29
 FRAME_QUERIES_WARM = 11
 FRAME_QUERIES_INLINE = 12
 RESULTS_QUERIES = 7
@@ -318,6 +324,9 @@ def test_each_placeholder_keeps_the_room_of_its_part(admin_user, viewer, world):
 def test_the_frame_stays_within_its_query_ceiling(
     client_viewer, sectioned, world, django_assert_max_num_queries
 ):
+    from django.core.management import call_command
+
+    call_command("store_monitoring_choices")  # as every eTools job does at its end
     with django_assert_max_num_queries(FRAME_QUERIES_COLD):
         response = client_viewer.get(PAGE)
     assert response.status_code == 200 and list(placeholders(text(response))) == list(VIEWS["grid"])
@@ -325,12 +334,21 @@ def test_the_frame_stays_within_its_query_ceiling(
         with django_assert_max_num_queries(FRAME_QUERIES_WARM):
             response = client_viewer.get(_url(view, section="Education"))
         assert response.status_code == 200 and list(placeholders(text(response))) == list(VIEWS[view])
+    # before any job stored the filter options (right after the deployment that brought them): the first frame
+    # computes and stores them
+    dm.PageChoices.objects.all().delete()
+    caches["shared"].clear()
+    compute.reset_memo()
+    with django_assert_max_num_queries(FRAME_QUERIES_FIRST):
+        response = client_viewer.get(PAGE)
+    assert response.status_code == 200 and dm.PageChoices.objects.count() == 1
 
 
 @pytest.mark.shell
 def test_the_frame_reads_its_filter_options_stored(client_viewer, world, monkeypatch):
-    """The filter options are computed once for every worker (ten minutes), and again as soon as an eTools sync
-    run ends."""
+    """The filter options are stored for every worker by the eTools jobs that write what they read (at the end of
+    each run) or, before any did, by the first frame: every other frame reads them, an eTools run that starts or
+    ends included (it stores them again at its end); the frame never computes them again meanwhile."""
     calls: Counter = Counter()
     real = monitoring.filter_options
 
@@ -344,7 +362,8 @@ def test_the_frame_reads_its_filter_options_stored(client_viewer, world, monkeyp
         compute.reset_memo()
     assert calls["options"] == 1
     datamart_synced()
-    assert client_viewer.get(_url("table")).status_code == 200 and calls["options"] == 2
+    caches["shared"].clear()
+    assert client_viewer.get(_url("table")).status_code == 200 and calls["options"] == 1
 
 
 # ----------------------------------------------------------------------------------------- the results shell
@@ -684,11 +703,11 @@ def _filter_choices(html: str) -> dict[str, list[tuple[str, str]]]:
 
 @pytest.mark.shell
 def test_the_stored_filter_options_are_the_same_for_every_person(admin_user, sectioned, world, monkeypatch):
-    """The filter options (``pm-options``) depend on nothing about the person asking. Stored by the frame of an
-    administrator of one section (Education), they answer the frames of a viewer of another (Child Protection),
-    the page and its map, with the same choices in the filter bar, and the other way round: computed by either
-    person, they are the same. Each person's own section, the page's first-load default, still comes from their
-    own section."""
+    """The filter options (``monitoring.stored_options``) depend on nothing about the person asking. Stored by the
+    frame of an administrator of one section (Education), before any eTools job stored them, they answer the frames
+    of a viewer of another (Child Protection), the page and its map, with the same choices in the filter bar, and
+    the other way round: computed by either person, they are the same. Each person's own section, the page's
+    first-load default, still comes from their own section."""
     admin_user.section = Section.objects.create(name="Education", code="EDU")
     admin_user.save()
     calls: Counter = Counter()
@@ -705,6 +724,7 @@ def test_the_stored_filter_options_are_the_same_for_every_person(admin_user, sec
     stored = []
     for first, second in ((admin, viewer), (viewer, admin)):
         caches["shared"].clear()
+        dm.PageChoices.objects.all().delete()  # none stored yet: the first frame computes them
         compute.reset_memo()
         calls.clear()
         frames = {}
@@ -991,6 +1011,7 @@ def test_the_stored_map_places_are_the_same_for_every_person(admin_user, section
     stored = []
     for first, second in ((admin, viewer), (viewer, admin)):
         caches["shared"].clear()
+        dm.PageChoices.objects.all().delete()  # none stored yet: the first frame computes them
         compute.reset_memo()
         calls.clear()
         computed = first.get(api).json()
@@ -1050,3 +1071,162 @@ def test_the_map_page_reads_its_filter_options_stored(client_viewer, world, monk
     compute.reset_memo()
     assert client_viewer.get(PAGE).status_code == 200  # the grid's frame reads the same stored options
     assert calls["options"] == 1
+
+
+# ------------------------------------------------------------------------------- the filter choices the jobs store
+def _refuse_options(monkeypatch) -> None:
+    """The filter's choices can no longer be computed: what the frames show must be what a job stored."""
+
+    def refuse(filters):
+        raise AssertionError("the frame computed the filter's choices")
+
+    monkeypatch.setattr(monitoring, "filter_options", refuse)
+
+
+@pytest.mark.shell
+def test_the_frame_never_reads_the_pd_indicator_rows_once_a_job_stored_the_choices(client_viewer, world):
+    """Once a job stored the filter's choices (*Run a job → Store the partner monitoring filter choices*, or an eTools
+    job at its end), the frames of Data quality, Program Performance and the map read them and never the PD
+    indicator rows (the widest table the pages read: on a slow database disk, reading it took minutes), also once
+    the shared page figures are emptied and an eTools run starts and ends."""
+    from django.core.management import call_command
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    call_command("store_monitoring_choices")
+    caches["shared"].clear()
+    run = SyncRun.objects.create(
+        job=SyncRun.Job.ETOOLS_DATAMART, target="partners", status=SyncRun.Status.RUNNING
+    )
+    run.finish(SyncRun.Status.SUCCEEDED)
+    expected = monitoring.filter_options(monitoring.Filters(year=None))
+    for url in (_url("quality"), _url("table"), reverse("reports:pd_monitoring_map")):
+        compute.reset_memo()
+        with CaptureQueriesContext(connection) as queries:
+            response = client_viewer.get(url)
+        assert response.status_code == 200
+        read = [q["sql"] for q in queries.captured_queries if "datamart_pdindicator" in q["sql"]]
+        assert read == [], url
+        # the same choices in the same order (the report types' order is the menu's)
+        assert json.dumps(response.context["options"]) == json.dumps(expected)
+
+
+def _bring(kind: str) -> str:
+    """What an eTools job writes that the filter's choices read: returns the choice it brings (or removes)."""
+    pd = PCA.objects.get(number="LEB/PD1")
+    if kind == "pd":  # a programme document renumbered (eTools REST sync, the Datamart's interventions)
+        PCA.objects.filter(pk=pd.pk).update(number="LEB/PD1-REV")
+        return "LEB/PD1-REV"
+    if kind == "partner":  # a partner renamed (the Datamart's partners)
+        PartnerOrganization.objects.filter(pk=pd.partner_id).update(name="Amel Association (renamed)")
+        return "Amel Association (renamed)"
+    if kind == "section":  # a PD indicator of a new section (the Datamart's PD indicators)
+        dm.PDIndicator.objects.create(
+            datamart_id=7001,
+            source_id=7001,
+            intervention=pd,
+            title="# of youth",
+            section_name="Youth",
+            location_name="Tyre",
+        )
+        return "Youth"
+    # a partner report of a year not reported yet (the Datamart's partner reports, the update's clean-up)
+    dm.ReportedIndicator.objects.create(
+        datamart_id=7002,
+        intervention=pd,
+        indicator="# of youth",
+        report_type="QPR",
+        period_end=datetime.date(2019, 3, 31),
+    )
+    return 2019
+
+
+def _stored_choices(monkeypatch) -> dict:
+    """The choices a frame shows now, with the figures emptied and the choices no longer computed."""
+    caches["shared"].clear()
+    compute.reset_memo()
+    _refuse_options(monkeypatch)
+    return monitoring.stored_options(monitoring.Filters(year=None))
+
+
+def _chosen(options: dict, value) -> bool:
+    return (
+        value in options["pds"]
+        or value in options["sections"]
+        or value in options["years"]
+        or value in [p["label"] for p in options["partners"]]
+    )
+
+
+JOBS = [
+    ("sync_etools", "interventions", "pd"),
+    ("sync_etools_datamart", "partners", "partner"),
+    ("sync_etools_datamart", "interventions", "pd"),
+    ("sync_etools_datamart", "pd_indicators", "section"),
+    ("sync_etools_datamart", "partner_reports", "year"),
+    ("datamart_backfill", "", "year"),
+]
+
+
+@pytest.mark.parametrize(("command", "target", "kind"), JOBS, ids=lambda v: str(v))
+def test_each_etools_job_that_writes_the_choices_stores_them_at_its_end(
+    world, monkeypatch, settings, command, target, kind
+):
+    """Each eTools job that writes what the filter's choices read stores them again when it ends, so the frames
+    show what it brought without computing them (the run's details say so); during the run they show the choices
+    stored before it."""
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    from neurodb.datamart import backfill
+    from neurodb.integrations.management.commands import sync_etools as rest_command
+    from neurodb.integrations.management.commands import sync_etools_datamart as datamart_command
+
+    settings.FMM_REFRESH_AFTER_SYNC = "off"
+    call_command("store_monitoring_choices")
+    brought: list = []
+
+    def fake_sync(only=None, triggered_by="command"):
+        brought.append(_bring(kind))
+        job = SyncRun.Job.ETOOLS if command == "sync_etools" else SyncRun.Job.ETOOLS_DATAMART
+        run = SyncRun.objects.create(job=job, target=target, triggered_by=triggered_by)
+        run.finish(SyncRun.Status.SUCCEEDED)
+        return [run]
+
+    def fake_fill():
+        brought.append(_bring(kind))
+        return {"report_rows_filled": 1}
+
+    monkeypatch.setattr(rest_command, "sync_all", fake_sync)
+    monkeypatch.setattr(datamart_command, "sync_all", fake_sync)
+    monkeypatch.setattr(datamart_command, "link_activityinfo_partners", lambda triggered_by: _done_run())
+    monkeypatch.setattr(backfill, "STEPS", (("fill", fake_fill),))
+    call_command(command, stdout=StringIO())
+    (value,) = brought
+    run = SyncRun.objects.filter(target=target, job__in=keys.ETOOLS_JOBS).latest("pk")
+    assert run.details["partner_monitoring_choices"] == "stored"
+    assert _chosen(_stored_choices(monkeypatch), value)
+
+
+def _done_run() -> SyncRun:
+    run = SyncRun.objects.create(job=SyncRun.Job.PARTNER_LINKS, status=SyncRun.Status.RUNNING)
+    run.finish(SyncRun.Status.SUCCEEDED)
+    return run
+
+
+def test_the_removal_of_unsent_partner_report_rows_stores_the_choices_at_its_end(world, monkeypatch):
+    """A superuser's removal of the partner report rows eTools no longer sends (the update's clean-up) stores the
+    choices again: a year of which it removed every report is no longer offered."""
+    from django.core.management import call_command
+
+    from neurodb.datamart import backfill, raw
+
+    _bring("year")
+    call_command("store_monitoring_choices")
+    assert 2019 in monitoring.stored_options(monitoring.Filters(year=None))["years"]
+    rows = dm.ReportedIndicator.objects.filter(period_end__year=2019)
+    pks = list(rows.values_list("pk", flat=True))
+    run = backfill.remove_unsent(rows, len(pks), raw.rows_key(pks), "2019", "demo-admin")
+    assert run.status == SyncRun.Status.SUCCEEDED and run.details["partner_monitoring_choices"] == "stored"
+    assert 2019 not in _stored_choices(monkeypatch)["years"]

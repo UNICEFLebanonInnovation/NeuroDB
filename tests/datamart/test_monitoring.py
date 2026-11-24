@@ -348,3 +348,179 @@ def test_rows_stored_before_the_new_fields_are_never_read(world, monkeypatch, se
         compute.reset_memo()
     rows = monitoring.stored_indicators(filters, TODAY)
     assert len(rows) == 6 and by_title(rows)[CHILDREN].to_quarter[2][0] == 300.0
+
+
+# ------------------------------------------------------------------------------------------ the filter choices
+def _options_before(filters: monitoring.Filters) -> dict:
+    """``monitoring.filter_options`` as it was before it read the PD indicator rows in one pass (07aff8f), word
+    for word: what the filter offered then, for the comparison below."""
+    from neurodb.datamart import identity
+    from neurodb.datamart.tags import TAG_FIELDS
+
+    base = identity.listed(dm.PDIndicator.objects.exclude(intervention=None))
+    pds = PCA.objects.exclude(status__in=("draft", "cancelled")).filter(pd_indicators__listed=True).distinct()
+    partners = (
+        PartnerOrganization.objects.filter(interventions__in=pds)
+        .distinct()
+        .order_by("name")
+        .values_list("id", "name")
+    )
+    years = sorted(
+        {
+            d.year
+            for d in dm.ReportedIndicator.objects.exclude(period_end=None).values_list(
+                "period_end", flat=True
+            )
+        },
+        reverse=True,
+    )
+    options = {
+        "sections": sorted({(x or "").strip() for x in base.values_list("section_name", flat=True)} - {""}),
+        "partners": [{"value": str(pk), "label": name} for pk, name in partners],
+        "pds": sorted({x for x in pds.values_list("number", flat=True) if x}),
+        "locations": sorted({x for x in base.values_list("location_name", flat=True) if x}),
+        "years": years or ([filters.year] if filters.year else []),
+        "report_types": monitoring.REPORT_TYPES,
+        "pd_statuses": sorted(
+            {x for x in pds.order_by().values_list("status", flat=True) if x}
+            | set(monitoring.ACTIVE_PD_STATUSES),
+            key=lambda x: (x not in monitoring.ACTIVE_PD_STATUSES, x),
+        ),
+        "document_types": sorted({x for x in pds.order_by().values_list("document_type", flat=True) if x}),
+    }
+    for tag in TAG_FIELDS:
+        options[tag] = sorted(x for x in base.order_by().values_list(f"tag_{tag}", flat=True).distinct() if x)
+    return options
+
+
+@pytest.fixture
+def choices_world(world):
+    """Everything the filter's choices leave out or tidy: a draft and a cancelled PD (their indicators still give
+    sections, places and tags, as before), rows the pages do not list, rows of no PD, sections padded with
+    spaces or blank, a PD with no listed indicator, two PDs of one partner, a PD without a document type, a
+    place without a name, tagged titles, and report rows without a period end."""
+    partner_a = PartnerOrganization.objects.get(name="Partner A")
+    partner_c = PartnerOrganization.objects.create(etl_id="3", name="Partner C", partner_type="CSO")
+    made = {}
+    for n, (status, partner, doc_type) in enumerate(
+        (
+            ("draft", partner_c, "PD"),
+            ("cancelled", partner_c, "SPD"),
+            ("ended", partner_a, None),
+            ("suspended", partner_a, "SHPD"),
+            ("closed", partner_c, "PD"),
+        ),
+        start=1,
+    ):
+        made[status] = PCA.objects.create(
+            etl_id=f"9{n}",
+            partner=partner,
+            partner_name=partner.name,
+            number=f"PD/2025/09{n}",
+            title=f"Choices {status}",
+            status=status,
+            document_type=doc_type,
+            start=datetime.date(2025, 1, 1),
+            end=datetime.date(2026, 12, 31),
+        )
+    indicator(made["draft"], 9001, "# of girls in draft", "  Health  ", places=("Tyre",), tag_gender="girls")
+    indicator(made["cancelled"], 9002, "# of boys", "Nutrition", places=("Sidon",), tag_gender="boys")
+    indicator(
+        made["ended"],
+        9003,
+        "# of Syrian children",
+        " Education ",
+        places=("Zahle", ""),
+        tag_nationality="syrian",
+    )
+    indicator(
+        made["suspended"], 9004, "# of adolescents", "", places=("Baalbek",), tag_age_group="adolescents"
+    )
+    indicator(made["suspended"], 9005, "# of children with disabilities", "   ", tag_disability="yes")
+    # a PD whose only indicator the pages leave out, and rows the pages leave out on a listed PD
+    indicator(made["closed"], 9006, "# left out", "Left Out Section", places=("Nowhere",), listed=False)
+    indicator(made["ended"], 9007, "# also left out", "Hidden", places=("Hidden place",), listed=False)
+    dm.PDIndicator.objects.create(
+        datamart_id=next(_ids),
+        source_id=9008,
+        title="# of no PD",
+        section_name="Orphan",
+        location_name="Orphan town",
+    )
+    report(made["ended"], 9003, "# of Syrian children", "QPR1", datetime.date(2025, 3, 31), {"Zahle": 5})
+    dm.ReportedIndicator.objects.create(
+        datamart_id=next(_ids),
+        intervention=made["ended"],
+        indicator="# of Syrian children",
+        report_type="QPR",
+    )  # no period end
+    return made
+
+
+@pytest.mark.parametrize("year", [None, 2026])
+def test_filter_options_give_the_choices_they_gave_before(choices_world, year):
+    filters = monitoring.Filters(year=year)
+    found = monitoring.filter_options(filters)
+    assert found == _options_before(filters)
+    assert {"Health", "Nutrition", "Education"} <= set(found["sections"]) and "Left Out Section" not in found[
+        "sections"
+    ]
+    assert "Orphan" not in found["sections"] and "" not in found["sections"]
+    assert (
+        "PD/2025/091" not in found["pds"] and "PD/2025/095" not in found["pds"]
+    )  # draft; no listed indicator
+    assert [p["label"] for p in found["partners"]] == ["Partner A", "Partner B"]
+    assert found["years"] == [2026, 2025]
+    dm.ReportedIndicator.objects.all().delete()  # no report: the filter's own year, as before
+    assert monitoring.filter_options(filters) == _options_before(filters)
+    assert monitoring.filter_options(filters)["years"] == ([year] if year else [])
+
+
+def test_filter_options_read_the_pd_indicator_table_once_and_never_sort_it(choices_world):
+    """The PD indicator table is the widest the pages read (each row keeps the record as received): the filter's
+    choices read it in one pass, without sorting its rows (the model's ordering cleared), whatever its size."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    with CaptureQueriesContext(connection) as queries:
+        monitoring.filter_options(monitoring.Filters())
+    read = [q["sql"] for q in queries.captured_queries if "datamart_pdindicator" in q["sql"]]
+    assert len(read) == 1, read
+    assert "ORDER BY" not in read[0].upper(), read[0]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_two_frames_without_stored_choices_compute_them_once(world, monkeypatch, settings):
+    """With no choices stored yet (right after a deployment, before any eTools job stored them), two frames at
+    once compute them once: the second waits for the first and reads what it stored, rather than reading the PD
+    indicator table a second time beside it."""
+    import threading
+    import time
+
+    from django.db import connection
+
+    settings.DEBUG = False
+    calls = []
+    choices = {"sections": ["Education"], "years": [2026]}
+
+    def slow(filters):
+        calls.append(filters)
+        time.sleep(1.0)
+        return choices
+
+    monkeypatch.setattr(monitoring, "filter_options", slow)
+    answers = []
+
+    def frame():
+        try:
+            answers.append(monitoring.stored_options(monitoring.Filters(year=2026)))
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=frame) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+        time.sleep(0.2)
+    for thread in threads:
+        thread.join(30)
+    assert len(calls) == 1 and answers == [choices, choices]

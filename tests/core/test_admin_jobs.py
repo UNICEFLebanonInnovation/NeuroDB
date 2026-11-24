@@ -1,5 +1,6 @@
 """Every operator command has a button in the admin ("Run a job" on Import and sync runs)."""
 
+import json
 from html import unescape
 
 import pytest
@@ -275,3 +276,26 @@ def test_only_a_finished_datamart_dataset_is_synced_again_and_only_by_an_adminis
     client.force_login(viewer)
     client.post(reverse("admin:core_syncrun_sync_dataset_again", args=[failed.pk]), {"_form_submitted": "on"})
     assert started == []
+
+
+def test_run_a_job_offers_storing_the_partner_monitoring_choices(superadmin, admin_user, started):
+    """Partner monitoring's frames read the filter's choices the eTools jobs store; *Run a job* stores them at any
+    time, in the background (no shell needed), for a schedule too, and the job stores them."""
+    from django.core.management import call_command
+
+    from neurodb.core.jobs import COMMANDS
+    from neurodb.datamart import models as dm
+    from neurodb.datamart import monitoring
+
+    command = COMMANDS["pm_choices"]
+    assert command.args == ("store_monitoring_choices",) and command.sync_job is None
+    assert str(command.label) == "Store the partner monitoring filter choices"
+    (button,) = [spec for spec in BACKGROUND_JOBS if spec.command == command.args]
+    assert str(button.menu) in superadmin.get(reverse("admin:core_syncrun_changelist")).content.decode()
+    assert superadmin.post(_url(button.name), {"_form_submitted": "on"}).status_code == 302
+    assert started == [("store_monitoring_choices", "--triggered-by", admin_user.username)]
+
+    call_command("store_monitoring_choices", "--triggered-by", admin_user.username)
+    stored = dm.PageChoices.objects.get(name=monitoring.OPTIONS_NAME)
+    assert stored.version == monitoring.OPTIONS_VERSION
+    assert json.loads(stored.value) == monitoring.filter_options(monitoring.Filters(year=None))

@@ -171,6 +171,34 @@ class PDIndicator(DatamartRecord):
         return self.title[:80]
 
 
+class PageChoices(models.Model):
+    """The choices a page's filter bar offers, stored by the jobs that write the tables they are read from, so
+    that the page's frame reads one row instead of those tables (``name``: whose choices). Partner
+    monitoring's (``monitoring.store_options``) are read from the PD indicator rows, the widest table the
+    pages read: the eTools jobs store them at the end of each run, and *Run a job → Store the partner
+    monitoring filter choices* at any time. A row of another ``version`` than its reader's is never read (its
+    shape has changed)."""
+
+    name = models.CharField(max_length=64, primary_key=True)
+    # JSON as text, never jsonb: jsonb sorts an object's keys, and the order of some choices is their order on
+    # the page (Partner monitoring's report types)
+    value = models.TextField(help_text="the choices, as JSON text")
+    version = models.PositiveSmallIntegerField(
+        default=0, help_text="the shape of the value its reader expects"
+    )
+    fingerprint = models.CharField(
+        max_length=16, blank=True, help_text="the moment of the eTools figures they were read at"
+    )
+    computed_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "stored page choices"
+        verbose_name_plural = "stored page choices"
+
+    def __str__(self):
+        return self.name
+
+
 class PartnerAssessment(DatamartRecord):
     """A HACT assessment of a partner (micro-assessment, simplified checklist, ...)."""
 
