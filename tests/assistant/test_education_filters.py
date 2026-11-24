@@ -361,7 +361,10 @@ def test_a_filter_of_another_tab_names_the_tabs_that_show_it(dirasa):
     assert "only the outreach tab shows it" in str(own.value)
     # on Outreach, "partner" is the outreach's own Partner filter
     outreach = education_figures("dirasa", tab="outreach", filters={"partner": "dirasa partner"})
-    assert outreach["filters_applied"] == {"Year": "2025", "Partner": "Dirasa Partner"}
+    assert outreach["filters_applied"] == {
+        "Year": "2025",
+        "Partner (as typed in the Kobo form)": "Dirasa Partner",
+    }
 
 
 def test_the_round_argument_and_a_round_filter_must_agree(dirasa):
@@ -649,7 +652,10 @@ def test_choices_alike_but_for_case_spaces_or_a_full_name_can_each_be_chosen(cli
         ("partner", "DIRASA PARTNER"),
     ):
         answer = education_figures("dirasa", tab="outreach", filters={name: asked})
-        assert answer["filters_applied"] == {"Year": "2025", name.capitalize(): asked}
+        assert answer["filters_applied"] == {
+            "Year": "2025",
+            f"{name.capitalize()} (as typed in the Kobo form)": asked,
+        }
         page = shown(client_viewer, "dirasa", tab="outreach", **{f"outreach_{name}": asked})
         assert answer["figures"] == page
     for name, asked in (("governorate", "AKKAR"), ("governorate", "North"), ("partner", "dirasa partner")):
@@ -706,7 +712,10 @@ def test_outreach_counts_the_periods_year_unless_a_year_is_given(client_viewer):
     )
     assert answer["figures"]["kpis"] == {"outreached": 2, "year": "2025"} and answer["outreach_note"] is None
     latest = education_figures("dirasa", tab="outreach", filters={"partner": "dirasa partner"})
-    assert latest["filters_applied"] == {"Year": "2026", "Partner": "Dirasa Partner"}
+    assert latest["filters_applied"] == {
+        "Year": "2026",
+        "Partner (as typed in the Kobo form)": "Dirasa Partner",
+    }
     # a Year given is the one counted
     given = education_figures("dirasa", period="2025", tab="outreach", filters={"year": "2024"})
     assert given["filters_applied"] == {"Year": "2024"} and given["outreach_note"] is None
@@ -730,3 +739,52 @@ def test_outreach_of_an_older_dirasa_round_says_its_year():
     answer = education_figures("dirasa", tab="outreach")
     assert (answer["period"], answer["filters_applied"]) == ("Bridging 2025-2026", {"Year": "2025"})
     assert "not by round" in answer["outreach_note"] and "of 2025" in answer["outreach_note"]
+
+
+def test_the_kobo_forms_text_is_cleaned_as_any_text_in_the_filters_applied():
+    """Outreach's Partner and Governorate are the Kobo form's own text, not a list of partners or places: a
+    name after a title in them is withheld in filters_applied as in the refusal's words, never kept under a
+    key where Ask keeps a partner's or a place's name."""
+    typed = {"year": "2025", "partner": "Sheikh Example Stranger", "governorate": "Dr. Example Stranger"}
+    store(
+        dirasa_year_payload(
+            YEAR_REGISTRATIONS, YEAR_TEACHERS, [*OUTREACH, typed], lists={"partners": PARTNERS}
+        )
+    )
+    for filters in ({"partner": "Sheikh"}, {"partner": "stranger"}, {"governorate": "Dr. Example Stranger"}):
+        answer, ok = sent({"programme": "dirasa", "tab": "outreach", "filters": filters})
+        assert ok and "Example Stranger" not in json.dumps(answer), filters
+    refused, ok = sent({"programme": "dirasa", "tab": "outreach", "filters": {"governorate": "Nowhere"}})
+    assert not ok and "choices" not in refused and "Example Stranger" not in json.dumps(refused)
+    # the school partners and governorates keep theirs (filters_applied's Partner, Governorate)
+    plain = education_figures("dirasa", tab="outreach", filters={"partner": "dirasa partner"})
+    assert plain["filters_applied"] == {
+        "Year": "2025",
+        "Partner (as typed in the Kobo form)": "Dirasa Partner",
+    }
+
+
+def test_a_tab_the_page_does_not_have_is_refused_not_answered_with_the_overview(makani, dirasa):
+    """A tab by its key or its label, case and a plural "s" aside; any other is refused with the tabs, never
+    answered with the overview's figures."""
+    assert education_figures("makani", tab="map")["tab"] == "maps"
+    assert education_figures("makani", tab="Health and nutrition")["tab"] == "health"
+    assert education_figures("dirasa", tab="maps")["tab"] == "map"
+    assert education_figures("dirasa", tab="Attendance barriers")["tab"] == "barriers"
+    assert education_figures("dirasa", tab="schools map")["tab"] == "map"
+    assert education_figures("makani")["tab"] == "overview"  # no tab: the first
+    for programme, tab in (("makani", "barriers"), ("dirasa", "health"), ("makani", "teachers")):
+        with pytest.raises(ToolInputError, match=rf"No tab '{tab}' on .*: its tabs are overview"):
+            education_figures(programme, tab=tab)
+
+
+def test_the_latest_period_is_the_one_shown_first(makani):
+    for word in ("latest", "Current", "last"):
+        assert education_figures("makani", period=word)["period"] == education_figures("makani")["period"]
+
+
+def test_the_kobo_forms_filter_is_found_as_filters_applied_writes_it():
+    store(dirasa_year_payload(YEAR_REGISTRATIONS, YEAR_TEACHERS, OUTREACH, lists={"partners": PARTNERS}))
+    first = education_figures("dirasa", tab="outreach", filters={"partner": "dirasa partner"})
+    again = education_figures("dirasa", tab="outreach", filters=first["filters_applied"])
+    assert again["filters_applied"] == first["filters_applied"] and again["figures"] == first["figures"]

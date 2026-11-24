@@ -997,22 +997,25 @@ the assistant tool and arguments that give its current figures (e.g. `partner_de
 kind up to two links away, with what connects them), then the lookups, combined in one answer with
 each figure's source. Other tools added with it: `country_programme`, `cpd_indicator`,
 `youth_figures`, `education_figures`, `makani_wellbeing`, `daily_review` and `management_brief`.
-`education_figures` takes the Makani or Dirasa page's filters (`filters`: a filter by its query name or
-label, a choice as the tool shows it or by its label, its Compiler id, a partner's full name or a
-governorate's other spelling, case ignored, else by the whole words of a unique part of a name, never inside
-a word or a number and never for a category such as the gender; a number is an id; "All" leaves the filter
-out; a choice that does not match is refused with the choices, those of a centre, school or partner (not
-Outreach's partner, the Kobo form's own text) also under `choices`, where a name after Sheikh or Dr is kept)
-and builds the page's own query, so its figures are the page's. It gives the registrations and the unique
-children apart (unique children null where Compiler has no grouping for the filters), the filters applied
-(a partner with its full name, a name that reads like another's, case and spaces aside, with its id; the
-Kobo form's texts, which may differ only in case, as written), the filters whose choice a part of its name
-found (`filters_matched_by_part`, for the AI to name the choice or ask), and each list longer than 40 rows
-cut with `<list>_total` and `<list>_truncated` (the map's points are left out: the rows hold their figures).
-A period (or a Dirasa round given as one) is found whatever its case; one that is not stored is refused with
-the periods, never answered with another's figures. On Dirasa's Outreach tab, whose Kobo outreach holds
-every year, the period's year chooses the Year when no Year filter is given; when the period has no
-outreach (or is a round), `outreach_note` says which year the figures are of.
+`education_figures` takes the Makani or Dirasa page's filters (`filters`: a filter by its query name or label,
+a choice as the tool shows it or by its label, its Compiler id, a partner's full name or a governorate's other
+spelling, case ignored, else by the whole words of a unique part of a name, never inside a word or a number
+and never for a category such as the gender; a number is an id; "All" leaves the filter out; a choice that
+does not match is refused with the choices, those of a centre, school or partner (not Outreach's partner, the
+Kobo form's own text) also under `choices`, where a name after Sheikh or Dr is kept) and builds the page's own
+query, so its figures are the page's. It gives the registrations and the unique children apart (unique
+children null where Compiler has no grouping for the filters), the filters applied (a partner with its full
+name, a name that reads like another's, case and spaces aside, with its id; the Kobo form's texts, which may
+differ only in case, as written, under "Partner (as typed in the Kobo form)" and "Governorate (as typed in the
+Kobo form)", where Ask cleans them as any text), the filters whose choice a part of its name found
+(`filters_matched_by_part`, for the AI to name the choice or ask), and each list longer than 40 rows cut with
+`<list>_total` and `<list>_truncated` (the map's points are left out: the rows hold their figures). A period
+(or a Dirasa round given as one) is found whatever its case ("latest" or "current": the one the page opens
+on); one that is not stored is refused with the periods, never answered with another's figures. A tab is found
+by its key or its label ("map", "Maps", "Attendance barriers"); any other is refused with the tabs, never
+answered with the overview's figures. On Dirasa's Outreach tab, whose Kobo outreach holds every year, the
+period's year chooses the Year when no Year filter is given; when the period has no outreach (or is a round),
+`outreach_note` says which year the figures are of.
 
 **Child data is not reachable.** For Makani wellbeing the assistant sees centre and partner totals
 (`CenterSummary`); flags of individual children (registration numbers) are neither in the hub nor in

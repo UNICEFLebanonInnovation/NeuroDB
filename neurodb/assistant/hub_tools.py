@@ -335,6 +335,7 @@ OUTREACH_ROUND_NOTE = (
     "Outreach counts the Kobo form's interviews by their own year, not by round: these figures are of {year} "
     "(filters_applied's Year), not of {period}. Say so; the Year filter chooses another year."
 )
+LATEST = frozenset({"latest", "current", "last", "newest", "most recent"})  # a period: the one shown first
 EVERY = frozenset({"", "all", "any"})  # the page's "All" (its empty value): no filter
 # other words for a filter (the help and the prompt write "centre"; Compiler's block says "sex") and a gender
 FILTER_WORDS = {"centre": "center", "centres": "center", "centers": "center", "sex": "gender"}
@@ -360,8 +361,18 @@ CHOICE_KEYS = {
     "center": "centres",
     "school": "schools",
     "governorate": "governorates",
-    "outreach_governorate": "governorates",
 }
+# Outreach's Partner and Governorate are the Kobo form's own text, typed by an interviewer: no list of
+# partners or places. Echoed under a key that says so, where Ask cleans them as any text (a name after a
+# title withheld), never under "Partner" or "Governorate", where it keeps a partner's or a place's name
+KOBO_TEXT = frozenset({"outreach_partner", "outreach_governorate"})
+
+
+def _filter_key(slicer: Any) -> str:
+    """A filter's key in filters_applied and filters_matched_by_part: its label, said to be the Kobo form's
+    text for :data:`KOBO_TEXT`."""
+    label = str(slicer.label)
+    return f"{label} (as typed in the Kobo form)" if slicer.name in KOBO_TEXT else label
 
 
 def _name_key(text: Any) -> str:
@@ -407,6 +418,22 @@ def _round_named(programme: str, periods: list[str], asked: str) -> str:
     return names.pop() if len(names) == 1 else asked
 
 
+def _tab(page: Any, asked: str | None) -> str:
+    """The tab asked for, by its key or its label, case and a plural "s" left aside ("map", "Maps", "Schools
+    map"); the first when none is asked. Any other is refused with the tabs: never another tab's figures."""
+    if asked is None or not str(asked).strip():
+        return page.tab(None)
+
+    def bare(text: Any) -> str:
+        return _name_key(text).removesuffix("s")
+
+    found = [key for key, label in page.tabs if bare(asked) in (bare(key), bare(label))]
+    if not found:
+        tabs = ", ".join(f"{key} ({label})" for key, label in page.tabs)
+        raise ToolInputError(f"No tab '{asked}' on {page.name}: its tabs are {tabs}.")
+    return found[0]
+
+
 def _shown_on(tabs: list[str]) -> str:
     if len(tabs) == 1:
         return f"only the {tabs[0]} tab shows it"
@@ -429,8 +456,12 @@ def _slicer(
     key = _name_key(asked)
     key = "year" if key in PERIOD_WORDS else FILTER_WORDS.get(key, key)
 
-    def naming(key: str) -> list[Any]:
-        return [s for s in page.slicers if key in (_name_key(s.name), _name_key(s.label))]
+    def naming(key: str) -> list[Any]:  # also as filters_applied writes it (_filter_key)
+        return [
+            s
+            for s in page.slicers
+            if key in (_name_key(s.name), _name_key(s.label), _name_key(_filter_key(s)))
+        ]
 
     named = naming(key)
     if not named and key.endswith("s"):  # "partners", "nationalities"
@@ -580,7 +611,7 @@ def _page_query(
         if query.setdefault(slicer.name, chosen) != chosen:
             raise ToolInputError(f"Two choices of {slicer.label} were given: give one.")
         if part:
-            by_part[str(slicer.label)] = str(value)
+            by_part[_filter_key(slicer)] = str(value)
     return query, by_part
 
 
@@ -610,7 +641,7 @@ def _applied(result: dict[str, Any], names: Callable[[str], dict[str, str]]) -> 
             shown = dict(
                 zip((v for v, _label in options), _listed(options, names(entry["slicer"].name)), strict=True)
             )
-            applied[str(entry["slicer"].label)] = shown.get(selected, str(selected))
+            applied[_filter_key(entry["slicer"])] = shown.get(selected, str(selected))
     return applied
 
 
@@ -672,6 +703,8 @@ def education_figures(
         wanted_round = ""
     # a stored period by its name, case and spaces left aside (the exact one first); never another one
     asked = str(period).strip() if period is not None else ""
+    if _name_key(asked) in LATEST:
+        asked = ""  # the period the page opens on
     same = [p for p in periods if p == asked] or [p for p in periods if _name_key(p) == _name_key(asked)]
     chosen = same[0] if asked and same else None
     if by_year and asked and chosen is None:  # a round's name: the year holding it, that round chosen
@@ -719,7 +752,7 @@ def education_figures(
                 f"No round '{wanted_round}' in Dirasa {stored.year}: its rounds are {names}."
             )
         params["round"] = str(match[0]["id"])
-    tab = page.tab(next((key for key, _label in page.tabs if _name_key(key) == _name_key(tab)), tab))
+    tab = _tab(page, tab)
 
     @functools.cache
     def full_names(slicer: str) -> dict[str, str]:
