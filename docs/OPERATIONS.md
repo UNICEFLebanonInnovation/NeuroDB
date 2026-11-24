@@ -55,26 +55,31 @@ under "eTools master indicators"; see *NeuroDB's own grouping of PD indicators*)
 and listed in `tests/datamart/test_backfill.py`:
 
 * core `0036_drop_etools_masters_job` removes the job's choice on the sync runs (nothing changes in the
-  database), deletes its schedule `etools-masters` (and any copy of it under another key) and its runs (a
-  knowledge hub change that named one keeps its row, with no run: the migration depends on graph
-  `0003_fm_visit_kind` for that), and makes a switched-on `reporting-checks` schedule due a quarter of an
-  hour after the migration (when it was due later), so a result without check 12 soon replaces the stored one.
+  database), deletes its schedule `etools-masters` (and any copy of it under another key) and its runs (the
+  knowledge hub never rebuilt after this job, so none of its changes names one; one that did would keep its
+  row, with no run), and makes a switched-on `reporting-checks` schedule due a quarter of an hour after the
+  migration (when it was due later), so a result without check 12 soon replaces the stored one.
 * datamart `0024_drop_etools_masters` removes the three models from Django's state only: no SQL runs. The
   tables `datamart_etoolsmaster`, `datamart_etoolsmasteryear` and `datamart_etoolsmasterlink`, their rows,
   their content types and their permissions **stay for one release**, so a rolled-back image works with its
   data (only its nightly schedule is gone, which core 0036 deleted; its *Run a job* button still works there).
-  Nothing reads them, and `ensure_legacy_tables` leaves them alone. **A later release drops them**:
-  `DROP TABLE IF EXISTS` of the three tables (the links, then the years, then the grouping), then their three
-  content types, which removes their permissions. `IF EXISTS`, because a rollback to an image older than
-  this release recreates a missing table, empty (`ensure_legacy_tables`).
+  Nothing reads them, and `ensure_legacy_tables` leaves them alone. Until then their twelve permissions (add,
+  change, delete and view of each) are still offered in the permission lists of *Groups* and *Users*: they
+  give access to nothing. **A later release drops them**: `DROP TABLE IF EXISTS` of the three tables (the
+  links, then the years, then the grouping), then their three content types, which removes their
+  permissions. `IF EXISTS`, so that migration never fails on a database where a table is already gone.
 
 Old addresses of the removed view, `/partner-monitoring/?view=masters` (with any filter, an export or a part)
 and anything under `/partner-monitoring/masters/`, are redirected (302) to Partner monitoring's bare address:
-Data quality, this year, the user's own section. The readiness check's comparable groups are now the country
-programme outputs that 10 or more running PDs serve (*Ready for machine learning?*). NeuroDB Watch closes the
-open points of the removed lines as no longer followed, never as fixed (*What it follows: the checks*,
-`system`). The job's lock id, 7140440, is retired and never reused: a previous release's container can still
-hold it during the deployment.
+Data quality, this year, the user's own section. So are the grouping's three old admin lists and every page
+under them (`/manage/datamart/etoolsmaster/`, `…/etoolsmasteryear/`, `…/etoolsmasterlink/`:
+`admin_site.REMOVED_LISTS`): a bookmark of one opens Partner monitoring, and so does the link of a closed
+NeuroDB Watch point, which still names the list its *Needs attention* line named. The readiness check's
+comparable groups are now the country programme outputs that 10 or more running PDs serve (*Ready for machine
+learning?*). NeuroDB Watch closes the open points of the removed lines as no longer followed, never as fixed,
+a copy of the job's schedule under another key included (*What it follows: the checks*, `system`). The job's
+lock id, 7140440, is retired and never reused: a previous release's container can still hold it during the
+deployment.
 
 What the owner does, every step a button:
 
@@ -86,7 +91,8 @@ What the owner does, every step a button:
 3. *Import and sync runs* → **Run a job → Machine learning readiness**. Data health's readiness block then
    shows "Country programme outputs that 10 or more running PDs serve" and no measure of the grouping.
 4. **Run a job → NeuroDB Watch** (or *Check now* on the *For you* page). The open points of the removed
-   lines close as "no longer followed: this check was removed from NeuroDB".
+   lines close as "no longer followed: this check was removed from NeuroDB"; the administrators told about one
+   see it under *Good to know*, and its link opens Partner monitoring.
 5. *Data and sync* → *Scheduled jobs*: there is no `etools-masters` row. Do not add one back: its command no
    longer exists.
 
@@ -5756,7 +5762,7 @@ readers. Donor accounts never see the page, the count or the card.
 | `donor_account_expiring` | Donor sign-ins that stop working within 14 days | Administrators | trial |
 | `reporting_year_rollover` | 15 December to 15 January, while no population figures of the new year (or a later one) are loaded: "Population figures for <year>" (links the Population page; closes when they are loaded; missed after 15 January). NeuroDB's pages move to the new year by themselves. A point about setting up a source NeuroDB no longer uses (`rollover:<year>`, raised by an earlier release) closes as no longer followed | Administrators | trial |
 | `daily_review` | The critical and warning findings still open in the latest daily review, under their own keys; never those of a review check in trial (*Checks in trial* under *Daily AI review*) | the finding's section | on |
-| `system` | The admin home's *Needs attention* lines (failed jobs, a silent scheduler, a missing daily review, the watch's own lines below). A point still open for a line of a check NeuroDB no longer makes closes as no longer followed, never as fixed ("no longer followed: this check was removed from NeuroDB", `system.REMOVED_LINES`): the five lines of NeuroDB's own grouping of PD indicators, removed on 24 Nov 2026 (its job's failed, partial, overdue and never-run lines and its *without a target* line) | Administrators | on |
+| `system` | The admin home's *Needs attention* lines (failed jobs, a silent scheduler, a missing daily review, the watch's own lines below). A point still open for a line of a check NeuroDB no longer makes closes as no longer followed, never as fixed ("no longer followed: this check was removed from NeuroDB", `system.removed_line`): the five lines of NeuroDB's own grouping of PD indicators, removed on 24 Nov 2026 (its job's failed, partial, overdue and never-run lines and its *without a target* line, `system.REMOVED_LINES`), and the overdue and never-run lines of a copy of the job's schedule under another key (known by the job's name) | Administrators | on |
 | `stale_source` | A data source a check needs that has not synced within `SYNC_STALENESS_HOURS` | Administrators | on |
 | `openai_quota` | The AI service's credit ran out, Anthropic's or OpenAI's (see the circuit breaker below; the id is the one it always had) | Administrators | on |
 

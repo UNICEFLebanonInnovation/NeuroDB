@@ -45,6 +45,10 @@ def loader():
     return MigrationLoader(None, ignore_no_migrations=True)
 
 
+def _parents(loader, key) -> set[tuple[str, str]]:
+    return {parent.key for parent in loader.graph.node_map[key].parents}
+
+
 # ------------------------------------------------------------------------------------------- the migrations
 def test_datamart_0024_deletes_the_three_models_from_the_state_only(loader):
     migration = loader.disk_migrations[DATAMART]
@@ -56,7 +60,9 @@ def test_datamart_0024_deletes_the_three_models_from_the_state_only(loader):
         ("DeleteModel", "EtoolsMaster"),
     ]
     assert ("datamart", "0023_page_choices") in migration.dependencies and CORE in migration.dependencies
-    assert loader.graph.leaf_nodes("datamart") == [DATAMART]
+    # in the graph, after the Partner monitoring choices (not pinned as the last: later migrations follow it)
+    assert DATAMART in loader.graph.nodes
+    assert {("datamart", "0023_page_choices"), CORE} <= _parents(loader, DATAMART)
 
 
 @pytest.mark.django_db
@@ -80,7 +86,8 @@ def test_core_0036_alters_the_choices_and_drops_the_rows(loader):
     assert COMMAND not in dict(alter.field.choices)
     assert run.code.__name__ == "drop_rows" and run.reverse_code is migrations.RunPython.noop
     assert ("core", "0035_ap_history_job") in migration.dependencies
-    assert loader.graph.leaf_nodes("core") == [CORE]
+    assert CORE in loader.graph.nodes
+    assert ("core", "0035_ap_history_job") in _parents(loader, CORE)
 
 
 def test_both_are_listed_as_quick():

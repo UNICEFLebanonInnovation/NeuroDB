@@ -13,7 +13,8 @@ only the job-level line NeuroDB
 had before could do (it read the job's latest run: the last dataset of the order, the Datamart's
 table-refresh log), while that dataset still fails: it closes as changed, not fixed. An item opened for
 the datasets the line names closes as fixed once they succeed, whatever a diagnostic dataset does. An item
-opened for a line of a check NeuroDB no longer makes (:data:`REMOVED_LINES`) closes as changed too, "no longer
+opened for a line of a check NeuroDB no longer makes (:func:`removed_line`: its own lines, and the overdue and
+never-run lines of any schedule of its job, a copy under another key too) closes as changed too, "no longer
 followed": the check was removed, nothing was fixed.
 
 "NeuroDB Watch has not run for 26 hours" is not raised by the morning pass: that pass is the run it
@@ -78,6 +79,11 @@ REMOVED_LINES = frozenset(
         "job_never_run:etools-masters",
     }
 )
+# the overdue and never-run lines are keyed by the schedule, not the job: a copy of the job's schedule under
+# another key (core 0036 deleted every schedule of the job) is known by the job's name, which its line's text
+# began with in the previous release (that name was never translated)
+SCHEDULE_LINES = ("job_overdue", "job_never_run")
+REMOVED_SCHEDULE = "Scheduled job “Suggest PD indicators for the eTools master indicators” "
 
 
 def archive_line(key: str) -> bool:
@@ -85,6 +91,15 @@ def archive_line(key: str) -> bool:
     partial run of its imports, of its partner links or of the year-end forecasts."""
     kind, _sep, job = key.partition(":")
     return health.about_activityinfo(key) or (kind in ("job_failed", "job_partial") and job in ARCHIVE_JOBS)
+
+
+def removed_line(key: str, item) -> bool:
+    """The admin home's line ``key`` of the open item ``item`` was one of a check NeuroDB no longer makes: one
+    of :data:`REMOVED_LINES`, or the overdue or never-run line of a copy of the removed job's schedule (the
+    item's title read for those lines only)."""
+    if key in REMOVED_LINES:
+        return True
+    return key.partition(":")[0] in SCHEDULE_LINES and (item.title or "").startswith(REMOVED_SCHEDULE)
 
 
 def key_of(line: health.Warning) -> str:
@@ -157,7 +172,7 @@ def _diagnostic_still_failing(ctx: Context, item) -> bool:
 
 def resolved(ctx: Context, open_items) -> dict[str, Close]:
     """The items whose line is gone, closed at once: fixed; or, for a line of a check NeuroDB no longer makes
-    (:data:`REMOVED_LINES`), no longer followed (the check was removed); or, for a line about the
+    (:func:`removed_line`), no longer followed (the check was removed); or, for a line about the
     ActivityInfo archive (:func:`archive_line`), no longer followed (it may still fail: nobody is told any
     more); or, for an eTools Datamart item opened for a diagnostic dataset that still fails, changed (it is
     no longer an alarm, but it was not fixed)."""
@@ -167,7 +182,7 @@ def resolved(ctx: Context, open_items) -> dict[str, Close]:
         if item.key in current:
             continue
         line_key = item.key.removeprefix(PREFIX)
-        if line_key in REMOVED_LINES:
+        if removed_line(line_key, item):
             closes[item.key] = Close(REMOVED, kind=CHANGED)
         elif archive_line(line_key):
             closes[item.key] = Close(NOT_FOLLOWED, kind=CHANGED)

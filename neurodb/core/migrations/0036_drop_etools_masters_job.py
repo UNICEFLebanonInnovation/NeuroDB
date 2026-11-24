@@ -35,8 +35,10 @@ def drop_rows(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("core", "0035_ap_history_job"),
-        # the knowledge hub's changes point to a run (SET NULL): their model is in the state the runs are
-        # deleted with, so a change that names a deleted run keeps its row with no run
+        # the knowledge hub's changes point to a run (SET NULL), so a change that named a deleted run
+        # would keep its row with no run (none does: the hub never rebuilt after this job). A migrated
+        # database's state holds their model anyway; this keeps it there on a new database and in the
+        # tests' migration state
         ("graph", "0003_fm_visit_kind"),
     ]
 

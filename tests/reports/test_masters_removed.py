@@ -2,11 +2,12 @@
 such grouping). Its old addresses open Partner monitoring's default view, its pages and actions open Partner
 monitoring too (a GET and a POST alike), its route names are gone, the figure trail of an old address is Data
 quality's, and check 12 is gone from the eTools reporting checks: checks 1 to 11 keep their numbers, and a stored
-result that still holds card 12 shows without it.
+result that still holds card 12 shows without it. The grouping's old admin lists (a bookmark, or a closed NeuroDB
+Watch card that still links to one) open Partner monitoring too, while the rest of the administration is as it was.
 
 Before the removal: ``?view=masters`` answered its own view (or a redirect to its year) and its own exports, the
 four addresses under ``/partner-monitoring/masters/`` answered their pages and actions, the trail of an old
-address answered 404, and the checks page showed card 12.
+address answered 404, and the checks page showed card 12. Right after the removal the old admin lists answered 404.
 """
 
 # ruff: noqa: F401, F811 (the fixtures "data", "more" and "frozen" come from the modules that define them)
@@ -15,6 +16,7 @@ from __future__ import annotations
 import re
 
 import pytest
+from django.conf import settings
 from django.contrib.auth.models import Group
 from django.test import Client
 from django.urls import NoReverseMatch, reverse
@@ -93,6 +95,49 @@ def test_the_old_pages_and_actions_open_partner_monitoring(client_viewer, path, 
         response = client_viewer.post(path, {"action": "confirm", "link": "1"})
     assert response.status_code == 302
     assert response["Location"] == PAGE
+
+
+ADMIN = f"/{settings.ADMIN_URL_PATH}"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "datamart/etoolsmaster/",
+        "datamart/etoolsmaster/?target=listed",  # the Needs attention line's, kept by a closed Watch card
+        "datamart/etoolsmaster/add/",
+        "datamart/etoolsmaster/5/change/",
+        "datamart/etoolsmaster/5/add-pd-indicators/",
+        "datamart/etoolsmasteryear/",
+        "datamart/etoolsmasteryear/3/change/",
+        "datamart/etoolsmasterlink/?status__exact=proposed",
+        "datamart/etoolsmasterlink/7/change/",
+    ],
+)
+@pytest.mark.parametrize("method", ["get", "post"])
+def test_the_old_admin_lists_open_partner_monitoring(admin_user, path, method):
+    client = Client()
+    client.force_login(admin_user)
+    response = getattr(client, method)(ADMIN + path)
+    assert response.status_code == 302
+    assert response["Location"] == PAGE  # the query dropped
+
+
+def test_the_rest_of_the_administration_is_as_it_was(admin_user):
+    client = Client()
+    client.force_login(admin_user)
+    assert client.get(reverse("admin:app_list", args=["datamart"])).status_code == 200
+    assert client.get(reverse(CHECKS_PAGE)).status_code == 200
+    # an address of the datamart's administration that never existed is still the admin's own 404
+    assert client.get(ADMIN + "datamart/etoolsmasters/").status_code == 404
+    for name in ("etoolsmaster", "etoolsmasteryear", "etoolsmasterlink"):
+        with pytest.raises(NoReverseMatch):
+            reverse(f"admin:datamart_{name}_changelist")
+
+
+def test_a_visitor_signs_in_first(client):
+    response = client.get(ADMIN + "datamart/etoolsmaster/")
+    assert response.status_code == 302 and response["Location"] != PAGE
 
 
 @pytest.mark.parametrize(

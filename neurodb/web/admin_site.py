@@ -16,12 +16,13 @@ from django.contrib.auth import REDIRECT_FIELD_NAME
 from django.contrib.auth.decorators import login_not_required
 from django.db import DatabaseError
 from django.shortcuts import redirect
-from django.urls import reverse
+from django.urls import re_path, reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.cache import never_cache
+from django.views.generic import RedirectView
 from unfold.sites import UnfoldAdminSite
 
 logger = logging.getLogger(__name__)
@@ -401,6 +402,14 @@ ICONS = {
 }
 
 
+# the admin lists of models since removed, with every page under them: an old address (a bookmark, or a
+# closed NeuroDB Watch card that still links to the list its Needs attention line named) opens the page that
+# took their place, a GET and a POST alike, the query dropped, never the catch-all's 404. NeuroDB's own
+# grouping of the PD indicators, its years and its PD indicators (removed: eTools has no such grouping):
+# Partner monitoring
+REMOVED_LISTS = ((r"^datamart/etoolsmaster(?:year|link)?/", "reports:pd_monitoring"),)
+
+
 class NeuroDBAdminSite(UnfoldAdminSite):
     site_header = _("NeuroDB administration")
     site_title = _("NeuroDB admin")
@@ -469,7 +478,8 @@ class NeuroDBAdminSite(UnfoldAdminSite):
         # An admin may add pages of its own at the root of the admin (``site_urls()``), such as
         # Monitoring insights' Questions found at admin/fmm/questions/; they come before the catch-all.
         extra = [url for model_admin in self._registry.values() for url in self._site_urls(model_admin)]
-        return extra + super().get_urls()
+        removed = [re_path(old, RedirectView.as_view(pattern_name=to)) for old, to in REMOVED_LISTS]
+        return removed + extra + super().get_urls()
 
     @staticmethod
     def _site_urls(model_admin) -> list:
