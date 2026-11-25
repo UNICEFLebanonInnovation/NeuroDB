@@ -4163,7 +4163,8 @@ the map, the programme and partner pages, the progress report pop-up and Ask Neu
   the whole PD target. A place is matched by name and by the P-code the PD indicators give that name,
   so a partner report that spells it differently ("Akkar Governorate" for the planned "Akkar", same
   P-code) is still that place. On the map, the chosen places only are listed, each row with the
-  location's own Reached beside the indicator's Reached over every location, its % and status.
+  indicator's Reached over every location, its % and status (since 25 Nov 2026 without the location's
+  own Reached beside it: the indicator's page gives each location's Reached).
 * **One status per progress report.** A report whose rows disagree on its status (a partial re-sync:
   some indicators' rows still carry the old word) has one status on every page: the word of its rows
   changed last in the Datamart (`last_modify_date`), then synced last, then with the highest Datamart
@@ -4836,9 +4837,14 @@ is placed by its own eTools coordinates; when it has none, by the nearest parent
 (drawn pale, "approximate", its ring kept); a name alone never places anything, and locations with no
 coordinates anywhere in their hierarchy are listed under the map. Clicking a location lists, per
 partner and programme document, the indicators reported there:
-target, the location's own Reached (to date, with PRP's running total there, and in the chosen
-year), the indicator's Reached over all its locations, status and latest counted period, plus the
-TPM activities, field-monitoring findings and open action points recorded at the place. Since 21 Nov
+target, the indicator's Reached over all its locations, status and latest counted period, plus the
+TPM activities, field-monitoring findings and open action points recorded at the place. Since 25 Nov
+2026 the place's details no longer show the location's own Reached (the *Reached here* column, with
+PRP's running total there under it, and *Reached here in <year>*), and the map's API no longer sends it
+(`reached_here`, `reached_here_in_year`, `prp_cumulative_here`); the location's latest counted period
+and report still come from that location's figures (`Indicator.by_location`), and the indicator's page
+still gives each location's Reached (its rows). A place stored before (two minutes at most) still
+carries the three fields: `pdmap.js` does not read them, so `MAP_VERSION` stays 2. Since 21 Nov
 2026 the map shows no programme document budget, UNICEF cash, partner contribution, donors or agreement
 (a programme document's budget is not a figure of one place, also under a location filter), and the
 map's API no longer sends them: each programme document in its `pds` gives its id, number, title,

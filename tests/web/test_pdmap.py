@@ -1,7 +1,9 @@
 """The partner monitoring map's script (static/js/pdmap.js): each point is filled with its worst status and
 ringed and sized by its level (a governorate, a district or a smaller place), in design tokens for the light
 and dark themes; the side list and the place's details name the level; and a place's details list its
-partners, programme documents and indicators without any programme document budget line."""
+partners, programme documents and indicators without any programme document budget line, and without the
+location's own Reached (the "Reached here" columns): each indicator's target, Reached over every location,
+status and latest period."""
 
 import json
 import re
@@ -17,7 +19,9 @@ NODE = shutil.which("node")
 FUNDING_WORDS = ("Total budget", "UNICEF cash", "partner contribution", "donors", "agreement", "USD")
 
 # pdmap.js run in node: the design tokens as the light theme gives them, a place at each level, and a place's
-# details for a programme document that still carries budget fields (as a payload stored by an older release)
+# details for a programme document that still carries budget fields and an indicator row that still carries the
+# location's own Reached (reached_here, reached_here_in_year, prp_cumulative_here), as a payload stored by an
+# older release
 PDMAP_SCRIPT = r"""
 const tokens = {
   "--nd-danger": "#c63b3b", "--nd-success": "#16865a", "--nd-warning": "#b76e00", "--nd-neutral": "#6b7686",
@@ -42,9 +46,9 @@ const points = [
 const features = pdmap.features(points);
 const row = {
   pd_id: 7, pd: "LEB/PD7", partner: "Example Partner", partner_id: 5, indicator: "# of children reached",
-  key: "100", url: "/partner-monitoring/indicator/7/100/", output: "1.1 Services", target: 100, reached_here: 40,
-  reached_here_in_year: 40, reached: 80, achieved_percent: 80, tracking: "on_track", tracking_label: "On track",
-  period: "2026-06-30", report: "QPR1", planned: true, reported: true,
+  key: "100", url: "/partner-monitoring/indicator/7/100/", output: "1.1 Services", target: 100, reached_here: 41,
+  reached_here_in_year: 39, prp_cumulative_here: 43, reached: 80, achieved_percent: 80, tracking: "on_track",
+  tracking_label: "On track", period: "2026-06-30", report: "QPR1", planned: true, reported: true,
 };
 const data = {
   year: 2026, report_type: "QPR",
@@ -140,6 +144,27 @@ def test_a_place_s_details_name_its_level_and_carry_no_budget_line(drawn):
     assert '<a href="/partners/5/">Example Partner</a>' in body
     assert '<a href="/programme-documents/7/">LEB/PD7</a>' in body
     assert 'hx-get="/partner-monitoring/indicator/7/100/?report_type=QPR&year=2026"' in body
+
+
+def test_a_place_s_details_have_no_reached_here_columns(drawn):
+    """A place's indicator table has no "Reached here" nor "Reached here <year>" column (nor the PRP running
+    total under the first): an older payload's location figures are simply not drawn. Every other column
+    stays, with its values."""
+    body = drawn["detail"]["body"]
+    heads = re.findall(r"<th(?: [^>]*)?>(.*?)</th>", body)
+    assert heads == ["Indicator", "Target (PD)", "Reached (all locations)", "Status", "Latest period"]
+    assert "Reached here" not in body and " in 2026" not in body and "in the year chosen" not in body
+    cells = re.findall(r"<td(?: [^>]*)?>(.*?)</td>", body, re.S)
+    assert len(cells) == len(heads)
+    # the location's own Reached (41), in the year (39) and PRP's running total there (43) are not shown
+    for value in ("41", "39", "43", "PRP"):
+        assert value not in body, value
+    indicator, target, reached, status, period = cells
+    assert "# of children reached" in indicator and "1.1 Services" in indicator
+    assert target == "100"
+    assert reached.startswith("80") and "80% of target" in reached
+    assert 'data-status="on_track"' in status and "On track" in status
+    assert "2026-06-30" in period and "QPR1" in period
 
 
 def test_the_script_has_no_budget_words_and_reads_the_level_tokens():

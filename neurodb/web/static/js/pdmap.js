@@ -51,8 +51,10 @@ function placeName(p) {
 }
 
 /** A place's details: its name, a line on the place (its level, P-code, how it is placed, its counts and the
- * monitoring done there) and, per partner and programme document, the indicators planned or reported there. A
- * programme document's budget is not a figure of one place: none is shown. */
+ * monitoring done there) and, per partner and programme document, the indicators planned or reported there: each
+ * one's target, Reached over every location, status and latest period. A programme document's budget is not a
+ * figure of one place: none is shown; nor is the location's own Reached (a place row stored by an older release
+ * may still carry it: it is not read). */
 export function detailHTML(place, data, config) {
   const m = place.monitoring || {};
   const meta = [
@@ -73,7 +75,6 @@ export function detailHTML(place, data, config) {
   });
   // the detail opens for the map's year and report type, not the current year's QPR
   const q = `?report_type=${encodeURIComponent(data.report_type || "")}&year=${encodeURIComponent(data.year || "")}`;
-  const yearLabel = data.year && data.year !== "all" ? ` in ${escapeHTML(String(data.year))}` : " in the year chosen";
   const body = [...groups.values()]
     .map((g) => {
       const pd = g.pd;
@@ -83,8 +84,6 @@ export function detailHTML(place, data, config) {
           (r) => `<tr>
             <td><a class="cell-title" href="${r.url}${q}" hx-get="${r.url}${q}" hx-target="#modal-content" hx-push-url="false">${escapeHTML(r.indicator)}</a>${r.output ? `<span class="cell-sub">${escapeHTML(r.output)}</span>` : ""}${r.planned && !r.reported ? `<span class="cell-sub">Planned here, nothing reported yet</span>` : ""}</td>
             <td class="num">${num(r.target)}</td>
-            <td class="num">${num(r.reached_here)}${r.prp_cumulative_here !== null && r.prp_cumulative_here !== undefined ? `<span class="cell-sub">PRP ${num(r.prp_cumulative_here)}</span>` : ""}</td>
-            <td class="num">${num(r.reached_here_in_year)}</td>
             <td class="num">${num(r.reached)}${r.achieved_percent !== null && r.achieved_percent !== undefined ? `<span class="cell-sub">${num(r.achieved_percent)}% of target</span>` : ""}${r.additive === false && r.method ? `<span class="cell-sub">${escapeHTML(r.method)}</span>` : ""}</td>
             <td>${pill(r.tracking, r.tracking_label)}</td>
             <td class="small text-nowrap">${r.period ? escapeHTML(r.period) : "—"}${r.report ? `<span class="cell-sub mono">${escapeHTML(r.report)}</span>` : ""}</td>
@@ -92,7 +91,7 @@ export function detailHTML(place, data, config) {
         )
         .join("");
       return `<h3 class="h6 mt-3">${partnerLink} · <a href="${pd.url || "#"}">${escapeHTML(pd.number || "")}</a> <span class="text-muted fw-normal small">${escapeHTML(pd.title || "")}</span></h3>
-        <div class="table-wrap"><table class="table table-sm"><thead><tr><th>Indicator</th><th class="num">Target (PD)</th><th class="num">Reached here</th><th class="num">Reached here${yearLabel}</th><th class="num">Reached (all locations)</th><th>Status</th><th>Latest period</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        <div class="table-wrap"><table class="table table-sm"><thead><tr><th>Indicator</th><th class="num">Target (PD)</th><th class="num">Reached (all locations)</th><th>Status</th><th>Latest period</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     })
     .join("");
   return { title: placeName(place), meta: meta.join(" · "), body };

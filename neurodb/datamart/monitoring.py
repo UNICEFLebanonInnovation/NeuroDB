@@ -1174,8 +1174,8 @@ def _monitoring_at(pd_ids: set[int], location_ids: set[int]) -> dict[int, dict[s
 
 def map_points(filters: Filters, today: datetime.date | None = None) -> dict[str, Any]:
     """Every implementation location of the filtered indicators, with what is planned and reported
-    there: partner, PD, indicator, target, the location's own Reached (to date and
-    in the year), the indicator's Reached, status, period, and the monitoring done at the place. A
+    there: partner, PD, indicator, target, the indicator's Reached over every location, status, the
+    location's latest counted period and report, and the monitoring done at the place. A
     location is placed by its own eTools coordinates, else by the nearest ancestor with coordinates
     (flagged approximate); names alone never place anything. Each place gives its level (``level``: a
     governorate, a district or a smaller place, :func:`map_level`)."""
@@ -1225,11 +1225,8 @@ def map_points(filters: Filters, today: datetime.date | None = None) -> dict[str
                     "section": ind.section,
                     "output": ind.output,
                     "target": ind.target,
-                    # the location's own Reached (to date and in the year) and PRP's cumulative there
-                    "reached_here": reported["reached"] if reported else None,
-                    "reached_here_in_year": reported["achieved"] if reported else None,
-                    "prp_cumulative_here": reported["prp_cumulative"] if reported else None,
-                    # the indicator's Reached over every location, its % of the target and status
+                    # the indicator's Reached over every location, its % of the target and status (the
+                    # location's own Reached is not sent: the indicator's page gives it, By location)
                     "reached": full.reached,
                     "additive": full.additive,
                     "method": full.method_label,

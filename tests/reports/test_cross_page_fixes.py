@@ -224,8 +224,14 @@ def test_the_map_under_a_location_filter_keeps_the_indicator_s_reached(pd):
     rows = [(p["p_code"], r) for p in places["points"] + places["unlocated"] for r in p["rows"]]
     assert [p for p, _r in rows] == ["LB11"]  # the chosen place only
     ((_p, row),) = rows
-    assert (row["reached_here"], row["reached"]) == (300.0, 500.0)  # its own, and every location's
+    assert row["reached"] == 500.0  # every location's
     assert row["achieved_percent"] == round(500 / 3000 * 100, 1)
+    assert "reached_here" not in row  # the place's own Reached is no longer on the map
+    # its own Reached: the indicator's breakdown by location, and the indicator under the location filter
+    (full,) = grid(pd)
+    (only,) = grid(pd, locations=["Akkar"])
+    assert only.reached == full.by_location["LB11"]["reached"] == 300.0
+    assert full.by_location["LB11"]["reached"] + full.by_location["LB12"]["reached"] == full.reached == 500.0
 
 
 # ------------------------------------------------------------------------------- headline indicator

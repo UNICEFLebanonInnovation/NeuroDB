@@ -124,10 +124,13 @@ PRP's report ids, which PRP's own list does not carry.
   of one kind, a bigger circle has more indicators. The legend under the map says the same in words (it
   lists the whole country only when such a place is on the map), and the list beside the map and a place's
   details name the kind of place. A pale circle is placed at the nearest larger area that has coordinates.
-  Click a place to list its partners, programme documents and indicators. Since 21 Nov 2026 this list no
+  Click a place to list its partners, programme documents and indicators: each indicator's target, its
+  Reached over all its locations, its status and its latest period. Since 21 Nov 2026 this list no
   longer shows a programme document's total budget, UNICEF cash, partner
   contribution, donors or agreement, also when you filter by location: a programme document's budget is
-  for the whole programme document, not for one place. Its own page still shows them.
+  for the whole programme document, not for one place. Its own page still shows them. Since 25 Nov 2026 it
+  no longer shows the place's own Reached either: click an indicator to see the Reached of each of its
+  locations.
 
 Since 24 Nov 2026 NeuroDB no longer groups the partners' PD indicators under indicators of its own: eTools
 has no such grouping, so Partner monitoring lists each PD indicator under its own programme document, as
@@ -161,8 +164,8 @@ eTools data → PD indicators says how many are left out and lists their rows.
 
 Switching tabs keeps the year shown, and the year menu at the top offers *All years*. The
 **location** filter shows each indicator's Reached at the chosen place (a place is found by its name and
-by its P-code, so "Akkar Governorate" in a partner report is the planned "Akkar"); on the map, each row
-then gives the place's own Reached and, beside it, the indicator's Reached over every location.
+by its P-code, so "Akkar Governorate" in a partner report is the planned "Akkar"); the map then lists the
+chosen places only, each row with the indicator's Reached over every location.
 
 An indicator opens on its own page: a location × report table whose rows end with each location's
 Reached and whose columns end with each report's value, the reports that do not count greyed, and

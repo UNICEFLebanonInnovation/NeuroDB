@@ -455,16 +455,24 @@ def test_map_points_place_locations_by_etools_coordinates(data, places, frozen_t
         "off_track",
     )
     girls = next(r for r in halba["rows"] if "girls" in r["indicator"])
-    # the location's own Reached (200 + 150), PRP's running total there, and the indicator's Reached
-    assert (girls["reached_here"], girls["reached_here_in_year"], girls["prp_cumulative_here"]) == (
-        350.0,
-        350.0,
-        350.0,
-    )
+    # the indicator's Reached over every location; the location's own Reached is no longer sent (the map's
+    # "Reached here" columns are gone)
     assert (girls["reached"], girls["tracking"], girls["additive"]) == (550.0, "on_track", True)
     assert girls["period"] == datetime.date(2026, 6, 30) and girls["planned"] and girls["reported"]
+    assert not {"reached_here", "reached_here_in_year", "prp_cumulative_here"} & set(girls)
+    # the location's own Reached (200 + 150), in the year and PRP's running total there stay in the
+    # indicator's breakdown by location (its page's By location), and the locations add up
+    (ind,) = (
+        i
+        for i in monitoring.indicators(monitoring.Filters(year=2026), today=TODAY)
+        if (i.pd.id, i.key) == (girls["pd_id"], girls["key"])
+    )
+    here = ind.by_location["LB1101"]
+    assert (here["reached"], here["achieved"], here["prp_cumulative"]) == (350.0, 350.0, 350.0)
+    assert here["period"] == girls["period"]
     bekaa_girls = next(r for r in by_key["LB5"]["rows"] if "girls" in r["indicator"])
-    assert girls["reached_here"] + bekaa_girls["reached_here"] == girls["reached"]  # the locations add up
+    assert set(ind.by_location) == {"LB1101", "LB5"} and bekaa_girls["reported"]
+    assert here["reached"] + ind.by_location["LB5"]["reached"] == ind.reached == girls["reached"]
     assert halba["monitoring"] == {
         "findings": 1,
         "findings_off_track": 1,
