@@ -136,7 +136,12 @@ not change them, nor the *By section* table.
   missing") and *All*. They keep the rest of the filter.
 - **The filter bar**: search (partner, vendor number or reference), year, section, partner, risk
   rating, remark, PD status and document type. It opens on every section, as the programme monitoring
-  team works country-wide: choose a section to see yours. *Reset* keeps you on the tab. On a phone the
+  team works country-wide: choose a section to see yours. Its PD status opens on the active programme
+  documents only (since 25 Nov 2026; every status before): choose more statuses, or clear the choice to
+  see every status, the ended programme documents with visits missing too. The files, the line on the
+  *Findings and visits* tab and Ask NeuroDB read the same choice; NeuroDB Watch's and the daily review's
+  links to a partner's programme documents choose every status, as their counts do, and so does a
+  programme document's link to the plan. *Reset* keeps you on the tab. On a phone the
   filter bar folds. When you change the year, its lists follow the year, and what you chose stays
   chosen, even a partner or a section with no programme document that year: the list then says that
   no programme document matches, until you take it off.
@@ -150,8 +155,9 @@ not change them, nor the *By section* table.
   figure until the reference matches (see
   [Why a figure can differ](/help/field-monitoring/#why-a-figure-can-differ)).
 
-The list holds every programme document of the year: not a draft or cancelled, and running at some
-point in the year, or with visits planned for it, or with a visit counted in it. Above 1,000
+The list holds every programme document of the year of the PD statuses chosen (the active ones when the
+tab opens): not a draft or cancelled, and running at some point in the year, or with visits planned for
+it, or with a visit counted in it. Above 1,000
 programme documents it asks you to choose a section or a partner first; the files still hold them all.
 
 ## The list

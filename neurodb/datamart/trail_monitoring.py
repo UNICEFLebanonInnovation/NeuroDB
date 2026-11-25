@@ -594,7 +594,8 @@ def stage_title(name: str, filters: monitoring.Filters) -> str:
     if name == "pd_status":
         if f.pd_statuses:
             return f"Status not chosen ({', '.join(pd_statuses.label(s) for s in f.pd_statuses)} chosen)"
-        return "Not running (active, signed or suspended)"
+        # none in the address: the page's default
+        return f"Status not {', '.join(pd_statuses.label(s) for s in f.status_choice)} (the page's default)"
     if name == "emergency":
         if f.emergency == "yes":
             return "Its programme document is not an SPD (the Emergency indicator)"
@@ -1545,7 +1546,8 @@ def title_words(title: str) -> str:
 
 
 def filter_words(filters: monitoring.Filters) -> tuple[str, ...]:
-    """The filter in words, one entry per field set: the programme documents read and the year always."""
+    """The filter in words, one entry per field set: the programme documents read (with no PD status in the
+    address, the page's default: *PD status: Active (the page's default)*) and the year always."""
     from .comparison import _default, _partner_names, _words
 
     labels = {
@@ -1565,11 +1567,10 @@ def filter_words(filters: monitoring.Filters) -> tuple[str, ...]:
         "cp_output": "CP output",
     }
     partners = _partner_names(filters.partners)
-    out = [
-        f"Programme documents: {_words(PAGE, 'scope', filters.scope, filters, partners)}"
-        if filters.scope != "active" or filters.pd_statuses is not None
-        else "Programme documents: running (active, signed or suspended)",
-    ]
+    if filters.scope == "active" and filters.pd_statuses is None:  # none in the address: the page's default
+        out = [f"PD status: {_words(PAGE, 'pd_statuses', None, filters, partners)} (the page's default)"]
+    else:
+        out = [f"Programme documents: {_words(PAGE, 'scope', filters.scope, filters, partners)}"]
     if filters.pd_statuses:
         out.append(f"PD status: {_words(PAGE, 'pd_statuses', filters.pd_statuses, filters, partners)}")
     out.append(f"Reporting year: {filters.year}" if filters.year else "Every reporting year")

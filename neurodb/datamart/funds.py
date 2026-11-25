@@ -4,9 +4,12 @@ partner reported in PRP) and **Funded Programs** (one row per programme document
 
 * **One filter for every tab** (:class:`FundFilters`): search, donor, grant, FR number, FR start year
   (they choose funds reservation lines, and so the programme documents funded by them), PD status and
-  partner. With no PD status chosen, every programme document but drafts and cancelled ones. The partner
-  type is no longer a filter of the page (the owner removed it on 21 Nov 2026, the page ignores it in an
-  address); :class:`FundFilters` still reads it, for other callers.
+  partner. With no PD status in the address, the page's default: the active programme documents only
+  (``partnerships.statuses.PAGE_DEFAULT``, the owner's decision of 25 Nov 2026; every status before).
+  ``pd_status=`` alone (the filter's choice cleared) is every status: on Partner Fund Monitoring and Funded
+  Programs every programme document but drafts and cancelled ones, on the funds reservations tab every
+  funds reservation, as before. The partner type is no longer a filter of the page (the owner removed it on
+  21 Nov 2026, the page ignores it in an address); :class:`FundFilters` still reads it, for other callers.
 * **Amounts.** The budget fields are the programme document's, in its budget currency (eTools'
   ``budget_currency``); funds reservation amounts are in US dollars. Amounts in different currencies
   are never added: totals are given per currency.
@@ -88,7 +91,9 @@ class FundFilters:
     grants: list[str] = field(default_factory=list)
     fr: str = ""  # words of an FR number
     year: int | None = None  # the FR's start year
-    pd_statuses: list[str] = field(default_factory=list)
+    # eTools PD statuses chosen: None (none in the address) the page's default, the active PDs only
+    # (statuses.PAGE_DEFAULT); an empty list every status
+    pd_statuses: list[str] | None = None
     partners: list[str] = field(default_factory=list)  # partner ids as text
     partner_types: list[str] = field(default_factory=list)  # partner type or CSO type
 
@@ -102,10 +107,17 @@ class FundFilters:
             grants=_getlist(params, "grant"),
             fr=" ".join(str(params.get("fr") or "").split())[:50],
             year=year_param(params.get("year")),
-            pd_statuses=_getlist(params, "pd_status"),
+            # "pd_status=" alone (nothing chosen) is every status; no key at all, the page's default (Active)
+            pd_statuses=_getlist(params, "pd_status") if "pd_status" in params else None,
             partners=[x for x in _getlist(params, "partner") if re.fullmatch(r"[0-9]{1,18}", x)],
             partner_types=_getlist(params, "partner_type"),
         )
+
+    @property
+    def status_choice(self) -> list[str]:
+        """The PD statuses the filter shows as chosen and reads (none: every status): with no choice made, the
+        page's default, Active (``statuses.PAGE_DEFAULT``)."""
+        return list(pd_statuses.PAGE_DEFAULT) if self.pd_statuses is None else list(self.pd_statuses)
 
     @property
     def by_fr(self) -> bool:
@@ -115,8 +127,8 @@ class FundFilters:
     def pd_q(self, prefix: str = "") -> Q:
         """PD status, partner and partner type, on a programme document reached by ``prefix``."""
         found = Q()
-        if self.pd_statuses:
-            found &= Q(**{f"{prefix}status__in": self.pd_statuses})
+        if self.status_choice:
+            found &= Q(**{f"{prefix}status__in": self.status_choice})
         if self.partners:
             found &= Q(**{f"{prefix}partner_id__in": [int(p) for p in self.partners]})
         if self.partner_types:
@@ -141,7 +153,7 @@ class FundFilters:
     def pds(self) -> QuerySet[PCA]:
         """The programme documents of the filter."""
         pds = PCA.objects.select_related("partner").filter(self.pd_q())
-        if not self.pd_statuses:
+        if not self.status_choice:
             pds = pds.exclude(status__in=pd_statuses.NOT_A_PARTNERSHIP)
         if self.q:
             pds = pds.filter(
@@ -166,7 +178,10 @@ def filter_options() -> dict[str, Any]:
     pds = PCA.objects.exclude(status__in=pd_statuses.NOT_A_PARTNERSHIP).order_by()
     partners = PartnerOrganization.objects.filter(pk__in=pds.exclude(partner=None).values("partner_id"))
     return {
-        "pd_statuses": sorted({x for x in pds.values_list("status", flat=True).distinct() if x}),
+        # Active, the filter's default, always offered (so it shows chosen)
+        "pd_statuses": sorted(
+            {x for x in pds.values_list("status", flat=True).distinct() if x} | set(pd_statuses.PAGE_DEFAULT)
+        ),
         "partners": [
             {"value": str(pk), "label": name}
             for pk, name in partners.order_by("name", "id").values_list("id", "name")

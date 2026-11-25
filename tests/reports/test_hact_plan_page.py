@@ -251,34 +251,42 @@ def test_donors_and_anonymous_users_are_kept_out(world, people):
 
 # ---------------------------------------------------------------------------------- figures
 def test_tiles_quick_views_and_by_section_agree_with_the_service(world, people):
+    """The tab as it opens: its PD status filter on Active (the owner's decision of 25 Nov 2026), so the ended
+    b is in no figure; "no visit on any PD" still reads every PD of the year."""
     client = _client(people["viewer"])
     rows = hact_plan.build(YEAR, TODAY)
-    figures = hact_plan.headline(rows, YEAR)
+    base = hact_plan.select(rows, hact_plan.PlanFilters(year=YEAR), presets=False)
+    assert {r["pd_id"] for r in base} == {world[k].pk for k in ("a1", "a2", "c1", "c2")}
+    figures = hact_plan.headline(base, YEAR, rows)
     response = _plan(client)
     assert response.context["figures"] == figures
-    assert figures["not_visited"]["pds"] == 2 and figures["not_visited"]["partners"] == 2
+    assert figures["not_visited"]["pds"] == 1 and figures["not_visited"]["partners"] == 1
     assert figures["still_needed"] == {
-        "visits": 7,
-        "pds": 3,
-        "partners": 3,
-        "visits_ended": 2,
-        "pds_ended": 1,
+        "visits": 5,
+        "pds": 2,
+        "partners": 2,
+        "visits_ended": 0,
+        "pds_ended": 0,
     }
     assert figures["etools_behind"] == {"partners": 1, "with_row": 2}
     by_section = [{k: v for k, v in s.items() if k != "url"} for s in response.context["by_section"]]
-    assert by_section == hact_plan.by_section(rows)
+    assert by_section == hact_plan.by_section(base)
     assert [(q["count"], q["active"]) for q in response.context["quick"]] == [
+        (1, False),
         (2, False),
-        (3, False),
-        (5, True),
+        (4, True),
     ]
     html = response.content.decode()
-    assert "Not visited (2)" in html and "End-of-year missing visits (3)" in html and "All (5)" in html
+    assert "Not visited (1)" in html and "End-of-year missing visits (2)" in html and "All (4)" in html
+    # every PD status (the choice cleared): the ended b counts again, as every status did before
+    every = _plan(client, status="")
+    assert every.context["figures"] == hact_plan.headline(rows, YEAR)
+    assert every.context["figures"]["still_needed"]["visits"] == 7
 
     # the quick views narrow the list, never the tiles nor the by-section panel
     for params, expected in (
-        ({"zero": "1"}, {world["b"].pk, world["c2"].pk}),
-        ({"remark": ["needed", "ended"]}, {world["a1"].pk, world["b"].pk, world["c2"].pk}),
+        ({"zero": "1"}, {world["c2"].pk}),
+        ({"remark": ["needed", "ended"]}, {world["a1"].pk, world["c2"].pk}),
     ):
         narrowed = _plan(client, **params)
         assert _ids_of(narrowed) == expected
@@ -296,7 +304,10 @@ def test_tiles_quick_views_and_by_section_agree_with_the_service(world, people):
 def test_each_filter_narrows_the_list(world, people):
     client = _client(people["viewer"])
     every = {pd.pk for key, pd in world.items() if key != "partners"}
-    assert _ids_of(_plan(client)) == every
+    # the tab opens on the active programme documents (the owner's decision of 25 Nov 2026): not the ended b
+    assert _ids_of(_plan(client)) == every - {world["b"].pk}
+    assert _ids_of(_plan(client, status="")) == every  # the PD status choice cleared: every status
+    # each filter below, on every PD status (the choice cleared) unless it chooses one
     cases = [
         ({"section": "health"}, {world["a2"].pk, world["b"].pk, world["c1"].pk}),  # any case
         ({"partner": str(world["partners"]["c"].pk)}, {world["c1"].pk, world["c2"].pk}),
@@ -313,7 +324,7 @@ def test_each_filter_narrows_the_list(world, people):
         ({"partner": "not-a-number", "remark": "nonsense", "year": "²"}, every),  # bad values are dropped
     ]
     for params, expected in cases:
-        response = _plan(client, **params)
+        response = _plan(client, **{"status": "", **params})
         assert response.status_code == 200, params
         assert _ids_of(response) == expected, params
     assert "No programme document runs in" in _plan(client, year=str(YEAR + 1)).content.decode()
@@ -343,12 +354,12 @@ def test_htmx_answers_the_results_and_the_tabs_out_of_band(world, people):
 def test_too_many_programme_documents_ask_for_a_narrower_filter(world, people, monkeypatch):
     monkeypatch.setattr(hact_plan, "MAX_ROWS", 3)
     client = _client(people["viewer"])
-    response = _plan(client)
+    response = _plan(client, status="")  # every PD status (the choice cleared): the ended b too
     html = response.content.decode()
     assert "5 programme documents match: choose a section or a partner first." in html
     assert response.context["rows"] == [] and "kpi-grid" in html
-    assert _ids_of(_plan(client, section="Education")) == {world["a1"].pk, world["b"].pk}
-    lines = _csv(_plan(client, export="csv"))
+    assert _ids_of(_plan(client, section="Education", status="")) == {world["a1"].pk, world["b"].pk}
+    lines = _csv(_plan(client, export="csv", status=""))
     assert len(lines) == 5  # the file still holds every row
 
 
@@ -450,21 +461,22 @@ def test_no_visit_on_any_pd_counts_the_partners_visits_outside_the_filter(world,
         "ended": 0,
     }
     assert "0 of them with no visit on any programme document" in response.content.decode()
-    # Partner B has no visit anywhere
-    assert _plan(client).context["figures"]["not_visited"]["partners_no_visit"] == 1
+    # Partner B has no visit anywhere (its one PD, b, ended: listed with every PD status chosen)
+    assert _plan(client, status="").context["figures"]["not_visited"]["partners_no_visit"] == 1
 
 
 def test_by_section_under_a_section_filter_keeps_the_chosen_sections_only(world, people):
     client = _client(people["viewer"])
     every = {s["section"]: s for s in hact_plan.by_section(hact_plan.build(YEAR, TODAY))}
-    response = _plan(client, section="Education")  # b is of Education and Health
+    # b is of Education and Health: every PD status chosen (the choice cleared), so b is listed
+    response = _plan(client, section="Education", status="")
     lines = [s for s in response.context["by_section"] if not s["total"]]
     assert [s["section"] for s in lines] == ["Education"]
     assert {k: v for k, v in lines[0].items() if k != "url"} == every["Education"]
     html = response.content.decode()
     panel = re.search(r'<table class="table table-sm" id="plan-sections">.*?</table>', html, re.S).group(0)
     assert ">Education</a>" in panel and ">Health</a>" not in panel
-    book = _workbook(_plan(client, section="Education", export="xlsx"))
+    book = _workbook(_plan(client, section="Education", export="xlsx", status=""))
     assert [c.value for c in book["By section"]["A"]] == [
         "section",
         "Education",
@@ -555,9 +567,12 @@ def test_a_value_the_new_year_lacks_stays_chosen_in_the_filter_bar(world, people
     # the Excel file's About sheet names it as the bar does, never by its id; so too for a partner of
     # the year that a section filter leaves without a programme document
     about = _about(_plan(client, year=str(YEAR - 1), partner=str(a.pk), export="xlsx"))
-    assert about["Filter"] == "Partners: Partner A"
+    # (with no PD status chosen: the page's default, written out as such)
+    assert about["Filter"] == "Partners: Partner A; PD statuses: active (the page's default)"
     about = _about(_plan(client, partner=str(a.pk), section="Child Protection", export="xlsx"))
-    assert about["Filter"] == "Sections: Child Protection; Partners: Partner A"
+    assert about["Filter"] == (
+        "Sections: Child Protection; Partners: Partner A; PD statuses: active (the page's default)"
+    )
 
     # a section, risk rating, status and type the year lacks; a section typed in another case
     html = _plan(
@@ -568,7 +583,9 @@ def test_a_value_the_new_year_lacks_stays_chosen_in_the_filter_bar(world, people
     assert "No programme document matches" in html
     html = _plan(client, section="health").content.decode()  # select() reads any case: "Health" is it
     assert _chosen(html, "f-section") == ["Health"] and html.count(">health</option>") == 0
-    assert _ids_of(_plan(client, section="health")) == {world["a2"].pk, world["b"].pk, world["c1"].pk}
+    assert _ids_of(_plan(client, section="health")) == {world["a2"].pk, world["c1"].pk}  # active PDs only
+    every = {world["a2"].pk, world["b"].pk, world["c1"].pk}
+    assert _ids_of(_plan(client, section="health", status="")) == every
 
 
 APP_JS = Path(django_settings.BASE_DIR) / "neurodb" / "web" / "static" / "js" / "app.js"
@@ -665,7 +682,7 @@ def _row_html(html: str, pd) -> str:
 def test_the_list_links_the_partner_the_pd_and_its_visits(world, people, settings):
     client = _client(people["viewer"])
     settings.FMM_ENABLED = True
-    html = _plan(client).content.decode()
+    html = _plan(client, status="").content.decode()  # every PD status (the choice cleared): b too
     row = _row_html(html, world["a1"])
     pd_url = reverse("reports:programme_detail", args=[world["a1"].pk])
     assert f'href="{reverse("reports:partner_profile", args=[world["partners"]["a"].pk])}"' in row
@@ -857,7 +874,7 @@ def test_the_focal_points_show_on_screen_only(world, people):
 
 def test_by_partner_shows_the_etools_minimum_and_the_two_flags(world, people):
     client = _client(people["viewer"])
-    response = _plan(client, view="partners")
+    response = _plan(client, view="partners", status="")  # every PD status: Partner B's ended b too
     html = response.content.decode()
     partners = {p["partner"]: p for p in response.context["partners"]}
     assert set(partners) == {"Partner A", "Partner B", "Partner C"}
@@ -927,7 +944,7 @@ def test_the_partner_flags_are_readable_in_both_themes(world, people):
 
 
 def test_copy_and_csv_of_the_list_keep_both_dates_and_the_sections_apart(world, people):
-    html = _plan(_client(people["viewer"])).content.decode()
+    html = _plan(_client(people["viewer"]), status="").content.decode()  # every PD status: b too
     header = re.search(r'<table class="table table-sm table-hover" id="plan-pds".*?</thead>', html, re.S)
     headings = re.findall(r"<th scope=\"col\"[^>]*>(.*?)</th>", header.group(0), re.S)
     assert "Start" in headings and "End" in headings
@@ -951,9 +968,9 @@ def test_a_long_comment_wraps_at_a_readable_width():
 def test_the_comment_button_shows_only_to_those_who_may_comment(world, people):
     button = 'hx-target="#modal-content" hx-push-url="false">Comment</a>'
     url = reverse("reports:visit_plan_comment", args=[world["a1"].pk])
-    admin = _plan(_client(people["admin"])).content.decode()
+    admin = _plan(_client(people["admin"]), status="").content.decode()  # every PD status: b too
     assert all(button in _row_html(admin, world[k]) for k in ("a1", "a2", "b", "c1", "c2"))
-    editor = _plan(_client(people["editor"])).content.decode()  # Education
+    editor = _plan(_client(people["editor"]), status="").content.decode()  # Education
     assert f'href="{url}?year={YEAR}"' in _row_html(editor, world["a1"])
     assert button in _row_html(editor, world["b"])  # Education and Health
     assert button not in _row_html(editor, world["a2"]) and button not in _row_html(editor, world["c2"])
@@ -1061,7 +1078,8 @@ def _workbook(response):
 def test_the_files_hold_the_emails_columns_and_never_a_staff_name(world, people):
     client = _client(people["editor"])
     hact_plan.set_comment(world["a1"], YEAR, "Visit planned for November.", people["editor"])
-    book = _workbook(_plan(client, export="xlsx"))
+    # every PD status (the choice cleared): the ended b too; the tab opens on the active ones alone
+    book = _workbook(_plan(client, export="xlsx", status=""))
     assert book.sheetnames == ["HACT visit plan", "By partner", "By section", "About"]
     sheet = book["HACT visit plan"]
     header = [cell.value for cell in sheet[1]]
@@ -1107,7 +1125,7 @@ def test_the_files_hold_the_emails_columns_and_never_a_staff_name(world, people)
     for secret in (FOCAL, FOCAL_EMAIL, "Lead Person Test", "edu-editor", "@"):
         assert not any(secret in text for text in texts), secret
 
-    lines = _csv(_plan(client, export="csv"))
+    lines = _csv(_plan(client, export="csv", status=""))
     assert list(lines[0]) == FILE_COLUMNS and len(lines) == 5
     flat = " ".join(" ".join(line.values()) for line in lines)
     for secret in (FOCAL, FOCAL_EMAIL, "Lead Person Test", "edu-editor", "@"):
@@ -1117,14 +1135,20 @@ def test_the_files_hold_the_emails_columns_and_never_a_staff_name(world, people)
 
 def test_the_files_follow_the_filter_and_the_view(world, people):
     client = _client(people["viewer"])
-    lines = _csv(_plan(client, zero="1", export="csv"))
+    lines = _csv(_plan(client, zero="1", export="csv"))  # the tab's default: the active PDs, not the ended b
+    assert {line["reference_number"] for line in lines} == {world["c2"].number}
+    lines = _csv(_plan(client, zero="1", export="csv", status=""))
     assert {line["reference_number"] for line in lines} == {world["b"].number, world["c2"].number}
     book = _workbook(_plan(client, section="Health", export="xlsx"))
+    assert book["HACT visit plan"].max_row == 1 + 2
+    about = {row[0].value: row[1].value for row in book["About"].iter_rows(min_row=2)}
+    assert about["Filter"] == "Sections: Health; PD statuses: active (the page's default)"
+    book = _workbook(_plan(client, section="Health", export="xlsx", status=""))
     assert book["HACT visit plan"].max_row == 1 + 3
     about = {row[0].value: row[1].value for row in book["About"].iter_rows(min_row=2)}
     assert about["Year"] == YEAR and about["Filter"] == "Sections: Health"
     assert "required_pv" in about and "completed_pv" in about and "Not counted" in about
-    partners = _csv(_plan(client, view="partners", export="csv"))
+    partners = _csv(_plan(client, view="partners", export="csv", status=""))
     assert [line["partner"] for line in partners] == ["Partner A", "Partner B", "Partner C"]
     assert partners[0]["etools_minimum_met_pd_visits_still_needed"] == "yes"
     assert partners[2]["pd_plans_below_etools_minimum"] == "yes"
@@ -1137,8 +1161,9 @@ def test_the_default_tab_has_the_strip_and_the_tabs(world, people):
     html = response.content.decode()
     strip = re.search(r'<p class="panel plan-strip".*?</p>', html, re.S).group(0)
     text = " ".join(re.sub(r"<[^>]+>", " ", strip).split())
-    assert f"HACT visit plan {YEAR}: 2 programme documents (2 partners) not visited yet" in text
-    assert "7 visits still needed (3 partners). Open the plan →" in text
+    # the plan as its link opens it: the active programme documents (since 25 Nov 2026), so not the ended b
+    assert f"HACT visit plan {YEAR}: 1 programme document (1 partner) not visited yet" in text
+    assert "5 visits still needed (2 partners). Open the plan →" in text
     assert f'href="{PAGE}?tab=plan&amp;year={YEAR}"' in strip
     assert 'aria-current="page">Findings and visits</a>' in html
     assert f'href="{PAGE}?tab=plan"' in html  # no year chosen: the plan opens on this year
@@ -1164,7 +1189,9 @@ def test_the_other_hact_pages_link_the_plan(world, people, settings):
     settings.FMM_ENABLED = True
     pd = world["a1"]
     detail = client.get(reverse("reports:programme_detail", args=[pd.pk])).content.decode()
-    assert f'href="{PAGE}?tab=plan&amp;q={pd.number}&amp;year={YEAR}">HACT visit plan →</a>' in detail
+    # a programme document's own link: every PD status written out ("status="), so it is listed whatever its status
+    link = f'href="{PAGE}?tab=plan&amp;q={pd.number}&amp;status=&amp;year={YEAR}">HACT visit plan →</a>'
+    assert link in detail
     # Monitoring insights' HACT block: tests/fmm/test_hact_plan_link.py (it needs the FMM test world)
 
 

@@ -44,6 +44,7 @@ from django.db.models import QuerySet
 from neurodb.core.models import SyncRun
 from neurodb.datamart import models as dm
 from neurodb.datamart.monitoring import ACTIVE_PD_STATUSES, is_submitted, pending_q
+from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA
 from neurodb.review.checks import REPORT_TYPE, link, pd_label, pd_number, plural
 from neurodb.review.models import DailyReview, ReviewFinding
@@ -616,7 +617,8 @@ def pds_awaiting_closure(ctx: Context) -> Iterator[Candidate]:
                 f"FR {row['fr_number']}" if row["fr_number"] else "Funds reservation",
                 row["end_date"],
                 f"{row['outstanding_amt']:,.0f} USD outstanding",
-                link("reports:funds", q=row["fr_number"]),
+                # every PD status written out: the PD has ended, and Funds opens on the active ones alone
+                link("reports:funds", q=row["fr_number"], pd_status=pd_statuses.EVERY),
             )
             for row in frs[: RECORDS_MAX - 1]
         ]

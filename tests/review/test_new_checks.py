@@ -397,7 +397,8 @@ def test_hact_assurance_still_to_do_is_noted_before_october(hact_world):
         "Still to do: 2 programmatic visits, with 6 months of the year left (July to December)."
     )
     assert draft.url == reverse("reports:partner_profile", args=[behind.pk])
-    plan = reverse("reports:monitoring") + f"?tab=plan&partner={behind.pk}&year=2026"
+    # every PD status written out ("status="): the plan opens on the active PDs alone, the counts read them all
+    plan = reverse("reports:monitoring") + f"?tab=plan&partner={behind.pk}&year=2026&status="
     assert draft.evidence["links"] == [{"label": "HACT visit plan", "url": plan}]
     assert draft.evidence["records"] == [
         "Programmatic visits in 2026: 1 of 3 completed",
@@ -456,7 +457,7 @@ def test_a_hact_row_with_no_partner_links_to_the_assurance_page(db):
     draft = drafts_of(checks.check_hact_assurance)["hact_assurance:2026:vendor:VX99"]
     assert draft.url == reverse("reports:assurance") + "?hact_year=2026"
     assert draft.evidence["links"] == [
-        {"label": "HACT visit plan", "url": reverse("reports:monitoring") + "?tab=plan&year=2026"}
+        {"label": "HACT visit plan", "url": reverse("reports:monitoring") + "?tab=plan&year=2026&status="}
     ]
 
 

@@ -395,7 +395,8 @@ TODAY = datetime.date(2026, 10, 9)
 
 
 def test_partner_fund_monitoring_reads_the_budget_and_prp_once_per_report(funded):
-    found = fund_views.partner_contributions(fund_views.FundFilters(), TODAY)
+    # every PD status ("pd_status=" alone): the page itself opens on the active ones since 25 Nov 2026
+    found = fund_views.partner_contributions(fund_views.FundFilters(pd_statuses=[]), TODAY)
     by_pd = {r["programme_document"]: r for r in found["rows"]}
     assert set(by_pd) == {"LEBA/PCA2023583/PD20261704-3", "LEBA/PCA2022100/PD2022100"}  # no draft
     nawaya = by_pd["LEBA/PCA2023583/PD20261704-3"]
@@ -425,8 +426,14 @@ def test_partner_fund_monitoring_reads_the_budget_and_prp_once_per_report(funded
 
 def test_the_funds_filter_chooses_the_programme_documents(funded):
     def numbers(**params):
-        filters = fund_views.FundFilters.from_params(params)
+        # every PD status unless one is chosen ("pd_status=" alone), as the filter bar sends a cleared choice
+        filters = fund_views.FundFilters.from_params({"pd_status": [], **params})
         return {r["programme_document"] for r in fund_views.partner_contributions(filters, TODAY)["rows"]}
+
+    # no PD status in the address: the page's default, the active programme documents (since 25 Nov 2026)
+    default = fund_views.FundFilters.from_params({})
+    found = fund_views.partner_contributions(default, TODAY)["rows"]
+    assert {r["programme_document"] for r in found} == {"LEBA/PCA2023583/PD20261704-3"}
 
     assert numbers(pd_status=["ended"]) == {"LEBA/PCA2022100/PD2022100"}
     assert numbers(partner_type=["National"]) == {"LEBA/PCA2023583/PD20261704-3"}
@@ -439,7 +446,8 @@ def test_the_funds_filter_chooses_the_programme_documents(funded):
 
 
 def test_funded_programmes_one_row_per_grant_and_the_pd_amounts_once(funded):
-    found = fund_views.funded_programmes(fund_views.FundFilters(), TODAY)
+    # every PD status ("pd_status=" alone): the page itself opens on the active ones since 25 Nov 2026
+    found = fund_views.funded_programmes(fund_views.FundFilters(pd_statuses=[]), TODAY)
     rows = [(r["programme_document"], r["grant"], r["reserved"], r["pd_amounts"]) for r in found["rows"]]
     assert rows == [
         ("LEBA/PCA2022100/PD2022100", "SM220001", Decimal("1000"), True),
@@ -483,7 +491,9 @@ def test_the_funds_tabs_render_and_export_the_whole_filter(client_viewer, funded
     assert [r["total_budget"] for r in nawaya_rows] == ["644148.90", ""]
     assert nawaya_rows[1]["note"] == "Programme document amounts are on its first row"
     book = load_workbook(io.BytesIO(client_viewer.get(url, {"tab": "programmes", "export": "xlsx"}).content))
-    assert book["Funded programmes"].max_row == 4
+    assert book["Funded programmes"].max_row == 3  # the active PD's two grants (the page's default)
+    every = client_viewer.get(url, {"tab": "programmes", "export": "xlsx", "pd_status": ""})
+    assert load_workbook(io.BytesIO(every.content))["Funded programmes"].max_row == 4  # the ended PD's too
     # the FR tab keeps its filter and its figures, and takes the new ones
     assert "040001" in client_viewer.get(url, {"pd_status": "active"}).text
     assert "040001" not in client_viewer.get(url, {"pd_status": "ended"}).text

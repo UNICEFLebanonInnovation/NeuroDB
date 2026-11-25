@@ -116,8 +116,10 @@ def _reported(response) -> set[str]:
 
 
 def _monitored(client, **params) -> set[str]:
-    """The programme documents of Program Performance's export for ``params`` (every year)."""
-    found = raw_get(client, PM, {"view": "table", "year": "all", "export": "csv", **params})
+    """The programme documents of Program Performance's export for ``params`` (every year), of the running
+    programme documents, written out (the page opens on the active ones alone since 25 Nov 2026)."""
+    query = {"view": "table", "year": "all", "export": "csv", "pd_status": ["active", "signed", "suspended"]}
+    found = raw_get(client, PM, {**query, **params})
     assert found.status_code == 200
     return {row["programme_document"] for row in _csv(found)}
 
@@ -178,7 +180,7 @@ def test_the_tables_keep_their_office_partner_type_output_and_emergency_columns(
     assert "Zahle" in indicators and "1.1 Protection services" in indicators
     partners = text(client_viewer.get("/partners/"))
     assert "Government" in partners and "CSO" in partners
-    table = text(client_viewer.get(PM + "?view=table&year=all"))
+    table = text(client_viewer.get(PM + "?view=table&year=all&pd_status="))  # every PD status
     assert "2.1 Learning" in table
 
 
@@ -251,7 +253,7 @@ def test_progress_reports_check_line_follows_the_old_filter_the_page_applies(rol
 def test_partner_monitoring_applies_an_old_filter_and_names_it_with_a_link_that_removes_it(
     client_viewer, old_world, params, expected, words
 ):
-    assert _monitored(client_viewer) == {"LEB/PD21", "LEB/PD22", "LEB/PD23"}  # the running ones
+    assert _monitored(client_viewer) == {"LEB/PD21", "LEB/PD22", "LEB/PD23"}  # the running ones, written out
     assert _monitored(client_viewer, **params) == expected
     for view in ({}, {"view": "table", "year": "all"}):
         html = text(client_viewer.get(PM, {**view, **params}))

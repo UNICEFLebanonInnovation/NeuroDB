@@ -111,6 +111,7 @@ Home, the country overview and the daily review open the same way:
   (*Every section*), with *only* their section one click away when they have one.
 - Every link Home draws to Progress reports, Partner monitoring, the country overview, the daily review
   and the management brief carries the sections Home shows, so the next page shows the same figures. (The
-  menu's own *Progress reports* and *Partner monitoring* open those pages as they always open; a
-  programme document's *Indicators* shows all its indicators, whatever their section.)
+  menu's own *Progress reports* and *Partner monitoring* open those pages as they always open, on the
+  active programme documents (since 25 Nov 2026); a programme document's *Indicators* shows all its
+  indicators, whatever their section.)
 - *Programmes and sources* is always for the whole country, and says so when a section is chosen.

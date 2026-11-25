@@ -37,6 +37,7 @@ from neurodb.datamart import reached as rc
 from neurodb.datamart.catalogue import DIAGNOSTIC
 from neurodb.datamart.monitoring import ACTIVE_PD_STATUSES, NOT_REPORTED, Filters, Indicator
 from neurodb.indicators.services.tracking import OFF_TRACK, ON_TRACK, OVER_TARGET, percentage_elapsed
+from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA
 
 from .models import CheckSetting, DailyReview, ReviewFinding
@@ -49,6 +50,10 @@ INFO = ReviewFinding.Severity.INFO
 GOOD = ReviewFinding.Severity.GOOD
 
 REPORT_TYPE = "QPR"
+# the review reads the running programme documents (its own scope, not a page filter): its links into Partner
+# monitoring write them out, since the page opens on the active ones alone (the owner's decision of 25 Nov
+# 2026)
+RUNNING_LINK = ACTIVE_PD_STATUSES
 NOT_REPORTED_AFTER_DAYS = 120
 TPM_REPORT_GRACE_DAYS = 14
 ENDING_SOON_DAYS = 60
@@ -191,7 +196,10 @@ class Context:
     def rows(self) -> list[Indicator]:
         if self._rows is not None:
             return list(self._rows)
-        return monitoring.indicators(Filters(year=self.year, report_type=REPORT_TYPE), self.today)
+        # the running programme documents, written out: the review's own scope, never Partner monitoring's
+        # default (Active since 25 Nov 2026); its links into the page write them out too (RUNNING_LINK)
+        filters = Filters(year=self.year, report_type=REPORT_TYPE, pd_statuses=list(ACTIVE_PD_STATUSES))
+        return monitoring.indicators(filters, self.today)
 
     @cached_property
     def by_pd(self) -> dict[int, list[Indicator]]:
@@ -362,7 +370,13 @@ def check_new_off_track(ctx: Context) -> list[Draft]:
                     elapsed_percent=elapsed,
                 ),
                 children=children,
-                url=link("reports:pd_monitoring", pd=pd_number(pd), status=OFF_TRACK, year=ctx.year),
+                url=link(
+                    "reports:pd_monitoring",
+                    pd=pd_number(pd),
+                    status=OFF_TRACK,
+                    year=ctx.year,
+                    pd_status=RUNNING_LINK,
+                ),
             )
         )
     return drafts
@@ -398,7 +412,13 @@ def check_not_reported(ctx: Context) -> list[Draft]:
                     pd_start=_day(pd.start),
                     days_since_start=days,
                 ),
-                url=link("reports:pd_monitoring", pd=pd_number(pd), status=NOT_REPORTED, year=ctx.year),
+                url=link(
+                    "reports:pd_monitoring",
+                    pd=pd_number(pd),
+                    status=NOT_REPORTED,
+                    year=ctx.year,
+                    pd_status=RUNNING_LINK,
+                ),
             )
         )
     return drafts
@@ -952,7 +972,10 @@ def check_hact_assurance(ctx: Context) -> list[Draft]:
             f"eTools shows {_and(done)} in {year}. Still to do: {todo}, with {months} "
             f"{plural(months, 'month')} of the year left ({span})." + (HACT_WATCH_NOTE if in_season else "")
         )
-        plan_url = link("reports:monitoring", tab="plan", partner=row.partner_id, year=year)
+        # every status written out: the counts are of every PD of the year, the plan opens on the active ones
+        plan_url = link(
+            "reports:monitoring", tab="plan", partner=row.partner_id, year=year, status=pd_statuses.EVERY
+        )
         drafts.append(
             Draft(
                 key=f"hact_assurance:{hact_key.removeprefix('hact:')}",
@@ -1099,7 +1122,7 @@ def check_locations_unplaced(ctx: Context) -> list[Draft]:
                 [],
                 rows=count,
             ),
-            url=link("reports:pd_monitoring_map", year=ctx.year),
+            url=link("reports:pd_monitoring_map", year=ctx.year, pd_status=RUNNING_LINK),
         )
     ]
 
@@ -1166,7 +1189,7 @@ def check_improvements(ctx: Context) -> list[Draft]:
                     [f"{i.title}: {pct(i.achieved)} % of target" for i in inds],
                     indicators=len(inds),
                 ),
-                url=link("reports:pd_monitoring", pd=pd_number(pd), year=ctx.year),
+                url=link("reports:pd_monitoring", pd=pd_number(pd), year=ctx.year, pd_status=RUNNING_LINK),
             )
         )
     return drafts

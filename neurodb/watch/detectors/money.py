@@ -43,6 +43,7 @@ from neurodb.core.models import SyncRun
 from neurodb.datamart import hact_plan
 from neurodb.datamart import models as dm
 from neurodb.datamart.monitoring import ACTIVE_PD_STATUSES
+from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA
 from neurodb.reports.brief import fr_lines, grant_balances
 from neurodb.review.checks import link, pd_label, plural
@@ -236,7 +237,9 @@ def _grant(
     reserved = half_up(balance["reserved"], 2)
     donor = (balance["donor"] or grant.donor or "").strip()
     funded = [pds[pk] for pk in balance["pd_ids"] if pk in pds]
-    url = link("reports:funds", grant=name)
+    # every PD status written out: a grant funds programme documents of any status, and Funds opens on the
+    # active ones alone (the owner's decision of 25 Nov 2026)
+    url = link("reports:funds", grant=name, pd_status=pd_statuses.EVERY)
     if left <= GRANT_CRITICAL_DAYS:
         severity = CRITICAL
     elif left <= GRANT_WARNING_DAYS:
@@ -262,7 +265,10 @@ def _grant(
     for fr, amount in sorted(balance["frs"].items(), key=lambda kv: (-kv[1], kv[0]))[: RECORDS_MAX - 1]:
         records.append(
             record(
-                f"FR {fr}", ends.get(fr), f"{_usd(half_up(amount, 2))} unspent", link("reports:funds", q=fr)
+                f"FR {fr}",
+                ends.get(fr),
+                f"{_usd(half_up(amount, 2))} unspent",
+                link("reports:funds", q=fr, pd_status=pd_statuses.EVERY),
             )
         )
     return Candidate(
@@ -359,7 +365,7 @@ def _fr(ctx: Context, row: dict[str, Any], pd: PCA | None) -> Candidate:
     number = (row["fr_number"] or "").strip()
     name = f"Funds reservation {number}" if number else "A funds reservation"
     outstanding, total = row["outstanding_amt"] or Decimal(0), row["total_amt"] or Decimal(0)
-    url = link("reports:funds", q=number) if number else link("reports:funds")
+    url = link("reports:funds", q=number, pd_status=pd_statuses.EVERY)  # whatever its PD's status
     return Candidate(
         key=fr_key(number, row["datamart_id"]),
         kind=DEADLINE,
@@ -530,7 +536,15 @@ def _hact(
                 None,
                 f"{gap['pds']} {plural(gap['pds'], 'programme document')} "
                 f"{'needs' if gap['pds'] == 1 else 'need'} {gap['visits']} {plural(gap['visits'], 'visit')}",
-                link("reports:monitoring", tab="plan", partner=row.partner_id, year=year),
+                # every status written out: the counts are of every PD of the year, the plan opens on the
+                # active ones alone
+                link(
+                    "reports:monitoring",
+                    tab="plan",
+                    partner=row.partner_id,
+                    year=year,
+                    status=pd_statuses.EVERY,
+                ),
                 context=True,
             )
         )

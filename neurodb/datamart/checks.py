@@ -777,7 +777,9 @@ def _reached_against_prp() -> _Comparison:
     from . import monitoring
 
     out = _Comparison()
-    for entry in monitoring.indicators(monitoring.Filters(scope="active", year=None)):
+    # the running programme documents, written out: Partner monitoring's own default is Active alone
+    running = monitoring.Filters(year=None, pd_statuses=list(pd_statuses.RUNNING))
+    for entry in monitoring.indicators(running):
         result = entry.result
         if result is None:
             continue
@@ -3052,8 +3054,9 @@ CHECKS: tuple[Check, ...] = (
         "Reached is computed from the counted reports (Accepted and Submitted) of each indicator; PRP's "
         "cumulative on the latest counted report is shown beside it, and an indicator where they differ "
         "(beyond rounding) is marked Differs from PRP. A programme document with a partial history takes "
-        "PRP's "
-        "cumulative as its Reached. This check reads the figures of Partner monitoring's Data quality tab.",
+        "PRP's cumulative as its Reached. This check reads the figures of Partner monitoring's Data quality "
+        "tab for the running programme documents (active, signed or suspended; the tab opens on the active "
+        "ones).",
         _cumulative,
     ),
     Check(

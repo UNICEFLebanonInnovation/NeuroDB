@@ -150,9 +150,11 @@ def test_every_year_the_grid_has_no_reached_in_a_year_column(client_viewer, worl
 
 
 def test_the_grid_still_lists_every_indicator_in_its_order(client_viewer, world):
-    grid = get_part(client_viewer, PAGE, "grid")
+    # the running programme documents, written out: the page opens on the active ones alone since 25 Nov 2026
+    grid = get_part(client_viewer, f"{PAGE}?pd_status=active&pd_status=signed&pd_status=suspended", "grid")
     html = text(grid)
     assert len(grid.context["rows"]) == 6  # two indicators of each of the three running programme documents
+    assert len(get_part(client_viewer, PAGE, "grid").context["rows"]) == 2  # the active one's, by default
     # section, programme document, output, indicator: in the order the page groups them
     order = [
         (p["pd"].number, r.title)

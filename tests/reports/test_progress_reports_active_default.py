@@ -4,9 +4,10 @@
   instead of the running ones (Active, Signed, Suspended): its tiles, every tab, the exports and the filter bar,
   where Active is the one status ticked. A ``pd_status`` in the address is honoured as before, and
   ``pd_status=`` alone is still every status.
-* Only this page: Partner monitoring and Home keep Active, Signed and Suspended. Home's figures stay as they
-  were, so every link from Home into Progress reports carries the statuses Home counted, and opens the page on
-  the same numbers as the tile or the row clicked.
+* Home keeps Active, Signed and Suspended. Home's figures stay as they were, so every link from Home into
+  Progress reports carries the statuses Home counted, and opens the page on the same numbers as the tile or
+  the row clicked. Partner monitoring, Funds and the HACT visit plan open on Active too since 25 Nov 2026
+  (tests/reports/test_pd_status_active_default.py).
 * The page's figure trail, its Power BI comparison sheet and Ask NeuroDB's partner reporting lookup (which says
   it reads "as the page opens") follow the page. The eTools reporting checks keep the running programme
   documents. Compare with Power BI writes Power BI's own statuses out, so nothing there changes
@@ -155,14 +156,17 @@ def test_the_default_and_active_chosen_share_what_is_stored_every_status_keeps_i
     assert bare.indicator_statuses == running.indicator_statuses == ["active"]
 
 
-# -------------------------------------------------------------------- Partner monitoring and Home keep theirs
-def test_partner_monitoring_keeps_active_signed_and_suspended(client_viewer, world):
-    assert monitoring.Filters.from_params({}).status_choice == RUNNING
+# ------------------------------------------------------- Partner monitoring opens on Active too; Home keeps its own
+def test_partner_monitoring_opens_on_active_too(client_viewer, world):
+    """Partner monitoring kept Active, Signed and Suspended until 25 Nov 2026: it opens on Active since."""
+    assert monitoring.Filters.from_params({}).status_choice == ["active"]
     page = client_viewer.get(reverse("reports:pd_monitoring"))
     assert page.status_code == 200
-    assert _ticked(text(page)) == RUNNING
+    assert _ticked(text(page)) == ["active"]
     pds = {r.pd.number for r in page.context["rows"]}
-    assert pds == {"LEB/PD21", "LEB/PD22", "LEB/PD23"}
+    assert pds == {"LEB/PD21"}
+    running = client_viewer.get(reverse("reports:pd_monitoring"), {"pd_status": RUNNING})
+    assert {r.pd.number for r in running.context["rows"]} == {"LEB/PD21", "LEB/PD22", "LEB/PD23"}
 
 
 def _home(client):

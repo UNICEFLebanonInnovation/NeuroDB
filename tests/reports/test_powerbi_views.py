@@ -88,19 +88,24 @@ def test_one_definition_of_active_and_running():
     assert statuses.RUNNING == monitoring.ACTIVE_PD_STATUSES == partnerships.RUNNING_STATUSES
     assert statuses.ACTIVE == partnerships.ACTIVE_STATUSES == ("active",)
     assert set(statuses.ACTIVE) < set(statuses.RUNNING)
+    # every PD status filter opens on Active (the owner's decision of 25 Nov 2026): one definition
+    assert statuses.PAGE_DEFAULT == statuses.ACTIVE
+    assert monitoring.PAGE_PD_STATUSES == statuses.PAGE_DEFAULT
 
 
-def test_pd_status_filter_defaults_to_the_running_pds(more, frozen):
+def test_pd_status_filter_defaults_to_the_active_pds(more, frozen):
+    """Active alone since 25 Nov 2026 (the running ones, active, signed and suspended, before)."""
     signed = PCA.objects.create(etl_id="13", number="LEB/PD3", title="Signed", status="signed")
     dm.PDIndicator.objects.create(datamart_id=30, source_id=700, intervention=signed, title="# of kits")
     titles = {r.title for r in _rows()}
-    assert "# of kits" in titles and "# of schools" not in titles  # running: active, signed, suspended
+    assert "# of kits" not in titles and "# of schools" not in titles  # the active PDs alone
+    assert "# of kits" in {r.title for r in _rows(pd_status=list(statuses.RUNNING))}
     # "pd_status=" with nothing chosen is every status; a chosen status keeps only its PDs
     assert "# of schools" in {r.title for r in _rows(pd_status="")}
     assert {r.title for r in _rows(pd_status="closed")} == {"# of schools"}
     assert {r.title for r in _rows(pd_status="signed")} == {"# of kits"}
     # the filter shows the default as chosen statuses, and an old "scope=all" link as every status
-    assert monitoring.Filters.from_params({}).status_choice == list(statuses.RUNNING)
+    assert monitoring.Filters.from_params({}).status_choice == list(statuses.ACTIVE)
     assert monitoring.Filters.from_params({"scope": "all"}).status_choice == []
     # the Programmes page's "Active" is the eTools status alone
     assert list(partnerships.programme_documents(scope="active")) == [more["pd"]]

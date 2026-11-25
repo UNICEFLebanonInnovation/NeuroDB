@@ -280,7 +280,9 @@ def test_a_grant_expiring_in_45_days_with_50000_unspent_reaches_its_sections_and
     assert (found.etools_sections, found.section_ids) == (["Education"], [education.pk])
     assert (found.entity_kind, found.entity_key) == ("grant", "SC1")
     assert found.due_date == days(45)
-    assert found.url == "/funds/?grant=SC1"
+    # every PD status written out ("pd_status="): Funds opens on the active PDs alone since 25 Nov 2026
+    assert found.url == "/funds/?grant=SC1&pd_status="
+    assert found.evidence["records"][1]["url"] == "/funds/?q=0400001&pd_status="
     assert found.evidence["numbers"] == {"unspent": 50_000, "reserved": 80_000, "pds": 1, "days_left": 45}
     assert found.evidence["records"][1]["label"] == "FR 0400001"
     assert found.evidence["milestones"] == [90, 60, 30, 14]
@@ -343,6 +345,25 @@ def test_a_grant_whose_expiry_moves_or_passes_closes_with_the_reason(pd, fresh):
     )
 
 
+def test_the_money_items_open_funds_on_what_they_count_whatever_the_pd_status(partner, fresh, client_viewer):
+    """Funds opens on the active programme documents alone (the owner's decision of 25 Nov 2026): the items'
+    links write every PD status out, so a signed programme document's grant and funds reservation are there,
+    with the amounts the items state."""
+    signed = make_pd(partner, status="signed")
+    line(fr(signed, end=days(20)))  # 50,000 of 80,000 outstanding, ending in 20 days
+    grant(expiry=days(45))
+    run(checks=MONEY)
+    for key in ("due:grant:SC1", "due:fr:0400001"):
+        found = item(key)
+        page = client_viewer.get(found.url)
+        data = page.context["data"]
+        assert data["fr_count"] == 1, key
+        assert data["totals"]["outstanding"] == 50_000, key  # what each item says is unspent or outstanding
+        assert "50,000 USD" in found.title, key
+        bare = client_viewer.get(found.url.replace("&pd_status=", ""))
+        assert bare.context["data"]["fr_count"] == 0, key  # the page's default: the active PDs alone
+
+
 # ---------------------------------------------------------------------------- funds reservations
 def test_an_fr_ending_soon_with_money_outstanding_gives_an_item(pd, education, fresh):
     fr(pd, end=days(20), outstanding=6_000, total=10_000)
@@ -357,6 +378,7 @@ def test_an_fr_ending_soon_with_money_outstanding_gives_an_item(pd, education, f
     assert (found.entity_kind, found.entity_key) == ("programme_document", str(pd.pk))
     numbers = {"outstanding": 6_000, "reserved": 10_000, "disbursed": 4_000, "days_left": 20}
     assert found.evidence["numbers"] == numbers
+    assert found.url == "/funds/?q=0400001&pd_status="  # every PD status written out
     assert FOCAL_POINT not in text_of(found)
 
 
@@ -485,7 +507,8 @@ def test_the_hact_item_links_to_the_partners_pds_still_needing_visits(pd, partne
     hact(partner)
     run(checks=MONEY)
     found = item(f"hact:2026:{partner.pk}")
-    plan_url = f"/field-monitoring/?tab=plan&partner={partner.pk}&year=2026"
+    # every PD status written out ("status="): the plan opens on the active PDs alone, the item counts them all
+    plan_url = f"/field-monitoring/?tab=plan&partner={partner.pk}&year=2026&status="
     # what the item always said is unchanged; the plan's line comes last, counts only, with its link
     assert (
         found.title == "HACT assurance due by 31 Dec 2026 for Amel Association: 2 programmatic visits to go"
@@ -548,6 +571,37 @@ def test_the_plan_line_never_brings_back_a_hact_item_marked_wrong(pd, partner, f
     # what the item is about (the partner's HACT figures) still brings it back
     dm.PartnerHACTYear.objects.update(pv_completed=2)  # 2 of 3 done: still due, its evidence changed
     run(checks=MONEY, mode=QUICK)
+    assert item(key).state == WatchItem.State.OPEN
+
+
+def test_the_funds_links_writing_every_pd_status_never_bring_back_an_item_marked_wrong(pd, fresh):
+    """The grant and funds reservation links write every PD status out since 25 Nov 2026 ("pd_status="): a
+    link says where to see a record, not what was read, so an item marked wrong before stays wrong."""
+    line(fr(pd, outstanding=50_000))
+    grant(expiry=days(45))
+    run(checks=MONEY)
+    key = "due:grant:SC1"
+    found = item(key)
+    assert all(r["url"].endswith("&pd_status=") for r in found.evidence["records"])
+    # the evidence as the release before wrote it: the same records, their links without "pd_status="
+    before = json.loads(json.dumps(found.evidence).replace("&pd_status=", ""))
+    WatchItem.objects.filter(key=key).update(
+        state=WatchItem.State.WRONG, evidence_hash=memory.fingerprint(before)
+    )
+    run(checks=MONEY)
+    assert item(key).state == WatchItem.State.WRONG
+    # so too the daily review's links to Partner monitoring, which its concerns carry: the running statuses
+    page = "/partner-monitoring/?pd=LEB%2FPD1&status=off_track&year=2026"
+    running = "&pd_status=active&pd_status=signed&pd_status=suspended"
+    assert memory.fingerprint({"records": [{"label": "A", "url": page}]}) == memory.fingerprint(
+        {"records": [{"label": "A", "url": page + running}]}
+    )
+    assert memory.fingerprint({"records": [{"label": "A", "url": page}]}) != memory.fingerprint(
+        {"records": [{"label": "A", "url": page.replace("2026", "2025")}]}
+    )
+    # what the item is about still brings it back
+    dm.FundsReservationHeader.objects.update(outstanding_amt=Decimal(40_000), actual_amt=Decimal(40_000))
+    run(checks=MONEY)
     assert item(key).state == WatchItem.State.OPEN
 
 

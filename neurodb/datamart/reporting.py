@@ -9,8 +9,9 @@ Report/Location and Report/Disaggregation, as the eTools Power BI report shows t
 * **The PD statuses read.** With no PD status in its address, the page reads the active programme documents
   only (:data:`PAGE_PD_STATUSES`, the owner's decision of 21 Nov 2026; Active, Signed and Suspended before):
   its tabs, exports, figure trail and Power BI comparison sheet, and Ask NeuroDB's lookup, which reads "as the
-  page opens". Home, Partner monitoring and the eTools reporting checks keep the running programme documents:
-  Home writes them in its filter and its links, the checks in theirs.
+  page opens". Home and the eTools reporting checks keep the running programme documents: Home writes them in
+  its filter and its links, the checks in theirs. Partner monitoring, Funds and the HACT visit plan open on
+  Active too since 25 Nov 2026 (``partnerships.statuses.PAGE_DEFAULT``, one definition for every page).
 * **The indicators under the tiles** (the user's decision of 19 Nov 2026: "unique per indicator number,
   indicators for active PDs"): each tile gives the indicators of its progress reports, each once however many
   reports, periods, report types and years carry it (:func:`pd_indicator_key`: the PD indicator Partner
@@ -117,9 +118,10 @@ CACHE_VERSION = 5
 NO_SECTION = "—"
 EMAIL = re.compile(r"[^\s@]+@[^\s@]+")
 # the PD statuses the page reads when its address chooses none (ReportFilters.pd_statuses None): the active
-# programme documents only (the owner's decision of 21 Nov 2026; the running ones before). Home and the eTools
-# reporting checks write the running ones out instead (pd_statuses.RUNNING)
-PAGE_PD_STATUSES = pd_statuses.ACTIVE
+# programme documents only (the owner's decision of 21 Nov 2026; the running ones before), every page's
+# default since 25 Nov 2026 (pd_statuses.PAGE_DEFAULT). Home and the eTools reporting checks write the running
+# ones out instead (pd_statuses.RUNNING)
+PAGE_PD_STATUSES = pd_statuses.PAGE_DEFAULT
 
 # one indicator in one progress report: PRP's indicator report id, else the eTools id, title and PD output
 # (reached.indicator_report_key)

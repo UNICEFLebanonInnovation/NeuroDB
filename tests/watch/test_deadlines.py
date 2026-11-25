@@ -478,6 +478,8 @@ def test_an_ended_pd_awaits_closure_and_long_after_with_money_left_it_is_a_warni
     assert "5,000 USD is still outstanding on 1 funds reservation." in late.detail
     assert late.evidence["numbers"] == {"outstanding": 5000, "funds_reservations": 1, "days_since": 90}
     assert [r["label"] for r in late.evidence["records"]] == ["LEB/PD-old status", "FR 0400000"]
+    # the FR of an ended PD: its link writes every PD status out, Funds opening on the active PDs alone
+    assert late.evidence["records"][1]["url"] == "/funds/?q=0400000&pd_status="
     PCA.objects.filter(pk=recent.pk).update(status="closed")
     synced(1)
     run(day=1)

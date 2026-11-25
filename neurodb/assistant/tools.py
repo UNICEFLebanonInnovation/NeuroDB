@@ -864,23 +864,24 @@ def hact_visit_plan(year: int | None = None, section: str | None = None) -> dict
     """HACT programmatic visit plan per programme document for a year (counts only): PDs with planned
     visits, not visited yet, visits still needed, by remark and by section, with the page's link.
 
-    The figures are the Field monitoring page's (``hact_plan.headline`` over ``hact_plan.build``), so
-    an answer and the page never disagree. Only counts, section names and labels are returned: never a
+    The figures are the Field monitoring page's (``hact_plan.headline`` over ``hact_plan.build``) as its
+    link opens it: the page's default filter, the active programme documents (since 25 Nov 2026), so an
+    answer and the page never disagree. Only counts, section names and labels are returned: never a
     partner name, a PD reference, a section comment or a focal point (the rows hold no name; the
     comments and the focal points' names are read by the page alone)."""
     today = timezone.localdate()
     plan_year = hact_plan.parse_year(year, today)
     every = hact_plan.build(plan_year, today)
-    rows = every
     sections: list[str] = []
     if section:
-        sections = _match_options(section, hact_plan.options(rows)["sections"])
+        sections = _match_options(section, hact_plan.options(every)["sections"])
         if not sections:
             raise ToolInputError(
                 f"No programme document of {plan_year} has a section matching '{section}'. Leave section "
                 "out to see the sections."
             )
-        rows = hact_plan.select(rows, hact_plan.PlanFilters(year=plan_year, sections=tuple(sections)))
+    # as the page opens: its default PD statuses (the active programme documents), and the sections chosen
+    rows = hact_plan.select(every, hact_plan.PlanFilters(year=plan_year, sections=tuple(sections)))
     # as the page: "no visit on any PD" reads every PD of the year, a section only the chosen lines
     figures = hact_plan.headline(rows, plan_year, every)
     by_remark = figures.pop("by_remark")
@@ -952,7 +953,8 @@ def funds_overview(
             ],
             "grants",
         ),
-        "url": reverse("reports:funds"),
+        # the page with the tool's filter, on the same PD statuses (the page's default, Active)
+        "url": _page_url("reports:funds", params),
     }
 
 
@@ -1183,7 +1185,14 @@ def pd_indicator_progress(
         ),
         **_cut(listed, "indicators_detail", len(rows)),
         **({} if whole else {"left_out": PD_INDICATOR_LEFT_OUT}),
-        "url": reverse("reports:pd_monitoring"),
+        # the page with the tool's filter (every section written as ``section=``, so the page never applies
+        # the person's own section), on the same PD statuses: the page's default, Active, or every status
+        "url": _page_url(
+            "reports:pd_monitoring",
+            {**params, "section": params.get("section") or [""]},
+            report_type=monitoring.DEFAULT_REPORT_TYPE,
+            scope="active",
+        ),
     }
 
 
@@ -1253,6 +1262,20 @@ class _Params(dict):
     def getlist(self, key):
         value = self.get(key)
         return value if isinstance(value, list) else ([value] if value else [])
+
+
+def _page_url(name: str, params: Mapping[str, Any], **defaults: Any) -> str:
+    """The page ``name`` with a tool's filter written out (``params``, as the tool read it through the page's
+    own parsing): every value but the empty ones and the page's own ``defaults``, so the page the link opens
+    shows the figures the tool gave (its PD statuses too: none written is the page's default, Active)."""
+    query = [
+        (key, value)
+        for key, values in params.items()
+        if defaults.get(key) != values
+        for value in (values if isinstance(values, list) else [values])
+        if value not in (None, "")
+    ]
+    return reverse(name) + (f"?{urlencode(query)}" if query else "")
 
 
 # ------------------------------------------------------------------------- definitions for the model
@@ -1568,7 +1591,8 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     "hact_visit_plan": (
         hact_visit_plan,
         "HACT programmatic visit plan per programme document for a calendar year (default this year), "
-        "counts only, as the Field monitoring page's HACT visit plan shows them. Required = the PD's "
+        "counts only, of the active programme documents, as the page opens (the Field monitoring page's "
+        "HACT visit plan, whose PD status filter opens on Active). Required = the PD's "
         "planned visits per quarter in eTools; completed = programmatic visits whose report UNICEF "
         "approved (field monitoring by end date, plus TPM), each visit once per PD. not_visited: PDs "
         "with planned visits and none completed, their partners, partners_no_visit (of those, with no "
@@ -1589,8 +1613,9 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     "funds_overview": (
         funds_overview,
         "eTools funds: funds reservations (reserved, disbursed, outstanding in USD), amounts reserved by "
-        "donor and by start year, and grants with their donor, expiry and reserved amount. Filter by donor "
-        "name, grant number, partner/PD/FR text or FR start year.",
+        "donor and by start year, and grants with their donor, expiry and reserved amount, of the active "
+        "programme documents, as the page opens (the Funds page, whose PD status filter opens on Active). "
+        "Filter by donor name, grant number, partner/PD/FR text or FR start year.",
         _schema(
             {
                 "donor": {"type": "string"},
@@ -1628,9 +1653,11 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     ),
     "pd_indicator_progress": (
         pd_indicator_progress,
-        "Partner implementation monitoring from eTools/PRP: each programme document indicator with its "
-        "target, Reached (what the partner reached to date: its Accepted and Submitted reports since the "
-        "PD started, combined by PRP's location and period methods, never adding repeated values), the part "
+        "Partner implementation monitoring from eTools/PRP, of the active programme documents, as the page "
+        "opens (Partner monitoring's PD status filter opens on Active; include_closed reads every status): "
+        "each programme document indicator with its target, Reached (what the partner reached to date: its "
+        "Accepted and Submitted reports since the PD started, combined by PRP's location and period methods, "
+        "never adding repeated values), the part "
         "awaiting acceptance, % of the target reached, on/off-track status (Reached vs share of the PD "
         "period elapsed), PRP's own cumulative for comparison, the partner's assessment, Reached in the "
         "year and per month of that year (quarterly QPR by default, or monthly humanitarian HR reports). "

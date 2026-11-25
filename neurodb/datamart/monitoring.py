@@ -58,8 +58,12 @@ logger = logging.getLogger(__name__)
 
 REPORT_TYPES = {"QPR": "Quarterly progress reports", "HR": "Humanitarian reports (monthly)"}
 DEFAULT_REPORT_TYPE = "QPR"
-# the running programme documents (active, signed or suspended), as every page reads them
+# the running programme documents (active, signed or suspended): what the overview, the daily review, the
+# watch and the eTools reporting checks read, each writing them out; never the page's default
 ACTIVE_PD_STATUSES = pd_statuses.RUNNING
+# the PD statuses the page reads when its address chooses none (Filters.pd_statuses None, on the default
+# scope): the active programme documents only (the owner's decision of 25 Nov 2026; the running ones before)
+PAGE_PD_STATUSES = pd_statuses.PAGE_DEFAULT
 SUBMITTED = ("submitted", "accepted", "sent back", "sen", "sub", "acc")  # report_status: word or code
 # SUBMITTED as one pattern for the database: the whole status, any case, spaces around allowed
 SUBMITTED_REGEX = r"^\s*(" + "|".join(re.escape(s) for s in SUBMITTED) + r")\s*$"
@@ -169,12 +173,15 @@ class Filters:
     locations: list[str] = field(default_factory=list)
     report_type: str = DEFAULT_REPORT_TYPE
     year: int | None = None  # None: every year (Reached to date, one column per year)
-    scope: str = "active"  # active | all programme documents | year (every PD running in ``year``)
+    # active (the PD status filter's, Active by default) | all programme documents | year (every PD running
+    # in ``year``, closed ones too)
+    scope: str = "active"
     status: str = ""  # on_track | off_track | over_target | no_target | not_reported
     q: str = ""
     tags: dict[str, list[str]] = field(default_factory=dict)
-    # eTools PD statuses chosen in the filter: None follows ``scope`` (the running PDs by default), an
-    # empty list is every status
+    # eTools PD statuses chosen in the filter: None follows ``scope`` (on the default scope, the page's
+    # default: the active PDs, PAGE_PD_STATUSES), an empty list is every status. A reader with a scope of
+    # its own (the daily review, the eTools reporting checks, the partner page) writes its statuses out
     pd_statuses: list[str] | None = None
     document_types: list[str] = field(default_factory=list)  # PD, SPD...
     offices: list[str] = field(default_factory=list)  # the PD's UNICEF offices
@@ -193,29 +200,31 @@ class Filters:
 
     @property
     def status_choice(self) -> list[str]:
-        """The PD statuses the filter shows as chosen (none: every status)."""
+        """The PD statuses the filter shows as chosen (none: every status): with no choice made, the page's
+        default on the default scope, Active (:data:`PAGE_PD_STATUSES`)."""
         if self.pd_statuses is not None:
             return list(self.pd_statuses)
-        return list(ACTIVE_PD_STATUSES) if self.scope == "active" else []
+        return list(PAGE_PD_STATUSES) if self.scope == "active" else []
 
     @property
     def statuses_read(self) -> list[str]:
         """The PD statuses the figures keep, as :func:`_pd_queryset` reads the filter, in one order: the
-        chosen ones; with no choice made, the running PDs on the default scope; an empty list for every
-        status."""
+        chosen ones; with no choice made, the page's default on the default scope (Active); an empty list
+        for every status."""
         if self.pd_statuses:
             return sorted({str(x) for x in self.pd_statuses})
         if self.pd_statuses is None and self.scope == "active":
-            return sorted(ACTIVE_PD_STATUSES)
+            return sorted(PAGE_PD_STATUSES)
         return []
 
     def cache_key(self) -> str:
         """Every field of the filter, as JSON, for the keys of what is stored for it: each list in one order
         (the indicators of a filter never depend on the order of its choices), and the PD statuses as the
         figures read them (:attr:`statuses_read`): no ``pd_status`` in the address (the page's own links) and
-        the running statuses the filter bar sends for the same choice share a key, while ``pd_status=`` alone
-        (every status) keeps its own. The other values come from the address as typed, so two spellings never
-        share a key (a space and an underscore, a comma inside a name)."""
+        Active, which the filter bar sends for the same choice, share a key, while ``pd_status=`` alone (every
+        status) keeps its own. So what the default stored when it read the running statuses (before 25 Nov
+        2026) is under their key, never under the default's. The other values come from the address as typed,
+        so two spellings never share a key (a space and an underscore, a comma inside a name)."""
         out: dict[str, Any] = {}
         for item in dataclasses.fields(self):
             value = getattr(self, item.name)
@@ -257,7 +266,7 @@ class Filters:
             status=params.get("status") or "",
             q=(params.get("q") or "").strip(),
             tags={t: [x for x in getlist(t) if x] for t in TAG_FIELDS},
-            # "pd_status=" alone (nothing chosen) is every status; no key at all, the running PDs
+            # "pd_status=" alone (nothing chosen) is every status; no key at all, the page's default (Active)
             pd_statuses=[x for x in getlist("pd_status") if x] if "pd_status" in params else None,
             document_types=[x for x in getlist("document_type") if x],
             offices=[x for x in getlist("office") if x],
@@ -300,8 +309,8 @@ def _pd_queryset(filters: Filters, steps: list | None = None) -> QuerySet[PCA]:
     qs = _stage(steps, "not_a_partnership", qs.exclude(status__in=pd_statuses.NOT_A_PARTNERSHIP))
     if filters.pd_statuses:  # the statuses chosen in the filter
         qs = _stage(steps, "pd_status", qs.filter(status__in=filters.pd_statuses))
-    elif filters.pd_statuses is None and filters.scope == "active":
-        qs = _stage(steps, "pd_status", qs.filter(status__in=ACTIVE_PD_STATUSES))
+    elif filters.pd_statuses is None and filters.scope == "active":  # the page's default, Active
+        qs = _stage(steps, "pd_status", qs.filter(status__in=PAGE_PD_STATUSES))
     if filters.scope == "year" and filters.year:  # every PD running in the year, closed ones too
         first, last = datetime.date(filters.year, 1, 1), datetime.date(filters.year, 12, 31)
         qs = _stage(
@@ -1801,7 +1810,7 @@ def filter_options(filters: Filters) -> dict[str, Any]:
         "locations": sorted(x for x in locations if x),
         "years": years or ([filters.year] if filters.year else []),
         "report_types": REPORT_TYPES,
-        # eTools PD statuses, the running ones first (the filter's default)
+        # eTools PD statuses, the running ones first, always offered: Active, the filter's default, leads
         "pd_statuses": sorted(
             {status for _, status, *_ in pds if status} | set(ACTIVE_PD_STATUSES),
             key=lambda x: (x not in ACTIVE_PD_STATUSES, x),

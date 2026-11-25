@@ -31,8 +31,9 @@
     </select>
   </div>
   <div class="filter-bar__field">
-    <label class="form-label" for="f-status"><span class="has-tip" title="{% trans 'The programme document status in eTools. Draft and cancelled documents are never listed.' %}">{% trans "PD status" %}</span></label>
-    <select class="form-select form-select-sm" id="f-status" name="status" multiple data-tom placeholder="{% trans 'All' %}">
+    <label class="form-label" for="f-status"><span class="has-tip" title="{% trans 'The programme document status in eTools. By default the active ones. Clear the choice for every status (draft and cancelled documents are never listed).' %}">{% trans "PD status" %}</span></label>
+    <input type="hidden" name="status" value="" data-keep-empty>
+    <select class="form-select form-select-sm" id="f-status" name="status" multiple data-tom data-keep-empty placeholder="{% trans 'All' %}">
       {% for s in options.statuses %}<option value="{{ s }}" {% if s in options.chosen.statuses %}selected{% endif %}>{{ s|code_label }}</option>{% endfor %}
     </select>
   </div>

@@ -94,7 +94,12 @@ PRP's report ids, which PRP's own list does not carry.
 
 ## Partner monitoring
 
-[Partner monitoring](/partner-monitoring/) has three tabs on one filter:
+[Partner monitoring](/partner-monitoring/) has three tabs on one filter. Its PD status filter opens on the
+active programme documents only (since 25 Nov 2026; it opened on the active, signed and suspended ones
+before): choose more PD statuses in the filter, or clear the choice to see every status (draft and cancelled
+programme documents are never listed). The map, the downloads and *Check these figures* read the same
+choice. Links from Home, the partner page, the daily review and NeuroDB Watch choose the statuses they
+counted, so the page opens on their numbers.
 
 - **Data quality**, the first tab, opens when you open the page. At the top, the active and ended
   programme documents and the indicators with and without a target or Reached, and the lists to fix (see
@@ -192,7 +197,7 @@ section list offers each section once, and a section chosen also finds reports w
 sections). The partner type and emergency indicator filters were removed (since 21 Nov 2026): an
 old link that still carries one is still applied, and a line above the results names it, with a link that
 removes it. It opens on the active programme documents only (since 21 Nov 2026; it opened on the
-active, signed and suspended ones before, as Partner monitoring and Home still do): choose more PD statuses
+active, signed and suspended ones before; Home still counts those three): choose more PD statuses
 in the filter, or clear the choice to see every status. Home's links to Progress reports choose active,
 signed and suspended, so the page opens on the numbers Home shows. Draft and cancelled programme documents
 are never listed, nor reports that name no programme document.
@@ -300,7 +305,10 @@ The last block of a programme document's page and of a partner's page.
 ## Funds
 
 The [Funds](/funds/) page has three tabs on one filter (search, donor, grant, FR number, FR start year,
-PD status, partner):
+PD status, partner). The PD status filter opens on the active programme documents only (since 25 Nov 2026;
+it opened on every status before): choose more PD statuses, or clear the choice to see every status. A
+programme document's link to its partner contribution, and NeuroDB Watch's links to a grant or a funds
+reservation, choose every status, so they open on it whatever its status.
 
 - **Funds reservations**: the funds reserved, disbursed and outstanding, by donor, grant and year.
 - **Partner contributions** (Power BI's Partner Fund Monitoring): one row per programme document with

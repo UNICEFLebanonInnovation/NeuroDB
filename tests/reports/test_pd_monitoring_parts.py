@@ -638,20 +638,22 @@ def test_two_filters_never_share_a_key():
 
 
 def test_the_page_s_links_and_the_filter_bar_share_the_key_of_one_filter(client_viewer, world, monkeypatch):
-    """The page's own links (first load, section tiles, sorts) carry no ``pd_status``: the running PDs. The filter
-    bar sends the running statuses it shows chosen. Both are one filter with the same figures, so they read one
-    stored build (review R1-B-2); ``pd_status=`` alone (every status) and another choice keep keys of their own."""
+    """The page's own links (first load, section tiles, sorts) carry no ``pd_status``: the page's default, the
+    active PDs (since 25 Nov 2026; the running ones before). The filter bar sends Active, the status it shows
+    chosen. Both are one filter with the same figures, so they read one stored build (review R1-B-2);
+    ``pd_status=`` alone (every status) and another choice, the running ones too, keep keys of their own."""
     link = monitoring.Filters.from_params(QueryDict("section=Education&year=2026"))
     bar = monitoring.Filters.from_params(
-        QueryDict(
-            "section=Education&pd_status=suspended&pd_status=active&pd_status=signed&report_type=QPR&year=2026"
-        )
+        QueryDict("section=Education&pd_status=&pd_status=active&report_type=QPR&year=2026")
+    )
+    running = monitoring.Filters.from_params(
+        QueryDict("section=Education&pd_status=suspended&pd_status=active&pd_status=signed&year=2026")
     )
     every = monitoring.Filters.from_params(QueryDict("section=Education&pd_status=&year=2026"))
     closed = monitoring.Filters.from_params(QueryDict("section=Education&pd_status=closed&year=2026"))
     assert link.pd_statuses is None and bar.pd_statuses and every.pd_statuses == []
     assert link.cache_key() == bar.cache_key()
-    assert len({link.cache_key(), every.cache_key(), closed.cache_key()}) == 3
+    assert len({link.cache_key(), every.cache_key(), closed.cache_key(), running.cache_key()}) == 4
     # without the default scope, no choice is every status, as pd_status= alone
     assert (
         monitoring.Filters(scope="all").cache_key()
@@ -666,7 +668,7 @@ def test_the_page_s_links_and_the_filter_bar_share_the_key_of_one_filter(client_
         _url(
             "grid",
             section="Education",
-            pd_status="active&pd_status=signed&pd_status=suspended",
+            pd_status="&pd_status=active",
             report_type="QPR",
             year="2026",
         ),

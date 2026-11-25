@@ -616,7 +616,8 @@ def test_the_funded_tabs_leave_out_cancelled_programme_documents_as_funds_does(c
     assert {t["currency"]: t["total"] for t in summary["totals"]}["USD"] == 7800
     form = FILTER_FORM.search(_overall(client_viewer)[0].text).group(0)
     assert 'value="cancelled"' not in form
-    funds = client_viewer.get("/funds/", {"tab": "programmes"})
+    # Funds with every PD status chosen ("pd_status=": it opens on the active ones alone since 25 Nov 2026)
+    funds = client_viewer.get("/funds/", {"tab": "programmes", "pd_status": ""})
     assert "4,700" in funds.text
 
 

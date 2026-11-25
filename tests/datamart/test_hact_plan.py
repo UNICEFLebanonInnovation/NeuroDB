@@ -791,8 +791,14 @@ def test_filters_narrow_the_rows_and_bad_values_are_dropped():
     rows = hact_plan.build(YEAR, TODAY)
 
     def kept(**fields) -> set[int]:
+        # every PD status (the choice cleared, "status=") unless one is chosen
+        fields = {"statuses": (), **fields}
         return {r["pd_id"] for r in hact_plan.select(rows, hact_plan.PlanFilters(year=YEAR, **fields))}
 
+    # no status in the address: the page's default, the active programme documents (since 25 Nov 2026)
+    default = hact_plan.select(rows, hact_plan.PlanFilters.from_params({}, TODAY))
+    assert {r["pd_id"] for r in default} == {edu.pk, done.pk}
+    assert hact_plan.PlanFilters.from_params(QueryDict("status="), TODAY).statuses == ()
     assert kept() == {edu.pk, health.pk, done.pk}
     assert kept(q="partner a") == {edu.pk}
     assert kept(q=a.vendor_number.lower()) == {edu.pk}
@@ -805,7 +811,7 @@ def test_filters_narrow_the_rows_and_bad_values_are_dropped():
     assert kept(remarks=("needed",)) == {edu.pk, health.pk}
     assert kept(remarks=("completed",)) == {done.pk}
     assert kept(zero=True) == {edu.pk}
-    presets = hact_plan.PlanFilters(year=YEAR, zero=True, remarks=("completed",))
+    presets = hact_plan.PlanFilters(year=YEAR, statuses=(), zero=True, remarks=("completed",))
     assert len(hact_plan.select(rows, presets, presets=False)) == 3  # the headline leaves the presets out
 
     options = hact_plan.options(rows)

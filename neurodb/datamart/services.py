@@ -8,6 +8,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterator
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.db.models import Count, Max, Q, QuerySet, Sum
@@ -414,7 +415,14 @@ def partner_datamart(partner: PartnerOrganization) -> dict[str, Any]:
         "monitoring_count": len(tpm_visits) + len(recent_findings),
         "finding_ratings": _finding_ratings(findings),
         "hact_years": list(partner.hact_years.order_by("-year")[:4]),
-        "monitoring": _monitoring_summary(pd_monitoring.Filters(partners=[str(partner.pk)])),
+        # the running programme documents' indicators, as the block says: written out in its links too
+        # (``monitoring_query``), since Partner monitoring opens on the active ones alone
+        "monitoring": _monitoring_summary(
+            pd_monitoring.Filters(partners=[str(partner.pk)], pd_statuses=list(pd_statuses.RUNNING))
+        ),
+        "monitoring_query": urlencode(
+            [("partner", partner.pk), *(("pd_status", status) for status in pd_statuses.RUNNING)]
+        ),
         "reporting": _status_summary(reports),  # reporting_summary(reported)
         "reports": reports[:10],
         "reports_by_year": _by_period_year(reports),  # reports_by_year(reported)

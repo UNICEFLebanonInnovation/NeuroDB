@@ -96,11 +96,14 @@ same."** Below, **Where the indicators come from**:
    an indicator once per location and disaggregation: these are rows), and the rows naming no programme
    document NeuroDB holds (never read);
 2. the programme documents in NeuroDB, by the sync that last wrote them: the eTools Datamart's and the eTools
-   REST API's both do, and NeuroDB never removes one; a programme document's status decides whether it is
-   running;
+   REST API's both do, and NeuroDB never removes one; a programme document's status decides whether the PD
+   status filter keeps it;
 3. the programme documents NeuroDB holds, then those each filter leaves out (draft or cancelled, the PD
-   status or running, the year, a partner, a programme document, a document type, and an office or a
-   partner type an old link still carries), each with its PD indicator rows;
+   status, the year, a partner, a programme document, a document type, and an office or a partner type an
+   old link still carries), each with its PD indicator rows. With no PD status in the page's address, the
+   trail reads the page's default, the active programme documents (*PD status: Active (the page's
+   default)*, since 25 Nov 2026; the running ones before); Home's block reads every programme document
+   running in the year, as Home's links write it;
 4. the PD indicator rows of the programme documents kept, then those of the indicators eTools marks inactive
    that no partner report row names (never listed), then those each filter leaves out (a search, a tag,
    emergency from an old link, humanitarian reports), with the indicators left out entirely or partly;
@@ -149,8 +152,8 @@ Data quality tab, section Education, 2026:
 > Off track: 12 indicators, the same as the page.
 >
 > 1. eTools said it had 273,253 PD indicator rows; NeuroDB received them all. Counts only.
-> 2. Programme documents NeuroDB holds: 410 (273,000 PD indicator rows). Not running: 343 left out
->    (180,000 rows). [CSV]
+> 2. Programme documents NeuroDB holds: 410 (273,000 PD indicator rows). Status not Active (the page's
+>    default): 343 left out (180,000 rows). [CSV]
 > 3. PD indicator rows of the programme documents kept: 93,000; one per indicator: 1,150 indicators.
 > 4. Not in the section Education: 1,020 indicators left out. [CSV]
 > 5. Kept: 130 indicators. [Kept indicators CSV]

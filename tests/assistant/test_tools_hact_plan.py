@@ -206,20 +206,28 @@ def test_assurance_overview_links_to_the_plan(world):
 
 
 # ---------------------------------------------------------------------------------- the figures
-def test_the_figures_are_the_pages(world):
+def test_the_figures_are_the_pages(world, client):
+    """The page as its link opens it: its PD status filter on Active (the owner's decision of 25 Nov 2026), so
+    the PD that ended in March is in no figure (it was in every one before)."""
     result = tools.run("hact_visit_plan", {})
-    rows = hact_plan.build(YEAR, TODAY)
-    page = hact_plan.headline(rows, YEAR)
+    every = hact_plan.build(YEAR, TODAY)
+    rows = hact_plan.select(every, hact_plan.PlanFilters(year=YEAR))
+    page = hact_plan.headline(rows, YEAR, every)
     for key in ("year", "pds", "pds_with_plan", "not_visited", "still_needed", "completed", "etools_behind"):
         assert result[key] == page[key], key
+    client.force_login(world["user"])
+    opened = client.get(result["url"])
+    for key in ("pds", "pds_with_plan", "not_visited", "still_needed", "completed"):
+        assert result[key] == opened.context["figures"][key], key
     assert result["year"] == YEAR and result["available_years"] == [YEAR]
-    assert result["not_visited"] == {"pds": 2, "partners": 2, "partners_no_visit": 0, "ended": 1}
-    assert result["still_needed"] == {"visits": 6, "pds": 3, "partners": 2, "visits_ended": 2, "pds_ended": 1}
-    assert result["completed"] == {"counted": 2, "required": 8, "completed": 2, "awaiting": 1}
+    assert result["pds"] == 4 and result["pds_with_plan"] == 3
+    assert result["not_visited"] == {"pds": 1, "partners": 1, "partners_no_visit": 0, "ended": 0}
+    assert result["still_needed"] == {"visits": 4, "pds": 2, "partners": 1, "visits_ended": 0, "pds_ended": 0}
+    assert result["completed"] == {"counted": 2, "required": 6, "completed": 2, "awaiting": 1}
     assert result["etools_behind"] == {"partners": 1, "with_row": 1}
     assert result["by_remark"] == [
         {"remark": "needed", "label": "HACT FMM needed", "pds": 2},
-        {"remark": "ended", "label": "PD ended, visits missing", "pds": 1},
+        {"remark": "ended", "label": "PD ended, visits missing", "pds": 0},
         {"remark": "completed", "label": "Completed", "pds": 1},
         {"remark": "no_plan", "label": "No visit planned", "pds": 1},
     ]
@@ -228,7 +236,7 @@ def test_the_figures_are_the_pages(world):
     ]
     # a PD with two sections counts under each; the total is the headline
     assert result["by_section"] == [
-        {"section": "Education", "pds": 3, "pds_with_plan": 3, "not_visited": 2, "still_needed": 6},
+        {"section": "Education", "pds": 2, "pds_with_plan": 2, "not_visited": 1, "still_needed": 4},
         {"section": "Health", "pds": 3, "pds_with_plan": 2, "not_visited": 1, "still_needed": 1},
     ]
     assert result["by_section"] == [
@@ -237,6 +245,8 @@ def test_the_figures_are_the_pages(world):
     assert result["sections"] == []
     assert result["as_of"] == "2026-10-12"
     assert result["url"] == "/field-monitoring/?tab=plan&year=2026"
+    _function, description, _schema, _label = tools.TOOLS["hact_visit_plan"]
+    assert "of the active programme documents, as the page opens" in description
 
 
 def test_a_section_narrows_the_figures_as_the_pages_filter_does(world):
@@ -276,7 +286,7 @@ def test_the_year_defaults_to_this_year_and_a_pd_with_no_section_counts_under_no
 
 def test_it_runs_read_only(world):
     with tools.read_only():
-        assert tools.run("hact_visit_plan", {})["pds"] == 5
+        assert tools.run("hact_visit_plan", {})["pds"] == 4  # the active PDs, as the page opens
 
 
 # ---------------------------------------------------------------------------------- privacy

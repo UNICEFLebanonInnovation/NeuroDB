@@ -95,14 +95,17 @@ def parse_year(value: Any, today: datetime.date) -> int:
 @dataclass(frozen=True)
 class PlanFilters:
     """The plan tab's filter. ``remarks`` and ``zero`` are the presets (the quick views): the headline
-    leaves them out (``select(..., presets=False)``)."""
+    leaves them out (``select(..., presets=False)``). ``statuses``, the PD statuses chosen: None (no
+    ``status`` in the address) the page's default, the active programme documents only
+    (``statuses.PAGE_DEFAULT``, the owner's decision of 25 Nov 2026; every status before); an empty tuple
+    (``status=`` alone: the filter's choice cleared) every status, draft and cancelled ones never listed."""
 
     year: int
     q: str = ""
     sections: tuple[str, ...] = ()
     partners: tuple[int, ...] = ()
     risks: tuple[str, ...] = ()
-    statuses: tuple[str, ...] = ()
+    statuses: tuple[str, ...] | None = None
     types: tuple[str, ...] = ()
     remarks: tuple[str, ...] = ()
     zero: bool = False
@@ -110,7 +113,8 @@ class PlanFilters:
     @classmethod
     def from_params(cls, params: Any, today: datetime.date) -> PlanFilters:
         """From the request's parameters (``year``, ``q``, ``section``, ``partner``, ``risk``,
-        ``status``, ``type``, ``remark``, ``zero``); the year defaults to today's, bad values are
+        ``status``, ``type``, ``remark``, ``zero``); the year defaults to today's, the PD statuses to the
+        page's default (none in the address: Active; ``status=`` alone, every status), bad values are
         dropped."""
         get = params.get if hasattr(params, "get") else (lambda key, default=None: default)
         partners = tuple(
@@ -122,11 +126,17 @@ class PlanFilters:
             sections=tuple(_values(params, "section")),
             partners=partners,
             risks=tuple(_values(params, "risk")),
-            statuses=tuple(v.lower() for v in _values(params, "status")),
+            statuses=tuple(v.lower() for v in _values(params, "status")) if "status" in params else None,
             types=tuple(_values(params, "type")),
             remarks=tuple(v for v in _values(params, "remark") if v in REMARKS),
             zero=str(get("zero") or "").strip().lower() in ("1", "true", "yes", "on"),
         )
+
+    @property
+    def status_choice(self) -> tuple[str, ...]:
+        """The PD statuses the filter shows as chosen and reads (none: every status): with no choice made,
+        the page's default, Active (``statuses.PAGE_DEFAULT``)."""
+        return pd_statuses.PAGE_DEFAULT if self.statuses is None else self.statuses
 
 
 def select(rows: Iterable[dict], f: PlanFilters, presets: bool = True) -> list[dict]:
@@ -137,7 +147,7 @@ def select(rows: Iterable[dict], f: PlanFilters, presets: bool = True) -> list[d
     sections = {norm(s) for s in f.sections}
     risks = {norm(r) for r in f.risks}
     types = {norm(t) for t in f.types}
-    partners, statuses = set(f.partners), set(f.statuses)
+    partners, statuses = set(f.partners), set(f.status_choice)
     kept = []
     for row in rows:
         if q and not any(q in (row[k] or "").casefold() for k in ("partner", "vendor_number", "reference")):
@@ -582,8 +592,8 @@ def options(rows: Iterable[dict], f: PlanFilters | None = None) -> dict[str, Any
         # select() reads these in any case: the list's own spelling is the one marked
         for key, found in (("sections", sections), ("risks", risks), ("types", types)):
             chosen[key] = [found.setdefault(norm(value), value) for value in getattr(f, key)]
-        statuses.update(f.statuses)
-        chosen["statuses"] = list(f.statuses)
+        statuses.update(f.status_choice)  # Active, the default, offered even in a year without one
+        chosen["statuses"] = list(f.status_choice)
         missing = [pk for pk in f.partners if pk not in partners]
         if missing:
             names = dict(PartnerOrganization.objects.filter(pk__in=missing).values_list("pk", "name"))

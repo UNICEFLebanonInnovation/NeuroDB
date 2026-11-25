@@ -28,6 +28,7 @@ Nothing else is written here: who is told what is :mod:`neurodb.watch.routing`'s
 from __future__ import annotations
 
 import datetime
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -224,13 +225,30 @@ def _section_ids(ctx: Context, names: list[str]) -> list[int]:
     return sections.resolve_names(names, mapping)[0]
 
 
+# the PD statuses a link writes out at its end ("pd_status=", partnerships.statuses.EVERY, on the funds links;
+# the running ones on the daily review's links to Partner monitoring, which the review's concerns carry):
+# added on 25 Nov 2026, when those pages began to open on the active programme documents alone, and where to
+# see a record, not what was read
+LINK_PD_STATUSES = re.compile(r"(?:[?&]pd_status=[^&#]*)+$")
+
+
+def _read(record: Any) -> Any:
+    """A record as its fingerprint reads it: its link without the PD statuses written out at its end."""
+    if isinstance(record, dict) and isinstance(record.get("url"), str):
+        return {**record, "url": LINK_PD_STATUSES.sub("", record["url"])}
+    return record
+
+
 def fingerprint(evidence: dict) -> str:
     """What makes evidence different: its records and numbers, not when it was synced, nor the day
     counts that move by themselves (``COUNTING_NUMBERS``), nor the records written as context
-    (``record(..., context=True)``). An item marked wrong comes back when this changes."""
+    (``record(..., context=True)``), nor a link's PD statuses written out (:data:`LINK_PD_STATUSES`: a link
+    that gained them brings back no item marked wrong). An item marked wrong comes back when this changes."""
     evidence = evidence or {}
     numbers = {k: v for k, v in (evidence.get("numbers") or {}).items() if k not in COUNTING_NUMBERS}
-    records = [r for r in evidence.get("records") or [] if not (isinstance(r, dict) and r.get("context"))]
+    records = [
+        _read(r) for r in evidence.get("records") or [] if not (isinstance(r, dict) and r.get("context"))
+    ]
     return hash_evidence({"records": records, "numbers": numbers})
 
 

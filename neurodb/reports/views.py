@@ -2341,12 +2341,15 @@ def _monitoring_tabs(year: int | None) -> dict[str, str]:
 
 def _plan_strip(year: int, today: datetime.date) -> dict[str, Any] | None:
     """The HACT visit plan's figures for the default tab's strip (counts only) and the plan's link; None
-    when eTools sent no plan for ``year`` (no strip)."""
+    when eTools sent no plan for ``year`` (no strip). The figures are the plan's as its link opens it: the
+    page's default filter (the active programme documents, since 25 Nov 2026), its headline read as the tab
+    reads it (``hact_plan.headline`` of the filter, "no visit on any PD" of every PD of the year)."""
     rows = hact_plan.build(year, today)
     if not any(r["plan_row"] for r in rows):
         return None
+    shown = hact_plan.select(rows, hact_plan.PlanFilters(year=year), presets=False)
     url = f"{reverse('reports:monitoring')}?{urlencode({'tab': 'plan', 'year': year})}"
-    return {**hact_plan.headline(rows, year), "url": url}
+    return {**hact_plan.headline(shown, year, rows), "url": url}
 
 
 # The columns of the HACT visit plan's files: the team's workbook's, then the figures NeuroDB adds. The
@@ -2544,12 +2547,15 @@ def _plan_partner_line(p: dict[str, Any]) -> dict[str, Any]:
 def _plan_filter_text(f: hact_plan.PlanFilters, names: dict[int, str]) -> str:
     """The plan's filter in words, for the About sheet. ``names`` names the partners as the filter bar
     does (``hact_plan.options``: a partner the year's rows lack from its record)."""
+    statuses = list(f.status_choice)
+    if f.statuses is None:  # no status in the address: the page's default (Active), never every status
+        statuses = [f"{', '.join(statuses)} (the page's default)"]
     parts = [
         ("Search", [f.q] if f.q else []),
         ("Sections", list(f.sections)),
         ("Partners", [names.get(pk) or f"#{pk}" for pk in f.partners]),
         ("Risk ratings", list(f.risks)),
-        ("PD statuses", list(f.statuses)),
+        ("PD statuses", statuses),
         ("Document types", list(f.types)),
         ("Remarks", [str(hact_plan.REMARKS[code]) for code in f.remarks]),
     ]

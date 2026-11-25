@@ -280,7 +280,9 @@ def _adds_up(stages) -> None:
 
 
 def test_the_steps_add_up_from_the_pd_indicator_rows_in_neurodb(validator, world):
-    found = tm.monitoring_trail({"year": "2026", "q": "girls", "section": ""}, TODAY)
+    # the running programme documents, written out (the page opens on the active ones alone since 25 Nov 2026)
+    params = {"year": "2026", "q": "girls", "section": "", "pd_status": ["active", "signed", "suspended"]}
+    found = tm.monitoring_trail(params, TODAY)
     steps = {s.key: s for s in found.steps}
     rows = found.rows
     # D4 - D5 - the programme documents' steps' rows = M11
@@ -297,7 +299,7 @@ def test_the_steps_add_up_from_the_pd_indicator_rows_in_neurodb(validator, world
         and "No PD indicator row in NeuroDB: 1; every indicator left out by a later step: 1"
         in (k2.lines[0].words)
     )
-    rows_k2 = _csv(validator, {"year": "2026", "q": "girls", "section": ""}, "step:K2")
+    rows_k2 = _csv(validator, params, "step:K2")
     assert {r["number"] for r in rows_k2} == {"LEB/PD4", "LEB/PD5"}
     kept_pds = {f.page for f in found.figures if f.key == "pm.pds"}
     assert kept_pds == {1}  # LEB/PD1 alone: the two are in no programme documents' figure
