@@ -458,6 +458,19 @@ def test_the_teachers_profile_counts_the_years_rounds_only():
     }
 
 
+def test_the_teachers_profile_leaves_out_a_round_of_another_year():
+    """A round of another year that the payload lists (``"in_year": false``: some of its registrations the view
+    counts in this year) is not one of the year's rounds: its teachers' rows are not the year's."""
+    payload = year_payload()
+    payload["rounds"] = [*payload["rounds"], dict(ROUNDS_2025[0], id=9, in_year=False)]
+    payload["power_bi"]["related"] = {
+        "vw_teacher_data": {"exists": True, "by": ["round_id", "is_active_current_round"], "measures": ["rows", "ids"],
+                            "rows": [[R1, "yes", 4, 4], [R2, "yes", 1, 1], [9, "yes", 7, 7]], "truncated": False,
+                            "rounds": [R1, R2, 9]},
+    }  # fmt: skip
+    assert power_bi.variant_totals("bridging", payload)["teachers"]["view_rows"] == 5
+
+
 # ------------------------------------------------------------------------------------- fixes from review round 2
 def _caveats(response) -> list[str]:
     found = re.findall(r'<p class="caveat" role="note"[^>]*>(.*?)</p>', response.content.decode(), re.S)

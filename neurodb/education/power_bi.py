@@ -99,7 +99,8 @@ def _related_total(
     """The rows of a related view Compiler profiled (``power_bi.related``), at the period total only (the
     profile is not by partner or place): None under a filter, in a past period's payload (no profile), or when
     the profile was cut or failed. ``this_round``: only the rows of the payload's rounds (the round's, or from
-    payload format 4 the rounds of the year), when the profile is by round."""
+    payload format 4 the rounds of the year), when the profile is by round; a round of another year the
+    payload also lists (``"in_year": false``, CONTRACT_PBI §9.5) is not one of them."""
     if filters:
         return None
     related = ((figures.payload.get("power_bi") or {}).get("related")) or {}
@@ -112,7 +113,7 @@ def _related_total(
     at = len(by) + measures.index("rows")
     rows = profile.get("rows") or []
     if this_round and "round_id" in by:
-        rounds = {r.get("id") for r in figures.payload.get("rounds") or []}
+        rounds = {r.get("id") for r in figures.payload.get("rounds") or [] if r.get("in_year") is not False}
         rows = [row for row in rows if row[by.index("round_id")] in rounds]
     return sum(row[at] or 0 for row in rows)
 
