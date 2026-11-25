@@ -443,6 +443,13 @@ ANSWERED_META = _("Answered from {n} of about {m} matching findings. Narrow with
 ANSWERED_ALL_META = ngettext_lazy(
     "Answered from {count} matching finding.", "Answered from {count} matching findings.", "n"
 )
+# a follow-up whose search matched nothing: only the findings the earlier answer cited were read
+ANSWERED_CARRIED_META = ngettext_lazy(
+    "Answered from the {count} finding your earlier answer cited, read again: no other finding matches.",
+    "Answered from the {count} findings your earlier answer cited, read again: no other finding matches.",
+    "n",
+)
+ONE_WORD_ENOUGH = _("No finding matches all your words: findings that match one of them were read.")
 CODES_USED = _("({codes}, from your question)")
 CODES_LEFT_OUT = _("({codes} in your question matched no finding within the filters and was left out)")
 YEARS_ASKED = _("Years {years}")
@@ -451,14 +458,24 @@ YEARS_USED = _(
     "changes it)."
 )
 PLACES_USED = _("Places from your question: {places}.")
-PLACES_NONE = _("No finding names {places}: findings from all of Lebanon were read.")
+PLACES_NONE = _("No finding on this subject names {places}: findings from all of Lebanon were read.")
 PLACES_FEW = ngettext_lazy(
-    "Only {count} finding names {places}: findings from all of Lebanon were read too.",
-    "Only {count} findings name {places}: findings from all of Lebanon were read too.",
+    "Only {count} finding on this subject names {places}: findings from all of Lebanon were read too.",
+    "Only {count} findings on this subject name {places}: findings from all of Lebanon were read too.",
     "n",
 )
+PLACES_ONLY = _("No finding holds your words: the findings that name {places} were read.")
 NATIONAL_USED = _("All of Lebanon, from your question: no place restriction.")
+NATIONAL_FIRST = _("All of Lebanon, from your question, with the findings that name {places} first.")
 BREAKDOWN_USED = _("By governorate, from your question: findings that name governorates first.")
+BY_DISTRICT_USED = _("By district, from your question: findings that name districts or governorates first.")
+# "latest", "most recent": no finding, or few, of those years matched
+LATEST_NONE = _("No finding of {years} matches your words: the most recent ones were read, newest first.")
+LATEST_FEW = ngettext_lazy(
+    "Only {count} finding of {years} matches your words: the most recent others were read too, newest first.",
+    "Only {count} findings of {years} match your words: the most recent others were read too, newest first.",
+    "n",
+)
 # a follow-up (a question that refers to the earlier answer, or has no subject of its own): what it kept
 SAME_SUBJECT = _("Same subject as your earlier question.")
 SAME_SUBJECT_CITED = _(
@@ -468,7 +485,13 @@ FOLLOW_UP_CITED = _("A follow-up of your earlier question; the findings its answ
 FOLLOW_UP_PLAIN = _("A follow-up of your earlier question.")
 PLACES_KEPT = _("Places from your earlier question: {places}.")
 NATIONAL_KEPT = _("All of Lebanon, from your earlier question: no place restriction.")
+NATIONAL_FIRST_KEPT = _(
+    "All of Lebanon, from your earlier question, with the findings that name {places} first."
+)
 BREAKDOWN_KEPT = _("By governorate, from your earlier question: findings that name governorates first.")
+BY_DISTRICT_KEPT = _(
+    "By district, from your earlier question: findings that name districts or governorates first."
+)
 YEARS_KEPT = _(
     "Years {years}, from your earlier question; findings whose year is not reported are left out (the Year "
     "filter changes it)."
@@ -497,9 +520,11 @@ NOTICE_ROWS_REMOVED = ngettext_lazy(
 NOTICE_NOT_ANSWERED = _("The KM Database does not answer this question.")
 NOTICE_PARTLY = _("The KM Database answers this only in part.")
 NOTICE_PARTLY_WHY = _("The KM Database answers this only in part: {missing}.")
-MISSING_PLACE = _("no finding names {places}")
+MISSING_PLACE = _("no finding on this subject names {places}")
 MISSING_FEW_PLACE = ngettext_lazy(
-    "only {count} finding names {places}", "only {count} findings name {places}", "n"
+    "only {count} finding on this subject names {places}",
+    "only {count} findings on this subject name {places}",
+    "n",
 )
 MISSING_YEARS = _("no finding of {years}")
 MISSING_BREAKDOWN = _("no finding read compares governorates")

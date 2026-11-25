@@ -98,8 +98,9 @@ gives it.
   download the findings that answer read, with every column and the same rules: those it cites first,
   marked *Yes* in the column `cited_in_answer`, then the others it read. The *About* sheet says which
   question (as it was kept, with names taken out) and when it was asked. Only you can download the
-  findings of your own answers, for 90 days, and only while the version the answer read is shown: once a
-  newer version is loaded, ask the question again.
+  findings of your own answers that were answered, for 90 days, and only while the version the answer
+  read is shown: once a newer version is loaded, ask the question again. They open in a new tab, so that
+  your conversation stays on screen.
 - **Printing** (the page's *Print* button, or the browser's) follows the same rule as a download: the
   authors' column and lines are left off paper (the organisations are printed instead), and names of
   people inside the texts are printed "[name withheld]". The screen still shows the texts in full.
@@ -124,26 +125,36 @@ download the findings it read.
   entry or person.
 - **Write the subject, the rest is understood.** Words that say what you want rather than what it is
   about ("I need a paragraph describing", "adjust the text above", "an excel sheet with each indicator and
-  value", "only") are not searched while other words remain. A finding is kept when it holds your words: all
-  of them when you write one or two, and a third of them (at least two) when you write more. A question
-  for a number, a rate or a percentage ("how many", "number of") reads the findings that give figures
-  first.
+  value", "only") are not searched while other words remain, nor are words that ask for figures ("rate",
+  "proportion", "figures", "statistics"). A finding is kept when it holds your words: all of them when you
+  write one or two (when no finding holds both of two, those holding one are read, and the line under the
+  answer says so), and a third of them (at least two) when you write more. A question for a number, a rate
+  or a percentage ("how many", "number of") reads the findings that give figures first. "Dropout" also
+  finds "dropped out" and "drops out", and "gender" also finds findings on girls or boys.
 - **Places.** Every governorate (Akkar, Baalbek-Hermel, Beirut, Bekaa, Keserwan-Jbeil, Mount Lebanon,
-  Nabatieh, North, South) is understood in its usual spellings ("Mont Lebanon", "Nabatiyeh", "Nabatiye",
-  "Beqaa", "Beyrouth"), with its main districts and towns: a question about the South also reads findings
-  about Saida, Tyre or Jezzine, and Mount Lebanon also Jbeil and Keserwan, as older reports count them.
-  "South Lebanon" and "the south" mean the South and Nabatieh governorates. The answer reads only findings
-  that name the places you write; when fewer than 10 do, it also reads the others that match your words,
-  and the line under the answer says so ("No finding names Mount Lebanon: findings from all of Lebanon
-  were read."). "All governorates", "by governorate" or "all gov" reads the findings that name the most
-  governorates first; "all Lebanon", "national" or "nationwide" reads every place.
+  Nabatieh, North, South) is understood in its usual spellings ("Mont Lebanon", "Jabal Lubnan",
+  "Nabatiyeh", "Nabatiye", "Beqaa", "Beyrouth", "Liban-Nord", "Liban-Sud"), with its main districts, towns
+  and camps: a question about the South also reads findings about Saida, Tyre, Jezzine or Ein el-Hilweh,
+  and Mount Lebanon also Jbeil and Keserwan, as older reports count them ("Bint Jbeil" is in Nabatieh, not
+  Jbeil). "South Lebanon", "the south" and "Janoub" mean the South and Nabatieh governorates. The answer
+  reads only findings that name the places you write; when fewer than 10 do, it also reads the others that
+  match your words, and the line under the answer says so ("No finding on this subject names Mount
+  Lebanon: findings from all of Lebanon were read."). When none of your words is in any finding, the
+  findings that name the place are read. "All governorates", "by governorate", "all gov" or "by district"
+  reads the findings that name a governorate, a district or a town, those naming the most governorates
+  first; "all Lebanon", "nationwide" or "national level" reads every place. "National" with a place
+  ("compare the national rate with Akkar") reads every place, the findings on that place first; without a
+  place it is a word of your subject ("the national education strategy").
 - **Years.** "In the past 2 years" means this year and the two before it (in 2026: 2024 to 2026), and
-  "since 2023", "2019-2021", "in 2023", "this year", "recent" and "latest" work too: they set the Year
-  filter, without the findings whose year is not reported, and the line under the answer says which
-  years. To change them, use the Year filter of the Findings tab. The years are those the documents were
-  published.
-- **The same text twice.** A finding whose text is word for word another one's is read once; the answer
-  may cite either, and both open their finding.
+  "since 2023", "2019-2021", "in 2023", "2023" alone, "2022 and 2025" (each year), "this year", "recent
+  figures" and "latest" work too: they set the Year filter, without the findings whose year is not
+  reported, and the line under the answer says which years. To change them, use the Year filter of the
+  Findings tab. The years are those the documents were published. For "latest" or "most recent", when
+  fewer than 10 findings of the past 2 years match, the newest older ones are read too, and the line says
+  so. "Recently displaced children" or "targets for 2030" set no year.
+- **The same text twice.** A finding whose text is word for word another one's in the same document is
+  read once; the answer may cite either, and both open their finding. The same text in two documents is
+  read twice, each with its own document and year.
 - **Your filters.** Open the tab from the Findings tab after filtering (a pillar, a year, one document...)
   and the answer reads only the findings of that filter; the line over the box names it, with **Clear**.
   The words of the search box are not used: your question is its own search. On a finding's or a
@@ -153,10 +164,10 @@ download the findings it read.
 - **What is sent to the AI.** Your question, the earlier questions and answers of the conversation, the
   matching findings it reads, your filters in words, the date you asked and what the search understood
   of places, years and a follow-up. Never the authors, never Document IDs (one you type goes as "this
-  document"), links or phone numbers, and never a name of a person: names of NeuroDB's people and of the KM Database's authors are taken out
-  of your question, in capitals or not, and names inside the findings (citations, reference lists, people
-  quoted, people named with their job) are written "[name withheld]". If a name is still found, nothing is
-  sent.
+  document"), links or phone numbers, and never a name of a person: names of NeuroDB's people and of the
+  KM Database's authors are taken out of your question, in capitals or not, and names inside the findings
+  (citations, reference lists, people quoted, people named with their job) are written "[name withheld]".
+  If a name is still found, nothing is sent.
 - **The answer.** Each sentence ends with the findings it rests on, as [references]: each one opens its
   finding, in a new tab. An opening sentence that sums up the answer may have none. Figures are given
   exactly as each finding states them: never added up or averaged, compared only when each carries its
@@ -166,18 +177,18 @@ download the findings it read.
   and **CSV of these findings** download them. The line under the answer says "Answered from N of about M
   matching findings": when more match than were read, narrow the filters to read others.
 - **Tables and Excel.** Ask for a table, the figures, each indicator or "numbers and percentages", and the
-  answer may end with one short table: the indicator or measure, the figure exactly as its finding states
-  it (a percentage is never worked out from a number), the year and the finding's reference, at most
-  about 15 rows. A row that gives no finding read for this answer is taken out, and the answer says how
-  many. On a phone, a wide table scrolls sideways inside the answer. Ask for an Excel or a sheet and the
-  answer points to **Excel of these findings** under it: every finding it read, with the figures inside
-  their key finding and measure (the KM Database has no separate column of figures).
-- **When the findings do not answer.** The answer says "The KM Database does not answer this question."
-  and what related evidence it holds; "answers this only in part" when part is missing, with what the
-  search could not find when it can say ("no finding names Mount Lebanon", "no finding of 2022", "no
-  finding read compares governorates"). A sentence that cites no finding is counted under the answer:
-  check it against the findings (the opening sentence, a sentence whose reference ends the next one of
-  its paragraph and a sentence saying what the findings lack are not counted).
+  answer may end with one short table: the indicator or measure, the figure exactly as its finding states it
+  (a percentage is never worked out from a number), the year and the finding's reference, at most about 15
+  rows. A row that gives no finding read for this answer is taken out, whatever way the table is written, and
+  the answer says how many. On a phone, a wide table scrolls sideways inside the answer. Ask for an Excel or a
+  sheet and the answer points to **Excel of these findings** under it: every finding it read, with the figures
+  inside their key finding and measure (the KM Database has no separate column of figures).
+- **When the findings do not answer.** The answer says "The KM Database does not answer this question." and
+  what related evidence it holds; "answers this only in part" when part is missing, with what the search could
+  not find when it can say ("no finding on this subject names Mount Lebanon", "no finding of 2022", "no
+  finding read compares governorates"). A sentence that cites no finding is counted under the answer: check it
+  against the findings (the opening sentence, a sentence whose reference ends the next one of its paragraph
+  and a sentence saying what the findings lack are not counted).
 - **When the AI is off or a limit is reached** the tab still lists the findings that match your question,
   without a written answer, and says why (to download them, use **Excel of the filter** on the Findings
   tab). Search and the filters work as usual.
@@ -192,9 +203,13 @@ download the findings it read.
 - **A conversation.** A follow-up keeps the subject, places and years of your earlier question and reads
   the findings its answer cited again. A question is a follow-up when it is short ("and for boys?"), when
   it refers to the answer ("do it for all Lebanon", "adjust the text above", "the same for Akkar", "redo",
-  "instead", "again"), or when it has no subject of its own (only places, years or what you want: "what
-  about Akkar since 2024?", "once done I need an excel sheet"). A question that names its subject, even
-  in general words ("the situation of children in all governorates"), starts afresh. A follow-up with no
+  "what about child marriage?", "and for girls"), or when it has no subject of its own (only places, years
+  or what you want: "what about Akkar since 2024?", "once done I need an excel sheet"). Any other question
+  that names its subject, even in general words ("the situation of children for all governorates") or
+  with words such as "again", "instead" or "for all" ("why did enrolment fall again?"), starts afresh.
+  When no finding joins a follow-up's own words to the earlier subject, its words are searched alone, in
+  the earlier place and years ("what about child marriage?" after a question on Tripoli: child marriage
+  in Tripoli). A follow-up with no
   words of its own ("can you do it for all governorates?") is answered from the earlier subject, and counts
   like any question. Its own place, years, "all Lebanon" (no place) or "all governorates" (findings that
   name a governorate) replace the earlier ones; its own words are angles added to the subject ("with a

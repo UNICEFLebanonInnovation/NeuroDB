@@ -425,3 +425,43 @@ def test_the_findings_of_an_answer_read_from_a_replaced_version_are_not_offered(
     text = body.decode()
     assert "prepared on 1 Oct 2026" in text and "no longer shown" in text
     assert "Ask the question again" in text and "Fake key finding" not in text
+
+
+def test_the_findings_of_an_answer_older_than_90_days_or_never_written_are_not_offered(
+    client_viewer, viewer, loaded
+):
+    import datetime
+
+    from django.utils import timezone
+
+    from neurodb.km.models import KMQuestion
+
+    old = _answered(viewer)
+    KMQuestion.objects.filter(pk=old.pk).update(created_at=timezone.now() - datetime.timedelta(days=91))
+    _, body = _answer_file(client_viewer, old, status=404)
+    assert "not among your questions of the past 90 days" in body.decode()
+    recent = _answered(viewer)
+    KMQuestion.objects.filter(pk=recent.pk).update(created_at=timezone.now() - datetime.timedelta(days=89))
+    _answer_file(client_viewer, recent)
+    # a call that failed, was refused or cut off read findings but wrote no answer: nothing to download
+    for status in ("failed", "refused", "limited", "in_progress"):
+        _answer_file(client_viewer, _answered(viewer, status=status), status=404)
+
+
+def test_the_version_of_an_answer_is_checked_afresh(client_viewer, viewer, loaded, monkeypatch):
+    from neurodb.km import views
+    from neurodb.km.models import KMVersion
+
+    row = _answered(viewer)
+    shown = row.version
+    KMVersion.objects.filter(pk=shown.pk).update(status=KMVersion.Status.REPLACED)
+    monkeypatch.setattr(views, "live", lambda: shown)  # another process's memo, not yet refreshed
+    _, body = _answer_file(client_viewer, row, status=404)
+    assert "no longer shown" in body.decode()
+
+
+def test_the_downloads_under_an_answer_open_in_a_new_tab():
+    from django.template.loader import render_to_string
+
+    html = render_to_string("km/_used.html", {"lines": [], "downloads": [{"label": "Excel", "url": "/x/"}]})
+    assert '<a class="btn btn-outline-secondary btn-sm" href="/x/" target="_blank" rel="noopener' in html

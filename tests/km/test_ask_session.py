@@ -218,10 +218,10 @@ def test_the_six_questions_of_one_conversation(client_viewer, ai, today):  # noq
     assert set(row.read) == ids((1, 1), (1, 2), (1, 4), (7, 2), (8, 1))
     assert [f.finding_id for f in _picked(Q1).findings][-1] == "TST-0001-F00004"  # no figure: last
     assert final["meta"] == (
-        "Answered from 5 matching findings. Only 1 finding names Mount Lebanon: findings from all of Lebanon "
-        "were read too."
+        "Answered from 5 matching findings. Only 1 finding on this subject names Mount Lebanon: findings from "
+        "all of Lebanon were read too."
     )
-    assert "Read from the question: only 1 finding names Mount Lebanon" in _sent(fake)
+    assert "Read from the question: only 1 finding on this subject names Mount Lebanon" in _sent(fake)
 
     # Q2: the request and time words are not searched; the South and Nabatiyeh are one place group (the
     # South, the South and Nabatieh governorates, their districts and towns); the past 2 years are 2024-2026,
@@ -241,11 +241,17 @@ def test_the_six_questions_of_one_conversation(client_viewer, ai, today):  # noq
     # cited read first, then its own words (the Excel clause is not searched): the findings on disability in
     # the South and Nabatieh, and as only 2 name them, the others of all Lebanon too; Q2's answer is sent whole
     final, row = ask(Q3)
-    assert row.read == [*sorted(ids((2, 2), (2, 3), (2, 5))), *sorted(ids((4, 1), (4, 3))), "TST-0009-F00001"]
+    # (the gender lens reads the finding on girls and boys too)
+    assert row.read == [
+        *sorted(ids((2, 2), (2, 3), (2, 5))),
+        *sorted(ids((4, 1), (4, 3))),
+        "TST-0004-F00002",
+        "TST-0009-F00001",
+    ]
     assert final["meta"] == (
-        "Answered from 6 matching findings. A follow-up of your earlier question; the findings its answer "
-        "cited were read again. Only 2 findings name the South (South and Nabatieh governorates): findings "
-        f"from all of Lebanon were read too. {KEPT}"
+        "Answered from 7 matching findings. A follow-up of your earlier question; the findings its answer "
+        "cited were read again. Only 2 findings on this subject name the South (South and Nabatieh "
+        f"governorates): findings from all of Lebanon were read too. {KEPT}"
     )
     text = _sent(fake)
     assert "Earlier in this conversation:\nQ: " + Q1 in text
@@ -275,20 +281,26 @@ def test_the_six_questions_of_one_conversation(client_viewer, ai, today):  # noq
         *[(i, "No") for i in row.read if i not in row.cited],
     ]
     about = dict(list(book["About"].iter_rows(values_only=True))[1:])
-    assert about["Question"] == Q3 and about["Rows"] == 6 and about["Cited in the answer"] == 2
+    assert about["Question"] == Q3 and about["Rows"] == 7 and about["Cited in the answer"] == 2
     assert "Asked on" in about and rows[0][header.index("publishing_organisations")] == "Fakeorg University"
 
     # Q4: no word of its own ("do it for all lebanon"): Q3's subject (disability, gender) and Q2's years, for
     # all of Lebanon, the findings Q3's answer cited read first; answered, never "no findings"
     final, row = ask(Q4)
     assert row.status == "answered" and row.model
-    assert row.read == ["TST-0004-F00001", "TST-0004-F00003", "TST-0002-F00002", "TST-0009-F00001"]
+    assert row.read == [
+        "TST-0004-F00001",
+        "TST-0004-F00002",
+        "TST-0004-F00003",
+        "TST-0002-F00002",
+        "TST-0009-F00001",
+    ]
     assert [f.finding_id for f in _picked(Q4, earlier=ask_history(row)).findings][:2] == [
         "TST-0004-F00001",
         "TST-0002-F00002",
     ]
     assert final["meta"] == (
-        "Answered from 4 matching findings. Same subject as your earlier question; the findings its answer "
+        "Answered from 5 matching findings. Same subject as your earlier question; the findings its answer "
         "cited were read again. All of Lebanon, from your question: no place restriction. "
         f"{KEPT}"
     )
@@ -303,13 +315,16 @@ def test_the_six_questions_of_one_conversation(client_viewer, ai, today):  # noq
         f"{KEPT}"
     )
 
-    # Q6: "all gov" asks for a breakdown by governorate, in 2024-2026, without the years not reported; it
+    # Q6: "all gov" asks for a breakdown by governorate, in 2024-2026, without the years not reported (the
+    # findings that name a governorate, or a district or town as its governorate: Saida and Tyre, Zahle); it
     # names its own subject (children), so it is a new question, not a follow-up of Q5
     final, row = ask(Q6)
     assert row.read[0] == "TST-0007-F00001"
-    assert set(row.read) == ids((2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (4, 1), (4, 3), (7, 1))
+    assert set(row.read) == ids(
+        (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (4, 1), (4, 3), (7, 1), (7, 2), (7, 3)
+    )
     assert final["meta"] == (
-        "Answered from 9 matching findings. By governorate, from your question: findings that name "
+        "Answered from 11 matching findings. By governorate, from your question: findings that name "
         f"governorates first. {YEARS}"
     )
     assert len(fake.calls()) == 6
@@ -324,6 +339,23 @@ def test_q1_when_no_finding_names_mount_lebanon(client_viewer, ai, today):  # no
     row = KMQuestion.objects.get()
     assert set(row.read) == ids((1, 1), (1, 2), (1, 4), (7, 2), (8, 1))
     assert final["meta"] == (
-        "Answered from 5 matching findings. No finding names Mount Lebanon: findings from all of Lebanon were "
-        "read."
+        "Answered from 5 matching findings. No finding on this subject names Mount Lebanon: findings from all "
+        "of Lebanon were read."
     )
+
+
+def test_q6_written_with_for_all_governorates_after_q5_is_a_new_question(ai, today):  # noqa: F811
+    factory.load(build(DOCS))
+    earlier = [
+        {"question": Q2, "answer": "Fake [TST-0002-F00002].", "cited": [factory.finding_id(2, 2)]},
+        {"question": Q3, "answer": "Fake [TST-0004-F00001].", "cited": [factory.finding_id(4, 1)]},
+        {"question": Q4, "answer": "Fake [TST-0009-F00001].", "cited": [factory.finding_id(9, 1)]},
+        {"question": Q5, "answer": "Fake [TST-0004-F00001].", "cited": [factory.finding_id(4, 1)]},
+    ]
+    rephrased = Q6.replace("in all gov", "for all governorates")
+    picked = _picked(rephrased, earlier=earlier)
+    assert not picked.follow_up and picked.kept == [] and picked.breakdown
+    assert {f.finding_id for f in picked.findings} == {f.finding_id for f in _picked(Q6).findings}
+    assert {f.finding_id for f in picked.findings} == {
+        f.finding_id for f in _picked(Q6, earlier=earlier).findings
+    }

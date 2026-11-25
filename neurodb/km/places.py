@@ -6,14 +6,20 @@ workbook's text and never another NeuroDB table.
   searched; all the places of one question make **one** place group (:attr:`Reading.alternatives`): a
   finding qualifies when its own words name any of them. A governorate also finds its districts and towns
   ("South" finds "Saida", "Tyre", "Jezzine"); Mount Lebanon also finds Keserwan-Jbeil, as older reports
-  count it in Mount Lebanon. A district or a town finds its own spellings ("Tripoli (North)").
+  count it in Mount Lebanon. A district, a town or a camp finds its own spellings ("Tripoli (the North)"). A
+  spelling inside another governorate's place is not its place ("Jbeil" in "Bint Jbeil": :func:`shadows`).
 - **"South Lebanon", "the south"** mean the South and Nabatieh governorates; "South governorate" the South
   only.
-- **Governorate words** ("governorate", "gov", "mohafaza") are part of the place when a place is named, and
-  otherwise ask for a breakdown by governorate (:attr:`Reading.breakdown`: "all governorates", "by
-  governorate", "all gov").
-- **"All Lebanon", "national", "nationwide"** ask for no place (:attr:`Reading.national`): a place named
-  with them is not a restriction.
+- **Governorate words** ("governorate", "gov", "mohafaza") and **district words** ("district", "caza") are
+  part of the place when a place is named, and otherwise ask for a breakdown (:attr:`Reading.breakdown`:
+  "all governorates", "by governorate", "all gov"; "by district", "each caza", "the districts":
+  :attr:`Reading.by_district`). A breakdown keeps the findings that name a place: a governorate, or a
+  district or town as its governorate.
+- **"All Lebanon", "nationally", "nationwide", "national level"** ask for no place
+  (:attr:`Reading.national`). The word "national" alone does so when the question names a place ("the
+  national rate and Akkar": every place, the findings naming Akkar first); without one it is a word of the
+  subject ("the national education strategy"), read as all of Lebanon only when nothing else is left to
+  search (:attr:`Reading.national_word`).
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ class Place:
     spellings: tuple[str, ...]  # lower case, as questions and texts write it
     governorates: tuple[str, ...] = ()  # a district or a town: the governorate(s) it is in
     includes: tuple[str, ...] = ()  # a governorate: other governorates its findings count (older reports)
+    camp: bool = False  # a camp: "Shatila camp" is the place, "camp" no word to search
 
 
 GOVERNORATES: tuple[Place, ...] = (
@@ -95,7 +102,19 @@ GOVERNORATES: tuple[Place, ...] = (
     Place(
         "north",
         "North",
-        ("north governorate", "north lebanon", "northern lebanon", "northern governorate", "north"),
+        (
+            "north governorate",
+            "north lebanon",
+            "northern lebanon",
+            "northern governorate",
+            "north",
+            "liban-nord",
+            "liban nord",
+            "nord-liban",
+            "nord liban",
+            "shamal",
+            "chamal",
+        ),
     ),
     Place(
         "south",
@@ -108,6 +127,8 @@ GOVERNORATES: tuple[Place, ...] = (
             "southern border",
             "southern borders",
             "south",
+            "liban-sud",
+            "liban sud",
         ),
     ),
 )
@@ -173,6 +194,65 @@ DISTRICTS: tuple[Place, ...] = (
     Place("tyre", "Tyre", ("tyre", "sour", "tyr"), ("south",)),
     Place("jezzine", "Jezzine", ("jezzine", "jezzin", "jizzin", "jazzine"), ("south",)),
     Place("naqoura", "Naqoura", ("naqoura", "naqura"), ("south",)),
+    # the Palestine refugee camps, each in its governorate (Shatila and Bourj el-Barajneh: Beirut's southern
+    # suburbs, counted in Beirut and in Mount Lebanon)
+    Place(
+        "ein-el-hilweh",
+        "Ein el-Hilweh",
+        (
+            "ein el-hilweh",
+            "ein el hilweh",
+            "ein al-hilweh",
+            "ein al hilweh",
+            "ain el-hilweh",
+            "ain el hilweh",
+            "ain al-hilweh",
+            "ain al hilweh",
+            "ain el-helweh",
+            "ein el-helweh",
+        ),
+        ("south",),
+        camp=True,
+    ),
+    Place("mieh-mieh", "Mieh Mieh", ("mieh mieh", "mieh-mieh", "miyeh miyeh"), ("south",), camp=True),
+    Place(
+        "rashidieh", "Rashidieh", ("rashidieh", "rashidiyeh", "rachidieh", "rashidiya"), ("south",), camp=True
+    ),
+    Place(
+        "burj-el-shemali",
+        "Burj el-Shemali",
+        ("burj el-shemali", "burj el shemali", "burj shemali", "bourj el-chemali", "burj al-shamali"),
+        ("south",),
+        camp=True,
+    ),
+    Place("el-buss", "El Buss", ("el buss", "el-buss", "al buss", "al-buss"), ("south",), camp=True),
+    Place(
+        "nahr-el-bared",
+        "Nahr el-Bared",
+        ("nahr el-bared", "nahr el bared", "nahr al-bared", "nahr al bared"),
+        ("north",),
+        camp=True,
+    ),
+    Place("beddawi", "Beddawi", ("beddawi", "baddawi", "beddaoui"), ("north",), camp=True),
+    Place("mar-elias", "Mar Elias", ("mar elias",), ("beirut",), camp=True),
+    Place("shatila", "Shatila", ("shatila", "chatila", "shateela"), ("beirut", "mount-lebanon"), camp=True),
+    Place(
+        "bourj-el-barajneh",
+        "Bourj el-Barajneh",
+        (
+            "bourj el-barajneh",
+            "bourj el barajneh",
+            "burj el-barajneh",
+            "burj el barajneh",
+            "burj al-barajneh",
+            "burj barajneh",
+            "bourj barajneh",
+        ),
+        ("mount-lebanon", "beirut"),
+        camp=True,
+    ),
+    Place("dbayeh", "Dbayeh", ("dbayeh", "dbaye"), ("mount-lebanon",), camp=True),
+    Place("wavel", "Wavel", ("wavel", "jalil camp"), ("baalbek-hermel",), camp=True),
 )
 # what a question means by these words: the South and Nabatieh governorates, as many reports use it
 REGIONS: dict[str, tuple[str, ...]] = {
@@ -184,9 +264,15 @@ REGIONS: dict[str, tuple[str, ...]] = {
         "south of lebanon",
         "southern border",
         "southern borders",
+        "sud-liban",
+        "sud liban",
+        "sud du liban",
+        "janoub",
+        "jnoub",
     )
 }
 REGION_NAMES = {("south", "nabatieh"): "the South (South and Nabatieh governorates)"}
+THE = frozenset({"north", "south"})  # said "the North", "the South"
 GOVERNORATE_WORDS = (
     "governorates",
     "governorate",
@@ -201,8 +287,22 @@ GOVERNORATE_WORDS = (
     "gouvernorats",
     "gouvernorat",
 )
-# the governorate words as findings write them (not "gov": texts write it for "government")
-WRITTEN_GOVERNORATE_WORDS = ("governorate", "governorates", "mohafaza", "mohafazat")
+# the words for a district (a caza), and the phrases that ask for a breakdown by district
+DISTRICT_WORDS = (
+    "districts",
+    "district",
+    "cazas",
+    "caza",
+    "kazas",
+    "kaza",
+    "qadaas",
+    "qadaa",
+    "qada",
+    "aqdiya",
+)
+# the governorate and district words as findings write them (not "gov": texts write it for "government"; not
+# "district" alone: "district hospitals")
+WRITTEN_GOVERNORATE_WORDS = ("governorate", "governorates", "mohafaza", "mohafazat", "districts", "cazas")
 NATIONAL = (
     "all of lebanon",
     "all over lebanon",
@@ -221,7 +321,14 @@ NATIONAL = (
     "countrywide",
     "country-wide",
     "nationally",
-    "national",
+    "national figures",
+    "national figure",
+    "national average",
+    "national averages",
+    "national rate",
+    "national rates",
+    "national data",
+    "national scale",
 )
 ARTICLE = r"(?:(?:the|el|al|an|ash|ech)[\s-]+)?"  # "the North", "El Nabatieh", "al-Koura"
 
@@ -232,21 +339,32 @@ BY_KEY: dict[str, Place] = {p.key: p for p in (*GOVERNORATES, *DISTRICTS)}
 def _aliases() -> list[tuple[re.Pattern, tuple[str, ...], str]]:
     """Every spelling a question may use, the longest first: its pattern, the places it means, and the name
     the line under the answer gives it."""
-    found: dict[str, tuple[tuple[str, ...], str]] = {}
+    found: dict[str, tuple[tuple[str, ...], str, str]] = {}
     for place in (*GOVERNORATES, *DISTRICTS):
-        name = place.name if not place.governorates else f"{place.name} ({_names(place.governorates)})"
+        name = said(place.key) if not place.governorates else f"{place.name} ({_names(place.governorates)})"
         for spelling in place.spellings:
-            found.setdefault(spelling, ((place.key,), name))
+            found.setdefault(spelling, ((place.key,), name, r"(?:\s+camps?)?" if place.camp else ""))
     for spelling, keys in REGIONS.items():
-        found[spelling] = (keys, REGION_NAMES[keys])
+        found[spelling] = (keys, REGION_NAMES[keys], "")
     return [
-        (re.compile(rf"(?<![\w'-]){ARTICLE}{re.escape(spelling)}(?![\w'-])", re.IGNORECASE), keys, name)
-        for spelling, (keys, name) in sorted(found.items(), key=lambda item: len(item[0]), reverse=True)
+        (
+            re.compile(rf"(?<![\w'-]){ARTICLE}{re.escape(spelling)}{suffix}(?![\w'-])", re.IGNORECASE),
+            keys,
+            name,
+        )
+        for spelling, (keys, name, suffix) in sorted(
+            found.items(), key=lambda item: len(item[0]), reverse=True
+        )
     ]
 
 
+def said(key: str) -> str:
+    """A place as the line under an answer names it: "Akkar", "the North"."""
+    return f"the {BY_KEY[key].name}" if key in THE else BY_KEY[key].name
+
+
 def _names(keys: tuple[str, ...]) -> str:
-    return " and ".join(BY_KEY[k].name for k in keys)
+    return " and ".join(said(k) for k in keys)
 
 
 def _phrases(words: tuple[str, ...]) -> re.Pattern:
@@ -255,7 +373,15 @@ def _phrases(words: tuple[str, ...]) -> re.Pattern:
 
 
 _GOVERNORATE_WORDS = _phrases(GOVERNORATE_WORDS)
+_DISTRICT_WORDS = _phrases(DISTRICT_WORDS)
 _NATIONAL = _phrases(NATIONAL)
+_NATIONAL_WORD = _phrases(("national",))
+# a breakdown by district: "by district", "each caza", "all the districts", or the plural ("the districts")
+_BY_DISTRICT = re.compile(
+    r"(?<![\w'-])(?:(?:by|each|every|all|per|across|for\s+each|for\s+all|of\s+all|in\s+all|different|various)"
+    r"\s+(?:the\s+)?(?:districts?|cazas?|kazas?|qadaas?|qada)|districts|cazas|kazas|qadaas|aqdiya)(?![\w'-])",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -268,6 +394,8 @@ class Reading:
     names: list[str] = field(default_factory=list)
     national: bool = False
     breakdown: bool = False
+    by_district: bool = False  # the breakdown was asked by district ("by district", "each caza")
+    national_word: bool = False  # "national" with no place named: left in the text, a word of the subject
 
     @property
     def restricted(self) -> bool:
@@ -276,7 +404,10 @@ class Reading:
 
     @property
     def label(self) -> str:
-        return ", ".join(self.names)
+        """The places named: "Akkar", "Akkar or the North", "Akkar, Beirut or the North"."""
+        if len(self.names) < 2:
+            return "".join(self.names)
+        return f"{', '.join(self.names[:-1])} or {self.names[-1]}"
 
     def alternatives(self) -> list[str]:
         """The spellings a finding's own words may use for any of the places named: one group."""
@@ -303,15 +434,41 @@ def written(key: str) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+@cache
+def shadows(spelling: str) -> tuple[str, ...]:
+    """The spellings of places of other governorates that hold ``spelling`` as one of their words ("jbeil"
+    in "Bint Jbeil", "north" in "North Metn"): a finding that names one of them does not name ``spelling``'s
+    place."""
+    owner = [p for p in (*GOVERNORATES, *DISTRICTS) if spelling in p.spellings]
+    if not owner or " " in spelling or "-" in spelling:
+        return ()
+    found = []
+    for place in owner:
+        mine = {place.key, *place.governorates, *place.includes}
+        for other in (*GOVERNORATES, *DISTRICTS):
+            theirs = {other.key, *other.governorates}
+            if mine & theirs or any(key in BY_KEY[g].includes for key in theirs for g in mine if g in BY_KEY):
+                continue
+            found += [s for s in other.spellings if s != spelling and spelling in re.split(r"[\s-]+", s)]
+    return tuple(dict.fromkeys(found))
+
+
 def breakdown_alternatives() -> list[str]:
-    """A breakdown by governorate: the governorate words and every governorate's own spellings."""
-    return _pruned([*WRITTEN_GOVERNORATE_WORDS, *(s for g in GOVERNORATES for s in g.spellings)])
+    """A breakdown by governorate: the governorate words and the spellings of every governorate, district and
+    town (a district or a town names its governorate)."""
+    return _pruned(
+        [*WRITTEN_GOVERNORATE_WORDS, *(s for p in (*GOVERNORATES, *DISTRICTS) for s in p.spellings)]
+    )
 
 
 def governorate_alternatives() -> list[list[str]]:
-    """Each governorate's own spellings: a finding that names more governorates ranks first in a
+    """Each governorate's spellings with those of its districts and towns (each counted in its first
+    governorate, as :func:`compares` counts them): a finding that names more governorates ranks first in a
     breakdown."""
-    return [_pruned(list(g.spellings)) for g in GOVERNORATES]
+    return [
+        _pruned([*g.spellings, *(s for d in DISTRICTS if d.governorates[0] == g.key for s in d.spellings)])
+        for g in GOVERNORATES
+    ]
 
 
 def _pruned(spellings: list[str]) -> list[str]:
@@ -334,7 +491,9 @@ def _claimed(rest: str) -> list[tuple[int, int, tuple[str, ...], str]]:
     return claimed
 
 
-_PLURAL = re.compile(r"(?<![\w'-])(?:governorates|mohafazat|muhafazat|gouvernorats)(?![\w'-])", re.IGNORECASE)
+_PLURAL = re.compile(
+    r"(?<![\w'-])(?:governorates|mohafazat|muhafazat|gouvernorats|districts|cazas)(?![\w'-])", re.IGNORECASE
+)
 
 
 def compares(text: str) -> bool:
@@ -368,6 +527,12 @@ def read(text: str) -> Reading:
         rest = rest[:start] + " " + rest[end:]
     national = bool(_NATIONAL.search(rest))
     rest = _NATIONAL.sub(" ", rest)
+    national_word = bool(_NATIONAL_WORD.search(rest))
+    if national_word and keys:  # "the national rate and Akkar": every place, Akkar first
+        national, national_word = True, False
+        rest = _NATIONAL_WORD.sub(" ", rest)
+    by_district = not keys and bool(_BY_DISTRICT.search(rest))
+    rest = (_DISTRICT_WORDS if keys else _BY_DISTRICT).sub(" ", rest)
     governorate = bool(_GOVERNORATE_WORDS.search(rest))
     rest = _GOVERNORATE_WORDS.sub(" ", rest)
     return Reading(
@@ -375,5 +540,7 @@ def read(text: str) -> Reading:
         keys=keys,
         names=names,
         national=national,
-        breakdown=governorate and not keys,
+        breakdown=(governorate or by_district) and not keys,
+        by_district=by_district and not governorate,
+        national_word=national_word,
     )

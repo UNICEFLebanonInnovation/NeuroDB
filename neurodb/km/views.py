@@ -11,6 +11,7 @@ load stopped is marked not loaded). An HTMX request (a filter, a page link) gets
 
 from __future__ import annotations
 
+import datetime
 import uuid
 from typing import Any
 
@@ -21,7 +22,7 @@ from django.db.models import Count, F, Q, Value
 from django.http import HttpRequest, HttpResponse, JsonResponse, QueryDict, StreamingHttpResponse
 from django.shortcuts import render
 from django.urls import reverse
-from django.utils import formats
+from django.utils import formats, timezone
 from django.utils.html import format_html
 from django.utils.safestring import SafeData
 from django.views.decorators.http import require_GET, require_POST
@@ -718,13 +719,17 @@ def ask_findings(request: HttpRequest, question: int) -> HttpResponse:
     """**Excel of these findings** and **CSV of these findings** under an answer (``?export=xlsx|csv``): the
     findings it read (:attr:`KMQuestion.read`, those it cites first), by the download rule of the tabs'
     downloads (:func:`.exports.findings_export`). Only the person who asked gets them (another person's
-    question, one older than 90 days or one that read nothing is "not among your questions"), and only while
-    the version it read is shown: a newer version has replaced its findings. Donors are refused by the
-    middleware (403, as the questions are)."""
+    question, one older than 90 days, one with no answer written (a call that failed, was refused, cut off or
+    kept back) or one that read nothing is "not among your questions"), and only while the version it read is
+    shown: a newer version has replaced its findings. Donors are refused by the middleware (403, as the
+    questions are)."""
     fmt = request.GET.get("export")
     version = live()
+    kept_since = timezone.now() - datetime.timedelta(days=ask.RETENTION_DAYS)
     row = (
-        KMQuestion.objects.filter(pk=question, user=request.user)
+        KMQuestion.objects.filter(
+            pk=question, user=request.user, status=KMQuestion.Status.ANSWERED, created_at__gte=kept_since
+        )
         .select_related("version")
         .defer("version__content")
         .first()
@@ -732,7 +737,10 @@ def ask_findings(request: HttpRequest, question: int) -> HttpResponse:
     if fmt not in report_exports.FORMATS or row is None or not row.read:
         context = {"page_title": words.PAGE_TITLE, "message": str(words.MISSING_ANSWER), "words": words}
         return render(request, "km/missing.html", context, status=404)
-    if version is None or row.version_id != version.pk:
+    # the version shown, asked afresh (live() is kept 10 seconds by each process: one that has not yet seen a
+    # new version would serve its findings under the older version's About sheet)
+    shown = KMVersion.objects.filter(pk=row.version_id, status=KMVersion.Status.LIVE).exists()
+    if version is None or row.version_id != version.pk or not shown:
         label = row.version.label(loaded=True) if row.version else words.AN_EARLIER_VERSION
         context = {
             "page_title": words.PAGE_TITLE,

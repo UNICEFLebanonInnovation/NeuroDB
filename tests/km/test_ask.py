@@ -1490,8 +1490,11 @@ def test_many_groups_need_a_third_of_them_with_a_fallback(ai):
     # none matches 3 of the 7 (each word is in a finding): 2 of them are enough
     factory.load(key_findings(*texts[1:], "Fake rivers rose.", documents=2))
     assert set(_ids(_picked(question))) == {"TST-0001-F00001", "TST-0002-F00001", "TST-0001-F00002"}
-    # 2 groups: both, as before
-    assert _ids(_picked("rainfall rivers")) == []
+    # 2 groups: both; when no finding holds both, either (the line under the answer says so)
+    picked = _picked("rainfall rivers")
+    assert set(_ids(picked)) == {"TST-0001-F00001", "TST-0002-F00002"} and picked.loose
+    assert picked.notes == ["No finding matches all your words: findings that match one of them were read."]
+    assert _ids(_picked("rainfall schools")) == ["TST-0001-F00001"]  # both, when a finding holds both
 
 
 def test_a_word_that_matches_no_finding_never_counts(ai):
@@ -1591,19 +1594,25 @@ def test_a_place_with_few_findings_reads_the_others_too_and_says_so(ai):
     picked = _picked("number of children out of school in mont lebanon")
     assert set(_ids(picked)) == {"TST-0001-F00001", "TST-0002-F00001", "TST-0005-F00001"}
     assert _ids(picked)[2] == "TST-0005-F00001"  # the question asks for a number: figures first
-    assert picked.notes == ["No finding names Mount Lebanon: findings from all of Lebanon were read."]
+    assert picked.notes == [
+        "No finding on this subject names Mount Lebanon: findings from all of Lebanon were read."
+    ]
     factory.load(key_findings(*texts, "In Mount Lebanon, 18,300 children were out of school.", documents=6))
     picked = _picked("number of children out of school in mont lebanon")
     assert _ids(picked)[0] == "TST-0006-F00001" and len(picked.findings) == 4
-    assert picked.notes == ["Only 1 finding names Mount Lebanon: findings from all of Lebanon were read too."]
+    assert picked.notes == [
+        "Only 1 finding on this subject names Mount Lebanon: findings from all of Lebanon were read too."
+    ]
 
 
 def test_all_lebanon_asks_for_no_place(ai):
     factory.load(
-        key_findings("In Akkar, 9% of children were out of school.", "Nationally, 23% were out of school.")
+        key_findings("Nationally, 23% were out of school.", "In Akkar, 9% of children were out of school.")
     )
     picked = _picked("out of school children in akkar and all of lebanon")
-    assert set(_ids(picked)) == {"TST-0001-F00001", "TST-0002-F00001"}
+    assert _ids(picked) == ["TST-0002-F00001", "TST-0001-F00001"]  # every place, Akkar first
+    assert picked.notes == ["All of Lebanon, from your question, with the findings that name Akkar first."]
+    picked = _picked("out of school children in all of lebanon")
     assert picked.notes == ["All of Lebanon, from your question: no place restriction."]
 
 
@@ -1650,7 +1659,8 @@ def test_identical_texts_are_read_once_and_every_copy_stays_citable(client_viewe
         ("latest", ["2026", "2025", "2024"], "2024–2026"),
     ],
 )
-def test_a_time_frame_in_the_question_is_the_year_filter(ai, today, asked, years, said):
+def test_a_time_frame_in_the_question_is_the_year_filter(ai, today, monkeypatch, asked, years, said):
+    monkeypatch.setattr(ask, "FEW_IN_PLACE", 3)  # "latest": 3 findings of those years are enough
     edits = {}
     for n, year in enumerate((2019, 2022, 2023, 2024, 2025, 2026, "Not reported"), 1):
         edits[("findings", n + 1, "Publication Year")] = year
@@ -1769,6 +1779,17 @@ def _rain():
         ("i need a paragraph describing situation of children in all gov in the past 2 years only", False),
         ("What drives it among the poorest households of the country?", False),  # a bare "it" is no reference
         ("Tell me more about TST-0002-F00001 please", False),  # names a finding
+        # a word that new questions use too, with a subject of its own
+        ("Is free education for all children achieved?", False),
+        ("Why did school enrolment fall again?", False),
+        ("Do cash transfers work instead of in-kind aid?", False),
+        ("And why did the teachers leave the schools?", False),  # a leading "and", then a question of its own
+        ("How did families adjust to the crisis?", False),
+        # a pointer to the earlier answer
+        ("What about child marriage?", True),
+        ("how about the teachers who left the schools?", True),
+        ("adjust it with a lens on the teachers who left", True),
+        ("can you do it again for the teachers who left?", True),
     ],
 )
 def test_a_follow_up_refers_to_the_earlier_answer_or_has_no_subject_of_its_own(ai, today, question, follows):
@@ -1805,7 +1826,7 @@ def test_a_follow_up_carries_the_last_subject_its_places_and_its_years(ai, today
     assert _ids(picked)[0] == "TST-0002-F00001" and picked.filters.year == ["2025"]
     assert picked.notes == [
         "Same subject as your earlier question.",
-        "Only 1 finding names Akkar: findings from all of Lebanon were read too.",
+        "Only 1 finding on this subject names Akkar: findings from all of Lebanon were read too.",
         "Years 2025, from your question; findings whose year is not reported are left out (the Year filter "
         "changes it).",
     ]
@@ -1973,13 +1994,13 @@ def test_the_partly_notice_says_what_is_missing(client_viewer, ai, today):
     ai([answer(f"Fake [{i}].", "partly") for i in cites])
     partly = "Each [reference] opens the finding it comes from. The KM Database answers this only in part"
     final = done(post(client_viewer, "rainfall flooding schools in mont lebanon"))
-    assert final["notice"] == f"{partly}: no finding names Mount Lebanon."
+    assert final["notice"] == f"{partly}: no finding on this subject names Mount Lebanon."
     final = done(post(client_viewer, "teachers left in the South in 2022"))
     assert final["notice"] == f"{partly}: no finding of 2022."
     final = done(post(client_viewer, "teachers left in the South"))
     assert final["notice"] == f"{partly}."  # nothing it can name
     final = done(post(client_viewer, "rainfall flooding schools in Akkar"))
-    assert final["notice"] == f"{partly}: only 1 finding names Akkar."
+    assert final["notice"] == f"{partly}: only 1 finding on this subject names Akkar."
     final = done(post(client_viewer, "teachers left, by governorate"))
     assert final["notice"] == f"{partly}: no finding read compares governorates."
 

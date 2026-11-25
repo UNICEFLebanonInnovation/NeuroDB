@@ -154,7 +154,8 @@ class AISettings(models.Model):
             "effort above."
         ),
     )
-    # Ask the KM Database's own effort, read only while Claude is the provider (neurodb.km.ask.effort)
+    # Ask the KM Database's own effort, read only while Claude is the provider
+    # (neurodb.assistant.llm.km_effort)
     km_effort = models.CharField(
         _("KM Database assistant effort"),
         max_length=8,

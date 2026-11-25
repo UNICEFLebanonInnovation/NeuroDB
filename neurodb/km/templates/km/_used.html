@@ -1,6 +1,7 @@
 {% comment %}
   The findings under an answer of the KM Database's assistant (km.ask.used_html): those it cites, then a fold
-  with every finding read and the links to download them (downloads: Excel and CSV, plain links); or every
+  with every finding read and the links to download them (downloads: Excel and CSV, plain links opened in a
+  new tab, so that a refusal page never replaces the conversation); or every
   finding that matches, when no answer was written. Each line links the finding as the version read it (?v=).
   The authors are shown on screen only; a printout shows the key finding and the title as a download writes
   them. Never kept or sent to the AI.
@@ -12,5 +13,5 @@
 <span class="cell-sub km-used__meta">{% include "km/partials/_pill.html" with pill=f.pill %} {{ f.year }} · {% include "km/partials/_printed.html" with text=f.title paper=f.paper_title %}{% if f.entity %}<span class="d-print-none"> — {{ f.entity }}</span>{% endif %}</span>
 </li>{% endfor %}</ol>
 {% if read %}<details class="km-used__read"><summary>{{ read_label }}</summary><p class="mb-0">{% for r in read %}<a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">{{ r.id }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p></details>{% endif %}
-{% if downloads %}<p class="km-used__downloads d-print-none">{% for d in downloads %}<a class="btn btn-outline-secondary btn-sm" href="{{ d.url }}">{% include "components/icon.html" with name="download" %}<span>{{ d.label }}</span></a>{% endfor %}</p>{% endif %}
+{% if downloads %}<p class="km-used__downloads d-print-none">{% for d in downloads %}<a class="btn btn-outline-secondary btn-sm" href="{{ d.url }}" target="_blank" rel="noopener noreferrer">{% include "components/icon.html" with name="download" %}<span>{{ d.label }}</span></a>{% endfor %}</p>{% endif %}
 </section>
