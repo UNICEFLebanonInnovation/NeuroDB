@@ -75,8 +75,8 @@ def test_same_filter_same_numbers_on_every_page(client_viewer, submitted, frozen
     assert {r.title: r.reached for r in partner_page["monitoring"]["rows"]} == {
         t: r.reached for t, r in grid.items()
     }
-    # the map: the indicator's Reached at each of its places, the places it was reported at are its
-    # locations, and their own Reached (the indicator's breakdown by location) adds up to it
+    # the map: each place's row gives the indicator's Reached, and the places it was reported at are
+    # the indicator's locations (Indicator.by_location, which map_points reads)
     places = monitoring.map_points(monitoring.Filters(year=2026), today=TODAY)
     mine = [
         (p["key"], r)
@@ -86,6 +86,8 @@ def test_same_filter_same_numbers_on_every_page(client_viewer, submitted, frozen
     ]
     assert {r["reached"] for _key, r in mine} == {580.0}
     assert sorted(key for key, r in mine if r["reported"]) == sorted(girls.by_location)
+    # a place's own Reached is no longer on the map's rows: the per-location sum lives on the indicator,
+    # here the one the map reads (the indicator page's by_location is checked above)
     assert sum(loc["reached"] for loc in girls.by_location.values()) == 580.0
     # Ask NeuroDB
     out = tools.run("pd_indicator_progress", {"partner": "amel", "year": 2026})
