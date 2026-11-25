@@ -29,7 +29,7 @@
     </select>
   </div>
   {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=options.sections values=selected.section %}
-  {% trans "Status" as l %}{% include "reports/_multiselect.html" with name="status" label=l options=options.statuses values=selected.status %}
+  {% trans "Status" as l %}{% trans "The programme document status in eTools. By default the active ones. Clear the choice for every status." as tip %}{% include "reports/_multiselect.html" with name="status" label=l options=options.statuses values=selected.status tip=tip keep_empty=True %}
   <div class="filter-bar__field">
     <label class="form-label" for="f-start-from">{% trans "Start year from" %}</label>
     <select class="form-select form-select-sm" id="f-start-from" name="start_from">
@@ -64,7 +64,7 @@
   </div>
   {% trans "Partner" as l %}{% include "reports/_multiselect.html" with name="partner" label=l options=options.partners values=selected.partner %}
   {% trans "Section" as l %}{% include "reports/_multiselect.html" with name="section" label=l options=options.sections values=selected.section %}
-  {% trans "Status" as l %}{% include "reports/_multiselect.html" with name="status" label=l options=options.statuses values=selected.status %}
+  {% trans "Status" as l %}{% trans "The programme document status in eTools. By default the active ones. Clear the choice for every status." as tip %}{% include "reports/_multiselect.html" with name="status" label=l options=options.statuses values=selected.status tip=tip keep_empty=True %}
   {% trans "Donor" as l %}{% include "reports/_multiselect.html" with name="donor" label=l options=options.donors values=selected.donor %}
   {% trans "Grant" as l %}{% include "reports/_multiselect.html" with name="grant" label=l options=options.grants values=selected.grant %}
   {% trans "Document type" as l %}{% include "reports/_multiselect.html" with name="document_type" label=l options=options.document_types values=selected.document_type %}

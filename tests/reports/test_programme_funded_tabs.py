@@ -346,13 +346,21 @@ def test_the_old_summary_address_opens_the_summary_tab(client_viewer, world):
 
 # ---------------------------------------------------------------------------------------------- overall
 def _overall(client, **params):
-    response = client.get(PAGE, {"tab": "overall", **params})
+    """The overall tab with every PD status chosen (``status=``, unless ``params`` choose one): its Status
+    filter opens on the active programme documents since 25 Nov 2026 (test_the_overall_tab_opens_on_active)."""
+    response = client.get(PAGE, {"tab": "overall", "status": "", **params})
     assert response.status_code == 200
     return response, response.context["overall"]
 
 
 def _numbers(overall) -> list[int]:
     return sorted(int(r["number"][-3:]) for r in overall["rows"])
+
+
+def test_the_overall_tab_opens_on_active(client_viewer, world):
+    response = client_viewer.get(PAGE, {"tab": "overall"})
+    assert _numbers(response.context["overall"]) == [1, 2, 4]  # P3 ended, P6 closed: as Funds opens
+    assert response.context["selected"]["status"] == ["active"]
 
 
 def test_overall_lists_every_programme_document_but_drafts_with_its_amounts(client_viewer, world):
@@ -398,7 +406,7 @@ def test_each_filter_of_the_overall_tab(client_viewer, world, params, expected):
 
 
 def test_the_start_years_never_filter_the_programme_documents_tab(client_viewer, world):
-    response = client_viewer.get(PAGE, {"start_from": "2025", "start_to": "2025"})
+    response = client_viewer.get(PAGE, {"start_from": "2025", "start_to": "2025", "status": ""})
     assert response.context["page_obj"].paginator.count == 5
     tabs = dict((label, href) for label, href, _ in _tabs(response.text))
     assert "start_from" not in tabs["Programme documents"] and "start_from" not in tabs["Indicators"]
@@ -431,7 +439,7 @@ def test_the_overall_filter_bar_has_the_old_page_s_filters_only(client_viewer, w
 def test_overall_downloads_hold_the_whole_filter(client_viewer, world):
     response, _overall_data = _overall(client_viewer, section="Health")
     assert "export=xlsx" in response.text and "export=csv" in response.text
-    response = client_viewer.get(PAGE, {"tab": "overall", "section": "Health", "export": "csv"})
+    response = client_viewer.get(PAGE, {"tab": "overall", "section": "Health", "export": "csv", "status": ""})
     assert response.status_code == 200
     text = b"".join(response.streaming_content).decode("utf-8-sig")
     rows = list(csv.DictReader(io.StringIO(text)))
@@ -444,7 +452,7 @@ def test_overall_downloads_hold_the_whole_filter(client_viewer, world):
     assert p3["days_to_end"] == "-1" and p3["funds_reserved_usd"] == "2500.00"
     assert p3["sections"] == "Health" and p3["donors"] == "Donor North"
     _no_people(text)
-    response = client_viewer.get(PAGE, {"tab": "overall", "export": "xlsx"})
+    response = client_viewer.get(PAGE, {"tab": "overall", "export": "xlsx", "status": ""})
     book = openpyxl.load_workbook(io.BytesIO(response.content), read_only=True)
     sheet = list(book.active.iter_rows(values_only=True))
     assert len(sheet) == 1 + 5
@@ -639,7 +647,7 @@ def test_the_summary_sums_run_without_the_database_s_just_in_time_compiler(world
 
 def test_the_donors_page_names_the_programme_documents_page_by_its_name(client_viewer, world):
     """No page is called "Programmes": the menu, the title and the crumbs say Programme documents."""
-    html = client_viewer.get("/donors/").text
+    html = client_viewer.get("/donors/", {"status": ""}).text  # every PD status chosen
     words = " ".join(TAGS.sub(" ", html).split())
     assert "on Programmes" not in words
     assert "a programme document's budget is on Programme documents" in words

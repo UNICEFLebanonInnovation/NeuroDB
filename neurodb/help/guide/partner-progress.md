@@ -235,6 +235,13 @@ a subtotal that differs from the location total is marked. Each indicator's page
 
 The [Programme documents](/programmes/) page has four tabs, each with its own filter bar: *Programme
 documents* (the list), *Indicators*, *Funded programme summary info* and *Funded programme overall*.
+The *Status* filter of the list, *Indicators* and *Funded programme overall* opens on the active programme
+documents only (since 25 Nov 2026; every status before): choose more statuses, or clear the choice to see
+every status. The tabs and the downloads keep your choice. The *Scope* switch (*All* or *Active*) is apart:
+on *All*, the Status filter still applies. The [Donors](/donors/) page's *Status* filter opens on Active the
+same way, and its links to Programme documents and Funds carry its choice. Links from Home, the country
+overview and the brief choose every status, as their figures count every programme document running in the
+year.
 
 - **A programme document's page** lists each of its indicators with its target, Reached, % Reached and
   status, read by the same rule. Administrators, and Section editors of one of its sections, can choose
@@ -245,7 +252,8 @@ documents* (the list), *Indicators*, *Funded programme summary info* and *Funded
   latest; *All reports* opens every one of them on Progress reports.
 - **Open action points and timeline**, at the end of a programme document's page and of a partner's page,
   comes a moment after the rest of the page (see the next section).
-- **Programme documents → Indicators** lists the indicators of every programme document in one table
+- **Programme documents → Indicators** lists the indicators of the programme documents of the Status chosen
+  (the active ones when it opens) in one table
   (PD number and status, partner, document type, dates, office, section, CP output, indicator,
   baseline, target, emergency), with its own filters (no office or emergency filter since
   21 Nov 2026) and an export of the whole filter. Like every page, it
@@ -264,8 +272,9 @@ documents* (the list), *Indicators*, *Funded programme summary info* and *Funded
   disbursed. A programme document counts once for its partner but under each of its sections, so the
   section rows add up to more than the total. *Excel of the summary* downloads the three tables; each
   table also has *Copy* and *CSV*. The old address of the summary page opens this tab.
-- **Programme documents → Funded programme overall** lists every programme document but drafts and
-  cancelled ones (as *Funds → Funded Programs*), 50 to a page. Filter by PD reference, donor, grant,
+- **Programme documents → Funded programme overall** lists the programme documents of the Status chosen, 50
+  to a page: the active ones when it opens, as *Funds → Funded Programs* does; clear the choice for every
+  one but drafts and cancelled ones. Filter by PD reference, donor, grant,
   partner, CSO type, section, status and start year (from, to). Only the start years you pick in its two
   lists filter it, and its downloads hold the same rows as the page. Each row gives the partner, type, status, sections, start and end dates, the days to the end (green
   over 120, amber over 60, red below; *Ended* once it has ended), donors and grants, currency, UNICEF

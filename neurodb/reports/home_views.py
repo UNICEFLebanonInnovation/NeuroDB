@@ -116,8 +116,11 @@ def home_page(request: HttpRequest) -> HttpResponse:
     # the eTools pages: Progress reports' own default for Home's sections, and Partner monitoring's (the
     # sections, this year, every PD running in it)
     progress, keep = home.figure_queries(sections, year)
+    # Programmes with Home's sections and every PD status written out (``status=``): the PDs Home counts run
+    # in the year whatever their status now, and the page opens on the active ones alone
     programmes = QueryDict(mutable=True)
     programmes.setlist("section", sections)
+    programmes["status"] = ""
     previous = QueryDict(mutable=True)
     previous.setlist("section", sections)
     previous["year"] = str(year - 1)
@@ -142,7 +145,7 @@ def home_page(request: HttpRequest) -> HttpResponse:
         "year": year,
         "labels": pd_monitoring_service.LABELS,
         "keep_query": keep.urlencode(),
-        "programmes_query": ("?" + programmes.urlencode()) if sections else "",
+        "programmes_query": "?" + programmes.urlencode(),
         "previous_query": previous.urlencode(),
         "points_query": points.urlencode(),
         "fmm_query": field.urlencode(),

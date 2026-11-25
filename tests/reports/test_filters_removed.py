@@ -276,15 +276,17 @@ def test_partner_monitoring_check_line_follows_the_old_filter_the_page_applies(r
 
 # -------------------------------------------------------------------------------- an old address: ignored
 def test_programme_documents_ignore_an_old_office_or_emergency(client_viewer, old_world):
-    page = client_viewer.get("/programmes/", {"office": "Zahle"})
+    # every PD status chosen (status=): the Status filter opens on Active since 25 Nov 2026
+    page = client_viewer.get("/programmes/", {"office": "Zahle", "status": ""})
     assert {r["number"] for r in page.context["rows"]} == EVERY
     html = text(page)
     assert "old-filters-note" not in html and _links(html) == set()
     every = {
         i["programme_document"]
-        for i in client_viewer.get("/programmes/", {"tab": "indicators"}).context["page_obj"]
+        for i in client_viewer.get("/programmes/", {"tab": "indicators", "status": ""}).context["page_obj"]
     }
     for params in ({"emergency": "yes"}, {"emergency": "no"}, {"office": "Zahle"}):
+        params = {**params, "status": ""}
         page = client_viewer.get("/programmes/", {"tab": "indicators", **params})
         assert {i["programme_document"] for i in page.context["page_obj"]} == every, params
         assert _links(text(page)) == set(), params
@@ -295,7 +297,7 @@ def test_programme_documents_ignore_an_old_office_or_emergency(client_viewer, ol
 
 
 def test_donors_funds_and_partners_ignore_an_old_office_or_partner_type(client_viewer, old_world):
-    donors = client_viewer.get("/donors/", {"office": "Zahle"})
+    donors = client_viewer.get("/donors/", {"office": "Zahle", "status": ""})  # every PD status chosen
     assert donors.context["data"]["count"] == 4 and _links(text(donors)) == set()
     for tab in ("reservations", "contributions", "programmes"):
         funds = client_viewer.get("/funds/", {"tab": tab, "partner_type": "Government"})

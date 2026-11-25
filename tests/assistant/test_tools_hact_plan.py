@@ -188,7 +188,7 @@ def test_the_tool_is_registered_next_to_assurance_overview_and_named_in_the_inst
     names = list(tools.TOOLS)
     assert names.index("hact_visit_plan") == names.index("assurance_overview") + 1
     (definition,) = tools.definitions(["hact_visit_plan"])
-    assert set(definition["parameters"]["properties"]) == {"year", "section"}
+    assert set(definition["parameters"]["properties"]) == {"year", "section", "include_closed"}
     assert definition["parameters"]["required"] == []
     assert "counts only" in definition["description"]
     assert tools.label("hact_visit_plan") == "Reading the HACT visit plan"

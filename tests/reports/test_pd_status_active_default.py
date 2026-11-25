@@ -47,6 +47,7 @@ from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PartnerOrganization
 from neurodb.review import checks as review_checks
 from tests.reports import test_hact_plan_page as plan_world
+from tests.reports.test_hact_plan_page import people  # noqa: F401 (a fixture)
 from tests.reports.test_home_reporting import _indicator, _pd, _report
 from tests.web.parts import raw_get, text
 
@@ -427,3 +428,209 @@ def test_ask_neurodb_reads_the_visit_plan_as_the_page_opens(client_viewer, plan)
     assert out["still_needed"] == page.context["figures"]["still_needed"]
     _function, description, _schema, _label = tools.TOOLS["hact_visit_plan"]
     assert "of the active programme documents" in description and "as the page opens" in description
+
+
+# ------------------------------------------------------------------------------- Programmes and Donors (review)
+PROGRAMMES = reverse("reports:programmes")
+DONORS = reverse("reports:donors")
+
+
+def _programmes(response, tab: str = "documents") -> set[str]:
+    """The programme documents a tab of Programmes lists."""
+    if tab == "indicators":
+        return {r["programme_document"] for r in response.context["page_obj"]}
+    if tab == "overall":
+        return {r["number"] for r in response.context["overall"]["rows"]}
+    return {r["number"] for r in response.context["rows"]}
+
+
+@pytest.mark.parametrize("tab", ["documents", "indicators", "overall"])
+def test_programmes_status_filter_opens_on_active(client_viewer, world, tab):
+    """Its Status filter is a PD status filter: the bare address lists the active programme documents and
+    shows Active chosen; ``status=`` alone is every status (never a draft); a status chosen is kept."""
+    query = {} if tab == "documents" else {"tab": tab}
+    page = client_viewer.get(PROGRAMMES, query)
+    assert _programmes(page, tab) == {"LEB/PD31"}
+    html = text(page)
+    assert _ticked(html, "f-status") == ["active"]
+    assert _keeps_empty(html, "status")
+    assert "By default the active ones" in html and "Clear the choice for every status" in html
+    every = client_viewer.get(PROGRAMMES, {**query, "status": ""})
+    assert _programmes(every, tab) == EVERY_PD
+    assert _ticked(text(every), "f-status") == []
+    signed = client_viewer.get(PROGRAMMES, {**query, "status": "signed"})
+    assert _programmes(signed, tab) == {"LEB/PD32"}
+    assert _ticked(text(signed), "f-status") == ["signed"]
+
+
+def test_programmes_tabs_and_files_keep_every_status(client_viewer, world):
+    page = client_viewer.get(PROGRAMMES, {"status": ""})
+    for tab in ("documents", "indicators", "overall"):
+        assert _query(page.context["tab_urls"][tab])["status"] == [""], tab
+    overall = client_viewer.get(PROGRAMMES, {"tab": "overall", "status": ""})
+    for download in overall.context["downloads"]:
+        assert _query(download["url"])["status"] == [""], download
+    rows = _csv(raw_get(client_viewer, PROGRAMMES, {"tab": "overall", "export": "csv", "status": ""}))
+    assert {r["programme_document"] for r in rows} == EVERY_PD
+    rows = _csv(raw_get(client_viewer, PROGRAMMES, {"tab": "overall", "export": "csv"}))
+    assert {r["programme_document"] for r in rows} == {"LEB/PD31"}
+    rows = _csv(raw_get(client_viewer, PROGRAMMES, {"tab": "indicators", "export": "csv"}))
+    assert {r["programme_document"] for r in rows} == {"LEB/PD31"}
+
+
+def test_programmes_overall_and_funds_agree_as_they_open(client_viewer, world):
+    """Funded programme overall is Funds' Funded Programs tab: opened bare, both list the active PDs."""
+    overall = client_viewer.get(PROGRAMMES, {"tab": "overall"})
+    funds_tab = client_viewer.get(FUNDS, {"tab": "programmes"})
+    listed = {r["programme_document"] for r in funds_tab.context["programmes"]["rows"]}
+    assert _programmes(overall, "overall") == listed == {"LEB/PD31"}
+
+
+def test_donors_status_filter_opens_on_active_and_its_links_carry_the_choice(client_viewer, world):
+    page = client_viewer.get(DONORS)
+    assert page.context["data"]["count"] == 1
+    html = text(page)
+    assert _ticked(html, "f-status") == ["active"]
+    assert _keeps_empty(html, "status")
+    every = client_viewer.get(DONORS, {"status": ""})
+    assert every.context["data"]["count"] == 4  # never the draft
+    assert _ticked(text(every), "f-status") == []
+    for response, chosen in ((page, ["active"]), (every, [""])):
+        url = response.context["programmes_url"]
+        assert _query(url)["status"] == chosen
+        listed = client_viewer.get(url)  # "All N on Programme documents"
+        assert listed.context["page_obj"].paginator.count == response.context["data"]["count"]
+        assert _query(response.context["funds_url"])["pd_status"] == chosen
+
+
+def test_ask_neurodb_s_programme_and_donor_lookups_open_their_numbers(client_viewer, world):
+    """search_programmes and donor_funding keep their own scope (every status but drafts, or the status
+    asked): their links write it out, so the pages, which open on Active, show the same count."""
+    out = tools.run("search_programmes", {})
+    assert out["count"] == 4
+    assert client_viewer.get(out["url"]).context["page_obj"].paginator.count == out["count"]
+    signed = tools.run("search_programmes", {"status": "signed"})
+    assert client_viewer.get(signed["url"]).context["page_obj"].paginator.count == signed["count"] == 1
+    active = tools.run("search_programmes", {"active_only": True})
+    assert client_viewer.get(active["url"]).context["page_obj"].paginator.count == active["count"] == 1
+    funding = tools.run("donor_funding", {})
+    assert client_viewer.get(funding["url"]).context["data"]["count"] == funding["programme_documents"] == 4
+
+
+def test_the_overview_brief_and_home_open_funds_and_programmes_on_every_status(client, admin_user, world):
+    """Their figures are of every programme document running in the year, whatever its status now: their
+    links to Funds and Programmes write every status out, as the pages opened before 25 Nov 2026."""
+    from neurodb.reports import brief
+
+    client.force_login(admin_user)
+    for path in (reverse("reports:country_overview"), reverse("reports:overview")):
+        html = text(client.get(path, {"section": ""}))
+        main = html[html.index("<main") : html.index("</main>")]
+        funds_links = re.findall(rf'href="({re.escape(FUNDS)}[^"]*)"', main)
+        programmes_links = re.findall(rf'href="({re.escape(PROGRAMMES)}(?:\?[^"]*)?)"', main)  # the list
+        for link in funds_links:
+            assert _query(link.replace("&amp;", "&"))["pd_status"] == [""], (path, link)
+        for link in programmes_links:
+            assert _query(link.replace("&amp;", "&"))["status"] == [""], (path, link)
+        if path == reverse("reports:country_overview"):
+            assert funds_links and programmes_links
+    tiles = {
+        t["key"]: t for t in brief.build(brief.Scope(year=2026, today=DAY), cache=False)["headline"]["tiles"]
+    }
+    assert _query(tiles["disbursed"]["url"])["pd_status"] == [""]
+
+
+# ------------------------------------------------------------------------- Ask NeuroDB and NeuroDB Watch (review)
+def test_ask_neurodb_s_partner_monitoring_link_opens_every_section_for_a_section_editor(
+    client_viewer, viewer, section, world
+):
+    """The look-up counts every section; its link writes ``section=``, so the page never applies the
+    person's own section on a first load."""
+    viewer.section = section  # Child Protection
+    viewer.save()
+    other = PartnerOrganization.objects.create(etl_id="41", name="Example Partner Five", partner_type="CSO")
+    _indicator(_pd(other, "LEB/PD41", sections=["Education"]), "# of children enrolled", "Education")
+    out = tools.run("pd_indicator_progress", {})
+    assert out["indicators"] == 3
+    assert _query(out["url"])["section"] == [""]
+    assert len(client_viewer.get(out["url"]).context["rows"]) == out["indicators"]
+
+
+def test_ask_neurodb_reads_every_status_when_asked(client_viewer, world):
+    out = tools.run("funds_overview", {"include_closed": True})
+    assert out["funds_reservations"] == 4 and out["reserved_usd"] == 15000  # as Funds with pd_status=
+    assert _query(out["url"])["pd_status"] == [""]
+    assert client_viewer.get(out["url"]).context["data"]["fr_count"] == out["funds_reservations"]
+    grant = tools.run("funds_overview", {"grant": "SC000033", "include_closed": True})  # the ended PD34's
+    assert grant["funds_reservations"] == 1
+    assert client_viewer.get(grant["url"]).context["data"]["fr_count"] == 1
+    _function, description, schema, _label = tools.TOOLS["funds_overview"]
+    assert "include_closed" in schema["properties"] and "include_closed" in description
+
+
+def test_ask_neurodb_reads_the_visit_plan_of_every_status_when_asked(client_viewer, plan):
+    out = tools.run("hact_visit_plan", {"include_closed": True})
+    assert _query(out["url"])["status"] == [""]
+    page = client_viewer.get(out["url"])
+    assert out["pds"] == page.context["figures"]["pds"] == 4
+    assert out["still_needed"] == page.context["figures"]["still_needed"]
+
+
+def test_neurodb_watch_s_look_ups_read_what_watch_counts(world):
+    """Watch's look-ups (its AI looks into critical points) read the statuses Watch counts, never a page's
+    default: every programme document's funds (its grant, funds reservation and PD closure points) and the
+    running programme documents' indicators (the daily review's points it copies), as before 25 Nov 2026."""
+    from neurodb.assistant import agent
+    from neurodb.watch import investigate
+
+    options = investigate.run_options([], [])
+    assert options.tool_context is tools.for_watch
+    assert "funds lookup reads programme documents of every status" in investigate.INSTRUCTIONS
+    # the grant of the ended PD34 alone: nothing as Funds opens, its funds reservation in Watch's look-up
+    assert tools.run("funds_overview", {"grant": "SC000033"})["funds_reservations"] == 0
+    found = agent._lookup("funds_overview", {"grant": "SC000033"}, options)
+    assert found["funds_reservations"] == 1 and found["reserved_usd"] == 4000
+    with tools.for_watch():
+        out = tools.run("funds_overview", {"grant": "SC000033"})
+        assert _query(out["url"])["pd_status"] == [""]
+        signed = tools.run("pd_indicator_progress", {"programme_document": "LEB/PD32"})
+        assert signed["indicators"] == 2  # the signed PD32's, as the daily review reads it
+        assert _query(signed["url"])["pd_status"] == RUNNING
+        ended = tools.run("pd_indicator_progress", {"programme_document": "LEB/PD34"})
+        assert ended["indicators"] == 0  # the running ones, as before
+    assert tools.run("pd_indicator_progress", {"programme_document": "LEB/PD32"})["indicators"] == 0
+
+
+def test_partner_details_says_its_indicators_are_of_the_running_programme_documents():
+    _function, description, _schema, _label = tools.TOOLS["partner_details"]
+    assert "running (active, signed or suspended) programme documents" in description
+
+
+# ------------------------------------------------------------------------- the plan's comment page (review)
+def test_the_plan_comment_page_goes_back_to_a_plan_that_lists_its_programme_document(people, plan):
+    from tests.reports.test_hact_plan_page import _client
+
+    client = _client(people["admin"])
+    for key in ("signed", "ended", "active"):
+        pd = plan[key]
+        url = reverse("reports:visit_plan_comment", args=[pd.pk])
+        back = client.get(url, {"year": DAY.year}).context["back"]
+        assert pd.pk in _plan_ids(client.get(back.split("#")[0])), key
+        saved = client.post(url, {"text": "Example note", "year": DAY.year})
+        assert saved.status_code == 302 and saved["Location"] == back
+    assert "status" not in _query(back)  # an active PD: the plan as it opens
+
+
+# ------------------------------------------------------------------------------- the figure trail (review)
+def test_the_trail_of_the_bare_address_names_the_default_even_after_active_was_chosen(world, settings):
+    settings.DEBUG = False
+    chosen = tm.monitoring_trail({"year": "2026", "section": "", "pd_status": "active"}, DAY)
+    bare = tm.monitoring_trail({"year": "2026", "section": ""}, DAY)
+
+    def title(found):
+        return next(step.title for step in found.steps if step.key == "pd_status")
+
+    assert title(chosen) == "Status not chosen (Active chosen)"
+    assert title(bare) == "Status not Active (the page's default)"
+    assert "PD status: Active (the page's default)" in bare.filter_words
+    assert bare.figure("pm.indicators").page == chosen.figure("pm.indicators").page == 2

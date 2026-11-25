@@ -52,6 +52,7 @@ from neurodb.library.models import Resource
 from neurodb.library.services import completed_maps, published_resource, resource_filters, search_resources
 from neurodb.partnerships import funded
 from neurodb.partnerships import services as partnerships
+from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports import brief as brief_service
 from neurodb.reports import home as home_service
@@ -403,8 +404,11 @@ def country_overview(request: HttpRequest) -> HttpResponse:
     base = QueryDict(mutable=True)  # links back to this page: section and year
     base.setlist("section", sections)
     base["year"] = str(year)
-    programmes = QueryDict(mutable=True)  # the programmes page filters by section, not by year
+    # the programmes page filters by section, not by year; every PD status written out (``status=``), as the
+    # tile counts every PD running in the year whatever its status now (the page opens on Active)
+    programmes = QueryDict(mutable=True)
     programmes.setlist("section", sections)
+    programmes["status"] = ""
     here = base.copy()  # ... and the governorate
     if governorate:
         here["governorate"] = governorate
@@ -415,7 +419,7 @@ def country_overview(request: HttpRequest) -> HttpResponse:
         "selected": {"section": sections, "governorate": governorate, "year": str(year)},
         "labels": pd_monitoring_service.LABELS,
         "keep_query": keep.urlencode(),
-        "programmes_query": ("?" + programmes.urlencode()) if sections else "",
+        "programmes_query": "?" + programmes.urlencode(),
         "base_query": base.urlencode(),
         "page_query": here.urlencode(),
         "previous_query": previous.urlencode(),
@@ -1120,7 +1124,9 @@ START_YEARS = ("start_from", "start_to")  # only the overall tab has them
 
 
 def _query_only(params: QueryDict, keep: tuple[str, ...], **first: Any) -> str:
-    """A query string of ``first`` (in that order), then ``keep`` of ``params`` (the values set)."""
+    """A query string of ``first`` (in that order), then ``keep`` of ``params`` (the values set). The Status
+    filter with nothing chosen (``status=`` alone: every status) is kept as it is, so the tab or file it opens
+    never falls back to the page's default, Active (``PDFilters.from_page``)."""
     out = QueryDict(mutable=True)
     for key, value in first.items():
         out[key] = value
@@ -1128,6 +1134,8 @@ def _query_only(params: QueryDict, keep: tuple[str, ...], **first: Any) -> str:
         values = [v for v in params.getlist(key) if v]
         if values:
             out.setlist(key, values)
+        elif key == "status" and key in params:
+            out.setlist(key, [""])
     return out.urlencode()
 
 
@@ -1184,8 +1192,12 @@ def _programme_page(
         ],
         "pd_q": params.get("pd_q", ""),
         "selected": {
-            key: params.getlist(key)
-            for key in ("partner", "section", "status", "donor", "grant", "document_type", "cso_type")
+            **{
+                key: params.getlist(key)
+                for key in ("partner", "section", "donor", "grant", "document_type", "cso_type")
+            },
+            # the PD statuses read: none in the address, the page's default (Active), shown chosen
+            "status": partnerships.PDFilters.from_page(params).statuses,
         },
     }
 
@@ -1202,8 +1214,8 @@ def programmes(request: HttpRequest) -> HttpResponse:
     if tab in ("summary", "overall"):
         return _programme_funded(request, tab, params)
     scope = params.get("scope") if params.get("scope") in services.PD_SCOPES else SCOPE_DEFAULTS[tab]
-    # the start years belong to the overall tab: never a hidden filter here
-    filters = dataclasses.replace(partnerships.PDFilters.from_params(params), year_from=None, year_to=None)
+    # the start years belong to the overall tab: never a hidden filter here; the Status filter opens on Active
+    filters = dataclasses.replace(partnerships.PDFilters.from_page(params), year_from=None, year_to=None)
     if tab == "indicators":
         # the section of each indicator, not of its programme document
         pds = partnerships.programme_documents(dataclasses.replace(filters, sections=[]), scope=scope)
@@ -1296,7 +1308,7 @@ def _programme_funded(request: HttpRequest, tab: str, params: QueryDict) -> Http
         # Programme documents tab's own (document type, PD numbers) are never read here, and the start years
         # are its two lists alone (never the API's ``years=``, which the page would not show)
         filters = dataclasses.replace(
-            partnerships.PDFilters.from_params(params), document_types=[], numbers=[]
+            partnerships.PDFilters.from_page(params), document_types=[], numbers=[]
         ).with_start_years(params)
         pds = funded.programme_documents(filters)
         if pd_q := (params.get("pd_q") or "").strip():
@@ -1490,23 +1502,30 @@ DONOR_PAGE_PDS = 10  # the Donors page lists the largest ones and links to Progr
 def donors(request: HttpRequest) -> HttpResponse:
     # the office the owner removed from every page is never read from the address (reports.old_filters)
     params = old_filters.without(request.GET)
-    # the page has no start year: never a hidden filter (the Programme documents tab drops them too)
-    filters = dataclasses.replace(partnerships.PDFilters.from_params(params), year_from=None, year_to=None)
+    # the page has no start year: never a hidden filter (the Programme documents tab drops them too); its
+    # Status filter opens on Active (PDFilters.from_page)
+    filters = dataclasses.replace(partnerships.PDFilters.from_page(params), year_from=None, year_to=None)
     data = partnerships.donor_mapping(filters, activity_records=False)  # ActivityInfo's: the archive's only
-    selected = {key: params.getlist(key) for key in ("donor", "grant", "partner", "section", "status")}
+    selected = {key: params.getlist(key) for key in ("donor", "grant", "partner", "section")}
+    selected["status"] = filters.statuses
     # the full lists live on Programmes and Funds (each grant and what it reserves: Grants by donor is
-    # hidden here): this page links there with the same filters
-    programmes_query = urlencode([(k, v) for k, values in selected.items() for v in values])
-    funds_query = urlencode([(k, v) for k in ("donor", "grant") for v in selected[k]])
+    # hidden here): this page links there with the same filters, its PD statuses written out (``status=`` /
+    # ``pd_status=`` alone for every status), so neither page falls back to its own default
+    programmes_query = urlencode(
+        [(k, v) for k in ("donor", "grant", "partner", "section") for v in selected[k]] + filters.status_query
+    )
+    funds_query = urlencode(
+        [(k, v) for k in ("donor", "grant") for v in selected[k]]
+        + [("pd_status", value) for _key, value in filters.status_query]
+    )
     context = {
         "page_title": _("Donors"),
         "page_subtitle": _("What each donor funds and the programme documents they fund"),
         "breadcrumbs": [_crumb(_("Donors"))],
         "data": data,
         "top_programmes": sorted(data["programmes"], key=lambda p: -p["donations"])[:DONOR_PAGE_PDS],
-        "programmes_url": reverse("reports:programmes")
-        + (f"?{programmes_query}" if programmes_query else ""),
-        "funds_url": reverse("reports:funds") + (f"?{funds_query}" if funds_query else ""),
+        "programmes_url": f"{reverse('reports:programmes')}?{programmes_query}",
+        "funds_url": f"{reverse('reports:funds')}?{funds_query}",
         "options": partnerships.pd_filter_options(),
         "selected": selected,
         "chart_data": {
@@ -2743,7 +2762,12 @@ def visit_plan_comment(request: HttpRequest, pk: int) -> HttpResponse:
     rows = hact_plan.build(year, today, pd_ids=[pd.pk])
     if not rows:
         raise Http404
-    back = f"{reverse('reports:monitoring')}?{urlencode({'tab': 'plan', 'year': year})}#pd-{pd.pk}"
+    # back to a plan that lists the PD: the plan opens on the active PDs (statuses.PAGE_DEFAULT), so for any
+    # other PD the link writes every status out (``status=``)
+    back_query = {"tab": "plan", "year": year}
+    if (pd.status or "").lower() not in pd_statuses.PAGE_DEFAULT:
+        back_query["status"] = ""
+    back = f"{reverse('reports:monitoring')}?{urlencode(back_query)}#pd-{pd.pk}"
     if request.method == "POST":
         text = "" if request.POST.get("remove") else request.POST.get("text", "")
         comment = hact_plan.set_comment(pd, year, text, request.user)

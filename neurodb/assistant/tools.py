@@ -38,6 +38,7 @@ from neurodb.facts.services import partners as partner_facts
 from neurodb.indicators.models import Database, MasterIndicator, NeuroReport, ReportingYear
 from neurodb.library.services import completed_maps, search_resources
 from neurodb.partnerships import services as partnerships
+from neurodb.partnerships import statuses as pd_statuses
 from neurodb.partnerships.models import PCA, PartnerOrganization
 from neurodb.reports import services as report_services
 
@@ -87,6 +88,24 @@ def for_ask() -> Iterator[None]:
         yield
     finally:
         _FOR_ASK.reset(token)
+
+
+# NeuroDB Watch's look-ups (``watch.investigate.run_options``, its ``tool_context``) run inside
+# ``for_watch()``: they read the PD statuses Watch counts, never a page's default (the active programme
+# documents since 25 Nov 2026): the funds of every programme document (Watch's grant, funds reservation and PD
+# closure points), the indicators of the running ones (the daily review's points, which Watch copies), as
+# before that day.
+_FOR_WATCH: contextvars.ContextVar[bool] = contextvars.ContextVar("watch_lookup", default=False)
+
+
+@contextmanager
+def for_watch() -> Iterator[None]:
+    """Run the lookups inside as NeuroDB Watch's (the PD statuses Watch counts, see ``_FOR_WATCH``)."""
+    token = _FOR_WATCH.set(True)
+    try:
+        yield
+    finally:
+        _FOR_WATCH.reset(token)
 
 
 def _short(value: str | None, limit: int) -> str:
@@ -446,6 +465,19 @@ def _pd_row(pd: PCA) -> dict[str, Any]:
     }
 
 
+def _programmes_params(filters: partnerships.PDFilters, **extra: Any) -> dict[str, Any]:
+    """The Programmes and Donors pages' address for a look-up's filter (:func:`_page_url`): the partners,
+    sections and donors they read, and the PD statuses read (``status=`` alone, every status, when none was
+    asked: the pages' Status filter opens on Active)."""
+    return {
+        "partner": filters.partners,
+        "section": filters.sections,
+        "donor": filters.donors,
+        "status": filters.statuses or [""],
+        **extra,
+    }
+
+
 def _pd_filters(partner, section, donor, office, status, year_from, year_to):
     options = partnerships.pd_filter_options()
     matched = {
@@ -485,7 +517,8 @@ def search_programmes(
     year_to: int | None = None,
 ) -> dict[str, Any]:
     filters, matched = _pd_filters(partner, section, donor, office, status, year_from, year_to)
-    qs = partnerships.programme_documents(filters, scope="active" if active_only else "all")
+    scope = "active" if active_only else "all"
+    qs = partnerships.programme_documents(filters, scope=scope)
     if text:
         qs = qs.filter(Q(title__icontains=text) | Q(number__icontains=text))
     count = qs.count()
@@ -496,7 +529,9 @@ def search_programmes(
         "matched_filter_values": matched,
         "count": count,
         "total_budget_of_all_matches": round(budget, 2),
-        "url": reverse("reports:programmes"),
+        # the page with the filters it reads and the PD statuses read written out (``status=`` alone for every
+        # status: the page's Status filter opens on Active)
+        "url": _page_url("reports:programmes", _programmes_params(filters, scope=scope), scope="all"),
         **_cut([_pd_row(pd) for pd in qs[:MAX_ROWS]], "programme_documents", count),
     }
 
@@ -588,6 +623,7 @@ def donor_funding(
 ) -> dict[str, Any]:
     filters, matched = _pd_filters(partner, section, donor, None, None, year_from, year_to)
     data = partnerships.donor_mapping(filters)
+    url = _page_url("reports:donors", _programmes_params(filters))  # every status written out, as read
     return {
         "matched_filter_values": matched,
         "programme_documents": data["count"],
@@ -601,7 +637,7 @@ def donor_funding(
         ],
         "unique_actual_locations": data["unique_actual_locations"],
         "planned_locations_unique": data["planned_locations_unique"],
-        "url": reverse("reports:donors"),
+        "url": url,
     }
 
 
@@ -853,20 +889,25 @@ def assurance_overview(year: int | None = None, partner: str | None = None) -> d
     }
 
 
-def _plan_url(year: int | None, sections: Collection[str] = ()) -> str:
+def _plan_url(year: int | None, sections: Collection[str] = (), every_status: bool = False) -> str:
     """The Field monitoring page's HACT visit plan tab, for ``year`` (the page's default, this year,
-    when None) and these eTools sections."""
+    when None) and these eTools sections; ``every_status``: every PD status written out (``status=``), else
+    the page's default (the active programme documents)."""
     query = [("tab", "plan")] + ([("year", year)] if year else []) + [("section", s) for s in sections]
+    query += [("status", "")] if every_status else []
     return f"{reverse('reports:monitoring')}?{urlencode(query)}"
 
 
-def hact_visit_plan(year: int | None = None, section: str | None = None) -> dict[str, Any]:
+def hact_visit_plan(
+    year: int | None = None, section: str | None = None, include_closed: bool = False
+) -> dict[str, Any]:
     """HACT programmatic visit plan per programme document for a year (counts only): PDs with planned
     visits, not visited yet, visits still needed, by remark and by section, with the page's link.
 
     The figures are the Field monitoring page's (``hact_plan.headline`` over ``hact_plan.build``) as its
-    link opens it: the page's default filter, the active programme documents (since 25 Nov 2026), so an
-    answer and the page never disagree. Only counts, section names and labels are returned: never a
+    link opens it: the page's default filter, the active programme documents (since 25 Nov 2026), or every
+    PD status with ``include_closed`` (its link writes ``status=``), so an answer and the page never disagree.
+    Only counts, section names and labels are returned: never a
     partner name, a PD reference, a section comment or a focal point (the rows hold no name; the
     comments and the focal points' names are read by the page alone)."""
     today = timezone.localdate()
@@ -880,8 +921,12 @@ def hact_visit_plan(year: int | None = None, section: str | None = None) -> dict
                 f"No programme document of {plan_year} has a section matching '{section}'. Leave section "
                 "out to see the sections."
             )
-    # as the page opens: its default PD statuses (the active programme documents), and the sections chosen
-    rows = hact_plan.select(every, hact_plan.PlanFilters(year=plan_year, sections=tuple(sections)))
+    # as the page opens: its default PD statuses (the active programme documents), or every status (an empty
+    # choice), and the sections chosen
+    chosen = hact_plan.PlanFilters(
+        year=plan_year, sections=tuple(sections), statuses=() if include_closed else None
+    )
+    rows = hact_plan.select(every, chosen)
     # as the page: "no visit on any PD" reads every PD of the year, a section only the chosen lines
     figures = hact_plan.headline(rows, plan_year, every)
     by_remark = figures.pop("by_remark")
@@ -905,14 +950,21 @@ def hact_visit_plan(year: int | None = None, section: str | None = None) -> dict
             if not r["total"]
         ],
         "as_of": hact_plan.synced_on(),
-        "url": _plan_url(plan_year, sections),
+        "url": _plan_url(plan_year, sections, every_status=include_closed),
     }
 
 
 def funds_overview(
-    donor: str | None = None, grant: str | None = None, partner: str | None = None, year: int | None = None
+    donor: str | None = None,
+    grant: str | None = None,
+    partner: str | None = None,
+    year: int | None = None,
+    include_closed: bool = False,
 ) -> dict[str, Any]:
-    """Funds reservations, disbursements and grants from the eTools Datamart."""
+    """Funds reservations, disbursements and grants from the eTools Datamart, as the Funds page shows them:
+    of the active programme documents, its default since 25 Nov 2026, or of every PD status with
+    ``include_closed`` and in NeuroDB Watch's look-ups (:func:`for_watch`), as the page with
+    ``pd_status=``."""
     donors = []
     if donor:
         known = sorted(
@@ -927,6 +979,8 @@ def funds_overview(
             "grant": [grant] if grant else [],
             "q": partner or "",
             "year": str(year) if year else "",
+            # every PD status (the filter's choice cleared), else none: the page's default, Active
+            **({"pd_status": [""]} if include_closed or _FOR_WATCH.get() else {}),
         }
     )
     data = datamart.funds(params)
@@ -1112,6 +1166,9 @@ def pd_indicator_progress(
         "scope": "all" if include_closed else "active",
         "emergency": emergency or "",
     }
+    if _FOR_WATCH.get() and not include_closed:
+        # NeuroDB Watch's look-up: the running programme documents, as the daily review whose points it copies
+        params["pd_status"] = list(pd_statuses.RUNNING)
     if partner:
         matched = list(
             PartnerOrganization.objects.filter(
@@ -1267,13 +1324,15 @@ class _Params(dict):
 def _page_url(name: str, params: Mapping[str, Any], **defaults: Any) -> str:
     """The page ``name`` with a tool's filter written out (``params``, as the tool read it through the page's
     own parsing): every value but the empty ones and the page's own ``defaults``, so the page the link opens
-    shows the figures the tool gave (its PD statuses too: none written is the page's default, Active)."""
+    shows the figures the tool gave (its PD statuses too: none written is the page's default, Active). An
+    empty value inside a list is written (``[""]``: ``section=``, ``pd_status=``, ``status=``), the choice
+    cleared, which a page reads as every value, never as its default; an empty list writes nothing."""
     query = [
         (key, value)
         for key, values in params.items()
         if defaults.get(key) != values
         for value in (values if isinstance(values, list) else [values])
-        if value not in (None, "")
+        if value is not None and (value != "" or isinstance(values, list))
     ]
     return reverse(name) + (f"?{urlencode(query)}" if query else "")
 
@@ -1524,8 +1583,9 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     "search_programmes": (
         search_programmes,
         "Search eTools programme documents (PDs/SSFAs) by title or number, partner, section, donor, "
-        "office, status or start-year range. Filter values are matched by partial name. Returns the "
-        "count, total budget and the documents.",
+        "office, status or start-year range. Filter values are matched by partial name. Every status but "
+        "drafts unless status or active_only is given (its url writes the statuses read: the Programme "
+        "documents page's Status filter opens on Active). Returns the count, total budget and the documents.",
         _schema(
             {
                 "text": {"type": "string"},
@@ -1551,7 +1611,8 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     ),
     "donor_funding": (
         donor_funding,
-        "Funding by donor and by start year across programme documents, optionally for one donor, "
+        "Funding by donor and by start year across programme documents of every status but drafts (its url "
+        "writes that out: the Donors page's Status filter opens on Active), optionally for one donor, "
         "partner, section or year range, with activity reports per governorate.",
         _schema(
             {
@@ -1575,7 +1636,9 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         partner_details,
         "Profile of one partner: programme documents, HACT and risk rating, assurance engagements, HACT "
         "and PSEA assessments, open action points, field monitoring findings, field visits per year and "
-        "linked activity reports.",
+        "linked activity reports. pd_indicator_monitoring counts the indicators of the partner's running "
+        "(active, signed or suspended) programme documents by status, as the partner page does; "
+        "pd_indicator_progress reads the active ones unless include_closed is set.",
         _schema({"partner_id": {"type": "integer"}}, ["partner_id"]),
         "Opening the partner profile",
     ),
@@ -1606,8 +1669,16 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "behind also counts spot checks and every partner with a HACT year, so it can be higher). Also "
         "per remark and per section (a PD with two sections counts under "
         "each). section filters by section name; by_section then holds the chosen sections only. "
+        "include_closed reads every PD status (signed, suspended and ended ones too), as the page with its "
+        "PD status choice cleared. "
         "Never lists partners or programme documents: send the user to url for the list.",
-        _schema({"year": {"type": "integer"}, "section": {"type": "string"}}),
+        _schema(
+            {
+                "year": {"type": "integer"},
+                "section": {"type": "string"},
+                "include_closed": {"type": "boolean"},
+            }
+        ),
         "Reading the HACT visit plan",
     ),
     "funds_overview": (
@@ -1615,6 +1686,8 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "eTools funds: funds reservations (reserved, disbursed, outstanding in USD), amounts reserved by "
         "donor and by start year, and grants with their donor, expiry and reserved amount, of the active "
         "programme documents, as the page opens (the Funds page, whose PD status filter opens on Active). "
+        "include_closed reads every PD status (signed, suspended, ended and closed ones too): set it for a "
+        "grant, a funds reservation or a programme document that is not active. "
         "Filter by donor name, grant number, partner/PD/FR text or FR start year.",
         _schema(
             {
@@ -1622,6 +1695,7 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
                 "grant": {"type": "string"},
                 "partner": {"type": "string", "description": "Partner name, vendor number, PD or FR number."},
                 "year": {"type": "integer"},
+                "include_closed": {"type": "boolean"},
             }
         ),
         "Reading funds and grants",
@@ -1654,7 +1728,8 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
     "pd_indicator_progress": (
         pd_indicator_progress,
         "Partner implementation monitoring from eTools/PRP, of the active programme documents, as the page "
-        "opens (Partner monitoring's PD status filter opens on Active; include_closed reads every status): "
+        "opens (Partner monitoring's PD status filter opens on Active; include_closed reads every status: "
+        "set it for a signed, suspended or ended programme document): "
         "each programme document indicator with its target, Reached (what the partner reached to date: its "
         "Accepted and Submitted reports since the PD started, combined by PRP's location and period methods, "
         "never adding repeated values), the part "

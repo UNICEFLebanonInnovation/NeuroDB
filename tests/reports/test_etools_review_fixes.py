@@ -159,14 +159,15 @@ def test_donors_page_hides_grants_by_donor_and_links_to_funds(client_viewer, pd)
     _donor_grants(pd)
     response = client_viewer.get(reverse("reports:donors"), {"donor": "Donor X"})
     text = response.text
-    funds_url = reverse("reports:funds") + "?donor=Donor+X"
+    # the page's PD statuses written out (its Status filter opens on Active since 25 Nov 2026)
+    funds_url = reverse("reports:funds") + "?donor=Donor+X&pd_status=active"
     assert response.context["funds_url"] == funds_url
     # the table is gone, and nothing on the page computes or names it
     assert "donor_grants" not in response.context
     assert "Grants by donor" not in text and 'id="donor-grants"' not in text
     assert "Grant one" not in text and "No grants to show" not in text
     # the page still leads to Funds, with the same filter
-    assert f'href="{funds_url}">Funds reservations</a>' in text
+    assert f'href="{funds_url.replace("&", "&amp;")}">Funds reservations</a>' in text
     # the rest of the page as before
     for kept in (
         "Donor contributions (USD)",
@@ -177,7 +178,9 @@ def test_donors_page_hides_grants_by_donor_and_links_to_funds(client_viewer, pd)
         'id="donor-chart-data"',
     ):
         assert kept in text, kept
-    assert response.context["programmes_url"] == reverse("reports:programmes") + "?donor=Donor+X"
+    assert (
+        response.context["programmes_url"] == reverse("reports:programmes") + "?donor=Donor+X&status=active"
+    )
     assert "Records by governorate" not in text
 
 
@@ -191,7 +194,7 @@ def test_donors_page_partial_hides_grants_by_donor(client_viewer, pd):
     _donor_grants(pd)
     response = client_viewer.get(reverse("reports:donors"), {"donor": "Donor X"}, HTTP_HX_REQUEST="true")
     assert response.status_code == 200
-    funds_url = reverse("reports:funds") + "?donor=Donor+X"
+    funds_url = reverse("reports:funds") + "?donor=Donor+X&amp;pd_status=active"
     assert "Grants by donor" not in response.text
     assert f'href="{funds_url}">Funds reservations</a>' in response.text
 

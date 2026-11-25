@@ -1,9 +1,12 @@
 {% load i18n %}{% comment %}A filter bar's multiple choice. keep_chosen: a value chosen in the address that is not among the options
 is drawn too, chosen, so Apply keeps it (Progress reports' Section, which Home opens with the eTools section names
-of the PD indicators).{% endcomment %}
+of the PD indicators). keep_empty: the choice cleared still sends the field ("status=": every status, never the
+page's default; a hidden empty field and data-keep-empty, read by app.js and lib.filterParams). tip: the label's
+tooltip.{% endcomment %}
 <div class="filter-bar__field">
-  <label class="form-label" for="f-{{ name }}">{{ label }}</label>
-  <select class="form-select form-select-sm" id="f-{{ name }}" name="{{ name }}" multiple data-tom placeholder="{% trans 'All' %}">
+  <label class="form-label" for="f-{{ name }}">{% if tip %}<span class="has-tip" title="{{ tip }}">{{ label }}</span>{% else %}{{ label }}{% endif %}</label>
+  {% if keep_empty %}<input type="hidden" name="{{ name }}" value="" data-keep-empty>{% endif %}
+  <select class="form-select form-select-sm" id="f-{{ name }}" name="{{ name }}" multiple data-tom{% if keep_empty %} data-keep-empty{% endif %} placeholder="{% trans 'All' %}">
     {% for opt in options %}<option value="{{ opt }}" {% if opt|stringformat:"s" in values %}selected{% endif %}>{{ opt }}</option>{% endfor %}{% if keep_chosen %}{% for value in values %}{% if value not in options %}<option value="{{ value }}" selected>{{ value }}</option>{% endif %}{% endfor %}{% endif %}
   </select>
 </div>

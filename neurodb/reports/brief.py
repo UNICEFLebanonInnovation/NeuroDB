@@ -800,7 +800,9 @@ class _Builder:
                     else None
                 ),
                 "hint": "reserved and disbursed to date on the PDs running this year",
-                "url": reverse("reports:funds"),
+                # every PD status written out: the PDs running this year, whatever their status now, and Funds
+                # opens on the active ones alone
+                "url": f"{reverse('reports:funds')}?pd_status=",
             },
             {
                 "key": "cost",

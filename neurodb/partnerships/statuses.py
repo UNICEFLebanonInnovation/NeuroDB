@@ -4,7 +4,8 @@ definition for every page, so "active" and "running" mean the same thing everywh
 * **Active**: the eTools status ``active`` and nothing else (the Programmes page's "Active" scope, the
   partner pages' active count, the Data quality tile "Active PDs"), and :data:`PAGE_DEFAULT`, what every PD
   status filter opens on (the owner's decision of 25 Nov 2026: Partner monitoring and its map, Progress
-  reports since 21 Nov 2026, Funds and the HACT visit plan).
+  reports since 21 Nov 2026, Funds, the HACT visit plan, and the Status filter of Programme documents and
+  Donors).
 * **Running**: active, signed or suspended: the programme documents still under way, whose partners
   report (the overview, the daily review, the watch, the eTools reporting checks, Home's figures and the
   partner page's indicators: each writes them out in its links, so the page it opens shows its figure).

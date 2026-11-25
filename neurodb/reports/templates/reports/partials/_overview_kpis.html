@@ -26,7 +26,7 @@ of this year with no children yet reads "Not yet", never 0 (impact.not_yet), and
   {% blocktrans asvar h2 with n=delivery.partners|intcomma g=delivery.partners_government|intcomma c=delivery.partners_cso|intcomma o=delivery.partners_other|default:0 %}{{ n }} partners: {{ g }} government, {{ c }} civil society, {{ o }} other{% endblocktrans %}
   {% trans "Programme documents running" as l2 %}{% url 'reports:programmes' as programmes_url %}{% include "components/kpi_tile.html" with label=l2 value=delivery.programme_documents|intcomma hint=h2 href=programmes_url|add:programmes_query %}
   {% if money.disbursed_percent is not None %}{% blocktrans asvar h3 with r=money.reserved|money p=money.disbursed_percent|floatformat:"0" %}{{ p }}% of {{ r }} reserved{% endblocktrans %}{% else %}{% blocktrans asvar h3 with r=money.reserved|money %}of {{ r }} reserved{% endblocktrans %}{% endif %}
-  {% trans "Funds disbursed" as l3 %}{% url 'reports:funds' as funds_url %}{% include "components/kpi_tile.html" with label=l3 value=money.disbursed|money hint=h3 href=funds_url %}
+  {% trans "Funds disbursed" as l3 %}{% url 'reports:funds' as funds_url %}{% include "components/kpi_tile.html" with label=l3 value=money.disbursed|money hint=h3 href=funds_url|add:"?pd_status=" %}
   <div class="kpi">
     <div class="kpi__label">{% trans "Cost per child" %}</div>
     <div class="kpi__value">{{ money.cost_per_child|money }}{% if money.cost_per_child_previous is not None %} <span class="kpi__unit">{% blocktrans with v=money.cost_per_child_previous|money %}last year {{ v }}{% endblocktrans %}</span>{% endif %}</div>

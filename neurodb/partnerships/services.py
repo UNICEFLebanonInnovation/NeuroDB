@@ -80,6 +80,24 @@ class PDFilters:
             year_to=_year(years[1]) if len(years) > 1 else None,
         )
 
+    @classmethod
+    def from_page(cls, params) -> PDFilters:
+        """The filter of a page's address (Programmes and Donors): :meth:`from_params` with the Status
+        filter's default. No ``status`` in the address reads the active programme documents only
+        (``statuses.PAGE_DEFAULT``, the owner's decision of 25 Nov 2026; every status before); ``status=``
+        alone (the filter's choice cleared) reads every status. The API reads :meth:`from_params` (no
+        status: every status)."""
+        found = cls.from_params(params)
+        if "status" not in params:
+            found = replace(found, statuses=list(statuses.PAGE_DEFAULT))
+        return found
+
+    @property
+    def status_query(self) -> list[tuple[str, str]]:
+        """The PD statuses read, as a link writes them (``status=`` alone for every status), so the page it
+        opens never falls back to its default."""
+        return [("status", value) for value in self.statuses] or [("status", "")]
+
     def with_start_years(self, params) -> PDFilters:
         """This filter on the start years of the *Funded programme overall* tab's two lists (``start_from``,
         ``start_to``) alone: the years it shows, never the API's ``years=``."""
@@ -146,7 +164,10 @@ def pd_filter_options() -> dict[str, list[str]]:
         ),
         "sections": sorted(sections),
         "offices": sorted(offices),
-        "statuses": sorted(x for x in base.values_list("status", flat=True).distinct() if x),
+        # Active, the Status filter's default, always offered (so it shows chosen)
+        "statuses": sorted(
+            {x for x in base.values_list("status", flat=True).distinct() if x} | set(statuses.PAGE_DEFAULT)
+        ),
         "donors": sorted(donors),
         "grants": sorted(grants),
         "document_types": sorted(x for x in base.values_list("document_type", flat=True).distinct() if x),

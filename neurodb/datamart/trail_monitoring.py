@@ -1623,8 +1623,18 @@ def monitoring_trail(params: Any, day: datetime.date, *, home: bool = False) -> 
     minutes for every worker."""
     params = trail.filter_query(params)
     filters = filters_of(params)
-    key = f"trail-pm:v{CACHE_VERSION}:{int(home)}:{filters.cache_key()}:{day}:{keys.fingerprint()}"
+    key = (
+        f"trail-pm:v{CACHE_VERSION}:{int(home)}:{_chosen(filters)}:{filters.cache_key()}:{day}:"
+        f"{keys.fingerprint()}"
+    )
     return trail._stored(key, lambda: _monitoring_trail(params, filters, day, home))
+
+
+def _chosen(filters: monitoring.Filters) -> str:
+    """Whether the address chose the PD statuses or the page's default reads them, for a trail's key: the
+    figures are the same (one ``cache_key``), but the trail's words and query say which ("Status not Active
+    (the page's default)" or "Status not chosen (Active chosen)")."""
+    return "default" if filters.pd_statuses is None else "chosen"
 
 
 def _monitoring_trail(
@@ -1847,7 +1857,7 @@ def map_trail(params: Any, day: datetime.date) -> TableTrail:
     params = trail.filter_query(params)
     params["view"] = "map"
     filters = filters_of(params)
-    key = f"trail-map:v{CACHE_VERSION}:{filters.cache_key()}:{day}:{keys.fingerprint()}"
+    key = f"trail-map:v{CACHE_VERSION}:{_chosen(filters)}:{filters.cache_key()}:{day}:{keys.fingerprint()}"
     return trail._stored(key, lambda: _map_trail(params, filters, day))
 
 

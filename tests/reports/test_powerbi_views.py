@@ -591,16 +591,19 @@ def test_programme_indicators_tab(client_viewer, more):
     page = client_viewer.get(reverse("reports:programmes"), {"tab": "indicators"})
     assert page.status_code == 200 and page.context["tab"] == "indicators" and more["girls"] in page.text
     # the page no longer has an Emergency filter (the owner removed it from every page on 21 Nov 2026): an old
-    # address that carries one is read without it (tests/reports/test_filters_removed.py)
+    # address that carries one is read without it (tests/reports/test_filters_removed.py). Every PD status
+    # chosen (status=): the Status filter opens on Active since 25 Nov 2026
     partial = client_viewer.get(
-        reverse("reports:programmes"), {"tab": "indicators", "emergency": "no"}, headers=HX
+        reverse("reports:programmes"), {"tab": "indicators", "emergency": "no", "status": ""}, headers=HX
     )
     assert more["girls"] in partial.text and "# of schools" in partial.text and "<html" not in partial.text
-    response = client_viewer.get(reverse("reports:programmes"), {"tab": "indicators", "export": "csv"})
+    response = client_viewer.get(
+        reverse("reports:programmes"), {"tab": "indicators", "export": "csv", "status": ""}
+    )
     lines = list(csv.DictReader(io.StringIO(b"".join(response.streaming_content).decode("utf-8-sig"))))
     assert len(lines) == 4 and set(reporting.INDICATOR_COLUMNS) == set(lines[0])
     # the PD list keeps working, with the PD reference search
-    documents = client_viewer.get(reverse("reports:programmes"), {"pd_q": "PD2"})
+    documents = client_viewer.get(reverse("reports:programmes"), {"pd_q": "PD2", "status": ""})
     assert [r["number"] for r in documents.context["rows"]] == ["LEB/PD2"]
 
 
@@ -797,7 +800,9 @@ def test_programme_indicators_tab_offers_the_sections_indicators_name(client_vie
     indicators = client_viewer.get(reverse("reports:programmes"), {"tab": "indicators"})
     # the Indicators tab filters on each indicator's own section: those are offered too
     assert indicators.context["options"]["sections"] == ["Child Protection", "Education"]
-    chosen = client_viewer.get(reverse("reports:programmes"), {"tab": "indicators", "section": "Education"})
+    chosen = client_viewer.get(
+        reverse("reports:programmes"), {"tab": "indicators", "section": "Education", "status": ""}
+    )
     assert sorted(r["indicator"] for r in chosen.context["page_obj"]) == sorted([CLASSROOMS, "# of schools"])
 
 

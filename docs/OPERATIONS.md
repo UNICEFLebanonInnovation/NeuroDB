@@ -46,23 +46,30 @@ Rollback: `infra/scripts/rollback.sh` with the previous image tag. Migrations ar
 every migration must stay compatible with the previous release for one deployment.
 
 **25 Nov 2026: the PD status filters open on Active.** The owner's decision: "PD status field filter in all
-pages should be 'Active' value only by default". Partner monitoring (and its map), Funds and the HACT visit
-plan of Field monitoring now open on the programme documents whose eTools status is *active*, as Progress
-reports has since 21 Nov 2026 (one definition, `partnerships.statuses.PAGE_DEFAULT`, which is
+pages should be 'Active' value only by default". Partner monitoring (and its map), Funds, the HACT visit
+plan of Field monitoring, and the *Status* filter of Programme documents (its list, *Indicators* and *Funded
+programme overall* tabs) and of Donors now open on the programme documents whose eTools status is *active*,
+as Progress reports has since 21 Nov 2026 (one definition, `partnerships.statuses.PAGE_DEFAULT`, which is
 `statuses.ACTIVE`). Clearing the filter's choice still shows every status (the address then carries
-`pd_status=`, or `status=` on the plan), and any status chosen is read as before. What reads the page's
-address reads the same default (the parts, the map, the downloads, the figure trail, the Power BI comparison
-sheet, Ask NeuroDB's `pd_indicator_progress`, `funds_overview` and `hact_visit_plan`); the overview, the
-management brief, Home, the daily review, NeuroDB Watch, the eTools reporting checks and the partner page keep
-their own scope and write their statuses out in their links (details: *Who reads Partner monitoring's
-default*, *Funds → Partner contributions* and *HACT visit plan*). **Nothing to run, rebuild or empty after
-deploying:** no migration; every stored page figure (Partner monitoring's indicators, its map's places, the
-figure trails) is keyed by the PD statuses it read, so what the old default stored is never served for the
-new one, and the stored filter choices (*Store the partner monitoring filter choices*) do not depend on it.
-The open NeuroDB Watch points and today's daily review get their new links at their next run (the morning's;
-for at once, *Import and sync runs* → **Run a job → NeuroDB Watch** and **Run a job → Daily review**); a past
-day's review keeps the links it was written with. A link's new PD statuses are not new evidence: no Watch
-point marked *Something's wrong* comes back for them (`watch.memory.fingerprint`).
+`pd_status=`, or `status=` on the plan, Programme documents and Donors), and any status chosen is read as
+before. What reads the page's address reads the same default (the parts, the map, the tabs, the downloads,
+the figure trail, the Power BI comparison sheet, Ask NeuroDB's `pd_indicator_progress`, `funds_overview` and
+`hact_visit_plan`, each with `include_closed` for every status); the overview, the management brief, Home,
+the daily review, NeuroDB Watch (its links and its AI look-ups: `assistant.tools.for_watch`), the eTools
+reporting checks and the partner page keep their own scope and write their statuses out in their links
+(details: *Who reads Partner monitoring's default*, *Funds → Partner contributions*, *Programme documents* and
+*HACT visit plan*). **Nothing to rebuild or empty after deploying:** no migration; every stored page figure
+(Partner monitoring's indicators, its map's places, the figure trails) is keyed by the PD statuses it read,
+so what the old default stored is never served for the new one, and the stored filter choices (*Store the
+partner monitoring filter choices*) do not depend on it. **The links of the daily review and NeuroDB
+Watch:** the next daily review (06:00) and the next morning pass of the watch (07:45) write the new links.
+For today's review and the open Watch points at once, press, in this order, *Import and sync runs* → **Run a
+job → Daily review**, then **Run a job → NeuroDB Watch** (the watch copies the review's points with their
+links, so the review goes first). A past day's review, and a Watch point no pass touches any more (closed,
+gone or marked wrong), keep the links they were written with: such a link to Partner monitoring opens on the
+active programme documents, so choose the running ones in its PD status filter to see what it counted. A
+link's new PD statuses are not new evidence: no Watch point marked *Something's wrong* comes back for them
+(`watch.memory.fingerprint`).
 
 The release that adds the *PAL* population nationality repairs the population figures by itself:
 the first container start reloads the years stored by the older loader (see Yearly rollover, step 5).
@@ -2708,11 +2715,13 @@ eTools sent no planned visits for that year. **PD status** (`status`): the filte
 of 25 Nov 2026: every status before), and `status=` alone (the choice cleared: a hidden empty field, as on
 Partner monitoring) is every status; the four figures, *By section*, the quick views, the files (their
 About sheet says *PD statuses: active (the page's default)*) and Ask NeuroDB's `hact_visit_plan` read the
-same choice. The strip states the plan as its link opens it (`views._plan_strip`: the default filter, so
+same choice (`include_closed`: every status, `status=` in its `url`). The strip states the plan as its link opens it (`views._plan_strip`: the default filter, so
 its figures are the tab's). NeuroDB Watch's and the daily review's HACT assurance links to a partner's
 programme documents, and a programme document's *HACT visit plan →*, write every status out (`status=`,
-`statuses.EVERY`): their counts read every PD of the year (`hact_plan.partner_counts`). Staff read *Field monitoring and the HACT visit plan* in
-the help guide (`/help/field-monitoring/`).
+`statuses.EVERY`): their counts read every PD of the year (`hact_plan.partner_counts`). The section comment
+page (`views.visit_plan_comment`, without JavaScript) goes back to the plan, its breadcrumb and *Back* too,
+with `status=` for a programme document that is not active, so its row is on the plan it lands on. Staff
+read *Field monitoring and the HACT visit plan* in the help guide (`/help/field-monitoring/`).
 
 The code: `neurodb/datamart/hact_plan.py` (the rows and every figure), `neurodb/datamart/fm.py`
 (`completed_programmatic_rows`, `visits_by_pd_for_hact`, `partner_visits_naming_no_pd`,
@@ -4465,7 +4474,8 @@ figures as everywhere else (they read the rule above; nothing is added across in
 * **Programme document statuses** have one definition (`neurodb/partnerships/statuses.py`): *Active*
   is the eTools status active alone (the Programmes page's *Active*, the partner pages' active count,
   the *Active PDs* tile, and `PAGE_DEFAULT`, what every PD status filter opens on since 25 Nov 2026:
-  Partner monitoring and its map, Progress reports, Funds, the HACT visit plan); *Running* is active,
+  Partner monitoring and its map, Progress reports, Funds, the HACT visit plan, and the *Status* filter of
+  Programme documents and Donors); *Running* is active,
   signed or suspended (what the overview, the daily review, the watch, the eTools reporting checks, Home
   and the partner page read; the default of Partner monitoring's filter until 25 Nov 2026); *Ended* is
   ended, closed, terminated or expired. Clearing the PD status filter shows every status: the filter bar
@@ -4477,7 +4487,10 @@ figures as everywhere else (they read the rule above; nothing is added across in
   its figure trail (*PD status: Active (the page's default)*; the PD status step says *Status not Active
   (the page's default)*), its Power BI comparison sheet (*PD status: Active*), and Ask NeuroDB's
   `pd_indicator_progress`, which says so and whose `url` writes its filter out (`section=` for every
-  section; `include_closed` is `scope=all`, every status). `scope=year` (every PD running in the year,
+  section, so a Section editor's first load never applies their own section: `tools._page_url` writes an
+  empty value of a list; `include_closed` is `scope=all`, every status). NeuroDB Watch's AI look-ups read
+  the running ones instead, written out in the `url` (`tools.for_watch`, the `tool_context` of
+  `watch.investigate.run_options`), as the daily review whose points it copies. `scope=year` (every PD running in the year,
   closed ones too: the overview's, the brief's and Home's links) and `scope=all` are not the default and
   read every status, as before. **Who keeps the running ones and writes them out:** the daily review
   (`review.checks.Context.rows`, and `RUNNING_LINK` in its links to Partner monitoring and its map), the
@@ -4676,13 +4689,19 @@ figures as everywhere else (they read the rule above; nothing is added across in
   partner; the FR filters choose the programme documents their lines fund; `neurodb/datamart/funds.py`). The
   PD status filter opens on Active (`FundFilters.status_choice` with no `pd_status` in the address,
   `statuses.PAGE_DEFAULT`; the owner's decision of 25 Nov 2026: every status before), on the three tabs, their
-  downloads and Ask NeuroDB's `funds_overview` (which says so, and whose `url` writes its filter out);
+  downloads and Ask NeuroDB's `funds_overview` (which says so, and whose `url` writes its filter out;
+  `include_closed`, and NeuroDB Watch's AI look-ups through `tools.for_watch`, read every status and write
+  `pd_status=`);
   `pd_status=` alone (the choice cleared: a hidden empty field, as on Partner monitoring) is every status, on
   these two tabs every status but draft and cancelled, on the funds reservations tab every funds reservation,
   as before; a status chosen on purpose is read whatever it is. Links that name one funds reservation, grant or
   programme document write every status out (`statuses.EVERY`: NeuroDB Watch's grant and funds reservation
   points, a programme document's *share of the budget and what the partner reported*), so they open on it
-  whatever its programme document's status; Compare with Power BI writes Power BI's own statuses out
+  whatever its programme document's status. The country overview's and Home's *Funds disbursed* tile and
+  *Funds →* link, and the brief's *Funds disbursed* card, write every status out too (`?pd_status=`): their
+  figure is of every PD running in the year, whatever its status now (Funds has no "running in the year"
+  choice, so the page shows those PDs and older ones, as before 25 Nov 2026). The Donors page's *Funds
+  reservations* link writes the Donors page's own PD statuses as `pd_status`. Compare with Power BI writes Power BI's own statuses out
   (`powerbi_page.fund_filters`, `powerbi_results.neurodb_url`). The partner type, removed from every page on
   21 Nov 2026, is ignored in an address (`old_filters.without`, the header's year menu too through
   `year_query`); the partner type column stays. *Partner
@@ -4709,9 +4728,22 @@ figures as everywhere else (they read the rule above; nothing is added across in
   amount); *funds reserved* is the sum of the PD's FR lines' `overall_amount` (USD, what `donors_set` is
   built from) and *disbursed* the sum of its FR headers' `actual_amt` (USD), for the whole PD whatever
   donor or grant is chosen. Budgets are never added across currencies: the rows and totals are per budget
-  currency. Both tabs read every PD but `statuses.NOT_A_PARTNERSHIP` (drafts and cancelled ones:
-  `funded.programme_documents`), as *Funds → Funded Programs* does with every PD status chosen (`pd_status=`;
-  Funds opens on the active ones since 25 Nov 2026), so the two pages' figures for the same PDs agree; the overall tab's Status list leaves those statuses out too. *Summary info*: `scope=active` (the
+  currency. Both tabs never read a PD of `statuses.NOT_A_PARTNERSHIP` (drafts and cancelled ones:
+  `funded.programme_documents`), as *Funds → Funded Programs*; the overall tab's Status list leaves those
+  statuses out too. **Status filter** (`status`; the *Programme documents* list, *Indicators* and *Funded
+  programme overall* tabs, and the Donors page): it opens on Active (`PDFilters.from_page` with no `status`
+  in the address, `statuses.PAGE_DEFAULT`; the owner's decision of 25 Nov 2026: every status before), as
+  Funds does, so the overall tab and *Funds → Funded Programs* opened bare list the same PDs, and so do
+  both with the choice cleared (`status=` alone here, `pd_status=` there: a hidden empty field,
+  `_multiselect.html`'s `keep_empty`). The tab bar, the pages and the downloads keep `status=`
+  (`views._query_only`). The *Scope* switch (All / Active) is apart: on All the Status filter still
+  applies. The API (`/api/programmes/`, `/api/donors/`) reads `PDFilters.from_params`: no status, every
+  status, as before. Links that state a count write their statuses out: the Donors page's *All N on
+  Programme documents* (its own choice), the country overview's *Programme documents running* tile and
+  Home's *still counted by their largest indicator* line (`status=`, every status: they count PDs running
+  in the year, whatever their status now), Compare with Power BI's *PD/SPD Indicators* link
+  (`powerbi_results.neurodb_url`), and Ask NeuroDB's `search_programmes` and `donor_funding` (their own
+  scope, every status but drafts or the status asked, written out in their `url`). *Summary info*: `scope=active` (the
   default, eTools status active) or `all`; the tab bar's links carry the Active / All choice the page shows
   when it is not the other tab's own default (*Programme documents* and *Indicators* open on All, the summary
   on Active: `SCOPE_DEFAULTS`), so the choice never flips on a tab change. Tiles (PDs, partners: one per

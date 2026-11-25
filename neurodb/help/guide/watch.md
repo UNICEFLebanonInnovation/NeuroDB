@@ -50,8 +50,10 @@ check that many people find not useful goes back to trial by itself.
 ### The AI in For you
 
 The AI writes only the short morning note (each sentence must cite the points it rests on, with the
-same numbers and dates) and looks into at most 3 critical points a day with read-only look-ups. It never
-decides what is followed, how serious it is, when it is due or who is told.
+same numbers and dates) and looks into at most 3 critical points a day with read-only look-ups. Those
+look-ups read what the watch counts, not the pages' first view (the active programme documents): the funds
+of programme documents of every status, and the indicators of the running ones (active, signed or
+suspended). It never decides what is followed, how serious it is, when it is due or who is told.
 
 ## What's new
 

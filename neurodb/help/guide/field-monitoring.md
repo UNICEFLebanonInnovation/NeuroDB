@@ -141,7 +141,8 @@ not change them, nor the *By section* table.
   see every status, the ended programme documents with visits missing too. The files, the line on the
   *Findings and visits* tab and Ask NeuroDB read the same choice; NeuroDB Watch's and the daily review's
   links to a partner's programme documents choose every status, as their counts do, and so does a
-  programme document's link to the plan. *Reset* keeps you on the tab. On a phone the
+  programme document's link to the plan. *Reset* keeps you on the tab and goes back to the active
+  programme documents. On a phone the
   filter bar folds. When you change the year, its lists follow the year, and what you chose stays
   chosen, even a partner or a section with no programme document that year: the list then says that
   no programme document matches, until you take it off.
@@ -212,7 +213,8 @@ date under it says when it was last changed, never who changed it.
   administrator, and until then its Section editors do not get the button (ask an administrator).
 - Viewers read the comments; nobody else can write them.
 - **Save** keeps the comment and the row updates in place; **Remove**, or saving an empty comment,
-  removes it.
+  removes it. Without JavaScript, the comment page goes back to the plan; for a programme document that
+  is not active, the plan then shows every PD status, so its row is there.
 - **What not to write**: people's names or contact details. Every signed-in staff member sees the
   comment, and it is written into the Excel and CSV files.
 - Comments stay across the nightly syncs and are kept separately for each year. They are never sent
