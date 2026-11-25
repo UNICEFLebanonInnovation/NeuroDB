@@ -750,6 +750,9 @@ def test_neurodb_watch_s_progress_report_look_up_reads_the_running_programme_doc
     assert found["pd_statuses"] == RUNNING and found["by_status"] == {"Submitted": 1}
     seen = agent._lookup("partner_reporting", asked, investigate.run_options([], []))
     assert seen["by_status"] == {"Submitted": 1}
+    assert (
+        seen["pd_statuses"] == RUNNING
+    )  # what it read reaches the AI (never [], which reads as every status)
     assert "the indicator and progress report lookups the running ones" in investigate.INSTRUCTIONS
     # every look-up of Watch that reads as a page opens is one for_watch covers
     as_a_page_opens = {name for name in investigate.TOOLS if "as the page opens" in tools.TOOLS[name][1]}
@@ -789,32 +792,95 @@ def test_ask_neurodb_s_programme_and_donor_urls_say_when_the_page_lists_more(cli
 SCOPE_CHECKED = re.compile(r'name="scope" value="(active|all)" checked><span>([^<]+)</span>')
 
 
+SCOPE_ACTIVE_ONLY = (
+    "Active only: the active programme documents among those the Status filter chooses (none when its choice "
+    "leaves Active out)"
+)
+
+
 @pytest.mark.parametrize("tab", ["documents", "indicators"])
 def test_the_scope_switch_never_says_all_over_the_active_programme_documents(client_viewer, world, tab):
     """Opened bare, the list and Indicators read the active programme documents (the Status filter): the Scope
-    switch, which adds no status of its own until Active only is chosen, says so instead of "All"."""
+    switch, which adds no status of its own until Active only is chosen, says so instead of "All". Active only
+    is read on top of the Status filter, never in its place, and its tooltip says so: a Status choice that
+    leaves Active out then lists nothing."""
     query = {} if tab == "documents" else {"tab": tab}
     page = client_viewer.get(PROGRAMMES, query)
     html = text(page)
     assert _ticked(html, "f-status") == ["active"]
     assert SCOPE_CHECKED.findall(html) == [("all", "Status filter")]
-    assert "Active only: the active programme documents alone, whatever the Status filter chooses" in html
+    assert SCOPE_ACTIVE_ONLY in html
+    assert "whatever the Status filter chooses" not in html
     active_only = client_viewer.get(PROGRAMMES, {**query, "scope": "active", "status": ""})
     assert SCOPE_CHECKED.findall(text(active_only)) == [("active", "Active only")]
     assert _programmes(active_only, tab) == {"LEB/PD31"}
+    assert _programmes(client_viewer.get(PROGRAMMES, {**query, "status": "signed"}), tab) == {"LEB/PD32"}
+    signed = client_viewer.get(PROGRAMMES, {**query, "scope": "active", "status": "signed"})
+    assert SCOPE_CHECKED.findall(text(signed)) == [("active", "Active only")]
+    assert _programmes(signed, tab) == set()
+
+
+def test_the_guides_say_what_the_scope_switch_and_the_tab_links_read():
+    """The help guide and the runbook say what the code does: Active only on top of the Status filter, and the
+    summary's paragraph names the Status filter the list and Indicators open on (never "which open on All")."""
+    from pathlib import Path
+
+    root = Path(__file__).parents[2]
+    guide = " ".join((root / "neurodb/help/guide/partner-progress.md").read_text().split())
+    operations = " ".join((root / "docs/OPERATIONS.md").read_text().split())
+    for words in (guide, operations):
+        assert "whatever the Status filter chooses" not in words
+        assert "among those the Status filter chooses (none when its choice leaves Active out)" in words
+    assert "which open on *All*" not in guide
+    assert (
+        "The summary's *Active* opens them as they open (their Status filter on Active), its *All* on every "
+        "status" in guide
+    )
+    assert "the choice never flips on a tab change" not in operations
 
 
 def test_the_summary_and_the_list_open_each_other_on_the_same_programme_documents(client_viewer, world):
     """The summary's All (every programme document but drafts and cancelled ones) opens the list on every
-    status; the list as it opens (the active ones) opens the summary on Active, and with every status on All."""
+    status; its Active opens the list and Indicators as they open (their Status filter on Active, no Active
+    only left over), so the list as it opens, to the summary and back, comes back where it started; the list
+    as it opens (the active ones) opens the summary on Active, and with every status on All."""
     every = client_viewer.get(PROGRAMMES, {"tab": "summary", "scope": "all"})
     for tab in ("documents", "indicators"):
         url = every.context["tab_urls"][tab]
         assert _query(url)["status"] == [""], tab
         assert _programmes(client_viewer.get(url), tab) == EVERY_PD, tab
     active = client_viewer.get(PROGRAMMES, {"tab": "summary"})
+    assert active.context["tab_urls"]["documents"] == PROGRAMMES
+    assert active.context["tab_urls"]["indicators"] == PROGRAMMES + "?tab=indicators"
     assert _programmes(client_viewer.get(active.context["tab_urls"]["documents"])) == {"LEB/PD31"}
     bare = client_viewer.get(PROGRAMMES)
-    assert client_viewer.get(bare.context["tab_urls"]["summary"]).context["scope"] == "active"
+    summary = client_viewer.get(bare.context["tab_urls"]["summary"])
+    assert summary.context["scope"] == "active"
+    assert summary.context["tab_urls"]["documents"] == PROGRAMMES  # back to the list as it opened
+    indicators = client_viewer.get(PROGRAMMES, {"tab": "indicators"})
+    back = client_viewer.get(indicators.context["tab_urls"]["summary"]).context["tab_urls"]["indicators"]
+    assert back == PROGRAMMES + "?tab=indicators"
     cleared = client_viewer.get(PROGRAMMES, {"status": ""})
     assert client_viewer.get(cleared.context["tab_urls"]["summary"]).context["scope"] == "all"
+
+
+@pytest.mark.parametrize(
+    ("query", "listed", "expected"),
+    [
+        ({}, {"LEB/PD31"}, "active"),
+        ({"status": ""}, EVERY_PD, "all"),
+        ({"status": "signed"}, {"LEB/PD32"}, "all"),
+        ({"status": "active"}, {"LEB/PD31"}, "active"),
+    ],
+)
+def test_the_overall_tab_opens_the_summary_on_what_it_lists(client_viewer, world, query, listed, expected):
+    """Funded programme overall reads its Status filter too: its link to the summary opens it on Active when it
+    lists the active programme documents alone, else on All (every one but drafts and cancelled ones, as the
+    overall tab with the choice cleared); the summary's All opens it on every status."""
+    overall = client_viewer.get(PROGRAMMES, {"tab": "overall", **query})
+    assert _programmes(overall, "overall") == listed
+    summary = client_viewer.get(overall.context["tab_urls"]["summary"])
+    assert summary.context["scope"] == expected
+    if expected == "all":
+        assert summary.context["summary"]["count"] == len(EVERY_PD)
+        assert _programmes(client_viewer.get(summary.context["tab_urls"]["overall"]), "overall") == EVERY_PD

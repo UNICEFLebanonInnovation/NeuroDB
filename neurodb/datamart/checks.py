@@ -840,7 +840,8 @@ def running_quality_link() -> dict[str, str]:
     )
     return {
         "url": f"{reverse('reports:pd_monitoring')}?{query}",
-        "label": "Partner monitoring → Data quality, the running programme documents",
+        # the card draws the arrow after it
+        "label": "Partner monitoring's Data quality on the running programme documents",
     }
 
 
@@ -3089,8 +3090,8 @@ CHECKS: tuple[Check, ...] = (
         "cumulative on the latest counted report is shown beside it, and an indicator where they differ "
         "(beyond rounding) is marked Differs from PRP. A programme document with a partial history takes "
         "PRP's cumulative as its Reached. This check reads the figures of Partner monitoring's Data quality "
-        "tab for the running programme documents (active, signed or suspended), which its link opens (the "
-        "tab itself opens on the active ones).",
+        "tab for the running programme documents (active, signed or suspended), which its link opens when it "
+        "has one (the tab itself opens on the active ones).",
         _cumulative,
     ),
     Check(

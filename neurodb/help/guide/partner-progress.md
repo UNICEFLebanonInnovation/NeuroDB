@@ -239,11 +239,10 @@ The *Status* filter of the list, *Indicators* and *Funded programme overall* ope
 documents only (since 25 Nov 2026; every status before): choose more statuses, or clear the choice to see
 every status. The tabs and the downloads keep your choice. The *Scope* switch of the list and *Indicators*
 adds no status of its own on *Status filter* (the Status filter decides); *Active only* keeps the active
-programme documents alone, whatever the Status filter chooses. The summary's *All* opens the list on every
-status, and the list as it opens takes you to the summary on *Active*. The [Donors](/donors/) page's *Status*
-filter opens on Active the same way, and its links to Programme documents and Funds carry its choice. Links
-from Home, the country overview and the brief choose every status, as their figures count every programme
-document running in the year.
+programme documents among those the Status filter chooses (none when its choice leaves Active out). The
+[Donors](/donors/) page's *Status* filter opens on Active the same way, and its links to Programme documents
+and Funds carry its choice. Links from Home, the country overview and the brief choose every status, as
+their figures count every programme document running in the year.
 
 - **A programme document's page** lists each of its indicators with its target, Reached, % Reached and
   status, read by the same rule. Administrators, and Section editors of one of its sections, can choose
@@ -263,11 +262,14 @@ document running in the year.
   one partners reported on reads *Inactive in eTools* under its title.
 - **Programme documents → Funded programme summary info** sums up the programme documents. Choose
   *Active* (the default: those eTools shows as active) or *All* (every one but drafts and cancelled ones, as
-  *Funds → Funded Programs* counts them). The choice stays when you move between this tab and the *Programme
-  documents* and *Indicators* tabs, which open on *All*. The tiles give the number of programme documents and
-  partners (a partner counts once, whatever way its programme documents write its name; a programme document
-  with no partner is not counted as one), the total budget, the funds reserved and disbursed, and how
-  many active ones end within 90 days. Two charts count them by section and by type. Then come four
+  *Funds → Funded Programs* counts them). The *Programme documents*, *Indicators* and *Funded programme
+  overall* tabs open on their Status filter (Active). The summary's *Active* opens them as they open (their
+  Status filter on Active), its *All* on every status; their link to the summary opens it on *Active* when
+  they show the active programme documents alone, else on *All*. The tiles give the number of programme
+  documents and partners (a partner counts once, whatever way its programme documents write its name; a
+  programme document with no partner is not counted as one), the total budget, the funds reserved and
+  disbursed, and how many active ones end within 90 days. Two charts count them by section and by type.
+  Then come four
   tables: the active programme documents ending within 90 days (with the days left), the summary by
   section, the summary by partner and the totals by currency. Each summary row gives the number of
   programme documents, the UNICEF planned budget, the total budget, the funds reserved and the amount

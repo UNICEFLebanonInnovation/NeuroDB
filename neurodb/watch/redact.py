@@ -225,6 +225,7 @@ TOOL_TEXT_FIELDS = frozenset(
         "about",
         # its state
         "status",
+        "pd_statuses",  # the PD statuses a look-up read (partner_reporting): eTools status codes
         "state",
         "severity",
         "rating",

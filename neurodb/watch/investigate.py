@@ -16,9 +16,11 @@ today (became critical, got worse) first, and asks the AI to look into at most
 - each tool runs inside a read-only transaction, so a write fails, and inside
   ``neurodb.assistant.tools.for_watch()``: the look-ups that read a page as it opens (the active programme
   documents since 25 Nov 2026) read the PD statuses the watch counts instead: ``funds_overview`` the funds of
-  every programme document (its grant, funds reservation and PD closure points), ``pd_indicator_progress``
-  the indicators and ``partner_reporting`` the progress reports of the running ones (the daily review's
-  points it copies, its reports due), as before that day; the other tools read no page's PD status default;
+  every programme document (its grant, funds reservation and PD closure points) and ``pd_indicator_progress``
+  the indicators of the running ones (the daily review's points it copies), as before that day, and
+  ``partner_reporting`` the progress reports of the running ones (its reports due; it read the Progress
+  reports page's Active default from 21 Nov 2026 until then); the other tools read no page's PD status
+  default;
 - at most 4 rounds and 150 seconds, low effort, its own prompt cache key and no safety identifier (no
   person asked for it);
 - the point goes in as :func:`neurodb.watch.redact.for_model` writes it; a system, Makani or

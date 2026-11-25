@@ -71,9 +71,10 @@ active programme documents, so choose the running ones in its PD status filter t
 link's new PD statuses are not new evidence: no Watch point marked *Something's wrong* comes back for them
 (`watch.memory.fingerprint`). **The eTools reporting checks:** checks 5 and 7 count the running programme
 documents and now link Partner monitoring's Data quality on them (the statuses written out); after deploying,
-*Data and sync* → *eTools reporting checks* → **Run the checks now** gives their cards the link at once (the
-page names them as changed until then; the nightly run does it otherwise). **Left on every status, on
-purpose:** the administration's read-only list of programme documents (its *Status* filter shows every
+*Data and sync* → *eTools reporting checks* → **Run the checks now** gives their cards the link at once (until
+then the page names check 5 as changed, and check 7 shows its earlier verdict without the link: only check
+5's rule changed; the nightly run does it otherwise). **Left on every status, on purpose:** the
+administration's read-only list of programme documents (its *Status* filter shows every
 status until one is chosen) and the *Raw eTools data* browser's *Status* filter (*Every status*) are
 diagnostic views of what eTools sent, not pages of figures: they keep every status.
 
@@ -4296,8 +4297,9 @@ and business area codes at most).
 * **Check 5** reads Partner monitoring's own figures (the running programme documents, written out:
   `checks._reached_against_prp`; quarterly reports with the monthly fallback): what the *Data quality* tab
   lists with every section, every year, Quarterly reports and the running statuses chosen, which the link
-  under its verdict opens (`checks.running_quality_link`, the statuses written out: the tab itself opens on
-  the active ones alone since 25 Nov 2026, and so lists the same figures only for those). It gives the
+  under its verdict opens when it has one (indicators where Reached differs, or *Not compared*:
+  `checks.running_quality_link`, the statuses written out: the tab itself opens on the active ones alone
+  since 25 Nov 2026, and so lists the same figures only for those). It gives the
   indicators with several counted
   reports, those whose PRP cumulative never goes down from one report to the next or is the same on every
   report, the indicators compared (Reached and PRP's cumulative both given, no partial history) and those
@@ -4753,9 +4755,11 @@ figures as everywhere else (they read the rule above; nothing is added across in
   `_multiselect.html`'s `keep_empty`). The tab bar, the pages and the downloads keep `status=`
   (`views._query_only`). The *Scope* switch of the list and *Indicators* (`scope=all` / `scope=active`) adds
   no status of its own on its first choice: its two choices read *Status filter* (the statuses the Status
-  filter chooses) and *Active only* (the eTools status active, whatever the Status filter chooses), with a
-  tooltip saying so. They read *All* / *Active* until 25 Nov 2026, when *All* came to stand over the active
-  programme documents alone (the Status filter's new default). Its values and what it filters are
+  filter chooses) and *Active only* (the eTools status active, on top of the Status filter, never in its
+  place: `partnerships.programme_documents`), which keeps the active programme documents among those the
+  Status filter chooses (none when its choice leaves Active out), with a tooltip saying so. They read *All*
+  / *Active* until 25 Nov 2026, when *All* came to stand over the active programme documents alone (the
+  Status filter's new default). Its values and what it filters are
   unchanged: the least surprising choice, since making *All* clear the Status filter (or the switch open on
   Active) would let a choice the person made in one control silently undo the other. The API
   (`/api/programmes/`, `/api/donors/`) reads `PDFilters.from_params`: no status, every status, as before. Links that state a count write their statuses out: the Donors page's *All N on
@@ -4767,14 +4771,16 @@ figures as everywhere else (they read the rule above; nothing is added across in
   and donor, and a text that matches PD numbers alone as the page's *PD reference*, `pd_q`; what the page
   cannot apply, words of a title, an office or start years, stays out of the `url` and the result's
   `url_note` says so: the page then lists more than the count). *Summary info*: `scope=active` (the
-  default, eTools status active) or `all`; the tab bar's links carry the Active / All choice the page shows
+  default, eTools status active) or `all`; the tab bar's links name the Active / All choice they open on
   when it is not the other tab's own default (*Programme documents* and *Indicators* open on All, drawn
-  *Status filter*, the summary on Active: `SCOPE_DEFAULTS`), so the choice never flips on a tab change. As
-  the list and *Indicators* read their Status filter too, their link to the summary opens it on Active when
-  they read the active programme documents alone (the bare address included), else on All, and the
-  summary's All (every programme document but drafts and cancelled ones) opens them on every status
-  (`status=`; they add the cancelled ones, which the summary never reads), so a tab change keeps the
-  programme documents shown (`views._programme_tab_urls`). Tiles (PDs, partners: one per
+  *Status filter*, the summary on Active: `SCOPE_DEFAULTS`), so a tab change keeps the programme documents
+  shown. As the list, *Indicators* and the overall tab read their Status filter too, their link to the
+  summary opens it on Active when they read the active programme documents alone (the bare address and
+  *Active only* included), else on All; the summary's Active opens them as they open (no `scope`, no
+  `status`: their Status filter on Active), so the list as it opens, to the summary and back, comes back to
+  the bare list, and its All (every programme document but drafts and cancelled ones) opens them on every
+  status (`status=`; the list and *Indicators* add the cancelled ones, which the summary never reads)
+  (`views._programme_tab_urls`). Tiles (PDs, partners: one per
   eTools partner, under its current name, a PD without a partner link counted with the partner whose name it
   bears, case and spaces aside, a PD with neither left out of the count but kept as *Unknown partner*
   in the table; total budget of the first currency, funds reserved,

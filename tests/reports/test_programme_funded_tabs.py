@@ -539,8 +539,10 @@ def _checked_scope(html: str) -> str:
 @pytest.mark.parametrize(
     ("start", "target", "expected"),
     [
-        ({"tab": "summary"}, "Programme documents", "active"),
-        ({"tab": "summary"}, "Indicators", "active"),
+        # the summary's Active opens the list and Indicators as they open: their Status filter, on Active (the
+        # same programme documents, and list -> summary -> list comes back to the bare list)
+        ({"tab": "summary"}, "Programme documents", "all"),
+        ({"tab": "summary"}, "Indicators", "all"),
         ({"tab": "summary", "scope": "all"}, "Programme documents", "all"),
         # the list and Indicators as they open read the active programme documents (their Status filter,
         # since 25 Nov 2026): the summary opens on Active; with every status, on All
@@ -550,14 +552,17 @@ def _checked_scope(html: str) -> str:
         ({"tab": "indicators", "status": ""}, "Funded programme summary info", "all"),
         ({"scope": "active"}, "Funded programme summary info", "active"),
         ({"tab": "indicators", "scope": "active"}, "Programme documents", "active"),
+        # the overall tab reads its Status filter too
+        ({"tab": "overall"}, "Funded programme summary info", "active"),
+        ({"tab": "overall", "status": ""}, "Funded programme summary info", "all"),
     ],
 )
 def test_the_active_or_all_choice_stays_the_same_across_the_tabs(
     client_viewer, world, start, target, expected
 ):
     """Programme documents and Indicators open on their Scope switch's Status filter, the summary on Active: a
-    tab link carries the choice the page shows, so it never flips on a tab change (the summary's All opens the
-    list on every status: tests/reports/test_pd_status_active_default.py)."""
+    tab link opens the tab on the programme documents the page shows (the summary's Active opens the list on
+    its Status filter's Active, its All on every status: tests/reports/test_pd_status_active_default.py)."""
     response = client_viewer.get(PAGE, start)
     href = dict((label, href) for label, href, _ in _tabs(response.text))[target]
     after = client_viewer.get(href)

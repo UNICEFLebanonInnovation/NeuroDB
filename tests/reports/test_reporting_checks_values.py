@@ -647,6 +647,27 @@ def test_check_7_sends_the_reader_to_the_titles_of_the_running_programme_documen
     assert "Kits distributed" in _listed(client_viewer, link["url"], "dq-titles")
 
 
+def test_the_running_link_and_check_5_s_rule_say_it_once(db):
+    """The card adds the arrow (one, never "→ … →"); check 5's rule names its link only where it has one (a
+    verdict without indicators that differ has none)."""
+    assert "→" not in checks.running_quality_link()["label"]
+    rule = next(c.neurodb for c in checks.CHECKS if c.key == "5")
+    assert "which its link opens when it has one" in rule
+
+
+def test_the_release_note_names_only_check_5_as_changed_until_the_next_run():
+    """A stored card is named as changed when its title, question or rule changed (``checks.read_stored``):
+    check 5's rule did, check 7's did not, so its stored card keeps its earlier verdict without the link."""
+    from pathlib import Path
+
+    notes = " ".join((Path(__file__).parents[2] / "docs/OPERATIONS.md").read_text().split())
+    assert "page names them as changed until then" not in notes
+    assert (
+        "until then the page names check 5 as changed, and check 7 shows its earlier verdict without the link"
+        in notes
+    )
+
+
 def test_the_checks_page_draws_a_check_s_link(admin_client, monkeypatch):
     card = {
         "key": "5",

@@ -1146,27 +1146,32 @@ SCOPE_DEFAULTS = {"documents": "all", "indicators": "all", "summary": "active"}
 def _programme_tab_urls(request: HttpRequest, params: QueryDict, scope: str | None = None) -> dict[str, str]:
     """The tab bar's addresses: each tab keeps the filters it has (the summary only its scope). ``scope``: the
     Active / All choice the page shows (None on the overall tab, which has none). The tabs open on different
-    choices (:data:`SCOPE_DEFAULTS`), so each link names the choice shown when it is not that tab's own
-    default: the choice never flips on a tab change. The list and Indicators read their Status filter as
-    well (Active when the address names none, since 25 Nov 2026; their All is drawn "Status filter"): the
-    summary they open is on Active when they read the active programme documents alone, else on All; the
-    summary's All (every programme document but drafts and cancelled ones) opens them on every status
-    (``status=``), never on their Status filter's default."""
+    choices (:data:`SCOPE_DEFAULTS`), so each link names the choice it opens on when it is not that tab's own
+    default, and a tab change keeps the programme documents shown. The list, Indicators and the overall tab
+    read their Status filter as well (Active when the address names none, since 25 Nov 2026; the list's and
+    Indicators' All is drawn "Status filter"): the summary they open is on Active when they read the active
+    programme documents alone (their *Active only* included), else on All. The summary's Active opens them
+    as they open (no scope, no status: their Status filter's Active), so the list as it opens, to the
+    summary and back, comes back to the bare list; its All (every programme document but drafts and
+    cancelled ones) opens them on every status (``status=``), never on their Status filter's default."""
     path = request.path
-    from_summary = params.get("tab") == "summary"
-    if scope in services.PD_SCOPES:
-        params = params.copy()
-        params.setlist("scope", [scope])
-        if from_summary and scope == "all":
+    params = params.copy()
+    to_list, to_summary = scope, scope  # the choice the list and Indicators, and the summary, open on
+    if params.get("tab") == "summary":
+        if scope == "all":
             params.setlist("status", [""])
-    to_summary = scope
-    if not from_summary and scope == "all":
-        if partnerships.PDFilters.from_page(params).statuses == list(partnerships.ACTIVE_STATUSES):
-            to_summary = "active"
+        else:
+            to_list = SCOPE_DEFAULTS["documents"]
+            params.pop("status", None)
+    elif scope != "active":
+        active_alone = partnerships.PDFilters.from_page(params).statuses == list(partnerships.ACTIVE_STATUSES)
+        to_summary = "active" if active_alone else "all"
+    if to_list in services.PD_SCOPES:
+        params.setlist("scope", [to_list])
 
     def scoped(tab: str) -> dict[str, str | None]:
-        """The scope the link to ``tab`` names: none when the page shows that tab's own default."""
-        return {"scope": None} if scope == SCOPE_DEFAULTS[tab] else {}
+        """The scope the link to ``tab`` names: none when it opens on that tab's own default."""
+        return {"scope": None} if to_list == SCOPE_DEFAULTS[tab] else {}
 
     return {
         "documents": _with_query(
@@ -1177,7 +1182,12 @@ def _programme_tab_urls(request: HttpRequest, params: QueryDict, scope: str | No
         ),
         "summary": _with_query(
             path,
-            _query_only(params, () if to_summary == SCOPE_DEFAULTS["summary"] else ("scope",), tab="summary"),
+            _query_only(
+                params,
+                (),
+                tab="summary",
+                **({} if to_summary == SCOPE_DEFAULTS["summary"] else {"scope": to_summary}),
+            ),
         ),
         "overall": _with_query(path, _query_only(params, OVERALL_PARAMS, tab="overall")),
     }

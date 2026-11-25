@@ -56,9 +56,10 @@
   </div>
   {% endif %}
   {% comment %}The Scope switch adds no status of its own until Active only is chosen: on its first choice the Status
-  filter decides (it opens on Active since 25 Nov 2026), so it never says "All" over the active ones alone.{% endcomment %}
+  filter decides (it opens on Active since 25 Nov 2026), so it never says "All" over the active ones alone. Active
+  only is read on top of the Status filter (partnerships.programme_documents), never in its place.{% endcomment %}
   <div class="filter-bar__field filter-bar__field--fit">
-    <span class="form-label"><span class="has-tip" title="{% trans 'Status filter: the statuses the Status filter chooses (it opens on Active; clear its choice for every status). Active only: the active programme documents alone, whatever the Status filter chooses.' %}">{% trans "Scope" %}</span></span>
+    <span class="form-label"><span class="has-tip" title="{% trans 'Status filter: the statuses the Status filter chooses (it opens on Active; clear its choice for every status). Active only: the active programme documents among those the Status filter chooses (none when its choice leaves Active out).' %}">{% trans "Scope" %}</span></span>
     <div class="segmented" role="radiogroup" aria-label="{% trans 'Scope' %}">
       <label><input class="visually-hidden" type="radio" name="scope" value="all" {% if scope == "all" %}checked{% endif %}><span>{% trans "Status filter" %}</span></label>
       <label><input class="visually-hidden" type="radio" name="scope" value="active" {% if scope == "active" %}checked{% endif %}><span>{% trans "Active only" %}</span></label>
