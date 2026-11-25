@@ -136,22 +136,30 @@ download the findings it read.
   "Nabatiyeh", "Nabatiye", "Beqaa", "Beyrouth", "Liban-Nord", "Liban-Sud"), with its main districts, towns
   and camps: a question about the South also reads findings about Saida, Tyre, Jezzine or Ein el-Hilweh,
   and Mount Lebanon also Jbeil and Keserwan, as older reports count them ("Bint Jbeil" is in Nabatieh, not
-  Jbeil). "South Lebanon", "the south" and "Janoub" mean the South and Nabatieh governorates. The answer
-  reads only findings that name the places you write; when fewer than 10 do, it also reads the others that
-  match your words, and the line under the answer says so ("No finding on this subject names Mount
-  Lebanon: findings from all of Lebanon were read."). When none of your words is in any finding, the
-  findings that name the place are read. "All governorates", "by governorate", "all gov" or "by district"
-  reads the findings that name a governorate, a district or a town, those naming the most governorates
-  first; "all Lebanon", "nationwide" or "national level" reads every place. "National" with a place
-  ("compare the national rate with Akkar") reads every place, the findings on that place first; without a
-  place it is a word of your subject ("the national education strategy").
+  Jbeil; "South Metn" is Baabda, in Mount Lebanon; "North Bekaa" is Baalbek-Hermel). "South Lebanon", "the
+  south", "the southern governorates" and "Janoub" mean the South and Nabatieh governorates, and the line
+  under the answer says so. The answer reads only findings that name the places you write; when fewer
+  than 10 do, it also reads the others that match your words, and the line under the answer says so ("No
+  finding on this subject names Mount Lebanon: findings from all of Lebanon were read."). When none of
+  your words is in any finding, the findings that name the place are read. "All governorates", "by
+  governorate", "per governorate", "across governorates", "at governorate level", "all gov" or "by
+  district" reads the findings that name a governorate, a district or a town, those naming the most
+  governorates first ("per", "across" or "level" is never looked for itself); "all Lebanon", "nationwide"
+  or "national level" reads every place. "National" with a place ("compare the national rate with Akkar")
+  reads every place, the findings on that place first; without a place it is a word of your subject ("the
+  national education strategy"), never looked for alone: when no finding holds your other words, nothing
+  matches, rather than findings that only say "nationally".
 - **Years.** "In the past 2 years" means this year and the two before it (in 2026: 2024 to 2026), and
   "since 2023", "2019-2021", "in 2023", "2023" alone, "2022 and 2025" (each year), "this year", "recent
-  figures" and "latest" work too: they set the Year filter, without the findings whose year is not
-  reported, and the line under the answer says which years. To change them, use the Year filter of the
-  Findings tab. The years are those the documents were published. For "latest" or "most recent", when
-  fewer than 10 findings of the past 2 years match, the newest older ones are read too, and the line says
-  so. "Recently displaced children" or "targets for 2030" set no year.
+  figures" and "latest" work too, also before a comma or a full stop ("In 2024, ...") and as a school year
+  ("the 2024 school year"): they set the Year filter, without the findings whose year is not reported,
+  and the line under the answer says which years. To change them, use the Year filter of the Findings
+  tab. The years are those the documents were published. For "latest" or "most recent", when fewer than
+  10 findings of the past 2 years match, the newest older ones are read too, and the line says so.
+  "Recently displaced children" or "targets for 2030" set no year, nor does the year of an event ("the
+  2020 explosion", "after the 2024 war") or a year you compare with ("compared to 2019", "before the 2019
+  crisis"): the findings that mention that year only come first. "Since the 2019 crisis" means since
+  2019.
 - **The same text twice.** A finding whose text is word for word another one's in the same document is
   read once; the answer may cite either, and both open their finding. The same text in two documents is
   read twice, each with its own document and year.

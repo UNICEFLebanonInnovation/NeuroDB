@@ -7,14 +7,17 @@ workbook's text and never another NeuroDB table.
   finding qualifies when its own words name any of them. A governorate also finds its districts and towns
   ("South" finds "Saida", "Tyre", "Jezzine"); Mount Lebanon also finds Keserwan-Jbeil, as older reports
   count it in Mount Lebanon. A district, a town or a camp finds its own spellings ("Tripoli (the North)"). A
-  spelling inside another governorate's place is not its place ("Jbeil" in "Bint Jbeil": :func:`shadows`).
-- **"South Lebanon", "the south"** mean the South and Nabatieh governorates; "South governorate" the South
-  only.
+  spelling inside another governorate's place is not its place ("Jbeil" in "Bint Jbeil", "North" in "North
+  Metn" or "North Bekaa", "South" in "South Metn": :func:`shadows`), but the other place's findings still
+  count for that other place in the same group ("Mount Lebanon and Nabatieh", a breakdown).
+- **"South Lebanon", "the south", "the southern governorates"** mean the South and Nabatieh governorates;
+  "South governorate" the South only. "South Metn" is Baabda (Mount Lebanon), "North Bekaa" Baalbek-Hermel.
 - **Governorate words** ("governorate", "gov", "mohafaza") and **district words** ("district", "caza") are
   part of the place when a place is named, and otherwise ask for a breakdown (:attr:`Reading.breakdown`:
-  "all governorates", "by governorate", "all gov"; "by district", "each caza", "the districts":
-  :attr:`Reading.by_district`). A breakdown keeps the findings that name a place: a governorate, or a
-  district or town as its governorate.
+  "all governorates", "by governorate", "all gov", "per governorate", "across governorates", "broken down
+  by governorate", "at governorate level"; "by district", "each caza", "the districts":
+  :attr:`Reading.by_district`), the words that ask for it taken out with them. A breakdown keeps the
+  findings that name a place: a governorate, or a district or town as its governorate.
 - **"All Lebanon", "nationally", "nationwide", "national level"** ask for no place
   (:attr:`Reading.national`). The word "national" alone does so when the question names a place ("the
   national rate and Akkar": every place, the findings naming Akkar first); without one it is a word of the
@@ -52,6 +55,9 @@ GOVERNORATES: tuple[Place, ...] = (
             "baalbeck hermel",
             "baalbek el hermel",
             "baalbek-el hermel",
+            "north bekaa",
+            "northern bekaa",
+            "north beqaa",
         ),
     ),
     Place("beirut", "Beirut", ("beirut", "beyrouth", "bayrut", "beyrut", "bairut", "beirut governorate")),
@@ -157,7 +163,7 @@ DISTRICTS: tuple[Place, ...] = (
     Place("jounieh", "Jounieh", ("jounieh", "junieh", "jouniyeh"), ("keserwan-jbeil", "mount-lebanon")),
     Place("aley", "Aley", ("aley", "aaley", "alay"), ("mount-lebanon",)),
     Place("chouf", "Chouf", ("chouf", "shouf", "chuf", "shuf"), ("mount-lebanon",)),
-    Place("baabda", "Baabda", ("baabda", "ba'abda"), ("mount-lebanon",)),
+    Place("baabda", "Baabda", ("baabda", "ba'abda", "south metn", "southern metn"), ("mount-lebanon",)),
     Place("metn", "Metn", ("metn", "matn", "maten", "north metn", "el metn"), ("mount-lebanon",)),
     Place("bourj-hammoud", "Bourj Hammoud", ("bourj hammoud", "burj hammoud"), ("mount-lebanon",)),
     Place("damour", "Damour", ("damour",), ("mount-lebanon",)),
@@ -262,6 +268,10 @@ REGIONS: dict[str, tuple[str, ...]] = {
         "south lebanon",
         "southern lebanon",
         "south of lebanon",
+        "southern governorates",
+        "southern districts",
+        "southern region",
+        "south region",
         "southern border",
         "southern borders",
         "sud-liban",
@@ -372,14 +382,35 @@ def _phrases(words: tuple[str, ...]) -> re.Pattern:
     return re.compile(rf"(?<![\w'-])(?:{alternation})(?![\w'-])", re.IGNORECASE)
 
 
-_GOVERNORATE_WORDS = _phrases(GOVERNORATE_WORDS)
 _DISTRICT_WORDS = _phrases(DISTRICT_WORDS)
 _NATIONAL = _phrases(NATIONAL)
 _NATIONAL_WORD = _phrases(("national",))
-# a breakdown by district: "by district", "each caza", "all the districts", or the plural ("the districts")
+# the words before a governorate or district word that ask for a breakdown, taken out with it (never
+# searched): "by", "per", "across", "each", "all", "in all", "within each", "across all the", "broken
+# down by", "disaggregated by", "a breakdown by"; "at (the)" before the word and its level ("governorate
+# level", "district-wise", "governorate by governorate")
+_BREAKDOWN_LEAD = (
+    r"(?:(?:broken\s+down|break\s+down|breakdowns?|disaggregated|disaggregation|split|divided)\s+)?"
+    r"(?:by|each|every|all|per|across|different|various|"
+    r"(?:for|in|of|across|at|within|on)\s+(?:each|every|all))(?:\s+of)?\s+(?:the\s+)?"
+)
+_AT = r"(?:(?:at|on)\s+(?:the\s+)?)"
+_LEVEL = r"(?:[\s-]+(?:levels?|wise|breakdowns?|by\s+(?:the\s+)?(?:{words})))"  # "governorate-level"
+_DISTRICT = "|".join(re.escape(w) for w in DISTRICT_WORDS)
+_GOVERNORATE = "|".join(re.escape(w) for w in GOVERNORATE_WORDS)
+# a breakdown by district: "by district", "each caza", "all the districts", "per district", "at district
+# level", "district-level", or the plural ("the districts")
 _BY_DISTRICT = re.compile(
-    r"(?<![\w'-])(?:(?:by|each|every|all|per|across|for\s+each|for\s+all|of\s+all|in\s+all|different|various)"
-    r"\s+(?:the\s+)?(?:districts?|cazas?|kazas?|qadaas?|qada)|districts|cazas|kazas|qadaas|aqdiya)(?![\w'-])",
+    rf"(?<![\w'-])(?:{_BREAKDOWN_LEAD}(?:{_DISTRICT}){_LEVEL.format(words=_DISTRICT)}?|"
+    rf"{_AT}?(?:{_DISTRICT}){_LEVEL.format(words=_DISTRICT)}|"
+    rf"(?:districts|cazas|kazas|qadaas|aqdiya){_LEVEL.format(words=_DISTRICT)}?)(?![\w'-])",
+    re.IGNORECASE,
+)
+# the governorate words, with the words that ask for the breakdown ("per gov", "across governorates", "at
+# governorate level"), and "by region" ("region" alone is no breakdown: "the southern region")
+_BY_GOVERNORATE = re.compile(
+    rf"(?<![\w'-])(?:(?:{_BREAKDOWN_LEAD}|{_AT})?(?:{_GOVERNORATE}){_LEVEL.format(words=_GOVERNORATE)}?|"
+    rf"(?:by|per|each|across)\s+(?:the\s+)?regions?)(?![\w'-])",
     re.IGNORECASE,
 )
 
@@ -472,11 +503,17 @@ def governorate_alternatives() -> list[list[str]]:
 
 
 def _pruned(spellings: list[str]) -> list[str]:
-    """``spellings`` without those that hold another one as a whole word ("south lebanon" when "south" is
-    there: the search finds both by the word)."""
+    """``spellings`` without those that hold another one as a whole word ("akkar governorate" when "akkar" is
+    there: the search finds both by the word), but for a word that does not find every text it is in
+    (:func:`shadows`: "bint jbeil" stays with "jbeil", "north lebanon" with "north": "In North Lebanon and
+    North Bekaa" names the North)."""
     unique = list(dict.fromkeys(spellings))
     singles = {s for s in unique if re.fullmatch(r"[\w'.]+", s)}
-    return [s for s in unique if s in singles or not any(w in singles for w in re.split(r"[\s-]+", s))]
+    return [
+        s
+        for s in unique
+        if s in singles or not any(w in singles and not shadows(w) for w in re.split(r"[\s-]+", s))
+    ]
 
 
 def _claimed(rest: str) -> list[tuple[int, int, tuple[str, ...], str]]:
@@ -532,9 +569,11 @@ def read(text: str) -> Reading:
         national, national_word = True, False
         rest = _NATIONAL_WORD.sub(" ", rest)
     by_district = not keys and bool(_BY_DISTRICT.search(rest))
-    rest = (_DISTRICT_WORDS if keys else _BY_DISTRICT).sub(" ", rest)
-    governorate = bool(_GOVERNORATE_WORDS.search(rest))
-    rest = _GOVERNORATE_WORDS.sub(" ", rest)
+    rest = _BY_DISTRICT.sub(" ", rest)
+    if keys:  # "Akkar district"
+        rest = _DISTRICT_WORDS.sub(" ", rest)
+    governorate = bool(_BY_GOVERNORATE.search(rest))
+    rest = _BY_GOVERNORATE.sub(" ", rest)
     return Reading(
         text=" ".join(rest.split()),
         keys=keys,

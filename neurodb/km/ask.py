@@ -166,7 +166,9 @@ REQUEST_STOP = frozenset(
     "newest lens u pls plz kindly want like rewrite rephrase revise instead "
     # the words that ask for figures (:data:`FIGURES` ranks the findings that give one first)
     "rate rates proportion proportions prevalence figure figures statistic statistics stats ratio ratios "
-    "count counts estimate estimates share".split()
+    "count counts estimate estimates share "
+    # the words of a breakdown ("a breakdown of child labour by governorate": the breakdown is read as such)
+    "breakdown breakdowns disaggregated disaggregation".split()
 )
 # phrases of a request ("by population type disability": a breakdown asked for, not a word to search)
 REQUEST_PHRASES = re.compile(
@@ -741,11 +743,37 @@ _HOW_MANY = (
 )
 _COUNTS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9}
 _COUNTS |= {"ten": 10, "few": 3, "couple of": 2, "several": 3}
-# a number of people or things after a year-like number is a count, not a year ("in 2000 households")
+# a number of people or things after a year-like number is a count, not a year ("in 2000 households"; "in
+# 2024 school year" is a year)
 _NO_COUNT = (
     r"(?!\s+(?:households?|homes?|houses?|famil(?:y|ies)|people|persons?|individuals?|children|child|kids|"
-    r"girls|boys|women|men|adolescents|youths?|infants|babies|students?|pupils?|learners?|schools?|teachers?|"
+    r"girls|boys|women|men|adolescents|youths?|infants|babies|students?|pupils?|learners?|"
+    r"schools?\b(?!\s+years?\b)|teachers?|"
     r"refugees?|cases?|beneficiaries|respondents|participants|workers|units|dollars|usd|lbp|km)\b)"
+)
+# where a year ends: before a space, a full stop or a comma ("in 2024.", "In 2024, ..."), never before a
+# decimal point, a thousands comma or a second year ("2024.5", "2024,500", "2024/25")
+_YEAR_END = r"(?![\w%-]|[.,/]\d)"
+# a date before a year ("the August 2020 blast", "the 4 August 2020 explosion")
+_DATE = (
+    r"(?:(?:\d{1,2}(?:st|nd|rd|th)?\s+)?(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|"
+    r"aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+)?"
+)
+# an event a year names ("the 2019 crisis", "2020 Beirut port explosion"): up to two words that are no
+# English stop word, then the event
+_EVENTS = (
+    r"(?:crisis|crises|explosions?|blasts?|wars?|escalations?|conflicts?|hostilities|collapse|devaluation|"
+    r"earthquakes?|outbreaks?|epidemics?|pandemics?|lockdowns?|elections?|protests?|uprisings?|revolutions?|"
+    r"invasions?|airstrikes?|bombings?|ceasefires?|floods?|strikes?)"
+)
+_NOT_STOP = "|".join(sorted(search.ENGLISH_STOP, key=len, reverse=True))
+_EVENT = rf"(?:\s+(?:(?!(?:{_NOT_STOP})\b)[\w'’-]+\s+){{0,2}}{_EVENTS}(?![\w-]))"
+# what a year after "the" qualifies when it is the year of the data, not of an event ("the 2024 figures", "the
+# 2024 school year")
+_DATA = (
+    r"(?:data|figures?|numbers?|statistics|stats|results?|estimates?|rates?|reports?|surveys?|"
+    r"assessments?|stud(?:y|ies)|findings?|evidence|rounds?|editions?|census|"
+    r"(?:school|academic|scholastic)\s+years?)"
 )
 _YEARS_LISTED = (
     rf"{_Y}(?:\s*,\s*{_Y})*\s*,?\s*(?:and|or|vs\.?|versus|&|compared\s+(?:to|with))\s+(?:in\s+)?{_Y}"
@@ -756,16 +784,25 @@ TIME_FRAMES = tuple(
         ("range", rf"\bbetween\s+(?:the\s+years?\s+)?({_Y})\s+and\s+({_Y})\b"),
         ("range", rf"\bfrom\s+({_Y})\s+(?:to|until|till|through)\s+({_Y})\b"),
         ("range", rf"(?<![\w-])({_Y})\s*(?:-|–|—|/|\bto\b)\s*((?:19|20)?\d\d)(?![\w-])"),
-        ("since", rf"\b(?:since|from)\s+({_Y})\b"),
-        ("after", rf"\bafter\s+({_Y})\b"),
+        # "since 2019", "since the 2019 crisis" (its event's words only rank), "from 2019" (never "from 2020
+        # explosion": the event)
+        ("since", rf"\bsince\s+(?:the\s+)?{_DATE}({_Y})\b({_EVENT})?"),
+        ("since", rf"\bfrom\s+({_Y})\b(?!{_EVENT})"),
+        ("after", rf"\bafter\s+({_Y})\b(?!{_EVENT})"),
         ("past", rf"\b(?:(?:in|over|during|for|within)\s+)?(?:the\s+)?(?:past|last|previous|recent)\s+"
                  rf"(?:({_HOW_MANY})\s+)?(years?|months?)\b"),
         ("this", r"\b(?:this|the\s+current|current)\s+year\b"),
         # "in 2022 and 2025", "2022 vs 2025", "2022, 2023 and 2025": each year
         ("list", rf"(?:\b(?:in|during|for|of)\s+(?:the\s+years?\s+)?)?(?<![\w.,/$-]){_YEARS_LISTED}"
-                 rf"(?![\w.,/%-]){_NO_COUNT}"),
-        ("in", rf"\b(?:in|during|for|of)\s+(?:the\s+year\s+)?({_Y})(?![\w.,/%-]){_NO_COUNT}"),
-        ("year", rf"(?<![\w.,/$£€-])({_Y})(?![\w.,/%-]){_NO_COUNT}"),  # "child marriage 2025"
+                 rf"{_YEAR_END}{_NO_COUNT}"),
+        # the year compared with ("compared to 2019", "higher than in 2019", "before the 2019 crisis"), the
+        # year of an event ("the 2020 explosion", "after the 2024 war", "Lebanon's 2019 crisis"): no year
+        ("compared", rf"\b(?:compared\s+(?:to|with)|than|vs\.?|versus|before|prior\s+to)\s+(?:in\s+)?"
+                     rf"(?:the\s+)?{_DATE}({_Y}){_YEAR_END}{_NO_COUNT}(?:\s+(?:{_DATA}|levels?)\b|({_EVENT}))?"),
+        ("event", rf"\bthe\s+{_DATE}({_Y}){_YEAR_END}{_NO_COUNT}(?!\s+{_DATA}\b)(?:\s+levels?\b)?"),
+        ("event", rf"(?<![\w.,/$£€-])({_Y}){_YEAR_END}(?={_EVENT})"),
+        ("in", rf"\b(?:in|during|for|of)\s+(?:the\s+year\s+)?({_Y}){_YEAR_END}{_NO_COUNT}"),
+        ("year", rf"(?<![\w.,/$£€-])({_Y}){_YEAR_END}{_NO_COUNT}"),  # "child marriage 2025"
         # "latest", "most recent", "newest"; "recent" before the data it qualifies ("recent figures") or at
         # the end; "recently" at the end ("what changed recently?"), never "recently displaced children"
         ("recent", r"\b(?:the\s+)?(?:most\s+recent|latest|newest|up[\s-]to[\s-]date)\b|"
@@ -776,16 +813,20 @@ TIME_FRAMES = tuple(
     )
 )  # fmt: skip
 LATEST = "recent"  # the kind of "latest": when no finding of those years matches, the newest are read
+NO_YEAR = ("compared", "event")  # the kinds of a year that is no time frame: it only ranks
 
 
 @dataclass
 class TimeFrame:
     """A question's time frame: the years it asks for (``spans``: first and last year of each phrase), the
-    words of the line under the answer ("2024–2026") and the question without those phrases."""
+    words of the line under the answer ("2024–2026") and the question without those phrases. ``ranks``: the
+    words taken out that only rank the findings that hold them first (the year of an event or the year
+    compared with, the event of "since the 2019 crisis"): never a filter, never a word to match."""
 
     text: str
     spans: list[tuple[int, int]] = field(default_factory=list)
     kinds: set[str] = field(default_factory=set)
+    ranks: list[str] = field(default_factory=list)
 
     @property
     def latest(self) -> bool:
@@ -820,18 +861,34 @@ def time_frame(text: str, on: datetime.date) -> TimeFrame:
     to this year; "after 2023" from 2024; "2019-2021", "2023/24", "between 2019 and 2021"; "in 2023",
     "2023" alone and each year of "in 2022 and 2025", "2022 vs 2025"; "this year"; "latest", "most recent",
     "recent data": the past :data:`RECENT_YEARS` years. A year after next year ("targets for 2030") or
-    before a count of people or things ("2000 households") is no year. The phrases are taken out of the
+    before a count of people or things ("2000 households") is no year. The year of an event ("the 2020
+    explosion", "after the 2024 war"; never "the 2024 figures" or "the 2024 school year") and the year
+    compared with ("compared to 2019", "than 2019", "before the 2019 crisis") are no year either: they only
+    rank (:attr:`TimeFrame.ranks`); "since the 2019 crisis" is since 2019. The phrases are taken out of the
     text (never searched)."""
     this = on.year
     spans: list[tuple[int, int]] = []
     kinds: set[str] = set()
+    ranks: list[str] = []
+
+    def ranked(*parts: str | None) -> list[tuple[int, int]]:
+        for part in parts:
+            ranks.extend(w for w in re.findall(r"[\w'’-]+", (part or "").casefold()) if w not in ranks)
+        return []
 
     def span(kind: str, match: re.Match) -> list[tuple[int, int]] | None:
         if kind == "range":
             first, last = int(match.group(1)), match.group(2)
             end = int(last) if len(last) == 4 else first // 100 * 100 + int(last)
             return [(first, end)] if first <= end <= first + 30 else None
+        if kind in NO_YEAR:
+            if int(match.group(1)) > this + 1:  # "the 2030 agenda": a word
+                return None
+            event = match.group(2) if kind == "compared" else None
+            return ranked(match.group(1), event)
         if kind == "since":
+            if match.re.groups > 1:
+                ranked(match.group(2))  # "since the 2019 crisis": the crisis only ranks
             return [(int(match.group(1)), max(this, int(match.group(1))))]
         if kind == "after":
             return [(int(match.group(1)) + 1, max(this, int(match.group(1)) + 1))]
@@ -855,12 +912,13 @@ def time_frame(text: str, on: datetime.date) -> TimeFrame:
             found = span(kind, match)
             if found is None:
                 return match.group(0)
-            spans.extend(found)
-            kinds.add(kind)
+            if found:
+                spans.extend(found)
+                kinds.add(kind)
             return " "
 
         text = pattern.sub(one, text)
-    return TimeFrame(text=text, spans=spans, kinds=kinds)
+    return TimeFrame(text=text, spans=spans, kinds=kinds, ranks=ranks)
 
 
 def _shapes_of(model, name: str) -> list[str]:
@@ -1104,6 +1162,7 @@ def quorum(
     figures: bool = False,
     need: int | None = None,
     unranked: list[list[str]] | tuple = (),
+    ranks: list[str] | tuple = (),
 ) -> tuple[QuerySet, list]:
     """The findings of ``qs`` that match enough groups in their own texts (:func:`need_of`, or ``need``),
     with their order. ``required``: a group every finding must match too (the places named), not counted.
@@ -1116,7 +1175,8 @@ def quorum(
     questions and indicator and its document's methods, population and titles only break ties), the
     confidence level (only once Level A is confirmed the strongest), the newest year, the workbook's order.
     The places and the groups of ``unranked`` (a breakdown by governorate: dozens of spellings) are no words
-    of the rank: they only keep findings (a rank of so many words would take seconds over thousands)."""
+    of the rank: they only keep findings (a rank of so many words would take seconds over thousands).
+    ``ranks``: words of the rank only, never matched (the year of an event: :attr:`TimeFrame.ranks`)."""
     every_group = [*found_groups, *([required] if required else [])]
     qs = qs.filter(_rough(every_group))
     if required:
@@ -1132,7 +1192,7 @@ def quorum(
     else:
         qs = qs.filter(km_matched__gte=need)
     ranked = [g for g in found_groups if g not in unranked]
-    english = [alt for g in ranked for alt in _english(g)]
+    english = [alt for g in ranked for alt in _english(g)] + [r for r in ranks if r.isalnum()]
     qs = qs.annotate(
         km_boost=_ones([Q(**{name: "Y"}) for name in boost]),
         km_own=(
@@ -1222,7 +1282,7 @@ def _term_groups(terms: list[str], known: list[list[str]]) -> list[list[str]]:
             while words_left and words_left[-1] in stop:
                 words_left.pop()
             term = " ".join(words_left)
-        if not term:
+        if not term or [term] == NATIONAL_WORD:  # "national" alone: never searched alone
             continue
         group = _lens(list(search.variants(term)))
         if group not in known and group not in found:
@@ -1313,10 +1373,14 @@ def _read(text: str, *, other: bool = False) -> tuple[places.Reading, list[list[
     return reading, groups
 
 
+NATIONAL_WORD = ["national"]
+
+
 def _national(reading: places.Reading, groups: list[list[str]]) -> tuple[places.Reading, list[list[str]]]:
     """The word "national" with no place named: all of Lebanon when it is the only word left to search ("and
-    national?"), else a word of the subject ("the national education strategy")."""
-    if reading.national_word and groups == [["national"]]:
+    national?"), else a word of the subject ("the national education strategy"), never searched alone
+    (:func:`retrieve`)."""
+    if reading.national_word and groups == [NATIONAL_WORD]:
         text = re.sub(r"(?i)(?<![\w'-])national(?![\w'-])", " ", reading.text)
         return replace(reading, text=" ".join(text.split()), national=True, national_word=False), []
     return reading, groups
@@ -1478,6 +1542,7 @@ def retrieve(
         used.append(f"{words.DOCUMENT_ID} {document}")
     other = follow_up or bool(used or left_out or frame.spans or first)
     reading, current = _read(text, other=other)
+    adjective = NATIONAL_WORD if reading.national_word else None  # "national", no place: never searched alone
     topic = 0
     if not follow_up and len(current) > TOPIC_AFTER:  # a long question: its last clause ranks first
         ending = [g for g in _groups(_topic(reading.text), alone=False) if g in current]
@@ -1551,6 +1616,11 @@ def retrieve(
         typed_dead = held_none = False  # a word of the question that no finding holds (misspelt, abbreviated)
         if len(all_groups) >= 2 or (place and all_groups):  # a group no finding holds is not counted
             holds = alive(base, all_groups)
+            # "national" the only word of the question's own a finding holds ("the national education
+            # strategy" when no finding is on education): no subject, never "national" alone
+            mine = [g for g, held in zip(all_groups, holds, strict=True) if held and g in current]
+            if adjective and [g for g in mine if g != breakdown] == [adjective]:
+                holds = [held and g != adjective for g, held in zip(all_groups, holds, strict=True)]
             typed_dead = any(
                 not held and g in current and g != breakdown
                 for g, held in zip(all_groups, holds, strict=True)
@@ -1571,21 +1641,24 @@ def retrieve(
         else:
             need = need_of(len(searched))
             shape = {"topic": searched_topic}
-        ask_for = {"prefer": prefer, "figures": figures, "unranked": [breakdown]}
+        ask_for = {"prefer": prefer, "figures": figures, "unranked": [breakdown], "ranks": frame.ranks}
         required = place or by_governorate
         run(*quorum(base, searched, boost, required=required, **shape, **ask_for))
         if not picked.matched and need > 2:  # none matches a third: 2 groups are enough
             shape = {**shape, "need": 2, "topic": 0}
             run(*quorum(base, searched, boost, required=required, **shape, **ask_for))
         if not picked.matched and not follow_up and len(searched) == 2 and need == 2:
-            # none matches both words ("a lens on gender, and disability"): one of them is enough
-            picked.loose = bool(run(*quorum(base, searched, boost, required=required, need=1, **ask_for)))
+            # none matches both words ("a lens on gender, and disability"): one of them is enough (never
+            # "national" alone)
+            either = [g for g in searched if g != adjective]
+            picked.loose = bool(run(*quorum(base, either, boost, required=required, need=1, **ask_for)))
         if follow_up and angles_held and len(angles_held) < len(searched) and not picked.matched:
             # no finding joins the follow-up to the earlier subject: a new subject, searched by its angles
             # alone (its own words, and those its earlier follow-ups searched alone too)
             searched, shape = angles_held, {}  # the passes below search them alone too
             if not run(*quorum(base, searched, boost, required=required, **ask_for)) and len(searched) == 2:
-                run(*quorum(base, searched, boost, required=required, need=1, **ask_for))
+                either = [g for g in searched if g != adjective]  # never "national" alone
+                run(*quorum(base, either, boost, required=required, need=1, **ask_for))
             if "subject" in kept:
                 kept.remove("subject")
             if again and not (own.reworks or own.adds):
@@ -1597,7 +1670,7 @@ def retrieve(
                 picked.cited_again = len(on_angles)
         if place and searched and picked.matched < FEW_IN_PLACE:  # few name the place: the others too
             wider = [place, *([reading.broader()] if reading.broader() else [])]
-            wide = {"prefer": wider, "figures": figures, "unranked": [breakdown]}
+            wide = {"prefer": wider, "figures": figures, "unranked": [breakdown], "ranks": frame.ranks}
             in_place = picked.matched
             if run(*quorum(base, searched, boost, **shape, **wide)):
                 picked.relaxed, picked.in_place = ("few" if in_place else "none"), in_place
@@ -1620,9 +1693,10 @@ def retrieve(
             more_groups = _term_groups(terms, all_groups)
             boost += [m for m in marks if m not in boost]
             if more_groups:
-                # in the place named, any of them; elsewhere 2 of 3 or more (one of fewer)
+                # in the place named, any of them; elsewhere (a breakdown by governorate too, whose findings
+                # only name a place) 2 of 3 or more (one of fewer)
                 required = place or by_governorate
-                need = 1 if required or len(more_groups) < 3 else 2
+                need = 1 if place or len(more_groups) < 3 else 2
                 run(*quorum(base, more_groups, boost, need=need, required=required, figures=figures))
         if not picked.matched and place and held_none:  # no finding holds a word: the place's findings
             if run(*quorum(base, [], boost, required=place, figures=figures)):

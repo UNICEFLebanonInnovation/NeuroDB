@@ -1476,17 +1476,24 @@ asked). In order:
      are 2024-2026; "past year", "last year" or up to 12 months: the year before too; "past years" and
      "recent years" with no number: 2 years), "since 2023" and "from 2023" up to this year, "after 2023",
      "2019-2021", "2023/24", "between 2019 and 2021", "in 2023", a year alone ("child marriage 2025"), each
-     year of a list ("in 2022 and 2025", "2022 vs 2025", "2022, 2023 and 2025"), "this year". A number
-     after next year ("targets for 2030") or before a count of people or things ("2000 households") is no
-     year, and is searched. Findings whose year is *Not reported* are left out. The line under the answer
-     says "Years 2024–2026, from your question; findings whose year is not reported are left out (the Year
-     filter changes it)"; the phrase is never searched. The years are publication years. **"Latest"**,
-     "most recent", "newest", "up to date", "recent" before the data it qualifies ("recent figures") or at
-     the end, and "recently" at the end ("what changed recently?"; never "recently displaced children") set
-     the past 2 years too; when under 10 findings of those years match, the newest others are read after
-     them and the Year filter is not kept ("No finding of 2024–2026 matches your words: the most recent
-     ones were read, newest first.", "Only 2 findings of 2024–2026 match your words: the most recent
-     others were read too, newest first.").
+     year of a list ("in 2022 and 2025", "2022 vs 2025", "2022, 2023 and 2025"), "this year"; also before a
+     full stop or a comma ("In 2024, ...", "... in 2024.") and as a school year ("in the 2024 school year",
+     "the 2023 academic year"). A number after next year ("targets for 2030") or before a count of people
+     or things ("2000 households") is no year, and is searched; so is a decimal or a number with a
+     thousands comma ("2024.5", "2024,500"). **The year of an event** ("the 2020 explosion", "after the
+     2024 war", "Lebanon's 2019 crisis") and **a year compared with** ("compared to 2019", "higher than
+     2019", "before the 2019 crisis") set no Year filter and are not searched: they only put the findings
+     that mention that year first among those that match. "The 2024 figures", "the 2024 data" or "the 2024
+     survey" stay years. "Since the 2019 crisis" is since 2019 (the crisis is not searched; it only ranks).
+     Findings whose year is *Not reported* are left out. The line under the answer says "Years 2024–2026,
+     from your question; findings whose year is not reported are left out (the Year filter changes it)";
+     the phrase is never searched. The years are publication years. **"Latest"**, "most recent", "newest",
+     "up to date", "recent" before the data it qualifies ("recent figures") or at the end, and "recently"
+     at the end ("what changed recently?"; never "recently displaced children") set the past 2 years too;
+     when under 10 findings of those years match, the newest others are read after them and the Year
+     filter is not kept ("No finding of 2024–2026 matches your words: the most recent ones were read,
+     newest first.", "Only 2 findings of 2024–2026 match your words: the most recent others were read too,
+     newest first.").
    - **Places** (`neurodb.km.places`, written in code: public geography, no other NeuroDB table): the nine
      governorates (Akkar, Baalbek-Hermel, Beirut, Bekaa, Keserwan-Jbeil, Mount Lebanon, Nabatieh, North,
      South) in their common spellings, French names and transliterations ("mont lebanon", "Jabal Lubnan",
@@ -1496,26 +1503,37 @@ asked). In order:
      Hasbaya: Nabatieh; Aley, Chouf, Baabda, Metn: Mount Lebanon; Jbeil, Keserwan: Keserwan-Jbeil, and Mount
      Lebanon too, as older reports count them), and the Palestine refugee camps ("Ein el-Hilweh",
      Rashidieh, Burj el-Shemali: South; Nahr el-Bared, Beddawi: North; Shatila, Bourj el-Barajneh: Beirut
-     and Mount Lebanon; "camp" after one goes with it). "South Lebanon", "the south", "south", "Sud-Liban"
-     and "Janoub" are the South and Nabatieh governorates; "South governorate" and "Liban-Sud" the South
-     only. The places of a question make **one** place group a finding's own texts must name (any of them;
-     a governorate also by its districts and towns; a spelling inside another governorate's place does not
-     count there: "Jbeil" in "Bint Jbeil", "North" in "North Metn"); "governorate", "gov", "mohafaza",
-     "district" and "caza" go with a place named, and without one ask for a **breakdown** ("all
-     governorates", "by governorate", "all gov"; "by district", "each caza", "the districts"): a group of
-     the governorate words and of every governorate, district and town, the findings naming the most
+     and Mount Lebanon; "camp" after one goes with it). "South Lebanon", "the south", "south", "Sud-Liban",
+     "Janoub", "the southern governorates", "the southern region" and "the southern districts" are the
+     South and Nabatieh governorates (the owner's rule), and the line under the answer says so ("Places
+     from your question: the South (South and Nabatieh governorates)."); "South governorate", "the southern
+     governorate" (one) and "Liban-Sud" the South only. "South Metn" is Baabda (Mount Lebanon) and "North
+     Bekaa" is Baalbek-Hermel, never the South, the North or the Bekaa. The places of a question make
+     **one** place group a finding's own texts must name (any of them; a governorate also by its districts
+     and towns; a spelling inside another governorate's place does not count there: "Jbeil" in "Bint
+     Jbeil", "North" in "North Metn" or "North Bekaa", "South" in "South Metn", "Bekaa" in "North Bekaa";
+     such a finding still counts for its own place when that place is in the group too: "Mount Lebanon and
+     Nabatieh", a breakdown); "governorate", "gov", "mohafaza", "district" and "caza" go with a place named,
+     and without one ask for a **breakdown** ("all governorates", "by governorate", "all gov", "per
+     governorate", "per gov", "across governorates", "within each governorate", "broken down by
+     governorate", "at governorate level", "governorate-level", "by region"; "by district", "per district",
+     "each caza", "at district level", "the districts"): the words that ask for it ("per", "across",
+     "broken down", "level") and "breakdown" or "disaggregated" are never searched; a group of the
+     governorate words and of every governorate, district and town, the findings naming the most
      governorates first (a district or a town counted as its governorate). "All Lebanon", "nationally",
      "nationwide", "national level" or "national figures" ask for no place; with a place named, so does
      "national" ("compare the national rate with Akkar": every place, the findings naming Akkar first, "All
      of Lebanon, from your question, with the findings that name Akkar first."); without one, "national" is
      a word of the subject ("the national education strategy"), all of Lebanon only when it is the only word
-     left ("and national?"). Places are said with "or" ("Akkar or the North"). When under 10 findings name
-     the place, the other findings that match the words are read after them (those naming the place, then
-     its governorate, first) and the line under the answer says so ("Only 1 finding on this subject names
-     Mount Lebanon: findings from all of Lebanon were read too", "No finding on this subject names Mount
-     Lebanon: ..."). When no finding holds any word of the question but a place is named ("enfants non
-     scolarisés au Mont-Liban"), the findings naming the place are read ("No finding holds your words: the
-     findings that name Mount Lebanon were read.").
+     left ("and national?"), and never searched alone: when it is the only word of the question that a
+     finding holds ("the national education strategy" when no finding is on education), no finding matches,
+     never the findings that merely say "nationally". Places are said with "or" ("Akkar or the North").
+     When under 10 findings name the place, the other findings that match the words are read after them
+     (those naming the place, then its governorate, first) and the line under the answer says so ("Only 1
+     finding on this subject names Mount Lebanon: findings from all of Lebanon were read too", "No finding
+     on this subject names Mount Lebanon: ..."). When no finding holds any word of the question but a place
+     is named ("enfants non scolarisés au Mont-Liban"), the findings naming the place are read ("No finding
+     holds your words: the findings that name Mount Lebanon were read.").
    - **The words** (up to 1,000 characters, common words left out first, words joined by a slash searched
      one by one, a hyphenated word also as two words; UK/US spellings and sector acronyms joined) are
      looked for in each finding's own texts only: its key finding, measure, analysis and limitations
@@ -1590,9 +1608,10 @@ asked). In order:
      or the question is not in Latin letters, and less than 15 seconds have passed, a small call (20
      seconds, no retry) asks for search words from the cleaned question and the conversation's earlier
      questions only, never any data; it fails silently. A finding is kept for those words when it holds any
-     one of them in the place the question names, else 2 of 3 or more (one of fewer), the most matched
-     first; a suggested word that names a place, a governorate word or "all Lebanon" is left out (the
-     place is required already). When it finds the credit gone (the pause starts),
+     one of them in the place the question names, else 2 of 3 or more (one of fewer; with a breakdown by
+     governorate too, as its findings need only name a place), the most matched first; a suggested word
+     that names a place, a governorate word, "all Lebanon" or "national" alone is left out (the place is
+     required already). When it finds the credit gone (the pause starts),
      no answer call is made: the findings are listed with the pause's sentence.
 4. **The message**: the question, up to 4 earlier turns of this conversation read from the version shown (the
    last answer up to 4,000 characters, whole in practice, so that a follow-up can rework it; the others cut at
