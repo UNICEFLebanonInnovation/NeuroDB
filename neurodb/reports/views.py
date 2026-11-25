@@ -1147,11 +1147,22 @@ def _programme_tab_urls(request: HttpRequest, params: QueryDict, scope: str | No
     """The tab bar's addresses: each tab keeps the filters it has (the summary only its scope). ``scope``: the
     Active / All choice the page shows (None on the overall tab, which has none). The tabs open on different
     choices (:data:`SCOPE_DEFAULTS`), so each link names the choice shown when it is not that tab's own
-    default: the choice never flips on a tab change."""
+    default: the choice never flips on a tab change. The list and Indicators read their Status filter as
+    well (Active when the address names none, since 25 Nov 2026; their All is drawn "Status filter"): the
+    summary they open is on Active when they read the active programme documents alone, else on All; the
+    summary's All (every programme document but drafts and cancelled ones) opens them on every status
+    (``status=``), never on their Status filter's default."""
     path = request.path
+    from_summary = params.get("tab") == "summary"
     if scope in services.PD_SCOPES:
         params = params.copy()
         params.setlist("scope", [scope])
+        if from_summary and scope == "all":
+            params.setlist("status", [""])
+    to_summary = scope
+    if not from_summary and scope == "all":
+        if partnerships.PDFilters.from_page(params).statuses == list(partnerships.ACTIVE_STATUSES):
+            to_summary = "active"
 
     def scoped(tab: str) -> dict[str, str | None]:
         """The scope the link to ``tab`` names: none when the page shows that tab's own default."""
@@ -1165,7 +1176,8 @@ def _programme_tab_urls(request: HttpRequest, params: QueryDict, scope: str | No
             path, _query_with(params, ("export", *START_YEARS), tab="indicators", **scoped("indicators"))
         ),
         "summary": _with_query(
-            path, _query_only(params, () if scoped("summary") else ("scope",), tab="summary")
+            path,
+            _query_only(params, () if to_summary == SCOPE_DEFAULTS["summary"] else ("scope",), tab="summary"),
         ),
         "overall": _with_query(path, _query_only(params, OVERALL_PARAMS, tab="overall")),
     }

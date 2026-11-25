@@ -1504,6 +1504,14 @@ def _stored(key: str, build: Callable[[], Any]) -> Any:
     return compute.once(key, build, STORED_SECONDS, lang_neutral=True)
 
 
+def _chosen(filters: reporting.ReportFilters) -> str:
+    """Whether the address chose the PD statuses or the page's default reads them, for a trail's key (as
+    Partner monitoring's, ``trail_monitoring._chosen``): the figures are the same (one ``cache_key``: the bare
+    address and Active chosen read the same statuses), but the trail's words and query say which ("PD status:
+    Active (the page's default)" or "PD status: Active")."""
+    return "default" if filters.pd_statuses is None else "chosen"
+
+
 def progress_trail(page: str, params: Any, day: datetime.date) -> Trail:
     """The trail of Progress reports (``page="progress-reports"``) or of Home's Progress reports block
     (``"home"``) for the filter of ``params`` on ``day``: computed once in one snapshot of the data, kept two
@@ -1512,7 +1520,7 @@ def progress_trail(page: str, params: Any, day: datetime.date) -> Trail:
         raise ValueError(f"no Progress reports trail for the page {page!r}")
     params = filter_query(params)
     filters = reporting.ReportFilters.from_params(params)
-    key = f"trail:v{CACHE_VERSION}:{page}:{filters.cache_key()}:{day}:{keys.fingerprint()}"
+    key = f"trail:v{CACHE_VERSION}:{page}:{_chosen(filters)}:{filters.cache_key()}:{day}:{keys.fingerprint()}"
     return _stored(key, lambda: _progress_trail(page, params, day))
 
 
@@ -1658,7 +1666,10 @@ def table_trail(tab: str, params: Any, day: datetime.date) -> TableTrail:
     tab_key = (
         reporting.DisaggregationFilters.from_params(params).cache_key() if tab == "disaggregations" else ""
     )
-    key = f"trail-table:v{CACHE_VERSION}:{tab}:{filters.cache_key()}:{tab_key}:{day}:{keys.fingerprint()}"
+    key = (
+        f"trail-table:v{CACHE_VERSION}:{tab}:{_chosen(filters)}:{filters.cache_key()}:{tab_key}:{day}:"
+        f"{keys.fingerprint()}"
+    )
     return _stored(key, lambda: _table_trail(tab, params, day))
 
 

@@ -142,7 +142,8 @@ def test_asks_and_watchs_requests_are_unchanged_by_the_chat():
     assert agent.RunOptions().tool_context is None
     assert agent._request(None)["instructions"].startswith(agent.SYSTEM_PROMPT)
     options = investigate.run_options([], [])
-    assert options.tool_context is None and options.base_prompt is None
+    # Watch's own context (the PD statuses it counts, since 25 Nov 2026), never the chat's
+    assert options.tool_context is assistant_tools.for_watch and options.base_prompt is None
     assert agent._background_request(options)["instructions"].startswith(agent.SYSTEM_PROMPT)
 
 

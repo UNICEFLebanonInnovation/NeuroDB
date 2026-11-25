@@ -69,7 +69,13 @@ links, so the review goes first). A past day's review, and a Watch point no pass
 gone or marked wrong), keep the links they were written with: such a link to Partner monitoring opens on the
 active programme documents, so choose the running ones in its PD status filter to see what it counted. A
 link's new PD statuses are not new evidence: no Watch point marked *Something's wrong* comes back for them
-(`watch.memory.fingerprint`).
+(`watch.memory.fingerprint`). **The eTools reporting checks:** checks 5 and 7 count the running programme
+documents and now link Partner monitoring's Data quality on them (the statuses written out); after deploying,
+*Data and sync* → *eTools reporting checks* → **Run the checks now** gives their cards the link at once (the
+page names them as changed until then; the nightly run does it otherwise). **Left on every status, on
+purpose:** the administration's read-only list of programme documents (its *Status* filter shows every
+status until one is chosen) and the *Raw eTools data* browser's *Status* filter (*Every status*) are
+diagnostic views of what eTools sent, not pages of figures: they keep every status.
 
 The release that adds the *PAL* population nationality repairs the population figures by itself:
 the first container start reloads the years stored by the older loader (see Yearly rollover, step 5).
@@ -2847,7 +2853,9 @@ Watch get counts only. The Progress reports export writes them as a count too (`
 (`?tab=plan&year=<HACT year>`). The partner page, *HACT by year*: the same, on the partner
 (`?tab=plan&partner=<id>&year=<this year>`). The PD page panel *Field monitoring visits*: "HACT visit
 plan →" (`?tab=plan&q=<reference>&year=`). Monitoring insights, Analysis, HACT block (which lists only
-the partners visited in the filter): "see the HACT visit plan →" (`?tab=plan&zero=1&year=`). NeuroDB
+the partners visited in the filter): "see the HACT visit plan →" (`?tab=plan&zero=1&year=&status=`: every
+PD status, since the block has no PD status filter and the eTools HACT figures are the partner's, whatever
+its programme documents' statuses; the plan alone opens on the active ones since 25 Nov 2026). NeuroDB
 Watch's `hact_assurance_gap` (from 1 October) adds the evidence "Programme documents still needing
 visits" ("2 programme documents need 3 visits", linking to `?tab=plan&partner=<id>&year=<year>`) when
 the partner has a PD with a gap; its key, severity, timing and routing are unchanged (see *What it
@@ -3176,7 +3184,7 @@ write it:
 - **The eTools REST sync** (`sync.py`) keeps the same copy as it reads: `RestCopy.keep` is the last step of each
   record's savepoint (a record that fails is not kept, its previous copy stays), and each run's
   `details.raw_copies.<entity>` says what it received and kept. It still writes the partners, agreements,
-  programme documents (`PCA`, whose status decides "running" on every partner reporting page), trips,
+  programme documents (`PCA`, whose status decides what the PD status filters keep), trips,
   engagements and action points as before: that sync can move the PRP pages' figures, the copy never does.
 
 **Removal.** After a list read that ended without an exception, the records of that list entity the read did not
@@ -3443,7 +3451,7 @@ goes back to the map).
   programme documents in NeuroDB by the sync that last wrote them (`updated_at` from the start of the last
   Datamart `interventions` run to the end of the `intervention_budgets` run after it, which saves each programme
   document again with its budget; else the same for the REST sync's `interventions` and `intervention_details`;
-  else earlier; none is ever removed; the REST sync writes PCA, whose status decides "running"); M1 the programme documents NeuroDB holds and M2 to M10 each filter
+  else earlier; none is ever removed; the REST sync writes PCA, whose status decides whether the PD status filter keeps it); M1 the programme documents NeuroDB holds and M2 to M10 each filter
   of `monitoring._pd_queryset` that applies, with their PD indicator rows (`D4 − D5 − the PD steps' rows = M11`,
   a red line if not); M11 the rows of the PDs kept and each filter of `_indicator_rows` (search, tags,
   emergency, the HR-only rule), with the indicators left out entirely and partly; M16 one per indicator; the
@@ -4286,11 +4294,16 @@ and business area codes at most).
   them (PRP's empty `{c: 0, d: 0, v: 0}` is 0 there); *Value given* counts only a value other than zero:
   a zero, `"0"` or `"0.0"` counts as no value in this check.
 * **Check 5** reads Partner monitoring's own figures (the running programme documents, written out:
-  `checks._reached_against_prp`; the page itself opens on the active ones alone since 25 Nov 2026;
-  quarterly reports with the monthly fallback: what the *Data quality* tab lists): the indicators with several counted
+  `checks._reached_against_prp`; quarterly reports with the monthly fallback): what the *Data quality* tab
+  lists with every section, every year, Quarterly reports and the running statuses chosen, which the link
+  under its verdict opens (`checks.running_quality_link`, the statuses written out: the tab itself opens on
+  the active ones alone since 25 Nov 2026, and so lists the same figures only for those). It gives the
+  indicators with several counted
   reports, those whose PRP cumulative never goes down from one report to the next or is the same on every
   report, the indicators compared (Reached and PRP's cumulative both given, no partial history) and those
-  where Reached differs, with the indicators with a partial history (and, when the Datamart holds no
+  where Reached differs, with the indicators with a partial history (the check's own count: each such
+  indicator carries the *Partial history* chip in the grid and in Program Performance, and Data quality has
+  no list of them since 25 Nov 2026; and, when the Datamart holds no
   earlier report than the first one NeuroDB has, "their Reached is PRP's cumulative: the Datamart holds no
   partner report starting before 1 Jan 2026"), with a table of what they share (PRP above or below, monthly reports, PRP equal to
   every report combined or to the latest one, a cumulative that never moves, locations not read from
@@ -4301,7 +4314,8 @@ and business area codes at most).
   cause: such a title and output no tie-breaker placed, a title several share with a PD output that is
   empty or matches none of theirs (the output name corrected in PRP or eTools), or a title none has, with
   the indicator reports left out (each its title and PD output); its sentence counts what the pages leave
-  out, after the tie-breakers. Of the rows of a shared
+  out, after the tie-breakers, and its link opens Data quality's *Same title twice in one PD* on the running
+  programme documents (`checks.running_quality_link`, as check 5's). Of the rows of a shared
   title and output it counts those alone at their place in their report (PRP sends one of the copies),
   those with two or more, the monthly ones, those the tie-breakers place on the pages and those still left
   out (two of the row's fields name different indicators, two indicator reports would go to one indicator, two rows at one
@@ -4565,7 +4579,8 @@ figures as everywhere else (they read the rule above; nothing is added across in
   the home page or the management brief. **Who reads the page's default:** the page's tabs (the hidden
   ones too), its exports, its figure trail and its Power BI comparison sheet (a bare address compares the
   active programme documents, and the sheet's *Set these in Power BI* says *PD status: Active*), and Ask
-  NeuroDB's `partner_reporting`, which reads "as the page opens" and links to the bare page. **Who does
+  NeuroDB's `partner_reporting`, which reads "as the page opens" and links to the bare page (NeuroDB Watch's
+  look-ups read the running ones instead, as the watch counts their reports: `tools.for_watch`). **Who does
   not:** Home keeps the running ones (`home.figure_queries` writes `pd_status=active&pd_status=signed&
   pd_status=suspended` into its filter, so every link from Home to Progress reports, the tiles, the
   heading's link, the rows, the partners line and its figure trail, opens the page on Home's numbers);
@@ -4736,17 +4751,30 @@ figures as everywhere else (they read the rule above; nothing is added across in
   Funds does, so the overall tab and *Funds → Funded Programs* opened bare list the same PDs, and so do
   both with the choice cleared (`status=` alone here, `pd_status=` there: a hidden empty field,
   `_multiselect.html`'s `keep_empty`). The tab bar, the pages and the downloads keep `status=`
-  (`views._query_only`). The *Scope* switch (All / Active) is apart: on All the Status filter still
-  applies. The API (`/api/programmes/`, `/api/donors/`) reads `PDFilters.from_params`: no status, every
-  status, as before. Links that state a count write their statuses out: the Donors page's *All N on
+  (`views._query_only`). The *Scope* switch of the list and *Indicators* (`scope=all` / `scope=active`) adds
+  no status of its own on its first choice: its two choices read *Status filter* (the statuses the Status
+  filter chooses) and *Active only* (the eTools status active, whatever the Status filter chooses), with a
+  tooltip saying so. They read *All* / *Active* until 25 Nov 2026, when *All* came to stand over the active
+  programme documents alone (the Status filter's new default). Its values and what it filters are
+  unchanged: the least surprising choice, since making *All* clear the Status filter (or the switch open on
+  Active) would let a choice the person made in one control silently undo the other. The API
+  (`/api/programmes/`, `/api/donors/`) reads `PDFilters.from_params`: no status, every status, as before. Links that state a count write their statuses out: the Donors page's *All N on
   Programme documents* (its own choice), the country overview's *Programme documents running* tile and
   Home's *still counted by their largest indicator* line (`status=`, every status: they count PDs running
   in the year, whatever their status now), Compare with Power BI's *PD/SPD Indicators* link
   (`powerbi_results.neurodb_url`), and Ask NeuroDB's `search_programmes` and `donor_funding` (their own
-  scope, every status but drafts or the status asked, written out in their `url`). *Summary info*: `scope=active` (the
+  scope, every status but drafts or the status asked, written out in their `url`, with the partner, section
+  and donor, and a text that matches PD numbers alone as the page's *PD reference*, `pd_q`; what the page
+  cannot apply, words of a title, an office or start years, stays out of the `url` and the result's
+  `url_note` says so: the page then lists more than the count). *Summary info*: `scope=active` (the
   default, eTools status active) or `all`; the tab bar's links carry the Active / All choice the page shows
-  when it is not the other tab's own default (*Programme documents* and *Indicators* open on All, the summary
-  on Active: `SCOPE_DEFAULTS`), so the choice never flips on a tab change. Tiles (PDs, partners: one per
+  when it is not the other tab's own default (*Programme documents* and *Indicators* open on All, drawn
+  *Status filter*, the summary on Active: `SCOPE_DEFAULTS`), so the choice never flips on a tab change. As
+  the list and *Indicators* read their Status filter too, their link to the summary opens it on Active when
+  they read the active programme documents alone (the bare address included), else on All, and the
+  summary's All (every programme document but drafts and cancelled ones) opens them on every status
+  (`status=`; they add the cancelled ones, which the summary never reads), so a tab change keeps the
+  programme documents shown (`views._programme_tab_urls`). Tiles (PDs, partners: one per
   eTools partner, under its current name, a PD without a partner link counted with the partner whose name it
   bears, case and spaces aside, a PD with neither left out of the count but kept as *Unknown partner*
   in the table; total budget of the first currency, funds reserved,
@@ -6035,7 +6063,13 @@ today first. It runs Ask NeuroDB's own loop with these limits:
   replaced by the watch's own: the review's open programme findings with their title, severity,
   section and state, never its data checks (they carry sync error text) nor the findings of a review
   check in trial;
-- the tools run inside a read-only database transaction, so a write fails;
+- the tools run inside a read-only database transaction, so a write fails, and inside
+  `assistant.tools.for_watch`: the tools that read a page as it opens (the active programme documents
+  since 25 Nov 2026) read what the watch counts instead: `funds_overview` every PD status,
+  `pd_indicator_progress` and `partner_reporting` the running programme documents (active, signed or
+  suspended), and the instructions tell the AI so. The other tools read no page's PD status default (one
+  programme document or partner whatever its status, `partner_details`' own scope, or no programme
+  document);
 - at most 4 rounds and 150 seconds per look-up, low effort, its own prompt cache key;
 - the answer is strict JSON. It is kept only when every number, date and eTools reference in it is in
   what the tools returned or in the point itself, and it names no person and has no link. It is

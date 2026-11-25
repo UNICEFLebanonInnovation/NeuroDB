@@ -15,6 +15,7 @@ from decimal import Decimal
 
 import pytest
 from django.db import connection, transaction
+from django.urls import reverse
 
 from neurodb.datamart import checks, monitoring
 from neurodb.datamart import models as dm
@@ -586,3 +587,77 @@ def test_check_7_tables_say_what_tells_shared_indicators_apart(pd):
     text = json.dumps(found)
     for secret in ("Kits distributed", "Children reached", "Partner A", "Lists of"):
         assert secret not in text
+
+
+# ------------------------------------------------------------- where the verdicts send the reader (25 Nov 2026)
+def _listed(client, url: str, table: str) -> str:
+    """The rows of one of Data quality's lists on the page the link opens."""
+    html = client.get(url).content.decode()
+    found = re.search(rf'<table class="table table-sm" id="{table}">(.*?)</table>', html, re.S)
+    return found.group(1) if found else ""
+
+
+def _running_link(found: dict) -> dict:
+    from urllib.parse import parse_qs, urlsplit
+
+    link = found["link"]
+    query = parse_qs(urlsplit(link["url"]).query, keep_blank_values=True)
+    assert query["pd_status"] == ["active", "signed", "suspended"]  # written out: the tab opens on Active
+    assert query["section"] == [""] and query["year"] == ["all"] and query["report_type"] == ["QPR"]
+    return link
+
+
+@pytest.mark.parametrize("status", ["signed", "suspended"])
+def test_check_5_sends_the_reader_to_a_list_of_what_it_counted(pd, client_viewer, status):
+    """A signed or suspended programme document is counted (the running ones): the verdict's link opens Data
+    quality on the running statuses, which lists its mismatch (the tab opened bare reads the active ones)."""
+    pd.status = status
+    pd.save(update_fields=["status"])
+    report_row(pd, "QPR1", end=D(2026, 3, 31), total={"c": 100}, total_cumulative_progress="100")
+    report_row(pd, "QPR2", end=D(2026, 6, 30), total={"c": 50}, total_cumulative_progress="450")
+    found = one("5")
+    assert figures(found)["Indicators where Reached differs from PRP"] == 1
+    assert "no other filter" not in found["verdict"]
+    assert "the link below opens it on the running programme documents" in found["verdict"]
+    link = _running_link(found)
+    assert pd.number in _listed(client_viewer, link["url"], "dq-prp")
+    assert pd.number not in _listed(
+        client_viewer, reverse("reports:pd_monitoring") + "?section=&year=all", "dq-prp"
+    )
+
+
+def test_check_5_not_compared_still_sends_the_reader_to_the_running_programme_documents(db, monkeypatch):
+    monkeypatch.setattr(checks, "PRP_COMPARE_MIN_S", 1000.0)
+    found = one("5")
+    assert found["verdict"].startswith("Not compared")
+    assert "the link below opens it on the running programme documents" in found["verdict"]
+    _running_link(found)
+
+
+def test_check_7_sends_the_reader_to_the_titles_of_the_running_programme_documents(indicators, client_viewer):
+    pd = indicators
+    pd.status = "signed"
+    pd.save(update_fields=["status"])
+    data = {"etools_cp_output_indicators_id": None, "partner_name": "Partner A"}
+    report_row(pd, title="Kits distributed", data=data)  # two indicators of the PD have the title
+    found = one("7")
+    assert "Partner monitoring → Data quality lists the titles a PD repeats" in found["verdict"]
+    assert "the link below opens it on the running programme documents" in found["verdict"]
+    link = _running_link(found)
+    assert "Kits distributed" in _listed(client_viewer, link["url"], "dq-titles")
+
+
+def test_the_checks_page_draws_a_check_s_link(admin_client, monkeypatch):
+    card = {
+        "key": "5",
+        "title": "PRP's cumulative",
+        "question": "?",
+        "neurodb": "",
+        "tone": "info",
+        "verdict": "Example verdict.",
+        "figures": [],
+        "link": {"url": "/partner-monitoring/?pd_status=signed", "label": "Example list"},
+    }
+    monkeypatch.setattr(checks, "run_all", lambda: [card])
+    html = admin_client.get(reverse("admin:datamart_reporting_checks")).content.decode()
+    assert '<a class="nd-link" href="/partner-monitoring/?pd_status=signed">Example list →</a>' in html

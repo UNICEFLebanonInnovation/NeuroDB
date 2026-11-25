@@ -815,6 +815,35 @@ def _reached_against_prp() -> _Comparison:
     return out
 
 
+# where checks 5 and 7 send the reader: the tab itself opens on the active programme documents alone
+RUNNING_LIST = "the link below opens it on the running programme documents"
+
+
+def running_quality_link() -> dict[str, str]:
+    """Partner monitoring's Data quality on what checks 5 and 7 count: every section, every year, quarterly
+    reports and the running programme documents written out (the tab opens on the active ones alone since 25
+    Nov 2026), as the daily review writes them (``review.checks.RUNNING_LINK``). A card draws it under its
+    verdict (``reporting_checks.html``)."""
+    from urllib.parse import urlencode
+
+    from django.urls import reverse
+
+    from . import monitoring
+
+    query = urlencode(
+        [
+            ("section", ""),
+            ("year", monitoring.ALL_YEARS),
+            ("report_type", monitoring.DEFAULT_REPORT_TYPE),
+            *(("pd_status", status) for status in pd_statuses.RUNNING),
+        ]
+    )
+    return {
+        "url": f"{reverse('reports:pd_monitoring')}?{query}",
+        "label": "Partner monitoring → Data quality, the running programme documents",
+    }
+
+
 def _cumulative(cursor) -> dict[str, Any]:
     labels = (
         "Indicators of the running programme documents with several counted reports",
@@ -834,9 +863,10 @@ def _cumulative(cursor) -> dict[str, Any]:
                 "Not compared: the checks run before it (checks 10 and 11 first) used up most of the time "
                 "for the checks, and this one computes Reached for every indicator of the running programme "
                 "documents. Partner monitoring → Data quality lists the indicators where Reached differs "
-                "from PRP's cumulative."
+                f"from PRP's cumulative ({RUNNING_LIST}: the tab itself opens on the active ones alone)."
             ),
             "figures": [(label, "—") for label in labels],
+            "link": running_quality_link(),
         }
     _bound(cursor)
     c = _reached_against_prp()
@@ -855,8 +885,9 @@ def _cumulative(cursor) -> dict[str, Any]:
         )
         if c.differ:
             verdict += (
-                ": Partner monitoring → Data quality lists them (choose All sections and Quarterly reports, "
-                "no other filter), and the table below says what they share"
+                f": Partner monitoring → Data quality lists them ({RUNNING_LIST}, every section, every year "
+                "and Quarterly reports: the tab itself opens on the active ones alone), and the table below "
+                "says what they share"
             )
     else:
         verdict += "; no indicator of a running programme document has both a Reached and PRP's cumulative"
@@ -876,6 +907,7 @@ def _cumulative(cursor) -> dict[str, Any]:
         ),
     }
     if c.differ:
+        out["link"] = running_quality_link()
         out["table"] = {
             "columns": ("What the indicators where Reached differs share", "Indicators"),
             "rows": [(label, c.why[key]) for key, label in WHY],
@@ -1219,8 +1251,8 @@ def _identity(cursor) -> dict[str, Any]:
                 f"{_plural(how['unknown'], 'row', 'rows')} whose title no indicator of their PD has "
                 f"({_plural(len(left), 'indicator report', 'indicator reports')} in all). Partner "
                 "monitoring → Data quality lists the titles a PD repeats and how many of those indicators "
-                "get none of their rows; a title PRP spells otherwise than eTools is corrected in PRP or "
-                "eTools."
+                f"get none of their rows ({RUNNING_LIST}: the tab itself opens on the active ones alone); a "
+                "title PRP spells otherwise than eTools is corrected in PRP or eTools."
             )
         if how["shared_output"]:
             parts.append(
@@ -1288,6 +1320,8 @@ def _identity(cursor) -> dict[str, Any]:
     return {
         "tone": WARN if problems else (OK if rows else INFO),
         "verdict": " ".join(parts),
+        # the titles a PD repeats, on the running programme documents it counts (its "Left out" sentence)
+        **({"link": running_quality_link()} if sum(how.values()) and still else {}),
         "figures": [
             ("Rows with an eTools indicator id", with_id),
             ("… matching a PD indicator", matched),
@@ -3055,8 +3089,8 @@ CHECKS: tuple[Check, ...] = (
         "cumulative on the latest counted report is shown beside it, and an indicator where they differ "
         "(beyond rounding) is marked Differs from PRP. A programme document with a partial history takes "
         "PRP's cumulative as its Reached. This check reads the figures of Partner monitoring's Data quality "
-        "tab for the running programme documents (active, signed or suspended; the tab opens on the active "
-        "ones).",
+        "tab for the running programme documents (active, signed or suspended), which its link opens (the "
+        "tab itself opens on the active ones).",
         _cumulative,
     ),
     Check(

@@ -1723,7 +1723,7 @@ def performance_trail(params: Any, day: datetime.date) -> TableTrail:
     minutes."""
     params = trail.filter_query(params)
     filters = filters_of(params)
-    key = f"trail-pp:v{CACHE_VERSION}:{filters.cache_key()}:{day}:{keys.fingerprint()}"
+    key = f"trail-pp:v{CACHE_VERSION}:{_chosen(filters)}:{filters.cache_key()}:{day}:{keys.fingerprint()}"
     return trail._stored(key, lambda: _performance_trail(params, filters, day))
 
 

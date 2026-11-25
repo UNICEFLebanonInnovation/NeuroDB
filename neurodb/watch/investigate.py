@@ -14,10 +14,11 @@ today (became critical, got worse) first, and asks the AI to look into at most
   their title, severity, section and state, never its data checks (they carry sync error text) nor a
   finding's detail;
 - each tool runs inside a read-only transaction, so a write fails, and inside
-  ``neurodb.assistant.tools.for_watch()``: the look-ups read the PD statuses the watch counts, never a
-  page's default (the active programme documents since 25 Nov 2026): the funds of every programme document
-  (its grant, funds reservation and PD closure points) and the indicators of the running ones (the daily
-  review's points it copies), as before that day;
+  ``neurodb.assistant.tools.for_watch()``: the look-ups that read a page as it opens (the active programme
+  documents since 25 Nov 2026) read the PD statuses the watch counts instead: ``funds_overview`` the funds of
+  every programme document (its grant, funds reservation and PD closure points), ``pd_indicator_progress``
+  the indicators and ``partner_reporting`` the progress reports of the running ones (the daily review's
+  points it copies, its reports due), as before that day; the other tools read no page's PD status default;
 - at most 4 rounds and 150 seconds, low effort, its own prompt cache key and no safety identifier (no
   person asked for it);
 - the point goes in as :func:`neurodb.watch.redact.for_model` writes it; a system, Makani or
@@ -113,8 +114,8 @@ return.
 Use the tools offered to find up to three facts that help staff act on the point: the figures behind \
 it, how it changed, what else is open on the same partner, programme document or grant, and how fresh \
 the data is. Do a few lookups at most, and write nothing before a lookup. Here the funds lookup reads \
-programme documents of every status and the indicator lookup the running ones (active, signed or \
-suspended), whatever their descriptions say of a page's first view.
+programme documents of every status, and the indicator and progress report lookups the running ones \
+(active, signed or suspended), whatever their descriptions say of a page's first view.
 
 Then reply only with the JSON the format asks for:
 - what_i_found: one to three short plain sentences, at most 400 characters in all, saying what the \

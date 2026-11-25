@@ -237,11 +237,13 @@ The [Programme documents](/programmes/) page has four tabs, each with its own fi
 documents* (the list), *Indicators*, *Funded programme summary info* and *Funded programme overall*.
 The *Status* filter of the list, *Indicators* and *Funded programme overall* opens on the active programme
 documents only (since 25 Nov 2026; every status before): choose more statuses, or clear the choice to see
-every status. The tabs and the downloads keep your choice. The *Scope* switch (*All* or *Active*) is apart:
-on *All*, the Status filter still applies. The [Donors](/donors/) page's *Status* filter opens on Active the
-same way, and its links to Programme documents and Funds carry its choice. Links from Home, the country
-overview and the brief choose every status, as their figures count every programme document running in the
-year.
+every status. The tabs and the downloads keep your choice. The *Scope* switch of the list and *Indicators*
+adds no status of its own on *Status filter* (the Status filter decides); *Active only* keeps the active
+programme documents alone, whatever the Status filter chooses. The summary's *All* opens the list on every
+status, and the list as it opens takes you to the summary on *Active*. The [Donors](/donors/) page's *Status*
+filter opens on Active the same way, and its links to Programme documents and Funds carry its choice. Links
+from Home, the country overview and the brief choose every status, as their figures count every programme
+document running in the year.
 
 - **A programme document's page** lists each of its indicators with its target, Reached, % Reached and
   status, read by the same rule. Administrators, and Section editors of one of its sections, can choose

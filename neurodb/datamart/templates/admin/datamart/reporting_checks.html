@@ -8,7 +8,8 @@
   run of the job stored (stored: every night, or "Run the checks now", which posts here); with none
   stored and none running, the page ran them itself (stored is None, checked_at now). A result an earlier
   release stored (outdated: checks.read_stored) says so, and a check added since reads "Not run yet". A
-  card shows its figures, its table and its further tables (check 11's business area codes and progress reports), each
+  card shows its verdict with its link, when it has one (checks 5 and 7: Partner monitoring's Data quality on the running
+  programme documents, checks.running_quality_link), its figures, its table and its further tables (check 11's business area codes and progress reports), each
   the same way (_check_table.html: with its title as its caption, when it has one), then its groups
   (check 10's running PDs with no partner report row, one per reason), each a table folded under its summary. Printed
   or saved as PDF (admin.css, nd-checks), every table prints whole, wrapping, and the script below opens the groups
@@ -87,7 +88,7 @@
       <p class="mb-2"><strong>{{ check.question }}</strong></p>
       <div class="nd-scheduler {% if check.tone == 'ok' %}nd-scheduler--ok{% elif check.tone == 'warning' %}nd-scheduler--warn{% endif %}" role="status">
         <span class="material-symbols-outlined" aria-hidden="true">{% if check.tone == "ok" %}check_circle{% elif check.tone == "warning" %}warning{% else %}info{% endif %}</span>
-        <div><strong>{% trans "Verdict" %}:</strong> {{ check.verdict }}<p><strong>{% trans "What NeuroDB does" %}:</strong> {{ check.neurodb }}</p></div>
+        <div><strong>{% trans "Verdict" %}:</strong> {{ check.verdict }}{% if check.link %}<p><a class="nd-link" href="{{ check.link.url }}">{{ check.link.label }} →</a></p>{% endif %}<p><strong>{% trans "What NeuroDB does" %}:</strong> {{ check.neurodb }}</p></div>
       </div>
       {% if check.figures %}
         <div class="nd-scroll">

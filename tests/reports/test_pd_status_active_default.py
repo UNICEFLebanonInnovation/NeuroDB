@@ -634,3 +634,187 @@ def test_the_trail_of_the_bare_address_names_the_default_even_after_active_was_c
     assert title(bare) == "Status not Active (the page's default)"
     assert "PD status: Active (the page's default)" in bare.filter_words
     assert bare.figure("pm.indicators").page == chosen.figure("pm.indicators").page == 2
+
+
+# --------------------------------------------------------------------------- second review (25 Nov 2026)
+LABEL = re.compile(r'<label class="form-label" for="f-([^"]+)">(.*?)</label>', re.S)
+STATUS_TIP = "The programme document status in eTools"
+CLEAR = (
+    "The programme document status in eTools. By default the active ones. Clear the choice for every status"
+)
+NEVER_DRAFT = f"{CLEAR} (draft documents are never listed)."
+NEVER_DRAFT_OR_CANCELLED = f"{CLEAR} (draft and cancelled documents are never listed)."
+FUNDS_TIP = (
+    f"{CLEAR} (draft and cancelled documents are never listed on Partner contributions and By PD and grant; "
+    "Funds reservations then lists every funds reservation)."
+)
+
+
+@pytest.mark.parametrize(
+    ("path", "query"),
+    [(PROGRAMMES, {}), (PROGRAMMES, {"tab": "indicators"}), (PROGRAMMES, {"tab": "overall"}), (DONORS, {})],
+)
+def test_only_the_status_label_carries_the_status_tooltip(client_viewer, world, path, query):
+    """The Status filter's tooltip is its own: a filter drawn after it (Donor, Grant, Document type) never
+    shows it."""
+    labels = dict(LABEL.findall(text(client_viewer.get(path, query))))
+    assert STATUS_TIP in labels["status"]
+    assert not {name: label for name, label in labels.items() if name != "status" and STATUS_TIP in label}
+
+
+@pytest.mark.parametrize(
+    ("path", "query", "select", "tip"),
+    [
+        (PM, {"section": ""}, "pd-status", NEVER_DRAFT_OR_CANCELLED),
+        (reverse("reports:partner_reporting"), {}, "pd-status", NEVER_DRAFT_OR_CANCELLED),
+        (FIELD, {"tab": "plan"}, "status", NEVER_DRAFT_OR_CANCELLED),
+        (FUNDS, {}, "pd-status", FUNDS_TIP),
+        (PROGRAMMES, {}, "status", NEVER_DRAFT),
+        (PROGRAMMES, {"tab": "indicators"}, "status", NEVER_DRAFT),
+        (PROGRAMMES, {"tab": "overall"}, "status", NEVER_DRAFT_OR_CANCELLED),
+        (DONORS, {}, "status", NEVER_DRAFT),
+    ],
+)
+def test_the_pd_status_tooltips_say_the_same_and_what_each_page_never_lists(
+    client_viewer, world, path, query, select, tip
+):
+    label = dict(LABEL.findall(text(client_viewer.get(path, query))))[select]
+    assert f'title="{tip}"' in label.replace("&#x27;", "'"), label
+
+
+def test_the_tooltips_say_true_of_cancelled_programme_documents(client_viewer, world):
+    """Programme documents' list and Donors list a cancelled programme document with every status; Partner
+    monitoring, the overall tab and Funds' Partner contributions never do."""
+    cancelled = _pd(world["active"].partner, "LEB/PD36", status="cancelled", sections=[CP])
+    _indicator(cancelled, "# of children reached", CP)
+    assert "LEB/PD36" in _programmes(client_viewer.get(PROGRAMMES, {"status": ""}))
+    assert client_viewer.get(DONORS, {"status": ""}).context["data"]["count"] == 5
+    assert "LEB/PD36" not in _pm_pds(client_viewer.get(f"{PM}?section=&pd_status="))
+    assert "LEB/PD36" not in _programmes(
+        client_viewer.get(PROGRAMMES, {"tab": "overall", "status": ""}), "overall"
+    )
+    assert "LEB/PD36" not in _contributions(client_viewer.get(f"{FUNDS}?tab=contributions&pd_status="))
+
+
+def _trail_title(found, key: str = "pd_status") -> str:
+    return next(step.title for step in found.steps if step.key == key)
+
+
+def test_program_performance_s_trail_of_the_bare_address_names_the_default_even_after_active_was_chosen(
+    world, settings
+):
+    from neurodb.core import compute
+
+    settings.DEBUG = False
+    compute.clear()
+    for section in ("", CP):
+        chosen = tm.performance_trail({"year": "2026", "section": section, "pd_status": "active"}, DAY)
+        bare = tm.performance_trail({"year": "2026", "section": section}, DAY)
+        assert _trail_title(chosen) == "Status not chosen (Active chosen)", section
+        assert _trail_title(bare) == "Status not Active (the page's default)", section
+        assert "pd_status" not in _query(f"?{bare.query}"), section
+
+
+def test_progress_reports_trails_of_the_bare_address_name_the_default_even_after_active_was_chosen(
+    world, settings
+):
+    from neurodb.core import compute
+    from neurodb.datamart import trail
+
+    settings.DEBUG = False
+    compute.clear()
+    for page in ("progress-reports", "home"):
+        chosen = trail.progress_trail(page, {"pd_status": "active"}, DAY)
+        bare = trail.progress_trail(page, {}, DAY)
+        assert "PD status: Active" in chosen.filter_words, page
+        assert "PD status: Active (the page's default)" in bare.filter_words, page
+        assert "pd_status" not in _query(f"?{bare.query}"), page
+    for tab in trail.TABLES:
+        chosen = trail.table_trail(tab, {"pd_status": "active"}, DAY)
+        bare = trail.table_trail(tab, {}, DAY)
+        assert _query(f"?{chosen.query}")["pd_status"] == ["active"], tab
+        assert "pd_status" not in _query(f"?{bare.query}"), tab
+
+
+def test_neurodb_watch_s_progress_report_look_up_reads_the_running_programme_documents(world):
+    """Watch counts the progress reports of the running programme documents (``deadlines``, and the daily
+    review's points it copies): its look-up reads them too, never the Progress reports page's default."""
+    from neurodb.assistant import agent
+    from neurodb.watch import investigate
+
+    asked = {"partner": "Example Partner Two"}  # the signed PD32's Submitted QPR1
+    as_the_page_opens = tools.run("partner_reporting", asked)
+    assert as_the_page_opens["pd_statuses"] == ["active"] and as_the_page_opens["by_status"] == {}
+    with tools.for_watch():
+        found = tools.run("partner_reporting", asked)
+    assert found["pd_statuses"] == RUNNING and found["by_status"] == {"Submitted": 1}
+    seen = agent._lookup("partner_reporting", asked, investigate.run_options([], []))
+    assert seen["by_status"] == {"Submitted": 1}
+    assert "the indicator and progress report lookups the running ones" in investigate.INSTRUCTIONS
+    # every look-up of Watch that reads as a page opens is one for_watch covers
+    as_a_page_opens = {name for name in investigate.TOOLS if "as the page opens" in tools.TOOLS[name][1]}
+    assert as_a_page_opens == {"funds_overview", "partner_reporting", "pd_indicator_progress"}
+    from pathlib import Path
+
+    guide = " ".join((Path(__file__).parents[2] / "neurodb/help/guide/watch.md").read_text().split())
+    assert "the indicators and progress reports of the running ones" in guide
+
+
+def test_ask_neurodb_s_programme_and_donor_urls_write_what_the_page_reads(client_viewer, world):
+    """A PD number searched is the page's PD reference (``pd_q``): the page shows the same count."""
+    number = tools.run("search_programmes", {"text": "LEB/PD31"})
+    assert number["count"] == 1 and _query(number["url"])["pd_q"] == ["LEB/PD31"]
+    assert client_viewer.get(number["url"]).context["page_obj"].paginator.count == 1
+    assert "url_note" not in number
+    assert "url_note" not in tools.run("donor_funding", {"section": CP})
+
+
+def test_ask_neurodb_s_programme_and_donor_urls_say_when_the_page_lists_more(client_viewer, world):
+    """What the pages cannot apply (words of a title, start years, an office) stays out of the url, and the
+    result says the page lists more."""
+    titled = tools.run("search_programmes", {"text": "Programme LEB/PD31"})  # the page reads PD numbers only
+    assert titled["count"] == 1 and "pd_q" not in _query(titled["url"])
+    assert client_viewer.get(titled["url"]).context["page_obj"].paginator.count == 4
+    assert "lists more" in titled["url_note"] and "words" in titled["url_note"]
+    later = tools.run("search_programmes", {"year_from": 2027})
+    assert later["count"] == 0
+    assert client_viewer.get(later["url"]).context["page_obj"].paginator.count == 4
+    assert "lists more" in later["url_note"] and "start year" in later["url_note"]
+    funding = tools.run("donor_funding", {"year_from": 2027})
+    assert funding["programme_documents"] == 0
+    assert client_viewer.get(funding["url"]).context["data"]["count"] == 4
+    assert "lists more" in funding["url_note"] and "start year" in funding["url_note"]
+
+
+SCOPE_CHECKED = re.compile(r'name="scope" value="(active|all)" checked><span>([^<]+)</span>')
+
+
+@pytest.mark.parametrize("tab", ["documents", "indicators"])
+def test_the_scope_switch_never_says_all_over_the_active_programme_documents(client_viewer, world, tab):
+    """Opened bare, the list and Indicators read the active programme documents (the Status filter): the Scope
+    switch, which adds no status of its own until Active only is chosen, says so instead of "All"."""
+    query = {} if tab == "documents" else {"tab": tab}
+    page = client_viewer.get(PROGRAMMES, query)
+    html = text(page)
+    assert _ticked(html, "f-status") == ["active"]
+    assert SCOPE_CHECKED.findall(html) == [("all", "Status filter")]
+    assert "Active only: the active programme documents alone, whatever the Status filter chooses" in html
+    active_only = client_viewer.get(PROGRAMMES, {**query, "scope": "active", "status": ""})
+    assert SCOPE_CHECKED.findall(text(active_only)) == [("active", "Active only")]
+    assert _programmes(active_only, tab) == {"LEB/PD31"}
+
+
+def test_the_summary_and_the_list_open_each_other_on_the_same_programme_documents(client_viewer, world):
+    """The summary's All (every programme document but drafts and cancelled ones) opens the list on every
+    status; the list as it opens (the active ones) opens the summary on Active, and with every status on All."""
+    every = client_viewer.get(PROGRAMMES, {"tab": "summary", "scope": "all"})
+    for tab in ("documents", "indicators"):
+        url = every.context["tab_urls"][tab]
+        assert _query(url)["status"] == [""], tab
+        assert _programmes(client_viewer.get(url), tab) == EVERY_PD, tab
+    active = client_viewer.get(PROGRAMMES, {"tab": "summary"})
+    assert _programmes(client_viewer.get(active.context["tab_urls"]["documents"])) == {"LEB/PD31"}
+    bare = client_viewer.get(PROGRAMMES)
+    assert client_viewer.get(bare.context["tab_urls"]["summary"]).context["scope"] == "active"
+    cleared = client_viewer.get(PROGRAMMES, {"status": ""})
+    assert client_viewer.get(cleared.context["tab_urls"]["summary"]).context["scope"] == "all"

@@ -91,10 +91,13 @@ def for_ask() -> Iterator[None]:
 
 
 # NeuroDB Watch's look-ups (``watch.investigate.run_options``, its ``tool_context``) run inside
-# ``for_watch()``: they read the PD statuses Watch counts, never a page's default (the active programme
-# documents since 25 Nov 2026): the funds of every programme document (Watch's grant, funds reservation and PD
-# closure points), the indicators of the running ones (the daily review's points, which Watch copies), as
-# before that day.
+# ``for_watch()``. Its tools that read a page as it opens (the active programme documents since 25 Nov 2026)
+# read the PD statuses Watch counts instead: ``funds_overview`` the funds of every programme document
+# (Watch's grant, funds reservation and PD closure points), ``pd_indicator_progress`` the indicators of the
+# running ones (the daily review's points, which Watch copies) and ``partner_reporting`` the progress
+# reports of the running ones (Watch's reports due, the daily review's overdue ones). Its other tools read
+# no page's PD status default: one programme document or partner whatever its status, their own scope
+# (``partner_details``), or no programme document at all.
 _FOR_WATCH: contextvars.ContextVar[bool] = contextvars.ContextVar("watch_lookup", default=False)
 
 
@@ -478,6 +481,18 @@ def _programmes_params(filters: partnerships.PDFilters, **extra: Any) -> dict[st
     }
 
 
+def _url_note(left_out: list[str]) -> dict[str, str]:
+    """``url_note`` when a look-up applied a filter the page its url opens cannot read (an office, start
+    years, words of a title): the page then lists more programme documents than the look-up's count."""
+    if not left_out:
+        return {}
+    named = " and ".join([", ".join(left_out[:-1]), left_out[-1]] if len(left_out) > 1 else left_out)
+    return {
+        "url_note": f"The page the url opens cannot apply {named}: it lists more programme documents than "
+        "this count whenever they leave some out."
+    }
+
+
 def _pd_filters(partner, section, donor, office, status, year_from, year_to):
     options = partnerships.pd_filter_options()
     matched = {
@@ -519,8 +534,25 @@ def search_programmes(
     filters, matched = _pd_filters(partner, section, donor, office, status, year_from, year_to)
     scope = "active" if active_only else "all"
     qs = partnerships.programme_documents(filters, scope=scope)
+    # the page's PD reference (``pd_q``: part of a PD number) reads the text when no title alone matches it
+    by_number = bool(text) and text == text.strip()
     if text:
         qs = qs.filter(Q(title__icontains=text) | Q(number__icontains=text))
+        titled = qs.filter(title__icontains=text).exclude(number__icontains=text)
+        by_number = by_number and not titled.exists()
+    left_out = [
+        *(
+            ["words of a title (its PD reference reads part of a PD number)"]
+            if text and not by_number
+            else []
+        ),
+        *(["the office (no page reads it since 21 Nov 2026)"] if filters.offices else []),
+        *(
+            ["the start years (its Funded programme overall tab alone reads them)"]
+            if year_from or year_to
+            else []
+        ),
+    ]
     count = qs.count()
     budget = 0.0
     for pd in qs.select_related(None).only("total_budget"):
@@ -530,8 +562,13 @@ def search_programmes(
         "count": count,
         "total_budget_of_all_matches": round(budget, 2),
         # the page with the filters it reads and the PD statuses read written out (``status=`` alone for every
-        # status: the page's Status filter opens on Active)
-        "url": _page_url("reports:programmes", _programmes_params(filters, scope=scope), scope="all"),
+        # status: the page's Status filter opens on Active); url_note names what it cannot apply
+        "url": _page_url(
+            "reports:programmes",
+            _programmes_params(filters, scope=scope, pd_q=text if by_number else ""),
+            scope="all",
+        ),
+        **_url_note(left_out),
         **_cut([_pd_row(pd) for pd in qs[:MAX_ROWS]], "programme_documents", count),
     }
 
@@ -624,6 +661,7 @@ def donor_funding(
     filters, matched = _pd_filters(partner, section, donor, None, None, year_from, year_to)
     data = partnerships.donor_mapping(filters)
     url = _page_url("reports:donors", _programmes_params(filters))  # every status written out, as read
+    years = ["the start years (the Donors page has none)"] if year_from or year_to else []
     return {
         "matched_filter_values": matched,
         "programme_documents": data["count"],
@@ -638,6 +676,7 @@ def donor_funding(
         "unique_actual_locations": data["unique_actual_locations"],
         "planned_locations_unique": data["planned_locations_unique"],
         "url": url,
+        **_url_note(years),
     }
 
 
@@ -1018,18 +1057,21 @@ def partner_reporting(
     overdue_only: bool = False,
     emergency: str | None = None,
 ) -> dict[str, Any]:
-    """Progress reports from the Partner Reporting Portal (through the eTools Datamart). ``emergency``: the
-    Progress reports page's Emergency indicator filter (yes: the reports of SPDs, as Power BI's)."""
-    data = datamart.partner_reporting(
-        _Params(
-            {
-                "q": partner or "",
-                "year": str(year) if year else "",
-                "overdue": "1" if overdue_only else "",
-                "emergency": emergency or "",
-            }
-        )
-    )
+    """Progress reports from the Partner Reporting Portal (through the eTools Datamart), of the active
+    programme documents as the Progress reports page opens, or of the running ones in NeuroDB Watch's look-ups
+    (:func:`for_watch`), as Watch counts them. ``emergency``: the Progress reports page's Emergency indicator
+    filter (yes: the reports of SPDs, as Power BI's)."""
+    params: dict[str, Any] = {
+        "q": partner or "",
+        "year": str(year) if year else "",
+        "overdue": "1" if overdue_only else "",
+        "emergency": emergency or "",
+    }
+    if _FOR_WATCH.get():
+        # NeuroDB Watch's look-up: the running programme documents, whose progress reports Watch follows
+        # (watch.detectors.deadlines) and the daily review counts (its points Watch copies)
+        params["pd_status"] = list(pd_statuses.RUNNING)
+    data = datamart.partner_reporting(_Params(params))
     rows = [
         {
             "partner": r["partner_name"],
@@ -1049,7 +1091,8 @@ def partner_reporting(
     ]
     return {
         **data["summary"],
-        # the programme documents read, as the page opens: the active ones (its default since 21 Nov 2026)
+        # the programme documents read, as the page opens: the active ones (its default since 21 Nov 2026);
+        # the running ones in NeuroDB Watch's look-ups
         "pd_statuses": data["filters"].status_choice,
         # what the Progress reports page's tiles count: progress reports per status, as Power BI's
         # Reporting Progress does, with the indicators under each (each indicator once, of active programme
@@ -1585,7 +1628,9 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         "Search eTools programme documents (PDs/SSFAs) by title or number, partner, section, donor, "
         "office, status or start-year range. Filter values are matched by partial name. Every status but "
         "drafts unless status or active_only is given (its url writes the statuses read: the Programme "
-        "documents page's Status filter opens on Active). Returns the count, total budget and the documents.",
+        "documents page's Status filter opens on Active). Returns the count, total budget and the documents; "
+        "url_note, when given, says what the page the url opens cannot apply (words of a title, an office, "
+        "start years), so the page lists more.",
         _schema(
             {
                 "text": {"type": "string"},
@@ -1613,7 +1658,8 @@ TOOLS: dict[str, tuple[Callable[..., dict], str, dict, str]] = {
         donor_funding,
         "Funding by donor and by start year across programme documents of every status but drafts (its url "
         "writes that out: the Donors page's Status filter opens on Active), optionally for one donor, "
-        "partner, section or year range, with activity reports per governorate.",
+        "partner, section or year range, with activity reports per governorate. url_note, when given, says "
+        "the page the url opens cannot apply the year range, so it lists more.",
         _schema(
             {
                 "donor": {"type": "string"},
