@@ -3434,8 +3434,10 @@ goes back to the map).
   figure again from the indicators the steps keep, with the page's own tests: `monitoring.FIGURE_TESTS` (with a
   target, with Reached, reported zero, Data quality's without and zero Reached, the tracking statuses, missing
   target, differs from PRP, partial history, running, active, ended) and `FIGURE_KEYS` (an indicator's PD and its
-  linked partner), which `summary` and `data_quality` now count with (same values). The map's place figures are
-  counted again from its stored places. **One build, not two:** when the page's indicators are not stored, the
+  linked partner), which `summary` and `data_quality` now count with (same values). Since 25 Nov 2026
+  `data_quality` no longer uses partial history; the `kept` CSV below still writes it (the chip's flag). The
+  map's place figures are counted again from its stored places. **One build, not two:** when the page's
+  indicators are not stored, the
   trail's recorded `indicators()` is the page's, stored under the page's own key once the trail's snapshot
   closes (nothing is stored inside a transaction); only a warm stored value makes the trail build them once
   more, recorded. On the pages every hook (`steps`, `record`) is None: same SQL, same figures (tests pin it).
