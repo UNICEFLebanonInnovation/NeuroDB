@@ -167,6 +167,17 @@ def test_warnings_name_twenty_ids_at_most_and_link_the_page():
     assert shown.confidence_text == "Fake level"
 
 
+def test_findings_that_repeat_a_key_finding_word_for_word_are_counted():
+    same = {("findings", n, "Key Finding"): "Fake same finding, 17.8%." for n in (2, 3, 5)}
+    same[("findings", 4, "Key Finding")] = "  FAKE same finding 17.8 %"  # the same letters and digits
+    version = factory.load(factory.workbook(documents=2, findings=6, edits=same))
+    assert (
+        "3 findings repeat another finding's text word for word: Ask the KM Database reads each such text "
+        "once, and its answers may cite any of them."
+    ) in version.warnings
+    assert not any("word for word" in w for w in factory.load(factory.workbook()).warnings)
+
+
 def test_documents_with_no_findings_are_named():
     version = factory.load(factory.workbook(documents=4, findings=3))
     assert f"1 document has no rows in “{FIND}”: TST-0004." in version.warnings

@@ -46,7 +46,8 @@ gives it.
   them all, in their key finding, measure, analysis, population, methods, limitations or document title.
   Words are found in their other forms ("school" finds "schools"), UK and US spellings find each other
   ("labour" and "labor", "diarrhoea" and "diarrhea") and common acronyms find what they stand for ("GBV"
-  and "gender-based violence", "OOSC" and "out of school", "MHPSS"). Words joined by a slash are looked
+  and "gender-based violence", "OOSC" and "out of school", "MHPSS"). "Out of school", "drop out" and "well
+  being" are found as phrases (never every finding that says "school"). Words joined by a slash are looked
   for one by one ("girls/boys"), and "school-age" also finds "school age". Put a phrase in quotes ("child
   marriage"), a minus before a word to leave it out (-camp), or "or" between words for either. A Finding ID
   or a Document ID opens that finding or that document's findings. When no word matches, the table shows
@@ -107,19 +108,42 @@ The third tab, **Ask the KM Database**, answers a question in a few sentences fr
 KM Database, and from nothing else.
 
 - **What it reads.** Only the findings of the version shown now that match your question: their key
-  finding, measure, ages, analysis and limitations, with their document's title, year, type, population
-  and methods. It looks for your words in each finding's own text, with UK and US spellings and common
-  acronyms joined, and reads the best matches (at most 40, and at most 6 from one document). Nothing else
-  from NeuroDB is read: no partner, programme document, indicator, document of the Documents page, library
+  finding, measure, ages, analysis, limitations and data collection period, with their document's title,
+  year, type, population and methods. It looks for your words in each finding's own text (not in the
+  research questions or indicators it is filed under), with UK and US spellings and common acronyms
+  joined, and reads the best matches (at most 40, and at most 6 from one document). Nothing else from
+  NeuroDB is read: no partner, programme document, indicator, document of the Documents page, library
   entry or person.
+- **Write the subject, the rest is understood.** Words that say what you want rather than what it is
+  about ("I need a paragraph describing", "adjust the text above", "an excel sheet with each indicator and
+  value", "only") are not searched while other words remain. A finding is kept when it holds your words: all
+  of them when you write one or two, and a third of them (at least two) when you write more. A question
+  for a number, a rate or a percentage ("how many", "number of") reads the findings that give figures
+  first.
+- **Places.** Every governorate (Akkar, Baalbek-Hermel, Beirut, Bekaa, Keserwan-Jbeil, Mount Lebanon,
+  Nabatieh, North, South) is understood in its usual spellings ("Mont Lebanon", "Nabatiyeh", "Nabatiye",
+  "Beqaa", "Beyrouth"), with its main districts and towns: a question about the South also reads findings
+  about Saida, Tyre or Jezzine, and Mount Lebanon also Jbeil and Keserwan, as older reports count them.
+  "South Lebanon" and "the south" mean the South and Nabatieh governorates. The answer reads only findings
+  that name the places you write; when fewer than 10 do, it also reads the others that match your words,
+  and the line under the answer says so ("No finding names Mount Lebanon: findings from all of Lebanon
+  were read."). "All governorates", "by governorate" or "all gov" reads the findings that name the most
+  governorates first; "all Lebanon", "national" or "nationwide" reads every place.
+- **Years.** "In the past 2 years" means this year and the two before it (in 2026: 2024 to 2026), and
+  "since 2023", "2019-2021", "in 2023", "this year", "recent" and "latest" work too: they set the Year
+  filter, without the findings whose year is not reported, and the line under the answer says which
+  years. To change them, use the Year filter of the Findings tab. The years are those the documents were
+  published.
+- **The same text twice.** A finding whose text is word for word another one's is read once; the answer
+  may cite either, and both open their finding.
 - **Your filters.** Open the tab from the Findings tab after filtering (a pillar, a year, one document...)
   and the answer reads only the findings of that filter; the line over the box names it, with **Clear**.
   The words of the search box are not used: your question is its own search. On a finding's or a
   document's page, **Ask about its document** opens the tab for that document. You can also write a
   code in the question: "Level A", "P2" (a pillar), "RQ3" (a research question), a Finding ID or a
   Document ID.
-- **What is sent to the AI.** Your question, the matching findings it reads and your filters in words.
-  Never the authors, never Document IDs (one you type goes as "this document"), links or phone numbers,
+- **What is sent to the AI.** Your question, the matching findings it reads, your filters in words, the
+  date you asked and what the search understood of places and years. Never the authors, never Document IDs (one you type goes as "this document"), links or phone numbers,
   and never a name of a person: names of NeuroDB's people and of the KM Database's authors are taken out
   of your question, in capitals or not, and names inside the findings (citations, reference lists, people
   quoted, people named with their job) are written "[name withheld]". If a name is still found, nothing is
@@ -140,7 +164,7 @@ KM Database, and from nothing else.
   even when no finding matches (the AI first suggests search words). A question over a limit, or one the
   AI declines, does not count.
 - **Long questions** are read whole; the findings that match the end of the question (most often its
-  topic) come first.
+  topic) come first, unless the end only asks for a format ("once done, an excel sheet").
 - **A conversation.** A short follow-up ("and for boys?") keeps the topic of your last question and reads
   the findings its answer cited again; a short question on a new topic ("Child marriage?") reads its own
   findings. **New conversation** starts afresh. **Your recent questions**

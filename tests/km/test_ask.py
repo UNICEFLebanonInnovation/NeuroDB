@@ -1330,3 +1330,311 @@ def test_a_question_right_after_a_load_by_another_process_withholds_its_authors(
     clock[0] += 5  # within the 10 seconds this worker keeps the version shown
     done(post(client_viewer, "What about rainfall?"))
     assert len(fake.calls()) == 2 and "Quexley" not in _sent(fake)
+
+
+# --------------------------------------------------------------- the owner's questions: what retrieval reads
+@pytest.fixture
+def today(monkeypatch):
+    """25 November 2026: the date a question's time frame is read from (the KM Database's own clock)."""
+    monkeypatch.setattr(ask, "today", lambda: datetime.date(2026, 11, 25))
+
+
+def test_request_format_and_time_words_are_not_searched_when_other_words_remain(ai):
+    factory.load(
+        key_findings(
+            "Fake rainfall flooded schools.",
+            "Households said they need a paragraph of text above each value.",  # request words only
+            "Each indicator value was reported as a number and as a percentage in an excel sheet.",
+        )
+    )
+    picked = _picked("i need a paragraph describing rainfall only")
+    assert picked.groups == [["rainfall"]] and _ids(picked) == ["TST-0001-F00001"]
+    picked = _picked(
+        "can you adjust the text above on rainfall. once done i need an excel sheet with each indicator and "
+        "value in numbers plus percentages"
+    )
+    assert picked.groups == [["rainfall"]] and _ids(picked) == ["TST-0001-F00001"]
+    # nothing else left: the request words are searched
+    assert _ids(_picked("excel sheet")) == ["TST-0003-F00001"]
+
+
+def test_a_postgresql_stopword_never_counts_as_a_group(ai):
+    from neurodb.km import search
+
+    factory.load(key_findings("Fake school dropout rose.", "Fake rainfall fell."))
+    assert _ids(_picked("dropout only")) == ["TST-0001-F00001"]  # 2 groups needed both: none matched
+    assert ask._groups("each once than above only rainfall") == [["rainfall"]]
+    assert {"only", "each", "once", "than", "above", "out", "being"} <= search.ENGLISH_STOP
+
+
+def test_the_postgresql_stopwords_are_the_servers():
+    from django.db import connection
+
+    from neurodb.km import search
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT w FROM unnest(%s::text[]) w WHERE numnode(plainto_tsquery('english', w)) > 0",
+            [sorted(search.ENGLISH_STOP)],
+        )
+        assert cursor.fetchall() == []  # each gives an empty query
+        cursor.execute("SELECT numnode(plainto_tsquery('english', 'rainfall'))")
+        assert cursor.fetchone()[0] == 1
+
+
+def test_many_groups_need_a_third_of_them_with_a_fallback(ai):
+    texts = (
+        "Fake rainfall flooded schools near rivers.",  # 3 of 7
+        "Fake rainfall flooded schools.",  # 2 of 7
+        "Fake teachers left by roads.",  # 2 of 7
+        "Fake clinics and markets closed.",  # 2 of 7
+    )
+    factory.load(key_findings(*texts, documents=2))
+    question = "rainfall schools rivers teachers roads clinics markets"
+    picked = _picked(question)
+    assert _ids(picked) == ["TST-0001-F00001"] and picked.matched == 1
+    # none matches 3 of the 7 (each word is in a finding): 2 of them are enough
+    factory.load(key_findings(*texts[1:], "Fake rivers rose.", documents=2))
+    assert set(_ids(_picked(question))) == {"TST-0001-F00001", "TST-0002-F00001", "TST-0001-F00002"}
+    # 2 groups: both, as before
+    assert _ids(_picked("rainfall rivers")) == []
+
+
+def test_a_word_that_matches_no_finding_never_counts(ai):
+    factory.load(key_findings("Fake rainfall flooded schools.", "Fake teachers left."))
+    assert _ids(_picked("rainfall zqtypo")) == ["TST-0001-F00001"]
+
+
+def test_a_last_clause_made_of_request_words_is_never_the_topic(ai):
+    factory.load(
+        key_findings(
+            "Fake rainfall flooded schools, roads, clinics and markets in villages.",
+            "Each indicator value was put in an excel sheet with numbers and percentages.",
+            *["Fake filler."] * 8,
+            documents=5,
+        )
+    )
+    picked = _picked(
+        "On rainfall, floods, schools, roads, clinics, markets, villages, teachers and water. Once done I "
+        "need an excel sheet with each indicator and value in numbers plus in percentages"
+    )
+    assert _ids(picked) == ["TST-0001-F00001"]
+
+
+# ----------------------------------------------------------------------------------------------- places
+@pytest.mark.parametrize(
+    ("asked", "text"),
+    [
+        ("mont lebanon", "In Mount Lebanon, fake rates rose."),
+        ("Mount Lebanon", "In Jbeil, fake rates rose."),  # older reports count Keserwan-Jbeil in it
+        ("nabatiyeh", "In Nabatieh, fake rates rose."),
+        ("Nabatieh", "In El Nabatiyeh, fake rates rose."),
+        ("Nabatiye", "In Nabatiyah, fake rates rose."),
+        ("the south", "In Sidon, fake rates rose."),
+        ("South Lebanon", "In Bint Jbeil, fake rates rose."),  # the South and Nabatieh
+        ("Saida", "In Sidon, fake rates rose."),
+        ("Tyre", "In Sour, fake rates rose."),
+        ("Tripoli", "In Trablous, fake rates rose."),
+        ("the North", "In Tripoli, fake rates rose."),
+        ("Zahle", "In Zahleh, fake rates rose."),
+        ("Bekaa", "In the Beqaa valley, fake rates rose."),
+        ("Hermel", "In Baalbek-Hermel, fake rates rose."),
+        ("Baalbek-Hermel", "In Hermel, fake rates rose."),
+        ("Keserwan-Jbeil", "In Byblos, fake rates rose."),
+        ("Akkar", "In Aakar, fake rates rose."),
+        ("Beirut", "In Beyrouth, fake rates rose."),
+        ("Chouf", "In the Shouf, fake rates rose."),
+        ("Marjayoun", "In Marjeyoun, fake rates rose."),
+    ],
+)
+def test_a_place_is_found_in_its_spellings_districts_and_towns(ai, asked, text):
+    factory.load(key_findings(text, "Fake rates rose in Fakeland.", "Fake rates rose."))
+    picked = _picked(f"situation of children in {asked}")
+    assert _ids(picked) == ["TST-0001-F00001"] and picked.groups == []
+
+
+def test_places_named_together_are_one_group_and_the_governorate_word_goes_with_them(ai):
+    factory.load(
+        key_findings(
+            "In Nabatieh, 41% of children lacked safe water.",
+            "In the South Governorate, 46% of households said their children were anxious.",
+            "In Tyre, 9% of children worked.",
+            "In Akkar governorate, 31% of children were stunted.",
+            "In the governorate of Beirut, 12% of children were stunted.",
+            "Fake rates rose.",
+            documents=6,
+        )
+    )
+    picked = _picked("situation of children in south and nabatiyeh governorate")
+    assert set(_ids(picked)) == {"TST-0001-F00001", "TST-0002-F00001", "TST-0003-F00001"}
+    assert picked.notes == ["Places from your question: the South (South and Nabatieh governorates)."]
+
+
+def test_governorate_words_without_a_place_ask_for_a_breakdown(ai):
+    factory.load(
+        key_findings(
+            "Across all governorates, learning loss was reported in Grade 6.",
+            "In Akkar, 31% of children were stunted, against 12% in Beirut and 20% in the North.",
+            "Fake rainfall fell.",
+            edits={("findings", 4, "Indicator / Evidence Requirement"): "Fake rate by governorate"},
+        )
+    )
+    for question in ("situation of children in all gov", "by governorate", "for all governorates"):
+        picked = _picked(question)
+        assert _ids(picked) == ["TST-0002-F00001", "TST-0001-F00001"], question  # names the most first
+        assert picked.notes == ["By governorate, from your question: findings that name governorates first."]
+
+
+def test_a_place_with_few_findings_reads_the_others_too_and_says_so(ai):
+    texts = (
+        "In Beirut, 9,100 children aged 6-14 were out of school.",
+        "Nationally, 23% of children aged 6-14 were out of school (2023).",
+        "A number of school principals reported a shortage of teachers.",
+        "In Mount Lebanon, clinics extended their hours.",
+        "Out-of-school rates rose among refugee children.",
+    )
+    factory.load(key_findings(*texts, documents=5))
+    picked = _picked("number of children out of school in mont lebanon")
+    assert set(_ids(picked)) == {"TST-0001-F00001", "TST-0002-F00001", "TST-0005-F00001"}
+    assert _ids(picked)[2] == "TST-0005-F00001"  # the question asks for a number: figures first
+    assert picked.notes == ["No finding names Mount Lebanon: findings from all of Lebanon were read."]
+    factory.load(key_findings(*texts, "In Mount Lebanon, 18,300 children were out of school.", documents=6))
+    picked = _picked("number of children out of school in mont lebanon")
+    assert _ids(picked)[0] == "TST-0006-F00001" and len(picked.findings) == 4
+    assert picked.notes == ["Only 1 finding names Mount Lebanon: findings from all of Lebanon were read too."]
+
+
+def test_all_lebanon_asks_for_no_place(ai):
+    factory.load(
+        key_findings("In Akkar, 9% of children were out of school.", "Nationally, 23% were out of school.")
+    )
+    picked = _picked("out of school children in akkar and all of lebanon")
+    assert set(_ids(picked)) == {"TST-0001-F00001", "TST-0002-F00001"}
+    assert picked.notes == ["All of Lebanon, from your question: no place restriction."]
+
+
+# ------------------------------------------------------------------------------------------ identical texts
+COPY = "17.8% of fake students considered self-harm during the past year."
+
+
+def test_identical_texts_are_read_once_and_every_copy_stays_citable(client_viewer, ai):
+    texts = [COPY, COPY, "Fake self-harm rose.", f" {COPY.upper()} ", COPY, "Fake self-harm fell.", COPY]
+    texts += ["Fake self-harm stayed.", "Fake self-harm was studied.", "Fake self-harm data."]
+    factory.load(key_findings(*texts, documents=1))
+    picked = _picked("self-harm")
+    assert len(picked.findings) == 6 and len({f.key_finding.casefold().strip() for f in picked.findings}) == 6
+    assert [f.finding_id for f in picked.copies["TST-0001-F00001"]] == [
+        "TST-0001-F00002",
+        "TST-0001-F00004",
+        "TST-0001-F00005",
+        "TST-0001-F00007",
+    ]
+    fake = ai([answer("Fake rates [TST-0001-F00004].")])
+    final = done(post(client_viewer, "self-harm"))
+    text = _sent(fake)
+    assert text.count("17.8%") == 1
+    assert 'also="TST-0001-F00002 TST-0001-F00004 TST-0001-F00005 TST-0001-F00007"' in text
+    row = KMQuestion.objects.get()
+    assert row.cited == ["TST-0001-F00004"] and "TST-0001-F00007" in row.read
+    assert "/km/findings/TST-0001-F00004/?v=" in final["html"]
+    used = final["html"].split("Findings used for this answer")[1]
+    assert "[TST-0001-F00004]" in used.split("km-used__read")[0]  # listed under the answer
+
+
+# ------------------------------------------------------------------------------------------------ years
+@pytest.mark.parametrize(
+    ("asked", "years", "said"),
+    [
+        ("in the past 2 years only", ["2026", "2025", "2024"], "2024–2026"),
+        ("over the last three years", ["2026", "2025", "2024", "2023"], "2023–2026"),
+        ("since 2025", ["2026", "2025"], "2025–2026"),
+        ("2022-2023", ["2023", "2022"], "2022–2023"),
+        ("between 2022 and 2023", ["2023", "2022"], "2022–2023"),
+        ("in 2023", ["2023"], "2023"),
+        ("this year", ["2026"], "2026"),
+        ("recent", ["2026", "2025", "2024"], "2024–2026"),
+        ("latest", ["2026", "2025", "2024"], "2024–2026"),
+    ],
+)
+def test_a_time_frame_in_the_question_is_the_year_filter(ai, today, asked, years, said):
+    edits = {}
+    for n, year in enumerate((2019, 2022, 2023, 2024, 2025, 2026, "Not reported"), 1):
+        edits[("findings", n + 1, "Publication Year")] = year
+        edits[("findings", n + 1, "Key Finding")] = f"Fake rainfall fell in fake year {n}."
+    factory.load(factory.workbook(documents=1, findings=7, edits=edits))
+    picked = _picked(f"rainfall {asked}")
+    assert picked.groups == [["rainfall"]]
+    held = [y for y in years if y in {"2019", "2022", "2023", "2024", "2025", "2026"}]
+    assert picked.filters.year == held
+    assert {f.year for f in picked.findings} == {int(y) for y in held}
+    assert picked.notes == [
+        f"Years {said}, from your question; findings whose year is not reported are left out (the Year filter "
+        "changes it)."
+    ]
+
+
+def test_a_time_frame_that_leaves_no_finding_is_left_out(ai, today):
+    factory.load(key_findings("Fake rainfall fell.", "Fake rainfall rose."))  # both of 2022
+    picked = _picked("rainfall in the past 2 years")
+    assert picked.filters.year == [] and len(picked.findings) == 2
+    assert picked.left_out == ["Years 2024–2026"]
+    assert _picked("rainfall", scope="year=2022").filters.year == ["2022"]
+    picked = _picked("rainfall since 2025", scope="year=2022")  # within the page's filter: none
+    assert picked.filters.year == ["2022"] and picked.left_out == ["Years 2025–2026"]
+
+
+def test_the_message_says_when_the_question_was_asked_and_when_data_were_collected(client_viewer, ai, today):
+    factory.load(factory.workbook(documents=1, findings=2))
+    fake = ai([answer("Fake [TST-0001-F00001].")])
+    done(post(client_viewer, "zqkmtoken in the past 5 years"))
+    text = _sent(fake)
+    assert "\nThis question was asked on 25 November 2026.\n" in text and "Today is" not in text
+    assert "Data collected: 2023-02-01" in text
+    assert "Read from the question: years 2021–2026 (publication years; findings whose year is not " in text
+
+
+# ------------------------------------------------------------------------------------- phrases and figures
+@pytest.mark.parametrize(
+    ("asked", "text"),
+    [
+        ("out of school", "Fake children were out of school."),
+        ("drop out", "Fake pupils drop out early."),
+        ("dropping out", "Fake pupils were dropping out."),
+        ("well being", "Fake well being improved."),
+    ],
+)
+def test_a_phrase_that_loses_its_stopwords_is_still_a_phrase(ai, asked, text):
+    from neurodb.km import search
+    from neurodb.km.models import KMFinding
+
+    other = {
+        "out of school": "Fake children attended school.",
+        "drop out": "Fake pupils let the drop fall.",
+        "dropping out": "Fake prices kept dropping.",
+        "well being": "Fake wells were dug.",
+    }[asked]
+    factory.load(key_findings(text, other))
+    assert _ids(_picked(asked)) == ["TST-0001-F00001"]
+    found, how = search.find(KMFinding.objects.all(), asked)  # the search box too
+    assert how == "words" and [f.finding_id for f in found] == ["TST-0001-F00001"]
+
+
+def test_a_question_for_a_number_ranks_findings_with_figures_first(ai):
+    factory.load(
+        key_findings(
+            "Fake out-of-school children were many, and fake out-of-school rates rose.",
+            "Fake out-of-school rate: 23% of children.",
+        )
+    )
+    assert _ids(_picked("how many children are out of school?")) == ["TST-0002-F00001", "TST-0001-F00001"]
+    assert _ids(_picked("out of school children")) == ["TST-0001-F00001", "TST-0002-F00001"]
+
+
+def test_framework_texts_never_count_as_a_match(ai):
+    edits = {
+        ("findings", 2, "Indicator / Evidence Requirement"): "Out-of-school children by governorate",
+        ("findings", 3, "Sub-question"): "What is the situation of fake rainfall?",
+    }
+    factory.load(key_findings("Teachers received a training course.", "Clinics opened.", edits=edits))
+    assert _picked("out of school children by governorate").findings == []
+    assert _picked("rainfall").findings == []

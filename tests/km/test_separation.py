@@ -15,6 +15,7 @@ import pytest
 from django.apps import apps
 from django.conf import settings
 from django.urls import reverse
+from django.utils import timezone
 
 from neurodb.core.models import SyncRun
 from neurodb.km.models import KMFinding
@@ -180,7 +181,10 @@ def _never_sent(sent: str, version) -> None:
         assert never not in sent, never
     assert "Fakeorg University" not in sent  # an author entry (on screen only)
     assert agent.SYSTEM_PROMPT.splitlines()[0] not in sent  # Ask NeuroDB's prompt
-    assert "This year is" not in sent and "Today is" not in sent  # nor its date and year lines
+    # nor its date and year lines (the KM Database's message says when the question was asked, its own way)
+    today = timezone.localdate()
+    assert f"Today is {today:%A %d %B %Y}" not in sent and "This year is" not in sent
+    assert "ActivityInfo" not in sent and "eTools" not in sent
     finding_ids = set(KMFinding.objects.values_list("finding_id", flat=True))
     shown = set(re.findall(r"TST-\d{4}-F\d{5}", sent))
     assert shown <= finding_ids
@@ -215,6 +219,8 @@ def test_the_km_assistant_sends_only_the_km_database_openai(
     _never_sent(sent, None)
     answer_call = fake.calls()[-1]
     assert "tools" not in answer_call and answer_call["instructions"] == ask.system_prompt()
+    today = timezone.localdate()
+    assert f"This question was asked on {today.day} {today:%B %Y}." in answer_call["input"][0]["content"]
     row = KMQuestion.objects.get()
     assert "q=" not in row.scope and "Jane" not in row.scope
     assert set(re.findall(r"TST-\d{4}-F\d{5}", answer_call["input"][0]["content"])) == set(row.read)

@@ -1327,6 +1327,8 @@ one at a time, advisory lock `7140442`):
   version is loading), with what to do;
 - the uploaded file is kept only until its load ends (loaded or not); of the Read Me's source workbook
   only the file name is kept, never its folder;
+- the version page's notes count the findings that repeat another finding's key finding word for word
+  (compared in Unicode NFKC, lower case, letters and digits only): Ask reads each such text once;
 - measured on the user's workbook (8 MB: about 540 documents and 15,000 findings): about 30 seconds and
   a peak of about 230 MB of memory for the whole process into an empty KM Database, about 35 seconds and
   280 MB when it replaces a version of the same size. The version page shows both for each load.
@@ -1347,7 +1349,9 @@ strongest; `neurodb.km.columns.CONFIDENCE_A_STRONGEST` turns on the colours once
 
 - **Search**: PostgreSQL full text over the KM tables' own indexes (filled by the load): every word must be
   found (English stems and the words as written); UK/US spellings and common sector acronyms are joined
-  (`neurodb.km.search.VARIANTS`: labour/labor, GBV/gender-based violence, OOSC/out of school...); quotes,
+  (`neurodb.km.search.VARIANTS`: labour/labor, GBV/gender-based violence, OOSC/out of school...); a phrase
+  of them that starts or ends with an English stop word ("out of school", "drop out", "well being") is
+  matched as written (the "simple" configuration), never as its last word alone ("school"); quotes,
   `-word` and `or` use the web search syntax; an exact Finding ID or Document ID shows those rows; when no
   word matches, the letters typed are looked for (and the page says so). The authors are searched on screen
   (as letters), never in the indexes.
@@ -1432,7 +1436,8 @@ its downloads summary.
 
 **Ask the KM Database** (`/km/ask/`, the page's third tab; the code is `neurodb/km/ask.py`): a question
 answered from the KM Database's own findings only, by **one model call with no tools** (never Ask
-NeuroDB's run, prompt, tools, date or year lines). In order:
+NeuroDB's run, prompt, tools, date or year lines; the message has its own line saying when the question was
+asked). In order:
 
 1. The question (1-1,000 characters) is cleaned for sending and keeping: the names NeuroDB knows (the Help
    assistant's rule; that list is only read to take names out), e-mail addresses, links and phone numbers,
@@ -1442,32 +1447,81 @@ NeuroDB's run, prompt, tools, date or year lines). In order:
 2. The filters it reads within are those of the tab's address (the Findings tab's filter, carried by the
    tab link, or *Ask about its document*): known keys only, never the search box's words, the sort or the
    page size.
-3. **Retrieval**, over the KM tables only: codes in the question ("Level A", "P2", "RQ3", a Document ID,
-   with a dash or of the shape of the version's own Document IDs, "PM0123") narrow the filters (a code that
-   would leave nothing is left out and the answer says so); a Finding ID is read first (also before a full
-   stop); the whole question's words (up to 1,000 characters, common words left out first, words joined by
-   a slash searched one by one, a hyphenated word also as two words) (UK/US spellings and sector acronyms joined, common words left out)
-   are looked for in each finding's own words (`own_vector`: key finding, measure, analysis,
-   limitations, the sub-questions and indicator; never the document's methods, population or titles,
-   which only break ties). A finding is kept when it matches 2 of 3 or more word groups, else all of them;
-   the most groups matched come first, then the findings marked Yes for an age group or girls and boys
-   the question names, then the rank. At most 40 findings, 6 a document (no cap when the filters or the
-   question name one document), 60,000 characters. A follow-up of under 4 words keeps the earlier
-   question's words and reads the previous answer's cited findings first; when no finding matches it
-   together with the earlier topic, its own words are searched alone (a new topic). In a long question (more
-   than 8 word groups), the findings that match its last clause (after the last sentence or a comma before
-   "could", "what", "please"...) come first. When fewer than 40 findings
-   match (or the question is not in Latin letters) and less than 15 seconds have passed, a small call
-   (20 seconds, no retry) asks for search words from the cleaned question and the conversation's earlier
-   questions only, never any data; it fails silently. When it finds the credit gone (the pause starts), no
-   answer call is made: the findings are listed with the pause's sentence.
+3. **Retrieval**, over the KM tables only (`neurodb/km/ask.py`, the places in `neurodb/km/places.py`):
+   - **Codes** in the question ("Level A", "P2", "RQ3", a Document ID, with a dash or of the shape of the
+     version's own Document IDs, "PM0123") narrow the filters (a code that would leave nothing is left out
+     and the answer says so); a Finding ID is read first (also before a full stop).
+   - **A time frame** is the Year filter (the owner's rule), narrowed within the filters' own years and
+     only when findings remain (otherwise it is left out and the line under the answer says so): "past N
+     years" and "last N years" are this year and the N before it (on 25 November 2026, "the past 2 years"
+     are 2024-2026; "past year", "last year" or up to 12 months: the year before too; "past years" with no
+     number, "recent", "recently", "latest": 2 years), "since 2023" and "from 2023" up to this year, "after
+     2023", "2019-2021", "2023/24", "between 2019 and 2021", "in 2023", "this year". Findings whose year is
+     *Not reported* are left out. The line under the answer says "Years 2024–2026, from your question;
+     findings whose year is not reported are left out (the Year filter changes it)"; the phrase is never
+     searched. The years are publication years.
+   - **Places** (`neurodb.km.places`, written in code: public geography, no other NeuroDB table): the nine
+     governorates (Akkar, Baalbek-Hermel, Beirut, Bekaa, Keserwan-Jbeil, Mount Lebanon, Nabatieh, North,
+     South) in their common spellings and transliterations ("mont lebanon", "Nabatiyeh", "Nabatiye",
+     "Beqaa", "Beyrouth"; "the", "El", "Al" before them), and the main districts and towns, each in its
+     governorate (Saida/Sidon, Tyre/Sour, Jezzine: South; Zahle: Bekaa; Tripoli: North; Baalbek, Hermel:
+     Baalbek-Hermel; Bint Jbeil, Marjayoun, Hasbaya: Nabatieh; Aley, Chouf, Baabda, Metn: Mount Lebanon;
+     Jbeil, Keserwan: Keserwan-Jbeil, and Mount Lebanon too, as older reports count them). "South Lebanon",
+     "the south" and "south" are the South and Nabatieh governorates; "South governorate" the South only.
+     The places of a question make **one** place group a finding's own texts must name (any of them; a
+     governorate also by its districts and towns); "governorate", "gov" and "mohafaza" go with a place
+     named, and without one ask for a **breakdown by governorate** ("all governorates", "by governorate",
+     "all gov"): a group of the governorate words and names, the findings naming the most governorates
+     first. "All Lebanon", "national", "nationally" and "nationwide" ask for no place. When under 10
+     findings name the place, the other findings that match the words are read after them (those naming
+     the place, then its governorate, first) and the line under the answer says so ("Only 1 finding names
+     Mount Lebanon: findings from all of Lebanon were read too", "No finding names Mount Lebanon: ...").
+   - **The words** (up to 1,000 characters, common words left out first, words joined by a slash searched
+     one by one, a hyphenated word also as two words; UK/US spellings and sector acronyms joined) are
+     looked for in each finding's own texts only: its key finding, measure, analysis and limitations
+     (`own_vector`'s weights A to C, by a query whose words are restricted to those weights: no vector
+     refilled). Its framework's sub-questions and indicator (weight D of `own_vector`, shared by many
+     findings and never sent) and its document's methods, population and titles only break ties. The
+     words of a request, a format or a time ("need", "paragraph", "describe", "text above", "adjust",
+     "excel", "sheet", "table", "each", "value", "number", "percentage", "indicator", "past", "years",
+     "only", "recent": `ask.REQUEST_STOP`) are not searched while other words remain (a question of these
+     words only, with no place, time frame or code, searches them); PostgreSQL's English stop words
+     ("only", "each", "once", "than", "above": `search.ENGLISH_STOP`) never are. A phrase that starts or
+     ends with a stop word ("out of school", "drop out", "dropping out", "well being") is matched as
+     written in those texts (a pattern), never as its last word alone.
+   - **The quorum**: a finding is kept when it matches every group of 1 or 2 groups, and a third of 3 or
+     more (at least 2: 2 of 3 to 6, 3 of 7 to 9...); when none matches that many, 2 are enough. A group
+     that no finding of the filters holds (a word misspelt, a word of no finding) is not counted (one
+     query). The order: the most groups matched; when the question asks for a number ("number", "rate",
+     "percentage", "how many", "%"...), the findings whose key finding or measure holds a figure; the
+     findings marked Yes for an age group or girls and boys the question names; then the rank. In a long
+     question (more than 8 word groups), the findings that match its last clause (after the last sentence
+     or a comma before "could", "what", "please"...) come first, and one that matches enough of that
+     clause is kept; a last clause made of request words only ("once done I need an excel sheet") is never
+     that topic.
+   - **Findings with the same key finding** (compared in Unicode NFKC, lower case, letters and digits
+     only) are read once: the copies take no place of the 40 or of a document's 6, are sent as
+     `also="<their Finding IDs>"` on the finding read, count as read, and can be cited (linked and listed
+     under the answer). Each pass reads twice the findings it needs, so that copies leave room.
+   - At most 40 findings, 6 a document (no cap when the filters or the question name one document), 60,000
+     characters. A follow-up of under 4 words keeps the earlier question's words and place and reads the
+     previous answer's cited findings first; when no finding matches it together with the earlier topic,
+     its own words are searched alone (a new topic). When fewer than 40 findings match (or the question is
+     not in Latin letters) and less than 15 seconds have passed, a small call (20 seconds, no retry) asks
+     for search words from the cleaned question and the conversation's earlier questions only, never any
+     data; it fails silently. When it finds the credit gone (the pause starts), no answer call is made: the
+     findings are listed with the pause's sentence.
 4. **The message**: the question, up to 4 earlier turns of this conversation read from the version shown
-   (answers cut at 1,500 characters, citations as plain [ID]), the filters in words, a legend of the
-   pillars and research questions, and the findings read, grouped by document, every text and attribute
-   (the year as given too) through `privacy.for_ai` and escaped (`&lt;5 years`); a document type chosen as
-   a filter is cleaned as a question is. Each finding carries its Finding ID, its legend key, its
-   confidence level as "Level B" or "not given", "ready" or "marked for review", and the age and sex marks
-   marked Yes. The final check (`privacy.leftover`) leaves out a document whose block still names someone
+   (answers cut at 1,500 characters, citations as plain [ID]), the filters in words, the date it was asked
+   ("This question was asked on 25 November 2026."), what the search read from the question ("Read from the
+   question: places: the South (South and Nabatieh governorates); years 2024–2026 (publication years;
+   findings whose year is not reported left out)", and when few or no findings name the place, that the
+   others were read), a legend of the pillars and research questions, and the findings read, grouped by
+   document, every text and attribute (the year as given too) through `privacy.for_ai` and escaped
+   (`&lt;5 years`); a document type chosen as a filter is cleaned as a question is. Each finding carries its
+   Finding ID (and its copies' as `also`), its legend key (its copies' too), its confidence level as
+   "Level B" or "not given", "ready" or "marked for review", the age and sex marks marked Yes, and its study
+   or data collection period ("Data collected:", 120 characters). The final check (`privacy.leftover`) leaves out a document whose block still names someone
    (counted in the question's error) and sends nothing when the whole message does.
 5. **The call**: the model of AI settings at low effort, 5,000 output tokens, held to the time left of 95
    seconds, no retry, structured JSON (`answer`, `covered`: yes / partly / no), `store=false` (OpenAI;
@@ -1481,9 +1535,9 @@ NeuroDB's run, prompt, tools, date or year lines). In order:
 
 | Sent to the AI provider | Never sent |
 |---|---|
-| The question, cleaned; up to 4 earlier questions and answers of this conversation and version; the filters in words (codes, years, types, "one document"); the legend of pillar and research question labels | Publishing entity / authors (either sheet), people's names in texts, e-mail addresses, links, phones; the search box's words |
-| Of the findings read (about 30-35, at most 40): Finding ID, legend key, confidence letter, marked for review or not, the age and sex marks marked Yes, ages, measure, key finding, analysis, limitations; of their documents: title, year, type, population, methods | Document IDs (one typed in a question, or any word of their shape, goes as "this document" or "a document", in the question, the earlier questions and the search-words call; the log keeps the question as typed, cleaned of names), short titles, sub-questions, indicators, evidence origin, values to check, the data quality text |
-| The number of matching findings | Anything from another NeuroDB table: partners, programme documents, indicators, the knowledge base, the library, users, Ask NeuroDB's prompt and its date and year lines |
+| The question, cleaned; up to 4 earlier questions and answers of this conversation and version; the filters in words (codes, years, types, "one document"); the date the question was asked (its own line, "This question was asked on ..."); what the search read from the question (the places, a breakdown by governorate, all of Lebanon, the years, and whether few or no findings named the place: fixed words and public place names, through `privacy.for_ai`); the legend of pillar and research question labels | Publishing entity / authors (either sheet), people's names in texts, e-mail addresses, links, phones; the search box's words |
+| Of the findings read (about 30-35, at most 40): Finding ID (and the Finding IDs of the findings with the same key finding, as `also`), legend key, confidence letter, marked for review or not, the age and sex marks marked Yes, ages, measure, key finding, analysis, limitations, the study or data collection period (through `privacy.for_ai`, 120 characters); of their documents: title, year, type, population, methods | Document IDs (one typed in a question, or any word of their shape, goes as "this document" or "a document", in the question, the earlier questions and the search-words call; the log keeps the question as typed, cleaned of names), short titles, sub-questions, indicators, evidence origin, values to check, the data quality text |
+| The number of matching findings | Anything from another NeuroDB table: partners, programme documents, indicators, the knowledge base, the library, users, Ask NeuroDB's prompt and its date and year lines ("Today is ...", "This year is ...") |
 | The two fixed prompts (`ask.KM_PROMPT`, `ask.TERMS_PROMPT`) | The workbook, its Read Me, the version's file name |
 
 - **Limits**: `KM_PER_USER_PER_DAY` (30) questions a day per person from local midnight: one being
@@ -1511,7 +1565,11 @@ NeuroDB's run, prompt, tools, date or year lines). In order:
 - Measured on the user's workbook (throwaway database, about 15,000 findings): for 20 typical questions the
   search kept 93 to 5,057 matching findings (median about 1,400) and sent 23 to 38 (median 31: the
   60,000-character limit stops before 40), from 12 to 22 documents; the search took at most 0.3 s and the
-  message at most 0.4 s. The final check over every finding's texts as sent found nothing left (no name,
+  message at most 0.4 s. **These figures predate the retrieval changes above** (request words, places,
+  time frames, the third-of-the-groups quorum, the finding's own texts only, identical texts, phrases as
+  written): they must be measured again on the live workbook (fewer matching findings are expected). On
+  an invented workbook of 15,000 findings, the owner's six questions of November 2026 took at most 0.3 s
+  to search (at most 3 queries) and at most 0.2 s to build the message. The final check over every finding's texts as sent found nothing left (no name,
   link, phone or e-mail). A few authors' surnames are also ordinary words: a question that writes one with a
   capital sends it as "[name withheld]" (the search still uses the word).
 

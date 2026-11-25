@@ -292,6 +292,13 @@ LOOK_LIKE_WORDS_HELP = _(
 )
 NOT_A_NAME = _("Not a name")
 COUNT_AS_ORGANISATION = _("Count as an organisation")
+SAME_TEXT_WARNING = ngettext_lazy(
+    "{count} finding repeats another finding's text word for word: Ask the KM Database reads each such text "
+    "once, and its answers may cite any of them.",
+    "{count} findings repeat another finding's text word for word: Ask the KM Database reads each such text "
+    "once, and its answers may cite any of them.",
+    "n",
+)
 WORDS_WARNING = ngettext_lazy(
     "{count} author entry looks like words, not a name: check it on this page.",
     "{count} author entries look like words, not names: check them on this page.",
@@ -414,6 +421,20 @@ ANSWERED_ALL_META = ngettext_lazy(
 )
 CODES_USED = _("({codes}, from your question)")
 CODES_LEFT_OUT = _("({codes} in your question matched no finding within the filters and was left out)")
+YEARS_ASKED = _("Years {years}")
+YEARS_USED = _(
+    "Years {years}, from your question; findings whose year is not reported are left out (the Year filter "
+    "changes it)."
+)
+PLACES_USED = _("Places from your question: {places}.")
+PLACES_NONE = _("No finding names {places}: findings from all of Lebanon were read.")
+PLACES_FEW = ngettext_lazy(
+    "Only {count} finding names {places}: findings from all of Lebanon were read too.",
+    "Only {count} findings name {places}: findings from all of Lebanon were read too.",
+    "n",
+)
+NATIONAL_USED = _("All of Lebanon, from your question: no place restriction.")
+BREAKDOWN_USED = _("By governorate, from your question: findings that name governorates first.")
 NOT_SENT = _(
     "The question could not be sent to the AI safely. These are the findings that match your question:"
 )

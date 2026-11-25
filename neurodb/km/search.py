@@ -5,9 +5,10 @@ load, :func:`neurodb.km.loading._fill_vectors`), never the authors, the marks or
 - Otherwise every word must be found (English stemming, and the words as written). UK and US spellings and
   the sector's acronyms and their expansions find each other (:data:`VARIANTS`): "child labor" finds
   "child labour", "GBV" finds "gender-based violence"; words joined by a slash are words of their own
-  ("girls/boys") and "school-age" also finds "school age". A quote, a "-" before a word or the word "or"
-  asks for the web search syntax instead: a phrase in quotes, ``-word`` to leave a word out, ``or`` between
-  words.
+  ("girls/boys") and "school-age" also finds "school age". A phrase of them that starts or ends with an
+  English stop word ("out of school") is searched as written (:func:`collapses`), never as its last word
+  ("school"). A quote, a "-" before a word or the word "or" asks for the web search syntax instead: a phrase
+  in quotes, ``-word`` to leave a word out, ``or`` between words.
 - When that finds nothing, every word typed must be found as letters in one of the texts (the authors
   included: they are on screen).
 
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import html
 import re
+import unicodedata
 from functools import reduce
 from operator import and_, or_
 
@@ -39,6 +41,18 @@ KM_STOP = {
     "evidence", "finding", "findings", "study", "studies", "data", "show", "shows", "lebanon", "lebanese",
     "children", "child",
 }  # fmt: skip
+# PostgreSQL's English stop words (its english.stop, copied): the English configuration drops them, so a word
+# of these alone is never found, and a phrase that starts or ends with one loses it ("out of school" is
+# searched as "school" in English: :func:`collapses`)
+ENGLISH_STOP = frozenset(
+    "i me my myself we our ours ourselves you your yours yourself yourselves he him his himself she her hers "
+    "herself it its itself they them their theirs themselves what which who whom this that these those am is "
+    "are was were be been being have has had having do does did doing a an the and but if or because as "
+    "until while of at by for with about against between into through during before after above below to "
+    "from up down in out on off over under again further then once here there when where why how all any "
+    "both each few more most other some such no nor not only own same so than too very s t can will just "
+    "don should now".split()
+)
 
 # Words that mean the same, written in code (never the workbook's text): UK and US spellings, word forms the
 # English stemmer does not join, and the sector's acronyms with their expansions. One group is one set of
@@ -165,9 +179,25 @@ def groups(
     return found
 
 
+def collapses(alt: str) -> bool:
+    """Whether the phrase ``alt`` starts or ends with an English stop word, which the English configuration
+    drops with nothing to hold its place: "out of school" would be searched as "school", "drop out" as
+    "drop", "well being" as "well". Such a phrase is searched as written (the search box: the "simple"
+    configuration; Ask: the finding's own texts, :func:`phrase_pattern`)."""
+    parts = alt.split()
+    return len(parts) > 1 and (parts[0] in ENGLISH_STOP or parts[-1] in ENGLISH_STOP)
+
+
+def phrase_pattern(alt: str) -> str:
+    """A PostgreSQL pattern of the phrase ``alt`` as written: its words in order, whole, with spaces, dashes
+    or signs between them ("out of school": also "out-of-school")."""
+    return r"\y" + r"\W+".join(re.escape(w) for w in re.findall(r"\w+", alt)) + r"\y"
+
+
 def _alternative(alt: str) -> SearchQuery:
     kind = "plain" if alt.isalnum() else "phrase"
-    return reduce(or_, [SearchQuery(alt, search_type=kind, config=c) for c in CONFIGS])
+    configs = ("simple",) if collapses(alt) else CONFIGS
+    return reduce(or_, [SearchQuery(alt, search_type=kind, config=c) for c in configs])
 
 
 def group_query(group: list[str]) -> SearchQuery:
@@ -185,6 +215,13 @@ def query(text: str) -> SearchQuery | None:
     if not found:
         return None
     return reduce(and_, [group_query(g) for g in found])
+
+
+def same_text(text: str) -> str:
+    """``text`` as findings with the same words are compared: Unicode-normalised (NFKC: a ligature is its
+    letters), in lower case, letters and digits only ("17.8% of students" and "17.8 % OF STUDENTS" are the
+    same)."""
+    return "".join(c for c in unicodedata.normalize("NFKC", text or "").casefold() if c.isalnum())
 
 
 def is_id(text: str) -> bool:

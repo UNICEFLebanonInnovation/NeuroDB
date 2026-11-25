@@ -3,24 +3,30 @@ findings only, by one model call with no tools.
 
 1. **Retrieval** (:func:`retrieve`) reads only the findings of the version shown, within the filters the
    person chose (``Filters.from_query(for_ask=True)``: never the search box's words). Codes in the question
-   ("Level A", "P2", "RQ3") narrow those filters; a Finding ID or a Document ID in it (with a dash, or of the
-   shape of the version's Document IDs: :func:`document_shapes`) is read first (a Document ID is sent as
-   "this document": :func:`unsent`). All its
-   words, with UK/US spellings and acronyms (:func:`neurodb.km.search.groups`), are looked for in each
-   finding's own words only (``own_vector``: not its document's methods, population or titles, which every
-   finding of a document shares). A finding is kept when it matches 2 of 3 or more groups of words, else all
-   of them; the best matches come first, and an age group or girls and boys named in the question rank the
-   findings marked Yes for them first, without leaving others out; in a long question, those that match its
-   last clause first. A short follow-up keeps the earlier question's words and reads the findings the
-   previous answer cited first (its own words alone when nothing matches both). When fewer than 40 match,
-   or the question is not written in Latin letters, a small call asks for search words from the question
-   alone (it holds no data); when it finds the credit gone, no answer call follows.
+   ("Level A", "P2", "RQ3") and its time frame ("in the past 2 years", "since 2023": :func:`time_frame`)
+   narrow those filters; a Finding ID or a Document ID in it (with a dash, or of the shape of the version's
+   Document IDs: :func:`document_shapes`) is read first (a Document ID is sent as "this document":
+   :func:`unsent`). The places it names (:mod:`neurodb.km.places`) make one place group a finding must name;
+   its other words, with UK/US spellings and acronyms (:func:`neurodb.km.search.groups`), but not the words
+   of a request ("paragraph", "excel", :data:`REQUEST_STOP`) while others remain, are looked for in each
+   finding's own texts only (``own_vector``'s key finding, measure, analysis and limitations: not its
+   framework's questions and indicator, nor its document's methods, population or titles, which only break
+   ties). A finding is kept when it matches every group of 1 or 2, a third of 3 or more (at least 2; 2 when
+   none matches that many); a group no finding matches is not counted. The best matches come first, then,
+   when the question asks for a number, the findings that give figures; an age group or girls and boys
+   named in the question rank the findings marked Yes for them first, without leaving others out; in a long
+   question, those that match its last clause first. When under 10 findings name the place, the others that
+   match are read after them, and the answer says so. Findings with the same key finding are read once, each
+   of their Finding IDs citable. A short follow-up keeps the earlier question's words and place and reads the
+   findings the previous answer cited first (its own words alone when nothing matches both). When fewer than
+   40 match, or the question is not written in Latin letters, a small call asks for search words from the
+   question alone (it holds no data); when it finds the credit gone, no answer call follows.
 2. **The message** (:func:`prompt`) holds the cleaned question, the conversation's earlier turns, the filters
-   in words, a legend of the pillars and research questions, and the findings read (at most 40, 6 a document
-   and 60,000 characters): never an author, a Document ID, a link, a person's name
-   (:func:`neurodb.km.privacy.for_ai`) or anything from another NeuroDB table. A final check
-   (:func:`neurodb.km.privacy.leftover`) leaves out a document whose block still names someone, and sends
-   nothing when the whole message does.
+   in words, the date it was asked, what the search read from the question (places, years), a legend of the
+   pillars and research questions, and the findings read (at most 40, 6 a document and 60,000 characters):
+   never an author, a Document ID, a link, a person's name (:func:`neurodb.km.privacy.for_ai`) or anything
+   from another NeuroDB table. A final check (:func:`neurodb.km.privacy.leftover`) leaves out a document
+   whose block still names someone, and sends nothing when the whole message does.
 3. **The answer** (:func:`finish`) is checked: names withheld again (an answer that still names someone is
    kept back), the model's own links taken out, every Finding ID read linked to its finding (with the version
    it was read from), every other ID-shaped reference taken out and counted, and the sentences that cite no
@@ -37,6 +43,7 @@ from __future__ import annotations
 import datetime
 import html as html_lib
 import logging
+import math
 import re
 import time
 import unicodedata
@@ -52,7 +59,19 @@ import markdown
 import nh3
 from django.conf import settings
 from django.contrib.postgres.search import SearchQuery, SearchRank
-from django.db.models import Case, F, Func, IntegerField, Q, QuerySet, Value, When, Window
+from django.db.models import (
+    BooleanField,
+    Case,
+    Count,
+    F,
+    Func,
+    IntegerField,
+    Q,
+    QuerySet,
+    Value,
+    When,
+    Window,
+)
 from django.db.models.functions import RowNumber
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -62,7 +81,7 @@ from neurodb.assistant import agent, llm, usage
 from neurodb.watch import people as watch_people
 from neurodb.watch import redact
 
-from . import authors, privacy, search, words
+from . import authors, places, privacy, search, words
 from . import columns as cols
 from .filters import NONE, Filters
 from .models import KMDocument, KMFinding, KMQuestion, KMVersion
@@ -75,6 +94,9 @@ TIME_LIMIT = 95  # seconds for the whole question
 TERMS_SKIP_AFTER = 15  # no search-words call once this many seconds have passed
 MAX_FINDINGS = 40  # an upper bound; the character budget usually stops at about 35
 MAX_PER_DOCUMENT = 6  # unless the filters name one document (then MAX_FINDINGS)
+SPARE = 2  # each pass reads this many times the findings it needs: copies of a text read take no place
+FEW_IN_PLACE = 10  # under this many findings name the place: the others that match are read after them
+RECENT_YEARS = 2  # "recent", "latest": the past 2 years
 MAX_CHARS = 60_000
 HISTORY_TURNS = 4
 HISTORY_ANSWER_CHARS = 1_500
@@ -101,6 +123,7 @@ CUTS = {  # characters of each text sent
     "population": 250,
     "title": 250,
     "type": 80,
+    "period": 120,
 }
 YEAR_CHARS = 40  # a year as given ("Not reported"), the most it holds
 USED_TEXT = 160  # characters of a key finding in the list under an answer
@@ -116,6 +139,22 @@ QUESTION_STOP = frozenset(
     # short words of English the search would look for in vain
     "in on of to at by or an as is it be do if so no not we my me you your us".split()
 )
+# words of a request, a format or a time ("i need a paragraph", "an excel sheet with each value", "in the past
+# years only"): not searched while other words remain (a question of these words only searches them)
+REQUEST_STOP = frozenset(
+    "need needs needed paragraph paragraphs describe describes describing description write writing written "
+    "text texts above below adjust adjusted rework redo once done excel sheet sheets table tables "
+    "spreadsheet csv file download each every value values number numbers percentage percentages percent "
+    "indicator indicators plus find type types past last previous year years only recent recently latest "
+    "newest lens u pls plz kindly want like".split()
+)
+# a question asking for a number: the findings that give figures come first
+FIGURES = re.compile(
+    r"%|\b(?:numbers?|rates?|percent(?:ages?)?|how\s+many|how\s+much|proportions?|prevalence|figures?|"
+    r"statistics?|stats|ratios?|counts?|estimates?|share)\b",
+    re.IGNORECASE,
+)
+WITH_FIGURES = Q(key_finding__regex=r"[0-9]") | Q(measure__regex=r"[0-9]")
 AGE_SEX = tuple(f for f in cols.FLAGS if f.group in (cols.AGE, cols.SEX))
 LEVEL = re.compile(r"\b[Ll]evel\s*(?:([A-D])\b|([a-d])\b(?!\s+[a-z]))")
 PILLAR = re.compile(r"\bP([1-9])\b")
@@ -125,6 +164,7 @@ ID_TOKEN = re.compile(r"(?<![\w.-])[A-Za-z0-9](?:[A-Za-z0-9._-]{0,38}[A-Za-z0-9]
 PLACEHOLDERS = (privacy.NAME_WITHHELD, privacy.EMAIL_WITHHELD, privacy.PHONE_WITHHELD, privacy.LINK_WITHHELD)
 PICK_FIELDS = (
     "finding_id",
+    "period",
     "record_id",
     "document",
     "position",
@@ -378,12 +418,17 @@ def scope_parts(filters: Filters, found: dict[str, Any], *, document_title: str 
 # --------------------------------------------------------------------------------------------- retrieval
 @dataclass
 class Picked:
-    """What retrieval found: the findings to read, in pick order; about how many match (``matched``); the
-    codes the question narrowed the filters with (and those left out); the groups of words searched; the
-    search words suggested and the call that suggested them; the question as it is sent (its Document IDs
-    written "this document" or "a document": :func:`unsent`)."""
+    """What retrieval found: the findings to read, in pick order, and the findings with the same key finding
+    as one of them (``copies``, by the Finding ID read); about how many match (``matched``); the codes the
+    question narrowed the filters with (and those left out); the groups of words searched; the search words
+    suggested and the call that suggested them; the question as it is sent (its Document IDs written "this
+    document" or "a document": :func:`unsent`); what the question said of places and years: the places
+    (``places``, when findings had to name them), whether under :data:`FEW_IN_PLACE` did and the others were
+    read too (``relaxed``: "none" or "few", ``in_place`` of them), all of Lebanon (``national``), a breakdown
+    by governorate (``breakdown``) and the years of the Year filter it set (``years``)."""
 
     findings: list[KMFinding] = field(default_factory=list)
+    copies: dict[str, list[KMFinding]] = field(default_factory=dict)
     matched: int = 0
     codes: list[str] = field(default_factory=list)
     left_out: list[str] = field(default_factory=list)
@@ -392,10 +437,63 @@ class Picked:
     result: llm.Result | None = None
     filters: Filters | None = None
     question: str = ""
+    places: str = ""
+    relaxed: str = ""
+    in_place: int = 0
+    national: bool = False
+    breakdown: bool = False
+    years: str = ""
 
     @property
     def documents(self) -> int:
         return len({f.document_id for f in self.findings})
+
+    def with_copies(self, findings: list[KMFinding] | None = None) -> list[KMFinding]:
+        """``findings`` (the findings read), each followed by its copies."""
+        out = []
+        for f in self.findings if findings is None else findings:
+            out += [f, *self.copies.get(f.finding_id, ())]
+        return out
+
+    @property
+    def notes(self) -> list[str]:
+        """What the line under the answer says of the places and years the question set."""
+        found = []
+        if self.relaxed == "none":
+            found.append(say(words.PLACES_NONE, places=self.places))
+        elif self.relaxed == "few":
+            found.append(say(words.PLACES_FEW, n=self.in_place, places=self.places))
+        elif self.places:
+            found.append(say(words.PLACES_USED, places=self.places))
+        if self.national:
+            found.append(str(words.NATIONAL_USED))
+        if self.breakdown:
+            found.append(str(words.BREAKDOWN_USED))
+        if self.years:
+            found.append(say(words.YEARS_USED, years=self.years))
+        return found
+
+    def read_line(self) -> str:
+        """What the search read from the question, as the AI is told it (no data, no name), or ""."""
+        parts = []
+        if self.relaxed == "none":
+            parts.append(f"no finding names {self.places}, so findings from all of Lebanon were read")
+        elif self.relaxed == "few":
+            name = "finding names" if self.in_place == 1 else "findings name"
+            parts.append(
+                f"only {self.in_place} {name} {self.places}, so findings from all of Lebanon were read too"
+            )
+        elif self.places:
+            parts.append(f"places: {self.places}")
+        if self.national:
+            parts.append("all of Lebanon (no place)")
+        if self.breakdown:
+            parts.append("by governorate (the findings that name governorates first)")
+        if self.years:
+            parts.append(
+                f"years {self.years} (publication years; findings whose year is not reported left out)"
+            )
+        return f"Read from the question: {'; '.join(parts)}." if parts else ""
 
 
 def _searchable(text: str) -> str:
@@ -468,6 +566,109 @@ def codes(text: str, filters: Filters, found: dict[str, Any]) -> tuple[Filters, 
         shown = [code for code in dict.fromkeys(asked_rq) if keys]
         apply("rq", keys, shown)
     return filters, used, left_out, text
+
+
+def today() -> datetime.date:
+    """The date a question's time frame is read from, and the date the message says it was asked."""
+    return timezone.localdate()
+
+
+_Y = r"(?:19|20)\d\d"
+_HOW_MANY = (
+    r"\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|a\s+few|few|a\s+couple\s+of|couple\s+of|"
+    r"several"
+)
+_COUNTS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9}
+_COUNTS |= {"ten": 10, "few": 3, "couple of": 2, "several": 3}
+TIME_FRAMES = tuple(
+    (name, re.compile(pattern, re.IGNORECASE))
+    for name, pattern in (
+        ("range", rf"\bbetween\s+(?:the\s+years?\s+)?({_Y})\s+and\s+({_Y})\b"),
+        ("range", rf"\bfrom\s+({_Y})\s+(?:to|until|till|through)\s+({_Y})\b"),
+        ("range", rf"(?<![\w-])({_Y})\s*(?:-|–|—|/|\bto\b)\s*((?:19|20)?\d\d)(?![\w-])"),
+        ("since", rf"\b(?:since|from)\s+({_Y})\b"),
+        ("after", rf"\bafter\s+({_Y})\b"),
+        ("past", rf"\b(?:(?:in|over|during|for|within)\s+)?(?:the\s+)?(?:past|last|previous|recent)\s+"
+                 rf"(?:({_HOW_MANY})\s+)?(years?|months?)\b"),
+        ("this", r"\b(?:this|the\s+current|current)\s+year\b"),
+        ("in", rf"\b(?:in|during|for|of)\s+(?:the\s+year\s+)?({_Y})\b"),
+        ("recent", r"\b(?:the\s+)?(?:most\s+recent|latest|recent|recently|newest|up[\s-]to[\s-]date)\b"),
+    )
+)  # fmt: skip
+
+
+@dataclass
+class TimeFrame:
+    """A question's time frame: the years it asks for (``spans``: first and last year of each phrase), the
+    words of the line under the answer ("2024–2026") and the question without those phrases."""
+
+    text: str
+    spans: list[tuple[int, int]] = field(default_factory=list)
+
+    @property
+    def years(self) -> list[int]:
+        return sorted({y for first, last in self.spans for y in range(first, last + 1)}, reverse=True)
+
+    @property
+    def label(self) -> str:
+        """The years as runs: "2019, 2023–2026"."""
+        runs: list[list[int]] = []
+        for year in sorted(set(self.years)):
+            if runs and year == runs[-1][1] + 1:
+                runs[-1][1] = year
+            else:
+                runs.append([year, year])
+        return ", ".join(f"{a}–{b}" if a != b else str(a) for a, b in runs)
+
+
+def _count(word: str | None) -> int:
+    word = " ".join((word or "").casefold().split()).removeprefix("a ")
+    return int(word) if word.isdigit() else _COUNTS.get(word, 0)
+
+
+def time_frame(text: str, on: datetime.date) -> TimeFrame:
+    """The years a question asks for (the owner's rule): "past N years" and "last N years" are this year and
+    the N before it ("the past 2 years" on 25 November 2026: 2024-2026; a "year" or up to 12 months: the
+    year before too; "past years" without a number: :data:`RECENT_YEARS`); "since 2023" and "from 2023" up
+    to this year; "after 2023" from 2024; "2019-2021", "2023/24", "between 2019 and 2021"; "in 2023";
+    "this year"; "recent", "latest": the past :data:`RECENT_YEARS` years. The phrases are taken out of the
+    text (never searched)."""
+    this = on.year
+    spans: list[tuple[int, int]] = []
+
+    def span(kind: str, match: re.Match) -> tuple[int, int] | None:
+        if kind == "range":
+            first, last = int(match.group(1)), match.group(2)
+            end = int(last) if len(last) == 4 else first // 100 * 100 + int(last)
+            return (first, end) if first <= end <= first + 30 else None
+        if kind == "since":
+            return int(match.group(1)), max(this, int(match.group(1)))
+        if kind == "after":
+            return int(match.group(1)) + 1, max(this, int(match.group(1)) + 1)
+        if kind == "past":
+            n, unit = _count(match.group(1)), match.group(2).casefold()
+            if unit.startswith("month"):
+                n = max(1, math.ceil((n or 12) / 12))
+            elif not n:
+                n = 1 if unit == "year" else RECENT_YEARS
+            return this - min(n, 50), this
+        if kind == "this":
+            return this, this
+        if kind == "in":
+            return int(match.group(1)), int(match.group(1))
+        return this - RECENT_YEARS, this  # recent
+
+    for kind, pattern in TIME_FRAMES:
+
+        def one(match: re.Match, kind: str = kind) -> str:
+            found = span(kind, match)
+            if found is None:
+                return match.group(0)
+            spans.append(found)
+            return " "
+
+        text = pattern.sub(one, text)
+    return TimeFrame(text=text, spans=spans)
 
 
 def _shapes_of(model, name: str) -> list[str]:
@@ -588,6 +789,87 @@ def _ones(conditions: list[Q]) -> Any:
     return reduce(add, hits) if hits else Value(0, output_field=IntegerField())
 
 
+class OwnTextsHold(Func):
+    """``own_vector`` holds one of ``alternatives`` in a finding's own texts (its weights A to C: key finding,
+    measure, analysis, limitations), never only in its framework's sub-questions and indicator (weight D:
+    shared by many findings, never sent to the AI). The English queries of the alternatives are joined and
+    each of their words restricted to those weights: a constant PostgreSQL works out once, so each finding
+    is matched once with its index (no vector refilled)."""
+
+    output_field = BooleanField()
+    LEXEME = r"('(?:[^']|'')*')"  # a word of a query's text: 'mount' <-> 'lebanon'
+
+    def __init__(self, alternatives: list[str]):
+        super().__init__(F("own_vector"), *[Value(alt) for alt in alternatives])
+        self.plain = [alt.isalnum() for alt in alternatives]
+
+    def as_sql(self, compiler, connection, **extra):
+        vector, params = compiler.compile(self.source_expressions[0])
+        params = list(params)
+        queries = []
+        for expression, plain in zip(self.source_expressions[1:], self.plain, strict=True):
+            sql, more = compiler.compile(expression)
+            queries.append(f"{'plainto' if plain else 'phraseto'}_tsquery('english'::regconfig, {sql})")
+            params += more
+        joined = " || ".join(queries)
+        return f"({vector} @@ regexp_replace(({joined})::text, %s, %s, 'g')::tsquery)", [
+            *params,
+            self.LEXEME,
+            r"\1:ABC",
+        ]
+
+
+OWN_TEXT_FIELDS = ("key_finding", "measure", "analysis", "limitations")
+
+
+def _phrases_as_written(group: list[str]) -> list[Q]:
+    """The alternatives of ``group`` that lose a stop word in English ("out of school"), looked for as
+    written in the finding's own texts."""
+    found = []
+    for alt in group:
+        if search.collapses(alt):
+            pattern = search.phrase_pattern(alt)
+            found.append(reduce(or_, [Q(**{f"{name}__iregex": pattern}) for name in OWN_TEXT_FIELDS]))
+    return found
+
+
+def _english(group: list[str]) -> list[str]:
+    return [alt for alt in group if not search.collapses(alt)]
+
+
+def hit(group: list[str]) -> Q:
+    """A finding's own texts hold one of ``group``'s alternatives (:class:`OwnTextsHold`), or a phrase that
+    loses a stop word in English as written."""
+    english = _english(group)
+    return reduce(or_, ([Q(OwnTextsHold(english))] if english else []) + _phrases_as_written(group))
+
+
+def _rough(groups: list[list[str]]) -> Q:
+    """The findings whose ``own_vector`` holds one of ``groups``' alternatives (its index), or a phrase as
+    written: a superset of those :func:`hit` keeps."""
+    english = [alt for g in groups for alt in _english(g)]
+    found = [Q(own_vector=_own_query(english))] if english else []
+    return reduce(or_, found + [q for g in groups for q in _phrases_as_written(g)])
+
+
+def need_of(n: int, loose: bool = False) -> int:
+    """How many of ``n`` groups a finding must match: every one of 1 or 2 (``loose``: one), a third of 3 or
+    more, at least 2."""
+    if n < 3:
+        return 1 if loose and n else n
+    return max(2, math.ceil(n / 3))
+
+
+def alive(base: QuerySet, groups: list[list[str]]) -> list[bool]:
+    """Which of ``groups`` some finding of ``base`` holds in its own texts (one query): a group no finding
+    holds (a word misspelt, a word of no finding) is not counted in a quorum."""
+    if not groups:
+        return []
+    qs = base.filter(_rough(groups))
+    counts = qs.aggregate(**{f"km_g{n}": Count("pk", filter=hit(g)) for n, g in enumerate(groups)})
+    return [bool(counts[f"km_g{n}"]) for n in range(len(groups))]
+
+
 def quorum(
     qs: QuerySet,
     found_groups: list[list[str]],
@@ -596,32 +878,62 @@ def quorum(
     current: int = 0,
     loose: bool = False,
     topic: int = 0,
+    required: list[str] | None = None,
+    prefer: list[list[str]] | tuple = (),
+    figures: bool = False,
+    need: int | None = None,
+    unranked: list[list[str]] | tuple = (),
 ) -> tuple[QuerySet, list]:
-    """The findings of ``qs`` that match enough groups in their own words, with their order: matching 2 groups
-    when there are 3 or more, else every group (``loose``: one). ``current``: in a follow-up, the first groups
-    are the question's own, and a finding must match one of them. ``topic``: in a long question, the first
-    groups are its last clause's (its topic), and the findings that match more of them come first. The
-    order: the topic's groups matched, the groups matched, the boosted
-    marks, the rank in the finding's own words, then in all its texts (its document's methods, population and
-    titles only break ties), the confidence level (only once Level A is confirmed the strongest), the newest
-    year, the workbook's order."""
-    queries = [_own_query(g) for g in found_groups]
-    every = reduce(or_, queries)
-    hits = [Q(own_vector=q) for q in queries]
-    n = len(found_groups)
-    need = 2 if n >= 3 else (1 if loose else n)
-    qs = qs.filter(own_vector=every).annotate(km_matched=_ones(hits))
+    """The findings of ``qs`` that match enough groups in their own texts (:func:`need_of`, or ``need``),
+    with their order. ``required``: a group every finding must match too (the places named), not counted.
+    ``current``: in a follow-up, the first groups are the question's own, and a finding must match one of
+    them. ``topic``: in a long question, the first groups are its last clause's (its topic), the findings
+    that match more of them come first, and a finding that matches enough of them is kept. The order: the
+    topic's groups matched, ``prefer``'s groups matched (the place of a wider search, the governorates of a
+    breakdown), the groups matched, a figure (``figures``: the question asks for a number), the boosted
+    marks, the rank of the words in the finding's own words, then in all its texts (its framework's
+    questions and indicator and its document's methods, population and titles only break ties), the
+    confidence level (only once Level A is confirmed the strongest), the newest year, the workbook's order.
+    The places and the groups of ``unranked`` (a breakdown by governorate: dozens of spellings) are no words
+    of the rank: they only keep findings (a rank of so many words would take seconds over thousands)."""
+    every_group = [*found_groups, *([required] if required else [])]
+    qs = qs.filter(_rough(every_group))
+    if required:
+        qs = qs.filter(hit(required))
+    hits = [hit(g) for g in found_groups]
+    need = need_of(len(found_groups), loose) if need is None else need
+    qs = qs.annotate(km_matched=_ones(hits))
     if current:
         qs = qs.annotate(km_current=_ones(hits[:current])).filter(km_current__gte=1)
-    qs = qs.filter(km_matched__gte=need).annotate(
-        km_boost=_ones([Q(**{name: "Y"}) for name in boost]),
-        km_own=SearchRank(F("own_vector"), every, cover_density=True),
-        km_all=SearchRank(F("search_vector"), reduce(or_, [search.group_query(g) for g in found_groups])),
-    )
-    order: list = [F("km_matched").desc(), F("km_boost").desc(), F("km_own").desc(), F("km_all").desc()]
     if topic:
         qs = qs.annotate(km_topic=_ones(hits[:topic]))
-        order.insert(0, F("km_topic").desc())
+        qs = qs.filter(Q(km_matched__gte=need) | Q(km_topic__gte=need_of(topic)))
+    else:
+        qs = qs.filter(km_matched__gte=need)
+    ranked = [g for g in found_groups if g not in unranked]
+    english = [alt for g in ranked for alt in _english(g)]
+    qs = qs.annotate(
+        km_boost=_ones([Q(**{name: "Y"}) for name in boost]),
+        km_own=(
+            SearchRank(F("own_vector"), _own_query(english), cover_density=True) if english else Value(0.0)
+        ),
+        km_all=(
+            SearchRank(F("search_vector"), reduce(or_, [search.group_query(g) for g in ranked]))
+            if ranked
+            else Value(0.0)
+        ),
+    )
+    order: list = []
+    if topic:
+        order.append(F("km_topic").desc())
+    if prefer:
+        qs = qs.annotate(km_prefer=_ones([hit(g) for g in prefer]))
+        order.append(F("km_prefer").desc())
+    order.append(F("km_matched").desc())
+    if figures:
+        qs = qs.annotate(km_figures=Case(When(WITH_FIGURES, then=Value(1)), default=Value(0)))
+        order.append(F("km_figures").desc())
+    order += [F("km_boost").desc(), F("km_own").desc(), F("km_all").desc()]
     if cols.CONFIDENCE_A_STRONGEST:
         qs = qs.annotate(km_level=Case(When(confidence="", then=Value(1)), default=Value(0)))
         order += [F("km_level").asc(), F("confidence").asc()]
@@ -651,9 +963,15 @@ _LEAD_IN = re.compile(
 )
 
 
-def _groups(text: str) -> list[list[str]]:
-    """A question's groups of words: all its characters read, its common words left out first."""
-    return search.groups(text, QUESTION_STOP, limit=QUESTION_CHARS, most=search.GROUPS_ASKED)
+def _groups(text: str, *, alone: bool = True) -> list[list[str]]:
+    """A question's groups of words: all its characters read, its common words left out first, and the words
+    of a request (:data:`REQUEST_STOP`) while other words remain (``alone``: a question of request words only
+    searches them; never PostgreSQL's English stop words, which no finding's words hold)."""
+    common = QUESTION_STOP | search.ENGLISH_STOP
+    found = search.groups(text, common | REQUEST_STOP, limit=QUESTION_CHARS, most=search.GROUPS_ASKED)
+    if found or not alone:
+        return found
+    return search.groups(text, common, limit=QUESTION_CHARS, most=search.GROUPS_ASKED)
 
 
 def _topic(text: str) -> str:
@@ -674,7 +992,7 @@ def _term_groups(terms: list[str], known: list[list[str]]) -> list[list[str]]:
 
 def _clean_terms(raw: Any) -> list[str]:
     """The suggested search words worth searching: short, plain, not only common words."""
-    stop = search.STOP | search.KM_STOP | QUESTION_STOP
+    stop = search.STOP | search.KM_STOP | QUESTION_STOP | search.ENGLISH_STOP
     found = []
     for raw_term in raw if isinstance(raw, list) else []:
         if not isinstance(raw_term, str):
@@ -723,6 +1041,35 @@ def suggest(
     return _clean_terms(parsed.get("terms")), list(dict.fromkeys(marks)), result
 
 
+def _years(
+    frame: TimeFrame, scope: Filters, found: dict[str, Any], left_out: list[str]
+) -> tuple[Filters, str]:
+    """``scope`` with the Year filter of the question's time frame (the years the version holds, within the
+    filters' own years, never "Not reported"), and the years said under the answer; when that leaves no
+    finding, ``scope`` as it was and the time frame in ``left_out``."""
+    if not frame.spans:
+        return scope, ""
+    held = {str(y) for y in found.get("years", ())}
+    asked = [str(y) for y in frame.years if str(y) in held]
+    narrowed = _narrowed(scope, KMFinding.objects.all(), "year", asked) if asked else None
+    if narrowed is None:
+        left_out.append(say(words.YEARS_ASKED, years=frame.label))
+        return scope, ""
+    return narrowed, frame.label
+
+
+def _read(text: str, *, other: bool = False) -> tuple[places.Reading, list[list[str]]]:
+    """A question's places (:func:`neurodb.km.places.read`) and its groups of words: those of its text
+    without the places, and a breakdown by governorate when it asks for one. The words of a request are
+    searched only when the question has nothing else: no place, no breakdown and nothing ``other`` (a code,
+    a time frame, an ID)."""
+    reading = places.read(text)
+    groups = _groups(reading.text, alone=not (other or reading.keys or reading.breakdown or reading.national))
+    if reading.breakdown:
+        groups.append(places.breakdown_alternatives())
+    return reading, groups
+
+
 def retrieve(
     typed: str,
     earlier: list[dict[str, Any]],
@@ -741,79 +1088,154 @@ def retrieve(
     as kept, sent without its Document IDs (``shapes``: :func:`unsent`); ``earlier`` the conversation's
     earlier turns (:func:`history`)."""
     text = _searchable(typed)
+    figures = bool(FIGURES.search(text))
     scope, used, left_out, text = codes(text, filters, found)
+    frame = time_frame(text, today())
+    scope, years = _years(frame, scope, found, left_out)
     base = scope.apply(KMFinding.objects.all())
     shapes = list(shapes)
-    first, document, text = _by_ids(text, base, shapes)
+    first, document, text = _by_ids(frame.text, base, shapes)
     if document and document != scope.document:  # a Document ID: its findings, ranked by the words
         scope = replace(scope, document=document)
         base = scope.apply(KMFinding.objects.all())
         used.append(f"{words.DOCUMENT_ID} {document}")
     follow_up = bool(earlier) and len(typed.split()) < FOLLOW_UP_WORDS
-    current = _groups(text)
+    reading, current = _read(text, other=bool(used or left_out or frame.spans or first))
     topic = 0
     if not follow_up and len(current) > TOPIC_AFTER:  # a long question: its last clause ranks first
-        ending = [g for g in _groups(_topic(text)) if g in current]
+        ending = [g for g in _groups(_topic(reading.text), alone=False) if g in current]
         if ending and len(ending) < len(current):
             current = ending + [g for g in current if g not in ending]
             topic = len(ending)
     all_groups = list(current)
     boost = boosted(text)
     if follow_up:
-        before = _searchable(earlier[-1]["question"])
-        all_groups += [g for g in _groups(before) if g not in all_groups]
-        boost += [b for b in boosted(before) if b not in boost]
+        before_text = time_frame(_searchable(earlier[-1]["question"]), today()).text
+        before, before_groups = _read(before_text)
+        all_groups += [g for g in before_groups if g not in all_groups]
+        boost += [b for b in boosted(before_text) if b not in boost]
+        if not reading.keys and not reading.national and before.restricted:  # the earlier place
+            reading = replace(reading, keys=before.keys, names=before.names)
         first += [f for f in _carried(earlier[-1].get("cited") or [], base) if f not in first]
+    place = reading.alternatives() if reading.restricted else None
+    breakdown = places.breakdown_alternatives()
+    prefer = places.governorate_alternatives() if breakdown in all_groups else []
     cap = MAX_FINDINGS if scope.document else MAX_PER_DOCUMENT
     asked = unsent(cleaned or typed, shapes, scope.document)
-    picked = Picked(codes=used, left_out=left_out, groups=all_groups, filters=scope, question=asked)
+    picked = Picked(
+        codes=used,
+        left_out=left_out,
+        groups=all_groups,
+        filters=scope,
+        question=asked,
+        places=reading.label if place else "",
+        national=reading.national,
+        breakdown=bool(prefer),
+        years=years,
+    )
     passes: list[list[KMFinding]] = []
-    if all_groups:
-        qs, order = quorum(
-            base, all_groups, boost, current=len(current) if follow_up and current else 0, topic=topic
-        )
+
+    def run(qs: QuerySet, order: list) -> None:
+        passes.append(_top(qs, order, cap * SPARE, MAX_FINDINGS * SPARE))
+
+    if all_groups or place:
+        searched, searched_topic = all_groups, topic
+        if not follow_up and len(all_groups) >= 2:  # a group no finding holds is not counted
+            holds = alive(base, all_groups)
+            if any(holds) and not all(holds):
+                searched = [g for g, held in zip(all_groups, holds, strict=True) if held]
+                searched_topic = sum(holds[:topic])
+        ask_for = {"required": place, "prefer": prefer, "figures": figures, "unranked": [breakdown]}
+        current_n = len(current) if follow_up and current else 0
+        qs, order = quorum(base, searched, boost, current=current_n, topic=searched_topic, **ask_for)
         picked.matched = qs.count()
-        passes.append(_top(qs, order, cap, MAX_FINDINGS))
+        run(qs, order)
+        if not picked.matched and need_of(len(searched)) > 2:  # none matches a third: 2 groups are enough
+            qs, order = quorum(base, searched, boost, current=current_n, need=2, **ask_for)
+            picked.matched = qs.count()
+            run(qs, order)
         if follow_up and current and len(current) < len(all_groups) and not picked.matched:
             # no finding joins the follow-up to the earlier topic: a new topic, searched by its own words
-            qs, order = quorum(base, current, boost)
+            qs, order = quorum(base, current, boost, **ask_for)
             picked.matched = qs.count()
-            passes.append(_top(qs, order, cap, MAX_FINDINGS))
+            run(qs, order)
+        wider_qs = None
+        if place and searched and picked.matched < FEW_IN_PLACE:  # few name the place: the others too
+            wider = [place, *([reading.broader()] if reading.broader() else [])]
+            wide = {"prefer": wider, "figures": figures, "unranked": [breakdown]}
+            qs2, order2 = quorum(base, searched, boost, topic=searched_topic, **wide)
+            qs2 = qs2.exclude(pk__in=qs.values("pk"))
+            more = qs2.count()
+            if more:
+                picked.relaxed, picked.in_place = ("few" if picked.matched else "none"), picked.matched
+                picked.matched += more
+                run(qs2, order2)
+                place = None  # the search words below are looked for everywhere too
+                wider_qs = qs2
         wants_more = picked.matched < MAX_FINDINGS or not_latin(typed)
         if may_call and wants_more and remaining() >= TIME_LIMIT - TERMS_SKIP_AFTER:
             earlier_questions = [unsent(t["question"], shapes) for t in earlier]
             terms, marks, result = suggest(asked, earlier_questions, user, people)
             picked.terms, picked.result = terms, result
-            more = _term_groups(terms, all_groups)
+            more_groups = _term_groups(terms, all_groups)
             boost += [m for m in marks if m not in boost]
-            if more:
-                qs2, order2 = quorum(base, more, boost, loose=True)
+            if more_groups:
+                qs2, order2 = quorum(base, more_groups, boost, loose=True, required=place, figures=figures)
                 qs2 = qs2.exclude(pk__in=qs.values("pk"))
+                if wider_qs is not None:
+                    qs2 = qs2.exclude(pk__in=wider_qs.values("pk"))
                 picked.matched += qs2.count()
-                passes.append(_top(qs2, order2, cap, MAX_FINDINGS))
+                run(qs2, order2)
         if not picked.matched and scope.document:  # one document: its findings, even when no word matches
             picked.matched = base.count()
             passes.append(_top(base, DEFAULT_ORDER, cap, MAX_FINDINGS))
     elif scope.any or used:  # only codes or common words: the findings of the filters, newest first
         picked.matched = base.count()
-        passes.append(_top(base, DEFAULT_ORDER, cap, MAX_FINDINGS))
+        run(base, list(DEFAULT_ORDER))
+    _pick(picked, first, passes, cap)
+    picked.matched = max(picked.matched, len(picked.findings))
+    return picked
+
+
+def _pick(picked: Picked, first: list[KMFinding], passes: list[list[KMFinding]], cap: int) -> None:
+    """The findings to read, in order: ``first`` (named by the question or cited before: no cap a document),
+    then each pass's, at most :data:`MAX_FINDINGS` and ``cap`` a document. A finding whose key finding is the
+    same as one picked (:func:`neurodb.km.search.same_text`) takes no place: it is kept as its copy."""
     per_document: Counter = Counter()
     seen: set[int] = set()
-    for f in first[:MAX_FINDINGS]:  # named by the question or cited before: no cap a document
+    texts: dict[str, KMFinding] = {}
+
+    def copy(f: KMFinding) -> bool:
+        key = search.same_text(f.key_finding)
+        kept = texts.get(key) if key else None
+        if kept is None:
+            if key:
+                texts[key] = f
+            return False
+        picked.copies.setdefault(kept.finding_id, []).append(f)
+        return True
+
+    for f in first[:MAX_FINDINGS]:
+        if f.pk in seen:
+            continue
         seen.add(f.pk)
+        if copy(f):
+            continue
         per_document[f.document_id] += 1
         picked.findings.append(f)
     for found_pass in passes:
         for f in found_pass:
             if len(picked.findings) >= MAX_FINDINGS:
                 break
-            if f.pk in seen or per_document[f.document_id] >= cap:
+            if f.pk in seen:
+                continue
+            if per_document[f.document_id] >= cap and not texts.get(search.same_text(f.key_finding)):
                 continue
             seen.add(f.pk)
+            if copy(f):
+                continue
             per_document[f.document_id] += 1
             picked.findings.append(f)
-    picked.matched = max(picked.matched, len(picked.findings))
-    return picked
 
 
 # ----------------------------------------------------------------------------------------------- the message
@@ -867,7 +1289,8 @@ def prompt(
     """The answer call's message (the template of the module's notes), every text cleaned
     (:func:`privacy.for_ai`, with each document's own authors) and escaped; findings dropped by pick order
     (the last picked first) to stay under :data:`MAX_CHARS`; a document whose block still names someone left
-    out; None when the whole message still does (nothing is sent)."""
+    out; None when the whole message still does (nothing is sent). A finding read stands for its copies (the
+    same key finding: ``also="<their Finding IDs>"``), which are sent as read too."""
     questions = _questions(found)
     pillars = dict(found.get("pillars", ()))
 
@@ -891,6 +1314,7 @@ def prompt(
             "limitations": clean(f.limitations, CUTS["limitations"], d),
             "population": clean(f.population, CUTS["population"], d),
             "methods": clean(f.methods, CUTS["methods"], d),
+            "period": clean(f.period, CUTS["period"], d),
         }
     heads: dict[int, str] = {}
 
@@ -906,13 +1330,18 @@ def prompt(
             )
         return heads[doc.pk]
 
+    def copies(f: KMFinding) -> list[KMFinding]:
+        return picked.copies.get(f.finding_id, [])
+
     def finding_block(f: KMFinding, shared: dict[str, str]) -> str:
         own = lines[f.pk]
         about = "; ".join(flag.label for flag in AGE_SEX if getattr(f, flag.field) == "Y")
         attrs = [f'id="{f.finding_id}"']
-        key = legend_key(f, questions)
-        if key:
-            attrs.append(f'question="{_attr(key)}"')
+        if copies(f):
+            attrs.append(f'also="{" ".join(c.finding_id for c in copies(f))}"')
+        keys = [k for k in dict.fromkeys(legend_key(x, questions) for x in (f, *copies(f))) if k]
+        if keys:
+            attrs.append(f'question="{_attr(" ".join(keys))}"')
         attrs.append(f'confidence="{_level(f.confidence)}"')
         attrs.append(f'quality="{"marked for review" if f.needs_review else "ready"}"')
         if f.year != f.document.year or (f.year is None and f.year_text != f.document.year_text):
@@ -920,7 +1349,7 @@ def prompt(
         if about:
             attrs.append(f'about="{_attr(about)}"')
         body = [f"<finding {' '.join(attrs)}>", f"Key finding: {own['key_finding']}"]
-        for label, name in (("Measure", "measure"), ("Ages", "age_text")):
+        for label, name in (("Measure", "measure"), ("Ages", "age_text"), ("Data collected", "period")):
             if own[name]:
                 body.append(f"{label}: {own[name]}")
         for label, name in (("Population", "population"), ("Methods and sample", "methods")):
@@ -948,7 +1377,8 @@ def prompt(
                 parts.append(f"Methods and sample: {shared['methods']}")
             parts += [finding_block(f, shared) for f in found_]
             parts.append("</document>")
-            out.append((document, [f.finding_id for f in found_], "\n".join(parts)))
+            ids = [c.finding_id for f in found_ for c in (f, *copies(f))]
+            out.append((document, ids, "\n".join(parts)))
         return out
 
     # the questions were cleaned when they were asked (privacy.clean_question): checked again for a surname
@@ -964,10 +1394,13 @@ def prompt(
         filters = replace(filters, type=[privacy.typed_for_ai(t, people) for t in filters.type])
     in_words = [privacy.for_ai(part, people) for part in scope_parts(filters, found)]
     filters_line = f"Filters the person chose on the page: {_esc('; '.join(in_words)) or 'none'}"
+    asked_on = today()
+    date_line = f"This question was asked on {asked_on.day} {asked_on:%B %Y}."
+    read_line = _esc(privacy.for_ai(picked.read_line(), people))
 
     def legend(included: list[KMFinding]) -> str:
         found_lines = {}
-        for f in included:
+        for f in picked.with_copies(included):
             key = legend_key(f, questions)
             if not key or key in found_lines:
                 continue
@@ -985,7 +1418,7 @@ def prompt(
             + "\n".join(block for _d, _ids, block in kept)
             + "\n</findings>"
         )
-        parts = [question_line, earlier_part, filters_line, legend(included), findings]
+        parts = [question_line, earlier_part, filters_line, date_line, read_line, legend(included), findings]
         return "\n\n".join(p for p in parts if p)
 
     included = list(picked.findings)
@@ -1227,7 +1660,7 @@ def _meta(template, picked: Picked, n: int) -> str:
         line += " " + say(words.CODES_USED, codes=", ".join(picked.codes))
     if picked.left_out:
         line += " " + say(words.CODES_LEFT_OUT, codes=", ".join(picked.left_out))
-    return line
+    return " ".join([line, *picked.notes])
 
 
 def _notice(checked: Checked, covered: str) -> str:
@@ -1338,12 +1771,9 @@ def stream(
             return
 
         def listed(sentence, notice: str = "", meta=words.FOUND_META) -> str:
-            html = (
-                _paragraph(sentence) + _noticed(notice) + used_html(picked.findings, version, people, found)
-            )
-            return done(
-                {"answer": str(sentence), "html": html, "meta": _meta(meta, picked, len(picked.findings))}
-            )
+            matching = picked.with_copies()
+            html = _paragraph(sentence) + _noticed(notice) + used_html(matching, version, people, found)
+            return done({"answer": str(sentence), "html": html, "meta": _meta(meta, picked, len(matching))})
 
         if why:
             yield listed(why)
@@ -1411,7 +1841,7 @@ def stream(
             return
         covered = parsed.get("covered") if parsed.get("covered") in ("yes", "partly", "no") else ""
         sent = set(message.sent)
-        read = [f for f in picked.findings if f.finding_id in sent]
+        read = [f for f in picked.with_copies() if f.finding_id in sent]
         own = frozenset().union(*(people.own.get(f.record_id, frozenset()) for f in read))
         documents = sorted({f.record_id for f in read})
         checked = finish(answer, message.sent, version, people, own, documents, known_shapes)

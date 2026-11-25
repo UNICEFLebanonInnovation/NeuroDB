@@ -18,6 +18,7 @@ loaded or not. This job is not an import run (``SyncRun``): it writes the KM tab
 from __future__ import annotations
 
 import datetime
+import hashlib
 import logging
 import resource
 import time
@@ -29,7 +30,7 @@ from django.utils import timezone
 
 from neurodb.integrations import background
 
-from . import authors, words, workbook
+from . import authors, search, words, workbook
 from . import columns as cols
 from .models import KMDocument, KMFinding, KMVersion, forget_live
 from .words import counted, say
@@ -250,9 +251,13 @@ def _replace(version: KMVersion, report: workbook.Report, content: bytes, starte
         types = dict(KMDocument.objects.values_list("record_id", "study_type"))
         batch: list[KMFinding] = []
         lower: Counter = Counter()  # the words the findings write in lower case (authors.ordinary_words)
+        same: Counter = Counter()  # the key findings, as Ask compares them (search.same_text), hashed
         for number, cells in workbook.findings(content, report.sheets):
             record = cells.values["record_id"]
             authors.lower_words(cells.values, lower)
+            text = search.same_text(cells.values.get("key_finding") or "")
+            if text:
+                same[hashlib.blake2b(text.encode(), digest_size=16).digest()] += 1
             batch.append(
                 KMFinding(
                     position=number,
@@ -273,6 +278,11 @@ def _replace(version: KMVersion, report: workbook.Report, content: bytes, starte
         looks = authors.look_like_words(known, frozenset(version.ordinary_words))
         if looks:
             version.warnings = [*version.warnings, say(words.WORDS_WARNING, n=len(looks))][
+                : workbook.MAX_MESSAGES
+            ]
+        repeated = sum(n - 1 for n in same.values() if n > 1)
+        if repeated:
+            version.warnings = [*version.warnings, say(words.SAME_TEXT_WARNING, n=repeated)][
                 : workbook.MAX_MESSAGES
             ]
         KMVersion.objects.filter(status=Status.LIVE).update(
