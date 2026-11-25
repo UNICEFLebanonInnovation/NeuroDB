@@ -67,4 +67,5 @@ address.
 - **Ask the KM Database** sends your question (cleaned as above, and without the KM Database's authors),
   the earlier questions and answers of the conversation, the date you asked, what the search understood
   of places and years (and of a follow-up), and the KM Database's findings that match it, with their names of people withheld; never its authors, never anything from the rest of
-  NeuroDB. If a name is still found, nothing is sent.
+  NeuroDB. If a name is still found, nothing is sent. The *Excel of these findings* under an answer is
+  read from the KM Database when you click it: it is never sent to the AI.

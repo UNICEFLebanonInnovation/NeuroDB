@@ -184,6 +184,10 @@ def test_an_answer_cites_and_links_the_findings_it_read(client_viewer, ai):
     row = KMQuestion.objects.get()
     assert row.status == "answered" and row.cited == ["TST-0001-F00001"] and row.read == ["TST-0001-F00001"]
     assert row.version == version and row.covered == "yes" and row.model and row.input_tokens > 0
+    # the findings it read, as a download (a plain link: the browser runs nothing for it)
+    for label, fmt in (("Excel of these findings", "xlsx"), ("CSV of these findings", "csv")):
+        link = f'href="/km/ask/findings/{row.pk}/?export={fmt}"'
+        assert link in final["html"] and label in final["html"]
     sent = fake.calls()[0]
     assert "tools" not in sent and sent["instructions"] == ask.system_prompt()
     assert sent["store"] is False and sent["prompt_cache_key"] == ask.CACHE_KEY
@@ -324,6 +328,13 @@ def test_the_claude_request_holds_the_rules(client_viewer, claude, monkeypatch, 
     )
     assert server.requests[0]["body"]["output_config"]["effort"] == "low"  # the search-words call
     assert ask.CONFIDENCE_RULES[strongest] in system
+    # a short table when asked for one, every row with its Finding ID; the download under every answer
+    assert "No headings." in system and "no tables" not in system
+    assert "you may add one short markdown table" in system
+    assert "Indicator or measure | Figure as stated | Year | Finding ID" in system
+    assert "never work one figure out from another" in system
+    assert "an Excel and a CSV of the findings you read under every answer" in system
+    assert "never say that you cannot make one" in system
     assert ("Level A is the strongest evidence" in system) is strongest
     assert "Question: What about zqkmtoken?" in json.dumps(body["messages"])
     assert usage.today_calls(usage.KM) == 2
@@ -636,6 +647,76 @@ def test_citations_are_linked_and_others_taken_out(ai):
     )
 
 
+TABLE = (
+    "Figures by indicator [TST-0001-F00001].\n"
+    "| Indicator or measure | Figure as stated | Year | Finding ID |\n"
+    "|---|--:|---|---|\n"
+    "| Out of school | 23% | 2024 | [TST-0001-F00001] |\n"
+    "| Invented | 99% | 2024 | [TST-0009-F00001] |\n"
+    "| No finding | 5% | 2024 | |\n"
+    "| Read and not read | 7% | 2024 | [TST-0001-F00002][TST-0002-F00001] |\n"
+    "| Displaced | 1,200 | 2023 | TST-0001-F00002 |\n"
+    "\n"
+    "The Excel of these findings is under this answer."
+)
+
+
+def test_a_table_keeps_only_the_rows_that_give_a_finding_read(ai):
+    factory.load(factory.workbook(documents=2, findings=4))
+    v = _version().pk
+    checked = _finish(TABLE)
+    assert checked.rows_removed == 3 and checked.removed == 0 and checked.uncited == 0
+    assert checked.cited == ["TST-0001-F00001", "TST-0001-F00002"]
+    html_ = checked.html
+    assert "<table>" in html_ and "<thead>" in html_ and "<tbody>" in html_
+    assert "<th>Indicator or measure</th>" in html_ and '<td align="right">23%</td>' in html_
+    assert f'<td><a href="/km/findings/TST-0001-F00001/?v={v}"' in html_
+    assert "<td>Displaced</td>" in html_ and f'href="/km/findings/TST-0001-F00002/?v={v}"' in html_
+    for gone in ("Invented", "99%", "No finding", "Read and not read", "TST-0009", "TST-0002"):
+        assert gone not in html_ and gone not in checked.answer, gone
+    # the table starts its own block (a paragraph right above it would swallow it)
+    assert checked.answer.startswith("Figures by indicator [TST-0001-F00001].\n\n| Indicator or measure |")
+    assert "| Out of school | 23% | 2024 | [TST-0001-F00001] |" in checked.answer
+    assert html_.index("</table>") < html_.index("The Excel of these findings is under this answer.")
+
+
+def test_a_table_with_no_row_left_is_taken_out_whole(ai):
+    factory.load(factory.workbook(documents=2, findings=4))
+    checked = _finish(
+        "Fake text [TST-0001-F00001].\n\n| Indicator | Figure |\n| --- | --- |\n| Invented | 9% |\n"
+        "| Other | 4% [TST-0009-F00002] |"
+    )
+    assert checked.rows_removed == 2 and "<table" not in checked.html and "Indicator" not in checked.answer
+    assert checked.answer == "Fake text [TST-0001-F00001]."
+
+
+def test_a_table_is_sanitised(ai):
+    factory.load(factory.workbook(documents=1, findings=2))
+    rendered = ask.render(
+        "| a | b |\n|:-:|--:|\n| <script>alert(1)</script> | [y](javascript:alert(1)) |\n\n"
+        '<table onclick="x()" style="color:red" class="z"><tr><td width="9" onmouseover="x()">1</td></tr>'
+        "</table>",
+        [],
+    )
+    assert '<th align="center">a</th>' in rendered and '<th align="right">b</th>' in rendered
+    for bad in ("<script", "javascript", "onclick", "onmouseover", "style=", "class=", "width="):
+        assert bad not in rendered, bad
+    assert "<td>1</td>" in rendered and "href" not in rendered
+
+
+def test_an_answer_with_a_table_says_rows_were_taken_out(client_viewer, ai):
+    factory.load(factory.workbook(documents=2, findings=4))
+    ai([answer(TABLE.replace("TST-0002-F00001", "TST-0001-F00003"), "yes")])
+    final = done(post(client_viewer, "zqkmtoken?"))
+    assert "<table>" in final["html"] and "Invented" not in final["html"]
+    assert final["notice"] == (
+        "Each [reference] opens the finding it comes from. 3 rows of the table were taken out: they gave no "
+        "finding read for this answer."
+    )
+    row = KMQuestion.objects.get()
+    assert "| Out of school | 23% | 2024 | [TST-0001-F00001] |" in row.answer and "Invented" not in row.answer
+
+
 def test_a_planted_link_never_keeps_its_address(ai):
     factory.load(factory.workbook(documents=1, findings=2))
     rendered = ask.render("[a](/admin/) [b](https://fake.example.org) [c](/km/findings/TST-0009-F00001/)", [])
@@ -754,6 +835,7 @@ def test_without_an_answer_the_matching_findings_are_listed(client_viewer, viewe
     row = KMQuestion.objects.get(question="What about zqkmtoken?")
     code = "off" if why == "ai_off" else why
     assert (row.status, row.error, row.model, row.read) == ("limited", code, "", [])
+    assert "/km/ask/findings/" not in final["html"]  # no answer read them: the Findings tab downloads them
     assert ask.quota(viewer)[0] == before
 
 

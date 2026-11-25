@@ -1263,8 +1263,8 @@ in use. They are no longer updated."; Ask's `indicator_forecasts` adds the same 
 The KM Database shows one evidence workbook, findings from research, evaluations and assessments with the
 documents they come from, on its own page with three tabs: **Findings** (the default), **Documents** and
 **Ask the KM Database** (its own assistant), with one search box, the filters, a page for each finding (also
-a quick view from each row's **Open**) and each document, and **Excel / CSV of the filter**. The code is in
-`neurodb/km`.
+a quick view from each row's **Open**) and each document, **Excel / CSV of the filter**, and under each
+answer of the Ask tab **Excel / CSV of these findings**. The code is in `neurodb/km`.
 
 **What keeps it apart.** It has its own app and tables (`km_version`, `km_document`, `km_finding`,
 `km_organisation`, `km_question`); their only relations are to each other and to the user who uploaded a
@@ -1277,7 +1277,7 @@ check or Data health line. Its search uses its own search indexes only. A Help q
 page is stored and sent as the page `/km/` titled "KM Database", never with a Finding ID or a workbook
 title. The page is under *Resources* in the full menu (see the menu section above); every signed-in UNICEF
 role opens its address (its finding and document pages and its downloads too); donor accounts are sent to
-their page.
+their page (the Ask tab's questions and the downloads under its answers give them a JSON 403).
 
 **Uploading a new version** (superusers, and Administrators with staff status):
 
@@ -1381,6 +1381,19 @@ strongest; `neurodb.km.columns.CONFIDENCE_A_STRONGEST` turns on the colours once
   sheet: prepared on, loaded on, the filter in words, the rows and the rules. The Excel file holds at most
   20,000 findings (`neurodb.km.exports.XLSX_MAX`, a sentence otherwise); the CSV has no limit. The
   browser's own *Copy* and *CSV* buttons are off on the KM tables.
+- *Excel of these findings* and *CSV of these findings* under each answer of the Ask tab (the owner's
+  decision; plain links, `/km/ask/findings/<question>/?export=xlsx|csv`, `views.ask_findings`): the
+  findings the answer read (`KMQuestion.read`, copies of a text included), those it cites first in the
+  order it cites them, then the others in the order read, with the same columns and rules as the filter's
+  download (`exports.findings_export` with `answer`) and a `cited_in_answer` column (Yes / No) after the
+  Finding ID. The *About* sheet gives prepared on, loaded on, the question as it was kept (cleaned when it
+  was asked; not written when a KM author's surname is in it, whatever its case), when it was asked, the
+  filters chosen on the page, what the rows are, the rows and how many the answer cites, and the rules.
+  Only the person who asked gets them (anyone else, a question older than 90 days or one that read no
+  finding: "not among your questions", 404), and only while the version the answer read is shown: once a
+  newer version replaces its findings, the page says so (404) and offers nothing. No AI call: the files are
+  read from the database when clicked. A reply with no answer (the AI off, a limit, a failure) has no such
+  links; the Findings tab's download gives those findings.
 - `publishing_organisations` replaces the authors: the organisations an entry names ("UNICEF; WHO"),
   "Authors: N", or both ("UNICEF + 2 authors"). The rule (`neurodb.km.authors`) cuts an entry into pieces
   (";", commas, parentheses, "by"; and a slash, a spaced dash, a colon, "with", the end of a sentence,
@@ -1562,22 +1575,36 @@ asked). In order:
    rule); an ID at the end of every claim, an opening sentence that sums up may have none and a closing
    one ends with the IDs it rests on; figures exactly as stated, never added up or merged, compared only
    when each carries its ID; a year is the publication year and "Data collected" the collection period;
-   about 250 words, up to about 400 for a paragraph, a description or a summary; no headings or tables.
+   about 250 words, up to about 400 for a paragraph, a description or a summary; no headings; when the
+   person asks for a table, a sheet, figures, each indicator or numbers and percentages, one short
+   markdown table after the text (Indicator or measure | Figure as stated | Year | Finding ID, at most
+   about 15 rows, each figure as its finding states it, never worked out from another); and the Excel and
+   CSV of the findings under every answer pointed to when an Excel, a sheet or a file is asked for, never
+   refused (the owner's decision). A table of 15 rows adds about 600-1,000 output tokens (an estimate),
+   within the 12,000.
 6. **The answer checked**: names withheld again (an answer that still names someone is kept back and the
    findings listed instead); the model's own links taken out; every Finding ID read linked to its finding
    with the version it was read from (`/km/findings/<ID>/?v=<version>`), every other reference of the
    shape of the version's Finding IDs or Document IDs (invented, a Document ID, not read this time) taken
    out and counted, with as many digits as the IDs hold ("PM2.5" and "PM10" stay); the sentences citing no
    finding counted (not the answer's first sentence, a lead; not one whose paragraph cites a finding in a
-   later sentence; not one saying what the findings lack or do not answer). The rendered answer keeps only
-   links to the findings read. When the model says the findings answer only in part, the notice says what
+   later sentence; not one saying what the findings lack or do not answer, nor one pointing to the Excel
+   under the answer; a table's lines are not counted). A **table** keeps only the rows that give a Finding
+   ID read and none that was not (a row with no Finding ID, or with an invented one or one not read this
+   time, is taken out, and a table left with no row goes whole); the notice says so ("1 row of the table
+   was taken out: it gave no finding read for this answer."). The rendered answer keeps only links to the
+   findings read, and of the tags only paragraphs, lists, emphasis, quotes, code and tables (`table`,
+   `thead`, `tbody`, `tr`, `th`, `td`, with a column's alignment as `align` and no other attribute), styled
+   as Ask NeuroDB's tables and scrolled sideways inside the answer on a phone, never the page. Under the
+   answer: the findings it cites, the fold of every finding read and *Excel / CSV of these findings*
+   (above). When the model says the findings answer only in part, the notice says what
    the search could not find, where it can: "The KM Database answers this only in part: no finding names
    Mount Lebanon." (or "only 2 findings name ...", "no finding of 2022", "no finding read compares
    governorates").
 
 | Sent to the AI provider | Never sent |
 |---|---|
-| The question, cleaned; up to 4 earlier questions and answers of this conversation and version (the last answer up to 4,000 characters, the others 1,500, through `privacy.for_ai`); the filters in words (codes, years, types, "one document"); the date the question was asked (its own line, "This question was asked on ..."); what the search read from the question (a follow-up and what it kept of the earlier question, the places, a breakdown by governorate, all of Lebanon, the years, and whether few or no findings named the place: fixed words and public place names, through `privacy.for_ai`); the legend of pillar and research question labels | Publishing entity / authors (either sheet), people's names in texts, e-mail addresses, links, phones; the search box's words |
+| The question, cleaned; up to 4 earlier questions and answers of this conversation and version (the last answer up to 4,000 characters, the others 1,500, through `privacy.for_ai`); the filters in words (codes, years, types, "one document"); the date the question was asked (its own line, "This question was asked on ..."); what the search read from the question (a follow-up and what it kept of the earlier question, the places, a breakdown by governorate, all of Lebanon, the years, and whether few or no findings named the place: fixed words and public place names, through `privacy.for_ai`); the legend of pillar and research question labels | Publishing entity / authors (either sheet), people's names in texts, e-mail addresses, links, phones; the search box's words; the Excel and CSV of the findings under an answer (a download from the database, never sent) |
 | Of the findings read (about 30-35, at most 40): Finding ID (and the Finding IDs of the findings with the same key finding, as `also`), legend key, confidence letter, marked for review or not, the age and sex marks marked Yes, ages, measure, key finding, analysis, limitations, the study or data collection period (through `privacy.for_ai`, 120 characters); of their documents: title, year, type, population, methods | Document IDs (one typed in a question, or any word of their shape, goes as "this document" or "a document", in the question, the earlier questions and the search-words call; the log keeps the question as typed, cleaned of names), short titles, sub-questions, indicators, evidence origin, values to check, the data quality text |
 | The number of matching findings | Anything from another NeuroDB table: partners, programme documents, indicators, the knowledge base, the library, users, Ask NeuroDB's prompt and its date and year lines ("Today is ...", "This year is ...") |
 | The two fixed prompts (`ask.KM_PROMPT`, `ask.TERMS_PROMPT`) | The workbook, its Read Me, the version's file name |
@@ -1608,7 +1635,8 @@ asked). In order:
   Administrators): the cleaned question, status, covered, findings read and cited, sentences citing none,
   tokens and time. Its own rows (`km_question`), never Ask NeuroDB's or the Help assistant's; kept 90
   days (each question deletes the older ones; no job).
-- **Donors** get the JSON 403 on `/km/ask/stream/` like the other assistants' streams.
+- **Donors** get the JSON 403 on `/km/ask/stream/` like the other assistants' streams, and on the downloads
+  under an answer (`/km/ask/findings/`).
 - Measured on the user's workbook (throwaway database, about 15,000 findings): for 20 typical questions the
   search kept 93 to 5,057 matching findings (median about 1,400) and sent 23 to 38 (median 31: the
   60,000-character limit stops before 40), from 12 to 22 documents; the search took at most 0.3 s and the
@@ -1616,7 +1644,8 @@ asked). In order:
   time frames, the third-of-the-groups quorum, the finding's own texts only, identical texts, phrases as
   written), and before follow-ups, the medium effort and the longer answers: they must be measured again
   on the live workbook (fewer matching findings are expected; also count the answers cut off, the time
-  taken and the tokens at low, medium and high effort before keeping the default). On
+  taken and the tokens at low, medium and high effort before keeping the default, with questions that ask
+  for a table and an Excel such as the owner's third question, and open their Excel of these findings). On
   an invented workbook of 15,000 findings, the owner's six questions of November 2026 took at most 0.3 s
   to search (at most 3 queries) and at most 0.2 s to build the message. The final check over every finding's texts as sent found nothing left (no name,
   link, phone or e-mail). A few authors' surnames are also ordinary words: a question that writes one with a

@@ -3,8 +3,9 @@ Database (places are public geography; every text, organisation and figure is in
 faked: what retrieval reads for each, and the line under each answer.
 
 Q3, Q4 and Q5 are follow-ups: Q3 reworks Q2's answer with a lens on gender and disability (Q2's places,
-years and cited findings carried), Q4 asks the same for all of Lebanon and Q5 by governorate; Q6 is a new
-question of its own (it names its subject, children)."""
+years and cited findings carried), with a short table of its figures and the Excel of the findings it read
+under it; Q4 asks the same for all of Lebanon and Q5 by governorate; Q6 is a new question of its own (it
+names its subject, children)."""
 
 from __future__ import annotations
 
@@ -172,6 +173,21 @@ KEPT = (
 )
 
 
+# Q3's answer: Q2's paragraph reworked with a lens on gender and disability, a short table (one row gives a
+# finding that was not read: it is taken out) and the download pointed to, never refused
+Q3_ANSWER = (
+    "In the South and Nabatieh, girls with disabilities had less access to school than other children "
+    "[TST-0004-F00001]. In Nabatieh, 41% of children lacked safe water, with no figure by sex "
+    "[TST-0002-F00002].\n\n"
+    "| Indicator or measure | Figure as stated | Year | Finding ID |\n"
+    "|---|---|---|---|\n"
+    "| Girls with disabilities, access to school | less access | 2024 | [TST-0004-F00001] |\n"
+    "| Children lacking safe water, Nabatieh | 41% | 2025 | [TST-0002-F00002] |\n"
+    "| Boys with disabilities out of school | 12% | 2025 | [TST-0005-F00009] |\n\n"
+    "The Excel of these findings, under this answer, lists each finding read with its figures."
+)
+
+
 def test_the_six_questions_of_one_conversation(client_viewer, ai, today):  # noqa: F811
     factory.load(build(DOCS))
     conversation = uuid.uuid4()
@@ -184,7 +200,7 @@ def test_the_six_questions_of_one_conversation(client_viewer, ai, today):  # noq
                 "[TST-0002-F00005].",
                 "partly",
             ),
-            answer("Girls with disabilities had less access [TST-0004-F00001][TST-0002-F00002].", "partly"),
+            answer(Q3_ANSWER, "partly"),
             answer("Nationally, 8% had no assistive devices [TST-0009-F00001][TST-0004-F00003].", "partly"),
             answer("In Nabatieh, girls with disabilities had less access [TST-0004-F00001].", "partly"),
             answer("In Akkar, 31% were stunted [TST-0007-F00001].", "partly"),
@@ -235,6 +251,32 @@ def test_the_six_questions_of_one_conversation(client_viewer, ai, today):  # noq
     assert "Earlier in this conversation:\nQ: " + Q1 in text
     assert "A: In Nabatieh, 41% lacked safe water [TST-0002-F00002]. In Nabatiye, 17% were displaced" in text
     assert "Read from the question: a follow-up of the previous question" in text
+    rules = fake.calls()[-1]["instructions"]
+    assert "rewrite it from the findings it cites that are in <findings>" in rules
+    assert "you may add one short markdown table" in rules
+    assert "an Excel and a CSV of the findings you read under every answer" in rules
+    # the rework is shown with its table: the row that gives a finding not read is taken out, and said
+    assert row.cited == ["TST-0004-F00001", "TST-0002-F00002"]
+    html = final["html"]
+    assert "<table>" in html and "<td>Children lacking safe water, Nabatieh</td>" in html
+    assert "Boys with disabilities" not in html and "TST-0005-F00009" not in row.answer
+    assert "1 row of the table was taken out: it gave no finding read for this answer." in final["notice"]
+    # the Excel of the findings Q3 read: those its answer cites first, marked; the About sheet says which
+    # question (as it was kept, cleaned) and when; never an author
+    link = f"/km/ask/findings/{row.pk}/?export=xlsx"
+    assert f'href="{link}"' in html and "Excel of these findings" in html
+    response = client_viewer.get(link)
+    assert response.status_code == 200
+    book = openpyxl.load_workbook(io.BytesIO(response.content), read_only=True)
+    header, *rows = book["Findings"].iter_rows(values_only=True)
+    assert [(r[0], r[1]) for r in rows] == [
+        ("TST-0004-F00001", "Yes"),
+        ("TST-0002-F00002", "Yes"),
+        *[(i, "No") for i in row.read if i not in row.cited],
+    ]
+    about = dict(list(book["About"].iter_rows(values_only=True))[1:])
+    assert about["Question"] == Q3 and about["Rows"] == 6 and about["Cited in the answer"] == 2
+    assert "Asked on" in about and rows[0][header.index("publishing_organisations")] == "Fakeorg University"
 
     # Q4: no word of its own ("do it for all lebanon"): Q3's subject (disability, gender) and Q2's years, for
     # all of Lebanon, the findings Q3's answer cited read first; answered, never "no findings"

@@ -233,6 +233,8 @@ QUALITY_LABELS = {
 }
 EXCEL_OF_FILTER = _("Excel of the filter")
 CSV_OF_FILTER = _("CSV of the filter")
+EXCEL_OF_ANSWER = _("Excel of these findings")
+CSV_OF_ANSWER = _("CSV of these findings")
 OPEN = _("Open")
 
 # --------------------------------------------------------------------------- a finding and its document
@@ -249,6 +251,15 @@ MISSING_DOCUMENT = _(
     "by a newer version."
 )
 MISSING_EMPTY = _("The KM Database is empty: this page is not in it.")
+MISSING_ANSWER = _(
+    "This answer is not among your questions of the past 90 days: the findings it read cannot be downloaded."
+)
+ANSWER_OTHER_VERSION = _(
+    "This answer was read from the version of the KM Database {label}, which is no longer shown: the "
+    "findings it read can no longer be downloaded. Ask the question again to download those of the version "
+    "shown now."
+)
+AN_EARLIER_VERSION = _("of an earlier date")
 BACK_TO_TABLE = _("Back to the KM Database")
 TYPE_DIFFERS = _("The documents sheet gives “{type}”.")
 ROWS_DIFFER = ngettext_lazy("{count} finding in the table", "{count} findings in the table", "n")
@@ -268,6 +279,13 @@ ABOUT_NAMES_RULE = _("Names of people inside the texts are withheld.")
 NOT_KNOWN = _("not known")
 NO_FILTER = _("None: every row")
 SEARCH_NOT_WRITTEN = _("Search: (your words are not written here: one of them names an author)")
+ABOUT_QUESTION = _("Question")
+ABOUT_ASKED = _("Asked on")
+ABOUT_ASK_FILTERS = _("Filters chosen on the page")
+ABOUT_FINDINGS = _("Findings")
+ABOUT_FINDINGS_RULE = _("The findings read for this answer: those it cites come first, marked Yes as cited.")
+ABOUT_CITED = _("Cited in the answer")
+QUESTION_NOT_WRITTEN = _("(not written here: it names an author)")
 TYPE_NOT_WRITTEN = _("Document type: (not written here: one of them names a person)")
 
 # ------------------------------------------------------------------------- the version page (the admin)
@@ -469,6 +487,11 @@ NOTICE_REFERENCES = _("Each [reference] opens the finding it comes from.")
 NOTICE_REMOVED = ngettext_lazy(
     "{count} reference to a finding that was not read for this answer was taken out.",
     "{count} references to findings that were not read for this answer were taken out.",
+    "n",
+)
+NOTICE_ROWS_REMOVED = ngettext_lazy(
+    "{count} row of the table was taken out: it gave no finding read for this answer.",
+    "{count} rows of the table were taken out: they gave no finding read for this answer.",
     "n",
 )
 NOTICE_NOT_ANSWERED = _("The KM Database does not answer this question.")

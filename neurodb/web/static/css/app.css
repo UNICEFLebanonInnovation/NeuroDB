@@ -1586,6 +1586,7 @@ th[data-km-sorted="year"][aria-sort="ascending"] .km-sort-year::after { content:
 .km-used__meta { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .ask-turn__body .km-notice { margin: 0.5rem 0 0; }
 .km-used__read summary { cursor: pointer; color: var(--nd-primary); font-size: 0.8rem; margin-top: 0.5rem; }
+.km-used__downloads { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.6rem 0 0; }
 
 /* ---------------------------------------------------------------------------- pages that load in parts (parts.js)
    A placeholder ([data-part], components/part.html) keeps the height of what it will hold: --part-h by kind, or

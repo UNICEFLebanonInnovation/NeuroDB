@@ -127,4 +127,7 @@ without naming them ("UNICEF + 2 authors", "Authors: 3"). Names of people inside
 file's *About* sheet gives the version, the filter in words and these rules; it writes your search words
 only when none of them names an author. The page's own *Copy* and *CSV* buttons are off there, and a
 printout follows the same rule: the organisations only, and the names inside the texts withheld (see
-[Downloads and printing](/help/km-database/#downloads-and-printing)).
+[Downloads and printing](/help/km-database/#downloads-and-printing)). Under each answer of *Ask the KM
+Database*, *Excel of these findings* and *CSV of these findings* download the findings that answer read,
+those it cites first, by the same rules; only the person who asked gets them, while the version the
+answer read is shown.

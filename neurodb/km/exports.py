@@ -1,4 +1,6 @@
-"""The KM Database's downloads: **Excel of the filter** and **CSV of the filter**, on both tabs.
+"""The KM Database's downloads: **Excel of the filter** and **CSV of the filter**, on both tabs, and
+**Excel of these findings** and **CSV of these findings** under an answer of the Ask tab (the findings it
+read, those it cites first: :func:`findings_export` with ``answer``).
 
 The user's rule for authors: a download names the organisations an author entry names, and counts the
 individual authors, never naming them ("Fakeorg Institute + 2 authors", "Authors: 3"; :mod:`.authors`).
@@ -16,6 +18,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from django.http import HttpResponse
+from django.utils import formats, timezone
 from django.utils.translation import gettext as _
 
 from neurodb.reports import exports as report_exports
@@ -24,7 +27,7 @@ from neurodb.watch import people as watch_people
 from . import authors, privacy, words
 from . import columns as cols
 from .filters import NONE, Filters
-from .models import Flag, KMVersion, day
+from .models import Flag, KMQuestion, KMVersion, day
 
 XLSX_MAX = 20_000  # findings an Excel file holds (the CSV has no limit)
 CHUNK = 2_000
@@ -87,6 +90,8 @@ FINDING_TEXTS = {  # download column → the finding's field, each cleaned of pe
     "source_link": "link",
     "data_quality_status": "quality",
 }
+# an answer's findings: whether the answer cites each, after its Finding ID
+ANSWER_COLUMNS: tuple[str, ...] = ("finding_id", "cited_in_answer", *FINDING_COLUMNS[1:])
 DOCUMENT_COLUMNS: tuple[str, ...] = (
     "document_id",
     "item_title",
@@ -159,6 +164,31 @@ def finding_rows(qs, known: dict[str, str], people: privacy.People) -> Iterator[
         yield out
 
 
+def answer_rows(
+    found: list, cited: list[str], known: dict[str, str], people: privacy.People
+) -> Iterator[dict[str, Any]]:
+    """The rows of :func:`finding_rows`, each saying whether the answer cites its finding."""
+    yes, no = str(FLAG_WORDS[Flag.YES]), str(FLAG_WORDS[Flag.NO])
+    cites = set(cited)
+    for out in finding_rows(found, known, people):
+        out["cited_in_answer"] = yes if out["finding_id"] in cites else no
+        yield out
+
+
+def answer_order(found: list, answer: KMQuestion) -> list:
+    """``found`` (the findings an answer read) as the download lists them: those it cites in the order it
+    cites them, then the others in the order they were read."""
+    cited = {i: n for n, i in reversed(list(enumerate(answer.cited)))}
+    read = {i: n for n, i in reversed(list(enumerate(answer.read)))}
+
+    def key(f) -> tuple[int, int]:
+        if f.finding_id in cited:
+            return 0, cited[f.finding_id]
+        return 1, read.get(f.finding_id, len(read))
+
+    return sorted(found, key=key)
+
+
 def document_rows(qs, known: dict[str, str], people: privacy.People) -> Iterator[dict[str, Any]]:
     clean, name = Cleaner(people), authors.Namer(known, people)
     for row in qs:
@@ -226,7 +256,27 @@ def search_words_safe(text: str, people: privacy.People) -> bool:
     return not watch_people.mentions(text, names=people.names)
 
 
-def about_rows(version: KMVersion, filters: Filters, facets: dict[str, Any], people, rows: int):
+def question_words(question: str, people: privacy.People) -> str:
+    """An Ask question as the About sheet writes it: as it was kept (cleaned when it was asked), unless a
+    surname of the KM Database's authors is in it whatever its case, or anything else a download withholds
+    (a question kept before a rule)."""
+    if privacy.any_case(question, people) == question and search_words_safe(question, people):
+        return question
+    return str(words.QUESTION_NOT_WRITTEN)
+
+
+def about_rows(
+    version: KMVersion,
+    filters: Filters,
+    facets: dict[str, Any],
+    people,
+    rows: int,
+    answer: KMQuestion | None = None,
+    cited: int = 0,
+):
+    """The About sheet: the version, the filter in words, the rows and the rules. For an answer's findings
+    (``answer``), the question (:func:`question_words`), when it was asked, the filters chosen on the page,
+    what the rows are and how many the answer cites (``cited``)."""
     first, second = ABOUT_COLUMNS
     lines = [
         (
@@ -234,8 +284,21 @@ def about_rows(version: KMVersion, filters: Filters, facets: dict[str, Any], peo
             day(version.prepared_on) if version.prepared_on else str(words.NOT_KNOWN),
         ),
         (str(words.ABOUT_LOADED), day(version.finished_at or version.uploaded_at)),
-        (str(words.ABOUT_FILTER), filter_words(filters, facets, people)),
-        (str(words.ABOUT_ROWS), rows),
+    ]
+    if answer is None:
+        lines.append((str(words.ABOUT_FILTER), filter_words(filters, facets, people)))
+        lines.append((str(words.ABOUT_ROWS), rows))
+    else:
+        asked = formats.date_format(timezone.localtime(answer.created_at), "j M Y, H:i")
+        lines += [
+            (str(words.ABOUT_QUESTION), question_words(answer.question, people)),
+            (str(words.ABOUT_ASKED), asked),
+            (str(words.ABOUT_ASK_FILTERS), filter_words(filters, facets, people)),
+            (str(words.ABOUT_FINDINGS), str(words.ABOUT_FINDINGS_RULE)),
+            (str(words.ABOUT_ROWS), rows),
+            (str(words.ABOUT_CITED), cited),
+        ]
+    lines += [
         (str(words.ABOUT_AUTHORS), str(words.ABOUT_AUTHORS_RULE)),
         (str(words.ABOUT_NAMES), str(words.ABOUT_NAMES_RULE)),
     ]
@@ -244,10 +307,34 @@ def about_rows(version: KMVersion, filters: Filters, facets: dict[str, Any], peo
 
 # ------------------------------------------------------------------------------------------- the files
 def findings_export(
-    qs, fmt: str, version: KMVersion, filters: Filters, facets: dict[str, Any]
+    qs,
+    fmt: str,
+    version: KMVersion,
+    filters: Filters,
+    facets: dict[str, Any],
+    *,
+    answer: KMQuestion | None = None,
 ) -> HttpResponse:
+    """The findings of ``qs`` as an Excel file (with its About sheet) or a CSV file. With ``answer`` (an Ask
+    question of ``version``; ``qs``: the findings it read, at most a few dozen), they are listed as
+    :func:`answer_order` puts them, each saying whether the answer cites it, and the About sheet says which
+    question and when (``filters``: those chosen on the page)."""
     known, people = authors.context(version)
     qs = qs.select_related(None).defer("search_vector", "own_vector")
+    if answer is not None:
+        found = answer_order(list(qs), answer)
+        rows = answer_rows(found, answer.cited, known, people)
+        if fmt == "csv":
+            name = report_exports.export_filename("km-database-answer-findings", "csv")
+            return report_exports.stream_csv(name, ANSWER_COLUMNS, rows)
+        cited = len({f.finding_id for f in found} & set(answer.cited))
+        about = about_rows(version, filters, facets, people, len(found), answer, cited)
+        name = report_exports.export_filename("km-database-answer-findings", "xlsx")
+        sheets = [
+            (str(words.TAB_FINDINGS), ANSWER_COLUMNS, rows),
+            (str(words.ABOUT_SHEET), ABOUT_COLUMNS, about),
+        ]
+        return report_exports.xlsx_response(name, sheets, typed=True)
     if fmt == "csv":
         name = report_exports.export_filename("km-database-findings", "csv")
         return report_exports.stream_csv(

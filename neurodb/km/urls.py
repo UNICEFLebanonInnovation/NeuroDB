@@ -26,4 +26,5 @@ urlpatterns = [
     path("documents/<kmid:record_id>/", views.document, name="document"),
     path("ask/", views.ask_page, name="ask"),
     path("ask/stream/", views.ask_stream, name="ask_stream"),
+    path("ask/findings/<int:question>/", views.ask_findings, name="ask_findings"),
 ]

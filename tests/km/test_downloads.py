@@ -293,3 +293,135 @@ def test_a_download_right_after_a_load_by_another_process_withholds_its_authors(
     clock[0] += 5  # within the 10 seconds this worker keeps the version shown
     body = _get(client_viewer, export="csv")[1].decode("utf-8-sig")
     assert "Quexley" not in body and "[name withheld]'s survey found a fake thing." in body
+
+
+# -------------------------------------------------------------------- the findings an answer of Ask read
+def _answered(user, **fields):
+    """A question of ``user`` answered from the version shown, as the Ask tab keeps it."""
+    from neurodb.km.models import KMQuestion, live
+
+    values = {
+        "user": user,
+        "version": live(),
+        "question": "What do we know about zqkmtoken in the past 2 years?",
+        "scope": "age=early_adolescence",
+        "read": [factory.finding_id(1, 1), factory.finding_id(1, 2), factory.finding_id(2, 1)],
+        "cited": [factory.finding_id(2, 1), factory.finding_id(1, 2)],
+        "answer": "Fake answer.",
+        "status": "answered",
+        "model": "fake-model",
+    }
+    values.update(fields)
+    return KMQuestion.objects.create(**values)
+
+
+def _answer_file(client, row, fmt="xlsx", status=200):
+    response = client.get(reverse("km:ask_findings", args=[row.pk]), {"export": fmt})
+    assert response.status_code == status, response.content[:300]
+    body = b"".join(response.streaming_content) if response.streaming else response.content
+    return response, body
+
+
+def test_the_excel_of_the_findings_an_answer_read(client_viewer, viewer, loaded):
+    from django.utils import formats, timezone
+
+    row = _answered(viewer, read=[*_answered(viewer).read, factory.finding_id(3, 2)])
+    response, body = _answer_file(client_viewer, row)
+    assert re.fullmatch(
+        r'attachment; filename="km-database-answer-findings_\d{4}-\d{2}-\d{2}\.xlsx"',
+        response["Content-Disposition"],
+    )
+    sheets = _sheets(body)
+    assert list(sheets) == ["Findings", "About"]
+    header, *rows = sheets["Findings"]
+    assert header == exports.ANSWER_COLUMNS
+    assert header[:2] == ("finding_id", "cited_in_answer") and header[2:] == exports.FINDING_COLUMNS[1:]
+    found = [_row(header, r) for r in rows]
+    # those the answer cites first, in the order it cites them, then the others in the order they were read
+    assert [(r["finding_id"], r["cited_in_answer"]) for r in found] == [
+        (factory.finding_id(2, 1), "Yes"),
+        (factory.finding_id(1, 2), "Yes"),
+        (factory.finding_id(1, 1), "No"),
+        (factory.finding_id(3, 2), "No"),
+    ]
+    first = found[2]
+    assert first["publishing_organisations"] == "Fakeorg Institute + 2 authors"
+    assert first["publication_year"] == 2022 and first["study_period"] == "2023-02-01"
+    about = dict(sheets["About"][1:])
+    asked = formats.date_format(timezone.localtime(row.created_at), "j M Y, H:i")
+    assert about["Prepared on"] == "1 Oct 2026" and "Loaded on" in about
+    assert about["Question"] == "What do we know about zqkmtoken in the past 2 years?"
+    assert about["Asked on"] == asked
+    assert about["Filters chosen on the page"] == "Age groups: Ages 10-14"
+    assert about["Findings"] == (
+        "The findings read for this answer: those it cites come first, marked Yes as cited."
+    )
+    assert about["Rows"] == 4 and about["Cited in the answer"] == 2
+    assert about["Publishing organisations"] == (
+        "Organisations only. Individual authors are counted, never named."
+    )
+    assert about["Names of people"] == "Names of people inside the texts are withheld."
+
+
+def test_the_csv_of_the_findings_an_answer_read_names_no_author(client_viewer, viewer, loaded):
+    row = _answered(viewer)
+    response, body = _answer_file(client_viewer, row, "csv")
+    assert response["Content-Type"].startswith("text/csv")
+    assert re.search(r'filename="km-database-answer-findings_[\d-]+\.csv"', response["Content-Disposition"])
+    rows = _csv(body)
+    assert list(rows[0]) == list(exports.ANSWER_COLUMNS)
+    assert [(r["finding_id"], r["cited_in_answer"]) for r in rows] == [
+        (factory.finding_id(2, 1), "Yes"),
+        (factory.finding_id(1, 2), "Yes"),
+        (factory.finding_id(1, 1), "No"),
+    ]
+    assert rows[2]["finding_analysis"] == (
+        "Fake analysis, as [name withheld] (2018) found (Fakeorg Institute, 2020; [name withheld], 2019)."
+    )
+    for text in (body, _xlsx_text(_answer_file(client_viewer, row)[1])):
+        for name in NAMES:
+            assert name not in text, name
+
+
+def test_a_question_that_names_an_author_is_not_written_on_the_about_sheet(client_viewer, viewer, loaded):
+    row = _answered(viewer, question="what did doe find about zqkmtoken?")  # kept before the rule
+    _, body = _answer_file(client_viewer, row)
+    assert b"doe" not in _xlsx_text(body).lower().replace(b"[name withheld]", b"")
+    about = dict(_sheets(body)["About"][1:])
+    assert about["Question"] == "(not written here: it names an author)"
+
+
+def test_only_the_person_who_asked_downloads_the_findings_an_answer_read(client, viewer, loaded):
+    from neurodb.accounts.models import User
+
+    row = _answered(viewer)
+    someone = User.objects.create_user(username="km-someone", email="km-someone@example.org", password="x")
+    _answered(someone)
+    client.force_login(someone)
+    _, body = _answer_file(client, row, status=404)
+    assert b"Fake key finding" not in body
+    assert "not among your questions of the past 90 days" in body.decode()
+    client.force_login(viewer)
+    _answer_file(client, row)
+    _answer_file(client, row, "pdf", status=404)  # only Excel and CSV
+    response = client.get(reverse("km:ask_findings", args=[row.pk]))
+    assert response.status_code == 404
+    _answer_file(client, _answered(viewer, read=[], cited=[], status="no_match"), status=404)
+    client.logout()
+    response = client.get(reverse("km:ask_findings", args=[row.pk]), {"export": "xlsx"})
+    assert response.status_code == 302 and reverse("account_login") in response["Location"]
+
+
+def test_the_findings_of_an_answer_read_from_a_replaced_version_are_not_offered(
+    client_viewer, viewer, loaded
+):
+    from neurodb.km.models import forget_live
+
+    row = _answered(viewer)
+    edits = {**EDITS, ("findings", 2, "Key Finding"): "Fake key finding of the next version."}
+    factory.load(factory.workbook(documents=3, findings=6, edits=edits))
+    forget_live()
+    _, body = _answer_file(client_viewer, row, status=404)
+    text = body.decode()
+    assert "prepared on 1 Oct 2026" in text and "no longer shown" in text
+    assert "Ask the question again" in text and "Fake key finding" not in text

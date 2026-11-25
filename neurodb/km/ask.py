@@ -35,10 +35,12 @@ findings only, by one model call with no tools.
    nothing when the whole message does.
 3. **The answer** (:func:`finish`) is checked: names withheld again (an answer that still names someone is
    kept back), the model's own links taken out, every Finding ID read linked to its finding (with the version
-   it was read from), every other ID-shaped reference taken out and counted, and the sentences that cite no
-   finding counted (not a lead sentence, one cited later in its paragraph, nor one saying what is missing).
-   The call runs at :func:`neurodb.assistant.llm.km_effort` (medium, or the KM Database assistant effort of
-   AI settings on Claude).
+   it was read from), every other ID-shaped reference taken out and counted, a table's rows that give no
+   Finding ID read taken out and counted (a short table is allowed when the person asks for one), and the
+   sentences that cite no finding counted (not a lead sentence, one cited later in its paragraph, nor one
+   saying what is missing). The call runs at :func:`neurodb.assistant.llm.km_effort` (medium, or the KM
+   Database assistant effort of AI settings on Claude). Under the answer, the findings it read can be
+   downloaded (Excel and CSV, :func:`downloads`; ``views.ask_findings``).
 
 When the AI is off, paused, over the KM Database's share of the day's AI budget, over the shared budget or
 over the person's quota, or when the call fails, the matching findings are listed without an answer. Every
@@ -84,6 +86,7 @@ from django.db.models.functions import RowNumber
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import formats, timezone
+from markdown.extensions.tables import TableExtension
 
 from neurodb.assistant import agent, llm, usage
 from neurodb.watch import people as watch_people
@@ -258,7 +261,14 @@ and how many you read. When more match than you read, say so in one sentence. If
 studies there are, say that the Findings tab counts them with its filters.
 9. Write in the language of the question, in short paragraphs or a short list: about 250 words, up to about \
 400 when the person asks for a paragraph, a description or a summary, and more only when asked. When the \
-question names places or periods, order the answer by place, then by period. No headings and no tables.
+question names places or periods, order the answer by place, then by period. No headings. When the \
+person asks for a table, a sheet, figures, each indicator, or numbers and percentages, you may add one short \
+markdown table after the text, with the columns Indicator or measure | Figure as stated | Year | Finding \
+ID: at most about 15 rows, each with the Finding ID its figure comes from, the figure exactly as that \
+finding states it (a number, a percentage or both) and its year; never work one figure out from another. \
+A row without a Finding ID from <findings> is taken out. The page offers an Excel and a CSV of the findings \
+you read under every answer: when the person asks for an Excel, a sheet or a file, say that it is under \
+the answer; never say that you cannot make one.
 Reply as JSON: {{"answer": "...", "covered": "yes" | "partly" | "no"}}.
 """
 CONFIDENCE_RULES = {
@@ -1714,11 +1724,17 @@ NOT_A_CLAIM = re.compile(
     r"\b(?:hold|holds|give|gives|report|reports|include|includes|provide|provides|offer|offers|contain|"
     r"contains)\s+no\b|\b(?:do|does|did)\s+not\s+(?:hold|give|report|include|provide|cover|offer|contain|"
     r"break|disaggregate|separate|say|mention|state)\b|\bnone\s+of\s+the\s+(?:findings|studies|documents)\b|"
-    r"\bno\s+(?:data|figures?|evidence|information|breakdowns?)\b|\bnot\s+(?:disaggregated|broken\s+down)\b",
+    r"\bno\s+(?:data|figures?|evidence|information|breakdowns?)\b|\bnot\s+(?:disaggregated|broken\s+down)\b|"
+    # the download under the answer ("The Excel of these findings is under this answer")
+    r"\b(?:Excel|CSV)\b|\bunder\s+(?:this|the|each|every)\s+answer\b",
     re.IGNORECASE,
 )
 REFUSAL = re.compile(r"does not answer", re.IGNORECASE)
 ANSWER_TAGS = {"p", "br", "strong", "em", "code", "ul", "ol", "li", "a", "blockquote"}
+TABLE_TAGS = {"table", "thead", "tbody", "tr", "th", "td"}
+ALIGN = frozenset({"left", "right", "center"})
+# a markdown table's line under its header ("|---|--:|", "--- | ---"): dashes, colons, at least one "|"
+TABLE_RULE = re.compile(r"^[ \t]*\|?(?:[ \t]*:?-+:?[ \t]*\|)+(?:[ \t]*:?-+:?[ \t]*)?$")
 
 
 def _shape(identifier: str) -> str:
@@ -1737,6 +1753,7 @@ class Checked:
     html: str = ""
     cited: list[str] = field(default_factory=list)
     removed: int = 0
+    rows_removed: int = 0  # rows of a table that gave no Finding ID read, or one that was not read
     uncited: int = 0
     withheld: bool = False
 
@@ -1750,6 +1767,8 @@ def _uncited(text: str) -> int:
     after_refusal = False
     lead = True
     for line in text.split("\n"):
+        if "|" in line:  # a table's line: each of its rows gives a Finding ID read (finish)
+            continue
         line = LIST_MARK.sub("", line).strip()
         sentences = [s.strip() for s in SENTENCE_END.split(line) if s.strip()]
         cites = ["](/km/findings/" in s for s in sentences]
@@ -1768,9 +1787,38 @@ def _uncited(text: str) -> int:
     return n
 
 
+def _table_rows(text: str, keep: Callable[[str], bool]) -> tuple[str, int]:
+    """``text`` with the rows of its markdown tables that ``keep`` refuses taken out (a table left with no row
+    is taken out whole, its header too), each table after a blank line so that it starts its own block
+    (markdown reads a table right under a sentence as part of its paragraph); and how many rows were taken
+    out."""
+    lines = text.split("\n")
+    out: list[str] = []
+    removed = at = 0
+    while at < len(lines):
+        line = lines[at]
+        if "|" in line and at + 1 < len(lines) and TABLE_RULE.match(lines[at + 1]):
+            end = at + 2
+            while end < len(lines) and lines[end].strip() and "|" in lines[end]:
+                end += 1
+            body = lines[at + 2 : end]
+            kept = [row for row in body if keep(row)]
+            removed += len(body) - len(kept)
+            if kept:
+                if out and out[-1].strip():
+                    out.append("")
+                out += [line, lines[at + 1], *kept]
+            at = end
+            continue
+        out.append(line)
+        at += 1
+    return "\n".join(out), removed
+
+
 def render(text: str, sent: list[str]) -> str:
-    """The checked answer as safe HTML (markdown as Ask NeuroDB renders it): no images, scripts or styles,
-    and a link kept only when it opens a finding read for this answer (any other link keeps its text)."""
+    """The checked answer as safe HTML (markdown as Ask NeuroDB renders it, tables too, a column's alignment
+    kept as ``align``): no images, scripts, styles or other attributes, and a link kept only when it opens a
+    finding read for this answer (any other link keeps its text)."""
     allowed = (
         re.compile(rf"/km/findings/(?:{'|'.join(re.escape(i) for i in sent)})/(?:\?v=\d+)?") if sent else None
     )
@@ -1778,13 +1826,15 @@ def render(text: str, sent: list[str]) -> str:
     def keep(tag: str, attr: str, value: str) -> str | None:
         if tag == "a" and attr == "href":
             return value if allowed is not None and allowed.fullmatch(value) else None
+        if attr == "align":
+            return value if value in ALIGN else None
         return value
 
-    out = markdown.markdown(text, extensions=["sane_lists"])
+    out = markdown.markdown(text, extensions=[TableExtension(use_align_attribute=True), "sane_lists"])
     return nh3.clean(
         out,
-        tags=ANSWER_TAGS,
-        attributes={"a": {"href"}},
+        tags=ANSWER_TAGS | TABLE_TAGS,
+        attributes={"a": {"href"}, "th": {"align"}, "td": {"align"}},
         url_schemes={"https", "http"},
         attribute_filter=keep,
         link_rel="noopener noreferrer",
@@ -1804,8 +1854,9 @@ def finish(
     """The model's answer checked (see the module's notes, step 3). ``sent``: the Finding IDs read;
     ``documents``: their Document IDs; ``shapes``: the shapes of the version's Document IDs and Finding IDs
     (:func:`document_shapes`, :func:`finding_shapes`). An ID of any of those shapes that was not read is taken
-    out and counted; a figure such as "PM2.5" or "PM10" never is. ``own``: the surnames of the read
-    documents' own authors."""
+    out and counted; a figure such as "PM2.5" or "PM10" never is. A table keeps only the rows that give a
+    Finding ID read and none that was not (the others are taken out and counted: :func:`_table_rows`).
+    ``own``: the surnames of the read documents' own authors."""
     text = privacy.for_ai(answer or "", people, own)
     if privacy.leftover(text, people):
         return Checked(withheld=True)
@@ -1816,13 +1867,19 @@ def finish(
     canonical = {i.casefold(): i for i in sent}
     cited: list[str] = []
     removed = 0
-    if shapes:
-        one = rf"(?<![\w-])(?:{'|'.join(shapes)})(?![\w-]|\.\d)"
+    one = rf"(?<![\w-])(?:{'|'.join(shapes)})(?![\w-]|\.\d)" if shapes else ""
+    token = re.compile(one, re.IGNORECASE) if shapes else None
+
+    def gives_read(row: str) -> bool:
+        found = token.findall(row) if token is not None else []
+        return bool(found) and all(t.casefold() in canonical for t in found)
+
+    text, rows_removed = _table_rows(text, gives_read)
+    if token is not None:
         between = r"(?:\s*[,;/&]\s*|\s+and\s+|\s+)"
         pattern = re.compile(
             rf"(?P<group>[\[(]\s*{one}(?:{between}{one})*\s*[\])])|(?P<id>{one})", re.IGNORECASE
         )
-        token = re.compile(one, re.IGNORECASE)
 
         def link(found: str) -> str:
             nonlocal removed
@@ -1849,6 +1906,7 @@ def finish(
         html=render(text.strip(), cited),
         cited=cited,
         removed=removed,
+        rows_removed=rows_removed,
         uncited=_uncited(text),
     )
 
@@ -1861,11 +1919,13 @@ def used_html(
     found: dict[str, Any],
     *,
     cited: list[str] | None = None,
+    downloads: list[dict[str, str]] | None = None,
 ) -> str:
-    """The findings under an answer: those it cites (``cited``), with a fold listing every finding read; or,
-    without ``cited``, every finding that matches (the AI off, over a limit, failing). Each line: the Finding
-    ID's link (with the version read), the legend key, the key finding's start, its document, the authors on
-    screen only, the year and the confidence level. Never kept or sent to the AI."""
+    """The findings under an answer: those it cites (``cited``), with a fold listing every finding read and
+    the links to download them (``downloads``: :func:`downloads`); or, without ``cited``, every finding that
+    matches (the AI off, over a limit, failing). Each line: the Finding ID's link (with the version read),
+    the legend key, the key finding's start, its document, the authors on screen only, the year and the
+    confidence level. Never kept or sent to the AI."""
     from .views import confidence_pill, cut, printed
 
     questions = _questions(found)
@@ -1899,8 +1959,19 @@ def used_html(
         "lines": lines,
         "read": [{"id": f.finding_id, "url": url(f)} for f in picked] if cited is not None else [],
         "read_label": counted(len(picked), words.ALL_READ),
+        "downloads": downloads or [],
     }
     return render_to_string("km/_used.html", context)
+
+
+def downloads(row: KMQuestion) -> list[dict[str, str]]:
+    """The links under an answer to the findings it read (``views.ask_findings``): Excel, then CSV. Plain
+    links: the browser runs nothing for them."""
+    base = reverse("km:ask_findings", args=[row.pk])
+    return [
+        {"label": str(label), "url": f"{base}?export={fmt}"}
+        for label, fmt in ((words.EXCEL_OF_ANSWER, "xlsx"), (words.CSV_OF_ANSWER, "csv"))
+    ]
 
 
 # ------------------------------------------------------------------------------------------------- the run
@@ -1947,6 +2018,8 @@ def _notice(checked: Checked, covered: str, missing: list[str] | tuple[str, ...]
         notices.append(str(words.NOTICE_REFERENCES))
     if checked.removed:
         notices.append(say(words.NOTICE_REMOVED, n=checked.removed))
+    if checked.rows_removed:
+        notices.append(say(words.NOTICE_ROWS_REMOVED, n=checked.rows_removed))
     if covered == "no":
         notices.append(str(words.NOTICE_NOT_ANSWERED))
     elif covered == "partly":
@@ -2140,7 +2213,7 @@ def stream(
         html = (
             checked.html
             + _noticed(_notice(checked, covered, picked.missing(read) if covered == "partly" else ()))
-            + used_html(read, version, people, found, cited=checked.cited)
+            + used_html(read, version, people, found, cited=checked.cited, downloads=downloads(row))
         )
         yield done(
             {"answer": checked.answer, "html": html, "meta": _meta(words.ANSWERED_META, picked, len(read))}

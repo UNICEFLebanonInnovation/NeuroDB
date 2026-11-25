@@ -2,8 +2,9 @@
 
 A user with a ``DonorAccount`` reaches the donor page, the password pages (below) and sign out, and nothing
 else: any other page (or an address that matches none) redirects to the donor page, and the internal API, the
-assistants (Ask NeuroDB, Chat with Data, the Help assistant) and HTMX requests are refused with 403 (a
-redirect would hand them a page they did not ask for). An account that is switched off or past its end date is
+assistants (Ask NeuroDB, Chat with Data, the Help assistant, Ask the KM Database and the downloads of the
+findings its answers read) and HTMX requests are refused with 403 (a redirect would hand them a page they did
+not ask for). An account that is switched off or past its end date is
 signed out. Until the donor replaces the temporary password, every page but the password pages (and every
 address that matches none) leads to the password change page, which has a Sign out button of its own. The
 password pages (``PASSWORD_PAGES``) are the change and set password pages, sign out, reauthentication, and
@@ -106,7 +107,9 @@ class DonorScopeMiddleware:
     @staticmethod
     def _is_api(request) -> bool:
         return (
-            request.path.startswith(("/api/", "/ask/", "/fmm/chat/", "/help/stream/", "/km/ask/stream/"))
+            request.path.startswith(
+                ("/api/", "/ask/", "/fmm/chat/", "/help/stream/", "/km/ask/stream/", "/km/ask/findings/")
+            )
             or request.headers.get("HX-Request") == "true"
             or "application/json" in request.headers.get("Accept", "")
         )

@@ -128,3 +128,19 @@ def test_a_donor_never_asks_the_km_database(client, roles):
     response = client.post(reverse("km:ask_stream"), {"question": "zqkmtoken?"})  # a plain fetch: JSON 403
     assert response.status_code == 403 and response.json() == {"detail": "Not available for donor accounts."}
     assert KMQuestion.objects.count() == 0
+
+
+def test_a_donor_never_downloads_the_findings_an_answer_read(client, roles, viewer):
+    from neurodb.km.models import KMQuestion, live
+
+    factory.load(factory.workbook())
+    row = KMQuestion.objects.create(
+        user=viewer, version=live(), question="zqkmtoken?", read=[factory.finding_id(1, 1)], status="answered"
+    )
+    donor = make_donor()
+    client.force_login(donor.user)
+    for fmt in ("xlsx", "csv"):
+        response = client.get(reverse("km:ask_findings", args=[row.pk]), {"export": fmt})  # a plain link
+        assert response.status_code == 403 and response.json() == {
+            "detail": "Not available for donor accounts."
+        }

@@ -94,6 +94,12 @@ gives it.
   2019)", "(Doe 2019, Roe 2020)", "Doe and Roe 2020"), people quoted by their first name and age, a
   document's own authors and names after a title are written "[name withheld]". Links and figures are kept.
 - Your search words are written in the *About* sheet only when none of them names an author.
+- **Excel of these findings** and **CSV of these findings**, under each answer of *Ask the KM Database*,
+  download the findings that answer read, with every column and the same rules: those it cites first,
+  marked *Yes* in the column `cited_in_answer`, then the others it read. The *About* sheet says which
+  question (as it was kept, with names taken out) and when it was asked. Only you can download the
+  findings of your own answers, for 90 days, and only while the version the answer read is shown: once a
+  newer version is loaded, ask the question again.
 - **Printing** (the page's *Print* button, or the browser's) follows the same rule as a download: the
   authors' column and lines are left off paper (the organisations are printed instead), and names of
   people inside the texts are printed "[name withheld]". The screen still shows the texts in full.
@@ -106,7 +112,8 @@ gives it.
 
 The third tab, **Ask the KM Database**, answers a question in a paragraph or a few (about 250 words, up to
 about 400 when you ask for a paragraph, a description or a summary) from the findings of the KM Database,
-and from nothing else.
+and from nothing else. Under every answer, **Excel of these findings** and **CSV of these findings**
+download the findings it read.
 
 - **What it reads.** Only the findings of the version shown now that match your question: their key
   finding, measure, ages, analysis, limitations and data collection period, with their document's title,
@@ -155,9 +162,16 @@ and from nothing else.
   exactly as each finding states them: never added up or averaged, compared only when each carries its
   reference. A reference to a finding that was not read for this answer is taken out, and
   the answer says how many. Under the answer, **Findings used for this answer** lists them (with their
-  document, year and confidence level), and a fold lists every finding read. The line under the answer
-  says "Answered from N of about M matching findings": when more match than were read, narrow the
-  filters to read others.
+  document, year and confidence level), a fold lists every finding read, and **Excel of these findings**
+  and **CSV of these findings** download them. The line under the answer says "Answered from N of about M
+  matching findings": when more match than were read, narrow the filters to read others.
+- **Tables and Excel.** Ask for a table, the figures, each indicator or "numbers and percentages", and the
+  answer may end with one short table: the indicator or measure, the figure exactly as its finding states
+  it (a percentage is never worked out from a number), the year and the finding's reference, at most
+  about 15 rows. A row that gives no finding read for this answer is taken out, and the answer says how
+  many. On a phone, a wide table scrolls sideways inside the answer. Ask for an Excel or a sheet and the
+  answer points to **Excel of these findings** under it: every finding it read, with the figures inside
+  their key finding and measure (the KM Database has no separate column of figures).
 - **When the findings do not answer.** The answer says "The KM Database does not answer this question."
   and what related evidence it holds; "answers this only in part" when part is missing, with what the
   search could not find when it can say ("no finding names Mount Lebanon", "no finding of 2022", "no
@@ -165,7 +179,8 @@ and from nothing else.
   check it against the findings (the opening sentence, a sentence whose reference ends the next one of
   its paragraph and a sentence saying what the findings lack are not counted).
 - **When the AI is off or a limit is reached** the tab still lists the findings that match your question,
-  without a written answer, and says why. Search and the filters work as usual.
+  without a written answer, and says why (to download them, use **Excel of the filter** on the Findings
+  tab). Search and the filters work as usual.
 - **Limits.** 30 questions a day per person, 2 at the same time, and the KM Database's own share of the
   day's AI budget (see [AI limits](/help/ai-limits/)). A question counts once the AI has worked on it,
   even when no finding matches (the AI first suggests search words, also when a word of your question is

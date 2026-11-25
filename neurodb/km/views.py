@@ -1,6 +1,7 @@
 """The KM Database page (``/km/``): the findings of the version shown now (the default tab), its documents and
 its assistant (the Ask tab, :mod:`neurodb.km.ask`), with one search box, the filters, sorting, a page for each
-finding (also opened as a quick view from the table) and each document, and the downloads of the filter.
+finding (also opened as a quick view from the table) and each document, the downloads of the filter, and the
+downloads of the findings an answer read (:func:`ask_findings`).
 Every signed-in UNICEF role opens it (sign-in and the donor lock-out are the middleware's); the menu shows it
 to superusers, and to the roles a superuser ticks on the Menu page.
 
@@ -712,6 +713,39 @@ def document(request: HttpRequest, record_id: str) -> HttpResponse:
 
 
 # ------------------------------------------------------------------------------- Ask the KM Database
+@require_GET
+def ask_findings(request: HttpRequest, question: int) -> HttpResponse:
+    """**Excel of these findings** and **CSV of these findings** under an answer (``?export=xlsx|csv``): the
+    findings it read (:attr:`KMQuestion.read`, those it cites first), by the download rule of the tabs'
+    downloads (:func:`.exports.findings_export`). Only the person who asked gets them (another person's
+    question, one older than 90 days or one that read nothing is "not among your questions"), and only while
+    the version it read is shown: a newer version has replaced its findings. Donors are refused by the
+    middleware (403, as the questions are)."""
+    fmt = request.GET.get("export")
+    version = live()
+    row = (
+        KMQuestion.objects.filter(pk=question, user=request.user)
+        .select_related("version")
+        .defer("version__content")
+        .first()
+    )
+    if fmt not in report_exports.FORMATS or row is None or not row.read:
+        context = {"page_title": words.PAGE_TITLE, "message": str(words.MISSING_ANSWER), "words": words}
+        return render(request, "km/missing.html", context, status=404)
+    if version is None or row.version_id != version.pk:
+        label = row.version.label(loaded=True) if row.version else words.AN_EARLIER_VERSION
+        context = {
+            "page_title": words.PAGE_TITLE,
+            "message": say(words.ANSWER_OTHER_VERSION, label=label),
+            "words": words,
+        }
+        return render(request, "km/missing.html", context, status=404)
+    found = facets(version)
+    filters = Filters.from_query(QueryDict(row.scope), found, for_ask=True)
+    qs = KMFinding.objects.filter(finding_id__in=row.read)
+    return exports.findings_export(qs, fmt, version, filters, found, answer=row)
+
+
 @require_GET
 def ask_page(request: HttpRequest) -> HttpResponse:
     """The Ask tab: the box, the filters it reads within (those of the address, without the search box's
