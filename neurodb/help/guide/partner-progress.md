@@ -138,8 +138,8 @@ The filter has no CP output, partner type, office or emergency choice (since 21 
 columns that show them stay. An old link or bookmark that still carries one is still applied, and a line
 above the results names it, with a link that removes it.
 
-**The lists to fix** on Data quality: missing targets, no or zero Reached, Reached differing from PRP, the
-same title twice in one programme document, and partial history. The partner reports carry no PD indicator
+**The lists to fix** on Data quality: missing targets, no or zero Reached, Reached differing from PRP, and
+the same title twice in one programme document. The partner reports carry no PD indicator
 id, so a report is matched to its indicator by title; where two indicators of a programme document share a
 title, by their PD output too; where two indicators of a programme document share a title and an output,
 NeuroDB tells them apart by what the partner reports and eTools both say of them (high frequency, cluster,

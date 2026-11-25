@@ -140,8 +140,6 @@ QUALITY_COUNTS = (
     "no_reached_count",
     "mismatch_count",
     "same_title_count",
-    "partial_count",
-    "read_from",
     "limit",
 )
 # a Report/Disaggregation block's working values (its cell, the lines' objects): the page draws its
@@ -255,7 +253,6 @@ def quality(value: Any) -> Any:
         }
         for group in attr(value, "same_title")
     ]
-    out["partial"] = [pd_projection(pd) for pd in attr(value, "partial")]
     return out
 
 

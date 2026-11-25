@@ -242,33 +242,18 @@ def test_data_quality_neurodb_checks(client_viewer, more, frozen, monkeypatch):
     assert [r.title for r in q["mismatch"]] == [more["girls"]] and q["mismatch"][0].prp_cumulative == 700
     (twice,) = q["same_title"]
     assert (twice["title"], twice["count"], twice["pd"]) == (more["boys"], 2, more["pd"])
-    assert q["partial"] == []
-    # reports held only from March 2026: the PD (started January) has a partial history
+    assert not any(r.partial for r in _rows())
+    # reports held only from March 2026: the PD (started January) has a partial history, each of its indicators
+    # marked (Data quality has no list of them since 25 Nov 2026: the grid's chip says it)
     march = datetime.date(2026, 3, 1)
     monkeypatch.setattr(
         monitoring.rc, "history_from", lambda today=None: monitoring.rc.HistoryFrom(march, "read_from")
     )
-    q = monitoring.data_quality(_rows(), monitoring.Filters(), TODAY)
-    assert q["partial"] == [more["pd"]] and (q["read_from"], q["read_from_source"]) == (march, "read_from")
+    rows = _rows()
+    assert rows and all(r.partial for r in rows) and {r.pd for r in rows} == {more["pd"]}
     page = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "quality"})
-    assert "Partial history" in page.text and "Same title twice" in page.text
-    assert (
-        "These programme documents started before 1 Mar 2026, the first reporting period NeuroDB holds: their"
-        in (" ".join(page.text.split()))
-    )
-    # the Datamart holds no earlier report than March 2026, although the sync asked from 1 Jan 2025: said so
-    asked = datetime.date(2025, 1, 1)
-    monkeypatch.setattr(
-        monitoring.rc, "history_from", lambda today=None: monitoring.rc.HistoryFrom(march, "feed", asked)
-    )
-    q = monitoring.data_quality(_rows(), monitoring.Filters(), TODAY)
-    assert (q["read_from"], q["read_from_source"], q["read_from_asked"]) == (march, "feed", asked)
-    page = client_viewer.get(reverse("reports:pd_monitoring"), {"view": "quality"})
-    assert (
-        "These programme documents started before 1 Mar 2026, the first reporting period NeuroDB holds: the "
-        "Datamart holds no earlier partner report (NeuroDB asked from 1 Jan 2025), so their Reached is PRP's own "
-        "cumulative when PRP gives one." in " ".join(page.text.split()).replace("&#x27;", "'")
-    )
+    assert "Reached differs from PRP" in page.text and "Same title twice" in page.text
+    assert ">Partial history</span>" in page.text and "dq-partial" not in page.text
 
 
 def test_data_quality_in_a_year_reads_reached_in_that_year(more, frozen):

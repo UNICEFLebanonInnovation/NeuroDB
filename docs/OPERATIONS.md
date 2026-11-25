@@ -4150,11 +4150,10 @@ the map, the programme and partner pages, the progress report pop-up and Ask Neu
   history is counted from it (`reached.history_from`, source `feed`), whole read or not: a read not whole
   removed nothing, so the rows earlier reads held are still there (on 21 Oct 2026 the read asked from 1 Nov
   2018 and the earliest report held starts 1 Jan 2026: the 21 running PDs that started before it get
-  *Partial history*). Data quality's *Partial history* panel then says "the Datamart holds no earlier partner
-  report (NeuroDB asked from 1 Nov 2018)". Reached becomes PRP's cumulative only where PRP gives one; the
-  other indicators of such a PD still add up the reports held, and the PD is listed as partial. A run made
-  before `feed_from` was recorded changes nothing: the figures move at the first partner reports sync after
-  the deployment.
+  *Partial history*). Reached becomes PRP's cumulative only where PRP gives one; the other indicators of such
+  a PD still add up the reports held, and every indicator of the PD is marked *Partial history*. A run
+  made before `feed_from` was recorded changes nothing: the figures move at the first partner reports sync
+  after the deployment.
   After the window is widened (the setting turned on, a
   deployment), a running PD's early reports count from the next eTools Datamart sync on; until then
   it shows *Partial history*.
@@ -4478,11 +4477,10 @@ figures as everywhere else (they read the rule above; nothing is added across in
   Reached ("with Reached": a counted report carries a value; with a year chosen, Reached in that
   year), with and without a target (a target of zero is missing). Lists: indicators without a
   target; without Reached or with zero Reached; and NeuroDB's own checks: Reached differs from PRP's
-  cumulative, the same title twice in one PD (kept apart, never merged: the rows are placed by their PD
+  cumulative, and the same title twice in one PD (kept apart, never merged: the rows are placed by their PD
   output, and where the output is shared too by the tie-breakers the data proves; the list counts the
   indicators that get none of their rows while rows of their title were left out, and the rows left out for
-  an output that matches none),
-  partial history. Each list shows its first 500 rows; the counts are complete.
+  an output that matches none). Each list shows its first 500 rows; the counts are complete.
 * **Progress reports** has four tabs on one filter (search, report status, report type, reporting
   year, section, report #, partner, PD status, period start and period end between; the partner type and
   the emergency indicator, the reports of SPDs as Power BI's, were removed from every page on 21 Nov 2026,

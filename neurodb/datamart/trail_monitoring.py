@@ -65,8 +65,9 @@ REPORTS = "partner_reports"  # and what partners reached on them
 TOTALS = "prp_indicator_reports"  # PRP's own report totals
 # 2: the Reached fold is one chain, in report rows and indicator reports; 3: Chain.owed_overdue lists records;
 # 4: Data quality's blocks come first, the grid's are named as Data quality's (the Grid tab merged into it);
-# 5: the page's Programme documents tile and its hint not drawn
-CACHE_VERSION = 5
+# 5: the page's Programme documents tile and its hint not drawn; 6: Data quality's Partial history list (its
+# figure dq.list.partial) removed
+CACHE_VERSION = 6
 # the folded parts of the page's trail, each its own computation: Program Performance reads the filter without
 # its sections, the map its places
 TABLES = ("performance", "map")
@@ -108,7 +109,6 @@ TEST_WORDS = {  # how each test counts, in one line
     "dq_zero": "Reached is 0 (in the year chosen, else to date)",
     "missing_target": "Without a target (a target of 0 counts as none)",
     "no_reached": "Without Reached, or Reached 0 (in the year chosen, else to date)",
-    "partial": "Its programme document started before the first reporting period NeuroDB holds",
     "running": "Its programme document is running (active, signed or suspended)",
     "active": "Its programme document's status is active",
     "ended": "Its programme document ended (ended, closed, terminated or expired)",
@@ -1483,15 +1483,6 @@ def quality_figures(quality: dict[str, Any], rows: Chain) -> tuple[list[Figure],
             len(shared),
             how="Titles two or more indicators of a programme document share",
             select=(("set", "same_title"),),
-        ),
-        Figure(
-            "dq.list.partial",
-            "Partial history",
-            PD,
-            quality["partial_count"],
-            _pds_with(rows, "partial"),
-            how=TEST_WORDS["partial"],
-            select=(("pd_test", "partial"),),
         ),
         Figure(
             "dq.same_title_left_out",

@@ -422,7 +422,7 @@ def test_each_part_answers_its_wrapper(client_viewer, world, view, name):
         "sections": ("Every section", "Child Protection", "Education"),
         "table": ('id="program-performance"', CLASSROOMS, "Excel of the filter"),
         "quality-tiles": ("Active PDs", "Without a target"),
-        "quality-lists": ("Indicators with missing targets", "What the counts mean", "Partial history"),
+        "quality-lists": ("Indicators with missing targets", "What the counts mean", "Same title twice"),
     }[name]
     for figure in expected:
         assert figure in html, figure

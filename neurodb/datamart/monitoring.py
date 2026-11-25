@@ -1514,8 +1514,8 @@ def data_quality(
     """Data quality of the filtered PD indicators (Power BI's Data Quality page, plus checks only NeuroDB
     makes): programme documents (running, active, ended), indicators with and without Reached and a
     target, and the lists to follow up. "Reached" is Reached to date, or Reached in the year when one is
-    chosen; "with Reached" means a counted report (Accepted or Submitted) carries a value."""
-    today = today or datetime.date.today()
+    chosen; "with Reached" means a counted report (Accepted or Submitted) carries a value. ``today`` is not
+    read: the indicators already carry the day."""
     pds = {FIGURE_KEYS["pds"](r): r.pd for r in rows}
     tests = FIGURE_TESTS
     without = [r for r in rows if tests["dq_without"](r, filters)]
@@ -1547,11 +1547,6 @@ def data_quality(
         if len(group) > 1
     ]
     same_title.sort(key=lambda g: ((g["pd"].number or "").lower(), norm(g["title"])))
-    partial = sorted(
-        {r.pd.id: r.pd for r in rows if tests["partial"](r, filters)}.values(),
-        key=lambda pd: pd.start or datetime.date.min,
-    )
-    history = rc.history_from(today) if partial else None
 
     def order(items: list[Indicator]) -> list[Indicator]:
         return sorted(items, key=lambda r: (norm(r.section), (r.pd.number or "").lower(), norm(r.title)))
@@ -1584,12 +1579,6 @@ def data_quality(
         # the rows of those titles no indicator got, and of them those whose PD output matches none
         "same_title_rows_left_out": sum(g["rows_left_out"] for g in same_title),
         "same_title_rows_unmatched": sum(g["rows_unmatched"] for g in same_title),
-        "partial": partial[:QUALITY_LIMIT],
-        "partial_count": len(partial),
-        # where the history is counted from (the feed's first report when the Datamart holds none earlier)
-        "read_from": history.date if history else None,
-        "read_from_source": history.source if history else "",
-        "read_from_asked": history.asked if history else None,
         "limit": QUALITY_LIMIT,
     }
 

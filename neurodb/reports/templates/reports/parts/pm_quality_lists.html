@@ -1,7 +1,7 @@
 {% load i18n ui humanize %}{% comment %}Data quality's lists (part "quality-lists", reports.views.pd_monitoring): the
-indicators without a target, without Reached or with zero, where NeuroDB's Reached differs from PRP's, the titles
-twice in one programme document and the programme documents with a partial history, with what the counts mean.
-Context: quality (as the part "quality-tiles"), and filters (the page's scope).{% endcomment %}
+indicators without a target, without Reached or with zero, where NeuroDB's Reached differs from PRP's and the titles
+twice in one programme document, with what the counts mean. Context: quality (as the part "quality-tiles"), and
+filters (the page's scope).{% endcomment %}
 {% with q=quality %}
 <div class="grid grid--2 mb-3">
   <section class="panel p-0">
@@ -17,7 +17,7 @@ Context: quality (as the part "quality-tiles"), and filters (the page's scope).{
   <section class="panel">
     <div class="panel__header"><h2 class="panel__title">{% trans "What the counts mean" %}</h2></div>
     <p class="small text-muted mb-2">{% blocktrans %}An indicator has Reached when a counted report (Accepted or Submitted) carries a value for it; Due, Sent back and Overdue reports never count. A target of zero counts as missing.{% endblocktrans %}{% if filters.year %} {% blocktrans with year=filters.year %}With a reporting year chosen, Reached here is Reached in {{ year }}: the reports whose period ends in {{ year }}.{% endblocktrans %}{% else %} {% trans "Reached here is Reached to date, every reporting year." %}{% endif %}</p>
-    <p class="small text-muted mb-0">{% blocktrans %}The last three lists are NeuroDB's own checks: where its Reached differs from the cumulative the Partner Reporting Portal (PRP) gives, where one programme document has two indicators with the same title (they are kept apart, never merged), and where a programme document started before the reports NeuroDB holds.{% endblocktrans %}</p>
+    <p class="small text-muted mb-0">{% blocktrans %}The last two lists are NeuroDB's own checks: where its Reached differs from the cumulative the Partner Reporting Portal (PRP) gives, and where one programme document has two indicators with the same title (they are kept apart, never merged).{% endblocktrans %}</p>
   </section>
 </div>
 <section class="panel p-0 mb-3">
@@ -41,28 +41,15 @@ Context: quality (as the part "quality-tiles"), and filters (the page's scope).{
   {% if q.mismatch_count > q.limit %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=q.limit %}The first {{ n }} are listed: narrow the filters to see the others.{% endblocktrans %}</p>{% endif %}
   {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "None: wherever PRP gives a cumulative, NeuroDB's Reached agrees with it." %}</p>{% endif %}
 </section>
-<div class="grid grid--2 mb-3">
-  <section class="panel p-0">
-    {% include "components/table_toolbar.html" with title=_("Same title twice in one PD") count=q.same_title_count table_id="dq-titles" filename="same-indicator-title" downloads=None count_figure_key="dq.list.same_title" %}
-    {% if q.same_title %}
-    <div class="table-wrap"><table class="table table-sm" id="dq-titles">
-      <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Indicator title" %}</th><th scope="col" class="num">{% trans "Indicators" %}</th><th scope="col" class="num">{% trans "Left out (output shared or not matched)" %}</th></tr></thead>
-      <tbody>{% for g in q.same_title %}<tr><td class="small text-nowrap"><a href="{% url 'reports:programme_detail' g.pd.id %}">{{ g.pd.number|default:"—" }}</a></td><td class="cell-wrap">{{ g.title }}</td><td class="num" data-figure="dq.same_title.{{ g.figure }}.count">{{ g.count }}</td><td class="num" data-figure="dq.same_title.{{ g.figure }}.left_out">{{ g.left_out }}</td></tr>{% endfor %}</tbody>
-    </table></div>
-    <p class="small text-muted px-3 py-2 mb-0">{% blocktrans count counter=q.same_title_left_out %}The partner reports carry no PD indicator id, so their rows are placed by title, and for these titles by the PD output too. <span data-figure="dq.same_title_left_out">{{ counter }}</span> indicator gets none of its rows: it shares its output as well (tell the title or the output apart in eTools), or the PD output its rows name is empty or matches none of these indicators' outputs.{% plural %}The partner reports carry no PD indicator id, so their rows are placed by title, and for these titles by the PD output too. <span data-figure="dq.same_title_left_out">{{ counter }}</span> indicators get none of their rows: they share their output as well (tell the title or the output apart in eTools), or the PD output their rows name is empty or matches none of these indicators' outputs.{% endblocktrans %}{% if q.same_title_rows_unmatched %} {% blocktrans count counter=q.same_title_rows_unmatched %}<span data-figure="dq.same_title_rows_unmatched">{{ counter }}</span> row is left out because its PD output matches none: correct the output name in PRP or eTools so the two match.{% plural %}<span data-figure="dq.same_title_rows_unmatched">{{ counter }}</span> rows are left out because their PD output matches none: correct the output name in PRP or eTools so the two match.{% endblocktrans %}{% endif %}</p>
-    {% if q.same_title_count > q.limit %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=q.limit %}The first {{ n }} are listed: narrow the filters to see the others.{% endblocktrans %}</p>{% endif %}
-    {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "None." %}</p>{% endif %}
-  </section>
-  <section class="panel p-0">
-    {% include "components/table_toolbar.html" with title=_("Partial history") count=q.partial_count table_id="dq-partial" filename="partial-history" downloads=None count_figure_key="dq.list.partial" %}
-    {% if q.partial %}
-    <p class="small text-muted px-3 mb-2">{% if q.read_from_source == "feed" %}{% blocktrans with day=q.read_from|date:"j M Y" asked=q.read_from_asked|date:"j M Y" %}These programme documents started before {{ day }}, the first reporting period NeuroDB holds: the Datamart holds no earlier partner report (NeuroDB asked from {{ asked }}), so their Reached is PRP's own cumulative when PRP gives one.{% endblocktrans %}{% else %}{% blocktrans with day=q.read_from|date:"j M Y" %}These programme documents started before {{ day }}, the first reporting period NeuroDB holds: their Reached is PRP's own cumulative when PRP gives one.{% endblocktrans %}{% endif %}</p>
-    <div class="table-wrap"><table class="table table-sm" id="dq-partial">
-      <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Partner" %}</th><th scope="col">{% trans "Start" %}</th></tr></thead>
-      <tbody>{% for pd in q.partial %}<tr><td class="small text-nowrap"><a href="{% url 'reports:programme_detail' pd.id %}">{{ pd.number|default:"—" }}</a></td><td class="small">{{ pd.partner_name|default:"—" }}</td><td class="small text-nowrap">{{ pd.start|date:"j M Y"|default:"—" }}</td></tr>{% endfor %}</tbody>
-    </table></div>
-    {% if q.partial_count > q.limit %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=q.limit %}The first {{ n }} are listed: narrow the filters to see the others.{% endblocktrans %}</p>{% endif %}
-    {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "None: NeuroDB holds every report since each programme document started." %}</p>{% endif %}
-  </section>
-</div>
+<section class="panel p-0 mb-3">
+  {% include "components/table_toolbar.html" with title=_("Same title twice in one PD") count=q.same_title_count table_id="dq-titles" filename="same-indicator-title" downloads=None count_figure_key="dq.list.same_title" %}
+  {% if q.same_title %}
+  <div class="table-wrap"><table class="table table-sm" id="dq-titles">
+    <thead><tr><th scope="col">{% trans "Programme document" %}</th><th scope="col">{% trans "Indicator title" %}</th><th scope="col" class="num">{% trans "Indicators" %}</th><th scope="col" class="num">{% trans "Left out (output shared or not matched)" %}</th></tr></thead>
+    <tbody>{% for g in q.same_title %}<tr><td class="small text-nowrap"><a href="{% url 'reports:programme_detail' g.pd.id %}">{{ g.pd.number|default:"—" }}</a></td><td class="cell-wrap">{{ g.title }}</td><td class="num" data-figure="dq.same_title.{{ g.figure }}.count">{{ g.count }}</td><td class="num" data-figure="dq.same_title.{{ g.figure }}.left_out">{{ g.left_out }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="small text-muted px-3 py-2 mb-0">{% blocktrans count counter=q.same_title_left_out %}The partner reports carry no PD indicator id, so their rows are placed by title, and for these titles by the PD output too. <span data-figure="dq.same_title_left_out">{{ counter }}</span> indicator gets none of its rows: it shares its output as well (tell the title or the output apart in eTools), or the PD output its rows name is empty or matches none of these indicators' outputs.{% plural %}The partner reports carry no PD indicator id, so their rows are placed by title, and for these titles by the PD output too. <span data-figure="dq.same_title_left_out">{{ counter }}</span> indicators get none of their rows: they share their output as well (tell the title or the output apart in eTools), or the PD output their rows name is empty or matches none of these indicators' outputs.{% endblocktrans %}{% if q.same_title_rows_unmatched %} {% blocktrans count counter=q.same_title_rows_unmatched %}<span data-figure="dq.same_title_rows_unmatched">{{ counter }}</span> row is left out because its PD output matches none: correct the output name in PRP or eTools so the two match.{% plural %}<span data-figure="dq.same_title_rows_unmatched">{{ counter }}</span> rows are left out because their PD output matches none: correct the output name in PRP or eTools so the two match.{% endblocktrans %}{% endif %}</p>
+  {% if q.same_title_count > q.limit %}<p class="small text-muted px-3 py-2 mb-0">{% blocktrans with n=q.limit %}The first {{ n }} are listed: narrow the filters to see the others.{% endblocktrans %}</p>{% endif %}
+  {% else %}<p class="small text-muted px-3 py-2 mb-0">{% trans "None." %}</p>{% endif %}
+</section>
 {% endwith %}
