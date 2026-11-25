@@ -1479,12 +1479,18 @@ asked). In order:
      year of a list ("in 2022 and 2025", "2022 vs 2025", "2022, 2023 and 2025"), "this year"; also before a
      full stop or a comma ("In 2024, ...", "... in 2024.") and as a school year ("in the 2024 school year",
      "the 2023 academic year"). A number after next year ("targets for 2030") or before a count of people
-     or things ("2000 households") is no year, and is searched; so is a decimal or a number with a
-     thousands comma ("2024.5", "2024,500"). **The year of an event** ("the 2020 explosion", "after the
-     2024 war", "Lebanon's 2019 crisis") and **a year compared with** ("compared to 2019", "higher than
-     2019", "before the 2019 crisis") set no Year filter and are not searched: they only put the findings
-     that mention that year first among those that match. "The 2024 figures", "the 2024 data" or "the 2024
-     survey" stay years. "Since the 2019 crisis" is since 2019 (the crisis is not searched; it only ranks).
+     or things ("2000 households", "in 2000 children") is no year, and is searched; so is a decimal or a
+     number with a thousands comma ("2024.5", "2024,500"); a year before "child" is a year ("the 2024 child
+     labour figures"). **The year of an event** ("the 2020 explosion", "after the 2024 war", "Lebanon's
+     2019 crisis": "the" and a year are an event's only when an event word follows) and **a year compared
+     with** on its own ("compared to 2019", "higher than 2019", "before the 2019 crisis") set no Year filter
+     and are not searched: they only put the findings that mention that year first among those that match.
+     Any other year after "the" is the year of the data ("the 2024 figures", "the 2024 out of school
+     figures", "the 2024 situation", "the 2024 VASyR"). A year compared with is a year of the filter too when
+     the question names a year of its own ("in 2025 than in 2019", "in 2025 compared with the 2019 rate":
+     2025 and 2019), and a follow-up that compares ("and compared to 2019?") adds it to the earlier years it
+     keeps (2025 and 2019, and the next follow-up keeps both); "before 2020" never reads 2020. "Since the
+     2019 crisis" is since 2019 (the crisis is not searched; it only ranks).
      Findings whose year is *Not reported* are left out. The line under the answer says "Years 2024–2026,
      from your question; findings whose year is not reported are left out (the Year filter changes it)";
      the phrase is never searched. The years are publication years. **"Latest"**, "most recent", "newest",
@@ -1504,21 +1510,33 @@ asked). In order:
      Lebanon too, as older reports count them), and the Palestine refugee camps ("Ein el-Hilweh",
      Rashidieh, Burj el-Shemali: South; Nahr el-Bared, Beddawi: North; Shatila, Bourj el-Barajneh: Beirut
      and Mount Lebanon; "camp" after one goes with it). "South Lebanon", "the south", "south", "Sud-Liban",
-     "Janoub", "the southern governorates", "the southern region" and "the southern districts" are the
-     South and Nabatieh governorates (the owner's rule), and the line under the answer says so ("Places
-     from your question: the South (South and Nabatieh governorates)."); "South governorate", "the southern
-     governorate" (one) and "Liban-Sud" the South only. "South Metn" is Baabda (Mount Lebanon) and "North
-     Bekaa" is Baalbek-Hermel, never the South, the North or the Bekaa. The places of a question make
+     "Janoub", "the southern governorates", "the southern region(s)", "the southern areas", "the southern
+     parts", "the southern part of Lebanon" and "the southern districts" are the South and Nabatieh
+     governorates (the owner's rule), and the line under the answer says so ("Places from your question: the
+     South (South and Nabatieh governorates)."); "South governorate", "the southern governorate" (one) and
+     "Liban-Sud" the South only. "The northern governorates", "the north governorates", "the northern
+     region(s)", "the north region", "the northern areas", "parts" or "districts" are the North and Akkar
+     (Akkar was part of the North until 2014; "Places from your question: the north (North and Akkar
+     governorates)."); "the North" alone stays the North governorate. A region's part of a place is that
+     place ("the southern region of the Bekaa": the Bekaa; "of Lebanon" keeps the region). "South Metn" is
+     Baabda (Mount Lebanon), "North Bekaa" is Baalbek-Hermel and "South Bekaa" is the Bekaa (West Bekaa and
+     Rashaya), never the South, the North or, for North Bekaa, the Bekaa. The places of a question make
      **one** place group a finding's own texts must name (any of them; a governorate also by its districts
-     and towns; a spelling inside another governorate's place does not count there: "Jbeil" in "Bint
-     Jbeil", "North" in "North Metn" or "North Bekaa", "South" in "South Metn", "Bekaa" in "North Bekaa";
-     such a finding still counts for its own place when that place is in the group too: "Mount Lebanon and
-     Nabatieh", a breakdown); "governorate", "gov", "mohafaza", "district" and "caza" go with a place named,
-     and without one ask for a **breakdown** ("all governorates", "by governorate", "all gov", "per
-     governorate", "per gov", "across governorates", "within each governorate", "broken down by
-     governorate", "at governorate level", "governorate-level", "by region"; "by district", "per district",
-     "each caza", "at district level", "the districts"): the words that ask for it ("per", "across",
-     "broken down", "level") and "breakdown" or "disaggregated" are never searched; a group of the
+     and towns; a spelling inside another governorate's place does not count where it is written inside it:
+     "Jbeil" in "Bint Jbeil", "North" in "North Metn" or "North Bekaa", "South" in "South Metn" or "South
+     Bekaa", "Bekaa" in "North Bekaa"; a text that also writes it on its own names it: "the Bekaa and North
+     Bekaa" names the Bekaa and Baalbek-Hermel, "Jbeil and Bint Jbeil" Mount Lebanon and Nabatieh: a
+     PostgreSQL pattern of the word not inside the longer spelling, `places.standalone`; such a finding still
+     counts for its own place when that place is in the group too: "Mount Lebanon and Nabatieh", a
+     breakdown); "governorate", "gov", "mohafaza", "district" and "caza" go with a place named, and without
+     one ask for a **breakdown** ("all governorates", "by governorate", "all gov", "per governorate", "per
+     gov", "across governorates", "across Lebanon's governorates", "across all Lebanese governorates",
+     "across the country's governorates", "in all eight governorates", "in the nine governorates", "within
+     each governorate", "broken down by governorate", "at governorate level", "governorate-level", "by
+     region"; "by district", "per district", "each caza", "at district level", "the districts", and "by
+     governorate and district" or "by district and governorate", read by district): the words that ask for it
+     ("per", "across", "Lebanon's", "eight", "broken down", "level", the district word after "by governorate
+     and") and "breakdown" or "disaggregated" are never searched; a group of the
      governorate words and of every governorate, district and town, the findings naming the most
      governorates first (a district or a town counted as its governorate). "All Lebanon", "nationally",
      "nationwide", "national level" or "national figures" ask for no place; with a place named, so does
@@ -1542,13 +1560,19 @@ asked). In order:
      findings and never sent) and its document's methods, population and titles only break ties. The
      words of a request, a format or a time ("need", "paragraph", "describe", "text above", "adjust",
      "excel", "sheet", "table", "each", "value", "number", "percentage", "indicator", "past", "years",
-     "only", "recent", "population type"), the words of a rework of the earlier answer, its length, form,
-     language or readers ("answer", "make", "shorter", "simpler", "summary", "bullet points", "translate",
-     "Arabic", "French", "focus", "audience", "in simpler words"), and the words that ask for figures
+     "only", "recent", "population type"), the words of a rework of the earlier answer, its length, form or
+     readers ("answer", "make", "simpler", "summary", "bullet", "translate", "audience", "details",
+     "elaborate", "add", "include", "convert", "in simpler words"), and the words that ask for figures
      ("rate", "proportion", "prevalence", "figures", "statistics", "share", "estimate": `ask.REQUEST_STOP`)
      are not searched while other words remain (a question of these words only, with no place, time frame or
-     code, searches them; in a follow-up never; "needs", a noun, is searched: "special needs"). The words
-     that ask for the rework itself ("revise the paragraph", "make it shorter") are never searched. Thanks
+     code, searches them; in a follow-up never; "needs", a noun, is searched: "special needs"). Words a
+     rework uses that are subject words too ("Arabic", "French", "English", "formal", "informal", "focus",
+     "points", "style", "shorter", "longer", "donor": `ask.REWORK_STOP`) are searched ("Arabic literacy",
+     "informal settlements", "focus group discussions", "water points", "parenting style"), except in a
+     question that reworks the answer ("translate it to Arabic", "make it more formal", "write it for a
+     donor audience") and in the phrases of a rework's form ("in 3 bullet points", "with a focus on", "in
+     a more formal tone", "an Arabic version", "a shorter version": `ask.REQUEST_PHRASES`). The words that
+     ask for the rework itself ("revise the paragraph", "make it shorter") are never searched. Thanks
      or praise around a question ("Thanks,", "great,", "ok", "please" before a cue or a mark, ", thanks" at
      the end) are left out; "good practices" and "perfect attendance" keep their word. PostgreSQL's
      English stop words ("only", "each",
@@ -1580,22 +1604,31 @@ asked). In order:
      is two findings, each sent with its own document and year. Each pass reads twice the findings it
      needs, so that copies leave room.
    - **A follow-up.** In a conversation, a question is a follow-up when it has under 4 words, when it
-     refers to the earlier answer ("do it for", "do the same", "same for", "the text above", "the previous
-     answer", "what about", "how about", a question starting with "and for", "and in"..., one ending with
-     "instead": "focus on girls instead"), when it asks to rework that answer, whatever the words: "redo",
-     "rework", "rewrite", "rephrase", "reword", or a verb with "it", "this" or the answer ("revise the
-     paragraph", "adjust the answer for girls", "shorten it", "expand the summary", "summarise it in
-     bullet points", "translate it to Arabic", "make it shorter", "put it in a table", "break it down by
-     sex"), or when it has no subject of its own: no word left to search once places, years, codes and
-     request words are read ("can u do it for all lebanon?", "what about Akkar since 2024?", "once done I
-     need an excel sheet"). Thanks or praise before the cue do not hide it ("Thanks, what about girls?",
-     "great, and for girls?", "ok now for all gov"). Words that new questions use too are no reference: a
-     bare "it", "this" or "that", "again", "for all", "instead" inside a question, a verb with no answer
-     after it ("adjust", "make it easier"), "the list of", a leading "and" before a question of its own
-     ("Is free education for all children achieved?", "Why did enrolment fall again?", "How did families
-     adjust to the crisis?", "Do girls work instead of studying?" and "the situation of children for all
-     governorates" start afresh). A question that names the KM Database's subject in general words ("the
-     situation of children", "children"), a Finding ID or a Document ID has a subject of its own. The
+     refers to the earlier answer ("do it for", "do the same", "same for", "the same answer", "the text
+     above", "the previous answer", "what about", "how about", a question starting with "and for", "and
+     in", "now with", "now for"..., one ending with "instead" that opens with no question word: "focus on
+     girls instead"), when it asks to rework that answer, whatever the words: "redo", "rework", "rewrite",
+     "rephrase", "reword" anywhere; a verb that opens the question or a clause (after "and", "now", "can
+     you", "please"...) with "it", "this" or "that" alone or the answer ("revise the paragraph", "adjust the
+     answer for girls", "shorten it", "expand the summary", "can you expand on this?", "can you elaborate
+     on this?", "summarise it in bullet points", "translate it to Arabic", "convert it to a table", "make it
+     shorter", "make it more detailed", "make it more formal", "put it in a table", "write it again for
+     donors", "break it down by sex"), "translate" or "elaborate" opening it, "give more details", "go into
+     more detail", "add ... to the paragraph", or a short question that is only a rework's form ("in Arabic
+     please", "and in French?", "shorter please", "a shorter version"); or when it has no subject of its
+     own: no word left to search once places, years, codes and request words are read ("can u do it for all
+     lebanon?", "what about Akkar since 2024?", "once done I need an excel sheet", "include a table with the
+     figures"). Thanks or praise before the cue do not hide it ("Thanks, what about girls?", "great, and for
+     girls?", "ok now for all gov"). Words that new questions use too are no reference: a bare "it", "this"
+     or "that", "this" or "that" before a word of their own ("summarise this year's findings", "is there an
+     update this year?", "summarise that evaluation"), a rework verb inside a question of its own ("what do
+     teachers do to make it easier to read?", "did enrolment change this year?"), "again", "for all",
+     "instead" inside a question or closing one that opens with a question word ("why are boys sent to work
+     instead?"), "the list of", a leading "and" before a question of its own ("Is free education for all
+     children achieved?", "Why did enrolment fall again?", "How did families adjust to the crisis?", "Do
+     girls work instead of studying?" and "the situation of children for all governorates" start afresh).
+     A question that names the KM Database's subject in general words ("the situation of children",
+     "children"), a Finding ID or a Document ID has a subject of its own. The
      earlier answered turns of the conversation (`ask.conversation`, from their cleaned questions and what
      their rows keep, no query) leave a subject: the words of the question that set it, the angles its
      follow-ups added ("with a lens on gender", "and for boys?"), its places and its years. A follow-up
@@ -1608,11 +1641,20 @@ asked). In order:
      this subject names Tripoli (the North): findings from all of Lebanon were read."); a new subject ("what
      about child marriage?" after out-of-school children in Tripoli reads child marriage in Tripoli), a
      rework, or an angle no finding joins anywhere searches its angles alone, in the earlier place and
-     years (one of two words when none holds both, and the line says so). Those words are then the subject
-     of the next follow-up (the question's row keeps them, `new_subject`): "and for girls?" after "what about
-     child marriage?" reads child marriage among girls, never girls out of school. The previous answer's
-     findings are then read first only when they match those angles, or when the question reworks that
-     answer or starts with "and" ("and for girls?"; "and what about ...?" is read as "what about ...?"). A
+     years (one of two words when none holds both, and the line says so). Only a new subject's words are
+     then the subject of the next follow-up (the question's row keeps them, `new_subject`, as they were
+     read: one group of all their words when one of them was enough, so that "can u do it for all lebanon?"
+     after "what about child marriage and child labour?" reads either; and only the words the cleaned
+     question holds, never a name it withheld; the questions admin does not show them): "and for girls?"
+     after "what about child marriage?" reads child marriage among girls, never girls out of school. A
+     rework ("adjust it for girls", "can you adjust the text above with a lens on gender"), an addition
+     ("and for girls?") and a group of people after "what about" ("what about girls?", "what about
+     disability?": `ask.PEOPLE`) stay angles on the earlier subject: the next follow-up reads out-of-school
+     girls, never girls on any subject. The previous answer's findings are then read first unless the
+     question asks about a new subject and they do not match its words ("and what about ...?" is read as
+     "what about ...?"). The subject, places and years are read from the last 20 answered turns of the
+     conversation (`ask.CONVERSATION_TURNS`), so that reworks in between never drop an earlier question's
+     past 2 years; the AI is sent the last 4. A
      follow-up for all of Lebanon of a question on a place alone ("the situation of children in Akkar",
      then "can u do it for all lebanon?") reads the findings of the filters, newest first, the earlier
      answer's first. A question with no word of its own is thus no longer "no findings" in a conversation,
@@ -1673,24 +1715,35 @@ asked). In order:
    findings listed instead); the model's own links taken out; every Finding ID read linked to its finding with
    the version it was read from (`/km/findings/<ID>/?v=<version>`), every other reference of the shape of the
    version's Finding IDs or Document IDs (invented, a Document ID, not read this time) taken out and counted,
-   with as many digits as the IDs hold ("PM2.5" and "PM10" stay); the sentences citing no finding counted (not
-   the answer's first sentence, a lead; not one whose paragraph cites a finding in a later sentence; not one
-   saying what the findings, studies, documents, data, evidence, sources or reports lack, with that source
-   as its subject ("the findings read do not report figures by sex"; never "girls do not report ...", "the
-   studies found that girls do not report ..." or "they do not report it"; "they do not give figures by
-   sex" is about the findings) or do not answer, nor one that only points to the Excel or CSV under the
-   answer ("The Excel of these findings, under this answer, lists the 12 findings read"; never "As the
-   Excel under this answer shows, ..." nor a pointer with a figure, a comparison or a second clause); the
-   lines of a table are not counted, any other line with a pipe is). A **table** keeps only the rows that
+   with as many digits as the IDs hold ("PM2.5" and "PM10" stay; an ID written as code, "`TST-0001-F00001`",
+   is linked as any other); the sentences citing no finding counted (not the answer's first sentence, a
+   lead; not one whose paragraph cites a finding in a later sentence; not one saying what the findings,
+   studies, documents, data, evidence, sources or reports lack, with that source opening the sentence ("the
+   findings read do not report figures by sex"; never "girls do not report ...", "girls in these studies
+   do not report ...", "the studies found that girls do not report ..." or "they do not report it"; "they
+   do not give figures by sex" is about the findings, "teachers said they do not give information" is
+   not), what is missing as the sentence's end ("Figures by sex are missing from the findings read.",
+   "What is missing is ..."; never "girls are missing from secondary school" or "children are missing out
+   on education"), no data as such ("There are no data on child labour by sex."; never "there is no
+   evidence that ...", "no data were collected in the hills, where ..." or "households had no
+   information"), or what the findings do not answer, nor one that only points to the Excel or CSV under
+   the answer ("The Excel of these findings, under this answer, lists the 12 findings read"; every word a
+   pointer's: the file, where it is, what it lists, `ask.POINTER_WORDS`; never "As the Excel under this
+   answer shows, ...", a pointer with a figure, a comparison or a clause of its own: "..., mostly from
+   Akkar, where girls left school", "..., and girls in Akkar left school"); the lines of a table are not
+   counted, any other line with a pipe is). A **table** keeps only the rows that
    give a Finding ID read and none that was not (a row with no Finding ID, or with an invented one or one
    not read this time, is taken out, and a table left with no row goes whole); the notice says so ("1 row
    of the table was taken out: it gave no finding read for this answer."). A table is read as
    Python-Markdown reads it (a rule of spaced dashes or with a space after it, a table in a quote or on a
-   list item, a line with no pipe inside it: a row). An HTML table the model writes, a table in a table
-   too, is taken out whole before the answer is shown and its rows counted (its references are never
-   linked). The rendered answer is checked again: every row under a table's header that links no finding
-   read is taken out and counted, and out of the text kept too. The answer kept (the *Copy* text, and the
-   last answer a follow-up reworks) is the answer shown. The rendered answer keeps only links to the
+   list item, a line with no pipe inside it: a row; the pipes at either end of a line are left out only
+   when the header has one, so "a | b" over "|---|---|" is a paragraph; a table of one column needs a pipe
+   at either end of each line). An HTML table the model writes, a table in a table too, is taken out whole
+   before the answer is shown and its rows counted (its references are never linked). The rendered answer
+   is checked again: every row under a table's header that links no finding read is taken out and counted,
+   and out of the text kept too (each line found by its words as shown: markup such as "<br>" in a row, or
+   a link written in code, never keeps it). The answer kept (the *Copy* text, and the last answer a
+   follow-up reworks) is the answer shown. The rendered answer keeps only links to the
    findings read, and of the tags only paragraphs, lists,
    emphasis, quotes, code and tables (`table`, `thead`, `tbody`, `tr`, `th`, `td`, with a column's alignment
    as `align` and no other attribute), styled as Ask NeuroDB's tables and scrolled sideways inside the answer
@@ -1734,10 +1787,11 @@ asked). In order:
   Every call is counted under *KM Database assistant* (`km`) in *AI use*.
 - **The log**: Admin → *KM Database* → **Questions to the KM Database** (read only, superusers and
   Administrators): the cleaned question, status, covered, findings read and cited, sentences citing none,
-  tokens and time; on a follow-up whose own words became the subject, those words (*new subject
-  searched*, which the next follow-up keeps; km migration 0005 adds the column with a constant default, a
-  quick change). Its own rows (`km_question`), never Ask NeuroDB's or the Help assistant's; kept 90
-  days (each question deletes the older ones; no job).
+  tokens and time. A follow-up that asked about a new subject keeps the words searched as that subject
+  on its row (`new_subject`, which the next follow-up keeps: only words its cleaned question holds; km
+  migration 0005 adds the column with a constant default, a quick change); the admin page does not show
+  them. Its own rows (`km_question`), never Ask NeuroDB's or the Help assistant's; kept 90 days (each
+  question deletes the older ones; no job).
 - **Donors** get the JSON 403 on `/km/ask/stream/` like the other assistants' streams, and on the downloads
   under an answer (`/km/ask/findings/`).
 - Measured on the user's workbook (throwaway database, about 15,000 findings): for 20 typical questions the

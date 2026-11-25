@@ -7,15 +7,21 @@ workbook's text and never another NeuroDB table.
   finding qualifies when its own words name any of them. A governorate also finds its districts and towns
   ("South" finds "Saida", "Tyre", "Jezzine"); Mount Lebanon also finds Keserwan-Jbeil, as older reports
   count it in Mount Lebanon. A district, a town or a camp finds its own spellings ("Tripoli (the North)"). A
-  spelling inside another governorate's place is not its place ("Jbeil" in "Bint Jbeil", "North" in "North
-  Metn" or "North Bekaa", "South" in "South Metn": :func:`shadows`), but the other place's findings still
-  count for that other place in the same group ("Mount Lebanon and Nabatieh", a breakdown).
-- **"South Lebanon", "the south", "the southern governorates"** mean the South and Nabatieh governorates;
-  "South governorate" the South only. "South Metn" is Baabda (Mount Lebanon), "North Bekaa" Baalbek-Hermel.
+  spelling inside another governorate's place is not its place where it is written inside it ("Jbeil" in
+  "Bint Jbeil", "North" in "North Metn" or "North Bekaa", "South" in "South Metn" or "South Bekaa":
+  :func:`shadows`), but a text that also writes it on its own names it ("the Bekaa and North Bekaa":
+  :func:`standalone`), and the other place's findings still count for that other place in the same group
+  ("Mount Lebanon and Nabatieh", a breakdown).
+- **"South Lebanon", "the south", "the southern governorates", "the southern region" or "areas"** mean the
+  South and Nabatieh governorates; "South governorate" the South only. **"The northern governorates", "the
+  northern region"** mean the North and Akkar. A region's part of a place is that place ("the southern
+  region of the Bekaa"). "South Metn" is Baabda (Mount Lebanon), "North Bekaa" Baalbek-Hermel, "South
+  Bekaa" the Bekaa.
 - **Governorate words** ("governorate", "gov", "mohafaza") and **district words** ("district", "caza") are
   part of the place when a place is named, and otherwise ask for a breakdown (:attr:`Reading.breakdown`:
-  "all governorates", "by governorate", "all gov", "per governorate", "across governorates", "broken down
-  by governorate", "at governorate level"; "by district", "each caza", "the districts":
+  "all governorates", "by governorate", "all gov", "per governorate", "across governorates", "across
+  Lebanon's governorates", "in all eight governorates", "broken down by governorate", "at governorate
+  level"; "by district", "each caza", "the districts", "by governorate and district":
   :attr:`Reading.by_district`), the words that ask for it taken out with them. A breakdown keeps the
   findings that name a place: a governorate, or a district or town as its governorate.
 - **"All Lebanon", "nationally", "nationwide", "national level"** ask for no place
@@ -61,7 +67,22 @@ GOVERNORATES: tuple[Place, ...] = (
         ),
     ),
     Place("beirut", "Beirut", ("beirut", "beyrouth", "bayrut", "beyrut", "bairut", "beirut governorate")),
-    Place("bekaa", "Bekaa", ("bekaa", "beqaa", "bekka", "beka'a", "beqa'a", "biqa", "bekaa valley")),
+    Place(
+        "bekaa",
+        "Bekaa",
+        (
+            "bekaa",
+            "beqaa",
+            "bekka",
+            "beka'a",
+            "beqa'a",
+            "biqa",
+            "bekaa valley",
+            "south bekaa",  # West Bekaa and Rashaya: never the South
+            "southern bekaa",
+            "south beqaa",
+        ),
+    ),
     Place(
         "keserwan-jbeil",
         "Keserwan-Jbeil",
@@ -260,28 +281,56 @@ DISTRICTS: tuple[Place, ...] = (
     Place("dbayeh", "Dbayeh", ("dbayeh", "dbaye"), ("mount-lebanon",), camp=True),
     Place("wavel", "Wavel", ("wavel", "jalil camp"), ("baalbek-hermel",), camp=True),
 )
-# what a question means by these words: the South and Nabatieh governorates, as many reports use it
+# what a question means by these words: the South and Nabatieh governorates, as many reports use it; the North
+# and Akkar for the northern governorates or region (Akkar was part of the North until 2014)
 REGIONS: dict[str, tuple[str, ...]] = {
-    spelling: ("south", "nabatieh")
-    for spelling in (
-        "south",
-        "south lebanon",
-        "southern lebanon",
-        "south of lebanon",
-        "southern governorates",
-        "southern districts",
-        "southern region",
-        "south region",
-        "southern border",
-        "southern borders",
-        "sud-liban",
-        "sud liban",
-        "sud du liban",
-        "janoub",
-        "jnoub",
-    )
+    **{
+        spelling: ("south", "nabatieh")
+        for spelling in (
+            "south",
+            "south lebanon",
+            "southern lebanon",
+            "south of lebanon",
+            "southern governorates",
+            "southern districts",
+            "southern region",
+            "southern regions",
+            "south region",
+            "southern areas",
+            "southern parts",
+            "southern part of lebanon",
+            "southern border",
+            "southern borders",
+            "sud-liban",
+            "sud liban",
+            "sud du liban",
+            "janoub",
+            "jnoub",
+        )
+    },
+    **{
+        spelling: ("north", "akkar")
+        for spelling in (
+            "northern governorates",
+            "north governorates",
+            "northern districts",
+            "northern region",
+            "northern regions",
+            "north region",
+            "northern areas",
+            "northern parts",
+            "northern part of lebanon",
+        )
+    },
 }
-REGION_NAMES = {("south", "nabatieh"): "the South (South and Nabatieh governorates)"}
+REGION_NAMES = {
+    ("south", "nabatieh"): "the South (South and Nabatieh governorates)",
+    ("north", "akkar"): "the north (North and Akkar governorates)",
+}
+# a region's part of a place is that place ("the southern region of the Bekaa", "the southern areas of Mount
+# Lebanon": the Bekaa, Mount Lebanon), never the region; "of Lebanon" and "of the country" keep the region
+_AREA = re.compile(r"(?:regions?|areas?|parts?|districts|governorates)$")
+_OF_A_PLACE = r"(?!\s+(?:of|in|within)\s+(?:the\s+)?(?!lebanon\b|country\b)\w)"
 THE = frozenset({"north", "south"})  # said "the North", "the South"
 GOVERNORATE_WORDS = (
     "governorates",
@@ -355,7 +404,7 @@ def _aliases() -> list[tuple[re.Pattern, tuple[str, ...], str]]:
         for spelling in place.spellings:
             found.setdefault(spelling, ((place.key,), name, r"(?:\s+camps?)?" if place.camp else ""))
     for spelling, keys in REGIONS.items():
-        found[spelling] = (keys, REGION_NAMES[keys], "")
+        found[spelling] = (keys, REGION_NAMES[keys], _OF_A_PLACE if _AREA.search(spelling) else "")
     return [
         (
             re.compile(rf"(?<![\w'-]){ARTICLE}{re.escape(spelling)}{suffix}(?![\w'-])", re.IGNORECASE),
@@ -389,19 +438,27 @@ _NATIONAL_WORD = _phrases(("national",))
 # searched): "by", "per", "across", "each", "all", "in all", "within each", "across all the", "broken
 # down by", "disaggregated by", "a breakdown by"; "at (the)" before the word and its level ("governorate
 # level", "district-wise", "governorate by governorate")
+_HOW_MANY = r"(?:\d{1,2}|two|three|four|five|six|seven|eight|nine|ten)"
 _BREAKDOWN_LEAD = (
     r"(?:(?:broken\s+down|break\s+down|breakdowns?|disaggregated|disaggregation|split|divided)\s+)?"
-    r"(?:by|each|every|all|per|across|different|various|"
-    r"(?:for|in|of|across|at|within|on)\s+(?:each|every|all))(?:\s+of)?\s+(?:the\s+)?"
+    r"(?:(?:by|each|every|all|per|across|different|various|"
+    r"(?:for|in|of|across|at|within|on)\s+(?:each|every|all))(?:\s+of)?\s+(?:the\s+)?|"
+    # "in the nine governorates"
+    rf"(?:in|of|across|for|from|within)\s+the\s+(?={_HOW_MANY}\s))"
+    # "across Lebanon's governorates", "in all eight governorates", "across the country's governorates"
+    rf"(?:(?:lebanon['’]?s|lebanese|(?:the\s+)?country['’]?s|its|their|respective|{_HOW_MANY})\s+){{0,2}}"
 )
 _AT = r"(?:(?:at|on)\s+(?:the\s+)?)"
 _LEVEL = r"(?:[\s-]+(?:levels?|wise|breakdowns?|by\s+(?:the\s+)?(?:{words})))"  # "governorate-level"
 _DISTRICT = "|".join(re.escape(w) for w in DISTRICT_WORDS)
 _GOVERNORATE = "|".join(re.escape(w) for w in GOVERNORATE_WORDS)
 # a breakdown by district: "by district", "each caza", "all the districts", "per district", "at district
-# level", "district-level", or the plural ("the districts")
+# level", "district-level", or the plural ("the districts"); "by governorate and district" and "by district
+# and governorate" too (the finer of the two)
+_AND = r"\s*(?:and|or|&|/|,)\s*(?:(?:by|per|each|every)\s+)?(?:the\s+)?"
 _BY_DISTRICT = re.compile(
-    rf"(?<![\w'-])(?:{_BREAKDOWN_LEAD}(?:{_DISTRICT}){_LEVEL.format(words=_DISTRICT)}?|"
+    rf"(?<![\w'-])(?:{_BREAKDOWN_LEAD}(?:(?:{_GOVERNORATE}){_AND})?(?:{_DISTRICT})"
+    rf"(?:{_AND}(?:{_GOVERNORATE}))?{_LEVEL.format(words=_DISTRICT)}?|"
     rf"{_AT}?(?:{_DISTRICT}){_LEVEL.format(words=_DISTRICT)}|"
     rf"(?:districts|cazas|kazas|qadaas|aqdiya){_LEVEL.format(words=_DISTRICT)}?)(?![\w'-])",
     re.IGNORECASE,
@@ -482,6 +539,30 @@ def shadows(spelling: str) -> tuple[str, ...]:
                 continue
             found += [s for s in other.spellings if s != spelling and spelling in re.split(r"[\s-]+", s)]
     return tuple(dict.fromkeys(found))
+
+
+@cache
+def standalone(spelling: str) -> str:
+    """A PostgreSQL pattern of ``spelling`` (a word that :func:`shadows` other places' spellings) written on
+    its own, never as a word of those spellings: "bekaa" in "the Bekaa and North Bekaa" (its first word),
+    never in "North Bekaa" alone. The shadowing spellings are two words: the word before it (the word before
+    ``spelling`` is not that one: a lookahead from the word's start, as a lookbehind reads the text again at
+    each place) or the word after it."""
+    before, after = set(), set()
+    for longer in shadows(spelling):
+        words = re.split(r"[\s-]+", longer)
+        at = words.index(spelling)
+        if at:
+            before.add(r"\W+".join(words[:at]))
+        if at < len(words) - 1:
+            after.add(r"\W+".join(words[at + 1 :]))
+
+    def one_of(found: set[str]) -> str:
+        return "|".join(sorted(found, key=lambda w: (-len(w), w)))
+
+    lead = rf"(?:^\W*|\m(?!(?:{one_of(before)})\M)\w+\W+)" if before else r"\m"
+    ahead = rf"(?!\W+(?:{one_of(after)})\M)" if after else ""
+    return rf"{lead}{spelling}\M{ahead}"
 
 
 def breakdown_alternatives() -> list[str]:

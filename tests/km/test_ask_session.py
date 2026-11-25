@@ -356,6 +356,27 @@ REWORKS = (
     "translate it to Arabic",
     "expand the summary",
     "shorten it",
+    # more ways of asking for a rework
+    "make it more detailed",
+    "can you make it more detailed?",
+    "can you elaborate on this?",
+    "can you elaborate more on this?",
+    "convert it to a table",
+    "convert the answer into bullet points",
+    "include a table with the figures",
+    "please add the figures to the paragraph",
+    "can you also add a table with the figures?",
+    "can you give more details on that?",
+    "can you give more detail?",
+    "can you go into more detail?",
+    "can you expand on this?",
+    "write it again for donors",
+    "write it for a donor audience",
+    "same answer but with a gender lens",
+    "now with a focus on boys",
+    "make it more formal",
+    "in Arabic please",
+    "and in French?",
 )
 
 
@@ -392,6 +413,21 @@ def test_a_reworded_q3_keeps_q2s_years_for_q4(ai, today):  # noqa: F811
     picked = _picked(Q4, earlier=earlier)
     assert picked.follow_up and picked.kept == ["subject", "years"] and picked.national
     assert picked.filters.year == ["2025", "2024"]
+
+
+def test_reworks_between_the_questions_keep_q2s_years_for_q5(client_viewer, ai, today):  # noqa: F811
+    factory.load(
+        build([*DOCS, ("2019", ["In Akkar, 20% of children with disabilities were out of school."])])
+    )
+    conversation = uuid.uuid4()
+    ai([answer("Fake [TST-0002-F00002] [TST-0004-F00001] [TST-0001-F00001].") for _n in range(8)])
+    for question in (Q1, Q2, "make it shorter", Q3, "translate it to Arabic", Q4, "make it more formal"):
+        done(post(client_viewer, question, conversation=conversation))
+    final = done(post(client_viewer, Q5, conversation=conversation))
+    row = KMQuestion.objects.order_by("-created_at").first()
+    # Q2's past 2 years are kept, however many reworks came between: never the 2019 finding
+    assert row.status == "answered" and "TST-0010-F00001" not in row.read
+    assert KEPT in final["meta"]
 
 
 def test_q1_when_no_finding_names_mount_lebanon(client_viewer, ai, today):  # noqa: F811

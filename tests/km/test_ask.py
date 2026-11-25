@@ -24,7 +24,7 @@ from django.utils import timezone
 from neurodb.assistant import agent, usage
 from neurodb.km import ask, authors, privacy
 from neurodb.km.filters import Filters, facets
-from neurodb.km.models import KMQuestion, live
+from neurodb.km.models import KMFinding, KMQuestion, live
 from tests.km import factory
 
 pytestmark = pytest.mark.django_db
@@ -958,7 +958,7 @@ def test_the_history_is_this_conversations_answers_of_the_version_shown(viewer, 
     factory.load(factory.workbook(documents=1, findings=2))
     version = _version()
     conversation = uuid.uuid4()
-    for n in range(6):
+    for n in range(ask.CONVERSATION_TURNS + 2):
         KMQuestion.objects.create(
             user=viewer,
             conversation=conversation,
@@ -979,8 +979,12 @@ def test_the_history_is_this_conversations_answers_of_the_version_shown(viewer, 
     KMQuestion.objects.create(
         user=viewer, conversation=conversation, version=None, question="V", status="answered"
     )
+    # the last 20 answered turns, for the subject, places and years they leave; the AI is sent the last 4
     turns = ask.history(viewer, conversation, version)
-    assert [t["question"] for t in turns] == ["Q2", "Q3", "Q4", "Q5"]
+    assert [t["question"] for t in turns] == [f"Q{n}" for n in range(2, ask.CONVERSATION_TURNS + 2)]
+    picked = ask.Picked(findings=list(KMFinding.objects.all()), question="Q?")
+    message = ask.prompt("Q?", turns, Filters(), picked, _people(), facets(version))
+    assert "Q: Q18\n" in message.text and "Q: Q21\n" in message.text and "Q: Q17\n" not in message.text
 
 
 def test_questions_older_than_90_days_go_at_the_next_question(client_viewer, viewer, ai):
@@ -1426,6 +1430,29 @@ def test_a_question_right_after_a_load_by_another_process_withholds_its_authors(
     assert len(fake.calls()) == 2 and "Quexley" not in _sent(fake)
 
 
+@pytest.mark.parametrize("follow", ["what about vantrell?", "what about Vantrell and rainfall?"])
+def test_a_follow_ups_new_subject_never_keeps_a_km_surname(client_viewer, admin_client, ai, follow):
+    edits = {
+        ("findings", 2, "Key Finding"): "Fake girls attend secondary school less often.",
+        ("findings", 3, "Key Finding"): "Fake rainfall fell in the hills.",
+        ("findings", 3, "Finding Analysis"): "As Vantrell (2019) found, rainfall fell.",
+        ("findings", 4, "Key Finding"): "Fake rainfall rose on the coast.",
+        ("findings", 5, "Key Finding"): "Fake rainfall stayed the same.",
+    }
+    factory.load(_authored(edits=edits))
+    conversation = uuid.uuid4()
+    ai([answer("Fake [TST-0001-F00001]."), answer("Fake [TST-0002-F00001]."), answer("Fake again.")])
+    for question in ("girls attending secondary school", follow, "and for girls?"):
+        done(post(client_viewer, question, conversation=conversation))
+    rows = list(KMQuestion.objects.order_by("created_at"))
+    assert rows[1].status == "answered" and rows[1].read
+    for row in rows:
+        kept = " ".join(str(getattr(row, f.name)) for f in KMQuestion._meta.get_fields() if f.concrete)
+        assert "vantrell" not in kept.casefold(), row.question
+        page = admin_client.get(reverse("admin:km_kmquestion_change", args=[row.pk])).content.decode()
+        assert "vantrell" not in page.casefold()
+
+
 # --------------------------------------------------------------- the owner's questions: what retrieval reads
 @pytest.fixture
 def today(monkeypatch):
@@ -1804,6 +1831,16 @@ def _rain():
         ("expand the summary with the teachers who left", True),
         ("can you break it down by sex", True),
         ("focus on the teachers who left instead", True),
+        ("make it more detailed", True),
+        ("can you elaborate more on this?", True),
+        ("convert it to a table", True),
+        ("write it for a donor audience", True),
+        ("same answer but with a focus on the teachers who left", True),
+        ("now with a focus on the teachers who left", True),
+        ("can you go into more detail on the teachers who left?", True),
+        ("please add the teachers who left to the paragraph", True),
+        ("include the teachers who left in the answer", True),
+        ("could you summarise this in 3 bullet points for the teachers who left", True),
         # thanks or praise in front of a cue
         ("Thanks, what about the teachers who left?", True),
         ("Thank you! What about the teachers who left?", True),
@@ -1817,6 +1854,16 @@ def _rain():
         ("Summarise the findings on teachers who left the schools", False),
         ("Expand the list of out of school children by governorate", False),
         ("Good practices in keeping teachers in schools", False),
+        # a verb of a rework inside a new question, or a closing "instead" after a question word
+        ("Why are boys in Akkar sent to work instead?", False),
+        ("What do teachers do to make it easier to read for children with dyslexia?", False),
+        ("Is there an update this year on child marriage in Akkar?", False),
+        ("Can you summarise this year's evidence on child marriage in Akkar?", False),
+        ("Summarise this year's findings on child labour in the Bekaa.", False),
+        ("Summarize this study's findings on child labour", False),
+        ("Summarise that evaluation of the fake cash grant", False),
+        ("Did enrolment change this year in Akkar?", False),
+        ("Is there a shorter version of the report on child labour?", False),
     ],
 )
 def test_a_follow_up_refers_to_the_earlier_answer_or_has_no_subject_of_its_own(ai, today, question, follows):
@@ -1847,6 +1894,51 @@ def test_thanks_and_the_words_of_a_rework_are_never_searched():
     # praise followed by a word of the question is a word of it
     assert ["good"] in words_of("good practices in child protection")
     assert ["perfect"] in words_of("perfect attendance in Akkar")
+    for question in (
+        "make it more formal",
+        "in Arabic please",
+        "write it for a donor audience",
+        "convert the answer into bullet points",
+        "can you give more details on that?",
+        "can you go into more detail?",
+        "can you elaborate on this?",
+        "translate the answer into French",
+    ):
+        assert words_of(question) == [], question
+    assert words_of("now with a focus on boys") == [["boys"]]
+
+
+@pytest.mark.parametrize(
+    ("question", "word"),
+    [
+        ("Arabic literacy of grade 3 pupils", "arabic"),
+        ("What share of grade 3 pupils read English at grade level?", "english"),
+        ("How well do grade 4 pupils read French?", "french"),
+        ("children in informal settlements in the Bekaa", "informal"),
+        ("formal schools in Akkar", "formal"),
+        ("focus group discussions on child labour", "focus"),
+        ("water points in schools", "points"),
+        ("parenting style of caregivers", "style"),
+        ("longer distances to school in Akkar", "longer"),
+        ("a shorter school day in second shift schools", "shorter"),
+        ("translation services for refugee families", "translation"),
+    ],
+)
+def test_the_words_of_a_subject_that_a_rework_uses_too_are_searched(question, word):
+    groups = ask.understand(question, question).groups
+    assert any(word in alt.split() for g in groups for alt in g), groups
+    assert any(word in alt.split() for g in ask._groups(question) for alt in g)
+
+
+def test_a_question_on_arabic_reads_the_findings_on_arabic_first(ai):
+    texts = [
+        f"In fake region {n}, 20% of grade 3 pupils read {language} at grade level."
+        for language in ("English", "French", "Arabic")
+        for n in range(1, 6)
+    ]
+    factory.load(key_findings(*texts, documents=1))
+    picked = _picked("What share of grade 3 pupils read Arabic at grade level?")
+    assert {f.key_finding for f in picked.findings[:5]} == set(texts[10:])
 
 
 def test_a_follow_up_carries_the_last_subject_its_places_and_its_years(ai, today):

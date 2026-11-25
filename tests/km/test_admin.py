@@ -418,11 +418,13 @@ def test_the_questions_admin_is_read_only_for_those_who_set_up(client_super, cli
         input_tokens=1200,
         output_tokens=300,
         duration_ms=4200,
+        new_subject=[["zqfakeword"]],
     )
     html = client_super.get(reverse("admin:km_kmquestion_changelist")).content.decode()
     for shown in ("What does the fake evidence say?", "Answered", "In part", "1,200 / 300", "4.2 s"):
         assert shown in html, shown
-    assert client_super.get(reverse("admin:km_kmquestion_change", args=[row.pk])).status_code == 200
+    page = client_super.get(reverse("admin:km_kmquestion_change", args=[row.pk]))
+    assert page.status_code == 200 and "zqfakeword" not in page.content.decode()  # the search's own words
     assert client_super.get(reverse("admin:km_kmquestion_add")).status_code == 403
     client.force_login(_person("km-admin-q", ADMIN))
     assert client.get(reverse("admin:km_kmquestion_changelist")).status_code == 200

@@ -465,8 +465,10 @@ QUESTION_TONES = {
 class KMQuestionAdmin(ReadOnlyModelAdmin):
     """The questions put to the KM Database's assistant (read only, kept 90 days): who asked, whether it was
     answered, how many findings it read and cited, the sentences that cite none, the tokens and the time. The
-    question is kept as it was sent: names, e-mail addresses, phone numbers and links removed."""
+    question is kept as it was sent: names, e-mail addresses, phone numbers and links removed. The words a
+    follow-up searched as a new subject (``new_subject``) are the search's own and are not shown."""
 
+    exclude = ("new_subject",)
     list_display = (
         "created_at",
         "user",

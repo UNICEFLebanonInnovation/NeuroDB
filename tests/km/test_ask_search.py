@@ -27,7 +27,7 @@ from tests.km.test_ask import (  # noqa: F401 (fixtures)
     terms,
     today,
 )
-from tests.km.test_ask_session import Q1, Q3, build
+from tests.km.test_ask_session import Q1, Q3, Q4, build
 
 pytestmark = pytest.mark.django_db
 
@@ -237,6 +237,66 @@ def test_latest_reads_the_newest_findings_when_none_is_recent(ai, today):  # noq
         ("the 2000 households surveyed", [], "the 2000 households surveyed"),
         ("what do the 2024 figures say on child labour?", [2024], "what do the figures say on child labour?"),
         ("child labour in 2024 during the war", [2024], "child labour during the war"),
+        # "the" and a year: the year of the data, unless an event follows
+        (
+            "What were the 2024 out of school figures in Akkar?",
+            [2024],
+            "What were the out of school figures in Akkar?",
+        ),
+        ("the 2024 out-of-school rate in Akkar", [2024], "the out-of-school rate in Akkar"),
+        (
+            "What was the 2024 situation of children in the South?",
+            [2024],
+            "What was the situation of children in the South?",
+        ),
+        ("what about the 2024 situation?", [2024], "what about the situation?"),
+        (
+            "what were the 2024 trends in child labour in the Bekaa?",
+            [2024],
+            "what were the trends in child labour in the Bekaa?",
+        ),
+        ("What did the 2024 VASyR find on child labour?", [2024], "What did the VASyR find on child labour?"),
+        ("the 2024 MICS on child marriage", [2024], "the MICS on child marriage"),
+        (
+            "what did the 2023 back to school campaign achieve",
+            [2023],
+            "what did the back to school campaign achieve",
+        ),
+        ("the 2024 response in the south", [2024], "the response in the south"),
+        # a year before "child" is a year ("the 2024 child labour figures"); before "children", a count
+        ("the 2024 child labour figures in the Bekaa", [2024], "the child labour figures in the Bekaa"),
+        ("the 2023 child marriage rate in the North", [2023], "the child marriage rate in the North"),
+        ("2024 child labour in the Bekaa", [2024], "child labour in the Bekaa"),
+        ("in 2024 child labour rose", [2024], "child labour rose"),
+        ("in 2000 children", [], "in 2000 children"),
+        # a year compared with, when the question names a year of its own: both years
+        (
+            "Were more children out of school in Akkar in 2025 than in 2019?",
+            [2025, 2019],
+            "Were more children out of school in Akkar ?",
+        ),
+        (
+            "Was child marriage in the North higher in 2024 than in 2019?",
+            [2024, 2019],
+            "Was child marriage in the North higher ?",
+        ),
+        (
+            "What was the out of school rate in Akkar in 2025 compared with the 2019 rate?",
+            [2025, 2019],
+            "What was the out of school rate in Akkar ?",
+        ),
+        (
+            "Is child labour in Bekaa higher in 2024 than 2019?",
+            [2024, 2019],
+            "Is child labour in Bekaa higher ?",
+        ),
+        (
+            "Has child poverty in Baalbek risen in 2025 compared to the 2019 levels?",
+            [2025, 2019],
+            "Has child poverty in Baalbek risen ?",
+        ),
+        # "before" a year is never that year
+        ("child marriage in 2023 and before 2020", [2023], "child marriage and"),
         # the year of an event, or a year compared with: no Year filter, never searched
         (
             "mental health of adolescents after the 2020 explosion",
@@ -249,6 +309,11 @@ def test_latest_reads_the_newest_findings_when_none_is_recent(ai, today):  # noq
             "how did war affect children in the south?",
         ),
         ("children affected by the August 2020 blast", [], "children affected by blast"),
+        (
+            "During the 2024 escalation, how many children were displaced?",
+            [],
+            "During escalation, how many children were displaced?",
+        ),
         ("impact of 2020 port explosion on children", [], "impact of port explosion on children"),
         ("Lebanon's 2019 crisis and child labour", [], "Lebanon's crisis and child labour"),
         ("injuries from 2020 explosion", [], "injuries from explosion"),
@@ -277,10 +342,52 @@ def test_years_of_a_question(asked, years, left):
         ("child marriage since the 2019 crisis", ["crisis"]),
         ("out of school children before the 2019 economic crisis", ["2019", "economic", "crisis"]),
         ("child marriage 2025", []),
+        ("Were more children out of school in Akkar in 2025 than in 2019?", ["2019"]),
     ],
 )
 def test_the_year_of_an_event_only_ranks(asked, ranks):
     assert ask.time_frame(asked, datetime.date(2026, 11, 25)).ranks == ranks
+
+
+def test_the_year_of_the_data_after_the_is_the_year_filter(ai, today):  # noqa: F811
+    texts = (
+        "In the South, 30% of children were out of school.",
+        "In Nabatieh, 12% of children worked.",
+        "In Tyre, 20% of children were displaced.",
+    )
+    load(("2024", texts[:1]), ("2025", texts[1:2]), ("2019", texts[2:]))
+    picked = _picked("What was the 2024 situation of children in the South?")
+    assert picked.filters.year == ["2024"] and read(picked) == {texts[0]}
+    assert picked.notes[-1].startswith("Years 2024, from your question")
+    # a follow-up's own year of the data replaces the earlier years
+    earlier = [{"question": "situation of children in the South in 2019", "answer": "Fake.", "cited": []}]
+    picked = _picked("what about the 2024 situation?", earlier=earlier)
+    assert picked.filters.year == ["2024"] and read(picked) == {texts[0]}
+
+
+def test_a_year_compared_with_a_year_of_the_question_reads_both(ai, today):  # noqa: F811
+    texts = (
+        "In Akkar, 27% of children were out of school.",
+        "In Akkar, 18% of children aged 6-14 were out of school.",
+        "In Akkar, 22% of children were out of school.",
+    )
+    load(("2025", texts[:1]), ("2019", texts[1:2]), ("2022", texts[2:]))
+    for question in (
+        "Were more children out of school in Akkar in 2025 than in 2019?",
+        "What was the out of school rate in Akkar in 2025 compared with the 2019 rate?",
+    ):
+        picked = _picked(question)
+        assert picked.filters.year == ["2025", "2019"] and read(picked) == set(texts[:2]), question
+    # a follow-up that compares with a year keeps the earlier years and adds it
+    earlier = [
+        {"question": "out of school children in Akkar in 2025", "answer": "Fake.", "cited": ids_of(texts[0])}
+    ]
+    picked = _picked("and compared to 2019?", earlier=earlier)
+    assert picked.follow_up and picked.filters.year == ["2025", "2019"] and read(picked) == set(texts[:2])
+    # and the next follow-up keeps both
+    earlier.append({"question": "and compared to 2019?", "answer": "Fake.", "cited": ids_of(texts[1])})
+    picked = _picked("can u do it for all lebanon?", earlier=earlier)
+    assert picked.filters.year == ["2025", "2019"]
 
 
 def test_a_year_before_a_full_stop_or_a_comma_is_the_year_filter(ai, today):  # noqa: F811
@@ -456,6 +563,16 @@ PER = (
         "out of school children at district level",
         "out of school children, district-level",
         "out of school children within each caza",
+        "out of school children across Lebanon's governorates",
+        "out of school children in all eight governorates",
+        "out of school children in all 8 governorates",
+        "out of school children across all Lebanese governorates",
+        "out of school children across the country's governorates",
+        "out of school children in the nine governorates",
+        "out of school children by governorate and district",
+        "out of school children per governorate and district",
+        "out of school children for each governorate and district",
+        "out of school children by district and governorate",
     ],
 )
 def test_every_way_of_asking_a_breakdown_searches_no_word_of_it(ai, asked):  # noqa: F811
@@ -466,6 +583,8 @@ def test_every_way_of_asking_a_breakdown_searches_no_word_of_it(ai, asked):  # n
         places.breakdown_alternatives(),
     ]
     assert read(picked) == set(PER[:2])  # never "per month", "across the Bekaa", "broken windows"...
+    # by governorate and district: by district
+    assert picked.by_district is ("district" in asked or "caza" in asked)
 
 
 def test_a_follow_up_per_governorate_reads_the_subject_by_governorate(ai):  # noqa: F811
@@ -548,12 +667,42 @@ def test_national_is_never_the_only_word_searched(ai):  # noqa: F811
         ("South Metn", "In Baabda, fake rates rose."),
         ("North Bekaa", "In Hermel, fake rates rose."),  # Baalbek-Hermel
         ("West Bekaa", "In the Western Bekaa, fake rates rose."),
+        # more ways of saying the south: the South and Nabatieh
+        ("the southern regions", "In Tyre, fake rates rose."),
+        ("southern areas", "In Marjayoun, fake rates rose."),
+        ("the southern parts", "In Saida, fake rates rose."),
+        ("the southern part of Lebanon", "In Nabatiyeh, fake rates rose."),
+        # the northern governorates: the North and Akkar
+        ("the northern governorates", "In Halba, fake rates rose."),
+        ("the northern region", "In Tripoli, fake rates rose."),
+        ("north region", "In Akkar, fake rates rose."),
+        ("the northern areas", "In Koura, fake rates rose."),
+        # South Bekaa: the Bekaa (West Bekaa and Rashaya), never the South
+        ("South Bekaa", "In Rashaya, fake rates rose."),
+        ("southern Bekaa", "In West Bekaa, fake rates rose."),
     ],
 )
 def test_more_place_spellings_and_the_camps(ai, asked, text):  # noqa: F811
     load(("2024", [text, "Fake rates rose in Fakeland.", "Fake rates rose."]))
     picked = _picked(f"situation of children in {asked}")
     assert read(picked) == {text} and picked.groups == []
+
+
+@pytest.mark.parametrize("asked", ["the northern governorates", "the northern region", "north region"])
+def test_the_northern_governorates_are_the_north_and_akkar_and_the_line_says_so(ai, asked):  # noqa: F811
+    load(("2024", ["In Halba, child labour rose.", "In Zahle, child labour rose."]))
+    picked = _picked(f"child labour in {asked}")
+    assert not picked.breakdown and picked.groups == [["labour", "labor"]]
+    assert picked.places == "the north (North and Akkar governorates)"
+    assert _ids(picked)[0] == ids_of("In Halba, child labour rose.")[0]
+    assert places.read(f"child labour in {asked}").keys == ["north", "akkar"]
+
+
+def test_south_bekaa_is_the_bekaa_and_a_region_of_a_place_is_that_place(ai):  # noqa: F811
+    assert places.read("out of school children in South Bekaa").keys == ["bekaa"]
+    assert places.read("children in the southern region of the Bekaa").keys == ["bekaa"]
+    assert places.read("children in the southern areas of Mount Lebanon").keys == ["mount-lebanon"]
+    assert places.read("children in the southern region of Lebanon").keys == ["south", "nabatieh"]
 
 
 @pytest.mark.parametrize(
@@ -641,6 +790,29 @@ def test_south_metn_and_north_bekaa_are_not_the_south_or_the_north(ai):  # noqa:
         assert sum(found.filter(ask.hit(g)).exists() for g in places.governorate_alternatives()) == 1, text
 
 
+def test_a_text_that_names_a_place_on_its_own_too_names_it(ai):  # noqa: F811
+    texts = (
+        "Child labour in the Bekaa and North Bekaa rose to 20%.",
+        "Child labour in the North and North Bekaa rose to 16%.",
+        "In North Bekaa, 9% of children were in child labour.",
+        "In the South and South Bekaa, 7% of children were in child labour.",
+        "In Jbeil and Bint Jbeil, 5% of children were in child labour.",
+        "In North-Bekaa, 6% of children were in child labour.",
+    )
+    load(("2024", texts))
+    assert read(_picked("situation of children in the Bekaa")) == {texts[0], texts[3]}
+    assert read(_picked("situation of children in the North")) == {texts[1]}
+    assert read(_picked("situation of children in Baalbek-Hermel")) == {
+        texts[0],
+        texts[1],
+        texts[2],
+        texts[5],
+    }
+    assert read(_picked("situation of children in the South")) == {texts[3], texts[4]}
+    assert read(_picked("situation of children in Mount Lebanon")) == {texts[4]}
+    assert read(_picked("situation of children in Nabatieh")) == {texts[4]}
+
+
 def test_west_bekaa_is_in_the_bekaa_and_the_bekaa_is_not_west_bekaa(ai):  # noqa: F811
     texts = ("In West Bekaa, 11% of children worked.", "In Zahle, 8% of children worked.")
     load(("2024", texts))
@@ -691,27 +863,25 @@ CHILD_LABOUR = (
 )
 
 
-def test_a_follow_up_that_fell_back_to_its_own_words_keeps_them_next_turn(ai):  # noqa: F811
+def test_an_addition_no_finding_joins_to_the_subject_stays_an_angle_next_turn(ai):  # noqa: F811
     load(("2024", CHILD_LABOUR))
     first = ids_of(CHILD_LABOUR[0])
     earlier = [{"question": "child labour in Akkar", "answer": "Fake.", "cited": first}]
     picked = _picked("and for girls?", earlier=earlier)
     assert picked.follow_up and ids_of(CHILD_LABOUR[1])[0] in _ids(picked)
-    # no finding joins girls to child labour: girls is the subject now (kept on the row)
-    assert picked.new_subject == [["girls"]]
+    # no finding joins girls to child labour: girls are read alone, and stay an angle on child labour (an
+    # addition is never a new subject)
+    assert picked.new_subject == []
     turn = {"question": "and for girls?", "answer": "Fake.", "cited": ids_of(CHILD_LABOUR[1])}
-    earlier.append({**turn, "new_subject": picked.new_subject})
+    earlier.append(turn)
     picked = _picked("do the same for all lebanon", earlier=earlier)
     assert read(picked) == {CHILD_LABOUR[1], CHILD_LABOUR[2]}
-    # the earlier answer's finding is on girls: read first, and said
+    # the earlier answer's finding read first, and said
     assert _ids(picked)[0] == ids_of(CHILD_LABOUR[1])[0] and picked.cited_again == 1
     assert (
         picked.notes[0]
-        == "Same subject as your earlier question; the findings its answer cited were read again."
+        == "A follow-up of your earlier question; the findings its answer cited were read again."
     )
-    # a row kept before the words were kept reads the same findings
-    picked = _picked("do the same for all lebanon", earlier=[*earlier[:1], turn])
-    assert read(picked) == {CHILD_LABOUR[1], CHILD_LABOUR[2]}
 
 
 TRIPOLI = (
@@ -769,6 +939,60 @@ def test_the_owners_q3_after_q1_keeps_q1s_figure(ai):  # noqa: F811
     picked = _picked(Q3, earlier=earlier)
     assert _ids(picked)[0] == ids_of(texts[0])[0] and picked.cited_again == 1
     assert set(ids_of(*texts[1:3])) <= set(_ids(picked))
+    # a rework's angle stays an angle on Q1's subject: Q4 reads out of school girls in all of Lebanon
+    assert picked.new_subject == []
+    earlier.append({"question": Q3, "answer": "Fake.", "cited": ids_of(texts[0]), "new_subject": []})
+    picked = _picked(Q4, earlier=earlier)
+    assert not picked.carried_only and texts[3] in read(picked)
+
+
+GIRLS = (
+    (
+        "2025",
+        [
+            "In Akkar, 30% of children were out of school.",
+            "In Akkar, girls had fewer fake textbooks than boys.",
+            "In Akkar, girls joined a fake chess club.",
+        ],
+    ),
+    ("2025", ["In Beirut, 25% of girls were out of school.", "Girls in Saida joined a fake art club."]),
+    (
+        "2024",
+        [
+            "Out-of-school girls in Baalbek worked on fake farms.",
+            "Nationally, 12% of boys were out of school.",
+        ],
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "angle",
+    [
+        "adjust it for girls",
+        "adjust the text above for girls",
+        "can you adjust the text above with a lence on gender",
+        "what about girls?",
+        "and for girls?",
+    ],
+)
+def test_an_angle_on_the_subject_stays_an_angle_for_the_next_follow_up(ai, angle):  # noqa: F811
+    load(*GIRLS)
+    akkar = ids_of("In Akkar, 30% of children were out of school.")
+    earlier = [{"question": "out of school children in Akkar", "answer": "Fake.", "cited": akkar}]
+    picked = _picked(angle, earlier=earlier)
+    assert picked.new_subject == [], angle  # a rework, an addition or a group of people: never a new subject
+    earlier.append({"question": angle, "answer": "Fake.", "cited": akkar, "new_subject": picked.new_subject})
+    picked = _picked("can u do it for all lebanon?", earlier=earlier)
+    found = read(picked)
+    assert {
+        "In Beirut, 25% of girls were out of school.",
+        "Out-of-school girls in Baalbek worked on fake farms.",
+    } <= found
+    assert not found & {
+        "In Akkar, girls joined a fake chess club.",
+        "Girls in Saida joined a fake art club.",
+    }, angle
 
 
 def test_a_follow_up_for_all_of_lebanon_after_a_place_alone_reads_beyond_the_place(ai):  # noqa: F811
@@ -825,6 +1049,15 @@ def test_a_follow_up_that_matches_one_of_its_two_words_says_so(ai):  # noqa: F81
     # no finding joins either to out of school, and none holds both: those holding one were read
     assert picked.loose and set(ids_of(SWITCHED[1], SWITCHED[4])) <= set(_ids(picked))
     assert "No finding matches all your words: findings that match one of them were read." in picked.notes
+    # the new subject is kept as it was read: any one of its words (one group)
+    assert len(picked.new_subject) == 1
+    assert set(picked.new_subject[0]) == {"child marriage", "early marriage", "labour", "labor"}
+    turn = {"question": "what about child marriage and child labour?", "answer": "Fake."}
+    earlier.append({**turn, "cited": ids_of(SWITCHED[1]), "new_subject": picked.new_subject})
+    picked = _picked("can u do it for all lebanon?", earlier=earlier)
+    assert not picked.carried_only and set(SWITCHED[1:3]) | {SWITCHED[4]} <= read(picked)
+    picked = _picked("and in Akkar?", earlier=earlier)
+    assert _ids(picked)[0] == ids_of(SWITCHED[2])[0] and picked.in_place == 1
 
 
 def test_an_angle_on_the_subject_found_elsewhere_keeps_the_subject(ai):  # noqa: F811
@@ -911,6 +1144,28 @@ SHAPES = {
         "| Indicator `a|b` | Figure as stated | Year | Finding ID |\n|---|---|---|---|\n"
         "| Fake rate | 40% | 2024 | TST-0001-F00001 |\n| Fake unsupported rate | 99% | 2024 | none |\n"
         "| Fake other rate | 77% | 2025 | |",
+        2,
+    ),
+    # markup in a row taken out of what is shown is taken out of the text too
+    "a line break in a row of a table only markdown reads": (
+        "| Indicator `a|b` | Figure as stated | Year | Finding ID |\n|---|---|---|---|\n"
+        "| Fake rate | 40% | 2024 | TST-0001-F00001 |\n| Invented<br>fake hills | 99% | |\n"
+        "| Fake other rate<sup>a</sup> | 77% | 2025 | |",
+        2,
+    ),
+    "a table of one column": (
+        "Fake figures |\n---|\nInvented 99% of fake girls<br>in the fake hills |\nFake rate 40% TST-0001-F00001 |",
+        1,
+    ),
+    # a Finding ID read written as code: linked like any other, its row kept
+    "a finding id in code": (
+        TABLE_HEAD + "|---|---|---|---|\n| Fake rate | 40% | 2024 | `TST-0001-F00001` |\n"
+        "| Fake unsupported rate | 99% | 2024 | none |\n| Fake other rate | 77% | 2025 | |",
+        2,
+    ),
+    "a finding id in code in brackets": (
+        TABLE_HEAD + "|---|---|---|---|\n| Fake rate | 40% | 2024 | `[TST-0001-F00001]` |\n"
+        "| Fake unsupported rate | 99% | 2024 | none |\n| Fake other rate | 77% | 2025 | |",
         2,
     ),
     "an html table in a cell": (
@@ -1000,8 +1255,28 @@ CLAIMS = [
     "As the Excel under this answer shows, girls with disabilities are the group most often excluded from school.",
     "The CSV of these findings confirms that boys leave school earlier than girls in every governorate.",
     "The Excel under this answer lists each finding read; girls with disabilities are the most excluded.",
+    # people missing, people with no information: claims
+    "Nearly 30% of girls in Akkar are missing from secondary school because they work.",
+    "In half of the fake schools a qualified teacher is missing for grades 7 to 9.",
+    "Children with disabilities in Baalbek-Hermel are missing out on education, with 40% never enrolled.",
+    "In Akkar, 45% of households had no information on how to register children in school.",
+    "No data were collected in the fake hills, where 60% of children work on farms.",
+    "There is no evidence that the cash grant reduced dropout among boys in Akkar.",
+    # what people said, or people in the studies: claims
+    "Teachers in the fake villages said they do not give information to parents about dropout.",
+    "Girls in these studies do not report harassment to their teachers or parents.",
+    "Adolescents in the reports do not report harassment to anyone at school.",
+    # a pointer with a clause of its own
+    "The Excel under this answer lists the findings read, mostly from Akkar, where girls left school early.",
+    "The Excel under this answer lists the findings read, and girls in Akkar left school early to marry.",
+    "The CSV of these findings lists each finding read, as girls in Akkar left school early because of work.",
 ]
 NOT_CLAIMS = [
+    # what is missing from the findings
+    "What is missing is a breakdown of these figures by sex and by age.",
+    "Figures by sex and by age are missing from the findings read here.",
+    "There are no data on child labour by sex in the findings read.",
+    "The age of the children in the fake villages is missing.",
     # what the findings lack, or a pointer to the file under the answer
     "The findings read do not report figures by sex for the fake villages.",
     "The findings read here do not give separate figures for girls with disabilities.",
@@ -1032,6 +1307,11 @@ TABLE = TABLE_HEAD + "|---|---|---|---|\n| Fake rate | 23% | 2024 | [TST-0001-F0
         ("Out-of-school rates were highest in the fake hills | lowest in the fake coast.", 1),
         ("| Fake hills | 41% out of school in 2025 |\n| Fake coast | 12% out of school in 2025 |", 2),
         ("- Fake hills: 41% out of school | fake coast: 12% out of school in 2025.", 1),
+        # a header with no pipe at either end over a rule between pipes: markdown reads no table
+        (
+            "In the fake hills 99% of girls work | in the fake coast 12%\n|---|---|\n| Real | [TST-0001-F00001] |",
+            1,
+        ),
         # the lines of a table are not
         (TABLE, 0),
         ("> " + TABLE.replace("\n", "\n> "), 0),
