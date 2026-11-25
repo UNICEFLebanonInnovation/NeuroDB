@@ -277,6 +277,12 @@ class AISettingsForm(forms.ModelForm):
         widget=UnfoldAdminSelectWidget,
         help_text=AISettings._meta.get_field("ask_effort").help_text,
     )
+    km_effort = forms.ChoiceField(
+        label=_("KM Database assistant effort"),
+        required=False,
+        widget=UnfoldAdminSelectWidget,
+        help_text=AISettings._meta.get_field("km_effort").help_text,
+    )
     openai_key = forms.CharField(
         label=_("OpenAI API key"),
         required=False,
@@ -300,6 +306,7 @@ class AISettingsForm(forms.ModelForm):
             "claude_effort",
             "ask_model",
             "ask_effort",
+            "km_effort",
             "claude_fallbacks",
             "openai_model",
             "openai_effort",
@@ -316,6 +323,10 @@ class AISettingsForm(forms.ModelForm):
         self.fields["ask_model"].choices = [("", _("Same as the Claude model above")), *_claude_models()[1:]]
         self.fields["ask_effort"].choices = _choices(
             _("Same as Claude's default effort above"), settings.CLAUDE_EFFORTS
+        )
+        # the KM Database assistant's own: blank for its default (llm.KM_EFFORT)
+        self.fields["km_effort"].choices = _choices(
+            _("The default: %(effort)s") % {"effort": llm.KM_EFFORT}, settings.CLAUDE_EFFORTS
         )
         self.fields["openai_effort"].choices = _choices(
             _("The default: %(effort)s (AI_ASSISTANT_EFFORT)") % {"effort": settings.AI_ASSISTANT_EFFORT},
@@ -419,6 +430,7 @@ class AISettingsAdmin(ModelAdmin):
                     "claude_effort",
                     "ask_model",
                     "ask_effort",
+                    "km_effort",
                     "claude_fallbacks",
                 )
             },

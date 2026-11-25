@@ -223,6 +223,7 @@ class Snapshot:
     claude_effort: str = ""
     ask_model: str = ""  # Ask NeuroDB's own, on Claude only; "" for the Claude model
     ask_effort: str = ""
+    km_effort: str = ""  # Ask the KM Database's own, on Claude only; "" for its default
     claude_fallbacks: bool = True
     openai_model: str = ""
     openai_effort: str = ""
@@ -256,6 +257,7 @@ def _read() -> Snapshot:
         claude_effort=row.claude_effort.strip(),
         ask_model=row.ask_model.strip(),
         ask_effort=row.ask_effort.strip(),
+        km_effort=row.km_effort.strip(),
         claude_fallbacks=row.claude_fallbacks,
         openai_model=row.openai_model.strip(),
         openai_effort=row.openai_effort.strip(),
@@ -497,6 +499,17 @@ def ask_effort(p: str | None = None) -> str:
     p = p or provider()
     chosen = snapshot().ask_effort if p == CLAUDE else ""
     return chosen or default_effort(p)
+
+
+KM_EFFORT = "medium"  # Ask the KM Database's own default effort, on either provider
+
+
+def km_effort(p: str | None = None) -> str:
+    """Ask the KM Database's effort: on Claude the KM Database assistant effort chosen in AI settings, else
+    :data:`KM_EFFORT` (on OpenAI always). Never another feature's."""
+    p = p or provider()
+    chosen = snapshot().km_effort if p == CLAUDE else ""
+    return chosen or KM_EFFORT
 
 
 def ask_pair(p: str | None = None) -> tuple[str, str] | None:

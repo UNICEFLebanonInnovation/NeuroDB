@@ -285,8 +285,11 @@ come from.
   them `low`; Monitoring insights its prompt version's model and effort; `WATCH_MODEL` and the Score
   settings name their own model). Ask NeuroDB's refusal fallback goes with its own model (a model that
   does not take it is sent without it), and its question log and AI use name the model that answered. *In use now* and the table
-  of models say which model Ask NeuroDB runs on. A change applies within about 10 seconds, with no
-  restart. While Claude is in use and either is chosen, **Test the connection** also tries Ask NeuroDB's
+  of models say which model Ask NeuroDB runs on. **KM Database assistant effort** (under Claude too) is
+  the effort of Ask the KM Database's answer call alone: blank (the default) is `medium`, its own default
+  (`llm.KM_EFFORT`), whatever Claude's default effort is; it counts only while Claude is the provider (on
+  OpenAI the KM Database assistant runs at `medium`), and its search-words call stays `low`. A change
+  applies within about 10 seconds, with no restart. While Claude is in use and either is chosen, **Test the connection** also tries Ask NeuroDB's
   model and effort, and says what happened on a line of its own ("Ask NeuroDB: ..."; when the pair is the
   Claude pair, "the same model and effort as above", with nothing sent twice); a model that does not
   take that effort is said as for the default effort. When the first call failed for a reason both share (the key, the credit,
@@ -1494,27 +1497,53 @@ asked). In order:
      that no finding of the filters holds (a word misspelt, a word of no finding) is not counted (one
      query). The order: the most groups matched; when the question asks for a number ("number", "rate",
      "percentage", "how many", "%"...), the findings whose key finding or measure holds a figure; the
-     findings marked Yes for an age group or girls and boys the question names; then the rank. In a long
+     findings marked Yes for an age group or girls and boys the question names (both sexes for "gender"
+     or "sex", the disability inclusion mark for "disability"); then the rank. In a long
      question (more than 8 word groups), the findings that match its last clause (after the last sentence
      or a comma before "could", "what", "please"...) come first, and one that matches enough of that
      clause is kept; a last clause made of request words only ("once done I need an excel sheet") is never
-     that topic.
+     that topic. In a follow-up (below), a finding must match one of its angles at least (any one is
+     enough: "a lens on gender, and disability" reads a finding on either) and the earlier subject's
+     quorum, one word fewer when an angle is asked (both words of a 2-word subject, 1 with an angle).
    - **Findings with the same key finding** (compared in Unicode NFKC, lower case, letters and digits
      only) are read once: the copies take no place of the 40 or of a document's 6, are sent as
      `also="<their Finding IDs>"` on the finding read, count as read, and can be cited (linked and listed
      under the answer). Each pass reads twice the findings it needs, so that copies leave room.
+   - **A follow-up.** In a conversation, a question is a follow-up when it has under 4 words, when it
+     refers to the earlier answer ("do it for", "same for", "the text above", "the previous answer",
+     "redo", "rework", "rewrite", "adjust", "instead", "again", "for all ...", a question starting with
+     "and"; never a bare "it", "this" or "that", which new questions use too), or when it has no subject
+     of its own: no word left to search once places, years, codes and request words are read ("can u do
+     it for all lebanon?", "what about Akkar since 2024?", "once done I need an excel sheet"). A question
+     that names the KM Database's subject in general words ("the situation of children", "children"), a
+     Finding ID or a Document ID has a subject of its own. The earlier answered turns of the conversation
+     (`ask.conversation`, from their cleaned questions, no query) leave a subject: the words of the
+     question that set it, the angles its follow-ups added ("with a lens on gender", "and for boys?"),
+     its places and its years. A follow-up keeps them unless it names its own: a place of its own
+     replaces the earlier place, "all Lebanon" drops it, "all governorates" asks for findings naming a
+     governorate instead, a time frame of its own replaces the earlier years. It reads the findings the
+     previous answer cited first (up to 20; when it names a place of its own, only those naming it); when
+     no finding matches its own words together with the earlier subject, its own words are searched alone
+     (a new subject). A question with no word of its own is thus no longer "no findings" in a
+     conversation. The line under the answer says what was kept ("Same subject as your earlier question;
+     the findings its answer cited were read again.", "Places from your earlier question: ...", "Years
+     2024–2026, from your earlier question; ..."). A reply that reads no finding has its own line too ("No
+     finding matches your words.", or "No words to search: common words such as all, Lebanon and
+     children are left out."), never the page's "Answered from 1 data lookup".
    - At most 40 findings, 6 a document (no cap when the filters or the question name one document), 60,000
-     characters. A follow-up of under 4 words keeps the earlier question's words and place and reads the
-     previous answer's cited findings first; when no finding matches it together with the earlier topic,
-     its own words are searched alone (a new topic). When fewer than 40 findings match (or the question is
-     not in Latin letters) and less than 15 seconds have passed, a small call (20 seconds, no retry) asks
-     for search words from the cleaned question and the conversation's earlier questions only, never any
-     data; it fails silently. When it finds the credit gone (the pause starts), no answer call is made: the
-     findings are listed with the pause's sentence.
+     characters of findings (the conversation's earlier turns have their own room). When fewer than 40
+     findings match, a word of the question matches no finding (a word misspelt or cut short, "lence"),
+     or the question is not in Latin letters, and less than 15 seconds have passed, a small call (20
+     seconds, no retry) asks for search words from the cleaned question and the conversation's earlier
+     questions only, never any data; it fails silently. When it finds the credit gone (the pause starts),
+     no answer call is made: the findings are listed with the pause's sentence.
 4. **The message**: the question, up to 4 earlier turns of this conversation read from the version shown
-   (answers cut at 1,500 characters, citations as plain [ID]), the filters in words, the date it was asked
-   ("This question was asked on 25 November 2026."), what the search read from the question ("Read from the
-   question: places: the South (South and Nabatieh governorates); years 2024–2026 (publication years;
+   (the last answer up to 4,000 characters, whole in practice, so that a follow-up can rework it; the
+   others cut at 1,500; citations as plain [ID]; outside the 60,000 characters of findings, so an earlier
+   answer never takes a finding's place), the filters in words, the date it was asked ("This question was
+   asked on 25 November 2026."), what the search read from the question ("Read from the question: a
+   follow-up of the previous question (its subject and years kept; the findings its answer cited read
+   again); places: the South (South and Nabatieh governorates); years 2024–2026 (publication years;
    findings whose year is not reported left out)", and when few or no findings name the place, that the
    others were read), a legend of the pillars and research questions, and the findings read, grouped by
    document, every text and attribute (the year as given too) through `privacy.for_ai` and escaped
@@ -1523,29 +1552,45 @@ asked). In order:
    "Level B" or "not given", "ready" or "marked for review", the age and sex marks marked Yes, and its study
    or data collection period ("Data collected:", 120 characters). The final check (`privacy.leftover`) leaves out a document whose block still names someone
    (counted in the question's error) and sends nothing when the whole message does.
-5. **The call**: the model of AI settings at low effort, 5,000 output tokens, held to the time left of 95
-   seconds, no retry, structured JSON (`answer`, `covered`: yes / partly / no), `store=false` (OpenAI;
-   Claude keeps nothing either), a keyed hash of the person.
+5. **The call**: the model of AI settings at the *KM Database assistant effort* of AI settings (Claude
+   only; blank, and always on OpenAI: `medium`), 12,000 output tokens (thinking counts toward them, with
+   an answer of up to about 400 words), held to the time left of 150 seconds, no retry, structured JSON
+   (`answer`, `covered`: yes / partly / no), `store=false` (OpenAI; Claude keeps nothing either), a keyed
+   hash of the person. The rules (`ask.KM_PROMPT`): only the findings sent; an earlier answer is never a
+   source on its own, but when the person asks to rewrite, shorten, refocus or extend it, the model
+   rewrites it from the findings it cites that are in `<findings>`, keeping their IDs (the owner's
+   rule); an ID at the end of every claim, an opening sentence that sums up may have none and a closing
+   one ends with the IDs it rests on; figures exactly as stated, never added up or merged, compared only
+   when each carries its ID; a year is the publication year and "Data collected" the collection period;
+   about 250 words, up to about 400 for a paragraph, a description or a summary; no headings or tables.
 6. **The answer checked**: names withheld again (an answer that still names someone is kept back and the
    findings listed instead); the model's own links taken out; every Finding ID read linked to its finding
    with the version it was read from (`/km/findings/<ID>/?v=<version>`), every other reference of the
    shape of the version's Finding IDs or Document IDs (invented, a Document ID, not read this time) taken
    out and counted, with as many digits as the IDs hold ("PM2.5" and "PM10" stay); the sentences citing no
-   finding counted. The rendered answer keeps only links to the findings read.
+   finding counted (not the answer's first sentence, a lead; not one whose paragraph cites a finding in a
+   later sentence; not one saying what the findings lack or do not answer). The rendered answer keeps only
+   links to the findings read. When the model says the findings answer only in part, the notice says what
+   the search could not find, where it can: "The KM Database answers this only in part: no finding names
+   Mount Lebanon." (or "only 2 findings name ...", "no finding of 2022", "no finding read compares
+   governorates").
 
 | Sent to the AI provider | Never sent |
 |---|---|
-| The question, cleaned; up to 4 earlier questions and answers of this conversation and version; the filters in words (codes, years, types, "one document"); the date the question was asked (its own line, "This question was asked on ..."); what the search read from the question (the places, a breakdown by governorate, all of Lebanon, the years, and whether few or no findings named the place: fixed words and public place names, through `privacy.for_ai`); the legend of pillar and research question labels | Publishing entity / authors (either sheet), people's names in texts, e-mail addresses, links, phones; the search box's words |
+| The question, cleaned; up to 4 earlier questions and answers of this conversation and version (the last answer up to 4,000 characters, the others 1,500, through `privacy.for_ai`); the filters in words (codes, years, types, "one document"); the date the question was asked (its own line, "This question was asked on ..."); what the search read from the question (a follow-up and what it kept of the earlier question, the places, a breakdown by governorate, all of Lebanon, the years, and whether few or no findings named the place: fixed words and public place names, through `privacy.for_ai`); the legend of pillar and research question labels | Publishing entity / authors (either sheet), people's names in texts, e-mail addresses, links, phones; the search box's words |
 | Of the findings read (about 30-35, at most 40): Finding ID (and the Finding IDs of the findings with the same key finding, as `also`), legend key, confidence letter, marked for review or not, the age and sex marks marked Yes, ages, measure, key finding, analysis, limitations, the study or data collection period (through `privacy.for_ai`, 120 characters); of their documents: title, year, type, population, methods | Document IDs (one typed in a question, or any word of their shape, goes as "this document" or "a document", in the question, the earlier questions and the search-words call; the log keeps the question as typed, cleaned of names), short titles, sub-questions, indicators, evidence origin, values to check, the data quality text |
 | The number of matching findings | Anything from another NeuroDB table: partners, programme documents, indicators, the knowledge base, the library, users, Ask NeuroDB's prompt and its date and year lines ("Today is ...", "This year is ...") |
 | The two fixed prompts (`ask.KM_PROMPT`, `ask.TERMS_PROMPT`) | The workbook, its Read Me, the version's file name |
 
 - **Limits**: `KM_PER_USER_PER_DAY` (30) questions a day per person from local midnight: one being
   answered and one that made a call count (a failed one with tokens too, and one with no matching finding
-  once the search-words call ran); one over a limit, with nothing to search (only common words) or kept
-  back before a call does not; declined questions are free up to the same number.
+  once the search-words call ran); one over a limit, with nothing to search (only common words, and no
+  earlier subject in the conversation to follow up: in a conversation such a question is a follow-up,
+  searched and answered, and counts) or kept back before a call does not; declined questions are free up
+  to the same number.
   At most 2 at once per person (429). The KM Database's share of the day, `KM_DAILY_TOKEN_CAP` (600,000
-  tokens, about 25-30 questions: a question asks for 25,000 before it starts), so that a few heavy users
+  tokens, about 20-25 questions at medium effort, an estimate: a question asks for 35,000 before it
+  starts), so that a few heavy users
   cannot use up the shared `AI_DAILY_TOKEN_SOFT_CAP` (3,000,000) for Ask NeuroDB, Help and Monitoring
   insights or stop Watch at 80%; when more roles are ticked, raise both together. The shared budget at
   100% and the credit pause of Monitoring insights apply too (a call that finds the credit gone starts it).
@@ -1555,8 +1600,10 @@ asked). In order:
 - **Switching it off**: `KM_ASK_ENABLED=false` → the tab lists the matching findings without an answer;
   the AI off in AI settings (or by the hosting team) → every assistant, this one included; the tab still
   lists findings. The confidence rule of the prompt follows `neurodb.km.columns.CONFIDENCE_A_STRONGEST`.
-- **Cost**: one question is about 20,000-25,000 tokens (findings, history, up to 5,000 out, the search
-  words). Every call is counted under *KM Database assistant* (`km`) in *AI use*.
+- **Cost**: one question is about 22,000-30,000 tokens at medium effort (an estimate, not yet measured:
+  findings about 15,000, the conversation up to about 3,000, thinking and the answer up to 12,000 out,
+  about 2,000-6,000 in practice, the search words); `high` effort or above uses more and takes longer.
+  Every call is counted under *KM Database assistant* (`km`) in *AI use*.
 - **The log**: Admin → *KM Database* → **Questions to the KM Database** (read only, superusers and
   Administrators): the cleaned question, status, covered, findings read and cited, sentences citing none,
   tokens and time. Its own rows (`km_question`), never Ask NeuroDB's or the Help assistant's; kept 90
@@ -1567,7 +1614,9 @@ asked). In order:
   60,000-character limit stops before 40), from 12 to 22 documents; the search took at most 0.3 s and the
   message at most 0.4 s. **These figures predate the retrieval changes above** (request words, places,
   time frames, the third-of-the-groups quorum, the finding's own texts only, identical texts, phrases as
-  written): they must be measured again on the live workbook (fewer matching findings are expected). On
+  written), and before follow-ups, the medium effort and the longer answers: they must be measured again
+  on the live workbook (fewer matching findings are expected; also count the answers cut off, the time
+  taken and the tokens at low, medium and high effort before keeping the default). On
   an invented workbook of 15,000 findings, the owner's six questions of November 2026 took at most 0.3 s
   to search (at most 3 queries) and at most 0.2 s to build the message. The final check over every finding's texts as sent found nothing left (no name,
   link, phone or e-mail). A few authors' surnames are also ordinary words: a question that writes one with a
@@ -1578,7 +1627,8 @@ version shown is replaced by uploading another.
 
 Quick migrations `km 0001_initial` (new, empty tables with their search indexes), `km 0002_organisation`
 (the corrections' new, empty table) and `km 0003_question` (the assistant's questions' new, empty table);
-CreateModel only.
+CreateModel only. `assistant 0006_km_effort` adds the *KM Database assistant effort* column to the one row
+of AI settings (an empty database default: catalogue only; AddField only).
 
 ## Help assistant (`/help/`, Ctrl+Shift+H)
 

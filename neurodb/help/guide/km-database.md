@@ -104,8 +104,9 @@ gives it.
 
 ## Ask the KM Database
 
-The third tab, **Ask the KM Database**, answers a question in a few sentences from the findings of the
-KM Database, and from nothing else.
+The third tab, **Ask the KM Database**, answers a question in a paragraph or a few (about 250 words, up to
+about 400 when you ask for a paragraph, a description or a summary) from the findings of the KM Database,
+and from nothing else.
 
 - **What it reads.** Only the findings of the version shown now that match your question: their key
   finding, measure, ages, analysis, limitations and data collection period, with their document's title,
@@ -142,33 +143,52 @@ KM Database, and from nothing else.
   document's page, **Ask about its document** opens the tab for that document. You can also write a
   code in the question: "Level A", "P2" (a pillar), "RQ3" (a research question), a Finding ID or a
   Document ID.
-- **What is sent to the AI.** Your question, the matching findings it reads, your filters in words, the
-  date you asked and what the search understood of places and years. Never the authors, never Document IDs (one you type goes as "this document"), links or phone numbers,
-  and never a name of a person: names of NeuroDB's people and of the KM Database's authors are taken out
+- **What is sent to the AI.** Your question, the earlier questions and answers of the conversation, the
+  matching findings it reads, your filters in words, the date you asked and what the search understood
+  of places, years and a follow-up. Never the authors, never Document IDs (one you type goes as "this
+  document"), links or phone numbers, and never a name of a person: names of NeuroDB's people and of the KM Database's authors are taken out
   of your question, in capitals or not, and names inside the findings (citations, reference lists, people
   quoted, people named with their job) are written "[name withheld]". If a name is still found, nothing is
   sent.
 - **The answer.** Each sentence ends with the findings it rests on, as [references]: each one opens its
-  finding, in a new tab. A reference to a finding that was not read for this answer is taken out, and
+  finding, in a new tab. An opening sentence that sums up the answer may have none. Figures are given
+  exactly as each finding states them: never added up or averaged, compared only when each carries its
+  reference. A reference to a finding that was not read for this answer is taken out, and
   the answer says how many. Under the answer, **Findings used for this answer** lists them (with their
   document, year and confidence level), and a fold lists every finding read. The line under the answer
   says "Answered from N of about M matching findings": when more match than were read, narrow the
   filters to read others.
 - **When the findings do not answer.** The answer says "The KM Database does not answer this question."
-  and what related evidence it holds; "answers this only in part" when part is missing. A sentence that
-  cites no finding is counted under the answer: check it against the findings.
+  and what related evidence it holds; "answers this only in part" when part is missing, with what the
+  search could not find when it can say ("no finding names Mount Lebanon", "no finding of 2022", "no
+  finding read compares governorates"). A sentence that cites no finding is counted under the answer:
+  check it against the findings (the opening sentence, a sentence whose reference ends the next one of
+  its paragraph and a sentence saying what the findings lack are not counted).
 - **When the AI is off or a limit is reached** the tab still lists the findings that match your question,
   without a written answer, and says why. Search and the filters work as usual.
 - **Limits.** 30 questions a day per person, 2 at the same time, and the KM Database's own share of the
   day's AI budget (see [AI limits](/help/ai-limits/)). A question counts once the AI has worked on it,
-  even when no finding matches (the AI first suggests search words). A question over a limit, or one the
-  AI declines, does not count.
+  even when no finding matches (the AI first suggests search words, also when a word of your question is
+  in no finding, such as a word misspelt). A question over a limit, or one the AI declines, does not
+  count. How much the AI thinks before it answers is set by an administrator in AI settings (*KM
+  Database assistant effort*, medium by default): more is slower and uses more of the day's budget.
 - **Long questions** are read whole; the findings that match the end of the question (most often its
   topic) come first, unless the end only asks for a format ("once done, an excel sheet").
-- **A conversation.** A short follow-up ("and for boys?") keeps the topic of your last question and reads
-  the findings its answer cited again; a short question on a new topic ("Child marriage?") reads its own
-  findings. **New conversation** starts afresh. **Your recent questions**
-  lists your last ten; press one to ask it again. Your questions are kept 90 days.
+- **A conversation.** A follow-up keeps the subject, places and years of your earlier question and reads
+  the findings its answer cited again. A question is a follow-up when it is short ("and for boys?"), when
+  it refers to the answer ("do it for all Lebanon", "adjust the text above", "the same for Akkar", "redo",
+  "instead", "again"), or when it has no subject of its own (only places, years or what you want: "what
+  about Akkar since 2024?", "once done I need an excel sheet"). A question that names its subject, even
+  in general words ("the situation of children in all governorates"), starts afresh. A follow-up with no
+  words of its own ("can you do it for all governorates?") is answered from the earlier subject, and counts
+  like any question. Its own place, years, "all Lebanon" (no place) or "all governorates" (findings that
+  name a governorate) replace the earlier ones; its own words are angles added to the subject ("with a
+  lens on gender, and disability": a finding on either). The line under the answer says what was kept.
+  You can ask to rewrite the previous answer (another angle, place, period or length): it is rewritten
+  from the findings it cited, read again, keeping their references, and never from the earlier answer
+  alone. A short question on a new topic ("Child marriage?") that no finding joins to the earlier subject
+  reads its own findings. **New conversation** starts afresh. **Your recent questions** lists your last
+  ten; press one to ask it again. Your questions are kept 90 days.
 - The AI can be wrong: open the findings it cites before you use an answer.
 
 ## When a new version is loaded

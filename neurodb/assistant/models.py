@@ -89,14 +89,14 @@ class AIUsage(models.Model):
 
 class AISettings(models.Model):
     """The one row (pk=1) of "AI settings": which AI provider the AI features run on (Automatic, Claude or
-    OpenAI), the API keys entered here, the models, the default effort, Ask NeuroDB's own model and effort
-    on Claude, whether a declined answer is retried on another Claude model, and the last connection test.
-    No row means Automatic with nothing entered: the row is made when an administrator first opens the page
-    (:meth:`load`). The keys are sealed with the site's secret key (:mod:`neurodb.assistant.llm.keys`) and
-    never shown again, only their last 4 characters. A provider or key the hosting team sets in the
-    environment comes first. Readers go through :func:`neurodb.assistant.llm.snapshot`
-    (``filter(pk=1).first()``, cached) and never write. The choices are the form's, so a new model or effort
-    needs no migration."""
+    OpenAI), the API keys entered here, the models, the default effort, Ask NeuroDB's own model and effort and
+    the KM Database assistant's effort on Claude, whether a declined answer is retried on another Claude
+    model, and the last connection test. No row means Automatic with nothing entered: the row is made when an
+    administrator first opens the page (:meth:`load`). The keys are sealed with the site's secret key
+    (:mod:`neurodb.assistant.llm.keys`) and never shown again, only their last 4 characters. A provider or key
+    the hosting team sets in the environment comes first. Readers go through
+    :func:`neurodb.assistant.llm.snapshot` (``filter(pk=1).first()``, cached) and never write. The choices are
+    the form's, so a new model or effort needs no migration."""
 
     provider = models.CharField(
         _("AI provider"),
@@ -152,6 +152,17 @@ class AISettings(models.Model):
         help_text=_(
             "Only Ask NeuroDB, and only while Claude is the provider. Leave blank to use Claude's default "
             "effort above."
+        ),
+    )
+    # Ask the KM Database's own effort, read only while Claude is the provider (neurodb.km.ask.effort)
+    km_effort = models.CharField(
+        _("KM Database assistant effort"),
+        max_length=8,
+        blank=True,
+        db_default="",
+        help_text=_(
+            "Only Ask the KM Database, and only while Claude is the provider. Leave blank for medium, its "
+            "default. Higher efforts write more considered answers, take longer and use more tokens."
         ),
     )
     claude_fallbacks = models.BooleanField(

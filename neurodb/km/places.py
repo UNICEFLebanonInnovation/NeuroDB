@@ -322,11 +322,8 @@ def _pruned(spellings: list[str]) -> list[str]:
     return [s for s in unique if s in singles or not any(w in singles for w in re.split(r"[\s-]+", s))]
 
 
-def read(text: str) -> Reading:
-    """The places ``text`` names (see the module's notes), in the order it names them, and the text without
-    them, without the governorate words and without the words for all of Lebanon. A place a region named
-    covers ("Nabatiyeh" with "the south") is not named again under the answer."""
-    rest = f" {text or ''} "
+def _claimed(rest: str) -> list[tuple[int, int, tuple[str, ...], str]]:
+    """The places ``rest`` names: (start, end, their keys, the name said), in the order it names them."""
     claimed: list[tuple[int, int, tuple[str, ...], str]] = []
     for pattern, keys, name in _aliases():  # the longest spellings first: "north metn" before "north"
         for match in pattern.finditer(rest):
@@ -334,6 +331,31 @@ def read(text: str) -> Reading:
             if not any(start < e and s < end for s, e, _k, _n in claimed):
                 claimed.append((start, end, keys, name))
     claimed.sort()
+    return claimed
+
+
+_PLURAL = re.compile(r"(?<![\w'-])(?:governorates|mohafazat|muhafazat|gouvernorats)(?![\w'-])", re.IGNORECASE)
+
+
+def compares(text: str) -> bool:
+    """Whether a finding's ``text`` gives figures by governorate: it names two governorates or more (a
+    district or a town as its governorate; "South Lebanon" as one), or speaks of governorates ("in all
+    governorates")."""
+    if _PLURAL.search(text or ""):
+        return True
+    named = set()
+    for _s, _e, keys, _n in _claimed(f" {text or ''} "):
+        place = BY_KEY[keys[0]]
+        named.add(place.governorates[0] if place.governorates else place.key)
+    return len(named) >= 2
+
+
+def read(text: str) -> Reading:
+    """The places ``text`` names (see the module's notes), in the order it names them, and the text without
+    them, without the governorate words and without the words for all of Lebanon. A place a region named
+    covers ("Nabatiyeh" with "the south") is not named again under the answer."""
+    rest = f" {text or ''} "
+    claimed = _claimed(rest)
     regions = [set(k) for _s, _e, k, _n in claimed if len(k) > 1]
     keys: list[str] = []
     names: list[str] = []

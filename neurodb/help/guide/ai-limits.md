@@ -29,7 +29,7 @@ The chips next to each feature say how much you have used: "3 of 20 today".
 | AI checks of the quality rules | 2,000,000 tokens | About 700–1,000 checks a night; older visits wait for the next nights. |
 | AI review of action points | 300,000 tokens | About 150–250 reviews a night, and the content summaries. |
 | NeuroDB Watch | 300,000 tokens and 24 calls | The morning notes and up to 3 look-ups a day. |
-| KM Database assistant | 600,000 tokens | About 25–30 questions a day across the office (each reads up to 40 findings). When it is used, the Ask tab lists the matching findings without a written answer. It stops at 100% of the shared budget too. |
+| KM Database assistant | 600,000 tokens | About 20–25 questions a day across the office (each reads up to 40 findings; more if an administrator lowers its effort, fewer if they raise it). When it is used, the Ask tab lists the matching findings without a written answer. It stops at 100% of the shared budget too. |
 | Document review | 1,000,000 tokens | The documents of the Documents page put in a review batch, read each night; a 100-page report takes roughly 150,000 tokens, so about six such reports a night. What is left waits for the next night. The theme paragraphs of the Synthesis tab count here too, and stop at 100% of the shared budget. |
 
 A **token** is a piece of a word, about four characters of English. What is sent (the question, the
@@ -65,6 +65,6 @@ address.
 - **The Help assistant** sends your question, the page you are on and the guide sections and settings
   it looks up; never programme data beyond a visit's score explanation, and never a password or a key.
 - **Ask the KM Database** sends your question (cleaned as above, and without the KM Database's authors),
-  the date you asked, what the search understood of places and years, and the KM Database's findings that
-  match it, with their names of people withheld; never its authors, never anything from the rest of
+  the earlier questions and answers of the conversation, the date you asked, what the search understood
+  of places and years (and of a follow-up), and the KM Database's findings that match it, with their names of people withheld; never its authors, never anything from the rest of
   NeuroDB. If a name is still found, nothing is sent.

@@ -2,9 +2,9 @@
 Database (places are public geography; every text, organisation and figure is invented) with the model
 faked: what retrieval reads for each, and the line under each answer.
 
-Q1, Q2 and Q6 pin what retrieval does now. **STAGE 2** marks what the next stage changes (a follow-up that
-reworks the previous answer, the Excel of the findings): those assertions pin today's behaviour of Q3, Q4
-and Q5 and are to be updated then."""
+Q3, Q4 and Q5 are follow-ups: Q3 reworks Q2's answer with a lens on gender and disability (Q2's places,
+years and cited findings carried), Q4 asks the same for all of Lebanon and Q5 by governorate; Q6 is a new
+question of its own (it names its subject, children)."""
 
 from __future__ import annotations
 
@@ -109,6 +109,7 @@ DOCS = [
         ],
     ),
     ("2019", ["In the South governorate in 2019, 30% of children were out of school."]),
+    ("2025", ["Nationally, 8% of children with disabilities had no assistive devices."]),
 ]
 
 
@@ -149,6 +150,14 @@ def build(docs) -> bytes:
     return out.getvalue()
 
 
+def ask_history(row) -> list[dict]:
+    """The earlier turns of ``row``'s conversation, as the stream reads them for it."""
+    from neurodb.km import ask
+
+    turns = ask.history(row.user, row.conversation, row.version)
+    return [t for t in turns if t["question"] != row.question]
+
+
 def ids(*pairs) -> set[str]:
     return {factory.finding_id(d, f) for d, f in pairs}
 
@@ -156,6 +165,10 @@ def ids(*pairs) -> set[str]:
 YEARS = (
     "Years 2024–2026, from your question; findings whose year is not reported are left out (the Year filter "
     "changes it)."
+)
+KEPT = (
+    "Years 2024–2026, from your earlier question; findings whose year is not reported are left out (the Year "
+    "filter changes it)."
 )
 
 
@@ -165,9 +178,15 @@ def test_the_six_questions_of_one_conversation(client_viewer, ai, today):  # noq
     fake = ai(
         [
             answer("In Mount Lebanon, 18,300 children were out of school [TST-0001-F00001].", "partly"),
-            answer("In Nabatieh, 41% lacked safe water [TST-0002-F00002].", "partly"),
-            answer("Girls with disabilities had less access [TST-0004-F00001].", "partly"),
-            answer("In Akkar, 31% were stunted [TST-0007-F00001].", "partly"),
+            answer(
+                "In Nabatieh, 41% lacked safe water [TST-0002-F00002]. In Nabatiye, 17% were displaced "
+                "[TST-0002-F00003]. In the South, 46% of households said their children were anxious "
+                "[TST-0002-F00005].",
+                "partly",
+            ),
+            answer("Girls with disabilities had less access [TST-0004-F00001][TST-0002-F00002].", "partly"),
+            answer("Nationally, 8% had no assistive devices [TST-0009-F00001][TST-0004-F00003].", "partly"),
+            answer("In Nabatieh, girls with disabilities had less access [TST-0004-F00001].", "partly"),
             answer("In Akkar, 31% were stunted [TST-0007-F00001].", "partly"),
         ]
     )
@@ -190,7 +209,8 @@ def test_the_six_questions_of_one_conversation(client_viewer, ai, today):  # noq
 
     # Q2: the request and time words are not searched; the South and Nabatiyeh are one place group (the
     # South, the South and Nabatieh governorates, their districts and towns); the past 2 years are 2024-2026,
-    # without the years not reported; the identical texts are read once, both IDs citable
+    # without the years not reported; the identical texts are read once, both IDs citable. It names its own
+    # subject (children): no follow-up of Q1
     final, row = ask(Q2)
     assert set(row.read) == ids((2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (4, 1), (4, 3), (7, 2))
     assert final["meta"] == (
@@ -201,26 +221,48 @@ def test_the_six_questions_of_one_conversation(client_viewer, ai, today):  # noq
     assert text.count(ANXIOUS) == 1 and 'also="TST-0002-F00006"' in text
     assert "This question was asked on 25 November 2026." in text
 
-    # Q3 (STAGE 2: a rework of Q2 with a gender and disability lens, Q2's places, years and findings carried,
-    # and the Excel of the findings): today a new question; the Excel clause is not searched (nor is it the
-    # topic), and of its words only "disability" is in a finding
+    # Q3: a rework of Q2 ("adjust the text above"): Q2's places and years kept and the findings its answer
+    # cited read first, then its own words (the Excel clause is not searched): the findings on disability in
+    # the South and Nabatieh, and as only 2 name them, the others of all Lebanon too; Q2's answer is sent whole
     final, row = ask(Q3)
-    assert set(row.read) == ids((4, 1), (4, 3))
-    assert _picked(Q3).groups == [["lence"], ["gender"], ["population"], ["disability"]]
+    assert row.read == [*sorted(ids((2, 2), (2, 3), (2, 5))), *sorted(ids((4, 1), (4, 3))), "TST-0009-F00001"]
+    assert final["meta"] == (
+        "Answered from 6 matching findings. A follow-up of your earlier question; the findings its answer "
+        "cited were read again. Only 2 findings name the South (South and Nabatieh governorates): findings "
+        f"from all of Lebanon were read too. {KEPT}"
+    )
+    text = _sent(fake)
+    assert "Earlier in this conversation:\nQ: " + Q1 in text
+    assert "A: In Nabatieh, 41% lacked safe water [TST-0002-F00002]. In Nabatiye, 17% were displaced" in text
+    assert "Read from the question: a follow-up of the previous question" in text
 
-    # Q4 (STAGE 2: Q3's topic for all of Lebanon): today no word is left to search
+    # Q4: no word of its own ("do it for all lebanon"): Q3's subject (disability, gender) and Q2's years, for
+    # all of Lebanon, the findings Q3's answer cited read first; answered, never "no findings"
     final, row = ask(Q4)
-    assert row.status == "no_match" and final["meta"] == "" and row.model == ""
-
-    # Q5 (STAGE 2: the same topic by governorate): the findings that name governorates, the most first
-    final, row = ask(Q5)
-    assert row.read[0] == "TST-0007-F00001"  # Akkar, Beirut and the North
-    assert not set(row.read) & ids((6, 1), (6, 2))  # "by governorate" only in their framework texts
-    assert final["meta"].endswith(
-        "By governorate, from your question: findings that name governorates first."
+    assert row.status == "answered" and row.model
+    assert row.read == ["TST-0004-F00001", "TST-0004-F00003", "TST-0002-F00002", "TST-0009-F00001"]
+    assert [f.finding_id for f in _picked(Q4, earlier=ask_history(row)).findings][:2] == [
+        "TST-0004-F00001",
+        "TST-0002-F00002",
+    ]
+    assert final["meta"] == (
+        "Answered from 4 matching findings. Same subject as your earlier question; the findings its answer "
+        "cited were read again. All of Lebanon, from your question: no place restriction. "
+        f"{KEPT}"
     )
 
-    # Q6: "all gov" asks for a breakdown by governorate, in 2024-2026, without the years not reported
+    # Q5: the same subject by governorate ("do it for all governorates"): the findings on disability that name
+    # a governorate, in Q2's years; the national finding Q4's answer cited first
+    final, row = ask(Q5)
+    assert row.read == ["TST-0009-F00001", "TST-0004-F00003", "TST-0004-F00001"]
+    assert final["meta"] == (
+        "Answered from 3 matching findings. Same subject as your earlier question; the findings its answer "
+        "cited were read again. By governorate, from your question: findings that name governorates first. "
+        f"{KEPT}"
+    )
+
+    # Q6: "all gov" asks for a breakdown by governorate, in 2024-2026, without the years not reported; it
+    # names its own subject (children), so it is a new question, not a follow-up of Q5
     final, row = ask(Q6)
     assert row.read[0] == "TST-0007-F00001"
     assert set(row.read) == ids((2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (4, 1), (4, 3), (7, 1))
@@ -228,7 +270,7 @@ def test_the_six_questions_of_one_conversation(client_viewer, ai, today):  # noq
         "Answered from 9 matching findings. By governorate, from your question: findings that name "
         f"governorates first. {YEARS}"
     )
-    assert len(fake.calls()) == 5
+    assert len(fake.calls()) == 6
 
 
 def test_q1_when_no_finding_names_mount_lebanon(client_viewer, ai, today):  # noqa: F811

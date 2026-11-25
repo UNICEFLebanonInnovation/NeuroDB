@@ -213,6 +213,7 @@ def test_a_question_that_finds_nothing_counts_once_the_ai_suggested_search_words
     row = KMQuestion.objects.get()
     assert row.status == "no_match" and row.model and len(fake.calls("km_terms")) == 1
     assert ask.quota(row.user)[0] == 1 and final["quota"] == "1 of 30 today"
+    assert final["meta"] == "No finding matches your words."  # never "Answered from 1 data lookup"
     # the guide says so (the help assistant reads it too)
     limits = " ".join(guide.section("km-database", "ask-the-km-database").text.split())
     assert "A question counts once the AI has worked on it, even when no finding matches" in limits
@@ -311,6 +312,17 @@ def test_the_claude_request_holds_the_rules(client_viewer, claude, monkeypatch, 
     system = body["system"][0]["text"]
     assert system == ask.system_prompt() and "tools" not in body
     assert "Never add up, average or merge figures from different findings" in system
+    # a follow-up may rework the previous answer from the findings it cites (the owner's rule)
+    assert "An earlier answer of the conversation is never a source on its own" in system
+    assert "rewrite it from the findings it cites that are in <findings>, keeping their Finding IDs" in system
+    assert "You may open with one sentence that sums up the answer without an ID" in system
+    assert (
+        "you may compare them" in system and "up to about 400 when the person asks for a paragraph" in system
+    )
+    assert (
+        body["output_config"]["effort"] == "medium" and body["max_tokens"] == ask.MAX_OUTPUT_TOKENS == 12_000
+    )
+    assert server.requests[0]["body"]["output_config"]["effort"] == "low"  # the search-words call
     assert ask.CONFIDENCE_RULES[strongest] in system
     assert ("Level A is the strongest evidence" in system) is strongest
     assert "Question: What about zqkmtoken?" in json.dumps(body["messages"])
@@ -334,6 +346,9 @@ def test_only_common_words_give_no_match_and_no_call(client_viewer, ai):
         final["html"] == "<p>The KM Database has no findings that match this question. Try other words.</p>"
     )
     assert fake.requests == []
+    assert final["meta"] == (
+        "No words to search: common words such as all, Lebanon and children are left out. Try other words."
+    )
     row = KMQuestion.objects.get()
     assert row.status == "no_match" and row.model == "" and ask.quota(row.user)[0] == 0
 
@@ -453,10 +468,7 @@ def test_a_follow_up_keeps_the_topic_and_reads_the_cited_findings_again(client_v
     done(post(client_viewer, "How did rainfall affect schools?", conversation=conversation))
     final = done(post(client_viewer, "And for boys?", conversation=conversation))
     text = _sent(fake)
-    assert (
-        "Earlier in this conversation (for context only):\nQ: How did rainfall affect schools?\nA: Floods"
-        in text
-    )
+    assert "Earlier in this conversation:\nQ: How did rainfall affect schools?\nA: Floods" in text
     first = text.index('<finding id="')
     assert text[first:].startswith('<finding id="TST-0001-F00001"')  # the cited finding, read first
     assert 'id="TST-0002-F00001"' in text  # boys and schools: the earlier topic kept
@@ -537,7 +549,7 @@ def test_the_search_words_call_runs_only_under_its_conditions(client_viewer, ai,
     fake = ai()
     _picked("zqkmtoken fake measure", may_call=True)  # 4 match, more than 2: no call
     assert fake.calls("km_terms") == []
-    _picked("zqkmtoken fake girls’", may_call=True)  # a curly apostrophe is Latin
+    _picked("zqkmtoken fake analysis’", may_call=True)  # a curly apostrophe is Latin
     assert fake.calls("km_terms") == []
     _picked("zqkmtoken fake مدرسة", may_call=True)  # not Latin: the call runs
     assert len(fake.calls("km_terms")) == 1
@@ -1638,3 +1650,309 @@ def test_framework_texts_never_count_as_a_match(ai):
     factory.load(key_findings("Teachers received a training course.", "Clinics opened.", edits=edits))
     assert _picked("out of school children by governorate").findings == []
     assert _picked("rainfall").findings == []
+
+
+# ------------------------------------------------------------------------------------ a conversation
+RAIN = (
+    ("In the South, fake rainfall flooded schools.", 2025),  # TST-0001-F00001
+    ("In Akkar, fake rainfall flooded schools.", 2025),  # TST-0002-F00001
+    ("Nationally, fake rainfall flooded schools.", 2024),  # TST-0003-F00001
+    ("In the South, fake teachers left.", 2025),  # TST-0004-F00001
+    ("In the South, fake rainfall flooded schools again.", 2019),  # TST-0005-F00001
+    ("In Beirut and the North, fake rainfall flooded schools.", 2025),  # TST-0006-F00001
+)
+RAIN_TURN = {
+    "question": "How did rainfall flood schools in the South in the past 2 years?",
+    "answer": "Fake rainfall flooded schools [TST-0001-F00001].",
+    "cited": ["TST-0001-F00001"],
+}
+
+
+def _rain():
+    edits = {("findings", n + 1, "Publication Year"): year for n, (_t, year) in enumerate(RAIN, 1)}
+    factory.load(key_findings(*(t for t, _y in RAIN), documents=len(RAIN), edits=edits))
+
+
+@pytest.mark.parametrize(
+    ("question", "follows"),
+    [
+        ("can u do it for all lebanon?", True),  # a reference, and no word of its own
+        ("Could you adjust the text above with a lens on girls please?", True),  # a reference
+        ("Rework it for the teachers who left, as a list", True),
+        ("what about the evidence for Akkar and the North since 2024 please", True),  # places, years
+        ("And for the teachers who left that year?", True),  # starts with "and"
+        ("Once done I need an excel sheet with each value", True),  # a request only
+        ("Teachers?", True),  # short
+        # a subject of its own
+        ("i need a paragraph describing situation of children in all gov in the past 2 years only", False),
+        ("What drives it among the poorest households of the country?", False),  # a bare "it" is no reference
+        ("Tell me more about TST-0002-F00001 please", False),  # names a finding
+    ],
+)
+def test_a_follow_up_refers_to_the_earlier_answer_or_has_no_subject_of_its_own(ai, today, question, follows):
+    _rain()
+    assert _picked(question, earlier=[RAIN_TURN]).follow_up is follows
+    assert _picked(question).follow_up is False  # never without a conversation
+
+
+def test_a_follow_up_carries_the_last_subject_its_places_and_its_years(ai, today):
+    _rain()
+    excel = {"question": "Once done I need an excel sheet with each value", "answer": "Fake.", "cited": []}
+    earlier = [RAIN_TURN, {**excel, "cited": ["TST-0001-F00001"]}]  # a request only: the subject stays
+    # all of Lebanon: the place dropped, the subject and the years kept, the cited finding read first
+    picked = _picked("can u do it for all lebanon?", earlier=earlier)
+    assert picked.follow_up and picked.national and picked.places == ""
+    assert [["rainfall"], ["flood"], ["schools"]] == [g for g in picked.groups if g[0] in RAIN_WORDS]
+    assert picked.filters.year == ["2025", "2024"]  # 2024-2026, of the years the version holds
+    assert _ids(picked)[0] == "TST-0001-F00001"
+    assert set(_ids(picked)) == {"TST-0001-F00001", "TST-0002-F00001", "TST-0003-F00001", "TST-0006-F00001"}
+    assert picked.notes == [
+        "Same subject as your earlier question; the findings its answer cited were read again.",
+        "All of Lebanon, from your question: no place restriction.",
+        "Years 2024–2026, from your earlier question; findings whose year is not reported are left out (the "
+        "Year filter changes it).",
+    ]
+    # by governorate: the places swapped for the breakdown, the findings naming the most governorates first
+    picked = _picked("can you do it for each governorate?", earlier=earlier)
+    assert picked.breakdown and picked.places == ""
+    assert _ids(picked)[:2] == ["TST-0001-F00001", "TST-0006-F00001"]
+    assert "TST-0003-F00001" not in _ids(picked)  # names no governorate
+    # a place of its own replaces the earlier one (the cited finding of the South is not read first), its own
+    # year
+    picked = _picked("what about Akkar in 2025?", earlier=earlier)
+    assert _ids(picked)[0] == "TST-0002-F00001" and picked.filters.year == ["2025"]
+    assert picked.notes == [
+        "Same subject as your earlier question.",
+        "Only 1 finding names Akkar: findings from all of Lebanon were read too.",
+        "Years 2025, from your question; findings whose year is not reported are left out (the Year filter "
+        "changes it).",
+    ]
+    # the earlier place kept: the South, in the earlier years
+    picked = _picked("and for the teachers who left?", earlier=earlier)
+    assert picked.notes[1:] == [
+        "Places from your earlier question: the South (South and Nabatieh governorates).",
+        "Years 2024–2026, from your earlier question; findings whose year is not reported are left out (the "
+        "Year filter changes it).",
+    ]
+    assert "TST-0004-F00001" in _ids(picked) and "TST-0002-F00001" not in _ids(picked)
+    # a new question of its own subject carries nothing
+    picked = _picked("i need a paragraph describing situation of children in all gov", earlier=earlier)
+    assert not picked.follow_up and picked.filters.year == [] and picked.breakdown
+
+
+RAIN_WORDS = {"rainfall", "flood", "schools"}
+
+
+def test_a_question_with_no_words_in_a_conversation_is_answered_from_its_subject(client_viewer, ai, today):
+    _rain()
+    conversation = uuid.uuid4()
+    fake = ai([answer("Fake rainfall flooded schools [TST-0001-F00001]."), answer("Fake [TST-0003-F00001].")])
+    done(post(client_viewer, RAIN_TURN["question"], conversation=conversation))
+    final = done(post(client_viewer, "can u do it for all lebanon?", conversation=conversation))
+    row = KMQuestion.objects.order_by("created_at").last()
+    assert row.status == "answered" and row.model and len(fake.calls()) == 2
+    assert final["meta"].startswith(
+        "Answered from 4 matching findings. Same subject as your earlier question"
+    )
+    assert "TST-0003-F00001" in row.read
+    text = _sent(fake)
+    assert (
+        "Read from the question: a follow-up of the previous question (its subject and years kept; the "
+        in text
+    )
+    # the guide says a question with no words of its own counts in a conversation
+    from neurodb.help import guide
+
+    limits = " ".join(guide.section("km-database", "ask-the-km-database").text.split())
+    assert "A follow-up with no words of its own" in limits
+
+
+def test_a_follow_up_reads_up_to_20_cited_findings_again(ai):
+    factory.load(factory.workbook(documents=1, findings=24))
+    cited = [f"TST-0001-F{n:05d}" for n in range(24, 0, -1)]
+    earlier = [{"question": "What about zqkmtoken?", "answer": "Fake.", "cited": cited}]
+    picked = _picked("And for girls?", scope="document=TST-0001", earlier=earlier)
+    assert _ids(picked)[:20] == cited[:20]
+
+
+def test_earlier_answers_never_displace_findings(monkeypatch, ai):
+    factory.load(factory.workbook(documents=2, findings=4))
+    picked = _picked("zqkmtoken")
+    found = facets(_version())
+    alone = ask.prompt("q", [], Filters(), picked, _people(), found)
+    monkeypatch.setattr(ask, "MAX_CHARS", len(alone.text))  # just room for the 4 findings
+    answer_ = "Fake earlier answer sentence [TST-0001-F00001]. " * 100  # 4,900 characters
+    earlier = [{"question": f"Fake earlier question {n}?", "answer": answer_, "cited": []} for n in range(4)]
+    message = ask.prompt("q", earlier, Filters(), picked, _people(), found)
+    assert message.sent == alone.sent
+    turns = message.text.split("Earlier in this conversation:\n")[1].split("\n\nFilters the person")[0]
+    answers = [t for t in turns.split("\n") if t.startswith("A: ")]
+    assert len(answers) == 4
+    assert all(len(a) <= ask.HISTORY_ANSWER_CHARS + 4 for a in answers[:3])
+    assert ask.LAST_ANSWER_CHARS < len(answers[3]) <= ask.LAST_ANSWER_CHARS + 4  # the last, the one reworked
+
+
+def test_the_answer_call_runs_at_the_km_database_assistants_effort(client_viewer, ai, ai_settings):
+    factory.load(factory.workbook(documents=1, findings=2))
+    fake = ai([answer("Fake [TST-0001-F00001]."), answer("Fake [TST-0001-F00001].")])
+    done(post(client_viewer, "zqkmtoken?"))
+    sent = fake.calls()[-1]
+    assert sent["reasoning"] == {"effort": "medium"} and sent["max_output_tokens"] == ask.MAX_OUTPUT_TOKENS
+    assert ask.TOKENS == 35_000 and ask.TIME_LIMIT == 150
+    ai_settings.km_effort = "high"  # read only while Claude is the provider
+    ai_settings.save()
+    done(post(client_viewer, "zqkmtoken?"))
+    assert fake.calls()[-1]["reasoning"] == {"effort": "medium"}
+
+
+def test_the_km_database_assistants_effort_on_claude(client_viewer, claude, ai_settings):
+    from tests.assistant import anthropic_mock as am
+
+    factory.load(factory.workbook(documents=1, findings=2))
+    ai_settings.km_effort = "high"
+    ai_settings.save()
+    reply = am.turn([am.text(json.dumps({"answer": "Fake [TST-0001-F00001].", "covered": "yes"}))])
+    server = claude(am.turn([am.text(json.dumps({"terms": [], "groups": []}))]), reply)
+    done(post(client_viewer, "What about zqkmtoken?"))
+    assert server.requests[-1]["body"]["output_config"]["effort"] == "high"
+
+
+def test_the_km_database_assistants_effort_is_an_ai_setting(client, admin_user, ai_settings):
+    from django.db.migrations.loader import MigrationLoader
+
+    from neurodb.assistant.admin import AISettingsAdmin, AISettingsForm
+    from neurodb.assistant.models import AISettings
+    from tests.assistant.test_ai_settings import _errors, _post, _url
+    from tests.datamart.test_backfill import QUICK_MIGRATIONS
+
+    client.force_login(admin_user)
+    html = client.get(_url()).content.decode()
+    assert "KM Database assistant effort" in html
+    assert "Only Ask the KM Database, and only while Claude is the provider. Leave blank for medium" in html
+    fields = dict(AISettingsAdmin.fieldsets)["Claude (Anthropic)"]["fields"]
+    assert fields.index("km_effort") == fields.index("ask_effort") + 1
+    form = AISettingsForm(instance=AISettings.load())
+    assert [value for value, _label in form.fields["km_effort"].choices[1:]] == list(settings.CLAUDE_EFFORTS)
+    assert form.fields["km_effort"].choices[0] == ("", "The default: medium")
+    assert "km_effort" in _errors(_post(client, km_effort="extreme"))
+    assert _post(client, km_effort="xhigh").status_code == 302
+    from neurodb.assistant import llm
+
+    assert llm.snapshot().km_effort == "xhigh" and llm._kept({"provider": "claude"}).km_effort == ""
+    migration = MigrationLoader(None, ignore_no_migrations=True).disk_migrations[
+        ("assistant", "0006_km_effort")
+    ]
+    assert {type(op).__name__ for op in migration.operations} == {"AddField"}
+    assert ("assistant", "0006_km_effort", "AddField") in QUICK_MIGRATIONS
+
+
+@pytest.mark.parametrize(
+    ("text", "uncited"),
+    [
+        # a lead sentence that sums up the cited ones
+        (
+            "Children in the fake villages face several fake hardships at once.\n\nFake rainfall flooded the "
+            "schools [TST-0001-F00001]. Fake teachers left the schools [TST-0001-F00002].",
+            0,
+        ),
+        # a sentence whose citation ends a later sentence of its paragraph
+        (
+            "Fake rainfall flooded schools [TST-0001-F00001]. Fake teachers in the villages left in large "
+            "numbers that year. They moved to the fake towns nearby [TST-0001-F00002].",
+            0,
+        ),
+        # what the findings lack
+        (
+            "Fake rainfall flooded schools [TST-0001-F00001]. The findings hold no figures by sex or by "
+            "disability for the fake villages.",
+            0,
+        ),
+        (
+            "Fake rainfall flooded schools [TST-0001-F00001]. None of the findings read gives a breakdown by "
+            "governorate for the fake villages.",
+            0,
+        ),
+        # a claim at the end of its paragraph, or in a paragraph of its own, still counts
+        (
+            "Fake rainfall flooded schools [TST-0001-F00001].\n\nFake teachers left the fake schools of the "
+            "villages too.\n\nFake clinics closed in the fake villages that year [TST-0001-F00002].",
+            1,
+        ),
+    ],
+)
+def test_the_uncited_count_skips_the_lead_a_sentence_cited_later_and_what_is_missing(ai, text, uncited):
+    factory.load(factory.workbook(documents=1, findings=2))
+    assert _finish(text).uncited == uncited
+
+
+def test_the_partly_notice_says_what_is_missing(client_viewer, ai, today):
+    _rain()
+    cites = ["TST-0001-F00001", "TST-0004-F00001", "TST-0004-F00001", "TST-0002-F00001", "TST-0004-F00001"]
+    ai([answer(f"Fake [{i}].", "partly") for i in cites])
+    partly = "Each [reference] opens the finding it comes from. The KM Database answers this only in part"
+    final = done(post(client_viewer, "rainfall flooding schools in mont lebanon"))
+    assert final["notice"] == f"{partly}: no finding names Mount Lebanon."
+    final = done(post(client_viewer, "teachers left in the South in 2022"))
+    assert final["notice"] == f"{partly}: no finding of 2022."
+    final = done(post(client_viewer, "teachers left in the South"))
+    assert final["notice"] == f"{partly}."  # nothing it can name
+    final = done(post(client_viewer, "rainfall flooding schools in Akkar"))
+    assert final["notice"] == f"{partly}: only 1 finding names Akkar."
+    final = done(post(client_viewer, "teachers left, by governorate"))
+    assert final["notice"] == f"{partly}: no finding read compares governorates."
+
+
+def test_the_search_words_call_runs_when_a_typed_word_matches_no_finding(ai, monkeypatch):
+    factory.load(factory.workbook(documents=2, findings=4))
+    monkeypatch.setattr(ask, "MAX_FINDINGS", 2)
+    fake = ai()
+    _picked("zqkmtoken fake measure", may_call=True)  # every word in a finding, 4 match: no call
+    assert fake.calls("km_terms") == []
+    _picked("zqkmtoken fake measure zqlence", may_call=True)  # a word misspelt: the call runs
+    assert len(fake.calls("km_terms")) == 1
+
+
+def test_gender_and_disability_rank_their_marks_first(ai):
+    edits = {
+        ("findings", 3, "Male"): "Yes",  # TST-0002-F00001: girls and boys
+        ("findings", 4, "Disability Inclusion"): "Yes",  # TST-0003-F00001
+    }
+    factory.load(
+        key_findings(
+            "Fake school dropout rose.",
+            "Fake school dropout fell.",
+            "Fake school dropout stayed.",
+            edits=edits,
+        )
+    )
+    assert _ids(_picked("school dropout with a gender lens"))[0] == "TST-0002-F00001"
+    assert _ids(_picked("school dropout of children with disabilities"))[0] == "TST-0003-F00001"
+
+
+def test_a_follow_ups_own_words_are_angles_any_of_which_is_enough(ai, today):
+    texts = (
+        ("In Nabatieh, girls with disabilities had less access to school.", 2025),  # disability only
+        ("In the South, the gender gap in school enrolment widened.", 2025),  # gender only
+        ("In the South, the refugee population grew.", 2025),  # population only
+        ("In Akkar, children with disabilities lacked transport.", 2025),  # not the South
+        ("In the South, fake rainfall flooded schools.", 2025),
+    )
+    edits = {("findings", n + 1, "Publication Year"): year for n, (_t, year) in enumerate(texts, 1)}
+    factory.load(key_findings(*(t for t, _y in texts), documents=len(texts), edits=edits))
+    q2 = {
+        "question": "i need a paragraph describing situation of children in the south in the past 2 years",
+        "answer": "Fake [TST-0005-F00001].",
+        "cited": ["TST-0005-F00001"],
+    }
+    rework = "can you adjust the text above with a lens on gender, and what you find on disability"
+    picked = _picked(rework, earlier=[q2])
+    assert _ids(picked)[0] == "TST-0005-F00001"  # the finding the answer cited, first
+    assert set(_ids(picked)[1:3]) == {"TST-0001-F00001", "TST-0002-F00001"}  # gender or disability
+    assert _ids(picked)[3:] == ["TST-0004-F00001"]  # only 2 name the South: the others of Lebanon after them
+    # the next follow-up keeps those angles, for all of Lebanon
+    turn = {"question": rework, "answer": "Fake [TST-0001-F00001].", "cited": ["TST-0001-F00001"]}
+    picked = _picked("can u do it for all lebanon?", earlier=[q2, turn])
+    assert set(_ids(picked)) == {"TST-0001-F00001", "TST-0002-F00001", "TST-0004-F00001"}
+    # and by governorate: the findings that name one
+    picked = _picked("can you do it for all governorates?", earlier=[q2, turn])
+    assert set(_ids(picked)) == {"TST-0001-F00001", "TST-0002-F00001", "TST-0004-F00001"}

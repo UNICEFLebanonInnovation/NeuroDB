@@ -379,6 +379,10 @@ QUICK_MIGRATIONS = {
     # its three models, from the state only: no SQL runs (SeparateDatabaseAndState with no database operation;
     # the tables stay one release); listed so that the migration is accounted for here
     ("datamart", "0024_drop_etools_masters", "SeparateDatabaseAndState"),
+    # the KM Database assistant's own effort in AI settings: a column with an empty database default on a table
+    # of one row (catalogue only on PostgreSQL); AddField only, no code runs; listed so the migration is
+    # accounted for here
+    ("assistant", "0006_km_effort", "AddField"),
 }
 
 

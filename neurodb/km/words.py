@@ -414,6 +414,12 @@ NO_MATCH_FILTERED = _(
     "The KM Database has no findings that match this question within your filters. Try other words, or "
     "clear the filters."
 )
+# the line under a reply that read no finding (never Ask NeuroDB's "Answered from 1 data lookup")
+NO_MATCH_META = _("No finding matches your words.")
+NO_MATCH_META_FILTERED = _("No finding within your filters matches your words.")
+NO_WORDS_META = _(
+    "No words to search: common words such as all, Lebanon and children are left out. Try other words."
+)
 FOUND_META = _("Found {n} of about {m} matching findings. Narrow with the filters to read others.")
 ANSWERED_META = _("Answered from {n} of about {m} matching findings. Narrow with the filters to read others.")
 ANSWERED_ALL_META = ngettext_lazy(
@@ -435,6 +441,20 @@ PLACES_FEW = ngettext_lazy(
 )
 NATIONAL_USED = _("All of Lebanon, from your question: no place restriction.")
 BREAKDOWN_USED = _("By governorate, from your question: findings that name governorates first.")
+# a follow-up (a question that refers to the earlier answer, or has no subject of its own): what it kept
+SAME_SUBJECT = _("Same subject as your earlier question.")
+SAME_SUBJECT_CITED = _(
+    "Same subject as your earlier question; the findings its answer cited were read again."
+)
+FOLLOW_UP_CITED = _("A follow-up of your earlier question; the findings its answer cited were read again.")
+FOLLOW_UP_PLAIN = _("A follow-up of your earlier question.")
+PLACES_KEPT = _("Places from your earlier question: {places}.")
+NATIONAL_KEPT = _("All of Lebanon, from your earlier question: no place restriction.")
+BREAKDOWN_KEPT = _("By governorate, from your earlier question: findings that name governorates first.")
+YEARS_KEPT = _(
+    "Years {years}, from your earlier question; findings whose year is not reported are left out (the Year "
+    "filter changes it)."
+)
 NOT_SENT = _(
     "The question could not be sent to the AI safely. These are the findings that match your question:"
 )
@@ -453,6 +473,13 @@ NOTICE_REMOVED = ngettext_lazy(
 )
 NOTICE_NOT_ANSWERED = _("The KM Database does not answer this question.")
 NOTICE_PARTLY = _("The KM Database answers this only in part.")
+NOTICE_PARTLY_WHY = _("The KM Database answers this only in part: {missing}.")
+MISSING_PLACE = _("no finding names {places}")
+MISSING_FEW_PLACE = ngettext_lazy(
+    "only {count} finding names {places}", "only {count} findings name {places}", "n"
+)
+MISSING_YEARS = _("no finding of {years}")
+MISSING_BREAKDOWN = _("no finding read compares governorates")
 NOTICE_NO_CITATION = _("This answer cites no finding: read it with care.")
 NOTICE_UNCITED = ngettext_lazy(
     "{count} sentence cites no finding: check it against the findings below.",
