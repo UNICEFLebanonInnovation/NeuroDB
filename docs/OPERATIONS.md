@@ -1542,10 +1542,16 @@ asked). In order:
      findings and never sent) and its document's methods, population and titles only break ties. The
      words of a request, a format or a time ("need", "paragraph", "describe", "text above", "adjust",
      "excel", "sheet", "table", "each", "value", "number", "percentage", "indicator", "past", "years",
-     "only", "recent", "population type"), and the words that ask for figures ("rate", "proportion",
-     "prevalence", "figures", "statistics", "share", "estimate": `ask.REQUEST_STOP`) are not searched while
-     other words remain (a question of these words only, with no place, time frame or code, searches them;
-     "needs", a noun, is searched: "special needs"); PostgreSQL's English stop words ("only", "each",
+     "only", "recent", "population type"), the words of a rework of the earlier answer, its length, form,
+     language or readers ("answer", "make", "shorter", "simpler", "summary", "bullet points", "translate",
+     "Arabic", "French", "focus", "audience", "in simpler words"), and the words that ask for figures
+     ("rate", "proportion", "prevalence", "figures", "statistics", "share", "estimate": `ask.REQUEST_STOP`)
+     are not searched while other words remain (a question of these words only, with no place, time frame or
+     code, searches them; in a follow-up never; "needs", a noun, is searched: "special needs"). The words
+     that ask for the rework itself ("revise the paragraph", "make it shorter") are never searched. Thanks
+     or praise around a question ("Thanks,", "great,", "ok", "please" before a cue or a mark, ", thanks" at
+     the end) are left out; "good practices" and "perfect attendance" keep their word. PostgreSQL's
+     English stop words ("only", "each",
      "once", "than", "above": `search.ENGLISH_STOP`) never are. A phrase that starts or ends with a stop
      word ("out of school", "drop out", "well being") is matched as written in those texts (a pattern),
      never as its last word alone, each of its word forms written in `search.VARIANTS` ("dropout" finds
@@ -1575,33 +1581,49 @@ asked). In order:
      needs, so that copies leave room.
    - **A follow-up.** In a conversation, a question is a follow-up when it has under 4 words, when it
      refers to the earlier answer ("do it for", "do the same", "same for", "the text above", "the previous
-     answer", "redo", "rework", "rewrite", "adjust it", "what about", "how about", a question starting with
-     "and for", "and in"...), or when it has no subject of its own: no word left to search once places,
-     years, codes and request words are read ("can u do it for all lebanon?", "what about Akkar since
-     2024?", "once done I need an excel sheet"). Words that new questions use too are no reference: a bare
-     "it", "this" or "that", "again", "instead", "for all", "adjust", a leading "and" before a question of
-     its own ("Is free education for all children achieved?", "Why did enrolment fall again?" and "the
-     situation of children for all governorates" start afresh). A question that names the KM Database's
-     subject in general words ("the situation of children", "children"), a Finding ID or a Document ID has
-     a subject of its own. The earlier answered turns of the conversation
-     (`ask.conversation`, from their cleaned questions, no query) leave a subject: the words of the
-     question that set it, the angles its follow-ups added ("with a lens on gender", "and for boys?"),
-     its places and its years. A follow-up keeps them unless it names its own: a place of its own
-     replaces the earlier place, "all Lebanon" drops it, "all governorates" asks for findings naming a
-     governorate (or a district or town of one) instead, a time frame of its own replaces the earlier
-     years. It reads the findings the previous answer cited first (up to 20; when it names a place of its
-     own, only those naming it); when no finding matches its angles together with the earlier subject, its
-     angles are searched alone (a new subject: "what about child marriage?" after out-of-school children in
-     Tripoli reads child marriage in Tripoli), in the earlier place and years, and the next follow-up does
-     the same; the previous answer's findings are then read first only when they match those angles, or
-     when the question reworks that answer or starts with "and" ("and for girls?"). A question with no
-     word of its own is thus no longer "no findings" in a conversation. The line under the answer says what
-     was kept ("Same subject as your earlier question; the findings its answer cited were read again.",
-     "Places from your earlier question: ...", "Years 2024–2026, from your earlier question; ..."), and
-     when nothing matched but the findings the previous answer cited, "Answered from the 3 findings your
-     earlier answer cited, read again: no other finding matches.". A reply that reads no finding has its
-     own line too ("No finding matches your words.", or "No words to search: common words such as all,
-     Lebanon and children are left out."), never the page's "Answered from 1 data lookup".
+     answer", "what about", "how about", a question starting with "and for", "and in"..., one ending with
+     "instead": "focus on girls instead"), when it asks to rework that answer, whatever the words: "redo",
+     "rework", "rewrite", "rephrase", "reword", or a verb with "it", "this" or the answer ("revise the
+     paragraph", "adjust the answer for girls", "shorten it", "expand the summary", "summarise it in
+     bullet points", "translate it to Arabic", "make it shorter", "put it in a table", "break it down by
+     sex"), or when it has no subject of its own: no word left to search once places, years, codes and
+     request words are read ("can u do it for all lebanon?", "what about Akkar since 2024?", "once done I
+     need an excel sheet"). Thanks or praise before the cue do not hide it ("Thanks, what about girls?",
+     "great, and for girls?", "ok now for all gov"). Words that new questions use too are no reference: a
+     bare "it", "this" or "that", "again", "for all", "instead" inside a question, a verb with no answer
+     after it ("adjust", "make it easier"), "the list of", a leading "and" before a question of its own
+     ("Is free education for all children achieved?", "Why did enrolment fall again?", "How did families
+     adjust to the crisis?", "Do girls work instead of studying?" and "the situation of children for all
+     governorates" start afresh). A question that names the KM Database's subject in general words ("the
+     situation of children", "children"), a Finding ID or a Document ID has a subject of its own. The
+     earlier answered turns of the conversation (`ask.conversation`, from their cleaned questions and what
+     their rows keep, no query) leave a subject: the words of the question that set it, the angles its
+     follow-ups added ("with a lens on gender", "and for boys?"), its places and its years. A follow-up
+     keeps them unless it names its own: a place of its own replaces the earlier place, "all Lebanon" drops
+     it, "all governorates" asks for findings naming a governorate (or a district or town of one) instead,
+     a time frame of its own replaces the earlier years. It reads the findings the previous answer cited
+     first (up to 20; when it names a place of its own, only those naming it). When no finding of the place
+     matches its angles together with the earlier subject: an angle on that subject ("and for girls?", "for
+     girls") that findings elsewhere join to it keeps the subject, and the place is widened ("No finding on
+     this subject names Tripoli (the North): findings from all of Lebanon were read."); a new subject ("what
+     about child marriage?" after out-of-school children in Tripoli reads child marriage in Tripoli), a
+     rework, or an angle no finding joins anywhere searches its angles alone, in the earlier place and
+     years (one of two words when none holds both, and the line says so). Those words are then the subject
+     of the next follow-up (the question's row keeps them, `new_subject`): "and for girls?" after "what about
+     child marriage?" reads child marriage among girls, never girls out of school. The previous answer's
+     findings are then read first only when they match those angles, or when the question reworks that
+     answer or starts with "and" ("and for girls?"; "and what about ...?" is read as "what about ...?"). A
+     follow-up for all of Lebanon of a question on a place alone ("the situation of children in Akkar",
+     then "can u do it for all lebanon?") reads the findings of the filters, newest first, the earlier
+     answer's first. A question with no word of its own is thus no longer "no findings" in a conversation,
+     and a rework with no word of its own ("rephrase the answer in simpler words") is answered from the
+     earlier subject, place and years, the findings its answer cited first. The line under the answer says
+     what was kept ("Same subject as your earlier question; the findings its answer cited were read
+     again.", "Places from your earlier question: ...", "Years 2024–2026, from your earlier question; ..."),
+     and when a search matched nothing but the findings the previous answer cited, "Answered from the 3
+     findings your earlier answer cited, read again: no other finding matches.". A reply that reads no
+     finding has its own line too ("No finding matches your words.", or "No words to search: common words
+     such as all, Lebanon and children are left out."), never the page's "Answered from 1 data lookup".
    - At most 40 findings, 6 a document (no cap when the filters or the question name one document), 60,000
      characters of findings (the conversation's earlier turns have their own room). When fewer than 40
      findings match, a word of the question matches no finding (a word misspelt or cut short, "lence"),
@@ -1642,7 +1664,8 @@ asked). In order:
    about 250 words, up to about 400 for a paragraph, a description or a summary; no headings; when the
    person asks for a table, a sheet, figures, each indicator or numbers and percentages, one short
    markdown table after the text (Indicator or measure | Figure as stated | Year | Finding ID, at most
-   about 15 rows, each figure as its finding states it, never worked out from another); and the Excel and
+   about 15 rows, each figure as its finding states it, never worked out from another; never an HTML
+   table, which is taken out); and the Excel and
    CSV of the findings under every answer pointed to when an Excel, a sheet or a file is asked for, never
    refused (the owner's decision). A table of 15 rows adds about 600-1,000 output tokens (an estimate),
    within the 12,000.
@@ -1652,16 +1675,23 @@ asked). In order:
    version's Finding IDs or Document IDs (invented, a Document ID, not read this time) taken out and counted,
    with as many digits as the IDs hold ("PM2.5" and "PM10" stay); the sentences citing no finding counted (not
    the answer's first sentence, a lead; not one whose paragraph cites a finding in a later sentence; not one
-   saying what the findings, studies or documents lack ("the findings read do not report figures by sex";
-   never "girls do not report ...") or do not answer, nor one pointing to the Excel or CSV under the answer
-   with no figure of its own; a table's lines are not counted). A **table** keeps only the rows that give a
-   Finding ID read and none that was not (a row with no Finding ID, or with an invented one or one not read
-   this time, is taken out, and a table left with no row goes whole); the notice says so ("1 row of the table
-   was taken out: it gave no finding read for this answer."). A table is read as Python-Markdown reads it (a
-   rule of spaced dashes or with a space after it, a table in a quote or a list, a line with no pipe inside
-   it: a row), and the rendered answer is checked again: every row under a table's header that links no
-   finding read is taken out and counted, an HTML table too (its references are never linked, so it goes
-   whole). The rendered answer keeps only links to the findings read, and of the tags only paragraphs, lists,
+   saying what the findings, studies, documents, data, evidence, sources or reports lack, with that source
+   as its subject ("the findings read do not report figures by sex"; never "girls do not report ...", "the
+   studies found that girls do not report ..." or "they do not report it"; "they do not give figures by
+   sex" is about the findings) or do not answer, nor one that only points to the Excel or CSV under the
+   answer ("The Excel of these findings, under this answer, lists the 12 findings read"; never "As the
+   Excel under this answer shows, ..." nor a pointer with a figure, a comparison or a second clause); the
+   lines of a table are not counted, any other line with a pipe is). A **table** keeps only the rows that
+   give a Finding ID read and none that was not (a row with no Finding ID, or with an invented one or one
+   not read this time, is taken out, and a table left with no row goes whole); the notice says so ("1 row
+   of the table was taken out: it gave no finding read for this answer."). A table is read as
+   Python-Markdown reads it (a rule of spaced dashes or with a space after it, a table in a quote or on a
+   list item, a line with no pipe inside it: a row). An HTML table the model writes, a table in a table
+   too, is taken out whole before the answer is shown and its rows counted (its references are never
+   linked). The rendered answer is checked again: every row under a table's header that links no finding
+   read is taken out and counted, and out of the text kept too. The answer kept (the *Copy* text, and the
+   last answer a follow-up reworks) is the answer shown. The rendered answer keeps only links to the
+   findings read, and of the tags only paragraphs, lists,
    emphasis, quotes, code and tables (`table`, `thead`, `tbody`, `tr`, `th`, `td`, with a column's alignment
    as `align` and no other attribute), styled as Ask NeuroDB's tables and scrolled sideways inside the answer
    on a phone, never the page. Under the answer: the findings it cites, the fold of every finding read and
@@ -1704,7 +1734,9 @@ asked). In order:
   Every call is counted under *KM Database assistant* (`km`) in *AI use*.
 - **The log**: Admin → *KM Database* → **Questions to the KM Database** (read only, superusers and
   Administrators): the cleaned question, status, covered, findings read and cited, sentences citing none,
-  tokens and time. Its own rows (`km_question`), never Ask NeuroDB's or the Help assistant's; kept 90
+  tokens and time; on a follow-up whose own words became the subject, those words (*new subject
+  searched*, which the next follow-up keeps; km migration 0005 adds the column with a constant default, a
+  quick change). Its own rows (`km_question`), never Ask NeuroDB's or the Help assistant's; kept 90
   days (each question deletes the older ones; no job).
 - **Donors** get the JSON 403 on `/km/ask/stream/` like the other assistants' streams, and on the downloads
   under an answer (`/km/ask/findings/`).

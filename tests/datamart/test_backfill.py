@@ -383,6 +383,10 @@ QUICK_MIGRATIONS = {
     # of one row (catalogue only on PostgreSQL); AddField only, no code runs; listed so the migration is
     # accounted for here
     ("assistant", "0006_km_effort", "AddField"),
+    # the words a follow-up of Ask the KM Database searched as its own subject: a column with a constant
+    # database default on the table of questions (catalogue only on PostgreSQL); AddField only, no code runs;
+    # listed so the migration is accounted for here
+    ("km", "0005_new_subject", "AddField"),
 }
 
 

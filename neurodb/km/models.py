@@ -386,6 +386,16 @@ class KMQuestion(models.Model):
     terms = models.JSONField(_("search words suggested"), default=list, blank=True)
     read = models.JSONField(_("findings read"), default=list, blank=True)  # Finding IDs sent
     cited = models.JSONField(_("findings cited"), default=list, blank=True)  # Finding IDs cited and kept
+    # a follow-up whose own words no finding joined to the earlier subject ("what about child marriage?" after
+    # out of school children): the groups of words it searched as its subject, which the next follow-up keeps
+    # as the subject. db_default too: while a release starts, the revision before it still writes rows
+    new_subject = models.JSONField(
+        _("new subject searched"),
+        default=list,
+        db_default=[],
+        blank=True,
+        help_text=_("a follow-up's own words, searched as its subject when none joined the earlier one"),
+    )
     answer = models.TextField(_("answer"), blank=True)  # checked, with plain [ID] citations
     covered = models.CharField(_("answers the question"), max_length=8, blank=True, choices=Covered.choices)
     uncited = models.PositiveSmallIntegerField(_("sentences citing no finding"), default=0)

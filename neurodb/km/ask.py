@@ -21,10 +21,12 @@ findings only, by one model call with no tools.
    under 10 match the years it sets, the newest others are read after them. Findings of one document with
    the same key finding are read once, each of their Finding IDs citable. In a conversation, a
    **follow-up** (:meth:`Asked.follows`: under 4 words, a reference to the earlier answer such as "do it
-   for", "the text above", "what about", or no subject of its own) keeps the subject, places and years the
-   earlier turns left (:func:`conversation`) unless it names its own ("all Lebanon" drops the place, "all
-   governorates" asks for the breakdown instead), and reads the findings the previous answer cited first
-   (its own words alone when nothing matches both). When fewer than 40 match, a word of the question
+   for", "the text above", "what about", a rework of it ("revise the paragraph", "make it shorter"), or no
+   subject of its own) keeps the subject, places and years the earlier turns left (:func:`conversation`)
+   unless it names its own ("all Lebanon" drops the place, "all governorates" asks for the breakdown
+   instead), and reads the findings the previous answer cited first (its own words alone, the next
+   follow-up's subject, when nothing matches both; an angle such as "and for girls?" that findings elsewhere
+   join to the subject keeps it, the place widened). When fewer than 40 match, a word of the question
    matches no finding, or the question is not written in Latin letters, a small call asks for search words
    from the questions alone (they hold no data; any one of them in the place named); when it finds the
    credit gone, no answer call follows.
@@ -39,11 +41,12 @@ findings only, by one model call with no tools.
 3. **The answer** (:func:`finish`) is checked: names withheld again (an answer that still names someone is
    kept back), the model's own links taken out, every Finding ID read linked to its finding (with the version
    it was read from), every other ID-shaped reference taken out and counted, a table's rows that give no
-   Finding ID read taken out and counted (a short table is allowed when the person asks for one), and the
-   sentences that cite no finding counted (not a lead sentence, one cited later in its paragraph, nor one
-   saying what is missing). The call runs at :func:`neurodb.assistant.llm.km_effort` (medium, or the KM
-   Database assistant effort of AI settings on Claude). Under the answer, the findings it read can be
-   downloaded (Excel and CSV, :func:`downloads`; ``views.ask_findings``).
+   Finding ID read taken out and counted (a short markdown table is allowed when the person asks for one;
+   an HTML table is taken out; the answer kept and copied is the answer shown), and the sentences that cite
+   no finding counted (not a lead sentence, one cited later in its paragraph, one saying what is missing,
+   nor one that only points to the download). The call runs at :func:`neurodb.assistant.llm.km_effort`
+   (medium, or the KM Database assistant effort of AI settings on Claude). Under the answer, the findings it
+   read can be downloaded (Excel and CSV, :func:`downloads`; ``views.ask_findings``).
 
 When the AI is off, paused, over the KM Database's share of the day's AI budget, over the shared budget or
 over the person's quota, or when the call fails, the matching findings are listed without an answer. Every
@@ -154,7 +157,9 @@ QUESTION_STOP = frozenset(
     "why when where whom whose also more else other others them they these those its can could would should "
     "will there here between compare compared versus vs much many "
     # short words of English the search would look for in vain
-    "in on of to at by or an as is it be do if so no not we my me you your us".split()
+    "in on of to at by or an as is it be do if so no not we my me you your us "
+    # thanks ("thanks, what about girls?": :data:`COURTESY` takes the others out before a cue)
+    "thanks thank thx ok okay".split()
 )
 # words of a request, a format or a time ("i need a paragraph", "an excel sheet with each value", "in the past
 # years only"): not searched while other words remain (a question of these words only searches them)
@@ -168,35 +173,78 @@ REQUEST_STOP = frozenset(
     "rate rates proportion proportions prevalence figure figures statistic statistics stats ratio ratios "
     "count counts estimate estimates share "
     # the words of a breakdown ("a breakdown of child labour by governorate": the breakdown is read as such)
-    "breakdown breakdowns disaggregated disaggregation".split()
+    "breakdown breakdowns disaggregated disaggregation "
+    # the words of a rework of the earlier answer, its length, form, language or readers ("make it shorter",
+    # "in 3 bullet points", "translate it to Arabic", "with a focus on girls", "for a donor audience"): never
+    # its subject
+    "answer make shorter longer simpler briefer clearer concise shorten simplify summary summarise "
+    "summarize condense bullet bullets points version format wording words translate arabic french english "
+    "focus audience audiences tone style formal informal briefing".split()
 )
-# phrases of a request ("by population type disability": a breakdown asked for, not a word to search)
+# phrases of a request ("by population type disability": a breakdown asked for, not a word to search; "in
+# simpler words": a rework's form)
 REQUEST_PHRASES = re.compile(
     r"\b(?:population\s+(?:types?|groups?|categor(?:y|ies))|(?:types?|groups?|categor(?:y|ies))\s+of\s+"
-    r"populations?)\b",
+    r"populations?|in\s+(?:plain|simple|simpler|easy|easier|clear|clearer|lay)\s+(?:language|words|terms))\b",
     re.IGNORECASE,
 )
-# a question that reworks the earlier answer ("adjust the text above", "rewrite it", "the previous answer")
+# the earlier answer as a question that reworks it names it: "it", "this", "the paragraph", "your answer" (a
+# text, list or table, but never "the list of ...")
+_ANSWER = (
+    r"(?:it|this|that|them|(?:the|your|this|that|my)\s+(?:(?:previous|last|earlier|whole|above|first|same)\s+)?"
+    r"(?:answer|paragraphs?|summary|response|reply|draft|version|wording|(?:text|list|table)(?!\s+of\b)))"
+)
+# a question that reworks the earlier answer, whatever its words: "adjust the text above", "the previous
+# answer", "rewrite it", "rephrase for donors", a verb with the answer or "it" ("revise the paragraph",
+# "summarise it", "make it shorter", "put it in a table", "break it down by sex"). Never a verb alone, which
+# new questions use too ("how did families adjust to the crisis?"), nor "make it" without a length or form
+# ("what would make it easier for girls to stay in school?")
 REWORKS = (
     r"\b(?:text|answer|paragraph|summary|response|list|table)\s+above\b|\bthe\s+above\b|"
     r"\babove\s+(?:text|answer|paragraph|summary|response|list|table)\b|"
     r"\b(?:your|the|this)\s+(?:previous|last|earlier)\s+(?:answer|reply|response|paragraph|text|summary)\b|"
-    r"\b(?:redo|rework|rewrite)\b|"
-    r"\b(?:adjust|revise|rephrase|shorten|extend|expand|change)\s+(?:it|this|that|them)\b"
+    r"\b(?:redo|rework|rewrite|rephrase|reword)\b|"
+    r"\b(?:adjust|revise|shorten|lengthen|extend|expand|change|update|edit|modify|amend|tweak|simplify|"
+    rf"summari[sz]e|condense|translate|refocus|restructure|reorgani[sz]e)\s+{_ANSWER}\b|"
+    rf"\bmake\s+{_ANSWER}\s+(?:a\s+(?:bit|little)\s+|more\s+|much\s+|even\s+)?(?:shorter|longer|simpler|"
+    r"clearer|briefer|concise|readable|easier\s+to\s+read)\b|"
+    rf"\b(?:put|turn|format|present|write|give)\s+{_ANSWER}\s+(?:in|into|as)\b|\bbreak\s+{_ANSWER}\s+down\b"
 )
+# a question that asks about another subject in the earlier one's place and years ("what about child
+# marriage?", "focus on girls instead"): its own words are its subject when none joins the earlier one
+SWITCHES = r"^\W*(?:(?:and|ok|okay|so|then)\W+)?(?:what|how)\s+about\b|\binstead\W*$"
 # a question that refers to the earlier answer: one that reworks it, "do it for all Lebanon", "the same for
-# Akkar", "what about child marriage?", "and for boys?": in a conversation, a follow-up. Never a bare "it",
-# "this" or "that", nor "again", "instead", "for all" or a leading "and" alone, which new questions use too
-# ("is free education for all children achieved?", "why did enrolment fall again?")
+# Akkar", "what about child marriage?", "and for boys?", "... instead": in a conversation, a follow-up. Never
+# a bare "it", "this" or "that", nor "again", "for all", "instead" inside a question or a leading "and" alone,
+# which new questions use too ("is free education for all children achieved?", "why did enrolment fall
+# again?", "do girls work instead of studying?")
 REFERS = re.compile(
-    REWORKS + r"|\b(?:do|redo|repeat)\s+(?:it|this|that|the\s+same)\b|\bsame\s+(?:for|in|with|but|thing)\b|"
-    r"^\W*(?:(?:and|ok|okay|so|then)\W+)?(?:what|how)\s+about\b|"
-    r"^\W*and\s+(?:for|in|at|among|by|on|with|without|from|across|the\s+same)\b",
+    REWORKS
+    + r"|\b(?:do|redo|repeat)\s+(?:it|this|that|the\s+same)\b|\bsame\s+(?:for|in|with|but|thing)\b|"
+    + SWITCHES
+    + r"|^\W*and\s+(?:for|in|at|among|by|on|with|without|from|across|the\s+same)\b",
     re.IGNORECASE,
 )
 REWORKS_ANSWER = re.compile(REWORKS, re.IGNORECASE)
-# the start of a follow-up that adds to the earlier answer ("and for girls?"): its findings stay first
-ADDS = re.compile(r"^\W*and\b", re.IGNORECASE)
+SWITCHES_SUBJECT = re.compile(SWITCHES, re.IGNORECASE)
+# the start of a follow-up that adds to the earlier answer ("and for girls?"): its findings stay first. Not
+# "and what about child marriage?", which asks what "what about child marriage?" asks
+ADDS = re.compile(r"^\W*and\b(?!\W+(?:what|how)\s+about\b)", re.IGNORECASE)
+# thanks or praise around a question ("Thanks, what about girls?", "great! and for boys?", "ok now for all
+# gov", "... for all gov, thanks"): never a word to search, nor in the way of the cues that open a question.
+# Taken out only before a mark, a dash, another such word or a cue: "good practices", "great expectations of
+# parents" and "perfect attendance" keep their word
+_THANKS = (
+    r"(?:thanks?(?:\s+you)?(?:\s+(?:so|very)\s+much|\s+a\s+lot)?(?:\s+for\s+(?:that|this|it|the\s+\w+))?|thx|"
+    r"great|perfect|good|nice|ok|okay|cool|excellent|awesome|super|alright|noted|got\s+it|well\s+done|fine|sure|"
+    r"wonderful|brilliant|amazing|hi|hello|hey|please|pls|plz|kindly)"
+)
+COURTESY = re.compile(
+    rf"^\W*(?:{_THANKS}(?:\s*[,.!;:]+\s*|\s+[\u2013\u2014-]+\s+|\s+(?=(?:{_THANKS}|what|how|now|then|so|can|could|"
+    r"would|do|same|and\s+(?:for|in|at|among|by|on|with|without|from|across|the\s+same|what|how|now))\b)))+|"
+    rf"(?<=[\w)?!.])\s*[,.!?;:\u2013\u2014-]+\s*(?:{_THANKS}\W*)+$",
+    re.IGNORECASE,
+)
 # the KM Database's own subject in general words ("the situation of children"): a question that holds one has
 # a subject of its own, though no word of it is searched
 SUBJECT = re.compile(r"\b(?:children|child|childrens|kids|childhood)\b", re.IGNORECASE)
@@ -293,9 +341,9 @@ person asks for a table, a sheet, figures, each indicator, or numbers and percen
 markdown table after the text, with the columns Indicator or measure | Figure as stated | Year | Finding \
 ID: at most about 15 rows, each with the Finding ID its figure comes from, the figure exactly as that \
 finding states it (a number, a percentage or both) and its year; never work one figure out from another. \
-A row without a Finding ID from <findings> is taken out. The page offers an Excel and a CSV of the findings \
-you read under every answer: when the person asks for an Excel, a sheet or a file, say that it is under \
-the answer; never say that you cannot make one.
+Never write an HTML table: it is taken out. A row without a Finding ID from <findings> is taken out. The \
+page offers an Excel and a CSV of the findings you read under every answer: when the person asks for an \
+Excel, a sheet or a file, say that it is under the answer; never say that you cannot make one.
 Reply as JSON: {{"answer": "...", "covered": "yes" | "partly" | "no"}}.
 """
 CONFIDENCE_RULES = {
@@ -431,7 +479,8 @@ def prune() -> int:
 
 def history(user, conversation: uuid.UUID, version: KMVersion | None) -> list[dict[str, Any]]:
     """The last answered turns of this conversation read from the version shown (an answer from an older
-    version is not sent again), oldest first: question, answer and the Finding IDs it cited."""
+    version is not sent again), oldest first: question, answer, the Finding IDs it cited and the words it
+    searched as a new subject."""
     if version is None:
         return []
     rows = list(
@@ -439,7 +488,7 @@ def history(user, conversation: uuid.UUID, version: KMVersion | None) -> list[di
             user=user, conversation=conversation, version=version, status=KMQuestion.Status.ANSWERED
         )
         .order_by("-created_at")
-        .values("question", "answer", "cited")[:HISTORY_TURNS]
+        .values("question", "answer", "cited", "new_subject")[:HISTORY_TURNS]
     )
     rows.reverse()
     return rows
@@ -504,7 +553,8 @@ class Picked:
     (``recent``: "none" or "few", ``in_years`` of them). ``loose``: no finding matched both words of the
     question, those matching one were read. A follow-up (``follow_up``) says what it kept of the earlier
     question (``kept``: "subject", "places", "years"), how many findings its answer cited were read again
-    (``cited_again``) and whether they were the only ones (``carried_only``)."""
+    (``cited_again``), whether they were the only ones a search found (``carried_only``) and the words it
+    searched as its own subject when none joined the earlier one (``new_subject``: kept on its row)."""
 
     findings: list[KMFinding] = field(default_factory=list)
     copies: dict[str, list[KMFinding]] = field(default_factory=dict)
@@ -531,6 +581,7 @@ class Picked:
     kept: list[str] = field(default_factory=list)
     cited_again: int = 0
     carried_only: bool = False
+    new_subject: list[list[str]] = field(default_factory=list)
 
     @property
     def documents(self) -> int:
@@ -660,9 +711,10 @@ class Picked:
 
 
 def _searchable(text: str) -> str:
-    """A question's words worth searching: no placeholder of a cleaning ("[name withheld]"), e-mail address,
-    link or phone number, so that none becomes the search words "name" or "withheld"."""
-    text = text or ""
+    """A question's words worth searching: no thanks or praise around it (:data:`COURTESY`), no placeholder of
+    a cleaning ("[name withheld]"), e-mail address, link or phone number, so that none becomes the search
+    words "name" or "withheld"."""
+    text = COURTESY.sub(" ", text or "").strip()
     for placeholder in PLACEHOLDERS:
         text = text.replace(placeholder, " ")
     text = watch_people.EMAIL.sub(" ", text)
@@ -1401,6 +1453,7 @@ class Asked:
     words: int
     reworks: bool = False  # it asks to rework the earlier answer ("adjust the text above")
     adds: bool = False  # it adds to the earlier answer ("and for girls?")
+    switches: bool = False  # it asks about another subject ("what about child marriage?", "... instead")
 
     @property
     def subject(self) -> bool:
@@ -1418,11 +1471,17 @@ def _uncoded(text: str) -> str:
     return RQ.sub(" ", PILLAR.sub(" ", LEVEL.sub(" ", text)))
 
 
+def _unreworked(text: str) -> str:
+    """``text`` without the words that ask to rework the earlier answer ("rephrase the answer", "make it
+    shorter"): never its subject."""
+    return REWORKS_ANSWER.sub(" ", text)
+
+
 def understand(text: str, typed: str, shapes: list[str] | tuple[str, ...] = ()) -> Asked:
     """:class:`Asked` of a question: ``text`` without its codes (searchable), ``typed`` as typed."""
     frame = time_frame(text, today())
     tokens = _id_tokens(frame.text, shapes)
-    reading = places.read(_without(frame.text, tokens))
+    reading = places.read(_unreworked(_without(frame.text, tokens)))
     reading, groups = _national(reading, _groups(reading.text, alone=False))
     return Asked(
         frame=frame,
@@ -1434,15 +1493,17 @@ def understand(text: str, typed: str, shapes: list[str] | tuple[str, ...] = ()) 
         words=len((typed or "").split()),
         reworks=bool(REWORKS_ANSWER.search(text)),
         adds=bool(ADDS.search(text)),
+        switches=bool(SWITCHES_SUBJECT.search(text)),
     )
 
 
 @dataclass
 class Topic:
     """The subject a conversation's last answered turns leave: the words of the question that set it
-    (``subject``), those its follow-ups added (``angles``: "with a lens on gender", "and for boys?"), its
-    places and years (a follow-up keeps the earlier ones, unless it names its own), their age and sex marks,
-    and the Finding IDs the last answer cited."""
+    (``subject``: those a follow-up searched as its own subject when none joined the earlier one, kept on its
+    row), those its follow-ups added (``angles``: "with a lens on gender", "and for boys?"), its places and
+    years (a follow-up keeps the earlier ones, unless it names its own), their age and sex marks, and the
+    Finding IDs the last answer cited."""
 
     subject: list[list[str]]
     angles: list[list[str]]
@@ -1474,17 +1535,28 @@ def _merged(before: Topic, own: Asked) -> Topic:
     )
 
 
+def _stored_groups(value: Any) -> list[list[str]]:
+    """Groups of words as a row keeps them (:attr:`KMQuestion.new_subject`): lists of words, nothing else."""
+    if not isinstance(value, list):
+        return []
+    return [g for g in value if isinstance(g, list) and g and all(isinstance(w, str) for w in g)]
+
+
 def conversation(earlier: list[dict[str, Any]], shapes: list[str] | tuple[str, ...] = ()) -> Topic | None:
     """The subject the conversation's earlier answered turns (:func:`history`, oldest first) leave: each turn
     that is a follow-up of the ones before (:meth:`Asked.follows`) keeps their subject, places and years
-    unless it names its own; any other starts a new subject. None without an earlier turn. Read from the
-    cleaned questions only (no query)."""
+    unless it names its own (a follow-up whose own words were searched as its subject, ``new_subject``, makes
+    them the subject); any other starts a new subject. None without an earlier turn. Read from the cleaned
+    questions and what their rows keep only (no query)."""
     topic = None
     for turn in earlier:
         question = turn.get("question") or ""
         own = understand(_uncoded(_searchable(question)), question, shapes)
         if topic is not None and own.follows():
             topic = _merged(topic, own)
+            new_subject = _stored_groups(turn.get("new_subject"))
+            if new_subject:  # no finding joined its words to the earlier subject: they are the subject now
+                topic.subject, topic.angles = new_subject, []
         else:
             topic = Topic(
                 subject=own.groups,
@@ -1541,7 +1613,7 @@ def retrieve(
         base = scope.apply(KMFinding.objects.all())
         used.append(f"{words.DOCUMENT_ID} {document}")
     other = follow_up or bool(used or left_out or frame.spans or first)
-    reading, current = _read(text, other=other)
+    reading, current = _read(_unreworked(text), other=other)
     adjective = NATIONAL_WORD if reading.national_word else None  # "national", no place: never searched alone
     topic = 0
     if not follow_up and len(current) > TOPIC_AFTER:  # a long question: its last clause ranks first
@@ -1611,7 +1683,8 @@ def retrieve(
             picked.matched += n
         return n
 
-    if all_groups or place:
+    searching = bool(all_groups or place)
+    if searching:
         searched, searched_topic = all_groups, topic
         typed_dead = held_none = False  # a word of the question that no finding holds (misspelt, abbreviated)
         if len(all_groups) >= 2 or (place and all_groups):  # a group no finding holds is not counted
@@ -1652,13 +1725,21 @@ def retrieve(
             # "national" alone)
             either = [g for g in searched if g != adjective]
             picked.loose = bool(run(*quorum(base, either, boost, required=required, need=1, **ask_for)))
-        if follow_up and angles_held and len(angles_held) < len(searched) and not picked.matched:
-            # no finding joins the follow-up to the earlier subject: a new subject, searched by its angles
-            # alone (its own words, and those its earlier follow-ups searched alone too)
+        if (
+            follow_up
+            and angles_held
+            and len(angles_held) < len(searched)
+            and not picked.matched
+            and not _joined_elsewhere(own, place, base, searched, boost, by_governorate, shape, ask_for)
+        ):
+            # no finding joins the follow-up to the earlier subject: a new subject ("what about child
+            # marriage?" after out of school children), searched by its angles alone (its own words, and
+            # those its earlier follow-ups searched alone too), and the next follow-up's subject (on its row)
             searched, shape = angles_held, {}  # the passes below search them alone too
             if not run(*quorum(base, searched, boost, required=required, **ask_for)) and len(searched) == 2:
                 either = [g for g in searched if g != adjective]  # never "national" alone
-                run(*quorum(base, either, boost, required=required, need=1, **ask_for))
+                picked.loose = bool(run(*quorum(base, either, boost, required=required, need=1, **ask_for)))
+            picked.new_subject = [list(g) for g in searched]
             if "subject" in kept:
                 kept.remove("subject")
             if again and not (own.reworks or own.adds):
@@ -1704,14 +1785,36 @@ def retrieve(
         if not picked.matched and scope.document:  # one document: its findings, even when no word matches
             picked.matched = base.count()
             passes.append(_top(base, DEFAULT_ORDER, cap, MAX_FINDINGS))
-    elif scope.any or used:  # only codes or common words: the findings of the filters, newest first
+    elif scope.any or used or (follow_up and reading.national):
+        # only codes or common words, or a follow-up for all of Lebanon of a question on a place alone ("the
+        # situation of children in Akkar", then "can you do it for all of Lebanon?"): the findings of the
+        # filters, newest first
         picked.matched = base.count()
         passes.append(_top(base, list(DEFAULT_ORDER), cap * SPARE, MAX_FINDINGS * SPARE))
-    # nothing matched: the findings the earlier answer cited are the only ones read (the line says so)
-    picked.carried_only = bool(picked.cited_again) and not picked.matched
+    # a search matched nothing: the earlier answer's cited findings are the only ones read (the line says so)
+    picked.carried_only = bool(picked.cited_again) and not picked.matched and searching
     _pick(picked, first, passes, cap)
     picked.matched = max(picked.matched, len(picked.findings))
     return picked
+
+
+def _joined_elsewhere(
+    own: Asked,
+    place: list[str] | None,
+    base: QuerySet,
+    searched: list[list[str]],
+    boost: list[str],
+    by_governorate: list[str] | None,
+    shape: dict[str, Any],
+    ask_for: dict[str, Any],
+) -> bool:
+    """Whether a follow-up that no finding of the place joins to the earlier subject is an angle on that
+    subject ("and for girls?", "for girls") that findings elsewhere join to it: the subject is then kept and
+    the place widened (never girls on any subject). Not a new subject ("what about child marriage?", "...
+    instead") nor a rework, which search their own words in the place."""
+    if not place or own.switches or own.reworks:
+        return False
+    return quorum(base, searched, boost, required=by_governorate, **shape, **ask_for)[0].exists()
 
 
 def _pick(picked: Picked, first: list[KMFinding], passes: list[list[KMFinding]], cap: int) -> None:
@@ -1981,26 +2084,55 @@ REF_DEFINITION = re.compile(r"^[ \t]*\[[^\]\n]+\]:[ \t]*\S+.*$", re.MULTILINE)
 LINKED = re.compile(r"\[\\\[([A-Za-z0-9._-]{1,40})\\\]\]\(/km/findings/[^)\s]*\)")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9“\"(])")
 LIST_MARK = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+# what the findings lack, as a source's verb says it ("do not give figures by sex")
+_LACKS = (
+    r"(?:hold|give|report|include|provide|cover|offer|contain|break|disaggregate|separate|say|mention|state)"
+)
+_DATA = (
+    r"(?:(?:any|a|the|separate|exact|specific)\s+)?(?:figures?|data|numbers?|breakdowns?|percentages?|rates?|"
+    r"information|results?|evidence|disaggregation|details?|counts?|estimates?)\b"
+)
 NOT_A_CLAIM = re.compile(
     r"does not answer|do not answer|only in part|is missing|are missing|more findings|findings match|"
     r"Findings tab|no findings?\b|"
     # what the findings lack ("The findings hold no figures by sex", "None of the findings gives ...")
     r"\b(?:hold|holds|give|gives|report|reports|include|includes|provide|provides|offer|offers|contain|"
     r"contains)\s+no\b|"
-    # "The findings read do not give ...", "They do not report ...": what the findings, studies or documents
-    # lack, never a claim about people ("Girls in the South do not report ...")
-    r"\b(?:findings?|studies|study|documents?|reports?|data|evidence|sources?|they|it|none|these|those)\b"
-    r"(?:\s+[\w-]+){0,3}?\s+(?:do|does|did)\s+not\s+(?:hold|give|report|include|provide|cover|offer|contain|"
-    r"break|disaggregate|separate|say|mention|state)\b|\bnone\s+of\s+the\s+(?:findings|studies|documents)\b|"
+    # "The findings read here do not give ...": a source is the subject, with only words that qualify it
+    # before "do not"; never a claim about people ("Girls in the South do not report ...", "The studies found
+    # that girls do not report ...")
+    r"\b(?:findings?|studies|study|documents?|reports?|data|evidence|sources?)"
+    r"(?:\s+(?:read|here|available|listed|cited|above|below|used|selected|(?:on|for|in|from)\s+[\w-]+)){0,3}"
+    rf"\s+(?:do|does|did)\s+not\s+{_LACKS}\b|"
+    # "They do not give figures by sex": a pronoun right before "do not", and only of figures or data ("they
+    # do not report it", "it does not cover transport" are claims)
+    r"\b(?:they|it|these|those)\s+(?:do|does|did)\s+not\s+(?:(?:hold|give|report|include|provide|offer|"
+    rf"contain|mention|state|say)\s+{_DATA}|break\b|disaggregate\b|separate\b)|"
+    r"\bnone\s+of\s+the\s+(?:findings|studies|documents)\b|"
     r"\bno\s+(?:data|figures?|evidence|information|breakdowns?)\b|\bnot\s+(?:disaggregated|broken\s+down)\b",
     re.IGNORECASE,
 )
-# a sentence that points to the download under the answer ("The Excel of these findings is under this
-# answer"), when it gives no figure of its own
+# the file under an answer as a sentence that points to it names it: "The Excel of these findings, under this
+# answer,", "the Excel and the CSV", "an Excel of the findings read"
+_FILE = (
+    r"(?:an?\s+|the\s+|this\s+)?(?:Excel|CSV)(?:\s+(?:file|sheet|workbook|download))?"
+    r"(?:\s+(?:and|or)\s+(?:an?\s+|the\s+)?(?:Excel|CSV)(?:\s+(?:file|sheet|workbook))?)?"
+    r"(?:\s+(?:of|with|for)\s+(?:these|the|all|each|every)\s+findings?(?:\s+(?:read|used|cited))?)?"
+    r"(?:\s*,?\s*(?:under|below)\s+(?:this|the|each|every)\s+answer\s*,?)?"
+)
+# a sentence that only points to the download under the answer: the file is its subject, and what it says is
+# where the file is or what it lists ("The Excel of these findings is under this answer", "You can download an
+# Excel of the findings read under this answer")
 DOWNLOAD_POINTER = re.compile(
-    r"\b(?:Excel|CSV)\b.*\b(?:under|below)\s+(?:this|the|each|every)\s+answer\b|"
-    r"\b(?:under|below)\s+(?:this|the|each|every)\s+answer\b.*\b(?:Excel|CSV)\b|"
-    r"\b(?:Excel|CSV)\s+(?:file\s+)?of\s+(?:these|the)\s+findings\b",
+    rf"^(?:(?:you\s+(?:can|may)\s+)?(?:download|find|open)\s+{_FILE}|{_FILE}\s*(?:is|are|can\s+be\s+"
+    r"(?:downloaded|found|opened)|lists?|gives?|holds?|has|have|includes?|contains?|sets?\s+out)\b)",
+    re.IGNORECASE,
+)
+# what a pointer never says: a finding of its own (a statement, a comparison, a second clause) or a figure
+# other than how many findings it lists and their years
+POINTER_STATES = re.compile(
+    r"\b(?:shows?|showing|confirms?|finds?|found|reveals?|indicates?|suggests?|that|most|least|more|less|"
+    r"higher|lower|earlier|later|than|but|while|whereas|although)\b|[;:%\d]",
     re.IGNORECASE,
 )
 REFUSAL = re.compile(r"does not answer", re.IGNORECASE)
@@ -2009,8 +2141,13 @@ TABLE_TAGS = {"table", "thead", "tbody", "tr", "th", "td"}
 ALIGN = frozenset({"left", "right", "center"})
 # the marks of a quote and the indent before a line's text ("> | a | b |", "    | a | b |")
 QUOTED = re.compile(r"^(?:[ \t]*>)*[ \t]*")
-TABLE_HTML = re.compile(r"<table\b[^>]*>.*?</table>", re.DOTALL)
+# the marks before a table's first line (its header): a quote, and a list item ("- | a | b |", "1. | a |"),
+# whose other lines are indented
+HEAD_MARK = re.compile(r"^(?:[ \t]*(?:>|(?:[-*+]|\d+\.)(?=[ \t])))*[ \t]*")
+TABLE_TAG = re.compile(r"<(/?)table\b[^>]*>", re.IGNORECASE)
 ROW_HTML = re.compile(r"<tr\b[^>]*>.*?</tr>", re.DOTALL)
+# a row of an HTML table as written, to the next row or the end of its table (a row left open too)
+RAW_ROW = re.compile(r"<tr\b.*?(?=<tr\b|</table|\Z)", re.DOTALL | re.IGNORECASE)
 
 
 def _shape(identifier: str) -> str:
@@ -2034,16 +2171,30 @@ class Checked:
     withheld: bool = False
 
 
+def _points_to_file(sentence: str) -> bool:
+    """Whether ``sentence`` only points to the Excel or CSV under the answer (:data:`DOWNLOAD_POINTER`), and
+    says nothing else (:data:`POINTER_STATES`): how many findings it lists and their years may be given."""
+    text = re.sub(r"\b\d+\s+(findings?)\b", r"\1", sentence.strip())
+    text = re.sub(r"\b(?:19|20)\d\d\b", " ", text)
+    if not re.search(r"\banswer\b|\bfindings?\b", text, re.IGNORECASE):
+        return False
+    return bool(DOWNLOAD_POINTER.search(text)) and not POINTER_STATES.search(text)
+
+
 def _uncited(text: str) -> int:
-    """The sentences and list lines that state something and cite no finding. Left out: the answer's first
-    sentence (a lead that sums it up), a sentence whose paragraph (or list line) cites a finding in a later
-    sentence, lead-ins, short ones, the sentences that say what the findings do not answer or lack, and the
-    one after "does not answer", which says what related evidence they hold."""
+    """The sentences and list lines that state something and cite no finding. Left out: the lines of a table
+    (each of its rows gives a Finding ID read: :func:`finish`; any other line with a pipe is a sentence), the
+    answer's first sentence (a lead that sums it up), a sentence whose paragraph (or list line) cites a
+    finding in a later sentence, lead-ins, short ones, the sentences that say what the findings do not answer
+    or lack, a sentence that only points to the download under the answer, and the one after "does not
+    answer", which says what related evidence they hold."""
     n = 0
     after_refusal = False
     lead = True
-    for line in text.split("\n"):
-        if "|" in line:  # a table's line: each of its rows gives a Finding ID read (finish)
+    lines = text.split("\n")
+    tables = {at for start, end in _table_blocks(lines) for at in range(start, end)}
+    for at_line, line in enumerate(lines):
+        if at_line in tables:
             continue
         line = LIST_MARK.sub("", line).strip()
         sentences = [s.strip() for s in SENTENCE_END.split(line) if s.strip()]
@@ -2056,7 +2207,7 @@ def _uncited(text: str) -> int:
             if NOT_A_CLAIM.search(sentence):
                 after_refusal = bool(REFUSAL.search(sentence))
                 continue
-            if DOWNLOAD_POINTER.search(sentence) and not re.search(r"\d", sentence):
+            if _points_to_file(sentence):
                 continue
             if sentence.endswith(":") or len(sentence.split()) < 6 or cites[at]:
                 continue
@@ -2089,59 +2240,146 @@ def _starts_table(head: str, rule: str) -> bool:
     return len(under) == len(cells) and set("".join(under)) <= set(":- \t") and "|" in rule
 
 
+def _bare(line: str) -> str:
+    return QUOTED.sub("", line, count=1)
+
+
+def _table_blocks(lines: list[str]) -> Iterator[tuple[int, int]]:
+    """Where the markdown tables of ``lines`` are, as Python-Markdown reads them (:func:`_starts_table`; the
+    first line in a quote or on a list item too): the index of each one's header and the index after its
+    block (every line under the rule up to a blank line is a row, a line with no pipe too)."""
+    at = 0
+    while at + 1 < len(lines):
+        if _starts_table(HEAD_MARK.sub("", lines[at], count=1), _bare(lines[at + 1])):
+            end = at + 2
+            while end < len(lines) and _bare(lines[end]).strip():
+                end += 1
+            yield at, end
+            at = end
+        else:
+            at += 1
+
+
+def _outer_tables(text: str) -> list[tuple[int, int]]:
+    """Where the outermost HTML tables of ``text`` start and end (a table in a table is part of the one around
+    it; a table left open runs to the end)."""
+    spans: list[tuple[int, int]] = []
+    depth = start = 0
+    for tag in TABLE_TAG.finditer(text):
+        if not tag.group(1):
+            if not depth:
+                start = tag.start()
+            depth += 1
+        elif depth:
+            depth -= 1
+            if not depth:
+                spans.append((start, tag.end()))
+    if depth:
+        spans.append((start, len(text)))
+    return spans
+
+
+def _has_text(row: str) -> bool:
+    return bool(re.sub(r"<[^>]+>", "", row).strip())
+
+
+def _raw_tables(text: str) -> tuple[str, int]:
+    """``text`` without the HTML tables written in it, a table in a table too (the AI writes markdown tables
+    only: markdown leaves an HTML table as written, so no reference in it is linked and no row of it gives a
+    finding read); and how many rows with text under the first were in them."""
+    removed = last = 0
+    out = []
+    for start, end in _outer_tables(text):
+        removed += sum(1 for row in RAW_ROW.findall(text[start:end])[1:] if _has_text(row))
+        out.append(text[last:start])
+        last = end
+    out.append(text[last:])
+    return "".join(out), removed
+
+
 def _table_rows(text: str, keep: Callable[[str], bool]) -> tuple[str, int]:
-    """``text`` with the rows of its markdown tables that ``keep`` refuses taken out (a table left with no row
-    is taken out whole, its header too), each table after a blank line so that it starts its own block
-    (markdown reads a table right under a sentence as part of its paragraph); and how many rows were taken
-    out. A table is read as Python-Markdown reads it (:func:`_starts_table`), in a quote or a list too: every
-    line of its block under the rule is a row, a line with no pipe too."""
+    """``text`` with no HTML table (:func:`_raw_tables`) and the rows of its markdown tables that ``keep``
+    refuses taken out (a table left with no row is taken out whole, its header too), each table after a blank
+    line so that it starts its own block (markdown reads a table right under a sentence as part of its
+    paragraph); and how many rows were taken out. A table is read as Python-Markdown reads it
+    (:func:`_table_blocks`), in a quote or a list too."""
+    text, removed = _raw_tables(text)
     lines = text.split("\n")
     out: list[str] = []
-    removed = at = 0
-
-    def bare(line: str) -> str:
-        return QUOTED.sub("", line, count=1)
-
-    while at < len(lines):
-        line = lines[at]
-        if at + 1 < len(lines) and _starts_table(bare(line), bare(lines[at + 1])):
-            end = at + 2
-            while end < len(lines) and bare(lines[end]).strip():
-                end += 1
-            body = lines[at + 2 : end]
-            kept = [row for row in body if keep(row)]
-            removed += len(body) - len(kept)
-            if kept:
-                if out and bare(out[-1]).strip():
-                    out.append("")
-                out += [line, lines[at + 1], *kept]
-            at = end
-            continue
-        out.append(line)
-        at += 1
+    at = 0
+    for start, end in _table_blocks(lines):
+        out += lines[at:start]
+        body = lines[start + 2 : end]
+        kept = [row for row in body if keep(row)]
+        removed += len(body) - len(kept)
+        if kept:
+            if out and _bare(out[-1]).strip():
+                out.append("")
+            out += [lines[start], lines[start + 1], *kept]
+        at = end
+    out += lines[at:]
     return "\n".join(out), removed
 
 
-def _unlinked_rows(html: str) -> tuple[str, int]:
+def _words_of(text: str) -> str:
+    """The letters and digits of a row (as written, or as rendered), to find one row in the other."""
+    return re.sub(r"[\W_]+", "", html_lib.unescape(text)).casefold()
+
+
+def _unlinked_rows(html: str) -> tuple[str, int, list[tuple[str, bool]]]:
     """``html`` (rendered) with every row of a table under its first (the header) that links no finding
-    read taken out, and a table left with no such row taken out whole; and how many rows with text were
-    taken out. What the browser shows is checked, whatever shape the table was written in (a quote, an HTML
-    table, a rule markdown reads and :func:`_table_rows` did not)."""
+    read taken out, and a table left with no such row taken out whole (a table in a table too: markdown never
+    writes one); how many rows with text were taken out; and the words of each row taken out, with whether
+    its table went whole (its header's words then), so that the text kept loses them too
+    (:func:`_without_rows`). What the browser shows is checked, whatever shape the table was written in (a
+    rule markdown reads and :func:`_table_rows` did not)."""
     removed = 0
-
-    def table(match: re.Match) -> str:
-        nonlocal removed
-        whole = match.group(0)
+    gone: list[tuple[str, bool]] = []
+    out: list[str] = []
+    last = 0
+    for start, end in _outer_tables(html):
+        whole = html[start:end]
         rows = ROW_HTML.findall(whole)
-        kept = [row for row in rows[1:] if 'href="/km/findings/' in row]
-        for row in rows[1:]:
-            if row not in kept:
-                if re.sub(r"<[^>]+>", "", row).strip():
-                    removed += 1
-                whole = whole.replace(row, "", 1)
-        return whole if kept else ""
+        nested = len(TABLE_TAG.findall(whole)) > 2
+        kept = [] if nested else [row for row in rows[1:] if 'href="/km/findings/' in row]
+        if kept:
+            for row in rows[1:]:
+                if row not in kept:
+                    if _has_text(row):
+                        removed += 1
+                        gone.append((_words_of(re.sub(r"<[^>]+>", " ", row)), False))
+                    whole = whole.replace(row, "", 1)
+        else:
+            removed += sum(1 for row in RAW_ROW.findall(whole)[1:] if _has_text(row))
+            if rows:
+                gone.append((_words_of(re.sub(r"<[^>]+>", " ", rows[0])), True))
+            whole = ""
+        out += [html[last:start], whole]
+        last = end
+    out.append(html[last:])
+    return "".join(out), removed, gone
 
-    return TABLE_HTML.sub(table, html), removed
+
+def _without_rows(text: str, gone: list[tuple[str, bool]]) -> str:
+    """``text`` without the lines of the rows :func:`_unlinked_rows` took out of what is shown, each found
+    by its words, in order (a table taken out whole: from its header to the end of its block), so that the
+    answer kept and copied is the answer shown."""
+    lines = text.split("\n")
+    dropped: set[int] = set()
+    at = 0
+    for words_, whole in gone:
+        if not words_:
+            continue
+        for n in range(at, len(lines)):
+            line = HEAD_MARK.sub("", LINKED.sub(r"\1", lines[n]), count=1)
+            if n not in dropped and _words_of(line) == words_:
+                end = n + 1
+                while whole and end < len(lines) and _bare(lines[end]).strip():
+                    end += 1
+                dropped.update(range(n, end))
+                at = end
+                break
+    return "\n".join(line for n, line in enumerate(lines) if n not in dropped)
 
 
 def render(text: str, sent: list[str]) -> str:
@@ -2184,8 +2422,10 @@ def finish(
     ``documents``: their Document IDs; ``shapes``: the shapes of the version's Document IDs and Finding IDs
     (:func:`document_shapes`, :func:`finding_shapes`). An ID of any of those shapes that was not read is taken
     out and counted; a figure such as "PM2.5" or "PM10" never is. A table keeps only the rows that give a
-    Finding ID read and none that was not (the others are taken out and counted: :func:`_table_rows`).
-    ``own``: the surnames of the read documents' own authors."""
+    Finding ID read and none that was not (the others are taken out and counted: :func:`_table_rows`, then
+    what is shown: :func:`_unlinked_rows`); an HTML table is taken out whole. The answer kept (copied, and
+    sent again for a follow-up to rework) is the answer shown. ``own``: the surnames of the read documents'
+    own authors."""
     text = privacy.for_ai(answer or "", people, own)
     if privacy.leftover(text, people):
         return Checked(withheld=True)
@@ -2229,10 +2469,10 @@ def finish(
         text = re.sub(r"[ \t]+([.,;:!?])", r"\1", text)
         text = re.sub(r"[ \t]{2,}", " ", text)
         text = re.sub(r"\(\s*\)|\[\s*\]", "", text)
-    stored = LINKED.sub(r"[\1]", text).strip()
-    html, unlinked = _unlinked_rows(render(text.strip(), cited))
+    html, unlinked, gone = _unlinked_rows(render(text.strip(), cited))
+    text = _without_rows(text, gone)  # the answer kept, copied and reworked is the answer shown
     return Checked(
-        answer=stored,
+        answer=LINKED.sub(r"[\1]", text).strip(),
         html=html,
         cited=cited,
         removed=removed,
@@ -2446,7 +2686,7 @@ def stream(
             shapes=shapes,
         )
         _booked(row, picked.result)
-        row.terms = picked.terms
+        row.terms, row.new_subject = picked.terms, picked.new_subject
         scope = picked.filters or filters
         if not picked.findings:
             if not why:

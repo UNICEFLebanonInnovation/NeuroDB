@@ -330,6 +330,70 @@ def test_the_six_questions_of_one_conversation(client_viewer, ai, today):  # noq
     assert len(fake.calls()) == 6
 
 
+Q2_CITED = [factory.finding_id(2, 2), factory.finding_id(2, 3), factory.finding_id(2, 5)]
+Q2_TURN = {"question": Q2, "answer": "Fake [TST-0002-F00002].", "cited": Q2_CITED}
+SOUTH = "the South (South and Nabatieh governorates)"
+REWORKS = (
+    # with an angle of its own
+    "revise the paragraph for girls",
+    "please adjust the paragraph so it covers boys",
+    "please revise the text to focus on boys",
+    "revise the answer with a focus on disability",
+    "can you adjust the paragraph with a lens on gender",
+    "adjust the answer for girls",
+    "focus on girls instead",
+    "Thanks, what about girls?",
+    # with no word of its own
+    "rephrase the answer in simpler words",
+    "rephrase for a donor audience",
+    "summarise it in 3 bullet points",
+    "can you make the answer shorter and simpler?",
+    "can you simplify the answer?",
+    "summarize the paragraph in bullet points",
+    "make it shorter",
+    "can you make it shorter?",
+    "put it in a table please",
+    "translate it to Arabic",
+    "expand the summary",
+    "shorten it",
+)
+
+
+@pytest.mark.parametrize("question", REWORKS)
+def test_every_way_of_asking_to_rework_q2_keeps_its_places_years_and_findings(ai, today, question):  # noqa: F811
+    factory.load(build(DOCS))
+    picked = _picked(question, earlier=[Q2_TURN])
+    assert picked.follow_up and picked.places == SOUTH
+    assert "places" in picked.kept and "years" in picked.kept
+    assert picked.filters.year == ["2025", "2024"]  # 2024-2026, of the years the version holds
+    assert [f.finding_id for f in picked.findings][:3] == Q2_CITED
+
+
+@pytest.mark.parametrize("question", ["rephrase the answer in simpler words", "can you make it shorter?"])
+def test_a_rework_with_no_word_of_its_own_is_answered_from_q2(client_viewer, ai, today, question):  # noqa: F811
+    factory.load(build(DOCS))
+    conversation = uuid.uuid4()
+    ai([answer("In Nabatieh, 41% lacked safe water [TST-0002-F00002]."), answer("Fake [TST-0002-F00002].")])
+    done(post(client_viewer, Q2, conversation=conversation))
+    final = done(post(client_viewer, question, conversation=conversation))
+    row = KMQuestion.objects.order_by("-created_at").first()
+    assert row.status == "answered" and row.read[0] == "TST-0002-F00002"
+    assert "No finding" not in final["meta"]
+    assert f"Places from your earlier question: {SOUTH}." in final["meta"] and KEPT in final["meta"]
+
+
+def test_a_reworded_q3_keeps_q2s_years_for_q4(ai, today):  # noqa: F811
+    factory.load(build(DOCS))
+    rework = "can you adjust the paragraph with a lens on gender and disability"
+    earlier = [
+        Q2_TURN,
+        {"question": rework, "answer": "Fake [TST-0004-F00001].", "cited": [factory.finding_id(4, 1)]},
+    ]
+    picked = _picked(Q4, earlier=earlier)
+    assert picked.follow_up and picked.kept == ["subject", "years"] and picked.national
+    assert picked.filters.year == ["2025", "2024"]
+
+
 def test_q1_when_no_finding_names_mount_lebanon(client_viewer, ai, today):  # noqa: F811
     docs = [(year, list(texts)) for year, texts in DOCS]
     docs[0][1][0] = "In Beirut, 9,100 children aged 6-14 were out of school."

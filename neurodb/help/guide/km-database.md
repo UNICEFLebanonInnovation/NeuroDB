@@ -188,15 +188,18 @@ download the findings it read.
   answer may end with one short table: the indicator or measure, the figure exactly as its finding states it
   (a percentage is never worked out from a number), the year and the finding's reference, at most about 15
   rows. A row that gives no finding read for this answer is taken out, whatever way the table is written, and
-  the answer says how many. On a phone, a wide table scrolls sideways inside the answer. Ask for an Excel or a
+  the answer says how many; a table the AI writes in HTML is taken out whole. The text you copy, and the one
+  a follow-up rewrites, is the answer as shown. On a phone, a wide table scrolls sideways inside the answer.
+  Ask for an Excel or a
   sheet and the answer points to **Excel of these findings** under it: every finding it read, with the figures
   inside their key finding and measure (the KM Database has no separate column of figures).
 - **When the findings do not answer.** The answer says "The KM Database does not answer this question." and
   what related evidence it holds; "answers this only in part" when part is missing, with what the search could
   not find when it can say ("no finding on this subject names Mount Lebanon", "no finding of 2022", "no
   finding read compares governorates"). A sentence that cites no finding is counted under the answer: check it
-  against the findings (the opening sentence, a sentence whose reference ends the next one of its paragraph
-  and a sentence saying what the findings lack are not counted).
+  against the findings (the opening sentence, a sentence whose reference ends the next one of its paragraph,
+  a sentence saying what the findings lack and one that only points to the Excel under the answer are not
+  counted; a sentence about people, such as "girls do not report it", is).
 - **When the AI is off or a limit is reached** the tab still lists the findings that match your question,
   without a written answer, and says why (to download them, use **Excel of the filter** on the Findings
   tab). Search and the filters work as usual.
@@ -211,22 +214,28 @@ download the findings it read.
 - **A conversation.** A follow-up keeps the subject, places and years of your earlier question and reads
   the findings its answer cited again. A question is a follow-up when it is short ("and for boys?"), when
   it refers to the answer ("do it for all Lebanon", "adjust the text above", "the same for Akkar", "redo",
-  "what about child marriage?", "and for girls"), or when it has no subject of its own (only places, years
-  or what you want: "what about Akkar since 2024?", "once done I need an excel sheet"). Any other question
-  that names its subject, even in general words ("the situation of children for all governorates") or
-  with words such as "again", "instead" or "for all" ("why did enrolment fall again?"), starts afresh.
-  When no finding joins a follow-up's own words to the earlier subject, its words are searched alone, in
-  the earlier place and years ("what about child marriage?" after a question on Tripoli: child marriage
-  in Tripoli). A follow-up with no
-  words of its own ("can you do it for all governorates?") is answered from the earlier subject, and counts
-  like any question. Its own place, years, "all Lebanon" (no place) or "all governorates" (findings that
-  name a governorate) replace the earlier ones; its own words are angles added to the subject ("with a
-  lens on gender, and disability": a finding on either). The line under the answer says what was kept.
-  You can ask to rewrite the previous answer (another angle, place, period or length): it is rewritten
-  from the findings it cited, read again, keeping their references, and never from the earlier answer
-  alone. A short question on a new topic ("Child marriage?") that no finding joins to the earlier subject
-  reads its own findings. **New conversation** starts afresh. **Your recent questions** lists your last
-  ten; press one to ask it again. Your questions are kept 90 days.
+  "what about child marriage?", "and for girls", "focus on girls instead"), when it asks to rework the
+  answer in any words ("revise the paragraph for girls", "rephrase the answer in simpler words", "make it
+  shorter", "summarise it in bullet points", "put it in a table", "translate it to Arabic"), or when it has
+  no subject of its own (only places, years or what you want: "what about Akkar since 2024?", "once done I
+  need an excel sheet"). A "Thanks," or "great," in front changes nothing. Any other question that names its
+  subject, even in general words ("the situation of children for all governorates") or with words such as
+  "again", "instead" or "for all" ("why did enrolment fall again?", "how did families adjust to the
+  crisis?"), starts afresh. When no finding of the place joins a follow-up's own words to the earlier
+  subject, an angle on it ("and for girls?") that findings elsewhere join keeps the subject, and the
+  findings of all of Lebanon are read; a new subject ("what about child marriage?" after a question on
+  Tripoli: child marriage in Tripoli) or a rework searches its own words alone, in the earlier place and
+  years, and those words are the subject of the next follow-up. A follow-up with no words of its own ("can
+  you do it for all governorates?", "can you do it for all Lebanon?" after a question on a place) is
+  answered from the earlier subject, and counts like any question. Its own place, years, "all Lebanon" (no
+  place) or "all governorates" (findings that name a governorate) replace the earlier ones; its own words
+  are angles added to the subject ("with a lens on gender, and disability": a finding on either). The line
+  under the answer says what was kept. You can ask to rewrite the previous answer (another angle, place,
+  period, length, form or language): it is rewritten from the findings it cited, read again, keeping
+  their references, and never from the earlier answer alone. A short question on a new topic ("Child
+  marriage?") that no finding joins to the earlier subject reads its own findings. **New conversation**
+  starts afresh. **Your recent questions** lists your last ten; press one to ask it again. Your questions
+  are kept 90 days.
 - The AI can be wrong: open the findings it cites before you use an answer.
 
 ## When a new version is loaded

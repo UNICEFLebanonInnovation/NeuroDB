@@ -6,15 +6,28 @@ places are public geography."""
 from __future__ import annotations
 
 import datetime
+import re
+import uuid
 
 import pytest
 
 from neurodb.km import ask, places, search
 from neurodb.km import columns as cols
-from neurodb.km.models import KMFinding
+from neurodb.km.models import KMFinding, KMQuestion
 from tests.km import factory
-from tests.km.test_ask import _finish, _ids, _picked, ai, terms, today  # noqa: F401 (fixtures)
-from tests.km.test_ask_session import Q3, build
+from tests.km.test_ask import (  # noqa: F401 (fixtures)
+    _finish,
+    _ids,
+    _picked,
+    _sent,
+    ai,
+    answer,
+    done,
+    post,
+    terms,
+    today,
+)
+from tests.km.test_ask_session import Q1, Q3, build
 
 pytestmark = pytest.mark.django_db
 
@@ -684,32 +697,150 @@ def test_a_follow_up_that_fell_back_to_its_own_words_keeps_them_next_turn(ai):  
     earlier = [{"question": "child labour in Akkar", "answer": "Fake.", "cited": first}]
     picked = _picked("and for girls?", earlier=earlier)
     assert picked.follow_up and ids_of(CHILD_LABOUR[1])[0] in _ids(picked)
-    earlier.append({"question": "and for girls?", "answer": "Fake.", "cited": ids_of(CHILD_LABOUR[1])})
+    # no finding joins girls to child labour: girls is the subject now (kept on the row)
+    assert picked.new_subject == [["girls"]]
+    turn = {"question": "and for girls?", "answer": "Fake.", "cited": ids_of(CHILD_LABOUR[1])}
+    earlier.append({**turn, "new_subject": picked.new_subject})
     picked = _picked("do the same for all lebanon", earlier=earlier)
     assert read(picked) == {CHILD_LABOUR[1], CHILD_LABOUR[2]}
     # the earlier answer's finding is on girls: read first, and said
     assert _ids(picked)[0] == ids_of(CHILD_LABOUR[1])[0] and picked.cited_again == 1
     assert (
         picked.notes[0]
+        == "Same subject as your earlier question; the findings its answer cited were read again."
+    )
+    # a row kept before the words were kept reads the same findings
+    picked = _picked("do the same for all lebanon", earlier=[*earlier[:1], turn])
+    assert read(picked) == {CHILD_LABOUR[1], CHILD_LABOUR[2]}
+
+
+TRIPOLI = (
+    "In Tripoli, 35% of children were out of school.",
+    "In Tripoli, child marriage affected 13% of girls.",
+    "In Akkar, child marriage affected 9% of girls.",
+)
+TRIPOLI_TURN = {"question": "out of school children in Tripoli", "answer": "Fake.", "cited": []}
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["what about child marriage?", "and what about child marriage?", "And how about child marriage?"],
+)
+def test_a_follow_up_on_a_new_subject_keeps_the_place_and_not_the_earlier_findings(ai, question):  # noqa: F811
+    load(("2024", TRIPOLI))
+    earlier = [{**TRIPOLI_TURN, "cited": ids_of(TRIPOLI[0])}]
+    picked = _picked(question, earlier=earlier)
+    assert picked.follow_up and _ids(picked)[0] == ids_of(TRIPOLI[1])[0]
+    assert ids_of(TRIPOLI[0])[0] not in _ids(picked)
+    assert picked.notes[0] == "A follow-up of your earlier question."
+    assert picked.notes[1].startswith("Only 1 finding on this subject names Tripoli (the North)")
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "adjust the text above with a lens on child marriage",
+        "can you rewrite it with a lens on child marriage",
+        "and for child marriage?",
+    ],
+)
+def test_a_rework_or_an_addition_on_a_new_subject_keeps_the_earlier_findings_first(ai, question):  # noqa: F811
+    load(("2024", TRIPOLI))
+    earlier = [{**TRIPOLI_TURN, "cited": ids_of(TRIPOLI[0])}]
+    picked = _picked(question, earlier=earlier)
+    # no finding joins child marriage to out of school: its own words are searched alone, in Tripoli first,
+    # and the earlier answer's finding stays first (it is reworked, or added to)
+    assert _ids(picked) == ids_of(*TRIPOLI) and picked.cited_again == 1
+    assert (
+        picked.notes[0]
         == "A follow-up of your earlier question; the findings its answer cited were read again."
     )
 
 
-def test_a_follow_up_on_a_new_subject_keeps_the_place_and_not_the_earlier_findings(ai):  # noqa: F811
+def test_the_owners_q3_after_q1_keeps_q1s_figure(ai):  # noqa: F811
+    texts = (
+        "In Mount Lebanon, 18,300 children aged 6-14 were out of school.",
+        "In Mount Lebanon, girls were more likely than boys to miss meals.",
+        "In Mount Lebanon, children with disabilities lacked transport.",
+        "In Akkar, 27% of girls were out of school.",
+    )
+    load(("2025", texts))
+    earlier = [{"question": Q1, "answer": "Fake.", "cited": ids_of(texts[0])}]
+    picked = _picked(Q3, earlier=earlier)
+    assert _ids(picked)[0] == ids_of(texts[0])[0] and picked.cited_again == 1
+    assert set(ids_of(*texts[1:3])) <= set(_ids(picked))
+
+
+def test_a_follow_up_for_all_of_lebanon_after_a_place_alone_reads_beyond_the_place(ai):  # noqa: F811
+    texts = (
+        "In Akkar, 27% of children were out of school.",
+        "In Akkar, girls dropped out to work.",
+        "In Tripoli, fake rainfall flooded schools.",
+        "Nationally, 5% of children were in child labour.",
+    )
+    load(("2025", texts[:2]), ("2024", texts[2:]))
+    earlier = [{"question": "situation of children in Akkar", "answer": "Fake.", "cited": ids_of(*texts[:2])}]
+    for question in ("can u do it for all lebanon?", "and for all of Lebanon?", "same for all of lebanon"):
+        picked = _picked(question, earlier=earlier)
+        assert picked.follow_up and picked.national and not picked.carried_only, question
+        assert _ids(picked)[:2] == ids_of(*texts[:2]) and set(_ids(picked)) == set(ids_of(*texts)), question
+        meta = ask._meta(ask.words.ANSWERED_META, picked, len(picked.findings))
+        assert "no other finding matches" not in meta and "All of Lebanon, from your question" in meta
+
+
+# an earlier subject, a follow-up that changed it ("what about child marriage?"), then an angle on that one
+SWITCHED = (
+    *TRIPOLI,
+    "In Tripoli, girls were more likely than boys to be out of school (28% vs 20%).",
+    "In Tripoli, 10% of children were in child labour.",
+    "In Akkar, girls were more likely than boys to be out of school.",
+)
+
+
+def test_a_follow_up_after_a_change_of_subject_keeps_the_new_subject(client_viewer, ai):  # noqa: F811
+    load(("2024", SWITCHED))
+    conversation = uuid.uuid4()
+    cm_tripoli, cm_akkar, oos_girls = ids_of(SWITCHED[1], SWITCHED[2], SWITCHED[3])
+    ai(
+        [
+            answer(f"In Tripoli, 35% were out of school [{ids_of(SWITCHED[0])[0]}]."),
+            answer(f"In Tripoli, child marriage affected 13% of girls [{cm_tripoli}]."),
+            answer(f"Girls [{cm_tripoli}]."),
+        ]
+    )
+    for question in ("out of school children in Tripoli", "what about child marriage?", "and for girls?"):
+        final = done(post(client_viewer, question, conversation=conversation))
+    row = KMQuestion.objects.order_by("-created_at").first()
+    # the subject is child marriage now: girls in it, never girls out of school
+    assert row.read == [cm_tripoli, cm_akkar] and oos_girls not in row.read
+    assert final["meta"].startswith(
+        "Answered from 2 matching findings. Same subject as your earlier question"
+    )
+
+
+def test_a_follow_up_that_matches_one_of_its_two_words_says_so(ai):  # noqa: F811
+    load(("2024", SWITCHED))
+    earlier = [{**TRIPOLI_TURN, "cited": ids_of(SWITCHED[0])}]
+    picked = _picked("what about child marriage and child labour?", earlier=earlier)
+    # no finding joins either to out of school, and none holds both: those holding one were read
+    assert picked.loose and set(ids_of(SWITCHED[1], SWITCHED[4])) <= set(_ids(picked))
+    assert "No finding matches all your words: findings that match one of them were read." in picked.notes
+
+
+def test_an_angle_on_the_subject_found_elsewhere_keeps_the_subject(ai):  # noqa: F811
     texts = (
         "In Tripoli, 35% of children were out of school.",
         "In Tripoli, child marriage affected 13% of girls.",
-        "In Akkar, child marriage affected 9% of girls.",
+        "In Akkar, girls were more likely than boys to be out of school.",
     )
     load(("2024", texts))
-    earlier = [
-        {"question": "out of school children in Tripoli", "answer": "Fake.", "cited": ids_of(texts[0])}
-    ]
-    picked = _picked("what about child marriage?", earlier=earlier)
-    assert picked.follow_up and _ids(picked)[0] == ids_of(texts[1])[0]
-    assert ids_of(texts[0])[0] not in _ids(picked)
-    assert picked.notes[0] == "A follow-up of your earlier question."
-    assert picked.notes[1].startswith("Only 1 finding on this subject names Tripoli (the North)")
+    earlier = [{**TRIPOLI_TURN, "cited": ids_of(texts[0])}]
+    for question in ("and for girls?", "for girls"):
+        picked = _picked(question, earlier=earlier)
+        # no finding of Tripoli joins girls to out of school, one elsewhere does: the subject stays, the place
+        # is widened (never girls on any subject)
+        assert _ids(picked) == ids_of(texts[0], texts[2]), question
+        assert "subject" in picked.kept and picked.relaxed == "none", question
 
 
 def test_only_the_earlier_answers_findings_read_says_so(ai):  # noqa: F811
@@ -749,14 +880,68 @@ SHAPES = {
         "> | Fake unsupported rate | 99% | 2024 | none |\n> | Fake other rate | 77% | 2025 | |",
         2,
     ),
-    # markdown leaves an HTML table as written: no reference in it becomes a link, so no row is kept
+    "a table on a list item": (
+        "- " + TABLE_HEAD + "  |---|---|---|---|\n  | Fake rate | 40% | 2024 | TST-0001-F00001 |\n"
+        "  | Fake unsupported rate | 99% | 2024 | none |\n  | Fake other rate | 77% | 2025 | |",
+        2,
+    ),
+    "a table on a numbered item": (
+        "1. " + TABLE_HEAD + "   |---|---|---|---|\n   | Fake rate | 40% | 2024 | TST-0001-F00001 |\n"
+        "   | Fake unsupported rate | 99% | 2024 | none |\n   | Fake other rate | 77% | 2025 | |",
+        2,
+    ),
+    "a table on a quoted list item": (
+        "> - " + TABLE_HEAD + ">   |---|---|---|---|\n>   | Fake rate | 40% | 2024 | TST-0001-F00001 |\n"
+        ">   | Fake unsupported rate | 99% | 2024 | none |\n>   | Fake other rate | 77% | 2025 | |",
+        2,
+    ),
+    "a quote with no space": (
+        ">" + TABLE_HEAD + ">|---|---|---|---|\n>| Fake rate | 40% | 2024 | TST-0001-F00001 |\n"
+        ">| Fake unsupported rate | 99% | 2024 | none |\n>| Fake other rate | 77% | 2025 | |",
+        2,
+    ),
+    "a rule of spaced dashes with no leading pipe": (
+        TABLE_HEAD + "- - | - - | - - | - - |\n| Fake rate | 40% | 2024 | TST-0001-F00001 |\n"
+        "| Fake unsupported rate | 99% | 2024 | none |\n| Fake other rate | 77% | 2025 | |",
+        2,
+    ),
+    # a pipe in code in the header: markdown reads the table, the check of the text does not (the rendered
+    # rows are checked, and those taken out are taken out of the text too)
+    "a pipe in code in the header": (
+        "| Indicator `a|b` | Figure as stated | Year | Finding ID |\n|---|---|---|---|\n"
+        "| Fake rate | 40% | 2024 | TST-0001-F00001 |\n| Fake unsupported rate | 99% | 2024 | none |\n"
+        "| Fake other rate | 77% | 2025 | |",
+        2,
+    ),
+    "an html table in a cell": (
+        TABLE_HEAD + "|---|---|---|---|\n| Fake rate | 40% <table></table> | 2024 | TST-0001-F00001 |\n"
+        "| Fake unsupported rate | 99% | 2024 | none |\n| Fake other rate | 77% | 2025 | |",
+        2,
+    ),
+    # the AI writes markdown tables only: an HTML table is taken out whole, its rows counted
     "an html table": (
         "<table><tr><th>Indicator</th><th>Finding ID</th></tr><tr><td>Fake rate 40%</td><td>TST-0001-F00001</td>"
         "</tr><tr><td>Fake unsupported rate 99%</td><td>none</td></tr><tr><td>Fake other rate 77%</td><td></td>"
         "</tr></table>",
         3,
     ),
+    "an html table in an html table": (
+        "<table><tr><th>Indicator</th><th>Figure</th></tr><tr><td>Fake rate</td><td>40% <table></table></td></tr>"
+        "<tr><td>Fake unsupported rate</td><td>99%</td></tr><tr><td>Fake other rate</td><td>77%</td></tr></table>",
+        3,
+    ),
+    "an html table in an html cell": (
+        "<TABLE><tr><th>Indicator</th></tr><tr><td><table><tr><td>Fake rate 40%</td></tr></table></td></tr>"
+        "<tr><td>Fake unsupported rate: 99% of fake children were out of school in 2025</td></tr>"
+        "<tr><td>Fake other rate 77%</td></tr></TABLE>",
+        3,
+    ),
 }
+HTML_SHAPES = ("an html table", "an html table in an html table", "an html table in an html cell")
+
+
+def _shown(html_text: str) -> str:
+    return " ".join(re.sub(r"<[^>]+>", " ", html_text).split())
 
 
 @pytest.mark.parametrize("shape", list(SHAPES))
@@ -766,14 +951,30 @@ def test_every_table_shape_keeps_only_rows_that_give_a_finding_read(ai, shape): 
     checked = _finish("Fake rates rose [TST-0001-F00001].\n\n" + text)
     assert checked.rows_removed == removed, checked.html
     assert "/km/findings/TST-0001-F00001/" in checked.html
-    if shape == "an html table":
+    if shape in HTML_SHAPES:
         assert "<table" not in checked.html and "40%" not in checked.html
+        assert "<table" not in checked.answer.lower() and "40%" not in checked.answer
     else:
         assert "40%" in checked.html and checked.html.count("<tr>") == 2  # the header and the row kept
+        assert "40%" in checked.answer and "<table" not in checked.answer
+    # what is kept (the Copy text, the answer a follow-up reworks) is what is shown
     for gone in ("99%", "77%"):
         assert gone not in checked.html, (gone, checked.html)
-        if shape != "an html table":
-            assert gone not in checked.answer, (gone, checked.answer)
+        assert gone not in checked.answer, (gone, checked.answer)
+    assert re.findall(r"\d+%", _shown(checked.html)) == re.findall(r"\d+%", checked.answer)
+
+
+def test_the_answer_kept_and_copied_is_the_answer_shown(client_viewer, ai):  # noqa: F811
+    factory.load(factory.workbook(documents=2, findings=4))
+    conversation = uuid.uuid4()
+    text, _removed = SHAPES["a table on a list item"]
+    fake = ai([answer("Fake rates rose [TST-0001-F00001].\n\n" + text), answer("Fake [TST-0001-F00001].")])
+    final = done(post(client_viewer, "zqkmtoken?", conversation=conversation))
+    row = KMQuestion.objects.get()
+    assert final["answer"] == row.answer and "40%" in row.answer
+    assert "99%" not in row.answer and "77%" not in row.answer
+    done(post(client_viewer, "shorten it", conversation=conversation))
+    assert "40%" in _sent(fake) and "99%" not in _sent(fake)  # the answer the follow-up reworks
 
 
 def test_a_table_whose_rows_all_give_no_finding_read_goes_whole(ai):  # noqa: F811
@@ -784,36 +985,60 @@ def test_a_table_whose_rows_all_give_no_finding_read_goes_whole(ai):  # noqa: F8
     assert checked.rows_removed == 1 and "<table" not in checked.html
 
 
+LEAD = "Fake lead sentence of the answer [TST-0001-F00001]. "
+CLAIMS = [
+    # a claim
+    "The Excel under this answer shows that 99% of fake children are out of school in every governorate.",
+    "The CSV survey of 2023 shows 40% of children work.",
+    "Girls in the South do not report higher dropout than boys and the gap is small.",
+    "Many adolescent girls who face harassment say they do not report it to anyone.",
+    "Children in these villages do not report enough food at home during the winter months.",
+    "Families say the cash grant is too small and it does not cover transport to school.",
+    "Girls who marry early drop out, and those who stay do not give up on secondary school.",
+    "The studies found that girls do not report harassment to their teachers or parents.",
+    "Findings show girls do not report harassment to their teachers at school.",
+    "As the Excel under this answer shows, girls with disabilities are the group most often excluded from school.",
+    "The CSV of these findings confirms that boys leave school earlier than girls in every governorate.",
+    "The Excel under this answer lists each finding read; girls with disabilities are the most excluded.",
+]
+NOT_CLAIMS = [
+    # what the findings lack, or a pointer to the file under the answer
+    "The findings read do not report figures by sex for the fake villages.",
+    "The findings read here do not give separate figures for girls with disabilities.",
+    "They do not give figures by sex or by disability for the fake villages.",
+    "The Excel of these findings, under this answer, lists each finding read with its figures.",
+    "The Excel of these findings, under this answer, lists all 7 findings read with their figures.",
+    "The Excel and the CSV of these findings are under this answer.",
+    "You can download an Excel of the findings read under this answer.",
+    "The Excel under this answer lists the 12 findings read, with their figures and years.",
+]
+
+
+@pytest.mark.parametrize(("text", "uncited"), [(t, 1) for t in CLAIMS] + [(t, 0) for t in NOT_CLAIMS])
+def test_a_sentence_that_names_a_download_or_says_do_not_is_still_a_claim(ai, text, uncited):  # noqa: F811
+    factory.load(factory.workbook(documents=1, findings=2))
+    assert _finish(LEAD + text).uncited == uncited
+
+
+TABLE = TABLE_HEAD + "|---|---|---|---|\n| Fake rate | 23% | 2024 | [TST-0001-F00001] |"
+
+
 @pytest.mark.parametrize(
     ("text", "uncited"),
     [
-        (
-            "Fake lead sentence of the answer [TST-0001-F00001]. The Excel under this answer shows that 99% of "
-            "fake children are out of school in every governorate.",
-            1,
-        ),
-        (
-            "Fake lead sentence of the answer [TST-0001-F00001]. The CSV survey of 2023 shows 40% of children "
-            "work.",
-            1,
-        ),
-        (
-            "Fake lead sentence of the answer [TST-0001-F00001]. Girls in the South do not report higher dropout "
-            "than boys and the gap is small.",
-            1,
-        ),
-        (
-            "Fake lead sentence of the answer [TST-0001-F00001]. The Excel of these findings, under this answer, "
-            "lists each finding read with its figures.",
-            0,
-        ),
-        (
-            "Fake lead sentence of the answer [TST-0001-F00001]. The findings read do not report figures by sex "
-            "for the fake villages.",
-            0,
-        ),
+        # a line with a pipe that no table holds is prose: counted
+        (TABLE + "\n\n| Invented | 99% of fake children in the hills | x |", 1),
+        (TABLE + "\n\n| Invented | 99% | x |", 1),
+        ("Out-of-school rates were highest in the fake hills | lowest in the fake coast.", 1),
+        ("| Fake hills | 41% out of school in 2025 |\n| Fake coast | 12% out of school in 2025 |", 2),
+        ("- Fake hills: 41% out of school | fake coast: 12% out of school in 2025.", 1),
+        # the lines of a table are not
+        (TABLE, 0),
+        ("> " + TABLE.replace("\n", "\n> "), 0),
+        ("- " + TABLE.replace("\n", "\n  "), 0),
+        ("Fake rates by place:\n" + TABLE, 0),
     ],
 )
-def test_a_sentence_that_names_a_download_or_says_do_not_is_still_a_claim(ai, text, uncited):  # noqa: F811
+def test_a_line_with_a_pipe_outside_a_table_is_prose(ai, text, uncited):  # noqa: F811
     factory.load(factory.workbook(documents=1, findings=2))
-    assert _finish(text).uncited == uncited
+    assert _finish(LEAD + "\n\n" + text).uncited == uncited

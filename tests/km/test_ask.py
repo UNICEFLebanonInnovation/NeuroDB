@@ -1790,12 +1790,63 @@ def _rain():
         ("how about the teachers who left the schools?", True),
         ("adjust it with a lens on the teachers who left", True),
         ("can you do it again for the teachers who left?", True),
+        # a rework of the earlier answer, whatever the words: a verb, maybe "the", and the answer or "it"
+        ("can you revise the paragraph for the teachers who left", True),
+        ("please adjust the answer for the teachers who left", True),
+        ("rephrase the answer in simpler words", True),
+        ("rephrase for a donor audience please", True),
+        ("could you shorten it please", True),
+        ("can you make it shorter?", True),
+        ("can you make the answer shorter and simpler?", True),
+        ("please summarise it in 3 bullet points", True),
+        ("put it in a table please", True),
+        ("translate it to Arabic please", True),
+        ("expand the summary with the teachers who left", True),
+        ("can you break it down by sex", True),
+        ("focus on the teachers who left instead", True),
+        # thanks or praise in front of a cue
+        ("Thanks, what about the teachers who left?", True),
+        ("Thank you! What about the teachers who left?", True),
+        ("great, and for the teachers who left?", True),
+        ("ok now for all gov", True),
+        ("thanks, now for all governorates please", True),
+        ("please do it for all lebanon", True),
+        # new questions that use those words too
+        ("Do girls work instead of studying?", False),
+        ("What would make it easier for girls to stay in school?", False),
+        ("Summarise the findings on teachers who left the schools", False),
+        ("Expand the list of out of school children by governorate", False),
+        ("Good practices in keeping teachers in schools", False),
     ],
 )
 def test_a_follow_up_refers_to_the_earlier_answer_or_has_no_subject_of_its_own(ai, today, question, follows):
     _rain()
     assert _picked(question, earlier=[RAIN_TURN]).follow_up is follows
     assert _picked(question).follow_up is False  # never without a conversation
+
+
+def test_thanks_and_the_words_of_a_rework_are_never_searched():
+    def words_of(question):
+        return ask.understand(ask._uncoded(ask._searchable(question)), question).groups
+
+    assert words_of("Thanks a lot, what about girls?") == [["girls"]]
+    assert words_of("great, and for girls?") == [["girls"]]
+    assert words_of("what about girls? thanks") == [["girls"]]
+    for question in (
+        "rephrase the answer in simpler words",
+        "can you make it shorter?",
+        "please summarise it in 3 bullet points",
+        "put it in a table please",
+        "translate it to Arabic",
+        "expand the summary",
+        "please revise the answer",
+        "a shorter version please",
+    ):
+        assert words_of(question) == [], question
+    assert words_of("please revise the paragraph with a focus on girls") == [["girls"]]
+    # praise followed by a word of the question is a word of it
+    assert ["good"] in words_of("good practices in child protection")
+    assert ["perfect"] in words_of("perfect attendance in Akkar")
 
 
 def test_a_follow_up_carries_the_last_subject_its_places_and_its_years(ai, today):
