@@ -123,58 +123,63 @@ download the findings it read.
   joined, and reads the best matches (at most 40, and at most 6 from one document). Nothing else from
   NeuroDB is read: no partner, programme document, indicator, document of the Documents page, library
   entry or person.
-- **Write the subject, the rest is understood.** Words that say what you want rather than what it is
-  about ("I need a paragraph describing", "adjust the text above", "an excel sheet with each indicator and
-  value", "only") are not searched while other words remain, nor are words that ask for figures ("rate",
-  "proportion", "figures", "statistics"). A finding is kept when it holds your words: all of them when you
-  write one or two (when no finding holds both of two, those holding one are read, and the line under the
-  answer says so), and a third of them (at least two) when you write more. A question for a number, a rate
-  or a percentage ("how many", "number of") reads the findings that give figures first. "Dropout" also
-  finds "dropped out" and "drops out", and "gender" also finds findings on girls or boys.
+- **Write the subject, the rest is understood.** Words that say what you want rather than what it is about ("I
+  need a paragraph describing", "adjust the text above", "an excel sheet with each indicator and value",
+  "only", "could you provide the available evidence on", "hi", "asap", "a short table") are not searched while
+  other words remain, nor are words that ask for figures ("rate", "proportion", "figures", "statistics").
+  "Trend" only puts the findings that give one first. A finding is kept when it holds your words: all of them
+  when you write one or two (when no finding holds both of two, those holding one are read, and the line under
+  the answer says so), and a third of them (at least two) when you write more. A question for a number, a rate
+  or a percentage ("how many", "number of") reads the findings that give figures first. "Dropout" also finds
+  "dropped out" and "drops out" ("children dropping out of school" is a dropout), and "gender" also finds
+  findings on girls or boys. A misspelt word that no finding holds ("povrety") is read as the closest word the
+  findings write ("poverty") when the AI suggests no words.
 - **Places.** Every governorate (Akkar, Baalbek-Hermel, Beirut, Bekaa, Keserwan-Jbeil, Mount Lebanon,
-  Nabatieh, North, South) is understood in its usual spellings ("Mont Lebanon", "Jabal Lubnan",
-  "Nabatiyeh", "Nabatiye", "Beqaa", "Beyrouth", "Liban-Nord", "Liban-Sud"), with its main districts, towns
-  and camps: a question about the South also reads findings about Saida, Tyre, Jezzine or Ein el-Hilweh,
-  and Mount Lebanon also Jbeil and Keserwan, as older reports count them ("Bint Jbeil" is in Nabatieh, not
-  Jbeil; "South Metn" is Baabda, in Mount Lebanon; "North Bekaa" is Baalbek-Hermel; "South Bekaa" is the
-  Bekaa). A finding that names both, such as "the Bekaa and North Bekaa", counts for both places, and a
-  list of places names each of them: "the South, Bekaa and Akkar", "the North, Bekaa and Akkar" or "the
-  South. Bekaa ..." is never South Bekaa or North Bekaa (only a space, a hyphen or a dash joins the words
-  of one place's name, as in "North-Bekaa" or "Bint–Jbeil"), and "the North/Bekaa" names the North and the
-  Bekaa. "Bint Jbeil-based" is Bint Jbeil, never Jbeil. "South Lebanon", "the south", "the southern governorates", "the
-  southern region" or "areas" and "Janoub" mean the South and Nabatieh governorates, whatever words follow
-  ("the southern governorates in light of the escalation"); "the northern governorates" and "the northern
-  region" mean the North and Akkar; the line under the answer says so. "The southern region of the Bekaa"
-  (a place after "of", "in" or "within") is the Bekaa. The
-  answer reads only findings that name the places you write; when fewer
-  than 10 do, it also reads the others that match your words, and the line under the answer says so ("No
-  finding on this subject names Mount Lebanon: findings from all of Lebanon were read."). When none of
-  your words is in any finding, the findings that name the place are read. "All governorates", "by
-  governorate", "per governorate", "across governorates", "across Lebanon's governorates", "in all eight
-  governorates", "at governorate level", "all gov", "by district" or "by governorate and district" reads
-  the findings that name a governorate, a district or a town, those naming the most governorates first
-  ("per", "across", "eight" or "level" is never looked for itself); "all Lebanon", "nationwide"
-  or "national level" reads every place. "National" with a place ("compare the national rate with Akkar")
-  reads every place, the findings on that place first; without a place it is a word of your subject ("the
-  national education strategy"), never looked for alone: when no finding holds your other words, nothing
-  matches, rather than findings that only say "nationally".
-- **Years.** "In the past 2 years" means this year and the two before it (in 2026: 2024 to 2026), and
-  "since 2023", "2019-2021", "in 2023", "2023" alone, "2022 and 2025" (each year), "this year", "recent
-  figures" and "latest" work too, also before a comma or a full stop ("In 2024, ..."), as a school year
-  ("the 2024 school year") and as the year of the data ("the 2024 out of school figures", "the 2024
-  situation", "the 2024 child labour rate"): they set the Year filter, without the findings whose year is
-  not reported,
-  and the line under the answer says which years. To change them, use the Year filter of the Findings
-  tab. The years are those the documents were published. For "latest" or "most recent", when fewer than
-  10 findings of the past 2 years match, the newest older ones are read too, and the line says so.
-  "Recently displaced children" or "targets for 2030" set no year, nor does the year of an event ("the
-  2020 explosion", "after the 2024 war", "the 2019 financial and economic crisis", "the 2020 port of Beirut
-  explosion"; "in 2024 amid the escalation" and "in 2025 following the 2024 war" are the years 2024 and
-  2025) or a year you compare with on its own ("compared to 2019",
-  "before the 2019 crisis"): the findings that mention that year only come first. A year you compare with
-  next to a year of your own is read too: "in 2025 than in 2019" reads 2025 and 2019, and so does "and
-  compared to 2019?" after a question on 2025 ("before 2020" never reads 2020). "Since the 2019 crisis"
-  means since 2019.
+  Nabatieh, North, South) is understood in its usual spellings ("Mont Lebanon", "Jabal Lubnan", "Nabatiyeh",
+  "Nabatiye", "Beqaa", "Beyrouth", "Liban-Nord", "Liban-Sud"), with or without accents or a French article
+  ("la Békaa", "au Mont-Liban") and in Arabic ("عكار", "البقاع"), with its districts, main towns and camps,
+  each town in its district: a question about the South also reads findings about Saida, Tyre, Jezzine, Qana
+  or Ein el-Hilweh, one about Zahle also Bar Elias, and Mount Lebanon also Jbeil and Keserwan, as older
+  reports count them ("Bint Jbeil" is in Nabatieh, not Jbeil; "South Metn" is Baabda, in Mount Lebanon; "North
+  Bekaa" is Baalbek-Hermel; "South Bekaa" is the Bekaa). A finding that names both, such as "the Bekaa and
+  North Bekaa", counts for both places, and a list of places names each of them: "the South, Bekaa and Akkar",
+  "the North, Bekaa and Akkar" or "the South. Bekaa ..." is never South Bekaa or North Bekaa (only a space, a
+  hyphen or a dash joins the words of one place's name, as in "North-Bekaa" or "Bint–Jbeil"), and "the
+  North/Bekaa" names the North and the Bekaa. "Bint Jbeil-based" is Bint Jbeil, never Jbeil. "South Lebanon",
+  "the south", "Liban-Sud", "the southern governorates", "the southern region" or "areas" and "Janoub" mean
+  the South and Nabatieh governorates, whatever words follow ("the southern governorates in light of the
+  escalation"); "the north", "North Lebanon", "Liban-Nord", "the northern governorates" and "the northern
+  region" mean the North and Akkar; "North governorate" or "South governorate" means that governorate only;
+  the line under the answer says so. "The southern region of the Bekaa" (a place after "of", "in" or "within")
+  is the Bekaa. The answer reads only findings that name the places you write; when fewer than 10 do, it also
+  reads the others that match your words, and the line under the answer says so ("No finding on this subject
+  names Mount Lebanon: findings from all of Lebanon were read."). When none of your words is in any finding,
+  the findings that name the place are read. "All governorates", "by governorate", "per governorate", "across
+  governorates", "across Lebanon's governorates", "in all eight governorates", "at governorate level", "all
+  gov", "by district" or "by governorate and district" reads the findings that name a governorate, a district
+  or a town, those naming the most governorates first ("per", "across", "eight" or "level" is never looked for
+  itself), and a finding must still hold your subject's words; "all Lebanon", "nationwide", "Lebanon-wide",
+  "across the country" or "national level" reads every place. "National" with a place ("compare the national
+  rate with Akkar") reads every place, the findings on that place first; without a place it is a word of your
+  subject ("the national education strategy"), never looked for alone: when no finding holds your other words,
+  nothing matches, rather than findings that only say "nationally".
+- **Years.** "In the past 2 years" means this year and the two before it (in 2026: 2024 to 2026), "over the
+  last decade" 2016 to 2026, "in the past year" 2025 and 2026, and "last year" alone 2025 only; "since 2023",
+  "2023 onwards", "2019-2021", "in 2023", "2023" alone, "2022 and 2025" (each year), "this year", "recent
+  figures", "latest" and "anything newer" work too, also before a comma or a full stop ("In 2024, ..."), as a
+  school year ("the 2024 school year") and as the year of the data ("the 2024 out of school figures", "the
+  2024 situation", "the 2024 child labour rate"): they set the Year filter, without the findings whose year is
+  not reported, and the line under the answer says which years. To change them, use the Year filter of the
+  Findings tab. The years are those the documents were published. For "latest" or "most recent", when fewer
+  than 10 findings of the past 2 years match, the newest older ones are read too, and the line says so.
+  "Recently displaced children" or "targets for 2030" set no year, nor does the year of an event ("the 2020
+  explosion", "after the 2024 war", "the 2019 financial and economic crisis", "the 2020 port of Beirut
+  explosion"; "in 2024 amid the escalation" and "in 2025 following the 2024 war" are the years 2024 and 2025)
+  or a year you compare with on its own ("compared to 2019", "before the 2019 crisis"): the findings that
+  mention that year or the event only come first, and the event's words are never required (unless you write
+  nothing else: "the 2020 explosion"). A year you compare with next to a year of your own is read too: "in
+  2025 than in 2019" reads 2025 and 2019, and so does "and compared to 2019?" after a question on 2025
+  ("before 2020" never reads 2020). "Since the 2019 crisis" means since 2019.
 - **The same text twice.** A finding whose text is word for word another one's in the same document is
   read once; the answer may cite either, and both open their finding. The same text in two documents is
   read twice, each with its own document and year.

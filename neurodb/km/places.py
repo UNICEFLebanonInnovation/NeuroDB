@@ -1,12 +1,16 @@
 """The places of Lebanon a question to Ask the KM Database names (:func:`read`), written in code: public
-geography (the governorates, their main districts and towns, with the spellings reports use), never the
-workbook's text and never another NeuroDB table.
+geography (every governorate, its districts and main towns, each town in its district, with the spellings
+reports use, the French names and the Arabic script), never the workbook's text and never another NeuroDB
+table.
 
-- **A place named** (any spelling, "the" or an article such as "El" before it) is taken out of the words
-  searched; all the places of one question make **one** place group (:attr:`Reading.alternatives`): a
-  finding qualifies when its own words name any of them. A governorate also finds its districts and towns
-  ("South" finds "Saida", "Tyre", "Jezzine"); Mount Lebanon also finds Keserwan-Jbeil, as older reports
-  count it in Mount Lebanon. A district, a town or a camp finds its own spellings ("Tripoli (the North)"). A
+- **A place named** (any spelling, its accents or none: "Békaa", "Zahlé"; "the", "El", "Al" or a French
+  article, "la", "le", "du", "de la", "au", "l'", before it; in Arabic script with or without the letters
+  joined before it: "البقاع", "بالبقاع", "والشمال") is taken out of the words searched; all the places of one
+  question make **one** place group (:attr:`Reading.alternatives`): a finding qualifies when its own words
+  name any of them. A governorate also finds its districts and towns ("South" finds "Saida", "Tyre",
+  "Jezzine"); Mount Lebanon also finds Keserwan-Jbeil, as older reports count it in Mount Lebanon. A district
+  also finds its towns and camps (Zahle: Bar Elias, Tyre: Qana and Rashidieh); a town or a camp finds its own
+  spellings ("Tripoli (the North)"). Arabic spellings only read a question (the findings are in English). A
   spelling inside another governorate's place is not its place where it is written inside it ("Jbeil" in
   "Bint Jbeil", "North" in "North Metn" or "North Bekaa", "South" in "South Metn" or "South Bekaa":
   :func:`shadows`), but a text that also writes it on its own names it ("the Bekaa and North Bekaa":
@@ -14,29 +18,33 @@ workbook's text and never another NeuroDB table.
   ("Mount Lebanon and Nabatieh", a breakdown). Only a space or one hyphen or dash joins the words of a place's
   name (:data:`JOIN`): "the South, Bekaa and Akkar", "the South. Bekaa ..." and "the North, Bekaa and
   Akkar" name each place, never South Bekaa or North Bekaa.
-- **"South Lebanon", "the south", "the southern governorates", "the southern region" or "areas"** mean the
-  South and Nabatieh governorates; "South governorate" the South only. **"The northern governorates", "the
-  northern region"** mean the North and Akkar. A region's part of a place is that place ("the southern
-  region of the Bekaa": a place's name after "of", "in" or "within"); any other word after it keeps the
-  region ("the southern governorates in light of the escalation"). "South Metn" is Baabda (Mount Lebanon),
-  "North Bekaa" Baalbek-Hermel, "South Bekaa" the Bekaa.
-- **Governorate words** ("governorate", "gov", "mohafaza") and **district words** ("district", "caza") are
-  part of the place when a place is named, and otherwise ask for a breakdown (:attr:`Reading.breakdown`:
-  "all governorates", "by governorate", "all gov", "per governorate", "across governorates", "across
-  Lebanon's governorates", "in all eight governorates", "broken down by governorate", "at governorate
-  level"; "by district", "each caza", "the districts", "by governorate and district":
+- **The regions (the owner's rule):** "South Lebanon", "the south", "Liban-Sud", "Sud-Liban", "the southern
+  governorates", "the southern region" or "areas" mean the South and Nabatieh governorates; "the north",
+  "North Lebanon", "northern Lebanon", "Liban-Nord", "Shamal", "the northern governorates" or "region" mean
+  the North and Akkar; "South governorate", one "southern governorate", "North governorate" and one "northern
+  governorate" that governorate only. A region's part of a place is that place ("the southern region of the
+  Bekaa": a place's name after "of", "in" or "within"); any other word after it keeps the region ("the
+  southern governorates in light of the escalation"). "South Metn" is Baabda (Mount Lebanon), "North Bekaa"
+  Baalbek-Hermel, "South Bekaa" the Bekaa.
+- **Governorate words** ("governorate", "gov", "mohafaza", "محافظة") and **district words** ("district",
+  "caza", "قضاء") are part of the place when a place is named, and otherwise ask for a breakdown
+  (:attr:`Reading.breakdown`: "all governorates", "by governorate", "all gov", "per governorate", "across
+  governorates", "across Lebanon's governorates", "in all eight governorates", "broken down by governorate",
+  "at governorate level"; "by district", "each caza", "the districts", "by governorate and district":
   :attr:`Reading.by_district`), the words that ask for it taken out with them. A breakdown keeps the
   findings that name a place: a governorate, or a district or town as its governorate.
-- **"All Lebanon", "nationally", "nationwide", "national level"** ask for no place
-  (:attr:`Reading.national`). The word "national" alone does so when the question names a place ("the
-  national rate and Akkar": every place, the findings naming Akkar first); without one it is a word of the
-  subject ("the national education strategy"), read as all of Lebanon only when nothing else is left to
-  search (:attr:`Reading.national_word`).
+- **"All Lebanon", "nationally", "nationwide", "national level", "Lebanon-wide", "across the country", "at
+  country level", "throughout the country", "tout le Liban", "au niveau national", "كل لبنان", "على المستوى
+  الوطني"** ask for no place (:attr:`Reading.national`). The word "national" alone does so when the question
+  names a place ("the national rate and Akkar": every place, the findings naming Akkar first); without one it
+  is a word of the subject ("the national education strategy"), read as all of Lebanon only when nothing else
+  is left to search (:attr:`Reading.national_word`).
 """
 
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from functools import cache
 
@@ -49,10 +57,22 @@ class Place:
     governorates: tuple[str, ...] = ()  # a district or a town: the governorate(s) it is in
     includes: tuple[str, ...] = ()  # a governorate: other governorates its findings count (older reports)
     camp: bool = False  # a camp: "Shatila camp" is the place, "camp" no word to search
+    district: str = (
+        ""  # a town: the district (caza) it is in (a district's key, or a governorate's that is one)
+    )
+    arabic: tuple[str, ...] = ()  # in Arabic script, as a question writes it (never looked for in a finding)
 
 
+def _town(
+    key: str, name: str, spellings: tuple[str, ...], district: str, governorates: tuple[str, ...], *arabic
+):
+    return Place(key, name, spellings, governorates, district=district, arabic=arabic)
+
+
+ML = ("mount-lebanon",)
+KJ = ("keserwan-jbeil", "mount-lebanon")
 GOVERNORATES: tuple[Place, ...] = (
-    Place("akkar", "Akkar", ("akkar", "akar", "aakar", "aakkar", "akkar governorate")),
+    Place("akkar", "Akkar", ("akkar", "akar", "aakar", "aakkar", "akkar governorate"), arabic=("عكار",)),
     Place(
         "baalbek-hermel",
         "Baalbek-Hermel",
@@ -68,8 +88,14 @@ GOVERNORATES: tuple[Place, ...] = (
             "northern bekaa",
             "north beqaa",
         ),
+        arabic=("بعلبك الهرمل", "بعلبك-الهرمل", "بعلبك والهرمل", "البقاع الشمالي"),
     ),
-    Place("beirut", "Beirut", ("beirut", "beyrouth", "bayrut", "beyrut", "bairut", "beirut governorate")),
+    Place(
+        "beirut",
+        "Beirut",
+        ("beirut", "beyrouth", "bayrut", "beyrut", "bairut", "beirut governorate"),
+        arabic=("بيروت",),
+    ),
     Place(
         "bekaa",
         "Bekaa",
@@ -85,6 +111,7 @@ GOVERNORATES: tuple[Place, ...] = (
             "southern bekaa",
             "south beqaa",
         ),
+        arabic=("البقاع", "سهل البقاع", "البقاع الجنوبي"),
     ),
     Place(
         "keserwan-jbeil",
@@ -97,6 +124,7 @@ GOVERNORATES: tuple[Place, ...] = (
             "kesrouan jbeil",
             "keserwan-byblos",
         ),
+        arabic=("كسروان جبيل", "كسروان-جبيل", "كسروان وجبيل"),
     ),
     Place(
         "mount-lebanon",
@@ -113,6 +141,7 @@ GOVERNORATES: tuple[Place, ...] = (
             "jabal loubnan",
         ),
         includes=("keserwan-jbeil",),
+        arabic=("جبل لبنان",),
     ),
     Place(
         "nabatieh",
@@ -128,6 +157,7 @@ GOVERNORATES: tuple[Place, ...] = (
             "nabatiyeh governorate",
             "nabatieh governorate",
         ),
+        arabic=("النبطية",),
     ),
     Place(
         "north",
@@ -145,6 +175,7 @@ GOVERNORATES: tuple[Place, ...] = (
             "shamal",
             "chamal",
         ),
+        arabic=("محافظة الشمال", "محافظة لبنان الشمالي"),
     ),
     Place(
         "south",
@@ -160,51 +191,348 @@ GOVERNORATES: tuple[Place, ...] = (
             "liban-sud",
             "liban sud",
         ),
+        arabic=("محافظة الجنوب", "محافظة لبنان الجنوبي"),
     ),
 )
-# the main districts (cazas) and towns, with their governorate(s)
+# the districts (cazas), main towns and camps, each with its governorate(s) and, for a town, its district: the
+# official cazas, public geography (a governorate that is one caza, Akkar, Beirut and Nabatieh's own, is the
+# district of its towns). A town whose Arabic name is also a common word has none ("الخيام" is "the tents",
+# "الميناء" "the port", "الحدث" "the event", "القاع" "the bottom")
 DISTRICTS: tuple[Place, ...] = (
-    Place("halba", "Halba", ("halba",), ("akkar",)),
-    Place("qobayat", "Qobayat", ("qobayat", "qoubaiyat", "kobayat"), ("akkar",)),
-    Place("wadi-khaled", "Wadi Khaled", ("wadi khaled",), ("akkar",)),
-    Place(
-        "baalbek", "Baalbek", ("baalbek", "baalbeck", "baalbak", "ba'albek", "baalbeq"), ("baalbek-hermel",)
+    # Akkar
+    _town("halba", "Halba", ("halba",), "akkar", ("akkar",), "حلبا"),
+    _town(
+        "qobayat",
+        "Qobayat",
+        ("qobayat", "qoubaiyat", "kobayat", "qoubayat", "qbayat"),
+        "akkar",
+        ("akkar",),
+        "القبيات",
     ),
-    Place("hermel", "Hermel", ("hermel", "hirmil"), ("baalbek-hermel",)),
-    Place("arsal", "Arsal", ("arsal", "aarsal", "ersal"), ("baalbek-hermel",)),
-    Place("zahle", "Zahle", ("zahle", "zahleh", "zahlé", "zahlah"), ("bekaa",)),
-    Place("west-bekaa", "West Bekaa", ("west bekaa", "western bekaa", "west beqaa"), ("bekaa",)),
-    Place("rashaya", "Rashaya", ("rashaya", "rachaya", "rashayya", "rachaiya"), ("bekaa",)),
-    Place("chtaura", "Chtaura", ("chtaura", "chtoura", "shtaura"), ("bekaa",)),
-    Place("bar-elias", "Bar Elias", ("bar elias", "bar elyas"), ("bekaa",)),
+    _town("wadi-khaled", "Wadi Khaled", ("wadi khaled",), "akkar", ("akkar",), "وادي خالد"),
+    _town("bebnine", "Bebnine", ("bebnine", "bibnin", "bebnin"), "akkar", ("akkar",), "ببنين"),
+    _town("minyara", "Minyara", ("minyara", "minyarah"), "akkar", ("akkar",), "منيارة"),
+    _town("qlayaat", "Qlayaat", ("qlayaat", "qlayat", "kleiat", "qleiaat"), "akkar", ("akkar",), "القليعات"),
+    _town("berqayel", "Berqayel", ("berqayel", "berkayel"), "akkar", ("akkar",), "برقايل"),
+    _town("fneideq", "Fneideq", ("fneideq", "fnaydeq"), "akkar", ("akkar",), "فنيدق"),
+    _town("tal-abbas", "Tal Abbas", ("tal abbas", "tell abbas"), "akkar", ("akkar",), "تل عباس"),
+    _town("mhammara", "Mhammara", ("mhammara", "mhamra"), "akkar", ("akkar",), "المحمرة"),
+    # Baalbek-Hermel
+    Place(
+        "baalbek",
+        "Baalbek",
+        ("baalbek", "baalbeck", "baalbak", "ba'albek", "baalbeq"),
+        ("baalbek-hermel",),
+        arabic=("بعلبك",),
+    ),
+    Place("hermel", "Hermel", ("hermel", "hirmil"), ("baalbek-hermel",), arabic=("الهرمل",)),
+    _town("arsal", "Arsal", ("arsal", "aarsal", "ersal"), "baalbek", ("baalbek-hermel",), "عرسال"),
+    _town("labweh", "Labweh", ("labweh", "labwe", "laboueh"), "baalbek", ("baalbek-hermel",), "اللبوة"),
+    _town("qaa", "Al-Qaa", ("qaa",), "baalbek", ("baalbek-hermel",)),
+    _town("ras-baalbek", "Ras Baalbek", ("ras baalbek",), "baalbek", ("baalbek-hermel",), "رأس بعلبك"),
+    _town("douris", "Douris", ("douris", "dours"), "baalbek", ("baalbek-hermel",), "دورس"),
+    _town("britel", "Britel", ("britel", "brital"), "baalbek", ("baalbek-hermel",), "بريتال"),
+    _town("chmestar", "Chmestar", ("chmestar", "shmustar"), "baalbek", ("baalbek-hermel",), "شمسطار"),
+    _town("bednayel", "Bednayel", ("bednayel",), "baalbek", ("baalbek-hermel",), "بدنايل"),
+    _town(
+        "deir-el-ahmar",
+        "Deir el Ahmar",
+        ("deir el ahmar", "deir al ahmar", "deir el-ahmar"),
+        "baalbek",
+        ("baalbek-hermel",),
+        "دير الأحمر",
+    ),
+    _town("younine", "Younine", ("younine", "yunin"), "baalbek", ("baalbek-hermel",), "يونين"),
+    # Bekaa
+    Place("zahle", "Zahle", ("zahle", "zahleh", "zahlé", "zahlah"), ("bekaa",), arabic=("زحلة",)),
+    Place(
+        "west-bekaa",
+        "West Bekaa",
+        ("west bekaa", "western bekaa", "west beqaa"),
+        ("bekaa",),
+        arabic=("البقاع الغربي",),
+    ),
+    Place(
+        "rashaya",
+        "Rashaya",
+        ("rashaya", "rachaya", "rashayya", "rachaiya"),
+        ("bekaa",),
+        arabic=("راشيا", "راشيا الوادي"),
+    ),
+    _town("chtaura", "Chtaura", ("chtaura", "chtoura", "shtaura"), "zahle", ("bekaa",), "شتورة"),
+    _town(
+        "bar-elias",
+        "Bar Elias",
+        ("bar elias", "bar elyas", "barr elias"),
+        "zahle",
+        ("bekaa",),
+        "بر الياس",
+        "برالياس",
+    ),
+    _town("saadnayel", "Saadnayel", ("saadnayel", "saad nayel"), "zahle", ("bekaa",), "سعدنايل"),
+    _town(
+        "qab-elias",
+        "Qab Elias",
+        ("qab elias", "qabb elias", "kab elias", "qab elyas"),
+        "zahle",
+        ("bekaa",),
+        "قب الياس",
+    ),
+    _town("majdal-anjar", "Majdal Anjar", ("majdal anjar", "majdel anjar"), "zahle", ("bekaa",), "مجدل عنجر"),
+    _town("anjar", "Anjar", ("anjar",), "zahle", ("bekaa",), "عنجر"),
+    _town("taanayel", "Taanayel", ("taanayel", "taanail"), "zahle", ("bekaa",), "تعنايل"),
+    _town("ferzol", "Ferzol", ("ferzol", "fourzol"), "zahle", ("bekaa",), "فرزل"),
+    _town("rayak", "Rayak", ("rayak", "riyaq"), "zahle", ("bekaa",), "رياق"),
+    _town(
+        "joub-jannine",
+        "Joub Jannine",
+        ("joub jannine", "jub jannin", "joub jenin"),
+        "west-bekaa",
+        ("bekaa",),
+        "جب جنين",
+    ),
+    _town("qaraoun", "Qaraoun", ("qaraoun", "karaoun"), "west-bekaa", ("bekaa",), "القرعون"),
+    _town("saghbine", "Saghbine", ("saghbine",), "west-bekaa", ("bekaa",), "صغبين"),
+    _town(
+        "kamed-el-loz",
+        "Kamed el Loz",
+        ("kamed el loz", "kamed al lawz"),
+        "west-bekaa",
+        ("bekaa",),
+        "كامد اللوز",
+    ),
+    _town("sohmor", "Sohmor", ("sohmor", "suhmur"), "west-bekaa", ("bekaa",), "سحمر"),
+    _town(
+        "dahr-el-ahmar",
+        "Dahr el Ahmar",
+        ("dahr el ahmar", "dahr al ahmar"),
+        "rashaya",
+        ("bekaa",),
+        "ضهر الأحمر",
+    ),
+    # Beirut
+    _town(
+        "achrafieh",
+        "Achrafieh",
+        ("achrafieh", "ashrafieh", "ashrafiyeh", "achrafiyeh"),
+        "beirut",
+        ("beirut",),
+        "الأشرفية",
+    ),
+    _town("karantina", "Karantina", ("karantina", "quarantina"), "beirut", ("beirut",), "الكرنتينا"),
+    _town(
+        "tariq-el-jdideh",
+        "Tariq el Jdideh",
+        (
+            "tariq el jdideh",
+            "tariq al jdideh",
+            "tarik el jdide",
+            "tarik el jdideh",
+            "tariq el jdeideh",
+            "tariq al jadida",
+        ),
+        "beirut",
+        ("beirut",),
+        "الطريق الجديدة",
+    ),
+    _town("ras-beirut", "Ras Beirut", ("ras beirut",), "beirut", ("beirut",), "رأس بيروت"),
+    _town("bachoura", "Bachoura", ("bachoura", "bashoura"), "beirut", ("beirut",), "الباشورة"),
+    _town("gemmayzeh", "Gemmayzeh", ("gemmayzeh", "gemmayze"), "beirut", ("beirut",), "الجميزة"),
+    _town("msaitbeh", "Msaitbeh", ("msaitbeh", "msaitbe", "moussaitbeh"), "beirut", ("beirut",), "المصيطبة"),
+    _town(
+        "zuqaq-el-blat",
+        "Zuqaq el Blat",
+        ("zuqaq el blat", "zokak el blat"),
+        "beirut",
+        ("beirut",),
+        "زقاق البلاط",
+    ),
+    _town("mar-mikhael", "Mar Mikhael", ("mar mikhael",), "beirut", ("beirut",), "مار مخايل"),
+    # Mount Lebanon
     Place(
         "keserwan",
         "Keserwan",
         ("keserwan", "kesrouan", "kesrwan", "kisrawan", "keserouan"),
-        ("keserwan-jbeil", "mount-lebanon"),
+        KJ,
+        arabic=("كسروان",),
     ),
-    Place("jbeil", "Jbeil", ("jbeil", "jbail", "jubail", "byblos"), ("keserwan-jbeil", "mount-lebanon")),
-    Place("jounieh", "Jounieh", ("jounieh", "junieh", "jouniyeh"), ("keserwan-jbeil", "mount-lebanon")),
-    Place("aley", "Aley", ("aley", "aaley", "alay"), ("mount-lebanon",)),
-    Place("chouf", "Chouf", ("chouf", "shouf", "chuf", "shuf"), ("mount-lebanon",)),
-    Place("baabda", "Baabda", ("baabda", "ba'abda", "south metn", "southern metn"), ("mount-lebanon",)),
-    Place("metn", "Metn", ("metn", "matn", "maten", "north metn", "el metn"), ("mount-lebanon",)),
-    Place("bourj-hammoud", "Bourj Hammoud", ("bourj hammoud", "burj hammoud"), ("mount-lebanon",)),
-    Place("damour", "Damour", ("damour",), ("mount-lebanon",)),
+    Place("jbeil", "Jbeil", ("jbeil", "jbail", "jubail", "byblos"), KJ, arabic=("جبيل",)),
+    _town("jounieh", "Jounieh", ("jounieh", "junieh", "jouniyeh"), "keserwan", KJ, "جونية"),
+    _town("zouk-mosbeh", "Zouk Mosbeh", ("zouk mosbeh", "zouk mousbeh"), "keserwan", KJ, "ذوق مصبح"),
+    _town("zouk-mikael", "Zouk Mikael", ("zouk mikael", "zouk mekayel"), "keserwan", KJ, "ذوق مكايل"),
+    _town("ghazir", "Ghazir", ("ghazir",), "keserwan", KJ),
+    _town("faraya", "Faraya", ("faraya",), "keserwan", KJ, "فاريا"),
+    _town("ajaltoun", "Ajaltoun", ("ajaltoun",), "keserwan", KJ, "عجلتون"),
+    _town("tabarja", "Tabarja", ("tabarja",), "keserwan", KJ, "طبرجا"),
+    _town("amchit", "Amchit", ("amchit", "amsheet"), "jbeil", KJ, "عمشيت"),
+    _town("qartaba", "Qartaba", ("qartaba", "kartaba"), "jbeil", KJ, "قرطبا"),
+    Place("aley", "Aley", ("aley", "aaley", "alay"), ML, arabic=("عاليه",)),
+    Place("chouf", "Chouf", ("chouf", "shouf", "chuf", "shuf"), ML, arabic=("الشوف",)),
+    Place("baabda", "Baabda", ("baabda", "ba'abda", "south metn", "southern metn"), ML, arabic=("بعبدا",)),
+    Place("metn", "Metn", ("metn", "matn", "maten", "north metn", "el metn"), ML, arabic=("المتن",)),
+    _town("bourj-hammoud", "Bourj Hammoud", ("bourj hammoud", "burj hammoud"), "metn", ML, "برج حمود"),
+    _town("dekwaneh", "Dekwaneh", ("dekwaneh", "dekwane", "dikwaneh"), "metn", ML, "الدكوانة"),
+    _town("sin-el-fil", "Sin el Fil", ("sin el fil", "sin el-fil"), "metn", ML, "سن الفيل"),
+    _town("antelias", "Antelias", ("antelias", "antilyas"), "metn", ML, "أنطلياس"),
+    _town("zalka", "Zalka", ("zalka", "zalqa"), "metn", ML, "الزلقا"),
+    _town("broumana", "Broumana", ("broumana", "brummana"), "metn", ML, "برمانا"),
+    _town("bikfaya", "Bikfaya", ("bikfaya", "bekfaya"), "metn", ML, "بكفيا"),
+    _town("beit-mery", "Beit Mery", ("beit mery", "beit meri"), "metn", ML, "بيت مري"),
+    _town("ouzai", "Ouzai", ("ouzai", "awzai", "uzai"), "baabda", ML, "الأوزاعي"),
+    _town("ghobeiry", "Ghobeiry", ("ghobeiry", "ghobeiri", "ghbeiry"), "baabda", ML, "الغبيري"),
+    _town("haret-hreik", "Haret Hreik", ("haret hreik", "haret hreyk"), "baabda", ML, "حارة حريك"),
+    _town("chiyah", "Chiyah", ("chiyah", "shiyah", "chiyeh"), "baabda", ML, "الشياح"),
+    _town("hadath", "Hadath", ("hadath",), "baabda", ML),
+    _town("hazmieh", "Hazmieh", ("hazmieh", "hazmiyeh"), "baabda", ML, "الحازمية"),
+    _town("dahiyeh", "Dahiyeh", ("dahiyeh", "dahieh", "dahiya", "dahiye"), "baabda", ML, "الضاحية"),
+    _town(
+        "furn-el-chebbak",
+        "Furn el Chebbak",
+        ("furn el chebbak", "furn el shebbak"),
+        "baabda",
+        ML,
+        "فرن الشباك",
+    ),
+    _town(
+        "ain-el-remmaneh",
+        "Ain el Remmaneh",
+        ("ain el remmaneh", "ain al rummaneh"),
+        "baabda",
+        ML,
+        "عين الرمانة",
+    ),
+    _town("kfarshima", "Kfarshima", ("kfarshima", "kfarchima"), "baabda", ML, "كفرشيما"),
+    _town("damour", "Damour", ("damour",), "chouf", ML, "الدامور"),
+    _town("barja", "Barja", ("barja",), "chouf", ML, "برجا"),
+    _town("chhim", "Chhim", ("chhim", "shhim", "chehim"), "chouf", ML, "شحيم"),
+    _town(
+        "beiteddine", "Beiteddine", ("beiteddine", "beit ed-dine", "beit eddine"), "chouf", ML, "بيت الدين"
+    ),
+    _town(
+        "deir-el-qamar",
+        "Deir el Qamar",
+        ("deir el qamar", "deir al qamar", "deir el kamar"),
+        "chouf",
+        ML,
+        "دير القمر",
+    ),
+    _town("jiyeh", "Jiyeh", ("jiyeh", "jieh"), "chouf", ML, "الجية"),
+    _town("naameh", "Naameh", ("naameh", "naame"), "chouf", ML, "الناعمة"),
+    _town("ketermaya", "Ketermaya", ("ketermaya", "katermaya"), "chouf", ML, "كترمايا"),
+    _town("baakline", "Baakline", ("baakline", "baaqlin"), "chouf", ML, "بعقلين"),
+    _town(
+        "iqlim-al-kharroub",
+        "Iqlim al-Kharroub",
+        ("iqlim al-kharroub", "iqlim al kharroub", "iqlim el kharroub", "kharroub"),
+        "chouf",
+        ML,
+        "إقليم الخروب",
+    ),
+    _town(
+        "choueifat", "Choueifat", ("choueifat", "chouaifat", "shweifat", "shwayfat"), "aley", ML, "الشويفات"
+    ),
+    _town("aramoun", "Aramoun", ("aramoun", "aramun"), "aley", ML, "عرمون"),
+    _town("bchamoun", "Bchamoun", ("bchamoun", "bshamoun"), "aley", ML, "بشامون"),
+    _town("khaldeh", "Khaldeh", ("khaldeh", "khalde"), "aley", ML, "خلدة"),
+    _town("bhamdoun", "Bhamdoun", ("bhamdoun", "bhamdun"), "aley", ML, "بحمدون"),
+    _town("souk-el-gharb", "Souk el Gharb", ("souk el gharb", "souq al gharb"), "aley", ML, "سوق الغرب"),
+    # Nabatieh
     Place(
         "bint-jbeil",
         "Bint Jbeil",
         ("bint jbeil", "bint jbail", "bent jbeil", "bint jubayl", "bint-jbeil"),
         ("nabatieh",),
+        arabic=("بنت جبيل",),
     ),
-    Place("marjayoun", "Marjayoun", ("marjayoun", "marjeyoun", "marjayun", "marjaayoun"), ("nabatieh",)),
-    Place("hasbaya", "Hasbaya", ("hasbaya", "hasbaiya", "hasbayya", "hasbeya"), ("nabatieh",)),
-    Place("khiam", "Khiam", ("khiam",), ("nabatieh",)),
-    Place("tripoli", "Tripoli", ("tripoli", "trablous", "tarablus", "trablus"), ("north",)),
-    Place("koura", "Koura", ("koura", "kura"), ("north",)),
-    Place("batroun", "Batroun", ("batroun", "batrun"), ("north",)),
-    Place("zgharta", "Zgharta", ("zgharta", "zghorta"), ("north",)),
-    Place("bcharre", "Bcharre", ("bcharre", "bsharri", "bcharreh", "becharre", "bsharre"), ("north",)),
+    Place(
+        "marjayoun",
+        "Marjayoun",
+        ("marjayoun", "marjeyoun", "marjayun", "marjaayoun"),
+        ("nabatieh",),
+        arabic=("مرجعيون",),
+    ),
+    Place(
+        "hasbaya",
+        "Hasbaya",
+        ("hasbaya", "hasbaiya", "hasbayya", "hasbeya"),
+        ("nabatieh",),
+        arabic=("حاصبيا",),
+    ),
+    _town("khiam", "Khiam", ("khiam",), "marjayoun", ("nabatieh",)),
+    _town(
+        "kfar-kila", "Kfar Kila", ("kfar kila", "kfarkila", "kfar kela"), "marjayoun", ("nabatieh",), "كفركلا"
+    ),
+    _town(
+        "odaisseh", "Odaisseh", ("odaisseh", "adaisseh", "odaysseh"), "marjayoun", ("nabatieh",), "العديسة"
+    ),
+    _town("houla", "Houla", ("houla",), "marjayoun", ("nabatieh",), "حولا"),
+    _town(
+        "mays-al-jabal",
+        "Mays al-Jabal",
+        ("mays al-jabal", "mays al jabal", "mais al jabal", "meiss el jabal"),
+        "marjayoun",
+        ("nabatieh",),
+        "ميس الجبل",
+    ),
+    _town("deir-mimas", "Deir Mimas", ("deir mimas",), "marjayoun", ("nabatieh",), "دير ميماس"),
+    _town(
+        "aitaroun", "Aitaroun", ("aitaroun", "aytaroun", "eitaroun"), "bint-jbeil", ("nabatieh",), "عيترون"
+    ),
+    _town("rmeish", "Rmeish", ("rmeish", "rmaich", "rmeich"), "bint-jbeil", ("nabatieh",), "رميش"),
+    _town("ain-ebel", "Ain Ebel", ("ain ebel", "ain ibl"), "bint-jbeil", ("nabatieh",), "عين إبل"),
+    _town("tebnine", "Tebnine", ("tebnine", "tibnin"), "bint-jbeil", ("nabatieh",), "تبنين"),
+    _town(
+        "aita-al-shaab",
+        "Aita al-Shaab",
+        ("aita al-shaab", "aita al shaab", "aita el shaab", "ayta ash shab"),
+        "bint-jbeil",
+        ("nabatieh",),
+        "عيتا الشعب",
+    ),
+    _town(
+        "maroun-al-ras",
+        "Maroun al-Ras",
+        ("maroun al-ras", "maroun al ras", "maroun el ras"),
+        "bint-jbeil",
+        ("nabatieh",),
+        "مارون الراس",
+    ),
+    _town("yaroun", "Yaroun", ("yaroun",), "bint-jbeil", ("nabatieh",), "يارون"),
+    _town("shebaa", "Shebaa", ("shebaa", "chebaa", "shebaa farms"), "hasbaya", ("nabatieh",), "شبعا"),
+    _town(
+        "kfar-shouba",
+        "Kfar Shouba",
+        ("kfar shouba", "kfarchouba", "kfarshouba"),
+        "hasbaya",
+        ("nabatieh",),
+        "كفرشوبا",
+    ),
+    _town("kfarhamam", "Kfarhamam", ("kfarhamam", "kfar hamam"), "hasbaya", ("nabatieh",), "كفرحمام"),
+    _town(
+        "kfar-roummane",
+        "Kfar Roummane",
+        ("kfar roummane", "kfar rumman", "kfarroummane"),
+        "nabatieh",
+        ("nabatieh",),
+        "كفررمان",
+    ),
+    _town("arnoun", "Arnoun", ("arnoun",), "nabatieh", ("nabatieh",), "أرنون"),
+    _town("kfar-tebnit", "Kfar Tebnit", ("kfar tebnit", "kfartebnit"), "nabatieh", ("nabatieh",), "كفرتبنيت"),
+    _town("yohmor", "Yohmor", ("yohmor",), "nabatieh", ("nabatieh",)),
+    # North
+    Place(
+        "tripoli", "Tripoli", ("tripoli", "trablous", "tarablus", "trablus"), ("north",), arabic=("طرابلس",)
+    ),
+    Place("koura", "Koura", ("koura", "kura"), ("north",), arabic=("الكورة",)),
+    Place("batroun", "Batroun", ("batroun", "batrun"), ("north",), arabic=("البترون",)),
+    Place("zgharta", "Zgharta", ("zgharta", "zghorta"), ("north",), arabic=("زغرتا",)),
+    Place(
+        "bcharre",
+        "Bcharre",
+        ("bcharre", "bsharri", "bcharreh", "becharre", "bsharre"),
+        ("north",),
+        arabic=("بشري",),
+    ),
     Place(
         "minieh-danniyeh",
         "Minieh-Danniyeh",
@@ -219,13 +547,51 @@ DISTRICTS: tuple[Place, ...] = (
             "danniyeh",
         ),
         ("north",),
+        arabic=("المنية الضنية", "المنية-الضنية", "المنية والضنية", "المنية", "الضنية"),
     ),
-    Place("saida", "Saida", ("saida", "sidon", "sayda", "saïda"), ("south",)),
-    Place("tyre", "Tyre", ("tyre", "sour", "tyr"), ("south",)),
-    Place("jezzine", "Jezzine", ("jezzine", "jezzin", "jizzin", "jazzine"), ("south",)),
-    Place("naqoura", "Naqoura", ("naqoura", "naqura"), ("south",)),
-    # the Palestine refugee camps, each in its governorate (Shatila and Bourj el-Barajneh: Beirut's southern
-    # suburbs, counted in Beirut and in Mount Lebanon)
+    _town("el-mina", "El Mina", ("el mina", "al mina", "el-mina", "al-mina"), "tripoli", ("north",)),
+    _town(
+        "bab-al-tabbaneh",
+        "Bab al-Tabbaneh",
+        ("bab al-tabbaneh", "bab al tabbaneh", "bab el tabbaneh", "bab el-tabbaneh", "tabbaneh", "tebbaneh"),
+        "tripoli",
+        ("north",),
+        "باب التبانة",
+        "التبانة",
+    ),
+    _town(
+        "jabal-mohsen",
+        "Jabal Mohsen",
+        ("jabal mohsen", "jabal mohsin", "jebel mohsen"),
+        "tripoli",
+        ("north",),
+        "جبل محسن",
+    ),
+    _town("qobbeh", "Qobbeh", ("qobbeh", "qobbe", "kobbeh"), "tripoli", ("north",)),
+    _town("bhannine", "Bhannine", ("bhannine", "bhanine"), "minieh-danniyeh", ("north",), "بحنين"),
+    _town("deir-ammar", "Deir Ammar", ("deir ammar",), "minieh-danniyeh", ("north",), "دير عمار"),
+    _town("ehden", "Ehden", ("ehden",), "zgharta", ("north",), "إهدن"),
+    _town("miziara", "Miziara", ("miziara",), "zgharta", ("north",), "مزيارة"),
+    _town("amioun", "Amioun", ("amioun", "amyoun"), "koura", ("north",), "أميون"),
+    _town("kousba", "Kousba", ("kousba",), "koura", ("north",), "كوسبا"),
+    _town("chekka", "Chekka", ("chekka", "shekka"), "batroun", ("north",)),
+    _town("tannourine", "Tannourine", ("tannourine", "tannourin"), "batroun", ("north",), "تنورين"),
+    _town("hasroun", "Hasroun", ("hasroun",), "bcharre", ("north",), "حصرون"),
+    # South
+    Place("saida", "Saida", ("saida", "sidon", "sayda", "saïda"), ("south",), arabic=("صيدا",)),
+    Place("tyre", "Tyre", ("tyre", "sour", "tyr"), ("south",), arabic=("صور",)),
+    Place("jezzine", "Jezzine", ("jezzine", "jezzin", "jizzin", "jazzine"), ("south",), arabic=("جزين",)),
+    _town("naqoura", "Naqoura", ("naqoura", "naqura"), "tyre", ("south",), "الناقورة"),
+    _town("qana", "Qana", ("qana", "cana"), "tyre", ("south",), "قانا"),
+    _town("abbasieh", "Abbasieh", ("abbasieh", "abbasiyeh"), "tyre", ("south",), "العباسية"),
+    _town("jouaiya", "Jouaiya", ("jouaiya", "jwaya"), "tyre", ("south",), "جويا"),
+    _town("bazourieh", "Bazourieh", ("bazourieh",), "tyre", ("south",), "البازورية"),
+    _town("ghazieh", "Ghazieh", ("ghazieh", "ghaziyeh", "ghaziye", "ghazie"), "saida", ("south",), "الغازية"),
+    _town("sarafand", "Sarafand", ("sarafand", "sarfand"), "saida", ("south",), "الصرفند"),
+    _town("maghdouche", "Maghdouche", ("maghdouche", "maghdoucheh"), "saida", ("south",), "مغدوشة"),
+    _town("bkassine", "Bkassine", ("bkassine",), "jezzine", ("south",), "بكاسين"),
+    # the Palestine refugee camps, each in its governorate and district (Shatila and Bourj el-Barajneh:
+    # Beirut's southern suburbs, counted in Beirut and in Mount Lebanon)
     Place(
         "ein-el-hilweh",
         "Ein el-Hilweh",
@@ -243,10 +609,26 @@ DISTRICTS: tuple[Place, ...] = (
         ),
         ("south",),
         camp=True,
+        district="saida",
+        arabic=("عين الحلوة",),
     ),
-    Place("mieh-mieh", "Mieh Mieh", ("mieh mieh", "mieh-mieh", "miyeh miyeh"), ("south",), camp=True),
     Place(
-        "rashidieh", "Rashidieh", ("rashidieh", "rashidiyeh", "rachidieh", "rashidiya"), ("south",), camp=True
+        "mieh-mieh",
+        "Mieh Mieh",
+        ("mieh mieh", "mieh-mieh", "miyeh miyeh"),
+        ("south",),
+        camp=True,
+        district="saida",
+        arabic=("المية ومية",),
+    ),
+    Place(
+        "rashidieh",
+        "Rashidieh",
+        ("rashidieh", "rashidiyeh", "rachidieh", "rashidiya"),
+        ("south",),
+        camp=True,
+        district="tyre",
+        arabic=("الرشيدية",),
     ),
     Place(
         "burj-el-shemali",
@@ -254,18 +636,52 @@ DISTRICTS: tuple[Place, ...] = (
         ("burj el-shemali", "burj el shemali", "burj shemali", "bourj el-chemali", "burj al-shamali"),
         ("south",),
         camp=True,
+        district="tyre",
+        arabic=("برج الشمالي",),
     ),
-    Place("el-buss", "El Buss", ("el buss", "el-buss", "al buss", "al-buss"), ("south",), camp=True),
+    Place(
+        "el-buss",
+        "El Buss",
+        ("el buss", "el-buss", "al buss", "al-buss"),
+        ("south",),
+        camp=True,
+        district="tyre",
+    ),
     Place(
         "nahr-el-bared",
         "Nahr el-Bared",
         ("nahr el-bared", "nahr el bared", "nahr al-bared", "nahr al bared"),
         ("north",),
         camp=True,
+        district="minieh-danniyeh",
+        arabic=("نهر البارد",),
     ),
-    Place("beddawi", "Beddawi", ("beddawi", "baddawi", "beddaoui"), ("north",), camp=True),
-    Place("mar-elias", "Mar Elias", ("mar elias",), ("beirut",), camp=True),
-    Place("shatila", "Shatila", ("shatila", "chatila", "shateela"), ("beirut", "mount-lebanon"), camp=True),
+    Place(
+        "beddawi",
+        "Beddawi",
+        ("beddawi", "baddawi", "beddaoui"),
+        ("north",),
+        camp=True,
+        district="minieh-danniyeh",
+        arabic=("البداوي",),
+    ),
+    Place(
+        "mar-elias",
+        "Mar Elias",
+        ("mar elias",),
+        ("beirut",),
+        camp=True,
+        district="beirut",
+        arabic=("مار الياس",),
+    ),
+    Place(
+        "shatila",
+        "Shatila",
+        ("shatila", "chatila", "shateela"),
+        ("beirut", "mount-lebanon"),
+        camp=True,
+        arabic=("شاتيلا",),
+    ),
     Place(
         "bourj-el-barajneh",
         "Bourj el-Barajneh",
@@ -280,51 +696,78 @@ DISTRICTS: tuple[Place, ...] = (
         ),
         ("mount-lebanon", "beirut"),
         camp=True,
+        district="baabda",
+        arabic=("برج البراجنة",),
     ),
-    Place("dbayeh", "Dbayeh", ("dbayeh", "dbaye"), ("mount-lebanon",), camp=True),
-    Place("wavel", "Wavel", ("wavel", "jalil camp"), ("baalbek-hermel",), camp=True),
+    Place(
+        "dbayeh",
+        "Dbayeh",
+        ("dbayeh", "dbaye"),
+        ("mount-lebanon",),
+        camp=True,
+        district="metn",
+        arabic=("ضبية",),
+    ),
+    Place("wavel", "Wavel", ("wavel", "jalil camp"), ("baalbek-hermel",), camp=True, district="baalbek"),
 )
-# what a question means by these words: the South and Nabatieh governorates, as many reports use it; the North
-# and Akkar for the northern governorates or region (Akkar was part of the North until 2014)
+# what a question means by these words (the owner's rule): the South and Nabatieh governorates for the south
+# ("South Lebanon", "the south", "Liban-Sud", as many reports use it); the North and Akkar for the north ("the
+# north", "North Lebanon", "Liban-Nord", "Shamal", the northern governorates or region: Akkar was part of the
+# North until 2014). "North governorate", "South governorate" and one "southern governorate" are that one
+_SOUTH = (
+    "south",
+    "south lebanon",
+    "southern lebanon",
+    "south of lebanon",
+    "southern governorates",
+    "southern districts",
+    "southern region",
+    "southern regions",
+    "south region",
+    "southern areas",
+    "southern parts",
+    "southern part of lebanon",
+    "southern border",
+    "southern borders",
+    "sud-liban",
+    "sud liban",
+    "sud du liban",
+    "liban-sud",
+    "liban sud",
+    "janoub",
+    "jnoub",
+    "الجنوب",
+    "جنوب لبنان",
+    "لبنان الجنوبي",
+)
+_NORTH = (
+    "north",
+    "north lebanon",
+    "northern lebanon",
+    "north of lebanon",
+    "northern governorates",
+    "north governorates",
+    "northern districts",
+    "northern region",
+    "northern regions",
+    "north region",
+    "northern areas",
+    "northern parts",
+    "northern part of lebanon",
+    "liban-nord",
+    "liban nord",
+    "nord-liban",
+    "nord liban",
+    "nord du liban",
+    "shamal",
+    "chamal",
+    "الشمال",
+    "شمال لبنان",
+    "لبنان الشمالي",
+)
 REGIONS: dict[str, tuple[str, ...]] = {
-    **{
-        spelling: ("south", "nabatieh")
-        for spelling in (
-            "south",
-            "south lebanon",
-            "southern lebanon",
-            "south of lebanon",
-            "southern governorates",
-            "southern districts",
-            "southern region",
-            "southern regions",
-            "south region",
-            "southern areas",
-            "southern parts",
-            "southern part of lebanon",
-            "southern border",
-            "southern borders",
-            "sud-liban",
-            "sud liban",
-            "sud du liban",
-            "janoub",
-            "jnoub",
-        )
-    },
-    **{
-        spelling: ("north", "akkar")
-        for spelling in (
-            "northern governorates",
-            "north governorates",
-            "northern districts",
-            "northern region",
-            "northern regions",
-            "north region",
-            "northern areas",
-            "northern parts",
-            "northern part of lebanon",
-        )
-    },
+    **{spelling: ("south", "nabatieh") for spelling in _SOUTH},
+    **{spelling: ("north", "akkar") for spelling in _NORTH},
 }
 REGION_NAMES = {
     ("south", "nabatieh"): "the South (South and Nabatieh governorates)",
@@ -348,6 +791,10 @@ GOVERNORATE_WORDS = (
     "muhafaza",
     "gouvernorats",
     "gouvernorat",
+    "المحافظات",
+    "محافظات",
+    "المحافظة",
+    "محافظة",
 )
 # the words for a district (a caza), and the phrases that ask for a breakdown by district
 DISTRICT_WORDS = (
@@ -361,10 +808,16 @@ DISTRICT_WORDS = (
     "qadaa",
     "qada",
     "aqdiya",
+    "الاقضية",
+    "اقضية",
+    "القضاء",
+    "قضاء",
 )
 # the governorate and district words as findings write them (not "gov": texts write it for "government"; not
 # "district" alone: "district hospitals")
 WRITTEN_GOVERNORATE_WORDS = ("governorate", "governorates", "mohafaza", "mohafazat", "districts", "cazas")
+# all of Lebanon: the words of a phrase joined by spaces or hyphens ("lebanon-wide", "Lebanon wide"), accents
+# and the Arabic letters folded (:func:`fold`: "a l'echelle nationale")
 NATIONAL = (
     "all of lebanon",
     "all over lebanon",
@@ -373,15 +826,23 @@ NATIONAL = (
     "whole lebanon",
     "entire lebanon",
     "across lebanon",
+    "throughout lebanon",
     "lebanon as a whole",
+    "lebanon wide",
     "the whole country",
     "the entire country",
+    "across the country",
+    "across the whole country",
+    "across the entire country",
+    "throughout the country",
+    "all over the country",
+    "the country as a whole",
+    "country level",
     "national level",
-    "national-level",
     "nationwide",
-    "nation-wide",
+    "nation wide",
     "countrywide",
-    "country-wide",
+    "country wide",
     "nationally",
     "national figures",
     "national figure",
@@ -391,14 +852,60 @@ NATIONAL = (
     "national rates",
     "national data",
     "national scale",
+    "tout le liban",
+    "l'ensemble du liban",
+    "au niveau national",
+    "niveau national",
+    "a l'echelle nationale",
+    "echelle nationale",
+    "كل لبنان",
+    "لبنان كله",
+    "جميع انحاء لبنان",
+    "كافة انحاء لبنان",
+    "كافة المناطق اللبنانية",
+    "على مستوى لبنان",
+    "على المستوى الوطني",
+    "المستوى الوطني",
+    "على الصعيد الوطني",
 )
-ARTICLE = r"(?:(?:the|el|al|an|ash|ech)[\s-]+)?"  # "the North", "El Nabatieh", "al-Koura"
+# before a place's name: "the North", "El Nabatieh", "al-Koura", and in French "la Békaa", "le Akkar", "du
+# Hermel", "de la Békaa", "au Mont-Liban", "l'Akkar"
+ARTICLE = r"(?:(?:(?:the|el|al|an|ash|ech|la|le|les|du|des|de(?:\s+la)?|au|aux)[\s-]+)|l['’])?"
+# before a name in Arabic script: "و" (and) or "ف", then "ب", "ل" or "ك" (in, for, as), and the article "ال"
+# with a name that has it ("بالبقاع", "للبقاع", "والشمال"), never with one that has none ("الصور" is no Tyre)
+_ARABIC_THE = "(?:[وف]?(?:[بك]?ال|لل))"
+_ARABIC_BEFORE = "(?:[وف]?[بلك]?)"
+_ARABIC = re.compile(r"[؀-ۿ]")
 # between the words of a place's name, as questions and texts write it: spaces or one hyphen or dash
 # ("North Bekaa", "North-Bekaa", "Bint–Jbeil"), never a comma, a full stop or a line break ("the North, Bekaa
 # and Akkar": the North, the Bekaa and Akkar). A pattern of Python and of PostgreSQL alike
-JOIN = "(?:[ \t\u00a0]+|[-\u2013\u2014])"
+JOIN = "(?:[ \t ]+|[-–—])"
 
 BY_KEY: dict[str, Place] = {p.key: p for p in (*GOVERNORATES, *DISTRICTS)}
+
+
+@cache
+def _folded_letter(letter: str) -> str:
+    base = "".join(c for c in unicodedata.normalize("NFKD", letter) if not unicodedata.combining(c))
+    return base if len(base) == 1 else letter
+
+
+def fold(text: str) -> str:
+    """``text`` with its letters' accents and the hamza of an Arabic alef taken off, one letter for one
+    ("Békaa": "Bekaa", "أ": "ا"), so that a place is found whatever its accents and a span of the folded text
+    is the same span of ``text``."""
+    return text if text.isascii() else "".join(_folded_letter(c) for c in text)
+
+
+def arabic(spelling: str) -> bool:
+    return bool(_ARABIC.search(spelling))
+
+
+def _arabic_forms(spelling: str) -> list[str]:
+    """An Arabic spelling and the same with a final "ة" written "ه" ("النبطية", "النبطيه"), folded."""
+    folded = fold(spelling)
+    plain = " ".join(w[:-1] + "ه" if w.endswith("ة") else w for w in folded.split())
+    return list(dict.fromkeys([folded, plain]))
 
 
 def _joined(spelling: str) -> str:
@@ -407,31 +914,47 @@ def _joined(spelling: str) -> str:
     return JOIN.join(re.escape(word) for word in re.split(r"[ -]+", spelling))
 
 
+def _lead(spelling: str) -> str:
+    """The pattern of ``spelling`` (folded) with what may come before it: an article ("the", "El", "la"),
+    or in Arabic script the letters joined to its first word ("و", "ب", "ل", "ال")."""
+    if not arabic(spelling):
+        return ARTICLE + _joined(spelling)
+    if spelling.startswith("ال"):
+        return _ARABIC_THE + _joined(spelling[2:])
+    return _ARABIC_BEFORE + _joined(spelling)
+
+
 @cache
 def _of_a_place() -> str:
     """After a region's spelling ("the southern region"): no place's spelling after "of", "in" or "within"
     ("the southern region of the Bekaa" is the Bekaa)."""
     spellings = sorted({s for p in (*GOVERNORATES, *DISTRICTS) for s in p.spellings}, key=len, reverse=True)
-    names = "|".join(_joined(s) for s in spellings)
+    names = "|".join(_joined(fold(s)) for s in dict.fromkeys(spellings))
     return rf"(?!\s+(?:of|in|within)\s+{ARTICLE}(?:{names})(?![\w'-]))"
 
 
 @cache
-def _aliases() -> list[tuple[re.Pattern, tuple[str, ...], str]]:
-    """Every spelling a question may use, the longest first: its pattern, the places it means, and the name
-    the line under the answer gives it."""
+def _aliases() -> list[tuple[re.Pattern, tuple[str, ...], str, bool]]:
+    """Every spelling a question may use (folded: :func:`fold`), the longest first: its pattern, the places it
+    means, the name the line under the answer gives it, and whether it is written in Arabic script."""
     found: dict[str, tuple[tuple[str, ...], str, str]] = {}
     for place in (*GOVERNORATES, *DISTRICTS):
         name = said(place.key) if not place.governorates else f"{place.name} ({_names(place.governorates)})"
+        suffix = r"(?:\s+camps?|\s+(?:مخيم|المخيم))?" if place.camp else ""
         for spelling in place.spellings:
-            found.setdefault(spelling, ((place.key,), name, r"(?:\s+camps?)?" if place.camp else ""))
+            found.setdefault(fold(spelling), ((place.key,), name, suffix))
+        for spelling in place.arabic:
+            for form in _arabic_forms(spelling):
+                found.setdefault(form, ((place.key,), name, ""))
     for spelling, keys in REGIONS.items():
-        found[spelling] = (keys, REGION_NAMES[keys], _of_a_place() if _AREA.search(spelling) else "")
+        for form in _arabic_forms(spelling) if arabic(spelling) else [fold(spelling)]:
+            found[form] = (keys, REGION_NAMES[keys], _of_a_place() if _AREA.search(form) else "")
     return [
         (
-            re.compile(rf"(?<![\w'-]){ARTICLE}{_joined(spelling)}{suffix}(?![\w'-])", re.IGNORECASE),
+            re.compile(rf"(?<![\w'-]){_lead(spelling)}{suffix}(?![\w'-])", re.IGNORECASE),
             keys,
             name,
+            arabic(spelling),
         )
         for spelling, (keys, name, suffix) in sorted(
             found.items(), key=lambda item: len(item[0]), reverse=True
@@ -449,7 +972,9 @@ def _names(keys: tuple[str, ...]) -> str:
 
 
 def _phrases(words: tuple[str, ...]) -> re.Pattern:
-    alternation = "|".join(re.escape(w) for w in sorted(words, key=len, reverse=True))
+    """One pattern of ``words`` (folded), the words of a phrase joined by spaces or hyphens."""
+    joined = [r"[\s-]+".join(re.escape(w) for w in re.split(r"[ -]+", fold(p))) for p in words]
+    alternation = "|".join(sorted(joined, key=len, reverse=True))
     return re.compile(rf"(?<![\w'-])(?:{alternation})(?![\w'-])", re.IGNORECASE)
 
 
@@ -532,7 +1057,9 @@ class Reading:
 
 def written(key: str) -> list[str]:
     """How findings may write place ``key``: its spellings; for a governorate also its districts and towns,
-    and the governorates it includes (Mount Lebanon: Keserwan-Jbeil, as older reports count it)."""
+    and the governorates it includes (Mount Lebanon: Keserwan-Jbeil, as older reports count it); for a
+    district also its towns and camps (Zahle: Bar Elias, Tyre: Qana and Rashidieh). Never its Arabic
+    spellings: the findings are in English."""
     place = BY_KEY[key]
     found = list(place.spellings)
     if not place.governorates:
@@ -541,6 +1068,10 @@ def written(key: str) -> list[str]:
                 found += district.spellings
         for other in place.includes:
             found += written(other)
+    else:  # a district: also its towns and camps
+        for town in DISTRICTS:
+            if town.district == key:
+                found += town.spellings
     return list(dict.fromkeys(found))
 
 
@@ -627,16 +1158,30 @@ def _pruned(spellings: list[str]) -> list[str]:
     ]
 
 
+_LATIN = re.compile(r"[A-Za-z]")
+
+
 def _claimed(rest: str) -> list[tuple[int, int, tuple[str, ...], str]]:
-    """The places ``rest`` names: (start, end, their keys, the name said), in the order it names them."""
+    """The places ``rest`` names: (start, end, their keys, the name said), in the order it names them, read
+    in its folded letters (:func:`fold`: the same spans)."""
+    folded = fold(rest)
+    scripts = {True: arabic(folded), False: bool(_LATIN.search(folded))}
     claimed: list[tuple[int, int, tuple[str, ...], str]] = []
-    for pattern, keys, name in _aliases():  # the longest spellings first: "north metn" before "north"
-        for match in pattern.finditer(rest):
+    for pattern, keys, name, script in _aliases():  # the longest spellings first: "north metn" before "north"
+        if not scripts[script]:
+            continue
+        for match in pattern.finditer(folded):
             start, end = match.span()
             if not any(start < e and s < end for s, e, _k, _n in claimed):
                 claimed.append((start, end, keys, name))
     claimed.sort()
     return claimed
+
+
+def names_in(text: str) -> list[str]:
+    """The places ``text`` names, as it writes them ("Beirut" in "the 2020 Beirut port explosion")."""
+    rest = f" {text or ''} "
+    return [rest[start:end].strip() for start, end, _k, _n in _claimed(rest)]
 
 
 _PLURAL = re.compile(
@@ -657,6 +1202,15 @@ def compares(text: str) -> bool:
     return len(named) >= 2
 
 
+def _cut(rest: str, folded: str, pattern: re.Pattern) -> tuple[str, str, bool]:
+    """``rest`` and its folded letters without what ``pattern`` finds in the folded ones (the same spans), and
+    whether it found any."""
+    spans = [m.span() for m in pattern.finditer(folded)]
+    for start, end in reversed(spans):
+        rest, folded = rest[:start] + " " + rest[end:], folded[:start] + " " + folded[end:]
+    return rest, folded, bool(spans)
+
+
 def read(text: str) -> Reading:
     """The places ``text`` names (see the module's notes), in the order it names them, and the text without
     them, without the governorate words and without the words for all of Lebanon. A place a region named
@@ -673,18 +1227,17 @@ def read(text: str) -> Reading:
             names.append(name)
     for start, end, _k, _n in sorted(claimed, reverse=True):
         rest = rest[:start] + " " + rest[end:]
-    national = bool(_NATIONAL.search(rest))
-    rest = _NATIONAL.sub(" ", rest)
-    national_word = bool(_NATIONAL_WORD.search(rest))
+    folded = fold(rest)
+    rest, folded, national = _cut(rest, folded, _NATIONAL)
+    national_word = bool(_NATIONAL_WORD.search(folded))
     if national_word and keys:  # "the national rate and Akkar": every place, Akkar first
         national, national_word = True, False
-        rest = _NATIONAL_WORD.sub(" ", rest)
-    by_district = not keys and bool(_BY_DISTRICT.search(rest))
-    rest = _BY_DISTRICT.sub(" ", rest)
+        rest, folded, _found = _cut(rest, folded, _NATIONAL_WORD)
+    by_district = not keys and bool(_BY_DISTRICT.search(folded))
+    rest, folded, _found = _cut(rest, folded, _BY_DISTRICT)
     if keys:  # "Akkar district"
-        rest = _DISTRICT_WORDS.sub(" ", rest)
-    governorate = bool(_BY_GOVERNORATE.search(rest))
-    rest = _BY_GOVERNORATE.sub(" ", rest)
+        rest, folded, _found = _cut(rest, folded, _DISTRICT_WORDS)
+    rest, folded, governorate = _cut(rest, folded, _BY_GOVERNORATE)
     return Reading(
         text=" ".join(rest.split()),
         keys=keys,

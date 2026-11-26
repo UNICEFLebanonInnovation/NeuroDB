@@ -9,10 +9,12 @@ list of the people it knows, which no KM text is compared with, and nothing is a
   2020)", "(Doe 2002 methodology)", "(FAKEORG, Doe and Roe 2020)", "Roe (2018) found", "Doe, 2019", "Doe and
   Roe 2020", "in Doe 2016" lose the names, and so does the same name wherever else that text writes it
   ("Doe 2016 (Lebanon) relates"). A "name" here is one to three capitalised words; it is kept when it is an
-  organisation (:func:`neurodb.km.authors.org_test`), a month, a season, a word of time, a place or a common
-  word ("(February 2023)", "(Since 2019)", "Lebanon (2020)", "(Census 2019)"), holds a generic word of a
-  title ("Response Plan (2020)") or is an acronym such as "FaSyR". Outside a parenthesis, one name before a
-  year ("Since 2019") is not taken for a citation.
+  organisation (:func:`neurodb.km.authors.org_test`), a month, a season, a word of time, a place (every
+  governorate, district, town and region of :mod:`neurodb.km.places`, a name of several words written whole:
+  "in Saida 2023", "for Bab al-Tabbaneh 2024", never "Elias" alone; not the camps, whose names are family
+  names too) or a common word ("(February 2023)", "(Since 2019)", "Lebanon (2020)", "(Census 2019)"), holds a
+  generic word of a title ("Response Plan (2020)") or is an acronym such as "FaSyR". Outside a parenthesis,
+  one name before a year ("Since 2019") is not taken for a citation.
 - **Interview speakers** ("… – Fakename, 34", "(Fakename, 15)") lose the first name, not a role ("(Mother,
   34)").
 - **A document's own authors** by their surname ("J. Doe interviewed", "Doe's survey", "the Doe-led
@@ -39,6 +41,8 @@ from dataclasses import dataclass, field
 
 from neurodb.watch import people as watch_people
 from neurodb.watch import redact
+
+from . import places
 
 NAME_WITHHELD = watch_people.NAME_WITHHELD
 EMAIL_WITHHELD = watch_people.EMAIL_WITHHELD
@@ -67,14 +71,35 @@ GENERIC_WORDS = frozenset(
     "campaign mechanism portal system systems scheme package target targets achieved actual total planned "
     "estimate estimates projection projections forecast budget appendix cohort sample".split()
 )
-PLACE_WORDS = frozenset(
+
+
+def _place_names() -> tuple[frozenset[str], frozenset[tuple[str, ...]]]:
+    """The places of :mod:`neurodb.km.places` (every governorate, district, town and region in Latin
+    letters), folded: the names of one word, and the names of several words as a whole ("Bar Elias", "Jabal
+    Mohsen": never "Elias" or "Mohsen" alone, which are names of people too). Not the camps, whose own names
+    are also family names ("Shatila")."""
+    every = [s for p in (*places.GOVERNORATES, *places.DISTRICTS) if not p.camp for s in p.spellings]
+    every += [s for s in places.REGIONS if not places.arabic(s)]
+    single, whole = set(), set()
+    for spelling in every:
+        found = tuple(watch_people.fold(w) for w in re.split(r"[\s-]+", spelling) if w)
+        if len(found) == 1:
+            single.add(found[0])
+        else:
+            whole.add(found)
+    return frozenset(single), frozenset(whole)
+
+
+PLACE_NAMES_ONE, PLACE_NAMES = _place_names()
+PLACE_LONGEST = max(len(name) for name in PLACE_NAMES)
+PLACE_WORDS = PLACE_NAMES_ONE | frozenset(
     # the area and the donors' countries
     "lebanon syria jordan iraq palestine turkey turkiye egypt cyprus israel gaza yemen libya sudan iran "
     "kuwait qatar saudi arabia emirates uae oman bahrain arab mena middle east west north south africa asia "
     "europe european union united kingdom states america usa us uk britain france germany italy spain "
     "netherlands norway sweden denmark finland switzerland austria belgium ireland luxembourg canada japan "
     "korea australia "
-    # Lebanon's governorates, districts and main towns
+    # Lebanon's governorates, districts and main towns (every spelling of places.py is added above)
     "beirut mount akkar baalbek baalbeck hermel bekaa beqaa nabatieh nabatiyeh tripoli sidon tyre zahle "
     "zahleh jbeil byblos keserwan kesrouan metn matn baabda aley chouf shouf zgharta koura batroun bcharre "
     "becharre minieh dinnieh miniyeh danniyeh rashaya rachaya hasbaya marjayoun jezzine halba jounieh arsal "
@@ -233,10 +258,28 @@ def kept(name: str) -> bool:
         return True
     if any(_MIXED_CAPS.match(w) or _PLURAL_ACRONYM.match(w) for w in _WORDS.findall(name)):
         return True
-    return all(w in _EVERY or w.strip("'’") in _EVERY or _POSSESSIVE.sub("", w) in _EVERY for w in found)
+    return _covered(found)
 
 
 _EVERY = MONTHS | SEASONS | TIME_WORDS | PLACE_WORDS | watch_people.COMMON_WORDS | STOP | CONNECTIVES
+
+
+def _covered(found: list[str]) -> bool:
+    """Whether every word of ``found`` (a span's words, folded) is a word of :data:`_EVERY` or a word of a
+    place's name of several words written whole ("Bab al-Tabbaneh 2024", "Jabal Mohsen and Saida, 2023")."""
+    bare = [_POSSESSIVE.sub("", w) for w in found]
+    ok = [True] + [False] * len(found)
+    for i, word in enumerate(found):
+        if not ok[i]:
+            continue
+        if word in _EVERY or word.strip("'’") in _EVERY or bare[i] in _EVERY:
+            ok[i + 1] = True
+        for size in range(2, min(PLACE_LONGEST, len(found) - i) + 1):
+            if tuple(bare[i : i + size]) in PLACE_NAMES:
+                ok[i + size] = True
+    return ok[-1]
+
+
 _POSSESSIVE = re.compile(r"['’]s?$")  # "Lebanon's", "Syrians'"
 
 

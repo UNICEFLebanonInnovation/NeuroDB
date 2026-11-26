@@ -41,7 +41,7 @@ STOP = set(
 # words in almost every finding: they only dilute a search
 KM_STOP = {
     "evidence", "finding", "findings", "study", "studies", "data", "show", "shows", "lebanon", "lebanese",
-    "children", "child",
+    "children", "child", "kids", "kid", "liban", "لبنان",
 }  # fmt: skip
 # PostgreSQL's English stop words (its english.stop, copied): the English configuration drops them, so a word
 # of these alone is never found, and a phrase that starts or ends with one loses it ("out of school" is
@@ -90,6 +90,13 @@ VARIANTS: tuple[tuple[str, ...], ...] = (
         "dropped-out",
         "dropping-out",
         "dropouts",
+        # with "of school" (never read as "out of school" and a verb: "children dropping out of school")
+        "drop out of school",
+        "drops out of school",
+        "dropped out of school",
+        "dropping out of school",
+        "dropouts from school",
+        "dropout from school",
     ),
     ("wellbeing", "well-being", "well being"),
     ("gbv", "gender-based violence", "gender based violence"),
@@ -113,6 +120,7 @@ for _group in VARIANTS:
         _BY_WORD.setdefault(_alt, _group)
 # the alternatives of several words, the longest first: found in the text before its single words
 _PHRASES = sorted({alt for group in VARIANTS for alt in group if not alt.isalnum()}, key=len, reverse=True)
+_PHRASE_PATTERNS = {phrase: re.compile(rf"(?<![\w-]){re.escape(phrase)}(?![\w-])") for phrase in _PHRASES}
 _ISE = re.compile(r"^(\w{3,})is(e|ed|es|ing|ation|ations)$")
 _IZE = re.compile(r"^(\w{3,})iz(e|ed|es|ing|ation|ations)$")
 WEBSEARCH = re.compile(r"[\"“”]|(?:^|\s)-\w|\bor\b", re.IGNORECASE)
@@ -166,17 +174,27 @@ def groups(
     text: str, stop: set[str] | frozenset[str] = frozenset(), *, limit: int = TEXT_MAX, most: int = MAX_WORDS
 ) -> list[list[str]]:
     """The groups of alternatives a search asks for, all of them: first the phrases of :data:`VARIANTS`
-    found in ``text`` (the longest first, so "child marriage" is found before "child" is left out as too
-    common), then each other word, with its variants. Words of ``stop`` (and of STOP and KM_STOP) are left
-    out. ``limit``: the characters read (the search box's 200; an Ask question's 1,000); ``most``: the words
-    kept, the last ones when there are more (a long question's topic most often comes at its end)."""
+    found in ``text`` (so "child marriage" is found before "child" is left out as too common; of two that
+    overlap, the one that starts first, then the longest: "dropping out of school" is a dropout, never "out
+    of school" and "dropping"), then each other word, with its variants. Words of ``stop`` (and of STOP and
+    KM_STOP) are left out. ``limit``: the characters read (the search box's 200; an Ask question's 1,000);
+    ``most``: the words kept, the last ones when there are more (a long question's topic most often comes at
+    its end)."""
     rest = " " + text.casefold()[:limit] + " "
     found: list[list[str]] = []
+    spans: list[tuple[int, int, str]] = []
     for phrase in _PHRASES:
-        pattern = re.compile(rf"(?<![\w-]){re.escape(phrase)}(?![\w-])")
-        if pattern.search(rest):
+        spans += [(m.start(), -len(phrase), phrase) for m in _PHRASE_PATTERNS[phrase].finditer(rest)]
+    taken: list[tuple[int, int]] = []
+    for start, length, phrase in sorted(spans):  # the phrase that starts first, then the longest, wins
+        end = start - length
+        if any(start < e and s < end for s, e in taken):
+            continue
+        taken.append((start, end))
+        if list(_BY_WORD[phrase]) not in found:
             found.append(list(_BY_WORD[phrase]))
-            rest = pattern.sub(" ", rest)
+    for start, end in sorted(taken, reverse=True):
+        rest = rest[:start] + " " + rest[end:]
     kept = words(rest, KM_STOP | set(stop), limit=10_000)
     for word in kept[-most:] if len(kept) > most else kept:
         group = list(variants(word))

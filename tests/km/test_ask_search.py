@@ -298,47 +298,25 @@ def test_latest_reads_the_newest_findings_when_none_is_recent(ai, today):  # noq
         ),
         # "before" a year is never that year
         ("child marriage in 2023 and before 2020", [2023], "child marriage and"),
-        # the year of an event, or a year compared with: no Year filter, never searched
-        (
-            "mental health of adolescents after the 2020 explosion",
-            [],
-            "mental health of adolescents after explosion",
-        ),
-        (
-            "how did the 2024 war affect children in the south?",
-            [],
-            "how did war affect children in the south?",
-        ),
-        ("children affected by the August 2020 blast", [], "children affected by blast"),
+        # the year of an event, or a year compared with: no Year filter, never searched; nor are the event's
+        # words (they only rank)
+        ("mental health of adolescents after the 2020 explosion", [], "mental health of adolescents after"),
+        ("how did the 2024 war affect children in the south?", [], "how did affect children in the south?"),
+        ("children affected by the August 2020 blast", [], "children affected by"),
         (
             "During the 2024 escalation, how many children were displaced?",
             [],
-            "During escalation, how many children were displaced?",
+            "During , how many children were displaced?",
         ),
-        ("impact of 2020 port explosion on children", [], "impact of port explosion on children"),
-        ("Lebanon's 2019 crisis and child labour", [], "Lebanon's crisis and child labour"),
-        ("injuries from 2020 explosion", [], "injuries from explosion"),
+        ("impact of 2020 port explosion on children", [], "impact of on children"),
+        ("Lebanon's 2019 crisis and child labour", [], "Lebanon's and child labour"),
+        ("injuries from 2020 explosion", [], "injuries from"),
         # an event's name with "and", "&", "of" or "the" in it
-        (
-            "how has the 2019 financial and economic crisis affected children",
-            [],
-            "how has financial and economic crisis affected children",
-        ),
-        (
-            "child labour after the 2019 economic and financial collapse",
-            [],
-            "child labour after economic and financial collapse",
-        ),
-        (
-            "impact of the 2020 port of Beirut explosion on children",
-            [],
-            "impact of port of Beirut explosion on children",
-        ),
-        (
-            "children after the 2019 economic & financial crisis",
-            [],
-            "children after economic & financial crisis",
-        ),
+        ("how has the 2019 financial and economic crisis affected children", [], "how has affected children"),
+        ("child labour after the 2019 economic and financial collapse", [], "child labour after"),
+        # the event's place is the question's
+        ("impact of the 2020 port of Beirut explosion on children", [], "impact of Beirut on children"),
+        ("children after the 2019 economic & financial crisis", [], "children after"),
         (
             "child labour since the 2019 economic and financial crisis",
             list(range(2026, 2018, -1)),
@@ -417,13 +395,9 @@ def test_latest_reads_the_newest_findings_when_none_is_recent(ai, today):  # noq
         (
             "out of school children per governorate in 2025 following the 2024 war",
             [2025],
-            "out of school children per governorate following war",
+            "out of school children per governorate following",
         ),
-        (
-            "school enrolment in 2025 following the 2024 escalation",
-            [2025],
-            "school enrolment following escalation",
-        ),
+        ("school enrolment in 2025 following the 2024 escalation", [2025], "school enrolment following"),
     ],
 )
 def test_years_of_a_question(asked, years, left):
@@ -435,13 +409,16 @@ def test_years_of_a_question(asked, years, left):
 @pytest.mark.parametrize(
     ("asked", "ranks"),
     [
-        ("mental health of adolescents after the 2020 explosion", ["2020"]),
+        ("mental health of adolescents after the 2020 explosion", ["2020", "explosion"]),
         ("out of school rates compared to 2019", ["2019"]),
         ("child marriage since the 2019 crisis", ["crisis"]),
         ("out of school children before the 2019 economic crisis", ["2019", "economic", "crisis"]),
         ("child marriage 2025", []),
         ("Were more children out of school in Akkar in 2025 than in 2019?", ["2019"]),
-        ("how has the 2019 financial and economic crisis affected children", ["2019"]),
+        (
+            "how has the 2019 financial and economic crisis affected children",
+            ["2019", "financial", "economic", "crisis"],
+        ),
         (
             "child labour since the 2019 economic and financial crisis",
             ["economic", "financial", "crisis"],
@@ -450,7 +427,7 @@ def test_years_of_a_question(asked, years, left):
             "out of school children before the 2020 port of Beirut explosion",
             ["2020", "port", "beirut", "explosion"],
         ),
-        ("out of school children per governorate in 2025 following the 2024 war", ["2024"]),
+        ("out of school children per governorate in 2025 following the 2024 war", ["2024", "war"]),
     ],
 )
 def test_the_year_of_an_event_only_ranks(asked, ranks):
@@ -522,13 +499,15 @@ def test_a_rate_compared_to_a_year_reads_every_year(ai, today):  # noqa: F811
 
 def test_the_year_of_an_event_reads_the_studies_of_the_event(ai, today):  # noqa: F811
     texts = (
-        "After the 2020 explosion, 30% of adolescents reported psychological distress.",
-        "One year after the explosion, 1 in 3 adolescents in Beirut still had nightmares.",
+        "One year after the explosion, 1 in 3 adolescents in Beirut reported distress.",
+        "In 2019, 12% of adolescents reported distress at school.",
+        "After the 2020 explosion, schools reopened.",
     )
-    load(("2023", texts[:1]), ("2021", texts[1:]), ("2020", ["Fake rainfall fell."]))
+    load(("2021", texts[:1]), ("2023", texts[1:]), ("2020", ["Fake rainfall fell."]))
     picked = _picked("distress of adolescents after the 2020 explosion")
-    assert picked.filters.year == [] and read(picked) == set(texts)
-    assert ["2020"] not in picked.groups
+    # every year; the event's words only rank: its finding first, never one on the event alone
+    assert picked.filters.year == [] and [f.key_finding for f in picked.findings] == list(texts[:2])
+    assert ["2020"] not in picked.groups and ["explosion"] not in picked.groups
     marriage = (
         "Since the 2019 crisis, child marriage rose among displaced girls to 20%.",
         "In Akkar, child marriage affected 6% of girls.",
@@ -1056,6 +1035,8 @@ def test_retrievals_reads_of_every_finding_may_be_shared_out_among_parallel_work
     with ask._shared_out(), connection.cursor() as cursor:
         cursor.execute("SHOW parallel_setup_cost")
         assert cursor.fetchone()[0] == str(ask.PARALLEL_SETUP_COST)
+        cursor.execute("SHOW cpu_operator_cost")
+        assert cursor.fetchone()[0] == str(ask.CPU_OPERATOR_COST)
 
 
 def test_west_bekaa_is_in_the_bekaa_and_the_bekaa_is_not_west_bekaa(ai):  # noqa: F811
@@ -1070,7 +1051,7 @@ def test_two_places_are_said_with_or(ai):  # noqa: F811
     load(("2024", ["In Akkar, fake child labour rose.", "In Tripoli, fake child labour fell."]))
     picked = _picked("education in Jabal Lubnan and Al Janoub")
     assert picked.groups == [["education"]]
-    picked = _picked("child labour in Akkar and the North")
+    picked = _picked("child labour in Akkar and the North governorate")
     assert picked.notes == ["Places from your question: Akkar or the North."]
 
 

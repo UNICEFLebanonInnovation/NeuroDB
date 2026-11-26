@@ -1538,9 +1538,13 @@ asked). In order:
    that list is only read to take names out), e-mail addresses, links and phone numbers, then the KM
    Database's authors (full names and surnames, in capitals or not: "what did doe find"; also joined to digits
    or "_" anywhere in a word, or before a hyphen and digits: "doe2019", "doe_survey", "LCRP_Doe_2019",
-   "Doe-2019"), citations and names after a title. The typed text is searched (never an address in it,
-   written out or not, by the same rule), never kept or sent. The questions sent (and earlier questions of the
-   conversation) are checked again for a surname in any case.
+   "Doe-2019"), citations and names after a title. A place before a year is never taken for a citation's name
+   ("child labour in Saida 2023", "for Bab al-Tabbaneh 2024": every spelling of every governorate, district,
+   town and region of `places.py`, a name of several words written whole, never "Elias" or "Mohsen" alone;
+   not a camp, whose name is a family name too), so the question kept, which a follow-up reads again, keeps
+   its place. The typed text is searched (never an address in it, written out or not, by the same rule), never
+   kept or sent. The questions sent (and earlier questions of the conversation) are checked again for a
+   surname in any case.
 2. The filters it reads within are those of the tab's address (the Findings tab's filter, carried by the
    tab link, or *Ask about its document*): known keys only, never the search box's words, the sort or the
    page size.
@@ -1551,53 +1555,78 @@ asked). In order:
    - **A time frame** is the Year filter (the owner's rule), narrowed within the filters' own years and only
      when findings remain (otherwise it is left out and the line under the answer says so): "past N years" and
      "last N years" are this year and the N before it (on 25 November 2026, "the past 2 years" are 2024-2026;
-     "past year", "last year" or up to 12 months: the year before too; "past years" and "recent years" with no
-     number: 2 years), "since 2023" and "from 2023" up to this year, "after 2023", "2019-2021", "2023/24",
-     "between 2019 and 2021", "in 2023", a year alone ("child marriage 2025"), each year of a list ("in 2022
-     and 2025", "2022 vs 2025", "2022, 2023 and 2025"), "this year"; also before a full stop or a comma ("In
-     2024, ...", "... in 2024.") and as a school year ("in the 2024 school year", "the 2023 academic year"). A
-     number after next year ("targets for 2030") or before a count of people or things ("2000 households", "in
-     2000 children") is no year, and is searched; so is a decimal or a number with a thousands comma
-     ("2024.5", "2024,500"); a year before "child" is a year ("the 2024 child labour figures"). **The year of
-     an event** ("the 2020 explosion", "after the 2024 war", "Lebanon's 2019 crisis": "the" and a year are an
-     event's only when an event word follows within 3 words, "and", "&" or "of" between them too: "the
-     2019 financial and economic crisis", "the 2020 port of Beirut explosion"; never after a word that places
-     the year at a time, "in 2024 amid the recent escalation", "in 2024 despite the economic crisis", "in 2025
-     following the 2024 war": the years 2024 and 2025, the war's year only ranks) and **a year compared with** on
-     its own ("compared to 2019", "higher than 2019", "before the 2019 crisis") set no Year filter and are not
-     searched: they only put the findings that mention that year first among those that match. Any other year
-     after "the" is the year of the data ("the 2024 figures", "the 2024 out of school figures", "the 2024
-     situation", "the 2024 VASyR"). A year compared with is a year of the filter too when the question names a
-     year of its own ("in 2025 than in 2019", "in 2025 compared with the 2019 rate": 2025 and 2019), and a
-     follow-up that compares ("and compared to 2019?") adds it to the earlier years it keeps (2025 and 2019,
-     and the next follow-up keeps both); "before 2020" never reads 2020. "Since the 2019 crisis" is since 2019
-     (the crisis is not searched; it only ranks). Findings whose year is *Not reported* are left out. The line
-     under the answer says "Years 2024–2026, from your question; findings whose year is not reported are left
-     out (the Year filter changes it)"; the phrase is never searched. The years are publication years.
-     **"Latest"**, "most recent", "newest", "up to date", "recent" before the data it qualifies ("recent
-     figures") or at the end, and "recently" at the end ("what changed recently?"; never "recently displaced
-     children") set the past 2 years too; when under 10 findings of those years match, the newest others are
-     read after them and the Year filter is not kept ("No finding of 2024–2026 matches your words: the most
-     recent ones were read, newest first.", "Only 2 findings of 2024–2026 match your words: the most recent
-     others were read too, newest first.").
+     "yrs" too; a decade is 10 years, "over the last decade" 2016-2026; "the past year", "in the last year" or
+     up to 12 months, "over the last 12 months": the year before too; "past years" and "recent years" with no
+     number: 2 years); "last year" alone (not after "the" or "past": "anaemia last year", "from last year",
+     "last year's figures") is the previous calendar year only, 2025, and "since last year" 2025-2026; "since
+     2023", "from 2023", "2023 onwards", "from 2023 onwards", "2023 and after", "2023 and later" and "from
+     2023 on" (at the end of a clause: "the 2023 report on stunting" is 2023) up to this year; a chat's "teh",
+     "abt" and "wat" are read as "the", "about" and "what" ("since teh 2019 crisis"); "after 2023",
+     "2019-2021", "2023/24", "between 2019 and 2021", "in 2023", a year alone ("child marriage 2025"), each
+     year of a list ("in 2022 and 2025", "2022 vs 2025", "2022, 2023 and 2025"), "this year"; also before a
+     full stop or a comma ("In 2024, ...", "... in 2024.") and as a school year ("in the 2024 school year",
+     "the 2023 academic year"). A number after next year ("targets for 2030") or before a count of people or
+     things ("2000 households", "in 2000 children") is no year, and is searched; so is a decimal or a number
+     with a thousands comma ("2024.5", "2024,500"); a year before "child" is a year ("the 2024 child labour
+     figures"). **The year of an event** ("the 2020 explosion", "after the 2024 war", "Lebanon's 2019 crisis":
+     "the" and a year are an event's only when an event word follows within 3 words, "and", "&" or "of"
+     between them too: "the 2019 financial and economic crisis", "the 2020 port of Beirut explosion"; never
+     after a word that places the year at a time, "in 2024 amid the recent escalation", "in 2024 despite the
+     economic crisis", "in 2025 following the 2024 war": the years 2024 and 2025, the war's year only ranks)
+     and **a year compared with** on its own ("compared to 2019", "higher than 2019", "before the 2019
+     crisis") set no Year filter and are not searched: they only put the findings that mention that year first
+     among those that match; so do the event's own words ("after the 2020 port explosion", "during the 2024
+     escalation": "port", "explosion" and "escalation" never count among the words a finding must hold),
+     unless the question has no other word ("the 2020 explosion", "children after the 2024 war": then they are
+     its words); a place the year's event names stays the question's place ("after the 2020 Beirut port
+     explosion": Beirut). Any other year after "the" is the year of the data ("the 2024 figures", "the 2024
+     out of school figures", "the 2024 situation", "the 2024 VASyR"). A year compared with is a year of the
+     filter too when the question names a year of its own ("in 2025 than in 2019", "in 2025 compared with the
+     2019 rate": 2025 and 2019), and a follow-up that compares ("and compared to 2019?") adds it to the
+     earlier years it keeps (2025 and 2019, and the next follow-up keeps both); "before 2020" never reads
+     2020. "Since the 2019 crisis" is since 2019 (the crisis is not searched; it only ranks). Findings whose
+     year is *Not reported* are left out. The line under the answer says "Years 2024–2026, from your question;
+     findings whose year is not reported are left out (the Year filter changes it)"; the phrase is never
+     searched. The years are publication years. **"Latest"**, "most recent", "newest", "up to date", "recent"
+     before the data it qualifies ("recent figures") or at the end, and "recently" at the end ("what changed
+     recently?"; never "recently displaced children") set the past 2 years too, and so do "anything newer",
+     "anything more recent", "anything new" and "an update" when the question names no years of its own ("is
+     there an update this year?" is this year); when under 10 findings of those years match, the newest others
+     are read after them and the Year filter is not kept ("No finding of 2024–2026 matches your words: the
+     most recent ones were read, newest first.", "Only 2 findings of 2024–2026 match your words: the most
+     recent others were read too, newest first.").
    - **Places** (`neurodb.km.places`, written in code: public geography, no other NeuroDB table): the nine
      governorates (Akkar, Baalbek-Hermel, Beirut, Bekaa, Keserwan-Jbeil, Mount Lebanon, Nabatieh, North,
      South) in their common spellings, French names and transliterations ("mont lebanon", "Jabal Lubnan",
-     "Nabatiyeh", "Nabatiye", "Beqaa", "Beyrouth", "Liban-Nord", "Shamal", "Liban-Sud"; "the", "El", "Al"
-     before them), and the main districts and towns, each in its governorate (Saida/Sidon, Tyre/Sour, Jezzine:
-     South; Zahle: Bekaa; Tripoli: North; Baalbek, Hermel: Baalbek-Hermel; Bint Jbeil, Marjayoun, Hasbaya:
-     Nabatieh; Aley, Chouf, Baabda, Metn: Mount Lebanon; Jbeil, Keserwan: Keserwan-Jbeil, and Mount Lebanon
+     "Nabatiyeh", "Nabatiye", "Beqaa", "Beyrouth", "Liban-Nord", "Shamal", "Liban-Sud"; "the", "El", "Al" or a
+     French article before them, "la Békaa", "le Akkar", "du Hermel", "de la Békaa", "au Mont-Liban",
+     "l'Akkar"; accents or none, "Békaa", "Zahlé", "Nabatiyé"), and in Arabic script ("عكار", "البقاع", "بعلبك
+     الهرمل", "جبل لبنان", "النبطية" or "النبطيه"; with the letters joined before a name, "بالبقاع", "للبقاع",
+     "وطرابلس"; never "الصور", Tyre having no article; Arabic spellings only read a question, as the findings
+     are in English); their districts (the 26 cazas) and their main towns, each town in its district and
+     governorate, the official cazas (`places.DISTRICTS`, about 130 towns: Saida/Sidon, Ghazieh, Sarafand:
+     Saida; Tyre/Sour, Qana, Naqoura: Tyre; Karantina, Achrafieh, Tariq el Jdideh: Beirut; Ouzai, Ghobeiry,
+     Haret Hreik, Dahiyeh: Baabda; Choueifat, Aramoun, Khaldeh: Aley; Barja, Damour, Chhim: Chouf; Dekwaneh,
+     Bourj Hammoud: Metn; Jounieh, Zouk Mosbeh: Keserwan; Amchit: Jbeil; El Mina, Bab al-Tabbaneh, Jabal
+     Mohsen: Tripoli; Ehden: Zgharta; Amioun: Koura; Chekka: Batroun; Bebnine, Minyara, Qlayaat, Halba,
+     Qobayat: Akkar; Arsal, Labweh, Al-Qaa, Douris: Baalbek; Bar Elias, Chtaura, Saadnayel, Qab Elias, Majdal
+     Anjar: Zahle; Joub Jannine, Qaraoun: West Bekaa; Aitaroun, Rmeish, Tebnine: Bint Jbeil; Khiam, Kfar Kila:
+     Marjayoun; Shebaa, Kfar Shouba: Hasbaya; Jbeil and Keserwan are in Keserwan-Jbeil, and in Mount Lebanon
      too, as older reports count them), and the Palestine refugee camps ("Ein el-Hilweh", Rashidieh, Burj
      el-Shemali: South; Nahr el-Bared, Beddawi: North; Shatila, Bourj el-Barajneh: Beirut and Mount Lebanon;
-     "camp" after one goes with it). "South Lebanon", "the south", "south", "Sud-Liban", "Janoub", "the
-     southern governorates", "the southern region(s)", "the southern areas", "the southern parts", "the
-     southern part of Lebanon" and "the southern districts" are the South and Nabatieh governorates (the
-     owner's rule), and the line under the answer says so ("Places from your question: the South (South and
-     Nabatieh governorates)."); "South governorate", "the southern governorate" (one) and "Liban-Sud" the
-     South only. "The northern governorates", "the north governorates", "the northern region(s)", "the north
-     region", "the northern areas", "parts" or "districts" are the North and Akkar (Akkar was part of the
-     North until 2014; "Places from your question: the north (North and Akkar governorates)."); "the North"
-     alone stays the North governorate. A region's part of a place is that place ("the southern region of the
+     "camp" after one goes with it). A governorate finds its districts, towns and camps; a district finds its
+     towns and camps ("child labour in Zahle district" also reads "Bar Elias"). The regions follow the owner's
+     rule: "South Lebanon", "the south", "south", "Sud-Liban", "Liban-Sud", "Janoub", "الجنوب", "the southern
+     governorates", "the southern region(s)", "the southern areas", "the southern parts", "the southern part
+     of Lebanon" and "the southern districts" are the South and Nabatieh governorates, and the line under the
+     answer says so ("Places from your question: the South (South and Nabatieh governorates)."); "South
+     governorate", "the southern governorate" (one) and "محافظة الجنوب" the South only. "The north", "north",
+     "North Lebanon", "northern Lebanon", "Liban-Nord", "Nord-Liban", "Shamal", "الشمال", "the northern
+     governorates", "the north governorates", "the northern region(s)", "the north region", "the northern
+     areas", "parts" or "districts" are the North and Akkar (Akkar was part of the North until 2014: a
+     default, changed in `places.REGIONS` if the owner rules otherwise; "Places from your question: the north
+     (North and Akkar governorates)."); "North governorate", "the northern governorate" (one) and "محافظة
+     الشمال" stay the North governorate. A region's part of a place is that place ("the southern region of the
      Bekaa": the Bekaa, a place's name after "of", "in" or "within"); any other words keep the region ("of
      Lebanon", "the southern governorates in light of the escalation", "in collective shelters", "in the
      context of the war"). "South Metn" is Baabda (Mount Lebanon), "North Bekaa" is Baalbek-Hermel and "South
@@ -1617,34 +1646,37 @@ asked). In order:
      (`loading._fill_vectors`): "the North/Bekaa" names the North and the Bekaa (a version loaded before this
      names them once its workbook is uploaded again). In PostgreSQL (`ask.hit`, `places.standalone`,
      `places.as_written`) the index is read first: a finding's texts are read only when its index holds the
-     word and a word that starts as another word of a longer name holding it does ("bint" for "jbeil",
-     "bekaa" or "metn" for "north"; then the plain word, "\mbekaa\M", and once the longer names are taken
-     out, `regexp_replace`, the word again), or every word of a longer name (then the longer name as written),
-     never with a lookahead at each word;
-     "governorate", "gov", "mohafaza", "district" and "caza" go with a place named, and without one ask for a
-     **breakdown** ("all governorates", "by governorate", "all gov", "per governorate", "per gov", "across
-     governorates", "across Lebanon's governorates", "across all Lebanese governorates", "across the country's
-     governorates", "in all eight governorates", "in the nine governorates", "within each governorate",
-     "broken down by governorate", "at governorate level", "governorate-level", "by region"; "by district",
-     "per district", "each caza", "at district level", "the districts", and "by governorate and district" or
-     "by district and governorate", read by district): the words that ask for it ("per", "across",
-     "Lebanon's", "eight", "broken down", "level", the district word after "by governorate and") and
-     "breakdown" or "disaggregated" are never searched; a group of the governorate words and of every
-     governorate, district and town, the findings naming the most governorates first (a district or a town
-     counted as its governorate). "All Lebanon", "nationally", "nationwide", "national level" or "national
-     figures" ask for no place; with a place named, so does "national" ("compare the national rate with
-     Akkar": every place, the findings naming Akkar first, "All of Lebanon, from your question, with the
-     findings that name Akkar first."); without one, "national" is a word of the subject ("the national
-     education strategy"), all of Lebanon only when it is the only word left ("and national?"), and never
-     searched alone: when it is the only word of the question that a finding holds ("the national education
-     strategy" when no finding is on education), no finding matches, never the findings that merely say
-     "nationally". Places are said with "or" ("Akkar or the North"). When under 10 findings name the place,
-     the other findings that match the words are read after them (those naming the place, then its
-     governorate, first) and the line under the answer says so ("Only 1 finding on this subject names Mount
-     Lebanon: findings from all of Lebanon were read too", "No finding on this subject names Mount Lebanon:
-     ..."). When no finding holds any word of the question but a place is named ("enfants non scolarisés au
-     Mont-Liban"), the findings naming the place are read ("No finding holds your words: the findings that
-     name Mount Lebanon were read.").
+     word and a word that starts as another word of a longer name holding it does ("bint" for "jbeil", "bekaa"
+     or "metn" for "north"; then the plain word, "\mbekaa\M", and once the longer names are taken out,
+     `regexp_replace`, the word again), or every word of a longer name (then the longer name as written),
+     never with a lookahead at each word; "governorate", "gov", "mohafaza", "district" and "caza" go with a
+     place named, and without one ask for a **breakdown** ("all governorates", "by governorate", "all gov",
+     "per governorate", "per gov", "across governorates", "across Lebanon's governorates", "across all
+     Lebanese governorates", "across the country's governorates", "in all eight governorates", "in the nine
+     governorates", "within each governorate", "broken down by governorate", "at governorate level",
+     "governorate-level", "by region"; "by district", "per district", "each caza", "at district level", "the
+     districts", and "by governorate and district" or "by district and governorate", read by district): the
+     words that ask for it ("per", "across", "Lebanon's", "eight", "broken down", "level", the district word
+     after "by governorate and") and "breakdown" or "disaggregated" are never searched; a group of the
+     governorate words and of every governorate, district and town that a finding must name, in a first
+     question as in a follow-up, never counted among the subject's groups (with "school feeding by
+     governorate" a finding must hold "school" and "feeding", never one of them and a place); the findings
+     that match more of the subject's words first, then those naming the most governorates (a district or a
+     town counted as its governorate). "All Lebanon", "nationally", "nationwide", "national level",
+     "Lebanon-wide", "across the country", "at country level", "throughout the country", "nation wide", "tout
+     le Liban", "au niveau national", "كل لبنان", "على المستوى الوطني" or "national figures" ask for no place;
+     with a place named, so does "national" ("compare the national rate with Akkar": every place, the findings
+     naming Akkar first, "All of Lebanon, from your question, with the findings that name Akkar first.");
+     without one, "national" is a word of the subject ("the national education strategy"), all of Lebanon only
+     when it is the only word left ("and national?"), and never searched alone: when it is the only word of
+     the question that a finding holds ("the national education strategy" when no finding is on education), no
+     finding matches, never the findings that merely say "nationally". Places are said with "or" ("Akkar or
+     the North"). When under 10 findings name the place, the other findings that match the words are read
+     after them (those naming the place, then its governorate, first) and the line under the answer says so
+     ("Only 1 finding on this subject names Mount Lebanon: findings from all of Lebanon were read too", "No
+     finding on this subject names Mount Lebanon: ..."). When no finding holds any word of the question but a
+     place is named ("enfants non scolarisés au Mont-Liban"), the findings naming the place are read ("No
+     finding holds your words: the findings that name Mount Lebanon were read.").
    - **The words** (up to 1,000 characters, common words left out first, words joined by a slash searched one
      by one, a hyphenated word also as two words; UK/US spellings and sector acronyms joined) are looked for
      in each finding's own texts only: its key finding, measure, analysis and limitations (`own_vector`'s
@@ -1655,47 +1687,65 @@ asked). In order:
      "value", "number", "percentage", "indicator", "past", "years", "only", "recent", "population type",
      "update", "new", "newer"), the words of a rework of the earlier answer, its length, form or readers
      ("answer", "make", "simpler", "summary", "bullet", "translate", "audience", "details", "elaborate",
-     "add", "include", "convert", "in simpler words"), and the words that ask for figures ("rate",
-     "proportion", "prevalence", "figures", "statistics", "share", "estimate": `ask.REQUEST_STOP`) are not
-     searched while other words remain (a question of these words only, with no place, time frame or code,
-     searches them; in a follow-up never; "needs", a noun, is searched: "special needs"). Words a rework uses
-     that are subject words too ("Arabic", "French", "English", "formal", "informal", "focus", "points",
-     "style", "shorter", "longer", "donor": `ask.REWORK_STOP`) are searched ("Arabic literacy", "informal
-     settlements", "focus group discussions", "water points", "parenting style"), except in a question that
-     reworks the answer ("translate it to Arabic", "make it more formal", "write it for a donor audience") and
-     in the phrases of a rework's form ("in 3 bullet points", "with a focus on", "in a more formal tone", "an
-     Arabic version", "a shorter version": `ask.REQUEST_PHRASES`); in a follow-up they are request words too
-     when no word of a subject follows them ("the same in Arabic", "I need it in Arabic", "can I have it in
-     French", "I need it shorter", "more formal please", "the same for donors", or a follow-up of these words
-     only: "Arabic please"; `ask.FOLLOW_UP_REQUEST`), while "what about Arabic literacy?", "and English
-     classes?" and "longer distances to school" search them. A question that asks to translate never searches
-     its language ("translate the key findings on child marriage into Arabic"). The words that ask for the
-     rework itself ("revise the paragraph", "make it shorter") and, in a follow-up or a rework, a judgement of
-     the answer ("it is too long", "too technical") are never searched. Thanks or praise around a question
-     ("Thanks,", "great,", "ok", "this is good", "that's great", "good job", "very good", "please" before a
-     cue such as "but", "can you" or a mark, ", thanks" at the end) are left out; "good practices" and
-     "perfect attendance" keep their word. PostgreSQL's English stop words ("only", "each", "once", "than",
-     "above": `search.ENGLISH_STOP`) never are. A phrase that starts or ends with a stop word ("out of
-     school", "drop out", "well being") is matched as written in those texts (a pattern), never as its last
-     word alone, each of its word forms written in `search.VARIANTS` ("dropout" finds "drop out", "drops out",
-     "dropped out", "dropping out", never "a drop in enrolment"). "Gender" also finds a finding on girls or
-     boys.
-   - **The quorum**: a finding is kept when it matches every group of 1 or 2 groups, and a third of 3 or
-     more (at least 2: 2 of 3 to 6, 3 of 7 to 9...); when none matches that many, 2 are enough; when none
-     matches both of 2 groups, one is enough ("a lens on gender, and disability"), and the line under the
-     answer says so ("No finding matches all your words: findings that match one of them were read."). A
-     group that no finding of the filters holds (a word misspelt, a word of no finding) is not counted
-     (one query). The order: the most groups matched; when the question asks for a number ("number", "rate",
-     "percentage", "how many", "%"...), the findings whose key finding or measure holds a figure; the
-     findings marked Yes for an age group or girls and boys the question names (both sexes for "gender"
-     or "sex", the disability inclusion mark for "disability"); then the rank. In a long
-     question (more than 8 word groups), the findings that match its last clause (after the last sentence
-     or a comma before "could", "what", "please"...) come first, and one that matches enough of that
-     clause is kept; a last clause made of request words only ("once done I need an excel sheet") is never
-     that topic. In a follow-up (below), a finding must match one of its angles at least (any one is
-     enough: "a lens on gender, and disability" reads a finding on either) and the earlier subject's own
-     quorum: every group of a 1- or 2-group subject (with an angle, one of 2), a third of 3 or more (at
-     least 2).
+     "add", "include", "convert", "in simpler words"), the words that ask for figures ("rate", "proportion",
+     "prevalence", "figures", "statistics", "share", "estimate"), and the words of a request, of courtesy or
+     of urgency as people write them ("provide", "send", "get", "share", "prepare", "present", "indicate",
+     "available", "currently", "affected", "concerned", "comparison", "grateful", "summarising", "info",
+     "information", "hi", "hey", "hello", "dear", "asap", "urgently", "lence" for "lens"; `ask.REQUEST_STOP`),
+     an answer's shape ("a short table", "a brief note", "a short summary", "a brief overview":
+     `ask.REQUEST_PHRASES`) and "address" as a verb (opening the question or a clause, or after "that",
+     "which", "who" or "to": "the studies that address stunting"; "birth registration address" keeps it:
+     `ask.ADDRESS_VERB`) are not searched while other words remain (a question of these words only, with no
+     place, time frame or code, searches them; in a follow-up never; "needs", a noun, is searched: "special
+     needs"). "Trend" and "trends" only rank: a finding on the subject that gives no trend is read too, those
+     that give one first (`ask.RANK_ONLY`). "Kids" is a common word like "children"; a chat's "teh", "abt" and
+     "wat" are "the", "about" and "what". Words a rework uses that are subject words too ("Arabic", "French",
+     "English", "formal", "informal", "focus", "points", "style", "shorter", "longer", "donor":
+     `ask.REWORK_STOP`) are searched ("Arabic literacy", "informal settlements", "focus group discussions",
+     "water points", "parenting style"), except in a question that reworks the answer ("translate it to
+     Arabic", "make it more formal", "write it for a donor audience") and in the phrases of a rework's form
+     ("in 3 bullet points", "with a focus on", "in a more formal tone", "an Arabic version", "a shorter
+     version": `ask.REQUEST_PHRASES`); in a follow-up they are request words too when no word of a subject
+     follows them ("the same in Arabic", "I need it in Arabic", "can I have it in French", "I need it
+     shorter", "more formal please", "the same for donors", or a follow-up of these words only: "Arabic
+     please"; `ask.FOLLOW_UP_REQUEST`), while "what about Arabic literacy?", "and English classes?" and
+     "longer distances to school" search them. A question that asks to translate never searches its language
+     ("translate the key findings on child marriage into Arabic"). The words that ask for the rework itself
+     ("revise the paragraph", "make it shorter") and, in a follow-up or a rework, a judgement of the answer
+     ("it is too long", "too technical") are never searched. Thanks or praise around a question ("Thanks,",
+     "great,", "ok", "this is good", "that's great", "good job", "very good", "please" before a cue such as
+     "but", "can you" or a mark, ", thanks" at the end) are left out; "good practices" and "perfect
+     attendance" keep their word. PostgreSQL's English stop words ("only", "each", "once", "than", "above":
+     `search.ENGLISH_STOP`) never are. A phrase that starts or ends with a stop word ("out of school", "drop
+     out", "well being") is matched as written in those texts (a pattern), never as its last word alone, each
+     of its word forms written in `search.VARIANTS` ("dropout" finds "drop out", "drops out", "dropped out",
+     "dropping out", never "a drop in enrolment"). Of two phrases that overlap, the one that starts first
+     wins, then the longest: "children dropping out of school" is a dropout (it also finds "12% dropped out"),
+     never "out of school" and the word "dropping". "Gender" also finds a finding on girls or boys.
+   - **The quorum**: a finding is kept when it matches every group of 1 or 2 groups, and a third of 3 or more
+     (at least 2: 2 of 3 to 6, 3 of 7 to 9...); when none matches that many, 2 are enough; when none matches
+     both of 2 groups, one is enough ("a lens on gender, and disability"), and the line under the answer says
+     so ("No finding matches all your words: findings that match one of them were read."). A group that no
+     finding of the filters holds (a word misspelt, a word of no finding) is not counted (one query). A
+     misspelt word of 5 letters or more that no finding holds is read as the version's closest word when no
+     search-words call gives words (the AI off, paused, over a limit or failing, or the call gave none): one
+     letter left out or added or two swapped (from 8 letters, also one changed, or two such edits), starting
+     with the same letter, the word most findings write but never one more than half of them write ("povrety":
+     "poverty", "vacination": "vaccination"; never "wasting" as "waiting" nor "plan" as "plain"), never a
+     request, common, place word or "national", and only when a finding of the filters holds it (its findings
+     are read first). The word read is the search's only: never sent to the AI, kept on the question's row (a
+     follow-up's new subject keeps the word as typed) or said under the answer. The version's words are the
+     unstemmed words of its findings' search index, read once a version in each process (PostgreSQL's
+     `ts_stat`: no extension, no table, no migration). The order: the most groups matched; when the question
+     asks for a number ("number", "rate", "percentage", "how many", "%"...), the findings whose key finding or
+     measure holds a figure; the findings marked Yes for an age group or girls and boys the question names
+     (both sexes for "gender" or "sex", the disability inclusion mark for "disability"); then the rank. In a
+     long question (more than 8 word groups), the findings that match its last clause (after the last sentence
+     or a comma before "could", "what", "please"...) come first, and one that matches enough of that clause is
+     kept; a last clause made of request words only ("once done I need an excel sheet") is never that topic.
+     In a follow-up (below), a finding must match one of its angles at least (any one is enough: "a lens on
+     gender, and disability" reads a finding on either) and the earlier subject's own quorum: every group of a
+     1- or 2-group subject (with an angle, one of 2), a third of 3 or more (at least 2).
    - **Findings of one document with the same key finding** (a text it files under several research
      questions; compared in Unicode NFKC, lower case, letters and digits only) are read once: the copies take
      no place of the 40 or of a document's 6, are sent as `also="<their Finding IDs>"` on the finding read,
@@ -1950,7 +2000,13 @@ asked). In order:
   2026, best of 3), "can you do it for all governorates?", "out of school rate per governorate" and "out of
   school children by district" took 0.46 s each (0.8 to 0.9 s with the place checks of the first and second
   reviews); with analysis and limitations texts of about 1,500 and 600 characters, 1.2 to 1.7 s (1.6 to 2.0 s
-  with the first review's check, 3.3 to 4.9 s with the second's).
+  with the first review's check, 3.3 to 4.9 s with the second's). On the question bench's invented
+  workbook (15,000 findings, November 2026), once a breakdown stopped counting as a word of the subject,
+  "school feeding by governorate" matches 551 findings in 0.4 s (13,994 in 1.1 s before), "case management by
+  district" 372 in 0.3 s (5,291 in 0.7 s); "situation of children in all gov", with no other word, takes 1.1
+  s (0.7 s before: the towns' spellings double the breakdown's), thanks to `ask.CPU_OPERATOR_COST` (0.0075
+  for retrieval's transactions alone: with PostgreSQL's 0.0025 it reads every finding in one worker, 1.4 s).
+  The version's words for a misspelling take about 0.3 s, once a version in each process.
 
 **Deleting.** A superuser can delete a version that is not shown and not loading, from its page. The
 version shown is replaced by uploading another.
